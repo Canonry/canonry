@@ -42,6 +42,7 @@ export const configSpecSchema = z.object({
   displayName: z.string().min(1),
   canonicalDomain: z.string().min(1),
   ownedDomains: z.array(z.string().min(1)).optional().default([]),
+  aliases: z.array(z.string().min(1)).optional().default([]),
   country: z.string().length(2),
   language: z.string().min(2),
   queries: configQueryListSchema.optional(),

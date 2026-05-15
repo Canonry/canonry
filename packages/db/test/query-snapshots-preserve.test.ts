@@ -193,11 +193,16 @@ test('migration sanitizes pre-existing dangling query_id refs (production data)'
   }).run()
   db.run(sql`PRAGMA foreign_keys = ON`)
 
-  // Force v58 to re-run by removing its tracker row. v58's table-rebuild
-  // is idempotent — the INSERT...LEFT JOIN sees the current rows, and any
-  // row whose query_id doesn't match a real queries.id gets `q.id = NULL`
-  // and lands in the new table with query_id=NULL. No FK violation.
-  db.run(sql`DELETE FROM _migrations WHERE version = 58`)
+  // Force v58 to re-run by removing its tracker row. The runner uses
+  // MAX(version) to determine what's pending, so we have to clear every
+  // version >= 58 — leaving any later migration in place would keep
+  // appliedVersion ahead of v58 and skip the rebuild we're trying to
+  // exercise. v58's rebuild and every subsequent migration we ship are
+  // idempotent, so re-running them is safe. v58's INSERT...LEFT JOIN
+  // sees the current rows, and any row whose query_id doesn't match a
+  // real queries.id gets `q.id = NULL` and lands in the new table with
+  // query_id=NULL. No FK violation.
+  db.run(sql`DELETE FROM _migrations WHERE version >= 58`)
   expect(() => migrate(db)).not.toThrow()
 
   // The orphan survived but its dangling ref was cleaned up to NULL,

@@ -18,7 +18,7 @@ export interface MentionLandscapeQueryLookup {
 export function buildMentionLandscape(
   snapshots: readonly MentionLandscapeSnapshot[],
   competitorDomains: readonly string[],
-  projectDisplayName: string,
+  projectBrandNames: readonly string[],
   projectDomains: readonly string[],
   queryLookup: MentionLandscapeQueryLookup,
 ): ProjectReportDto['mentionLandscape'] {
@@ -39,14 +39,14 @@ export function buildMentionLandscape(
     // + domains). Fall back to a recompute when the column is null (legacy rows).
     const projectMentioned = snap.answerMentioned ?? determineAnswerMentioned(
       text,
-      projectDisplayName,
+      [...projectBrandNames],
       [...projectDomains],
     )
     if (projectMentioned) projectMentionCount++
 
     for (const competitor of competitorDomains) {
       const brand = brandLabelFromDomain(competitor)
-      const mentioned = determineAnswerMentioned(text, brand, [competitor])
+      const mentioned = determineAnswerMentioned(text, brand ? [brand] : [], [competitor])
       if (mentioned) {
         const entry = competitorMap.get(competitor)!
         entry.count++

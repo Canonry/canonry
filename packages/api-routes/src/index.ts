@@ -89,6 +89,12 @@ export interface ApiRoutesOptions {
   onProjectDeleted?: (projectId: string) => void
   /** Callback when a project is created or updated */
   onProjectUpserted?: (projectId: string, projectName: string) => void
+  /**
+   * Callback when a project's normalized alias set changes. Wire this up to
+   * trigger a fire-and-forget mention-fields backfill so historical snapshots
+   * reflect the new aliases. Skipped when only other fields change.
+   */
+  onAliasesChanged?: (projectId: string, projectName: string) => void
   /** Callback to generate a one-shot AI perception snapshot */
   onSnapshotRequested?: SnapshotRoutesOptions['onSnapshotRequested']
   /** Callback to generate query suggestions using an LLM provider */
@@ -216,6 +222,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     await api.register(projectRoutes, {
       onProjectDeleted: opts.onProjectDeleted,
       onProjectUpserted: opts.onProjectUpserted,
+      onAliasesChanged: opts.onAliasesChanged,
       validProviderNames: opts.providerAdapters?.map(a => a.name),
     } satisfies ProjectRoutesOptions)
     await api.register(queryRoutes, {
@@ -230,6 +237,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     await api.register(applyRoutes, {
       onScheduleUpdated: opts.onScheduleUpdated,
       onProjectUpserted: opts.onProjectUpserted,
+      onAliasesChanged: opts.onAliasesChanged,
       validProviderNames: opts.providerAdapters?.map(a => a.name),
       onGoogleConnectionPropertyUpdated: (domain, connectionType, propertyId) => {
         opts.googleConnectionStore?.updateConnection(domain, connectionType, {

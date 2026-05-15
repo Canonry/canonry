@@ -197,3 +197,96 @@ test('JobRunner stores answerMentioned when the answer names the project', async
   expect(snapshot?.citationState).toBe('not-cited')
   expect(snapshot?.answerMentioned).toBe(true)
 })
+
+test('JobRunner marks answerMentioned via project alias when displayName is absent from the answer', async () => {
+  // Regression / feature: a project for "LlamaIndex" with alias "LlamaParse"
+  // should fire answerMentioned: true when an LLM answer mentions only the
+  // alias. Without aliases, the project-name + owned-domain token pool
+  // requires 2 matches, so a standalone alias mention would miss.
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-alias-'))
+  onTestFinished(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
+  const dbPath = path.join(tmpDir, 'test.db')
+  const db = createClient(dbPath)
+  migrate(db)
+
+  const projectId = crypto.randomUUID()
+  const queryId = crypto.randomUUID()
+  const runId = crypto.randomUUID()
+  const now = new Date().toISOString()
+
+  const adapter: ProviderAdapter = {
+    name: 'gemini',
+    validateConfig(_config: ProviderConfig): ProviderHealthcheckResult {
+      return { ok: true, provider: 'gemini', message: 'ok' }
+    },
+    async healthcheck(_config: ProviderConfig): Promise<ProviderHealthcheckResult> {
+      return { ok: true, provider: 'gemini', message: 'ok' }
+    },
+    async executeTrackedQuery(_input: TrackedQueryInput, _config: ProviderConfig): Promise<RawQueryResult> {
+      return {
+        provider: 'gemini',
+        rawResponse: {},
+        model: 'stub-model',
+        groundingSources: [],
+        searchQueries: [],
+      }
+    },
+    normalizeResult(_raw: RawQueryResult): NormalizedQueryResult {
+      return {
+        provider: 'gemini',
+        answerText: 'LlamaParse is a great parser for PDFs.',
+        citedDomains: [],
+        groundingSources: [],
+        searchQueries: [],
+      }
+    },
+    async generateText(_prompt: string, _config: ProviderConfig): Promise<string> {
+      return 'stub'
+    },
+  }
+
+  const registry = new ProviderRegistry()
+  registry.register(adapter, {
+    provider: 'gemini',
+    apiKey: 'test-key',
+    quotaPolicy: {
+      maxConcurrency: 1,
+      maxRequestsPerMinute: 60,
+      maxRequestsPerDay: 1000,
+    },
+  })
+
+  db.insert(projects).values({
+    id: projectId,
+    name: 'llamaindex',
+    displayName: 'LlamaIndex',
+    canonicalDomain: 'llamaindex.ai',
+    aliases: '["LlamaParse"]',
+    country: 'US',
+    language: 'en',
+    providers: '[]',
+    createdAt: now,
+    updatedAt: now,
+  }).run()
+
+  db.insert(queries).values({
+    id: queryId,
+    projectId,
+    query: 'best document parsers',
+    createdAt: now,
+  }).run()
+
+  db.insert(runs).values({
+    id: runId,
+    projectId,
+    status: 'queued',
+    createdAt: now,
+  }).run()
+
+  const runner = new JobRunner(db, registry)
+  await runner.executeRun(runId, projectId)
+
+  const [snapshot] = db.select().from(querySnapshots).where(eq(querySnapshots.runId, runId)).all()
+  expect(snapshot?.citationState).toBe('not-cited')
+  expect(snapshot?.answerMentioned).toBe(true)
+})

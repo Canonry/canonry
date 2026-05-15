@@ -9,8 +9,8 @@ export function ProjectSettingsSection({
   onUpdateProject,
   onRefresh,
 }: {
-  project: { name: string; displayName: string; canonicalDomain: string; ownedDomains: string[]; country: string; language: string; locations: Array<{ label: string; city: string; region: string; country: string; timezone?: string }>; defaultLocation: string | null }
-  onUpdateProject: (projectName: string, updates: { displayName?: string; canonicalDomain?: string; ownedDomains?: string[]; country?: string; language?: string; locations?: Array<{ label: string; city: string; region: string; country: string; timezone?: string }>; defaultLocation?: string | null }) => Promise<void>
+  project: { name: string; displayName: string; canonicalDomain: string; ownedDomains: string[]; aliases: string[]; country: string; language: string; locations: Array<{ label: string; city: string; region: string; country: string; timezone?: string }>; defaultLocation: string | null }
+  onUpdateProject: (projectName: string, updates: { displayName?: string; canonicalDomain?: string; ownedDomains?: string[]; aliases?: string[]; country?: string; language?: string; locations?: Array<{ label: string; city: string; region: string; country: string; timezone?: string }>; defaultLocation?: string | null }) => Promise<void>
   onRefresh: () => void
 }) {
   const [editing, setEditing] = useState(false)
@@ -22,6 +22,8 @@ export function ProjectSettingsSection({
   const [language, setLanguage] = useState(project.language)
   const [ownedDomains, setOwnedDomains] = useState<string[]>(project.ownedDomains ?? [])
   const [newDomain, setNewDomain] = useState('')
+  const [aliases, setAliases] = useState<string[]>(project.aliases ?? [])
+  const [newAlias, setNewAlias] = useState('')
 
   // Location management state
   const [locationError, setLocationError] = useState<string | null>(null)
@@ -41,6 +43,7 @@ export function ProjectSettingsSection({
       setCountry(project.country)
       setLanguage(project.language)
       setOwnedDomains(project.ownedDomains ?? [])
+      setAliases(project.aliases ?? [])
     }
   }, [project, editing])
 
@@ -52,7 +55,9 @@ export function ProjectSettingsSection({
     setCountry(project.country)
     setLanguage(project.language)
     setOwnedDomains(project.ownedDomains ?? [])
+    setAliases(project.aliases ?? [])
     setNewDomain('')
+    setNewAlias('')
   }
 
   function handleAddDomain() {
@@ -68,6 +73,20 @@ export function ProjectSettingsSection({
     setOwnedDomains(ownedDomains.filter(d => d !== domain))
   }
 
+  function handleAddAlias() {
+    const a = newAlias.trim()
+    if (!a) return
+    const key = a.toLowerCase()
+    if (!aliases.some(existing => existing.toLowerCase() === key)) {
+      setAliases([...aliases, a])
+    }
+    setNewAlias('')
+  }
+
+  function handleRemoveAlias(alias: string) {
+    setAliases(aliases.filter(a => a !== alias))
+  }
+
   async function handleSave() {
     if (!displayName.trim() || !canonicalDomain.trim() || !country.trim() || !language.trim()) return
     setSaving(true)
@@ -77,6 +96,7 @@ export function ProjectSettingsSection({
         displayName: displayName.trim(),
         canonicalDomain: canonicalDomain.trim(),
         ownedDomains,
+        aliases,
         country: country.trim(),
         language: language.trim(),
       })
@@ -172,7 +192,8 @@ export function ProjectSettingsSection({
     canonicalDomain !== project.canonicalDomain ||
     country !== project.country ||
     language !== project.language ||
-    JSON.stringify(ownedDomains) !== JSON.stringify(project.ownedDomains ?? [])
+    JSON.stringify(ownedDomains) !== JSON.stringify(project.ownedDomains ?? []) ||
+    JSON.stringify(aliases) !== JSON.stringify(project.aliases ?? [])
 
   const inputClass = 'w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none'
   const labelClass = 'block text-xs font-medium text-zinc-400 mb-1'
@@ -245,6 +266,35 @@ export function ProjectSettingsSection({
             </div>
           </div>
 
+          <div>
+            <label className={labelClass}>Aliases</label>
+            <p className="text-[11px] text-zinc-500 mb-1.5">
+              Additional brand names checked against LLM answer text. Use for product names,
+              prior names, or DBAs (e.g. add "LlamaParse" if the project is "LlamaIndex").
+            </p>
+            <div className="flex flex-wrap gap-1.5 mb-2">
+              {aliases.map((a) => (
+                <span key={a} className="inline-flex items-center gap-1 rounded-full border border-zinc-700/60 bg-zinc-800/40 px-2 py-0.5 text-xs text-zinc-300">
+                  {a}
+                  <button type="button" className="ml-0.5 text-zinc-500 hover:text-zinc-200 transition-colors" onClick={() => handleRemoveAlias(a)} aria-label={`Remove ${a}`}>×</button>
+                </span>
+              ))}
+            </div>
+            <div className="flex gap-2">
+              <input
+                className={`${inputClass} flex-1`}
+                type="text"
+                placeholder="LlamaParse"
+                value={newAlias}
+                onChange={(e) => setNewAlias(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddAlias())}
+              />
+              <Button type="button" variant="outline" size="sm" disabled={!newAlias.trim()} onClick={handleAddAlias}>
+                Add
+              </Button>
+            </div>
+          </div>
+
           <div className="flex items-center gap-2 pt-2 border-t border-zinc-800/60">
             <Button type="button" disabled={saving || !hasChanges || !displayName.trim() || !canonicalDomain.trim()} onClick={handleSave}>
               {saving ? 'Saving...' : 'Save changes'}
@@ -273,6 +323,20 @@ export function ProjectSettingsSection({
                     <div className="flex flex-wrap gap-1.5">
                       {project.ownedDomains.map((d) => (
                         <span key={d} className="rounded-full border border-zinc-700/60 bg-zinc-800/40 px-2 py-0.5 text-xs text-zinc-300">{d}</span>
+                      ))}
+                    </div>
+                  ) : (
+                    <span className="text-zinc-500">{'\u2014'}</span>
+                  )}
+                </td>
+              </tr>
+              <tr className="border-b border-zinc-800/40">
+                <td className="px-4 py-2.5 text-zinc-500 font-medium">Aliases</td>
+                <td className="px-4 py-2.5">
+                  {(project.aliases ?? []).length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {project.aliases.map((a) => (
+                        <span key={a} className="rounded-full border border-zinc-700/60 bg-zinc-800/40 px-2 py-0.5 text-xs text-zinc-300">{a}</span>
                       ))}
                     </div>
                   ) : (

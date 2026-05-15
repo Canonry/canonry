@@ -209,6 +209,7 @@ const routeCatalog: OpenApiOperation[] = [
               displayName: stringSchema,
               canonicalDomain: stringSchema,
               ownedDomains: stringArraySchema,
+              aliases: stringArraySchema,
               country: stringSchema,
               language: stringSchema,
               tags: stringArraySchema,

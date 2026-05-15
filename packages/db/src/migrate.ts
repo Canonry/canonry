@@ -1181,6 +1181,13 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `CREATE INDEX IF NOT EXISTS idx_snapshots_created_at ON query_snapshots(created_at)`,
     ],
   },
+  {
+    version: 59,
+    name: 'projects-aliases',
+    statements: [
+      `ALTER TABLE projects ADD COLUMN aliases TEXT NOT NULL DEFAULT '[]'`,
+    ],
+  },
 ]
 
 /**

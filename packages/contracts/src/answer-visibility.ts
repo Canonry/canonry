@@ -55,7 +55,7 @@ export interface AnswerMentionResult {
 
 export function extractAnswerMentions(
   answerText: string | null | undefined,
-  displayName: string,
+  brandNames: string[],
   domains: string[],
 ): AnswerMentionResult {
   if (!answerText) return { mentioned: false, matchedTerms: [] }
@@ -71,33 +71,39 @@ export function extractAnswerMentions(
     }
   }
 
+  // Strong-match path: each brand name is its own identity. A single hit on
+  // any name fires (e.g. project "LlamaIndex" with aliases ["LlamaParse"] —
+  // an answer mentioning only "LlamaParse" matches via this path).
   const answerNormalized = normalizeText(answerText)
   const answerBrandKey = brandKeyFromText(answerText)
-  const normalizedCandidates = brandNormalizedCandidates(displayName)
-  const brandKeyCandidates = brandKeyCandidatesForMatch(displayName)
-  // Match the normalized candidate as a whole word in the answer, not as a
-  // substring. Otherwise a short candidate like "li" (from displayName "LI")
-  // false-matches inside unrelated words such as "polished" or "compliance",
-  // and "inc" false-matches inside "incident".
-  const matchesNormalized = normalizedCandidates.some(c =>
-    new RegExp(`\\b${escapeRegExp(c)}\\b`).test(answerNormalized),
-  )
-  const matchesBrandKey = brandKeyCandidates.some(
-    c => c.length >= MIN_BRAND_KEY_LENGTH && answerBrandKey.includes(c),
-  )
-  if (matchesNormalized || matchesBrandKey) {
-    matchedTerms.push(displayName)
+  for (const brandName of brandNames) {
+    if (!brandName || !brandName.trim()) continue
+    const normalizedCandidates = brandNormalizedCandidates(brandName)
+    const brandKeyCandidates = brandKeyCandidatesForMatch(brandName)
+    // Match the normalized candidate as a whole word in the answer, not as a
+    // substring. Otherwise a short candidate like "li" (from brand "LI")
+    // false-matches inside unrelated words such as "polished" or "compliance",
+    // and "inc" false-matches inside "incident".
+    const matchesNormalized = normalizedCandidates.some(c =>
+      new RegExp(`\\b${escapeRegExp(c)}\\b`).test(answerNormalized),
+    )
+    const matchesBrandKey = brandKeyCandidates.some(
+      c => c.length >= MIN_BRAND_KEY_LENGTH && answerBrandKey.includes(c),
+    )
+    if (matchesNormalized || matchesBrandKey) {
+      matchedTerms.push(brandName)
+    }
   }
 
-  // Token-based matching: count every distinctive token toward the
-  // threshold (so detection accuracy stays the same — a multi-word brand
-  // still requires ≥2 matches before it fires), but only surface the
-  // *primary* tokens as matchedTerms. Secondary tokens are trailing
-  // descriptors like "Roofing"/"Plumbing"/"Construction" that are too
-  // generic to be useful as standalone evidence. Surfacing them as chips
-  // (or as highlight terms in the answer body) misleads the reader into
-  // thinking every "roofing" mention is a hit on the brand "Cenco Roofing".
-  const brandTokens = collectBrandTokens(displayName, domains)
+  // Token-based path: tokens from all brand names plus every domain's brand
+  // label pool into a single group. The multi-token threshold guards against
+  // prefix false-positives — e.g. for competitor "rival-b" (tokens
+  // ["rival", "rivalb"]), a stray "rival-a" in the answer hits "rival" but
+  // not "rivalb", so the count stays below the threshold and the competitor
+  // is not flagged. Standalone alias mentions ("LlamaParse" with no
+  // co-occurring "LlamaIndex") fire via the strong-match path above instead,
+  // so the threshold here doesn't need to relax.
+  const brandTokens = collectBrandTokens(brandNames, domains)
   const allTokens = [...brandTokens.primary, ...brandTokens.secondary]
   const secondarySet = new Set(brandTokens.secondary)
   let tokenMatches = 0
@@ -108,12 +114,10 @@ export function extractAnswerMentions(
       if (!secondarySet.has(token)) matchedPrimary.push(token)
     }
   }
-
   const tokenThresholdMet = allTokens.length > 0 && (
     (allTokens.length === 1 && tokenMatches >= 1)
     || tokenMatches >= Math.min(2, allTokens.length)
   )
-
   if (tokenThresholdMet) {
     matchedTerms.push(...matchedPrimary)
   }
@@ -132,10 +136,10 @@ export function extractAnswerMentions(
 
 export function determineAnswerMentioned(
   answerText: string | null | undefined,
-  displayName: string,
+  brandNames: string[],
   domains: string[],
 ): boolean {
-  return extractAnswerMentions(answerText, displayName, domains).mentioned
+  return extractAnswerMentions(answerText, brandNames, domains).mentioned
 }
 
 export function visibilityStateFromAnswerMentioned(answerMentioned: boolean | null | undefined): VisibilityState {
@@ -178,24 +182,33 @@ interface BrandTokens {
   secondary: string[]
 }
 
-function collectBrandTokens(displayName: string, domains: string[]): BrandTokens {
+/**
+ * Pool tokens from every brand name and every domain into a single group.
+ *
+ * - First distinctive word of each brand name → primary.
+ * - Trailing distinctive words of each brand name → secondary (count toward
+ *   the threshold but never surface as matchedTerms — generic descriptors
+ *   like "Roofing" are too common to be reliable evidence on their own).
+ * - Each registrable domain's brand label → primary (with the subdomain
+ *   stripped so an owned domain like `app.example.com` does not contribute
+ *   the noisy `app` token).
+ */
+function collectBrandTokens(brandNames: string[], domains: string[]): BrandTokens {
   const primary = new Set<string>()
   const secondary = new Set<string>()
 
-  const distinctiveWords = extractDistinctiveTokens(displayName)
-  if (distinctiveWords.length > 0) {
-    primary.add(distinctiveWords[0]!)
-    for (let i = 1; i < distinctiveWords.length; i++) {
-      secondary.add(distinctiveWords[i]!)
+  for (const brandName of brandNames) {
+    if (!brandName || !brandName.trim()) continue
+    const distinctiveWords = extractDistinctiveTokens(brandName)
+    if (distinctiveWords.length > 0) {
+      primary.add(distinctiveWords[0]!)
+      for (let i = 1; i < distinctiveWords.length; i++) {
+        secondary.add(distinctiveWords[i]!)
+      }
     }
   }
 
   for (const domain of domains) {
-    // Use only the registrable domain's brand label as a token — never the
-    // subdomain. Otherwise an owned domain like `app.example.com` would
-    // contribute `app` as a word-boundary token and false-match every "app"
-    // in the answer text. Falls back to the hostname's leftmost label when
-    // the input has no recognizable TLD (e.g. `localhost`).
     const reg = registrableDomain(domain)
     const brand = reg
       ? brandLabelFromDomain(reg)

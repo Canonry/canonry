@@ -2,7 +2,7 @@ import crypto from 'node:crypto'
 import { and, eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { projects, queries, competitors, schedules, notifications, parseJsonColumn } from '@ainyc/canonry-db'
-import { normalizeProjectDomain, projectConfigSchema, registrableDomain, resolveConfigSpecQueries, SchedulableRunKinds, validationError } from '@ainyc/canonry-contracts'
+import { normalizeProjectAliases, normalizeProjectDomain, projectConfigSchema, registrableDomain, resolveConfigSpecQueries, SchedulableRunKinds, validationError } from '@ainyc/canonry-contracts'
 import { writeAuditLog } from './helpers.js'
 import { resolvePreset, validateCron, isValidTimezone } from './schedule-utils.js'
 import { resolveWebhookTarget } from './webhooks.js'
@@ -10,6 +10,8 @@ import { resolveWebhookTarget } from './webhooks.js'
 export interface ApplyRoutesOptions {
   onScheduleUpdated?: (action: 'upsert' | 'delete', projectId: string, kind: import('@ainyc/canonry-contracts').SchedulableRunKind) => void
   onProjectUpserted?: (projectId: string, projectName: string) => void
+  /** See `ProjectRoutesOptions.onAliasesChanged`. */
+  onAliasesChanged?: (projectId: string, projectName: string) => void
   onGoogleConnectionPropertyUpdated?: (domain: string, connectionType: 'gsc' | 'ga4', propertyId: string) => void
   /** Valid provider names from registered adapters — used to reject unknown providers */
   validProviderNames?: string[]
@@ -93,10 +95,19 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
     // All validation done — wrap all writes in a single transaction
     let projectId: string
     let scheduleAction: 'upsert' | 'delete' | null = null
+    let aliasesChanged = false
 
     app.db.transaction((tx) => {
       // Upsert project
       const existing = tx.select().from(projects).where(eq(projects.name, name)).get()
+
+      const nextAliases = normalizeProjectAliases(config.spec.displayName, config.spec.aliases ?? [])
+      // Only fire on actual changes to an existing project — a brand-new project
+      // has no historical snapshots to backfill.
+      if (existing) {
+        const prevAliases = parseJsonColumn<string[]>(existing.aliases, [])
+        aliasesChanged = !aliasArraysEqual(prevAliases, nextAliases)
+      }
 
       if (existing) {
         projectId = existing.id
@@ -104,6 +115,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
           displayName: config.spec.displayName,
           canonicalDomain: config.spec.canonicalDomain,
           ownedDomains: JSON.stringify(config.spec.ownedDomains ?? []),
+          aliases: JSON.stringify(nextAliases),
           country: config.spec.country,
           language: config.spec.language,
           labels: JSON.stringify(config.metadata.labels),
@@ -131,6 +143,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
           displayName: config.spec.displayName,
           canonicalDomain: config.spec.canonicalDomain,
           ownedDomains: JSON.stringify(config.spec.ownedDomains ?? []),
+          aliases: JSON.stringify(nextAliases),
           country: config.spec.country,
           language: config.spec.language,
           tags: '[]',
@@ -277,6 +290,9 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
     if (!hasNotifications) {
       opts?.onProjectUpserted?.(projectId!, config.metadata.name)
     }
+    if (aliasesChanged) {
+      opts?.onAliasesChanged?.(projectId!, config.metadata.name)
+    }
     if ('google' in rawSpec && config.spec.google?.gsc?.propertyUrl) {
       opts?.onGoogleConnectionPropertyUpdated?.(config.spec.canonicalDomain, 'gsc', config.spec.google.gsc.propertyUrl)
     }
@@ -288,6 +304,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
       displayName: project.displayName,
       canonicalDomain: project.canonicalDomain,
       ownedDomains: parseJsonColumn<string[]>(project.ownedDomains, []),
+      aliases: parseJsonColumn<string[]>(project.aliases, []),
       country: project.country,
       language: project.language,
       tags: parseJsonColumn<string[]>(project.tags, []),
@@ -302,6 +319,18 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
       updatedAt: project.updatedAt,
     })
   })
+}
+
+// Case-insensitive value compare. Aliases are persisted post-normalize
+// (trimmed, deduped, stable order); two sets that differ only in casing
+// produce identical mention-detection output, so a casing rename does not
+// need a backfill.
+function aliasArraysEqual(a: readonly string[], b: readonly string[]): boolean {
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) {
+    if (a[i]!.toLowerCase() !== b[i]!.toLowerCase()) return false
+  }
+  return true
 }
 
 // Reduce competitor domains to their registrable form (eTLD+1) and dedupe.

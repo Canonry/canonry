@@ -757,6 +757,7 @@ function formatProject(row: typeof projects.$inferSelect): ProjectDto {
     displayName: row.displayName,
     canonicalDomain: row.canonicalDomain,
     ownedDomains: parseJsonColumn<string[]>(row.ownedDomains, []),
+    aliases: parseJsonColumn<string[]>(row.aliases, []),
     country: row.country,
     language: row.language,
     tags: parseJsonColumn<string[]>(row.tags, []),

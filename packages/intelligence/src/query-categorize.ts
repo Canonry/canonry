@@ -29,19 +29,21 @@ function compact(value: string): string {
  *
  * Sources:
  *   1. The canonical domain with its TLD stripped — e.g. `demand-iq.com` → `demandiq`.
- *   2. Optional displayName (only used when its compact form differs from #1).
+ *   2. Each brand name (displayName plus any aliases) — only when its compact
+ *      form is at least `MIN_BRAND_TOKEN_LENGTH` and not already covered.
  *
  * Tokens shorter than `MIN_BRAND_TOKEN_LENGTH` are dropped to prevent
  * false-positive matches on common short strings (e.g. brand "x.io" → "x").
  */
-export function buildBrandTokens(canonicalDomain: string, displayName?: string): string[] {
+export function buildBrandTokens(canonicalDomain: string, brandNames: readonly string[] = []): string[] {
   const seen = new Set<string>()
   const stem = canonicalDomain.toLowerCase().replace(/\.[a-z]{2,}$/, '')
   const stemCompact = compact(stem)
   if (stemCompact.length >= MIN_BRAND_TOKEN_LENGTH) seen.add(stemCompact)
-  if (displayName) {
-    const displayCompact = compact(displayName)
-    if (displayCompact.length >= MIN_BRAND_TOKEN_LENGTH) seen.add(displayCompact)
+  for (const name of brandNames) {
+    if (!name) continue
+    const nameCompact = compact(name)
+    if (nameCompact.length >= MIN_BRAND_TOKEN_LENGTH) seen.add(nameCompact)
   }
   return [...seen]
 }

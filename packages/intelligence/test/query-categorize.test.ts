@@ -6,19 +6,29 @@ describe('buildBrandTokens', () => {
     expect(buildBrandTokens('demand-iq.com')).toContain('demandiq')
   })
 
-  test('includes the displayName as a compact token when distinct', () => {
-    const tokens = buildBrandTokens('foo.com', 'Foo Bar')
+  test('includes brand names as compact tokens when distinct', () => {
+    const tokens = buildBrandTokens('foo.com', ['Foo Bar'])
     expect(tokens).toContain('foobar')
   })
 
   test('drops tokens shorter than 3 characters', () => {
-    const tokens = buildBrandTokens('a.com', 'B')
+    const tokens = buildBrandTokens('a.com', ['B'])
     expect(tokens).toEqual([])
   })
 
   test('deduplicates tokens', () => {
-    const tokens = buildBrandTokens('foo.com', 'foo')
+    const tokens = buildBrandTokens('foo.com', ['foo'])
     expect(tokens).toEqual(['foo'])
+  })
+
+  test('includes multiple brand names (aliases)', () => {
+    const tokens = buildBrandTokens('llamaindex.ai', ['LlamaIndex', 'LlamaParse'])
+    expect(tokens).toContain('llamaindex')
+    expect(tokens).toContain('llamaparse')
+  })
+
+  test('handles empty brand names array', () => {
+    expect(buildBrandTokens('demand-iq.com', [])).toEqual(['demandiq'])
   })
 })
 

@@ -5,6 +5,7 @@ import { projects, queries, competitors, schedules, notifications, parseJsonColu
 import {
   validationError,
   locationContextSchema,
+  normalizeProjectAliases,
   projectUpsertRequestSchema,
   findDuplicateLocationLabels,
   hasLocationLabel,
@@ -15,6 +16,13 @@ import { resolveProject, writeAuditLog } from './helpers.js'
 export interface ProjectRoutesOptions {
   onProjectDeleted?: (projectId: string) => void
   onProjectUpserted?: (projectId: string, projectName: string) => void
+  /**
+   * Fires when a project's normalized alias set changes (add, remove, or
+   * reorder after canonicalization). Receivers should run a fire-and-forget
+   * mention-fields backfill so historical snapshots reflect the new aliases.
+   * Skipped when only other fields change.
+   */
+  onAliasesChanged?: (projectId: string, projectName: string) => void
   /** Valid provider names from registered adapters — used to reject unknown providers */
   validProviderNames?: string[]
 }
@@ -27,6 +35,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
       displayName: string
       canonicalDomain: string
       ownedDomains?: string[]
+      aliases?: string[]
       country: string
       language: string
       tags?: string[]
@@ -88,12 +97,18 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
       ? (body.autoExtractBacklinks ? 1 : 0)
       : existing?.autoExtractBacklinks ?? 0
 
+    const nextAliases = normalizeProjectAliases(body.displayName, body.aliases ?? [])
+
     if (existing) {
+      const prevAliases = parseJsonColumn<string[]>(existing.aliases, [])
+      const aliasesChanged = !aliasArraysEqual(prevAliases, nextAliases)
+
       app.db.transaction((tx) => {
         tx.update(projects).set({
           displayName: body.displayName,
           canonicalDomain: body.canonicalDomain,
           ownedDomains: JSON.stringify(body.ownedDomains ?? []),
+          aliases: JSON.stringify(nextAliases),
           country: body.country,
           language: body.language,
           tags: JSON.stringify(body.tags ?? []),
@@ -117,6 +132,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
       })
 
       opts.onProjectUpserted?.(existing.id, name)
+      if (aliasesChanged) opts.onAliasesChanged?.(existing.id, name)
 
       const updated = app.db.select().from(projects).where(eq(projects.id, existing.id)).get()!
       return reply.status(200).send(formatProject(updated))
@@ -130,6 +146,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
         displayName: body.displayName,
         canonicalDomain: body.canonicalDomain,
         ownedDomains: JSON.stringify(body.ownedDomains ?? []),
+        aliases: JSON.stringify(nextAliases),
         country: body.country,
         language: body.language,
         tags: JSON.stringify(body.tags ?? []),
@@ -324,6 +341,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
         displayName: project.displayName,
         canonicalDomain: project.canonicalDomain,
         ownedDomains: parseJsonColumn<string[]>(project.ownedDomains, []),
+        aliases: parseJsonColumn<string[]>(project.aliases, []),
         country: project.country,
         language: project.language,
         queries: qs.map(q => q.query),
@@ -360,6 +378,7 @@ function formatProject(row: {
   displayName: string
   canonicalDomain: string
   ownedDomains: string
+  aliases: string
   country: string
   language: string
   tags: string
@@ -379,6 +398,7 @@ function formatProject(row: {
     displayName: row.displayName,
     canonicalDomain: row.canonicalDomain,
     ownedDomains: parseJsonColumn<string[]>(row.ownedDomains, []),
+    aliases: parseJsonColumn<string[]>(row.aliases, []),
     country: row.country,
     language: row.language,
     tags: parseJsonColumn<string[]>(row.tags, []),
@@ -392,4 +412,16 @@ function formatProject(row: {
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   }
+}
+
+// Aliases are stored post-normalization (trimmed, case-insensitively deduped,
+// stable order). Two sets that differ only in casing match the same answer
+// text and produce the same persisted `answerMentioned` / overlap fields, so
+// the compare is case-insensitive — a casing rename doesn't need a backfill.
+function aliasArraysEqual(a: readonly string[], b: readonly string[]): boolean {
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) {
+    if (a[i]!.toLowerCase() !== b[i]!.toLowerCase()) return false
+  }
+  return true
 }

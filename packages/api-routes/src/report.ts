@@ -28,6 +28,7 @@ import {
   TrafficSourceStatuses,
   VerificationStatuses,
   deltaPercent,
+  effectiveBrandNames,
   getProviderLocationHandling,
   validationError,
   type CitationsTrendPoint,
@@ -111,10 +112,11 @@ function safeNum(value: unknown): number {
 // Thin wrapper around the shared intelligence-package categorizer.
 // Encapsulates brand-token construction so the existing buildGscSection
 // call sites don't all need to thread brandTokens through. The display
-// name is preferred over the project slug because the slug is internal
-// (e.g. "acme-corp") while the display name matches what searchers type.
-function categorizeQuery(query: string, projectDisplayName: string, canonicalDomain: string): GscQueryRow['category'] {
-  return categorizeQueryByIntent(query, buildBrandTokens(canonicalDomain, projectDisplayName))
+// name plus aliases are preferred over the project slug because the slug
+// is internal (e.g. "acme-corp") while the display name and aliases match
+// what searchers actually type.
+function categorizeQuery(query: string, projectBrandNames: readonly string[], canonicalDomain: string): GscQueryRow['category'] {
+  return categorizeQueryByIntent(query, buildBrandTokens(canonicalDomain, projectBrandNames))
 }
 
 interface SnapshotRow {
@@ -184,7 +186,7 @@ function loadQueryLookup(db: DatabaseClient, projectId: string): QueryLookup {
 function buildGscSection(
   db: DatabaseClient,
   projectId: string,
-  projectDisplayName: string,
+  projectBrandNames: readonly string[],
   canonicalDomain: string,
   trackedQueries: string[],
 ): ProjectReportDto['gsc'] {
@@ -234,14 +236,14 @@ function buildGscSection(
       impressions: agg.impressions,
       ctr: agg.impressions > 0 ? agg.clicks / agg.impressions : 0,
       avgPosition: agg.impressions > 0 ? agg.weightedPositionSum / agg.impressions : 0,
-      category: categorizeQuery(query, projectDisplayName, canonicalDomain),
+      category: categorizeQuery(query, projectBrandNames, canonicalDomain),
     }))
     .sort((a, b) => b.clicks - a.clicks)
     .slice(0, TOP_QUERIES_LIMIT)
 
   const categoryAgg = new Map<GscQueryRow['category'], { clicks: number; impressions: number }>()
   for (const [query, agg] of queryAgg) {
-    const cat = categorizeQuery(query, projectDisplayName, canonicalDomain)
+    const cat = categorizeQuery(query, projectBrandNames, canonicalDomain)
     const bucket = categoryAgg.get(cat) ?? { clicks: 0, impressions: 0 }
     bucket.clicks += agg.clicks
     bucket.impressions += agg.impressions
@@ -268,7 +270,7 @@ function buildGscSection(
   // the project query set.
   const gscButNotTracked = [...queryAgg.entries()]
     .filter(([q]) => !trackedSet.has(q.toLowerCase()))
-    .filter(([q]) => categorizeQuery(q, projectDisplayName, canonicalDomain) !== 'brand')
+    .filter(([q]) => categorizeQuery(q, projectBrandNames, canonicalDomain) !== 'brand')
     .sort((a, b) => b[1].impressions - a[1].impressions)
     .map(([q]) => q)
     .slice(0, TOP_QUERIES_LIMIT)
@@ -1791,6 +1793,11 @@ function buildProjectReport(db: DatabaseClient, projectName: string): ProjectRep
   // matching the canonical domain or an owned subdomain counts as "ours".
   const ownedDomains = parseJsonColumn<string[]>(project.ownedDomains, [])
   const projectDomains = [project.canonicalDomain, ...ownedDomains]
+  const projectAliases = parseJsonColumn<string[]>(project.aliases, [])
+  const projectBrandNames = effectiveBrandNames({
+    displayName: project.displayName,
+    aliases: projectAliases,
+  })
 
   const citationScorecard = buildCitationScorecard(latestSnapshots, queryLookup)
   const competitorLandscape = buildCompetitorLandscape(
@@ -1802,7 +1809,7 @@ function buildProjectReport(db: DatabaseClient, projectName: string): ProjectRep
   const mentionLandscape = buildMentionLandscape(
     latestSnapshots,
     competitorDomains,
-    project.displayName,
+    projectBrandNames,
     projectDomains,
     queryLookup,
   )
@@ -1811,7 +1818,7 @@ function buildProjectReport(db: DatabaseClient, projectName: string): ProjectRep
   const gscSection = buildGscSection(
     db,
     project.id,
-    project.displayName,
+    projectBrandNames,
     project.canonicalDomain,
     trackedQueries,
   )

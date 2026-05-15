@@ -1,5 +1,5 @@
 import type { ProjectDto } from '@ainyc/canonry-contracts'
-import { effectiveDomains } from '@ainyc/canonry-contracts'
+import { effectiveDomains, normalizeProjectAliases } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
 
 function getClient() {
@@ -8,13 +8,14 @@ function getClient() {
 
 export async function createProject(
   name: string,
-  opts: { domain: string; ownedDomains?: string[]; country: string; language: string; displayName: string; format?: string },
+  opts: { domain: string; ownedDomains?: string[]; aliases?: string[]; country: string; language: string; displayName: string; format?: string },
 ): Promise<void> {
   const client = getClient()
   const result: ProjectDto = await client.putProject(name, {
     displayName: opts.displayName,
     canonicalDomain: opts.domain,
     ownedDomains: opts.ownedDomains ?? [],
+    aliases: normalizeProjectAliases(opts.displayName, opts.aliases ?? []),
     country: opts.country,
     language: opts.language,
   })
@@ -78,6 +79,9 @@ export async function showProject(name: string, format?: string): Promise<void> 
   if (secondaryDomains.length > 0) {
     console.log(`  Owned domains:    ${secondaryDomains.join(', ')}`)
   }
+  if (project.aliases && project.aliases.length > 0) {
+    console.log(`  Aliases:          ${project.aliases.join(', ')}`)
+  }
   console.log(`  Country:          ${project.country}`)
   console.log(`  Language:         ${project.language}`)
   console.log(`  Config source:    ${project.configSource}`)
@@ -97,6 +101,9 @@ export async function updateProjectSettings(
     ownedDomains?: string[]
     addOwnedDomain?: string[]
     removeOwnedDomain?: string[]
+    aliases?: string[]
+    addAlias?: string[]
+    removeAlias?: string[]
     country?: string
     language?: string
     format?: string
@@ -115,10 +122,23 @@ export async function updateProjectSettings(
     ownedDomains = ownedDomains.filter(d => !toRemove.has(d))
   }
 
+  const nextDisplayName = opts.displayName ?? project.displayName ?? project.name
+  let aliases = opts.aliases ?? project.aliases ?? []
+  if (opts.addAlias) {
+    const existingKeys = new Set(aliases.map(a => a.toLowerCase()))
+    const toAdd = opts.addAlias.filter(a => !existingKeys.has(a.toLowerCase()))
+    aliases = [...aliases, ...toAdd]
+  }
+  if (opts.removeAlias) {
+    const toRemove = new Set(opts.removeAlias.map(a => a.toLowerCase()))
+    aliases = aliases.filter(a => !toRemove.has(a.toLowerCase()))
+  }
+
   const result: ProjectDto = await client.putProject(name, {
-    displayName: opts.displayName ?? project.displayName ?? project.name,
+    displayName: nextDisplayName,
     canonicalDomain: opts.domain ?? project.canonicalDomain,
     ownedDomains,
+    aliases: normalizeProjectAliases(nextDisplayName, aliases),
     country: opts.country ?? project.country,
     language: opts.language ?? project.language,
   })
