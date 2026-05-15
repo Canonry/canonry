@@ -6,7 +6,7 @@ import { and, eq, inArray, sql } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/canonry-db'
 import { runs, queries, competitors, projects, querySnapshots, usageCounters, parseJsonColumn } from '@ainyc/canonry-db'
 import type { ProviderName, NormalizedQueryResult, LocationContext } from '@ainyc/canonry-contracts'
-import { buildRunErrorFromMessages, determineAnswerMentioned, effectiveDomains, isBrowserProvider, serializeRunError } from '@ainyc/canonry-contracts'
+import { buildRunErrorFromMessages, determineAnswerMentioned, effectiveBrandNames, effectiveDomains, isBrowserProvider, serializeRunError } from '@ainyc/canonry-contracts'
 import type { ProviderRegistry, RegisteredProvider } from './provider-registry.js'
 import { trackEvent } from './telemetry.js'
 import { buildRunCompletedProps, hashDomain, type RunPhaseTimings } from './run-telemetry.js'
@@ -350,6 +350,10 @@ export class JobRunner {
         canonicalDomain: project.canonicalDomain,
         ownedDomains: parseJsonColumn<string[]>(project.ownedDomains, []),
       })
+      const allBrandNames = effectiveBrandNames({
+        displayName: project.displayName,
+        aliases: parseJsonColumn<string[]>(project.aliases, []),
+      })
       const executionContext: RunExecutionContext = {
         providerCount: activeProviders.length,
         providers: activeProviders.map(provider => provider.adapter.name),
@@ -436,7 +440,7 @@ export class JobRunner {
             const citationState = determineCitationState(normalized, allDomains)
             const answerMentioned = determineAnswerMentioned(
               normalized.answerText,
-              project.displayName,
+              allBrandNames,
               allDomains,
             )
             const overlap = computeCompetitorOverlap(normalized, competitorDomains)
@@ -445,6 +449,7 @@ export class JobRunner {
               allDomains,
               normalized.citedDomains,
               competitorDomains,
+              allBrandNames,
             )
 
             // Move screenshot to canonical location if present

@@ -408,6 +408,7 @@ function loadRunDetail(app: FastifyInstance, run: typeof runs.$inferSelect) {
       displayName: projects.displayName,
       canonicalDomain: projects.canonicalDomain,
       ownedDomains: projects.ownedDomains,
+      aliases: projects.aliases,
     })
     .from(projects)
     .where(eq(projects.id, run.projectId))

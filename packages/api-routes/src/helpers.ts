@@ -4,6 +4,7 @@ import type { DatabaseClient } from '@ainyc/canonry-db'
 import { projects, auditLog, usageCounters, parseJsonColumn } from '@ainyc/canonry-db'
 import {
   extractAnswerMentions,
+  effectiveBrandNames,
   effectiveDomains,
   notFound,
   visibilityStateFromAnswerMentioned,
@@ -66,6 +67,7 @@ export interface SnapshotVisibilityProject {
   displayName: string
   canonicalDomain: string
   ownedDomains?: string | string[] | null
+  aliases?: string | string[] | null
 }
 
 function resolveSnapshotMentionResult(
@@ -79,7 +81,11 @@ function resolveSnapshotMentionResult(
       canonicalDomain: project.canonicalDomain,
       ownedDomains: normalizeOwnedDomains(project.ownedDomains),
     })
-    return extractAnswerMentions(snapshot.answerText, project.displayName, domains)
+    const brandNames = effectiveBrandNames({
+      displayName: project.displayName,
+      aliases: normalizeOwnedDomains(project.aliases),
+    })
+    return extractAnswerMentions(snapshot.answerText, brandNames, domains)
   }
   // Legacy fallback: answerText was not stored; use the persisted boolean if available.
   // matchedTerms cannot be derived without text, so return [] — no contradiction.

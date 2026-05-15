@@ -324,7 +324,7 @@ export class SnapshotService {
               provider: provider.adapter.name,
               displayName: provider.adapter.displayName,
               model: raw.model,
-              mentioned: determineAnswerMentioned(normalized.answerText, ctx.companyName, answerVisibilityDomains),
+              mentioned: determineAnswerMentioned(normalized.answerText, [ctx.companyName], answerVisibilityDomains),
               cited: citesTargetDomain(normalized.citedDomains, normalized.groundingSources, ctx.domain),
               describedAccurately: 'unknown' as const,
               accuracyNotes: null,

@@ -24,10 +24,11 @@ import { usageError } from '../cli-error.js'
 export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['project', 'create'],
-    usage: 'canonry project create <name> [--domain <domain>] [--owned-domain <domain>...] [--country <code>] [--language <lang>] [--display-name <name>] [--format json]',
+    usage: 'canonry project create <name> [--domain <domain>] [--owned-domain <domain>...] [--alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--format json]',
     options: {
       domain: { type: 'string', short: 'd' },
       'owned-domain': multiStringOption(),
+      alias: multiStringOption(),
       country: stringOption(),
       language: stringOption(),
       'display-name': stringOption(),
@@ -36,11 +37,12 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
       const name = requireProject(
         input,
         'project.create',
-        'canonry project create <name> [--domain <domain>] [--owned-domain <domain>...] [--country <code>] [--language <lang>] [--display-name <name>] [--format json]',
+        'canonry project create <name> [--domain <domain>] [--owned-domain <domain>...] [--alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--format json]',
       )
       await createProject(name, {
         domain: getString(input.values, 'domain') ?? name,
         ownedDomains: getStringArray(input.values, 'owned-domain') ?? [],
+        aliases: getStringArray(input.values, 'alias') ?? [],
         country: getString(input.values, 'country') ?? 'US',
         language: getString(input.values, 'language') ?? 'en',
         displayName: getString(input.values, 'display-name') ?? name,
@@ -50,12 +52,15 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['project', 'update'],
-    usage: 'canonry project update <name> [--domain <domain>] [--owned-domain <domain>...] [--add-domain <domain>...] [--remove-domain <domain>...] [--country <code>] [--language <lang>] [--display-name <name>] [--format json]',
+    usage: 'canonry project update <name> [--domain <domain>] [--owned-domain <domain>...] [--add-domain <domain>...] [--remove-domain <domain>...] [--alias <name>...] [--add-alias <name>...] [--remove-alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--format json]',
     options: {
       domain: { type: 'string', short: 'd' },
       'owned-domain': multiStringOption(),
       'add-domain': multiStringOption(),
       'remove-domain': multiStringOption(),
+      alias: multiStringOption(),
+      'add-alias': multiStringOption(),
+      'remove-alias': multiStringOption(),
       country: stringOption(),
       language: stringOption(),
       'display-name': stringOption(),
@@ -64,7 +69,7 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
       const name = requireProject(
         input,
         'project.update',
-        'canonry project update <name> [--domain <domain>] [--owned-domain <domain>...] [--add-domain <domain>...] [--remove-domain <domain>...] [--country <code>] [--language <lang>] [--display-name <name>] [--format json]',
+        'canonry project update <name> [--domain <domain>] [--owned-domain <domain>...] [--add-domain <domain>...] [--remove-domain <domain>...] [--alias <name>...] [--add-alias <name>...] [--remove-alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--format json]',
       )
       await updateProjectSettings(name, {
         displayName: getString(input.values, 'display-name'),
@@ -72,6 +77,9 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
         ownedDomains: getStringArray(input.values, 'owned-domain'),
         addOwnedDomain: getStringArray(input.values, 'add-domain'),
         removeOwnedDomain: getStringArray(input.values, 'remove-domain'),
+        aliases: getStringArray(input.values, 'alias'),
+        addAlias: getStringArray(input.values, 'add-alias'),
+        removeAlias: getStringArray(input.values, 'remove-alias'),
         country: getString(input.values, 'country'),
         language: getString(input.values, 'language'),
         format: input.format,

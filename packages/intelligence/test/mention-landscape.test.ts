@@ -18,12 +18,12 @@ function lookup(entries: Array<[string, string]>): MentionLandscapeQueryLookup {
   return { byId: new Map(entries) }
 }
 
-const PROJECT_NAME = 'Acme'
+const PROJECT_BRAND_NAMES = ['Acme']
 const PROJECT_DOMAINS = ['acme.com']
 
 describe('buildMentionLandscape', () => {
   it('returns zeroed rows for empty snapshots while preserving competitor list', () => {
-    const result = buildMentionLandscape([], ['rival.com', 'foe.com'], PROJECT_NAME, PROJECT_DOMAINS, lookup([]))
+    const result = buildMentionLandscape([], ['rival.com', 'foe.com'], PROJECT_BRAND_NAMES, PROJECT_DOMAINS, lookup([]))
     expect(result.projectMentionCount).toBe(0)
     expect(result.totalAnswerSnapshots).toBe(0)
     expect(result.competitors.map(c => c.domain).sort()).toEqual(['foe.com', 'rival.com'])
@@ -31,21 +31,21 @@ describe('buildMentionLandscape', () => {
 
   it('skips snapshots with null answerText (excluded from denominator and counts)', () => {
     const snapshots = [snap({ answerText: null, answerMentioned: true })]
-    const result = buildMentionLandscape(snapshots, ['rival.com'], PROJECT_NAME, PROJECT_DOMAINS, lookup([]))
+    const result = buildMentionLandscape(snapshots, ['rival.com'], PROJECT_BRAND_NAMES, PROJECT_DOMAINS, lookup([]))
     expect(result.totalAnswerSnapshots).toBe(0)
     expect(result.projectMentionCount).toBe(0)
   })
 
   it('counts a project mention when answerMentioned is true on a snapshot with answerText', () => {
     const snapshots = [snap({ answerMentioned: true })]
-    const result = buildMentionLandscape(snapshots, [], PROJECT_NAME, PROJECT_DOMAINS, lookup([]))
+    const result = buildMentionLandscape(snapshots, [], PROJECT_BRAND_NAMES, PROJECT_DOMAINS, lookup([]))
     expect(result.projectMentionCount).toBe(1)
     expect(result.totalAnswerSnapshots).toBe(1)
   })
 
   it('does not count a project mention when answerMentioned is false', () => {
     const snapshots = [snap({ answerText: 'no mention here', answerMentioned: false })]
-    const result = buildMentionLandscape(snapshots, [], PROJECT_NAME, PROJECT_DOMAINS, lookup([]))
+    const result = buildMentionLandscape(snapshots, [], PROJECT_BRAND_NAMES, PROJECT_DOMAINS, lookup([]))
     expect(result.projectMentionCount).toBe(0)
     expect(result.totalAnswerSnapshots).toBe(1)
   })
@@ -53,7 +53,7 @@ describe('buildMentionLandscape', () => {
   it('falls back to determineAnswerMentioned when answerMentioned is null', () => {
     // answerMentioned null on a row whose text mentions the project — should fall back to true.
     const snapshots = [snap({ answerText: 'Try Acme Inc — see acme.com', answerMentioned: null })]
-    const result = buildMentionLandscape(snapshots, [], PROJECT_NAME, PROJECT_DOMAINS, lookup([]))
+    const result = buildMentionLandscape(snapshots, [], PROJECT_BRAND_NAMES, PROJECT_DOMAINS, lookup([]))
     expect(result.projectMentionCount).toBe(1)
   })
 
@@ -64,7 +64,7 @@ describe('buildMentionLandscape', () => {
     const result = buildMentionLandscape(
       snapshots,
       ['rival.com'],
-      PROJECT_NAME,
+      PROJECT_BRAND_NAMES,
       PROJECT_DOMAINS,
       lookup([['q1', 'best CRM']]),
     )
@@ -77,7 +77,7 @@ describe('buildMentionLandscape', () => {
     const snapshots = [
       snap({ queryId: 'unknown', answerText: 'Rival Co at rival.com', answerMentioned: false }),
     ]
-    const result = buildMentionLandscape(snapshots, ['rival.com'], PROJECT_NAME, PROJECT_DOMAINS, lookup([]))
+    const result = buildMentionLandscape(snapshots, ['rival.com'], PROJECT_BRAND_NAMES, PROJECT_DOMAINS, lookup([]))
     const rival = result.competitors.find(c => c.domain === 'rival.com')!
     expect(rival.mentionCount).toBe(1)
     expect(rival.mentionedQueries).toEqual([])
@@ -97,7 +97,7 @@ describe('buildMentionLandscape', () => {
     let result = buildMentionLandscape(
       [...competitorTexts(5), ...filler(5)],
       ['rival.com'],
-      PROJECT_NAME,
+      PROJECT_BRAND_NAMES,
       PROJECT_DOMAINS,
       lookup([]),
     )
@@ -107,7 +107,7 @@ describe('buildMentionLandscape', () => {
     result = buildMentionLandscape(
       [...competitorTexts(2), ...filler(8)],
       ['rival.com'],
-      PROJECT_NAME,
+      PROJECT_BRAND_NAMES,
       PROJECT_DOMAINS,
       lookup([]),
     )
@@ -117,14 +117,14 @@ describe('buildMentionLandscape', () => {
     result = buildMentionLandscape(
       [...competitorTexts(1), ...filler(9)],
       ['rival.com'],
-      PROJECT_NAME,
+      PROJECT_BRAND_NAMES,
       PROJECT_DOMAINS,
       lookup([]),
     )
     expect(result.competitors[0]?.pressureLabel).toBe('Low')
 
     // None: 0 mentions
-    result = buildMentionLandscape(filler(5), ['rival.com'], PROJECT_NAME, PROJECT_DOMAINS, lookup([]))
+    result = buildMentionLandscape(filler(5), ['rival.com'], PROJECT_BRAND_NAMES, PROJECT_DOMAINS, lookup([]))
     expect(result.competitors[0]?.pressureLabel).toBe('None')
   })
 
@@ -137,7 +137,7 @@ describe('buildMentionLandscape', () => {
     const result = buildMentionLandscape(
       snapshots,
       ['rival.com'],
-      PROJECT_NAME,
+      PROJECT_BRAND_NAMES,
       PROJECT_DOMAINS,
       lookup([['q1', 'a'], ['q2', 'b'], ['q3', 'c']]),
     )
@@ -154,7 +154,7 @@ describe('buildMentionLandscape', () => {
     const result = buildMentionLandscape(
       snapshots,
       ['foe.com', 'rival.com'],
-      PROJECT_NAME,
+      PROJECT_BRAND_NAMES,
       PROJECT_DOMAINS,
       lookup([['q1', 'a'], ['q2', 'b'], ['q3', 'c']]),
     )
@@ -163,7 +163,7 @@ describe('buildMentionLandscape', () => {
 
   it('returns sharePct of 0 when nobody is mentioned', () => {
     const snapshots = [snap({ answerText: 'nothing here', answerMentioned: false })]
-    const result = buildMentionLandscape(snapshots, ['rival.com'], PROJECT_NAME, PROJECT_DOMAINS, lookup([]))
+    const result = buildMentionLandscape(snapshots, ['rival.com'], PROJECT_BRAND_NAMES, PROJECT_DOMAINS, lookup([]))
     expect(result.competitors[0]?.sharePct).toBe(0)
   })
 })

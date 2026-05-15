@@ -37,6 +37,7 @@ function toProjectDto(p: ApiProject): ProjectDto {
     displayName: p.displayName,
     canonicalDomain: p.canonicalDomain,
     ownedDomains: p.ownedDomains ?? [],
+    aliases: p.aliases ?? [],
     country: p.country,
     language: p.language,
     tags: p.tags,

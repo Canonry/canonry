@@ -6,6 +6,7 @@ export const projects = sqliteTable('projects', {
   displayName: text('display_name').notNull(),
   canonicalDomain: text('canonical_domain').notNull(),
   ownedDomains: text('owned_domains').notNull().default('[]'),
+  aliases: text('aliases').notNull().default('[]'),
   country: text('country').notNull(),
   language: text('language').notNull(),
   tags: text('tags').notNull().default('[]'),

@@ -90,18 +90,27 @@ function escapeRegExp(value: string): string {
 /**
  * Extract brand names from the answer, but only when they line up with
  * domains we already know were cited or matched as competitors.
+ *
+ * `ownBrandNames` (the project's displayName + aliases) seeds the "own" set
+ * so a recommended-name match against, say, "LlamaParse" does not flag the
+ * project's own product as a competitor.
  */
 export function extractRecommendedCompetitors(
   answerText: string | null | undefined,
   ownDomains: string[],
   citedDomains: string[],
   competitorDomains: string[],
+  ownBrandNames: readonly string[] = [],
 ): string[] {
   if (!answerText || answerText.length < 20) return []
 
-  const ownBrandKeys = new Set(
+  const ownBrandKeys = new Set<string>(
     ownDomains.flatMap(domain => collectBrandKeysFromDomain(domain)),
   )
+  for (const name of ownBrandNames) {
+    const key = brandKeyFromText(name)
+    if (key.length >= 4) ownBrandKeys.add(key)
+  }
   const knownCompetitorKeys = new Set(
     [...citedDomains, ...competitorDomains]
       .flatMap(domain => collectBrandKeysFromDomain(domain))

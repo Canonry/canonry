@@ -36,6 +36,7 @@ import {
   fetchCompetitors as apiFetchCompetitors,
   setCompetitors as apiSetCompetitors,
   updateOwnedDomains as apiUpdateOwnedDomains,
+  updateAliases as apiUpdateAliases,
   updateProject as apiUpdateProject,
   fetchBingStatus,
   bingConnect as apiBingConnect,
@@ -1088,6 +1089,9 @@ export function ProjectPage({
   const [addingOwnedDomain, setAddingOwnedDomain] = useState(false)
   const [newOwnedDomain, setNewOwnedDomain] = useState('')
   const [ownedDomainSaving, setOwnedDomainSaving] = useState(false)
+  const [addingAlias, setAddingAlias] = useState(false)
+  const [newAlias, setNewAlias] = useState('')
+  const [aliasSaving, setAliasSaving] = useState(false)
   const [locationFilter, setLocationFilter] = useState<string | undefined>(undefined)
   const [compareLocations, setCompareLocations] = useState(false)
   const [locationTimeline, setLocationTimeline] = useState<import('../api.js').ApiTimelineEntry[] | null>(null)
@@ -1303,7 +1307,41 @@ export function ProjectPage({
     }
   }
 
-  async function handleUpdateProject(pName: string, updates: { displayName?: string; canonicalDomain?: string; ownedDomains?: string[]; country?: string; language?: string; locations?: Array<{ label: string; city: string; region: string; country: string; timezone?: string }>; defaultLocation?: string | null }) {
+  async function handleAddAlias() {
+    const alias = newAlias.trim()
+    if (!alias) return
+    setAliasSaving(true)
+    try {
+      const current = model?.project.aliases ?? []
+      // Case-insensitive dedupe in the UI so the user gets immediate
+      // feedback if they type a duplicate; the server normalizes again on save.
+      const key = alias.toLowerCase()
+      if (current.some(a => a.toLowerCase() === key)) {
+        setNewAlias('')
+        setAddingAlias(false)
+        return
+      }
+      await apiUpdateAliases(projectName, [...current, alias])
+      void refetch()
+      setNewAlias('')
+      setAddingAlias(false)
+    } finally {
+      setAliasSaving(false)
+    }
+  }
+
+  async function handleRemoveAlias(alias: string) {
+    setAliasSaving(true)
+    try {
+      const current = model?.project.aliases ?? []
+      await apiUpdateAliases(projectName, current.filter(a => a !== alias))
+      void refetch()
+    } finally {
+      setAliasSaving(false)
+    }
+  }
+
+  async function handleUpdateProject(pName: string, updates: { displayName?: string; canonicalDomain?: string; ownedDomains?: string[]; aliases?: string[]; country?: string; language?: string; locations?: Array<{ label: string; city: string; region: string; country: string; timezone?: string }>; defaultLocation?: string | null }) {
     await apiUpdateProject(pName, updates)
     void refetch()
   }
@@ -1405,6 +1443,47 @@ export function ProjectPage({
               )}
             </div>
           )}
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+            <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wide text-zinc-500 mr-1">
+              Also known as
+              <InfoTooltip text="Extra brand names checked against LLM answer text alongside the project name. Use for product names, prior names, or DBAs (e.g. add LlamaParse if the project is LlamaIndex). Changing these recomputes mentions on historical runs." />
+            </span>
+            {(model.project.aliases ?? []).map((a) => (
+              <span key={a} className="inline-flex items-center gap-1 rounded-full border border-zinc-700/60 bg-zinc-800/40 px-2 py-0.5 text-xs text-zinc-300">
+                {a}
+                <button
+                  type="button"
+                  className="ml-0.5 text-zinc-500 hover:text-zinc-200 transition-colors"
+                  disabled={aliasSaving}
+                  onClick={() => handleRemoveAlias(a)}
+                  aria-label={`Remove ${a}`}
+                >×</button>
+              </span>
+            ))}
+            {addingAlias ? (
+              <span className="inline-flex items-center gap-1">
+                <input
+                  className="rounded border border-zinc-700 bg-transparent px-1.5 py-0.5 text-xs text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none w-40"
+                  type="text"
+                  placeholder="LlamaParse"
+                  value={newAlias}
+                  onChange={(e) => setNewAlias(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleAddAlias()}
+                  autoFocus
+                />
+                <Button type="button" size="sm" disabled={!newAlias.trim() || aliasSaving} onClick={handleAddAlias}>
+                  {aliasSaving ? '...' : 'Add'}
+                </Button>
+                <button type="button" className="text-xs text-zinc-500 hover:text-zinc-300" onClick={() => { setAddingAlias(false); setNewAlias('') }}>Cancel</button>
+              </span>
+            ) : (
+              <button
+                type="button"
+                className="rounded-full border border-dashed border-zinc-700 px-2 py-0.5 text-[10px] uppercase tracking-wide text-zinc-500 hover:text-zinc-300 hover:border-zinc-500 transition-colors"
+                onClick={() => setAddingAlias(true)}
+              >+ alias</button>
+            )}
+          </div>
         </div>
         <div className="page-header-right">
           <p className="text-sm text-zinc-500">{model.dateRangeLabel}</p>

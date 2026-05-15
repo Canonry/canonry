@@ -152,6 +152,7 @@ export interface ApiProject {
   displayName: string
   canonicalDomain: string
   ownedDomains: string[]
+  aliases: string[]
   country: string
   language: string
   tags: string[]
@@ -314,6 +315,7 @@ export function createProject(name: string, body: {
   displayName: string
   canonicalDomain: string
   ownedDomains?: string[]
+  aliases?: string[]
   country: string
   language: string
   tags?: string[]
@@ -363,6 +365,24 @@ export async function updateOwnedDomains(projectName: string, ownedDomains: stri
     displayName: project.displayName,
     canonicalDomain: project.canonicalDomain,
     ownedDomains,
+    aliases: project.aliases,
+    country: project.country,
+    language: project.language,
+    tags: project.tags,
+    labels: project.labels,
+    providers: project.providers,
+    locations: project.locations,
+    defaultLocation: project.defaultLocation,
+  })
+}
+
+export async function updateAliases(projectName: string, aliases: string[]): Promise<ApiProject> {
+  const project = await fetchProject(projectName)
+  return createProject(projectName, {
+    displayName: project.displayName,
+    canonicalDomain: project.canonicalDomain,
+    ownedDomains: project.ownedDomains,
+    aliases,
     country: project.country,
     language: project.language,
     tags: project.tags,
@@ -377,6 +397,7 @@ export async function updateProject(projectName: string, updates: {
   displayName?: string
   canonicalDomain?: string
   ownedDomains?: string[]
+  aliases?: string[]
   country?: string
   language?: string
   locations?: ApiLocation[]
@@ -387,6 +408,7 @@ export async function updateProject(projectName: string, updates: {
     displayName: updates.displayName ?? project.displayName,
     canonicalDomain: updates.canonicalDomain ?? project.canonicalDomain,
     ownedDomains: updates.ownedDomains ?? project.ownedDomains,
+    aliases: updates.aliases ?? project.aliases,
     country: updates.country ?? project.country,
     language: updates.language ?? project.language,
     tags: project.tags,

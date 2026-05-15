@@ -71,6 +71,7 @@ export const projectUpsertRequestSchema = z.object({
   displayName: z.string().min(1),
   canonicalDomain: z.string().min(1),
   ownedDomains: z.array(z.string().min(1)).optional(),
+  aliases: z.array(z.string()).optional(),
   country: z.string().length(2),
   language: z.string().min(2),
   tags: z.array(z.string()).optional(),
@@ -90,6 +91,7 @@ export const projectDtoSchema = z.object({
   displayName: z.string().optional(),
   canonicalDomain: z.string(),
   ownedDomains: z.array(z.string()).default([]),
+  aliases: z.array(z.string()).default([]),
   country: z.string().length(2),
   language: z.string().min(2),
   tags: z.array(z.string()).default([]),
@@ -273,4 +275,49 @@ export function effectiveDomains(project: { canonicalDomain: string; ownedDomain
     result.push(trimmed)
   }
   return result
+}
+
+/**
+ * Canonical alias list for persistence. Trims each entry, drops empties,
+ * case-insensitively dedupes, and silently filters any alias that equals the
+ * displayName (case-insensitive) — that one is already covered by the primary
+ * brand name. Single source of truth — every write surface must call this so
+ * persisted state stays canonical.
+ */
+export function normalizeProjectAliases(
+  displayName: string | null | undefined,
+  aliases: readonly string[] | null | undefined,
+): string[] {
+  if (!aliases || aliases.length === 0) return []
+  const displayKey = displayName?.trim().toLowerCase() ?? ''
+  const seen = new Set<string>()
+  const result: string[] = []
+  for (const raw of aliases) {
+    const trimmed = raw.trim()
+    if (!trimmed) continue
+    const key = trimmed.toLowerCase()
+    if (key === displayKey) continue
+    if (seen.has(key)) continue
+    seen.add(key)
+    result.push(trimmed)
+  }
+  return result
+}
+
+/**
+ * Returns the brand-name identities used for mention detection: `displayName`
+ * (when set) followed by the normalized aliases. Each entry is a separate
+ * brand identity in `extractAnswerMentions`.
+ */
+export function effectiveBrandNames(project: {
+  displayName?: string | null
+  aliases?: string[] | null
+}): string[] {
+  const names: string[] = []
+  const display = project.displayName?.trim() ?? ''
+  if (display) names.push(display)
+  for (const alias of normalizeProjectAliases(project.displayName, project.aliases)) {
+    names.push(alias)
+  }
+  return names
 }

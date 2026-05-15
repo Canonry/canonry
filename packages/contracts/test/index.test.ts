@@ -27,6 +27,8 @@ import {
   notificationDtoSchema,
   notificationEventSchema,
   effectiveDomains,
+  effectiveBrandNames,
+  normalizeProjectAliases,
   normalizeProjectDomain,
   registrableDomain,
   brandLabelFromDomain,
@@ -118,6 +120,53 @@ test('effectiveDomains deduplicates canonical and owned domain variants', () => 
   })
 
   expect(domains).toEqual(['https://www.example.com', 'docs.example.com'])
+})
+
+describe('normalizeProjectAliases', () => {
+  it('trims, drops empties, and case-insensitively dedupes', () => {
+    expect(normalizeProjectAliases('LlamaIndex', ['  LlamaParse ', '', 'llamaparse', 'LlamaParse']))
+      .toEqual(['LlamaParse'])
+  })
+
+  it('silently filters aliases equal to displayName (case-insensitive)', () => {
+    expect(normalizeProjectAliases('LlamaIndex', ['llamaindex', 'LlamaParse', 'LLAMAINDEX']))
+      .toEqual(['LlamaParse'])
+  })
+
+  it('returns empty array for empty/null inputs', () => {
+    expect(normalizeProjectAliases('Brand', [])).toEqual([])
+    expect(normalizeProjectAliases('Brand', null)).toEqual([])
+    expect(normalizeProjectAliases('Brand', undefined)).toEqual([])
+  })
+
+  it('handles null displayName without crashing', () => {
+    expect(normalizeProjectAliases(null, ['Alias'])).toEqual(['Alias'])
+  })
+
+  it('preserves original casing of the first occurrence', () => {
+    expect(normalizeProjectAliases('Brand', ['LlamaParse', 'llamaparse'])).toEqual(['LlamaParse'])
+  })
+})
+
+describe('effectiveBrandNames', () => {
+  it('returns displayName followed by normalized aliases', () => {
+    expect(effectiveBrandNames({ displayName: 'LlamaIndex', aliases: ['LlamaParse'] }))
+      .toEqual(['LlamaIndex', 'LlamaParse'])
+  })
+
+  it('omits displayName when empty/null', () => {
+    expect(effectiveBrandNames({ displayName: '', aliases: ['Alias'] })).toEqual(['Alias'])
+    expect(effectiveBrandNames({ displayName: null, aliases: ['Alias'] })).toEqual(['Alias'])
+  })
+
+  it('returns empty array when neither displayName nor aliases are set', () => {
+    expect(effectiveBrandNames({})).toEqual([])
+  })
+
+  it('filters aliases that match displayName', () => {
+    expect(effectiveBrandNames({ displayName: 'LlamaIndex', aliases: ['llamaindex', 'LlamaParse'] }))
+      .toEqual(['LlamaIndex', 'LlamaParse'])
+  })
 })
 
 test('run schemas accept expected values and reject invalid statuses', () => {
@@ -691,7 +740,7 @@ describe('determineAnswerMentioned', () => {
   it('matches exact domain mentions in answer text', () => {
     expect(determineAnswerMentioned(
       'Top picks include example.com and other vendors.',
-      'Example Inc',
+      ['Example Inc'],
       ['example.com'],
     )).toBe(true)
   })
@@ -699,7 +748,7 @@ describe('determineAnswerMentioned', () => {
   it('matches display name mentions when the domain is not present', () => {
     expect(determineAnswerMentioned(
       'Example Health is frequently recommended for this workflow.',
-      'Example Health',
+      ['Example Health'],
       ['examplehealth.com'],
     )).toBe(true)
   })
@@ -707,7 +756,7 @@ describe('determineAnswerMentioned', () => {
   it('returns false when neither domain nor brand appears', () => {
     expect(determineAnswerMentioned(
       'Top picks include Contoso and Fabrikam.',
-      'Example Health',
+      ['Example Health'],
       ['examplehealth.com'],
     )).toBe(false)
   })
@@ -717,7 +766,7 @@ describe('extractAnswerMentions', () => {
   it('returns matched domain terms', () => {
     const result = extractAnswerMentions(
       'Top picks include example.com and other vendors.',
-      'Example Inc',
+      ['Example Inc'],
       ['example.com'],
     )
     expect(result.mentioned).toBe(true)
@@ -727,7 +776,7 @@ describe('extractAnswerMentions', () => {
   it('returns matched display name', () => {
     const result = extractAnswerMentions(
       'Example Health is frequently recommended for this workflow.',
-      'Example Health',
+      ['Example Health'],
       ['examplehealth.com'],
     )
     expect(result.mentioned).toBe(true)
@@ -737,7 +786,7 @@ describe('extractAnswerMentions', () => {
   it('returns empty matchedTerms when nothing matches', () => {
     const result = extractAnswerMentions(
       'Top picks include Contoso and Fabrikam.',
-      'Example Health',
+      ['Example Health'],
       ['examplehealth.com'],
     )
     expect(result.mentioned).toBe(false)
@@ -747,7 +796,7 @@ describe('extractAnswerMentions', () => {
   it('returns both domain and display name when both match', () => {
     const result = extractAnswerMentions(
       'According to Example Inc at example.com, this is the best approach.',
-      'Example Inc',
+      ['Example Inc'],
       ['example.com'],
     )
     expect(result.mentioned).toBe(true)
@@ -758,7 +807,7 @@ describe('extractAnswerMentions', () => {
   it('deduplicates matched terms', () => {
     const result = extractAnswerMentions(
       'Visit ainyc.ai for details. AINYC.AI is great.',
-      'AI NYC',
+      ['AI NYC'],
       ['ainyc.ai'],
     )
     expect(result.mentioned).toBe(true)
@@ -767,7 +816,7 @@ describe('extractAnswerMentions', () => {
   })
 
   it('handles null answer text', () => {
-    const result = extractAnswerMentions(null, 'Example', ['example.com'])
+    const result = extractAnswerMentions(null, ['Example'], ['example.com'])
     expect(result.mentioned).toBe(false)
     expect(result.matchedTerms).toEqual([])
   })
@@ -777,7 +826,7 @@ describe('extractAnswerMentions', () => {
     // azcoatingsllc.com; answer says "AZ Coatings (Michigan/Detroit Area)".
     const result = extractAnswerMentions(
       'Local contractors include AZ Coatings (Michigan/Detroit Area), specializing in polyurea roof restoration.',
-      'azcoatings',
+      ['azcoatings'],
       ['azcoatingsllc.com'],
     )
     expect(result.mentioned).toBe(true)
@@ -787,7 +836,7 @@ describe('extractAnswerMentions', () => {
   it('matches when display name has spaces but the answer concatenates it', () => {
     const result = extractAnswerMentions(
       'Visit AZCoatings for industrial polyurea systems.',
-      'AZ Coatings',
+      ['AZ Coatings'],
       ['azcoatingsllc.com'],
     )
     expect(result.mentioned).toBe(true)
@@ -800,7 +849,7 @@ describe('extractAnswerMentions', () => {
     // falsely contain "acme".
     const result = extractAnswerMentions(
       'Find the pa cme report in the archive.',
-      'Acme',
+      ['Acme'],
       ['acme.io'],
     )
     expect(result.mentioned).toBe(false)
@@ -812,7 +861,7 @@ describe('extractAnswerMentions', () => {
     // word, "bob" must not match inside "bobsled".
     const result = extractAnswerMentions(
       'Bobsled racing is fun this winter.',
-      'Bob Inc',
+      ['Bob Inc'],
       ['bob.example.com'],
     )
     expect(result.mentioned).toBe(false)
@@ -823,7 +872,7 @@ describe('extractAnswerMentions', () => {
     // legitimate detections.
     expect(extractAnswerMentions(
       'Bob is great at fixing things.',
-      'Bob Inc',
+      ['Bob Inc'],
       ['bob.example.com'],
     ).mentioned).toBe(true)
   })
@@ -832,28 +881,28 @@ describe('extractAnswerMentions', () => {
     // Spaced form: "AZ Coatings LLC" should match an answer that drops the LLC.
     expect(extractAnswerMentions(
       'Local contractors include AZ Coatings (Michigan/Detroit Area).',
-      'AZ Coatings LLC',
+      ['AZ Coatings LLC'],
       ['azcoatingsllc.com'],
     ).mentioned).toBe(true)
 
     // Concatenated form: "azcoatingsllc" should also match without the suffix.
     expect(extractAnswerMentions(
       'Local contractors include AZ Coatings (Michigan/Detroit Area).',
-      'azcoatingsllc',
+      ['azcoatingsllc'],
       ['azcoatingsllc.com'],
     ).mentioned).toBe(true)
 
     // "Inc" is stripped likewise.
     expect(extractAnswerMentions(
       'According to Sherwin Williams paints are the best.',
-      'Sherwin Williams Inc',
+      ['Sherwin Williams Inc'],
       ['sherwinwilliams.com'],
     ).mentioned).toBe(true)
 
     // "Corporation" (long form) is stripped too.
     expect(extractAnswerMentions(
       'Microsoft is launching a new product line.',
-      'Microsoft Corporation',
+      ['Microsoft Corporation'],
       ['microsoft.com'],
     ).mentioned).toBe(true)
   })
@@ -864,7 +913,7 @@ describe('extractAnswerMentions', () => {
     // the registrable domain's brand label (`example`) is a valid token.
     const result = extractAnswerMentions(
       'Energy Design Systems offers a white-label lead generation tool.',
-      'Demand IQ',
+      ['Demand IQ'],
       ['offers.example.com'],
     )
     expect(result.mentioned).toBe(false)
@@ -874,7 +923,7 @@ describe('extractAnswerMentions', () => {
   it('still matches the registrable brand of a subdomained own domain', () => {
     const result = extractAnswerMentions(
       'Brokers turn to Roofle when they need quick install quotes.',
-      'Roofle',
+      ['Roofle'],
       ['offers.roofle.com'],
     )
     expect(result.mentioned).toBe(true)
@@ -886,13 +935,13 @@ describe('extractAnswerMentions', () => {
     // standalone word.
     expect(extractAnswerMentions(
       'The incident report is attached.',
-      'Inc',
+      ['Inc'],
       ['inc.example.com'],
     ).mentioned).toBe(false)
 
     expect(extractAnswerMentions(
       'Inc said in their filing today.',
-      'Inc',
+      ['Inc'],
       ['inc.example.com'],
     ).mentioned).toBe(true)
   })
@@ -906,39 +955,39 @@ describe('extractAnswerMentions', () => {
     // --- Negative cases (false positives the fix prevents) ---
     expect(extractAnswerMentions(
       'We install ceramic tile, vinyl, and polished concrete in commercial buildings.',
-      'LI',
+      ['LI'],
       ['larrysinteriors.com'],
     ).mentioned).toBe(false)
 
     expect(extractAnswerMentions(
       'The compliance review is scheduled for next week.',
-      'LI',
+      ['LI'],
       ['larrysinteriors.com'],
     ).mentioned).toBe(false)
 
     // --- Positive cases (legitimate matches the fix preserves) ---
     expect(extractAnswerMentions(
       'LI is great for commercial flooring projects.',
-      'LI',
+      ['LI'],
       ['larrysinteriors.com'],
     ).mentioned).toBe(true)
 
     expect(extractAnswerMentions(
       'According to LI, their new line ships in Q3.',
-      'LI',
+      ['LI'],
       ['larrysinteriors.com'],
     ).mentioned).toBe(true)
 
     // --- Domain and full-brand paths still work for short names ---
     expect(extractAnswerMentions(
       'Visit larrysinteriors.com for commercial flooring quotes.',
-      'LI',
+      ['LI'],
       ['larrysinteriors.com'],
     ).mentioned).toBe(true)
 
     expect(extractAnswerMentions(
       "Larry's Interiors has installed flooring across East Texas since 1978.",
-      "Larry's Interiors",
+      ["Larry's Interiors"],
       ['larrysinteriors.com'],
     ).mentioned).toBe(true)
   })
@@ -953,21 +1002,21 @@ describe('extractAnswerMentions', () => {
     // "AB LLC" appears as a phrase
     expect(extractAnswerMentions(
       'AB LLC offers commercial flooring across the region.',
-      'AB LLC',
+      ['AB LLC'],
       ['ab-llc.example.com'],
     ).mentioned).toBe(true)
 
     // "AB LLC" does not appear; should not fire
     expect(extractAnswerMentions(
       'The lab llc-equivalent regulations took effect last year.',
-      'AB LLC',
+      ['AB LLC'],
       ['ab-llc.example.com'],
     ).mentioned).toBe(false)
 
     // "AI NYC" appears as a phrase
     expect(extractAnswerMentions(
       'AI NYC just shipped their new agent platform.',
-      'AI NYC',
+      ['AI NYC'],
       ['ainyc.ai'],
     ).mentioned).toBe(true)
 
@@ -975,7 +1024,7 @@ describe('extractAnswerMentions', () => {
     // false-match the candidate "ai nyc")
     expect(extractAnswerMentions(
       'She said the report is due tomorrow.',
-      'AI NYC',
+      ['AI NYC'],
       ['ainyc.ai'],
     ).mentioned).toBe(false)
   })
@@ -988,7 +1037,7 @@ describe('extractAnswerMentions', () => {
     // reliable signal of brand presence on their own.
     const result = extractAnswerMentions(
       'Roofing repair work requires permits and trained inspectors. Most homeowners pay $300 for a basic roofing inspection.',
-      'Cenco Roofing',
+      ['Cenco Roofing'],
       ['cencoroofing.com'],
     )
     expect(result.mentioned).toBe(false)
@@ -1004,13 +1053,84 @@ describe('extractAnswerMentions', () => {
     // should be exposed as evidence.
     const result = extractAnswerMentions(
       'Denver-area picks: Precision Exteriors (commercial roofing), ESS Roofing & Exteriors (storm damage), and Cenco Roofing for residential work. Budget around $11,000 for a full roofing replacement.',
-      'Cenco Roofing',
+      ['Cenco Roofing'],
       ['cencoroofing.com'],
     )
     expect(result.mentioned).toBe(true)
     expect(result.matchedTerms).toContain('Cenco Roofing')
     expect(result.matchedTerms).toContain('cenco')
     expect(result.matchedTerms).not.toContain('roofing')
+  })
+
+  // ─── Aliases / multi-identity brand matching ────────────────────────────
+
+  it('fires on a standalone alias mention even when displayName is absent', () => {
+    // The LlamaIndex / LlamaParse case. Project displayName="LlamaIndex"
+    // with aliases=["LlamaParse"]; answer mentions only "LlamaParse".
+    // Each brand name is its own identity in the strong-match path.
+    const result = extractAnswerMentions(
+      'LlamaParse is a great parser for PDFs.',
+      ['LlamaIndex', 'LlamaParse'],
+      ['llamaindex.ai'],
+    )
+    expect(result.mentioned).toBe(true)
+    expect(result.matchedTerms).toContain('LlamaParse')
+  })
+
+  it('multi-word name still requires 2 token matches within its own group', () => {
+    // The threshold heuristic is preserved per-identity. "Cenco Roofing"
+    // with no other identities: a single "roofing" mention is not enough.
+    const result = extractAnswerMentions(
+      'Most homeowners pay $300 for a basic roofing inspection.',
+      ['Cenco Roofing'],
+      ['cencoroofing.com'],
+    )
+    expect(result.mentioned).toBe(false)
+  })
+
+  it("explicit alias fires even when displayName tokens don't match", () => {
+    // The LlamaIndex / LlamaParse case. With aliases declared, each alias
+    // runs the strong-match pipeline independently, so a standalone
+    // "LlamaParse" mention fires on the alias's normalized candidate even
+    // though the combined token pool ["llamaindex", "llamaparse"] would
+    // otherwise need 2 matches to clear the multi-token threshold.
+    const result = extractAnswerMentions(
+      'LlamaParse is a great tool for parsing.',
+      ['LlamaIndex', 'LlamaParse'],
+      ['llamaindex.ai', 'llamaparse.com'],
+    )
+    expect(result.mentioned).toBe(true)
+    expect(result.matchedTerms).toContain('LlamaParse')
+  })
+
+  it('empty brandNames array still allows domain-only matching', () => {
+    const result = extractAnswerMentions(
+      'Read more at example.com.',
+      [],
+      ['example.com'],
+    )
+    expect(result.mentioned).toBe(true)
+    expect(result.matchedTerms).toContain('example.com')
+  })
+
+  it('empty brandNames with no domain match returns not-mentioned', () => {
+    const result = extractAnswerMentions(
+      'Nothing relevant here.',
+      [],
+      ['example.com'],
+    )
+    expect(result.mentioned).toBe(false)
+    expect(result.matchedTerms).toEqual([])
+  })
+
+  it('skips empty / whitespace-only brand names without crashing', () => {
+    const result = extractAnswerMentions(
+      'Example Health is great.',
+      ['', '   ', 'Example Health'],
+      ['examplehealth.com'],
+    )
+    expect(result.mentioned).toBe(true)
+    expect(result.matchedTerms).toContain('Example Health')
   })
 })
 

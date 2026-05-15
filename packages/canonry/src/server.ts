@@ -64,6 +64,7 @@ import { executeBingInspectSitemap } from './bing-inspect-sitemap.js'
 import { executeReleaseSync } from './commoncrawl-sync.js'
 import { executeBacklinkExtract } from './backlink-extract.js'
 import { executeDiscoveryRun } from './discovery-run.js'
+import { backfillProjectAnswerMentions } from './commands/backfill.js'
 import {
   DUCKDB_SPEC,
   PLUGIN_DIR,
@@ -1210,6 +1211,25 @@ export async function createServer(opts: {
     },
     onProjectDeleted: (projectId: string) => {
       scheduler.removeAllForProject(projectId)
+    },
+    onAliasesChanged: (projectId: string, projectName: string) => {
+      // Aliases feed `extractAnswerMentions` at run-time, but the resulting
+      // boolean is frozen on `query_snapshots.answer_mentioned`. Rewrite
+      // historical rows so the report + landscape dashboards line up with
+      // the new alias set on next refresh. Deferred to setImmediate so the
+      // PUT response goes out first; better-sqlite3 is sync so the actual
+      // backfill blocks the event loop for the duration of the rebuild.
+      setImmediate(() => {
+        try {
+          const result = backfillProjectAnswerMentions(opts.db, projectId)
+          app.log.info(
+            { projectId, projectName, ...result },
+            'aliases changed — recomputed mention fields on historical snapshots',
+          )
+        } catch (err) {
+          app.log.error({ err, projectId, projectName }, 'alias-triggered backfill failed')
+        }
+      })
     },
     getTelemetryStatus: () => {
       const enabled = isTelemetryEnabled()
