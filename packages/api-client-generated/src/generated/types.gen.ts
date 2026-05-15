@@ -566,10 +566,44 @@ export type Ga4SyncResponseDto = {
     syncedComponents?: Array<string>;
 };
 
+export type GbpLocationDto = {
+    id: string;
+    projectId: string;
+    accountName: string;
+    locationName: string;
+    displayName: string;
+    primaryCategoryDisplayName: string | null;
+    storefrontAddress: string | null;
+    websiteUri: string | null;
+    selected: boolean;
+    syncedAt: string | null;
+    createdAt: string;
+    updatedAt: string;
+};
+
+export type GbpLocationListResponse = {
+    locations: Array<{
+        id: string;
+        projectId: string;
+        accountName: string;
+        locationName: string;
+        displayName: string;
+        primaryCategoryDisplayName: string | null;
+        storefrontAddress: string | null;
+        websiteUri: string | null;
+        selected: boolean;
+        syncedAt: string | null;
+        createdAt: string;
+        updatedAt: string;
+    }>;
+    totalDiscovered: number;
+    totalSelected: number;
+};
+
 export type GoogleConnectionDto = {
     id: string;
     domain: string;
-    connectionType: 'gsc' | 'ga4';
+    connectionType: 'gsc' | 'ga4' | 'gbp';
     propertyId?: string | null;
     sitemapUrl?: string | null;
     scopes: Array<string>;
@@ -3945,7 +3979,7 @@ export type GetApiV1ProjectsByNameGoogleConnectionsResponse = GetApiV1ProjectsBy
 
 export type PostApiV1ProjectsByNameGoogleConnectData = {
     body: {
-        type: 'gsc' | 'ga4';
+        type: 'gsc' | 'ga4' | 'gbp';
         propertyId?: string;
         publicUrl?: string;
     };
@@ -3989,7 +4023,7 @@ export type DeleteApiV1ProjectsByNameGoogleConnectionsByTypeData = {
         /**
          * Google connection type.
          */
-        type: 'gsc' | 'ga4';
+        type: 'gsc' | 'ga4' | 'gbp';
     };
     query?: never;
     url: '/api/v1/projects/{name}/google/connections/{type}';
@@ -4059,7 +4093,7 @@ export type PutApiV1ProjectsByNameGoogleConnectionsByTypePropertyData = {
         /**
          * Google connection type.
          */
-        type: 'gsc' | 'ga4';
+        type: 'gsc' | 'ga4' | 'gbp';
     };
     query?: never;
     url: '/api/v1/projects/{name}/google/connections/{type}/property';
@@ -4099,7 +4133,7 @@ export type PutApiV1ProjectsByNameGoogleConnectionsByTypeSitemapData = {
         /**
          * Google connection type.
          */
-        type: 'gsc' | 'ga4';
+        type: 'gsc' | 'ga4' | 'gbp';
     };
     query?: never;
     url: '/api/v1/projects/{name}/google/connections/{type}/sitemap';
@@ -4578,6 +4612,151 @@ export type PostApiV1ProjectsByNameGoogleIndexingRequestResponses = {
 };
 
 export type PostApiV1ProjectsByNameGoogleIndexingRequestResponse = PostApiV1ProjectsByNameGoogleIndexingRequestResponses[keyof PostApiV1ProjectsByNameGoogleIndexingRequestResponses];
+
+export type PostApiV1ProjectsByNameGbpLocationsDiscoverData = {
+    body?: {
+        selectAllNew?: boolean;
+    };
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/gbp/locations/discover';
+};
+
+export type PostApiV1ProjectsByNameGbpLocationsDiscoverErrors = {
+    /**
+     * Invalid discover request or scope/API problem.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * GBP API quota exceeded (access form may not be approved).
+     */
+    429: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameGbpLocationsDiscoverError = PostApiV1ProjectsByNameGbpLocationsDiscoverErrors[keyof PostApiV1ProjectsByNameGbpLocationsDiscoverErrors];
+
+export type PostApiV1ProjectsByNameGbpLocationsDiscoverResponses = {
+    /**
+     * List of discovered locations and selection summary returned.
+     */
+    200: GbpLocationListResponse;
+};
+
+export type PostApiV1ProjectsByNameGbpLocationsDiscoverResponse = PostApiV1ProjectsByNameGbpLocationsDiscoverResponses[keyof PostApiV1ProjectsByNameGbpLocationsDiscoverResponses];
+
+export type GetApiV1ProjectsByNameGbpLocationsData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Filter to selected=true or selected=false
+         */
+        selected?: 'true' | 'false';
+    };
+    url: '/api/v1/projects/{name}/gbp/locations';
+};
+
+export type GetApiV1ProjectsByNameGbpLocationsErrors = {
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameGbpLocationsError = GetApiV1ProjectsByNameGbpLocationsErrors[keyof GetApiV1ProjectsByNameGbpLocationsErrors];
+
+export type GetApiV1ProjectsByNameGbpLocationsResponses = {
+    /**
+     * List of locations returned.
+     */
+    200: GbpLocationListResponse;
+};
+
+export type GetApiV1ProjectsByNameGbpLocationsResponse = GetApiV1ProjectsByNameGbpLocationsResponses[keyof GetApiV1ProjectsByNameGbpLocationsResponses];
+
+export type PutApiV1ProjectsByNameGbpLocationsByLocationNameSelectionData = {
+    body: {
+        selected: boolean;
+    };
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+        /**
+         * URL-encoded "locations/{n}" resource name
+         */
+        locationName: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/gbp/locations/{locationName}/selection';
+};
+
+export type PutApiV1ProjectsByNameGbpLocationsByLocationNameSelectionErrors = {
+    /**
+     * Invalid selection request.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project or location not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type PutApiV1ProjectsByNameGbpLocationsByLocationNameSelectionError = PutApiV1ProjectsByNameGbpLocationsByLocationNameSelectionErrors[keyof PutApiV1ProjectsByNameGbpLocationsByLocationNameSelectionErrors];
+
+export type PutApiV1ProjectsByNameGbpLocationsByLocationNameSelectionResponses = {
+    /**
+     * Updated location returned.
+     */
+    200: GbpLocationDto;
+};
+
+export type PutApiV1ProjectsByNameGbpLocationsByLocationNameSelectionResponse = PutApiV1ProjectsByNameGbpLocationsByLocationNameSelectionResponses[keyof PutApiV1ProjectsByNameGbpLocationsByLocationNameSelectionResponses];
+
+export type DeleteApiV1ProjectsByNameGbpConnectionData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/gbp/connection';
+};
+
+export type DeleteApiV1ProjectsByNameGbpConnectionErrors = {
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type DeleteApiV1ProjectsByNameGbpConnectionError = DeleteApiV1ProjectsByNameGbpConnectionErrors[keyof DeleteApiV1ProjectsByNameGbpConnectionErrors];
+
+export type DeleteApiV1ProjectsByNameGbpConnectionResponses = {
+    /**
+     * Disconnected.
+     */
+    204: void;
+};
+
+export type DeleteApiV1ProjectsByNameGbpConnectionResponse = DeleteApiV1ProjectsByNameGbpConnectionResponses[keyof DeleteApiV1ProjectsByNameGbpConnectionResponses];
 
 export type PostApiV1ProjectsByNameBingConnectData = {
     body: {

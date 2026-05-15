@@ -674,10 +674,10 @@ export async function createServer(opts: {
 
   const googleConnectionStore = {
     listConnections: (domain: string) => listGoogleConnections(opts.config, domain),
-    getConnection: (domain: string, connectionType: 'gsc' | 'ga4') => getGoogleConnection(opts.config, domain, connectionType),
+    getConnection: (domain: string, connectionType: 'gsc' | 'ga4' | 'gbp') => getGoogleConnection(opts.config, domain, connectionType),
     upsertConnection: (connection: {
       domain: string
-      connectionType: 'gsc' | 'ga4'
+      connectionType: 'gsc' | 'ga4' | 'gbp'
       propertyId?: string | null
       sitemapUrl?: string | null
       accessToken?: string
@@ -694,7 +694,7 @@ export async function createServer(opts: {
     },
     updateConnection: (
       domain: string,
-      connectionType: 'gsc' | 'ga4',
+      connectionType: 'gsc' | 'ga4' | 'gbp',
       patch: Partial<{
         propertyId?: string | null
         sitemapUrl?: string | null
@@ -709,7 +709,7 @@ export async function createServer(opts: {
       if (updated) saveConfigPatch(opts.config)
       return updated
     },
-    deleteConnection: (domain: string, connectionType: 'gsc' | 'ga4') => {
+    deleteConnection: (domain: string, connectionType: 'gsc' | 'ga4' | 'gbp') => {
       const removed = removeGoogleConnection(opts.config, domain, connectionType)
       if (removed) saveConfigPatch(opts.config)
       return removed

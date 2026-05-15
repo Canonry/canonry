@@ -1,7 +1,7 @@
-export const CANONRY_MCP_TIERS = ['core', 'monitoring', 'setup', 'gsc', 'ga', 'traffic', 'agent', 'discovery'] as const
+export const CANONRY_MCP_TIERS = ['core', 'monitoring', 'setup', 'gsc', 'ga', 'gbp', 'traffic', 'agent', 'discovery'] as const
 export type CanonryMcpTier = typeof CANONRY_MCP_TIERS[number]
 
-export const CANONRY_MCP_TOOLKIT_NAMES = ['monitoring', 'setup', 'gsc', 'ga', 'traffic', 'agent', 'discovery'] as const
+export const CANONRY_MCP_TOOLKIT_NAMES = ['monitoring', 'setup', 'gsc', 'ga', 'gbp', 'traffic', 'agent', 'discovery'] as const
 export type CanonryMcpToolkitName = typeof CANONRY_MCP_TOOLKIT_NAMES[number]
 
 export interface CanonryMcpToolkit {
@@ -35,6 +35,12 @@ export const CANONRY_MCP_TOOLKITS: readonly CanonryMcpToolkit[] = [
     title: 'Google Analytics 4',
     description: 'Read GA traffic, AI/social referral history, attribution trend, and session history.',
     whenToLoad: 'Load when you need traffic, referral, or attribution data from Google Analytics 4.',
+  },
+  {
+    name: 'gbp',
+    title: 'Google Business Profile',
+    description: 'Local AEO signals: discover GBP locations under a connected account and toggle which ones sync. Future phases will add reviews, Q&A coverage, keyword impressions, daily performance metrics, and hotel attributes.',
+    whenToLoad: 'Load when the project tracks local search visibility or has connected Google Business Profile.',
   },
   {
     name: 'traffic',

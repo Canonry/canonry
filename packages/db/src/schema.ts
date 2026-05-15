@@ -859,3 +859,25 @@ export const migrationsTable = sqliteTable('_migrations', {
   name: text('name').notNull(),
   appliedAt: text('applied_at').notNull(),
 })
+
+// Google Business Profile locations — one row per discovered location.
+// `selected` controls which locations are pulled during gbp-sync runs.
+// Resource names are kept in full form (`accounts/{n}` and `locations/{n}`)
+// because both v1 and v4 endpoints expect the full path.
+export const gbpLocations = sqliteTable('gbp_locations', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  accountName: text('account_name').notNull(),
+  locationName: text('location_name').notNull(),
+  displayName: text('display_name').notNull(),
+  primaryCategoryDisplayName: text('primary_category_display_name'),
+  storefrontAddress: text('storefront_address'),
+  websiteUri: text('website_uri'),
+  selected: integer('selected', { mode: 'boolean' }).notNull().default(true),
+  syncedAt: text('synced_at'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  index('idx_gbp_locations_project').on(table.projectId),
+  uniqueIndex('uniq_gbp_locations_project_location').on(table.projectId, table.locationName),
+])
