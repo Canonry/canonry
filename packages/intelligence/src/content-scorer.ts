@@ -128,10 +128,16 @@ function buildDrivers(input: ScorerInput): string[] {
     drivers.push('no existing page')
   }
 
-  if (input.position !== null && input.position > 30) {
-    drivers.push(`page ranks #${input.position} (effectively invisible)`)
-  } else if (input.position !== null && input.position > 10) {
-    drivers.push(`page ranks #${input.position}`)
+  if (input.position !== null) {
+    // GSC positions are averaged across impressions, so float values are
+    // legitimate — but `#59.666666666666664` reads as a debug artifact in
+    // client-facing copy. Round to integer for display.
+    const positionDisplay = Math.round(input.position)
+    if (input.position > 30) {
+      drivers.push(`page ranks #${positionDisplay} (effectively invisible)`)
+    } else if (input.position > 10) {
+      drivers.push(`page ranks #${positionDisplay}`)
+    }
   }
 
   if (input.action === 'add-schema') {
