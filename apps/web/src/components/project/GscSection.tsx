@@ -565,47 +565,35 @@ export function GscSection({
         <p className="text-sm text-zinc-500">{'Loading\u2026'}</p>
       ) : (
         <div className="space-y-3">
-          <Card className="surface-card">
-            <div className="section-head section-head-inline">
-              <div>
-                <p className="eyebrow eyebrow-soft">Connection</p>
-                <h3>Domain authorization</h3>
-              </div>
-              <ToneBadge tone={gscConn ? 'positive' : googleConfigured ? 'caution' : 'negative'}>
-                {gscConn ? 'Connected' : googleConfigured ? 'Ready to connect' : 'App credentials missing'}
-              </ToneBadge>
+          {gscConn ? (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1 text-xs text-zinc-500">
+              <span className="flex items-center gap-1.5">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                <span className="text-zinc-300">Authorized</span>
+              </span>
+              <span className="text-zinc-700">·</span>
+              <code className="text-zinc-400">{gscConn.domain}</code>
+              <span className="text-zinc-700">·</span>
+              <span>Last updated {formatTimestamp(gscConn.updatedAt)}</span>
+              <button
+                type="button"
+                className="ml-auto text-zinc-500 transition-colors hover:text-rose-400"
+                onClick={handleDisconnect}
+              >
+                Disconnect
+              </button>
             </div>
-            {gscConn ? (
-              <div className="mt-3 space-y-3">
-                <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/30 px-4 py-3">
-                  <div className="flex items-center gap-3">
-                    <span className="h-2 w-2 rounded-full bg-emerald-500" />
-                    <span className="text-sm text-zinc-200">Authorized for this project domain</span>
-                    <span className="text-xs text-zinc-500">{gscConn.domain}</span>
-                    <button
-                      type="button"
-                      className="ml-auto text-xs text-zinc-500 hover:text-rose-400 transition-colors"
-                      onClick={handleDisconnect}
-                    >
-                      Disconnect
-                    </button>
-                  </div>
-                  <p className="mt-2 text-xs text-zinc-500">
-                    Canonry stores OAuth tokens per canonical domain. This project currently maps to <code>{gscConn.domain}</code>.
-                  </p>
+          ) : (
+            <Card className="surface-card">
+              <div className="section-head section-head-inline">
+                <div>
+                  <p className="eyebrow eyebrow-soft">Connection</p>
+                  <h3>Domain authorization</h3>
                 </div>
-                <div className="grid gap-3 lg:grid-cols-2">
-                  <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/20 p-3">
-                    <p className="text-xs uppercase tracking-wide text-zinc-500">Selected property</p>
-                    <p className="mt-1 text-sm text-zinc-200">{gscConn.propertyId ?? 'No property selected yet'}</p>
-                  </div>
-                  <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/20 p-3">
-                    <p className="text-xs uppercase tracking-wide text-zinc-500">Last auth update</p>
-                    <p className="mt-1 text-sm text-zinc-200">{formatTimestamp(gscConn.updatedAt)}</p>
-                  </div>
-                </div>
+                <ToneBadge tone={googleConfigured ? 'caution' : 'negative'}>
+                  {googleConfigured ? 'Ready to connect' : 'App credentials missing'}
+                </ToneBadge>
               </div>
-            ) : (
               <div className="mt-3 rounded-lg border border-zinc-800/60 bg-zinc-900/30 px-4 py-5">
                 <p className="text-sm text-zinc-300">
                   {googleConfigured
@@ -627,8 +615,8 @@ export function GscSection({
                   )}
                 </div>
               </div>
-            )}
-          </Card>
+            </Card>
+          )}
 
           {/* One-time sitemap prompt — shown when connected but no sitemap URL stored */}
           {gscConn && !gscConn.sitemapUrl && (
