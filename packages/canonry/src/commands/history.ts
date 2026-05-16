@@ -1,4 +1,4 @@
-import { createApiClient, type AuditLogEntry } from '../client.js'
+import { createApiClient } from '../client.js'
 import { CliError } from '../cli-error.js'
 
 function getClient() {

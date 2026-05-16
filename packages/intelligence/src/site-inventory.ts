@@ -63,8 +63,12 @@ export function buildInventory(input: InventoryInput): SitePage[] {
 function extractPath(url: string): string {
   const trimmed = url.trim()
   if (!trimmed) return ''
-  const match = /^https?:\/\/[^/]+(.*)$/.exec(trimmed)
-  const path = match ? match[1] : trimmed
+  let path: string
+  try {
+    path = new URL(trimmed).pathname
+  } catch {
+    path = trimmed
+  }
   const stripped = path.replace(/\/+$/, '')
   return stripped || '/'
 }

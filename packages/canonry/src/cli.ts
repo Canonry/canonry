@@ -2,7 +2,7 @@
 import { pathToFileURL } from 'node:url'
 import { trackEvent, isTelemetryEnabled, isFirstRun, getOrCreateAnonymousId, showFirstRunNotice, detectAndTrackUpgrade } from './telemetry.js'
 import { buildSetupState } from './setup-state.js'
-import { CliError, EXIT_SYSTEM_ERROR, EXIT_USER_ERROR, printCliError, usageError } from './cli-error.js'
+import { CliError, EXIT_SYSTEM_ERROR, printCliError, usageError } from './cli-error.js'
 import { dispatchRegisteredCommand } from './cli-dispatch.js'
 import { REGISTERED_CLI_COMMANDS } from './cli-commands.js'
 import { checkLatestVersionForCli } from './update-check.js'

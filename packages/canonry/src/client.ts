@@ -44,8 +44,6 @@ import type {
   GscUrlInspectionDto,
   GscCoverageSummaryDto,
   GscCoverageSnapshotDto,
-  GscReasonGroup,
-  IndexingRequestResultDto,
   InsightDto,
   HealthSnapshotDto,
   CitationVisibilityResponse,

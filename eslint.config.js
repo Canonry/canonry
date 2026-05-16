@@ -1,5 +1,6 @@
 import js from '@eslint/js'
 import globals from 'globals'
+import regexpPlugin from 'eslint-plugin-regexp'
 import tseslint from 'typescript-eslint'
 
 const ALT_CHART_LIB_PATHS = [
@@ -62,6 +63,10 @@ export default tseslint.config(
     },
   },
   {
+    files: ['**/*.js', '**/*.ts', '**/*.tsx'],
+    extends: [regexpPlugin.configs['flat/recommended']],
+  },
+  {
     files: ['**/*.js'],
     extends: [js.configs.recommended],
     languageOptions: {
@@ -70,7 +75,7 @@ export default tseslint.config(
       },
     },
     rules: {
-      'no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^[_A-Z]' }],
+      'no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_' }],
     },
   },
   {
@@ -83,8 +88,49 @@ export default tseslint.config(
     },
     rules: {
       'no-unused-vars': 'off',
-      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^[_A-Z]' }],
+      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_' }],
       'no-warning-comments': ['warn', { terms: ['todo', 'fixme', 'hack', 'xxx'], location: 'start' }],
+    },
+  },
+  {
+    // Type-aware rules — limited to `src/` because test files aren't in package tsconfigs'
+    // `include` and would trigger projectService parsing errors. Adds @typescript-eslint/no-unnecessary-condition
+    // to catch always-true/always-false comparisons (e.g. checking !== undefined on a narrowed type).
+    files: ['**/src/**/*.ts', '**/src/**/*.tsx'],
+    extends: [...tseslint.configs.recommendedTypeChecked],
+    languageOptions: {
+      parserOptions: {
+        projectService: true,
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
+    rules: {
+      // Surfaced as `warn` to ship the rule without breaking CI on the ~360 pre-existing findings
+      // (mostly defensive `?.` chains on already-narrowed types). Plan: clean up warns incrementally,
+      // then flip to `error`. The original always-true `selectedRun !== undefined` bug class is
+      // already caught — warnings show up in CI output, so new regressions are visible.
+      '@typescript-eslint/no-unnecessary-condition': 'warn',
+      // The recommendedTypeChecked preset turns on a lot of opinionated rules. We only want the one above
+      // for now — disable the rest to avoid landing a giant cleanup we didn't scope for.
+      '@typescript-eslint/no-misused-promises': 'off',
+      '@typescript-eslint/no-floating-promises': 'off',
+      '@typescript-eslint/no-unsafe-assignment': 'off',
+      '@typescript-eslint/no-unsafe-member-access': 'off',
+      '@typescript-eslint/no-unsafe-call': 'off',
+      '@typescript-eslint/no-unsafe-return': 'off',
+      '@typescript-eslint/no-unsafe-argument': 'off',
+      '@typescript-eslint/restrict-template-expressions': 'off',
+      '@typescript-eslint/no-redundant-type-constituents': 'off',
+      '@typescript-eslint/no-base-to-string': 'off',
+      '@typescript-eslint/require-await': 'off',
+      '@typescript-eslint/await-thenable': 'off',
+      '@typescript-eslint/unbound-method': 'off',
+      '@typescript-eslint/no-duplicate-type-constituents': 'off',
+      '@typescript-eslint/no-implied-eval': 'off',
+      '@typescript-eslint/prefer-promise-reject-errors': 'off',
+      '@typescript-eslint/only-throw-error': 'off',
+      '@typescript-eslint/restrict-plus-operands': 'off',
+      '@typescript-eslint/no-unnecessary-type-assertion': 'off',
     },
   },
   {

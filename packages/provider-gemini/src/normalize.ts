@@ -297,7 +297,7 @@ function extractCitedDomainsFromSources(groundingSources: GroundingSource[]): st
 
 function extractDomainFromTitle(title: string): string | null {
   const trimmed = title.trim().toLowerCase()
-  if (/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z]{2,})+$/.test(trimmed)) {
+  if (/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z]{2,})+$/.test(trimmed)) {
     return trimmed.replace(/^www\./, '')
   }
   return null

@@ -17,7 +17,7 @@ interface BingInspectSitemapOptions {
 
 function parseBingDate(value: string | undefined | null): string | null {
   if (!value) return null
-  const match = /\/Date\((-?\d+)[^)]*\)\//.exec(value)
+  const match = /\/Date\((-?\d+)(?:[-+]\d+)?\)\//.exec(value)
   if (!match) return null
   const ms = parseInt(match[1]!, 10)
   if (ms <= 0) return null
@@ -28,7 +28,7 @@ function isBlockingIssueType(issueType: string | null | undefined): boolean {
   if (!issueType) return true
   const trimmed = issueType.trim()
   if (!trimmed) return true
-  return trimmed.split(/\s+/).some((flag) => !/^(None|Seo(Issues|Concerns))$/i.test(flag))
+  return trimmed.split(/\s+/).some((flag) => !/^(?:None|Seo(?:Issues|Concerns))$/i.test(flag))
 }
 
 export async function executeBingInspectSitemap(

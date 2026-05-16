@@ -4,7 +4,7 @@ import {
   CheckStatuses,
 } from '@ainyc/canonry-contracts'
 import { getSites } from '@ainyc/canonry-integration-bing'
-import type { CheckDefinition, CheckOutput } from '../types.js'
+import type { CheckDefinition } from '../types.js'
 
 export const BING_AUTH_CHECKS: readonly CheckDefinition[] = [
   {

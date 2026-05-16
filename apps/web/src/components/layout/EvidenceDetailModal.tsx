@@ -344,11 +344,11 @@ export function EvidenceDetailModal({
         elements.push(<hr key={key++} className="border-zinc-800/60 my-3" />)
         continue
       }
-      const headingMatch = line.match(/^(#{1,3})\s+(.+)$/)
+      const headingMatch = line.match(/^(#{1,3})\s+(\S.*)$/)
       if (headingMatch) {
         flushPara()
         const level = headingMatch[1].length
-        const text = headingMatch[2].replace(/^[\p{Emoji}\p{Emoji_Component}\s#]+/u, '').trim() || headingMatch[2]
+        const text = headingMatch[2].replace(/^[\p{Emoji}\p{Emoji_Component}\s]+/u, '').trim() || headingMatch[2]
         const cls = level === 1
           ? 'text-[13px] font-semibold text-zinc-100 mt-4 mb-1'
           : level === 2

@@ -31,7 +31,7 @@ function parseDescription(body: string): string {
   if (end === -1) return '(no description)'
   const block = body.slice(3, end)
   for (const line of block.split('\n')) {
-    const match = line.match(/^description:\s*(.+)$/)
+    const match = line.match(/^description:\s*(\S.*)$/)
     if (match) return match[1].trim().replace(/^["']|["']$/g, '')
   }
   return '(no description)'

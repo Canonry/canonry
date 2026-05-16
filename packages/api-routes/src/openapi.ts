@@ -3388,6 +3388,6 @@ function buildOperationId(method: HttpMethod, path: string): string {
 
   return [method, ...parts]
     .join('-')
-    .replace(/[^a-zA-Z0-9]+(.)/g, (_match, char: string) => char.toUpperCase())
-    .replace(/^[^a-zA-Z]+/, '')
+    .replace(/[^a-z0-9]+(.)/gi, (_match, char: string) => char.toUpperCase())
+    .replace(/^[^a-z]+/i, '')
 }

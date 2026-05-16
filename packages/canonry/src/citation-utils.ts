@@ -120,10 +120,10 @@ export function extractRecommendedCompetitors(
   if (knownCompetitorKeys.size === 0) return []
 
   const candidatePatterns = [
-    /^\s*(?:[-*]|\d+\.)\s+(?:\*\*)?([A-Z0-9][A-Za-z0-9][\w\s.&',/()-]{1,50}?)(?:\*\*)?\s*[:\u2014\u2013–-]/gm,
-    /\*\*([A-Z0-9][A-Za-z0-9][\w\s.&',/()-]{1,50}?)\*\*/g,
+    /^\s*(?:[-*]|\d+\.)\s+(?:\*\*)?([A-Z0-9][A-Za-z0-9][\w\s.&',/()-]{1,50}?)(?:\*\*)?\s*[:\u2014\u2013-]/gm,
+    /\*\*([A-Z0-9][A-Za-z0-9][\w\s.&',/()-]{1,50})\*\*/g,
     /^#{1,4}\s+(?:\d+\.\s+)?(?:\*\*)?([A-Z0-9][A-Za-z0-9][\w\s.&',/()-]{1,50}?)(?:\*\*)?$/gm,
-    /\[([A-Z0-9][A-Za-z0-9][\w\s.&',/()-]{1,50}?)\]\(https?:\/\/[^\s)]+\)/g,
+    /\[([A-Z0-9][A-Za-z0-9][\w\s.&',/()-]{1,50})\]\(https?:\/\/[^\s)]+\)/g,
   ]
   const genericKeys = new Set([
     'additional',

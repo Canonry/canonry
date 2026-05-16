@@ -584,8 +584,13 @@ export function normalizeDomain(domain: string): string {
 
 function extractPath(url: string): string {
   if (!url) return ''
-  const match = /^https?:\/\/[^/]+(.*)$/.exec(url.trim())
-  const path = match ? match[1] : url.trim()
+  const trimmed = url.trim()
+  let path: string
+  try {
+    path = new URL(trimmed).pathname
+  } catch {
+    path = trimmed
+  }
   const stripped = path.replace(/\/+$/, '')
   return stripped || '/'
 }

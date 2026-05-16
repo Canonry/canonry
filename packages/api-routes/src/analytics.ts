@@ -4,7 +4,7 @@ import { filterTrackedSnapshots, groupRunsByCreatedAt, pickGroupRepresentative, 
 import { categorizeSource, categoryLabel, CitationStates, parseWindow, windowCutoff } from '@ainyc/canonry-contracts'
 import type {
   BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto,
-  MetricsWindow, TimeBucket, TrendDirection, GapQuery, GapCategory,
+  TimeBucket, TrendDirection, GapQuery, GapCategory,
   SourceCategory, SourceCategoryCount, ProviderMetric, QueryChangeEvent,
 } from '@ainyc/canonry-contracts'
 import { resolveProject, resolveSnapshotAnswerMentioned } from './helpers.js'

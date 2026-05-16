@@ -265,22 +265,6 @@ export async function defaultResolveAccessToken(record: CloudRunCredentialRecord
 }
 
 /**
- * Result of pulling events from a source-type-specific adapter during a sync.
- * Both adapters return normalized events; only adapters that paginate via an
- * opaque cursor (currently WordPress) populate `nextCursor` for the rollup
- * transaction to persist on the source row.
- */
-interface SyncPullOutcome {
-  events: NormalizedTrafficRequest[]
-  /**
-   * Opaque cursor returned by the adapter for resume on the next sync. Only
-   * cursor-pull adapters populate this; time-window adapters leave it
-   * undefined and the transaction does not touch `lastCursor`.
-   */
-  nextCursor?: string
-}
-
-/**
  * Per-source-type pull function for a backfill window. Receives the
  * `[windowStart, windowEnd)` bounds and returns a flat list of
  * `NormalizedTrafficRequest` for the entire window. Each adapter handles

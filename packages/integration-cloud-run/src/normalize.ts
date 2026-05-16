@@ -14,7 +14,7 @@ function numberOrNull(value: string | number | undefined): number | null {
 
 function latencyToMs(value: string | undefined): number | null {
   if (!value) return null
-  const secondsMatch = /^([0-9]+(?:\.[0-9]+)?)s$/.exec(value.trim())
+  const secondsMatch = /^(\d+(?:\.\d+)?)s$/.exec(value.trim())
   if (!secondsMatch) return null
   const seconds = Number(secondsMatch[1])
   return Number.isFinite(seconds) ? Math.round(seconds * 1_000_000) / 1000 : null

@@ -11,10 +11,10 @@
  * drop opportunities.
  */
 
-const TRANSACTIONAL = /\b(buy|price|pricing|cost|cheap|discount|coupon|deal|sale|trial|plan)\b/i
+const TRANSACTIONAL = /\b(?:buy|price|pricing|cost|cheap|discount|coupon|deal|sale|trial|plan)\b/i
 
 const NAVIGATIONAL =
-  /\b(login|sign[- ]?in|contact|support|help|download|app|homepage)\b|\.(com|io|net|org|app|ai)\b/i
+  /\b(?:login|sign[- ]?in|contact|support|help|download|app|homepage)\b|\.(?:com|io|net|org|app|ai)\b/i
 
 export function isBlogShapedQuery(query: string): boolean {
   const trimmed = query.trim()

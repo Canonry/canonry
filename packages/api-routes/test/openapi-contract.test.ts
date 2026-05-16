@@ -42,7 +42,7 @@ function normalizeObservedRoutes(observedRoutes: Array<{ method: string; url: st
         .split(',')
         .map((value) => value.trim().toLowerCase())
         .filter((value) => value && value !== 'head')
-        .map((value) => `${value} ${url.replace(/:([A-Za-z0-9_]+)/g, '{$1}')}`)
+        .map((value) => `${value} ${url.replace(/:(\w+)/g, '{$1}')}`)
     })
     .sort()
 }
