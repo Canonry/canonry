@@ -32,20 +32,21 @@ export const QUERY_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['query', 'replace'],
-    usage: 'canonry query replace <project> <query...> [--format json]',
+    usage: 'canonry query replace <project> <query...> [--dry-run] [--format json]',
+    supportsDryRun: true,
     run: async (input) => {
-      const project = requireProject(input, 'query.replace', 'canonry query replace <project> <query...> [--format json]')
+      const project = requireProject(input, 'query.replace', 'canonry query replace <project> <query...> [--dry-run] [--format json]')
       const queries = input.positionals.slice(1)
       if (queries.length === 0) {
-        throw usageError('Error: project name and at least one query required\nUsage: canonry query replace <project> <query...> [--format json]', {
+        throw usageError('Error: project name and at least one query required\nUsage: canonry query replace <project> <query...> [--dry-run] [--format json]', {
           message: 'project name and at least one query required',
           details: {
             command: 'query.replace',
-            usage: 'canonry query replace <project> <query...> [--format json]',
+            usage: 'canonry query replace <project> <query...> [--dry-run] [--format json]',
           },
         })
       }
-      await replaceQueries(project, queries, input.format)
+      await replaceQueries(project, queries, { dryRun: input.dryRun, format: input.format })
     },
   },
   {

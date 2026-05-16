@@ -75,6 +75,7 @@ const expectedToolNames = [
   'canonry_queries_generate',
   'canonry_keywords_generate',
   'canonry_queries_replace',
+  'canonry_queries_replace_preview',
   'canonry_keywords_replace',
   'canonry_run_trigger',
   'canonry_run_cancel',
@@ -102,8 +103,8 @@ const expectedToolNames = [
 
 describe('MCP tool registry', () => {
   it('ships the curated v1 surface', () => {
-    expect(CANONRY_MCP_TOOL_COUNT).toBe(82)
-    expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(53)
+    expect(CANONRY_MCP_TOOL_COUNT).toBe(83)
+    expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(54)
     expect(canonryMcpTools.map(tool => tool.name)).toEqual(expectedToolNames)
     const readNames = canonryMcpTools.filter(tool => tool.access === 'read').map(tool => tool.name)
     expect(getCanonryMcpTools('read-only').map(tool => tool.name)).toEqual(readNames)
@@ -140,7 +141,7 @@ describe('MCP tool registry', () => {
       counts.set(tool.tier, (counts.get(tool.tier) ?? 0) + 1)
     }
     expect(counts.get('monitoring')).toBe(16)
-    expect(counts.get('setup')).toBe(22)
+    expect(counts.get('setup')).toBe(23)
     expect(counts.get('gsc')).toBe(7)
     expect(counts.get('ga')).toBe(8)
     expect(counts.get('traffic')).toBe(9)
@@ -555,6 +556,7 @@ const handlerCases: HandlerCase[] = [
   { tool: 'canonry_queries_generate', input: { project: 'acme', request: { provider: 'gemini', count: 3 } }, methods: ['generateQueries'] },
   { tool: 'canonry_keywords_generate', input: { project: 'acme', request: { provider: 'gemini', count: 3 } }, methods: ['generateKeywords'] },
   { tool: 'canonry_queries_replace', input: { project: 'acme', request: { queries: ['alpha'] } }, methods: ['putQueries'] },
+  { tool: 'canonry_queries_replace_preview', input: { project: 'acme', request: { queries: ['alpha'] } }, methods: ['previewReplaceQueries'] },
   { tool: 'canonry_keywords_replace', input: { project: 'acme', request: { keywords: ['alpha'] } }, methods: ['putKeywords'] },
   { tool: 'canonry_run_trigger', input: { project: 'acme', request: { providers: ['gemini'] } }, methods: ['triggerRun'] },
   { tool: 'canonry_run_cancel', input: { runId: 'run-1' }, methods: ['cancelRun'] },

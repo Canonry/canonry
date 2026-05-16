@@ -1024,6 +1024,17 @@ export const canonryMcpTools = [
     },
   }),
   defineTool({
+    name: 'canonry_queries_replace_preview',
+    title: 'Preview query replace',
+    description: 'Preview the impact of replacing a project\'s tracked query set: current vs proposed, added/removed/unchanged diff, and the count of snapshots that would detach (queryId → NULL; queryText preserved). Read-only.',
+    access: 'read',
+    tier: 'setup',
+    inputSchema: queriesInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['POST /api/v1/projects/{name}/queries/replace-preview'],
+    handler: (client, input) => client.previewReplaceQueries(input.project, uniqueStrings(input.request.queries)),
+  }),
+  defineTool({
     name: 'canonry_keywords_replace',
     title: 'Replace keywords (legacy alias)',
     description: 'Legacy alias for canonry_queries_replace. Replaces the same canonical tracked query set.',

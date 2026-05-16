@@ -114,6 +114,14 @@ export interface ProjectDeletePreviewDto {
   }
 }
 
+export interface QueriesReplacePreviewDto {
+  project: { id: string; name: string }
+  current: string[]
+  proposed: string[]
+  diff: { added: string[]; removed: string[]; unchanged: string[] }
+  snapshotImpact: { affectedQueries: number; snapshotsDetached: number }
+}
+
 /** Telemetry status */
 export interface TelemetryDto {
   enabled: boolean
@@ -446,6 +454,14 @@ export class ApiClient {
 
   async putQueries(project: string, queries: string[]): Promise<void> {
     await this.request<unknown>('PUT', `/projects/${encodeURIComponent(project)}/queries`, { queries })
+  }
+
+  async previewReplaceQueries(project: string, queries: string[]): Promise<QueriesReplacePreviewDto> {
+    return this.request<QueriesReplacePreviewDto>(
+      'POST',
+      `/projects/${encodeURIComponent(project)}/queries/replace-preview`,
+      { queries },
+    )
   }
 
   async listQueries(project: string): Promise<QueryDto[]> {

@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
-import { eq } from 'drizzle-orm'
+import { eq, inArray, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { queries } from '@ainyc/canonry-db'
+import { queries, querySnapshots } from '@ainyc/canonry-db'
 import { keywordGenerateRequestSchema, queryGenerateRequestSchema, validationError, notImplemented, internalError } from '@ainyc/canonry-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
 
@@ -60,6 +60,56 @@ export async function queryRoutes(app: FastifyInstance, opts: QueryRoutesOptions
 
     const rows = app.db.select().from(queries).where(eq(queries.projectId, project.id)).all()
     return reply.send(rows.map(r => ({ id: r.id, query: r.query, createdAt: r.createdAt })))
+  })
+
+  app.post<{
+    Params: { name: string }
+    Body: { queries: string[] }
+  }>('/projects/:name/queries/replace-preview', async (request, reply) => {
+    const project = resolveProject(app.db, request.params.name)
+
+    const body = request.body
+    if (!body || !Array.isArray(body.queries)) {
+      throw validationError('Body must contain a "queries" array')
+    }
+
+    const currentRows = app.db.select().from(queries).where(eq(queries.projectId, project.id)).all()
+    const currentTexts = currentRows.map(r => r.query)
+    const currentSet = new Set(currentTexts)
+    const proposedSet = new Set(body.queries)
+
+    const removed = currentTexts.filter(q => !proposedSet.has(q))
+    const added = body.queries.filter(q => !currentSet.has(q))
+    const unchanged = currentTexts.filter(q => proposedSet.has(q))
+
+    // Replace wipes every queries row and re-inserts with fresh UUIDs, so
+    // every existing snapshot for this project's queries gets detached
+    // (queryId → NULL). queryText preserves the snapshot's self-description.
+    const currentIds = currentRows.map(r => r.id)
+    let snapshotsDetached = 0
+    let affectedQueries = 0
+    if (currentIds.length > 0) {
+      const snapshotCount = app.db
+        .select({ n: sql<number>`count(*)` })
+        .from(querySnapshots)
+        .where(inArray(querySnapshots.queryId, currentIds))
+        .get()
+      snapshotsDetached = snapshotCount?.n ?? 0
+      const distinctAffected = app.db
+        .select({ n: sql<number>`count(distinct ${querySnapshots.queryId})` })
+        .from(querySnapshots)
+        .where(inArray(querySnapshots.queryId, currentIds))
+        .get()
+      affectedQueries = distinctAffected?.n ?? 0
+    }
+
+    return reply.send({
+      project: { id: project.id, name: project.name },
+      current: currentTexts,
+      proposed: body.queries,
+      diff: { added, removed, unchanged },
+      snapshotImpact: { affectedQueries, snapshotsDetached },
+    })
   })
 
   // DELETE /projects/:name/queries — remove specific queries
