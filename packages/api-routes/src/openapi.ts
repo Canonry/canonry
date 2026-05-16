@@ -1456,6 +1456,22 @@ const routeCatalog: OpenApiOperation[] = [
     },
   },
   {
+    method: 'get',
+    path: '/api/v1/projects/{name}/google/gsc/performance/daily',
+    summary: 'Get GSC performance aggregated by day with window totals',
+    tags: ['google'],
+    parameters: [
+      nameParameter,
+      { name: 'startDate', in: 'query', description: 'Filter by start date.', schema: stringSchema },
+      { name: 'endDate', in: 'query', description: 'Filter by end date.', schema: stringSchema },
+      analyticsWindowParameter,
+    ],
+    responses: {
+      200: { description: 'Daily aggregate (date → clicks/impressions/ctr) plus window totals.' },
+      404: { description: 'Project not found.' },
+    },
+  },
+  {
     method: 'post',
     path: '/api/v1/projects/{name}/google/gsc/inspect',
     summary: 'Inspect a URL through Google Search Console',

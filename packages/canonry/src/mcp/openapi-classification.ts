@@ -75,6 +75,7 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'PUT /api/v1/projects/{name}/google/connections/{type}/sitemap': 'deferred',
   'POST /api/v1/projects/{name}/google/gsc/sync': 'deferred',
   'GET /api/v1/projects/{name}/google/gsc/performance': 'included',
+  'GET /api/v1/projects/{name}/google/gsc/performance/daily': 'included',
   'POST /api/v1/projects/{name}/google/gsc/inspect': 'deferred',
   'GET /api/v1/projects/{name}/google/gsc/inspections': 'included',
   'GET /api/v1/projects/{name}/google/gsc/deindexed': 'included',

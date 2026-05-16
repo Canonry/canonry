@@ -1341,3 +1341,160 @@ describe('googleRoutes: GET /projects/:name/google/gsc/performance offset pagina
     expect(garbageRows.map(r => r.date)).toEqual(['2026-01-06', '2026-01-05'])
   })
 })
+
+describe('googleRoutes: GET /projects/:name/google/gsc/performance/daily', () => {
+  let context: ReturnType<typeof buildApp>
+  let projectId: string
+
+  beforeEach(async () => {
+    context = buildApp({ googleClientId: 'cid', googleClientSecret: 'csec' })
+    await context.app.ready()
+    projectId = crypto.randomUUID()
+    const now = '2026-01-01T00:00:00.000Z'
+    context.db.insert(projects).values({
+      id: projectId,
+      name: 'perf',
+      displayName: 'Perf',
+      canonicalDomain: 'perf.example.com',
+      country: 'US',
+      language: 'en',
+      createdAt: now,
+      updatedAt: now,
+    }).run()
+    const syncRunId = crypto.randomUUID()
+    context.db.insert(runs).values({
+      id: syncRunId,
+      projectId,
+      kind: 'gsc-sync',
+      status: 'completed',
+      trigger: 'manual',
+      createdAt: now,
+    }).run()
+    // Seed multiple (query, page) tuples per day so the daily endpoint has
+    // something real to aggregate. Two days, three tuples each.
+    const seed = [
+      { date: '2026-01-05', query: 'a', page: '/a', clicks: 2, impressions: 100 },
+      { date: '2026-01-05', query: 'b', page: '/b', clicks: 3, impressions: 200 },
+      { date: '2026-01-05', query: 'c', page: '/c', clicks: 5, impressions: 50 },
+      { date: '2026-01-06', query: 'a', page: '/a', clicks: 4, impressions: 200 },
+      { date: '2026-01-06', query: 'b', page: '/b', clicks: 1, impressions: 100 },
+      { date: '2026-01-06', query: 'c', page: '/c', clicks: 5, impressions: 700 },
+    ]
+    for (const row of seed) {
+      context.db.insert(gscSearchData).values({
+        id: crypto.randomUUID(),
+        projectId,
+        syncRunId,
+        date: row.date,
+        query: row.query,
+        page: row.page,
+        country: 'usa',
+        device: 'DESKTOP',
+        impressions: row.impressions,
+        clicks: row.clicks,
+        ctr: row.impressions > 0 ? String(row.clicks / row.impressions) : '0',
+        position: '5',
+        createdAt: now,
+      }).run()
+    }
+  })
+
+  afterEach(async () => {
+    await context.app.close()
+    fs.rmSync(context.tmpDir, { recursive: true, force: true })
+  })
+
+  it('sums clicks + impressions per date and computes CTR from the sums (not an average of row CTRs)', async () => {
+    const res = await context.app.inject({
+      method: 'GET',
+      url: '/projects/perf/google/gsc/performance/daily',
+    })
+    expect(res.statusCode).toBe(200)
+    const body = res.json() as { totals: { clicks: number; impressions: number; ctr: number; days: number }; daily: Array<{ date: string; clicks: number; impressions: number; ctr: number }> }
+
+    // Daily rows ordered by date asc
+    expect(body.daily.map(d => d.date)).toEqual(['2026-01-05', '2026-01-06'])
+
+    // 2026-01-05: 2+3+5=10 clicks, 100+200+50=350 impressions, CTR = 10/350
+    expect(body.daily[0]).toEqual({ date: '2026-01-05', clicks: 10, impressions: 350, ctr: 10 / 350 })
+    // 2026-01-06: 4+1+5=10 clicks, 200+100+700=1000 impressions, CTR = 10/1000 = 0.01
+    expect(body.daily[1]).toEqual({ date: '2026-01-06', clicks: 10, impressions: 1000, ctr: 0.01 })
+
+    // Window totals: aggregate of all rows, NOT averaged from per-day CTRs
+    // Total clicks 20, total impressions 1350, ctr = 20/1350 (not (10/350 + 10/1000) / 2)
+    expect(body.totals).toEqual({ clicks: 20, impressions: 1350, ctr: 20 / 1350, days: 2 })
+    // Sanity: averaged per-day CTR would be ~0.019, the bug we're protecting against
+    expect(body.totals.ctr).not.toBeCloseTo((10 / 350 + 10 / 1000) / 2, 5)
+  })
+
+  it('filters by the window param using windowCutoff', async () => {
+    // Add a stale row from before the 7d cutoff
+    const oldDate = new Date()
+    oldDate.setDate(oldDate.getDate() - 30)
+    context.db.insert(gscSearchData).values({
+      id: crypto.randomUUID(),
+      projectId,
+      syncRunId: context.db.select({ id: runs.id }).from(runs).all()[0]!.id,
+      date: oldDate.toISOString().slice(0, 10),
+      query: 'stale',
+      page: '/stale',
+      country: 'usa',
+      device: 'DESKTOP',
+      impressions: 999_999,
+      clicks: 999,
+      ctr: '0.001',
+      position: '50',
+      createdAt: '2025-12-01T00:00:00.000Z',
+    }).run()
+
+    // Add a fresh row that should pass the 7d cutoff
+    const freshDate = new Date().toISOString().slice(0, 10)
+    context.db.insert(gscSearchData).values({
+      id: crypto.randomUUID(),
+      projectId,
+      syncRunId: context.db.select({ id: runs.id }).from(runs).all()[0]!.id,
+      date: freshDate,
+      query: 'fresh',
+      page: '/fresh',
+      country: 'usa',
+      device: 'DESKTOP',
+      impressions: 50,
+      clicks: 5,
+      ctr: '0.1',
+      position: '3',
+      createdAt: '2026-05-15T00:00:00.000Z',
+    }).run()
+
+    const res = await context.app.inject({
+      method: 'GET',
+      url: '/projects/perf/google/gsc/performance/daily?window=7d',
+    })
+    expect(res.statusCode).toBe(200)
+    const body = res.json() as { totals: { clicks: number; days: number }; daily: Array<{ date: string; clicks: number }> }
+
+    // Only the fresh row should be in the window; the stale row and the 2026-01-* seeds are excluded
+    expect(body.daily.map(d => d.date)).toEqual([freshDate])
+    expect(body.totals.clicks).toBe(5)
+    expect(body.totals.days).toBe(1)
+  })
+
+  it('returns zero totals and empty daily array when no rows match the window', async () => {
+    const res = await context.app.inject({
+      method: 'GET',
+      url: '/projects/perf/google/gsc/performance/daily?startDate=2030-01-01',
+    })
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual({
+      totals: { clicks: 0, impressions: 0, ctr: 0, days: 0 },
+      daily: [],
+    })
+  })
+
+  it('returns 404 for an unknown project', async () => {
+    const res = await context.app.inject({
+      method: 'GET',
+      url: '/projects/nope/google/gsc/performance/daily',
+    })
+    expect(res.statusCode).toBe(404)
+  })
+})

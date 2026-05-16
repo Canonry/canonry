@@ -40,6 +40,7 @@ import type {
   AuditLogEntry,
   GoogleConnectionDto,
   GscSearchDataDto,
+  GscPerformanceDailyDto,
   GscUrlInspectionDto,
   GscCoverageSummaryDto,
   GscCoverageSnapshotDto,
@@ -680,6 +681,11 @@ export class ApiClient {
   async gscPerformance(project: string, params?: Record<string, string>): Promise<GscSearchDataDto[]> {
     const qs = params ? '?' + new URLSearchParams(params).toString() : ''
     return this.request<GscSearchDataDto[]>('GET', `/projects/${encodeURIComponent(project)}/google/gsc/performance${qs}`)
+  }
+
+  async gscPerformanceDaily(project: string, params?: Record<string, string>): Promise<GscPerformanceDailyDto> {
+    const qs = params ? '?' + new URLSearchParams(params).toString() : ''
+    return this.request<GscPerformanceDailyDto>('GET', `/projects/${encodeURIComponent(project)}/google/gsc/performance/daily${qs}`)
   }
 
   async gscInspect(project: string, url: string): Promise<GscUrlInspectionDto> {

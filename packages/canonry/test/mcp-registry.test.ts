@@ -48,6 +48,7 @@ const expectedToolNames = [
   'canonry_settings_get',
   'canonry_google_connections_list',
   'canonry_gsc_performance',
+  'canonry_gsc_performance_daily',
   'canonry_gsc_inspections',
   'canonry_gsc_deindexed',
   'canonry_gsc_coverage',
@@ -103,8 +104,8 @@ const expectedToolNames = [
 
 describe('MCP tool registry', () => {
   it('ships the curated v1 surface', () => {
-    expect(CANONRY_MCP_TOOL_COUNT).toBe(83)
-    expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(54)
+    expect(CANONRY_MCP_TOOL_COUNT).toBe(84)
+    expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(55)
     expect(canonryMcpTools.map(tool => tool.name)).toEqual(expectedToolNames)
     const readNames = canonryMcpTools.filter(tool => tool.access === 'read').map(tool => tool.name)
     expect(getCanonryMcpTools('read-only').map(tool => tool.name)).toEqual(readNames)
@@ -142,7 +143,7 @@ describe('MCP tool registry', () => {
     }
     expect(counts.get('monitoring')).toBe(16)
     expect(counts.get('setup')).toBe(23)
-    expect(counts.get('gsc')).toBe(7)
+    expect(counts.get('gsc')).toBe(8)
     expect(counts.get('ga')).toBe(8)
     expect(counts.get('traffic')).toBe(9)
     expect(counts.get('agent')).toBe(5)
@@ -477,6 +478,7 @@ const handlerCases: HandlerCase[] = [
   { tool: 'canonry_settings_get', input: {}, methods: ['getSettings'] },
   { tool: 'canonry_google_connections_list', input: projectInput, methods: ['googleConnections'] },
   { tool: 'canonry_gsc_performance', input: { project: 'acme', window: '30d' }, methods: ['gscPerformance'] },
+  { tool: 'canonry_gsc_performance_daily', input: { project: 'acme', window: '30d' }, methods: ['gscPerformanceDaily'] },
   { tool: 'canonry_gsc_inspections', input: { project: 'acme', limit: 5 }, methods: ['gscInspections'] },
   { tool: 'canonry_gsc_deindexed', input: projectInput, methods: ['gscDeindexed'] },
   { tool: 'canonry_gsc_coverage', input: projectInput, methods: ['gscCoverage'] },

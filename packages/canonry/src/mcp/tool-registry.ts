@@ -134,6 +134,13 @@ const gscPerformanceInputSchema = z.object({
   window: analyticsWindowSchema.optional(),
 })
 
+const gscPerformanceDailyInputSchema = z.object({
+  project: projectNameSchema,
+  startDate: z.string().optional(),
+  endDate: z.string().optional(),
+  window: analyticsWindowSchema.optional(),
+})
+
 const gscInspectionsInputSchema = z.object({
   project: projectNameSchema,
   url: z.string().optional(),
@@ -714,6 +721,17 @@ export const canonryMcpTools = [
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/google/gsc/performance'],
     handler: (client, input) => client.gscPerformance(input.project, compactStringParams(input, ['startDate', 'endDate', 'query', 'page', 'limit', 'window'])),
+  }),
+  defineTool({
+    name: 'canonry_gsc_performance_daily',
+    title: 'Get GSC daily performance summary',
+    description: 'Get GSC search performance aggregated by date with window totals (clicks, impressions, CTR). Use this for charts and headline metrics — never recompute by summing the paged canonry_gsc_performance rows, which only cover one page.',
+    access: 'read',
+    tier: 'gsc',
+    inputSchema: gscPerformanceDailyInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/google/gsc/performance/daily'],
+    handler: (client, input) => client.gscPerformanceDaily(input.project, compactStringParams(input, ['startDate', 'endDate', 'window'])),
   }),
   defineTool({
     name: 'canonry_gsc_inspections',

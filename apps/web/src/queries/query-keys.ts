@@ -17,6 +17,7 @@ export const queryKeys = {
     connections: (project: string) => ['gsc', project, 'connections'] as const,
     properties: (project: string) => ['gsc', project, 'properties'] as const,
     performance: (project: string, filters?: Record<string, string>) => ['gsc', project, 'performance', filters] as const,
+    performanceDaily: (project: string, filters?: Record<string, string>) => ['gsc', project, 'performance-daily', filters] as const,
     inspections: (project: string, url?: string) => ['gsc', project, 'inspections', url] as const,
     deindexed: (project: string) => ['gsc', project, 'deindexed'] as const,
     coverage: (project: string) => ['gsc', project, 'coverage'] as const,
