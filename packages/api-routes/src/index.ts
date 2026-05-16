@@ -28,7 +28,7 @@ import { telemetryRoutes } from './telemetry.js'
 import type { TelemetryRoutesOptions } from './telemetry.js'
 import { scheduleRoutes } from './schedules.js'
 import type { ScheduleRoutesOptions } from './schedules.js'
-import { notificationRoutes } from './notifications.js'
+import { notificationRoutes, type NotificationRoutesOptions } from './notifications.js'
 import { googleRoutes } from './google.js'
 import type { GoogleRoutesOptions } from './google.js'
 import { bingRoutes } from './bing.js'
@@ -165,6 +165,14 @@ export interface ApiRoutesOptions {
    * not bypass auth. Cloud deployments pass undefined.
    */
   registerAuthenticatedRoutes?: (scope: FastifyInstance) => Promise<void> | void
+  /**
+   * Allow webhook URLs that resolve to loopback addresses (127.0.0.0/8 and ::1).
+   * Defaults to false — loopback is blocked by default so a cloud deployment
+   * cannot be coerced into reaching its own host services (metadata proxies,
+   * Redis/Vault, sidecar admin endpoints). Local servers can opt in to preserve
+   * dev workflows that point webhooks at localhost.
+   */
+  allowLoopbackWebhooks?: boolean
 }
 
 export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
@@ -239,6 +247,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       onProjectUpserted: opts.onProjectUpserted,
       onAliasesChanged: opts.onAliasesChanged,
       validProviderNames: opts.providerAdapters?.map(a => a.name),
+      allowLoopbackWebhooks: opts.allowLoopbackWebhooks,
       onGoogleConnectionPropertyUpdated: (domain, connectionType, propertyId) => {
         opts.googleConnectionStore?.updateConnection(domain, connectionType, {
           propertyId,
@@ -269,7 +278,9 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       onScheduleUpdated: opts.onScheduleUpdated,
       validProviderNames: opts.providerAdapters?.map(a => a.name),
     } satisfies ScheduleRoutesOptions)
-    await api.register(notificationRoutes)
+    await api.register(notificationRoutes, {
+      allowLoopbackWebhooks: opts.allowLoopbackWebhooks,
+    } satisfies NotificationRoutesOptions)
     await api.register(telemetryRoutes, {
       getTelemetryStatus: opts.getTelemetryStatus,
       setTelemetryEnabled: opts.setTelemetryEnabled,

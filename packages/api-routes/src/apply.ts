@@ -15,9 +15,12 @@ export interface ApplyRoutesOptions {
   onGoogleConnectionPropertyUpdated?: (domain: string, connectionType: 'gsc' | 'ga4', propertyId: string) => void
   /** Valid provider names from registered adapters — used to reject unknown providers */
   validProviderNames?: string[]
+  /** Allow webhook URLs that resolve to loopback addresses. Defaults to false. */
+  allowLoopbackWebhooks?: boolean
 }
 
 export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOptions) {
+  const allowLoopback = opts?.allowLoopbackWebhooks === true
   // POST /apply — accept a canonry.yaml body (JSON-parsed version)
   app.post('/apply', async (request, reply) => {
     const parsed = projectConfigSchema.safeParse(request.body)
@@ -83,7 +86,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
     const hasNotifications = 'notifications' in rawSpec
     if (hasNotifications) {
       for (const notif of config.spec.notifications) {
-        const urlCheck = await resolveWebhookTarget(notif.url ?? '')
+        const urlCheck = await resolveWebhookTarget(notif.url ?? '', { allowLoopback })
         if (!urlCheck.ok) throw validationError(`Notification URL invalid: ${urlCheck.message}`)
       }
     }

@@ -10,7 +10,13 @@ import { deliverWebhook, resolveWebhookTarget } from './webhooks.js'
 
 const VALID_EVENTS: NotificationEvent[] = ['citation.lost', 'citation.gained', 'run.completed', 'run.failed', 'insight.critical', 'insight.high']
 
-export async function notificationRoutes(app: FastifyInstance) {
+export interface NotificationRoutesOptions {
+  /** Allow webhook URLs that resolve to loopback addresses. Defaults to false. */
+  allowLoopbackWebhooks?: boolean
+}
+
+export async function notificationRoutes(app: FastifyInstance, opts: NotificationRoutesOptions = {}) {
+  const allowLoopback = opts.allowLoopbackWebhooks === true
   // GET /notifications/events — list valid notification event types
   app.get('/notifications/events', async (_request, reply) => {
     return reply.send(VALID_EVENTS)
@@ -27,7 +33,7 @@ export async function notificationRoutes(app: FastifyInstance) {
 
     if (channel !== 'webhook') throw validationError('Only "webhook" channel is supported')
 
-    const urlCheck = await resolveWebhookTarget(url ?? '')
+    const urlCheck = await resolveWebhookTarget(url ?? '', { allowLoopback })
     if (!urlCheck.ok) throw validationError(urlCheck.message)
 
     if (!events?.length) throw validationError('"events" must be a non-empty array')
@@ -110,7 +116,7 @@ export async function notificationRoutes(app: FastifyInstance) {
     const config = parseJsonColumn<{ url: string; events: string[] }>(notification.config, { url: '', events: [] })
 
     // Re-validate URL at delivery time (stored URLs may predate validation logic)
-    const urlCheck = await resolveWebhookTarget(config.url)
+    const urlCheck = await resolveWebhookTarget(config.url, { allowLoopback })
     if (!urlCheck.ok) throw validationError(`Stored webhook URL is invalid: ${urlCheck.message}`)
 
     const payload = {

@@ -918,6 +918,12 @@ export async function createServer(opts: {
     skipAuth: false,
     sessionCookieName: SESSION_COOKIE_NAME,
     resolveSessionApiKeyId,
+    // Local canonry serve runs on the operator's machine, where pointing a
+    // webhook at localhost (Discord test container, Pipedream-mock dev server,
+    // etc.) is a legitimate workflow. Default to allowing it for the local
+    // installer; cloud deployments inherit the secure default of `false` by
+    // not passing this option. Override with CANONRY_ALLOW_LOOPBACK_WEBHOOKS=0.
+    allowLoopbackWebhooks: process.env.CANONRY_ALLOW_LOOPBACK_WEBHOOKS !== '0',
     // Local-only Aero agent routes. Registered here so they inherit api-routes'
     // auth plugin — bare `registerAgentRoutes(app, ...)` would skip auth.
     registerAuthenticatedRoutes: async (scope) => {

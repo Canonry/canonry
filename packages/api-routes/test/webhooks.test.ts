@@ -14,12 +14,25 @@ test('resolveWebhookTarget rejects private and unspecified literal addresses', a
   }
 })
 
-test('resolveWebhookTarget accepts loopback literal addresses', async () => {
+test('resolveWebhookTarget rejects loopback literal addresses by default', async () => {
+  for (const url of [
+    'http://127.0.0.1/hook',
+    'http://127.255.255.254/hook',
+    'http://[::1]/hook',
+    // IPv4-mapped IPv6 loopback
+    'http://[::ffff:127.0.0.1]/hook',
+  ]) {
+    const result = await resolveWebhookTarget(url)
+    expect(result.ok, `expected ${url} to be blocked`).toBe(false)
+  }
+})
+
+test('resolveWebhookTarget accepts loopback when allowLoopback is true', async () => {
   for (const [url, address] of [
     ['http://127.0.0.1/hook', '127.0.0.1'],
     ['http://[::1]/hook', '::1'],
   ] as const) {
-    const result = await resolveWebhookTarget(url)
+    const result = await resolveWebhookTarget(url, { allowLoopback: true })
     expect(result.ok).toBe(true)
     if (result.ok) {
       expect(result.target.address).toBe(address)
