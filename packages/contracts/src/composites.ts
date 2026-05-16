@@ -110,6 +110,8 @@ export interface ProjectOverviewProviderScoreDto {
   score: number
   cited: number
   total: number
+  /** Per-recent-run citation rate (0-100) for this (provider, model), oldest first. Up to 12 points. Omitted when only a single run exists. */
+  trend?: number[]
 }
 
 // Item in the "look at this" queue at the top of the dashboard. `href` is

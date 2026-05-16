@@ -961,7 +961,73 @@
     @apply opacity-50 cursor-not-allowed;
   }
 
-  /* ── Insight rows (compact signal list) ── */
+  /* ── Opportunities (action-grouped insight cards) ── */
+
+  .opportunities-grid {
+    @apply grid gap-3 sm:grid-cols-2 lg:grid-cols-3;
+  }
+
+  .opportunity-card {
+    @apply rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-4 flex flex-col gap-2 min-w-0;
+  }
+
+  .opportunity-card-write {
+    @apply border-l-2 border-l-amber-500/60;
+  }
+
+  .opportunity-card-investigate {
+    @apply border-l-2 border-l-rose-500/60;
+  }
+
+  .opportunity-card-monitor {
+    @apply border-l-2 border-l-emerald-500/60;
+  }
+
+  .opportunity-card-head {
+    @apply flex items-center justify-between;
+  }
+
+  .opportunity-card-title {
+    @apply text-sm font-semibold text-zinc-100;
+  }
+
+  .opportunity-card-count {
+    @apply text-[11px] font-medium rounded-full px-2 py-0.5 bg-zinc-800/60 text-zinc-300 tabular-nums;
+  }
+
+  .opportunity-card-subtitle {
+    @apply text-[11px] text-zinc-500 leading-snug;
+  }
+
+  .opportunity-card-list {
+    @apply flex flex-col gap-1.5 mt-1;
+  }
+
+  .opportunity-item {
+    @apply rounded-md border border-zinc-800/40 bg-zinc-900/30 px-2.5 py-2 transition-colors hover:bg-zinc-800/40;
+  }
+
+  .opportunity-item-positive {
+    @apply border-l-2 border-l-emerald-500/40;
+  }
+
+  .opportunity-item-caution {
+    @apply border-l-2 border-l-amber-500/40;
+  }
+
+  .opportunity-item-negative {
+    @apply border-l-2 border-l-rose-500/40;
+  }
+
+  .opportunity-item-neutral {
+    @apply border-l-2 border-l-zinc-700;
+  }
+
+  .opportunity-item-detail {
+    @apply mt-1 px-2.5 py-2 bg-zinc-950/40 rounded-md border border-zinc-800/30 flex flex-col gap-1.5;
+  }
+
+  /* ── Insight rows (compact signal list) — legacy, kept for any external pages ── */
 
   .insight-list {
     @apply rounded-xl border border-zinc-800/60 divide-y divide-zinc-800/30 overflow-hidden;
