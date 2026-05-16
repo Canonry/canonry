@@ -52,10 +52,18 @@ export interface ScoreSummaryDto {
   providerCoverage?: string
 }
 
-// The five score gauges shown at the top of the project page. Each is a
+// The score gauges shown at the top of the project page. Each is a
 // `ScoreSummaryDto` so the SPA renders them with one component and the CLI
 // formats them with one helper.
+//
+// `mention` is the dashboard's primary metric — what most operators care
+// about (did the AI actually say my brand?). `visibility` is the legacy
+// citation-source metric, kept as a secondary tile for analysts who track
+// source-list presence.
 export interface ProjectOverviewScoresDto {
+  /** Primary headline gauge — % of tracked queries whose AI answer text mentioned the brand. */
+  mention: ScoreSummaryDto
+  /** Secondary tile — % of tracked queries whose answer cited the domain in its source list. */
   visibility: ScoreSummaryDto
   gapQueries: ScoreSummaryDto
   indexCoverage: ScoreSummaryDto

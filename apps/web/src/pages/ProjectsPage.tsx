@@ -24,7 +24,7 @@ export function ProjectsPage() {
         </div>
         <div className="rounded-xl border border-zinc-800/60 bg-zinc-900/30 overflow-hidden">
           <div className="p-3 border-b border-zinc-800/60 flex gap-8">
-            {['Name', 'Domain', 'Visibility', 'Last run', 'Country'].map((h) => (
+            {['Name', 'Domain', 'Mentions', 'Last run', 'Country'].map((h) => (
               <div key={h} className="skeleton-text-sm w-16" />
             ))}
           </div>
@@ -200,7 +200,7 @@ export function ProjectsPage() {
               <tr>
                 <th>Name</th>
                 <th>Domain</th>
-                <th>Visibility</th>
+                <th>Mentions</th>
                 <th>Last run</th>
                 <th className="text-right">Country</th>
               </tr>
@@ -223,7 +223,7 @@ export function ProjectsPage() {
                     </td>
                     <td className="text-zinc-400">{p.project.canonicalDomain}</td>
                     <td>
-                      <ToneBadge tone={p.visibilitySummary.tone}>{p.visibilitySummary.value}</ToneBadge>
+                      <ToneBadge tone={p.mentionSummary.tone}>{p.mentionSummary.value}</ToneBadge>
                     </td>
                     <td className="text-zinc-500 text-sm">
                       {latestRun ? (

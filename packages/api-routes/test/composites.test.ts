@@ -211,6 +211,14 @@ describe('GET /api/v1/projects/:name/overview', () => {
     expect(body.scores.visibility.value).toBe('100')
     expect(body.scores.visibility.tone).toBe('positive')
 
+    // Mention coverage is the new primary metric. The seeded snapshots have
+    // queryA and queryB both with answerMentioned=true on gemini's latest run,
+    // so all 2 tracked queries count as mentioned → 100%.
+    expect(body.scores.mention.label).toBe('Mention Coverage')
+    expect(body.scores.mention.value).toBe('100')
+    expect(body.scores.mention.tone).toBe('positive')
+    expect(body.scores.mention.delta).toBe('2 of 2 queries mentioned')
+
     expect(body.scores.gapQueries.value).toBe('0')
     expect(body.scores.indexCoverage.value).toBe('No data')
     expect(body.scores.competitorPressure.value).toBe('None')
