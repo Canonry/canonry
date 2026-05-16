@@ -2,19 +2,21 @@
 name: aero
 slug: aero
 description: AEO analyst orchestration — coordinates canonry sweeps and aeo-audit analysis with persistent memory and proactive regression response.
-homepage: https://ainyc.ai
+homepage: https://canonry.ai
 repository: https://github.com/AINYC/aero
 ---
 
 # Aero Orchestration Skill
 
 You coordinate across two tools to deliver comprehensive AEO monitoring:
-- **canonry** — the source of truth for project state (runs, snapshots, timelines, insights, audit log, **GA4 traffic + AI/social referrals**). Query it with `cnry <command> --format json` (the CLI is also installed as `canonry` — the two are interchangeable); never maintain a parallel copy in agent memory.
+- **canonry** — the source of truth for project state (runs, snapshots, timelines, insights, audit log, **GA4 traffic + AI/social referrals**, **server-side crawler + referral events**). Query it with `cnry <command> --format json` (the CLI is also installed as `canonry` — the two are interchangeable); never maintain a parallel copy in agent memory. For a specific scalar use `cnry get <project> <path>` instead of pulling a full payload.
 - **aeo-audit** — on-demand site analysis and fix generation.
 
 Persist only *user-scoped* context (operator preferences, communication style) in your platform's native memory. Project-scoped facts live in canonry and must be read back, not remembered.
 
-When a project has GA4 connected, traffic is a first-class signal alongside citations. Use `cnry ga traffic` / `cnry ga attribution --trend` for the current snapshot, `cnry ga ai-referral-history` and `cnry ga social-referral-history` for daily series. Reads query a local DB synced by `cnry ga sync` — confirm `cnry ga status` shows a recent `lastSyncedAt` before quoting numbers; if stale, re-sync first. Full command reference and return shapes live in the co-installed `canonry/references/canonry-cli.md` (look for the "Google Analytics 4" section).
+**Two signals, not one.** Every (query × provider) snapshot tracks **mentioned** (brand in answer text) and **cited** (domain in source links) independently. Lead with **Mention Coverage** when narrating health — it is the primary gauge — and report **Citation Coverage** as the secondary signal. Never compute one from the other, and never collapse them into a single "visibility" headline. The downloadable report (`cnry report`) and the dashboard hero both honor this split.
+
+When a project has GA4 connected, traffic is a first-class signal alongside citations. Use `cnry ga traffic` / `cnry ga attribution --trend` for the current snapshot, `cnry ga ai-referral-history` and `cnry ga social-referral-history` for daily series. Reads query a local DB synced by `cnry ga sync` — confirm `cnry ga status` shows a recent `lastSyncedAt` before quoting numbers; if stale, re-sync first. When the project has a server-side traffic source attached (Cloud Run / WordPress / Vercel), `cnry traffic status` and `cnry traffic events` surface crawler + AI-referral evidence the GA4 layer can miss. Full command reference and return shapes live in the co-installed `canonry/references/canonry-cli.md`.
 
 ## Judgment Rules
 

@@ -29,8 +29,27 @@ cnry project create <name> --domain <url> --country US --language en
 cnry project show <name>                       # project detail
 cnry project update <name>                     # update project settings
 cnry project delete <name>                     # delete a project
-cnry status <project>                          # citation summary + domain info
+cnry project delete <name> --dry-run           # preview cascade impact (GET /delete-preview) without writing
+cnry status <project>                          # mention + citation summary + domain info
 ```
+
+### Brand aliases
+
+`spec.brandAliases: string[]` on the project (set via `cnry apply` or the dashboard) widens the mention detector. Use it when the answer text says "Meta" but the canonical brand is "Facebook", or for product variants ("AcmeCloud", "Acme Cloud", "AcmeCloud Pro"). Aliases are case-insensitive and match the same answer-text scan that powers `answerMentioned`.
+
+## Surgical Reads — `cnry get`
+
+```bash
+cnry get <project> scores.mentionShare.value
+cnry get <project> scores.mentionCoverage.value
+cnry get <project> scores.citationCoverage.value
+cnry get <project> insights[0].severity
+cnry get <project> latestRun.status
+cnry get <project> --from report scores.citationCoverage.value   # pick a registered source
+cnry get <project> <path> --format json                          # raw JSON output
+```
+
+Resolves a dot/bracket path against the project's overview (default `--from overview`) or any registered source — `report`, `traffic`, `discovery`, etc. Returns the scalar (or sub-tree) at the path so an agent can lift a single number without pulling a 30 KB JSON payload. Use `--from <source> .` to see the available top-level keys for that source.
 
 ### Locations
 
@@ -74,18 +93,21 @@ Run statuses: `queued` → `running` → `completed` / `failed` / `partial`
 ## Citation Data
 
 ```bash
-cnry evidence <project>                        # per-query cited/not-cited
+cnry evidence <project>                        # per-query cited/not-cited + mentioned/not-mentioned
 cnry evidence <project> --format json          # JSON output
 cnry history <project>                         # audit trail
 cnry export <project> --include-results        # export as YAML
-cnry backfill answer-visibility                # recompute answer visibility from stored answers
-cnry backfill answer-visibility --project <name> --format json
+cnry backfill answer-visibility                # recompute citationState from stored answers
+cnry backfill answer-visibility --dry-run      # preview which snapshots would change
+cnry backfill answer-mentions                  # recompute answerMentioned from stored answers (honors brandAliases)
+cnry backfill answer-mentions --dry-run
+cnry backfill insights <project>               # recompute insights for completed runs
+cnry backfill insights <project> --since 2026-04-01 --dry-run
 ```
 
-Output shows:
-- `✓ cited` — domain appeared in AI response for that query
-- `✗ not-cited` — domain did not appear
-- Summary: `Cited: X / Y`
+Output uses a two-glyph cell per (query × provider): `[C/c][M/m]` — uppercase = present, lowercase = absent, `–` = no snapshot. Always print the legend before the table; never collapse the two signals into one cell.
+
+Summary: `Cited: X / Y` and `Mentioned: X / Y` are reported independently — a query can be one, both, or neither.
 
 ## Reports
 
@@ -134,6 +156,8 @@ cnry backfill insights <project> --from-run <id> --to-run <id>  # backfill a ran
 
 ```bash
 cnry query add <project> "phrase one" "phrase two"
+cnry query replace <project> "phrase one" "phrase two"   # set the basket to exactly this list
+cnry query replace <project> "..." --dry-run             # preview adds/removes via /queries/replace-preview
 cnry query remove <project> "phrase"
 cnry query list <project>
 cnry query import <project> queries.txt
@@ -388,6 +412,8 @@ drive Canonry from Claude Code / Codex / a custom agent.
 # One-shot turn — Aero picks its own tools, streams events to stdout.
 cnry agent ask <project> "<prompt>"
 cnry agent ask <project> "<prompt>" --format json      # JSON event stream
+cnry agent ask --all "<prompt>"                        # fan out the same prompt across every project
+cnry agent ask <project> "<prompt>" --trace            # emit tool-execution detail for debugging
 
 # Select a specific provider / model (otherwise auto-detected from config).
 cnry agent ask <project> "<prompt>" --provider anthropic --model claude-opus-4-7
@@ -395,12 +421,22 @@ cnry agent ask <project> "<prompt>" --provider zai      --model glm-5.1
 cnry agent ask <project> "<prompt>" --provider openai
 cnry agent ask <project> "<prompt>" --provider google
 
-# Restrict the tool surface. Default is --scope all (full 13-tool surface:
-# 7 read + 6 write). --scope read-only exposes only the 7 read tools and
-# is what the dashboard bar uses by default so pasted "Copy as CLI"
+# Restrict the tool surface. Default is --scope all (full read+write surface).
+# --scope read-only matches the dashboard bar default so pasted "Copy as CLI"
 # commands can't enable writes the UI turn couldn't perform.
 cnry agent ask <project> "<prompt>" --scope read-only
 cnry agent ask <project> "<prompt>" --scope all
+
+# Session + provider introspection
+cnry agent providers <project>                # list provider keys Aero will pick from + the resolved default
+cnry agent transcript <project>               # dump the rolling transcript for the current session
+cnry agent reset <project>                    # start a fresh session (drops in-memory state, keeps memory)
+cnry agent clear <project>                    # delete the transcript row from the DB
+
+# Durable project notes (the <memory> hydrate block on every new session)
+cnry agent memory list <project>
+cnry agent memory set <project> --key <k> --value <v>     # 2 KB cap per value
+cnry agent memory forget <project> --key <k>
 ```
 
 **Provider detection order** when `--provider` is omitted: `anthropic` →
@@ -409,7 +445,7 @@ cnry agent ask <project> "<prompt>" --scope all
 `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GEMINI_API_KEY` / `ZAI_API_KEY`).
 
 Conversations **persist per project** — `cnry agent ask` continues the
-same rolling thread each invocation. Reset with `DELETE /api/v1/projects/<name>/agent/transcript`
+same rolling thread each invocation. Reset with `cnry agent reset <project>`
 or via the dashboard bar's reset button.
 
 ### External agents (webhook)
