@@ -1188,6 +1188,48 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `ALTER TABLE projects ADD COLUMN aliases TEXT NOT NULL DEFAULT '[]'`,
     ],
   },
+  {
+    version: 60,
+    name: 'audit-log-preserve-on-project-delete',
+    // The legacy `audit_log.project_id` FK was `ON DELETE CASCADE`, so any
+    // `DELETE /projects/:name` call cascade-wiped every audit row for that
+    // project — including the `project.deleted` row the route handler had
+    // just written in the same path. The deletion erased the only record
+    // that the deletion happened, defeating the entire purpose of the
+    // audit log.
+    //
+    // Fix: rebuild `audit_log` with `project_id` as `ON DELETE SET NULL`.
+    // Existing rows survive verbatim; future deletions detach audit rows
+    // from the project (project_id=NULL) instead of erasing them. SQLite
+    // can't change FK behavior in place — same canonical table-rebuild
+    // pattern v58 used for `query_snapshots`.
+    statements: [
+      `CREATE TABLE IF NOT EXISTS audit_log_v60 (
+         id           TEXT PRIMARY KEY,
+         project_id   TEXT REFERENCES projects(id) ON DELETE SET NULL,
+         actor        TEXT NOT NULL,
+         action       TEXT NOT NULL,
+         entity_type  TEXT NOT NULL,
+         entity_id    TEXT,
+         diff         TEXT,
+         created_at   TEXT NOT NULL
+       )`,
+      // LEFT JOIN guard mirrors v58: if a pre-existing row carries a
+      // dangling project_id (from a pre-FK era or a write with
+      // PRAGMA foreign_keys=OFF), the join nulls it out rather than
+      // failing the migration on the new FK validation.
+      `INSERT INTO audit_log_v60 (
+         id, project_id, actor, action, entity_type, entity_id, diff, created_at
+       )
+       SELECT a.id, p.id, a.actor, a.action, a.entity_type, a.entity_id, a.diff, a.created_at
+       FROM audit_log a
+       LEFT JOIN projects p ON p.id = a.project_id`,
+      `DROP TABLE audit_log`,
+      `ALTER TABLE audit_log_v60 RENAME TO audit_log`,
+      `CREATE INDEX IF NOT EXISTS idx_audit_log_project ON audit_log(project_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_audit_log_created ON audit_log(created_at)`,
+    ],
+  },
 ]
 
 /**

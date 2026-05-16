@@ -97,7 +97,12 @@ export const querySnapshots = sqliteTable('query_snapshots', {
 
 export const auditLog = sqliteTable('audit_log', {
   id: text('id').primaryKey(),
-  projectId: text('project_id').references(() => projects.id, { onDelete: 'cascade' }),
+  // SET NULL (not CASCADE) so deleting a project preserves its audit trail.
+  // The DELETE /projects route writes a "project.deleted" row immediately
+  // before the delete — a CASCADE here would wipe that record before any
+  // reader could see it (the deletion would erase the only evidence it
+  // happened). Detached rows surface in audit queries with project_id=NULL.
+  projectId: text('project_id').references(() => projects.id, { onDelete: 'set null' }),
   actor: text('actor').notNull(),
   action: text('action').notNull(),
   entityType: text('entity_type').notNull(),
