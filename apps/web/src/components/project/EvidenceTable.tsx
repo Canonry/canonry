@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useState } from 'react'
+import { Fragment, useMemo, useState } from 'react'
 import { ChevronRight } from 'lucide-react'
 import { CitationStates, brandLabelFromDomain } from '@ainyc/canonry-contracts'
 
@@ -108,19 +108,6 @@ export function EvidenceTable({
     return [...map.values()]
   }, [evidence, mode, compareLocations])
 
-  // Detailed mode is meant to show answer text; auto-expand the first three
-  // groups on first render so operators see the meat without clicking. Resets
-  // when groups change (mode toggle, project switch).
-  useEffect(() => {
-    if (density !== 'detailed') return
-    setExpandedRows(prev => {
-      if (prev.size > 0) return prev
-      const next = new Set<string>()
-      for (const g of groups.slice(0, 3)) next.add(g.key)
-      return next
-    })
-  }, [density, groups])
-
   const toggleRow = (key: string) => {
     setExpandedRows(prev => {
       const next = new Set(prev)
@@ -146,19 +133,6 @@ export function EvidenceTable({
           <button
             type="button"
             role="tab"
-            aria-selected={mode === 'citations'}
-            className={`px-2.5 py-1 text-xs font-medium rounded transition-colors ${
-              mode === 'citations'
-                ? 'bg-zinc-800 text-zinc-100'
-                : 'text-zinc-400 hover:text-zinc-200'
-            }`}
-            onClick={() => setMode('citations')}
-          >
-            Citations
-          </button>
-          <button
-            type="button"
-            role="tab"
             aria-selected={mode === 'mentions'}
             className={`px-2.5 py-1 text-xs font-medium rounded transition-colors ${
               mode === 'mentions'
@@ -168,6 +142,19 @@ export function EvidenceTable({
             onClick={() => setMode('mentions')}
           >
             Mentions
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={mode === 'citations'}
+            className={`px-2.5 py-1 text-xs font-medium rounded transition-colors ${
+              mode === 'citations'
+                ? 'bg-zinc-800 text-zinc-100'
+                : 'text-zinc-400 hover:text-zinc-200'
+            }`}
+            onClick={() => setMode('citations')}
+          >
+            Citations
           </button>
         </div>
         <span className="text-[11px] text-zinc-500">

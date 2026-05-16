@@ -93,7 +93,9 @@ function BingSection({
   const [loading, setLoading] = useState(true)
   const [requestingIndexing, setRequestingIndexing] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [activeTab, setActiveTab] = useState<'coverage' | 'inspections' | 'performance'>('coverage')
+  // Performance is the default — it's the highest-signal view (per-query
+  // impressions, clicks, position) and mirrors how the GSC tab leads.
+  const [activeTab, setActiveTab] = useState<'performance' | 'coverage' | 'inspections'>('performance')
 
   useEffect(() => {
     void loadData()
@@ -392,10 +394,11 @@ function BingSection({
   }
 
   const tabs = [
-    { key: 'coverage' as const, label: 'Coverage' },
-    { key: 'inspections' as const, label: 'Inspections' },
-    { key: 'performance' as const, label: 'Performance' },
+    { key: 'performance' as const, label: 'Performance', eyebrow: 'Performance', title: 'Search performance' },
+    { key: 'coverage' as const, label: 'Coverage', eyebrow: 'Coverage', title: 'Index monitoring' },
+    { key: 'inspections' as const, label: 'Inspections', eyebrow: 'Inspection', title: 'URL inspection history' },
   ]
+  const activeTabMeta = tabs.find(t => t.key === activeTab) ?? tabs[0]!
 
   return (
     <div className="space-y-3">
@@ -438,8 +441,8 @@ function BingSection({
       <Card className="surface-card">
         <div className="section-head section-head-inline">
           <div>
-            <p className="eyebrow eyebrow-soft">Coverage</p>
-            <h3>Index monitoring</h3>
+            <p className="eyebrow eyebrow-soft">{activeTabMeta.eyebrow}</p>
+            <h3>{activeTabMeta.title}</h3>
           </div>
           <p className="text-xs text-zinc-500">
             {coverage?.lastInspectedAt ? `Last inspected ${formatTimestamp(coverage.lastInspectedAt)}` : 'No inspection history yet'}

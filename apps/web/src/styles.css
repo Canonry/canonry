@@ -519,7 +519,10 @@
 
   .aeo-hero-row {
     @apply grid items-center gap-x-4;
-    grid-template-columns: 100px 90px 1fr auto;
+    /* First col widened from 100px so "Mention share" fits on one line —
+       previously wrapped and pushed the InfoTooltip icon to the right edge,
+       which made the tooltip bubble render far right of where readers expect. */
+    grid-template-columns: 130px 90px 1fr auto;
   }
 
   .aeo-hero-row-label {
