@@ -183,10 +183,19 @@ export class IntelligenceService {
   /**
    * Backfill intelligence for all completed/partial runs of a project.
    * Processes runs in chronological order so each run compares against its predecessor.
+   *
+   * Scoping options:
+   *   - `fromRunId` / `toRunId`: bound the target range by exact run ID.
+   *   - `since`: bound the target range by `finishedAt >= <date>`. Accepts
+   *     any string that `Date.parse` understands (ISO 8601, `YYYY-MM-DD`,
+   *     etc.). Runs before the cutoff are *not* re-processed but stay
+   *     available for predecessor lookup, so transition detection at the
+   *     boundary stays correct. Composes with `fromRunId` / `toRunId` —
+   *     all three filters intersect.
    */
   backfill(
     projectName: string,
-    opts?: { fromRunId?: string; toRunId?: string },
+    opts?: { fromRunId?: string; toRunId?: string; since?: string },
     onProgress?: (info: { runId: string; index: number; total: number; insights: number }) => void,
   ): { processed: number; skipped: number; totalInsights: number } {
     const project = this.db
@@ -196,6 +205,15 @@ export class IntelligenceService {
       .get()
     if (!project) {
       throw new Error(`Project "${projectName}" not found`)
+    }
+
+    let sinceTimestamp: number | null = null
+    if (opts?.since !== undefined) {
+      const parsed = Date.parse(opts.since)
+      if (Number.isNaN(parsed)) {
+        throw new Error(`Invalid --since value "${opts.since}": expected a parseable date (ISO 8601 or YYYY-MM-DD)`)
+      }
+      sinceTimestamp = parsed
     }
 
     const allRuns = this.db
@@ -224,7 +242,17 @@ export class IntelligenceService {
       endIdx = idx + 1
     }
 
-    const targetRuns = allRuns.slice(startIdx, endIdx)
+    let targetRuns = allRuns.slice(startIdx, endIdx)
+    // Apply --since on top of the range slice. We filter target runs only —
+    // `allRuns` is intentionally still the full chronology so the predecessor
+    // lookup inside the loop can walk back across the cutoff.
+    if (sinceTimestamp !== null) {
+      targetRuns = targetRuns.filter(r => {
+        const ts = r.finishedAt ?? r.createdAt
+        const t = Date.parse(ts)
+        return !Number.isNaN(t) && t >= sinceTimestamp
+      })
+    }
     let processed = 0
     let skipped = 0
     let totalInsights = 0
