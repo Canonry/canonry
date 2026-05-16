@@ -5,11 +5,20 @@ import { CliError, EXIT_USER_ERROR } from '../cli-error.js'
 
 interface DoctorOptions {
   project?: string
+  /** When true, fan out doctor across every configured project in parallel
+   *  AND run the global checks once. Replaces an N+1 loop of `canonry doctor
+   *  --project X` invocations for portfolio-level health audits. */
+  all?: boolean
   checks?: string[]
   format?: string
 }
 
 export async function doctorCommand(opts: DoctorOptions): Promise<void> {
+  if (opts.all) {
+    await runDoctorAll(opts)
+    return
+  }
+
   const client = createApiClient()
   const report = await client.runDoctor({
     project: opts.project,
@@ -34,6 +43,81 @@ export async function doctorCommand(opts: DoctorOptions): Promise<void> {
       },
     })
   }
+}
+
+/**
+ * `canonry doctor --all` — single-call portfolio health audit.
+ *
+ * Runs the global checks once + the project-scoped checks for every
+ * configured project, in parallel. JSON output is a stable object keyed
+ * by `'__global__'` + each project name so an agent can index into it
+ * directly. Human output is a compact per-project summary line followed
+ * by the union of failed-check IDs — operators get the operational
+ * picture without scrolling through every passing check across N projects.
+ */
+async function runDoctorAll(opts: DoctorOptions): Promise<void> {
+  const client = createApiClient()
+  const projects = await client.listProjects()
+
+  // Global checks ride alongside the per-project fan-out so a single
+  // --all invocation covers everything `canonry doctor` could surface.
+  const [globalReport, ...projectReports] = await Promise.all([
+    client.runDoctor({ checkIds: opts.checks }),
+    ...projects.map(p => client.runDoctor({ project: p.name, checkIds: opts.checks })),
+  ])
+
+  const byKey: Record<string, DoctorReportDto> = { __global__: globalReport! }
+  projects.forEach((p, i) => { byKey[p.name] = projectReports[i]! })
+
+  if (opts.format === 'json') {
+    console.log(JSON.stringify(byKey, null, 2))
+  } else {
+    printAllHumanReport(byKey, projects.map(p => p.name))
+  }
+
+  const totalFail =
+    globalReport!.summary.fail
+    + projectReports.reduce((s, r) => s + r.summary.fail, 0)
+
+  if (totalFail > 0) {
+    const failedByScope: Record<string, string[]> = {}
+    if (globalReport!.summary.fail > 0) {
+      failedByScope.__global__ = globalReport!.checks
+        .filter(c => c.status === CheckStatuses.fail).map(c => c.id)
+    }
+    projects.forEach((p, i) => {
+      const failed = projectReports[i]!.checks
+        .filter(c => c.status === CheckStatuses.fail).map(c => c.id)
+      if (failed.length > 0) failedByScope[p.name] = failed
+    })
+    throw new CliError({
+      code: 'DOCTOR_CHECKS_FAILED',
+      message: `${totalFail} check${totalFail === 1 ? '' : 's'} failed across ${Object.keys(failedByScope).length} scope${Object.keys(failedByScope).length === 1 ? '' : 's'}`,
+      exitCode: EXIT_USER_ERROR,
+      details: { failed: failedByScope },
+    })
+  }
+}
+
+function printAllHumanReport(byKey: Record<string, DoctorReportDto>, projectNames: string[]): void {
+  const scopes = ['__global__', ...projectNames]
+  console.log(`\ncanonry doctor — all scopes (${scopes.length})\n`)
+  for (const key of scopes) {
+    const report = byKey[key]!
+    const label = key === '__global__' ? 'global' : `project "${key}"`
+    const s = report.summary
+    const tag = s.fail > 0 ? '[FAIL]' : s.warn > 0 ? '[WARN]' : '[OK]  '
+    console.log(`  ${tag} ${label.padEnd(28)} ${s.ok} ok, ${s.warn} warn, ${s.fail} fail, ${s.skipped} skipped`)
+    if (s.fail > 0) {
+      const failedIds = report.checks
+        .filter(c => c.status === CheckStatuses.fail)
+        .map(c => `${c.id} — ${c.summary}`)
+      for (const line of failedIds) {
+        console.log(`           ✗ ${line}`)
+      }
+    }
+  }
+  console.log()
 }
 
 function statusBadge(status: CheckResultDto['status']): string {

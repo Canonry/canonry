@@ -22,6 +22,73 @@ export async function showOverview(project: string, opts: ShowOverviewOpts): Pro
   renderHuman(overview)
 }
 
+/**
+ * `canonry overview --all` — one call to render or emit every project's
+ * overview. Fans out to the existing per-project endpoint in parallel so
+ * an agent doing portfolio-level work doesn't have to chain N invocations
+ * (the dominant CLI ergonomic complaint per the agent-experience review).
+ *
+ * Human output is a compact one-line-per-project table — the full
+ * per-project rendering belongs in `canonry overview <project>` where
+ * the operator has zoomed in on purpose. JSON output is an array of
+ * `ProjectOverviewDto` in stable project-list order so downstream tooling
+ * can rely on it.
+ */
+export async function showAllOverviews(opts: ShowOverviewOpts): Promise<void> {
+  const client = createApiClient()
+  const projects = await client.listProjects()
+  if (projects.length === 0) {
+    if (opts.format === 'json') {
+      console.log('[]')
+      return
+    }
+    console.log('No projects configured. Add one with `canonry project create`.')
+    return
+  }
+
+  const overviews = await Promise.all(
+    projects.map(p =>
+      client.getProjectOverview(p.name, { location: opts.location, since: opts.since }),
+    ),
+  )
+
+  if (opts.format === 'json') {
+    console.log(JSON.stringify(overviews, null, 2))
+    return
+  }
+
+  // Compact table: one row per project. Picks the headline numbers
+  // operators usually want to scan at portfolio level. Each cell is
+  // truncated to its column width so multi-word score values like
+  // "Add competitors" or "No data" don't bleed into adjacent columns.
+  console.log(`\nOverviews (${overviews.length} project${overviews.length === 1 ? '' : 's'}):\n`)
+  const cols = { project: 20, mention: 10, cited: 10, share: 18, queries: 10 }
+  console.log(`  ${cell('Project', cols.project)}${cell('Mention', cols.mention)}${cell('Cited', cols.cited)}${cell('Share', cols.share)}${cell('Queries', cols.queries)}Latest run`)
+  for (const ov of overviews) {
+    const project = ov.project.displayName || ov.project.name
+    const queries = `${ov.queryCounts.citedQueries}/${ov.queryCounts.totalQueries}`
+    const latest = ov.latestRun.run?.finishedAt ?? ov.latestRun.run?.createdAt ?? '—'
+    console.log(
+      `  ${cell(project, cols.project)}`
+      + `${cell(ov.scores.mention.value, cols.mention)}`
+      + `${cell(ov.scores.visibility.value, cols.cited)}`
+      + `${cell(ov.scores.mentionShare.value, cols.share)}`
+      + `${cell(queries, cols.queries)}`
+      + `${latest}`,
+    )
+  }
+  console.log()
+}
+
+/** Pad-or-truncate a cell to fit its column without bleeding. Leaves at
+ *  least one trailing space when truncated so columns stay visually
+ *  separated even on long cells (matches what humans expect from a
+ *  fixed-width table). */
+function cell(value: string, width: number): string {
+  if (value.length >= width) return `${value.slice(0, width - 1)} `
+  return value.padEnd(width)
+}
+
 /** Exported so unit tests can capture stdout shape without spinning up the
  *  real client. Format change is contract-y enough that agents parsing it
  *  via grep need protection. */

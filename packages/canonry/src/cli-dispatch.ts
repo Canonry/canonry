@@ -50,6 +50,11 @@ function withGlobalOptions(options?: ParseArgsOptionsConfig): ParseArgsOptionsCo
   // the spec's `supportsDryRun` flag. Commands that don't opt in get a usage
   // error before `run` is called.
   if (!('dry-run' in base)) base['dry-run'] = { type: 'boolean' }
+  // --trace is a universal agent-debug flag — every command supports it.
+  // When set, the ApiClient logs each HTTP round-trip to stderr (method,
+  // URL, status, duration) so an operator/agent can see which endpoint a
+  // CLI call hit. Stays on stderr so --format json stdout stays clean.
+  if (!('trace' in base)) base.trace = { type: 'boolean' }
   return base
 }
 
@@ -146,6 +151,14 @@ export async function dispatchRegisteredCommand(
         usage: spec.usage,
       },
     })
+  }
+
+  // Flip CANONRY_TRACE on for the rest of this process when --trace was
+  // passed. The ApiClient reads the env var to gate its stderr trace
+  // output — env var avoids threading a "trace" plumb through every
+  // existing command handler.
+  if (values.trace === true) {
+    process.env.CANONRY_TRACE = '1'
   }
 
   const dryRunRequested = values['dry-run'] === true

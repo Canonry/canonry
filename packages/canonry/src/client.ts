@@ -267,6 +267,14 @@ export class ApiClient {
       ...(serializedBody != null ? { 'Content-Type': 'application/json' } : {}),
     }
 
+    // `--trace` agent-debug mode: emit a one-line summary of each HTTP
+    // round-trip to stderr so an agent can see which endpoint a CLI call
+    // hit and how long it took. Triggered by CANONRY_TRACE=1 (set by the
+    // CLI dispatcher when --trace is passed). Stays on stderr so stdout
+    // remains a clean JSON contract for `--format json` consumers.
+    const traceEnabled = process.env.CANONRY_TRACE === '1'
+    const traceStart = traceEnabled ? Date.now() : 0
+
     let res: Response
     try {
       res = await fetch(url, {
@@ -275,6 +283,10 @@ export class ApiClient {
         body: serializedBody,
       })
     } catch (err) {
+      if (traceEnabled) {
+        const durMs = Date.now() - traceStart
+        process.stderr.write(`[trace] ${method} ${url} → ERROR (${durMs}ms)\n`)
+      }
       if (err instanceof CliError) throw err
       const msg = err instanceof Error ? err.message : String(err)
       if (msg.includes('fetch failed') || msg.includes('ECONNREFUSED') || msg.includes('connect ECONNREFUSED')) {
@@ -316,6 +328,11 @@ export class ApiClient {
           httpStatus: res.status,
         },
       })
+    }
+
+    if (traceEnabled) {
+      const durMs = Date.now() - traceStart
+      process.stderr.write(`[trace] ${method} ${url} → ${res.status} (${durMs}ms)\n`)
     }
 
     if (res.status === 204) {
