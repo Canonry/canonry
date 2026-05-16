@@ -520,4 +520,65 @@ describe('backfill answer-visibility provider reparsing', () => {
     expect(auditSnapshots[0]?.citationState).toBe('not-cited')
     expect(auditSnapshots[0]?.rawResponse).toContain('should-not-change')
   })
+
+  it('--dry-run reports would-update counts without writing to the DB', async () => {
+    const projectId = crypto.randomUUID()
+    const runId = crypto.randomUUID()
+    const queryId = crypto.randomUUID()
+    const snapshotId = crypto.randomUUID()
+    const now = new Date().toISOString()
+    const projectName = 'dry-run-vis'
+
+    db.insert(projects).values({
+      id: projectId, name: projectName, displayName: 'Canonry',
+      canonicalDomain: 'canonry.ai', ownedDomains: '[]', country: 'US', language: 'en',
+      providers: '["openai"]', createdAt: now, updatedAt: now,
+    }).run()
+    db.insert(runs).values({
+      id: runId, projectId, kind: RunKinds['answer-visibility'],
+      status: 'completed', trigger: 'manual', createdAt: now,
+    }).run()
+    db.insert(queries).values({
+      id: queryId, projectId, query: 'canonry pricing', createdAt: now,
+    }).run()
+
+    // An OpenAI snapshot that needs an answerMentioned flip (currently false,
+    // text mentions canonry → would flip to true on a real backfill).
+    const originalRawResponse = JSON.stringify({
+      apiResponse: {
+        output: [
+          { type: 'message', content: [{ type: 'output_text', text: 'Canonry costs $99/mo.' }] },
+        ],
+      },
+    })
+    const originalCitationState = 'not-cited'
+    db.insert(querySnapshots).values({
+      id: snapshotId,
+      runId, queryId,
+      provider: 'openai', model: 'gpt-5',
+      citationState: originalCitationState, answerMentioned: false,
+      answerText: 'Canonry costs $99/mo.',
+      citedDomains: '[]', competitorOverlap: '[]', recommendedCompetitors: '[]',
+      rawResponse: originalRawResponse, createdAt: now,
+    }).run()
+
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    await backfillAnswerVisibilityCommand({ project: projectName, dryRun: true, format: 'json' })
+    const output = JSON.parse(String(logSpy.mock.calls.at(-1)?.[0] ?? '{}'))
+
+    expect(output.dryRun).toBe(true)
+    expect(output.examined).toBe(1)
+    expect(output.updated).toBe(0)
+    expect(output.wouldUpdate).toBeGreaterThanOrEqual(1)
+
+    // Confirm the snapshot row is untouched
+    const snapshot = db
+      .select()
+      .from(querySnapshots)
+      .where(eq(querySnapshots.id, snapshotId))
+      .get()
+    expect(snapshot!.answerMentioned).toBe(false)
+    expect(snapshot!.citationState).toBe(originalCitationState)
+    expect(snapshot!.rawResponse).toBe(originalRawResponse)
+  })
 })

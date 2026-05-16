@@ -352,4 +352,48 @@ describe('backfill answer-mentions', () => {
       .get()
     expect(JSON.parse(auditSnapshot!.competitorOverlap)).toEqual(['offers.roofle.com'])
   })
+
+  it('--dry-run reports would-update count without writing to the DB', async () => {
+    const { runId, queryId } = seedAnswerVisibilityRun({
+      projectName: 'dry-run-project',
+      competitorDomains: ['offers.roofle.com'],
+    })
+    const now = new Date().toISOString()
+
+    const snapshotId = crypto.randomUUID()
+    const originalCompetitorOverlap = '["offers.roofle.com"]'
+    db.insert(querySnapshots).values({
+      id: snapshotId,
+      runId,
+      queryId,
+      provider: 'openai',
+      model: 'gpt-5',
+      citationState: 'not-cited',
+      answerMentioned: false,
+      answerText: 'Energy Design Systems offers a white-label lead generation tool.',
+      citedDomains: '[]',
+      competitorOverlap: originalCompetitorOverlap,
+      recommendedCompetitors: '[]',
+      rawResponse: JSON.stringify({ groundingSources: [], searchQueries: [] }),
+      createdAt: now,
+    }).run()
+
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+
+    await backfillAnswerMentionsCommand({ project: 'dry-run-project', dryRun: true, format: 'json' })
+    const result = JSON.parse(String(logSpy.mock.calls.at(-1)?.[0] ?? '{}'))
+
+    expect(result.dryRun).toBe(true)
+    expect(result.examined).toBe(1)
+    expect(result.updated).toBe(0)
+    expect(result.wouldUpdate).toBe(1)
+
+    // Snapshot must be untouched
+    const snapshot = db
+      .select()
+      .from(querySnapshots)
+      .where(eq(querySnapshots.id, snapshotId))
+      .get()
+    expect(snapshot!.competitorOverlap).toBe(originalCompetitorOverlap)
+  })
 })
