@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { Link } from '@tanstack/react-router'
+import { useQuery } from '@tanstack/react-query'
 
 import { Button } from '../components/ui/button.js'
 import { Card } from '../components/ui/card.js'
@@ -10,7 +11,9 @@ import {
   createProject,
   setQueries,
   setCompetitors,
+  fetchRunDetail,
   generateQueries as apiGenerateQueries,
+  updateProviderConfig,
 } from '../api.js'
 import { useTriggerRun } from '../queries/mutations.js'
 import { useDashboard } from '../queries/use-dashboard.js'
@@ -113,7 +116,41 @@ export function SetupPage() {
 
   const [runTriggered, setRunTriggered] = useState(false)
   const [runSaving, setRunSaving] = useState(false)
+  const [launchedRunId, setLaunchedRunId] = useState<string | null>(null)
   const triggerRunMutation = useTriggerRun()
+
+  // Poll the newly-triggered run so Step 5 can show results inline instead
+  // of the previous "queued — open project page" handoff. Refetches every
+  // 2s while the run is in flight, then stops once a terminal status
+  // (`completed`/`partial`/`failed`/`cancelled`) lands.
+  //
+  // `refetchIntervalInBackground: true` is load-bearing: without it,
+  // react-query v5 silently suppresses interval refetches whenever the
+  // tab loses focus (real user alt-tabbing during the 30-60s sweep, or
+  // any headless test environment). Symptom was: server completes the
+  // run, dashboard surfaces the result toast, but the wizard's Step 5
+  // card stays "Running" forever. Diagnosed via a remote PR walkthrough
+  // where the failure toast fired on the dashboard while the wizard
+  // card remained amber.
+  const launchedRun = useQuery({
+    queryKey: ['setup', 'launched-run', launchedRunId],
+    queryFn: () => fetchRunDetail(launchedRunId!),
+    enabled: !!launchedRunId,
+    refetchInterval: ({ state }) => {
+      const status = state.data?.status
+      const terminal = status === 'completed' || status === 'partial' || status === 'failed' || status === 'cancelled'
+      return terminal ? false : 2000
+    },
+    refetchIntervalInBackground: true,
+  })
+
+  // Inline provider key entry for Step 1. Replaces the prior "go to /settings"
+  // link that caused the wizard's biggest drop-off: users left the wizard,
+  // entered the key, and often forgot to navigate back. Keeping the form
+  // here lets first-time users stay in flow through the whole 5-step setup.
+  const [geminiKey, setGeminiKey] = useState('')
+  const [geminiSaving, setGeminiSaving] = useState(false)
+  const [geminiError, setGeminiError] = useState<string | null>(null)
 
   const slug = projectName.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '')
   const parsedQueries = queriesText.split('\n').map(k => k.trim()).filter(Boolean)
@@ -142,7 +179,12 @@ export function SetupPage() {
         dedupeKey: `project:create:${project.name}`,
         dedupeMode: 'drop',
       })
-      void refetch()
+      // Await the dashboard refetch before advancing the step so the new
+      // project's row is in cache by the time Step 2's "Created" badge
+      // and Step 3's createdProjectName-dependent render run. Prior
+      // `void refetch()` raced with `setStep`, occasionally leaving the
+      // step indicator at 2 while the card content reverted to step 1.
+      await refetch()
       setStep(2)
     } catch (err) {
       setProjectError(err instanceof Error ? err.message : 'Failed to create project')
@@ -160,7 +202,7 @@ export function SetupPage() {
     try {
       await setQueries(createdProjectName, queries)
       setQueriesSaved(true)
-      void refetch()
+      await refetch()
       setStep(3)
     } catch (err) {
       setQueriesError(err instanceof Error ? err.message : 'Failed to save queries')
@@ -197,7 +239,7 @@ export function SetupPage() {
     try {
       await setCompetitors(createdProjectName, competitors)
       setCompetitorsSaved(true)
-      void refetch()
+      await refetch()
       setStep(4)
     } catch (err) {
       setCompetitorsError(err instanceof Error ? err.message : 'Failed to save competitors')
@@ -206,17 +248,43 @@ export function SetupPage() {
     }
   }
 
+  const handleSaveGeminiKey = async () => {
+    const key = geminiKey.trim()
+    if (!key) return
+    setGeminiSaving(true)
+    setGeminiError(null)
+    try {
+      await updateProviderConfig('gemini', { apiKey: key })
+      addToast({
+        title: 'Gemini configured',
+        detail: 'Provider is ready — continuing setup.',
+        tone: 'positive',
+        dedupeKey: 'setup:gemini:configured',
+        dedupeMode: 'drop',
+      })
+      setGeminiKey('')
+      // Refetch dashboard so the health-check row flips to "Ready" and the
+      // "Continue" button at the bottom of Step 1 becomes enabled.
+      await refetch()
+    } catch (err) {
+      setGeminiError(err instanceof Error ? err.message : 'Failed to save Gemini key')
+    } finally {
+      setGeminiSaving(false)
+    }
+  }
+
   const handleLaunchRun = async () => {
     if (!createdProjectName) return
     setRunSaving(true)
     try {
-      await triggerRunMutation.mutateAsync({
+      const run = await triggerRunMutation.mutateAsync({
         projectName: createdProjectName,
         projectLabel: displayName || projectName || createdProjectName,
         sourceAction: 'setup-launch',
       })
+      setLaunchedRunId(run.id)
       setRunTriggered(true)
-      void refetch()
+      await refetch()
     } catch {
       // Mutation hook surfaces the toast and error state.
     } finally {
@@ -245,12 +313,46 @@ export function SetupPage() {
                     <p className="run-row-title">{check.label}</p>
                     <p className="supporting-copy">{check.detail}</p>
                     {check.id === 'provider' && check.state !== 'ready' && (
-                      <Link
-                        to="/settings"
-                        className="text-emerald-400 hover:text-emerald-300 text-sm mt-1 underline underline-offset-2 cursor-pointer"
-                      >
-                        Configure providers
-                      </Link>
+                      <div className="mt-3 rounded-md border border-zinc-800/60 bg-zinc-900/40 p-3 space-y-2">
+                        <p className="text-xs text-zinc-400">
+                          Paste a Gemini key to enable visibility checks (free at{' '}
+                          <a
+                            href="https://aistudio.google.com/apikey"
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-emerald-400 hover:text-emerald-300 underline underline-offset-2"
+                          >
+                            aistudio.google.com
+                          </a>
+                          ).
+                        </p>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="password"
+                            value={geminiKey}
+                            onChange={(e) => setGeminiKey(e.target.value)}
+                            placeholder="AI... (paste here)"
+                            className="flex-1 rounded-md border border-zinc-800 bg-zinc-950 px-2.5 py-1.5 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-zinc-600 focus:outline-none font-mono"
+                            disabled={geminiSaving}
+                          />
+                          <Button
+                            type="button"
+                            size="sm"
+                            disabled={geminiSaving || !geminiKey.trim()}
+                            onClick={handleSaveGeminiKey}
+                          >
+                            {geminiSaving ? 'Saving...' : 'Save'}
+                          </Button>
+                        </div>
+                        {geminiError && <p className="text-xs text-rose-400">{geminiError}</p>}
+                        <p className="text-[11px] text-zinc-600">
+                          Other providers (OpenAI, Claude, Perplexity) configurable later via{' '}
+                          <Link to="/settings" className="text-zinc-500 hover:text-zinc-300 underline underline-offset-2">
+                            /settings
+                          </Link>
+                          .
+                        </p>
+                      </div>
                     )}
                   </div>
                   <ToneBadge
@@ -501,7 +603,22 @@ export function SetupPage() {
           </Card>
         )
 
-      case 4:
+      case 4: {
+        const run = launchedRun.data
+        const terminal = run?.status === 'completed' || run?.status === 'partial' || run?.status === 'failed' || run?.status === 'cancelled'
+        const snapshots = run?.snapshots ?? []
+        const cited = snapshots.filter(s => s.citationState === 'cited').length
+        const mentioned = snapshots.filter(s => s.answerMentioned === true).length
+        const totalQueries = new Set(snapshots.map(s => s.query).filter((q): q is string => !!q)).size
+
+        const stepBadge = !runTriggered
+          ? null
+          : terminal && (run?.status === 'completed' || run?.status === 'partial')
+            ? <ToneBadge tone="positive">Complete</ToneBadge>
+            : terminal
+              ? <ToneBadge tone="negative">Failed</ToneBadge>
+              : <ToneBadge tone="caution">Running</ToneBadge>
+
         return (
           <Card className="surface-card step-card">
             <div className="section-head">
@@ -509,19 +626,9 @@ export function SetupPage() {
                 <p className="eyebrow eyebrow-soft">Step 5 of 5</p>
                 <h2>Launch first run</h2>
               </div>
-              {runTriggered ? <ToneBadge tone="positive">Queued</ToneBadge> : null}
+              {stepBadge}
             </div>
-            {runTriggered ? (
-              <div className="compact-stack">
-                <p className="text-zinc-300">Visibility sweep has been queued. View progress on the project page.</p>
-                <div className="setup-nav">
-                  <span />
-                  <Button type="button" onClick={() => navigate({ to: createdProjectId ? `/projects/${createdProjectId}` : '/' })}>
-                    Open project
-                  </Button>
-                </div>
-              </div>
-            ) : (
+            {!runTriggered ? (
               <div className="compact-stack">
                 <p className="supporting-copy">
                   Everything is configured. Launch an answer-visibility sweep to start tracking citations for <span className="text-zinc-100 font-medium">{createdProjectName}</span>.
@@ -533,9 +640,68 @@ export function SetupPage() {
                   </Button>
                 </div>
               </div>
+            ) : !terminal ? (
+              <div className="compact-stack">
+                <p className="text-zinc-300">
+                  Sweep running — typically 30-60s. Polling every 2s…
+                </p>
+                <div className="rounded-md border border-zinc-800/60 bg-zinc-900/30 p-3 text-xs text-zinc-500">
+                  <p>Status: <span className="text-zinc-300">{run?.status ?? 'queued'}</span></p>
+                </div>
+                <div className="setup-nav">
+                  <span />
+                  <Button type="button" variant="outline" onClick={() => navigate({ to: createdProjectId ? `/projects/${createdProjectId}` : '/' })}>
+                    Watch on project page
+                  </Button>
+                </div>
+              </div>
+            ) : run?.status === 'failed' ? (
+              <div className="compact-stack">
+                <p className="text-rose-400">Sweep failed. Inspect the run on the project page for the provider error and retry from there.</p>
+                <div className="setup-nav">
+                  <span />
+                  <Button type="button" onClick={() => navigate({ to: createdProjectId ? `/projects/${createdProjectId}` : '/' })}>
+                    Open project
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="compact-stack">
+                <p className="text-zinc-300">
+                  Sweep complete. Your first answer-visibility snapshot for{' '}
+                  <span className="text-zinc-100 font-medium">{createdProjectName}</span>:
+                </p>
+                <div className="grid grid-cols-3 gap-2 mt-1">
+                  <div className="rounded-md border border-zinc-800/60 bg-zinc-900/30 p-3">
+                    <p className="text-[10px] uppercase tracking-wide text-zinc-500">Mentioned</p>
+                    <p className="text-2xl font-bold tabular-nums text-zinc-50 mt-1">{mentioned}<span className="text-zinc-600 text-lg"> / {totalQueries}</span></p>
+                    <p className="text-[11px] text-zinc-500 mt-0.5">queries with brand in answer</p>
+                  </div>
+                  <div className="rounded-md border border-zinc-800/60 bg-zinc-900/30 p-3">
+                    <p className="text-[10px] uppercase tracking-wide text-zinc-500">Cited</p>
+                    <p className="text-2xl font-bold tabular-nums text-zinc-50 mt-1">{cited}<span className="text-zinc-600 text-lg"> / {totalQueries}</span></p>
+                    <p className="text-[11px] text-zinc-500 mt-0.5">queries with domain in sources</p>
+                  </div>
+                  <div className="rounded-md border border-zinc-800/60 bg-zinc-900/30 p-3">
+                    <p className="text-[10px] uppercase tracking-wide text-zinc-500">Snapshots</p>
+                    <p className="text-2xl font-bold tabular-nums text-zinc-50 mt-1">{snapshots.length}</p>
+                    <p className="text-[11px] text-zinc-500 mt-0.5">total (query × provider)</p>
+                  </div>
+                </div>
+                <p className="text-[11px] text-zinc-500 mt-1">
+                  Full evidence, per-provider breakdown, and suggested next queries on the project dashboard.
+                </p>
+                <div className="setup-nav">
+                  <span />
+                  <Button type="button" onClick={() => navigate({ to: createdProjectId ? `/projects/${createdProjectId}` : '/' })}>
+                    Open project dashboard →
+                  </Button>
+                </div>
+              </div>
             )}
           </Card>
         )
+      }
 
       default:
         return null
