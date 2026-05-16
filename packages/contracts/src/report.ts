@@ -156,10 +156,11 @@ export interface CompetitorRow {
   /** Distinct queries on which this competitor was cited. */
   citedQueries: string[]
   /**
-   * Share of voice 0..100. Numerator = this competitor's `citationCount`.
+   * Citation share 0..100. Numerator = this competitor's `citationCount`.
    * Denominator = sum of `citationCount` across all competitors plus the
    * project's own `projectCitationCount`. Equals 0 when there are no cited
-   * slots in the snapshot.
+   * slots in the snapshot. Distinct from the project-level Mention Share
+   * gauge — that one is brand-in-answer-text, this one is domain-in-source-list.
    */
   sharePct: number
   /**
@@ -188,10 +189,11 @@ export interface MentionRow {
   /** Distinct queries on which this competitor was mentioned. */
   mentionedQueries: string[]
   /**
-   * Share of voice 0..100. Numerator = this competitor's `mentionCount`.
+   * Mention share 0..100. Numerator = this competitor's `mentionCount`.
    * Denominator = sum of `mentionCount` across all competitors plus the
    * project's own `projectMentionCount`. Equals 0 when no snapshot had any
-   * mention.
+   * mention. Per-competitor split of the same head-to-head measure the
+   * project's hero `MentionShareDto` gauge headlines.
    */
   sharePct: number
 }

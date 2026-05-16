@@ -1271,7 +1271,7 @@ function CompetitorLandscapeSection({ report }: { report: ProjectReportDto }) {
                 <th>Pressure</th>
                 <th>Citations</th>
                 <th>Mentions</th>
-                <th>SOV</th>
+                <th title="Citation share — % of cited-source slots that went to this competitor across tracked queries. Distinct from Mention Share (head-to-head answer-text mentions); see the hero gauge.">Citation share</th>
                 <th>Cited queries</th>
               </tr>
             </thead>

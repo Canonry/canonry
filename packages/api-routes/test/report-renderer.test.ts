@@ -968,12 +968,14 @@ describe('renderReportHtml', () => {
     expect(stepsBlock).toContain('No outstanding actions.')
   })
 
-  test('renders SOV % column in competitor landscape', () => {
+  test('renders the "Citation share" column header (renamed from "SOV") in competitor landscape', () => {
     const report = richReport()
     report.competitorLandscape.competitors[0]!.sharePct = 75
     report.competitorLandscape.competitors[1]!.sharePct = 25
     const html = renderReportHtml(report)
     const landscape = html.split('id="competitor-landscape"')[1]?.split('</section>')[0] ?? ''
+    expect(landscape).toContain('Citation share')
+    expect(landscape).not.toContain('>SOV<')
     expect(landscape).toContain('75%')
     expect(landscape).toContain('25%')
   })
