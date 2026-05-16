@@ -552,10 +552,14 @@
     @apply text-[10px] font-medium uppercase tracking-[0.12em] text-zinc-500 mr-1;
   }
 
-  /* ── Secondary metric grid (Gap Queries + Index Coverage) ── */
+  .movement-banner-chip {
+    @apply rounded transition-colors hover:bg-zinc-800/60 px-1.5 py-0.5 -my-0.5 cursor-pointer focus:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500;
+  }
+
+  /* ── Secondary metric grid (gap cards + index coverage) ── */
 
   .metric-grid {
-    @apply grid gap-3 sm:grid-cols-2;
+    @apply grid gap-3 sm:grid-cols-2 lg:grid-cols-3;
   }
 
   /* ── Metric cards (non-gauge) ── */

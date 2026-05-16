@@ -1093,6 +1093,7 @@ export function ProjectPage({
   const [aliasSaving, setAliasSaving] = useState(false)
   const [locationFilter, setLocationFilter] = useState<string | undefined>(undefined)
   const [compareLocations, setCompareLocations] = useState(false)
+  const [competitorFilter, setCompetitorFilter] = useState<string | null>(null)
   const [locationTimeline, setLocationTimeline] = useState<import('../api.js').ApiTimelineEntry[] | null>(null)
   const [_locationTimelineLoading, setLocationTimelineLoading] = useState(false)
 
@@ -1173,16 +1174,20 @@ export function ProjectPage({
   }, [locationTimeline])
 
   const filteredEvidence = useMemo(() => {
-    const filtered = locationFilter !== undefined
+    let filtered = locationFilter !== undefined
       ? visibilityEvidence.filter(e => locationFilter === '' ? !e.location : e.location === locationFilter)
       : visibilityEvidence
+    if (competitorFilter) {
+      const needle = competitorFilter.toLowerCase()
+      filtered = filtered.filter(e => e.competitorDomains.some(d => d.toLowerCase() === needle))
+    }
     if (!locationRunHistoryMap) return filtered
     return filtered.map(item => {
       const history = locationRunHistoryMap.get(`${item.query}::${item.provider}`)
         ?? locationRunHistoryMap.get(`${item.query}::`)
       return history ? { ...item, runHistory: history } : item
     })
-  }, [visibilityEvidence, locationFilter, locationRunHistoryMap])
+  }, [visibilityEvidence, locationFilter, competitorFilter, locationRunHistoryMap])
 
   if (!model) {
     return (
@@ -1561,18 +1566,37 @@ export function ProjectPage({
             )}
           </section>
 
-          {/* Movement banner — what changed since last run */}
+          {/* Movement banner — what changed since last run. Counters jump to
+              the evidence table so operators can see WHICH queries moved. */}
           <section className="movement-banner">
             <span className="movement-banner-label">Since last run</span>
             {model.movementSummary.hasPreviousRun ? (
               <>
-                <span className={model.movementSummary.gained > 0 ? 'text-emerald-400 font-medium' : 'text-zinc-500'}>
-                  +{model.movementSummary.gained} gained
-                </span>
+                {model.movementSummary.gained > 0 ? (
+                  <button
+                    type="button"
+                    className="movement-banner-chip text-emerald-400 font-medium"
+                    onClick={() => document.getElementById('evidence-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                    title="Jump to the queries that gained citations"
+                  >
+                    +{model.movementSummary.gained} gained
+                  </button>
+                ) : (
+                  <span className="text-zinc-500">+0 gained</span>
+                )}
                 <span className="text-zinc-700 mx-1">·</span>
-                <span className={model.movementSummary.lost > 0 ? 'text-rose-400 font-medium' : 'text-zinc-500'}>
-                  −{model.movementSummary.lost} lost
-                </span>
+                {model.movementSummary.lost > 0 ? (
+                  <button
+                    type="button"
+                    className="movement-banner-chip text-rose-400 font-medium"
+                    onClick={() => document.getElementById('evidence-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                    title="Jump to the queries that lost citations"
+                  >
+                    −{model.movementSummary.lost} lost
+                  </button>
+                ) : (
+                  <span className="text-zinc-500">−0 lost</span>
+                )}
                 <span className="text-zinc-600 ml-2">
                   {model.movementSummary.gained === 0 && model.movementSummary.lost === 0
                     ? '· no changes'
@@ -1588,12 +1612,29 @@ export function ProjectPage({
             )}
           </section>
 
-          {/* Secondary: technical health */}
+          {/* Secondary: at-risk gaps (paired) + technical health */}
           <section className="metric-grid">
             <div className="metric-card">
               <p className="metric-card-eyebrow">
-                Gap Queries
-                <InfoTooltip text="Queries where competitors got cited but you didn't." />
+                Mention Gaps
+                <InfoTooltip text="Queries where a competitor was mentioned in the answer but your brand wasn't." />
+              </p>
+              <p className="metric-card-big-value">
+                <span className="text-zinc-50">{model.mentionGaps.value}</span>
+                <span className="text-zinc-600"> / {model.queryCounts.total}</span>
+              </p>
+              <div className="metric-card-bar">
+                <div
+                  className={`metric-card-bar-fill progress-fill-${model.mentionGaps.tone}`}
+                  style={{ width: model.mentionGaps.progress !== undefined ? `${Math.min(Math.max(model.mentionGaps.progress, 0), 100)}%` : '0%' }}
+                />
+              </div>
+              <p className="metric-card-detail">{model.mentionGaps.delta}</p>
+            </div>
+            <div className="metric-card">
+              <p className="metric-card-eyebrow">
+                Citation Gaps
+                <InfoTooltip text="Queries where a competitor was cited as a source but you weren't." />
               </p>
               <p className="metric-card-big-value">
                 <span className="text-zinc-50">{model.gapQueries.value}</span>
@@ -1626,66 +1667,13 @@ export function ProjectPage({
             </div>
           </section>
 
-          <CitationVisibilitySection projectName={model.project.name} />
-
-          {/* Per-provider visibility breakdown */}
-          {model.providerScores.length > 1 && (
-            <section className="page-section-divider">
-              <div className="section-head section-head-inline">
-                <div>
-                  <p className="eyebrow eyebrow-soft">Model breakdown</p>
-                  <h2>Visibility by model <InfoTooltip text="Per-model citation rate. Shows how often each AI model cites your domain across all tracked queries. Switching models can significantly affect citation rates." /></h2>
-                </div>
-              </div>
-              <div className="evidence-table-wrap">
-                <table className="evidence-table">
-                  <thead>
-                    <tr>
-                      <th>Model</th>
-                      <th>Score</th>
-                      <th>Cited queries</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {model.providerScores.map((ps) => (
-                      <tr key={`${ps.provider}::${ps.model ?? 'unknown'}`}>
-                        <td>
-                          <div className="flex flex-col items-start gap-0.5">
-                            <ProviderBadge provider={ps.provider} />
-                            {ps.model && <span className="text-[11px] font-mono text-zinc-500">{ps.model}</span>}
-                          </div>
-                        </td>
-                        <td>
-                          <span className={`font-semibold ${ps.score >= 70 ? 'text-emerald-400' : ps.score >= 40 ? 'text-amber-400' : 'text-rose-400'}`}>
-                            {ps.score}%
-                          </span>
-                        </td>
-                        <td className="text-zinc-500">{ps.cited} of {ps.total}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-          )}
-
-          {/* Insights */}
-          <section className="page-section-divider">
+          {/* Evidence table — the meat. Moved up so operators can scan answers
+              without scrolling past secondary analytics. */}
+          <section id="evidence-section" className="page-section-divider scroll-mt-24">
             <div className="section-head section-head-inline">
               <div>
-                <p className="eyebrow eyebrow-soft">What changed</p>
-                <h2>Citation signals</h2>
-              </div>
-            </div>
-            <InsightSignals insights={model.insights} />
-          </section>
-
-          {/* Evidence table */}
-          <section className="page-section-divider">
-            <div className="section-head section-head-inline">
-              <div>
-                <p className="eyebrow eyebrow-soft">Visibility evidence</p>
-                <h2>Query citation tracking</h2>
+                <p className="eyebrow eyebrow-soft">Answer evidence</p>
+                <h2>What the LLMs said</h2>
               </div>
               <div className="flex items-center gap-3">
                 <p className="supporting-copy">{new Set(model.visibilityEvidence.map(e => e.query)).size} queries tracked</p>
@@ -1755,10 +1743,35 @@ export function ProjectPage({
                 )}
               </div>
             )}
+            {competitorFilter && (
+              <div className="mb-3 flex items-center gap-2 rounded-md border border-rose-900/40 bg-rose-950/20 px-3 py-2">
+                <span className="text-[11px] uppercase tracking-wide text-rose-400">Competitor filter</span>
+                <span className="text-sm text-zinc-200">Showing queries where <span className="font-semibold">{competitorFilter}</span> surfaced</span>
+                <button
+                  type="button"
+                  className="ml-auto text-xs text-zinc-400 hover:text-zinc-200"
+                  onClick={() => setCompetitorFilter(null)}
+                >
+                  Clear filter ×
+                </button>
+              </div>
+            )}
             <EvidenceTable
               evidence={filteredEvidence}
               compareLocations={compareLocations}
             />
+          </section>
+
+          {/* Opportunities (renamed from Insights). Action layer — what to do
+              next, derived from the evidence above. */}
+          <section className="page-section-divider">
+            <div className="section-head section-head-inline">
+              <div>
+                <p className="eyebrow eyebrow-soft">Opportunities</p>
+                <h2>What to act on next</h2>
+              </div>
+            </div>
+            <InsightSignals insights={model.insights} />
           </section>
 
           {/* Competitor table */}
@@ -1790,8 +1803,60 @@ export function ProjectPage({
                 </Button>
               </div>
             )}
-            <CompetitorTable competitors={model.competitors} />
+            <CompetitorTable
+              competitors={model.competitors}
+              onSelectCompetitor={(domain) => {
+                setCompetitorFilter(domain)
+                document.getElementById('evidence-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+              }}
+              activeFilter={competitorFilter}
+            />
           </section>
+
+          {/* Deep-dive analytics: Citation Visibility detail + per-provider
+              breakdown. Demoted below the action layer because they answer
+              "why" rather than "what to do next". */}
+          <CitationVisibilitySection projectName={model.project.name} />
+
+          {model.providerScores.length > 1 && (
+            <section className="page-section-divider">
+              <div className="section-head section-head-inline">
+                <div>
+                  <p className="eyebrow eyebrow-soft">Model breakdown</p>
+                  <h2>Visibility by model <InfoTooltip text="Per-model citation rate. Shows how often each AI model cites your domain across all tracked queries. Switching models can significantly affect citation rates." /></h2>
+                </div>
+              </div>
+              <div className="evidence-table-wrap">
+                <table className="evidence-table">
+                  <thead>
+                    <tr>
+                      <th>Model</th>
+                      <th>Score</th>
+                      <th>Cited queries</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {model.providerScores.map((ps) => (
+                      <tr key={`${ps.provider}::${ps.model ?? 'unknown'}`}>
+                        <td>
+                          <div className="flex flex-col items-start gap-0.5">
+                            <ProviderBadge provider={ps.provider} />
+                            {ps.model && <span className="text-[11px] font-mono text-zinc-500">{ps.model}</span>}
+                          </div>
+                        </td>
+                        <td>
+                          <span className={`font-semibold ${ps.score >= 70 ? 'text-emerald-400' : ps.score >= 40 ? 'text-amber-400' : 'text-rose-400'}`}>
+                            {ps.score}%
+                          </span>
+                        </td>
+                        <td className="text-zinc-500">{ps.cited} of {ps.total}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
 
           {/* Run timeline */}
           <section className="page-section-divider">

@@ -49,6 +49,7 @@ import {
 import {
   buildCompetitorPressureScore,
   buildGapQueryScore,
+  buildMentionGapScore,
   buildMovementSummary,
   buildOverviewCompetitors,
   buildProviderScores,
@@ -191,6 +192,7 @@ export async function compositeRoutes(app: FastifyInstance) {
       mention: buildMentionCoverage(latestSnapshots, { configuredApiProviders }),
       visibility: buildVisibilityScore(latestSnapshots, { configuredApiProviders }),
       gapQueries: buildGapQueryScore(latestSnapshots),
+      mentionGaps: buildMentionGapScore(latestSnapshots),
       indexCoverage: buildIndexCoverageScore(app, project.id),
       competitorPressure: buildCompetitorPressureScore(
         latestSnapshots,

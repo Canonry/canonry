@@ -65,7 +65,10 @@ export interface ProjectOverviewScoresDto {
   mention: ScoreSummaryDto
   /** Secondary tile — % of tracked queries whose answer cited the domain in its source list. */
   visibility: ScoreSummaryDto
+  /** Tracked queries where a competitor is cited but the project is not. */
   gapQueries: ScoreSummaryDto
+  /** Mention-side sibling of `gapQueries`: competitor surfaces in the answer but the project brand never does. */
+  mentionGaps: ScoreSummaryDto
   indexCoverage: ScoreSummaryDto
   competitorPressure: ScoreSummaryDto
   runStatus: ScoreSummaryDto
