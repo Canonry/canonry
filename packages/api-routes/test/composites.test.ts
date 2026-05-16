@@ -207,7 +207,7 @@ describe('GET /api/v1/projects/:name/overview', () => {
     expect(res.statusCode).toBe(200)
     const body = JSON.parse(res.payload) as ProjectOverviewDto
 
-    expect(body.scores.visibility.label).toBe('Answer Visibility')
+    expect(body.scores.visibility.label).toBe('Citation Coverage')
     expect(body.scores.visibility.value).toBe('100')
     expect(body.scores.visibility.tone).toBe('positive')
 

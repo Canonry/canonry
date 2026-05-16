@@ -573,7 +573,7 @@ function emptyCommandCenter(
     project,
     dateRangeLabel: 'All time',
     contextLabel: `${project.country} / ${project.language.toUpperCase()}`,
-    visibilitySummary: { ...placeholder, label: 'Answer Visibility' },
+    visibilitySummary: { ...placeholder, label: 'Citation Coverage' },
     queryCounts: { cited: 0, total: 0 },
     gapQueries: { ...placeholder, label: 'Gap Queries' },
     indexCoverage: { ...placeholder, label: 'Index Coverage' },

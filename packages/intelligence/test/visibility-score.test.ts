@@ -14,6 +14,17 @@ function snap(overrides: Partial<VisibilityScoreSnapshot> = {}): VisibilityScore
 }
 
 describe('buildVisibilityScore', () => {
+  it('labels itself accurately for the citation signal it counts', () => {
+    // The function reads `citationState === 'cited'` exclusively (not
+    // `answerMentioned`). Per AGENTS.md vocabulary rule 3, the label must
+    // describe what's actually being measured. Historically this gauge was
+    // labelled "Answer Visibility" — a phrase that implies the mention
+    // signal under the legacy alias rules — but the math is pure citation.
+    // The rename makes label and data consistent.
+    const result = buildVisibilityScore([snap()], { configuredApiProviders: ['gemini'] })
+    expect(result.label).toBe('Citation Coverage')
+  })
+
   it('returns "No data" tone:neutral when there are no snapshots', () => {
     const result = buildVisibilityScore([], { configuredApiProviders: ['gemini', 'openai'] })
     expect(result.value).toBe('No data')
@@ -31,7 +42,8 @@ describe('buildVisibilityScore', () => {
     const result = buildVisibilityScore(snapshots, { configuredApiProviders: ['gemini'] })
     expect(result.value).toBe('67')
     expect(result.progress).toBe(67)
-    expect(result.delta).toBe('2 of 3 queries visible')
+    // Delta vocabulary tracks the label vocabulary — "cited", not "visible".
+    expect(result.delta).toBe('2 of 3 queries cited')
   })
 
   it('treats a query as cited when ANY provider snapshot is cited', () => {

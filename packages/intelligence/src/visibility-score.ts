@@ -16,9 +16,17 @@ export interface VisibilityScoreOptions {
 }
 
 /**
- * Computes the "Answer Visibility" score gauge — the headline metric for the
- * project page. A query is "visible" when at least one snapshot for that query
- * has citationState='cited'. Score is rounded percentage of visible queries.
+ * Computes the "Citation Coverage" score gauge — the headline metric for the
+ * project page. A query counts as cited when at least one snapshot for that
+ * query has `citationState === 'cited'`. The score is the rounded percentage
+ * of cited queries.
+ *
+ * Label history: this gauge was previously labelled "Answer Visibility". The
+ * old name conflicted with AGENTS.md vocabulary rules — "visibility" is the
+ * legacy alias for the mention signal (answer-text presence), but this metric
+ * reads `citationState`, not `answerMentioned`. The rename brings the label
+ * in line with the data it counts. The mention-equivalent metric does not
+ * exist yet; if/when it does it will be a parallel `buildMentionCoverage`.
  *
  * When the run only covers a subset of configured providers, tone shifts to
  * caution and a providerCoverage label is set, even if the score is high. The
@@ -28,15 +36,15 @@ export function buildVisibilityScore(
   snapshots: readonly VisibilityScoreSnapshot[],
   options: VisibilityScoreOptions,
 ): ScoreSummaryDto {
-  const tooltip = 'Percentage of tracked queries where your domain is cited by at least one AI answer engine. A query is "visible" if any configured provider includes your site in its response.'
+  const tooltip = 'Percentage of tracked queries where your domain is cited by at least one AI answer engine. A query counts as cited if any configured provider includes your site in its response.'
 
   if (snapshots.length === 0) {
     return {
-      label: 'Answer Visibility',
+      label: 'Citation Coverage',
       value: 'No data',
       delta: 'Run a sweep first',
       tone: 'neutral',
-      description: 'No visibility data yet. Trigger a run to start tracking.',
+      description: 'No citation data yet. Trigger a run to start tracking.',
       tooltip,
       trend: [],
     }
@@ -58,9 +66,9 @@ export function buildVisibilityScore(
     && runApiProviderCount < options.configuredApiProviders.length
 
   return {
-    label: 'Answer Visibility',
+    label: 'Citation Coverage',
     value: `${score}`,
-    delta: `${citedCount} of ${totalCount} queries visible`,
+    delta: `${citedCount} of ${totalCount} queries cited`,
     tone: isPartialProviderRun ? 'caution' : scoreTone(score),
     description: `${citedCount} of ${totalCount} tracked queries found your domain in at least one AI answer engine.`,
     tooltip,
