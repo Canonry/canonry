@@ -675,5 +675,78 @@ describe('IntelligenceService', () => {
       expect(result!.regressions).toHaveLength(1)
       expect(result!.regressions[0]!.query).toBe('recovered query text')
     })
+
+    it('logs a warning with the orphan count when orphan snapshots are skipped', async () => {
+      // The orphan-skip is silent in code, but loud in operator-facing logs
+      // so a healthy DB with sudden orphan accumulation surfaces in the
+      // JobRunner / canonry serve output instead of failing closed.
+      const vi = await import('vitest').then(m => m.vi)
+      const writes: string[] = []
+      const spy = vi.spyOn(process.stdout, 'write').mockImplementation(((chunk: unknown) => {
+        if (typeof chunk === 'string') writes.push(chunk)
+        else if (chunk instanceof Buffer) writes.push(chunk.toString('utf8'))
+        return true
+      }) as typeof process.stdout.write)
+
+      try {
+        const { db } = createTempDb('intel-orphan-log-')
+        const projectId = seedProject(db)
+        const queryId = seedQuery(db, projectId, 'real query')
+        const run1 = seedRun(db, projectId, 'completed', '2026-04-01T00:00:00Z')
+
+        seedSnapshot(db, run1, queryId, 'gemini', 'cited', { citedDomains: ['example.com'] })
+        // Three orphan snapshots in the same run.
+        for (let i = 0; i < 3; i++) {
+          db.insert(querySnapshots).values({
+            id: crypto.randomUUID(),
+            runId: run1,
+            queryId: null,
+            queryText: null,
+            provider: 'gemini',
+            model: 'test-model',
+            citationState: 'not-cited',
+            citedDomains: '[]',
+            competitorOverlap: '[]',
+            createdAt: new Date().toISOString(),
+          }).run()
+        }
+
+        const service = new IntelligenceService(db)
+        service.analyzeAndPersist(run1, projectId)
+
+        const warnLine = writes.find(w => w.includes('snapshot.orphan-skip'))
+        expect(warnLine).toBeDefined()
+        expect(warnLine).toContain('"orphanCount":3')
+        expect(warnLine).toContain('"warn"')
+      } finally {
+        spy.mockRestore()
+      }
+    })
+
+    it('does not emit the warning when no orphan snapshots are present', async () => {
+      const vi = await import('vitest').then(m => m.vi)
+      const writes: string[] = []
+      const spy = vi.spyOn(process.stdout, 'write').mockImplementation(((chunk: unknown) => {
+        if (typeof chunk === 'string') writes.push(chunk)
+        else if (chunk instanceof Buffer) writes.push(chunk.toString('utf8'))
+        return true
+      }) as typeof process.stdout.write)
+
+      try {
+        const { db } = createTempDb('intel-orphan-quiet-')
+        const projectId = seedProject(db)
+        const queryId = seedQuery(db, projectId, 'real query')
+        const run1 = seedRun(db, projectId, 'completed', '2026-04-01T00:00:00Z')
+        seedSnapshot(db, run1, queryId, 'gemini', 'cited', { citedDomains: ['example.com'] })
+
+        const service = new IntelligenceService(db)
+        service.analyzeAndPersist(run1, projectId)
+
+        const warnLine = writes.find(w => w.includes('snapshot.orphan-skip'))
+        expect(warnLine).toBeUndefined()
+      } finally {
+        spy.mockRestore()
+      }
+    })
   })
 })

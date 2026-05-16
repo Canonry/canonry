@@ -505,6 +505,7 @@ export class IntelligenceService {
       .all()
 
     const snapshots: Snapshot[] = []
+    let orphanCount = 0
     for (const r of rows) {
       // Recover query identity in priority order: live join → denormalized
       // text. If both are missing this snapshot has no identity to surface,
@@ -513,7 +514,10 @@ export class IntelligenceService {
       // location) detector key, fabricating regressions/gains on a synthetic
       // empty query. Skip it.
       const resolvedQuery = r.query ?? r.queryText ?? null
-      if (!resolvedQuery) continue
+      if (!resolvedQuery) {
+        orphanCount++
+        continue
+      }
 
       const domains = parseJsonColumn<string[]>(r.citedDomains, [])
       const competitors = parseJsonColumn<string[]>(r.competitorOverlap, [])
@@ -534,6 +538,15 @@ export class IntelligenceService {
         // when no tracked competitor appears in the response.
         citedDomains: domains,
       })
+    }
+
+    // Surface the silent skip path. Healthy DBs emit zero orphan-skip
+    // warnings; a sudden non-zero count is a signal that a write path
+    // started accumulating dangling-FK rows again, or that v58-equivalent
+    // migration debt exists on the project. Without this log the skip is
+    // invisible to operators until a customer notices missing insights.
+    if (orphanCount > 0) {
+      log.warn('snapshot.orphan-skip', { runId, projectId, orphanCount })
     }
 
     return { runId, projectId, completedAt, location, snapshots }
