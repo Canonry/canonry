@@ -75,4 +75,32 @@ describe('groupInsights', () => {
     expect(groups).toHaveLength(1)
     expect(groups[0]!.count).toBe(2)
   })
+
+  test('does not collide when field boundaries fall on whitespace', () => {
+    // Tracked queries almost always contain spaces ("HVAC lead generation",
+    // "best polyurea roof coating"). If the dedup key is built by joining
+    // (query, provider, type) with a space, two genuinely different inputs
+    // can produce the same key — and two distinct insights silently merge
+    // into a single row. The pair below produces identical concat strings
+    // under a space-joined key.
+    const insights = [
+      makeInsight({ query: 'HVAC lead', provider: 'openai', type: 'gain', createdAt: '2026-01-01T00:00:00Z', title: 'A' }),
+      makeInsight({ query: 'HVAC', provider: 'lead openai', type: 'gain', createdAt: '2026-01-01T00:00:00Z', title: 'B' }),
+    ]
+    const groups = groupInsights(insights)
+    expect(groups).toHaveLength(2)
+    const titles = groups.map(g => g.representative.title).sort()
+    expect(titles).toEqual(['A', 'B'])
+  })
+
+  test('does not collide when boundary tokens are reshuffled across fields', () => {
+    // Same total tokens, different field assignment. With a space-joined
+    // key, both produce "best HVAC openai gain" — distinct insights merge.
+    const insights = [
+      makeInsight({ query: 'best HVAC openai', provider: 'gain', type: 'gain', createdAt: '2026-01-01T00:00:00Z', title: 'A' }),
+      makeInsight({ query: 'best HVAC', provider: 'openai gain', type: 'gain', createdAt: '2026-01-01T00:00:00Z', title: 'B' }),
+    ]
+    const groups = groupInsights(insights)
+    expect(groups).toHaveLength(2)
+  })
 })

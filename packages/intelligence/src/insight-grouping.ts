@@ -30,7 +30,12 @@ export interface GroupedInsight<T extends InsightLike = InsightLike> {
 
 /**
  * Group insights by an arbitrary key. Default key tuples on the natural
- * dedup dimensions: (query, provider, type).
+ * dedup dimensions: (query, provider, type), serialized via `JSON.stringify`
+ * so spaces inside a tracked query (e.g. "best polyurea roof coating") can't
+ * reshuffle the field boundaries and collide with a different (query,
+ * provider, type) tuple. A previous space-joined key produced the same
+ * string for {query:"a b", provider:"c"} and {query:"a", provider:"b c"},
+ * silently merging distinct insights.
  *
  * Group order is the order of first appearance in the input.
  * Within each group, instances are sorted oldest → newest by createdAt
@@ -38,7 +43,7 @@ export interface GroupedInsight<T extends InsightLike = InsightLike> {
  */
 export function groupInsights<T extends InsightLike>(
   insights: T[],
-  keyFn: (i: T) => string = (i) => `${i.query} ${i.provider} ${i.type}`,
+  keyFn: (i: T) => string = (i) => JSON.stringify([i.query, i.provider, i.type]),
 ): GroupedInsight<T>[] {
   const order: string[] = []
   const buckets = new Map<string, T[]>()
