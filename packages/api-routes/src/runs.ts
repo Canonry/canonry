@@ -1,5 +1,5 @@
 import crypto from 'node:crypto'
-import { eq, asc, desc, sql } from 'drizzle-orm'
+import { and, eq, asc, desc, or, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { runs, querySnapshots, queries, projects, parseJsonColumn } from '@ainyc/canonry-db'
 import type { LocationContext } from '@ainyc/canonry-contracts'
@@ -98,33 +98,56 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
       resolvedLocation = loc
     }
 
-    // Handle --all-locations: create one run per configured location
-    // Skip the idle-check here — each location gets its own run regardless of other active runs.
+    // Handle --all-locations: create one run per configured location.
+    //
+    // The fan-out is atomic with respect to the project-level idle lock:
+    // a single transaction checks for any active run and, only if none
+    // exists, inserts the per-location runs. Two concurrent --all-locations
+    // calls (manual + scheduled, two CLI shells, etc.) can no longer stack
+    // duplicate sweeps on the same project, double-billing provider calls
+    // and racing snapshots into the same window.
     if (body.allLocations) {
       if (projectLocations.length === 0) {
         throw validationError('No locations configured for this project')
       }
 
-      // Insert all run records first, then dispatch — bypassing queueRunIfProjectIdle
-      // which would block after the first run is inserted.
-      const newRuns: Array<{ runId: string; loc: LocationContext }> = []
-      for (const loc of projectLocations) {
-        const runId = crypto.randomUUID()
-        app.db.insert(runs).values({
-          id: runId,
-          projectId: project.id,
-          kind,
-          status: 'queued',
-          trigger,
-          location: loc.label,
-          queries: queriesColumn,
-          createdAt: now,
-        }).run()
-        newRuns.push({ runId, loc })
+      const result = app.db.transaction((tx) => {
+        const activeRun = tx
+          .select({ id: runs.id })
+          .from(runs)
+          .where(and(
+            eq(runs.projectId, project.id),
+            or(eq(runs.status, 'queued'), eq(runs.status, 'running')),
+          ))
+          .get()
+        if (activeRun) {
+          return { conflict: true as const }
+        }
+
+        const inserted: Array<{ runId: string; loc: LocationContext }> = []
+        for (const loc of projectLocations) {
+          const runId = crypto.randomUUID()
+          tx.insert(runs).values({
+            id: runId,
+            projectId: project.id,
+            kind,
+            status: 'queued',
+            trigger,
+            location: loc.label,
+            queries: queriesColumn,
+            createdAt: now,
+          }).run()
+          inserted.push({ runId, loc })
+        }
+        return { conflict: false as const, inserted }
+      })
+
+      if (result.conflict) {
+        throw runInProgress(project.name)
       }
 
       const results = []
-      for (const { runId, loc } of newRuns) {
+      for (const { runId, loc } of result.inserted) {
         writeAuditLog(app.db, {
           projectId: project.id,
           actor: 'api',
