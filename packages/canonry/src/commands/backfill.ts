@@ -651,7 +651,7 @@ function readStoredGroundingSources(rawResponse: string | null): GroundingSource
 
 export async function backfillInsightsCommand(
   project: string,
-  opts?: { fromRun?: string; toRun?: string; format?: CliFormat },
+  opts?: { fromRun?: string; toRun?: string; since?: string; format?: CliFormat },
 ): Promise<void> {
   // Lazy-load the intelligence graph so `backfill answer-visibility` can run and be
   // tested without pulling in the optional insights dependency chain.
@@ -664,12 +664,14 @@ export async function backfillInsightsCommand(
   const isJson = opts?.format === 'json'
 
   if (!isJson) {
-    process.stderr.write(`Backfilling insights for "${project}"...\n`)
+    const scope = opts?.since ? ` (since ${opts.since})` : ''
+    process.stderr.write(`Backfilling insights for "${project}"${scope}...\n`)
   }
 
   const result = service.backfill(project, {
     fromRunId: opts?.fromRun,
     toRunId: opts?.toRun,
+    since: opts?.since,
   }, (info) => {
     if (!isJson) {
       process.stderr.write(`  [${info.index}/${info.total}] ${info.runId} — ${info.insights} insights\n`)

@@ -319,6 +319,87 @@ describe('IntelligenceService', () => {
       expect(healthRows[0]!.runId).toBe(run2)
     })
 
+    it('respects --since by scoping processed runs to finishedAt >= the cutoff', () => {
+      // Use case: after a code change that affects insight generation, you
+      // want to re-process recent runs only — not walk the entire ~900-run
+      // history of a long-lived project. The predecessor lookup still pulls
+      // from the full history so transitions remain correct at the boundary.
+      const { db } = createTempDb('intel-backfill-since-')
+      const projectId = seedProject(db)
+      const queryId = seedQuery(db, projectId, 'test query')
+
+      const run1 = seedRun(db, projectId, 'completed', '2024-01-01T00:00:00Z')
+      seedSnapshot(db, run1, queryId, 'gemini', 'cited', { citedDomains: ['example.com'] })
+
+      const run2 = seedRun(db, projectId, 'completed', '2024-02-01T00:00:00Z')
+      seedSnapshot(db, run2, queryId, 'gemini', 'not-cited')
+
+      const run3 = seedRun(db, projectId, 'completed', '2024-03-01T00:00:00Z')
+      seedSnapshot(db, run3, queryId, 'gemini', 'cited', { citedDomains: ['example.com'] })
+
+      const service = new IntelligenceService(db)
+      const result = service.backfill('test-project', { since: '2024-02-15T00:00:00Z' })
+
+      // run1 and run2 are before the cutoff → not re-processed
+      // run3 is after → processed, with run2 (from full history) as predecessor
+      expect(result.processed).toBe(1)
+      const healthRows = db.select().from(healthSnapshots).all()
+      expect(healthRows).toHaveLength(1)
+      expect(healthRows[0]!.runId).toBe(run3)
+
+      // The transition (run2 not-cited → run3 cited) must still be detected
+      // as a gain — proves the predecessor lookup walked back past the cutoff.
+      const gainInsights = db.select().from(insights).all().filter(i => i.type === 'gain')
+      expect(gainInsights.length).toBeGreaterThanOrEqual(1)
+    })
+
+    it('--since accepts a YYYY-MM-DD date and treats it as midnight UTC', () => {
+      const { db } = createTempDb('intel-backfill-since-date-')
+      const projectId = seedProject(db)
+      const queryId = seedQuery(db, projectId, 'test query')
+
+      const run1 = seedRun(db, projectId, 'completed', '2024-01-15T00:00:00Z')
+      seedSnapshot(db, run1, queryId, 'gemini', 'cited', { citedDomains: ['example.com'] })
+
+      const run2 = seedRun(db, projectId, 'completed', '2024-02-15T00:00:00Z')
+      seedSnapshot(db, run2, queryId, 'gemini', 'not-cited')
+
+      const service = new IntelligenceService(db)
+      const result = service.backfill('test-project', { since: '2024-02-01' })
+
+      // run1 (Jan 15) is before; run2 (Feb 15) is after the Feb 1 cutoff.
+      expect(result.processed).toBe(1)
+    })
+
+    it('throws a clear error when --since is not parseable as a date', () => {
+      const { db } = createTempDb('intel-backfill-bad-since-')
+      seedProject(db)
+      const service = new IntelligenceService(db)
+      expect(() => service.backfill('test-project', { since: 'not-a-date' })).toThrow(/since.*date/i)
+    })
+
+    it('--since combines with --to-run to bound the upper edge', () => {
+      const { db } = createTempDb('intel-backfill-since-toRun-')
+      const projectId = seedProject(db)
+      const queryId = seedQuery(db, projectId, 'test query')
+
+      const run1 = seedRun(db, projectId, 'completed', '2024-01-01T00:00:00Z')
+      seedSnapshot(db, run1, queryId, 'gemini', 'cited', { citedDomains: ['example.com'] })
+      const run2 = seedRun(db, projectId, 'completed', '2024-02-01T00:00:00Z')
+      seedSnapshot(db, run2, queryId, 'gemini', 'not-cited')
+      const run3 = seedRun(db, projectId, 'completed', '2024-03-01T00:00:00Z')
+      seedSnapshot(db, run3, queryId, 'gemini', 'cited', { citedDomains: ['example.com'] })
+
+      const service = new IntelligenceService(db)
+      const result = service.backfill('test-project', {
+        since: '2024-01-15T00:00:00Z',
+        toRunId: run2,
+      })
+
+      // Window [since=Jan15, to=run2(Feb1)] → only run2 qualifies.
+      expect(result.processed).toBe(1)
+    })
+
     it('throws for unknown project', () => {
       const { db } = createTempDb('intel-backfill-404-')
       const service = new IntelligenceService(db)
