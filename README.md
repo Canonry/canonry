@@ -46,7 +46,7 @@ cnry insights my-site
 |---------|-----|
 | No provider key configured | Grab a free [Gemini key](https://aistudio.google.com/apikey), set `GEMINI_API_KEY`, restart `cnry serve`. |
 | No results after a run | Visibility checks are async — check the Runs tab or use `cnry run <project> --wait`. |
-| Not sure what queries to test | The setup wizard auto-generates them by analyzing your site. |
+| Not sure what queries to test | Setup wizard auto-generates them; expand the basket later with `cnry discover run <project> --icp "..."` — see the [discovery methodology](skills/aero/references/aeo-discovery.md). |
 | `npm install` fails on `node-gyp` | Install build tools for `better-sqlite3` ([guide](https://github.com/WiseLibs/better-sqlite3/blob/master/docs/troubleshooting.md)). |
 
 ## Provider keys

@@ -69,7 +69,7 @@ import { useDrawer } from '../hooks/use-drawer.js'
 import { findProjectVm } from '../mock-data.js'
 import type { ProjectCommandCenterVm, RunHistoryPoint } from '../view-models.js'
 
-export type ProjectPageTab = 'overview' | 'search-console' | 'discovery' | 'report' | 'activity' | 'inbound' | 'settings'
+export type ProjectPageTab = 'overview' | 'search-console' | 'discovery' | 'report' | 'activity' | 'backlinks' | 'settings'
 
 type SearchConsoleWorkspace = 'google' | 'bing'
 
@@ -1538,7 +1538,7 @@ export function ProjectPage({
     { key: 'search-console', label: 'Search Engine Intelligence', href: `/projects/${model.project.id}/search-console` },
     { key: 'activity', label: 'Activity', href: `/projects/${model.project.id}/activity` },
     { key: 'report', label: 'Report', href: `/projects/${model.project.id}/report` },
-    { key: 'inbound', label: 'Inbound', href: `/projects/${model.project.id}/inbound` },
+    { key: 'backlinks', label: 'Backlinks', href: `/projects/${model.project.id}/backlinks` },
     { key: 'discovery', label: 'Discovery', href: `/projects/${model.project.id}/discovery` },
     { key: 'settings', label: 'Settings', href: `/projects/${model.project.id}/settings` },
   ]
@@ -2032,7 +2032,7 @@ export function ProjectPage({
         <DiscoverySection projectName={projectName} />
       ) : tab === 'activity' ? (
         <ActivitySection projectName={model.project.name} />
-      ) : tab === 'inbound' ? (
+      ) : tab === 'backlinks' ? (
         <BacklinksSection projectName={model.project.name} />
       ) : (
         <SearchConsoleSection projectName={model.project.name} />
