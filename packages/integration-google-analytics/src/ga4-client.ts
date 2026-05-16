@@ -779,8 +779,9 @@ export async function fetchSocialReferrals(
   const PAGE_SIZE = 1000
   const rows: GA4SocialReferralRow[] = []
   let offset = 0
+  let pageCount = 0
 
-  while (true) {
+  while (pageCount < GA4_MAX_PAGES) {
     const request: GA4RunReportRequest = {
       dateRanges: [{ startDate: formatDate(startDate), endDate: formatDate(endDate) }],
       dimensions: [
@@ -823,6 +824,7 @@ export async function fetchSocialReferrals(
 
     const totalRows = response.rowCount ?? 0
     offset += pageRows.length
+    pageCount += 1
     if (pageRows.length < PAGE_SIZE || offset >= totalRows) break
   }
 
