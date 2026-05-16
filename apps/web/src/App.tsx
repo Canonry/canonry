@@ -673,7 +673,7 @@ export function RootLayout() {
       {/* ── Drawers ── */}
       {selectedRun ? (
         <Drawer
-          open={selectedRun !== undefined}
+          open
           title={selectedRun.summary}
           subtitle={`${selectedRun.projectName} \u00b7 ${selectedRun.kindLabel}`}
           onClose={closeDrawer}

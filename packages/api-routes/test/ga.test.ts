@@ -88,7 +88,7 @@ describe('GA4 routes', () => {
     expect(res.statusCode).toBe(400)
     const body = JSON.parse(res.payload)
     // Should mention OAuth path, not keyJson requirement
-    expect(body.error.message).toMatch(/OAuth|oauth|google connect/i)
+    expect(body.error.message).toMatch(/oauth|google connect/i)
   })
 
   it('POST /ga/connect rejects invalid JSON in keyJson', async () => {
@@ -1993,6 +1993,6 @@ describe('GA4 routes', () => {
     // With no OAuth store configured, returns 400 with OAuth guidance.
     expect(res.statusCode).toBe(400)
     const body = JSON.parse(res.payload)
-    expect(body.error.message).toMatch(/OAuth|oauth|google connect/i)
+    expect(body.error.message).toMatch(/oauth|google connect/i)
   })
 })

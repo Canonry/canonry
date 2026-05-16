@@ -14,8 +14,8 @@
 
 export type QueryCategory = 'brand' | 'lead-gen' | 'industry' | 'other'
 
-const TRANSACTIONAL_RE = /\b(buy|price|pricing|cost|hire|near me|services?|agency|consultant|company)\b/i
-const INFORMATIONAL_RE = /\b(what|how|why|when|guide|tutorial|vs|versus|alternatives?|examples?|definition)\b/i
+const TRANSACTIONAL_RE = /\b(?:buy|price|pricing|cost|hire|near me|services?|agency|consultant|company)\b/i
+const INFORMATIONAL_RE = /\b(?:what|how|why|when|guide|tutorial|vs|versus|alternatives?|examples?|definition)\b/i
 
 const MIN_BRAND_TOKEN_LENGTH = 3
 

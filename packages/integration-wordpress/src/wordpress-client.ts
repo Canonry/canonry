@@ -21,7 +21,7 @@ import type {
 import { wordpressEnvSchema } from '@ainyc/canonry-contracts'
 import type { WordpressConnectionRecord, WordpressRestPage, WordpressSiteContext } from './types.js'
 import { WordpressApiError } from './types.js'
-import type { BusinessProfile, SchemaPageEntry, SchemaProfileFile } from './schema-templates.js'
+import type { SchemaPageEntry, SchemaProfileFile } from './schema-templates.js'
 import { generateSchema, isSupportedSchemaType, parseSchemaPageEntry } from './schema-templates.js'
 
 function validateUsername(username: string): void {
@@ -51,12 +51,6 @@ function validateSiteUrl(siteUrl: string): void {
     }
   } catch {
     throw new WordpressApiError('AUTH_INVALID', 'Site URL must be a valid URL', 400)
-  }
-}
-
-function _validateSlug(slug: string): void {
-  if (!slug || typeof slug !== 'string' || slug.trim().length === 0) {
-    throw new WordpressApiError('VALIDATION_ERROR', 'Slug is required and must be a non-empty string', 400)
   }
 }
 
@@ -227,7 +221,7 @@ function stripHtml(input: string): string {
     .replace(/&nbsp;/gi, ' ')
     .replace(/&amp;/gi, '&')
     .replace(/&quot;/gi, '"')
-    .replace(/&#39;/gi, "'")
+    .replace(/&#39;/g, "'")
     .replace(/&lt;/gi, '<')
     .replace(/&gt;/gi, '>')
     .replace(/\s+/g, ' ')
@@ -254,7 +248,7 @@ function extractTitle(html: string): string | null {
 function extractGeneratorVersion(html: string): string | null {
   const generator = extractMetaContent(html, 'generator')
   if (!generator) return null
-  const match = /WordPress\s+([0-9][^ ]*)/i.exec(generator)
+  const match = /WordPress\s+(\d[^ ]*)/i.exec(generator)
   return match?.[1] ?? generator
 }
 

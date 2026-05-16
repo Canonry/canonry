@@ -2,7 +2,7 @@ import { createLogger } from './logger.js'
 
 const log = createLogger('SitemapParser')
 
-const LOC_REGEX = /<loc>\s*([^<]+?)\s*<\/loc>/gi
+const LOC_REGEX = /<loc>([^<]+)<\/loc>/gi
 const SITEMAP_TAG_REGEX = /<sitemap>[\s\S]*?<\/sitemap>/gi
 
 // Block private/link-local IP ranges to prevent SSRF
@@ -107,8 +107,9 @@ async function parseSitemapRecursive(
     for (const entry of sitemapEntries) {
       const locMatch = LOC_REGEX.exec(entry)
       LOC_REGEX.lastIndex = 0
-      if (locMatch?.[1]) {
-        await parseSitemapRecursive(locMatch[1], urls, visited, depth + 1, /* isChild */ true)
+      const inner = locMatch?.[1]?.trim()
+      if (inner) {
+        await parseSitemapRecursive(inner, urls, visited, depth + 1, /* isChild */ true)
       }
     }
     return
@@ -117,8 +118,9 @@ async function parseSitemapRecursive(
   // Regular sitemap — extract all <loc> URLs
   let match: RegExpExecArray | null
   while ((match = LOC_REGEX.exec(xml)) !== null) {
-    if (match[1]) {
-      urls.add(match[1])
+    const inner = match[1]?.trim()
+    if (inner) {
+      urls.add(inner)
     }
   }
   LOC_REGEX.lastIndex = 0

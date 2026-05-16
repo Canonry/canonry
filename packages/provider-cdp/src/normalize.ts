@@ -27,7 +27,7 @@ export function extractCitedDomains(groundingSources: GroundingSource[]): string
 
 /** Try to extract a bare domain from a title string (e.g. "example.com - Page Title") */
 function extractDomainFromTitle(title: string): string | undefined {
-  const domainPattern = /^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/i
+  const domainPattern = /^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/i
   // Check if the title starts with what looks like a domain
   const firstWord = title.split(/[\s\-–—|]/)[0]?.trim()
   if (firstWord && domainPattern.test(firstWord)) {

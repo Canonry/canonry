@@ -118,7 +118,7 @@ export function normalizeUrlPath(input: string | null | undefined): string | nul
 
   // Strip trailing punctuation that likely isn't part of a slug (e.g. trailing dot or parenthesis)
   // but only if it's not a root / and it's not preceded by another punctuation (avoid stripping actual file extensions)
-  trimmed = trimmed.replace(/([a-zA-Z0-9])([).]+)$/, '$1')
+  trimmed = trimmed.replace(/([a-z0-9])[).]+$/i, '$1')
 
   // Special case for artifacts like "/) open" -> "/"
   if (trimmed.startsWith('/)') || trimmed.startsWith('/ ')) {

@@ -7,7 +7,6 @@ import {
   GSC_SCOPE,
   INDEXING_SCOPE,
   GoogleApiError,
-  GoogleAuthError,
   listSites,
   refreshAccessToken,
 } from '@ainyc/canonry-integration-google'

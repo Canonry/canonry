@@ -106,7 +106,7 @@ export const runDtoSchema = z.object({
 
 export type RunDto = z.infer<typeof runDtoSchema>
 
-const PROVIDER_PREFIX = /^\[provider-[a-zA-Z0-9_-]+\]\s+/
+const PROVIDER_PREFIX = /^\[provider-[\w-]+\]\s+/
 
 /** Parse one provider's error message into a structured form. Strips any `[provider-X] ` prefix and attempts to parse the body as JSON. */
 export function parseProviderErrorMessage(msg: string): RunProviderErrorDto {

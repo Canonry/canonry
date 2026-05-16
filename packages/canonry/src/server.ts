@@ -115,8 +115,6 @@ const BROWSER_ADAPTERS: ProviderAdapter[] = [
   cdpChatgptAdapter,
 ]
 
-const ALL_ADAPTERS: ProviderAdapter[] = [...API_ADAPTERS, ...BROWSER_ADAPTERS]
-
 const adapterMap = Object.fromEntries(
   API_ADAPTERS.map(a => [a.name, a]),
 ) as Record<string, ProviderAdapter>
@@ -1501,7 +1499,7 @@ function parseQueryResponse(raw: string, count: number): string[] {
 
     if (!cleaned) continue
     // Skip meta-text lines
-    if (/^(here are|sure|certainly|of course|i've|these are|below are)/i.test(cleaned)) continue
+    if (/^(?:here are|sure|certainly|of course|i['’]ve|these are|below are)/i.test(cleaned)) continue
     // Enforce max 8 words
     if (cleaned.split(/\s+/).length > 8) continue
 

@@ -771,7 +771,7 @@ function mapAuditFactor(factor: AeoAuditFactor) {
 }
 
 function parseJsonObject<T>(input: string): T {
-  const fenced = input.match(/```(?:json)?\s*([\s\S]*?)```/i)
+  const fenced = input.match(/```(?:json)?([\s\S]*?)```/i)
   const candidate = fenced?.[1] ?? input
   const start = candidate.indexOf('{')
   const end = candidate.lastIndexOf('}')

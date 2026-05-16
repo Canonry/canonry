@@ -1,5 +1,5 @@
 import { loadConfig, saveConfigPatch } from '../config.js'
-import { createApiClient, type CdpStatusDto, type CdpScreenshotResultDto } from '../client.js'
+import { createApiClient } from '../client.js'
 import { CliError } from '../cli-error.js'
 
 function getClient() {

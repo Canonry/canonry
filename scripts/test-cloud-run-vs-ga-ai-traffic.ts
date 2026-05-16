@@ -233,7 +233,7 @@ function resolveWindow(since: string, until: string | undefined): {
   const end = until ? new Date(until) : new Date()
   if (Number.isNaN(end.getTime())) throw new Error(`Invalid --until timestamp: ${until}`)
 
-  const durationMatch = /^(\d+)(m|h|d)$/.exec(since.trim())
+  const durationMatch = /^(\d+)([mhd])$/.exec(since.trim())
   let startMs: number
   if (durationMatch) {
     const amount = Number(durationMatch[1])

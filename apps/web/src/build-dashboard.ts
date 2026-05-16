@@ -1,5 +1,5 @@
-import type { ProjectDto, InsightDto, ProjectOverviewDto, RunErrorDto, RunKind, RunStatus } from '@ainyc/canonry-contracts'
-import { RunKinds, RunStatuses, RunTriggers, CitationStates, ComputedTransitions, formatRunErrorOneLine } from '@ainyc/canonry-contracts'
+import type { ProjectDto, InsightDto, ProjectOverviewDto, RunErrorDto, RunKind } from '@ainyc/canonry-contracts'
+import { RunKinds, RunStatuses, RunTriggers, CitationStates, formatRunErrorOneLine } from '@ainyc/canonry-contracts'
 import type {
   ApiCompetitor,
   ApiBingCoverageSummary,
@@ -12,7 +12,6 @@ import type {
   ApiTimelineEntry,
 } from './api.js'
 import type {
-  AffectedPhrase,
   CitationInsightVm,
   CitationState,
   EvidenceHistoryScope,
@@ -23,7 +22,6 @@ import type {
   MovementSummaryVm,
   PortfolioProjectVm,
   ProjectCommandCenterVm,
-  ProjectInsightVm,
   RunHistoryPoint,
   RunListItemVm,
   ScoreSummaryVm,

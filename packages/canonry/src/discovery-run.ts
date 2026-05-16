@@ -442,7 +442,7 @@ function parseQueryLines(text: string, max: number): string[] {
     if (!line) continue
     line = line.replace(/^\s*(?:\d+[.)]\s*|[-*•]\s*)/, '').replace(/^["']|["']$/g, '').trim()
     if (!line) continue
-    if (/^(here are|sure|certainly|of course|i['']ve|these are|below are)/i.test(line)) continue
+    if (/^(?:here are|sure|certainly|of course|i[’']ve|these are|below are)/i.test(line)) continue
     const key = line.toLowerCase()
     if (seen.has(key)) continue
     seen.add(key)

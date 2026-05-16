@@ -78,7 +78,7 @@ export function resolveBundledSkillsRoot(pkgDir?: string): string {
 function parseDescription(content: string): string {
   const fmMatch = /^---\n([\s\S]*?)\n---/.exec(content)
   if (!fmMatch) return ''
-  const descMatch = /^description:\s*(.+?)$/m.exec(fmMatch[1])
+  const descMatch = /^description:\s*(\S.*)$/m.exec(fmMatch[1])
   if (!descMatch) return ''
   return descMatch[1].replace(/^["']|["']$/g, '').trim()
 }

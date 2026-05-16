@@ -22,7 +22,7 @@ import {
  */
 function parseBingDate(value: string | undefined | null): string | null {
   if (!value) return null
-  const match = /\/Date\((-?\d+)[^)]*\)\//.exec(value)
+  const match = /\/Date\((-?\d+)(?:[-+]\d+)?\)\//.exec(value)
   if (!match) return null
   const ms = parseInt(match[1], 10)
   // Bing uses -62135568000000 as a sentinel for "unknown / never"
@@ -53,7 +53,7 @@ function isBlockingIssueType(issueType: string | null | undefined): boolean {
   if (!issueType) return true
   const trimmed = issueType.trim()
   if (!trimmed) return true
-  return trimmed.split(/\s+/).some((flag) => !/^(None|Seo(Issues|Concerns))$/i.test(flag))
+  return trimmed.split(/\s+/).some((flag) => !/^(?:None|Seo(?:Issues|Concerns))$/i.test(flag))
 }
 
 async function loadBlockingCrawlIssues(

@@ -64,8 +64,12 @@ export function matchesQuery(url: string, query: string, opts: MatchOpts = {}): 
 
 function extractPath(url: string): string {
   if (!url) return ''
-  const match = /^https?:\/\/[^/]+(.*)$/.exec(url)
-  const path = match ? match[1] : url
+  let path: string
+  try {
+    path = new URL(url).pathname
+  } catch {
+    path = url
+  }
   const stripped = path.replace(/\/$/, '')
   return stripped || '/'
 }
