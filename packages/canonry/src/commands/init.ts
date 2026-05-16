@@ -409,21 +409,31 @@ export async function initCommand(opts?: InitOptions): Promise<ResolvedAgentLLM 
  * Concrete next-step instructions printed after `canonry init`. Listed in
  * the order the user should follow — analytics on the install funnel show a
  * large "silent bounce" cohort that runs init and never runs another command,
- * so the goal is to make the next action unambiguous and immediate (project
- * → query → run).
+ * so the goal is to make the next action unambiguous and immediate.
+ *
+ * The dashboard wizard (`canonry serve` → `http://localhost:4100/setup`) is
+ * the recommended primary path: it covers project creation, query basket,
+ * competitors, and the first sweep with results inline — 5 guided steps with
+ * health checks, no flag-juggling. The CLI sequence is listed as the
+ * alternative for operators who prefer scripts or non-interactive automation.
  */
 function buildNextSteps(): string[] {
   return [
-    '1. Create a project for the domain you want to track:',
-    '     canonry project create my-site --domain example.com --country US --language en',
+    '1. Start the dashboard and open the setup wizard:',
+    '     canonry serve',
+    '     → http://localhost:4100/setup',
     '',
-    '2. Add the questions your customers ask AI assistants:',
-    '     canonry query add my-site "best <category> for <use case>"',
+    '   The wizard walks through project → queries → competitors → first sweep',
+    '   in 5 guided steps and shows your first results inline.',
     '',
-    '3. Run your first sweep:',
-    '     canonry run my-site',
+    'Prefer the terminal? The same flow as CLI commands:',
     '',
-    'Tip: "canonry doctor" verifies your setup. "canonry serve" opens the dashboard.',
+    '  a. canonry project create my-site --domain example.com --country US --language en',
+    '  b. canonry query add my-site "best <category> for <use case>"',
+    '  c. canonry run my-site --wait',
+    '  d. canonry overview my-site',
+    '',
+    'Tip: "canonry doctor" verifies your setup before you start.',
   ]
 }
 
