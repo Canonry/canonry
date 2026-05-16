@@ -147,7 +147,9 @@ async function runReport(
   propertyId: string,
   request: GA4RunReportRequest,
 ): Promise<GA4RunReportResponse> {
-  const url = `${GA4_DATA_API_BASE}/properties/${propertyId}:runReport`
+  validatePropertyId(propertyId)
+  const safePropertyId = encodeURIComponent(propertyId)
+  const url = `${GA4_DATA_API_BASE}/properties/${safePropertyId}:runReport`
 
   const res = await fetch(url, {
     method: 'POST',
