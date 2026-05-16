@@ -227,7 +227,7 @@ const MAX_TRACKED_EVENT_IDS = 1_000
 // one-shot operation; a busy site with ~30K events/30d still completes in well
 // under a minute.
 const DEFAULT_BACKFILL_DAYS = 30
-const MAX_BACKFILL_DAYS = 30
+const MAX_BACKFILL_DAYS = 90
 const BACKFILL_MAX_PAGES = 1_000
 const BACKFILL_SAMPLE_LIMIT = 500
 
