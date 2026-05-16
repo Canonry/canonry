@@ -969,6 +969,88 @@ function SearchConsoleSection({
   )
 }
 
+function MovementBanner({
+  summary,
+  onJumpToEvidence,
+}: {
+  summary: ProjectCommandCenterVm['movementSummary']
+  onJumpToEvidence: () => void
+}) {
+  if (!summary.hasPreviousRun) {
+    return (
+      <section className="movement-banner">
+        <span className="movement-banner-label">Since last run</span>
+        <span className="text-zinc-500">First run — no comparison yet</span>
+      </section>
+    )
+  }
+  const gained = summary.gained
+  const lost = summary.lost
+  const verdict = gained === 0 && lost === 0
+    ? '· no changes'
+    : gained > lost
+      ? '· improving'
+      : lost > gained
+        ? '· declining'
+        : ''
+
+  return (
+    <section className="movement-banner">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="movement-banner-label">Since last run</span>
+        {gained > 0 ? (
+          <button
+            type="button"
+            className="movement-banner-chip text-emerald-400 font-medium"
+            onClick={onJumpToEvidence}
+            title="Jump to the queries that gained citations"
+          >
+            +{gained} gained
+          </button>
+        ) : (
+          <span className="text-zinc-500">+0 gained</span>
+        )}
+        <span className="text-zinc-700 mx-1">·</span>
+        {lost > 0 ? (
+          <button
+            type="button"
+            className="movement-banner-chip text-rose-400 font-medium"
+            onClick={onJumpToEvidence}
+            title="Jump to the queries that lost citations"
+          >
+            −{lost} lost
+          </button>
+        ) : (
+          <span className="text-zinc-500">−0 lost</span>
+        )}
+        <span className="text-zinc-600 ml-2">{verdict}</span>
+      </div>
+      {(summary.gainedQueries?.length || summary.lostQueries?.length) ? (
+        <div className="movement-banner-detail">
+          {summary.gainedQueries && summary.gainedQueries.length > 0 && (
+            <p>
+              <span className="text-emerald-500/90">Gained:</span>{' '}
+              <span className="text-zinc-300">{formatQueryList(summary.gainedQueries)}</span>
+            </p>
+          )}
+          {summary.lostQueries && summary.lostQueries.length > 0 && (
+            <p>
+              <span className="text-rose-500/90">Lost:</span>{' '}
+              <span className="text-zinc-300">{formatQueryList(summary.lostQueries)}</span>
+            </p>
+          )}
+        </div>
+      ) : null}
+    </section>
+  )
+}
+
+function formatQueryList(queries: string[], max = 4): string {
+  if (queries.length <= max) return queries.map(q => `"${q}"`).join(', ')
+  const shown = queries.slice(0, max).map(q => `"${q}"`).join(', ')
+  return `${shown}, and ${queries.length - max} more`
+}
+
 function InsightSignals({
   insights,
 }: {
@@ -1532,13 +1614,14 @@ export function ProjectPage({
 
       {tab === 'overview' ? (
         <>
-          {/* Hero: paired AEO performance (Mention + Citation, same shape) */}
+          {/* Hero: three comparable AEO numbers (Mention, Cited, Share of Voice). */}
           <section className="aeo-hero">
             <p className="aeo-hero-title">AEO performance</p>
             <div className="aeo-hero-rows">
               {([
                 { key: 'mention', label: 'Mentioned', tooltip: 'Your domain or company name was in the answer returned by the LLM.', summary: model.mentionSummary },
                 { key: 'citation', label: 'Cited', tooltip: 'An LLM used a page on your domain as a source for its answer.', summary: model.visibilitySummary },
+                { key: 'sov', label: 'Share of voice', tooltip: 'Of every cited-source slot in the run, the % that was you. 100% = every citation went to you; 10% = on average you got 1 slot in 10.', summary: model.shareOfVoiceSummary },
               ] as const).map(row => (
                 <div key={row.key} className="aeo-hero-row">
                   <div className="aeo-hero-row-label">
@@ -1566,51 +1649,13 @@ export function ProjectPage({
             )}
           </section>
 
-          {/* Movement banner — what changed since last run. Counters jump to
-              the evidence table so operators can see WHICH queries moved. */}
-          <section className="movement-banner">
-            <span className="movement-banner-label">Since last run</span>
-            {model.movementSummary.hasPreviousRun ? (
-              <>
-                {model.movementSummary.gained > 0 ? (
-                  <button
-                    type="button"
-                    className="movement-banner-chip text-emerald-400 font-medium"
-                    onClick={() => document.getElementById('evidence-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
-                    title="Jump to the queries that gained citations"
-                  >
-                    +{model.movementSummary.gained} gained
-                  </button>
-                ) : (
-                  <span className="text-zinc-500">+0 gained</span>
-                )}
-                <span className="text-zinc-700 mx-1">·</span>
-                {model.movementSummary.lost > 0 ? (
-                  <button
-                    type="button"
-                    className="movement-banner-chip text-rose-400 font-medium"
-                    onClick={() => document.getElementById('evidence-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
-                    title="Jump to the queries that lost citations"
-                  >
-                    −{model.movementSummary.lost} lost
-                  </button>
-                ) : (
-                  <span className="text-zinc-500">−0 lost</span>
-                )}
-                <span className="text-zinc-600 ml-2">
-                  {model.movementSummary.gained === 0 && model.movementSummary.lost === 0
-                    ? '· no changes'
-                    : model.movementSummary.gained > model.movementSummary.lost
-                      ? '· improving'
-                      : model.movementSummary.lost > model.movementSummary.gained
-                        ? '· declining'
-                        : ''}
-                </span>
-              </>
-            ) : (
-              <span className="text-zinc-500">First run — no comparison yet</span>
-            )}
-          </section>
+          {/* Movement banner — what changed since last run, with the actual
+              gained / lost query strings inline so the operator doesn't have
+              to guess which queries moved. Counter chips jump to evidence. */}
+          <MovementBanner
+            summary={model.movementSummary}
+            onJumpToEvidence={() => document.getElementById('evidence-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+          />
 
           {/* Secondary: at-risk gaps (paired) + technical health */}
           <section className="metric-grid">

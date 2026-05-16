@@ -105,4 +105,42 @@ describe('buildMovementSummary', () => {
     expect(result.tone).toBe('neutral')
     expect(result.hasPreviousRun).toBe(true)
   })
+
+  describe('with queryLookup option', () => {
+    const lookup = new Map([
+      ['q1', 'best dentist nyc'],
+      ['q2', 'invisalign brooklyn'],
+      ['q3', 'emergency dental'],
+      ['q4', 'family dentist queens'],
+    ])
+
+    it('returns gainedQueries and lostQueries strings, sorted alphabetically', () => {
+      const latest = [snap('q1'), snap('q2')]
+      const previous = [snap('q1'), snap('q3')]
+      const result = buildMovementSummary(latest, previous, { queryLookup: lookup })
+      expect(result.gainedQueries).toEqual(['invisalign brooklyn'])
+      expect(result.lostQueries).toEqual(['emergency dental'])
+    })
+
+    it('omits the lists entirely when no lookup is passed (backward compat)', () => {
+      const result = buildMovementSummary([snap('q1')], [snap('q2')])
+      expect(result.gainedQueries).toBeUndefined()
+      expect(result.lostQueries).toBeUndefined()
+    })
+
+    it('drops query IDs that the lookup does not know about', () => {
+      const latest = [snap('q1'), snap('q9-unknown')]
+      const result = buildMovementSummary(latest, [], { queryLookup: lookup })
+      // gained count still reflects both queries (count is from snapshots, not lookup)
+      expect(result.gained).toBe(2)
+      // but the text list only includes known ones
+      expect(result.gainedQueries).toEqual(['best dentist nyc'])
+    })
+
+    it('returns empty arrays (not undefined) when lookup is passed but nothing moved', () => {
+      const result = buildMovementSummary([snap('q1')], [snap('q1')], { queryLookup: lookup })
+      expect(result.gainedQueries).toEqual([])
+      expect(result.lostQueries).toEqual([])
+    })
+  })
 })

@@ -65,6 +65,8 @@ export interface ProjectOverviewScoresDto {
   mention: ScoreSummaryDto
   /** Secondary tile — % of tracked queries whose answer cited the domain in its source list. */
   visibility: ScoreSummaryDto
+  /** Share of voice — % of every cited-domain slot across the run that was the project. Distinct from coverage; reflects competitive position. */
+  shareOfVoice: ScoreSummaryDto
   /** Tracked queries where a competitor is cited but the project is not. */
   gapQueries: ScoreSummaryDto
   /** Mention-side sibling of `gapQueries`: competitor surfaces in the answer but the project brand never does. */
@@ -81,6 +83,10 @@ export interface MovementSummaryDto {
   lost: number
   tone: MetricTone
   hasPreviousRun: boolean
+  /** Query strings that newly gained citation since the previous run. Empty when no query-text lookup was provided to the builder. */
+  gainedQueries?: string[]
+  /** Query strings that lost citation since the previous run. */
+  lostQueries?: string[]
 }
 
 // Per-competitor row for the overview's competitor list. Distinct from the

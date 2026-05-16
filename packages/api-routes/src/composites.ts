@@ -18,6 +18,7 @@ import {
 } from '@ainyc/canonry-db'
 import {
   CitationStates,
+  effectiveDomains,
   parseRunError,
   RunKinds,
   RunStatuses,
@@ -55,6 +56,7 @@ import {
   buildProviderScores,
   buildRunHistory,
   buildMentionCoverage,
+  buildShareOfVoice,
   buildVisibilityScore,
   DEFAULT_RUN_HISTORY_LIMIT,
 } from '@ainyc/canonry-intelligence'
@@ -188,9 +190,18 @@ export async function compositeRoutes(app: FastifyInstance) {
     const configuredApiProviders = parseJsonColumn<string[]>(project.providers, [])
       .filter(p => !p.startsWith('cdp:'))
 
+    const projectDomains = effectiveDomains({
+      canonicalDomain: project.canonicalDomain,
+      ownedDomains: parseJsonColumn<string[]>(project.ownedDomains, []),
+    })
+
     const scores: ProjectOverviewScoresDto = {
       mention: buildMentionCoverage(latestSnapshots, { configuredApiProviders }),
       visibility: buildVisibilityScore(latestSnapshots, { configuredApiProviders }),
+      shareOfVoice: buildShareOfVoice(latestSnapshots, {
+        projectDomains,
+        competitorDomains: competitorRows.map(c => c.domain),
+      }),
       gapQueries: buildGapQueryScore(latestSnapshots),
       mentionGaps: buildMentionGapScore(latestSnapshots),
       indexCoverage: buildIndexCoverageScore(app, project.id),
@@ -202,7 +213,9 @@ export async function compositeRoutes(app: FastifyInstance) {
       runStatus: buildRunStatusScore(allRuns),
     }
 
-    const movementSummary = buildMovementSummary(latestSnapshots, previousSnapshots)
+    const movementSummary = buildMovementSummary(latestSnapshots, previousSnapshots, {
+      queryLookup: queryLookup.byId,
+    })
     const providerScores = buildProviderScores(latestSnapshots)
     const overviewCompetitors: ProjectOverviewCompetitorDto[] = buildOverviewCompetitors(
       latestSnapshots,

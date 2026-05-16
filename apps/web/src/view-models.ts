@@ -178,6 +178,8 @@ export interface MovementSummaryVm {
   lost: number
   tone: MetricTone
   hasPreviousRun: boolean
+  gainedQueries?: string[]
+  lostQueries?: string[]
 }
 
 export interface QueryCountsVm {
@@ -193,6 +195,8 @@ export interface ProjectCommandCenterVm {
   mentionSummary: ScoreSummaryVm
   /** Secondary tile — Citation Coverage (legacy "Answer Visibility"). */
   visibilitySummary: ScoreSummaryVm
+  /** Share of Voice — % of cited-source slots that were the project. */
+  shareOfVoiceSummary: ScoreSummaryVm
   queryCounts: QueryCountsVm
   gapQueries: ScoreSummaryVm
   mentionGaps: ScoreSummaryVm
