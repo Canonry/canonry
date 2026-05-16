@@ -195,6 +195,93 @@ describe('detectRegressions', () => {
     }
   })
 
+  it('does not flag a regression when the previous and current runs are different locations', () => {
+    // Multi-location fan-out: an answer-visibility sweep produces one run per
+    // configured location. The intelligence service must compare each run
+    // against the previous run *at the same location* — comparing Michigan
+    // (cited) to Florida (not-cited) generates a phantom regression.
+    // Defense-in-depth lives in the pure detector: if the service feeds
+    // mismatched-location pairs, the detector bails out and produces nothing
+    // rather than reporting false transitions.
+    const prev = makeRun({
+      runId: 'run_001',
+      location: 'michigan',
+      snapshots: [
+        { query: 'roofers', provider: 'gemini', cited: true, location: 'michigan' },
+      ],
+    })
+    const curr = makeRun({
+      runId: 'run_002',
+      location: 'florida',
+      snapshots: [
+        { query: 'roofers', provider: 'gemini', cited: false, location: 'florida' },
+      ],
+    })
+
+    expect(detectRegressions(curr, prev)).toEqual([])
+  })
+
+  it('detects a regression when locations match across runs', () => {
+    // Same-location chronology — the legitimate signal we want to preserve.
+    const prev = makeRun({
+      runId: 'run_001',
+      location: 'michigan',
+      snapshots: [
+        { query: 'roofers', provider: 'gemini', cited: true, location: 'michigan' },
+      ],
+    })
+    const curr = makeRun({
+      runId: 'run_002',
+      location: 'michigan',
+      snapshots: [
+        { query: 'roofers', provider: 'gemini', cited: false, location: 'michigan' },
+      ],
+    })
+
+    const result = detectRegressions(curr, prev)
+    expect(result).toHaveLength(1)
+    expect(result[0]!.query).toBe('roofers')
+  })
+
+  it('treats locationless snapshots as the same chronology', () => {
+    // Projects without configured locations have all snapshots with
+    // location=undefined/null. They form one continuous timeline.
+    const prev = makeRun({
+      runId: 'run_001',
+      snapshots: [
+        { query: 'roofers', provider: 'gemini', cited: true },
+      ],
+    })
+    const curr = makeRun({
+      runId: 'run_002',
+      snapshots: [
+        { query: 'roofers', provider: 'gemini', cited: false },
+      ],
+    })
+
+    expect(detectRegressions(curr, prev)).toHaveLength(1)
+  })
+
+  it('does not match a locationless snapshot against a labeled-location snapshot', () => {
+    // A project that adds its first location starts a new chronology — old
+    // locationless runs are not a baseline for the new labeled-location run.
+    const prev = makeRun({
+      runId: 'run_001',
+      snapshots: [
+        { query: 'roofers', provider: 'gemini', cited: true },
+      ],
+    })
+    const curr = makeRun({
+      runId: 'run_002',
+      location: 'michigan',
+      snapshots: [
+        { query: 'roofers', provider: 'gemini', cited: false, location: 'michigan' },
+      ],
+    })
+
+    expect(detectRegressions(curr, prev)).toEqual([])
+  })
+
   it('isolates regressions by provider — same query, different provider is independent', () => {
     const prev = makeRun({
       runId: 'run_001',

@@ -51,25 +51,46 @@ export class IntelligenceService {
     }
 
     // 2. Build RunData for the current run
-    const currentRun = this.buildRunData(runId, projectId, currentRunRecord.finishedAt ?? currentRunRecord.createdAt)
+    const currentRun = this.buildRunData(
+      runId,
+      projectId,
+      currentRunRecord.finishedAt ?? currentRunRecord.createdAt,
+      currentRunRecord.location ?? null,
+    )
 
     if (currentRun.snapshots.length === 0) {
       log.info('intelligence.skip', { runId, reason: 'no snapshots' })
       return null
     }
 
-    // 3. Build RunData for previous run + history window (oldest → newest, ending at current)
+    // 3. Build RunData for previous run + history window (oldest → newest, ending at current).
+    //
+    // Multi-location fan-out: a single sweep produces one run per configured
+    // location. We must compare each run against the previous run *at the
+    // same location* — comparing Michigan to its sibling Florida arm would
+    // treat the geo difference as a regression/gain. Filter the ordered
+    // window to same-location entries, treating null/undefined as one
+    // bucket (locationless runs share a chronology).
     const orderedRecent = [...recentRuns].reverse()
-    const currentIdx = orderedRecent.findIndex(r => r.id === runId)
-    const previousRunRecord = currentIdx > 0 ? orderedRecent[currentIdx - 1]! : null
+    const currentLocation = currentRunRecord.location ?? null
+    const sameLocationOrdered = orderedRecent.filter(r => (r.location ?? null) === currentLocation)
+    const currentLocIdx = sameLocationOrdered.findIndex(r => r.id === runId)
+    const previousRunRecord = currentLocIdx > 0 ? sameLocationOrdered[currentLocIdx - 1]! : null
     const previousRun = previousRunRecord
-      ? this.buildRunData(previousRunRecord.id, projectId, previousRunRecord.finishedAt ?? previousRunRecord.createdAt)
+      ? this.buildRunData(
+        previousRunRecord.id,
+        projectId,
+        previousRunRecord.finishedAt ?? previousRunRecord.createdAt,
+        previousRunRecord.location ?? null,
+      )
       : null
 
     const trackedCompetitors = this.loadTrackedCompetitors(projectId)
-    const history = orderedRecent
-      .slice(0, currentIdx + 1)
-      .map(r => r.id === runId ? currentRun : this.buildRunData(r.id, projectId, r.finishedAt ?? r.createdAt))
+    const history = sameLocationOrdered
+      .slice(0, currentLocIdx + 1)
+      .map(r => r.id === runId
+        ? currentRun
+        : this.buildRunData(r.id, projectId, r.finishedAt ?? r.createdAt, r.location ?? null))
 
     // 4. Run analysis — skip transition detection on first run (no baseline to compare)
     if (!previousRun) {
@@ -114,25 +135,35 @@ export class IntelligenceService {
    * Used by backfill where we control the run ordering.
    */
   analyzeRunWithPrevious(
-    runRecord: { id: string; projectId: string; finishedAt: string | null; createdAt: string },
-    previousRunRecord: { id: string; projectId: string; finishedAt: string | null; createdAt: string } | null,
-    historyRecords?: readonly { id: string; projectId: string; finishedAt: string | null; createdAt: string }[],
+    runRecord: { id: string; projectId: string; finishedAt: string | null; createdAt: string; location?: string | null },
+    previousRunRecord: { id: string; projectId: string; finishedAt: string | null; createdAt: string; location?: string | null } | null,
+    historyRecords?: readonly { id: string; projectId: string; finishedAt: string | null; createdAt: string; location?: string | null }[],
   ): AnalysisResult | null {
-    const currentRun = this.buildRunData(runRecord.id, runRecord.projectId, runRecord.finishedAt ?? runRecord.createdAt)
+    const currentRun = this.buildRunData(
+      runRecord.id,
+      runRecord.projectId,
+      runRecord.finishedAt ?? runRecord.createdAt,
+      runRecord.location ?? null,
+    )
 
     if (currentRun.snapshots.length === 0) {
       return null
     }
 
     const previousRun = previousRunRecord
-      ? this.buildRunData(previousRunRecord.id, previousRunRecord.projectId, previousRunRecord.finishedAt ?? previousRunRecord.createdAt)
+      ? this.buildRunData(
+        previousRunRecord.id,
+        previousRunRecord.projectId,
+        previousRunRecord.finishedAt ?? previousRunRecord.createdAt,
+        previousRunRecord.location ?? null,
+      )
       : null
 
     const trackedCompetitors = this.loadTrackedCompetitors(runRecord.projectId)
     const history = (historyRecords ?? [])
       .map(r => r.id === runRecord.id
         ? currentRun
-        : this.buildRunData(r.id, r.projectId, r.finishedAt ?? r.createdAt))
+        : this.buildRunData(r.id, r.projectId, r.finishedAt ?? r.createdAt, r.location ?? null))
 
     // Skip transition detection on first run (no baseline to compare)
     if (!previousRun) {
@@ -200,12 +231,18 @@ export class IntelligenceService {
 
     for (let i = 0; i < targetRuns.length; i++) {
       const run = targetRuns[i]!
-      // Previous run is the one before this in the full list (not just the target slice)
-      const globalIdx = allRuns.indexOf(run)
-      const previousRun = globalIdx > 0 ? allRuns[globalIdx - 1]! : null
-      // History window for persistent-gap: last HISTORY_WINDOW_RUNS entries up to and including this run.
-      const historyStart = Math.max(0, globalIdx - (HISTORY_WINDOW_RUNS - 1))
-      const historyRecords = allRuns.slice(historyStart, globalIdx + 1)
+      // Pick the previous run *at the same location* — backfill of a
+      // multi-location project must not compare sibling fan-out arms as if
+      // they were a temporal sequence (Michigan→Florida is not a transition).
+      // Locationless runs share a chronology (treated as one bucket).
+      const runLocation = run.location ?? null
+      const sameLocationRuns = allRuns.filter(r => (r.location ?? null) === runLocation)
+      const sameLocIdx = sameLocationRuns.indexOf(run)
+      const previousRun = sameLocIdx > 0 ? sameLocationRuns[sameLocIdx - 1]! : null
+      // History window for persistent-gap: last HISTORY_WINDOW_RUNS entries
+      // at the same location up to and including this run.
+      const historyStart = Math.max(0, sameLocIdx - (HISTORY_WINDOW_RUNS - 1))
+      const historyRecords = sameLocationRuns.slice(historyStart, sameLocIdx + 1)
 
       const result = this.analyzeRunWithPrevious(run, previousRun, historyRecords)
 
@@ -443,7 +480,12 @@ export class IntelligenceService {
     })
   }
 
-  private buildRunData(runId: string, projectId: string, completedAt: string): RunData {
+  private buildRunData(
+    runId: string,
+    projectId: string,
+    completedAt: string,
+    location: string | null = null,
+  ): RunData {
     const rows = this.db
       .select({
         query: queries.query,
@@ -451,6 +493,7 @@ export class IntelligenceService {
         citationState: querySnapshots.citationState,
         citedDomains: querySnapshots.citedDomains,
         competitorOverlap: querySnapshots.competitorOverlap,
+        snapshotLocation: querySnapshots.location,
       })
       .from(querySnapshots)
       .leftJoin(queries, eq(querySnapshots.queryId, queries.id))
@@ -465,6 +508,12 @@ export class IntelligenceService {
         provider: r.provider,
         cited: r.citationState === CitationStates.cited,
         citationUrl: domains[0] ?? undefined,
+        // Snapshots carry their own location for downstream detectors. In
+        // practice every snapshot in a single runId shares the run's
+        // location; the per-row column is the same value duplicated, but
+        // we read it from the snapshot row so a stale runs.location can't
+        // mask snapshot truth.
+        location: r.snapshotLocation ?? location ?? null,
         competitorDomains: competitors,
         // citedDomains is the FULL set (tracked competitors + third-party
         // sources). Cause analysis uses it to name the displacing source
@@ -473,6 +522,6 @@ export class IntelligenceService {
       }
     })
 
-    return { runId, projectId, completedAt, snapshots }
+    return { runId, projectId, completedAt, location, snapshots }
   }
 }

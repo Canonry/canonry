@@ -424,4 +424,135 @@ describe('IntelligenceService', () => {
       expect(typeof result!.health.overallCitedRate).toBe('number')
     })
   })
+
+  // Regression suite for the multi-location grouping bug: `analyzeAndPersist`
+  // used to pick the immediately-prior run by finishedAt regardless of
+  // location, so two siblings of the same fan-out (Florida cited / Michigan
+  // not-cited) were compared as if they were sequential runs at one location
+  // — flagging false regressions and false gains on every multi-location
+  // sweep. The fix matches previous run by location.
+  describe('multi-location previous-run selection', () => {
+    function seedTwoLocationProject(db: ReturnType<typeof createClient>): { projectId: string; queryId: string } {
+      const now = new Date().toISOString()
+      const projectId = crypto.randomUUID()
+      db.insert(projects).values({
+        id: projectId,
+        name: 'multi-loc',
+        displayName: 'Multi-Location',
+        canonicalDomain: 'example.com',
+        country: 'US',
+        language: 'en',
+        providers: '["gemini"]',
+        locations: JSON.stringify([
+          { label: 'florida',  city: 'Orlando', region: 'Florida',  country: 'US' },
+          { label: 'michigan', city: 'Detroit', region: 'Michigan', country: 'US' },
+        ]),
+        createdAt: now,
+        updatedAt: now,
+      }).run()
+      const queryId = seedQuery(db, projectId, 'polyurea roof coating')
+      return { projectId, queryId }
+    }
+
+    function insertFanOutRun(
+      db: ReturnType<typeof createClient>,
+      projectId: string,
+      location: string,
+      finishedAt: string,
+    ): string {
+      const runId = crypto.randomUUID()
+      db.insert(runs).values({
+        id: runId,
+        projectId,
+        kind: 'answer-visibility',
+        status: 'completed',
+        trigger: 'manual',
+        location,
+        createdAt: finishedAt,
+        finishedAt,
+      }).run()
+      return runId
+    }
+
+    it('does not flag a regression when the immediately-prior run is a different location', () => {
+      // Pre-fix: Michigan-latest (not cited) would be compared to Florida-mid
+      // (cited) — flagging "regression". Post-fix: compared to Michigan-mid
+      // (also not cited) → no regression.
+      const { db } = createTempDb('intel-multi-loc-regression-')
+      const { projectId, queryId } = seedTwoLocationProject(db)
+
+      const flMid       = insertFanOutRun(db, projectId, 'florida',  '2026-05-11T00:00:00Z')
+      const miMid       = insertFanOutRun(db, projectId, 'michigan', '2026-05-11T00:00:00Z')
+      const flLatest    = insertFanOutRun(db, projectId, 'florida',  '2026-05-13T00:00:00Z')
+      const miLatest    = insertFanOutRun(db, projectId, 'michigan', '2026-05-13T00:00:00Z')
+
+      seedSnapshot(db, flMid,       queryId, 'gemini', 'cited',     { citedDomains: ['example.com'] })
+      seedSnapshot(db, miMid,       queryId, 'gemini', 'not-cited')
+      seedSnapshot(db, flLatest,    queryId, 'gemini', 'cited',     { citedDomains: ['example.com'] })
+      seedSnapshot(db, miLatest,    queryId, 'gemini', 'not-cited')
+
+      const service = new IntelligenceService(db)
+      const result = service.analyzeAndPersist(miLatest, projectId)
+
+      expect(result).not.toBeNull()
+      // No transitions — Michigan was not cited last time either.
+      expect(result!.regressions).toEqual([])
+      expect(result!.gains).toEqual([])
+
+      // And no regression insight persisted to the DB.
+      const persistedRegressions = db.select().from(insights)
+        .all()
+        .filter(i => i.runId === miLatest && i.type === 'regression')
+      expect(persistedRegressions).toHaveLength(0)
+    })
+
+    it('does not flag a phantom gain on the opposite case (Michigan→Florida)', () => {
+      // Symmetric coverage. Florida-latest cited compared against Michigan-mid
+      // not-cited would have looked like a "gain" pre-fix.
+      const { db } = createTempDb('intel-multi-loc-gain-')
+      const { projectId, queryId } = seedTwoLocationProject(db)
+
+      const flMid    = insertFanOutRun(db, projectId, 'florida',  '2026-05-11T00:00:00Z')
+      const miMid    = insertFanOutRun(db, projectId, 'michigan', '2026-05-11T00:00:00Z')
+      const flLatest = insertFanOutRun(db, projectId, 'florida',  '2026-05-13T00:00:00Z')
+      const miLatest = insertFanOutRun(db, projectId, 'michigan', '2026-05-13T00:00:00Z')
+
+      seedSnapshot(db, flMid,    queryId, 'gemini', 'cited',     { citedDomains: ['example.com'] })
+      seedSnapshot(db, miMid,    queryId, 'gemini', 'not-cited')
+      seedSnapshot(db, flLatest, queryId, 'gemini', 'cited',     { citedDomains: ['example.com'] })
+      seedSnapshot(db, miLatest, queryId, 'gemini', 'not-cited')
+
+      const service = new IntelligenceService(db)
+      const result = service.analyzeAndPersist(flLatest, projectId)
+
+      expect(result).not.toBeNull()
+      // Florida was always cited — no gain.
+      expect(result!.gains).toEqual([])
+      expect(result!.regressions).toEqual([])
+    })
+
+    it('detects a real regression when the previous SAME-location run was cited', () => {
+      // Genuine signal we must preserve: Florida cited at mid, not cited at
+      // latest, and Michigan steady in between. The Michigan run between
+      // them must not mask the Florida regression.
+      const { db } = createTempDb('intel-multi-loc-real-regression-')
+      const { projectId, queryId } = seedTwoLocationProject(db)
+
+      const flMid    = insertFanOutRun(db, projectId, 'florida',  '2026-05-11T00:00:00Z')
+      const miMid    = insertFanOutRun(db, projectId, 'michigan', '2026-05-11T00:00:00Z')
+      const flLatest = insertFanOutRun(db, projectId, 'florida',  '2026-05-13T00:00:00Z')
+
+      seedSnapshot(db, flMid,    queryId, 'gemini', 'cited',     { citedDomains: ['example.com'] })
+      seedSnapshot(db, miMid,    queryId, 'gemini', 'not-cited')
+      seedSnapshot(db, flLatest, queryId, 'gemini', 'not-cited')
+
+      const service = new IntelligenceService(db)
+      const result = service.analyzeAndPersist(flLatest, projectId)
+
+      expect(result).not.toBeNull()
+      expect(result!.regressions).toHaveLength(1)
+      expect(result!.regressions[0]!.query).toBe('polyurea roof coating')
+      expect(result!.regressions[0]!.previousRunId).toBe(flMid)
+    })
+  })
 })
