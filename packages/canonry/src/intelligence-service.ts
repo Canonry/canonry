@@ -133,11 +133,17 @@ export class IntelligenceService {
   /**
    * Analyze a single run given an explicit previous run (or null for first run).
    * Used by backfill where we control the run ordering.
+   *
+   * `dryRun: true` skips the DB write — `persistResult` is not called and
+   * dismissed flags / health rows are untouched. Callers receive the same
+   * AnalysisResult they would have, suitable for previewing what a write
+   * would have produced.
    */
   analyzeRunWithPrevious(
     runRecord: { id: string; projectId: string; finishedAt: string | null; createdAt: string; location?: string | null },
     previousRunRecord: { id: string; projectId: string; finishedAt: string | null; createdAt: string; location?: string | null } | null,
     historyRecords?: readonly { id: string; projectId: string; finishedAt: string | null; createdAt: string; location?: string | null }[],
+    opts?: { dryRun?: boolean },
   ): AnalysisResult | null {
     const currentRun = this.buildRunData(
       runRecord.id,
@@ -168,14 +174,15 @@ export class IntelligenceService {
     // Skip transition detection on first run (no baseline to compare)
     if (!previousRun) {
       const result = analyzeRuns(currentRun, currentRun, { trackedCompetitors, history })
-      this.persistResult(this.emptyAnalysisResult(result), runRecord.id, runRecord.projectId)
+      const emptyResult = this.emptyAnalysisResult(result)
+      if (!opts?.dryRun) this.persistResult(emptyResult, runRecord.id, runRecord.projectId)
       return result
     }
 
     const result = analyzeRuns(currentRun, previousRun, { trackedCompetitors, history })
 
     const tieredResult = this.tierResult(result, runRecord.id, runRecord.projectId)
-    this.persistResult(tieredResult, runRecord.id, runRecord.projectId)
+    if (!opts?.dryRun) this.persistResult(tieredResult, runRecord.id, runRecord.projectId)
 
     return tieredResult
   }
@@ -192,12 +199,26 @@ export class IntelligenceService {
    *     available for predecessor lookup, so transition detection at the
    *     boundary stays correct. Composes with `fromRunId` / `toRunId` —
    *     all three filters intersect.
+   *   - `dryRun`: compute the analysis without writing. The return value
+   *     includes a `delta` describing what would change (rows to delete vs
+   *     create per run + aggregate). DB is left untouched.
    */
   backfill(
     projectName: string,
-    opts?: { fromRunId?: string; toRunId?: string; since?: string },
+    opts?: { fromRunId?: string; toRunId?: string; since?: string; dryRun?: boolean },
     onProgress?: (info: { runId: string; index: number; total: number; insights: number }) => void,
-  ): { processed: number; skipped: number; totalInsights: number } {
+  ): {
+    processed: number
+    skipped: number
+    totalInsights: number
+    dryRun?: boolean
+    delta?: {
+      wouldDelete: number
+      wouldCreate: number
+      netChange: number
+      perRun: Array<{ runId: string; existingInsights: number; newInsights: number }>
+    }
+  } {
     const project = this.db
       .select()
       .from(projects)
@@ -256,6 +277,28 @@ export class IntelligenceService {
     let processed = 0
     let skipped = 0
     let totalInsights = 0
+    const isDryRun = opts?.dryRun === true
+    const perRunDelta: Array<{ runId: string; existingInsights: number; newInsights: number }> = []
+    let wouldDeleteTotal = 0
+
+    // Dry-run delta calc: count the existing insights for every targeted run
+    // so we can report "what gets wiped" alongside "what gets written". A
+    // real backfill would delete these inside persistResult before re-inserting.
+    const existingByRunId = new Map<string, number>()
+    if (isDryRun && targetRuns.length > 0) {
+      const rows = this.db
+        .select({ runId: insights.runId })
+        .from(insights)
+        .where(inArray(insights.runId, targetRuns.map(r => r.id)))
+        .all()
+      for (const r of rows) {
+        // insights.run_id is nullable in the schema (FK SET NULL post-cascade),
+        // but rows whose run_id is null can't have been written by a backfill
+        // for any run in targetRuns, so skip them.
+        if (r.runId == null) continue
+        existingByRunId.set(r.runId, (existingByRunId.get(r.runId) ?? 0) + 1)
+      }
+    }
 
     for (let i = 0; i < targetRuns.length; i++) {
       const run = targetRuns[i]!
@@ -272,11 +315,16 @@ export class IntelligenceService {
       const historyStart = Math.max(0, sameLocIdx - (HISTORY_WINDOW_RUNS - 1))
       const historyRecords = sameLocationRuns.slice(historyStart, sameLocIdx + 1)
 
-      const result = this.analyzeRunWithPrevious(run, previousRun, historyRecords)
+      const result = this.analyzeRunWithPrevious(run, previousRun, historyRecords, { dryRun: isDryRun })
 
       if (result) {
         processed++
         totalInsights += result.insights.length
+        if (isDryRun) {
+          const existing = existingByRunId.get(run.id) ?? 0
+          wouldDeleteTotal += existing
+          perRunDelta.push({ runId: run.id, existingInsights: existing, newInsights: result.insights.length })
+        }
         onProgress?.({ runId: run.id, index: i + 1, total: targetRuns.length, insights: result.insights.length })
       } else {
         skipped++
@@ -284,6 +332,20 @@ export class IntelligenceService {
       }
     }
 
+    if (isDryRun) {
+      return {
+        processed,
+        skipped,
+        totalInsights,
+        dryRun: true,
+        delta: {
+          wouldDelete: wouldDeleteTotal,
+          wouldCreate: totalInsights,
+          netChange: totalInsights - wouldDeleteTotal,
+          perRun: perRunDelta,
+        },
+      }
+    }
     return { processed, skipped, totalInsights }
   }
 

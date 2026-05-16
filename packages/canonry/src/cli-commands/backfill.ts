@@ -33,19 +33,21 @@ export const BACKFILL_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['backfill', 'insights'],
-    usage: 'canonry backfill insights <project> [--from-run <id>] [--to-run <id>] [--since <date>] [--format json]',
+    usage: 'canonry backfill insights <project> [--from-run <id>] [--to-run <id>] [--since <date>] [--dry-run] [--format json]',
     options: {
       'from-run': stringOption(),
       'to-run': stringOption(),
       'since': stringOption(),
+      'dry-run': { type: 'boolean' },
     },
     run: async (input) => {
-      const usage = 'canonry backfill insights <project> [--from-run <id>] [--to-run <id>] [--since <date>] [--format json]'
+      const usage = 'canonry backfill insights <project> [--from-run <id>] [--to-run <id>] [--since <date>] [--dry-run] [--format json]'
       const project = requireProject(input, 'backfill insights', usage)
       await backfillInsightsCommand(project, {
         fromRun: getString(input.values, 'from-run'),
         toRun: getString(input.values, 'to-run'),
         since: getString(input.values, 'since'),
+        dryRun: input.values['dry-run'] === true,
         format: input.format,
       })
     },

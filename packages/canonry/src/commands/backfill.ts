@@ -651,7 +651,7 @@ function readStoredGroundingSources(rawResponse: string | null): GroundingSource
 
 export async function backfillInsightsCommand(
   project: string,
-  opts?: { fromRun?: string; toRun?: string; since?: string; format?: CliFormat },
+  opts?: { fromRun?: string; toRun?: string; since?: string; dryRun?: boolean; format?: CliFormat },
 ): Promise<void> {
   // Lazy-load the intelligence graph so `backfill answer-visibility` can run and be
   // tested without pulling in the optional insights dependency chain.
@@ -662,27 +662,34 @@ export async function backfillInsightsCommand(
 
   const service = new IntelligenceService(db)
   const isJson = opts?.format === 'json'
+  const isDryRun = opts?.dryRun === true
 
   if (!isJson) {
     const scope = opts?.since ? ` (since ${opts.since})` : ''
-    process.stderr.write(`Backfilling insights for "${project}"${scope}...\n`)
+    const mode = isDryRun ? ' [DRY RUN — no writes]' : ''
+    process.stderr.write(`Backfilling insights for "${project}"${scope}${mode}...\n`)
   }
 
   const result = service.backfill(project, {
     fromRunId: opts?.fromRun,
     toRunId: opts?.toRun,
     since: opts?.since,
+    dryRun: isDryRun,
   }, (info) => {
     if (!isJson) {
       process.stderr.write(`  [${info.index}/${info.total}] ${info.runId} — ${info.insights} insights\n`)
     }
   })
 
-  const output = {
+  const output: Record<string, unknown> = {
     project,
     processed: result.processed,
     skipped: result.skipped,
     totalInsights: result.totalInsights,
+  }
+  if (result.dryRun) {
+    output.dryRun = true
+    output.delta = result.delta
   }
 
   if (isJson) {
@@ -690,10 +697,14 @@ export async function backfillInsightsCommand(
     return
   }
 
-  console.log(`\nBackfill complete.`)
+  console.log(`\nBackfill ${isDryRun ? 'preview' : 'complete'}.`)
   console.log(`  Processed: ${result.processed}`)
   console.log(`  Skipped:   ${result.skipped}`)
   console.log(`  Insights:  ${result.totalInsights}`)
+  if (result.delta) {
+    console.log(`  Delta:     -${result.delta.wouldDelete} existing  +${result.delta.wouldCreate} new  (net ${result.delta.netChange >= 0 ? '+' : ''}${result.delta.netChange})`)
+    console.log(`             No DB writes performed. Re-run without --dry-run to apply.`)
+  }
 }
 
 type ReparsedProviderSnapshot = {
