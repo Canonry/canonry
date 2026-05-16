@@ -470,18 +470,27 @@ export interface RecommendedNextStep {
  * meaningful deltas; renderers should fall back to a baseline message.
  */
 export interface ReportRateDelta {
-  /** Current value (0..100 for rates, raw count otherwise). */
+  /** Current value (0..100 for rates, raw count otherwise). When `window`
+   *  is present this is the average over the last `window` checks. */
   current: number
-  /** Prior value compared against. */
+  /** Prior value compared against. When `window` is present this is the
+   *  average over the prior `window` checks before that. */
   prior: number
   /** Absolute delta (current − prior). Negative = decrease. */
   deltaAbs: number
   /**
-   * Direction tag for tone mapping. 'flat' when |deltaAbs| < 0.5 for rates
-   * or 0 for counts; 'unknown' is reserved for prior-undefined cases that
-   * the parent shape captures with a null instead.
+   * Direction tag for tone mapping. Threshold is metric-specific (3pp for
+   * rates, 0.5 for counts) so small noise lands as 'flat' rather than
+   * flipping up/down each run.
    */
   direction: 'up' | 'down' | 'flat'
+  /**
+   * How many points went into each side of the average. Omitted (or 1)
+   * means point-to-point (legacy "since last check"). Higher values mean
+   * a rolling-average comparison — renderers should label it as
+   * "vs prior N checks" when this is ≥ 2.
+   */
+  window?: number
 }
 
 export interface ReportProviderMovement {

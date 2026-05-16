@@ -828,12 +828,17 @@ describe('GET /api/v1/projects/:name/report', () => {
     expect(body.whatsChanged.providerMovements).toEqual([])
   })
 
-  test('whatsChanged computes run-over-run rate deltas once enough history exists', async () => {
+  test('whatsChanged smooths rate deltas across recent runs (not point-to-point)', async () => {
     const projectId = insertProject(ctx.db, 'wc-deltas')
     const kw1 = insertQuery(ctx.db, projectId, 'kw1')
     const kw2 = insertQuery(ctx.db, projectId, 'kw2')
 
-    // 4 runs: cited rate climbs from 0% → 100% on kw1, kw2 stays not-cited.
+    // 4 runs of 2 queries each. kw1 stays not-cited for runs 1-3, then
+    // becomes cited in run 4. kw2 stays not-cited throughout. The legacy
+    // point-to-point delta would report "rose 50pp" off the single run-4
+    // bounce; with rolling-window smoothing (window=2 fits in 4 runs)
+    // we average run3+run4 (0%, 50% → 25%) against run1+run2 (0%, 0%)
+    // for a more honest 25pp lift.
     for (let i = 0; i < 4; i++) {
       const day = String(i + 1).padStart(2, '0')
       const runId = insertRun(ctx.db, projectId, {
@@ -850,16 +855,54 @@ describe('GET /api/v1/projects/:name/report', () => {
 
     expect(body.whatsChanged.enoughHistory).toBe(true)
     expect(body.whatsChanged.citationRate).not.toBeNull()
-    expect(body.whatsChanged.citationRate!.current).toBe(50)
+    expect(body.whatsChanged.citationRate!.current).toBe(25)
     expect(body.whatsChanged.citationRate!.prior).toBe(0)
-    expect(body.whatsChanged.citationRate!.deltaAbs).toBe(50)
+    expect(body.whatsChanged.citationRate!.deltaAbs).toBe(25)
     expect(body.whatsChanged.citationRate!.direction).toBe('up')
-    expect(body.whatsChanged.citedQueryCount!.current).toBe(1)
+    expect(body.whatsChanged.citationRate!.window).toBe(2)
+    // citedQueryCount: tail avg 0.5, prior avg 0, delta 0.5 — exactly at
+    // the COUNT_REAL_MOVEMENT_THRESHOLD floor, so direction = 'flat'
+    // (a single-query bump is not yet a trend on a 2-query basket).
+    expect(body.whatsChanged.citedQueryCount!.current).toBe(0.5)
     expect(body.whatsChanged.citedQueryCount!.prior).toBe(0)
+    expect(body.whatsChanged.citedQueryCount!.direction).toBe('flat')
     expect(body.whatsChanged.providerMovements.length).toBe(1)
     expect(body.whatsChanged.providerMovements[0]!.provider).toBe('gemini')
     expect(body.whatsChanged.providerMovements[0]!.direction).toBe('up')
-    expect(body.whatsChanged.headline).toMatch(/Citation rate rose/i)
+    // Headline reports the smoothed numbers, not run-3-vs-run-4.
+    expect(body.whatsChanged.headline).toMatch(/Citation rate rose 0% .* 25%/)
+    expect(body.whatsChanged.headline).toMatch(/avg of last 2 checks/)
+  })
+
+  test('whatsChanged: alternating high/low runs do not trip a direction arrow (twitch suppression)', async () => {
+    // Reproduces the user-reported twitch: a small basket where one query
+    // flips in/out of cited each run creates ~50pp swings run-over-run.
+    // Smoothing should collapse this into 'flat' direction.
+    const projectId = insertProject(ctx.db, 'wc-twitch')
+    const kw1 = insertQuery(ctx.db, projectId, 'kw1')
+    const kw2 = insertQuery(ctx.db, projectId, 'kw2')
+
+    // 6 runs alternating between (cited, not-cited) and (not-cited, cited)
+    // — same query basket, same cited count overall, just flipping which
+    // query is cited. Citation rate is 50% every run; smoothing averages
+    // to 50% on both sides → 'flat'.
+    for (let i = 0; i < 6; i++) {
+      const day = String(i + 10).padStart(2, '0')
+      const runId = insertRun(ctx.db, projectId, {
+        createdAt: `2026-04-${day}T00:00:00Z`,
+        finishedAt: `2026-04-${day}T00:01:00Z`,
+      })
+      insertSnapshot(ctx.db, runId, kw1, { provider: 'gemini', citationState: i % 2 === 0 ? 'cited' : 'not-cited' })
+      insertSnapshot(ctx.db, runId, kw2, { provider: 'gemini', citationState: i % 2 === 0 ? 'not-cited' : 'cited' })
+    }
+
+    await ctx.app.ready()
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/wc-twitch/report' })
+    const body = JSON.parse(res.body) as ProjectReportDto
+
+    expect(body.whatsChanged.citationRate!.direction).toBe('flat')
+    expect(Math.abs(body.whatsChanged.citationRate!.deltaAbs)).toBeLessThan(3)
+    expect(body.whatsChanged.citationRate!.window).toBe(3) // 6 runs → max window
   })
 
   test('whatsChanged surfaces wins and regressions from insights', async () => {

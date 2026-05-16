@@ -148,12 +148,23 @@ function clientConfidenceLabel(confidence: ReportActionPlanItem['confidence']): 
 function clientTrendCopy(delta: ProjectReportDto['whatsChanged']['citationRate']): { text: string; tone: 'positive' | 'negative' | 'neutral'; arrow: string } | null {
   if (!delta) return null
   if (delta.direction === 'up') {
-    return { text: `Up ${delta.deltaAbs.toFixed(1)} points since last check (was ${delta.prior}%)`, tone: 'positive', arrow: '↑' }
+    return { text: `Up ${delta.deltaAbs.toFixed(1)} points ${compareCopy(delta)}`, tone: 'positive', arrow: '↑' }
   }
   if (delta.direction === 'down') {
-    return { text: `Down ${Math.abs(delta.deltaAbs).toFixed(1)} points since last check (was ${delta.prior}%)`, tone: 'negative', arrow: '↓' }
+    return { text: `Down ${Math.abs(delta.deltaAbs).toFixed(1)} points ${compareCopy(delta)}`, tone: 'negative', arrow: '↓' }
   }
-  return { text: `Holding steady since last check (was ${delta.prior}%)`, tone: 'neutral', arrow: '→' }
+  return { text: `Holding steady ${compareCopy(delta)}`, tone: 'neutral', arrow: '→' }
+}
+
+/** When `window` is ≥ 2 the prior/current values are rolling averages
+ *  — label them as such so a reader doesn't misread an averaged number
+ *  as a single-check snapshot. Mirrored verbatim in the SPA renderer
+ *  per the "Report parity" rule. */
+function compareCopy(delta: { prior: number; window?: number }): string {
+  const window = delta.window ?? 1
+  return window >= 2
+    ? `vs prior ${window} checks (avg ${delta.prior}%)`
+    : `since last check (was ${delta.prior}%)`
 }
 
 function compactInlineList(items: readonly string[], limit = 3): string {
