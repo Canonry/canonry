@@ -1437,7 +1437,7 @@ function renderCompetitorLandscape(report: ProjectReportDto): string {
 
   const table = competitors.length > 0
     ? `<table class="report-table">
-        <thead><tr><th>Domain</th><th>Pressure</th><th>Citations</th><th class="numeric">Mentions</th><th class="numeric">SOV</th><th>Cited queries</th></tr></thead>
+        <thead><tr><th>Domain</th><th>Pressure</th><th>Citations</th><th class="numeric">Mentions</th><th class="numeric" title="Citation share — % of cited-source slots that went to this competitor across tracked queries. Distinct from Mention Share.">Citation share</th><th>Cited queries</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>`
     : renderEmpty('No competitors configured.')
