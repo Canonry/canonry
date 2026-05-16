@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import { useQueryClient } from '@tanstack/react-query'
-import type { MetricsWindow } from '@ainyc/canonry-contracts'
+import type { GscPerformanceDailyDto, MetricsWindow } from '@ainyc/canonry-contracts'
 
 import { Button } from '../ui/button.js'
 import { Card } from '../ui/card.js'
@@ -16,6 +16,7 @@ import {
   googleDisconnect,
   saveGoogleProperty,
   fetchGscPerformance,
+  fetchGscPerformanceDaily,
   inspectGscUrl,
   fetchGscInspections,
   fetchGscDeindexed,
@@ -55,6 +56,7 @@ export function GscSection({
   const [connections, setConnections] = useState<ApiGoogleConnection[]>([])
   const [properties, setProperties] = useState<ApiGoogleProperty[]>([])
   const [performance, setPerformance] = useState<ApiGscPerformanceRow[]>([])
+  const [performanceDaily, setPerformanceDaily] = useState<GscPerformanceDailyDto | null>(null)
   const [inspections, setInspections] = useState<ApiGscInspection[]>([])
   const [deindexed, setDeindexed] = useState<ApiGscDeindexedRow[]>([])
   const [inspectionResult, setInspectionResult] = useState<ApiGscInspection | null>(null)
@@ -199,6 +201,28 @@ export function GscSection({
       setError(err instanceof Error ? err.message : 'Failed to load GSC performance data')
     } finally {
       setLoadingPerformance(false)
+    }
+  }
+
+  async function loadPerformanceDaily() {
+    try {
+      const filters = {
+        startDate: performanceFilters.startDate,
+        endDate: performanceFilters.endDate,
+        window: gscWindow,
+      }
+      const data = await queryClient.fetchQuery({
+        queryKey: queryKeys.gsc.performanceDaily(projectName, filters),
+        queryFn: () => fetchGscPerformanceDaily(projectName, {
+          startDate: performanceFilters.startDate || undefined,
+          endDate: performanceFilters.endDate || undefined,
+          window: gscWindow,
+        }),
+        staleTime: GSC_STALE_MS,
+      })
+      setPerformanceDaily(data)
+    } catch {
+      setPerformanceDaily(null)
     }
   }
 
@@ -379,6 +403,7 @@ export function GscSection({
       await Promise.all([
         loadProperties(currentConn),
         loadPerformanceRows(),
+        loadPerformanceDaily(),
         loadInspectionHistory(),
         loadCoverage(),
       ])
@@ -396,6 +421,7 @@ export function GscSection({
   useEffect(() => {
     setPerformanceOffset(0)
     void loadPerformanceRows(0)
+    void loadPerformanceDaily()
   }, [gscWindow])
 
   // Refetch when sort toggles between "off" and "on" so the fetched row set
@@ -529,22 +555,6 @@ export function GscSection({
         <div>
           <p className="eyebrow eyebrow-soft">Search Console</p>
           <h2>Google Search Console</h2>
-        </div>
-        <div className="flex gap-1">
-          {GSC_WINDOWS.map(w => (
-            <button
-              key={w}
-              type="button"
-              className={`px-3 py-1 text-xs rounded-full border transition-colors ${
-                gscWindow === w
-                  ? 'bg-zinc-700 border-zinc-600 text-zinc-50'
-                  : 'border-zinc-800 text-zinc-400 hover:border-zinc-700 hover:text-zinc-300'
-              }`}
-              onClick={() => setGscWindow(w)}
-            >
-              {w === 'all' ? 'All' : w}
-            </button>
-          ))}
         </div>
       </div>
 
@@ -981,29 +991,38 @@ export function GscSection({
                     <p className="eyebrow eyebrow-soft">Performance</p>
                     <h3>Search performance</h3>
                   </div>
-                  <Button type="button" variant="outline" size="sm" disabled={loadingPerformance} onClick={() => { setPerformanceOffset(0); void loadPerformanceRows(0) }}>
-                    {loadingPerformance ? 'Loading\u2026' : 'Apply filters'}
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    <div className="flex gap-1" role="tablist" aria-label="Performance window">
+                      {GSC_WINDOWS.map(w => (
+                        <button
+                          key={w}
+                          type="button"
+                          role="tab"
+                          aria-selected={gscWindow === w}
+                          className={`px-2.5 py-1 text-xs rounded-full border transition-colors ${
+                            gscWindow === w
+                              ? 'bg-zinc-700 border-zinc-600 text-zinc-50'
+                              : 'border-zinc-800 text-zinc-400 hover:border-zinc-700 hover:text-zinc-300'
+                          }`}
+                          onClick={() => setGscWindow(w)}
+                        >
+                          {w === 'all' ? 'All' : w}
+                        </button>
+                      ))}
+                    </div>
+                    <Button type="button" variant="outline" size="sm" disabled={loadingPerformance} onClick={() => { setPerformanceOffset(0); void loadPerformanceRows(0); void loadPerformanceDaily() }}>
+                      {loadingPerformance ? 'Loading\u2026' : 'Apply filters'}
+                    </Button>
+                  </div>
                 </div>
 
-                {/* Clicks + Impressions bar chart */}
-                {performance.length > 0 && (() => {
-                  const byDate = new Map<string, { clicks: number; impressions: number }>()
-                  for (const row of performance) {
-                    const existing = byDate.get(row.date)
-                    if (existing) {
-                      existing.clicks += row.clicks
-                      existing.impressions += row.impressions
-                    } else {
-                      byDate.set(row.date, { clicks: row.clicks, impressions: row.impressions })
-                    }
-                  }
-                  const sorted = [...byDate.entries()].sort(([a], [b]) => a.localeCompare(b))
-                  if (sorted.length === 0) return null
-                  const maxImpressions = Math.max(...sorted.map(([, d]) => d.impressions), 1)
-                  const totalClicks = sorted.reduce((sum, [, d]) => sum + d.clicks, 0)
-                  const totalImpressions = sorted.reduce((sum, [, d]) => sum + d.impressions, 0)
-                  const avgCtr = totalImpressions > 0 ? ((totalClicks / totalImpressions) * 100).toFixed(1) : '0.0'
+                {/* Clicks + Impressions bar chart — driven by the daily aggregate
+                    endpoint so it reflects the full window, not the current page. */}
+                {performanceDaily && performanceDaily.daily.length > 0 && (() => {
+                  const sorted = performanceDaily.daily
+                  const maxImpressions = Math.max(...sorted.map((d) => d.impressions), 1)
+                  const { clicks: totalClicks, impressions: totalImpressions, ctr: totalCtr } = performanceDaily.totals
+                  const avgCtr = (totalCtr * 100).toFixed(1)
 
                   const w = 700
                   const h = 220
@@ -1053,13 +1072,13 @@ export function GscSection({
                             )
                           })}
                           {/* Bars */}
-                          {sorted.map(([date, d], i) => {
+                          {sorted.map((d, i) => {
                             const cx = pad.left + barGroupW * i + barGroupW / 2
                             const impressionH = (d.impressions / ceilVal) * plotH
                             const clickH = (d.clicks / ceilVal) * plotH
                             return (
-                              <g key={date}>
-                                <title>{`${date}\nClicks: ${d.clicks}\nImpressions: ${d.impressions}\nCTR: ${d.impressions > 0 ? ((d.clicks / d.impressions) * 100).toFixed(1) : 0}%`}</title>
+                              <g key={d.date}>
+                                <title>{`${d.date}\nClicks: ${d.clicks}\nImpressions: ${d.impressions}\nCTR: ${(d.ctr * 100).toFixed(1)}%`}</title>
                                 <rect
                                   x={cx - barW - barGap / 2}
                                   y={pad.top + plotH - impressionH}
@@ -1089,7 +1108,7 @@ export function GscSection({
                               const cx = pad.left + barGroupW * idx + barGroupW / 2
                               return (
                                 <text key={`xl-${idx}`} x={cx} y={h - 8} textAnchor="middle" fill="#71717a" fontSize="10" fontFamily="inherit">
-                                  {sorted[idx]![0].slice(5)}
+                                  {sorted[idx]!.date.slice(5)}
                                 </text>
                               )
                             })

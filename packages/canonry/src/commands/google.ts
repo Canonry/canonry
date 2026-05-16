@@ -235,6 +235,45 @@ export async function googleSync(project: string, opts: {
   }
 }
 
+export async function googlePerformanceDaily(project: string, opts: {
+  window?: string
+  startDate?: string
+  endDate?: string
+  format?: string
+}): Promise<void> {
+  const client = getClient()
+  const params: Record<string, string> = {}
+  if (opts.window) params.window = opts.window
+  if (opts.startDate) params.startDate = opts.startDate
+  if (opts.endDate) params.endDate = opts.endDate
+
+  const data = await client.gscPerformanceDaily(project, Object.keys(params).length > 0 ? params : undefined)
+
+  if (opts.format === 'json') {
+    console.log(JSON.stringify(data, null, 2))
+    return
+  }
+
+  if (data.daily.length === 0) {
+    console.log('No GSC data found in this window. Run "canonry google sync" first.')
+    return
+  }
+
+  const { clicks, impressions, ctr, days } = data.totals
+  console.log(`GSC daily summary (${days} day${days === 1 ? '' : 's'}):\n`)
+  console.log(`  Clicks:      ${clicks.toLocaleString()}`)
+  console.log(`  Impressions: ${impressions.toLocaleString()}`)
+  console.log(`  CTR:         ${(ctr * 100).toFixed(2)}%`)
+  console.log()
+  console.log(`  ${'DATE'.padEnd(12)}${'CLICKS'.padStart(10)}${'IMPR'.padStart(12)}${'CTR'.padStart(10)}`)
+  console.log(`  ${'─'.repeat(12)}${'─'.repeat(10)}${'─'.repeat(12)}${'─'.repeat(10)}`)
+  for (const row of data.daily) {
+    console.log(
+      `  ${row.date.padEnd(12)}${row.clicks.toLocaleString().padStart(10)}${row.impressions.toLocaleString().padStart(12)}${(row.ctr * 100).toFixed(2).padStart(9)}%`,
+    )
+  }
+}
+
 export async function googlePerformance(project: string, opts: {
   days?: number
   keyword?: string

@@ -10,6 +10,7 @@ import {
   googleInspections,
   googleListSitemaps,
   googlePerformance,
+  googlePerformanceDaily,
   googleProperties,
   googleRefresh,
   googleRequestIndexing,
@@ -158,6 +159,24 @@ export const GOOGLE_CLI_COMMANDS: readonly CliCommandSpec[] = [
     },
   },
   {
+    path: ['google', 'performance-daily'],
+    usage: 'canonry google performance-daily <project> [--window 7d|30d|90d|all] [--start <YYYY-MM-DD>] [--end <YYYY-MM-DD>] [--format json]',
+    options: {
+      window: stringOption(),
+      start: stringOption(),
+      end: stringOption(),
+    },
+    run: async (input) => {
+      const project = requireProject(input, 'google.performance-daily', 'canonry google performance-daily <project> [--window 7d|30d|90d|all] [--start <YYYY-MM-DD>] [--end <YYYY-MM-DD>] [--format json]')
+      await googlePerformanceDaily(project, {
+        window: getString(input.values, 'window'),
+        startDate: getString(input.values, 'start'),
+        endDate: getString(input.values, 'end'),
+        format: input.format,
+      })
+    },
+  },
+  {
     path: ['google', 'inspect'],
     usage: 'canonry google inspect <project> <url> [--format json]',
     run: async (input) => {
@@ -286,12 +305,12 @@ export const GOOGLE_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['google'],
-    usage: 'canonry google <connect|disconnect|status|properties|set-property|set-sitemap|list-sitemaps|discover-sitemaps|sync|performance|inspect|inspect-sitemap|coverage|coverage-history|inspections|deindexed|request-indexing|refresh> <project> [args]',
+    usage: 'canonry google <connect|disconnect|status|properties|set-property|set-sitemap|list-sitemaps|discover-sitemaps|sync|performance|performance-daily|inspect|inspect-sitemap|coverage|coverage-history|inspections|deindexed|request-indexing|refresh> <project> [args]',
     run: async (input) => {
       unknownSubcommand(input.positionals[0], {
         command: 'google',
-        usage: 'canonry google <connect|disconnect|status|properties|set-property|set-sitemap|list-sitemaps|discover-sitemaps|sync|performance|inspect|inspect-sitemap|coverage|coverage-history|inspections|deindexed|request-indexing|refresh> <project> [args]',
-        available: ['connect', 'disconnect', 'status', 'properties', 'set-property', 'set-sitemap', 'list-sitemaps', 'discover-sitemaps', 'sync', 'performance', 'inspect', 'inspect-sitemap', 'coverage', 'coverage-history', 'inspections', 'deindexed', 'request-indexing', 'refresh'],
+        usage: 'canonry google <connect|disconnect|status|properties|set-property|set-sitemap|list-sitemaps|discover-sitemaps|sync|performance|performance-daily|inspect|inspect-sitemap|coverage|coverage-history|inspections|deindexed|request-indexing|refresh> <project> [args]',
+        available: ['connect', 'disconnect', 'status', 'properties', 'set-property', 'set-sitemap', 'list-sitemaps', 'discover-sitemaps', 'sync', 'performance', 'performance-daily', 'inspect', 'inspect-sitemap', 'coverage', 'coverage-history', 'inspections', 'deindexed', 'request-indexing', 'refresh'],
       })
     },
   },

@@ -450,6 +450,55 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     }))
   })
 
+  // GET /projects/:name/google/gsc/performance/daily
+  // Returns one row per date with clicks + impressions summed across every
+  // (query, page, country, device) tuple in the window, plus window totals.
+  // The chart and headline metrics in the dashboard render from this — never
+  // recomputed from the paged /performance rows, which only cover one page.
+  app.get<{
+    Params: { name: string }
+    Querystring: { startDate?: string; endDate?: string; window?: string }
+  }>('/projects/:name/google/gsc/performance/daily', async (request) => {
+    const project = resolveProject(app.db, request.params.name)
+    const { startDate, endDate } = request.query
+    const cutoffDate = !startDate ? windowCutoff(parseWindow(request.query.window))?.slice(0, 10) ?? null : null
+
+    const conditions = [eq(gscSearchData.projectId, project.id)]
+    if (startDate) conditions.push(sql`${gscSearchData.date} >= ${startDate}`)
+    else if (cutoffDate) conditions.push(sql`${gscSearchData.date} >= ${cutoffDate}`)
+    if (endDate) conditions.push(sql`${gscSearchData.date} <= ${endDate}`)
+
+    const rows = app.db
+      .select({
+        date: gscSearchData.date,
+        clicks: sql<number>`COALESCE(SUM(${gscSearchData.clicks}), 0)`,
+        impressions: sql<number>`COALESCE(SUM(${gscSearchData.impressions}), 0)`,
+      })
+      .from(gscSearchData)
+      .where(and(...conditions))
+      .groupBy(gscSearchData.date)
+      .orderBy(gscSearchData.date)
+      .all()
+
+    const daily = rows.map((r) => ({
+      date: r.date,
+      clicks: r.clicks,
+      impressions: r.impressions,
+      ctr: r.impressions > 0 ? r.clicks / r.impressions : 0,
+    }))
+    const totalClicks = daily.reduce((sum, d) => sum + d.clicks, 0)
+    const totalImpressions = daily.reduce((sum, d) => sum + d.impressions, 0)
+    return {
+      totals: {
+        clicks: totalClicks,
+        impressions: totalImpressions,
+        ctr: totalImpressions > 0 ? totalClicks / totalImpressions : 0,
+        days: daily.length,
+      },
+      daily,
+    }
+  })
+
   // POST /projects/:name/google/gsc/inspect
   app.post<{
     Params: { name: string }

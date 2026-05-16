@@ -28,6 +28,25 @@ export const gscSearchDataDtoSchema = z.object({
 })
 export type GscSearchDataDto = z.infer<typeof gscSearchDataDtoSchema>
 
+export const gscPerformanceDailyPointSchema = z.object({
+  date: z.string(),
+  clicks: z.number(),
+  impressions: z.number(),
+  ctr: z.number(),
+})
+export type GscPerformanceDailyPoint = z.infer<typeof gscPerformanceDailyPointSchema>
+
+export const gscPerformanceDailyDtoSchema = z.object({
+  totals: z.object({
+    clicks: z.number(),
+    impressions: z.number(),
+    ctr: z.number(),
+    days: z.number(),
+  }),
+  daily: z.array(gscPerformanceDailyPointSchema),
+})
+export type GscPerformanceDailyDto = z.infer<typeof gscPerformanceDailyDtoSchema>
+
 export const gscUrlInspectionDtoSchema = z.object({
   id: z.string(),
   url: z.string(),
