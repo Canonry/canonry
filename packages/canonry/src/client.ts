@@ -100,6 +100,20 @@ export interface SettingsDto {
 /** Apply response */
 export type ApplyResultDto = ProjectDto
 
+export interface ProjectDeletePreviewDto {
+  project: { id: string; name: string }
+  cascadeRows: {
+    queries: number
+    competitors: number
+    runs: number
+    snapshots: number
+    insights: number
+  }
+  detachedRows: {
+    auditLog: number
+  }
+}
+
 /** Telemetry status */
 export interface TelemetryDto {
   enabled: boolean
@@ -424,6 +438,10 @@ export class ApiClient {
 
   async deleteProject(name: string): Promise<void> {
     await this.request<void>('DELETE', `/projects/${encodeURIComponent(name)}`)
+  }
+
+  async previewProjectDelete(name: string): Promise<ProjectDeletePreviewDto> {
+    return this.request<ProjectDeletePreviewDto>('GET', `/projects/${encodeURIComponent(name)}/delete-preview`)
   }
 
   async putQueries(project: string, queries: string[]): Promise<void> {

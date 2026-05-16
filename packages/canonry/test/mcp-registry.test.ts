@@ -18,6 +18,7 @@ import { CANONRY_MCP_TIERS, CANONRY_MCP_TOOLKITS } from '../src/mcp/toolkits.js'
 const expectedToolNames = [
   'canonry_projects_list',
   'canonry_project_get',
+  'canonry_project_delete_preview',
   'canonry_project_overview',
   'canonry_report',
   'canonry_search',
@@ -101,8 +102,8 @@ const expectedToolNames = [
 
 describe('MCP tool registry', () => {
   it('ships the curated v1 surface', () => {
-    expect(CANONRY_MCP_TOOL_COUNT).toBe(81)
-    expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(52)
+    expect(CANONRY_MCP_TOOL_COUNT).toBe(82)
+    expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(53)
     expect(canonryMcpTools.map(tool => tool.name)).toEqual(expectedToolNames)
     const readNames = canonryMcpTools.filter(tool => tool.access === 'read').map(tool => tool.name)
     expect(getCanonryMcpTools('read-only').map(tool => tool.name)).toEqual(readNames)
@@ -139,7 +140,7 @@ describe('MCP tool registry', () => {
       counts.set(tool.tier, (counts.get(tool.tier) ?? 0) + 1)
     }
     expect(counts.get('monitoring')).toBe(16)
-    expect(counts.get('setup')).toBe(21)
+    expect(counts.get('setup')).toBe(22)
     expect(counts.get('gsc')).toBe(7)
     expect(counts.get('ga')).toBe(8)
     expect(counts.get('traffic')).toBe(9)

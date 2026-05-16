@@ -362,6 +362,17 @@ export const canonryMcpTools = [
     handler: (client, input) => client.getProject(input.project),
   }),
   defineTool({
+    name: 'canonry_project_delete_preview',
+    title: 'Preview project delete impact',
+    description: 'Returns the cascade impact of deleting a project — how many queries, competitors, runs, snapshots, and insights would be removed, plus how many audit_log rows would be detached (project_id set NULL). Read-only. Use this BEFORE invoking project delete on any project you didn\'t create yourself; the underlying delete is irreversible.',
+    access: 'read',
+    tier: 'setup',
+    inputSchema: projectInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/delete-preview'],
+    handler: (client, input) => client.previewProjectDelete(input.project),
+  }),
+  defineTool({
     name: 'canonry_project_overview',
     title: 'Get project overview (composite)',
     description: 'One-call summary for "how is project X doing?" — bundles project info, latest run, top undismissed insights, latest health snapshot, query cited rate, per-provider breakdown, gained/lost/emerging vs the previous run, the five score gauges (visibility, gap queries, index coverage, competitor pressure, run status), per-(provider, model) scores, configured competitors with pressure labels, an attention queue of critical/high insights, and a recent-runs sparkline. Filterable by location and time window. Prefer this over fanning out to separate tools.',

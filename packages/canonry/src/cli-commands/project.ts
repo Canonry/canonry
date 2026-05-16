@@ -104,10 +104,11 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['project', 'delete'],
-    usage: 'canonry project delete <name> [--format json]',
+    usage: 'canonry project delete <name> [--dry-run] [--format json]',
+    supportsDryRun: true,
     run: async (input) => {
-      const name = requireProject(input, 'project.delete', 'canonry project delete <name> [--format json]')
-      await deleteProject(name, input.format)
+      const name = requireProject(input, 'project.delete', 'canonry project delete <name> [--dry-run] [--format json]')
+      await deleteProject(name, { dryRun: input.dryRun, format: input.format })
     },
   },
   {

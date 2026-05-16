@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
-import { eq } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { projects, queries, competitors, schedules, notifications, parseJsonColumn } from '@ainyc/canonry-db'
+import { projects, queries, competitors, schedules, notifications, runs, querySnapshots, insights, auditLog, parseJsonColumn } from '@ainyc/canonry-db'
 import {
   validationError,
   locationContextSchema,
@@ -186,6 +186,59 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
   app.get<{ Params: { name: string } }>('/projects/:name', async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
     return reply.send(formatProject(project))
+  })
+
+  app.get<{ Params: { name: string } }>('/projects/:name/delete-preview', async (request, reply) => {
+    const project = resolveProject(app.db, request.params.name)
+    const pid = project.id
+
+    const count = (n: number | undefined): number => n ?? 0
+    const queryCount = app.db
+      .select({ n: sql<number>`count(*)` })
+      .from(queries)
+      .where(eq(queries.projectId, pid))
+      .get()
+    const competitorCount = app.db
+      .select({ n: sql<number>`count(*)` })
+      .from(competitors)
+      .where(eq(competitors.projectId, pid))
+      .get()
+    const runCount = app.db
+      .select({ n: sql<number>`count(*)` })
+      .from(runs)
+      .where(eq(runs.projectId, pid))
+      .get()
+    // Snapshots have no projectId — count via the run join instead.
+    const snapshotCount = app.db
+      .select({ n: sql<number>`count(*)` })
+      .from(querySnapshots)
+      .innerJoin(runs, eq(querySnapshots.runId, runs.id))
+      .where(eq(runs.projectId, pid))
+      .get()
+    const insightCount = app.db
+      .select({ n: sql<number>`count(*)` })
+      .from(insights)
+      .where(eq(insights.projectId, pid))
+      .get()
+    const auditLogCount = app.db
+      .select({ n: sql<number>`count(*)` })
+      .from(auditLog)
+      .where(eq(auditLog.projectId, pid))
+      .get()
+
+    return reply.send({
+      project: { id: project.id, name: project.name },
+      cascadeRows: {
+        queries: count(queryCount?.n),
+        competitors: count(competitorCount?.n),
+        runs: count(runCount?.n),
+        snapshots: count(snapshotCount?.n),
+        insights: count(insightCount?.n),
+      },
+      detachedRows: {
+        auditLog: count(auditLogCount?.n),
+      },
+    })
   })
 
   // DELETE /projects/:name
