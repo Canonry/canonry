@@ -503,6 +503,61 @@
     @apply mt-2.5 text-center text-[11px] leading-[1.45] text-zinc-500 w-full;
   }
 
+  /* ── AEO performance hero (paired Mention + Citation) ── */
+
+  .aeo-hero {
+    @apply rounded-xl border border-zinc-800/60 bg-zinc-900/30 px-5 py-5;
+  }
+
+  .aeo-hero-title {
+    @apply text-[10px] font-medium uppercase tracking-[0.12em] text-zinc-500 mb-3;
+  }
+
+  .aeo-hero-rows {
+    @apply space-y-3;
+  }
+
+  .aeo-hero-row {
+    @apply grid items-center gap-x-4;
+    grid-template-columns: 100px 90px 1fr auto;
+  }
+
+  .aeo-hero-row-label {
+    @apply text-sm font-medium text-zinc-200 flex items-center gap-1;
+  }
+
+  .aeo-hero-row-value {
+    @apply text-2xl font-bold tracking-tight tabular-nums;
+  }
+
+  .aeo-hero-row-bar {
+    @apply h-1.5 w-full rounded-full bg-zinc-800 overflow-hidden;
+  }
+
+  .aeo-hero-row-detail {
+    @apply text-[11px] text-zinc-500 tabular-nums;
+  }
+
+  .aeo-hero-context {
+    @apply text-[11px] text-zinc-600 mt-4;
+  }
+
+  /* ── Movement banner (Since Last Run) ── */
+
+  .movement-banner {
+    @apply rounded-lg border border-zinc-800/40 bg-zinc-900/20 px-4 py-2 text-xs flex items-center gap-2;
+  }
+
+  .movement-banner-label {
+    @apply text-[10px] font-medium uppercase tracking-[0.12em] text-zinc-500 mr-1;
+  }
+
+  /* ── Secondary metric grid (Gap Queries + Index Coverage) ── */
+
+  .metric-grid {
+    @apply grid gap-3 sm:grid-cols-2;
+  }
+
   /* ── Metric cards (non-gauge) ── */
 
   .metric-card {

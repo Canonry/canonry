@@ -36,7 +36,7 @@ export function buildMentionCoverage(
   snapshots: readonly MentionCoverageSnapshot[],
   options: MentionCoverageOptions,
 ): ScoreSummaryDto {
-  const tooltip = 'Percentage of tracked queries where the AI answer text mentions your brand or domain. A query counts as mentioned if any configured provider includes your name in its answer body.'
+  const tooltip = 'Your domain or company name was in the answer returned by the LLM.'
 
   if (snapshots.length === 0) {
     return {
