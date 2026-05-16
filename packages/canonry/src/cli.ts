@@ -5,6 +5,7 @@ import { buildSetupState } from './setup-state.js'
 import { CliError, EXIT_SYSTEM_ERROR, EXIT_USER_ERROR, printCliError, usageError } from './cli-error.js'
 import { dispatchRegisteredCommand } from './cli-dispatch.js'
 import { REGISTERED_CLI_COMMANDS } from './cli-commands.js'
+import { checkLatestVersionForCli } from './update-check.js'
 
 const USAGE = `
 cnry — AEO monitoring CLI   ('canonry' also works)
@@ -124,6 +125,20 @@ export async function runCli(args = process.argv.slice(2)): Promise<number> {
     trackEvent('cli.command', {
       command: resolvedCommand,
       ...(setupState ? { setup_state: setupState } : {}),
+    })
+  }
+
+  // Surface a new-version banner before the command runs. Opt-outs and the
+  // 24h cache live in `update-check.ts`; this stays a no-op when the
+  // registry is unreachable, the user is offline, or no upgrade is
+  // available. Banner goes to stderr so it never pollutes `--format json`.
+  if (!isHelpRequest && command !== 'telemetry') {
+    void checkLatestVersionForCli().then((update) => {
+      if (!update) return
+      process.stderr.write(
+        `\n→ canonry ${update.latest} is available (you have ${update.current}).\n` +
+        `  Upgrade: ${update.upgradeCommand}\n\n`,
+      )
     })
   }
 

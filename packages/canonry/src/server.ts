@@ -57,6 +57,7 @@ import {
   upsertWordpressConnection,
 } from './wordpress-config.js'
 import { isTelemetryEnabled, getOrCreateAnonymousId, trackEvent } from './telemetry.js'
+import { checkLatestVersionForServer } from './update-check.js'
 import { JobRunner } from './job-runner.js'
 import { executeGscSync } from './gsc-sync.js'
 import { executeInspectSitemap } from './gsc-inspect-sitemap.js'
@@ -1410,16 +1411,31 @@ export async function createServer(opts: {
 
   // Health endpoint — registered at both /health and <basePath>health when base path is set,
   // so load-balancer probes work regardless of whether the proxy strips the prefix.
-  const healthHandler = async () => ({
-    status: 'ok',
-    service: 'canonry',
-    version: PKG_VERSION,
-    ...(basePath ? { basePath: basePath.replace(/\/$/, '') } : {}),
-  })
+  // `updateAvailable` is read from an in-memory TTL cache and is non-blocking:
+  // the registry probe runs in the background (stale-while-revalidate), so
+  // /health responds in microseconds and never exceeds k8s probe budgets.
+  // Opt-out via CANONRY_DISABLE_UPDATE_CHECK=1, DO_NOT_TRACK=1, CI, or
+  // updateCheck: false in config.
+  const healthHandler = () => {
+    const update = checkLatestVersionForServer()
+    return {
+      status: 'ok',
+      service: 'canonry',
+      version: PKG_VERSION,
+      ...(basePath ? { basePath: basePath.replace(/\/$/, '') } : {}),
+      ...(update ? { updateAvailable: update } : {}),
+    }
+  }
   app.get('/health', healthHandler)
   if (basePath) {
     app.get(`${basePath}health`, healthHandler)
   }
+
+  // Warm the update-check cache on boot so the first /health response after a
+  // restart already includes `updateAvailable` (assuming the npm round-trip
+  // completes before the dashboard's first poll, which it almost always does).
+  // Fire-and-forget — boot does not wait on this.
+  checkLatestVersionForServer()
 
   // Start scheduler after setup
   scheduler.start()

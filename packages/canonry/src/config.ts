@@ -186,6 +186,11 @@ export interface CanonryConfig {
   // Last canonry CLI version observed by this install — used to fire a
   // single `cli.upgraded` event when the running binary version changes.
   lastSeenVersion?: string
+  // Update-check opt-out — `false` disables the daily npm-registry probe.
+  updateCheck?: boolean
+  // Set by the CLI's daily npm-registry probe; cached for TTL gating.
+  lastUpdateCheckAt?: string
+  lastKnownLatestVersion?: string
   // Agent layer configuration (reserved — native loop TBD)
   agent?: AgentConfigEntry
 }

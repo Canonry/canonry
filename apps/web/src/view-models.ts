@@ -16,6 +16,14 @@ export interface ServiceStatus {
   lastHeartbeatAt?: string
   statusCode?: number
   hint?: string
+  updateAvailable?: UpdateAvailable
+}
+
+export interface UpdateAvailable {
+  current: string
+  latest: string
+  url: string
+  upgradeCommand: string
 }
 
 export interface HealthSnapshot {

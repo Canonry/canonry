@@ -96,7 +96,7 @@
   }
 
   .brand-mark {
-    @apply text-[15px] font-semibold leading-none tracking-[-0.02em] text-zinc-100;
+    @apply text-[15px] font-semibold leading-none tracking-[-0.02em] text-zinc-100 no-underline;
   }
 
   .brand-lockup-compact .brand-mark {
@@ -105,6 +105,124 @@
 
   .brand-version {
     @apply mt-0.5 font-mono text-[11px] tracking-tight text-zinc-500;
+  }
+
+  /* ── Update bubble ── */
+  /*
+   * Inline speech bubble that REPLACES the static "v4.35.0" label below
+   * "Canonry" when a new canonry version is available. Compact horizontal
+   * pill showing the current → latest transition; click opens npm, × dismisses
+   * (per-version, persisted to localStorage). Tail on the bubble's left side
+   * points at the bird mascot. The bird plays a one-shot chirp animation when
+   * the bubble appears.
+   */
+  .brand-lockup-wrapper {
+    @apply inline-flex items-center gap-3;
+  }
+
+  .brand-icon-link {
+    @apply block shrink-0 outline-none focus-visible:ring-2 focus-visible:ring-amber-400/60 rounded-full;
+  }
+
+  .brand-update-bubble {
+    @apply relative mt-2 inline-flex w-max items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 py-0.5 pl-2 pr-1 font-mono text-[11px] leading-none text-amber-100 transition;
+    box-shadow:
+      0 8px 20px -10px rgba(245, 158, 11, 0.4),
+      inset 0 0 0 1px rgba(245, 158, 11, 0.06);
+    transform-origin: 0 50%;
+    /* Delayed so the bird "speaks" first, then the bubble appears as the chirp. */
+    animation: brand-bubble-pop 540ms cubic-bezier(0.34, 1.56, 0.64, 1) 100ms both;
+  }
+
+  .brand-update-bubble:hover {
+    @apply border-amber-500/45 bg-amber-500/15;
+  }
+
+  .brand-update-bubble-link {
+    @apply inline-flex items-center gap-1 rounded-full text-amber-100 no-underline outline-none;
+  }
+
+  .brand-update-bubble-link:focus-visible {
+    @apply ring-2 ring-amber-400/60;
+  }
+
+  .brand-update-bubble-closing {
+    animation: brand-bubble-out 220ms cubic-bezier(0.4, 0, 1, 1) forwards;
+  }
+
+  .brand-update-bubble-from {
+    @apply text-amber-200/55;
+  }
+
+  .brand-update-bubble-arrow {
+    @apply shrink-0 text-amber-400/70;
+  }
+
+  .brand-update-bubble:hover .brand-update-bubble-arrow {
+    @apply text-amber-300;
+  }
+
+  .brand-update-bubble-to {
+    @apply font-medium text-amber-100;
+  }
+
+  .brand-update-bubble:hover .brand-update-bubble-to {
+    @apply text-amber-50;
+  }
+
+  .brand-update-bubble-dismiss {
+    @apply ml-0.5 flex shrink-0 items-center justify-center rounded-full p-0.5 text-amber-300/70 transition;
+    @apply hover:bg-amber-500/20 hover:text-amber-100;
+    @apply focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-amber-300;
+  }
+
+  /* Bird chirps just before the bubble appears. Origin near the bird's
+   * feet so the rotation reads as a head tilt rather than a spin. */
+  .brand-lockup-wrapper:has(.brand-update-bubble) .brand-icon {
+    animation: brand-bird-talk 1.4s cubic-bezier(0.45, 0.05, 0.55, 0.95) 0ms both;
+    transform-origin: 50% 80%;
+  }
+
+  @keyframes brand-bubble-pop {
+    0% {
+      opacity: 0;
+      transform: scale(0.4) translateY(-6px);
+    }
+    55% {
+      opacity: 1;
+      transform: scale(1.08) translateY(0);
+    }
+    75% {
+      transform: scale(0.97);
+    }
+    100% {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+
+  @keyframes brand-bird-talk {
+    0%   { transform: translateY(0) rotate(0deg); }
+    12%  { transform: translateY(-2px) rotate(-6deg) scale(1.04); }
+    24%  { transform: translateY(1px) rotate(3deg) scale(0.98); }
+    38%  { transform: translateY(-1px) rotate(-3deg); }
+    52%  { transform: translateY(0) rotate(2deg); }
+    68%  { transform: translateY(-1px) rotate(-1deg); }
+    100% { transform: translateY(0) rotate(0deg); }
+  }
+
+  @keyframes brand-bubble-out {
+    0%   { opacity: 1; transform: scale(1); }
+    100% { opacity: 0; transform: scale(0.6) translateY(-4px); }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .brand-update-bubble {
+      animation: none;
+    }
+    .brand-lockup-wrapper:has(.brand-update-bubble) .brand-icon {
+      animation: none;
+    }
   }
 
   .sidebar-nav {

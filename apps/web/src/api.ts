@@ -1350,7 +1350,24 @@ export function fetchCitationVisibility(project: string): Promise<CitationVisibi
 
 // ── Health ──────────────────────────────────────────────────────────────────
 
-import type { ServiceStatus } from './view-models.js'
+import type { ServiceStatus, UpdateAvailable } from './view-models.js'
+
+function parseUpdateAvailable(value: unknown): UpdateAvailable | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const v = value as Record<string, unknown>
+  if (
+    typeof v.current !== 'string' ||
+    typeof v.latest !== 'string' ||
+    typeof v.url !== 'string' ||
+    typeof v.upgradeCommand !== 'string'
+  ) return undefined
+  return {
+    current: v.current,
+    latest: v.latest,
+    url: v.url,
+    upgradeCommand: v.upgradeCommand,
+  }
+}
 
 export async function fetchServiceStatus(path: string, label: string): Promise<ServiceStatus> {
   const requestPath = publicPath(path)
@@ -1372,6 +1389,7 @@ export async function fetchServiceStatus(path: string, label: string): Promise<S
     const databaseConfigured =
       typeof payload.databaseUrlConfigured === 'boolean' ? payload.databaseUrlConfigured : undefined
     const lastHeartbeatAt = typeof payload.lastHeartbeatAt === 'string' ? payload.lastHeartbeatAt : undefined
+    const updateAvailable = parseUpdateAvailable(payload.updateAvailable)
     const detail = [
       version,
       databaseConfigured === false ? 'database not configured' : 'database configured',
@@ -1387,6 +1405,7 @@ export async function fetchServiceStatus(path: string, label: string): Promise<S
       version,
       databaseConfigured,
       lastHeartbeatAt,
+      ...(updateAvailable ? { updateAvailable } : {}),
     }
   } catch (error) {
     return {

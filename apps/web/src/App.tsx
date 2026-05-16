@@ -267,6 +267,44 @@ export function RootLayout() {
 
   // ── UI state ──
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
+  // Per-version dismiss for the update pill. Read once on mount; updates only
+  // when the user clicks ×. When a newer version ships, the dismissed value
+  // no longer matches `updateAvailable.latest`, so the pill reappears.
+  const [dismissedUpdateVersion, setDismissedUpdateVersion] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return null
+    try {
+      return window.localStorage.getItem('canonry:dismissedUpdateVersion')
+    } catch {
+      return null
+    }
+  })
+  // Dev affordance: `?force-update=<version>` synthesizes a fake
+  // updateAvailable payload so the bubble can be previewed in `pnpm dev:web`
+  // without editing package.json or waiting on npm. Example:
+  //   http://localhost:5173/?force-update=99.0.0
+  // Read once on mount.
+  const [forceUpdateVersion] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return null
+    return new URLSearchParams(window.location.search).get('force-update')
+  })
+  const updateAvailable = forceUpdateVersion
+    ? {
+        current: healthSnapshot.apiStatus.version ?? '0.0.0',
+        latest: forceUpdateVersion,
+        url: 'https://www.npmjs.com/package/@ainyc/canonry',
+        upgradeCommand: 'npm install -g @ainyc/canonry',
+      }
+    : healthSnapshot.apiStatus.updateAvailable
+  const showUpdatePill = updateAvailable && updateAvailable.latest !== dismissedUpdateVersion
+  const dismissUpdatePill = () => {
+    if (!updateAvailable) return
+    try {
+      window.localStorage.setItem('canonry:dismissedUpdateVersion', updateAvailable.latest)
+    } catch {
+      // best-effort — Safari private mode etc.
+    }
+    setDismissedUpdateVersion(updateAvailable.latest)
+  }
 
   // ── Run detail for drawer ──
   const runDetailQuery = useRunDetail(runId)
@@ -343,7 +381,11 @@ export function RootLayout() {
       {/* ── Sidebar (desktop) ── */}
       <aside className="sidebar" aria-label="Primary navigation">
         <div className="sidebar-brand">
-          <BrandLockup version={healthSnapshot.apiStatus.version} />
+          <BrandLockup
+            version={healthSnapshot.apiStatus.version}
+            updateAvailable={showUpdatePill ? updateAvailable : null}
+            onDismissUpdate={dismissUpdatePill}
+          />
         </div>
 
         <nav className="sidebar-nav">
