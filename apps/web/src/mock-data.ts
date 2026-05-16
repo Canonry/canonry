@@ -377,7 +377,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
     dateRangeLabel: 'Last 7 days',
     contextLabel: 'US / English / Local-intent monitoring',
     visibilitySummary: {
-      label: 'Answer Visibility',
+      label: 'Citation Coverage',
       value: '61 / 100',
       delta: '-8 this week',
       tone: 'caution',
@@ -505,7 +505,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
     dateRangeLabel: 'Last 14 days',
     contextLabel: 'US / English / Service-area legal prompts',
     visibilitySummary: {
-      label: 'Answer Visibility',
+      label: 'Citation Coverage',
       value: '74 / 100',
       delta: '+2 this week',
       tone: 'positive',
@@ -613,7 +613,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
     dateRangeLabel: 'Last 7 days',
     contextLabel: 'US / English / Multi-location treatment prompts',
     visibilitySummary: {
-      label: 'Answer Visibility',
+      label: 'Citation Coverage',
       value: '58 / 100',
       delta: 'Run in progress',
       tone: 'neutral',
