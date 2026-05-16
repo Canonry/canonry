@@ -1,10 +1,10 @@
 {
   "name": "@ainyc/canonry",
-  "version": "4.41.0",
+  "version": "4.41.1",
   "type": "module",
   "description": "Agent-first open-source AEO operating platform - track how answer engines cite your domain",
   "license": "FSL-1.1-ALv2",
-  "homepage": "https://ainyc.ai",
+  "homepage": "https://canonry.ai",
   "repository": {
     "type": "git",
     "url": "https://github.com/AINYC/canonry.git",
