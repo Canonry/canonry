@@ -246,7 +246,7 @@ async function batchRunReports(
 }
 
 function formatDate(d: Date): string {
-  return d.toISOString().split('T')[0]!
+  return d.toISOString().slice(0, 10)
 }
 
 // AI referral source patterns matched against both sessionSource and firstUserSource.
