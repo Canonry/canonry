@@ -32,47 +32,90 @@ metadata:
 
 # Canonry
 
-Agent-first open-source AEO (Answer Engine Optimization) operating platform. Track how AI answer engines cite your domain across Gemini, ChatGPT, Claude, and Perplexity, then act on the signal through the content engine and integrations.
+Agent-first open-source AEO (Answer Engine Optimization) operating platform. Track how AI answer engines **mention** your brand in answers and **cite** your domain in sources across Gemini, ChatGPT, Claude, and Perplexity, then act on the signal through the content engine and integrations.
 
-**Website:** [ainyc.ai](https://ainyc.ai) | **Docs:** [github.com/AINYC/canonry](https://github.com/AINYC/canonry)
+**Website:** [canonry.ai](https://canonry.ai) | **Org:** [ainyc.ai](https://ainyc.ai) | **Docs:** [github.com/AINYC/canonry](https://github.com/AINYC/canonry)
 
 **CLI:** invoke as `cnry` (short form) or `canonry` — both ship with the npm package and are interchangeable. Examples in this skill use `cnry`.
 
 ## When to Use
 
-- Tracking query citations across AI providers
+- Tracking brand **mentions** in AI answer text and **citations** in source links across providers
+- Expanding the tracked-query basket from an ICP description (`cnry discover run`)
 - Running technical SEO audits (14‑factor scoring)
 - Implementing structured data (JSON‑LD)
 - Diagnosing indexing gaps via Google Search Console / Bing Webmaster Tools
+- Wiring server-side traffic (Cloud Run, WordPress, Vercel) and GA4 referrals into a single AEO signal
 - Optimizing `llms.txt`, sitemaps, robots.txt for AI crawlers
 - Submitting URLs to Google Indexing API and Bing IndexNow
 - Analyzing competitor citation patterns
 
 ## Core Philosophy
 
-- **Measure outcomes** — AI models are black boxes; track citations, don't assume causality
+- **Measure outcomes** — AI models are black boxes; track mentions + citations, don't assume causality
 - **Signal over noise** — Focus on high‑intent queries; avoid granular targeting until base visibility exists
 - **CLI‑native** — API‑driven changes over manual CMS clicks; faster, repeatable, auditable
+
+## What Canonry Measures (Vocabulary)
+
+Two parallel signals are tracked per (query × provider) snapshot. They are independent — a model can do either, both, or neither — never conflate them.
+
+| Term | Means | Headline metric |
+|---|---|---|
+| **mentioned** | The project's brand or domain appears in the LLM's **answer text** (the prose the model returns). | **Mention Coverage** — share of (query × provider) snapshots where the brand was mentioned. **Mention Share** is the project's share among the cited+mentioned set vs competitors. |
+| **cited** | The project's domain appears in the LLM's **source links** (the grounding citations returned alongside the answer). | **Citation Coverage** — share of snapshots where the domain was in the source list. |
+
+Configure `spec.brandAliases` on the project (or pass via `cnry apply`) so the mention detector catches "Meta" alongside "Facebook", etc. The downloadable report (`cnry report`) and the dashboard both lead with Mention Coverage; Citation Coverage rides as the secondary gauge.
 
 ## How to Operate
 
 A canonry engagement follows the same loop regardless of project size:
 
-1. **Diagnose** — Run a baseline sweep (`cnry run <project> --wait`) and a technical audit (`npx @ainyc/aeo-audit@latest <url> --format json`). See `references/aeo-analysis.md` for interpretation.
+1. **Diagnose** — Run a baseline sweep (`cnry run <project> --wait`) and a technical audit (`npx @ainyc/aeo-audit@latest <url> --format json`). Read Mention Coverage first, Citation Coverage second. See `references/aeo-analysis.md`.
 2. **Prioritize** — Triage by impact: indexing gaps → schema gaps → content gaps → query strategy. Branded-term losses are urgent.
-3. **Execute** — Apply fixes via the canonry CLI or platform integrations. See `references/canonry-cli.md` for the full command catalog and `references/wordpress-integration.md` for the WordPress workflow.
-4. **Monitor** — Re-run sweeps weekly. Correlate visibility shifts with deployments and competitor moves.
-5. **Report** — Lead with data, not interpretation: "Lost `<query>` on Gemini between <date> and <date> — two competitors moved in. Here's what to fix." For a one-command client-facing summary, run `cnry report <project>` to generate a self-contained HTML bundle (executive summary, citation scorecard, competitor landscape, GSC + GA4 performance, insights). Same payload is available via `--format json` and the `canonry_report` MCP tool.
+3. **Execute** — Apply fixes via the canonry CLI or platform integrations. Use `--dry-run` on supported mutations (`cnry project delete`, `cnry query replace`, `cnry backfill ...`) to preview before committing. See `references/canonry-cli.md` for the full command catalog and `references/wordpress-integration.md` for the WordPress workflow.
+4. **Monitor** — Re-run sweeps weekly (`cnry run --all --wait` fans out across every project). Correlate visibility shifts with deployments and competitor moves.
+5. **Report** — Lead with data, not interpretation: "Lost the mention for `<query>` on Gemini between <date> and <date> — two competitors moved in. Here's what to fix." For a one-command client-facing summary, run `cnry report <project>` to generate a self-contained HTML bundle (mention + citation hero, competitor landscape, GSC + GA4 performance, insights, suggested next queries). Same payload is available via `--format json` and the `canonry_report` MCP tool.
+
+## Surgical Reads
+
+When you need a specific value rather than a full payload, use the dot-path getter:
+
+```bash
+cnry get <project> scores.mentionShare.value
+cnry get <project> scores.mentionCoverage.value
+cnry get <project> insights[0].severity
+cnry get <project> --from report scores.citationCoverage.value
+```
+
+`cnry get` resolves a path into the project's overview (default) or any registered source (`report`, `traffic`, `discovery`, etc.). Returns scalar values without forcing the agent to grep through a 30 KB JSON dump.
 
 ## Common Starting Points
 
 - **New site, 0 citations** → submit to GSC/Bing first; basic LocalBusiness/Service schema; `llms.txt`; trim to 8–12 high-intent queries. See `references/indexing.md`.
 - **Established site, regression** → diff canonry runs to find the loss window; verify schema is intact; resubmit affected URLs. See `references/aeo-analysis.md`.
+- **Empty / generic query basket** → describe the ICP and let discovery expand: `cnry discover run <project> --icp "..." --wait`, then `cnry discover promote <session-id>` to adopt the cited + aspirational queries. Multi-location projects can geo-constrain with `--locations <label,...>`.
 - **Multi-county targeting** → reference counties in `areaServed` schema and `llms.txt`; do not split into per-county queries until base visibility exists.
 
 ## Google Analytics 4
 
 GA4 is a first-class signal alongside citation tracking. Connect once with `cnry ga connect <project> --property-id <id> --key-file <path>`; `cnry ga sync` then pulls daily landing-page traffic, AI-referral sessions across 10 known providers (chatgpt, perplexity, claude, gemini, openai, anthropic, copilot, phind, you.com, meta.ai), and social referrals split into Organic vs Paid via GA4's `channelGroup` — and persists everything into four DB tables (`gaTrafficSnapshots`, `gaAiReferrals`, `gaSocialReferrals`, `gaTrafficSummaries`). All read commands query that local store, so they are fast and quotaless once a sync has run. AI referrals are tracked across three GA4 attribution dimensions (session source / first-user source / manual UTM) and joined to landing pages, so you can see which page each AI provider sent traffic to. Use `cnry ga traffic` for the current snapshot, `cnry ga attribution --trend` for a unified channel-share overview with biggest-mover deltas, and `cnry ga ai-referral-history` / `cnry ga social-referral-history` for daily series. See `references/canonry-cli.md` for the full command catalog and return-shape details.
+
+## Server-Side Traffic
+
+When the project ships behind a server you control, wire crawler + AI-referral evidence directly from the edge: `cnry traffic connect cloud-run | wordpress | vercel <project> ...` writes credentials to `~/.canonry/config.yaml`, `cnry traffic sync` pulls and classifies logs into hourly buckets, and `cnry traffic events / sources / status` expose the rollups. See `references/server-side-traffic.md` for adapter-specific setup.
+
+## Built-in Analyst (Aero)
+
+Canonry ships a built-in agent — Aero — for users who don't already have one. Drive it from the CLI:
+
+```bash
+cnry agent ask <project> "what changed since the last sweep?"
+cnry agent ask <project> "..." --provider claude --scope read-only
+cnry agent memory list <project>          # durable project notes
+```
+
+Aero also wakes unprompted after every `run.completed` so insights and regressions get analyzed without a user click. Users who already run their own agent (Claude Code, Codex, custom) wire webhooks instead: `cnry agent attach <project> --url <webhook-url>` subscribes to `run.completed`, `insight.critical`, `insight.high`, `citation.gained`.
 
 ## Boundaries & Safety
 
@@ -86,13 +129,13 @@ GA4 is a first-class signal alongside citation tracking. Connect once with `cnry
 
 | File | Read when |
 |---|---|
-| `references/canonry-cli.md` | Looking up specific canonry commands or flags |
+| `references/canonry-cli.md` | Looking up specific canonry commands, flags, or JSON return shapes |
 | `references/aeo-analysis.md` | Interpreting sweep output, diagnosing regressions, planning content fixes |
 | `references/indexing.md` | Submitting URLs, checking GSC/Bing coverage, fixing indexing gaps |
 | `references/wordpress-integration.md` | Connecting to WordPress, editing pages, pushing staging → live |
-| `references/server-side-traffic.md` | Wiring server-log evidence (Cloud Run + WordPress adapters; more planned) for AI Visibility — Server-Side. Connect, sync, manage sources, troubleshoot. |
+| `references/server-side-traffic.md` | Wiring server-log evidence (Cloud Run, WordPress, Vercel adapters) for AI Visibility — Server-Side. Connect, sync, manage sources, troubleshoot. |
 
 ---
 
-**Tools:** canonry v3+, @ainyc/aeo-audit v1.3+  
-**Website:** [ainyc.ai](https://ainyc.ai) | **Reference:** [AINYC AEO Methodology](https://ainyc.ai/aeo-methodology)
+**Tools:** canonry v4+, @ainyc/aeo-audit v1.3+  
+**Website:** [canonry.ai](https://canonry.ai) | **Org:** [ainyc.ai](https://ainyc.ai) | **Reference:** [AINYC AEO Methodology](https://ainyc.ai/aeo-methodology)

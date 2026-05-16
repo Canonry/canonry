@@ -36,6 +36,7 @@ Adapters today:
 |---|---|---|
 | `cloud-run` | GCP Cloud Run request logs via Logging API | Any service running on Cloud Run |
 | `wordpress` | The Canonry Traffic Logger WP plugin's REST endpoint | WordPress sites where you control wp-admin |
+| `vercel` | Vercel project logs via the Vercel API | Sites deployed on Vercel (Next.js, SvelteKit, etc.) |
 
 Future adapters slot in by implementing the same contract.
 
@@ -103,6 +104,37 @@ What the events table looks like (mirrors the TS
 The plugin auto-prunes events older than the retention window (default
 90 days) once per day via WP-Cron. Operators who want a different
 window change it in `Settings → Canonry Traffic Logger`.
+
+## Connecting a Vercel source
+
+The Vercel adapter pulls per-request logs from the Vercel API for a
+specific project + environment. Logs are filtered by canonical domain
+before classification so a multi-tenant Vercel project only surfaces
+hits for the tracked site.
+
+```bash
+# 1. In the Vercel dashboard, create a token with read access to the
+#    target team (Settings → Tokens → Create). Note the team ID
+#    (Settings → General → Team ID) and the Vercel project ID
+#    (Project → Settings → General → Project ID).
+
+# 2. Connect from cnry CLI:
+cnry traffic connect vercel <project> \
+  --project-id prj_xxxxxxxx \
+  --team-id   team_xxxxxxxx \
+  --token     <vercel-token>            # or: --token-file <path>
+
+# 3. (Optional) scope to a specific environment (default: production):
+cnry traffic connect vercel <project> \
+  --project-id prj_xxx --team-id team_xxx --token ... \
+  --environment preview
+```
+
+Credentials live in `~/.canonry/config.yaml` under `vercelTraffic:`,
+mirroring the cloud-run / wordpress blocks. The adapter classifies bot
+crawls + AI-referral arrivals into the same `crawler_events_hourly` /
+`ai_referral_events_hourly` tables — downstream commands
+(`cnry traffic events / sources / status`) are source-agnostic.
 
 ## Syncing data
 
