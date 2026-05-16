@@ -224,6 +224,17 @@ describe('GET /api/v1/projects/:name/overview', () => {
     expect(body.scores.competitorPressure.value).toBe('None')
     expect(body.scores.runStatus.value).toBe('Healthy')
 
+    // Mention Share — no competitors configured, so the breakdown is empty
+    // and the gauge renders the "add competitors" neutral state. The
+    // snapshotsTotal still reflects the seeded snapshots so the UI can
+    // explain why no comparison is possible despite real run data.
+    expect(body.scores.mentionShare.label).toBe('Mention Share')
+    expect(body.scores.mentionShare.tone).toBe('neutral')
+    expect(body.scores.mentionShare.value).toBe('Add competitors')
+    expect(body.scores.mentionShare.breakdown.perCompetitor).toEqual([])
+    expect(body.scores.mentionShare.breakdown.projectMentionSnapshots).toBe(0)
+    expect(body.scores.mentionShare.breakdown.competitorMentionSnapshots).toBe(0)
+
     expect(body.movementSummary).toEqual({
       gained: 1,
       lost: 0,

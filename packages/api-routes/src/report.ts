@@ -1299,7 +1299,7 @@ function buildReportActionPlan(input: ReportActionPlanInput): ReportActionPlanIt
       action: 'Review the recurring external source domains and add the true competitors before the next check.',
       why: [
         'The report can identify repeated external sources, but it cannot separate competitors from publishers until competitors are configured.',
-        'A clean competitor set makes future share-of-voice and content-gap reporting easier to explain to clients.',
+        'A clean competitor set makes future mention-share and content-gap reporting easier to explain to clients.',
       ],
       evidence: topDomains.map(d => `${d.domain} appeared in ${d.count} cited source${d.count === 1 ? '' : 's'}`),
       successMetric: 'Next report separates tracked competitors from independent source domains in the competitor landscape.',

@@ -65,8 +65,10 @@ export interface ProjectOverviewScoresDto {
   mention: ScoreSummaryDto
   /** Secondary tile — % of tracked queries whose answer cited the domain in its source list. */
   visibility: ScoreSummaryDto
-  /** Share of voice — % of every cited-domain slot across the run that was the project. Distinct from coverage; reflects competitive position. */
-  shareOfVoice: ScoreSummaryDto
+  /** Mention Share — head-to-head competitive metric: of brand mentions in
+   *  answer text across the run (project + tracked competitors), the % that
+   *  were the project. Replaces the misleading "Share of Voice" metric. */
+  mentionShare: MentionShareDto
   /** Tracked queries where a competitor is cited but the project is not. */
   gapQueries: ScoreSummaryDto
   /** Mention-side sibling of `gapQueries`: competitor surfaces in the answer but the project brand never does. */
@@ -74,6 +76,27 @@ export interface ProjectOverviewScoresDto {
   indexCoverage: ScoreSummaryDto
   competitorPressure: ScoreSummaryDto
   runStatus: ScoreSummaryDto
+}
+
+export interface MentionShareCompetitorRowDto {
+  domain: string
+  mentionSnapshots: number
+  /** % of competitive total — rounded to one decimal. Sums to ~100 across rows. */
+  shareOfCompetitiveTotal: number
+}
+
+export interface MentionShareBreakdownDto {
+  projectMentionSnapshots: number
+  competitorMentionSnapshots: number
+  perCompetitor: MentionShareCompetitorRowDto[]
+  snapshotsWithAnswerText: number
+  snapshotsTotal: number
+}
+
+/** Mention Share — `ScoreSummaryDto` plus a structured breakdown so the
+ *  dashboard can render a per-competitor table without parsing prose. */
+export interface MentionShareDto extends ScoreSummaryDto {
+  breakdown: MentionShareBreakdownDto
 }
 
 // Gained / lost since the previous run — `transitions` is point-in-time, this

@@ -542,6 +542,43 @@
     @apply text-[11px] text-zinc-600 mt-4;
   }
 
+  .mention-share-breakdown {
+    @apply mt-4 pt-4 border-t border-zinc-800/50;
+  }
+
+  .mention-share-breakdown-title {
+    @apply text-[10px] font-medium uppercase tracking-[0.12em] text-zinc-500 mb-2;
+  }
+
+  .mention-share-breakdown-rows {
+    @apply space-y-1.5;
+  }
+
+  .mention-share-breakdown-row {
+    @apply grid items-center gap-x-3 text-xs;
+    grid-template-columns: minmax(140px, 1fr) minmax(80px, 2fr) 32px 56px;
+  }
+
+  .mention-share-breakdown-label {
+    @apply truncate;
+  }
+
+  .mention-share-breakdown-bar {
+    @apply h-1.5 w-full rounded-full bg-zinc-800/60 overflow-hidden;
+  }
+
+  .mention-share-breakdown-bar-fill {
+    @apply h-full rounded-full;
+  }
+
+  .mention-share-breakdown-count {
+    @apply text-zinc-400 tabular-nums text-right;
+  }
+
+  .mention-share-breakdown-share {
+    @apply text-zinc-500 tabular-nums text-right;
+  }
+
   /* ── Movement banner (Since Last Run) ── */
 
   .movement-banner {

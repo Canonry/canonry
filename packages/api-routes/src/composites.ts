@@ -17,8 +17,8 @@ import {
   runs,
 } from '@ainyc/canonry-db'
 import {
+  brandLabelFromDomain,
   CitationStates,
-  effectiveDomains,
   parseRunError,
   RunKinds,
   RunStatuses,
@@ -57,7 +57,7 @@ import {
   buildProviderTrends,
   buildRunHistory,
   buildMentionCoverage,
-  buildShareOfVoice,
+  buildMentionShare,
   buildVisibilityScore,
   DEFAULT_RUN_HISTORY_LIMIT,
   providerKey,
@@ -192,18 +192,24 @@ export async function compositeRoutes(app: FastifyInstance) {
     const configuredApiProviders = parseJsonColumn<string[]>(project.providers, [])
       .filter(p => !p.startsWith('cdp:'))
 
-    const projectDomains = effectiveDomains({
-      canonicalDomain: project.canonicalDomain,
-      ownedDomains: parseJsonColumn<string[]>(project.ownedDomains, []),
-    })
+    const mentionShareCompetitors = competitorRows.map(c => ({
+      domain: c.domain,
+      // Single brand token derived from the registrable domain (e.g.
+      // "offers.roofle.com" → "roofle"). Future PR can layer operator-curated
+      // aliases on top via a `competitor_aliases` column.
+      brandTokens: [brandLabelFromDomain(c.domain)].filter(t => t.length >= 3),
+    }))
 
     const scores: ProjectOverviewScoresDto = {
       mention: buildMentionCoverage(latestSnapshots, { configuredApiProviders }),
       visibility: buildVisibilityScore(latestSnapshots, { configuredApiProviders }),
-      shareOfVoice: buildShareOfVoice(latestSnapshots, {
-        projectDomains,
-        competitorDomains: competitorRows.map(c => c.domain),
-      }),
+      mentionShare: buildMentionShare(
+        latestSnapshots.map(s => ({
+          projectMentioned: s.answerMentioned === true,
+          answerText: s.answerText,
+        })),
+        { competitors: mentionShareCompetitors },
+      ),
       gapQueries: buildGapQueryScore(latestSnapshots),
       mentionGaps: buildMentionGapScore(latestSnapshots),
       indexCoverage: buildIndexCoverageScore(app, project.id),
@@ -408,6 +414,10 @@ interface OverviewSnapshot {
   model: string | null
   citationState: string
   answerMentioned: boolean | null
+  /** Raw LLM answer text — needed by Mention Share to scan for competitor
+   *  brand mentions. Variable size; ~3-5KB per snapshot for an 80-snapshot
+   *  run is ~400KB total — manageable to include in the overview payload. */
+  answerText: string | null
   competitorOverlap: string[]
   citedDomains: string[]
 }
@@ -428,6 +438,7 @@ function loadSnapshotsByRunIds(
       model: querySnapshots.model,
       citationState: querySnapshots.citationState,
       answerMentioned: querySnapshots.answerMentioned,
+      answerText: querySnapshots.answerText,
       competitorOverlap: querySnapshots.competitorOverlap,
       citedDomains: querySnapshots.citedDomains,
     })
@@ -442,6 +453,7 @@ function loadSnapshotsByRunIds(
       model: row.model,
       citationState: row.citationState,
       answerMentioned: row.answerMentioned,
+      answerText: row.answerText,
       competitorOverlap: parseJsonColumn<string[]>(row.competitorOverlap, []),
       citedDomains: parseJsonColumn<string[]>(row.citedDomains, []),
     })

@@ -393,14 +393,24 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       description: 'Lost citation share on emergency-intent prompts while Invisalign visibility improved.',
       trend: [73, 71, 69, 66, 61],
     },
-    shareOfVoiceSummary: {
-      label: 'Share of Voice',
-      value: '18',
-      delta: '12 of 67 cited slots',
+    mentionShareSummary: {
+      label: 'Mention Share',
+      value: '38',
+      delta: '8 of 21 brand mentions',
       tone: 'caution',
-      description: 'Competitors hold 41% of cited slots; the remaining 41% goes to non-competitive sources.',
-      trend: [22, 21, 20, 19, 18],
-      progress: 18,
+      description: 'Downtown Smiles leads on emergency intent; Citypoint trails on availability copy.',
+      trend: [44, 42, 40, 39, 38],
+      progress: 38,
+      breakdown: {
+        projectMentionSnapshots: 8,
+        competitorMentionSnapshots: 13,
+        perCompetitor: [
+          { domain: 'downtownsmiles.com', mentionSnapshots: 9, shareOfCompetitiveTotal: 69.2 },
+          { domain: 'harbordental.com', mentionSnapshots: 4, shareOfCompetitiveTotal: 30.8 },
+        ],
+        snapshotsWithAnswerText: 24,
+        snapshotsTotal: 32,
+      },
     },
     gapQueries: {
       label: 'Citation Gaps',
@@ -551,14 +561,23 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       description: 'Branded prompts are stable and informational queries are gradually improving.',
       trend: [68, 70, 71, 73, 74],
     },
-    shareOfVoiceSummary: {
-      label: 'Share of Voice',
-      value: '34',
-      delta: '38 of 112 cited slots',
+    mentionShareSummary: {
+      label: 'Mention Share',
+      value: '64',
+      delta: '11 of 17 brand mentions',
       tone: 'positive',
-      description: 'Competitors hold 28% of cited slots; the remaining 38% goes to non-competitive sources.',
-      trend: [29, 30, 32, 33, 34],
-      progress: 34,
+      description: 'Harbor Law outpaces Shoreline on branded and informational injury prompts.',
+      trend: [58, 60, 62, 63, 64],
+      progress: 64,
+      breakdown: {
+        projectMentionSnapshots: 11,
+        competitorMentionSnapshots: 6,
+        perCompetitor: [
+          { domain: 'shorelineinjury.com', mentionSnapshots: 6, shareOfCompetitiveTotal: 100 },
+        ],
+        snapshotsWithAnswerText: 19,
+        snapshotsTotal: 24,
+      },
     },
     gapQueries: {
       label: 'Citation Gaps',
@@ -688,14 +707,23 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       description: 'The current run is measuring whether treatment-location pages improved citation breadth.',
       trend: [52, 54, 55, 57, 58],
     },
-    shareOfVoiceSummary: {
-      label: 'Share of Voice',
-      value: '12',
-      delta: '9 of 75 cited slots',
+    mentionShareSummary: {
+      label: 'Mention Share',
+      value: '21',
+      delta: '4 of 19 brand mentions',
       tone: 'negative',
-      description: 'Competitors hold 49% of cited slots; the remaining 39% goes to non-competitive sources.',
-      trend: [16, 15, 14, 13, 12],
-      progress: 12,
+      description: 'Regional Joint Care dominates broad treatment prompts with deeper physician proof.',
+      trend: [28, 26, 24, 22, 21],
+      progress: 21,
+      breakdown: {
+        projectMentionSnapshots: 4,
+        competitorMentionSnapshots: 15,
+        perCompetitor: [
+          { domain: 'regionaljointcare.com', mentionSnapshots: 15, shareOfCompetitiveTotal: 100 },
+        ],
+        snapshotsWithAnswerText: 21,
+        snapshotsTotal: 28,
+      },
     },
     gapQueries: {
       label: 'Citation Gaps',
