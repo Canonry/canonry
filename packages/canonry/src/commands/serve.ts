@@ -100,7 +100,7 @@ export async function serveCommand(format: CliFormat = 'text'): Promise<void> {
     } else {
       console.log(`\nCanonry server running at ${url}`)
       console.log('Press Ctrl+C to stop.\n')
-      const nudge = getMissingUserSkillsNudge()
+      const nudge = getMissingUserSkillsNudge(process.env.HOME)
       if (nudge) process.stderr.write(`${nudge.message}\n`)
     }
 

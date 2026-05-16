@@ -331,7 +331,7 @@ export interface UserSkillsNudge {
  *
  * Caller is expected to print the message to stderr; this helper does no I/O.
  */
-export function getMissingUserSkillsNudge(home: string | undefined = process.env.HOME): UserSkillsNudge | null {
+export function getMissingUserSkillsNudge(home: string | null | undefined): UserSkillsNudge | null {
   if (!home) return null
   const skillsBase = path.join(home, '.claude', 'skills')
   const installed: BundledSkillName[] = []
