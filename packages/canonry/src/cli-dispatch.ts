@@ -10,6 +10,13 @@ export type CliCommandInput = {
   positionals: string[]
   values: CliValues
   format: CliFormat
+  /**
+   * True when the user passed `--dry-run`. Only set to `true` for commands
+   * that opt in via `CliCommandSpec.supportsDryRun`; for commands that don't,
+   * passing `--dry-run` raises a usage error before `run` is invoked, so a
+   * command author who reads `input.dryRun` can trust it.
+   */
+  dryRun: boolean
 }
 
 export type CliCommandSpec = {
@@ -17,6 +24,13 @@ export type CliCommandSpec = {
   usage: string
   options?: ParseArgsOptionsConfig
   allowPositionals?: boolean
+  /**
+   * Whether `--dry-run` is meaningful for this command. The dispatcher rejects
+   * `--dry-run` on commands that don't opt in, so agents can rely on the
+   * preview semantics actually being implemented (rather than silently
+   * ignored, which would risk writes when the agent thought it was previewing).
+   */
+  supportsDryRun?: boolean
   run: (input: CliCommandInput) => Promise<void>
 }
 
@@ -29,18 +43,14 @@ function matchesPath(args: readonly string[], path: readonly string[]): boolean 
   return path.every((segment, index) => args[index] === segment)
 }
 
-function withFormatOption(options?: ParseArgsOptionsConfig): ParseArgsOptionsConfig {
-  if (!options) {
-    return {
-      format: { type: 'string' },
-    }
-  }
-
-  if ('format' in options) return options
-  return {
-    ...options,
-    format: { type: 'string' },
-  }
+function withGlobalOptions(options?: ParseArgsOptionsConfig): ParseArgsOptionsConfig {
+  const base = options ? { ...options } : {}
+  if (!('format' in base)) base.format = { type: 'string' }
+  // --dry-run is always parsed so the dispatcher can validate its use against
+  // the spec's `supportsDryRun` flag. Commands that don't opt in get a usage
+  // error before `run` is called.
+  if (!('dry-run' in base)) base['dry-run'] = { type: 'boolean' }
+  return base
 }
 
 function toFormat(value: CliValue, fallbackFormat: CliFormat): CliFormat {
@@ -122,7 +132,7 @@ export async function dispatchRegisteredCommand(
   try {
     const parsed = parseArgs({
       args: remainingArgs,
-      options: withFormatOption(spec.options),
+      options: withGlobalOptions(spec.options),
       allowPositionals: spec.allowPositionals ?? true,
     })
     values = parsed.values as CliValues
@@ -138,10 +148,23 @@ export async function dispatchRegisteredCommand(
     })
   }
 
+  const dryRunRequested = values['dry-run'] === true
+  if (dryRunRequested && !spec.supportsDryRun) {
+    throw usageError(
+      `Command "${spec.path.join(' ')}" does not support --dry-run. Either drop the flag, or run a different command that supports preview mode (e.g. ` +
+      `\`canonry doctor\` for health checks, \`canonry status <project>\` for read-only state).`,
+      {
+        message: `Command "${spec.path.join(' ')}" does not support --dry-run`,
+        details: { command: commandId(spec), usage: spec.usage },
+      },
+    )
+  }
+
   await spec.run({
     positionals,
     values,
     format: toFormat(values.format, fallbackFormat),
+    dryRun: dryRunRequested,
   })
 
   return true
