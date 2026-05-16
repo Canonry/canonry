@@ -489,6 +489,10 @@ export class IntelligenceService {
     const rows = this.db
       .select({
         query: queries.query,
+        // Denormalized query text persisted by v58 — the fallback when the
+        // joined queries.query has been hard-deleted (or the query_id was
+        // nulled by the v58 dangling-FK cleanup).
+        queryText: querySnapshots.queryText,
         provider: querySnapshots.provider,
         citationState: querySnapshots.citationState,
         citedDomains: querySnapshots.citedDomains,
@@ -500,11 +504,21 @@ export class IntelligenceService {
       .where(eq(querySnapshots.runId, runId))
       .all()
 
-    const snapshots: Snapshot[] = rows.map(r => {
+    const snapshots: Snapshot[] = []
+    for (const r of rows) {
+      // Recover query identity in priority order: live join → denormalized
+      // text. If both are missing this snapshot has no identity to surface,
+      // and feeding it to the detectors would produce phantom insights —
+      // every orphan in the same run collapses to a single ("", provider,
+      // location) detector key, fabricating regressions/gains on a synthetic
+      // empty query. Skip it.
+      const resolvedQuery = r.query ?? r.queryText ?? null
+      if (!resolvedQuery) continue
+
       const domains = parseJsonColumn<string[]>(r.citedDomains, [])
       const competitors = parseJsonColumn<string[]>(r.competitorOverlap, [])
-      return {
-        query: r.query ?? '',
+      snapshots.push({
+        query: resolvedQuery,
         provider: r.provider,
         cited: r.citationState === CitationStates.cited,
         citationUrl: domains[0] ?? undefined,
@@ -519,8 +533,8 @@ export class IntelligenceService {
         // sources). Cause analysis uses it to name the displacing source
         // when no tracked competitor appears in the response.
         citedDomains: domains,
-      }
-    })
+      })
+    }
 
     return { runId, projectId, completedAt, location, snapshots }
   }

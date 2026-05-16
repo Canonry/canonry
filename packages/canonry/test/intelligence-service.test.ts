@@ -555,4 +555,125 @@ describe('IntelligenceService', () => {
       expect(result!.regressions[0]!.previousRunId).toBe(flMid)
     })
   })
+
+  // Regression suite for the orphan-snapshot insight noise observed after
+  // backfilling azcoatings on 2026-05-16: 459 snapshots with `query_id`
+  // nulled by the v58 dangling-FK cleanup all collapsed to a single
+  // ("", "gemini", null) detector key, generating 28 phantom regressions
+  // + 3 phantom gains + 1 phantom first-citation on a single run.
+  describe('orphan snapshots (query_id NULL and query_text NULL)', () => {
+    function seedOrphanSnapshot(
+      db: ReturnType<typeof createClient>,
+      runId: string,
+      provider: string,
+      citationState: string,
+    ): void {
+      db.insert(querySnapshots).values({
+        id: crypto.randomUUID(),
+        runId,
+        queryId: null, // dangling — the v58 LEFT JOIN backfill nulled it
+        queryText: null, // never had a denormalized fallback either
+        provider,
+        model: 'test-model',
+        citationState,
+        citedDomains: '[]',
+        competitorOverlap: '[]',
+        createdAt: new Date().toISOString(),
+      }).run()
+    }
+
+    it('does not generate regression insights for orphan snapshots', () => {
+      const { db } = createTempDb('intel-orphan-regression-')
+      const projectId = seedProject(db)
+      const queryId = seedQuery(db, projectId, 'real query')
+
+      const run1 = seedRun(db, projectId, 'completed', '2026-04-01T00:00:00Z')
+      const run2 = seedRun(db, projectId, 'completed', '2026-04-02T00:00:00Z')
+
+      // Run 1: orphan cited + real-query cited
+      seedOrphanSnapshot(db, run1, 'gemini', 'cited')
+      seedSnapshot(db, run1, queryId, 'gemini', 'cited', { citedDomains: ['example.com'] })
+
+      // Run 2: orphan NOT cited + real-query cited (only the orphan would
+      // produce a phantom "regression"; the real-query is steady)
+      seedOrphanSnapshot(db, run2, 'gemini', 'not-cited')
+      seedSnapshot(db, run2, queryId, 'gemini', 'cited', { citedDomains: ['example.com'] })
+
+      const service = new IntelligenceService(db)
+      const result = service.analyzeAndPersist(run2, projectId)
+
+      expect(result).not.toBeNull()
+      // Pre-fix: result.regressions had the orphan as `{ query: '', provider: 'gemini' }`.
+      expect(result!.regressions).toHaveLength(0)
+
+      // Persisted insights table also has no empty-query rows.
+      const persistedEmpty = db.select().from(insights)
+        .all()
+        .filter(i => i.runId === run2 && (i.query === null || i.query === ''))
+      expect(persistedEmpty).toHaveLength(0)
+    })
+
+    it('does not generate gain insights for orphan snapshots', () => {
+      const { db } = createTempDb('intel-orphan-gain-')
+      const projectId = seedProject(db)
+      const queryId = seedQuery(db, projectId, 'real query')
+
+      const run1 = seedRun(db, projectId, 'completed', '2026-04-01T00:00:00Z')
+      const run2 = seedRun(db, projectId, 'completed', '2026-04-02T00:00:00Z')
+
+      // Run 1: orphan not cited
+      seedOrphanSnapshot(db, run1, 'gemini', 'not-cited')
+      seedSnapshot(db, run1, queryId, 'gemini', 'cited', { citedDomains: ['example.com'] })
+
+      // Run 2: orphan now cited — this would produce a phantom "gain" pre-fix
+      seedOrphanSnapshot(db, run2, 'gemini', 'cited')
+      seedSnapshot(db, run2, queryId, 'gemini', 'cited', { citedDomains: ['example.com'] })
+
+      const service = new IntelligenceService(db)
+      const result = service.analyzeAndPersist(run2, projectId)
+
+      expect(result).not.toBeNull()
+      expect(result!.gains).toHaveLength(0)
+    })
+
+    it('uses query_text as a fallback when queries.query is unavailable', () => {
+      // The v58 migration also backfilled `query_text` on snapshots whose
+      // queries row still existed at migration time. If a query is later
+      // hard-deleted (or its row vanishes for any reason), the joined
+      // queries.query goes null but query_text survives. The analyzer should
+      // recover the query identity from query_text rather than treating the
+      // snapshot as an orphan.
+      const { db } = createTempDb('intel-querytext-fallback-')
+      const projectId = seedProject(db)
+
+      const run1 = seedRun(db, projectId, 'completed', '2026-04-01T00:00:00Z')
+      const run2 = seedRun(db, projectId, 'completed', '2026-04-02T00:00:00Z')
+
+      // Pre-existing snapshots with query_text populated but query_id NULL
+      // (the queries row was deleted post-snapshot-write, post-v58).
+      function insertWithQueryText(runId: string, citationState: string) {
+        db.insert(querySnapshots).values({
+          id: crypto.randomUUID(),
+          runId,
+          queryId: null,
+          queryText: 'recovered query text',
+          provider: 'gemini',
+          model: 'test-model',
+          citationState,
+          citedDomains: citationState === 'cited' ? '["example.com"]' : '[]',
+          competitorOverlap: '[]',
+          createdAt: new Date().toISOString(),
+        }).run()
+      }
+      insertWithQueryText(run1, 'cited')
+      insertWithQueryText(run2, 'not-cited')
+
+      const service = new IntelligenceService(db)
+      const result = service.analyzeAndPersist(run2, projectId)
+
+      expect(result).not.toBeNull()
+      expect(result!.regressions).toHaveLength(1)
+      expect(result!.regressions[0]!.query).toBe('recovered query text')
+    })
+  })
 })
