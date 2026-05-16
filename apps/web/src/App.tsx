@@ -468,7 +468,7 @@ export function RootLayout() {
                     activeProps={{ className: 'sidebar-project sidebar-project-active' }}
                   >
                     <span className={`sidebar-dot sidebar-dot-${visibilityTone}`} />
-                    <span>{projectVm.project.name}</span>
+                    <span>{projectVm.project.displayName || projectVm.project.name}</span>
                   </Link>
                 )
               })}

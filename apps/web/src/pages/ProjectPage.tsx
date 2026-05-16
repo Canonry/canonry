@@ -1220,6 +1220,7 @@ export function ProjectPage({
   const { projectId } = useParams({ from: '/projects/$projectId' })
   const navigate = useNavigate()
   const { dashboard, isLoading, refetch } = useDashboard()
+  const queryClient = useQueryClient()
 
   if (!dashboard || isLoading) {
     return (
@@ -1523,7 +1524,12 @@ export function ProjectPage({
 
   async function handleUpdateProject(pName: string, updates: { displayName?: string; canonicalDomain?: string; ownedDomains?: string[]; aliases?: string[]; country?: string; language?: string; locations?: Array<{ label: string; city: string; region: string; country: string; timezone?: string }>; defaultLocation?: string | null }) {
     await apiUpdateProject(pName, updates)
-    void refetch()
+    // Invalidate the whole 'projects' branch (prefix match) so every consumer
+    // — sidebar, project page, per-project detail queries — refetches the new
+    // displayName before the user sees the next render. `refetch()` alone only
+    // covers the top-level lists; detail queries were keyed on run IDs and
+    // would silently hold the stale project object.
+    await queryClient.invalidateQueries({ queryKey: queryKeys.projects.all })
   }
 
   const isNumericScore = (value: string) => !Number.isNaN(Number.parseInt(value, 10))
