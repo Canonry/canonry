@@ -5,28 +5,32 @@ import { requireProject, getString, stringOption, unknownSubcommand } from '../c
 export const BACKFILL_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['backfill', 'answer-visibility'],
-    usage: 'canonry backfill answer-visibility [--project <name>] [--format json]',
+    usage: 'canonry backfill answer-visibility [--project <name>] [--dry-run] [--format json]',
     options: {
       project: stringOption(),
     },
     allowPositionals: false,
+    supportsDryRun: true,
     run: async (input) => {
       await backfillAnswerVisibilityCommand({
         project: getString(input.values, 'project'),
+        dryRun: input.dryRun,
         format: input.format,
       })
     },
   },
   {
     path: ['backfill', 'answer-mentions'],
-    usage: 'canonry backfill answer-mentions [--project <name>] [--format json]',
+    usage: 'canonry backfill answer-mentions [--project <name>] [--dry-run] [--format json]',
     options: {
       project: stringOption(),
     },
     allowPositionals: false,
+    supportsDryRun: true,
     run: async (input) => {
       await backfillAnswerMentionsCommand({
         project: getString(input.values, 'project'),
+        dryRun: input.dryRun,
         format: input.format,
       })
     },

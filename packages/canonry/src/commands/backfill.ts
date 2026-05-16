@@ -19,6 +19,7 @@ const SNAPSHOT_BATCH_SIZE = 500
 
 export async function backfillAnswerVisibilityCommand(opts?: {
   project?: string
+  dryRun?: boolean
   format?: CliFormat
 }): Promise<void> {
   const config = loadConfig()
@@ -26,6 +27,7 @@ export async function backfillAnswerVisibilityCommand(opts?: {
   migrate(db)
 
   const projectFilter = opts?.project?.trim()
+  const isDryRun = opts?.dryRun === true
 
   const scopedProjects = projectFilter
     ? db.select().from(projects).where(eq(projects.name, projectFilter)).all()
@@ -33,6 +35,7 @@ export async function backfillAnswerVisibilityCommand(opts?: {
 
   let examined = 0
   let updated = 0
+  let wouldUpdate = 0
   let mentioned = 0
   let reparsed = 0
   let providerErrors = 0
@@ -167,21 +170,25 @@ export async function backfillAnswerVisibilityCommand(opts?: {
         }
 
         if (pendingUpdates.length > 0) {
-          db.transaction((tx) => {
-            for (const update of pendingUpdates) {
-              tx.update(querySnapshots)
-                .set(update.patch)
-                .where(eq(querySnapshots.id, update.id))
-                .run()
-            }
-          })
-          updated += pendingUpdates.length
+          if (isDryRun) {
+            wouldUpdate += pendingUpdates.length
+          } else {
+            db.transaction((tx) => {
+              for (const update of pendingUpdates) {
+                tx.update(querySnapshots)
+                  .set(update.patch)
+                  .where(eq(querySnapshots.id, update.id))
+                  .run()
+              }
+            })
+            updated += pendingUpdates.length
+          }
         }
       }
     }
   }
 
-  const result = {
+  const result: Record<string, unknown> = {
     project: projectFilter ?? null,
     projects: scopedProjects.length,
     examined,
@@ -190,22 +197,33 @@ export async function backfillAnswerVisibilityCommand(opts?: {
     reparsed,
     providerErrors,
   }
+  if (isDryRun) {
+    result.dryRun = true
+    result.wouldUpdate = wouldUpdate
+  }
 
   if (opts?.format === 'json') {
     console.log(JSON.stringify(result, null, 2))
     return
   }
 
-  console.log('Answer visibility backfill complete.\n')
+  console.log(`Answer visibility backfill ${isDryRun ? 'preview' : 'complete'}.\n`)
   if (projectFilter) {
     console.log(`  Project:  ${projectFilter}`)
   }
   console.log(`  Projects: ${scopedProjects.length}`)
-  console.log(`  Examined:  ${examined}`)
-  console.log(`  Updated:   ${updated}`)
-  console.log(`  Mentioned: ${mentioned}`)
-  console.log(`  Reparsed:  ${reparsed}`)
-  console.log(`  Errors:    ${providerErrors}`)
+  console.log(`  Examined:     ${examined}`)
+  if (isDryRun) {
+    console.log(`  Would update: ${wouldUpdate}`)
+  } else {
+    console.log(`  Updated:      ${updated}`)
+  }
+  console.log(`  Mentioned:    ${mentioned}`)
+  console.log(`  Reparsed:     ${reparsed}`)
+  console.log(`  Errors:       ${providerErrors}`)
+  if (isDryRun) {
+    console.log(`\nNo DB writes performed. Re-run without --dry-run to apply.`)
+  }
 }
 
 export interface NormalizedPathsBackfillResult {
@@ -448,6 +466,7 @@ export async function backfillAiReferralPathsCommand(opts?: {
 export interface ProjectAnswerMentionsBackfillResult {
   examined: number
   updated: number
+  wouldUpdate?: number
   mentioned: number
 }
 
@@ -463,7 +482,9 @@ export interface ProjectAnswerMentionsBackfillResult {
 export function backfillProjectAnswerMentions(
   db: DatabaseClient,
   projectId: string,
+  opts?: { dryRun?: boolean },
 ): ProjectAnswerMentionsBackfillResult {
+  const isDryRun = opts?.dryRun === true
   const project = db.select().from(projects).where(eq(projects.id, projectId)).get()
   if (!project) return { examined: 0, updated: 0, mentioned: 0 }
 
@@ -483,8 +504,11 @@ export function backfillProjectAnswerMentions(
 
   let examined = 0
   let updated = 0
+  let wouldUpdate = 0
   let mentioned = 0
-  if (runIds.length === 0) return { examined, updated, mentioned }
+  if (runIds.length === 0) {
+    return isDryRun ? { examined, updated, wouldUpdate, mentioned } : { examined, updated, mentioned }
+  }
 
   const projectDomains = effectiveDomains({
     canonicalDomain: project.canonicalDomain,
@@ -559,19 +583,23 @@ export function backfillProjectAnswerMentions(
     }
 
     if (pendingUpdates.length > 0) {
-      db.transaction((tx) => {
-        for (const update of pendingUpdates) {
-          tx.update(querySnapshots)
-            .set(update.patch)
-            .where(eq(querySnapshots.id, update.id))
-            .run()
-        }
-      })
-      updated += pendingUpdates.length
+      if (isDryRun) {
+        wouldUpdate += pendingUpdates.length
+      } else {
+        db.transaction((tx) => {
+          for (const update of pendingUpdates) {
+            tx.update(querySnapshots)
+              .set(update.patch)
+              .where(eq(querySnapshots.id, update.id))
+              .run()
+          }
+        })
+        updated += pendingUpdates.length
+      }
     }
   }
 
-  return { examined, updated, mentioned }
+  return isDryRun ? { examined, updated, wouldUpdate, mentioned } : { examined, updated, mentioned }
 }
 
 /**
@@ -588,6 +616,7 @@ export function backfillProjectAnswerMentions(
  */
 export async function backfillAnswerMentionsCommand(opts?: {
   project?: string
+  dryRun?: boolean
   format?: CliFormat
 }): Promise<void> {
   const config = loadConfig()
@@ -595,6 +624,7 @@ export async function backfillAnswerMentionsCommand(opts?: {
   migrate(db)
 
   const projectFilter = opts?.project?.trim()
+  const isDryRun = opts?.dryRun === true
 
   const scopedProjects = projectFilter
     ? db.select().from(projects).where(eq(projects.name, projectFilter)).all()
@@ -602,21 +632,27 @@ export async function backfillAnswerMentionsCommand(opts?: {
 
   let examined = 0
   let updated = 0
+  let wouldUpdate = 0
   let mentioned = 0
 
   for (const project of scopedProjects) {
-    const result = backfillProjectAnswerMentions(db, project.id)
+    const result = backfillProjectAnswerMentions(db, project.id, { dryRun: isDryRun })
     examined += result.examined
     updated += result.updated
+    wouldUpdate += result.wouldUpdate ?? 0
     mentioned += result.mentioned
   }
 
-  const result = {
+  const result: Record<string, unknown> = {
     project: projectFilter ?? null,
     projects: scopedProjects.length,
     examined,
     updated,
     mentioned,
+  }
+  if (isDryRun) {
+    result.dryRun = true
+    result.wouldUpdate = wouldUpdate
   }
 
   if (opts?.format === 'json') {
@@ -624,12 +660,19 @@ export async function backfillAnswerMentionsCommand(opts?: {
     return
   }
 
-  console.log('Answer mentions backfill complete.\n')
-  if (projectFilter) console.log(`  Project:   ${projectFilter}`)
-  console.log(`  Projects:  ${scopedProjects.length}`)
-  console.log(`  Examined:  ${examined}`)
-  console.log(`  Updated:   ${updated}`)
-  console.log(`  Mentioned: ${mentioned}`)
+  console.log(`Answer mentions backfill ${isDryRun ? 'preview' : 'complete'}.\n`)
+  if (projectFilter) console.log(`  Project:      ${projectFilter}`)
+  console.log(`  Projects:     ${scopedProjects.length}`)
+  console.log(`  Examined:     ${examined}`)
+  if (isDryRun) {
+    console.log(`  Would update: ${wouldUpdate}`)
+  } else {
+    console.log(`  Updated:      ${updated}`)
+  }
+  console.log(`  Mentioned:    ${mentioned}`)
+  if (isDryRun) {
+    console.log(`\nNo DB writes performed. Re-run without --dry-run to apply.`)
+  }
 }
 
 function readStoredGroundingSources(rawResponse: string | null): GroundingSource[] {
