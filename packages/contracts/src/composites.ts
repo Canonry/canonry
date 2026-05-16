@@ -159,6 +159,30 @@ export interface RunHistoryPointDto {
   status: string
 }
 
+/** One row in the "Track new queries" panel — a GSC query the project is
+ *  already getting impressions for that isn't in the tracked basket yet.
+ *  Pre-ranked and copy-built server-side so the dashboard, CLI, and any
+ *  agent surface render the same suggestion verbatim. */
+export interface SuggestedQueryDto {
+  query: string
+  impressions: number
+  clicks: number
+  avgPosition: number
+  /** Operator-facing rationale ("5.0K impressions · ranks #6 on Google"). */
+  reason: string
+}
+
+export interface SuggestedQueriesSummaryDto {
+  rows: SuggestedQueryDto[]
+  /** Eligible candidates (post-impression-floor, post-tracked-filter) before
+   *  the `rows` array was truncated to the display limit. Lets the UI render
+   *  "showing 10 of 47" when more suggestions exist than fit. */
+  totalCandidates: number
+  /** GSC queries dropped because the basket already covers them. Powers the
+   *  small subtitle copy on the panel. */
+  skippedAlreadyTracked: number
+}
+
 export interface ProjectOverviewDto {
   project: ProjectDto
   latestRun: LatestProjectRunDto
@@ -177,6 +201,11 @@ export interface ProjectOverviewDto {
   providerScores: ProjectOverviewProviderScoreDto[]
   attentionItems: AttentionItemDto[]
   runHistory: RunHistoryPointDto[]
+  /** GSC queries that have impressions but aren't yet in the tracked basket.
+   *  Rides on the overview DTO so the Opportunities tab and `canonry overview`
+   *  render the same suggestions without a follow-up fetch. Empty when GSC
+   *  isn't connected or there are no eligible candidates. */
+  suggestedQueries: SuggestedQueriesSummaryDto
   dateRangeLabel: string
   contextLabel: string
 }

@@ -557,6 +557,7 @@ function adaptOverviewToCommandCenter(
       notes: '',
     })),
     recentRuns: runItems.slice(0, 5),
+    suggestedQueries: overview.suggestedQueries,
   }
 }
 
@@ -605,6 +606,7 @@ function emptyCommandCenter(
     visibilityEvidence: evidence,
     competitors: [],
     recentRuns: runItems.slice(0, 5),
+    suggestedQueries: { rows: [], totalCandidates: 0, skippedAlreadyTracked: 0 },
   }
 }
 
