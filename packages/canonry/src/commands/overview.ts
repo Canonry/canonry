@@ -1,4 +1,4 @@
-import type { ProjectOverviewDto, ScoreSummaryDto } from '@ainyc/canonry-contracts'
+import type { MentionShareDto, ProjectOverviewDto, ScoreSummaryDto } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
 
 export interface ShowOverviewOpts {
@@ -22,7 +22,10 @@ export async function showOverview(project: string, opts: ShowOverviewOpts): Pro
   renderHuman(overview)
 }
 
-function renderHuman(overview: ProjectOverviewDto): void {
+/** Exported so unit tests can capture stdout shape without spinning up the
+ *  real client. Format change is contract-y enough that agents parsing it
+ *  via grep need protection. */
+export function renderHuman(overview: ProjectOverviewDto): void {
   const {
     project: meta,
     latestRun,
@@ -37,6 +40,7 @@ function renderHuman(overview: ProjectOverviewDto): void {
     providerScores,
     attentionItems,
     runHistory,
+    suggestedQueries,
     dateRangeLabel,
     contextLabel,
   } = overview
@@ -54,7 +58,13 @@ function renderHuman(overview: ProjectOverviewDto): void {
   }
 
   console.log('\nScores:')
+  // Order matches the dashboard hero (Mention → Cited → Mention share)
+  // so an operator alt-tabbing between SPA and CLI sees the same lineup.
+  printScore('Mention          ', scores.mention)
   printScore('Visibility       ', scores.visibility)
+  printScore('Mention share    ', scores.mentionShare)
+  printMentionShareBreakdown(scores.mentionShare)
+  printScore('Mention gaps     ', scores.mentionGaps)
   printScore('Gap queries      ', scores.gapQueries)
   printScore('Index coverage   ', scores.indexCoverage)
   printScore('Competitor press.', scores.competitorPressure)
@@ -120,12 +130,43 @@ function renderHuman(overview: ProjectOverviewDto): void {
       console.log(`    ${point.createdAt.slice(0, 10)} ${String(point.citationRate).padStart(3)}% ${bar}`)
     }
   }
+
+  if (suggestedQueries.rows.length > 0) {
+    const moreLabel = suggestedQueries.totalCandidates > suggestedQueries.rows.length
+      ? ` (showing ${suggestedQueries.rows.length} of ${suggestedQueries.totalCandidates})`
+      : ''
+    console.log(`\n  Suggested queries to track${moreLabel}:`)
+    for (const s of suggestedQueries.rows) {
+      console.log(`    + ${s.query}`)
+      console.log(`        ${s.reason}`)
+    }
+    console.log(`    (add via: canonry query add ${meta.name} "<query>")`)
+  }
 }
 
 function printScore(prefix: string, score: ScoreSummaryDto): void {
   const tone = `[${score.tone}]`.padEnd(11)
   const value = score.value.padEnd(8)
   console.log(`  ${prefix} ${tone} ${value} ${score.delta}`)
+}
+
+/** Per-competitor split of Mention Share — the same data the dashboard
+ *  hero renders inline beneath the gauge. Top 3 competitors keeps the CLI
+ *  output tight; the full breakdown is in the `--format json` payload. */
+function printMentionShareBreakdown(mentionShare: MentionShareDto): void {
+  const { breakdown } = mentionShare
+  if (breakdown.perCompetitor.length === 0) return
+  const total = breakdown.projectMentionSnapshots + breakdown.competitorMentionSnapshots
+  if (total === 0) return
+  const youPct = ((breakdown.projectMentionSnapshots / total) * 100).toFixed(1)
+  console.log(`      you${' '.repeat(28)} ${breakdown.projectMentionSnapshots} mentions (${youPct}% of combined)`)
+  for (const row of breakdown.perCompetitor.slice(0, 3)) {
+    const pct = ((row.mentionSnapshots / total) * 100).toFixed(1)
+    console.log(`      ${row.domain.padEnd(30)} ${row.mentionSnapshots} mentions (${pct}% of combined)`)
+  }
+  if (breakdown.perCompetitor.length > 3) {
+    console.log(`      + ${breakdown.perCompetitor.length - 3} more competitor${breakdown.perCompetitor.length - 3 === 1 ? '' : 's'} (--format json for full breakdown)`)
+  }
 }
 
 function pct(value: number): string {
