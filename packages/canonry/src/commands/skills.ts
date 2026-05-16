@@ -1,4 +1,5 @@
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
@@ -24,6 +25,14 @@ export interface BundledSkillInfo {
 
 export interface SkillsInstallOptions {
   dir?: string
+  /**
+   * Shortcut for `dir: os.homedir()`. Installs into `~/.claude/skills/` so
+   * Claude Code (or Codex) sessions on this machine auto-load the bundled
+   * canonry/aero reference docs regardless of which project they open.
+   * Mutually exclusive with `dir`. When both are passed, `--user` wins and
+   * a warning is surfaced through the summary.
+   */
+  user?: boolean
   skills?: string[]
   client?: SkillsClient
   force?: boolean
@@ -231,7 +240,9 @@ function buildSummaryMessage(results: SkillInstallResult[]): string {
 }
 
 export async function installSkills(opts: SkillsInstallOptions = {}): Promise<SkillsInstallSummary> {
-  const targetDir = path.resolve(opts.dir ?? process.cwd())
+  const targetDir = opts.user
+    ? os.homedir()
+    : path.resolve(opts.dir ?? process.cwd())
   const client: SkillsClient = opts.client ?? SkillsClients.all
   const force = opts.force ?? false
 
