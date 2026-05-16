@@ -53,6 +53,7 @@ import {
   buildOverviewCompetitors,
   buildProviderScores,
   buildRunHistory,
+  buildMentionCoverage,
   buildVisibilityScore,
   DEFAULT_RUN_HISTORY_LIMIT,
 } from '@ainyc/canonry-intelligence'
@@ -187,6 +188,7 @@ export async function compositeRoutes(app: FastifyInstance) {
       .filter(p => !p.startsWith('cdp:'))
 
     const scores: ProjectOverviewScoresDto = {
+      mention: buildMentionCoverage(latestSnapshots, { configuredApiProviders }),
       visibility: buildVisibilityScore(latestSnapshots, { configuredApiProviders }),
       gapQueries: buildGapQueryScore(latestSnapshots),
       indexCoverage: buildIndexCoverageScore(app, project.id),
@@ -379,6 +381,7 @@ interface OverviewSnapshot {
   provider: string
   model: string | null
   citationState: string
+  answerMentioned: boolean | null
   competitorOverlap: string[]
   citedDomains: string[]
 }
@@ -398,6 +401,7 @@ function loadSnapshotsByRunIds(
       provider: querySnapshots.provider,
       model: querySnapshots.model,
       citationState: querySnapshots.citationState,
+      answerMentioned: querySnapshots.answerMentioned,
       competitorOverlap: querySnapshots.competitorOverlap,
       citedDomains: querySnapshots.citedDomains,
     })
@@ -411,6 +415,7 @@ function loadSnapshotsByRunIds(
       provider: row.provider,
       model: row.model,
       citationState: row.citationState,
+      answerMentioned: row.answerMentioned,
       competitorOverlap: parseJsonColumn<string[]>(row.competitorOverlap, []),
       citedDomains: parseJsonColumn<string[]>(row.citedDomains, []),
     })

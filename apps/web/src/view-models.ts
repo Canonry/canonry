@@ -189,6 +189,9 @@ export interface ProjectCommandCenterVm {
   project: ProjectDto
   dateRangeLabel: string
   contextLabel: string
+  /** Primary headline gauge — Mention Coverage. The dashboard renders this as the big radial gauge. */
+  mentionSummary: ScoreSummaryVm
+  /** Secondary tile — Citation Coverage (legacy "Answer Visibility"). */
   visibilitySummary: ScoreSummaryVm
   queryCounts: QueryCountsVm
   gapQueries: ScoreSummaryVm

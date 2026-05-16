@@ -1531,16 +1531,36 @@ export function ProjectPage({
           {/* At-a-glance metrics */}
           <section className="gauge-row">
             <ScoreGauge
-              value={model.visibilitySummary.value}
-              label={model.visibilitySummary.label}
-              delta={model.visibilitySummary.delta}
-              tone={model.visibilitySummary.tone}
-              description={model.visibilitySummary.description}
-              tooltip={model.visibilitySummary.tooltip}
-              isNumeric={isNumericScore(model.visibilitySummary.value)}
-              progress={model.visibilitySummary.progress}
-              providerCoverage={model.visibilitySummary.providerCoverage}
+              value={model.mentionSummary.value}
+              label={model.mentionSummary.label}
+              delta={model.mentionSummary.delta}
+              tone={model.mentionSummary.tone}
+              description={model.mentionSummary.description}
+              tooltip={model.mentionSummary.tooltip}
+              isNumeric={isNumericScore(model.mentionSummary.value)}
+              progress={model.mentionSummary.progress}
+              providerCoverage={model.mentionSummary.providerCoverage}
             />
+            <div className="metric-card">
+              <p className="metric-card-eyebrow">
+                {model.visibilitySummary.label}
+                <InfoTooltip text={model.visibilitySummary.tooltip ?? 'Percentage of tracked queries where your domain is cited in the AI answer source list.'} />
+              </p>
+              <p className="metric-card-big-value">
+                <span className="text-zinc-50">{model.visibilitySummary.value}</span>
+                {isNumericScore(model.visibilitySummary.value) ? <span className="text-zinc-600">%</span> : null}
+              </p>
+              <div className="metric-card-bar">
+                <div
+                  className={`metric-card-bar-fill progress-fill-${model.visibilitySummary.tone}`}
+                  style={{ width: model.visibilitySummary.progress !== undefined ? `${Math.min(Math.max(model.visibilitySummary.progress, 0), 100)}%` : '0%' }}
+                />
+              </div>
+              <p className="metric-card-detail">{model.visibilitySummary.delta}</p>
+              <p className="metric-card-sub">
+                {model.visibilitySummary.description}
+              </p>
+            </div>
             <div className="metric-card">
               <p className="metric-card-eyebrow">
                 Gap Queries

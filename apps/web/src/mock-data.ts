@@ -376,6 +376,15 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
     project: projects[0],
     dateRangeLabel: 'Last 7 days',
     contextLabel: 'US / English / Local-intent monitoring',
+    mentionSummary: {
+      label: 'Mention Coverage',
+      value: '74',
+      delta: '6 of 8 queries mentioned',
+      tone: 'positive',
+      description: 'Brand named in answer text for most tracked queries.',
+      trend: [70, 72, 73, 74, 74],
+      progress: 74,
+    },
     visibilitySummary: {
       label: 'Citation Coverage',
       value: '61 / 100',
@@ -504,6 +513,15 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
     project: projects[1],
     dateRangeLabel: 'Last 14 days',
     contextLabel: 'US / English / Service-area legal prompts',
+    mentionSummary: {
+      label: 'Mention Coverage',
+      value: '82',
+      delta: '9 of 11 queries mentioned',
+      tone: 'positive',
+      description: 'Brand named in answer text on most tracked prompts.',
+      trend: [76, 78, 80, 81, 82],
+      progress: 82,
+    },
     visibilitySummary: {
       label: 'Citation Coverage',
       value: '74 / 100',
@@ -612,6 +630,15 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
     project: projects[2],
     dateRangeLabel: 'Last 7 days',
     contextLabel: 'US / English / Multi-location treatment prompts',
+    mentionSummary: {
+      label: 'Mention Coverage',
+      value: '67',
+      delta: '10 of 15 queries mentioned',
+      tone: 'caution',
+      description: 'Brand named in the answer text for most queries; gaps on long-tail location prompts.',
+      trend: [60, 63, 65, 66, 67],
+      progress: 67,
+    },
     visibilitySummary: {
       label: 'Citation Coverage',
       value: '58 / 100',
