@@ -281,6 +281,14 @@
     @apply flex min-h-screen flex-1 flex-col lg:pl-56;
   }
 
+  /* First-run focus mode (sidebar hidden) — drop the 224px sidebar gutter
+     so the wizard centers across the full viewport instead of being
+     offset right. Applied via the `app-shell-focus` modifier set by
+     App.tsx when the user is on /setup with zero projects. */
+  .app-shell-focus .main-area {
+    @apply lg:pl-0;
+  }
+
   .topbar {
     @apply sticky top-0 z-20 flex items-center justify-between gap-4 border-b border-zinc-800/60 bg-zinc-950/95 px-4 py-2.5 backdrop-blur-sm md:px-6;
   }
@@ -936,7 +944,11 @@
   /* ── Setup wizard ── */
 
   .setup-wizard {
-    @apply max-w-xl;
+    /* Was max-w-xl (576px). On a 1400px+ viewport the card looked stranded
+       in empty space — the step indicator above is full page-container
+       width, so the card looked disconnected. 3xl (768px) gives form
+       fields room to breathe without sprawling on big monitors. */
+    @apply max-w-3xl;
   }
 
   .setup-steps {

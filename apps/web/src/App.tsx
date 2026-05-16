@@ -345,6 +345,17 @@ export function RootLayout() {
   // While loading or dashboard not yet available, use context data or null (no mock fallback)
   const safeDashboard = dashboard ?? contextDashboard?.dashboard ?? null
 
+  // First-run focus mode: hide the sidebar on /setup when the user has zero
+  // projects. The sidebar's nav items (Overview / Projects / Runs / Server
+  // traffic / Backlinks / Settings) point at surfaces that don't have any
+  // data yet — showing them adds visual noise + shrinks the wizard's
+  // available real estate. Once they create their first project the
+  // sidebar comes back automatically (intentional "you've made it into the
+  // app" moment).
+  const isFirstRunSetup = location.pathname === '/setup'
+    && safeDashboard !== null
+    && safeDashboard.portfolioOverview.projects.length === 0
+
   const selectedRun = runId && safeDashboard ? findRunById(safeDashboard, runId) : undefined
   const selectedEvidenceContext = evidenceId && safeDashboard ? findEvidenceById(safeDashboard, evidenceId) : undefined
 
@@ -373,12 +384,13 @@ export function RootLayout() {
   })()
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${isFirstRunSetup ? 'app-shell-focus' : ''}`}>
       <a className="skip-link" href="#content">
         Skip to content
       </a>
 
       {/* ── Sidebar (desktop) ── */}
+      {!isFirstRunSetup && (
       <aside className="sidebar" aria-label="Primary navigation">
         <div className="sidebar-brand">
           <BrandLockup
@@ -505,6 +517,7 @@ export function RootLayout() {
           ))}
         </div>
       </aside>
+      )}
 
       {/* ── Main area ── */}
       <div className="main-area">
