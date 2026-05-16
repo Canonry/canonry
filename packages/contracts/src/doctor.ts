@@ -15,6 +15,8 @@ export const checkCategorySchema = z.enum([
   'integrations',
   'database',
   'schedules',
+  /** Discoverability checks for agent integrations (skills installed, MCP setup). */
+  'agent',
 ])
 export type CheckCategory = z.infer<typeof checkCategorySchema>
 export const CheckCategories = checkCategorySchema.enum

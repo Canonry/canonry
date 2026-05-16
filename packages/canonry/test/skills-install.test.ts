@@ -221,3 +221,44 @@ describe('parseSkillsClient', () => {
     expect(() => parseSkillsClient('cursor')).toThrow(CliError)
   })
 })
+
+describe('installSkills --user shortcut', () => {
+  // Sandbox $HOME so the test doesn't write into the real user-level Claude
+  // config. afterEach restores.
+  let savedHome: string | undefined
+  let userHome: string
+
+  beforeEach(() => {
+    savedHome = process.env.HOME
+    userHome = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-skills-user-'))
+    process.env.HOME = userHome
+  })
+
+  afterEach(() => {
+    if (savedHome === undefined) delete process.env.HOME
+    else process.env.HOME = savedHome
+    fs.rmSync(userHome, { recursive: true, force: true })
+  })
+
+  it('installs into os.homedir() when user: true is passed', async () => {
+    const summary = await installSkills({ user: true, client: 'claude' })
+    expect(summary.targetDir).toBe(os.homedir())
+    for (const name of BUNDLED_SKILL_NAMES) {
+      expect(fs.existsSync(path.join(summary.targetDir, '.claude', 'skills', name, 'SKILL.md'))).toBe(true)
+    }
+  })
+
+  it('user: true overrides dir', async () => {
+    const decoy = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-skills-decoy-'))
+    try {
+      const summary = await installSkills({ user: true, dir: decoy, client: 'claude' })
+      expect(summary.targetDir).toBe(os.homedir())
+      // Nothing written to the decoy dir.
+      for (const name of BUNDLED_SKILL_NAMES) {
+        expect(fs.existsSync(path.join(decoy, '.claude', 'skills', name))).toBe(false)
+      }
+    } finally {
+      fs.rmSync(decoy, { recursive: true, force: true })
+    }
+  })
+})

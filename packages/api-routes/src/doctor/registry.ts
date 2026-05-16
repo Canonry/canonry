@@ -1,3 +1,4 @@
+import { AGENT_CHECKS } from './checks/agent.js'
 import { BING_AUTH_CHECKS } from './checks/bing-auth.js'
 import { GA_AUTH_CHECKS } from './checks/ga-auth.js'
 import { GOOGLE_AUTH_CHECKS } from './checks/google-auth.js'
@@ -11,6 +12,7 @@ export const ALL_CHECKS: readonly CheckDefinition[] = [
   ...GA_AUTH_CHECKS,
   ...PROVIDERS_CHECKS,
   ...TRAFFIC_SOURCE_CHECKS,
+  ...AGENT_CHECKS,
 ]
 
 export const CHECK_BY_ID: Record<string, CheckDefinition> = Object.fromEntries(

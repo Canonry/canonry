@@ -12,9 +12,10 @@ export const SKILLS_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['skills', 'install'],
-    usage: 'canonry skills install [skill...] [--dir <path>] [--client claude|codex|all] [--force] [--format json]',
+    usage: 'canonry skills install [skill...] [--dir <path> | --user] [--client claude|codex|all] [--force] [--format json]',
     options: {
       dir: stringOption(),
+      user: { type: 'boolean' },
       client: stringOption(),
       force: { type: 'boolean' },
     },
@@ -22,6 +23,7 @@ export const SKILLS_CLI_COMMANDS: readonly CliCommandSpec[] = [
     run: async (input) => {
       const summary = await installSkills({
         dir: getString(input.values, 'dir'),
+        user: getBoolean(input.values, 'user'),
         skills: input.positionals.length > 0 ? input.positionals : undefined,
         client: parseSkillsClient(getString(input.values, 'client')),
         force: getBoolean(input.values, 'force'),
