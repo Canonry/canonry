@@ -22,11 +22,40 @@ export async function addQueries(project: string, queries: string[], format?: st
   console.log(`Added ${queries.length} ${queries.length === 1 ? 'query' : 'queries'} to "${project}".`)
 }
 
-export async function replaceQueries(project: string, queries: string[], format?: string): Promise<void> {
+export async function replaceQueries(
+  project: string,
+  queries: string[],
+  opts?: { dryRun?: boolean; format?: string },
+): Promise<void> {
   const client = getClient()
+  const isJson = opts?.format === 'json'
+
+  if (opts?.dryRun) {
+    const preview = await client.previewReplaceQueries(project, queries)
+    if (isJson) {
+      console.log(JSON.stringify({ dryRun: true, ...preview }, null, 2))
+      return
+    }
+    const { diff, snapshotImpact } = preview
+    console.log(`Query replace preview for "${project}":`)
+    console.log(`  Current: ${preview.current.length} ${preview.current.length === 1 ? 'query' : 'queries'}`)
+    console.log(`  Proposed: ${preview.proposed.length} ${preview.proposed.length === 1 ? 'query' : 'queries'}`)
+    console.log(`  Diff:`)
+    console.log(`    + added:     ${diff.added.length}${diff.added.length ? `  (${diff.added.join(', ')})` : ''}`)
+    console.log(`    - removed:   ${diff.removed.length}${diff.removed.length ? `  (${diff.removed.join(', ')})` : ''}`)
+    console.log(`    = unchanged: ${diff.unchanged.length}${diff.unchanged.length ? `  (${diff.unchanged.join(', ')})` : ''}`)
+    console.log(`  Snapshot impact:`)
+    console.log(`    Replace wipes every queries row and re-inserts with new IDs, so ALL`)
+    console.log(`    existing snapshots get detached (queryId → NULL; queryText preserved).`)
+    console.log(`    Snapshots affected: ${snapshotImpact.snapshotsDetached} across ${snapshotImpact.affectedQueries} ${snapshotImpact.affectedQueries === 1 ? 'query' : 'queries'}`)
+    console.log(``)
+    console.log(`No DB writes performed. Re-run without --dry-run to apply.`)
+    return
+  }
+
   await client.putQueries(project, queries)
 
-  if (format === 'json') {
+  if (isJson) {
     console.log(JSON.stringify({
       project,
       queries,

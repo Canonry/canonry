@@ -17,6 +17,7 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'DELETE /api/v1/projects/{name}/queries': 'included',
   'POST /api/v1/projects/{name}/queries': 'included',
   'POST /api/v1/projects/{name}/queries/generate': 'included',
+  'POST /api/v1/projects/{name}/queries/replace-preview': 'included',
   'GET /api/v1/projects/{name}/keywords': 'included',
   'PUT /api/v1/projects/{name}/keywords': 'included',
   'DELETE /api/v1/projects/{name}/keywords': 'included',

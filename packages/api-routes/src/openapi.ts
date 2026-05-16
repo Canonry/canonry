@@ -436,6 +436,32 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'post',
+    path: '/api/v1/projects/{name}/queries/replace-preview',
+    summary: 'Preview the impact of replacing tracked queries',
+    description: 'Read-only impact summary backing `canonry query replace --dry-run`. Returns current vs proposed query sets, the added/removed/unchanged diff, and the count of snapshots that would detach (queryId → NULL; queryText preserved).',
+    tags: ['queries'],
+    parameters: [nameParameter],
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            required: ['queries'],
+            properties: {
+              queries: stringArraySchema,
+            },
+          },
+        },
+      },
+    },
+    responses: {
+      200: { description: 'Replace preview returned.' },
+      404: { description: 'Project not found.' },
+    },
+  },
+  {
+    method: 'post',
     path: '/api/v1/projects/{name}/queries/generate',
     summary: 'Generate query suggestions',
     tags: ['queries'],
