@@ -39,12 +39,37 @@ function codexConfigPath(): string {
   return homeRelative('.codex', 'config.toml')
 }
 
+/**
+ * Claude Code reads MCP servers from three scopes (per
+ * https://code.claude.com/docs/en/mcp-servers): project (`.mcp.json` in the
+ * repo root, shared via git), user (`~/.claude.json` cross-project), and
+ * a per-project "local" scope (also `~/.claude.json`). All three use the
+ * same `mcpServers` JSON shape that claude-desktop / cursor already use.
+ *
+ * Project scope is the right default for an agent-first tool like canonry:
+ * it's auto-discovered the moment a Claude Code session opens in the
+ * project directory, and `canonry init` can drop it in alongside the
+ * `.claude/skills/` install so operators get the MCP surface for free.
+ * Operators who want global scope override with `--config-path
+ * ~/.claude.json`.
+ */
+function claudeCodeProjectConfigPath(): string {
+  return path.join(process.cwd(), '.mcp.json')
+}
+
 export const SUPPORTED_MCP_CLIENTS: readonly McpClientDefinition[] = [
   {
     id: 'claude-desktop',
     label: 'Claude Desktop',
     format: 'json-mcp-servers',
     configPath: claudeDesktopConfigPath,
+    installSupported: true,
+  },
+  {
+    id: 'claude-code',
+    label: 'Claude Code',
+    format: 'json-mcp-servers',
+    configPath: claudeCodeProjectConfigPath,
     installSupported: true,
   },
   {

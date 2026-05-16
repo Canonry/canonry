@@ -18,6 +18,11 @@ export interface McpInstallOptions {
   dryRun?: boolean
   format?: string
   platform?: NodeJS.Platform
+  /** Suppress the human/JSON install-result print. Used by `canonry init`
+   *  which calls `installMcp` programmatically and choreographs its own
+   *  output — without this the install line would talk over init's own
+   *  human/JSON summary. */
+  silent?: boolean
 }
 
 export interface McpConfigOptions {
@@ -162,7 +167,7 @@ export async function installMcp(opts: McpInstallOptions): Promise<McpInstallRes
       snippet,
       message: `Auto-install is not supported for ${client.label}. Add the snippet below to ${configPath}.`,
     }
-    emitInstallResult(result, opts.format)
+    if (!opts.silent) emitInstallResult(result, opts.format)
     return result
   }
 
@@ -180,7 +185,7 @@ export async function installMcp(opts: McpInstallOptions): Promise<McpInstallRes
       status: 'already-installed',
       message: `${client.label} already has a "${serverName}" entry pointing to canonry-mcp.`,
     }
-    emitInstallResult(result, opts.format)
+    if (!opts.silent) emitInstallResult(result, opts.format)
     return result
   }
 
@@ -196,7 +201,7 @@ export async function installMcp(opts: McpInstallOptions): Promise<McpInstallRes
       snippet: renderClientSnippet(client, serverName, entry),
       message: `Would ${status === 'installed' ? 'install' : 'update'} "${serverName}" in ${configPath}.`,
     }
-    emitInstallResult(result, opts.format)
+    if (!opts.silent) emitInstallResult(result, opts.format)
     return result
   }
 
@@ -216,7 +221,7 @@ export async function installMcp(opts: McpInstallOptions): Promise<McpInstallRes
     backupPath,
     message: `${status === 'installed' ? 'Installed' : 'Updated'} "${serverName}" in ${client.label} at ${configPath}. Restart ${client.label} to load it.`,
   }
-  emitInstallResult(result, opts.format)
+  if (!opts.silent) emitInstallResult(result, opts.format)
   return result
 }
 

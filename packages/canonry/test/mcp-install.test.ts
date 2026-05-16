@@ -323,3 +323,75 @@ describe('renderClientSnippet', () => {
     expect(snippet).toContain('args = ["--read-only"]')
   })
 })
+
+describe('canonry mcp install (claude-code)', () => {
+  it('writes a project-scoped .mcp.json that Claude Code auto-discovers', async () => {
+    // Mirrors the real installer flow — by default, claude-code writes to
+    // `.mcp.json` in CWD (project scope, what Claude Code looks for on
+    // session start). Test passes an explicit configPath so it doesn't
+    // depend on the test runner's cwd.
+    const configPath = path.join(tmpRoot, '.mcp.json')
+    const result = await installMcp({
+      client: 'claude-code',
+      configPath,
+      binPath: '/usr/local/bin/canonry-mcp',
+    })
+
+    expect(result.status).toBe('installed')
+    expect(result.client).toBe('claude-code')
+    const written = JSON.parse(fs.readFileSync(configPath, 'utf-8'))
+    // Same `mcpServers` shape Claude Code, Cursor, and Claude Desktop all
+    // consume — Claude Code's docs (code.claude.com/docs/en/mcp-servers)
+    // pin this exact key.
+    expect(written).toEqual({
+      mcpServers: {
+        canonry: { command: '/usr/local/bin/canonry-mcp', args: [] },
+      },
+    })
+  })
+
+  it('merges into an existing .mcp.json without dropping unrelated keys', async () => {
+    const configPath = path.join(tmpRoot, '.mcp.json')
+    fs.writeFileSync(configPath, JSON.stringify({
+      mcpServers: {
+        existing: { command: '/path/to/other', args: ['--foo'] },
+      },
+    }, null, 2))
+
+    await installMcp({
+      client: 'claude-code',
+      configPath,
+      binPath: '/usr/local/bin/canonry-mcp',
+    })
+
+    const written = JSON.parse(fs.readFileSync(configPath, 'utf-8'))
+    expect(written.mcpServers.existing).toEqual({ command: '/path/to/other', args: ['--foo'] })
+    expect(written.mcpServers.canonry).toEqual({ command: '/usr/local/bin/canonry-mcp', args: [] })
+  })
+
+  it('honors --read-only by appending the flag to args', async () => {
+    const configPath = path.join(tmpRoot, '.mcp.json')
+    await installMcp({
+      client: 'claude-code',
+      configPath,
+      binPath: '/usr/local/bin/canonry-mcp',
+      readOnly: true,
+    })
+
+    const written = JSON.parse(fs.readFileSync(configPath, 'utf-8'))
+    expect(written.mcpServers.canonry.args).toEqual(['--read-only'])
+  })
+
+  it('silent: true suppresses console output (used by `canonry init` auto-install)', async () => {
+    const configPath = path.join(tmpRoot, '.mcp.json')
+    await installMcp({
+      client: 'claude-code',
+      configPath,
+      binPath: '/usr/local/bin/canonry-mcp',
+      silent: true,
+    })
+
+    expect(logs).toEqual([])
+    expect(fs.existsSync(configPath)).toBe(true)
+  })
+})
