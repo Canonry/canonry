@@ -314,6 +314,54 @@ export function emitInstallSummary(summary: SkillsInstallSummary, format?: strin
   console.log(summary.message)
 }
 
+export interface UserSkillsNudge {
+  /** One-line message safe to print to stderr at `canonry serve` boot. */
+  message: string
+  /** Skills missing from `~/.claude/skills/`. */
+  missing: BundledSkillName[]
+  /** Skills already installed there. */
+  installed: BundledSkillName[]
+}
+
+/**
+ * Mirrors the `agent.skills.installed` doctor check but returns a nudge
+ * payload instead of a check result. Returns null when:
+ *   - both skills are installed (nothing to nudge about), or
+ *   - $HOME is not set (cannot tell — silent rather than wrong).
+ *
+ * Caller is expected to print the message to stderr; this helper does no I/O.
+ */
+export function getMissingUserSkillsNudge(home: string | undefined = process.env.HOME): UserSkillsNudge | null {
+  if (!home) return null
+  const skillsBase = path.join(home, '.claude', 'skills')
+  const installed: BundledSkillName[] = []
+  const missing: BundledSkillName[] = []
+  for (const name of BUNDLED_SKILL_NAMES) {
+    const skillFile = path.join(skillsBase, name, 'SKILL.md')
+    if (existsSafe(skillFile)) installed.push(name)
+    else missing.push(name)
+  }
+
+  if (missing.length === 0) return null
+
+  const fix = missing.length === BUNDLED_SKILL_NAMES.length
+    ? 'canonry skills install --user'
+    : `canonry skills install ${missing.join(' ')} --user`
+  return {
+    message: `Tip: ${missing.join(' + ')} skill${missing.length === 1 ? '' : 's'} not installed in ~/.claude/skills/. Run \`${fix}\` so Claude/Codex sessions on this host auto-load the canonry reference docs.`,
+    missing,
+    installed,
+  }
+}
+
+function existsSafe(p: string): boolean {
+  try {
+    return fs.existsSync(p)
+  } catch {
+    return false
+  }
+}
+
 export function parseSkillsClient(value: string | undefined): SkillsClient {
   if (!value) return SkillsClients.all
   const parsed = skillsClientSchema.safeParse(value)

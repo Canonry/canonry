@@ -4,6 +4,7 @@ import { createServer } from '../server.js'
 import { trackEvent, setTelemetrySource } from '../telemetry.js'
 import { CliError, type CliFormat } from '../cli-error.js'
 import { backfillAiReferralPaths, backfillNormalizedPaths } from './backfill.js'
+import { getMissingUserSkillsNudge } from './skills.js'
 
 /**
  * Precedence: `CANONRY_PORT` env var (also set by `--port`) > config.yaml `port:` > 4100.
@@ -99,6 +100,8 @@ export async function serveCommand(format: CliFormat = 'text'): Promise<void> {
     } else {
       console.log(`\nCanonry server running at ${url}`)
       console.log('Press Ctrl+C to stop.\n')
+      const nudge = getMissingUserSkillsNudge()
+      if (nudge) process.stderr.write(`${nudge.message}\n`)
     }
 
     // Switch the source for the rest of this process — every event emitted
