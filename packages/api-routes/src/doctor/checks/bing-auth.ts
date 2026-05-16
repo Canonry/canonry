@@ -132,7 +132,7 @@ export const BING_AUTH_CHECKS: readonly CheckDefinition[] = [
           }
         }
 
-        if (!match.Verified) {
+        if (!match.IsVerified) {
           return {
             status: CheckStatuses.fail,
             code: 'bing.auth.site-not-verified',

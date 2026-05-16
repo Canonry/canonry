@@ -13,11 +13,28 @@ describe('getSites', () => {
     globalThis.fetch = originalFetch
   })
 
-  it('returns parsed site entries', async () => {
+  it('returns parsed site entries (matches Bing\'s real GetUserSites response shape — IsVerified, not Verified)', async () => {
+    // Fixture mirrors a real production response: `IsVerified`, plus the
+    // additional fields (`__type`, `AuthenticationCode`, `DnsVerificationCode`)
+    // Bing returns that we don't currently model. A prior version of this
+    // test asserted on `Verified` (without `Is`), which is a field Bing never
+    // populates — that masked the doctor `bing.auth.site-access` false-fail.
     const mockResponse = {
       d: [
-        { Url: 'https://example.com/', Verified: true },
-        { Url: 'https://test.com/', Verified: false },
+        {
+          __type: 'Site:#Microsoft.Bing.Webmaster.Api',
+          AuthenticationCode: '54561B14450AE9971F4BA160466A8B0F',
+          DnsVerificationCode: '08f0f0e100e910875e42a2ba79b2c6c2.example.com',
+          IsVerified: true,
+          Url: 'https://example.com/',
+        },
+        {
+          __type: 'Site:#Microsoft.Bing.Webmaster.Api',
+          AuthenticationCode: '54561B14450AE9971F4BA160466A8B0F',
+          DnsVerificationCode: '08f0f0e100e910875e42a2ba79b2c6c2.test.com',
+          IsVerified: false,
+          Url: 'https://test.com/',
+        },
       ],
     }
 
@@ -30,7 +47,9 @@ describe('getSites', () => {
     const sites = await getSites('test-key')
     expect(sites.length).toBe(2)
     expect(sites[0]!.Url).toBe('https://example.com/')
-    expect(sites[1]!.Verified).toBe(false)
+    expect(sites[0]!.IsVerified).toBe(true)
+    expect(sites[1]!.Url).toBe('https://test.com/')
+    expect(sites[1]!.IsVerified).toBe(false)
   })
 
   it('returns empty array when no sites', async () => {
