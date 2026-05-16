@@ -1,4 +1,4 @@
-import type { MetricTone, ScoreSummaryDto } from '@ainyc/canonry-contracts'
+import { brandKeyFromText, type MetricTone, type ScoreSummaryDto } from '@ainyc/canonry-contracts'
 
 export interface MentionShareSnapshot {
   /** True when the project's brand or domain appears in the LLM's answer text.
@@ -109,8 +109,11 @@ export function buildMentionShare(
     if (text.length === 0) continue
     snapshotsWithAnswerText++
     if (snap.projectMentioned) projectMentionSnapshots++
+    // Build the answer's brand-key once per snapshot — it powers the
+    // spacing/hyphenation-tolerant match path below.
+    const answerBrandKey = brandKeyFromText(text)
     for (const competitor of options.competitors) {
-      if (competitorMentioned(text, competitor.brandTokens)) {
+      if (competitorMentioned(text, answerBrandKey, competitor.brandTokens)) {
         competitorCounts.set(competitor.domain, (competitorCounts.get(competitor.domain) ?? 0) + 1)
       }
     }
@@ -172,12 +175,23 @@ function mentionShareTone(score: number): MetricTone {
   return 'negative'
 }
 
-function competitorMentioned(text: string, brandTokens: readonly string[]): boolean {
+function competitorMentioned(
+  text: string,
+  answerBrandKey: string,
+  brandTokens: readonly string[],
+): boolean {
   for (const token of brandTokens) {
     if (token.length < 3) continue
+    // Word-boundary regex match — fast path, preserves exact phrasing
+    // ("demand-iq" matches "demand-iq" in prose verbatim).
     const escaped = token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    const re = new RegExp(`\\b${escaped}\\b`, 'i')
-    if (re.test(text)) return true
+    if (new RegExp(`\\b${escaped}\\b`, 'i').test(text)) return true
+    // Brand-key match — strips non-alphanumerics so a token like
+    // "demand-iq" also matches "Demand IQ" or "DemandIQ" in answer prose.
+    // Mirrors the project-side normalization in `extractAnswerMentions`
+    // so the competitor matcher and project matcher stay in lockstep.
+    const tokenBrandKey = brandKeyFromText(token)
+    if (tokenBrandKey.length >= 3 && answerBrandKey.includes(tokenBrandKey)) return true
   }
   return false
 }

@@ -395,7 +395,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
     },
     mentionShareSummary: {
       label: 'Mention Share',
-      value: '38%',
+      value: '38',
       delta: '8 of 21 brand mentions',
       tone: 'caution',
       description: 'Downtown Smiles leads on emergency intent; Citypoint trails on availability copy.',
@@ -563,7 +563,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
     },
     mentionShareSummary: {
       label: 'Mention Share',
-      value: '64%',
+      value: '64',
       delta: '11 of 17 brand mentions',
       tone: 'positive',
       description: 'Harbor Law outpaces Shoreline on branded and informational injury prompts.',
@@ -709,7 +709,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
     },
     mentionShareSummary: {
       label: 'Mention Share',
-      value: '21%',
+      value: '21',
       delta: '4 of 19 brand mentions',
       tone: 'negative',
       description: 'Regional Joint Care dominates broad treatment prompts with deeper physician proof.',

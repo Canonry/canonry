@@ -125,6 +125,66 @@ describe('buildMentionShare', () => {
     expect(buildMentionShare(snaps, baseOpts).tone).toBe('negative')
   })
 
+  it('tolerates spacing / hyphenation variants via brand-key match (demand-iq token matches "Demand IQ" prose)', () => {
+    // Mirrors `extractAnswerMentions` brand-key normalization so the
+    // competitor matcher and project matcher stay in lockstep.
+    const competitor: MentionShareCompetitor = { domain: 'demand-iq.com', brandTokens: ['demand-iq'] }
+    const variants = [
+      'Demand IQ is a leading solar CRM.',           // space-separated
+      'DemandIQ integrates with rooftop scanners.',   // concatenated
+      'demand-iq.com is the URL to check out.',       // hyphenated, exact match
+    ]
+    for (const text of variants) {
+      const result = buildMentionShare([snap(false, text)], { competitors: [competitor] })
+      expect(result.breakdown.competitorMentionSnapshots).toBe(1)
+    }
+  })
+
+  it('trusts projectMentioned as-is — does not re-scan answer text for project brand', () => {
+    // Invariant: if the project-side extractor said "not mentioned" but the
+    // answer prose contains the brand, we still trust the extractor. Project
+    // matching is owned by `extractAnswerMentions`; this helper just consumes
+    // the boolean so the two definitions cannot drift.
+    const result = buildMentionShare(
+      [snap(false, 'Acme Corp powers half the answer engines on the market.')],
+      { competitors: [{ domain: 'rival.com', brandTokens: ['rival'] }] },
+    )
+    expect(result.breakdown.projectMentionSnapshots).toBe(0)
+  })
+
+  it('emits negative tone when project never mentioned but competitor surfaces (5/0 split)', () => {
+    // The "zero project" + "real competitor" path was previously absorbed
+    // by the 0/0 neutral branch — verify the tone band actually fires.
+    const snaps: MentionShareSnapshot[] = []
+    for (let i = 0; i < 5; i++) snaps.push(snap(false, `Rival update ${i}`))
+    const result = buildMentionShare(snaps, baseOpts)
+    expect(result.value).toBe('0')
+    expect(result.tone).toBe('negative')
+    expect(result.breakdown.projectMentionSnapshots).toBe(0)
+    expect(result.breakdown.competitorMentionSnapshots).toBe(5)
+  })
+
+  it('shareOfCompetitiveTotal rows sum to ≈100 (within ±0.2 for three-way splits)', () => {
+    // Three competitors each mentioned in 1 snapshot → each gets ~33.3%.
+    // Rounding gives 33.3 × 3 = 99.9 (or 100.1 depending on direction).
+    // Assert the residual stays within a tight band so an agent consumer
+    // can rely on "approximately 100" without exact arithmetic.
+    const competitors: MentionShareCompetitor[] = [
+      { domain: 'one.com', brandTokens: ['oneco'] },
+      { domain: 'two.com', brandTokens: ['twoco'] },
+      { domain: 'three.com', brandTokens: ['threeco'] },
+    ]
+    const snaps: MentionShareSnapshot[] = [
+      snap(false, 'OneCo announcement'),
+      snap(false, 'TwoCo announcement'),
+      snap(false, 'ThreeCo announcement'),
+    ]
+    const result = buildMentionShare(snaps, { competitors })
+    const total = result.breakdown.perCompetitor.reduce((sum, r) => sum + r.shareOfCompetitiveTotal, 0)
+    expect(total).toBeGreaterThanOrEqual(99.8)
+    expect(total).toBeLessThanOrEqual(100.2)
+  })
+
   it('demand-iq replication: project gets crushed by competitors (5 vs 92 across 15 competitors)', () => {
     // Mirrors the empirical finding from plans/sov-rework-analysis.md.
     const competitors: MentionShareCompetitor[] = [
