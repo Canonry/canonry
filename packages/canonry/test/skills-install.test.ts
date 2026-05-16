@@ -7,6 +7,7 @@ import {
   BUNDLED_SKILL_NAMES,
   emitInstallSummary,
   getBundledSkills,
+  getMissingUserSkillsNudge,
   installSkills,
   listSkills,
   parseSkillsClient,
@@ -260,5 +261,50 @@ describe('installSkills --user shortcut', () => {
     } finally {
       fs.rmSync(decoy, { recursive: true, force: true })
     }
+  })
+})
+
+describe('getMissingUserSkillsNudge', () => {
+  let homeDir: string
+
+  beforeEach(() => {
+    homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-skills-nudge-'))
+  })
+
+  afterEach(() => {
+    fs.rmSync(homeDir, { recursive: true, force: true })
+  })
+
+  function seedSkill(name: string): void {
+    const dir = path.join(homeDir, '.claude', 'skills', name)
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(path.join(dir, 'SKILL.md'), '---\nname: x\ndescription: y\n---\n', 'utf-8')
+  }
+
+  it('returns null when both bundled skills are installed', () => {
+    for (const name of BUNDLED_SKILL_NAMES) seedSkill(name)
+    expect(getMissingUserSkillsNudge(homeDir)).toBeNull()
+  })
+
+  it('returns a nudge listing every missing skill when none are installed', () => {
+    const nudge = getMissingUserSkillsNudge(homeDir)
+    expect(nudge).not.toBeNull()
+    expect(nudge!.missing.sort()).toEqual([...BUNDLED_SKILL_NAMES].sort())
+    expect(nudge!.installed).toEqual([])
+    expect(nudge!.message).toContain('canonry skills install --user')
+    expect(nudge!.message).toContain('~/.claude/skills/')
+  })
+
+  it('returns a tailored nudge that names only the missing skill when one is installed', () => {
+    seedSkill('canonry')
+    const nudge = getMissingUserSkillsNudge(homeDir)
+    expect(nudge).not.toBeNull()
+    expect(nudge!.installed).toEqual(['canonry'])
+    expect(nudge!.missing).toEqual(['aero'])
+    expect(nudge!.message).toContain('canonry skills install aero --user')
+  })
+
+  it('returns null when $HOME is undefined (can\'t safely tell)', () => {
+    expect(getMissingUserSkillsNudge(undefined)).toBeNull()
   })
 })
