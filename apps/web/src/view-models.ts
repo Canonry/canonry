@@ -1,4 +1,4 @@
-import type { ProjectDto, RunDto, RunStatus, GroundingSource } from '@ainyc/canonry-contracts'
+import type { ProjectDto, RunDto, RunStatus, GroundingSource, MentionShareDto } from '@ainyc/canonry-contracts'
 
 export type MetricTone = 'positive' | 'caution' | 'negative' | 'neutral'
 export type HealthState = 'checking' | 'ok' | 'error'
@@ -200,8 +200,9 @@ export interface ProjectCommandCenterVm {
   mentionSummary: ScoreSummaryVm
   /** Secondary tile — Citation Coverage (legacy "Answer Visibility"). */
   visibilitySummary: ScoreSummaryVm
-  /** Share of Voice — % of cited-source slots that were the project. */
-  shareOfVoiceSummary: ScoreSummaryVm
+  /** Mention Share — head-to-head competitive metric. Carries breakdown so
+   *  the hero drilldown can render the per-competitor table without re-fetching. */
+  mentionShareSummary: MentionShareDto
   queryCounts: QueryCountsVm
   gapQueries: ScoreSummaryVm
   mentionGaps: ScoreSummaryVm

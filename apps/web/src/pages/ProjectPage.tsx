@@ -1051,6 +1051,54 @@ function formatQueryList(queries: string[], max = 4): string {
   return `${shown}, and ${queries.length - max} more`
 }
 
+function MentionShareBreakdown({
+  summary,
+  projectLabel,
+}: {
+  summary: ProjectCommandCenterVm['mentionShareSummary']
+  projectLabel: string
+}) {
+  const breakdown = summary.breakdown
+  if (breakdown.perCompetitor.length === 0) return null
+  const combinedTotal = breakdown.projectMentionSnapshots + breakdown.competitorMentionSnapshots
+  if (combinedTotal === 0) return null
+
+  // Rows merge the project (you) with each tracked competitor, sorted by
+  // mention count. Share is computed against the combined total so the rows
+  // read as "% of all brand mentions in the run" — matching the headline.
+  const rows = [
+    { label: `${projectLabel} (you)`, mentions: breakdown.projectMentionSnapshots, isYou: true },
+    ...breakdown.perCompetitor.map(c => ({ label: c.domain, mentions: c.mentionSnapshots, isYou: false })),
+  ].sort((a, b) => b.mentions - a.mentions)
+  const maxMentions = rows[0]?.mentions ?? 1
+
+  return (
+    <div className="mention-share-breakdown">
+      <p className="mention-share-breakdown-title">Mention share breakdown</p>
+      <ul className="mention-share-breakdown-rows">
+        {rows.map(row => {
+          const share = (row.mentions / combinedTotal) * 100
+          return (
+            <li key={row.label} className="mention-share-breakdown-row">
+              <span className={`mention-share-breakdown-label ${row.isYou ? 'text-zinc-100 font-medium' : 'text-zinc-400'}`}>
+                {row.label}
+              </span>
+              <div className="mention-share-breakdown-bar">
+                <div
+                  className={`mention-share-breakdown-bar-fill ${row.isYou ? 'bg-emerald-500/70' : 'bg-zinc-500/60'}`}
+                  style={{ width: `${Math.max((row.mentions / maxMentions) * 100, 2)}%` }}
+                />
+              </div>
+              <span className="mention-share-breakdown-count">{row.mentions}</span>
+              <span className="mention-share-breakdown-share">{share.toFixed(1)}%</span>
+            </li>
+          )
+        })}
+      </ul>
+    </div>
+  )
+}
+
 /**
  * Compact inline-SVG sparkline for the per-provider breakdown table. Custom
  * SVG is allowed for sparkline-style visualizations per the design system
@@ -1711,14 +1759,14 @@ export function ProjectPage({
 
       {tab === 'overview' ? (
         <>
-          {/* Hero: three comparable AEO numbers (Mention, Cited, Share of Voice). */}
+          {/* Hero: three comparable AEO numbers (Mention, Cited, Mention Share). */}
           <section className="aeo-hero">
             <p className="aeo-hero-title">AEO performance</p>
             <div className="aeo-hero-rows">
               {([
                 { key: 'mention', label: 'Mentioned', tooltip: 'Your domain or company name was in the answer returned by the LLM.', summary: model.mentionSummary },
                 { key: 'citation', label: 'Cited', tooltip: 'An LLM used a page on your domain as a source for its answer.', summary: model.visibilitySummary },
-                { key: 'sov', label: 'Share of voice', tooltip: 'Of every cited-source slot in the run, the % that was you. 100% = every citation went to you; 10% = on average you got 1 slot in 10.', summary: model.shareOfVoiceSummary },
+                { key: 'mention-share', label: 'Mention share', tooltip: 'Of all brand mentions in answer text across your tracked queries (you + tracked competitors), the % that were you. Head-to-head AI prominence, not market share.', summary: model.mentionShareSummary },
               ] as const).map(row => (
                 <div key={row.key} className="aeo-hero-row">
                   <div className="aeo-hero-row-label">
@@ -1739,6 +1787,10 @@ export function ProjectPage({
                 </div>
               ))}
             </div>
+            <MentionShareBreakdown
+              summary={model.mentionShareSummary}
+              projectLabel={model.project.displayName || model.project.name}
+            />
             {model.providerScores.length > 0 && (
               <p className="aeo-hero-context">
                 Across {model.providerScores.length} {model.providerScores.length === 1 ? 'provider' : 'providers'}.
