@@ -95,10 +95,10 @@ export const projectActivityRoute = createRoute({
   component: () => <ProjectPage tab="activity" />,
 })
 
-export const projectInboundRoute = createRoute({
+export const projectBacklinksRoute = createRoute({
   getParentRoute: () => projectLayoutRoute,
-  path: '/inbound',
-  component: () => <ProjectPage tab="inbound" />,
+  path: '/backlinks',
+  component: () => <ProjectPage tab="backlinks" />,
 })
 
 export const projectSettingsRoute = createRoute({
@@ -167,7 +167,7 @@ export const routeTree = rootRoute.addChildren([
     projectDiscoveryRoute,
     projectReportRoute,
     projectActivityRoute,
-    projectInboundRoute,
+    projectBacklinksRoute,
     projectSettingsRoute,
   ]),
   runsRoute,
