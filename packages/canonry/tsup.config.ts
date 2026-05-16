@@ -11,7 +11,14 @@ export default defineConfig({
   platform: 'node',
   splitting: true,
   clean: true,
-  dts: { entry: { index: 'src/index.ts' } },
+  dts: {
+    entry: { index: 'src/index.ts' },
+    // tsup's DTS step invokes tsc internally; `incremental` inherited from
+    // tsconfig.base.json triggers TS5074 here because there's no emit target
+    // and no tsBuildInfoFile in this path. Force it off — typecheck still
+    // benefits from incremental via the standalone `tsc --noEmit` script.
+    compilerOptions: { incremental: false },
+  },
   // Real npm deps — keep as external (installed by end user)
   external: [
     'better-sqlite3',

@@ -1,0 +1,14 @@
+name: Setup canonry
+description: Install pnpm, Node, and project dependencies. Assumes the repo is already checked out.
+runs:
+  using: composite
+  steps:
+    - uses: pnpm/action-setup@v4
+      with:
+        version: 10.28.2
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 22
+        cache: pnpm
+    - run: pnpm install --frozen-lockfile
+      shell: bash

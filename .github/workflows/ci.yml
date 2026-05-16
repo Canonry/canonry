@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/ci.yml'
+      - '.github/actions/setup/action.yml'
       - '.dockerignore'
       - 'Dockerfile'
       - 'docker/**'
@@ -23,6 +24,7 @@ on:
     # without waiting until rebase-to-main.
     paths:
       - '.github/workflows/ci.yml'
+      - '.github/actions/setup/action.yml'
       - '.dockerignore'
       - 'Dockerfile'
       - 'docker/**'
@@ -37,27 +39,68 @@ on:
       - 'AGENTS.md'
 
 jobs:
-  validate:
+  typecheck:
     runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: ./.github/actions/setup
+      - name: Restore TypeScript incremental cache
+        uses: actions/cache@v4
         with:
-          version: 10.28.2
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
+          path: '**/*.tsbuildinfo'
+          key: tsbuildinfo-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.run_id }}
+          restore-keys: |
+            tsbuildinfo-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-
+            tsbuildinfo-${{ runner.os }}-
+      - run: pnpm run typecheck
+
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - run: pnpm run test
+
+  lint:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
       - run: bash scripts/check-docs.sh
         name: Check documentation coverage (AGENTS.md per package)
-      - run: pnpm run typecheck
-      - run: pnpm run test
       - run: pnpm run lint
+
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
       - run: pnpm -r run build
         name: Build all packages (catches missing deps, bundler errors)
+
+  validate:
+    runs-on: ubuntu-latest
+    needs: [typecheck, test, lint, build]
+    if: always()
+    steps:
+      - name: Verify all validate jobs succeeded
+        run: |
+          if [ "${{ needs.typecheck.result }}" != "success" ] || \
+             [ "${{ needs.test.result }}" != "success" ] || \
+             [ "${{ needs.lint.result }}" != "success" ] || \
+             [ "${{ needs.build.result }}" != "success" ]; then
+            echo "One or more validate jobs failed"
+            exit 1
+          fi
+          echo "All validate jobs passed"
 
   docker-build:
     runs-on: ubuntu-latest
