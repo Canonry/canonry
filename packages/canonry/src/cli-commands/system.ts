@@ -19,7 +19,7 @@ export function applyServerEnv(values: Record<string, unknown>): void {
 export const SYSTEM_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['init'],
-    usage: 'canonry init [--force] [--gemini-key <key>] [--openai-key <key>] [--claude-key <key>] [--perplexity-key <key>] [--local-url <url>] [--local-model <name>] [--local-key <key>] [--google-client-id <id>] [--google-client-secret <key>] [--skip-skills] [--skills-dir <path>] [--format json]',
+    usage: 'canonry init [--force] [--gemini-key <key>] [--openai-key <key>] [--claude-key <key>] [--perplexity-key <key>] [--local-url <url>] [--local-model <name>] [--local-key <key>] [--google-client-id <id>] [--google-client-secret <key>] [--skip-skills] [--skip-mcp] [--skills-dir <path>] [--format json]',
     options: {
       force: { type: 'boolean', short: 'f', default: false },
       'gemini-key': stringOption(),
@@ -32,6 +32,7 @@ export const SYSTEM_CLI_COMMANDS: readonly CliCommandSpec[] = [
       'google-client-id': stringOption(),
       'google-client-secret': stringOption(),
       'skip-skills': { type: 'boolean' },
+      'skip-mcp': { type: 'boolean' },
       'skills-dir': stringOption(),
     },
     allowPositionals: false,
@@ -48,6 +49,7 @@ export const SYSTEM_CLI_COMMANDS: readonly CliCommandSpec[] = [
         googleClientId: getString(input.values, 'google-client-id'),
         googleClientSecret: getString(input.values, 'google-client-secret'),
         skipSkills: getBoolean(input.values, 'skip-skills'),
+        skipMcp: getBoolean(input.values, 'skip-mcp'),
         skillsDir: getString(input.values, 'skills-dir'),
         format: input.format,
       })

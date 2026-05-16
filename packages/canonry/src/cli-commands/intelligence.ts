@@ -1,10 +1,10 @@
 import { listInsights, dismissInsight } from '../commands/insights.js'
 import { showHealth } from '../commands/health-cmd.js'
-import { showOverview } from '../commands/overview.js'
+import { showAllOverviews, showOverview } from '../commands/overview.js'
 import { searchProject } from '../commands/search.js'
 import { showCitationVisibility } from '../commands/citations.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
-import { requireProject, requirePositional, getString, parseIntegerOption } from '../cli-command-helpers.js'
+import { getBoolean, requireProject, requirePositional, getString, parseIntegerOption } from '../cli-command-helpers.js'
 
 export const INTELLIGENCE_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
@@ -54,16 +54,23 @@ export const INTELLIGENCE_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['overview'],
-    usage: 'canonry overview <project> [--location <label>] [--since <iso>] [--format json]',
+    usage: 'canonry overview <project>|--all [--location <label>] [--since <iso>] [--format json]',
     options: {
       location: { type: 'string' },
       since: { type: 'string' },
+      all: { type: 'boolean' },
     },
+    allowPositionals: true,
     run: async (input) => {
-      const usage = 'canonry overview <project> [--location <label>] [--since <iso>] [--format json]'
-      const project = requireProject(input, 'overview', usage)
+      const usage = 'canonry overview <project>|--all [--location <label>] [--since <iso>] [--format json]'
+      const all = getBoolean(input.values, 'all')
       const location = getString(input.values, 'location')
       const since = getString(input.values, 'since')
+      if (all) {
+        await showAllOverviews({ format: input.format, location, since })
+        return
+      }
+      const project = requireProject(input, 'overview', usage)
       await showOverview(project, { format: input.format, location, since })
     },
   },

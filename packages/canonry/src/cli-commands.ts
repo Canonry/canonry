@@ -6,6 +6,7 @@ import { CDP_CLI_COMMANDS } from './cli-commands/cdp.js'
 import { DISCOVER_CLI_COMMANDS } from './cli-commands/discover.js'
 import { DOCTOR_CLI_COMMANDS } from './cli-commands/doctor.js'
 import { GA_CLI_COMMANDS } from './cli-commands/ga.js'
+import { GET_CLI_COMMANDS } from './cli-commands/get.js'
 import { TRAFFIC_CLI_COMMANDS } from './cli-commands/traffic.js'
 import { COMPETITOR_CLI_COMMANDS } from './cli-commands/competitor.js'
 import { GOOGLE_CLI_COMMANDS } from './cli-commands/google.js'
@@ -54,5 +55,6 @@ export const REGISTERED_CLI_COMMANDS: readonly CliCommandSpec[] = [
   ...AGENT_CLI_COMMANDS,
   ...DISCOVER_CLI_COMMANDS,
   ...DOCTOR_CLI_COMMANDS,
+  ...GET_CLI_COMMANDS,
   ...MCP_CLI_COMMANDS,
 ]

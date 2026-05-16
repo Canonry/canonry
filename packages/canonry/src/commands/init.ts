@@ -10,6 +10,7 @@ import { createClient, migrate } from '@ainyc/canonry-db'
 import { apiKeys } from '@ainyc/canonry-db'
 import { CliError, type CliFormat } from '../cli-error.js'
 import { installSkills, type SkillsInstallSummary } from './skills.js'
+import { installMcp, type McpInstallResult } from './mcp.js'
 
 function prompt(question: string): Promise<string> {
   const rl = readline.createInterface({
@@ -54,6 +55,7 @@ export interface InitOptions {
   agentModel?: string
   skipSkills?: boolean
   skillsDir?: string
+  skipMcp?: boolean
   format?: CliFormat
 }
 
@@ -288,6 +290,33 @@ export async function initCommand(opts?: InitOptions): Promise<ResolvedAgentLLM 
     }
   }
 
+  // MCP auto-discovery — when the cwd is project-like, drop a `.mcp.json`
+  // alongside the skills install so a Claude Code session opening in this
+  // directory picks up the canonry MCP server automatically. Project scope
+  // (not global ~/.claude.json) so other projects aren't affected. The same
+  // installMcp pipeline `canonry mcp install --client claude-code` uses, so
+  // the auto-install and the explicit install converge on identical output.
+  let mcpSummary: McpInstallResult | undefined
+  let mcpTip: string | undefined
+  if (!opts?.skipMcp) {
+    const mcpTarget = opts?.skillsDir ?? process.cwd()
+    if (cwdLooksLikeProject(mcpTarget)) {
+      try {
+        const previousCwd = process.cwd()
+        try {
+          if (opts?.skillsDir) process.chdir(opts.skillsDir)
+          mcpSummary = await installMcp({ client: 'claude-code', silent: true })
+        } finally {
+          process.chdir(previousCwd)
+        }
+      } catch (err) {
+        mcpTip = `MCP auto-install failed: ${err instanceof Error ? err.message : String(err)}. Run "canonry mcp install --client claude-code" manually.`
+      }
+    } else {
+      mcpTip = 'Run "canonry mcp install --client claude-code" in a project directory to register the canonry MCP server in `.mcp.json` for Claude Code sessions.'
+    }
+  }
+
   const nextSteps = buildNextSteps()
 
   if (format === 'json') {
@@ -301,6 +330,8 @@ export async function initCommand(opts?: InitOptions): Promise<ResolvedAgentLLM 
       googleConfigured: !!google,
       skills: skillsSummary,
       skillsTip,
+      mcp: mcpSummary,
+      mcpTip,
       nextSteps,
     }, null, 2))
   } else {
@@ -313,6 +344,11 @@ export async function initCommand(opts?: InitOptions): Promise<ResolvedAgentLLM 
       console.log(`Skills target: ${skillsSummary.targetDir}`)
     }
     if (skillsTip) console.log(`\n${skillsTip}`)
+    if (mcpSummary) {
+      console.log(`\nMCP server "${mcpSummary.serverName}" ${mcpSummary.status} for Claude Code at ${mcpSummary.configPath}.`)
+      console.log('Claude Code sessions opened in this directory will pick it up automatically.')
+    }
+    if (mcpTip) console.log(`\n${mcpTip}`)
   }
 
   // Resolve agent LLM config — from flags, or interactive prompt
