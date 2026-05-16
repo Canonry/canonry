@@ -123,15 +123,25 @@ export function SetupPage() {
   // of the previous "queued — open project page" handoff. Refetches every
   // 2s while the run is in flight, then stops once a terminal status
   // (`completed`/`partial`/`failed`/`cancelled`) lands.
+  //
+  // `refetchIntervalInBackground: true` is load-bearing: without it,
+  // react-query v5 silently suppresses interval refetches whenever the
+  // tab loses focus (real user alt-tabbing during the 30-60s sweep, or
+  // any headless test environment). Symptom was: server completes the
+  // run, dashboard surfaces the result toast, but the wizard's Step 5
+  // card stays "Running" forever. Diagnosed via a remote PR walkthrough
+  // where the failure toast fired on the dashboard while the wizard
+  // card remained amber.
   const launchedRun = useQuery({
     queryKey: ['setup', 'launched-run', launchedRunId],
     queryFn: () => fetchRunDetail(launchedRunId!),
     enabled: !!launchedRunId,
-    refetchInterval: (q) => {
-      const status = q.state.data?.status
+    refetchInterval: ({ state }) => {
+      const status = state.data?.status
       const terminal = status === 'completed' || status === 'partial' || status === 'failed' || status === 'cancelled'
       return terminal ? false : 2000
     },
+    refetchIntervalInBackground: true,
   })
 
   // Inline provider key entry for Step 1. Replaces the prior "go to /settings"
@@ -169,7 +179,12 @@ export function SetupPage() {
         dedupeKey: `project:create:${project.name}`,
         dedupeMode: 'drop',
       })
-      void refetch()
+      // Await the dashboard refetch before advancing the step so the new
+      // project's row is in cache by the time Step 2's "Created" badge
+      // and Step 3's createdProjectName-dependent render run. Prior
+      // `void refetch()` raced with `setStep`, occasionally leaving the
+      // step indicator at 2 while the card content reverted to step 1.
+      await refetch()
       setStep(2)
     } catch (err) {
       setProjectError(err instanceof Error ? err.message : 'Failed to create project')
@@ -187,7 +202,7 @@ export function SetupPage() {
     try {
       await setQueries(createdProjectName, queries)
       setQueriesSaved(true)
-      void refetch()
+      await refetch()
       setStep(3)
     } catch (err) {
       setQueriesError(err instanceof Error ? err.message : 'Failed to save queries')
@@ -224,7 +239,7 @@ export function SetupPage() {
     try {
       await setCompetitors(createdProjectName, competitors)
       setCompetitorsSaved(true)
-      void refetch()
+      await refetch()
       setStep(4)
     } catch (err) {
       setCompetitorsError(err instanceof Error ? err.message : 'Failed to save competitors')
@@ -269,7 +284,7 @@ export function SetupPage() {
       })
       setLaunchedRunId(run.id)
       setRunTriggered(true)
-      void refetch()
+      await refetch()
     } catch {
       // Mutation hook surfaces the toast and error state.
     } finally {
