@@ -195,6 +195,7 @@ export interface ProjectCommandCenterVm {
   visibilitySummary: ScoreSummaryVm
   queryCounts: QueryCountsVm
   gapQueries: ScoreSummaryVm
+  mentionGaps: ScoreSummaryVm
   indexCoverage: ScoreSummaryVm
   providerScores: { provider: string; model: string | null; score: number; cited: number; total: number }[]
   competitorPressure: ScoreSummaryVm

@@ -56,8 +56,8 @@ test('project route renders a single command center with visibility sections', a
   expect(html).toMatch(/Citypoint Dental NYC/)
   expect(html).toMatch(/Overview/)
   expect(html).toMatch(/Search Engine Intelligence/)
-  expect(html).toMatch(/Citation signals/)
-  expect(html).toMatch(/Query citation tracking/)
+  expect(html).toMatch(/Opportunities/)
+  expect(html).toMatch(/What the LLMs said/)
   expect(html).toMatch(/Recent execution history/)
 })
 
@@ -159,7 +159,7 @@ test('project search console route renders the Search Engine Intelligence sectio
   expect(html).toMatch(/Bing Webmaster Tools/)
   expect(html).not.toMatch(/Bing \(OpenAI\)/)
   expect(html).not.toMatch(/Operator snapshot/)
-  expect(html).not.toMatch(/Citation signals/)
+  expect(html).not.toMatch(/Opportunities/)
 })
 
 test('fetchServiceStatus reports ok details from a health payload', async () => {
