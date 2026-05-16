@@ -1074,6 +1074,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
           pageSize,
           maxPages,
           firstSync: isFirstSync,
+          requestUrlSubstrings: [project.canonicalDomain],
         })
         allEvents = page.events
       } catch (e) {
@@ -1550,6 +1551,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
           // dedupedEvents anyway.
           firstSync: false,
           orderBy: 'timestamp asc',
+          requestUrlSubstrings: [project.canonicalDomain],
         })
         return page.events
       }
