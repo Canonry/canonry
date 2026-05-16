@@ -69,7 +69,7 @@ import { useDrawer } from '../hooks/use-drawer.js'
 import { findProjectVm } from '../mock-data.js'
 import type { ProjectCommandCenterVm, RunHistoryPoint } from '../view-models.js'
 
-export type ProjectPageTab = 'overview' | 'search-console' | 'discovery' | 'report' | 'activity' | 'inbound'
+export type ProjectPageTab = 'overview' | 'search-console' | 'discovery' | 'report' | 'activity' | 'inbound' | 'settings'
 
 type SearchConsoleWorkspace = 'google' | 'bing'
 
@@ -1362,6 +1362,7 @@ export function ProjectPage({
     { key: 'report', label: 'Report', href: `/projects/${model.project.id}/report` },
     { key: 'inbound', label: 'Inbound', href: `/projects/${model.project.id}/inbound` },
     { key: 'discovery', label: 'Discovery', href: `/projects/${model.project.id}/discovery` },
+    { key: 'settings', label: 'Settings', href: `/projects/${model.project.id}/settings` },
   ]
 
   return (
@@ -1873,6 +1874,9 @@ export function ProjectPage({
             </div>
           </section>
 
+        </>
+      ) : tab === 'settings' ? (
+        <>
           <ProjectSettingsSection project={{ ...model.project, displayName: model.project.displayName ?? model.project.name, defaultLocation: model.project.defaultLocation ?? null }} onUpdateProject={handleUpdateProject} onRefresh={() => void refetch()} />
           <ScheduleSection projectName={model.project.name} />
           <NotificationsSection projectName={model.project.name} />
