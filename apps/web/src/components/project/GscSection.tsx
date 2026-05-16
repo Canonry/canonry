@@ -525,29 +525,6 @@ export function GscSection({
 
   return (
     <section className="page-section-divider">
-      <div className="section-head section-head-inline">
-        <div>
-          <p className="eyebrow eyebrow-soft">Search Console</p>
-          <h2>Google Search Console</h2>
-        </div>
-        <div className="flex gap-1">
-          {GSC_WINDOWS.map(w => (
-            <button
-              key={w}
-              type="button"
-              className={`px-3 py-1 text-xs rounded-full border transition-colors ${
-                gscWindow === w
-                  ? 'bg-zinc-700 border-zinc-600 text-zinc-50'
-                  : 'border-zinc-800 text-zinc-400 hover:border-zinc-700 hover:text-zinc-300'
-              }`}
-              onClick={() => setGscWindow(w)}
-            >
-              {w === 'all' ? 'All' : w}
-            </button>
-          ))}
-        </div>
-      </div>
-
       {error && (
         <div className="mb-3 rounded-lg border border-rose-800/40 bg-rose-950/20 px-3 py-2 text-sm text-rose-300">
           {error}
@@ -993,9 +970,29 @@ export function GscSection({
                     <p className="eyebrow eyebrow-soft">Performance</p>
                     <h3>Search performance</h3>
                   </div>
-                  <Button type="button" variant="outline" size="sm" disabled={loadingPerformance} onClick={() => { setPerformanceOffset(0); void loadPerformanceRows(0) }}>
-                    {loadingPerformance ? 'Loading\u2026' : 'Apply filters'}
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    <div className="flex gap-1" role="tablist" aria-label="Performance window">
+                      {GSC_WINDOWS.map(w => (
+                        <button
+                          key={w}
+                          type="button"
+                          role="tab"
+                          aria-selected={gscWindow === w}
+                          className={`px-2.5 py-1 text-xs rounded-full border transition-colors ${
+                            gscWindow === w
+                              ? 'bg-zinc-700 border-zinc-600 text-zinc-50'
+                              : 'border-zinc-800 text-zinc-400 hover:border-zinc-700 hover:text-zinc-300'
+                          }`}
+                          onClick={() => setGscWindow(w)}
+                        >
+                          {w === 'all' ? 'All' : w}
+                        </button>
+                      ))}
+                    </div>
+                    <Button type="button" variant="outline" size="sm" disabled={loadingPerformance} onClick={() => { setPerformanceOffset(0); void loadPerformanceRows(0) }}>
+                      {loadingPerformance ? 'Loading\u2026' : 'Apply filters'}
+                    </Button>
+                  </div>
                 </div>
 
                 {/* Clicks + Impressions bar chart */}
