@@ -15,7 +15,10 @@ function buildApp(opts: Partial<Omit<ApiRoutesOptions, 'db'>> = {}) {
   migrate(db)
 
   const app = Fastify()
-  app.register(apiRoutes, { db, skipAuth: false, ...opts })
+  // Google routes register only when a state secret is configured; the
+  // public-route exception test below covers /google/callback, so seed a
+  // dummy secret to keep that surface mounted under test.
+  app.register(apiRoutes, { db, skipAuth: false, googleStateSecret: 'test-only-google-state-secret-32b', ...opts })
 
   return { app, db, tmpDir }
 }

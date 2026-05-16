@@ -117,7 +117,37 @@ async function getValidToken(
 }
 
 export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptions) {
-  const stateSecret = opts.googleStateSecret ?? 'insecure-default-secret'
+  // State signing is the only thing keeping an attacker from forging an OAuth
+  // callback that lands a connection on an account they control — there is no
+  // safe "default" secret. Three states:
+  //
+  //   - undefined: operator hasn't wired Google at all. Skip route
+  //     registration with a warning; Google endpoints respond 404, no attack
+  //     surface. Cloud (apps/api) inherits this when GOOGLE_STATE_SECRET is
+  //     unset — secure default.
+  //
+  //   - empty string OR the legacy literal 'insecure-default-secret': active
+  //     misconfiguration. Throw at registration so the operator catches it at
+  //     boot.
+  //
+  //   - any other value: register normally.
+  if (opts.googleStateSecret === undefined) {
+    app.log.warn(
+      'googleStateSecret is not configured — Google OAuth routes will not be registered. Set GOOGLE_STATE_SECRET to enable Google integrations.',
+    )
+    return
+  }
+  if (opts.googleStateSecret === '') {
+    throw new Error(
+      'googleStateSecret is empty. Set a non-empty secret (e.g. `openssl rand -hex 32`) via the GOOGLE_STATE_SECRET environment variable.',
+    )
+  }
+  if (opts.googleStateSecret === 'insecure-default-secret') {
+    throw new Error(
+      'googleStateSecret is set to the legacy insecure default. Generate a real secret (e.g. `openssl rand -hex 32`) and set GOOGLE_STATE_SECRET.',
+    )
+  }
+  const stateSecret = opts.googleStateSecret
 
   function getAuthConfig() {
     return opts.getGoogleAuthConfig?.() ?? {}

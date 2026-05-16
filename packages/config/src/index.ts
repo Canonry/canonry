@@ -36,6 +36,10 @@ const envSchema = z.object({
   PERPLEXITY_MAX_CONCURRENCY: z.coerce.number().int().positive().default(2),
   PERPLEXITY_MAX_REQUESTS_PER_MINUTE: z.coerce.number().int().positive().default(10),
   PERPLEXITY_MAX_REQUESTS_PER_DAY: z.coerce.number().int().positive().default(1000),
+  // Secret for HMAC-signing Google OAuth state parameters. Required for
+  // cloud deployments that mount googleRoutes; the plugin refuses to register
+  // without it (see packages/api-routes/src/google.ts).
+  GOOGLE_STATE_SECRET: z.string().optional(),
 })
 
 export interface ProviderEnvConfig {
@@ -76,6 +80,13 @@ export interface PlatformEnv {
   webPort: number
   basePath: string
   bootstrapSecret: string
+  /**
+   * Required for cloud deployments that expose Google OAuth routes. Sourced
+   * from `GOOGLE_STATE_SECRET`. Undefined when unset — the api-routes plugin
+   * will refuse to register googleRoutes in that case, which is the secure
+   * default.
+   */
+  googleStateSecret?: string
   providers: {
     gemini?: ProviderEnvConfig
     openai?: ProviderEnvConfig
@@ -169,6 +180,7 @@ export function getPlatformEnv(source: NodeJS.ProcessEnv): PlatformEnv {
     webPort: parsed.WEB_PORT,
     basePath: parsed.CANONRY_BASE_PATH,
     bootstrapSecret: parsed.BOOTSTRAP_SECRET,
+    googleStateSecret: parsed.GOOGLE_STATE_SECRET,
     providers,
   }
 }
