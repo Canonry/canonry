@@ -152,12 +152,17 @@ export interface AffectedPhrase {
   citationState: CitationState
 }
 
+/** What kind of operator action this insight calls for. Used to group the
+ *  Opportunities panel as Write / Investigate / Monitor cards. */
+export type InsightActionGroup = 'write' | 'investigate' | 'monitor'
+
 export interface ProjectInsightVm {
   id: string
   tone: MetricTone
   title: string
   detail: string
   actionLabel: string
+  actionGroup: InsightActionGroup
   evidenceId?: string
   affectedPhrases: AffectedPhrase[]
 }
@@ -201,7 +206,7 @@ export interface ProjectCommandCenterVm {
   gapQueries: ScoreSummaryVm
   mentionGaps: ScoreSummaryVm
   indexCoverage: ScoreSummaryVm
-  providerScores: { provider: string; model: string | null; score: number; cited: number; total: number }[]
+  providerScores: { provider: string; model: string | null; score: number; cited: number; total: number; trend?: number[] }[]
   competitorPressure: ScoreSummaryVm
   runStatus: ScoreSummaryVm
   movementSummary: MovementSummaryVm

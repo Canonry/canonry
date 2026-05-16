@@ -521,6 +521,10 @@ function adaptOverviewToCommandCenter(
       title: item.title,
       detail: item.detail,
       actionLabel: item.actionLabel,
+      // Server-synthesized attention items (e.g. stale_visibility) are
+      // diagnostic by nature — they tell the operator something needs
+      // attention. Group as investigate.
+      actionGroup: 'investigate',
       affectedPhrases: [],
     })
   }

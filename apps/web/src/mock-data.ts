@@ -458,6 +458,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
         title: 'Lost citation on 1 query',
         detail: 'Emergency-intent prompts stopped grounding Citypoint after competitors refreshed.',
         actionLabel: 'Lost',
+        actionGroup: 'investigate',
         affectedPhrases: [{
           query: 'emergency dentist brooklyn',
           evidenceId: 'evidence_citypoint_emergency_gemini',
@@ -471,6 +472,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
         title: 'New citation on 1 query',
         detail: 'Case-study content is earning citations on Invisalign prompts.',
         actionLabel: 'Emerging',
+        actionGroup: 'monitor',
         affectedPhrases: [{
           query: 'best invisalign dentist downtown brooklyn',
           evidenceId: 'evidence_citypoint_invisalign_openai',
@@ -484,6 +486,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
         title: '1 query not cited by any provider',
         detail: 'No dedicated neighborhood page to support pediatric queries.',
         actionLabel: 'Gap',
+        actionGroup: 'write',
         affectedPhrases: [{
           query: 'pediatric dentist brooklyn heights',
           evidenceId: 'evidence_citypoint_children_claude',
@@ -612,6 +615,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
         title: 'Practice-area clustering is paying off',
         detail: 'Merged legal service pages now ground broader informational prompts.',
         actionLabel: 'Cited',
+        actionGroup: 'monitor',
         affectedPhrases: [{
           query: 'brooklyn personal injury lawyer',
           evidenceId: 'evidence_harbor_personal_injury',
@@ -625,6 +629,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
         title: 'No significant changes',
         detail: 'No new displacement on borough-specific injury prompts this week.',
         actionLabel: 'Stable',
+        actionGroup: 'monitor',
         affectedPhrases: [],
       },
     ],
@@ -746,6 +751,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
         title: 'Location pages need stronger proof',
         detail: 'Answers prefer competitors with physician-specific evidence.',
         actionLabel: 'Gap',
+        actionGroup: 'write',
         affectedPhrases: [{
           query: 'knee replacement surgeon westchester',
           evidenceId: 'evidence_northstar_knee',
@@ -1074,6 +1080,7 @@ export function createDashboardFixture(options: DashboardFixtureOptions = {}): D
         title: 'Sharp citation drop detected',
         detail: 'Answers that previously cited the domain now ground competitors on both local and service-intent prompts.',
         actionLabel: 'Lost',
+        actionGroup: 'investigate',
         affectedPhrases: project.visibilityEvidence
           .filter(e => e.citationState === 'lost')
           .slice(0, 5)

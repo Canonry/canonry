@@ -54,11 +54,13 @@ import {
   buildMovementSummary,
   buildOverviewCompetitors,
   buildProviderScores,
+  buildProviderTrends,
   buildRunHistory,
   buildMentionCoverage,
   buildShareOfVoice,
   buildVisibilityScore,
   DEFAULT_RUN_HISTORY_LIMIT,
+  providerKey,
 } from '@ainyc/canonry-intelligence'
 import { resolveProject } from './helpers.js'
 
@@ -216,7 +218,16 @@ export async function compositeRoutes(app: FastifyInstance) {
     const movementSummary = buildMovementSummary(latestSnapshots, previousSnapshots, {
       queryLookup: queryLookup.byId,
     })
-    const providerScores = buildProviderScores(latestSnapshots)
+    const providerScoresBase = buildProviderScores(latestSnapshots)
+    const providerTrends = buildProviderTrends(
+      visibilityRuns.slice(0, DEFAULT_RUN_HISTORY_LIMIT).map(r => ({ id: r.id, createdAt: r.createdAt })),
+      snapshotsByRun,
+      DEFAULT_RUN_HISTORY_LIMIT,
+    )
+    const providerScores: ProjectOverviewProviderScoreDto[] = providerScoresBase.map(score => {
+      const trend = providerTrends.get(providerKey(score.provider, score.model)) ?? []
+      return trend.length > 1 ? { ...score, trend: trend.map(p => p.rate) } : score
+    })
     const overviewCompetitors: ProjectOverviewCompetitorDto[] = buildOverviewCompetitors(
       latestSnapshots,
       competitorRows.map(c => ({ id: c.id, domain: c.domain })),

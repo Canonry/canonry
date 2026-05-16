@@ -1051,6 +1051,71 @@ function formatQueryList(queries: string[], max = 4): string {
   return `${shown}, and ${queries.length - max} more`
 }
 
+/**
+ * Compact inline-SVG sparkline for the per-provider breakdown table. Custom
+ * SVG is allowed for sparkline-style visualizations per the design system
+ * (Recharts is overkill for a 12-point trend at 96px wide). Color is tone-
+ * driven from the most recent point so a row reads at a glance.
+ */
+function ProviderTrendSparkline({
+  trend,
+  currentScore,
+}: {
+  trend?: number[]
+  currentScore: number
+}) {
+  if (!trend || trend.length < 2) {
+    return <span className="text-[11px] text-zinc-600">—</span>
+  }
+  const w = 96
+  const h = 24
+  const max = 100
+  const stepX = trend.length > 1 ? w / (trend.length - 1) : 0
+  const pts = trend.map((v, i) => `${(i * stepX).toFixed(2)},${(h - (v / max) * h).toFixed(2)}`).join(' ')
+  const stroke = currentScore >= 70
+    ? 'rgb(52 211 153)' // emerald-400
+    : currentScore >= 40
+      ? 'rgb(251 191 36)' // amber-400
+      : 'rgb(251 113 133)' // rose-400
+  const dotX = (trend.length - 1) * stepX
+  const dotY = h - (trend[trend.length - 1]! / max) * h
+  return (
+    <svg
+      width={w}
+      height={h}
+      viewBox={`0 0 ${w} ${h}`}
+      className="overflow-visible"
+      aria-label={`Trend ${trend.join(', ')}`}
+      role="img"
+    >
+      <polyline
+        points={pts}
+        fill="none"
+        stroke={stroke}
+        strokeWidth={1.5}
+        strokeLinejoin="round"
+        strokeLinecap="round"
+      />
+      <circle cx={dotX} cy={dotY} r={2.5} fill={stroke} />
+    </svg>
+  )
+}
+
+const ACTION_GROUP_META: Record<'write' | 'investigate' | 'monitor', { title: string; subtitle: string }> = {
+  write: {
+    title: 'Write or update content',
+    subtitle: 'Queries with no answer, persistent gaps, or competitors winning the spot',
+  },
+  investigate: {
+    title: 'Investigate what changed',
+    subtitle: 'Citations or mentions you lost since the previous run',
+  },
+  monitor: {
+    title: 'Keep monitoring',
+    subtitle: 'Gains, new providers picking you up, holding ground',
+  },
+}
+
 function InsightSignals({
   insights,
 }: {
@@ -1059,62 +1124,87 @@ function InsightSignals({
   const { openEvidence } = useDrawer()
   const [expandedId, setExpandedId] = useState<string | null>(null)
 
-  return (
-    <div className="insight-list">
-      {insights.map((insight) => {
-        const isExpanded = expandedId === insight.id
-        const hasAffected = insight.affectedPhrases.length > 0
+  if (insights.length === 0) {
+    return (
+      <p className="text-sm text-zinc-500">
+        No outstanding opportunities. Trigger a sweep to surface fresh signals.
+      </p>
+    )
+  }
 
+  const groups: Array<'write' | 'investigate' | 'monitor'> = ['write', 'investigate', 'monitor']
+  const grouped = new Map<string, typeof insights>()
+  for (const ins of insights) {
+    const bucket = grouped.get(ins.actionGroup) ?? []
+    bucket.push(ins)
+    grouped.set(ins.actionGroup, bucket)
+  }
+
+  return (
+    <div className="opportunities-grid">
+      {groups.map(group => {
+        const items = grouped.get(group)
+        if (!items || items.length === 0) return null
+        const meta = ACTION_GROUP_META[group]
         return (
-          <div key={insight.id}>
-            <div
-              className={`insight-row insight-row-${insight.tone} ${hasAffected ? 'cursor-pointer' : ''}`}
-              onClick={hasAffected ? () => setExpandedId(isExpanded ? null : insight.id) : undefined}
-            >
-              <div className="flex items-center gap-2 min-w-0">
-                {hasAffected && (
-                  <ChevronRight
-                    size={12}
-                    className={`shrink-0 text-zinc-500 transition-transform duration-150 ${isExpanded ? 'rotate-90' : ''}`}
-                  />
-                )}
-                <ToneBadge tone={insight.tone}>{insight.actionLabel}</ToneBadge>
-                <span className="text-sm font-medium text-zinc-100 truncate">{insight.title}</span>
-                <span className="hidden sm:inline text-xs text-zinc-500 truncate">{insight.detail}</span>
-              </div>
-              {hasAffected && (
-                <span className="text-[11px] text-zinc-600 whitespace-nowrap">
-                  {insight.affectedPhrases.length} phrase{insight.affectedPhrases.length > 1 ? 's' : ''}
-                </span>
-              )}
+          <div key={group} className={`opportunity-card opportunity-card-${group}`}>
+            <div className="opportunity-card-head">
+              <p className="opportunity-card-title">{meta.title}</p>
+              <span className="opportunity-card-count">{items.length}</span>
             </div>
-            {isExpanded && (
-              <div className="divide-y divide-zinc-800/20">
-                {insight.affectedPhrases.map((ap, i) => (
-                  <div
-                    key={ap.evidenceId || `${insight.id}-${i}`}
-                    className="flex items-center justify-between gap-3 px-4 py-2 pl-9 bg-zinc-900/40"
-                  >
-                    <div className="flex items-center gap-2 min-w-0">
-                      <CitationBadge state={ap.citationState} />
-                      <span className="text-sm text-zinc-200 truncate">{ap.query}</span>
-                      <div className="hidden sm:flex gap-1">
-                        {ap.provider && <ProviderBadge provider={ap.provider} />}
+            <p className="opportunity-card-subtitle">{meta.subtitle}</p>
+            <div className="opportunity-card-list">
+              {items.map((insight) => {
+                const isExpanded = expandedId === insight.id
+                const hasAffected = insight.affectedPhrases.length > 0
+                return (
+                  <div key={insight.id}>
+                    <div
+                      className={`opportunity-item opportunity-item-${insight.tone} ${hasAffected ? 'cursor-pointer' : ''}`}
+                      onClick={hasAffected ? () => setExpandedId(isExpanded ? null : insight.id) : undefined}
+                    >
+                      <div className="flex items-start gap-1.5 min-w-0">
+                        {hasAffected && (
+                          <ChevronRight
+                            size={12}
+                            className={`mt-1 shrink-0 text-zinc-500 transition-transform duration-150 ${isExpanded ? 'rotate-90' : ''}`}
+                          />
+                        )}
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-zinc-100 leading-snug">{insight.title}</p>
+                          {insight.detail && <p className="text-[11px] text-zinc-500 mt-0.5 leading-snug">{insight.detail}</p>}
+                        </div>
                       </div>
                     </div>
-                    {ap.evidenceId && (
-                      <button
-                        type="button"
-                        className="text-xs text-zinc-400 hover:text-zinc-200 whitespace-nowrap transition-colors"
-                        onClick={(e) => { e.stopPropagation(); openEvidence(ap.evidenceId) }}
-                      >
-                        View &rarr;
-                      </button>
+                    {isExpanded && (
+                      <div className="opportunity-item-detail">
+                        {insight.affectedPhrases.map((ap, i) => (
+                          <div
+                            key={ap.evidenceId || `${insight.id}-${i}`}
+                            className="flex items-center justify-between gap-2"
+                          >
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <CitationBadge state={ap.citationState} />
+                              <span className="text-xs text-zinc-300 truncate">{ap.query}</span>
+                              {ap.provider && <ProviderBadge provider={ap.provider} />}
+                            </div>
+                            {ap.evidenceId && (
+                              <button
+                                type="button"
+                                className="text-[11px] text-zinc-400 hover:text-zinc-200 whitespace-nowrap"
+                                onClick={(e) => { e.stopPropagation(); openEvidence(ap.evidenceId) }}
+                              >
+                                View →
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
                     )}
                   </div>
-                ))}
-              </div>
-            )}
+                )
+              })}
+            </div>
           </div>
         )
       })}
@@ -1869,7 +1959,7 @@ export function ProjectPage({
               <div className="section-head section-head-inline">
                 <div>
                   <p className="eyebrow eyebrow-soft">Model breakdown</p>
-                  <h2>Visibility by model <InfoTooltip text="Per-model citation rate. Shows how often each AI model cites your domain across all tracked queries. Switching models can significantly affect citation rates." /></h2>
+                  <h2>Visibility by model <InfoTooltip text="Per-model citation rate today plus a sparkline of the recent run history. Same query set, different LLMs — gaps between providers point at content / source issues, not the metric." /></h2>
                 </div>
               </div>
               <div className="evidence-table-wrap">
@@ -1878,6 +1968,7 @@ export function ProjectPage({
                     <tr>
                       <th>Model</th>
                       <th>Score</th>
+                      <th>Trend</th>
                       <th>Cited queries</th>
                     </tr>
                   </thead>
@@ -1894,6 +1985,9 @@ export function ProjectPage({
                           <span className={`font-semibold ${ps.score >= 70 ? 'text-emerald-400' : ps.score >= 40 ? 'text-amber-400' : 'text-rose-400'}`}>
                             {ps.score}%
                           </span>
+                        </td>
+                        <td>
+                          <ProviderTrendSparkline trend={ps.trend} currentScore={ps.score} />
                         </td>
                         <td className="text-zinc-500">{ps.cited} of {ps.total}</td>
                       </tr>
