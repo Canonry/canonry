@@ -26,7 +26,10 @@ function buildObservedApp(opts: Partial<Omit<ApiRoutesOptions, 'db'>> = {}): Rou
       observedRoutes.push({ method: String(method), url: route.url })
     }
   })
-  app.register(apiRoutes, { db, skipAuth: true, ...opts })
+  // Google routes register only when a state secret is configured; this
+  // contract test enumerates every public path including Google's, so seed
+  // a dummy secret to keep that surface mounted under test.
+  app.register(apiRoutes, { db, skipAuth: true, googleStateSecret: 'test-only-google-state-secret-32b', ...opts })
 
   return { app, observedRoutes, tmpDir }
 }

@@ -30,6 +30,7 @@ export function buildApp(env: PlatformEnv) {
       version: '0.1.0',
     },
     providerSummary,
+    googleStateSecret: env.googleStateSecret,
   })
 
   registerHealthRoutes(app, env)
