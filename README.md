@@ -1,4 +1,4 @@
-# Canonry <img src="apps/web/public/favicon-32.png" alt="Canonry canary icon" width="24" />
+# Canonry <img src="https://raw.githubusercontent.com/AINYC/canonry/main/apps/web/public/favicon-32.png" alt="Canonry canary icon" width="24" />
 
 [![npm version](https://img.shields.io/npm/v/@ainyc/canonry)](https://www.npmjs.com/package/@ainyc/canonry) [![Node.js >= 22.14](https://img.shields.io/badge/node-%3E%3D22.14-brightgreen)](https://nodejs.org)
 
@@ -16,7 +16,7 @@
 
 Every dashboard view has a matching CLI command and API endpoint. The CLI is the surface; the UI consumes the same API your agent does.
 
-![Canonry Dashboard](docs/images/dashboard.png)
+![Canonry Dashboard](https://raw.githubusercontent.com/AINYC/canonry/main/docs/images/dashboard.png)
 
 ## Run your first AI visibility check in 5 minutes
 
