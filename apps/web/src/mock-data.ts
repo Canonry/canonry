@@ -393,6 +393,15 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       description: 'Lost citation share on emergency-intent prompts while Invisalign visibility improved.',
       trend: [73, 71, 69, 66, 61],
     },
+    shareOfVoiceSummary: {
+      label: 'Share of Voice',
+      value: '18',
+      delta: '12 of 67 cited slots',
+      tone: 'caution',
+      description: 'Competitors hold 41% of cited slots; the remaining 41% goes to non-competitive sources.',
+      trend: [22, 21, 20, 19, 18],
+      progress: 18,
+    },
     gapQueries: {
       label: 'Citation Gaps',
       value: '1',
@@ -539,6 +548,15 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       description: 'Branded prompts are stable and informational queries are gradually improving.',
       trend: [68, 70, 71, 73, 74],
     },
+    shareOfVoiceSummary: {
+      label: 'Share of Voice',
+      value: '34',
+      delta: '38 of 112 cited slots',
+      tone: 'positive',
+      description: 'Competitors hold 28% of cited slots; the remaining 38% goes to non-competitive sources.',
+      trend: [29, 30, 32, 33, 34],
+      progress: 34,
+    },
     gapQueries: {
       label: 'Citation Gaps',
       value: '0',
@@ -664,6 +682,15 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       tone: 'neutral',
       description: 'The current run is measuring whether treatment-location pages improved citation breadth.',
       trend: [52, 54, 55, 57, 58],
+    },
+    shareOfVoiceSummary: {
+      label: 'Share of Voice',
+      value: '12',
+      delta: '9 of 75 cited slots',
+      tone: 'negative',
+      description: 'Competitors hold 49% of cited slots; the remaining 39% goes to non-competitive sources.',
+      trend: [16, 15, 14, 13, 12],
+      progress: 12,
     },
     gapQueries: {
       label: 'Citation Gaps',

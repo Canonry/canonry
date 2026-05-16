@@ -229,6 +229,8 @@ describe('GET /api/v1/projects/:name/overview', () => {
       lost: 0,
       tone: 'positive',
       hasPreviousRun: true,
+      gainedQueries: ['aeo monitoring'],
+      lostQueries: [],
     })
 
     expect(body.providerScores).toEqual(
