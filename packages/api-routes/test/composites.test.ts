@@ -10,6 +10,7 @@ import {
   migrate,
   insights,
   gscCoverageSnapshots,
+  gscSearchData,
   gscUrlInspections,
   healthSnapshots,
   queries,
@@ -263,6 +264,13 @@ describe('GET /api/v1/projects/:name/overview', () => {
 
     expect(body.dateRangeLabel).toBe('All time')
     expect(body.contextLabel).toBe('US / EN')
+
+    // Suggested queries — seed has no GSC search data, so the panel is empty.
+    expect(body.suggestedQueries).toEqual({
+      rows: [],
+      totalCandidates: 0,
+      skippedAlreadyTracked: 0,
+    })
   })
 
   it('elevates index-coverage tone to negative when GSC reports newly deindexed URLs', async () => {
@@ -508,6 +516,36 @@ describe('GET /api/v1/projects/:name/overview', () => {
     expect(body.movementSummary.hasPreviousRun).toBe(false)
     expect(body.movementSummary.gained).toBeGreaterThanOrEqual(0)
     expect(body.movementSummary.lost).toBe(0)
+
+    await app.close()
+  })
+
+  it('populates suggestedQueries from GSC data, excluding queries already in the tracked basket', async () => {
+    const { app, db, projectId, latestRunId } = seedProjectWithRuns()
+    const today = new Date().toISOString().slice(0, 10)
+    // Seed 4 GSC queries:
+    //  - 'answer engine optimization' — ALREADY tracked (queryA) → skipped
+    //  - 'best aeo tool' — high impressions, untracked → top suggestion
+    //  - 'how to track ai citations' — medium, untracked → second
+    //  - 'a' — empty/below-floor (5 impressions) → dropped
+    db.insert(gscSearchData).values([
+      { id: crypto.randomUUID(), projectId, syncRunId: latestRunId, date: today, query: 'answer engine optimization', page: '/aeo', impressions: 3000, clicks: 60, ctr: '0.02', position: '8', createdAt: new Date().toISOString() },
+      { id: crypto.randomUUID(), projectId, syncRunId: latestRunId, date: today, query: 'best aeo tool', page: '/tools', impressions: 1800, clicks: 30, ctr: '0.017', position: '12', createdAt: new Date().toISOString() },
+      { id: crypto.randomUUID(), projectId, syncRunId: latestRunId, date: today, query: 'how to track ai citations', page: '/track', impressions: 400, clicks: 5, ctr: '0.013', position: '22', createdAt: new Date().toISOString() },
+      { id: crypto.randomUUID(), projectId, syncRunId: latestRunId, date: today, query: 'low traffic q', page: '/low', impressions: 5, clicks: 0, ctr: '0', position: '90', createdAt: new Date().toISOString() },
+    ]).run()
+    await app.ready()
+
+    const res = await app.inject({ method: 'GET', url: '/api/v1/projects/demo/overview' })
+    const body = JSON.parse(res.payload) as ProjectOverviewDto
+
+    expect(body.suggestedQueries.rows.map(r => r.query)).toEqual([
+      'best aeo tool',
+      'how to track ai citations',
+    ])
+    expect(body.suggestedQueries.totalCandidates).toBe(2)
+    expect(body.suggestedQueries.skippedAlreadyTracked).toBe(1)
+    expect(body.suggestedQueries.rows[0]?.reason).toMatch(/1\.8K impressions.*#12/)
 
     await app.close()
   })
