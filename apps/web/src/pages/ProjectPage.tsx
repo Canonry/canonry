@@ -11,7 +11,6 @@ import { CitationBadge } from '../components/shared/CitationBadge.js'
 import { InfoTooltip } from '../components/shared/InfoTooltip.js'
 import { ProviderBadge } from '../components/shared/ProviderBadge.js'
 import { RunRow } from '../components/shared/RunRow.js'
-import { ScoreGauge } from '../components/shared/ScoreGauge.js'
 import { ToneBadge } from '../components/shared/ToneBadge.js'
 import { EvidenceTable } from '../components/project/EvidenceTable.js'
 import { CompetitorTable } from '../components/project/CompetitorTable.js'
@@ -1528,43 +1527,73 @@ export function ProjectPage({
 
       {tab === 'overview' ? (
         <>
-          {/* At-a-glance metrics */}
-          <section className="gauge-row">
-            <ScoreGauge
-              value={model.mentionSummary.value}
-              label={model.mentionSummary.label}
-              delta={model.mentionSummary.delta}
-              tone={model.mentionSummary.tone}
-              description={model.mentionSummary.description}
-              tooltip={model.mentionSummary.tooltip}
-              isNumeric={isNumericScore(model.mentionSummary.value)}
-              progress={model.mentionSummary.progress}
-              providerCoverage={model.mentionSummary.providerCoverage}
-            />
-            <div className="metric-card">
-              <p className="metric-card-eyebrow">
-                {model.visibilitySummary.label}
-                <InfoTooltip text={model.visibilitySummary.tooltip ?? 'Percentage of tracked queries where your domain is cited in the AI answer source list.'} />
-              </p>
-              <p className="metric-card-big-value">
-                <span className="text-zinc-50">{model.visibilitySummary.value}</span>
-                {isNumericScore(model.visibilitySummary.value) ? <span className="text-zinc-600">%</span> : null}
-              </p>
-              <div className="metric-card-bar">
-                <div
-                  className={`metric-card-bar-fill progress-fill-${model.visibilitySummary.tone}`}
-                  style={{ width: model.visibilitySummary.progress !== undefined ? `${Math.min(Math.max(model.visibilitySummary.progress, 0), 100)}%` : '0%' }}
-                />
-              </div>
-              <p className="metric-card-detail">{model.visibilitySummary.delta}</p>
-              <p className="metric-card-sub">
-                {model.visibilitySummary.description}
-              </p>
+          {/* Hero: paired AEO performance (Mention + Citation, same shape) */}
+          <section className="aeo-hero">
+            <p className="aeo-hero-title">AEO performance</p>
+            <div className="aeo-hero-rows">
+              {([
+                { key: 'mention', label: 'Mentioned', tooltip: 'Your domain or company name was in the answer returned by the LLM.', summary: model.mentionSummary },
+                { key: 'citation', label: 'Cited', tooltip: 'An LLM used a page on your domain as a source for its answer.', summary: model.visibilitySummary },
+              ] as const).map(row => (
+                <div key={row.key} className="aeo-hero-row">
+                  <div className="aeo-hero-row-label">
+                    <span>{row.label}</span>
+                    <InfoTooltip text={row.tooltip} />
+                  </div>
+                  <div className="aeo-hero-row-value">
+                    <span className="text-zinc-50">{row.summary.value}</span>
+                    {isNumericScore(row.summary.value) ? <span className="text-zinc-600">%</span> : null}
+                  </div>
+                  <div className="aeo-hero-row-bar">
+                    <div
+                      className={`metric-card-bar-fill progress-fill-${row.summary.tone}`}
+                      style={{ width: row.summary.progress !== undefined ? `${Math.min(Math.max(row.summary.progress, 0), 100)}%` : '0%' }}
+                    />
+                  </div>
+                  <div className="aeo-hero-row-detail">{row.summary.delta}</div>
+                </div>
+              ))}
             </div>
+            {model.providerScores.length > 0 && (
+              <p className="aeo-hero-context">
+                Across {model.providerScores.length} {model.providerScores.length === 1 ? 'provider' : 'providers'}.
+              </p>
+            )}
+          </section>
+
+          {/* Movement banner — what changed since last run */}
+          <section className="movement-banner">
+            <span className="movement-banner-label">Since last run</span>
+            {model.movementSummary.hasPreviousRun ? (
+              <>
+                <span className={model.movementSummary.gained > 0 ? 'text-emerald-400 font-medium' : 'text-zinc-500'}>
+                  +{model.movementSummary.gained} gained
+                </span>
+                <span className="text-zinc-700 mx-1">·</span>
+                <span className={model.movementSummary.lost > 0 ? 'text-rose-400 font-medium' : 'text-zinc-500'}>
+                  −{model.movementSummary.lost} lost
+                </span>
+                <span className="text-zinc-600 ml-2">
+                  {model.movementSummary.gained === 0 && model.movementSummary.lost === 0
+                    ? '· no changes'
+                    : model.movementSummary.gained > model.movementSummary.lost
+                      ? '· improving'
+                      : model.movementSummary.lost > model.movementSummary.gained
+                        ? '· declining'
+                        : ''}
+                </span>
+              </>
+            ) : (
+              <span className="text-zinc-500">First run — no comparison yet</span>
+            )}
+          </section>
+
+          {/* Secondary: technical health */}
+          <section className="metric-grid">
             <div className="metric-card">
               <p className="metric-card-eyebrow">
                 Gap Queries
-                <InfoTooltip text="Tracked queries where competitors are cited in the latest completed visibility run but your domain is not." />
+                <InfoTooltip text="Queries where competitors got cited but you didn't." />
               </p>
               <p className="metric-card-big-value">
                 <span className="text-zinc-50">{model.gapQueries.value}</span>
@@ -1577,14 +1606,11 @@ export function ProjectPage({
                 />
               </div>
               <p className="metric-card-detail">{model.gapQueries.delta}</p>
-              <p className="metric-card-sub">
-                {model.gapQueries.description}
-              </p>
             </div>
             <div className="metric-card">
               <p className="metric-card-eyebrow">
                 Index Coverage
-                <InfoTooltip text="Percentage of inspected URLs that are currently indexed. Google Search Console is preferred when available, otherwise Bing Webmaster Tools is used." />
+                <InfoTooltip text="Percentage of your tracked URLs that Google or Bing has indexed." />
               </p>
               <p className="metric-card-big-value">
                 <span className="text-zinc-50">{model.indexCoverage.value}</span>
@@ -1597,37 +1623,6 @@ export function ProjectPage({
                 />
               </div>
               <p className="metric-card-detail">{model.indexCoverage.delta}</p>
-              <p className="metric-card-sub">
-                {model.indexCoverage.description}
-              </p>
-            </div>
-            <div className="metric-card">
-              <p className="metric-card-eyebrow">
-                Since Last Run
-                <InfoTooltip text="Query-level citation changes compared to the previous completed run." />
-              </p>
-              {model.movementSummary.hasPreviousRun ? (
-                <div className="metric-card-movement">
-                  <span className={model.movementSummary.gained > 0 ? 'text-emerald-400' : 'text-zinc-500'}>
-                    +{model.movementSummary.gained} gained
-                  </span>
-                  <span className="text-zinc-600 mx-1.5">·</span>
-                  <span className={model.movementSummary.lost > 0 ? 'text-rose-400' : 'text-zinc-500'}>
-                    −{model.movementSummary.lost} lost
-                  </span>
-                </div>
-              ) : (
-                <p className="metric-card-movement text-zinc-500">First run — no comparison yet</p>
-              )}
-              <p className="metric-card-sub mt-auto">
-                {model.movementSummary.gained === 0 && model.movementSummary.lost === 0 && model.movementSummary.hasPreviousRun
-                  ? 'No changes since last run'
-                  : model.movementSummary.gained > model.movementSummary.lost
-                    ? 'Visibility improving'
-                    : model.movementSummary.lost > model.movementSummary.gained
-                      ? 'Visibility declining'
-                      : ''}
-              </p>
             </div>
           </section>
 

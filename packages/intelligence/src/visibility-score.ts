@@ -36,7 +36,7 @@ export function buildVisibilityScore(
   snapshots: readonly VisibilityScoreSnapshot[],
   options: VisibilityScoreOptions,
 ): ScoreSummaryDto {
-  const tooltip = 'Percentage of tracked queries where your domain is cited by at least one AI answer engine. A query counts as cited if any configured provider includes your site in its response.'
+  const tooltip = 'An LLM used a page on your domain as a source for its answer.'
 
   if (snapshots.length === 0) {
     return {
