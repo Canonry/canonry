@@ -295,6 +295,80 @@ describe('IntelligenceService', () => {
       expect(healthRows).toHaveLength(3)
     })
 
+    it('--dry-run does not write insights or health snapshots, returns delta', () => {
+      // First we let a real backfill establish baseline insight rows. Then a
+      // dry-run pass with mutated data should: (a) leave the DB untouched,
+      // (b) return a delta describing what *would* change.
+      const { db } = createTempDb('intel-backfill-dryrun-')
+      const projectId = seedProject(db)
+      const queryId = seedQuery(db, projectId, 'test query')
+
+      const run1 = seedRun(db, projectId, 'completed', '2024-01-01T00:00:00Z')
+      seedSnapshot(db, run1, queryId, 'gemini', 'cited', { citedDomains: ['example.com'] })
+      const run2 = seedRun(db, projectId, 'completed', '2024-02-01T00:00:00Z')
+      seedSnapshot(db, run2, queryId, 'gemini', 'not-cited')
+
+      const service = new IntelligenceService(db)
+      // Real backfill — populates insights + health.
+      service.backfill('test-project')
+
+      const insightsBefore = db.select().from(insights).all()
+      const healthBefore = db.select().from(healthSnapshots).all()
+      expect(insightsBefore.length).toBeGreaterThan(0)
+      expect(healthBefore.length).toBeGreaterThan(0)
+
+      // Dry-run pass — must not touch the DB.
+      const result = service.backfill('test-project', { dryRun: true })
+
+      const insightsAfter = db.select().from(insights).all()
+      const healthAfter = db.select().from(healthSnapshots).all()
+      expect(insightsAfter.map(i => i.id).sort()).toEqual(insightsBefore.map(i => i.id).sort())
+      expect(healthAfter.map(h => h.id).sort()).toEqual(healthBefore.map(h => h.id).sort())
+
+      // Result reports the would-be deltas so an operator can preview impact.
+      expect(result.dryRun).toBe(true)
+      expect(result.delta).toBeDefined()
+      expect(result.delta!.wouldDelete).toBe(insightsBefore.length)
+      expect(result.delta!.wouldCreate).toBe(result.totalInsights)
+      expect(result.delta!.netChange).toBe(result.totalInsights - insightsBefore.length)
+    })
+
+    it('--dry-run report includes per-run delta entries an agent can scan', () => {
+      const { db } = createTempDb('intel-backfill-dryrun-perrun-')
+      const projectId = seedProject(db)
+      const queryId = seedQuery(db, projectId, 'test query')
+
+      const run1 = seedRun(db, projectId, 'completed', '2024-01-01T00:00:00Z')
+      seedSnapshot(db, run1, queryId, 'gemini', 'cited', { citedDomains: ['example.com'] })
+      const run2 = seedRun(db, projectId, 'completed', '2024-02-01T00:00:00Z')
+      seedSnapshot(db, run2, queryId, 'gemini', 'not-cited')
+
+      const service = new IntelligenceService(db)
+      service.backfill('test-project') // populate baseline
+
+      const result = service.backfill('test-project', { dryRun: true })
+      expect(result.delta!.perRun).toBeDefined()
+      expect(result.delta!.perRun!.length).toBeGreaterThan(0)
+      for (const entry of result.delta!.perRun!) {
+        expect(entry).toHaveProperty('runId')
+        expect(entry).toHaveProperty('existingInsights')
+        expect(entry).toHaveProperty('newInsights')
+      }
+    })
+
+    it('non-dry-run result omits the dryRun + delta fields (backwards compat)', () => {
+      const { db } = createTempDb('intel-backfill-normal-')
+      const projectId = seedProject(db)
+      const queryId = seedQuery(db, projectId, 'test query')
+      const run1 = seedRun(db, projectId, 'completed', '2024-01-01T00:00:00Z')
+      seedSnapshot(db, run1, queryId, 'gemini', 'cited', { citedDomains: ['example.com'] })
+
+      const service = new IntelligenceService(db)
+      const result = service.backfill('test-project')
+      expect(result.dryRun).toBeUndefined()
+      expect(result.delta).toBeUndefined()
+    })
+
     it('respects --from-run and --to-run range', () => {
       const { db } = createTempDb('intel-backfill-range-')
       const projectId = seedProject(db)
