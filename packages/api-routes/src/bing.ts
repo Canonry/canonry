@@ -165,7 +165,7 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
       connected: true,
       domain: project.canonicalDomain,
       siteUrl: existing?.siteUrl ?? null,
-      availableSites: sites.map((s) => ({ url: s.Url, verified: s.Verified ?? false })),
+      availableSites: sites.map((s) => ({ url: s.Url, verified: s.IsVerified ?? false })),
     }
   })
 
@@ -214,7 +214,7 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
     const conn = requireConnection(store, project.canonicalDomain)
 
     const sites = await getSites(conn.apiKey)
-    return { sites: sites.map((s) => ({ url: s.Url, verified: s.Verified ?? false })) }
+    return { sites: sites.map((s) => ({ url: s.Url, verified: s.IsVerified ?? false })) }
   })
 
   // POST /projects/:name/bing/set-site
