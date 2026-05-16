@@ -16,7 +16,21 @@ export type ResolveWebhookTargetResult =
   | { ok: true; target: SafeWebhookTarget }
   | { ok: false; message: string }
 
-export async function resolveWebhookTarget(raw: string): Promise<ResolveWebhookTargetResult> {
+export interface ResolveWebhookTargetOptions {
+  /**
+   * Allow loopback addresses (127.0.0.0/8 and ::1, including IPv4-mapped forms).
+   * Defaults to false — loopback is blocked by default so a cloud deployment
+   * cannot be coerced into reaching its own host services (metadata proxies,
+   * Redis/Vault, sidecar admin endpoints). Local servers can opt in to preserve
+   * dev workflows that point webhooks at localhost.
+   */
+  allowLoopback?: boolean
+}
+
+export async function resolveWebhookTarget(
+  raw: string,
+  options: ResolveWebhookTargetOptions = {},
+): Promise<ResolveWebhookTargetResult> {
   let parsed: URL
   try {
     parsed = new URL(raw)
@@ -42,7 +56,7 @@ export async function resolveWebhookTarget(raw: string): Promise<ResolveWebhookT
     return { ok: false, message: '"url" hostname could not be resolved' }
   }
 
-  const blocked = addresses.find((entry) => isBlockedAddress(entry.address))
+  const blocked = addresses.find((entry) => isBlockedAddress(entry.address, options))
   if (blocked) {
     return { ok: false, message: '"url" must not resolve to a private or loopback address' }
   }
@@ -141,32 +155,35 @@ async function resolveHostAddresses(hostname: string): Promise<Array<{ address: 
   }
 }
 
-function isBlockedAddress(address: string): boolean {
+function isBlockedAddress(address: string, options: ResolveWebhookTargetOptions): boolean {
   const normalized = stripIpv6Brackets(address).toLowerCase()
   const family = net.isIP(normalized)
 
   if (family === 4) {
-    return isBlockedIpv4(normalized)
+    return isBlockedIpv4(normalized, options)
   }
 
   if (family === 6) {
     const mappedIpv4 = extractMappedIpv4(normalized)
     if (mappedIpv4) {
-      return isBlockedIpv4(mappedIpv4)
+      return isBlockedIpv4(mappedIpv4, options)
     }
-    return isBlockedIpv6(normalized)
+    return isBlockedIpv6(normalized, options)
   }
 
   return true
 }
 
-function isBlockedIpv4(address: string): boolean {
+function isBlockedIpv4(address: string, options: ResolveWebhookTargetOptions): boolean {
   const octets = address.split('.').map(part => Number.parseInt(part, 10))
   if (octets.length !== 4 || octets.some(Number.isNaN)) {
     return true
   }
 
   const [first, second] = octets
+  if (first === 127 && !options.allowLoopback) {
+    return true
+  }
   return (
     first === 0 ||
     first === 10 ||
@@ -178,11 +195,13 @@ function isBlockedIpv4(address: string): boolean {
   )
 }
 
-function isBlockedIpv6(address: string): boolean {
+function isBlockedIpv6(address: string, options: ResolveWebhookTargetOptions): boolean {
   const normalized = address.split('%')[0]!.toLowerCase()
-  // Block unspecified (::) but allow loopback (::1)
   if (normalized === '::') {
     return true
+  }
+  if (normalized === '::1') {
+    return !options.allowLoopback
   }
 
   const firstHextetText = normalized.split(':')[0] ?? ''
