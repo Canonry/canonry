@@ -6,6 +6,14 @@ export interface Snapshot {
   position?: number
   snippet?: string
   /**
+   * Location label this snapshot was produced at, or `undefined`/`null` for
+   * projects with no configured locations. Detectors that compute transitions
+   * include this in their dedup key so two siblings of a multi-location
+   * fan-out (Florida cited / Michigan not-cited) don't get treated as a
+   * sequential before/after pair.
+   */
+  location?: string | null
+  /**
    * All competitor domains observed in this snapshot's competitorOverlap.
    * Detectors that filter against the project's tracked-competitor set must
    * iterate this array — taking the first element drops every additional
@@ -26,6 +34,15 @@ export interface RunData {
   runId: string
   projectId: string
   completedAt: string
+  /**
+   * Location label this run targeted, or `null`/`undefined` for locationless
+   * runs (projects without configured locations, or the explicit "no
+   * location" flag). Snapshots in a RunData all share this location. The
+   * intelligence service is responsible for picking previousRun with a
+   * matching location; the detectors enforce the invariant via their key
+   * composition as defense-in-depth.
+   */
+  location?: string | null
   snapshots: Snapshot[]
 }
 

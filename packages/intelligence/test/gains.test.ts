@@ -165,4 +165,45 @@ describe('detectGains', () => {
     expect(result).toHaveLength(1)
     expect(result[0].query).toBe('k2')
   })
+
+  it('does not flag a gain when the previous and current runs are different locations', () => {
+    // Symmetric to the regression case: Florida (not cited) followed by
+    // Michigan (cited) is not a "gain" — those are two different chronologies.
+    // Defense-in-depth in the detector: bail when run-level location differs.
+    const prev = makeRun({
+      runId: 'run_001',
+      location: 'florida',
+      snapshots: [
+        { query: 'roofers', provider: 'gemini', cited: false, location: 'florida' },
+      ],
+    })
+    const curr = makeRun({
+      runId: 'run_002',
+      location: 'michigan',
+      snapshots: [
+        { query: 'roofers', provider: 'gemini', cited: true, location: 'michigan' },
+      ],
+    })
+
+    expect(detectGains(curr, prev)).toEqual([])
+  })
+
+  it('detects a gain when locations match across runs', () => {
+    const prev = makeRun({
+      runId: 'run_001',
+      location: 'michigan',
+      snapshots: [
+        { query: 'roofers', provider: 'gemini', cited: false, location: 'michigan' },
+      ],
+    })
+    const curr = makeRun({
+      runId: 'run_002',
+      location: 'michigan',
+      snapshots: [
+        { query: 'roofers', provider: 'gemini', cited: true, location: 'michigan' },
+      ],
+    })
+
+    expect(detectGains(curr, prev)).toHaveLength(1)
+  })
 })
