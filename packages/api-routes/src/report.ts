@@ -60,6 +60,7 @@ import {
   isTrendBaseline,
   MIN_TREND_POINTS,
   mapOpportunitiesToNextSteps,
+  smoothedRunDelta,
 } from '@ainyc/canonry-intelligence'
 import { resolveProject } from './helpers.js'
 import { renderReportHtml } from './report-renderer.js'
@@ -1627,6 +1628,16 @@ function buildAgencyDiagnostics(input: ReportActionPlanInput & {
 const WHATS_CHANGED_PERIOD_DAYS = 14
 const WHATS_CHANGED_MIN_TREND_POINTS = WHATS_CHANGED_PERIOD_DAYS * 2
 
+// Real-movement thresholds for the per-run rate deltas. Tighter values
+// (and the point-to-point comparison they replaced) flipped tone arrows
+// on every run because a single query bouncing in/out of cited on a
+// 20-query basket is a 5pp swing — meaningless, but the old code treated
+// any |delta| > 0.5pp as up/down. 3pp on smoothed averages is the noise
+// floor for a 20-query basket; bigger baskets get more conservative
+// up/down marking, which is the right tradeoff.
+const RATE_REAL_MOVEMENT_THRESHOLD_PP = 3
+const COUNT_REAL_MOVEMENT_THRESHOLD = 0.5
+
 const WIN_REGRESSION_LIMIT = 5
 
 function rateDirection(delta: number, threshold = 0.5): 'up' | 'down' | 'flat' {
@@ -1666,7 +1677,13 @@ function buildWhatsChangedHeadline(
   if (citation) {
     const arrow = citation.direction === 'up' ? '↑' : citation.direction === 'down' ? '↓' : '→'
     const verb = citation.direction === 'up' ? 'rose' : citation.direction === 'down' ? 'fell' : 'held'
-    parts.push(`Citation rate ${verb} ${citation.prior}% ${arrow} ${citation.current}%`)
+    // Window=1 → "rose 50% ↑ 60%" (point-to-point legacy phrasing);
+    // window≥2 → "rose 50% ↑ 60% (avg of last 3 checks)" so readers know
+    // the number isn't a single-run snapshot.
+    const smoothingHint = citation.window && citation.window >= 2
+      ? ` (avg of last ${citation.window} checks)`
+      : ''
+    parts.push(`Citation rate ${verb} ${citation.prior}% ${arrow} ${citation.current}%${smoothingHint}`)
   }
   if (aiReferrals && aiReferrals.direction !== 'flat') {
     const arrow = aiReferrals.direction === 'up' ? '↑' : '↓'
@@ -1690,30 +1707,32 @@ function buildWhatsChanged(input: {
   const prior = citationsTrend.length >= 2 ? citationsTrend.at(-2) : null
   const enoughHistory = !baseline && latest !== undefined && prior !== undefined
 
-  const citationRate: ReportRateDelta | null = enoughHistory
+  // Rolling-average comparison instead of point-to-point — `smoothedRunDelta`
+  // grows the window up to 3 runs as history accumulates, falling back to
+  // window=1 (legacy behavior) at 2–3 runs total. Direction uses a
+  // real-movement threshold so a single-query bounce on a small basket
+  // doesn't flip the tone arrow.
+  const citationRateSmoothed = smoothedRunDelta(citationsTrend, p => p.citationRate)
+  const citationRate: ReportRateDelta | null = enoughHistory && citationRateSmoothed
     ? {
-        current: latest!.citationRate,
-        prior: prior!.citationRate,
-        deltaAbs: latest!.citationRate - prior!.citationRate,
-        direction: rateDirection(latest!.citationRate - prior!.citationRate),
+        ...citationRateSmoothed,
+        direction: rateDirection(citationRateSmoothed.deltaAbs, RATE_REAL_MOVEMENT_THRESHOLD_PP),
       }
     : null
 
-  const mentionRate: ReportRateDelta | null = enoughHistory
+  const mentionRateSmoothed = smoothedRunDelta(citationsTrend, p => p.mentionRate)
+  const mentionRate: ReportRateDelta | null = enoughHistory && mentionRateSmoothed
     ? {
-        current: latest!.mentionRate,
-        prior: prior!.mentionRate,
-        deltaAbs: latest!.mentionRate - prior!.mentionRate,
-        direction: rateDirection(latest!.mentionRate - prior!.mentionRate),
+        ...mentionRateSmoothed,
+        direction: rateDirection(mentionRateSmoothed.deltaAbs, RATE_REAL_MOVEMENT_THRESHOLD_PP),
       }
     : null
 
-  const citedQueryCount: ReportRateDelta | null = enoughHistory
+  const citedQueryCountSmoothed = smoothedRunDelta(citationsTrend, p => p.citedQueryCount)
+  const citedQueryCount: ReportRateDelta | null = enoughHistory && citedQueryCountSmoothed
     ? {
-        current: latest!.citedQueryCount,
-        prior: prior!.citedQueryCount,
-        deltaAbs: latest!.citedQueryCount - prior!.citedQueryCount,
-        direction: rateDirection(latest!.citedQueryCount - prior!.citedQueryCount, 0),
+        ...citedQueryCountSmoothed,
+        direction: rateDirection(citedQueryCountSmoothed.deltaAbs, COUNT_REAL_MOVEMENT_THRESHOLD),
       }
     : null
 

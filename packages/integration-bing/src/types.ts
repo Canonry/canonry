@@ -1,6 +1,13 @@
 export interface BingSite {
   Url: string
-  Verified?: boolean
+  /**
+   * Whether the site is verified in Bing Webmaster Tools (DNS / HTML file /
+   * Meta tag). Field name follows Bing's actual `GetUserSites` JSON payload
+   * exactly — historically this was modelled as `Verified` here, but the
+   * live API returns `IsVerified` and the `Verified` field was always
+   * undefined, which made every doctor "site-access" check fail.
+   */
+  IsVerified?: boolean
 }
 
 export interface BingUrlInfo {

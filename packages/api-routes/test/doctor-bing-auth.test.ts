@@ -62,7 +62,7 @@ describe('bing.auth.connection', () => {
   const check = BING_AUTH_CHECKS.find(c => c.id === 'bing.auth.connection')!
 
   it('returns ok when API key is valid', async () => {
-    getSitesMock.mockResolvedValue([{ Url: 'https://example.com/', Verified: true }])
+    getSitesMock.mockResolvedValue([{ Url: 'https://example.com/', IsVerified: true }])
     const result = await check.run(ctx({}))
     expect(result.status).toBe('ok')
     expect(result.code).toBe('bing.auth.connected')
@@ -87,7 +87,7 @@ describe('bing.auth.site-access', () => {
   const check = BING_AUTH_CHECKS.find(c => c.id === 'bing.auth.site-access')!
 
   it('returns ok when site is verified and matches', async () => {
-    getSitesMock.mockResolvedValue([{ Url: 'https://example.com/', Verified: true }])
+    getSitesMock.mockResolvedValue([{ Url: 'https://example.com/', IsVerified: true }])
     const result = await check.run(ctx({}))
     expect(result.status).toBe('ok')
     expect(result.code).toBe('bing.auth.site-verified')
@@ -100,7 +100,7 @@ describe('bing.auth.site-access', () => {
   })
 
   it('returns site-not-found when site is missing from Bing list', async () => {
-    getSitesMock.mockResolvedValue([{ Url: 'https://other.com/', Verified: true }])
+    getSitesMock.mockResolvedValue([{ Url: 'https://other.com/', IsVerified: true }])
     const result = await check.run(ctx({}))
     expect(result.status).toBe('fail')
     expect(result.code).toBe('bing.auth.site-not-found')
@@ -111,7 +111,7 @@ describe('bing.auth.site-access', () => {
   })
 
   it('returns site-not-verified when site is in list but not verified', async () => {
-    getSitesMock.mockResolvedValue([{ Url: 'https://example.com/', Verified: false }])
+    getSitesMock.mockResolvedValue([{ Url: 'https://example.com/', IsVerified: false }])
     const result = await check.run(ctx({}))
     expect(result.status).toBe('fail')
     expect(result.code).toBe('bing.auth.site-not-verified')

@@ -365,13 +365,19 @@ function providerDisplayName(name: string): string {
 
 function clientTrendCopy(delta: ProjectReportDto['whatsChanged']['citationRate']): { text: string; tone: MetricTone; arrow: string } | null {
   if (!delta) return null
+  // When `window` is ≥ 2, the prior/current values are rolling averages,
+  // not single-check snapshots — say so explicitly so the reader knows
+  // the number isn't twitchy.
+  const window = delta.window ?? 1
+  const compare = window >= 2 ? `vs prior ${window} checks (avg ${delta.prior}%)` : `since last check (was ${delta.prior}%)`
   if (delta.direction === 'up') {
-    return { text: `Up ${delta.deltaAbs.toFixed(1)} points since last check (was ${delta.prior}%)`, tone: 'positive', arrow: '↑' }
+    return { text: `Up ${delta.deltaAbs.toFixed(1)} points ${compare}`, tone: 'positive', arrow: '↑' }
   }
   if (delta.direction === 'down') {
-    return { text: `Down ${Math.abs(delta.deltaAbs).toFixed(1)} points since last check (was ${delta.prior}%)`, tone: 'negative', arrow: '↓' }
+    return { text: `Down ${Math.abs(delta.deltaAbs).toFixed(1)} points ${compare}`, tone: 'negative', arrow: '↓' }
   }
-  return { text: `Holding steady since last check (was ${delta.prior}%)`, tone: 'neutral', arrow: '→' }
+  const steadyCompare = window >= 2 ? `vs prior ${window} checks (avg ${delta.prior}%)` : `since last check (was ${delta.prior}%)`
+  return { text: `Holding steady ${steadyCompare}`, tone: 'neutral', arrow: '→' }
 }
 
 function ClientSummarySection({ report }: { report: ProjectReportDto }) {
