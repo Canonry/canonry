@@ -269,6 +269,8 @@ function buildEvidenceFromTimeline(
               answerMentioned: r.answerMentioned,
               visibilityState: r.visibilityState as RunHistoryPoint['visibilityState'] | undefined,
               visibilityTransition: r.visibilityTransition,
+              mentionState: r.mentionState as RunHistoryPoint['mentionState'] | undefined,
+              mentionTransition: r.mentionTransition,
             }))
           const modelsSeen = collectModels(runHistory)
           const historyScope: EvidenceHistoryScope = baseHistoryScope === 'provider' && modelsSeen.length <= 1
@@ -444,16 +446,16 @@ function visibilityEvidenceSummary(
 ): string {
   switch (visibilityTransition) {
     case 'lost':
-      return `Visibility was lost for "${query}". Your brand no longer appeared in the latest answer.`
+      return `Mention was lost for "${query}". Your brand no longer appeared in the latest answer.`
     case 'emerging':
       return `Your brand started appearing in AI answers for "${query}".`
   }
 
   switch (visibilityState) {
     case 'visible':
-      return `Your brand or domain is visible in AI answers for "${query}".`
+      return `Your brand or domain is mentioned in AI answers for "${query}".`
     case 'pending':
-      return `"${query}" has been added but no visibility run has been triggered yet.`
+      return `"${query}" has been added but no run has been triggered yet.`
     case 'not-visible':
     default:
       return `Your brand or domain was not mentioned in AI answers for "${query}".`
@@ -625,7 +627,7 @@ export function buildPortfolioProject(data: ProjectData): PortfolioProjectVm {
     providerCoverage: visibility.providerCoverage,
     lastRun: runItem,
     insight: total > 0
-      ? `${cited} of ${total} queries visible across ${providerCount} provider${providerCount === 1 ? '' : 's'}.`
+      ? `${cited} of ${total} queries mentioned across ${providerCount} provider${providerCount === 1 ? '' : 's'}.`
       : 'No runs completed yet.',
     trend: [],
     competitorPressureLabel: overview.scores.competitorPressure.value,

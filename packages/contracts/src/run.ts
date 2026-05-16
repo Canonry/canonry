@@ -33,9 +33,29 @@ export const visibilityStateSchema = z.enum(['visible', 'not-visible'])
 export type VisibilityState = z.infer<typeof visibilityStateSchema>
 export const VisibilityStates = visibilityStateSchema.enum
 
+/**
+ * Canonical vocabulary for answer-text presence. Use this in new APIs, CLI
+ * flags, and UI labels. `visibilityState` is the legacy name for the same
+ * signal — kept on DTOs for backwards compatibility but new consumers should
+ * read `mentionState` instead.
+ */
+export const mentionStateSchema = z.enum(['mentioned', 'not-mentioned'])
+export type MentionState = z.infer<typeof mentionStateSchema>
+export const MentionStates = mentionStateSchema.enum
+
 export const computedTransitionSchema = z.enum(['new', 'cited', 'lost', 'emerging', 'not-cited'])
 export type ComputedTransition = z.infer<typeof computedTransitionSchema>
 export const ComputedTransitions = computedTransitionSchema.enum
+
+/**
+ * Per-run mention transition values for the timeline endpoint. Parallel to
+ * `ComputedTransition` (which describes citation transitions). `'mentioned'`
+ * and `'not-mentioned'` are the steady-state values; `'emerging'` and
+ * `'lost'` are the cross-run transitions; `'new'` is the first observation.
+ */
+export const mentionTransitionSchema = z.enum(['new', 'mentioned', 'lost', 'emerging', 'not-mentioned'])
+export type MentionTransition = z.infer<typeof mentionTransitionSchema>
+export const MentionTransitions = mentionTransitionSchema.enum
 
 export const runTriggerRequestSchema = z.object({
   kind: z.literal(RunKinds['answer-visibility']).optional(),
@@ -187,7 +207,10 @@ export const querySnapshotDtoSchema = z.object({
   provider: providerNameSchema,
   citationState: citationStateSchema,
   answerMentioned: z.boolean().optional(),
+  /** @deprecated legacy name for `mentionState`; same data, kept for backwards compatibility. */
   visibilityState: visibilityStateSchema.optional(),
+  /** Mention state for this snapshot — see `mentionStateSchema`. Prefer this over the legacy `visibilityState`. */
+  mentionState: mentionStateSchema.optional(),
   transition: computedTransitionSchema.optional(),
   answerText: z.string().nullable().optional(),
   citedDomains: z.array(z.string()).default([]),
@@ -217,8 +240,14 @@ export const snapshotDiffRowSchema = z.object({
   run2State: citationStateSchema.nullable(),
   run1AnswerMentioned: z.boolean().nullable(),
   run2AnswerMentioned: z.boolean().nullable(),
+  /** @deprecated legacy name for `run1MentionState`. */
   run1VisibilityState: visibilityStateSchema.nullable(),
+  /** @deprecated legacy name for `run2MentionState`. */
   run2VisibilityState: visibilityStateSchema.nullable(),
+  /** Mention state in run 1 — prefer this over the legacy `run1VisibilityState`. */
+  run1MentionState: mentionStateSchema.nullable().optional(),
+  /** Mention state in run 2 — prefer this over the legacy `run2VisibilityState`. */
+  run2MentionState: mentionStateSchema.nullable().optional(),
   changed: z.boolean(),
   visibilityChanged: z.boolean(),
 })

@@ -4,6 +4,8 @@ export type MetricTone = 'positive' | 'caution' | 'negative' | 'neutral'
 export type HealthState = 'checking' | 'ok' | 'error'
 export type CitationState = 'cited' | 'lost' | 'emerging' | 'not-cited' | 'pending'
 export type VisibilityState = 'visible' | 'not-visible' | 'pending'
+/** Canonical-vocabulary equivalent of `VisibilityState`. New consumers prefer this. */
+export type MentionState = 'mentioned' | 'not-mentioned' | 'pending'
 
 export interface ServiceStatus {
   label: string
@@ -92,8 +94,12 @@ export interface RunHistoryPoint {
   createdAt: string
   model?: string | null
   answerMentioned?: boolean
+  /** @deprecated legacy alias for `mentionState`. */
   visibilityState?: VisibilityState
+  /** @deprecated legacy alias for `mentionTransition`. */
   visibilityTransition?: string
+  mentionState?: MentionState
+  mentionTransition?: string
 }
 
 export type EvidenceHistoryScope = 'query' | 'model' | 'provider'

@@ -1152,6 +1152,8 @@ export function ProjectPage({
           answerMentioned: r.answerMentioned,
           visibilityState: r.visibilityState as RunHistoryPoint['visibilityState'] | undefined,
           visibilityTransition: r.visibilityTransition,
+          mentionState: r.mentionState as RunHistoryPoint['mentionState'] | undefined,
+          mentionTransition: r.mentionTransition,
         })))
       }
       // Fallback: query-level history when no per-provider data
@@ -1163,6 +1165,8 @@ export function ProjectPage({
           answerMentioned: r.answerMentioned,
           visibilityState: r.visibilityState as RunHistoryPoint['visibilityState'] | undefined,
           visibilityTransition: r.visibilityTransition,
+          mentionState: r.mentionState as RunHistoryPoint['mentionState'] | undefined,
+          mentionTransition: r.mentionTransition,
         })))
       }
     }

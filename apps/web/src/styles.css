@@ -1162,11 +1162,13 @@
   }
 
   .evidence-position-hero--cited,
+  .evidence-position-hero--mentioned,
   .evidence-position-hero--emerging {
     @apply border-emerald-800/40 bg-emerald-950/25;
   }
 
-  .evidence-position-hero--not-cited {
+  .evidence-position-hero--not-cited,
+  .evidence-position-hero--not-mentioned {
     @apply border-zinc-800/60 bg-zinc-900/30;
   }
 
@@ -1183,11 +1185,13 @@
   }
 
   .evidence-position-label--cited,
+  .evidence-position-label--mentioned,
   .evidence-position-label--emerging {
     @apply text-emerald-500;
   }
 
-  .evidence-position-label--not-cited {
+  .evidence-position-label--not-cited,
+  .evidence-position-label--not-mentioned {
     @apply text-zinc-500;
   }
 
@@ -1200,11 +1204,13 @@
   }
 
   .evidence-position-title--cited,
+  .evidence-position-title--mentioned,
   .evidence-position-title--emerging {
     @apply text-emerald-300;
   }
 
-  .evidence-position-title--not-cited {
+  .evidence-position-title--not-cited,
+  .evidence-position-title--not-mentioned {
     @apply text-zinc-300;
   }
 
@@ -1252,11 +1258,13 @@
     @apply flex items-center gap-2 rounded-lg px-3 py-2 border;
   }
 
-  .mention-status--visible {
+  .mention-status--visible,
+  .mention-status--mentioned {
     @apply border-emerald-800/40 bg-emerald-950/25 text-emerald-300;
   }
 
-  .mention-status--not-visible {
+  .mention-status--not-visible,
+  .mention-status--not-mentioned {
     @apply border-zinc-800/40 bg-zinc-900/20 text-zinc-500;
   }
 

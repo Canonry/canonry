@@ -6,8 +6,10 @@ import {
   extractAnswerMentions,
   effectiveBrandNames,
   effectiveDomains,
+  mentionStateFromAnswerMentioned,
   notFound,
   visibilityStateFromAnswerMentioned,
+  type MentionState,
   type VisibilityState,
 } from '@ainyc/canonry-contracts'
 
@@ -107,6 +109,19 @@ export function resolveSnapshotVisibilityState(
   project: SnapshotVisibilityProject,
 ): VisibilityState {
   return visibilityStateFromAnswerMentioned(resolveSnapshotMentionResult(snapshot, project).mentioned)
+}
+
+/**
+ * Canonical-vocabulary equivalent of `resolveSnapshotVisibilityState`.
+ * Returns `'mentioned'` / `'not-mentioned'` for the same underlying signal.
+ * New callers should prefer this; legacy callers continue to work via the
+ * `Visibility` variant.
+ */
+export function resolveSnapshotMentionState(
+  snapshot: { answerMentioned?: boolean | null; answerText?: string | null },
+  project: SnapshotVisibilityProject,
+): MentionState {
+  return mentionStateFromAnswerMentioned(resolveSnapshotMentionResult(snapshot, project).mentioned)
 }
 
 export function resolveSnapshotMatchedTerms(
