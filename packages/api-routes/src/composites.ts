@@ -198,7 +198,10 @@ export async function compositeRoutes(app: FastifyInstance) {
     const scores: ProjectOverviewScoresDto = {
       mention: buildMentionCoverage(latestSnapshots, { configuredApiProviders }),
       visibility: buildVisibilityScore(latestSnapshots, { configuredApiProviders }),
-      shareOfVoice: buildShareOfVoice(latestSnapshots, { projectDomains }),
+      shareOfVoice: buildShareOfVoice(latestSnapshots, {
+        projectDomains,
+        competitorDomains: competitorRows.map(c => c.domain),
+      }),
       gapQueries: buildGapQueryScore(latestSnapshots),
       mentionGaps: buildMentionGapScore(latestSnapshots),
       indexCoverage: buildIndexCoverageScore(app, project.id),
