@@ -2108,7 +2108,7 @@ describe('POST /traffic/sources/:id/backfill', () => {
       expect(submitRes.statusCode).toBe(200)
       const submitted = JSON.parse(submitRes.payload)
       expect(submitted.daysRequested).toBe(365)
-      expect(submitted.daysApplied).toBe(30)
+      expect(submitted.daysApplied).toBe(90)
     } finally {
       await h.close()
     }
@@ -2544,7 +2544,7 @@ describe('POST /traffic/sources/:id/backfill — WordPress', () => {
       expect(submitRes.statusCode).toBe(200)
       const submitted = JSON.parse(submitRes.payload)
       expect(submitted.daysRequested).toBe(365)
-      expect(submitted.daysApplied).toBe(30)
+      expect(submitted.daysApplied).toBe(90)
     } finally {
       await h.close()
     }
