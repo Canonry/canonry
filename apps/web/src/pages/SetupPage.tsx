@@ -647,7 +647,6 @@ export function SetupPage() {
                 </p>
                 <div className="rounded-md border border-zinc-800/60 bg-zinc-900/30 p-3 text-xs text-zinc-500">
                   <p>Status: <span className="text-zinc-300">{run?.status ?? 'queued'}</span></p>
-                  <p className="mt-1">Run ID: <span className="font-mono text-zinc-400">{launchedRunId}</span></p>
                 </div>
                 <div className="setup-nav">
                   <span />

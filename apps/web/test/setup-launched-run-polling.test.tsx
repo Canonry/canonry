@@ -132,25 +132,49 @@ describe('SetupPage launched-run polling', () => {
     expect(fetcher.mock.calls.length).toBe(callsAtTerminal)
   })
 
-  it('keeps polling even when the document is not focused (regression for #554)', async () => {
-    // Reproduce the original bug: simulate the tab losing focus by stubbing
-    // document.hasFocus to return false. With the prior config
-    // (refetchIntervalInBackground default-false), polling would silently
-    // suppress. With the fix, polling continues regardless of focus.
-    const hasFocusSpy = vi.spyOn(document, 'hasFocus').mockReturnValue(false)
+  it('keeps polling even when the document visibilityState is "hidden" (regression for #554)', async () => {
+    // Reproduce the original bug: react-query v5's FocusManager checks
+    // `document.visibilityState === 'visible'` to gate background refetches.
+    // With `refetchIntervalInBackground: false` (the v5 default), polling
+    // silently suppresses whenever visibility flips to 'hidden' — exactly
+    // the case the remote walkthrough hit (the headless test environment
+    // and any real user alt-tabbing during the 30-60s sweep).
+    //
+    // This test overrides `document.visibilityState` and notifies the
+    // FocusManager via the `visibilitychange` event. With the fix
+    // (`refetchIntervalInBackground: true`), polling continues.
+    const originalDescriptor = Object.getOwnPropertyDescriptor(Document.prototype, 'visibilityState')
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      get: () => 'hidden',
+    })
+    document.dispatchEvent(new Event('visibilitychange'))
 
-    fetcher.mockResolvedValue(makeRunDetail('running'))
+    try {
+      fetcher.mockResolvedValue(makeRunDetail('running'))
 
-    render(
-      <QueryClientProvider client={queryClient}>
-        <Probe runId="run_test" />
-      </QueryClientProvider>,
-    )
+      render(
+        <QueryClientProvider client={queryClient}>
+          <Probe runId="run_test" />
+        </QueryClientProvider>,
+      )
 
-    await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(1))
-    await vi.advanceTimersByTimeAsync(4500)
-    expect(fetcher.mock.calls.length).toBeGreaterThanOrEqual(3)
+      await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(1))
 
-    hasFocusSpy.mockRestore()
+      // Advance 4.5s. With the fix in place we expect ≥3 calls
+      // (initial + 2s + 4s polls). Without the fix this assertion would
+      // fail because the visibility-hidden focus manager suppresses
+      // background refetches.
+      await vi.advanceTimersByTimeAsync(4500)
+      expect(fetcher.mock.calls.length).toBeGreaterThanOrEqual(3)
+    } finally {
+      if (originalDescriptor) {
+        Object.defineProperty(Document.prototype, 'visibilityState', originalDescriptor)
+      } else {
+        // jsdom didn't define it on prototype; clear the instance override
+        delete (document as unknown as { visibilityState?: unknown }).visibilityState
+      }
+      document.dispatchEvent(new Event('visibilitychange'))
+    }
   })
 })
