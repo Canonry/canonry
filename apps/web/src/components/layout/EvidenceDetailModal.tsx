@@ -28,15 +28,18 @@ export interface EvidenceDisplayData {
   summary: string
 }
 
-function describeVisibilityChange(transition?: string, visibilityState?: string): string {
+function describeMentionChange(transition?: string, mentionState?: string): string {
   switch (transition) {
     case 'new': return 'First observation'
-    case 'emerging': return 'First visibility'
+    case 'emerging': return 'First mention'
     case 'lost': return 'Lost since last run'
     default:
-      if (visibilityState === 'visible') return 'Visible in latest run'
-      if (visibilityState === 'pending') return 'Awaiting first run'
-      return 'Not visible in latest run'
+      // Accept both the canonical 'mentioned' / 'not-mentioned' values and
+      // the legacy 'visible' / 'not-visible' aliases so consumers can pass
+      // either while the API and DTO migration rolls out.
+      if (mentionState === 'mentioned' || mentionState === 'visible') return 'Mentioned in latest run'
+      if (mentionState === 'pending') return 'Awaiting first run'
+      return 'Not mentioned in latest run'
   }
 }
 
@@ -165,11 +168,13 @@ export function EvidenceDetailModal({
       : []),
   ]
 
-  // State key for CSS variants
-  const stateKey: 'cited' | 'not-cited' | 'lost' | 'pending' =
+  // CSS variant key. The legacy values 'cited' / 'not-cited' were misleading
+  // because the hero card represents the mention signal (brand in the answer
+  // text), not the citation signal. Renamed to match the data source.
+  const stateKey: 'mentioned' | 'not-mentioned' | 'lost' | 'pending' =
     isPending ? 'pending' :
     display.visibilityTransition === 'lost' ? 'lost' :
-    isVisible ? 'cited' : 'not-cited'
+    isVisible ? 'mentioned' : 'not-mentioned'
 
   // Guard against out-of-order async completions when clicking dots quickly
   const activeRequestRef = useRef(0)
@@ -222,7 +227,7 @@ export function EvidenceDetailModal({
         matchedTerms: snap.matchedTerms ?? [],
         groundingSources: snap.groundingSources,
         evidenceUrls: [],
-        changeLabel: describeVisibilityChange(run.visibilityTransition, run.visibilityState),
+        changeLabel: describeMentionChange(run.mentionTransition ?? run.visibilityTransition, run.mentionState ?? run.visibilityState),
         summary: '',
       } : {
         citationState: run.citationState,
@@ -238,7 +243,7 @@ export function EvidenceDetailModal({
         matchedTerms: [],
         groundingSources: [],
         evidenceUrls: [],
-        changeLabel: describeVisibilityChange(run.visibilityTransition, run.visibilityState),
+        changeLabel: describeMentionChange(run.mentionTransition ?? run.visibilityTransition, run.mentionState ?? run.visibilityState),
         summary: 'Snapshot data not available for this run.',
       }
 
@@ -260,7 +265,7 @@ export function EvidenceDetailModal({
         matchedTerms: [],
         groundingSources: [],
         evidenceUrls: [],
-        changeLabel: describeVisibilityChange(run.visibilityTransition, run.visibilityState),
+        changeLabel: describeMentionChange(run.mentionTransition ?? run.visibilityTransition, run.mentionState ?? run.visibilityState),
         summary: 'Failed to load historical run data.',
       })
     } finally {
@@ -284,14 +289,14 @@ export function EvidenceDetailModal({
   const heroCopy = (() => {
     if (isVisible) {
       return {
-        label: 'Visible in answer',
+        label: 'Mentioned in answer',
         title: 'Your brand or domain is mentioned in this answer',
         meta: providerMeta,
       }
     }
     if (display.visibilityTransition === 'lost') {
       return {
-        label: 'Visibility lost',
+        label: 'Mention lost',
         title: 'Your brand no longer appears in this answer',
         meta: providerMeta,
       }
@@ -299,12 +304,12 @@ export function EvidenceDetailModal({
     if (isPending) {
       return {
         label: 'Pending',
-        title: 'Awaiting first visibility run',
+        title: 'Awaiting first run',
         meta: 'No provider data yet',
       }
     }
     return {
-      label: 'Not visible in answer',
+      label: 'Not mentioned in answer',
       title: 'Your brand or domain was not mentioned in this answer',
       meta: providerMeta,
     }
@@ -560,13 +565,13 @@ export function EvidenceDetailModal({
                     <>
                       <div>
                         <div className="drawer-section-label flex items-center">
-                          <span>Answer visibility</span>
+                          <span>Mention in answer</span>
                           <InfoTooltip text="Canonry scans the AI answer for your owned domains and project name. This is independent from grounding or citation sources." />
                         </div>
-                        <div className={`mention-status mention-status--${isVisible ? 'visible' : 'not-visible'}`}>
+                        <div className={`mention-status mention-status--${isVisible ? 'mentioned' : 'not-mentioned'}`}>
                           <span className="mention-status-icon">{isPending ? '…' : isVisible ? '✓' : '—'}</span>
                           <span className="mention-status-label">
-                            {isPending ? 'Pending' : isVisible ? 'Visible' : 'Not visible'}
+                            {isPending ? 'Pending' : isVisible ? 'Mentioned' : 'Not mentioned'}
                           </span>
                         </div>
 

@@ -22,6 +22,7 @@ import {
   computedTransitionSchema,
   determineAnswerMentioned,
   extractAnswerMentions,
+  mentionStateFromAnswerMentioned,
   querySnapshotDtoSchema,
   auditLogEntrySchema,
   notificationDtoSchema,
@@ -357,6 +358,29 @@ test('querySnapshotDtoSchema applies defaults', () => {
   expect(snapshot.matchedTerms).toEqual([])
   expect(snapshot.answerMentioned).toBeUndefined()
   expect(snapshot.visibilityState).toBeUndefined()
+  expect(snapshot.mentionState).toBeUndefined()
+})
+
+test('querySnapshotDtoSchema accepts the new mentionState field', () => {
+  for (const state of ['mentioned', 'not-mentioned'] as const) {
+    const snapshot = querySnapshotDtoSchema.parse({
+      id: 'snap_1',
+      runId: 'run_1',
+      queryId: 'q_1',
+      provider: 'gemini',
+      citationState: 'cited',
+      mentionState: state,
+      createdAt: '2026-03-09T00:00:00.000Z',
+    })
+    expect(snapshot.mentionState).toBe(state)
+  }
+})
+
+test('mentionStateFromAnswerMentioned mirrors the legacy visibility helper with the new vocabulary', () => {
+  expect(mentionStateFromAnswerMentioned(true)).toBe('mentioned')
+  expect(mentionStateFromAnswerMentioned(false)).toBe('not-mentioned')
+  expect(mentionStateFromAnswerMentioned(null)).toBe('not-mentioned')
+  expect(mentionStateFromAnswerMentioned(undefined)).toBe('not-mentioned')
 })
 
 test('querySnapshotDtoSchema accepts all provider names', () => {

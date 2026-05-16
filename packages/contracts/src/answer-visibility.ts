@@ -1,5 +1,5 @@
 import { brandLabelFromDomain, normalizeProjectDomain, registrableDomain } from './project.js'
-import type { VisibilityState } from './run.js'
+import type { MentionState, VisibilityState } from './run.js'
 
 const GENERIC_TOKENS = new Set([
   'agency',
@@ -144,6 +144,15 @@ export function determineAnswerMentioned(
 
 export function visibilityStateFromAnswerMentioned(answerMentioned: boolean | null | undefined): VisibilityState {
   return answerMentioned ? 'visible' : 'not-visible'
+}
+
+/**
+ * Canonical-vocabulary equivalent of `visibilityStateFromAnswerMentioned`.
+ * Returns `'mentioned'` / `'not-mentioned'` — the language new APIs, CLI
+ * flags, and UI labels must use per the AGENTS.md vocabulary rules.
+ */
+export function mentionStateFromAnswerMentioned(answerMentioned: boolean | null | undefined): MentionState {
+  return answerMentioned ? 'mentioned' : 'not-mentioned'
 }
 
 /**

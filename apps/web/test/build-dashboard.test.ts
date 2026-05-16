@@ -3,6 +3,91 @@ import { test, expect } from 'vitest'
 import { buildDashboard, buildProjectCommandCenter, type ProjectData } from '../src/build-dashboard.js'
 import type { ApiSettings } from '../src/api.js'
 
+test('buildProjectCommandCenter evidence summary uses canonical mention vocabulary, not legacy "visible"', () => {
+  // AGENTS.md vocabulary rule: new UI labels for the answer-text-presence
+  // signal must say "mentioned", not "visible". The visibilityEvidenceSummary
+  // helper used to mix the two terms in the same function — "visible in AI
+  // answers" for one branch and "was not mentioned in AI answers" for the
+  // adjacent branch. The fix unifies on "mentioned".
+  const baseRun = {
+    id: 'run_1',
+    projectId: 'proj_1',
+    kind: 'answer-visibility',
+    status: 'completed',
+    trigger: 'manual',
+    startedAt: '2026-03-15T00:00:00Z',
+    finishedAt: '2026-03-15T00:00:10Z',
+    error: null,
+    createdAt: '2026-03-15T00:00:00Z',
+  } as const
+
+  const data: ProjectData = {
+    project: {
+      id: 'proj_1',
+      name: 'mention-vocab',
+      displayName: 'Mention Vocab',
+      canonicalDomain: 'example.com',
+      ownedDomains: [],
+      country: 'US',
+      language: 'en',
+      tags: [],
+      labels: {},
+      providers: ['gemini'],
+      configSource: 'api',
+      configRevision: 1,
+      createdAt: '2026-03-10T00:00:00Z',
+      updatedAt: '2026-03-15T00:00:00Z',
+    },
+    runs: [baseRun],
+    queries: [{ id: 'q_1', query: 'best polyurea roof coating', createdAt: '2026-03-10T00:00:00Z' }],
+    competitors: [],
+    timeline: [{
+      query: 'best polyurea roof coating',
+      runs: [{
+        runId: 'run_1',
+        createdAt: '2026-03-15T00:00:00Z',
+        citationState: 'cited',
+        transition: 'new',
+        answerMentioned: true,
+        visibilityState: 'visible',
+        visibilityTransition: 'new',
+        mentionState: 'mentioned',
+        mentionTransition: 'new',
+      }],
+    }],
+    latestRunDetails: [{
+      ...baseRun,
+      snapshots: [{
+        id: 'snap_1',
+        runId: 'run_1',
+        queryId: 'q_1',
+        query: 'best polyurea roof coating',
+        provider: 'gemini',
+        citationState: 'cited',
+        answerMentioned: true,
+        visibilityState: 'visible',
+        mentionState: 'mentioned',
+        answerText: 'The brand is mentioned.',
+        citedDomains: ['example.com'],
+        competitorOverlap: [],
+        groundingSources: [],
+        searchQueries: [],
+        model: 'gemini-3-flash',
+        location: null,
+        createdAt: '2026-03-15T00:00:00Z',
+      }],
+    }],
+    previousRunDetails: [],
+  }
+
+  const cc = buildProjectCommandCenter(data)
+  const evidence = cc.visibilityEvidence[0]
+  expect(evidence).toBeDefined()
+  // Summary text must use the canonical "mentioned" vocabulary, not "visible".
+  expect(evidence!.summary).toMatch(/mentioned/i)
+  expect(evidence!.summary).not.toMatch(/\bvisible\b/i)
+})
+
 test('buildDashboard maps Google settings into the dashboard view model', () => {
   const apiSettings: ApiSettings = {
     providers: [{

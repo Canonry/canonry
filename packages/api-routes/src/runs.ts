@@ -15,7 +15,7 @@ import {
   parseRunError,
   serializeRunError,
 } from '@ainyc/canonry-contracts'
-import { resolveProject, resolveSnapshotAnswerMentioned, resolveSnapshotVisibilityState, resolveSnapshotMatchedTerms, writeAuditLog } from './helpers.js'
+import { resolveProject, resolveSnapshotAnswerMentioned, resolveSnapshotMentionState, resolveSnapshotVisibilityState, resolveSnapshotMatchedTerms, writeAuditLog } from './helpers.js'
 import { queueRunIfProjectIdle } from './run-queue.js'
 
 export interface RunRoutesOptions {
@@ -475,9 +475,14 @@ function loadRunDetail(app: FastifyInstance, run: typeof runs.$inferSelect) {
         provider: s.provider,
         citationState: s.citationState,
         answerMentioned,
+        // Legacy alias of `mentionState`, retained for backwards compatibility.
         visibilityState: project
           ? resolveSnapshotVisibilityState(s, project)
           : (answerMentioned ? 'visible' : 'not-visible'),
+        // Canonical vocabulary for answer-text presence; new consumers prefer this.
+        mentionState: project
+          ? resolveSnapshotMentionState(s, project)
+          : (answerMentioned ? 'mentioned' : 'not-mentioned'),
         answerText: s.answerText,
         citedDomains: parseJsonColumn<string[]>(s.citedDomains, []),
         competitorOverlap: parseJsonColumn<string[]>(s.competitorOverlap, []),

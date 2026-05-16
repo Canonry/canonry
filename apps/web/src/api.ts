@@ -203,7 +203,9 @@ export interface ApiSnapshot {
   provider: string
   citationState: CitationState
   answerMentioned?: boolean
+  /** @deprecated legacy alias for `mentionState`; same data, kept for backwards compatibility. */
   visibilityState?: string
+  mentionState?: string
   answerText: string | null
   citedDomains: string[]
   competitorOverlap: string[]
@@ -238,8 +240,12 @@ export interface ApiTimelineRunEntry {
   citationState: string
   transition: string
   answerMentioned?: boolean
+  /** @deprecated legacy alias for `mentionState`. */
   visibilityState?: string
+  /** @deprecated legacy alias for `mentionTransition`. */
   visibilityTransition?: string
+  mentionState?: string
+  mentionTransition?: string
   location?: string | null
 }
 

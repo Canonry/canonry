@@ -2,7 +2,7 @@ import { eq, desc, inArray } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { auditLog, querySnapshots, runs, queries, parseJsonColumn } from '@ainyc/canonry-db'
 import { CitationStates, validationError } from '@ainyc/canonry-contracts'
-import { resolveProject, resolveSnapshotAnswerMentioned, resolveSnapshotVisibilityState } from './helpers.js'
+import { resolveProject, resolveSnapshotAnswerMentioned, resolveSnapshotMentionState, resolveSnapshotVisibilityState } from './helpers.js'
 import { redactNotificationDiff } from './notification-redaction.js'
 
 export async function historyRoutes(app: FastifyInstance) {
@@ -96,6 +96,7 @@ export async function historyRoutes(app: FastifyInstance) {
         citationState: s.citationState,
         answerMentioned: resolveSnapshotAnswerMentioned(s, project),
         visibilityState: resolveSnapshotVisibilityState(s, project),
+        mentionState: resolveSnapshotMentionState(s, project),
         answerText: s.answerText,
         citedDomains: parseJsonColumn<string[]>(s.citedDomains, []),
         competitorOverlap: parseJsonColumn<string[]>(s.competitorOverlap, []),
@@ -189,10 +190,12 @@ export async function historyRoutes(app: FastifyInstance) {
         const run = projectRuns.find(r => r.id === snap.runId)
         let transition: string = snap.citationState === CitationStates.cited ? 'cited' : 'not-cited'
         let visibilityTransition: string = snap.answerMentioned ? 'visible' : 'not-visible'
+        let mentionTransition: string = snap.answerMentioned ? 'mentioned' : 'not-mentioned'
 
         if (idx === 0) {
           transition = 'new'
           visibilityTransition = 'new'
+          mentionTransition = 'new'
         } else {
           const prev = snaps[idx - 1]!
           if (prev.citationState === CitationStates['not-cited'] && snap.citationState === CitationStates.cited) {
@@ -203,8 +206,10 @@ export async function historyRoutes(app: FastifyInstance) {
 
           if (!prev.answerMentioned && snap.answerMentioned) {
             visibilityTransition = 'emerging'
+            mentionTransition = 'emerging'
           } else if (prev.answerMentioned && !snap.answerMentioned) {
             visibilityTransition = 'lost'
+            mentionTransition = 'lost'
           }
         }
 
@@ -214,8 +219,12 @@ export async function historyRoutes(app: FastifyInstance) {
           citationState: snap.citationState,
           transition,
           answerMentioned: snap.answerMentioned,
+          // Legacy aliases of `mentionState` / `mentionTransition`.
           visibilityState: snap.answerMentioned ? 'visible' : 'not-visible',
           visibilityTransition,
+          // Canonical-vocabulary fields — new consumers prefer these.
+          mentionState: snap.answerMentioned ? 'mentioned' : 'not-mentioned',
+          mentionTransition,
           location: snap.location,
         }
       })
@@ -304,12 +313,14 @@ export async function historyRoutes(app: FastifyInstance) {
     const map1 = new Map<string | null, (typeof snaps1[number]) & {
       resolvedAnswerMentioned: boolean
       resolvedVisibilityState: ReturnType<typeof resolveSnapshotVisibilityState>
+      resolvedMentionState: ReturnType<typeof resolveSnapshotMentionState>
     }>()
     for (const s of snaps1) {
       const resolved = {
         ...s,
         resolvedAnswerMentioned: resolveSnapshotAnswerMentioned(s, project),
         resolvedVisibilityState: resolveSnapshotVisibilityState(s, project),
+        resolvedMentionState: resolveSnapshotMentionState(s, project),
       }
       const existing = map1.get(s.queryId)
       if (
@@ -323,12 +334,14 @@ export async function historyRoutes(app: FastifyInstance) {
     const map2 = new Map<string | null, (typeof snaps2[number]) & {
       resolvedAnswerMentioned: boolean
       resolvedVisibilityState: ReturnType<typeof resolveSnapshotVisibilityState>
+      resolvedMentionState: ReturnType<typeof resolveSnapshotMentionState>
     }>()
     for (const s of snaps2) {
       const resolved = {
         ...s,
         resolvedAnswerMentioned: resolveSnapshotAnswerMentioned(s, project),
         resolvedVisibilityState: resolveSnapshotVisibilityState(s, project),
+        resolvedMentionState: resolveSnapshotMentionState(s, project),
       }
       const existing = map2.get(s.queryId)
       if (
@@ -352,8 +365,11 @@ export async function historyRoutes(app: FastifyInstance) {
         run2State: s2?.citationState ?? null,
         run1AnswerMentioned: s1?.resolvedAnswerMentioned ?? null,
         run2AnswerMentioned: s2?.resolvedAnswerMentioned ?? null,
+        // Legacy aliases — same data as run{1,2}MentionState below.
         run1VisibilityState: s1?.resolvedVisibilityState ?? null,
         run2VisibilityState: s2?.resolvedVisibilityState ?? null,
+        run1MentionState: s1?.resolvedMentionState ?? null,
+        run2MentionState: s2?.resolvedMentionState ?? null,
         changed: (s1?.citationState ?? null) !== (s2?.citationState ?? null),
         visibilityChanged: (s1?.resolvedAnswerMentioned ?? null) !== (s2?.resolvedAnswerMentioned ?? null),
       }
