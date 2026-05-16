@@ -38,8 +38,8 @@ export const BACKFILL_CLI_COMMANDS: readonly CliCommandSpec[] = [
       'from-run': stringOption(),
       'to-run': stringOption(),
       'since': stringOption(),
-      'dry-run': { type: 'boolean' },
     },
+    supportsDryRun: true,
     run: async (input) => {
       const usage = 'canonry backfill insights <project> [--from-run <id>] [--to-run <id>] [--since <date>] [--dry-run] [--format json]'
       const project = requireProject(input, 'backfill insights', usage)
@@ -47,7 +47,7 @@ export const BACKFILL_CLI_COMMANDS: readonly CliCommandSpec[] = [
         fromRun: getString(input.values, 'from-run'),
         toRun: getString(input.values, 'to-run'),
         since: getString(input.values, 'since'),
-        dryRun: input.values['dry-run'] === true,
+        dryRun: input.dryRun,
         format: input.format,
       })
     },
