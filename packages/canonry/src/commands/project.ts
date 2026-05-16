@@ -151,11 +151,34 @@ export async function updateProjectSettings(
   console.log(`Project updated: ${result.name}`)
 }
 
-export async function deleteProject(name: string, format?: string): Promise<void> {
+export async function deleteProject(name: string, opts?: { dryRun?: boolean; format?: string }): Promise<void> {
   const client = getClient()
+  const isJson = opts?.format === 'json'
+
+  if (opts?.dryRun) {
+    const preview = await client.previewProjectDelete(name)
+    if (isJson) {
+      console.log(JSON.stringify({ dryRun: true, ...preview }, null, 2))
+      return
+    }
+    const { cascadeRows: cr, detachedRows: dr } = preview
+    console.log(`Project delete preview for "${name}":`)
+    console.log(`  Cascade-deletes:`)
+    console.log(`    queries:      ${cr.queries}`)
+    console.log(`    competitors:  ${cr.competitors}`)
+    console.log(`    runs:         ${cr.runs}`)
+    console.log(`    snapshots:    ${cr.snapshots}`)
+    console.log(`    insights:     ${cr.insights}`)
+    console.log(`  Detached (project_id set to NULL):`)
+    console.log(`    audit_log:    ${dr.auditLog}`)
+    console.log(``)
+    console.log(`No DB writes performed. Re-run without --dry-run to delete.`)
+    return
+  }
+
   await client.deleteProject(name)
 
-  if (format === 'json') {
+  if (isJson) {
     console.log(JSON.stringify({ name, deleted: true }, null, 2))
     return
   }

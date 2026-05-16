@@ -260,6 +260,18 @@ const routeCatalog: OpenApiOperation[] = [
     },
   },
   {
+    method: 'get',
+    path: '/api/v1/projects/{name}/delete-preview',
+    summary: 'Preview the cascade impact of deleting a project',
+    description: 'Read-only impact summary backing `canonry project delete --dry-run`. Returns counts of rows that would cascade-delete (queries, competitors, runs, snapshots, insights) and rows that would be detached (audit_log — `project_id` set to NULL).',
+    tags: ['projects'],
+    parameters: [nameParameter],
+    responses: {
+      200: { description: 'Preview of cascade impact.' },
+      404: { description: 'Project not found.' },
+    },
+  },
+  {
     method: 'post',
     path: '/api/v1/projects/{name}/locations',
     summary: 'Add a project location',

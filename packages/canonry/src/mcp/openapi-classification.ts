@@ -6,6 +6,7 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'GET /api/v1/projects': 'included',
   'GET /api/v1/projects/{name}': 'included',
   'DELETE /api/v1/projects/{name}': 'deferred',
+  'GET /api/v1/projects/{name}/delete-preview': 'included',
   'POST /api/v1/projects/{name}/locations': 'deferred',
   'GET /api/v1/projects/{name}/locations': 'deferred',
   'DELETE /api/v1/projects/{name}/locations/{label}': 'deferred',
