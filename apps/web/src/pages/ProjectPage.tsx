@@ -61,7 +61,7 @@ import {
   type ApiGoogleConnection,
   type ApiGscCoverageSummary,
 } from '../api.js'
-import { useTriggerRun } from '../queries/mutations.js'
+import { useAppendQueries, useTriggerRun } from '../queries/mutations.js'
 import { GSC_STALE_MS } from '../queries/query-client.js'
 import { queryKeys } from '../queries/query-keys.js'
 import { useDashboard } from '../queries/use-dashboard.js'
@@ -1166,13 +1166,18 @@ const ACTION_GROUP_META: Record<'write' | 'investigate' | 'monitor', { title: st
 
 function InsightSignals({
   insights,
+  suggestedQueries,
+  projectName,
 }: {
   insights: ProjectCommandCenterVm['insights']
+  suggestedQueries: ProjectCommandCenterVm['suggestedQueries']
+  projectName: string
 }) {
   const { openEvidence } = useDrawer()
   const [expandedId, setExpandedId] = useState<string | null>(null)
 
-  if (insights.length === 0) {
+  const hasSuggestions = suggestedQueries.rows.length > 0
+  if (insights.length === 0 && !hasSuggestions) {
     return (
       <p className="text-sm text-zinc-500">
         No outstanding opportunities. Trigger a sweep to surface fresh signals.
@@ -1256,6 +1261,86 @@ function InsightSignals({
           </div>
         )
       })}
+      {hasSuggestions && (
+        <SuggestedQueriesCard suggestedQueries={suggestedQueries} projectName={projectName} />
+      )}
+    </div>
+  )
+}
+
+function SuggestedQueriesCard({
+  suggestedQueries,
+  projectName,
+}: {
+  suggestedQueries: ProjectCommandCenterVm['suggestedQueries']
+  projectName: string
+}) {
+  const appendQueries = useAppendQueries()
+  // Track per-row pending state so users can add several at once without
+  // each click disabling the whole card. Cleared after invalidation refetches
+  // the dashboard and the suggestion drops off the list.
+  const [pending, setPending] = useState<Set<string>>(new Set())
+
+  const handleAdd = (query: string) => {
+    setPending(prev => new Set(prev).add(query))
+    appendQueries.mutate(
+      { projectName, queries: [query] },
+      {
+        onSuccess: () => {
+          addToast({ tone: 'positive', title: `Tracking "${query}"` })
+        },
+        onError: (err) => {
+          addToast({ tone: 'negative', title: `Couldn't add "${query}"`, detail: String(err) })
+          setPending(prev => {
+            const next = new Set(prev)
+            next.delete(query)
+            return next
+          })
+        },
+      },
+    )
+  }
+
+  const { rows, totalCandidates, skippedAlreadyTracked } = suggestedQueries
+  const subtitle = skippedAlreadyTracked > 0
+    ? `GSC queries you're getting impressions for · ${skippedAlreadyTracked} already tracked`
+    : `GSC queries you're getting impressions for but aren't tracking yet`
+
+  return (
+    <div className="opportunity-card opportunity-card-track">
+      <div className="opportunity-card-head">
+        <p className="opportunity-card-title">Track new queries</p>
+        <span className="opportunity-card-count">
+          {totalCandidates > rows.length ? `${rows.length} of ${totalCandidates}` : rows.length}
+        </span>
+      </div>
+      <p className="opportunity-card-subtitle">{subtitle}</p>
+      <div className="opportunity-card-list">
+        {rows.map(suggestion => {
+          const isPending = pending.has(suggestion.query)
+          return (
+            <div
+              key={suggestion.query}
+              className="opportunity-item opportunity-item-neutral flex items-center justify-between gap-2"
+            >
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-zinc-100 leading-snug truncate" title={suggestion.query}>
+                  {suggestion.query}
+                </p>
+                <p className="text-[11px] text-zinc-500 mt-0.5 leading-snug">{suggestion.reason}</p>
+              </div>
+              <button
+                type="button"
+                className="suggested-query-add"
+                disabled={isPending}
+                onClick={() => handleAdd(suggestion.query)}
+              >
+                {isPending ? 'Adding…' : '+ Track'}
+              </button>
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }
@@ -1965,7 +2050,11 @@ export function ProjectPage({
                 <h2>What to act on next</h2>
               </div>
             </div>
-            <InsightSignals insights={model.insights} />
+            <InsightSignals
+              insights={model.insights}
+              suggestedQueries={model.suggestedQueries}
+              projectName={projectName}
+            />
           </section>
 
           {/* Competitor table */}

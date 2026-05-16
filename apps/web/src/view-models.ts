@@ -1,4 +1,4 @@
-import type { ProjectDto, RunDto, RunStatus, GroundingSource, MentionShareDto } from '@ainyc/canonry-contracts'
+import type { ProjectDto, RunDto, RunStatus, GroundingSource, MentionShareDto, SuggestedQueriesSummaryDto } from '@ainyc/canonry-contracts'
 
 export type MetricTone = 'positive' | 'caution' | 'negative' | 'neutral'
 export type HealthState = 'checking' | 'ok' | 'error'
@@ -153,7 +153,9 @@ export interface AffectedPhrase {
 }
 
 /** What kind of operator action this insight calls for. Used to group the
- *  Opportunities panel as Write / Investigate / Monitor cards. */
+ *  Opportunities panel as Write / Investigate / Monitor / Track cards. The
+ *  `track` group is GSC-derived (suggested queries to add to the basket), not
+ *  insight-derived — it doesn't actually appear on `ProjectInsightVm`. */
 export type InsightActionGroup = 'write' | 'investigate' | 'monitor'
 
 export interface ProjectInsightVm {
@@ -215,6 +217,9 @@ export interface ProjectCommandCenterVm {
   visibilityEvidence: CitationInsightVm[]
   competitors: CompetitorVm[]
   recentRuns: RunListItemVm[]
+  /** Suggested queries to add to tracking — high-impression GSC queries that
+   *  aren't yet in the basket. Renders as the fourth Opportunities card. */
+  suggestedQueries: SuggestedQueriesSummaryDto
 }
 
 export interface SetupHealthCheckVm {

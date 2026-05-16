@@ -6,6 +6,7 @@ import {
   filterTrackedSnapshots,
   groupRunsByCreatedAt,
   gscCoverageSnapshots,
+  gscSearchData,
   gscUrlInspections,
   insights,
   healthSnapshots,
@@ -38,6 +39,7 @@ import {
   type ProjectOverviewProviderEntryDto,
   type ProjectOverviewScoresDto,
   type ProjectOverviewTransitionsDto,
+  type SuggestedQueriesSummaryDto,
   type ProjectSearchHitDto,
   type ProjectSearchInsightHitDto,
   type ProjectSearchResponseDto,
@@ -58,9 +60,11 @@ import {
   buildRunHistory,
   buildMentionCoverage,
   buildMentionShare,
+  buildSuggestedQueries,
   buildVisibilityScore,
   DEFAULT_RUN_HISTORY_LIMIT,
   providerKey,
+  type SuggestedQueryGscRow,
 } from '@ainyc/canonry-intelligence'
 import { resolveProject } from './helpers.js'
 
@@ -244,6 +248,11 @@ export async function compositeRoutes(app: FastifyInstance) {
       .slice(0, DEFAULT_RUN_HISTORY_LIMIT)
       .map(r => ({ id: r.id, createdAt: r.createdAt, status: r.status }))
     const runHistory: RunHistoryPointDto[] = buildRunHistory(sparklineRuns, snapshotsByRun)
+    const suggestedQueries: SuggestedQueriesSummaryDto = buildSuggestedQueriesFromGsc(
+      app,
+      project.id,
+      projectQueries.map(q => q.query),
+    )
 
     const result: ProjectOverviewDto = {
       project: formatProject(project),
@@ -259,6 +268,7 @@ export async function compositeRoutes(app: FastifyInstance) {
       providerScores,
       attentionItems,
       runHistory,
+      suggestedQueries,
       dateRangeLabel: 'All time',
       contextLabel: `${project.country} / ${project.language.toUpperCase()}`,
     }
@@ -540,6 +550,54 @@ function summarizeTransitionsFromSnapshots(
   }
 
   return { since, gained, lost, emerging }
+}
+
+/**
+ * Aggregate GSC per-query impressions over the last 28 days and hand the
+ * top 100 to `buildSuggestedQueries`. The SQL-side cap keeps a long-tail
+ * basket (10K+ unique queries is normal for a real GSC property) from
+ * loading into the JS helper just to be sliced down to ~10 rows for the
+ * UI. Position is impressions-weighted so heavy-hitter snapshots dominate
+ * the average — matches what GSC itself reports per query.
+ */
+function buildSuggestedQueriesFromGsc(
+  app: FastifyInstance,
+  projectId: string,
+  trackedQueries: readonly string[],
+): SuggestedQueriesSummaryDto {
+  // 28-day window mirrors GSC's default reporting horizon. ISO date string
+  // is what the schema stores (YYYY-MM-DD), comparable lexicographically.
+  const cutoff = new Date(Date.now() - 28 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+
+  const rows = app.db
+    .select({
+      query: gscSearchData.query,
+      impressions: sql<number>`COALESCE(SUM(${gscSearchData.impressions}), 0)`,
+      clicks: sql<number>`COALESCE(SUM(${gscSearchData.clicks}), 0)`,
+      // Weighted average: SUM(position * impressions) / SUM(impressions).
+      // NULLIF guards the degenerate impressions=0 case (SQLite returns NULL,
+      // which the JS coerces to 0 — caught by the impression floor anyway).
+      avgPosition: sql<number>`COALESCE(SUM(${gscSearchData.position} * ${gscSearchData.impressions}) * 1.0 / NULLIF(SUM(${gscSearchData.impressions}), 0), 0)`,
+    })
+    .from(gscSearchData)
+    .where(and(
+      eq(gscSearchData.projectId, projectId),
+      sql`${gscSearchData.date} >= ${cutoff}`,
+      sql`${gscSearchData.impressions} > 0`,
+    ))
+    .groupBy(gscSearchData.query)
+    .orderBy(sql`SUM(${gscSearchData.impressions}) DESC`)
+    .limit(100)
+    .all()
+
+  const gscRows: SuggestedQueryGscRow[] = rows.map(r => ({
+    query: r.query,
+    impressions: Number(r.impressions),
+    clicks: Number(r.clicks),
+    avgPosition: Number(r.avgPosition),
+  }))
+
+  return buildSuggestedQueries(gscRows, { trackedQueries })
 }
 
 function buildIndexCoverageScore(app: FastifyInstance, projectId: string): ScoreSummaryDto {

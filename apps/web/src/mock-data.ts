@@ -539,6 +539,15 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       },
     ],
     recentRuns: [runCitypointQueued, runCitypointVisibility],
+    suggestedQueries: {
+      rows: [
+        { query: 'emergency dentist near me', impressions: 4200, clicks: 87, avgPosition: 8, reason: '4.2K impressions · ranks #8 on Google' },
+        { query: 'invisalign brooklyn cost', impressions: 1850, clicks: 32, avgPosition: 14, reason: '1.9K impressions · ranks #14 — close to top 10' },
+        { query: 'dental implants downtown brooklyn', impressions: 920, clicks: 18, avgPosition: 22, reason: '920 impressions · ranks #22' },
+      ],
+      totalCandidates: 8,
+      skippedAlreadyTracked: 5,
+    },
   },
   {
     project: projects[1],
@@ -685,6 +694,13 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       },
     ],
     recentRuns: [runHarborVisibility],
+    suggestedQueries: {
+      rows: [
+        { query: 'car accident lawyer monmouth county', impressions: 2300, clicks: 41, avgPosition: 6, reason: '2.3K impressions · ranks #6 on Google' },
+      ],
+      totalCandidates: 1,
+      skippedAlreadyTracked: 4,
+    },
   },
   {
     project: projects[2],
@@ -823,6 +839,11 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       },
     ],
     recentRuns: [runNorthstarVisibility],
+    suggestedQueries: {
+      rows: [],
+      totalCandidates: 0,
+      skippedAlreadyTracked: 0,
+    },
   },
 ]
 
