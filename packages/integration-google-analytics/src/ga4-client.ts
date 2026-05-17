@@ -1,4 +1,5 @@
 import crypto from 'node:crypto'
+import { AI_ENGINE_DOMAINS } from '@ainyc/canonry-contracts'
 import {
   GA4_DATA_API_BASE,
   GA4_SCOPE,
@@ -7,6 +8,8 @@ import {
   GA4_MAX_SYNC_DAYS,
   GA4_REQUEST_TIMEOUT_MS,
   GA4_MAX_PAGES,
+  GA4_DIMENSIONS as DIM,
+  GA4_METRICS as MET,
 } from './constants.js'
 import type {
   GA4AiReferralRow,
@@ -263,8 +266,8 @@ const AI_REFERRAL_SOURCE_FILTERS: Array<{ matchType: 'CONTAINS' | 'EXACT'; value
   { matchType: 'CONTAINS', value: 'anthropic' },
   { matchType: 'CONTAINS', value: 'copilot' },
   { matchType: 'CONTAINS', value: 'phind' },
-  { matchType: 'EXACT', value: 'you.com' },
-  { matchType: 'CONTAINS', value: 'meta.ai' },
+  { matchType: 'EXACT', value: AI_ENGINE_DOMAINS.you },
+  { matchType: 'CONTAINS', value: AI_ENGINE_DOMAINS.metaAi },
 ]
 
 /**
@@ -297,12 +300,12 @@ export async function fetchTrafficByLandingPage(
     const request: GA4RunReportRequest = {
       dateRanges: [{ startDate: formatDate(startDate), endDate: formatDate(endDate) }],
       dimensions: [
-        { name: 'date' },
-        { name: 'landingPagePlusQueryString' },
+        { name: DIM.date },
+        { name: DIM.landingPagePlusQueryString },
       ],
       metrics: [
-        { name: 'sessions' },
-        { name: 'totalUsers' },
+        { name: MET.sessions },
+        { name: MET.totalUsers },
       ],
       limit: PAGE_SIZE,
       offset,
@@ -338,11 +341,11 @@ export async function fetchTrafficByLandingPage(
     organicPageCount++
     const organicRequest: GA4RunReportRequest = {
       dateRanges: [{ startDate: formatDate(startDate), endDate: formatDate(endDate) }],
-      dimensions: [{ name: 'date' }, { name: 'landingPagePlusQueryString' }],
-      metrics: [{ name: 'sessions' }],
+      dimensions: [{ name: DIM.date }, { name: DIM.landingPagePlusQueryString }],
+      metrics: [{ name: MET.sessions }],
       dimensionFilter: {
         filter: {
-          fieldName: 'sessionDefaultChannelGrouping',
+          fieldName: DIM.sessionDefaultChannelGrouping,
           stringFilter: { matchType: 'EXACT', value: 'Organic Search' },
         },
       },
@@ -372,11 +375,11 @@ export async function fetchTrafficByLandingPage(
     directPageCount++
     const directRequest: GA4RunReportRequest = {
       dateRanges: [{ startDate: formatDate(startDate), endDate: formatDate(endDate) }],
-      dimensions: [{ name: 'date' }, { name: 'landingPagePlusQueryString' }],
-      metrics: [{ name: 'sessions' }],
+      dimensions: [{ name: DIM.date }, { name: DIM.landingPagePlusQueryString }],
+      metrics: [{ name: MET.sessions }],
       dimensionFilter: {
         filter: {
-          fieldName: 'sessionDefaultChannelGrouping',
+          fieldName: DIM.sessionDefaultChannelGrouping,
           stringFilter: { matchType: 'EXACT', value: 'Direct' },
         },
       },
@@ -444,8 +447,8 @@ export async function verifyConnectionWithToken(
 
   await runReport(accessToken, propertyId, {
     dateRanges: [{ startDate: formatDate(startDate), endDate: formatDate(endDate) }],
-    dimensions: [{ name: 'date' }],
-    metrics: [{ name: 'sessions' }],
+    dimensions: [{ name: DIM.date }],
+    metrics: [{ name: MET.sessions }],
     limit: 1,
   })
 
@@ -487,16 +490,16 @@ export async function fetchAggregateSummary(
     {
       dateRanges: [dateRange],
       dimensions: [],
-      metrics: [{ name: 'sessions' }, { name: 'totalUsers' }],
+      metrics: [{ name: MET.sessions }, { name: MET.totalUsers }],
       limit: 1,
     },
     {
       dateRanges: [dateRange],
       dimensions: [],
-      metrics: [{ name: 'sessions' }],
+      metrics: [{ name: MET.sessions }],
       dimensionFilter: {
         filter: {
-          fieldName: 'sessionDefaultChannelGrouping',
+          fieldName: DIM.sessionDefaultChannelGrouping,
           stringFilter: { matchType: 'EXACT', value: 'Organic Search' },
         },
       },
@@ -564,16 +567,16 @@ export async function fetchWindowSummary(
     {
       dateRanges: [dateRange],
       dimensions: [],
-      metrics: [{ name: 'sessions' }, { name: 'totalUsers' }],
+      metrics: [{ name: MET.sessions }, { name: MET.totalUsers }],
       limit: 1,
     },
     {
       dateRanges: [dateRange],
       dimensions: [],
-      metrics: [{ name: 'sessions' }],
+      metrics: [{ name: MET.sessions }],
       dimensionFilter: {
         filter: {
-          fieldName: 'sessionDefaultChannelGrouping',
+          fieldName: DIM.sessionDefaultChannelGrouping,
           stringFilter: { matchType: 'EXACT', value: 'Organic Search' },
         },
       },
@@ -582,10 +585,10 @@ export async function fetchWindowSummary(
     {
       dateRanges: [dateRange],
       dimensions: [],
-      metrics: [{ name: 'sessions' }],
+      metrics: [{ name: MET.sessions }],
       dimensionFilter: {
         filter: {
-          fieldName: 'sessionDefaultChannelGrouping',
+          fieldName: DIM.sessionDefaultChannelGrouping,
           stringFilter: { matchType: 'EXACT', value: 'Direct' },
         },
       },
@@ -658,9 +661,9 @@ export async function fetchAiReferrals(
 
   // Each entry: [sourceDimension, mediumDimension, label for storage]
   const dimensionPairs: Array<[string, string, GA4SourceDimension]> = [
-    ['sessionSource', 'sessionMedium', 'session'],
-    ['firstUserSource', 'firstUserMedium', 'first_user'],
-    ['sessionManualSource', 'sessionManualMedium', 'manual_utm'],
+    [DIM.sessionSource, DIM.sessionMedium, 'session'],
+    [DIM.firstUserSource, DIM.firstUserMedium, 'first_user'],
+    [DIM.sessionManualSource, DIM.sessionManualMedium, 'manual_utm'],
   ]
 
   for (const [sourceDim, mediumDim, dimLabel] of dimensionPairs) {
@@ -671,15 +674,15 @@ export async function fetchAiReferrals(
       const request: GA4RunReportRequest = {
         dateRanges: [{ startDate: formatDate(startDate), endDate: formatDate(endDate) }],
         dimensions: [
-          { name: 'date' },
+          { name: DIM.date },
           { name: sourceDim },
           { name: mediumDim },
-          { name: 'sessionDefaultChannelGrouping' },
-          { name: 'landingPagePlusQueryString' },
+          { name: DIM.sessionDefaultChannelGrouping },
+          { name: DIM.landingPagePlusQueryString },
         ],
         metrics: [
-          { name: 'sessions' },
-          { name: 'totalUsers' },
+          { name: MET.sessions },
+          { name: MET.totalUsers },
         ],
         dimensionFilter: {
           orGroup: {
@@ -785,20 +788,20 @@ export async function fetchSocialReferrals(
     const request: GA4RunReportRequest = {
       dateRanges: [{ startDate: formatDate(startDate), endDate: formatDate(endDate) }],
       dimensions: [
-        { name: 'date' },
-        { name: 'sessionSource' },
-        { name: 'sessionMedium' },
-        { name: 'sessionDefaultChannelGroup' },
+        { name: DIM.date },
+        { name: DIM.sessionSource },
+        { name: DIM.sessionMedium },
+        { name: DIM.sessionDefaultChannelGroup },
       ],
       metrics: [
-        { name: 'sessions' },
-        { name: 'totalUsers' },
+        { name: MET.sessions },
+        { name: MET.totalUsers },
       ],
       dimensionFilter: {
         orGroup: {
           expressions: SOCIAL_CHANNEL_GROUPS.map((value) => ({
             filter: {
-              fieldName: 'sessionDefaultChannelGroup',
+              fieldName: DIM.sessionDefaultChannelGroup,
               stringFilter: { matchType: 'EXACT' as const, value },
             },
           })),

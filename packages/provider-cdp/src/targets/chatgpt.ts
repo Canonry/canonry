@@ -1,5 +1,5 @@
 import type CDP from 'chrome-remote-interface'
-import type { GroundingSource } from '@ainyc/canonry-contracts'
+import { AI_ENGINE_DOMAINS, AI_ENGINE_SELF_DOMAINS, type GroundingSource } from '@ainyc/canonry-contracts'
 import type { CDPTarget } from './types.js'
 import { CDPProviderError } from './types.js'
 import { waitForStabilization } from '../connection.js'
@@ -17,8 +17,8 @@ import { waitForStabilization } from '../connection.js'
  */
 export const chatgptTarget: CDPTarget = {
   name: 'chatgpt',
-  baseUrl: 'https://chatgpt.com',
-  newConversationUrl: 'https://chatgpt.com/?model=auto',
+  baseUrl: `https://${AI_ENGINE_DOMAINS.chatgpt}`,
+  newConversationUrl: `https://${AI_ENGINE_DOMAINS.chatgpt}/?model=auto`,
   responseSelector: '[data-testid="conversation-turn-3"], article:last-of-type, .agent-turn:last-of-type',
 
   async submitQuery(client: CDP.Client, query: string): Promise<void> {
@@ -150,8 +150,13 @@ export const chatgptTarget: CDPTarget = {
 
   extractCitations(client: CDP.Client): Promise<GroundingSource[]> {
     return (async () => {
+      // Serialize the self-domain list into the page-evaluated expression
+      // so the filter list comes from `AI_ENGINE_SELF_DOMAINS.chatgpt`, not
+      // a duplicated literal inside the eval string.
+      const selfDomainsLiteral = JSON.stringify(AI_ENGINE_SELF_DOMAINS.chatgpt)
       const { result } = await client.Runtime.evaluate({
         expression: `(() => {
+          const SELF_DOMAINS = ${selfDomainsLiteral};
           const sources = [];
           const seen = new Set();
           const turns = document.querySelectorAll('[data-message-author-role="assistant"]');
@@ -175,7 +180,7 @@ export const chatgptTarget: CDPTarget = {
               }
             }
 
-            if (!seen.has(href) && hostname !== 'chatgpt.com' && hostname !== 'openai.com') {
+            if (!seen.has(href) && !SELF_DOMAINS.includes(hostname)) {
               seen.add(href);
               sources.push({
                 uri: href,
@@ -192,7 +197,7 @@ export const chatgptTarget: CDPTarget = {
             if (href && !seen.has(href)) {
               let hostname = '';
               try { hostname = new URL(href).hostname.replace(/^www\\./, ''); } catch {}
-              if (hostname !== 'chatgpt.com' && hostname !== 'openai.com') {
+              if (!SELF_DOMAINS.includes(hostname)) {
                 seen.add(href);
                 sources.push({ uri: href, title: title || hostname || href });
               }

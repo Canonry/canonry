@@ -1,7 +1,7 @@
 import { eq, desc, inArray } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { filterTrackedSnapshots, groupRunsByCreatedAt, pickGroupRepresentative, querySnapshots, runs, queries, parseJsonColumn } from '@ainyc/canonry-db'
-import { categorizeSource, categoryLabel, CitationStates, parseWindow, windowCutoff } from '@ainyc/canonry-contracts'
+import { AI_ENGINE_DOMAINS, categorizeSource, categoryLabel, CitationStates, parseWindow, windowCutoff } from '@ainyc/canonry-contracts'
 import type {
   BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto,
   TimeBucket, TrendDirection, GapQuery, GapCategory,
@@ -375,7 +375,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
 // Domains that are provider infrastructure, not real grounding sources
 const PROVIDER_INFRA_DOMAINS = new Set([
   'vertexaisearch.cloud.google.com',
-  'openai.com',
+  AI_ENGINE_DOMAINS.openai,
   'anthropic.com',
   'googleapis.com',
 ])

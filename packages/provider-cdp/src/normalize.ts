@@ -1,4 +1,4 @@
-import type { GroundingSource, RawQueryResult, NormalizedQueryResult } from '@ainyc/canonry-contracts'
+import { AI_ENGINE_SELF_DOMAINS, type GroundingSource, type RawQueryResult, type NormalizedQueryResult } from '@ainyc/canonry-contracts'
 
 /**
  * Extract unique domains from grounding sources.
@@ -12,7 +12,7 @@ export function extractCitedDomains(groundingSources: GroundingSource[]): string
       const url = new URL(source.uri)
       const domain = url.hostname.replace(/^www\./, '').toLowerCase()
       // Skip internal AI service domains
-      if (!domain.includes('chatgpt.com') && !domain.includes('openai.com')) {
+      if (!AI_ENGINE_SELF_DOMAINS.chatgpt.some((self) => domain.includes(self))) {
         domains.add(domain)
       }
     } catch {

@@ -1,4 +1,11 @@
+import { AI_ENGINE_DOMAINS } from '@ainyc/canonry-contracts'
 import type { AiCrawlerRule, AiReferrerRule } from './types.js'
+
+/**
+ * Legacy ChatGPT consumer hostname (redirects to `chatgpt.com` today). Kept
+ * separate because referrer headers from older clients still carry it.
+ */
+const LEGACY_CHATGPT_DOMAIN = 'chat.openai.com'
 
 export const DEFAULT_AI_CRAWLER_RULES: AiCrawlerRule[] = [
   {
@@ -113,13 +120,13 @@ export const DEFAULT_AI_CRAWLER_USER_AGENT_SUBSTRINGS = [
 ]
 
 export const DEFAULT_AI_REFERRER_RULES: AiReferrerRule[] = [
-  { domain: 'chatgpt.com', operator: 'OpenAI', product: 'ChatGPT' },
-  { domain: 'chat.openai.com', operator: 'OpenAI', product: 'ChatGPT' },
-  { domain: 'perplexity.ai', operator: 'Perplexity', product: 'Perplexity' },
-  { domain: 'claude.ai', operator: 'Anthropic', product: 'Claude' },
-  { domain: 'gemini.google.com', operator: 'Google', product: 'Gemini' },
-  { domain: 'copilot.microsoft.com', operator: 'Microsoft', product: 'Copilot' },
-  { domain: 'phind.com', operator: 'Phind', product: 'Phind' },
-  { domain: 'you.com', operator: 'You.com', product: 'You.com' },
-  { domain: 'meta.ai', operator: 'Meta', product: 'Meta AI' },
+  { domain: AI_ENGINE_DOMAINS.chatgpt, operator: 'OpenAI', product: 'ChatGPT' },
+  { domain: LEGACY_CHATGPT_DOMAIN, operator: 'OpenAI', product: 'ChatGPT' },
+  { domain: AI_ENGINE_DOMAINS.perplexity, operator: 'Perplexity', product: 'Perplexity' },
+  { domain: AI_ENGINE_DOMAINS.claude, operator: 'Anthropic', product: 'Claude' },
+  { domain: AI_ENGINE_DOMAINS.gemini, operator: 'Google', product: 'Gemini' },
+  { domain: AI_ENGINE_DOMAINS.copilotMicrosoft, operator: 'Microsoft', product: 'Copilot' },
+  { domain: AI_ENGINE_DOMAINS.phind, operator: 'Phind', product: 'Phind' },
+  { domain: AI_ENGINE_DOMAINS.you, operator: 'You.com', product: 'You.com' },
+  { domain: AI_ENGINE_DOMAINS.metaAi, operator: 'Meta', product: 'Meta AI' },
 ]

@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk'
 import type { WebSearchTool20250305 } from '@anthropic-ai/sdk/resources/messages/messages.js'
+import { AI_ENGINE_SELF_DOMAINS } from '@ainyc/canonry-contracts'
 import { withRetry } from './utils.js'
 import type {
   ClaudeConfig,
@@ -321,7 +322,7 @@ function extractDomainFromUri(uri: string): string | null {
     const url = new URL(uri)
     const hostname = url.hostname.replace(/^www\./, '').toLowerCase()
     // Skip internal AI service domains
-    if (hostname.includes('chatgpt.com') || hostname.includes('openai.com')) {
+    if (AI_ENGINE_SELF_DOMAINS.chatgpt.some((self) => hostname.includes(self))) {
       return null
     }
     return hostname

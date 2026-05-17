@@ -63,6 +63,42 @@ export default tseslint.config(
     },
   },
   {
+    // Drift guard: GA4 dimension/metric names must come from `GA4_DIMENSIONS` /
+    // `GA4_METRICS` in `packages/integration-google-analytics/src/constants.ts`.
+    // CI broke once when source and test drifted on `sessionDefaultChannelGroup`
+    // vs `…Grouping`; the constant makes that class of failure impossible.
+    files: ['packages/integration-google-analytics/src/**/*.ts'],
+    ignores: ['packages/integration-google-analytics/src/constants.ts'],
+    rules: {
+      'no-restricted-syntax': ['error', {
+        selector: "Literal[value=/^(sessionSource|sessionMedium|sessionManualSource|sessionManualMedium|firstUserSource|firstUserMedium|sessionDefaultChannelGroup|sessionDefaultChannelGrouping|landingPagePlusQueryString)$/]",
+        message: 'Use GA4_DIMENSIONS from ./constants.ts — never inline raw dimension names. See packages/integration-google-analytics/src/constants.ts.',
+      }],
+    },
+  },
+  {
+    // Drift guard: AI-engine hostnames in production code must come from
+    // `AI_ENGINE_DOMAINS` in `packages/contracts/src/ai-engines.ts`. Tests are
+    // exempt because fixtures are local to their assertions and don't drift
+    // across files.
+    files: [
+      'packages/canonry/src/**/*.ts',
+      'packages/api-routes/src/**/*.ts',
+      'packages/provider-*/src/**/*.ts',
+      'packages/integration-*/src/**/*.ts',
+      'packages/intelligence/src/**/*.ts',
+      'apps/**/src/**/*.ts',
+      'apps/**/src/**/*.tsx',
+    ],
+    ignores: ['packages/contracts/src/ai-engines.ts'],
+    rules: {
+      'no-restricted-syntax': ['error', {
+        selector: "Literal[value=/^(openai\\.com|chatgpt\\.com|claude\\.ai|perplexity\\.ai|gemini\\.google\\.com|bard\\.google\\.com|copilot\\.microsoft\\.com|meta\\.ai|grok\\.com|you\\.com|phind\\.com)$/]",
+        message: 'Use AI_ENGINE_DOMAINS from @ainyc/canonry-contracts — never inline raw AI-engine hostnames in production code.',
+      }],
+    },
+  },
+  {
     files: ['**/*.js', '**/*.ts', '**/*.tsx'],
     extends: [regexpPlugin.configs['flat/recommended']],
   },
