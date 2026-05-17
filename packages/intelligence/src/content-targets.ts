@@ -156,7 +156,6 @@ export function buildContentTargetRows(input: OrchestratorInput): ContentTargetR
       projectId: input.projectId,
       query: cq.query,
       action,
-      targetPage: ourPage?.url ?? null,
     })
 
     const winningCompetitor = pickTopCompetitor(cq.competitorGroundingUrls)
@@ -362,13 +361,31 @@ function computeTargetRef(input: {
   projectId: string
   query: string
   action: string
-  targetPage: string | null
 }): string {
-  // Intentionally excludes run-level fields so the ref is stable across runs
-  // and can be matched against persisted content-action records (PR 3).
-  const key = [input.projectId, input.query, input.action, input.targetPage ?? ''].join('|')
-  // Stable hash — same inputs produce the same ref. Not a security boundary,
-  // just a deterministic identifier for client-side reference.
+  // The ref is the recommendation's *intent identity* — what the user
+  // would dismiss if they marked it "addressed" in the report. It must
+  // stay stable across orchestrator runs even when run-level state
+  // shifts. Two run-level signals to deliberately exclude:
+  //
+  //   1. `targetPage` — the orchestrator's view of "best matching owned
+  //      page" shifts whenever GSC inventory updates (a different page
+  //      starts ranking for the query, the previous best page drops
+  //      off, etc.). Including it meant the SAME recommendation
+  //      (same query, same action) would get a NEW ref on every report
+  //      load if the inventory shifted at all, so persisted dismissals
+  //      stopped matching after one cycle.
+  //   2. Anything tied to runId / location / sweep timestamp — same
+  //      reason; the dismissal is on the recommendation, not the
+  //      snapshot.
+  //
+  // When the action type itself shifts (`create` → `refresh` because a
+  // page now exists for the query), that's a new conceptual
+  // recommendation and the new ref is correct: a "refresh" dismissal
+  // shouldn't suppress a future "create" suggestion.
+  const key = [input.projectId, input.query, input.action].join('|')
+  // Stable hash — same inputs produce the same ref. Not a security
+  // boundary, just a deterministic identifier for client-side
+  // reference + matching against persisted dismissals.
   let hash = 0
   for (let i = 0; i < key.length; i++) {
     hash = ((hash << 5) - hash + key.charCodeAt(i)) | 0
