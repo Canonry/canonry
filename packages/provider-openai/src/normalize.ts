@@ -31,12 +31,12 @@ export async function healthcheck(config: OpenAIConfig): Promise<OpenAIHealthche
   try {
     const client = new OpenAI({ apiKey: config.apiKey })
     const response = await withRetry(() =>
-      client.responses.create({
+      client.chat.completions.create({
         model: config.model ?? DEFAULT_MODEL,
-        input: 'Say "ok"',
+        messages: [{ role: 'user', content: 'Say "ok"' }],
       }),
     )
-    const text = extractResponseText(response)
+    const text = response.choices?.[0]?.message?.content?.trim() ?? ''
     return {
       ok: text.length > 0,
       provider: 'openai',
