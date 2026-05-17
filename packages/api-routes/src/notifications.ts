@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { notifications, parseJsonColumn } from '@ainyc/canonry-db'
+import { notifications } from '@ainyc/canonry-db'
 import type { NotificationEvent, NotificationDto } from '@ainyc/canonry-contracts'
 import { validationError, notFound, deliveryFailed } from '@ainyc/canonry-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
@@ -51,9 +51,9 @@ export async function notificationRoutes(app: FastifyInstance, opts: Notificatio
       id,
       projectId: project.id,
       channel: 'webhook',
-      config: JSON.stringify({ url, events, ...(source ? { source } : {}) }),
+      config: { url, events, ...(source ? { source } : {}) },
       webhookSecret,
-      enabled: 1,
+      enabled: true,
       createdAt: now,
       updatedAt: now,
     }).run()
@@ -113,7 +113,7 @@ export async function notificationRoutes(app: FastifyInstance, opts: Notificatio
       throw notFound('Notification', request.params.id)
     }
 
-    const config = parseJsonColumn<{ url: string; events: string[] }>(notification.config, { url: '', events: [] })
+    const config = notification.config
 
     // Re-validate URL at delivery time (stored URLs may predate validation logic)
     const urlCheck = await resolveWebhookTarget(config.url, { allowLoopback })
@@ -150,7 +150,7 @@ export async function notificationRoutes(app: FastifyInstance, opts: Notificatio
 }
 
 function formatNotification(row: typeof notifications.$inferSelect): Omit<NotificationDto, 'webhookSecret'> {
-  const config = parseJsonColumn<{ url: string; events: NotificationEvent[]; source?: string }>(row.config, { url: '', events: [] })
+  const config = row.config as { url: string; events: NotificationEvent[]; source?: string }
   const redacted = redactNotificationUrl(config.url)
   return {
     id: row.id,
@@ -160,7 +160,7 @@ function formatNotification(row: typeof notifications.$inferSelect): Omit<Notifi
     urlDisplay: redacted.urlDisplay,
     urlHost: redacted.urlHost,
     events: config.events,
-    enabled: row.enabled === 1,
+    enabled: row.enabled,
     ...(config.source ? { source: config.source } : {}),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,

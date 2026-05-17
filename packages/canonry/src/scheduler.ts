@@ -2,7 +2,7 @@ import cron from 'node-cron'
 import { and, eq } from 'drizzle-orm'
 import { queueRunIfProjectIdle } from '@ainyc/canonry-api-routes'
 import type { DatabaseClient } from '@ainyc/canonry-db'
-import { schedules, projects, parseJsonColumn } from '@ainyc/canonry-db'
+import { schedules, projects } from '@ainyc/canonry-db'
 import type { ProviderName, LocationContext, SchedulableRunKind } from '@ainyc/canonry-contracts'
 import { SchedulableRunKinds } from '@ainyc/canonry-contracts'
 import { createLogger } from './logger.js'
@@ -42,7 +42,7 @@ export class Scheduler {
     const allSchedules = this.db
       .select()
       .from(schedules)
-      .where(eq(schedules.enabled, 1))
+      .where(eq(schedules.enabled, true))
       .all()
 
     for (const schedule of allSchedules) {
@@ -89,7 +89,7 @@ export class Scheduler {
       .where(and(eq(schedules.projectId, projectId), eq(schedules.kind, kind)))
       .get()
 
-    if (schedule && schedule.enabled === 1) {
+    if (schedule && schedule.enabled) {
       this.registerCronTask(schedule)
     }
   }
@@ -146,7 +146,7 @@ export class Scheduler {
     try {
       const now = new Date().toISOString()
       const currentSchedule = this.db.select().from(schedules).where(eq(schedules.id, scheduleId)).get()
-      if (!currentSchedule || currentSchedule.enabled !== 1) {
+      if (!currentSchedule || !currentSchedule.enabled) {
         log.warn('schedule.stale', { scheduleId, projectId, kind, msg: 'schedule no longer exists or is disabled' })
         this.remove(projectId, kind)
         return
@@ -225,8 +225,8 @@ export class Scheduler {
       }).where(eq(schedules.id, currentSchedule.id)).run()
 
       // Resolve providers
-      const scheduleProviders = parseJsonColumn<string[]>(currentSchedule.providers, [])
-      const providers = scheduleProviders.length > 0 ? scheduleProviders as ProviderName[] : undefined
+      const scheduleProviders = currentSchedule.providers
+      const providers = scheduleProviders.length > 0 ? scheduleProviders : undefined
 
       log.info('run.triggered', { runId, projectName: project.name, providers: providers ?? 'all' })
       this.callbacks.onRunCreated(runId, projectId, providers, resolvedLocation)

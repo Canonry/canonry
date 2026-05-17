@@ -1,7 +1,7 @@
 import { eq, desc, and, inArray, or } from 'drizzle-orm'
 import { deliverWebhook, redactNotificationUrl, resolveWebhookTarget } from '@ainyc/canonry-api-routes'
 import type { DatabaseClient } from '@ainyc/canonry-db'
-import { auditLog, groupRunsByCreatedAt, notifications, parseJsonColumn, projects, queries, querySnapshots, runs } from '@ainyc/canonry-db'
+import { auditLog, groupRunsByCreatedAt, notifications, projects, queries, querySnapshots, runs } from '@ainyc/canonry-db'
 import type { NotificationEvent, WebhookPayload, InsightWebhookPayload } from '@ainyc/canonry-contracts'
 import type { AnalysisResult } from '@ainyc/canonry-intelligence'
 import crypto from 'node:crypto'
@@ -28,7 +28,7 @@ export class Notifier {
       .from(notifications)
       .where(eq(notifications.projectId, projectId))
       .all()
-      .filter(n => n.enabled === 1)
+      .filter(n => n.enabled)
 
     if (notifs.length === 0) {
       log.info('notifications.none-enabled', { projectId })
@@ -73,7 +73,7 @@ export class Notifier {
 
     // Send webhooks for each notification config
     for (const notif of notifs) {
-      const config = parseJsonColumn<{ url: string; events: string[] }>(notif.config, { url: '', events: [] })
+      const config = notif.config
       if (!config.url) continue
       const subscribedEvents = config.events as NotificationEvent[]
 
@@ -117,7 +117,7 @@ export class Notifier {
       .from(notifications)
       .where(eq(notifications.projectId, projectId))
       .all()
-      .filter(n => n.enabled === 1)
+      .filter(n => n.enabled)
 
     if (notifs.length === 0) return
 
@@ -128,7 +128,7 @@ export class Notifier {
     if (!project) return
 
     for (const notif of notifs) {
-      const config = parseJsonColumn<{ url: string; events: string[] }>(notif.config, { url: '', events: [] })
+      const config = notif.config
       if (!config.url) continue
       const subscribedEvents = config.events as NotificationEvent[]
       const matchingEvents = insightEvents.filter(e => (subscribedEvents as string[]).includes(e))

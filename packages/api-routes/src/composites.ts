@@ -12,7 +12,6 @@ import {
   healthSnapshots,
   pickGroupRepresentative,
   queries,
-  parseJsonColumn,
   projects,
   querySnapshots,
   runs,

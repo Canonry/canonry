@@ -1,6 +1,6 @@
 import { and, eq, inArray } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { competitors, queries, querySnapshots, runs, parseJsonColumn } from '@ainyc/canonry-db'
+import { competitors, queries, querySnapshots, runs } from '@ainyc/canonry-db'
 import {
   emptyCitationVisibility,
   citationStateToCited,

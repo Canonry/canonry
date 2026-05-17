@@ -1,6 +1,5 @@
-import type { DiscoveryCompetitorMapEntry } from '@ainyc/canonry-contracts'
 import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
-import type { LocationContext } from '@ainyc/canonry-contracts'
+import type { DiscoveryCompetitorMapEntry, LocationContext, ProviderName } from '@ainyc/canonry-contracts'
 
 export const projects = sqliteTable('projects', {
   id: text('id').primaryKey(),
@@ -140,8 +139,8 @@ export const schedules = sqliteTable('schedules', {
   cronExpr: text('cron_expr').notNull(),
   preset: text('preset'),
   timezone: text('timezone').notNull().default('UTC'),
-  enabled: integer('enabled').notNull().default(1),
-  providers: text('providers').notNull().default('[]'),
+  enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+  providers: text('providers', { mode: 'json' }).$type<ProviderName[]>().notNull().default([]),
   /** Optional traffic-source UUID for traffic-sync schedules. Null for other kinds. */
   sourceId: text('source_id'),
   lastRunAt: text('last_run_at'),
@@ -156,9 +155,9 @@ export const notifications = sqliteTable('notifications', {
   id: text('id').primaryKey(),
   projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
   channel: text('channel').notNull(),
-  config: text('config').notNull(),
+  config: text('config', { mode: 'json' }).$type<{ url: string; events: string[] }>().notNull(),
   webhookSecret: text('webhook_secret'),
-  enabled: integer('enabled').notNull().default(1),
+  enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 }, (table) => [

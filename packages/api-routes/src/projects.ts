@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 import { eq, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { projects, queries, competitors, schedules, notifications, runs, querySnapshots, insights, auditLog, parseJsonColumn } from '@ainyc/canonry-db'
+import { projects, queries, competitors, schedules, notifications, runs, querySnapshots, insights, auditLog } from '@ainyc/canonry-db'
 import type { InferSelectModel } from 'drizzle-orm'
 import {
   validationError,
@@ -401,7 +401,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
         ...(project.defaultLocation ? { defaultLocation: project.defaultLocation } : {}),
         ...(project.autoExtractBacklinks ? { autoExtractBacklinks: true } : {}),
         notifications: notificationRows.map((row) => {
-          const cfg = parseJsonColumn<{ url: string; events: string[] }>(row.config, { url: '', events: [] })
+          const cfg = row.config
           return {
             channel: row.channel,
             url: cfg.url,
@@ -412,7 +412,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
           schedule: {
             ...(schedule.preset ? { preset: schedule.preset } : { cron: schedule.cronExpr }),
             timezone: schedule.timezone,
-            providers: parseJsonColumn<string[]>(schedule.providers, []),
+            providers: schedule.providers,
           },
         } : {}),
       },

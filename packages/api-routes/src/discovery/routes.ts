@@ -5,7 +5,6 @@ import {
   competitors,
   discoveryProbes,
   discoverySessions,
-  parseJsonColumn,
   queries,
   runs,
 } from '@ainyc/canonry-db'

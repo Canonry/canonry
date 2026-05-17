@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 import { and, eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { schedules, trafficSources, parseJsonColumn } from '@ainyc/canonry-db'
+import { schedules, trafficSources } from '@ainyc/canonry-db'
 import {
   type ScheduleDto,
   type ProviderName,
@@ -115,7 +115,7 @@ export async function scheduleRoutes(app: FastifyInstance, opts: ScheduleRoutesO
     }
 
     const now = new Date().toISOString()
-    const enabledInt = enabled === false ? 0 : 1
+    const enabledBool = enabled !== false
     const existing = app.db
       .select()
       .from(schedules)
@@ -127,9 +127,9 @@ export async function scheduleRoutes(app: FastifyInstance, opts: ScheduleRoutesO
         cronExpr,
         preset: preset ?? null,
         timezone,
-        providers: JSON.stringify(providers ?? []),
+        providers: (providers ?? []) as ProviderName[],
         sourceId: sourceId ?? null,
-        enabled: enabledInt,
+        enabled: enabledBool,
         updatedAt: now,
       }).where(eq(schedules.id, existing.id)).run()
     } else {
@@ -140,8 +140,8 @@ export async function scheduleRoutes(app: FastifyInstance, opts: ScheduleRoutesO
         cronExpr,
         preset: preset ?? null,
         timezone,
-        enabled: enabledInt,
-        providers: JSON.stringify(providers ?? []),
+        enabled: enabledBool,
+        providers: (providers ?? []) as ProviderName[],
         sourceId: sourceId ?? null,
         createdAt: now,
         updatedAt: now,
@@ -225,8 +225,8 @@ function formatSchedule(row: typeof schedules.$inferSelect): ScheduleDto {
     cronExpr: row.cronExpr,
     preset: row.preset,
     timezone: row.timezone,
-    enabled: row.enabled === 1,
-    providers: parseJsonColumn<ProviderName[]>(row.providers, []),
+    enabled: row.enabled,
+    providers: row.providers,
     sourceId: row.sourceId,
     lastRunAt: row.lastRunAt,
     nextRunAt: row.nextRunAt,

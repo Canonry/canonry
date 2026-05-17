@@ -227,8 +227,8 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
             cronExpr: resolvedSchedule.cronExpr,
             preset: resolvedSchedule.preset,
             timezone: resolvedSchedule.timezone,
-            providers: JSON.stringify(config.spec.schedule?.providers ?? []),
-            enabled: 1,
+            providers: config.spec.schedule?.providers ?? [],
+            enabled: true,
             updatedAt: now,
           }).where(eq(schedules.id, existingSched.id)).run()
         } else {
@@ -239,8 +239,8 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
             cronExpr: resolvedSchedule.cronExpr,
             preset: resolvedSchedule.preset,
             timezone: resolvedSchedule.timezone,
-            enabled: 1,
-            providers: JSON.stringify(config.spec.schedule?.providers ?? []),
+            enabled: true,
+            providers: config.spec.schedule?.providers ?? [],
             createdAt: now,
             updatedAt: now,
           }).run()
@@ -268,9 +268,9 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
             id: crypto.randomUUID(),
             projectId,
             channel: notif.channel,
-            config: JSON.stringify({ url: notif.url, events: notif.events }),
+            config: { url: notif.url, events: notif.events },
             webhookSecret: crypto.randomBytes(32).toString('hex'),
-            enabled: 1,
+            enabled: true,
             createdAt: now,
             updatedAt: now,
           }).run()

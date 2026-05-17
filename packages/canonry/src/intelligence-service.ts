@@ -1,6 +1,6 @@
 import { eq, desc, asc, and, ne, or, inArray } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/canonry-db'
-import { competitors, groupRunsByCreatedAt, gscSearchData, healthSnapshots, insights, parseJsonColumn, projects, queries, querySnapshots, runs } from '@ainyc/canonry-db'
+import { competitors, groupRunsByCreatedAt, gscSearchData, healthSnapshots, insights, projects, queries, querySnapshots, runs } from '@ainyc/canonry-db'
 import { analyzeRuns, classifyRegressionSeverity, PERSISTENT_GAP_THRESHOLD } from '@ainyc/canonry-intelligence'
 import type { RunData, Snapshot, AnalysisResult, Insight } from '@ainyc/canonry-intelligence'
 import { CitationStates, RunKinds, RunTriggers } from '@ainyc/canonry-contracts'
