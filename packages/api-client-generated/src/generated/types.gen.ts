@@ -320,6 +320,22 @@ export type ContentSourcesResponseDto = {
     latestRunId: string;
 };
 
+export type ContentTargetDismissalDto = {
+    targetRef: string;
+    addressedUrl: string | null;
+    note: string | null;
+    dismissedAt: string;
+};
+
+export type ContentTargetDismissalsResponseDto = {
+    dismissals: Array<{
+        targetRef: string;
+        addressedUrl: string | null;
+        note: string | null;
+        dismissedAt: string;
+    }>;
+};
+
 export type ContentTargetsResponseDto = {
     targets: Array<{
         targetRef: string;
@@ -1181,6 +1197,7 @@ export type ProjectReportDto = {
         evidence: Array<string>;
         successMetric: string;
         confidence: 'high' | 'medium' | 'low';
+        targetRef?: string;
     }>;
     clientSummary: {
         headline: string;
@@ -1196,6 +1213,7 @@ export type ProjectReportDto = {
             evidence: Array<string>;
             successMetric: string;
             confidence: 'high' | 'medium' | 'low';
+            targetRef?: string;
         }>;
         confidenceNotes: Array<string>;
     };
@@ -1211,6 +1229,7 @@ export type ProjectReportDto = {
             evidence: Array<string>;
             successMetric: string;
             confidence: 'high' | 'medium' | 'low';
+            targetRef?: string;
         }>;
         diagnostics: Array<{
             title: string;
@@ -6439,6 +6458,108 @@ export type GetApiV1ProjectsByNameContentTargetsResponses = {
 };
 
 export type GetApiV1ProjectsByNameContentTargetsResponse = GetApiV1ProjectsByNameContentTargetsResponses[keyof GetApiV1ProjectsByNameContentTargetsResponses];
+
+export type GetApiV1ProjectsByNameContentDismissalsData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/content/dismissals';
+};
+
+export type GetApiV1ProjectsByNameContentDismissalsErrors = {
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameContentDismissalsError = GetApiV1ProjectsByNameContentDismissalsErrors[keyof GetApiV1ProjectsByNameContentDismissalsErrors];
+
+export type GetApiV1ProjectsByNameContentDismissalsResponses = {
+    /**
+     * Dismissals returned.
+     */
+    200: ContentTargetDismissalsResponseDto;
+};
+
+export type GetApiV1ProjectsByNameContentDismissalsResponse = GetApiV1ProjectsByNameContentDismissalsResponses[keyof GetApiV1ProjectsByNameContentDismissalsResponses];
+
+export type PostApiV1ProjectsByNameContentDismissalsData = {
+    body: {
+        targetRef: string;
+        addressedUrl?: string;
+        note?: string;
+    };
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/content/dismissals';
+};
+
+export type PostApiV1ProjectsByNameContentDismissalsErrors = {
+    /**
+     * Invalid request body.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameContentDismissalsError = PostApiV1ProjectsByNameContentDismissalsErrors[keyof PostApiV1ProjectsByNameContentDismissalsErrors];
+
+export type PostApiV1ProjectsByNameContentDismissalsResponses = {
+    /**
+     * Dismissal saved.
+     */
+    200: ContentTargetDismissalDto;
+};
+
+export type PostApiV1ProjectsByNameContentDismissalsResponse = PostApiV1ProjectsByNameContentDismissalsResponses[keyof PostApiV1ProjectsByNameContentDismissalsResponses];
+
+export type DeleteApiV1ProjectsByNameContentDismissalsByTargetRefData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+        /**
+         * Stable hash from ContentTargetRowDto.targetRef.
+         */
+        targetRef: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/content/dismissals/{targetRef}';
+};
+
+export type DeleteApiV1ProjectsByNameContentDismissalsByTargetRefErrors = {
+    /**
+     * Project or dismissal not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type DeleteApiV1ProjectsByNameContentDismissalsByTargetRefError = DeleteApiV1ProjectsByNameContentDismissalsByTargetRefErrors[keyof DeleteApiV1ProjectsByNameContentDismissalsByTargetRefErrors];
+
+export type DeleteApiV1ProjectsByNameContentDismissalsByTargetRefResponses = {
+    /**
+     * Dismissal removed.
+     */
+    204: void;
+};
+
+export type DeleteApiV1ProjectsByNameContentDismissalsByTargetRefResponse = DeleteApiV1ProjectsByNameContentDismissalsByTargetRefResponses[keyof DeleteApiV1ProjectsByNameContentDismissalsByTargetRefResponses];
 
 export type GetApiV1ProjectsByNameContentSourcesData = {
     body?: never;

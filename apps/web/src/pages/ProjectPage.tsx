@@ -1303,8 +1303,19 @@ function SuggestedQueriesCard({
     appendQueries.mutate(
       { projectName, queries: [query] },
       {
+        // Clear pending on BOTH success and error. The mutation's
+        // invalidation refetches the dashboard, but the suggestion row may
+        // still appear in the next payload (GSC suggestions don't drop off
+        // instantly), so relying on unmount-on-refetch to clear `pending`
+        // leaves the button stuck on "Adding…" indefinitely. The explicit
+        // clears here are the source of truth for per-row UI state.
         onSuccess: () => {
           addToast({ tone: 'positive', title: `Tracking "${query}"` })
+          setPending(prev => {
+            const next = new Set(prev)
+            next.delete(query)
+            return next
+          })
         },
         onError: (err) => {
           addToast({ tone: 'negative', title: `Couldn't add "${query}"`, detail: String(err) })

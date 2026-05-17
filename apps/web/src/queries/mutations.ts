@@ -10,12 +10,15 @@ import {
   type ApiRun,
   type ApiTriggerAllRunsResult,
   appendQueries,
+  dismissContentTarget,
   triggerRun,
   triggerAllRuns,
   triggerGscSync,
   triggerDiscoverSitemaps,
   triggerInspectSitemap,
+  undismissContentTarget,
 } from '../api.js'
+import type { ContentTargetDismissRequest } from '@ainyc/canonry-contracts'
 import { createTrackedBatch, trackRun, type TrackedRunSourceAction } from '../lib/run-tracker-store.js'
 import { addToast } from '../lib/toast-store.js'
 import { invalidateQueriesForRunKind } from './run-invalidations.js'
@@ -257,13 +260,93 @@ export function useTriggerInspectSitemap() {
   })
 }
 
+/**
+ * Predicate matching the per-project dashboard detail query keys (shape
+ * `['projects', projectId, latestRunIdsKey]` — see `use-dashboard.ts`).
+ * Used by mutations that change project-scoped state which is rendered out
+ * of that composite query (suggested queries, content recommendations,
+ * etc.) so the dashboard refetches and the UI reflects the new state.
+ */
+function isProjectDetailQuery(query: { queryKey: readonly unknown[] }): boolean {
+  return Array.isArray(query.queryKey)
+    && query.queryKey[0] === 'projects'
+    && query.queryKey.length > 1
+}
+
 export function useAppendQueries() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: ({ projectName, queries }: { projectName: string; queries: string[] }) =>
       appendQueries(projectName, queries),
     onSuccess: () => {
+      // Top-level projects list — exact key so we don't accidentally
+      // invalidate every per-project sub-endpoint.
       void queryClient.invalidateQueries({ queryKey: getApiV1ProjectsQueryKey({ client: heyClient }) })
+      // The per-project dashboard detail in `use-dashboard.ts` (key shape
+      // `['projects', projectId, latestRunIdsKey]`) is where the
+      // SuggestedQueriesCard reads its `rows`. Without invalidating it the
+      // newly-tracked query still shows up as "Suggested" until the user
+      // hard-reloads. We don't know the projectId at mutation time (the
+      // mutation has projectName), so use a predicate that matches the
+      // dashboard's tuple shape — first element is the literal `'projects'`
+      // string with at least one more element. The top-level invalidation
+      // above uses a different key shape (from the generated SDK helper),
+      // so there's no overlap.
+      void queryClient.invalidateQueries({ predicate: isProjectDetailQuery })
+    },
+  })
+}
+
+/**
+ * Mark one content recommendation as addressed. Backed by
+ * `POST /projects/:name/content/dismissals` — idempotent upsert keyed by
+ * `(projectId, targetRef)`. After success, invalidates both the project
+ * report query (where action cards render with `targetRef`) and the
+ * per-project dashboard detail (where overview-derived suggestions also
+ * reflect the dismissal). The recommendation drops off both surfaces on
+ * the next read.
+ */
+export function useDismissContentTarget() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ projectName, body }: { projectName: string; body: ContentTargetDismissRequest }) =>
+      dismissContentTarget(projectName, body),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        // Match every per-project op-id; the report endpoint is one of many,
+        // and a content-target dismissal affects any DTO derived from
+        // `buildContentTargetRows` (report, /content/targets,
+        // /content/dismissals listing).
+        predicate: (query) =>
+          Array.isArray(query.queryKey)
+          && typeof query.queryKey[0] === 'object'
+          && query.queryKey[0] !== null
+          && '_id' in query.queryKey[0]
+          && typeof (query.queryKey[0] as { _id: unknown })._id === 'string'
+          && (query.queryKey[0] as { _id: string })._id.startsWith('getApiV1ProjectsByName'),
+      })
+      void queryClient.invalidateQueries({ predicate: isProjectDetailQuery })
+    },
+  })
+}
+
+/** Reverse a content dismissal. Symmetric to `useDismissContentTarget`. */
+export function useUndismissContentTarget() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ projectName, targetRef }: { projectName: string; targetRef: string }) =>
+      undismissContentTarget(projectName, targetRef),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        predicate: (query) =>
+          Array.isArray(query.queryKey)
+          && typeof query.queryKey[0] === 'object'
+          && query.queryKey[0] !== null
+          && '_id' in query.queryKey[0]
+          && typeof (query.queryKey[0] as { _id: unknown })._id === 'string'
+          && (query.queryKey[0] as { _id: string })._id.startsWith('getApiV1ProjectsByName'),
+      })
+      void queryClient.invalidateQueries({ predicate: isProjectDetailQuery })
     },
   })
 }

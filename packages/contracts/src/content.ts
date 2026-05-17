@@ -118,6 +118,39 @@ export const contentTargetsResponseDtoSchema = z.object({
 
 export type ContentTargetsResponseDto = z.infer<typeof contentTargetsResponseDtoSchema>
 
+// ─── Content target dismissals ──────────────────────────────────────────────
+//
+// Manual "mark addressed" affordance for content opportunities. Recommendations
+// are recomputed on every report load from live GSC/GA inventory; a dismissal
+// row drops the matching recommendation from the report until explicitly
+// un-dismissed. See `packages/db/src/schema.ts → contentTargetDismissals` and
+// the AGENTS.md "Report parity" rule.
+
+export const contentTargetDismissalDtoSchema = z.object({
+  targetRef: z.string(),
+  addressedUrl: z.string().nullable(),
+  note: z.string().nullable(),
+  dismissedAt: z.string(),
+})
+
+export type ContentTargetDismissalDto = z.infer<typeof contentTargetDismissalDtoSchema>
+
+export const contentTargetDismissalsResponseDtoSchema = z.object({
+  dismissals: z.array(contentTargetDismissalDtoSchema),
+})
+
+export type ContentTargetDismissalsResponseDto = z.infer<typeof contentTargetDismissalsResponseDtoSchema>
+
+export const contentTargetDismissRequestSchema = z.object({
+  targetRef: z.string().min(1),
+  /** URL of the page the user wrote that addresses this recommendation. Stored verbatim for the audit trail; not currently used to suppress the slug-token matcher. */
+  addressedUrl: z.string().url().optional(),
+  /** Free-form note (e.g. "covered in our Q1 content sprint"). 500 char cap is the API surface limit; the DB column is unbounded. */
+  note: z.string().max(500).optional(),
+})
+
+export type ContentTargetDismissRequest = z.infer<typeof contentTargetDismissRequestSchema>
+
 // ─── ContentSources ──────────────────────────────────────────────────────────
 
 const contentGroundingSourceSchema = z.object({

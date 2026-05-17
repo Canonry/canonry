@@ -652,6 +652,16 @@ export const reportActionPlanItemSchema = z.object({
   successMetric: z.string(),
   /** Confidence in the recommendation based on the available evidence. */
   confidence: reportActionConfidenceSchema,
+  /**
+   * Stable hash from the underlying content opportunity, present only when
+   * the action was derived from `contentOpportunities` (the
+   * `ContentTargetRowDto.targetRef` value). UI surfaces a "Mark addressed"
+   * button on actions that carry one — clicking it persists a dismissal in
+   * `content_target_dismissals` and the action drops off the next report
+   * load. Actions sourced from other signals (competitor gaps, indexing
+   * issues, etc.) omit this and use their own dismiss flows.
+   */
+  targetRef: z.string().optional(),
 })
 
 export type ReportActionPlanItem = z.infer<typeof reportActionPlanItemSchema>

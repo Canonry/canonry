@@ -25,6 +25,8 @@ import { Button } from '../components/ui/button.js'
 import { downloadReportHtml, heyClient, ApiError } from '../api.js'
 import { getApiV1ProjectsByNameReportOptions } from '@ainyc/canonry-api-client/react-query'
 import { asyncHandler } from '../lib/async-handler.js'
+import { useDismissContentTarget } from '../queries/mutations.js'
+import { addToast } from '../lib/toast-store.js'
 import type { MetricTone } from '../view-models.js'
 
 
@@ -130,7 +132,7 @@ export function ReportPage({ projectName }: { projectName: string }) {
       <ClientSummarySection report={report} />
       <WhatsChangedSection report={report} audience="client" />
       <ServerActivityClientView report={report} />
-      <ActionPlanSection report={report} audience="client" />
+      <ActionPlanSection report={report} audience="client" projectName={projectName} />
       <ClientEvidenceSection report={report} />
     </div>
   )
@@ -391,7 +393,7 @@ function clientConfidenceLabel(confidence: ReportActionPlanItem['confidence']): 
   }
 }
 
-function ActionPlanSection({ report, audience }: { report: ProjectReportDto; audience: ReportAudience }) {
+function ActionPlanSection({ report, audience, projectName }: { report: ProjectReportDto; audience: ReportAudience; projectName: string }) {
   const rawActions = audience === 'client'
     ? report.clientSummary.actionItems
     : report.agencyDiagnostics.priorities.length > 0
@@ -399,6 +401,45 @@ function ActionPlanSection({ report, audience }: { report: ProjectReportDto; aud
       : report.actionPlan.filter(a => actionAudienceMatches(a, audience))
   const actions = dedupeReportActions(report, rawActions)
   const isClient = audience === 'client'
+  const dismissMutation = useDismissContentTarget()
+  // Per-row pending state so multiple dismisses in sequence don't disable
+  // the whole grid. Mutation `isPending` reflects the most recent mutate(),
+  // not per-row state, so we keep our own set.
+  const [pendingTargetRefs, setPendingTargetRefs] = useState<Set<string>>(new Set())
+
+  const handleDismiss = (action: ProjectReportDto['actionPlan'][number]) => {
+    if (!action.targetRef) return
+    const ref = action.targetRef
+    // window.confirm is deliberate: this is a destructive UX action on a
+    // recommendation the user is acknowledging they've handled. A custom
+    // modal with a URL/note input is on the roadmap (see PR description);
+    // confirm() is the smallest thing that prevents misclicks today.
+    const ok = window.confirm(
+      `Mark "${action.title}" as addressed? It will drop off the report immediately; you can un-dismiss it later from the dismissed list (CLI: \`canonry content dismissals list\`).`,
+    )
+    if (!ok) return
+    setPendingTargetRefs(prev => new Set(prev).add(ref))
+    dismissMutation.mutate(
+      { projectName, body: { targetRef: ref } },
+      {
+        onSuccess: () => {
+          addToast({ tone: 'positive', title: `Dismissed "${action.title}"`, detail: 'Will not appear in future reports until un-dismissed.' })
+          // Don't manually clear pendingTargetRefs here — the mutation
+          // invalidates the report query, the action drops out of `actions`
+          // on the next render, and the row unmounts. We clear on error so
+          // the user can retry.
+        },
+        onError: (err) => {
+          addToast({ tone: 'negative', title: `Couldn't dismiss "${action.title}"`, detail: String(err) })
+          setPendingTargetRefs(prev => {
+            const next = new Set(prev)
+            next.delete(ref)
+            return next
+          })
+        },
+      },
+    )
+  }
   return (
     <section className="page-section-divider">
       <SectionHeading
@@ -457,6 +498,19 @@ function ActionPlanSection({ report, audience }: { report: ProjectReportDto; aud
                 <p className="mt-3 border-t border-zinc-800/60 pt-3 text-xs text-zinc-300">
                   <span className="font-medium">{isClient ? 'What success looks like:' : 'Win condition:'}</span> {action.successMetric}
                 </p>
+                {action.targetRef && (
+                  <div className="mt-3 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => handleDismiss(action)}
+                      disabled={pendingTargetRefs.has(action.targetRef)}
+                      className="rounded-md border border-zinc-700/60 bg-zinc-900/50 px-2.5 py-1 text-[11px] font-medium text-zinc-300 hover:border-zinc-600 hover:bg-zinc-800/70 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-50"
+                      title="Stop showing this recommendation. The page-detection logic relies on GSC/GA syncs that lag by days — if you've already addressed it, dismissing keeps the report current."
+                    >
+                      {pendingTargetRefs.has(action.targetRef) ? 'Dismissing…' : 'Mark addressed'}
+                    </button>
+                  </div>
+                )}
               </article>
             )
           })}

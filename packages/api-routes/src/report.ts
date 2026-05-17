@@ -61,6 +61,7 @@ import {
   mapOpportunitiesToNextSteps,
   smoothedRunDelta,
 } from '@ainyc/canonry-intelligence'
+import { loadDismissedTargetRefs } from './content.js'
 import { notProbeRun, resolveProject } from './helpers.js'
 import { renderReportHtml } from './report-renderer.js'
 import {
@@ -1358,6 +1359,11 @@ function buildReportActionPlan(input: ReportActionPlanInput): ReportActionPlanIt
       evidence,
       successMetric: `A future check cites ${input.canonicalDomain} for "${opportunity.query}" and the matching GSC query/page improves.`,
       confidence: opportunity.actionConfidence,
+      // Carry the underlying recommendation ref through so the SPA can
+      // attach a "Mark addressed" button. Dropping the dismissal removes
+      // the row from `contentOpportunities` (see `buildProjectReport`),
+      // which retro-drops this action on the next report load.
+      targetRef: opportunity.targetRef,
     })
   }
 
@@ -1869,7 +1875,18 @@ function buildProjectReport(db: DatabaseClient, projectName: string): ProjectRep
   const insightList = buildInsightList(db, project.id, latestRunLocation)
 
   const orchestratorInput = loadOrchestratorInput(db, project, latestRunLocation)
-  const contentOpportunities = buildContentTargetRows(orchestratorInput)
+  // Filter persistently-dismissed recommendations so SPA report, HTML report,
+  // and `/content/targets` all consume the same filtered set. Dismissals
+  // persist in `content_target_dismissals` keyed by `(projectId, targetRef)`
+  // — the user clicks "Mark addressed" in the SPA and the row drops off here
+  // on the next report load. `contentGaps` is intentionally not filtered:
+  // gaps reflect raw competitive presence and dismissal is a per-opportunity
+  // (not per-query) signal.
+  const dismissedTargetRefs = loadDismissedTargetRefs(db, project.id)
+  const rawContentOpportunities = buildContentTargetRows(orchestratorInput)
+  const contentOpportunities = dismissedTargetRefs.size > 0
+    ? rawContentOpportunities.filter(r => !dismissedTargetRefs.has(r.targetRef))
+    : rawContentOpportunities
   const contentGaps = buildContentGapRows(orchestratorInput)
   const groundingSources = buildContentSourceRows(orchestratorInput)
 
