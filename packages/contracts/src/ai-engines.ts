@@ -51,3 +51,35 @@ export const AI_ENGINE_SELF_DOMAINS = {
   perplexity: [AI_ENGINE_DOMAINS.perplexity] as readonly string[],
   gemini: [AI_ENGINE_DOMAINS.gemini, AI_ENGINE_DOMAINS.bard] as readonly string[],
 } as const
+
+/** Anthropic corporate / API domain. Covers `api.anthropic.com`, `docs.anthropic.com`. */
+export const ANTHROPIC_API_DOMAIN = 'anthropic.com'
+
+/** Google APIs umbrella domain. Covers every `*.googleapis.com` API host. */
+export const GOOGLE_APIS_DOMAIN = 'googleapis.com'
+
+/**
+ * Gemini grounding redirect proxy — Gemini wraps every grounding source URL
+ * behind `https://vertexaisearch.cloud.google.com/grounding-api-redirect/<base64>`,
+ * so providers that consume Gemini metadata need to recognize and unwrap it.
+ */
+export const VERTEX_AI_SEARCH_PROXY_DOMAIN = 'vertexaisearch.cloud.google.com'
+
+/**
+ * Corporate / API / redirect-proxy domains owned by AI providers themselves.
+ * These are NOT the consumer-facing engine surfaces (`chatgpt.com`,
+ * `claude.ai`) but the parent brand or infrastructure domains that appear in
+ * grounding sources as noise. Use this set to filter provider-owned
+ * infrastructure out of citation extraction.
+ *
+ * Matched as eTLD+1: a callsite typically tests
+ * `host === d || host.endsWith('.' + d)` so an entry of `anthropic.com`
+ * catches `api.anthropic.com`, `docs.anthropic.com`, etc.
+ */
+export const AI_PROVIDER_INFRA_DOMAINS = [
+  AI_ENGINE_DOMAINS.openai,
+  AI_ENGINE_DOMAINS.chatgpt,
+  ANTHROPIC_API_DOMAIN,
+  GOOGLE_APIS_DOMAIN,
+  VERTEX_AI_SEARCH_PROXY_DOMAIN,
+] as const

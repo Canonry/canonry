@@ -93,8 +93,8 @@ export default tseslint.config(
     ignores: ['packages/contracts/src/ai-engines.ts'],
     rules: {
       'no-restricted-syntax': ['error', {
-        selector: "Literal[value=/^(openai\\.com|chatgpt\\.com|claude\\.ai|perplexity\\.ai|gemini\\.google\\.com|bard\\.google\\.com|copilot\\.microsoft\\.com|meta\\.ai|grok\\.com|you\\.com|phind\\.com)$/]",
-        message: 'Use AI_ENGINE_DOMAINS from @ainyc/canonry-contracts — never inline raw AI-engine hostnames in production code.',
+        selector: "Literal[value=/^(openai\\.com|chatgpt\\.com|claude\\.ai|perplexity\\.ai|gemini\\.google\\.com|bard\\.google\\.com|copilot\\.microsoft\\.com|meta\\.ai|grok\\.com|you\\.com|phind\\.com|anthropic\\.com|googleapis\\.com|vertexaisearch\\.cloud\\.google\\.com)$/]",
+        message: 'Use AI_ENGINE_DOMAINS / AI_PROVIDER_INFRA_DOMAINS / ANTHROPIC_API_DOMAIN / GOOGLE_APIS_DOMAIN / VERTEX_AI_SEARCH_PROXY_DOMAIN from @ainyc/canonry-contracts — never inline raw AI-provider hostnames in production code.',
       }],
     },
   },

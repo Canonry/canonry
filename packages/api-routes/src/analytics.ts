@@ -1,7 +1,7 @@
 import { eq, desc, inArray } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { filterTrackedSnapshots, groupRunsByCreatedAt, pickGroupRepresentative, querySnapshots, runs, queries, parseJsonColumn } from '@ainyc/canonry-db'
-import { AI_ENGINE_DOMAINS, categorizeSource, categoryLabel, CitationStates, parseWindow, windowCutoff } from '@ainyc/canonry-contracts'
+import { AI_PROVIDER_INFRA_DOMAINS, categorizeSource, categoryLabel, CitationStates, parseWindow, windowCutoff } from '@ainyc/canonry-contracts'
 import type {
   BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto,
   TimeBucket, TrendDirection, GapQuery, GapCategory,
@@ -372,18 +372,10 @@ export async function analyticsRoutes(app: FastifyInstance) {
 // --- Helpers ---
 
 
-// Domains that are provider infrastructure, not real grounding sources
-const PROVIDER_INFRA_DOMAINS = new Set([
-  'vertexaisearch.cloud.google.com',
-  AI_ENGINE_DOMAINS.openai,
-  'anthropic.com',
-  'googleapis.com',
-])
-
 function isProviderInfraDomain(uri: string): boolean {
   try {
     const host = new URL(uri).hostname.toLowerCase()
-    for (const blocked of PROVIDER_INFRA_DOMAINS) {
+    for (const blocked of AI_PROVIDER_INFRA_DOMAINS) {
       if (host === blocked || host.endsWith(`.${blocked}`)) return true
     }
   } catch {
