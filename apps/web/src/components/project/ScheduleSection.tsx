@@ -5,6 +5,7 @@ import { Card } from '../ui/card.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
 import { formatHour, buildPreset, parsePreset, scheduleLabel } from '../../lib/format-helpers.js'
 import { addToast } from '../../lib/toast-store.js'
+import { asyncHandler } from '../../lib/async-handler.js'
 import { fetchSchedule, saveSchedule, removeSchedule, type ApiSchedule } from '../../api.js'
 
 // --- Schedule helpers ---
@@ -186,10 +187,10 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
               <ToneBadge tone={schedule.enabled ? 'positive' : 'neutral'}>
                 {schedule.enabled ? 'Active' : 'Paused'}
               </ToneBadge>
-              <Button type="button" variant="outline" size="sm" disabled={saving} onClick={handleToggleEnabled}>
+              <Button type="button" variant="outline" size="sm" disabled={saving} onClick={asyncHandler(handleToggleEnabled)}>
                 {schedule.enabled ? 'Pause' : 'Resume'}
               </Button>
-              <Button type="button" variant="ghost" size="sm" disabled={removing} onClick={handleRemove}>
+              <Button type="button" variant="ghost" size="sm" disabled={removing} onClick={asyncHandler(handleRemove)}>
                 {removing ? 'Removing...' : 'Remove'}
               </Button>
             </div>
@@ -271,7 +272,7 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
               type="button"
               size="sm"
               disabled={saving || (freq === 'custom' && !customCron.trim())}
-              onClick={handleSave}
+              onClick={asyncHandler(handleSave)}
             >
               {saving ? 'Saving...' : 'Save schedule'}
             </Button>

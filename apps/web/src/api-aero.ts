@@ -1,5 +1,17 @@
 import { ApiError, handleAuthExpired } from './api.js'
-import type { AgentProviderId, AgentProvidersResponse } from '@ainyc/canonry-contracts'
+import type { AgentProviderId, AgentProvidersResponse, ErrorCode } from '@ainyc/canonry-contracts'
+
+interface ApiErrorBody {
+  error?: { message?: string; code?: ErrorCode }
+}
+
+async function parseErrorBody(res: Response): Promise<ApiErrorBody> {
+  try {
+    return (await res.json()) as ApiErrorBody
+  } catch {
+    return {}
+  }
+}
 
 export type { AgentProviderId, AgentProviderOption, AgentProvidersResponse } from '@ainyc/canonry-contracts'
 
@@ -79,10 +91,10 @@ export async function fetchAeroTranscript(project: string): Promise<AeroTranscri
   })
   if (!res.ok) {
     triggerAuthExpiredOn401Or403(res.status)
-    const body = await res.json().catch(() => ({}))
-    throw new ApiError(body?.error?.message ?? `transcript fetch failed: ${res.status}`, res.status, body?.error?.code)
+    const body = await parseErrorBody(res)
+    throw new ApiError(body.error?.message ?? `transcript fetch failed: ${res.status}`, res.status, body.error?.code)
   }
-  return res.json()
+  return (await res.json()) as AeroTranscript
 }
 
 export async function fetchAgentProviders(project: string): Promise<AgentProvidersResponse> {
@@ -91,14 +103,14 @@ export async function fetchAgentProviders(project: string): Promise<AgentProvide
   })
   if (!res.ok) {
     triggerAuthExpiredOn401Or403(res.status)
-    const body = await res.json().catch(() => ({}))
+    const body = await parseErrorBody(res)
     throw new ApiError(
-      body?.error?.message ?? `providers fetch failed: ${res.status}`,
+      body.error?.message ?? `providers fetch failed: ${res.status}`,
       res.status,
-      body?.error?.code,
+      body.error?.code,
     )
   }
-  return res.json()
+  return (await res.json()) as AgentProvidersResponse
 }
 
 export async function resetAeroTranscript(project: string): Promise<void> {
@@ -108,8 +120,8 @@ export async function resetAeroTranscript(project: string): Promise<void> {
   })
   if (!res.ok) {
     triggerAuthExpiredOn401Or403(res.status)
-    const body = await res.json().catch(() => ({}))
-    throw new ApiError(body?.error?.message ?? `reset failed: ${res.status}`, res.status, body?.error?.code)
+    const body = await parseErrorBody(res)
+    throw new ApiError(body.error?.message ?? `reset failed: ${res.status}`, res.status, body.error?.code)
   }
 }
 
@@ -159,8 +171,8 @@ export async function promptAero({
   })
   if (!res.ok || !res.body) {
     triggerAuthExpiredOn401Or403(res.status)
-    const body = await res.json().catch(() => ({}))
-    throw new ApiError(body?.error?.message ?? `prompt failed: ${res.status}`, res.status, body?.error?.code)
+    const errBody = await parseErrorBody(res)
+    throw new ApiError(errBody.error?.message ?? `prompt failed: ${res.status}`, res.status, errBody.error?.code)
   }
 
   const reader = res.body.getReader()

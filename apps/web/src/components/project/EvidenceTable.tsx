@@ -310,7 +310,7 @@ export function EvidenceTable({
                             variant="ghost"
                             size="sm"
                             type="button"
-                            onClick={(e) => { e.stopPropagation(); openEvidence(item.id) }}
+                            onClick={(e) => { e.stopPropagation(); void openEvidence(item.id) }}
                           >
                             View
                           </Button>

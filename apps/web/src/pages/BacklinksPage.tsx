@@ -3,6 +3,7 @@ import { Download, ExternalLink, HelpCircle, Play, Trash2, CheckCircle2, AlertCi
 import { Button } from '../components/ui/button.js'
 import { Card } from '../components/ui/card.js'
 import { ToneBadge } from '../components/shared/ToneBadge.js'
+import { asyncHandler } from '../lib/async-handler.js'
 
 function Hint({
   children,
@@ -330,7 +331,7 @@ export function BacklinksPage() {
                   </p>
                 )}
                 <div className="mt-3">
-                  <Button type="button" size="sm" disabled={installing} onClick={handleInstall}>
+                  <Button type="button" size="sm" disabled={installing} onClick={asyncHandler(handleInstall)}>
                     <Download className="h-4 w-4 mr-1.5" aria-hidden />
                     {installing ? 'Installing…' : 'Install DuckDB'}
                   </Button>
@@ -443,7 +444,7 @@ export function BacklinksPage() {
                   type="button"
                   size="sm"
                   disabled={syncing || !status?.duckdbInstalled || (!latestAvailable && !releaseInput.trim())}
-                  onClick={handleSync}
+                  onClick={asyncHandler(handleSync)}
                 >
                   <Play className="h-4 w-4 mr-1.5" aria-hidden />
                   {syncing ? 'Queuing…' : 'Run sync'}
@@ -543,7 +544,7 @@ export function BacklinksPage() {
                   <td className="px-4 py-2 text-zinc-400">{relativeTime(row.lastUsedAt)}</td>
                   <td className="px-4 py-2 text-right">
                     <div className="inline-flex items-center gap-1">
-                      <Button type="button" variant="outline" size="sm" onClick={() => handlePrune(row.release)}>
+                      <Button type="button" variant="outline" size="sm" onClick={() => { void handlePrune(row.release) }}>
                         <Trash2 className="h-4 w-4 mr-1.5" aria-hidden />
                         Prune
                       </Button>

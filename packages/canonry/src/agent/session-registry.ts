@@ -7,6 +7,7 @@ import {
   type DatabaseClient,
 } from '@ainyc/canonry-db'
 import type { Agent, AgentMessage } from '@mariozechner/pi-agent-core'
+import type { Api, Model } from '@mariozechner/pi-ai'
 import { agentBusy, AgentProviderIds } from '@ainyc/canonry-contracts'
 import { createLogger } from '../logger.js'
 import type { ApiClient } from '../client.js'
@@ -332,7 +333,7 @@ export class SessionRegistry {
         projectId,
         sessionId: row.id,
         messages: agent.state.messages,
-        model: agent.state.model,
+        model: agent.state.model as Model<Api>,
         getApiKey: buildApiKeyResolver(this.opts.config),
       })
       if (!result) return

@@ -1,4 +1,5 @@
 import { GoogleGenAI, type GenerateContentResponse } from '@google/genai'
+import { AI_ENGINE_SELF_DOMAINS, VERTEX_AI_SEARCH_PROXY_DOMAIN } from '@ainyc/canonry-contracts'
 import { withRetry } from './utils.js'
 import type {
   GeminiConfig,
@@ -309,13 +310,13 @@ function extractDomainFromUri(uri: string): string | null {
     const hostname = url.hostname.replace(/^www\./, '').toLowerCase()
 
     // Skip internal AI service domains
-    if (hostname.includes('chatgpt.com') || hostname.includes('openai.com')) {
+    if (AI_ENGINE_SELF_DOMAINS.chatgpt.some((self) => hostname.includes(self))) {
       return null
     }
 
     // Gemini returns grounding sources through a Google proxy:
     // vertexaisearch.cloud.google.com/grounding-api-redirect/...
-    if (hostname === 'vertexaisearch.cloud.google.com') {
+    if (hostname === VERTEX_AI_SEARCH_PROXY_DOMAIN) {
       const redirectPath = url.pathname.replace(/^\/grounding-api-redirect\//, '')
       if (redirectPath && redirectPath !== url.pathname) {
         try {

@@ -8,6 +8,7 @@ import { Card } from '../ui/card.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
 import { formatTimestamp, formatBooleanState, SearchMetric, SEARCH_METRIC_LABELS } from '../../lib/format-helpers.js'
 import { addToast } from '../../lib/toast-store.js'
+import { asyncHandler } from '../../lib/async-handler.js'
 import {
   fetchSettings,
   fetchGoogleConnections,
@@ -588,7 +589,7 @@ export function GscSection({
               <button
                 type="button"
                 className="ml-auto text-zinc-500 transition-colors hover:text-rose-400"
-                onClick={handleDisconnect}
+                onClick={asyncHandler(handleDisconnect)}
               >
                 Disconnect
               </button>
@@ -612,7 +613,7 @@ export function GscSection({
                 </p>
                 <div className="mt-3 flex flex-wrap items-center gap-2">
                   {googleConfigured ? (
-                    <Button type="button" variant="outline" size="sm" disabled={connecting} onClick={handleConnect}>
+                    <Button type="button" variant="outline" size="sm" disabled={connecting} onClick={asyncHandler(handleConnect)}>
                       {connecting ? 'Opening\u2026' : 'Connect Google Search Console'}
                     </Button>
                   ) : (
@@ -646,7 +647,7 @@ export function GscSection({
                         type="button"
                         size="sm"
                         disabled={triggerDiscoverSitemapsMutation.isPending || !gscConn.propertyId}
-                        onClick={handleDiscoverSitemaps}
+                        onClick={asyncHandler(handleDiscoverSitemaps)}
                       >
                         {triggerDiscoverSitemapsMutation.isPending ? 'Discovering\u2026' : 'Auto-discover from GSC'}
                       </Button>
@@ -661,7 +662,7 @@ export function GscSection({
                         onChange={(e) => setSitemapUrlInput(e.target.value)}
                         onKeyDown={(e) => e.key === 'Enter' && void handleSaveSitemap()}
                       />
-                      <Button type="button" size="sm" variant="outline" disabled={savingSitemap || !sitemapUrlInput.trim()} onClick={handleSaveSitemap}>
+                      <Button type="button" size="sm" variant="outline" disabled={savingSitemap || !sitemapUrlInput.trim()} onClick={asyncHandler(handleSaveSitemap)}>
                         {savingSitemap ? 'Saving\u2026' : 'Save sitemap URL'}
                       </Button>
                     </div>
@@ -1292,7 +1293,7 @@ export function GscSection({
                     onChange={(e) => setInspectionUrl(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && void handleInspect()}
                   />
-                  <Button type="button" size="sm" disabled={inspecting || !gscConn?.propertyId || !inspectionUrl.trim()} onClick={handleInspect}>
+                  <Button type="button" size="sm" disabled={inspecting || !gscConn?.propertyId || !inspectionUrl.trim()} onClick={asyncHandler(handleInspect)}>
                     {inspecting ? 'Inspecting\u2026' : 'Inspect URL'}
                   </Button>
                 </div>
@@ -1464,7 +1465,7 @@ export function GscSection({
                           <Button type="button" size="sm" variant="outline" disabled={propertiesLoading} onClick={() => void loadProperties(gscConn)}>
                             {propertiesLoading ? 'Refreshing\u2026' : 'Refresh properties'}
                           </Button>
-                          <Button type="button" size="sm" disabled={!selectedProperty || savingProperty} onClick={handleSaveProperty}>
+                          <Button type="button" size="sm" disabled={!selectedProperty || savingProperty} onClick={asyncHandler(handleSaveProperty)}>
                             {savingProperty ? 'Saving\u2026' : 'Save property'}
                           </Button>
                         </div>
@@ -1505,7 +1506,7 @@ export function GscSection({
                           type="button"
                           size="sm"
                           disabled={triggerGscSyncMutation.isPending || !gscConn.propertyId}
-                          onClick={handleSync}
+                          onClick={asyncHandler(handleSync)}
                         >
                           {triggerGscSyncMutation.isPending ? 'Queueing\u2026' : 'Queue sync'}
                         </Button>
@@ -1547,7 +1548,7 @@ export function GscSection({
                           size="sm"
                           variant="outline"
                           disabled={triggerDiscoverSitemapsMutation.isPending || !gscConn.propertyId}
-                          onClick={handleDiscoverSitemaps}
+                          onClick={asyncHandler(handleDiscoverSitemaps)}
                         >
                           {triggerDiscoverSitemapsMutation.isPending ? 'Discovering\u2026' : 'Auto-discover and queue inspection'}
                         </Button>
@@ -1595,7 +1596,7 @@ export function GscSection({
                           onChange={(e) => setSitemapUrlInput(e.target.value)}
                           onKeyDown={(e) => e.key === 'Enter' && sitemapUrlInput.trim() && void handleSaveSitemap()}
                         />
-                        <Button type="button" size="sm" disabled={savingSitemap || !sitemapUrlInput.trim()} onClick={handleSaveSitemap}>
+                        <Button type="button" size="sm" disabled={savingSitemap || !sitemapUrlInput.trim()} onClick={asyncHandler(handleSaveSitemap)}>
                           {savingSitemap ? 'Saving\u2026' : gscConn.sitemapUrl ? 'Update' : 'Save'}
                         </Button>
                       </div>
@@ -1611,7 +1612,7 @@ export function GscSection({
                           size="sm"
                           variant="outline"
                           disabled={triggerInspectSitemapMutation.isPending || !gscConn.propertyId}
-                          onClick={async () => {
+                          onClick={asyncHandler(async () => {
                             const el = document.getElementById(`gsc-sitemap-inspect-${projectName}`) as HTMLInputElement | null
                             const url = el?.value?.trim() || gscConn.sitemapUrl || undefined
                             setError(null)
@@ -1625,7 +1626,7 @@ export function GscSection({
                             } catch {
                               // Mutation hook handles the toast-only failure path for queued inspections.
                             }
-                          }}
+                          })}
                         >
                           {triggerInspectSitemapMutation.isPending ? 'Queueing\u2026' : 'Inspect sitemap'}
                         </Button>

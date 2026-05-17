@@ -19,6 +19,7 @@ import {
 import { Button } from '../ui/button.js'
 import { Card } from '../ui/card.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
+import { asyncHandler } from '../../lib/async-handler.js'
 
 function Hint({
   children,
@@ -395,7 +396,7 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
                     <code className="text-zinc-300">{projectName}</code>. Run an extract to populate data using the cached release.
                   </p>
                   <div className="mt-4 flex items-center gap-3 flex-wrap">
-                    <Button type="button" size="sm" disabled={extracting || activeRun !== null} onClick={handleExtract}>
+                    <Button type="button" size="sm" disabled={extracting || activeRun !== null} onClick={asyncHandler(handleExtract)}>
                       <Play className="h-4 w-4 mr-1.5" aria-hidden />
                       {activeRun ? 'Extract running…' : extracting ? 'Queuing…' : 'Run extract'}
                     </Button>
@@ -445,7 +446,7 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
                     <Button asChild type="button" size="sm">
                       <a href={publicPath('/backlinks')}>Go to Backlinks admin</a>
                     </Button>
-                    <Button type="button" variant="outline" size="sm" disabled={extracting || activeRun !== null} onClick={handleExtract}>
+                    <Button type="button" variant="outline" size="sm" disabled={extracting || activeRun !== null} onClick={asyncHandler(handleExtract)}>
                       <Play className="h-4 w-4 mr-1.5" aria-hidden />
                       {activeRun ? 'Extract running…' : extracting ? 'Queuing…' : 'Re-run extract'}
                     </Button>
@@ -592,7 +593,7 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
         </div>
 
         <div className="mt-4 flex items-center gap-3 flex-wrap">
-          <Button type="button" variant="outline" size="sm" disabled={extracting || activeRun !== null} onClick={handleExtract}>
+          <Button type="button" variant="outline" size="sm" disabled={extracting || activeRun !== null} onClick={asyncHandler(handleExtract)}>
             <Download className="h-4 w-4 mr-1.5" aria-hidden />
             {activeRun ? 'Extract running…' : extracting ? 'Queuing…' : 'Re-run extract'}
           </Button>

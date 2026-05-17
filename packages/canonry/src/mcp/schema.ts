@@ -23,7 +23,11 @@ export function compactStringParams(values: Record<string, unknown>, keys: reado
   for (const key of keys) {
     const value = values[key]
     if (value === undefined || value === null || value === '') continue
-    params[key] = String(value)
+    if (typeof value === 'string') {
+      params[key] = value
+    } else if (typeof value === 'number' || typeof value === 'boolean') {
+      params[key] = String(value)
+    }
   }
   return Object.keys(params).length ? params : undefined
 }

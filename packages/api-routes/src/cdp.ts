@@ -219,8 +219,8 @@ export async function cdpRoutes(app: FastifyInstance, opts: CDPRoutesOptions) {
         const parseGroundingSources = (snap: typeof snapshots[number] | null): GroundingSource[] => {
           if (!snap?.rawResponse) return []
           try {
-            const raw = JSON.parse(snap.rawResponse)
-            return (raw.groundingSources as GroundingSource[]) ?? []
+            const raw = JSON.parse(snap.rawResponse) as { groundingSources?: GroundingSource[] }
+            return raw.groundingSources ?? []
           } catch { return [] }
         }
 

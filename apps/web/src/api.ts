@@ -65,7 +65,7 @@ function healthFailureHint(path: string, statusCode: number): string | undefined
 }
 
 function getApiKey(): string {
-  return import.meta.env.VITE_API_KEY ?? ''
+  return (import.meta.env.VITE_API_KEY as string | undefined) ?? ''
 }
 
 export function hasExplicitBrowserApiKey(): boolean {

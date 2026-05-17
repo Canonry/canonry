@@ -412,7 +412,7 @@ export function EvidenceDetailModal({
                       key={i}
                       type="button"
                       className={`evidence-run-dot ${isSelected ? 'evidence-run-dot--selected' : ''}`}
-                      onClick={() => selectHistoricalRun(i === history.length - 1 ? -1 : i)}
+                      onClick={() => { void selectHistoricalRun(i === history.length - 1 ? -1 : i) }}
                       aria-label={[
                         `Run ${label}: ${visibilityState}`,
                         run.model ? `model ${run.model}` : null,
@@ -432,7 +432,7 @@ export function EvidenceDetailModal({
               {selectedRunIdx >= 0 && selectedRunIdx < history.length && (
                 <p className="text-[11px] text-zinc-500 mt-1">
                   Viewing run from {new Date(history[selectedRunIdx].createdAt).toLocaleString()} {'\u2014'} <span className="capitalize">{history[selectedRunIdx].visibilityState ?? (history[selectedRunIdx].answerMentioned ? 'visible' : 'not-visible')}</span>
-                  <button type="button" className="text-zinc-400 hover:text-zinc-200 ml-2" onClick={() => selectHistoricalRun(-1)}>{'\u2190'} Back to latest</button>
+                  <button type="button" className="text-zinc-400 hover:text-zinc-200 ml-2" onClick={() => { void selectHistoricalRun(-1) }}>{'\u2190'} Back to latest</button>
                 </p>
               )}
               {!isViewingHistory && (evidence.modelTransitions?.length ?? 0) > 0 && (

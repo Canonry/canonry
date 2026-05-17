@@ -63,6 +63,42 @@ export default tseslint.config(
     },
   },
   {
+    // Drift guard: GA4 dimension/metric names must come from `GA4_DIMENSIONS` /
+    // `GA4_METRICS` in `packages/integration-google-analytics/src/constants.ts`.
+    // CI broke once when source and test drifted on `sessionDefaultChannelGroup`
+    // vs `…Grouping`; the constant makes that class of failure impossible.
+    files: ['packages/integration-google-analytics/src/**/*.ts'],
+    ignores: ['packages/integration-google-analytics/src/constants.ts'],
+    rules: {
+      'no-restricted-syntax': ['error', {
+        selector: "Literal[value=/^(sessionSource|sessionMedium|sessionManualSource|sessionManualMedium|firstUserSource|firstUserMedium|sessionDefaultChannelGroup|sessionDefaultChannelGrouping|landingPagePlusQueryString)$/]",
+        message: 'Use GA4_DIMENSIONS from ./constants.ts — never inline raw dimension names. See packages/integration-google-analytics/src/constants.ts.',
+      }],
+    },
+  },
+  {
+    // Drift guard: AI-engine hostnames in production code must come from
+    // `AI_ENGINE_DOMAINS` in `packages/contracts/src/ai-engines.ts`. Tests are
+    // exempt because fixtures are local to their assertions and don't drift
+    // across files.
+    files: [
+      'packages/canonry/src/**/*.ts',
+      'packages/api-routes/src/**/*.ts',
+      'packages/provider-*/src/**/*.ts',
+      'packages/integration-*/src/**/*.ts',
+      'packages/intelligence/src/**/*.ts',
+      'apps/**/src/**/*.ts',
+      'apps/**/src/**/*.tsx',
+    ],
+    ignores: ['packages/contracts/src/ai-engines.ts'],
+    rules: {
+      'no-restricted-syntax': ['error', {
+        selector: "Literal[value=/^(openai\\.com|chatgpt\\.com|claude\\.ai|perplexity\\.ai|gemini\\.google\\.com|bard\\.google\\.com|copilot\\.microsoft\\.com|meta\\.ai|grok\\.com|you\\.com|phind\\.com|anthropic\\.com|googleapis\\.com|vertexaisearch\\.cloud\\.google\\.com)$/]",
+        message: 'Use AI_ENGINE_DOMAINS / AI_PROVIDER_INFRA_DOMAINS / ANTHROPIC_API_DOMAIN / GOOGLE_APIS_DOMAIN / VERTEX_AI_SEARCH_PROXY_DOMAIN from @ainyc/canonry-contracts — never inline raw AI-provider hostnames in production code.',
+      }],
+    },
+  },
+  {
     files: ['**/*.js', '**/*.ts', '**/*.tsx'],
     extends: [regexpPlugin.configs['flat/recommended']],
   },
@@ -105,31 +141,31 @@ export default tseslint.config(
       },
     },
     rules: {
-      // Surfaced as `warn` to ship the rule without breaking CI on the ~360 pre-existing findings
-      // (mostly defensive `?.` chains on already-narrowed types). Plan: clean up warns incrementally,
-      // then flip to `error`. The original always-true `selectedRun !== undefined` bug class is
-      // already caught — warnings show up in CI output, so new regressions are visible.
+      // Kept as `warn`: 363 pre-existing findings, mostly defensive `?.`/`??` noise. Drain
+      // incrementally before flipping to `error`.
       '@typescript-eslint/no-unnecessary-condition': 'warn',
-      // The recommendedTypeChecked preset turns on a lot of opinionated rules. We only want the one above
-      // for now — disable the rest to avoid landing a giant cleanup we didn't scope for.
-      '@typescript-eslint/no-misused-promises': 'off',
-      '@typescript-eslint/no-floating-promises': 'off',
-      '@typescript-eslint/no-unsafe-assignment': 'off',
-      '@typescript-eslint/no-unsafe-member-access': 'off',
-      '@typescript-eslint/no-unsafe-call': 'off',
-      '@typescript-eslint/no-unsafe-return': 'off',
-      '@typescript-eslint/no-unsafe-argument': 'off',
+      // Soundness rules promoted to error — catch real bug classes (forgotten awaits,
+      // misused promises, `any` leaking into typed code, broken template-string output,
+      // unbound methods, awaiting non-thenables).
+      '@typescript-eslint/no-misused-promises': 'error',
+      '@typescript-eslint/no-floating-promises': 'error',
+      '@typescript-eslint/no-unsafe-assignment': 'error',
+      '@typescript-eslint/no-unsafe-member-access': 'error',
+      '@typescript-eslint/no-unsafe-call': 'error',
+      '@typescript-eslint/no-unsafe-return': 'error',
+      '@typescript-eslint/no-unsafe-argument': 'error',
+      '@typescript-eslint/no-base-to-string': 'error',
+      '@typescript-eslint/await-thenable': 'error',
+      '@typescript-eslint/unbound-method': 'error',
+      '@typescript-eslint/no-duplicate-type-constituents': 'error',
+      '@typescript-eslint/no-implied-eval': 'error',
+      '@typescript-eslint/prefer-promise-reject-errors': 'error',
+      '@typescript-eslint/restrict-plus-operands': 'error',
+      // Lower-value or noisy — left off for now; revisit after the soundness set is drained.
       '@typescript-eslint/restrict-template-expressions': 'off',
       '@typescript-eslint/no-redundant-type-constituents': 'off',
-      '@typescript-eslint/no-base-to-string': 'off',
       '@typescript-eslint/require-await': 'off',
-      '@typescript-eslint/await-thenable': 'off',
-      '@typescript-eslint/unbound-method': 'off',
-      '@typescript-eslint/no-duplicate-type-constituents': 'off',
-      '@typescript-eslint/no-implied-eval': 'off',
-      '@typescript-eslint/prefer-promise-reject-errors': 'off',
       '@typescript-eslint/only-throw-error': 'off',
-      '@typescript-eslint/restrict-plus-operands': 'off',
       '@typescript-eslint/no-unnecessary-type-assertion': 'off',
     },
   },

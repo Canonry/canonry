@@ -16,6 +16,10 @@ function getClient() {
   return createApiClient()
 }
 
+function configString(value: unknown, fallback = '(unset)'): string {
+  return typeof value === 'string' ? value : fallback
+}
+
 export async function trafficConnectWordpress(project: string, opts: {
   url: string
   username: string
@@ -91,8 +95,8 @@ export async function trafficConnectWordpress(project: string, opts: {
   console.log(`  Source ID:    ${result.id}`)
   console.log(`  Display name: ${result.displayName}`)
   console.log(`  Status:       ${result.status}`)
-  console.log(`  Site URL:     ${result.config.baseUrl ?? '(unset)'}`)
-  console.log(`  Username:     ${result.config.username ?? '(unset)'}`)
+  console.log(`  Site URL:     ${configString(result.config.baseUrl)}`)
+  console.log(`  Username:     ${configString(result.config.username)}`)
   console.log('')
   console.log(`Next: canonry traffic sync ${project} --source ${result.id}`)
 }
@@ -155,9 +159,9 @@ export async function trafficConnectCloudRun(project: string, opts: {
   console.log(`  Source ID:    ${result.id}`)
   console.log(`  Display name: ${result.displayName}`)
   console.log(`  Status:       ${result.status}`)
-  console.log(`  GCP project:  ${result.config.gcpProjectId ?? '(unset)'}`)
-  if (result.config.serviceName) console.log(`  Service:      ${result.config.serviceName}`)
-  if (result.config.location) console.log(`  Location:     ${result.config.location}`)
+  console.log(`  GCP project:  ${configString(result.config.gcpProjectId)}`)
+  if (result.config.serviceName) console.log(`  Service:      ${configString(result.config.serviceName)}`)
+  if (result.config.location) console.log(`  Location:     ${configString(result.config.location)}`)
   console.log('')
   console.log(`Next: canonry traffic sync ${project} --source ${result.id}`)
 }
@@ -247,9 +251,9 @@ export async function trafficConnectVercel(project: string, opts: {
   console.log(`  Source ID:    ${result.id}`)
   console.log(`  Display name: ${result.displayName}`)
   console.log(`  Status:       ${result.status}`)
-  console.log(`  Project ID:   ${result.config.projectId ?? '(unset)'}`)
-  console.log(`  Team ID:      ${result.config.teamId ?? '(unset)'}`)
-  console.log(`  Environment:  ${result.config.environment ?? '(unset)'}`)
+  console.log(`  Project ID:   ${configString(result.config.projectId)}`)
+  console.log(`  Team ID:      ${configString(result.config.teamId)}`)
+  console.log(`  Environment:  ${configString(result.config.environment)}`)
   console.log('')
   console.log(`Next: canonry traffic sync ${project} --source ${result.id}`)
 }

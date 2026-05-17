@@ -7,6 +7,7 @@ import { ProviderConfigForm } from '../components/settings/ProviderConfigForm.js
 import { GoogleOAuthConfigForm } from '../components/settings/GoogleOAuthConfigForm.js'
 import { updateBingApiKey } from '../api.js'
 import { CdpConfigCard } from '../components/settings/CdpConfigCard.js'
+import { asyncHandler } from '../lib/async-handler.js'
 import { serviceStatusTooltip } from '../lib/health-helpers.js'
 import { toneFromService } from '../lib/tone-helpers.js'
 import { addToast } from '../lib/toast-store.js'
@@ -200,7 +201,7 @@ export function SettingsPage() {
               </p>
               {bingError && <p className="text-xs text-rose-400">{bingError}</p>}
               {bingSuccess && <p className="text-xs text-emerald-400">Bing API key updated.</p>}
-              <Button type="button" size="sm" disabled={!bingApiKey.trim() || bingSaving} onClick={async () => {
+              <Button type="button" size="sm" disabled={!bingApiKey.trim() || bingSaving} onClick={asyncHandler(async () => {
                 if (!bingApiKey.trim()) return
                 setBingSaving(true)
                 setBingError(null)
@@ -222,7 +223,7 @@ export function SettingsPage() {
                 } finally {
                   setBingSaving(false)
                 }
-              }}>
+              })}>
                 {bingSaving ? 'Saving...' : 'Save Bing API key'}
               </Button>
             </div>

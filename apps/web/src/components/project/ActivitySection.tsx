@@ -41,6 +41,7 @@ import {
 import type { ApiGaStatus, ApiGaTraffic, ApiGaTrafficAiLandingPage, ApiGaTrafficPage, ApiGaTrafficReferral, ApiGaSocialReferral, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry } from '../../api.js'
 import { TRAFFIC_STALE_MS } from '../../queries/query-client.js'
 import { queryKeys } from '../../queries/query-keys.js'
+import { asyncHandler } from '../../lib/async-handler.js'
 import {
   SOCIAL_OTHER_KEY,
   SOCIAL_TOTAL_KEY,
@@ -504,7 +505,7 @@ function ClickThroughActivity({ projectName }: { projectName: string }) {
             variant="outline"
             size="sm"
             disabled={syncing}
-            onClick={handleSync}
+            onClick={asyncHandler(handleSync)}
           >
             <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${syncing ? 'animate-spin' : ''}`} />
             {syncing ? 'Syncing…' : 'Sync'}
@@ -514,7 +515,7 @@ function ClickThroughActivity({ projectName }: { projectName: string }) {
             size="sm"
             className="text-rose-400 hover:text-rose-300"
             disabled={disconnecting}
-            onClick={handleDisconnect}
+            onClick={asyncHandler(handleDisconnect)}
           >
             <Unplug className="w-3.5 h-3.5 mr-1.5" />
             Disconnect
@@ -574,7 +575,7 @@ function ClickThroughActivity({ projectName }: { projectName: string }) {
         ) : (
           <div className="surface-card rounded-lg p-6 text-center border border-zinc-800/60">
             <p className="text-sm text-zinc-400 mb-3">No traffic data yet.</p>
-            <Button variant="outline" size="sm" disabled={syncing} onClick={handleSync}>
+            <Button variant="outline" size="sm" disabled={syncing} onClick={asyncHandler(handleSync)}>
               <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${syncing ? 'animate-spin' : ''}`} />
               Sync from GA4
             </Button>
@@ -1121,7 +1122,7 @@ function Ga4ConnectForm({ projectName, onConnected }: { projectName: string; onC
     reader.onload = () => {
       const text = reader.result as string
       try {
-        const parsed = JSON.parse(text)
+        const parsed = JSON.parse(text) as { client_email?: string; private_key?: string }
         if (!parsed.client_email || !parsed.private_key) {
           setError('JSON file is missing required fields: client_email and private_key. Make sure you downloaded a service account key (not an OAuth client).')
           setKeyJson(null)
@@ -1233,7 +1234,7 @@ function Ga4ConnectForm({ projectName, onConnected }: { projectName: string; onC
         variant="default"
         size="sm"
         disabled={connecting || !propertyId.trim() || !keyJson}
-        onClick={handleConnect}
+        onClick={asyncHandler(handleConnect)}
       >
         {connecting ? 'Connecting & syncing…' : 'Connect GA4'}
       </Button>

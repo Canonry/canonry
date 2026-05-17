@@ -4,6 +4,7 @@ import { parseAllDocuments } from 'yaml'
 import { Button } from '../ui/button.js'
 import { applyProjectConfig } from '../../api.js'
 import { addToast } from '../../lib/toast-store.js'
+import { asyncHandler } from '../../lib/async-handler.js'
 
 export function YamlApplyPanel({ onApplied }: { onApplied: () => void }) {
   const [yamlText, setYamlText] = useState('')
@@ -80,7 +81,7 @@ export function YamlApplyPanel({ onApplied }: { onApplied: () => void }) {
         </ul>
       )}
       <div className="mt-3">
-        <Button type="button" disabled={!yamlText.trim() || applying} onClick={handleApply}>
+        <Button type="button" disabled={!yamlText.trim() || applying} onClick={asyncHandler(handleApply)}>
           {applying ? 'Applying...' : 'Apply'}
         </Button>
       </div>

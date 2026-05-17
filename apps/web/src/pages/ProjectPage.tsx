@@ -24,6 +24,7 @@ import { DiscoverySection } from '../components/project/DiscoverySection.js'
 import { ReportPage } from './ReportPage.js'
 import { formatTimestamp, SEARCH_METRIC_SHORT_LABELS, SearchMetric } from '../lib/format-helpers.js'
 import { addToast } from '../lib/toast-store.js'
+import { asyncHandler } from '../lib/async-handler.js'
 import { ProjectSettingsSection } from '../components/project/ProjectSettingsSection.js'
 import { ScheduleSection } from '../components/project/ScheduleSection.js'
 import { NotificationsSection } from '../components/project/NotificationsSection.js'
@@ -308,9 +309,9 @@ function BingSection({
               placeholder="Bing Webmaster Tools API key"
               value={apiKeyInput}
               onChange={(e) => setApiKeyInput(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleConnect()}
+              onKeyDown={(e) => { if (e.key === 'Enter') { void handleConnect() } }}
             />
-            <Button size="sm" disabled={!apiKeyInput.trim()} onClick={handleConnect}>
+            <Button size="sm" disabled={!apiKeyInput.trim()} onClick={asyncHandler(handleConnect)}>
               Connect
             </Button>
           </div>
@@ -341,7 +342,7 @@ function BingSection({
           </div>
           <div className="flex items-center gap-2">
             <ToneBadge tone="positive">Connected</ToneBadge>
-            <Button size="sm" variant="ghost" onClick={handleDisconnect}>Disconnect</Button>
+            <Button size="sm" variant="ghost" onClick={asyncHandler(handleDisconnect)}>Disconnect</Button>
           </div>
         </div>
         <div className="space-y-3">
@@ -379,7 +380,7 @@ function BingSection({
                     <option key={s.url} value={s.url}>{s.url}{s.verified ? ' (verified)' : ''}</option>
                   ))}
                 </select>
-                <Button size="sm" disabled={!selectedSite} onClick={handleSetSite}>Set Site</Button>
+                <Button size="sm" disabled={!selectedSite} onClick={asyncHandler(handleSetSite)}>Set Site</Button>
               </div>
             ) : (
               <p className="mt-3 text-xs text-zinc-500">
@@ -410,7 +411,7 @@ function BingSection({
           </div>
           <div className="flex items-center gap-2">
             <ToneBadge tone="positive">Connected</ToneBadge>
-            <Button size="sm" variant="ghost" onClick={handleDisconnect}>Disconnect</Button>
+            <Button size="sm" variant="ghost" onClick={asyncHandler(handleDisconnect)}>Disconnect</Button>
           </div>
         </div>
         {error && <p className="mb-3 text-xs text-rose-400">{error}</p>}
@@ -478,7 +479,7 @@ function BingSection({
               <div>
                 <div className="mb-2 flex items-center justify-between gap-3">
                   <h4 className="text-xs font-medium text-zinc-400">Not Indexed ({coverage.notIndexed.length})</h4>
-                  <Button size="sm" variant="ghost" disabled={requestingIndexing} onClick={handleSubmitAllUnindexed}>
+                  <Button size="sm" variant="ghost" disabled={requestingIndexing} onClick={asyncHandler(handleSubmitAllUnindexed)}>
                     {requestingIndexing ? 'Submitting…' : 'Submit all to Bing'}
                   </Button>
                 </div>
@@ -500,7 +501,7 @@ function BingSection({
                             <button
                               className="text-[10px] text-zinc-400 hover:text-zinc-200 underline underline-offset-2"
                               disabled={requestingIndexing}
-                              onClick={() => handleSubmitUrl(row.url)}
+                              onClick={() => { void handleSubmitUrl(row.url) }}
                             >
                               Submit
                             </button>
@@ -517,7 +518,7 @@ function BingSection({
               <div>
                 <div className="mb-2 flex items-center justify-between gap-3">
                   <h4 className="text-xs font-medium text-zinc-400">Unknown — not yet confirmed ({(coverage.unknown ?? []).length})</h4>
-                  <Button size="sm" variant="ghost" disabled={requestingIndexing} onClick={handleSubmitAllUnindexed}>
+                  <Button size="sm" variant="ghost" disabled={requestingIndexing} onClick={asyncHandler(handleSubmitAllUnindexed)}>
                     {requestingIndexing ? 'Submitting…' : 'Submit all to Bing'}
                   </Button>
                 </div>
@@ -539,7 +540,7 @@ function BingSection({
                             <button
                               className="text-[10px] text-zinc-400 hover:text-zinc-200 underline underline-offset-2"
                               disabled={requestingIndexing}
-                              onClick={() => handleSubmitUrl(row.url)}
+                              onClick={() => { void handleSubmitUrl(row.url) }}
                             >
                               Submit
                             </button>
@@ -591,9 +592,9 @@ function BingSection({
                 placeholder="URL to inspect"
                 value={inspectionUrl}
                 onChange={(e) => setInspectionUrl(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleInspect()}
+                onKeyDown={(e) => { if (e.key === 'Enter') { void handleInspect() } }}
               />
-              <Button size="sm" disabled={!inspectionUrl.trim()} onClick={handleInspect}>
+              <Button size="sm" disabled={!inspectionUrl.trim()} onClick={asyncHandler(handleInspect)}>
                 Inspect
               </Button>
             </div>
@@ -1248,7 +1249,7 @@ function InsightSignals({
                               <button
                                 type="button"
                                 className="text-[11px] text-zinc-400 hover:text-zinc-200 whitespace-nowrap"
-                                onClick={(e) => { e.stopPropagation(); openEvidence(ap.evidenceId) }}
+                                onClick={(e) => { e.stopPropagation(); void openEvidence(ap.evidenceId) }}
                               >
                                 View →
                               </button>
@@ -1536,7 +1537,7 @@ export function ProjectPage({
         dedupeKey: `project:delete:${projectName}`,
         dedupeMode: 'drop',
       })
-      navigate({ to: '/' })
+      void navigate({ to: '/' })
       void refetch()
     } catch (err) {
       console.error('Failed to delete project:', err)
@@ -1693,7 +1694,7 @@ export function ProjectPage({
               type="button"
               variant="destructive"
               disabled={deleting}
-              onClick={handleDeleteProject}
+              onClick={asyncHandler(handleDeleteProject)}
             >
               {deleting ? 'Deleting...' : 'Yes, delete project'}
             </Button>
@@ -1736,7 +1737,7 @@ export function ProjectPage({
                     type="button"
                     className="ml-0.5 text-zinc-500 hover:text-zinc-200 transition-colors"
                     disabled={ownedDomainSaving}
-                    onClick={() => handleRemoveOwnedDomain(d)}
+                    onClick={() => { void handleRemoveOwnedDomain(d) }}
                     aria-label={`Remove ${d}`}
                   >×</button>
                 </span>
@@ -1749,10 +1750,10 @@ export function ProjectPage({
                     placeholder="docs.example.com"
                     value={newOwnedDomain}
                     onChange={(e) => setNewOwnedDomain(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && handleAddOwnedDomain()}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { void handleAddOwnedDomain() } }}
                     autoFocus
                   />
-                  <Button type="button" size="sm" disabled={!newOwnedDomain.trim() || ownedDomainSaving} onClick={handleAddOwnedDomain}>
+                  <Button type="button" size="sm" disabled={!newOwnedDomain.trim() || ownedDomainSaving} onClick={asyncHandler(handleAddOwnedDomain)}>
                     {ownedDomainSaving ? '...' : 'Add'}
                   </Button>
                   <button type="button" className="text-xs text-zinc-500 hover:text-zinc-300" onClick={() => { setAddingOwnedDomain(false); setNewOwnedDomain('') }}>Cancel</button>
@@ -1778,7 +1779,7 @@ export function ProjectPage({
                   type="button"
                   className="ml-0.5 text-zinc-500 hover:text-zinc-200 transition-colors"
                   disabled={aliasSaving}
-                  onClick={() => handleRemoveAlias(a)}
+                  onClick={() => { void handleRemoveAlias(a) }}
                   aria-label={`Remove ${a}`}
                 >×</button>
               </span>
@@ -1791,10 +1792,10 @@ export function ProjectPage({
                   placeholder="LlamaParse"
                   value={newAlias}
                   onChange={(e) => setNewAlias(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleAddAlias()}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { void handleAddAlias() } }}
                   autoFocus
                 />
-                <Button type="button" size="sm" disabled={!newAlias.trim() || aliasSaving} onClick={handleAddAlias}>
+                <Button type="button" size="sm" disabled={!newAlias.trim() || aliasSaving} onClick={asyncHandler(handleAddAlias)}>
                   {aliasSaving ? '...' : 'Add'}
                 </Button>
                 <button type="button" className="text-xs text-zinc-500 hover:text-zinc-300" onClick={() => { setAddingAlias(false); setNewAlias('') }}>Cancel</button>
@@ -1811,7 +1812,7 @@ export function ProjectPage({
         <div className="page-header-right">
           <p className="text-sm text-zinc-500">{model.dateRangeLabel}</p>
           <div className="flex items-center gap-2">
-            <Button type="button" variant="outline" size="icon" onClick={handleExport} aria-label="Export project as YAML">
+            <Button type="button" variant="outline" size="icon" onClick={asyncHandler(handleExport)} aria-label="Export project as YAML">
               <Download className="h-4 w-4 text-zinc-400" />
             </Button>
             <Button type="button" variant="outline" size="icon" onClick={() => setShowDeleteConfirm(true)} aria-label="Delete project">
@@ -1820,7 +1821,7 @@ export function ProjectPage({
             <Button
               type="button"
               disabled={triggerRunMutation.isPending || hasActiveVisibilitySweep}
-              onClick={handleTriggerRun}
+              onClick={asyncHandler(handleTriggerRun)}
             >
               {triggerRunMutation.isPending
                 ? 'Starting…'
@@ -1975,7 +1976,7 @@ export function ProjectPage({
                 />
                 <div className="mt-2 flex items-center justify-between">
                   <p className="text-xs text-zinc-500">{newQueryText.split('\n').filter(k => k.trim()).length} queries</p>
-                  <Button type="button" size="sm" disabled={!newQueryText.trim() || querySaving} onClick={handleAddQueries}>
+                  <Button type="button" size="sm" disabled={!newQueryText.trim() || querySaving} onClick={asyncHandler(handleAddQueries)}>
                     {querySaving ? 'Adding...' : 'Add queries'}
                   </Button>
                 </div>
@@ -2082,9 +2083,9 @@ export function ProjectPage({
                   placeholder="competitor.com"
                   value={newCompetitorDomain}
                   onChange={(e) => setNewCompetitorDomain(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleAddCompetitor()}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { void handleAddCompetitor() } }}
                 />
-                <Button type="button" size="sm" disabled={!newCompetitorDomain.trim() || competitorSaving} onClick={handleAddCompetitor}>
+                <Button type="button" size="sm" disabled={!newCompetitorDomain.trim() || competitorSaving} onClick={asyncHandler(handleAddCompetitor)}>
                   {competitorSaving ? 'Adding...' : 'Add'}
                 </Button>
               </div>

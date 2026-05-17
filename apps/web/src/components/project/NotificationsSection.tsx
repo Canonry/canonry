@@ -4,6 +4,7 @@ import { Button } from '../ui/button.js'
 import { Card } from '../ui/card.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
 import { addToast } from '../../lib/toast-store.js'
+import { asyncHandler } from '../../lib/async-handler.js'
 import { listNotifications, addNotification, removeNotification, sendTestNotification, type ApiNotification } from '../../api.js'
 
 // --- Notification events ---
@@ -152,7 +153,7 @@ export function NotificationsSection({ projectName }: { projectName: string }) {
               type="button"
               size="sm"
               disabled={saving || !webhookUrl.trim() || selectedEvents.length === 0}
-              onClick={handleAdd}
+              onClick={asyncHandler(handleAdd)}
             >
               {saving ? 'Adding...' : 'Add webhook'}
             </Button>
@@ -214,10 +215,10 @@ export function NotificationsSection({ projectName }: { projectName: string }) {
                           </ToneBadge>
                         )
                       })()}
-                      <Button variant="ghost" size="sm" type="button" disabled={testStates[n.id]?.state === 'testing'} onClick={() => handleTest(n.id)}>
+                      <Button variant="ghost" size="sm" type="button" disabled={testStates[n.id]?.state === 'testing'} onClick={() => { void handleTest(n.id) }}>
                         Test
                       </Button>
-                      <Button variant="ghost" size="sm" type="button" disabled={removingIds.has(n.id)} onClick={() => handleRemove(n.id)}>
+                      <Button variant="ghost" size="sm" type="button" disabled={removingIds.has(n.id)} onClick={() => { void handleRemove(n.id) }}>
                         {removingIds.has(n.id) ? 'Removing…' : 'Remove'}
                       </Button>
                     </div>

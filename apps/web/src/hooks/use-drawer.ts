@@ -8,14 +8,17 @@ export function useDrawer() {
   const runId = search.runId ?? null
   const evidenceId = search.evidenceId ?? null
 
-  const openRun = (id: string) =>
-    navigate({ to: currentPath, from: rootRoute.to, search: (prev) => ({ ...prev, runId: id, evidenceId: undefined }) })
+  const openRun = (id: string): void => {
+    void navigate({ to: currentPath, from: rootRoute.to, search: (prev) => ({ ...prev, runId: id, evidenceId: undefined }) })
+  }
 
-  const openEvidence = (id: string) =>
-    navigate({ to: currentPath, from: rootRoute.to, search: (prev) => ({ ...prev, evidenceId: id, runId: undefined }) })
+  const openEvidence = (id: string): void => {
+    void navigate({ to: currentPath, from: rootRoute.to, search: (prev) => ({ ...prev, evidenceId: id, runId: undefined }) })
+  }
 
-  const closeDrawer = () =>
-    navigate({ to: currentPath, from: rootRoute.to, search: (prev) => ({ ...prev, runId: undefined, evidenceId: undefined }) })
+  const closeDrawer = (): void => {
+    void navigate({ to: currentPath, from: rootRoute.to, search: (prev) => ({ ...prev, runId: undefined, evidenceId: undefined }) })
+  }
 
   return { runId, evidenceId, openRun, openEvidence, closeDrawer }
 }

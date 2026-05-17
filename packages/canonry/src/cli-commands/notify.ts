@@ -6,8 +6,8 @@ export const NOTIFY_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['notify', 'events'],
     usage: 'canonry notify events [--format json]',
-    run: async (input) => {
-      await listEvents(input.format)
+    run: (input) => {
+      listEvents(input.format)
     },
   },
   {

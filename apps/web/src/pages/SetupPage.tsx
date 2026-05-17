@@ -20,6 +20,7 @@ import { useDashboard } from '../queries/use-dashboard.js'
 import { useHealth } from '../queries/use-health.js'
 import { useInitialDashboard } from '../contexts/dashboard-context.js'
 import { buildSetupModel, serviceStatusTooltip } from '../lib/health-helpers.js'
+import { asyncHandler } from '../lib/async-handler.js'
 
 const SETUP_STEPS = [
   { label: 'System check', description: 'Verify your instance is ready' },
@@ -339,7 +340,7 @@ export function SetupPage() {
                             type="button"
                             size="sm"
                             disabled={geminiSaving || !geminiKey.trim()}
-                            onClick={handleSaveGeminiKey}
+                            onClick={asyncHandler(handleSaveGeminiKey)}
                           >
                             {geminiSaving ? 'Saving...' : 'Save'}
                           </Button>
@@ -442,7 +443,7 @@ export function SetupPage() {
                 {projectError ? <p className="text-rose-400 text-sm">{projectError}</p> : null}
                 <div className="setup-nav">
                   <Button type="button" variant="outline" onClick={goBack}>Back</Button>
-                  <Button type="button" disabled={!slug || !domain || projectSaving} onClick={handleCreateProject}>
+                  <Button type="button" disabled={!slug || !domain || projectSaving} onClick={asyncHandler(handleCreateProject)}>
                     {projectSaving ? 'Creating...' : 'Create project'}
                   </Button>
                 </div>
@@ -516,7 +517,7 @@ export function SetupPage() {
                         type="button"
                         variant="outline"
                         disabled={generatingQueries || !selectedProvider}
-                        onClick={handleGenerateQueries}
+                        onClick={asyncHandler(handleGenerateQueries)}
                       >
                         {generatingQueries ? 'Analyzing site...' : 'Generate'}
                       </Button>
@@ -543,7 +544,7 @@ export function SetupPage() {
                 {queriesError ? <p className="text-rose-400 text-sm">{queriesError}</p> : null}
                 <div className="setup-nav">
                   <Button type="button" variant="outline" onClick={goBack}>Back</Button>
-                  <Button type="button" disabled={parsedQueries.length === 0 || queriesSaving} onClick={handleSaveQueries}>
+                  <Button type="button" disabled={parsedQueries.length === 0 || queriesSaving} onClick={asyncHandler(handleSaveQueries)}>
                     {queriesSaving ? 'Saving...' : `Save ${parsedQueries.length} quer${parsedQueries.length !== 1 ? 'ies' : 'y'}`}
                   </Button>
                 </div>
@@ -593,7 +594,7 @@ export function SetupPage() {
                     <Button type="button" variant="outline" onClick={() => setStep(4)}>
                       Skip
                     </Button>
-                    <Button type="button" disabled={parsedCompetitors.length === 0 || competitorsSaving} onClick={handleSaveCompetitors}>
+                    <Button type="button" disabled={parsedCompetitors.length === 0 || competitorsSaving} onClick={asyncHandler(handleSaveCompetitors)}>
                       {competitorsSaving ? 'Saving...' : `Save ${parsedCompetitors.length} competitor${parsedCompetitors.length !== 1 ? 's' : ''}`}
                     </Button>
                   </div>
@@ -635,7 +636,7 @@ export function SetupPage() {
                 </p>
                 <div className="setup-nav">
                   <Button type="button" variant="outline" onClick={goBack}>Back</Button>
-                  <Button type="button" disabled={runSaving} onClick={handleLaunchRun}>
+                  <Button type="button" disabled={runSaving} onClick={asyncHandler(handleLaunchRun)}>
                     {runSaving ? 'Launching...' : 'Launch visibility sweep'}
                   </Button>
                 </div>
@@ -650,7 +651,7 @@ export function SetupPage() {
                 </div>
                 <div className="setup-nav">
                   <span />
-                  <Button type="button" variant="outline" onClick={() => navigate({ to: createdProjectId ? `/projects/${createdProjectId}` : '/' })}>
+                  <Button type="button" variant="outline" onClick={() => { void navigate({ to: createdProjectId ? `/projects/${createdProjectId}` : '/' }) }}>
                     Watch on project page
                   </Button>
                 </div>
@@ -660,7 +661,7 @@ export function SetupPage() {
                 <p className="text-rose-400">Sweep failed. Inspect the run on the project page for the provider error and retry from there.</p>
                 <div className="setup-nav">
                   <span />
-                  <Button type="button" onClick={() => navigate({ to: createdProjectId ? `/projects/${createdProjectId}` : '/' })}>
+                  <Button type="button" onClick={() => { void navigate({ to: createdProjectId ? `/projects/${createdProjectId}` : '/' }) }}>
                     Open project
                   </Button>
                 </div>
@@ -693,7 +694,7 @@ export function SetupPage() {
                 </p>
                 <div className="setup-nav">
                   <span />
-                  <Button type="button" onClick={() => navigate({ to: createdProjectId ? `/projects/${createdProjectId}` : '/' })}>
+                  <Button type="button" onClick={() => { void navigate({ to: createdProjectId ? `/projects/${createdProjectId}` : '/' }) }}>
                     Open project dashboard →
                   </Button>
                 </div>

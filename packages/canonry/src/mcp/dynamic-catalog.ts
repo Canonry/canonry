@@ -139,7 +139,7 @@ export class DynamicToolCatalog {
   // the SDK's sender for the duration of the batch.
   private batchListChanged(fn: () => void): void {
     const host = this.server as unknown as NotifierHost
-    const original = host.sendToolListChanged
+    const original = host.sendToolListChanged.bind(host)
     let suppressed = false
     host.sendToolListChanged = () => {
       suppressed = true
@@ -149,6 +149,6 @@ export class DynamicToolCatalog {
     } finally {
       host.sendToolListChanged = original
     }
-    if (suppressed) original.call(host)
+    if (suppressed) original()
   }
 }

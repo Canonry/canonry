@@ -18,6 +18,7 @@ import { useLocation } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import ReactMarkdown from 'react-markdown'
 import { fetchProjects } from '../../api.js'
+import { asyncHandler } from '../../lib/async-handler.js'
 import { queryKeys } from '../../queries/query-keys.js'
 import {
   extractAssistantText,
@@ -416,7 +417,7 @@ export function AeroBar({ projectName }: AeroBarProps) {
                 />
                 <button
                   type="button"
-                  onClick={handleReset}
+                  onClick={asyncHandler(handleReset)}
                   className="rounded-md p-1.5 text-zinc-500 transition hover:bg-zinc-800/60 hover:text-zinc-200"
                   aria-label="Reset conversation"
                   title="Reset conversation"
@@ -466,7 +467,7 @@ export function AeroBar({ projectName }: AeroBarProps) {
                       <button
                         key={s.label}
                         type="button"
-                        onClick={() => send(s.prompt)}
+                        onClick={() => { void send(s.prompt) }}
                         className="rounded-full border border-zinc-800 bg-zinc-900/70 px-3 py-1 text-xs text-zinc-300 transition hover:border-zinc-700 hover:bg-zinc-800/70 hover:text-zinc-100"
                       >
                         {s.label}
@@ -992,7 +993,7 @@ function UserMessageRow({
         <div className="text-[10px] uppercase tracking-wider text-zinc-500">You</div>
         <button
           type="button"
-          onClick={handleCopy}
+          onClick={asyncHandler(handleCopy)}
           className="inline-flex items-center gap-1 rounded border border-zinc-800/70 bg-zinc-950/60 px-1.5 py-0.5 text-[10px] text-zinc-400 opacity-0 transition hover:border-zinc-700 hover:text-zinc-100 group-hover:opacity-100 focus:opacity-100"
           aria-label="Copy as CLI command"
           title={cliCommand}

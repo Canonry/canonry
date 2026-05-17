@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { Button } from '../ui/button.js'
 import { updateGoogleAuthConfig } from '../../api.js'
 import { addToast } from '../../lib/toast-store.js'
+import { asyncHandler } from '../../lib/async-handler.js'
 
 export function GoogleOAuthConfigForm({ onSaved }: { onSaved: () => void }) {
   const [clientId, setClientId] = useState('')
@@ -80,7 +81,7 @@ export function GoogleOAuthConfigForm({ onSaved }: { onSaved: () => void }) {
       </p>
       {error && <p className="text-xs text-rose-400">{error}</p>}
       {success && <p className="text-xs text-emerald-400">Google OAuth credentials updated.</p>}
-      <Button type="button" size="sm" disabled={!canSave || saving} onClick={handleSave}>
+      <Button type="button" size="sm" disabled={!canSave || saving} onClick={asyncHandler(handleSave)}>
         {saving ? 'Saving...' : 'Save Google OAuth app'}
       </Button>
     </div>

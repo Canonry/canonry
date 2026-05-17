@@ -3,6 +3,7 @@ import { QueryClientProvider } from '@tanstack/react-query'
 import { RouterProvider } from '@tanstack/react-router'
 
 import { ApiError, fetchSession, hasExplicitBrowserApiKey, loginWithPassword, setupDashboardPassword, setOnAuthExpired } from '../../api.js'
+import { asyncHandler } from '../../lib/async-handler.js'
 import { createQueryClient } from '../../queries/query-client.js'
 import { createAppRouter } from '../../router/router.js'
 import { Button } from '../ui/button.js'
@@ -173,7 +174,7 @@ export function AuthGate() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <form className="space-y-4" onSubmit={handleSetup}>
+                <form className="space-y-4" onSubmit={asyncHandler(handleSetup)}>
                   <label className="block space-y-1.5">
                     <span className="text-xs font-medium text-zinc-400">Password</span>
                     <input
@@ -217,7 +218,7 @@ export function AuthGate() {
                     Your session expired — please sign in again.
                   </p>
                 ) : null}
-                <form className="space-y-4" onSubmit={handleLogin}>
+                <form className="space-y-4" onSubmit={asyncHandler(handleLogin)}>
                   <label className="block space-y-1.5">
                     <span className="text-xs font-medium text-zinc-400">Password</span>
                     <input
