@@ -226,10 +226,30 @@ export function handleAuthExpired(): void {
  * `client` option; we don't rely on the SDK's default global client because
  * tests can stub this module's client and the dashboard's basePath is known
  * at import time.
+ *
+ * Exported so TanStack Query hooks can pass it to the generated
+ * `<op>Options(...)` / `<op>Mutation(...)` helpers from
+ * `@ainyc/canonry-api-client/react-query`. The hooks import this client
+ * rather than re-creating one so the dashboard's auth + basePath + test
+ * stubs stay in one place.
  */
-const heyClient = createHeyClient({
+export const heyClient = createHeyClient({
   baseUrl: getApiOrigin(),
   apiKey: getApiKey() || undefined,
+})
+
+// Session-expiry interceptor — runs for every response regardless of who
+// called the SDK (invokeWeb wrapper, generated TanStack Query options, raw
+// SDK call). Without this, hooks that bypass `invokeWeb` (e.g. components
+// using `useQuery(getApiV1...Options(...))`) would silently 401 and leave
+// the user staring at a broken dashboard instead of being kicked to login.
+// Skips /session/* routes — a 401 there means "wrong password," not
+// "your session expired."
+heyClient.interceptors.response.use((res, req) => {
+  if ((res.status === 401 || res.status === 403) && !req.url.includes('/api/v1/session')) {
+    handleAuthExpired()
+  }
+  return res
 })
 
 /**
@@ -247,17 +267,18 @@ type SdkResult = {
 }
 
 /**
- * Wrap a generated SDK call with `ApiError` mapping and `handleAuthExpired`
- * dispatch on 401/403 (so the dashboard routes back to the login screen
- * when the user's session goes away).
+ * Wrap a generated SDK call with `ApiError` mapping.
+ *
+ * 401/403 → `handleAuthExpired()` is handled by the `heyClient.interceptors.response`
+ * hook (declared at module top) so generated TanStack Query options get the
+ * same redirect-on-expiry behavior. Don't dispatch it here too — that would
+ * fire the handler twice for every expired-session request that flows through
+ * this wrapper.
  */
 async function invokeWeb<T>(call: () => Promise<SdkResult>): Promise<T> {
   const result = await call()
   if (result.error !== undefined && result.error !== null) {
     const status = result.response.status
-    if (status === 401 || status === 403) {
-      handleAuthExpired()
-    }
     let message = `API ${status}: ${result.response.statusText}`
     let code: ErrorCode | undefined
     if (typeof result.error === 'object' && result.error !== null) {

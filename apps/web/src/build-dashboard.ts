@@ -40,6 +40,7 @@ function toProjectDto(p: ApiProject): ProjectDto {
     language: p.language,
     tags: p.tags,
     labels: p.labels,
+    providers: p.providers ?? [],
     locations: p.locations ?? [],
     defaultLocation: p.defaultLocation ?? null,
     autoExtractBacklinks: p.autoExtractBacklinks ?? false,

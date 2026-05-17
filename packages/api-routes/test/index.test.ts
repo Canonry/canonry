@@ -109,7 +109,11 @@ describe('api-routes', () => {
       }>>
     }
 
-    expect(body.openapi).toBe('3.1.0')
+    // OpenAPI 3.0 (not 3.1) — see comment in openapi.ts. 3.0 is required so
+    // `nullable: true` on emitted schemas is the canonical nullability marker
+    // and hey-api's codegen produces `string | null` for optional nullable
+    // fields instead of stripping the null.
+    expect(body.openapi).toBe('3.0.0')
     expect(body.paths['/api/v1/openapi.json']).toBeDefined()
     expect(body.paths['/api/v1/projects']).toBeDefined()
     expect(body.paths['/api/v1/openapi.json']?.get?.security).toEqual([])

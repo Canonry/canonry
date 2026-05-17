@@ -6,11 +6,11 @@ export type ClientOptions = {
 
 export type AuditLogEntry = {
     id: string;
-    projectId?: string;
+    projectId?: string | null;
     actor: string;
     action: string;
     entityType: string;
-    entityId?: string;
+    entityId?: string | null;
     diff?: unknown;
     createdAt: string;
 };
@@ -34,7 +34,7 @@ export type BacklinkListResponse = {
         queriedAt: string;
         excludedLinkingDomains?: number;
         excludedHosts?: number;
-    };
+    } | null;
     total: number;
     rows: Array<{
         linkingDomain: string;
@@ -63,7 +63,7 @@ export type BacklinksInstallResultDto = {
 
 export type BacklinksInstallStatusDto = {
     duckdbInstalled: boolean;
-    duckdbVersion?: string;
+    duckdbVersion?: string | null;
     duckdbSpec: string;
     pluginDir: string;
 };
@@ -71,7 +71,7 @@ export type BacklinksInstallStatusDto = {
 export type BingConnectionDto = {
     id: string;
     domain: string;
-    siteUrl?: string;
+    siteUrl?: string | null;
     createdAt: string;
     updatedAt: string;
 };
@@ -87,36 +87,36 @@ export type CcAvailableRelease = {
     release: string;
     vertexUrl: string;
     edgesUrl: string;
-    vertexBytes: number;
-    edgesBytes: number;
-    lastModified: string;
+    vertexBytes: number | null;
+    edgesBytes: number | null;
+    lastModified: string | null;
 };
 
 export type CcCachedRelease = {
     release: string;
     syncStatus: 'queued' | 'downloading' | 'querying' | 'ready' | 'failed';
     bytes: number;
-    lastUsedAt: string;
+    lastUsedAt: string | null;
 };
 
 export type CcReleaseSyncDto = {
     id: string;
     release: string;
     status: 'queued' | 'downloading' | 'querying' | 'ready' | 'failed';
-    phaseDetail?: string;
-    vertexPath?: string;
-    edgesPath?: string;
-    vertexSha256?: string;
-    edgesSha256?: string;
-    vertexBytes?: number;
-    edgesBytes?: number;
-    projectsProcessed?: number;
-    domainsDiscovered?: number;
-    downloadStartedAt?: string;
-    downloadFinishedAt?: string;
-    queryStartedAt?: string;
-    queryFinishedAt?: string;
-    error?: string;
+    phaseDetail?: string | null;
+    vertexPath?: string | null;
+    edgesPath?: string | null;
+    vertexSha256?: string | null;
+    edgesSha256?: string | null;
+    vertexBytes?: number | null;
+    edgesBytes?: number | null;
+    projectsProcessed?: number | null;
+    domainsDiscovered?: number | null;
+    downloadStartedAt?: string | null;
+    downloadFinishedAt?: string | null;
+    queryStartedAt?: string | null;
+    queryFinishedAt?: string | null;
+    error?: string | null;
     createdAt: string;
     updatedAt: string;
 };
@@ -131,8 +131,8 @@ export type CitationVisibilityResponse = {
         queriesCitedOnly: number;
         queriesMentionedOnly: number;
         queriesInvisible: number;
-        latestRunId: string;
-        latestRunAt: string;
+        latestRunId: string | null;
+        latestRunAt: string | null;
     };
     byQuery: Array<{
         queryId: string;
@@ -203,15 +203,15 @@ export type ContentTargetsResponseDto = {
             url: string;
             gscImpressions: number;
             gscClicks: number;
-            gscAvgPosition: number;
+            gscAvgPosition: number | null;
             organicSessions: number;
-        };
+        } | null;
         winningCompetitor: {
             domain: string;
             url: string;
             title: string;
             citationCount: number;
-        };
+        } | null;
         score: number;
         scoreBreakdown: {
             demand: number;
@@ -226,7 +226,7 @@ export type ContentTargetsResponseDto = {
             actionId: string;
             state: 'proposed' | 'briefed' | 'payload-generated' | 'draft-created' | 'published' | 'validated' | 'dismissed';
             lastUpdated: string;
-        };
+        } | null;
     }>;
     contextMetrics: {
         totalAiReferralSessions: number;
@@ -268,23 +268,23 @@ export type DiscoverySessionDetailDto = {
     id: string;
     projectId: string;
     status: 'queued' | 'seeding' | 'probing' | 'completed' | 'failed';
-    icpDescription?: string;
-    seedProvider?: string;
-    seedCountRaw?: number;
-    seedCount?: number;
-    dedupThreshold?: number;
-    probeCount?: number;
-    citedCount: number;
-    aspirationalCount: number;
-    wastedCount: number;
+    icpDescription?: string | null;
+    seedProvider?: string | null;
+    seedCountRaw?: number | null;
+    seedCount?: number | null;
+    dedupThreshold?: number | null;
+    probeCount?: number | null;
+    citedCount: number | null;
+    aspirationalCount: number | null;
+    wastedCount: number | null;
     competitorMap: Array<{
         domain: string;
         hits: number;
         competitorType: 'direct-competitor' | 'ota-aggregator' | 'editorial-media' | 'other' | 'unknown';
     }>;
-    error?: string;
-    startedAt?: string;
-    finishedAt?: string;
+    error?: string | null;
+    startedAt?: string | null;
+    finishedAt?: string | null;
     createdAt: string;
     probes: Array<{
         id: string;
@@ -302,23 +302,23 @@ export type DiscoverySessionDto = {
     id: string;
     projectId: string;
     status: 'queued' | 'seeding' | 'probing' | 'completed' | 'failed';
-    icpDescription?: string;
-    seedProvider?: string;
-    seedCountRaw?: number;
-    seedCount?: number;
-    dedupThreshold?: number;
-    probeCount?: number;
-    citedCount: number;
-    aspirationalCount: number;
-    wastedCount: number;
+    icpDescription?: string | null;
+    seedProvider?: string | null;
+    seedCountRaw?: number | null;
+    seedCount?: number | null;
+    dedupThreshold?: number | null;
+    probeCount?: number | null;
+    citedCount: number | null;
+    aspirationalCount: number | null;
+    wastedCount: number | null;
     competitorMap: Array<{
         domain: string;
         hits: number;
         competitorType: 'direct-competitor' | 'ota-aggregator' | 'editorial-media' | 'other' | 'unknown';
     }>;
-    error?: string;
-    startedAt?: string;
-    finishedAt?: string;
+    error?: string | null;
+    startedAt?: string | null;
+    finishedAt?: string | null;
     createdAt: string;
 };
 
@@ -327,7 +327,7 @@ export type DoctorReportDto = {
     /**
      * Project name when scope is "project", null otherwise.
      */
-    project: string;
+    project: string | null;
     /**
      * ISO-8601 timestamp when this doctor run started.
      */
@@ -354,7 +354,7 @@ export type DoctorReportDto = {
         /**
          * Operator-facing next step. Null when status is "ok" or no specific remediation applies.
          */
-        remediation?: string;
+        remediation?: string | null;
         /**
          * Structured context — principal email, redirect URI, missing scopes, etc. Stable per check id.
          */
@@ -398,8 +398,8 @@ export type GoogleConnectionDto = {
     id: string;
     domain: string;
     connectionType: 'gsc' | 'ga4';
-    propertyId?: string;
-    sitemapUrl?: string;
+    propertyId?: string | null;
+    sitemapUrl?: string | null;
     scopes: Array<string>;
     createdAt: string;
     updatedAt: string;
@@ -422,40 +422,40 @@ export type GscCoverageSummaryDto = {
         deindexed: number;
         percentage: number;
     };
-    lastInspectedAt: string;
-    lastSyncedAt: string;
+    lastInspectedAt: string | null;
+    lastSyncedAt: string | null;
     indexed: Array<{
         id: string;
         url: string;
-        indexingState?: string;
-        verdict?: string;
-        coverageState?: string;
-        pageFetchState?: string;
-        robotsTxtState?: string;
-        crawlTime?: string;
-        lastCrawlResult?: string;
-        isMobileFriendly?: boolean;
+        indexingState?: string | null;
+        verdict?: string | null;
+        coverageState?: string | null;
+        pageFetchState?: string | null;
+        robotsTxtState?: string | null;
+        crawlTime?: string | null;
+        lastCrawlResult?: string | null;
+        isMobileFriendly?: boolean | null;
         richResults: Array<string>;
         inspectedAt: string;
     }>;
     notIndexed: Array<{
         id: string;
         url: string;
-        indexingState?: string;
-        verdict?: string;
-        coverageState?: string;
-        pageFetchState?: string;
-        robotsTxtState?: string;
-        crawlTime?: string;
-        lastCrawlResult?: string;
-        isMobileFriendly?: boolean;
+        indexingState?: string | null;
+        verdict?: string | null;
+        coverageState?: string | null;
+        pageFetchState?: string | null;
+        robotsTxtState?: string | null;
+        crawlTime?: string | null;
+        lastCrawlResult?: string | null;
+        isMobileFriendly?: boolean | null;
         richResults: Array<string>;
         inspectedAt: string;
     }>;
     deindexed: Array<{
         url: string;
-        previousState: string;
-        currentState: string;
+        previousState: string | null;
+        currentState: string | null;
         transitionDate: string;
     }>;
     reasonGroups: Array<{
@@ -464,14 +464,14 @@ export type GscCoverageSummaryDto = {
         urls: Array<{
             id: string;
             url: string;
-            indexingState?: string;
-            verdict?: string;
-            coverageState?: string;
-            pageFetchState?: string;
-            robotsTxtState?: string;
-            crawlTime?: string;
-            lastCrawlResult?: string;
-            isMobileFriendly?: boolean;
+            indexingState?: string | null;
+            verdict?: string | null;
+            coverageState?: string | null;
+            pageFetchState?: string | null;
+            robotsTxtState?: string | null;
+            crawlTime?: string | null;
+            lastCrawlResult?: string | null;
+            isMobileFriendly?: boolean | null;
             richResults: Array<string>;
             inspectedAt: string;
         }>;
@@ -497,8 +497,8 @@ export type GscSearchDataDto = {
     date: string;
     query: string;
     page: string;
-    country?: string;
-    device?: string;
+    country?: string | null;
+    device?: string | null;
     clicks: number;
     impressions: number;
     ctr: number;
@@ -508,14 +508,14 @@ export type GscSearchDataDto = {
 export type GscUrlInspectionDto = {
     id: string;
     url: string;
-    indexingState?: string;
-    verdict?: string;
-    coverageState?: string;
-    pageFetchState?: string;
-    robotsTxtState?: string;
-    crawlTime?: string;
-    lastCrawlResult?: string;
-    isMobileFriendly?: boolean;
+    indexingState?: string | null;
+    verdict?: string | null;
+    coverageState?: string | null;
+    pageFetchState?: string | null;
+    robotsTxtState?: string | null;
+    crawlTime?: string | null;
+    lastCrawlResult?: string | null;
+    isMobileFriendly?: boolean | null;
     richResults: Array<string>;
     inspectedAt: string;
 };
@@ -534,10 +534,10 @@ export type LatestProjectRunDto = {
         kind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe';
         status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';
         trigger: 'manual' | 'scheduled' | 'config-apply' | 'backfill' | 'probe';
-        location?: string;
-        queries?: Array<string>;
-        startedAt?: string;
-        finishedAt?: string;
+        location?: string | null;
+        queries?: Array<string> | null;
+        startedAt?: string | null;
+        finishedAt?: string | null;
         error?: {
             message?: string;
             providers?: {
@@ -546,7 +546,7 @@ export type LatestProjectRunDto = {
                     raw?: unknown;
                 };
             };
-        };
+        } | null;
         createdAt: string;
         snapshots?: Array<{
             id: string;
@@ -559,7 +559,7 @@ export type LatestProjectRunDto = {
             visibilityState?: 'visible' | 'not-visible';
             mentionState?: 'mentioned' | 'not-mentioned';
             transition?: 'new' | 'cited' | 'lost' | 'emerging' | 'not-cited';
-            answerText?: string;
+            answerText?: string | null;
             citedDomains: Array<string>;
             competitorOverlap: Array<string>;
             recommendedCompetitors: Array<string>;
@@ -569,11 +569,11 @@ export type LatestProjectRunDto = {
                 title: string;
             }>;
             searchQueries: Array<string>;
-            model?: string;
-            location?: string;
+            model?: string | null;
+            location?: string | null;
             createdAt: string;
         }>;
-    };
+    } | null;
 };
 
 export type LocationContext = {
@@ -612,6 +612,7 @@ export type ProjectDto = {
     labels: {
         [key: string]: string;
     };
+    providers: Array<string>;
     locations: Array<{
         label: string;
         city: string;
@@ -619,7 +620,7 @@ export type ProjectDto = {
         country: string;
         timezone?: string;
     }>;
-    defaultLocation?: string;
+    defaultLocation?: string | null;
     autoExtractBacklinks: boolean;
     configSource: 'cli' | 'api' | 'config-file';
     configRevision: number;
@@ -639,10 +640,10 @@ export type RunDetailDto = {
     kind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe';
     status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';
     trigger: 'manual' | 'scheduled' | 'config-apply' | 'backfill' | 'probe';
-    location?: string;
-    queries?: Array<string>;
-    startedAt?: string;
-    finishedAt?: string;
+    location?: string | null;
+    queries?: Array<string> | null;
+    startedAt?: string | null;
+    finishedAt?: string | null;
     error?: {
         message?: string;
         providers?: {
@@ -651,7 +652,7 @@ export type RunDetailDto = {
                 raw?: unknown;
             };
         };
-    };
+    } | null;
     createdAt: string;
     snapshots?: Array<{
         id: string;
@@ -664,7 +665,7 @@ export type RunDetailDto = {
         visibilityState?: 'visible' | 'not-visible';
         mentionState?: 'mentioned' | 'not-mentioned';
         transition?: 'new' | 'cited' | 'lost' | 'emerging' | 'not-cited';
-        answerText?: string;
+        answerText?: string | null;
         citedDomains: Array<string>;
         competitorOverlap: Array<string>;
         recommendedCompetitors: Array<string>;
@@ -674,8 +675,8 @@ export type RunDetailDto = {
             title: string;
         }>;
         searchQueries: Array<string>;
-        model?: string;
-        location?: string;
+        model?: string | null;
+        location?: string | null;
         createdAt: string;
     }>;
 };
@@ -686,10 +687,10 @@ export type RunDto = {
     kind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe';
     status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';
     trigger: 'manual' | 'scheduled' | 'config-apply' | 'backfill' | 'probe';
-    location?: string;
-    queries?: Array<string>;
-    startedAt?: string;
-    finishedAt?: string;
+    location?: string | null;
+    queries?: Array<string> | null;
+    startedAt?: string | null;
+    finishedAt?: string | null;
     error?: {
         message?: string;
         providers?: {
@@ -698,7 +699,7 @@ export type RunDto = {
                 raw?: unknown;
             };
         };
-    };
+    } | null;
     createdAt: string;
 };
 
@@ -707,13 +708,13 @@ export type ScheduleDto = {
     projectId: string;
     kind: 'answer-visibility' | 'traffic-sync';
     cronExpr: string;
-    preset?: string;
+    preset?: string | null;
     timezone: string;
     enabled: boolean;
     providers: Array<string>;
-    sourceId?: string;
-    lastRunAt?: string;
-    nextRunAt?: string;
+    sourceId?: string | null;
+    lastRunAt?: string | null;
+    nextRunAt?: string | null;
     createdAt: string;
     updatedAt: string;
 };
@@ -722,12 +723,12 @@ export type SnapshotDiffResponse = {
     run1: string;
     run2: string;
     diff: Array<{
-        queryId: string;
-        query: string;
+        queryId: string | null;
+        query: string | null;
         run1State: 'cited' | 'not-cited';
         run2State: 'cited' | 'not-cited';
-        run1AnswerMentioned: boolean;
-        run2AnswerMentioned: boolean;
+        run1AnswerMentioned: boolean | null;
+        run2AnswerMentioned: boolean | null;
         run1VisibilityState: 'visible' | 'not-visible';
         run2VisibilityState: 'visible' | 'not-visible';
         run1MentionState?: 'mentioned' | 'not-mentioned';
@@ -749,7 +750,7 @@ export type SnapshotListResponse = {
         visibilityState?: 'visible' | 'not-visible';
         mentionState?: 'mentioned' | 'not-mentioned';
         transition?: 'new' | 'cited' | 'lost' | 'emerging' | 'not-cited';
-        answerText?: string;
+        answerText?: string | null;
         citedDomains: Array<string>;
         competitorOverlap: Array<string>;
         recommendedCompetitors: Array<string>;
@@ -759,8 +760,8 @@ export type SnapshotListResponse = {
             title: string;
         }>;
         searchQueries: Array<string>;
-        model?: string;
-        location?: string;
+        model?: string | null;
+        location?: string | null;
         createdAt: string;
     }>;
     total: number;
@@ -805,11 +806,11 @@ export type SnapshotReportDto = {
         providerResults: Array<{
             provider: string;
             displayName: string;
-            model?: string;
+            model?: string | null;
             mentioned: boolean;
             cited: boolean;
             describedAccurately: 'yes' | 'no' | 'unknown' | 'not-mentioned';
-            accuracyNotes?: string;
+            accuracyNotes?: string | null;
             incorrectClaims: Array<string>;
             recommendedCompetitors: Array<string>;
             citedDomains: Array<string>;
@@ -819,7 +820,7 @@ export type SnapshotReportDto = {
             }>;
             searchQueries: Array<string>;
             answerText: string;
-            error?: string;
+            error?: string | null;
         }>;
     }>;
     summary: {
@@ -885,10 +886,10 @@ export type TrafficSourceDetailDto = {
     sourceType: 'cloud-run' | 'wordpress' | 'cloudflare' | 'vercel' | 'generic-log';
     displayName: string;
     status: 'connected' | 'paused' | 'error' | 'archived';
-    lastSyncedAt: string;
-    lastCursor: string;
-    lastError: string;
-    archivedAt: string;
+    lastSyncedAt: string | null;
+    lastCursor: string | null;
+    lastError: string | null;
+    archivedAt: string | null;
     config: {
         [key: string]: unknown;
     };
@@ -902,10 +903,10 @@ export type TrafficSourceDetailDto = {
     latestRun: {
         runId: string;
         status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';
-        startedAt: string;
-        finishedAt: string;
-        error: string;
-    };
+        startedAt: string | null;
+        finishedAt: string | null;
+        error: string | null;
+    } | null;
 };
 
 export type TrafficSourceDto = {
@@ -914,10 +915,10 @@ export type TrafficSourceDto = {
     sourceType: 'cloud-run' | 'wordpress' | 'cloudflare' | 'vercel' | 'generic-log';
     displayName: string;
     status: 'connected' | 'paused' | 'error' | 'archived';
-    lastSyncedAt: string;
-    lastCursor: string;
-    lastError: string;
-    archivedAt: string;
+    lastSyncedAt: string | null;
+    lastCursor: string | null;
+    lastError: string | null;
+    archivedAt: string | null;
     config: {
         [key: string]: unknown;
     };
@@ -932,10 +933,10 @@ export type TrafficSourceListResponse = {
         sourceType: 'cloud-run' | 'wordpress' | 'cloudflare' | 'vercel' | 'generic-log';
         displayName: string;
         status: 'connected' | 'paused' | 'error' | 'archived';
-        lastSyncedAt: string;
-        lastCursor: string;
-        lastError: string;
-        archivedAt: string;
+        lastSyncedAt: string | null;
+        lastCursor: string | null;
+        lastError: string | null;
+        archivedAt: string | null;
         config: {
             [key: string]: unknown;
         };
@@ -951,10 +952,10 @@ export type TrafficStatusResponse = {
         sourceType: 'cloud-run' | 'wordpress' | 'cloudflare' | 'vercel' | 'generic-log';
         displayName: string;
         status: 'connected' | 'paused' | 'error' | 'archived';
-        lastSyncedAt: string;
-        lastCursor: string;
-        lastError: string;
-        archivedAt: string;
+        lastSyncedAt: string | null;
+        lastCursor: string | null;
+        lastError: string | null;
+        archivedAt: string | null;
         config: {
             [key: string]: unknown;
         };
@@ -968,10 +969,10 @@ export type TrafficStatusResponse = {
         latestRun: {
             runId: string;
             status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';
-            startedAt: string;
-            finishedAt: string;
-            error: string;
-        };
+            startedAt: string | null;
+            finishedAt: string | null;
+            error: string | null;
+        } | null;
     }>;
 };
 
@@ -996,9 +997,9 @@ export type WordpressAuditPageDto = {
     status: string;
     wordCount: number;
     seo: {
-        title: string;
-        description: string;
-        noindex: boolean;
+        title: string | null;
+        description: string | null;
+        noindex: boolean | null;
         writable: boolean;
         writeTargets: Array<string>;
     };
@@ -1021,7 +1022,7 @@ export type WordpressBulkMetaResultDto = {
         manualAssist?: {
             manualRequired: true;
             targetUrl: string;
-            adminUrl?: string;
+            adminUrl?: string | null;
             content: string;
             nextSteps: Array<string>;
         };
@@ -1035,14 +1036,14 @@ export type WordpressDiffDto = {
         slug: string;
         title: string;
         status: string;
-        modifiedAt?: string;
-        link?: string;
+        modifiedAt?: string | null;
+        link?: string | null;
         env: 'live' | 'staging';
         content: string;
         seo: {
-            title: string;
-            description: string;
-            noindex: boolean;
+            title: string | null;
+            description: string | null;
+            noindex: boolean | null;
             writable: boolean;
             writeTargets: Array<string>;
         };
@@ -1060,14 +1061,14 @@ export type WordpressDiffDto = {
         slug: string;
         title: string;
         status: string;
-        modifiedAt?: string;
-        link?: string;
+        modifiedAt?: string | null;
+        link?: string | null;
         env: 'live' | 'staging';
         content: string;
         seo: {
-            title: string;
-            description: string;
-            noindex: boolean;
+            title: string | null;
+            description: string | null;
+            noindex: boolean | null;
             writable: boolean;
             writeTargets: Array<string>;
         };
@@ -1095,7 +1096,7 @@ export type WordpressDiffDto = {
 export type WordpressManualAssistDto = {
     manualRequired: true;
     targetUrl: string;
-    adminUrl?: string;
+    adminUrl?: string | null;
     content: string;
     nextSteps: Array<string>;
 };
@@ -1115,14 +1116,14 @@ export type WordpressPageDetailDto = {
     slug: string;
     title: string;
     status: string;
-    modifiedAt?: string;
-    link?: string;
+    modifiedAt?: string | null;
+    link?: string | null;
     env: 'live' | 'staging';
     content: string;
     seo: {
-        title: string;
-        description: string;
-        noindex: boolean;
+        title: string | null;
+        description: string | null;
+        noindex: boolean | null;
         writable: boolean;
         writeTargets: Array<string>;
     };
@@ -1139,8 +1140,8 @@ export type WordpressPageSummaryDto = {
     slug: string;
     title: string;
     status: string;
-    modifiedAt?: string;
-    link?: string;
+    modifiedAt?: string | null;
+    link?: string | null;
 };
 
 export type WordpressSchemaBlockDto = {
@@ -1159,7 +1160,7 @@ export type WordpressSchemaDeployResultDto = {
         manualAssist?: {
             manualRequired: true;
             targetUrl: string;
-            adminUrl?: string;
+            adminUrl?: string | null;
             content: string;
             nextSteps: Array<string>;
         };
@@ -1185,28 +1186,28 @@ export type WordpressStatusDto = {
     live: {
         url: string;
         reachable: boolean;
-        pageCount?: number;
-        version?: string;
-        error?: string;
+        pageCount?: number | null;
+        version?: string | null;
+        error?: string | null;
         plugins?: Array<string>;
         authenticatedUser?: {
             id: number;
             slug: string;
-        };
-    };
+        } | null;
+    } | null;
     staging: {
         url: string;
         reachable: boolean;
-        pageCount?: number;
-        version?: string;
-        error?: string;
+        pageCount?: number | null;
+        version?: string | null;
+        error?: string | null;
         plugins?: Array<string>;
         authenticatedUser?: {
             id: number;
             slug: string;
-        };
-    };
-    adminUrl?: string;
+        } | null;
+    } | null;
+    adminUrl?: string | null;
 };
 
 export type ErrorEnvelope = {
@@ -6106,7 +6107,7 @@ export type GetApiV1BacklinksSyncsLatestResponses = {
     /**
      * Latest sync returned, or null when no sync exists.
      */
-    200: CcReleaseSyncDto | null;
+    200: CcReleaseSyncDto | unknown;
 };
 
 export type GetApiV1BacklinksSyncsLatestResponse = GetApiV1BacklinksSyncsLatestResponses[keyof GetApiV1BacklinksSyncsLatestResponses];
@@ -6147,7 +6148,7 @@ export type GetApiV1BacklinksLatestReleaseResponses = {
     /**
      * Latest available release, or null when no candidate slug responded.
      */
-    200: CcAvailableRelease | null;
+    200: CcAvailableRelease | unknown;
 };
 
 export type GetApiV1BacklinksLatestReleaseResponse = GetApiV1BacklinksLatestReleaseResponses[keyof GetApiV1BacklinksLatestReleaseResponses];
@@ -6258,7 +6259,7 @@ export type GetApiV1ProjectsByNameBacklinksSummaryResponses = {
     /**
      * Summary returned, or null when no backlinks exist.
      */
-    200: BacklinkSummaryDto | null;
+    200: BacklinkSummaryDto | unknown;
 };
 
 export type GetApiV1ProjectsByNameBacklinksSummaryResponse = GetApiV1ProjectsByNameBacklinksSummaryResponses[keyof GetApiV1ProjectsByNameBacklinksSummaryResponses];

@@ -3435,7 +3435,12 @@ export function buildOpenApiDocument(info: OpenApiInfo = {}) {
   const schemas = buildComponentSchemas()
 
   return {
-    openapi: '3.1.0',
+    // OpenAPI 3.0 (not 3.1) so `nullable: true` on emitted schemas is the
+    // canonical nullability marker. `z.toJSONSchema(..., { target: 'openapi-3.0' })`
+    // outputs `nullable: true`; declaring 3.1 would tell consumers (and the
+    // hey-api codegen) to expect 3.1-style `type: ["string", "null"]` instead,
+    // and they'd silently strip the `null` from optional fields.
+    openapi: '3.0.0',
     info: {
       title: info.title ?? 'Canonry API',
       version: info.version ?? '0.0.0',
