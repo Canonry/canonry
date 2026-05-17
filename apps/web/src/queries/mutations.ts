@@ -1,7 +1,12 @@
 import { useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { RunKinds } from '@ainyc/canonry-contracts'
 import {
+  getApiV1ProjectsQueryKey,
+  getApiV1RunsQueryKey,
+} from '@ainyc/canonry-api-client/react-query'
+import {
   ApiError,
+  heyClient,
   type ApiRun,
   type ApiTriggerAllRunsResult,
   appendQueries,
@@ -13,12 +18,17 @@ import {
 } from '../api.js'
 import { createTrackedBatch, trackRun, type TrackedRunSourceAction } from '../lib/run-tracker-store.js'
 import { addToast } from '../lib/toast-store.js'
-import { queryKeys } from './query-keys.js'
 import { invalidateQueriesForRunKind } from './run-invalidations.js'
 
+/**
+ * Invalidate the two top-level list endpoints. We use exact-key matches
+ * (not a prefix predicate) so we don't accidentally invalidate every
+ * project sub-endpoint — Bing/GSC/GA all live under `/projects/:name/...`
+ * and have separate, more surgical invalidation flows below.
+ */
 function invalidateProjectAndRunQueries(queryClient: QueryClient) {
-  void queryClient.invalidateQueries({ queryKey: queryKeys.runs.all })
-  void queryClient.invalidateQueries({ queryKey: queryKeys.projects.all })
+  void queryClient.invalidateQueries({ queryKey: getApiV1RunsQueryKey({ client: heyClient }) })
+  void queryClient.invalidateQueries({ queryKey: getApiV1ProjectsQueryKey({ client: heyClient }) })
 }
 
 function queuedTitleForRun(kind: string) {
@@ -253,7 +263,7 @@ export function useAppendQueries() {
     mutationFn: ({ projectName, queries }: { projectName: string; queries: string[] }) =>
       appendQueries(projectName, queries),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.projects.all })
+      void queryClient.invalidateQueries({ queryKey: getApiV1ProjectsQueryKey({ client: heyClient }) })
     },
   })
 }

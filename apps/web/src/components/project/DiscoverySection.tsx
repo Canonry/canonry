@@ -13,9 +13,10 @@ import {
   getApiV1ProjectsByNameDiscoverSessionsByIdOptions,
   getApiV1ProjectsByNameDiscoverSessionsByIdPromoteOptions,
   getApiV1ProjectsByNameDiscoverSessionsOptions,
+  getApiV1ProjectsQueryKey,
+  getApiV1RunsQueryKey,
 } from '@ainyc/canonry-api-client/react-query'
 import { addToast } from '../../lib/toast-store.js'
-import { queryKeys } from '../../queries/query-keys.js'
 import { Button } from '../ui/button.js'
 import { Card } from '../ui/card.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
@@ -106,7 +107,13 @@ export function DiscoverySection({ projectName }: { projectName: string }) {
     },
     onSuccess: async (result) => {
       await refreshDiscovery(queryClient, projectName, result.sessionId)
-      void queryClient.invalidateQueries({ queryKey: queryKeys.projects.all })
+      // Promoting queries widens the project's tracked-query set — refresh
+      // the top-level projects list so the next render reflects the new
+      // count. Use the exact key (not a `getApiV1Projects` prefix predicate)
+      // so we don't accidentally invalidate every project sub-endpoint.
+      void queryClient.invalidateQueries({
+        queryKey: getApiV1ProjectsQueryKey({ client: heyClient }),
+      })
       addToast({
         title: 'Queries added',
         detail: promoteResultDetail(result),
@@ -436,9 +443,10 @@ async function refreshDiscovery(
   _sessionId: string,
 ) {
   // Generated `<op>QueryKey` helpers produce flat keys with no shared
-  // hierarchical prefix, so match every discovery op by name pattern.
-  // This catches the list, the detail, the promote-preview, and any
-  // future discovery endpoint added to the SDK.
+  // hierarchical prefix, so match every discovery op by name pattern —
+  // catches the list, detail, promote-preview, and any future discovery
+  // variant. Runs list uses the exact key to avoid invalidating
+  // run-detail caches unnecessarily.
   await Promise.all([
     queryClient.invalidateQueries({
       predicate: (query) => {
@@ -446,7 +454,7 @@ async function refreshDiscovery(
         return typeof head?._id === 'string' && head._id.startsWith('getApiV1ProjectsByNameDiscover')
       },
     }),
-    queryClient.invalidateQueries({ queryKey: queryKeys.runs.all }),
+    queryClient.invalidateQueries({ queryKey: getApiV1RunsQueryKey({ client: heyClient }) }),
   ])
 }
 

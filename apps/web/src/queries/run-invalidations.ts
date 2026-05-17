@@ -1,11 +1,36 @@
 import type { QueryClient } from '@tanstack/react-query'
 
 import { RunKinds, type RunKind } from '@ainyc/canonry-contracts'
+import {
+  getApiV1ProjectsQueryKey,
+  getApiV1RunsQueryKey,
+} from '@ainyc/canonry-api-client/react-query'
 
-import { queryKeys } from './query-keys.js'
+import { heyClient } from '../api.js'
 
 /**
- * Map a run kind to the domain-scoped query keys it invalidates.
+ * Invalidate every generated TanStack query whose operation id starts
+ * with `prefix`. The SDK-generated `<op>QueryKey` helpers produce flat
+ * keys (`[{_id: 'getApiV1...', ...}]`) with no shared hierarchical
+ * prefix, so we match by name pattern rather than referencing a
+ * legacy `queryKeys.<domain>.project(name)` hierarchy.
+ *
+ * Caution: prefix matching is greedy — `'getApiV1Projects'` matches the
+ * entire project sub-tree (Bing, GSC, GA, etc.), not just the bare
+ * `/projects` list. For "exactly the top-level list" use the direct
+ * `getApiV1ProjectsQueryKey` helper instead.
+ */
+function invalidateByOpPrefix(queryClient: QueryClient, prefix: string) {
+  void queryClient.invalidateQueries({
+    predicate: (query) => {
+      const head = query.queryKey[0] as { _id?: string } | undefined
+      return typeof head?._id === 'string' && head._id.startsWith(prefix)
+    },
+  })
+}
+
+/**
+ * Map a run kind to the SDK operation prefixes it invalidates.
  *
  * When a run completes (or is queued, depending on the call site), the data
  * surfaces it touched should be marked stale so the UI re-fetches. Adding a
@@ -15,10 +40,14 @@ import { queryKeys } from './query-keys.js'
 export function invalidateQueriesForRunKind(
   queryClient: QueryClient,
   kind: RunKind,
-  projectName: string,
+  _projectName: string,
 ): void {
-  void queryClient.invalidateQueries({ queryKey: queryKeys.runs.all })
-  void queryClient.invalidateQueries({ queryKey: queryKeys.projects.all })
+  // Exact-key invalidations for the two top-level lists. We do NOT prefix
+  // match `'getApiV1Projects'` here because that would also invalidate
+  // every per-project sub-endpoint (Bing, GSC, GA, etc.) — see the switch
+  // below for the surgical per-domain invalidations.
+  void queryClient.invalidateQueries({ queryKey: getApiV1RunsQueryKey({ client: heyClient }) })
+  void queryClient.invalidateQueries({ queryKey: getApiV1ProjectsQueryKey({ client: heyClient }) })
 
   switch (kind) {
     case RunKinds['answer-visibility']:
@@ -27,18 +56,18 @@ export function invalidateQueriesForRunKind(
       return
     case RunKinds['gsc-sync']:
     case RunKinds['inspect-sitemap']:
-      void queryClient.invalidateQueries({ queryKey: queryKeys.gsc.project(projectName) })
+      invalidateByOpPrefix(queryClient, 'getApiV1ProjectsByNameGoogleGsc')
       return
     case RunKinds['ga-sync']:
-      void queryClient.invalidateQueries({ queryKey: queryKeys.traffic.project(projectName) })
+      invalidateByOpPrefix(queryClient, 'getApiV1ProjectsByNameGa')
       return
     case RunKinds['traffic-sync']:
-      void queryClient.invalidateQueries({ queryKey: queryKeys.traffic.project(projectName) })
-      void queryClient.invalidateQueries({ queryKey: queryKeys.serverTraffic.project(projectName) })
+      invalidateByOpPrefix(queryClient, 'getApiV1ProjectsByNameGa')
+      invalidateByOpPrefix(queryClient, 'getApiV1ProjectsByNameTraffic')
       return
     case RunKinds['bing-inspect']:
     case RunKinds['bing-inspect-sitemap']:
-      void queryClient.invalidateQueries({ queryKey: queryKeys.bing.project(projectName) })
+      invalidateByOpPrefix(queryClient, 'getApiV1ProjectsByNameBing')
       return
     case RunKinds['aeo-discover-seed']:
     case RunKinds['aeo-discover-probe']:

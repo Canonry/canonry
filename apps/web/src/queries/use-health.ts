@@ -1,7 +1,13 @@
 import { useQuery } from '@tanstack/react-query'
 import { fetchServiceStatus } from '../api.js'
 import type { HealthSnapshot, ServiceStatus } from '../view-models.js'
-import { queryKeys } from './query-keys.js'
+
+/**
+ * The `/health` endpoint lives outside `/api/v1` (it's the bare deployment
+ * health check, not a domain endpoint), so it has no generated SDK helper.
+ * Inline its cache key here rather than maintain a one-entry registry.
+ */
+const HEALTH_QUERY_KEY = ['health'] as const
 
 async function fetchHealth(): Promise<HealthSnapshot> {
   const apiStatus = await fetchServiceStatus('/health', 'API')
@@ -22,7 +28,7 @@ async function fetchHealth(): Promise<HealthSnapshot> {
 
 export function useHealth(enabled: boolean, initialSnapshot?: HealthSnapshot) {
   return useQuery({
-    queryKey: queryKeys.health,
+    queryKey: HEALTH_QUERY_KEY,
     queryFn: fetchHealth,
     enabled,
     refetchInterval: 15_000,

@@ -6,6 +6,7 @@ import Fastify from 'fastify'
 import { createClient, migrate } from '@ainyc/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import type { ApiRoutesOptions } from '../src/index.js'
+import { canonryLocalRouteCatalog } from '../src/openapi.js'
 
 interface RouteObserverContext {
   app: ReturnType<typeof Fastify>
@@ -29,7 +30,18 @@ function buildObservedApp(opts: Partial<Omit<ApiRoutesOptions, 'db'>> = {}): Rou
   // Google routes register only when a state secret is configured; this
   // contract test enumerates every public path including Google's, so seed
   // a dummy secret to keep that surface mounted under test.
-  app.register(apiRoutes, { db, skipAuth: true, googleStateSecret: 'test-only-google-state-secret-32b', ...opts })
+  //
+  // `includeCanonryLocal: true` matches canonry's own server config so the
+  // spec covers the Aero agent routes registered by `packages/canonry`.
+  // The agent routes themselves are NOT mounted by this api-routes plugin;
+  // the route-registration test below subtracts them from the comparison.
+  app.register(apiRoutes, {
+    db,
+    skipAuth: true,
+    googleStateSecret: 'test-only-google-state-secret-32b',
+    openApiInfo: { includeCanonryLocal: true },
+    ...opts,
+  })
 
   return { app, observedRoutes, tmpDir }
 }
@@ -55,6 +67,19 @@ function normalizeSpecRoutes(paths: Record<string, Record<string, unknown>>): st
     .sort()
 }
 
+/**
+ * Stable string set of `<method> <path>` entries for every canonry-local
+ * route. Used to subtract those operations from the spec before comparing
+ * to api-routes' Fastify-registered routes — canonry-local routes ride in
+ * the spec but are registered by `packages/canonry/src/agent/agent-routes.ts`,
+ * not by this api-routes plugin.
+ */
+function canonryLocalRouteIds(): Set<string> {
+  return new Set(
+    canonryLocalRouteCatalog.map((route) => `${route.method.toLowerCase()} ${route.path}`),
+  )
+}
+
 describe('openapi contract', () => {
   const contexts: RouteObserverContext[] = []
 
@@ -75,7 +100,9 @@ describe('openapi contract', () => {
     expect(res.statusCode).toBe(200)
 
     const body = res.json() as { paths: Record<string, Record<string, unknown>> }
-    expect(normalizeSpecRoutes(body.paths)).toEqual(normalizeObservedRoutes(ctx.observedRoutes))
+    const localIds = canonryLocalRouteIds()
+    const specMinusLocal = normalizeSpecRoutes(body.paths).filter((entry) => !localIds.has(entry))
+    expect(specMinusLocal).toEqual(normalizeObservedRoutes(ctx.observedRoutes))
   })
 
   it('marks public unauthenticated routes with empty security requirements', async () => {

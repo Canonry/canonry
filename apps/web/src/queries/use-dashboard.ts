@@ -1,7 +1,6 @@
 import { useCallback, useMemo } from 'react'
 import { useQuery, useQueries } from '@tanstack/react-query'
 import {
-  fetchSettings,
   fetchQueries,
   fetchCompetitors,
   fetchGscCoverage,
@@ -12,11 +11,24 @@ import {
   fetchProjectOverview,
   heyClient,
 } from '../api.js'
-import { getApiV1ProjectsOptions, getApiV1RunsOptions } from '@ainyc/canonry-api-client/react-query'
+import {
+  getApiV1ProjectsOptions,
+  getApiV1RunsOptions,
+  getApiV1SettingsOptions,
+} from '@ainyc/canonry-api-client/react-query'
 import { buildDashboard } from '../build-dashboard.js'
 import type { ProjectData } from '../build-dashboard.js'
 import type { DashboardVm } from '../view-models.js'
-import { queryKeys } from './query-keys.js'
+/**
+ * Composite cache key for the per-project fan-out queryFn below. Not a
+ * generated SDK key — the fan-out aggregates ~9 separate endpoints into
+ * one cached payload, so no single `<op>QueryKey` helper applies. Tuple
+ * shape is intentional so future migration to per-endpoint `useQueries`
+ * can shadow this without breaking call sites.
+ */
+function projectDetailQueryKey(projectId: string, latestRunIdsKey?: string) {
+  return ['projects', projectId, latestRunIdsKey] as const
+}
 import { RUNS_STALE_MS, STATIC_VISIBILITY_STALE_MS } from './query-client.js'
 import { useInitialDashboard } from '../contexts/dashboard-context.js'
 
@@ -40,11 +52,12 @@ export function useDashboard(initialDashboard?: DashboardVm | null) {
     },
   })
 
-  // /settings returns a loose-object response (not yet schemed) — stays on
-  // the hand-typed apiFetch wrapper until the spec gains a SettingsDto.
+  // `/settings` returns the spec-typed `SettingsDto`. Wrapping in catch(null)
+  // lets the dashboard render with `settings: null` if the request fails
+  // (e.g. operator not yet authenticated) — same behavior as the legacy
+  // `apiFetch` path.
   const settingsQuery = useQuery({
-    queryKey: queryKeys.settings,
-    queryFn: () => fetchSettings().catch(() => null),
+    ...getApiV1SettingsOptions({ client: heyClient }),
     enabled: !effectiveInitial,
   })
 
@@ -88,7 +101,7 @@ export function useDashboard(initialDashboard?: DashboardVm | null) {
       const latestRunIdsKey = [...latestRunIds].sort().join(',')
 
       return {
-        queryKey: queryKeys.projects.detail(project.id, latestRunIdsKey || undefined),
+        queryKey: projectDetailQueryKey(project.id, latestRunIdsKey || undefined),
         queryFn: async (): Promise<ProjectData> => {
           const [qs, comps, timeline, latestRunDetails, previousRunDetails, gscCoverage, bingCoverage, dbInsights, overview] = await Promise.all([
             fetchQueries(project.name).catch(() => []),

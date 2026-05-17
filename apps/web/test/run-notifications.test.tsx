@@ -16,9 +16,23 @@ import {
 import { createAppRouter } from '../src/router/router.js'
 import { createDashboardFixture } from '../src/mock-data.js'
 import { DashboardProvider } from '../src/contexts/dashboard-context.js'
-import { queryKeys } from '../src/queries/query-keys.js'
+import { heyClient } from '../src/api.js'
+import {
+  getApiV1ProjectsByNameGoogleGscCoverageQueryKey,
+  getApiV1ProjectsQueryKey,
+  getApiV1RunsByIdQueryKey,
+  getApiV1RunsQueryKey,
+} from '@ainyc/canonry-api-client/react-query'
 import { useTriggerGscSync, useTriggerRun } from '../src/queries/mutations.js'
 import { createQueryClient } from '../src/queries/query-client.js'
+
+const projectsCacheKey = getApiV1ProjectsQueryKey({ client: heyClient })
+const runsCacheKey = getApiV1RunsQueryKey({ client: heyClient })
+const gscCoverageKey = getApiV1ProjectsByNameGoogleGscCoverageQueryKey({
+  client: heyClient,
+  path: { name: 'citypoint' },
+})
+const runDetailKey = (id: string) => getApiV1RunsByIdQueryKey({ client: heyClient, path: { id } })
 
 function makeProject() {
   return {
@@ -108,8 +122,8 @@ test('emits one terminal toast for a tracked run and does not duplicate it', asy
   })
 
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } })
-  queryClient.setQueryData(queryKeys.runs.all, [makeRun('completed')])
-  queryClient.setQueryData(queryKeys.projects.all, [makeProject()])
+  queryClient.setQueryData(runsCacheKey, [makeRun('completed')])
+  queryClient.setQueryData(projectsCacheKey, [makeProject()])
   render(
     <QueryClientProvider client={queryClient}>
       <RunNotificationObserver />
@@ -122,7 +136,7 @@ test('emits one terminal toast for a tracked run and does not duplicate it', asy
 
   expect(getRunTrackerState().runs).toEqual({})
 
-  queryClient.setQueryData(queryKeys.runs.all, [makeRun('completed')])
+  queryClient.setQueryData(runsCacheKey, [makeRun('completed')])
 
   await waitFor(() => {
     expect(getToasts().filter((toast) => toast.title === 'Visibility sweep completed')).toHaveLength(1)
@@ -148,8 +162,8 @@ test('refetches runs on focus only when tracked runs are pending', async () => {
   })
 
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } })
-  queryClient.setQueryData(queryKeys.runs.all, [makeRun('running')])
-  queryClient.setQueryData(queryKeys.projects.all, [makeProject()])
+  queryClient.setQueryData(runsCacheKey, [makeRun('running')])
+  queryClient.setQueryData(projectsCacheKey, [makeProject()])
   render(
     <QueryClientProvider client={queryClient}>
       <RunNotificationObserver />
@@ -243,11 +257,11 @@ test('emits one aggregate batch toast for run-all completions', async () => {
   })
 
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } })
-  queryClient.setQueryData(queryKeys.runs.all, [
+  queryClient.setQueryData(runsCacheKey, [
     makeRun('completed'),
     { ...makeRun('failed', 'Provider timeout'), id: 'run_2', projectId: 'proj_2' },
   ])
-  queryClient.setQueryData(queryKeys.projects.all, [
+  queryClient.setQueryData(projectsCacheKey, [
     makeProject(),
     { ...makeProject(), id: 'proj_2', name: 'northstar', displayName: 'Northstar Orthopedics' },
   ])
@@ -270,7 +284,7 @@ test('toast CTA opens the existing run drawer via router state', async () => {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } })
   const router = createAppRouter(queryClient, { initialEntries: ['/'] })
   await router.load()
-  queryClient.setQueryData(queryKeys.runs.detail(fixture.dashboard.runs[0]!.id), {
+  queryClient.setQueryData(runDetailKey(fixture.dashboard.runs[0]!.id), {
     ...makeRun('completed'),
     id: fixture.dashboard.runs[0]!.id,
     snapshots: [],
@@ -342,10 +356,10 @@ test('invalidates GSC project queries when a tracked gsc-sync run completes', as
   })
 
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } })
-  queryClient.setQueryData(queryKeys.runs.all, [{ ...makeRun('completed'), kind: 'gsc-sync' }])
-  queryClient.setQueryData(queryKeys.projects.all, [makeProject()])
+  queryClient.setQueryData(runsCacheKey, [{ ...makeRun('completed'), kind: 'gsc-sync' }])
+  queryClient.setQueryData(projectsCacheKey, [makeProject()])
   // Pre-populate the GSC coverage cache so invalidation has something to mark stale.
-  queryClient.setQueryData(queryKeys.gsc.coverage('citypoint'), { stale: true })
+  queryClient.setQueryData(gscCoverageKey, { stale: true })
 
   render(
     <QueryClientProvider client={queryClient}>
@@ -354,7 +368,7 @@ test('invalidates GSC project queries when a tracked gsc-sync run completes', as
   )
 
   await waitFor(() => {
-    const state = queryClient.getQueryState(queryKeys.gsc.coverage('citypoint'))
+    const state = queryClient.getQueryState(gscCoverageKey)
     expect(state?.isInvalidated).toBe(true)
   })
 })
@@ -378,9 +392,9 @@ test('does not invalidate GSC project queries for non-GSC runs', async () => {
   })
 
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } })
-  queryClient.setQueryData(queryKeys.runs.all, [makeRun('completed')])
-  queryClient.setQueryData(queryKeys.projects.all, [makeProject()])
-  queryClient.setQueryData(queryKeys.gsc.coverage('citypoint'), { stale: true })
+  queryClient.setQueryData(runsCacheKey, [makeRun('completed')])
+  queryClient.setQueryData(projectsCacheKey, [makeProject()])
+  queryClient.setQueryData(gscCoverageKey, { stale: true })
 
   render(
     <QueryClientProvider client={queryClient}>
@@ -393,7 +407,7 @@ test('does not invalidate GSC project queries for non-GSC runs', async () => {
     expect(getToasts().some((toast) => toast.title === 'Visibility sweep completed')).toBe(true)
   })
 
-  const state = queryClient.getQueryState(queryKeys.gsc.coverage('citypoint'))
+  const state = queryClient.getQueryState(gscCoverageKey)
   expect(state?.isInvalidated).toBe(false)
 })
 
@@ -420,7 +434,7 @@ test('useTriggerGscSync invalidates GSC project queries when the mutation succee
 
   const queryClient = createQueryClient()
   // Pre-populate the cache so we can observe invalidation.
-  queryClient.setQueryData(queryKeys.gsc.coverage('citypoint'), { stale: true })
+  queryClient.setQueryData(gscCoverageKey, { stale: true })
 
   render(
     <QueryClientProvider client={queryClient}>
@@ -431,7 +445,7 @@ test('useTriggerGscSync invalidates GSC project queries when the mutation succee
   fireEvent.click(screen.getByRole('button', { name: 'Trigger GSC sync' }))
 
   await waitFor(() => {
-    const state = queryClient.getQueryState(queryKeys.gsc.coverage('citypoint'))
+    const state = queryClient.getQueryState(gscCoverageKey)
     expect(state?.isInvalidated).toBe(true)
   })
 })

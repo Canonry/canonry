@@ -22,9 +22,9 @@ import {
 
 import { ToneBadge } from '../components/shared/ToneBadge.js'
 import { Button } from '../components/ui/button.js'
-import { downloadReportHtml, fetchReport, ApiError } from '../api.js'
+import { downloadReportHtml, heyClient, ApiError } from '../api.js'
+import { getApiV1ProjectsByNameReportOptions } from '@ainyc/canonry-api-client/react-query'
 import { asyncHandler } from '../lib/async-handler.js'
-import { queryKeys } from '../queries/query-keys.js'
 import type { MetricTone } from '../view-models.js'
 
 
@@ -68,12 +68,9 @@ export function ReportPage({ projectName }: { projectName: string }) {
   const [downloading, setDownloading] = useState(false)
   const [downloadError, setDownloadError] = useState<string | null>(null)
 
-  // /report endpoint returns looseObjectSchema — stays on hand-typed fetcher
-  // until ProjectReportDto is registered in openapi-schemas.ts.
-  const reportQuery = useQuery({
-    queryKey: queryKeys.report(projectName),
-    queryFn: () => fetchReport(projectName),
-  })
+  const reportQuery = useQuery(
+    getApiV1ProjectsByNameReportOptions({ client: heyClient, path: { name: projectName } }),
+  )
 
   async function handleDownload() {
     setDownloading(true)

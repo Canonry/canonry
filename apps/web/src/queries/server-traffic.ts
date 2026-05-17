@@ -7,6 +7,7 @@ import {
   getApiV1ProjectsByNameTrafficSourcesByIdOptions,
   getApiV1ProjectsByNameTrafficSourcesOptions,
   getApiV1ProjectsByNameTrafficStatusOptions,
+  getApiV1RunsQueryKey,
 } from '@ainyc/canonry-api-client/react-query'
 
 import {
@@ -22,7 +23,6 @@ import {
 } from '../api.js'
 import type { MetricTone } from '../view-models.js'
 import { TRAFFIC_STALE_MS } from './query-client.js'
-import { queryKeys } from './query-keys.js'
 
 export function toneFromTrafficSourceStatus(status: TrafficSourceStatus): MetricTone {
   switch (status) {
@@ -175,10 +175,10 @@ export function useSyncServerTrafficSource(project: string | null, sourceId: str
     onSuccess: () => {
       if (!project) return
       invalidateTrafficQueries(queryClient)
-      // `runs.all` is the legacy `queryKey: ['runs']` filter — still
-      // used by the dashboard's runs list. Once that migrates to the
-      // generated `getApiV1RunsQueryKey`, this drops to the predicate above.
-      void queryClient.invalidateQueries({ queryKey: queryKeys.runs.all })
+      // Refresh the top-level runs list so the just-created sync run
+      // appears. Exact-key match (not a `getApiV1Runs` prefix) so we
+      // don't churn unrelated run-detail caches.
+      void queryClient.invalidateQueries({ queryKey: getApiV1RunsQueryKey({ client: heyClient }) })
     },
   })
 }

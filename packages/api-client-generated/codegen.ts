@@ -22,7 +22,14 @@ async function main() {
   const spec = buildOpenApiDocument({
     title: 'canonry HTTP API',
     description: 'Generated from packages/api-routes — do not hand-edit clients.',
+    // Match canonry's own server (`packages/canonry/src/server.ts`) so the
+    // SDK includes every route the production `/openapi.json` exposes —
+    // notably the Aero agent endpoints (`/projects/:name/agent/*`).
+    // Without this flag the SDK silently drops those routes and consumers
+    // have to fall back to hand-typed `fetch()` calls.
+    includeCanonryLocal: true,
   })
+  stripSseRoutes(spec)
 
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'canonry-codegen-'))
   const specPath = path.join(tmpDir, 'openapi.json')
@@ -58,6 +65,36 @@ async function main() {
 
   // eslint-disable-next-line no-console
   console.log(`Generated client written to ${path.relative(process.cwd(), outputDir)}`)
+}
+
+/**
+ * Strip operations whose 2xx response is `text/event-stream` (SSE).
+ *
+ * The hey-api TanStack-Query plugin emits a `*Mutation` helper that
+ * destructures `{ data }` from the underlying SDK call's return value.
+ * For SSE endpoints the call returns a `ServerSentEventsResult`, which
+ * has no `data` field — so the generated wrapper fails to typecheck.
+ *
+ * We only have one SSE endpoint (`POST /agent/prompt`); the dashboard's
+ * Aero bar consumes it directly via `EventSource` rather than through
+ * the SDK, so dropping it from codegen is a clean way to ship the rest
+ * of the canonry-local routes (`/agent/providers`, `/agent/transcript`,
+ * `/agent/memory`) which DO benefit from typed SDK access.
+ */
+function stripSseRoutes(spec: { paths?: Record<string, Record<string, unknown>> }) {
+  if (!spec.paths) return
+  for (const [pathKey, pathItem] of Object.entries(spec.paths)) {
+    for (const [method, operation] of Object.entries(pathItem)) {
+      const op = operation as { responses?: Record<string, { content?: Record<string, unknown> }> }
+      const ok = op.responses?.['200']
+      if (ok?.content?.['text/event-stream']) {
+        delete (pathItem as Record<string, unknown>)[method]
+      }
+    }
+    if (Object.keys(pathItem).length === 0) {
+      delete spec.paths[pathKey]
+    }
+  }
 }
 
 main().catch((err) => {

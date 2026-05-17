@@ -30,17 +30,19 @@ import {
 } from '../../queries/server-traffic.js'
 import {
   connectGa,
-  fetchGaStatus,
-  fetchGaTraffic,
-  fetchGaAiReferralHistory,
-  fetchGaSessionHistory,
-  fetchGaSocialReferralHistory,
   triggerGaSync,
   disconnectGa,
+  heyClient,
 } from '../../api.js'
+import {
+  getApiV1ProjectsByNameGaAiReferralHistoryOptions,
+  getApiV1ProjectsByNameGaSessionHistoryOptions,
+  getApiV1ProjectsByNameGaSocialReferralHistoryOptions,
+  getApiV1ProjectsByNameGaStatusOptions,
+  getApiV1ProjectsByNameGaTrafficOptions,
+} from '@ainyc/canonry-api-client/react-query'
 import type { ApiGaStatus, ApiGaTraffic, ApiGaTrafficAiLandingPage, ApiGaTrafficPage, ApiGaTrafficReferral, ApiGaSocialReferral, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry } from '../../api.js'
 import { TRAFFIC_STALE_MS } from '../../queries/query-client.js'
-import { queryKeys } from '../../queries/query-keys.js'
 import { asyncHandler } from '../../lib/async-handler.js'
 import {
   SOCIAL_OTHER_KEY,
@@ -208,11 +210,14 @@ function ClickThroughActivity({ projectName }: { projectName: string }) {
     setLoading(true)
     setError(null)
     try {
-      const s = await queryClient.fetchQuery({
-        queryKey: queryKeys.traffic.status(projectName),
-        queryFn: () => fetchGaStatus(projectName),
+      // SDK `Ga4StatusDto.authMethod` types as `'service-account' | 'oauth'`
+      // (Zod-to-JSON-Schema drops the `| null` on a nullable enum). Server
+      // does return `null` for disconnected projects, so cast through the
+      // hand-typed `ApiGaStatus` until that codegen edge is fixed upstream.
+      const s = (await queryClient.fetchQuery({
+        ...getApiV1ProjectsByNameGaStatusOptions({ client: heyClient, path: { name: projectName } }),
         staleTime: TRAFFIC_STALE_MS,
-      })
+      })) as ApiGaStatus
       if (cancelled.current) return
       setStatus(s)
 
@@ -225,27 +230,45 @@ function ClickThroughActivity({ projectName }: { projectName: string }) {
         return
       }
 
+      // `window === 'all'` collapses to omitting the param; helper-level
+      // contracts treat unset / 'all' identically.
+      const windowParam = trafficWindow === 'all' ? undefined : trafficWindow
       const [trafficData, aiHistoryData, sessionHistoryData, socialHistoryData] = await Promise.all([
+        // `/ga/traffic` still returns a loose-object response in the spec —
+        // cast through `ApiGaTraffic` until `GaTrafficResponse` gains a Zod
+        // schema and gets registered. SDK type is `{[k: string]: unknown}`.
         queryClient.fetchQuery({
-          queryKey: queryKeys.traffic.summary(projectName, trafficWindow),
-          queryFn: () => fetchGaTraffic(projectName, undefined, trafficWindow),
+          ...getApiV1ProjectsByNameGaTrafficOptions({
+            client: heyClient,
+            path: { name: projectName },
+            query: windowParam ? { window: windowParam } : undefined,
+          }),
           staleTime: TRAFFIC_STALE_MS,
-        }),
+        }).then((data) => data as unknown as ApiGaTraffic),
         queryClient.fetchQuery({
-          queryKey: queryKeys.traffic.aiHistory(projectName, trafficWindow),
-          queryFn: () => fetchGaAiReferralHistory(projectName, trafficWindow).catch(() => [] as GA4AiReferralHistoryEntry[]),
+          ...getApiV1ProjectsByNameGaAiReferralHistoryOptions({
+            client: heyClient,
+            path: { name: projectName },
+            query: windowParam ? { window: windowParam } : undefined,
+          }),
           staleTime: TRAFFIC_STALE_MS,
-        }),
+        }).catch(() => [] as GA4AiReferralHistoryEntry[]),
         queryClient.fetchQuery({
-          queryKey: queryKeys.traffic.sessionHistory(projectName, trafficWindow),
-          queryFn: () => fetchGaSessionHistory(projectName, trafficWindow).catch(() => [] as GA4SessionHistoryEntry[]),
+          ...getApiV1ProjectsByNameGaSessionHistoryOptions({
+            client: heyClient,
+            path: { name: projectName },
+            query: windowParam ? { window: windowParam } : undefined,
+          }),
           staleTime: TRAFFIC_STALE_MS,
-        }),
+        }).catch(() => [] as GA4SessionHistoryEntry[]),
         queryClient.fetchQuery({
-          queryKey: queryKeys.traffic.socialHistory(projectName, trafficWindow),
-          queryFn: () => fetchGaSocialReferralHistory(projectName, trafficWindow).catch(() => [] as GA4SocialReferralHistoryEntry[]),
+          ...getApiV1ProjectsByNameGaSocialReferralHistoryOptions({
+            client: heyClient,
+            path: { name: projectName },
+            query: windowParam ? { window: windowParam } : undefined,
+          }),
           staleTime: TRAFFIC_STALE_MS,
-        }),
+        }).catch(() => [] as GA4SocialReferralHistoryEntry[]),
       ])
       if (cancelled.current) return
       setTraffic(trafficData)
@@ -275,7 +298,7 @@ function ClickThroughActivity({ projectName }: { projectName: string }) {
     try {
       const result = await triggerGaSync(projectName)
       setNotice(`Synced ${result.rowCount.toLocaleString()} page rows, ${result.aiReferralCount.toLocaleString()} AI and ${result.socialReferralCount.toLocaleString()} social referral rows (${result.days} days)`)
-      await queryClient.invalidateQueries({ queryKey: queryKeys.traffic.project(projectName) })
+      await queryClient.invalidateQueries({ predicate: (query) => { const head = query.queryKey[0] as { _id?: string } | undefined; return typeof head?._id === "string" && head._id.startsWith("getApiV1ProjectsByNameGa") } })
       await loadData({ current: false })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Sync failed')
@@ -290,7 +313,7 @@ function ClickThroughActivity({ projectName }: { projectName: string }) {
     setNotice(null)
     try {
       await disconnectGa(projectName)
-      await queryClient.invalidateQueries({ queryKey: queryKeys.traffic.project(projectName) })
+      await queryClient.invalidateQueries({ predicate: (query) => { const head = query.queryKey[0] as { _id?: string } | undefined; return typeof head?._id === "string" && head._id.startsWith("getApiV1ProjectsByNameGa") } })
       setStatus({ connected: false, propertyId: null, clientEmail: null, lastSyncedAt: null, createdAt: null, updatedAt: null })
       setTraffic(null)
       setNotice('GA4 disconnected')
@@ -447,7 +470,7 @@ function ClickThroughActivity({ projectName }: { projectName: string }) {
         projectName={projectName}
         onConnected={() => {
           void (async () => {
-            await queryClient.invalidateQueries({ queryKey: queryKeys.traffic.project(projectName) })
+            await queryClient.invalidateQueries({ predicate: (query) => { const head = query.queryKey[0] as { _id?: string } | undefined; return typeof head?._id === "string" && head._id.startsWith("getApiV1ProjectsByNameGa") } })
             await loadData({ current: false })
           })()
         }}

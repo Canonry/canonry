@@ -4,6 +4,17 @@ export type ClientOptions = {
     baseUrl: `${string}://${string}` | (string & {});
 };
 
+export type AgentProvidersResponseDto = {
+    providers: Array<{
+        id: 'claude' | 'openai' | 'gemini' | 'zai';
+        label: string;
+        defaultModel: string;
+        configured: boolean;
+        keySource: 'config' | 'env';
+    }>;
+    defaultProvider: 'claude' | 'openai' | 'gemini' | 'zai';
+};
+
 export type AuditLogEntry = {
     id: string;
     projectId?: string | null;
@@ -814,6 +825,454 @@ export type ProjectDto = {
     updatedAt?: string;
 };
 
+export type ProjectReportDto = {
+    meta: {
+        generatedAt: string;
+        project: {
+            id: string;
+            name: string;
+            displayName: string;
+            canonicalDomain: string;
+            country: string;
+            language: string;
+        };
+        location: {
+            label: string;
+            city: string;
+            region: string;
+            country: string;
+            otherConfiguredLabels: Array<string>;
+        } | null;
+        providerLocationHandling: Array<{
+            provider: string;
+            treatment: 'prompt' | 'request-param' | 'browser-geo' | 'ignored';
+            description: string;
+        }>;
+        periodStart: string | null;
+        periodEnd: string | null;
+    };
+    executiveSummary: {
+        citationRate: number;
+        citedQueryCount: number;
+        totalQueryCount: number;
+        mentionRate: number;
+        mentionedQueryCount: number;
+        trend: 'up' | 'down' | 'flat' | 'unknown';
+        queryCount: number;
+        competitorCount: number;
+        providerCount: number;
+        gsc: {
+            clicks: number;
+            impressions: number;
+            ctr: number;
+            avgPosition: number;
+            periodStart: string;
+            periodEnd: string;
+        } | null;
+        ga: {
+            sessions: number;
+            users: number;
+            periodStart: string;
+            periodEnd: string;
+        } | null;
+        findings: Array<{
+            title: string;
+            detail: string;
+            tone: 'positive' | 'caution' | 'negative' | 'neutral';
+        }>;
+    };
+    citationScorecard: {
+        queries: Array<string>;
+        providers: Array<string>;
+        matrix: Array<Array<{
+            citationState: 'cited' | 'not-cited' | 'pending';
+            answerMentioned: boolean | null;
+            model: string | null;
+        } | null>>;
+        providerRates: Array<{
+            provider: string;
+            citedCount: number;
+            totalCount: number;
+            citationRate: number;
+        }>;
+    };
+    competitorLandscape: {
+        projectCitationCount: number;
+        competitors: Array<{
+            domain: string;
+            citationCount: number;
+            totalCount: number;
+            pressureLabel: 'High' | 'Moderate' | 'Low' | 'None';
+            citedQueries: Array<string>;
+            sharePct: number;
+            theirCitedPages: Array<{
+                url: string;
+                citedFor: Array<string>;
+            }>;
+        }>;
+    };
+    mentionLandscape: {
+        projectMentionCount: number;
+        totalAnswerSnapshots: number;
+        competitors: Array<{
+            domain: string;
+            mentionCount: number;
+            totalCount: number;
+            pressureLabel: 'High' | 'Moderate' | 'Low' | 'None';
+            mentionedQueries: Array<string>;
+            sharePct: number;
+        }>;
+    };
+    aiSourceOrigin: {
+        categories: Array<{
+            category: string;
+            label: string;
+            count: number;
+            sharePct: number;
+        }>;
+        topDomains: Array<{
+            domain: string;
+            count: number;
+            isCompetitor: boolean;
+        }>;
+    };
+    gsc: {
+        periodStart: string;
+        periodEnd: string;
+        totalClicks: number;
+        totalImpressions: number;
+        ctr: number;
+        avgPosition: number;
+        topQueries: Array<{
+            query: string;
+            clicks: number;
+            impressions: number;
+            ctr: number;
+            avgPosition: number;
+            category: 'brand' | 'lead-gen' | 'industry' | 'other';
+        }>;
+        categoryBreakdown: Array<{
+            category: 'brand' | 'lead-gen' | 'industry' | 'other';
+            clicks: number;
+            impressions: number;
+            sharePct: number;
+        }>;
+        trend: Array<{
+            date: string;
+            clicks: number;
+            impressions: number;
+        }>;
+        trackedButNoGsc: Array<string>;
+        gscButNotTracked: Array<string>;
+    } | null;
+    ga: {
+        totalSessions: number;
+        totalUsers: number;
+        totalOrganicSessions: number;
+        periodStart: string;
+        periodEnd: string;
+        topLandingPages: Array<{
+            page: string;
+            sessions: number;
+            users: number;
+            organicSessions: number;
+        }>;
+        channelBreakdown: Array<{
+            channel: string;
+            sessions: number;
+            sharePct: number;
+        }>;
+    } | null;
+    socialReferrals: {
+        totalSessions: number;
+        organicSessions: number;
+        paidSessions: number;
+        channels: Array<{
+            channelGroup: string;
+            sessions: number;
+            sharePct: number;
+        }>;
+        topCampaigns: Array<{
+            source: string;
+            medium: string;
+            sessions: number;
+        }>;
+    } | null;
+    aiReferrals: {
+        totalSessions: number;
+        totalUsers: number;
+        bySource: Array<{
+            source: string;
+            sessions: number;
+            users: number;
+            sharePct: number;
+        }>;
+        trend: Array<{
+            date: string;
+            sessions: number;
+        }>;
+        topLandingPages: Array<{
+            page: string;
+            sessions: number;
+            users: number;
+        }>;
+    } | null;
+    serverActivity: {
+        windowStart: string;
+        windowEnd: string;
+        hasData: boolean;
+        verifiedCrawlerHits: {
+            current: number;
+            prior: number;
+            deltaPct: number | null;
+        };
+        unverifiedCrawlerHits: {
+            current: number;
+            prior: number;
+            deltaPct: number | null;
+        };
+        referralArrivals: {
+            current: number;
+            prior: number;
+            deltaPct: number | null;
+        };
+        byOperator: Array<{
+            operator: string;
+            verifiedHits: number;
+            unverifiedHits: number;
+            referralArrivals: number;
+            deltaPct: number | null;
+        }>;
+        topCrawledPaths: Array<{
+            path: string;
+            verifiedHits: number;
+            distinctOperators: number;
+        }>;
+        referralProducts: Array<{
+            product: string;
+            arrivals: number;
+            distinctLandingPaths: number;
+        }>;
+        dailyTrend: Array<{
+            date: string;
+            verifiedCrawlerHits: number;
+            referralArrivals: number;
+        }>;
+        topReferralLandingPaths: Array<{
+            path: string;
+            arrivals: number;
+            distinctProducts: number;
+        }>;
+    } | null;
+    indexingHealth: {
+        provider: 'google' | 'bing';
+        total: number;
+        indexed: number;
+        notIndexed: number;
+        deindexed: number;
+        unknown: number;
+        indexedPct: number;
+    } | null;
+    citationsTrend: Array<{
+        runId: string;
+        date: string;
+        citationRate: number;
+        citedQueryCount: number;
+        totalQueryCount: number;
+        mentionRate: number;
+        mentionedQueryCount: number;
+        providerRates: Array<{
+            provider: string;
+            citationRate: number;
+        }>;
+    }>;
+    whatsChanged: {
+        enoughHistory: boolean;
+        headline: string;
+        citationRate: {
+            current: number;
+            prior: number;
+            deltaAbs: number;
+            direction: 'up' | 'down' | 'flat';
+            window?: number;
+        } | null;
+        mentionRate: {
+            current: number;
+            prior: number;
+            deltaAbs: number;
+            direction: 'up' | 'down' | 'flat';
+            window?: number;
+        } | null;
+        citedQueryCount: {
+            current: number;
+            prior: number;
+            deltaAbs: number;
+            direction: 'up' | 'down' | 'flat';
+            window?: number;
+        } | null;
+        gscClicksDelta: {
+            current: number;
+            prior: number;
+            deltaAbs: number;
+            direction: 'up' | 'down' | 'flat';
+            window?: number;
+        } | null;
+        aiReferralsDelta: {
+            current: number;
+            prior: number;
+            deltaAbs: number;
+            direction: 'up' | 'down' | 'flat';
+            window?: number;
+        } | null;
+        providerMovements: Array<{
+            provider: string;
+            current: number;
+            prior: number;
+            deltaAbs: number;
+            direction: 'up' | 'down' | 'flat';
+        }>;
+        wins: Array<{
+            id: string;
+            type: 'regression' | 'gain' | 'opportunity';
+            severity: 'critical' | 'high' | 'medium' | 'low';
+            title: string;
+            query: string;
+            provider: string;
+            recommendation: string | null;
+            createdAt: string;
+            instanceCount: number;
+        }>;
+        regressions: Array<{
+            id: string;
+            type: 'regression' | 'gain' | 'opportunity';
+            severity: 'critical' | 'high' | 'medium' | 'low';
+            title: string;
+            query: string;
+            provider: string;
+            recommendation: string | null;
+            createdAt: string;
+            instanceCount: number;
+        }>;
+    };
+    insights: Array<{
+        id: string;
+        type: 'regression' | 'gain' | 'opportunity';
+        severity: 'critical' | 'high' | 'medium' | 'low';
+        title: string;
+        query: string;
+        provider: string;
+        recommendation: string | null;
+        createdAt: string;
+        instanceCount: number;
+    }>;
+    recommendedNextSteps: Array<{
+        horizon: 'immediate' | 'short-term' | 'medium-term';
+        title: string;
+        rationale: string;
+    }>;
+    actionPlan: Array<{
+        audience: 'agency' | 'client' | 'both';
+        priority: number;
+        horizon: 'immediate' | 'short-term' | 'medium-term';
+        category: 'content' | 'competitors' | 'provider' | 'search-demand' | 'indexing' | 'location' | 'monitoring';
+        title: string;
+        action: string;
+        why: Array<string>;
+        evidence: Array<string>;
+        successMetric: string;
+        confidence: 'high' | 'medium' | 'low';
+    }>;
+    clientSummary: {
+        headline: string;
+        overview: string;
+        actionItems: Array<{
+            audience: 'agency' | 'client' | 'both';
+            priority: number;
+            horizon: 'immediate' | 'short-term' | 'medium-term';
+            category: 'content' | 'competitors' | 'provider' | 'search-demand' | 'indexing' | 'location' | 'monitoring';
+            title: string;
+            action: string;
+            why: Array<string>;
+            evidence: Array<string>;
+            successMetric: string;
+            confidence: 'high' | 'medium' | 'low';
+        }>;
+        confidenceNotes: Array<string>;
+    };
+    agencyDiagnostics: {
+        priorities: Array<{
+            audience: 'agency' | 'client' | 'both';
+            priority: number;
+            horizon: 'immediate' | 'short-term' | 'medium-term';
+            category: 'content' | 'competitors' | 'provider' | 'search-demand' | 'indexing' | 'location' | 'monitoring';
+            title: string;
+            action: string;
+            why: Array<string>;
+            evidence: Array<string>;
+            successMetric: string;
+            confidence: 'high' | 'medium' | 'low';
+        }>;
+        diagnostics: Array<{
+            title: string;
+            detail: string;
+            severity: 'positive' | 'caution' | 'negative' | 'neutral';
+            evidence: Array<string>;
+        }>;
+    };
+    contentOpportunities: Array<{
+        targetRef: string;
+        query: string;
+        action: 'create' | 'expand' | 'refresh' | 'add-schema';
+        ourBestPage: {
+            url: string;
+            gscImpressions: number;
+            gscClicks: number;
+            gscAvgPosition: number | null;
+            organicSessions: number;
+        } | null;
+        winningCompetitor: {
+            domain: string;
+            url: string;
+            title: string;
+            citationCount: number;
+        } | null;
+        score: number;
+        scoreBreakdown: {
+            demand: number;
+            competitor: number;
+            absence: number;
+            gapSeverity: number;
+        };
+        drivers: Array<string>;
+        demandSource: 'gsc' | 'competitor-evidence' | 'both';
+        actionConfidence: 'high' | 'medium' | 'low';
+        existingAction: {
+            actionId: string;
+            state: 'proposed' | 'briefed' | 'payload-generated' | 'draft-created' | 'published' | 'validated' | 'dismissed';
+            lastUpdated: string;
+        } | null;
+    }>;
+    contentGaps: Array<{
+        query: string;
+        competitorDomains: Array<string>;
+        competitorCount: number;
+        missRate: number;
+        lastSeenInRunId: string;
+    }>;
+    groundingSources: Array<{
+        query: string;
+        groundingSources: Array<{
+            uri: string;
+            title: string;
+            domain: string;
+            isOurDomain: boolean;
+            isCompetitor: boolean;
+            citationCount: number;
+            providers: Array<string>;
+        }>;
+    }>;
+};
+
 export type QueryDto = {
     id: string;
     query: string;
@@ -903,6 +1362,29 @@ export type ScheduleDto = {
     nextRunAt?: string | null;
     createdAt: string;
     updatedAt: string;
+};
+
+export type SettingsDto = {
+    providers: Array<{
+        name: string;
+        displayName?: string;
+        keyUrl?: string;
+        modelHint?: string;
+        model?: string;
+        configured: boolean;
+        quota?: {
+            maxConcurrency: number;
+            maxRequestsPerMinute: number;
+            maxRequestsPerDay: number;
+        };
+        vertexConfigured?: boolean;
+    }>;
+    google: {
+        configured: boolean;
+    };
+    bing: {
+        configured: boolean;
+    };
 };
 
 export type SnapshotDiffResponse = {
@@ -2640,9 +3122,7 @@ export type GetApiV1SettingsResponses = {
     /**
      * Settings returned.
      */
-    200: {
-        [key: string]: unknown;
-    };
+    200: SettingsDto;
 };
 
 export type GetApiV1SettingsResponse = GetApiV1SettingsResponses[keyof GetApiV1SettingsResponses];
@@ -5778,9 +6258,7 @@ export type GetApiV1ProjectsByNameReportResponses = {
     /**
      * Report returned.
      */
-    200: {
-        [key: string]: unknown;
-    };
+    200: ProjectReportDto;
 };
 
 export type GetApiV1ProjectsByNameReportResponse = GetApiV1ProjectsByNameReportResponses[keyof GetApiV1ProjectsByNameReportResponses];
@@ -7099,3 +7577,215 @@ export type PostApiV1ProjectsByNameDiscoverSessionsByIdPromoteResponses = {
 };
 
 export type PostApiV1ProjectsByNameDiscoverSessionsByIdPromoteResponse = PostApiV1ProjectsByNameDiscoverSessionsByIdPromoteResponses[keyof PostApiV1ProjectsByNameDiscoverSessionsByIdPromoteResponses];
+
+export type DeleteApiV1ProjectsByNameAgentTranscriptData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/agent/transcript';
+};
+
+export type DeleteApiV1ProjectsByNameAgentTranscriptErrors = {
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type DeleteApiV1ProjectsByNameAgentTranscriptError = DeleteApiV1ProjectsByNameAgentTranscriptErrors[keyof DeleteApiV1ProjectsByNameAgentTranscriptErrors];
+
+export type DeleteApiV1ProjectsByNameAgentTranscriptResponses = {
+    /**
+     * Session reset.
+     */
+    200: {
+        status?: 'reset';
+    };
+};
+
+export type DeleteApiV1ProjectsByNameAgentTranscriptResponse = DeleteApiV1ProjectsByNameAgentTranscriptResponses[keyof DeleteApiV1ProjectsByNameAgentTranscriptResponses];
+
+export type GetApiV1ProjectsByNameAgentTranscriptData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/agent/transcript';
+};
+
+export type GetApiV1ProjectsByNameAgentTranscriptErrors = {
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAgentTranscriptError = GetApiV1ProjectsByNameAgentTranscriptErrors[keyof GetApiV1ProjectsByNameAgentTranscriptErrors];
+
+export type GetApiV1ProjectsByNameAgentTranscriptResponses = {
+    /**
+     * Transcript returned.
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type GetApiV1ProjectsByNameAgentTranscriptResponse = GetApiV1ProjectsByNameAgentTranscriptResponses[keyof GetApiV1ProjectsByNameAgentTranscriptResponses];
+
+export type DeleteApiV1ProjectsByNameAgentMemoryData = {
+    body: {
+        /**
+         * Exact key of the note to remove.
+         */
+        key: string;
+    };
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/agent/memory';
+};
+
+export type DeleteApiV1ProjectsByNameAgentMemoryErrors = {
+    /**
+     * Validation failed (reserved prefix).
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type DeleteApiV1ProjectsByNameAgentMemoryError = DeleteApiV1ProjectsByNameAgentMemoryErrors[keyof DeleteApiV1ProjectsByNameAgentMemoryErrors];
+
+export type DeleteApiV1ProjectsByNameAgentMemoryResponses = {
+    /**
+     * Entry removed or already absent.
+     */
+    200: {
+        status?: 'removed' | 'missing';
+    };
+};
+
+export type DeleteApiV1ProjectsByNameAgentMemoryResponse = DeleteApiV1ProjectsByNameAgentMemoryResponses[keyof DeleteApiV1ProjectsByNameAgentMemoryResponses];
+
+export type GetApiV1ProjectsByNameAgentMemoryData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/agent/memory';
+};
+
+export type GetApiV1ProjectsByNameAgentMemoryErrors = {
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAgentMemoryError = GetApiV1ProjectsByNameAgentMemoryErrors[keyof GetApiV1ProjectsByNameAgentMemoryErrors];
+
+export type GetApiV1ProjectsByNameAgentMemoryResponses = {
+    /**
+     * Memory entries returned.
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type GetApiV1ProjectsByNameAgentMemoryResponse = GetApiV1ProjectsByNameAgentMemoryResponses[keyof GetApiV1ProjectsByNameAgentMemoryResponses];
+
+export type PutApiV1ProjectsByNameAgentMemoryData = {
+    body: {
+        /**
+         * Stable identifier for this note (max 128 chars).
+         */
+        key: string;
+        /**
+         * Plain-text note body (max 2 KB).
+         */
+        value: string;
+    };
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/agent/memory';
+};
+
+export type PutApiV1ProjectsByNameAgentMemoryErrors = {
+    /**
+     * Validation failed (key length, value size, reserved prefix).
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type PutApiV1ProjectsByNameAgentMemoryError = PutApiV1ProjectsByNameAgentMemoryErrors[keyof PutApiV1ProjectsByNameAgentMemoryErrors];
+
+export type PutApiV1ProjectsByNameAgentMemoryResponses = {
+    /**
+     * Entry upserted.
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type PutApiV1ProjectsByNameAgentMemoryResponse = PutApiV1ProjectsByNameAgentMemoryResponses[keyof PutApiV1ProjectsByNameAgentMemoryResponses];
+
+export type GetApiV1ProjectsByNameAgentProvidersData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/agent/providers';
+};
+
+export type GetApiV1ProjectsByNameAgentProvidersErrors = {
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAgentProvidersError = GetApiV1ProjectsByNameAgentProvidersErrors[keyof GetApiV1ProjectsByNameAgentProvidersErrors];
+
+export type GetApiV1ProjectsByNameAgentProvidersResponses = {
+    /**
+     * Providers returned.
+     */
+    200: AgentProvidersResponseDto;
+};
+
+export type GetApiV1ProjectsByNameAgentProvidersResponse = GetApiV1ProjectsByNameAgentProvidersResponses[keyof GetApiV1ProjectsByNameAgentProvidersResponses];
