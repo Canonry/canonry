@@ -19,3 +19,4 @@ packages/canonry/assets/index.html
 package-lock.json
 # Local Claude Code MCP server config — per-developer, not for the repo.
 .mcp.json
+.spec-completion-map.txt

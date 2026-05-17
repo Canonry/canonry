@@ -68,12 +68,14 @@ export type BacklinksInstallStatusDto = {
     pluginDir: string;
 };
 
-export type BingConnectionDto = {
-    id: string;
+export type BingConnectResponseDto = {
+    connected: boolean;
     domain: string;
-    siteUrl?: string | null;
-    createdAt: string;
-    updatedAt: string;
+    siteUrl: string | null;
+    availableSites: Array<{
+        url: string;
+        verified: boolean;
+    }>;
 };
 
 export type BingCoverageSnapshotDto = {
@@ -81,6 +83,107 @@ export type BingCoverageSnapshotDto = {
     indexed: number;
     notIndexed: number;
     unknown: number;
+};
+
+export type BingCoverageSummaryDto = {
+    summary: {
+        total: number;
+        indexed: number;
+        notIndexed: number;
+        unknown?: number;
+        percentage: number;
+    };
+    lastInspectedAt: string | null;
+    indexed: Array<{
+        id: string;
+        url: string;
+        httpCode?: number | null;
+        inIndex?: boolean | null;
+        lastCrawledDate?: string | null;
+        inIndexDate?: string | null;
+        inspectedAt: string;
+        documentSize?: number | null;
+        anchorCount?: number | null;
+        discoveryDate?: string | null;
+    }>;
+    notIndexed: Array<{
+        id: string;
+        url: string;
+        httpCode?: number | null;
+        inIndex?: boolean | null;
+        lastCrawledDate?: string | null;
+        inIndexDate?: string | null;
+        inspectedAt: string;
+        documentSize?: number | null;
+        anchorCount?: number | null;
+        discoveryDate?: string | null;
+    }>;
+    unknown?: Array<{
+        id: string;
+        url: string;
+        httpCode?: number | null;
+        inIndex?: boolean | null;
+        lastCrawledDate?: string | null;
+        inIndexDate?: string | null;
+        inspectedAt: string;
+        documentSize?: number | null;
+        anchorCount?: number | null;
+        discoveryDate?: string | null;
+    }>;
+};
+
+export type BingIndexingRequestResponseDto = {
+    summary: {
+        total: number;
+        succeeded: number;
+        failed: number;
+    };
+    results: Array<{
+        url: string;
+        status: 'success' | 'error';
+        submittedAt: string;
+        error?: string;
+    }>;
+};
+
+export type BingKeywordStatsDto = {
+    query: string;
+    impressions: number;
+    clicks: number;
+    ctr: number;
+    averagePosition: number;
+};
+
+export type BingSetSiteResponseDto = {
+    siteUrl: string;
+};
+
+export type BingSitesResponseDto = {
+    sites: Array<{
+        url: string;
+        verified: boolean;
+    }>;
+};
+
+export type BingStatusDto = {
+    connected: boolean;
+    domain: string;
+    siteUrl: string | null;
+    createdAt: string | null;
+    updatedAt: string | null;
+};
+
+export type BingUrlInspectionDto = {
+    id: string;
+    url: string;
+    httpCode?: number | null;
+    inIndex?: boolean | null;
+    lastCrawledDate?: string | null;
+    inIndexDate?: string | null;
+    inspectedAt: string;
+    documentSize?: number | null;
+    anchorCount?: number | null;
+    discoveryDate?: string | null;
 };
 
 export type CcAvailableRelease = {
@@ -119,6 +222,18 @@ export type CcReleaseSyncDto = {
     error?: string | null;
     createdAt: string;
     updatedAt: string;
+};
+
+export type CdpStatusDto = {
+    connected: boolean;
+    endpoint: string;
+    version?: string;
+    browserVersion?: string;
+    targets: Array<{
+        name: string;
+        alive: boolean;
+        lastUsed: string | null;
+    }>;
 };
 
 export type CitationVisibilityResponse = {
@@ -394,6 +509,26 @@ export type Ga4SocialReferralHistoryEntry = {
     channelGroup: string;
 };
 
+export type Ga4StatusDto = {
+    connected: boolean;
+    propertyId: string | null;
+    clientEmail: string | null;
+    authMethod: 'service-account' | 'oauth';
+    lastSyncedAt: string | null;
+    createdAt?: string | null;
+    updatedAt?: string | null;
+};
+
+export type Ga4SyncResponseDto = {
+    synced: boolean;
+    rowCount: number;
+    aiReferralCount: number;
+    socialReferralCount: number;
+    days: number;
+    syncedAt: string;
+    syncedComponents?: Array<string>;
+};
+
 export type GoogleConnectionDto = {
     id: string;
     domain: string;
@@ -436,6 +571,7 @@ export type GscCoverageSummaryDto = {
         lastCrawlResult?: string | null;
         isMobileFriendly?: boolean | null;
         richResults: Array<string>;
+        referringUrls: Array<string>;
         inspectedAt: string;
     }>;
     notIndexed: Array<{
@@ -450,6 +586,7 @@ export type GscCoverageSummaryDto = {
         lastCrawlResult?: string | null;
         isMobileFriendly?: boolean | null;
         richResults: Array<string>;
+        referringUrls: Array<string>;
         inspectedAt: string;
     }>;
     deindexed: Array<{
@@ -473,9 +610,17 @@ export type GscCoverageSummaryDto = {
             lastCrawlResult?: string | null;
             isMobileFriendly?: boolean | null;
             richResults: Array<string>;
+            referringUrls: Array<string>;
             inspectedAt: string;
         }>;
     }>;
+};
+
+export type GscDeindexedRowDto = {
+    url: string;
+    previousState: string | null;
+    currentState: string | null;
+    transitionDate: string;
 };
 
 export type GscPerformanceDailyDto = {
@@ -505,6 +650,31 @@ export type GscSearchDataDto = {
     position: number;
 };
 
+export type GscSiteListResponseDto = {
+    sites: Array<{
+        siteUrl: string;
+        permissionLevel: string;
+    }>;
+};
+
+export type GscSitemapListResponseDto = {
+    sitemaps: Array<{
+        path: string;
+        lastSubmitted?: string;
+        isPending?: boolean;
+        isSitemapsIndex?: boolean;
+        type?: string;
+        lastDownloaded?: string;
+        warnings?: string;
+        errors?: string;
+        contents?: Array<{
+            type: string;
+            submitted: string;
+            indexed: string;
+        }>;
+    }>;
+};
+
 export type GscUrlInspectionDto = {
     id: string;
     url: string;
@@ -517,7 +687,23 @@ export type GscUrlInspectionDto = {
     lastCrawlResult?: string | null;
     isMobileFriendly?: boolean | null;
     richResults: Array<string>;
+    referringUrls: Array<string>;
     inspectedAt: string;
+};
+
+export type IndexingRequestResponseDto = {
+    summary: {
+        total: number;
+        succeeded: number;
+        failed: number;
+    };
+    results: Array<{
+        url: string;
+        type: 'URL_UPDATED' | 'URL_DELETED';
+        notifiedAt: string;
+        status: 'success' | 'error';
+        error?: string;
+    }>;
 };
 
 export type KeywordDto = {
@@ -2189,9 +2375,7 @@ export type PostApiV1ApplyResponses = {
     /**
      * Config applied.
      */
-    200: {
-        [key: string]: unknown;
-    };
+    200: ProjectDto;
 };
 
 export type PostApiV1ApplyResponse = PostApiV1ApplyResponses[keyof PostApiV1ApplyResponses];
@@ -3008,9 +3192,7 @@ export type GetApiV1CdpStatusResponses = {
     /**
      * CDP status returned.
      */
-    200: {
-        [key: string]: unknown;
-    };
+    200: CdpStatusDto;
 };
 
 export type GetApiV1CdpStatusResponse = GetApiV1CdpStatusResponses[keyof GetApiV1CdpStatusResponses];
@@ -3307,9 +3489,7 @@ export type GetApiV1ProjectsByNameGooglePropertiesResponses = {
     /**
      * Google properties returned.
      */
-    200: {
-        [key: string]: unknown;
-    };
+    200: GscSiteListResponseDto;
 };
 
 export type GetApiV1ProjectsByNameGooglePropertiesResponse = GetApiV1ProjectsByNameGooglePropertiesResponses[keyof GetApiV1ProjectsByNameGooglePropertiesResponses];
@@ -3485,7 +3665,7 @@ export type GetApiV1ProjectsByNameGoogleGscPerformanceResponses = {
     /**
      * GSC performance rows returned.
      */
-    200: GscSearchDataDto;
+    200: Array<GscSearchDataDto>;
 };
 
 export type GetApiV1ProjectsByNameGoogleGscPerformanceResponse = GetApiV1ProjectsByNameGoogleGscPerformanceResponses[keyof GetApiV1ProjectsByNameGoogleGscPerformanceResponses];
@@ -3633,9 +3813,7 @@ export type GetApiV1ProjectsByNameGoogleGscDeindexedResponses = {
     /**
      * Deindexed pages returned.
      */
-    200: {
-        [key: string]: unknown;
-    };
+    200: Array<GscDeindexedRowDto>;
 };
 
 export type GetApiV1ProjectsByNameGoogleGscDeindexedResponse = GetApiV1ProjectsByNameGoogleGscDeindexedResponses[keyof GetApiV1ProjectsByNameGoogleGscDeindexedResponses];
@@ -3734,9 +3912,7 @@ export type GetApiV1ProjectsByNameGoogleGscSitemapsResponses = {
     /**
      * GSC sitemaps returned.
      */
-    200: {
-        [key: string]: unknown;
-    };
+    200: GscSitemapListResponseDto;
 };
 
 export type GetApiV1ProjectsByNameGoogleGscSitemapsResponse = GetApiV1ProjectsByNameGoogleGscSitemapsResponses[keyof GetApiV1ProjectsByNameGoogleGscSitemapsResponses];
@@ -3845,9 +4021,7 @@ export type PostApiV1ProjectsByNameGoogleIndexingRequestResponses = {
     /**
      * Indexing request results returned.
      */
-    200: {
-        [key: string]: unknown;
-    };
+    200: IndexingRequestResponseDto;
 };
 
 export type PostApiV1ProjectsByNameGoogleIndexingRequestResponse = PostApiV1ProjectsByNameGoogleIndexingRequestResponses[keyof PostApiV1ProjectsByNameGoogleIndexingRequestResponses];
@@ -3883,7 +4057,7 @@ export type PostApiV1ProjectsByNameBingConnectResponses = {
     /**
      * Bing connection returned.
      */
-    200: BingConnectionDto;
+    200: BingConnectResponseDto;
 };
 
 export type PostApiV1ProjectsByNameBingConnectResponse = PostApiV1ProjectsByNameBingConnectResponses[keyof PostApiV1ProjectsByNameBingConnectResponses];
@@ -3943,7 +4117,7 @@ export type GetApiV1ProjectsByNameBingStatusResponses = {
     /**
      * Bing status returned.
      */
-    200: BingConnectionDto;
+    200: BingStatusDto;
 };
 
 export type GetApiV1ProjectsByNameBingStatusResponse = GetApiV1ProjectsByNameBingStatusResponses[keyof GetApiV1ProjectsByNameBingStatusResponses];
@@ -3977,9 +4151,7 @@ export type GetApiV1ProjectsByNameBingSitesResponses = {
     /**
      * Bing sites returned.
      */
-    200: {
-        [key: string]: unknown;
-    };
+    200: BingSitesResponseDto;
 };
 
 export type GetApiV1ProjectsByNameBingSitesResponse = GetApiV1ProjectsByNameBingSitesResponses[keyof GetApiV1ProjectsByNameBingSitesResponses];
@@ -4015,7 +4187,7 @@ export type PostApiV1ProjectsByNameBingSetSiteResponses = {
     /**
      * Active Bing site updated.
      */
-    200: BingConnectionDto;
+    200: BingSetSiteResponseDto;
 };
 
 export type PostApiV1ProjectsByNameBingSetSiteResponse = PostApiV1ProjectsByNameBingSetSiteResponses[keyof PostApiV1ProjectsByNameBingSetSiteResponses];
@@ -4049,7 +4221,7 @@ export type GetApiV1ProjectsByNameBingCoverageResponses = {
     /**
      * Bing coverage returned.
      */
-    200: BingCoverageSnapshotDto;
+    200: BingCoverageSummaryDto;
 };
 
 export type GetApiV1ProjectsByNameBingCoverageResponse = GetApiV1ProjectsByNameBingCoverageResponses[keyof GetApiV1ProjectsByNameBingCoverageResponses];
@@ -4131,9 +4303,7 @@ export type GetApiV1ProjectsByNameBingInspectionsResponses = {
     /**
      * Bing inspections returned.
      */
-    200: {
-        [key: string]: unknown;
-    };
+    200: Array<BingUrlInspectionDto>;
 };
 
 export type GetApiV1ProjectsByNameBingInspectionsResponse = GetApiV1ProjectsByNameBingInspectionsResponses[keyof GetApiV1ProjectsByNameBingInspectionsResponses];
@@ -4169,9 +4339,7 @@ export type PostApiV1ProjectsByNameBingInspectUrlResponses = {
     /**
      * Bing inspection result returned.
      */
-    200: {
-        [key: string]: unknown;
-    };
+    200: BingUrlInspectionDto;
 };
 
 export type PostApiV1ProjectsByNameBingInspectUrlResponse = PostApiV1ProjectsByNameBingInspectUrlResponses[keyof PostApiV1ProjectsByNameBingInspectUrlResponses];
@@ -4244,9 +4412,7 @@ export type PostApiV1ProjectsByNameBingRequestIndexingResponses = {
     /**
      * Bing indexing request results returned.
      */
-    200: {
-        [key: string]: unknown;
-    };
+    200: BingIndexingRequestResponseDto;
 };
 
 export type PostApiV1ProjectsByNameBingRequestIndexingResponse = PostApiV1ProjectsByNameBingRequestIndexingResponses[keyof PostApiV1ProjectsByNameBingRequestIndexingResponses];
@@ -4285,9 +4451,7 @@ export type GetApiV1ProjectsByNameBingPerformanceResponses = {
     /**
      * Bing performance returned.
      */
-    200: {
-        [key: string]: unknown;
-    };
+    200: Array<BingKeywordStatsDto>;
 };
 
 export type GetApiV1ProjectsByNameBingPerformanceResponse = GetApiV1ProjectsByNameBingPerformanceResponses[keyof GetApiV1ProjectsByNameBingPerformanceResponses];
@@ -5165,9 +5329,7 @@ export type GetApiV1ProjectsByNameGaStatusResponses = {
     /**
      * GA4 status returned.
      */
-    200: {
-        [key: string]: unknown;
-    };
+    200: Ga4StatusDto;
 };
 
 export type GetApiV1ProjectsByNameGaStatusResponse = GetApiV1ProjectsByNameGaStatusResponses[keyof GetApiV1ProjectsByNameGaStatusResponses];
@@ -5203,9 +5365,7 @@ export type PostApiV1ProjectsByNameGaSyncResponses = {
     /**
      * GA4 sync completed.
      */
-    200: {
-        [key: string]: unknown;
-    };
+    200: Ga4SyncResponseDto;
 };
 
 export type PostApiV1ProjectsByNameGaSyncResponse = PostApiV1ProjectsByNameGaSyncResponses[keyof PostApiV1ProjectsByNameGaSyncResponses];

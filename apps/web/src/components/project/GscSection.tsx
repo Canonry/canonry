@@ -1309,7 +1309,7 @@ export function GscSection({
                     </div>
                     <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/20 p-3">
                       <p className="text-xs uppercase tracking-wide text-zinc-500">Mobile friendly</p>
-                      <p className="mt-1 text-sm text-zinc-200">{formatBooleanState(inspectionResult.isMobileFriendly)}</p>
+                      <p className="mt-1 text-sm text-zinc-200">{formatBooleanState(inspectionResult.isMobileFriendly ?? null)}</p>
                     </div>
                     <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/20 p-3">
                       <p className="text-xs uppercase tracking-wide text-zinc-500">Last crawl</p>
@@ -1362,7 +1362,7 @@ export function GscSection({
                             <td className="text-zinc-300">{row.indexingState ?? 'Unknown'}</td>
                             <td className="text-zinc-400">{row.verdict ?? 'Unknown'}</td>
                             <td className="text-zinc-400">{row.coverageState ?? 'Unknown'}</td>
-                            <td className="text-zinc-400">{formatBooleanState(row.isMobileFriendly)}</td>
+                            <td className="text-zinc-400">{formatBooleanState(row.isMobileFriendly ?? null)}</td>
                             <td className="text-zinc-400">{formatTimestamp(row.inspectedAt)}</td>
                           </tr>
                         ))}
