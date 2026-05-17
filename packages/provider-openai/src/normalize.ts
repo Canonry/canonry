@@ -133,7 +133,7 @@ export function buildPrompt(query: string): string {
   return query
 }
 
-function extractResponseText(response: OpenAI.Responses.Response): string {
+function extractResponseText(response: OpenAI.Chat.Completions.ChatCompletion): string {
   try {
     const parts: string[] = []
     for (const item of response.output) {
