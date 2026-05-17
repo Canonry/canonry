@@ -562,8 +562,8 @@ const routeCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      200: { description: 'Remaining legacy keyword-shaped queries returned.' },
-      400: { description: 'Invalid legacy keyword delete request.' },
+      200: jsonArrayResponse('Remaining legacy keyword-shaped queries returned.', 'KeywordDto'),
+      400: errorResponse('Invalid legacy keyword delete request.'),
     },
   },
   {
@@ -587,7 +587,7 @@ const routeCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      200: { description: 'Legacy keyword-shaped queries appended.' },
+      200: jsonArrayResponse('Legacy keyword-shaped queries appended.', 'KeywordDto'),
     },
   },
   {
@@ -612,8 +612,9 @@ const routeCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      200: { description: 'Legacy keyword suggestions returned.' },
-      501: { description: 'Legacy keyword generation is not available.' },
+      // TODO: Add `KeywordGenerateResponse` Zod schema (`{ suggestions: string[] }`) in contracts.
+      200: rawJsonResponse('Legacy keyword suggestions returned.', looseObjectSchema),
+      501: errorResponse('Legacy keyword generation is not available.'),
     },
   },
   {
@@ -623,7 +624,7 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['competitors'],
     parameters: [nameParameter],
     responses: {
-      200: { description: 'Competitors returned.' },
+      200: jsonArrayResponse('Competitors returned.', 'CompetitorDto'),
     },
   },
   {
@@ -647,7 +648,7 @@ const routeCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      200: { description: 'Competitors replaced.' },
+      200: jsonArrayResponse('Competitors replaced.', 'CompetitorDto'),
     },
   },
   {
@@ -671,8 +672,8 @@ const routeCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      200: { description: 'Competitors appended.' },
-      400: { description: 'Invalid competitor append request.' },
+      200: jsonArrayResponse('Competitors appended.', 'CompetitorDto'),
+      400: errorResponse('Invalid competitor append request.'),
     },
   },
   {
@@ -696,8 +697,8 @@ const routeCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      200: { description: 'Remaining competitors returned.' },
-      400: { description: 'Invalid competitor delete request.' },
+      200: jsonArrayResponse('Remaining competitors returned.', 'CompetitorDto'),
+      400: errorResponse('Invalid competitor delete request.'),
     },
   },
   {
@@ -725,8 +726,8 @@ const routeCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      201: { description: 'Run queued.' },
-      409: { description: 'Run already in progress.' },
+      201: jsonResponse('Run queued.', 'RunDto'),
+      409: errorResponse('Run already in progress.'),
     },
   },
   {
@@ -736,7 +737,7 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['runs'],
     parameters: [nameParameter, limitQueryParameter],
     responses: {
-      200: { description: 'Runs returned.' },
+      200: jsonArrayResponse('Runs returned.', 'RunDto'),
     },
   },
   {
@@ -746,7 +747,7 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['runs'],
     parameters: [nameParameter],
     responses: {
-      200: { description: 'Latest run returned.' },
+      200: jsonResponse('Latest run returned.', 'LatestProjectRunDto'),
     },
   },
   {
@@ -755,7 +756,7 @@ const routeCatalog: OpenApiOperation[] = [
     summary: 'List all runs',
     tags: ['runs'],
     responses: {
-      200: { description: 'Runs returned.' },
+      200: jsonArrayResponse('Runs returned.', 'RunDto'),
     },
   },
   {
@@ -777,7 +778,8 @@ const routeCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      207: { description: 'Run results returned.' },
+      // TODO: Add `TriggerAllRunsResponse` Zod schema in contracts.
+      207: rawJsonResponse('Run results returned.', looseObjectSchema),
     },
   },
   {
@@ -787,8 +789,8 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['runs'],
     parameters: [runIdParameter],
     responses: {
-      200: { description: 'Run returned.' },
-      404: { description: 'Run not found.' },
+      200: jsonResponse('Run returned.', 'RunDetailDto'),
+      404: errorResponse('Run not found.'),
     },
   },
   {
@@ -798,9 +800,9 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['runs'],
     parameters: [runIdParameter],
     responses: {
-      200: { description: 'Run cancelled.' },
-      404: { description: 'Run not found.' },
-      409: { description: 'Run is not cancellable.' },
+      200: jsonResponse('Run cancelled.', 'RunDto'),
+      404: errorResponse('Run not found.'),
+      409: errorResponse('Run is not cancellable.'),
     },
   },
   {
@@ -818,8 +820,9 @@ const routeCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      200: { description: 'Config applied.' },
-      400: { description: 'Invalid config.' },
+      // TODO: Add `ApplyResultDto` Zod schema in contracts (single-doc apply result).
+      200: rawJsonResponse('Config applied.', looseObjectSchema),
+      400: errorResponse('Invalid config.'),
     },
   },
   {
@@ -829,7 +832,7 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['history'],
     parameters: [nameParameter],
     responses: {
-      200: { description: 'Audit history returned.' },
+      200: jsonArrayResponse('Audit history returned.', 'AuditLogEntry'),
     },
   },
   {
@@ -838,7 +841,7 @@ const routeCatalog: OpenApiOperation[] = [
     summary: 'Get global audit history',
     tags: ['history'],
     responses: {
-      200: { description: 'Audit history returned.' },
+      200: jsonArrayResponse('Audit history returned.', 'AuditLogEntry'),
     },
   },
   {
@@ -853,7 +856,7 @@ const routeCatalog: OpenApiOperation[] = [
       locationQueryParameter,
     ],
     responses: {
-      200: { description: 'Snapshots returned.' },
+      200: jsonResponse('Snapshots returned.', 'SnapshotListResponse'),
     },
   },
   {
@@ -863,7 +866,8 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['history'],
     parameters: [nameParameter, locationQueryParameter],
     responses: {
-      200: { description: 'Timeline returned.' },
+      // TODO: Add `ProjectTimelineDto` Zod schema in contracts.
+      200: rawJsonResponse('Timeline returned.', looseObjectSchema),
     },
   },
   {
@@ -873,8 +877,9 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['analytics'],
     parameters: [nameParameter, analyticsWindowParameter],
     responses: {
-      200: { description: 'Citation metrics returned.' },
-      404: { description: 'Project not found.' },
+      // TODO: Add `BrandMetricsDto` Zod schema in contracts.
+      200: rawJsonResponse('Citation metrics returned.', looseObjectSchema),
+      404: errorResponse('Project not found.'),
     },
   },
   {
@@ -884,8 +889,9 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['analytics'],
     parameters: [nameParameter, analyticsWindowParameter],
     responses: {
-      200: { description: 'Gap analysis returned.' },
-      404: { description: 'Project not found.' },
+      // TODO: Add `GapAnalysisDto` Zod schema in contracts.
+      200: rawJsonResponse('Gap analysis returned.', looseObjectSchema),
+      404: errorResponse('Project not found.'),
     },
   },
   {
@@ -895,8 +901,9 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['analytics'],
     parameters: [nameParameter, analyticsWindowParameter],
     responses: {
-      200: { description: 'Source breakdown returned.' },
-      404: { description: 'Project not found.' },
+      // TODO: Add `SourceBreakdownDto` Zod schema in contracts.
+      200: rawJsonResponse('Source breakdown returned.', looseObjectSchema),
+      404: errorResponse('Project not found.'),
     },
   },
   {
@@ -922,8 +929,8 @@ const routeCatalog: OpenApiOperation[] = [
       },
     ],
     responses: {
-      200: { description: 'Diff returned.' },
-      400: { description: 'Missing run IDs.' },
+      200: jsonResponse('Diff returned.', 'SnapshotDiffResponse'),
+      400: errorResponse('Missing run IDs.'),
     },
   },
   {
@@ -932,7 +939,8 @@ const routeCatalog: OpenApiOperation[] = [
     summary: 'Get provider settings summary',
     tags: ['settings'],
     responses: {
-      200: { description: 'Settings returned.' },
+      // TODO: Add `SettingsSummaryDto` Zod schema in contracts.
+      200: rawJsonResponse('Settings returned.', looseObjectSchema),
     },
   },
   {
@@ -958,9 +966,10 @@ const routeCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      200: { description: 'Provider updated.' },
-      400: { description: 'Invalid provider settings.' },
-      501: { description: 'Provider updates are not supported.' },
+      // TODO: Add `ProviderSettingsDto` Zod schema in contracts.
+      200: rawJsonResponse('Provider updated.', looseObjectSchema),
+      400: errorResponse('Invalid provider settings.'),
+      501: errorResponse('Provider updates are not supported.'),
     },
   },
   {
@@ -984,9 +993,10 @@ const routeCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      200: { description: 'Google settings updated.' },
-      400: { description: 'Invalid Google settings.' },
-      501: { description: 'Google settings updates are not supported.' },
+      // TODO: Add `GoogleSettingsDto` Zod schema in contracts.
+      200: rawJsonResponse('Google settings updated.', looseObjectSchema),
+      400: errorResponse('Invalid Google settings.'),
+      501: errorResponse('Google settings updates are not supported.'),
     },
   },
   {
@@ -1012,9 +1022,9 @@ const routeCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      200: { description: 'Snapshot report returned.' },
-      400: { description: 'Invalid snapshot input.' },
-      501: { description: 'Snapshot reporting is not supported.' },
+      200: jsonResponse('Snapshot report returned.', 'SnapshotReportDto'),
+      400: errorResponse('Invalid snapshot input.'),
+      501: errorResponse('Snapshot reporting is not supported.'),
     },
   },
   {
@@ -1037,9 +1047,10 @@ const routeCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      200: { description: 'Bing settings updated.' },
-      400: { description: 'Invalid Bing settings.' },
-      501: { description: 'Bing settings updates are not supported.' },
+      // TODO: Add `BingSettingsDto` Zod schema in contracts.
+      200: rawJsonResponse('Bing settings updated.', looseObjectSchema),
+      400: errorResponse('Invalid Bing settings.'),
+      501: errorResponse('Bing settings updates are not supported.'),
     },
   },
   {
@@ -1063,9 +1074,10 @@ const routeCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      200: { description: 'CDP endpoint updated.' },
-      400: { description: 'Invalid CDP settings.' },
-      501: { description: 'CDP updates are not supported.' },
+      // TODO: Add `CdpEndpointConfigDto` Zod schema in contracts.
+      200: rawJsonResponse('CDP endpoint updated.', looseObjectSchema),
+      400: errorResponse('Invalid CDP settings.'),
+      501: errorResponse('CDP updates are not supported.'),
     },
   },
   {
@@ -1094,9 +1106,9 @@ const routeCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      200: { description: 'Schedule updated.' },
-      201: { description: 'Schedule created.' },
-      400: { description: 'Invalid payload (e.g. sourceId missing for kind=traffic-sync, or providers set for kind=traffic-sync).' },
+      200: jsonResponse('Schedule updated.', 'ScheduleDto'),
+      201: jsonResponse('Schedule created.', 'ScheduleDto'),
+      400: errorResponse('Invalid payload (e.g. sourceId missing for kind=traffic-sync, or providers set for kind=traffic-sync).'),
     },
   },
   {
@@ -1106,8 +1118,8 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['schedules'],
     parameters: [nameParameter, scheduleKindQueryParameter],
     responses: {
-      200: { description: 'Schedule returned.' },
-      404: { description: 'Schedule not found.' },
+      200: jsonResponse('Schedule returned.', 'ScheduleDto'),
+      404: errorResponse('Schedule not found.'),
     },
   },
   {
@@ -1118,7 +1130,7 @@ const routeCatalog: OpenApiOperation[] = [
     parameters: [nameParameter, scheduleKindQueryParameter],
     responses: {
       204: { description: 'Schedule deleted.' },
-      404: { description: 'Schedule not found.' },
+      404: errorResponse('Schedule not found.'),
     },
   },
   {
@@ -1127,7 +1139,7 @@ const routeCatalog: OpenApiOperation[] = [
     summary: 'List notification event types',
     tags: ['notifications'],
     responses: {
-      200: { description: 'Events returned.' },
+      200: rawJsonResponse('Events returned.', { type: 'array', items: stringSchema }),
     },
   },
   {
@@ -1153,7 +1165,7 @@ const routeCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      201: { description: 'Notification created.' },
+      201: jsonResponse('Notification created.', 'NotificationDto'),
     },
   },
   {
@@ -1163,7 +1175,7 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['notifications'],
     parameters: [nameParameter],
     responses: {
-      200: { description: 'Notifications returned.' },
+      200: jsonArrayResponse('Notifications returned.', 'NotificationDto'),
     },
   },
   {
@@ -1174,7 +1186,7 @@ const routeCatalog: OpenApiOperation[] = [
     parameters: [nameParameter, notificationIdParameter],
     responses: {
       204: { description: 'Notification deleted.' },
-      404: { description: 'Notification not found.' },
+      404: errorResponse('Notification not found.'),
     },
   },
   {
@@ -1184,10 +1196,11 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['notifications'],
     parameters: [nameParameter, notificationIdParameter],
     responses: {
-      200: { description: 'Test notification sent.' },
-      400: { description: 'Stored notification config is invalid.' },
-      404: { description: 'Notification not found.' },
-      502: { description: 'Notification delivery failed.' },
+      // TODO: Add `NotificationTestResult` Zod schema in contracts.
+      200: rawJsonResponse('Test notification sent.', looseObjectSchema),
+      400: errorResponse('Stored notification config is invalid.'),
+      404: errorResponse('Notification not found.'),
+      502: errorResponse('Notification delivery failed.'),
     },
   },
   {
@@ -1196,8 +1209,9 @@ const routeCatalog: OpenApiOperation[] = [
     summary: 'Get telemetry status',
     tags: ['telemetry'],
     responses: {
-      200: { description: 'Telemetry status returned.' },
-      501: { description: 'Telemetry status is not available.' },
+      // TODO: Add `TelemetryStatusDto` Zod schema in contracts.
+      200: rawJsonResponse('Telemetry status returned.', looseObjectSchema),
+      501: errorResponse('Telemetry status is not available.'),
     },
   },
   {
@@ -1220,9 +1234,10 @@ const routeCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      200: { description: 'Telemetry updated.' },
-      400: { description: 'Invalid telemetry request.' },
-      501: { description: 'Telemetry configuration is not available.' },
+      // TODO: Add `TelemetryStatusDto` Zod schema in contracts.
+      200: rawJsonResponse('Telemetry updated.', looseObjectSchema),
+      400: errorResponse('Invalid telemetry request.'),
+      501: errorResponse('Telemetry configuration is not available.'),
     },
   },
   {
@@ -1232,8 +1247,9 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['cdp'],
     parameters: [snapshotIdParameter],
     responses: {
-      200: { description: 'Screenshot returned.' },
-      404: { description: 'Screenshot not found.' },
+      // Returns image bytes, not JSON. Codegen consumers should treat this as a binary stream.
+      200: { description: 'Screenshot returned.', content: { 'image/png': { schema: { type: 'string', format: 'binary' } } } },
+      404: errorResponse('Screenshot not found.'),
     },
   },
   {
@@ -1242,8 +1258,9 @@ const routeCatalog: OpenApiOperation[] = [
     summary: 'Get CDP connection status',
     tags: ['cdp'],
     responses: {
-      200: { description: 'CDP status returned.' },
-      501: { description: 'CDP is not configured.' },
+      // TODO: Add `CdpStatusDto` Zod schema in contracts.
+      200: rawJsonResponse('CDP status returned.', looseObjectSchema),
+      501: errorResponse('CDP is not configured.'),
     },
   },
   {
@@ -1267,9 +1284,10 @@ const routeCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      200: { description: 'CDP screenshot results returned.' },
-      400: { description: 'Invalid CDP screenshot request.' },
-      501: { description: 'CDP screenshot support is not available.' },
+      // TODO: Add `CdpScreenshotResultDto` Zod schema in contracts.
+      200: rawJsonResponse('CDP screenshot results returned.', looseObjectSchema),
+      400: errorResponse('Invalid CDP screenshot request.'),
+      501: errorResponse('CDP screenshot support is not available.'),
     },
   },
   {
@@ -1279,8 +1297,9 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['cdp', 'runs'],
     parameters: [nameParameter, projectRunIdParameter],
     responses: {
-      200: { description: 'Browser diff returned.' },
-      404: { description: 'Project or run not found.' },
+      // TODO: Add `BrowserDiffDto` Zod schema in contracts.
+      200: rawJsonResponse('Browser diff returned.', looseObjectSchema),
+      404: errorResponse('Project or run not found.'),
     },
   },
   {
