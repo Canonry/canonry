@@ -1,4 +1,4 @@
-import { test, expect, onTestFinished, vi } from 'vitest'
+import { test, expect, onTestFinished, vi, beforeAll } from 'vitest'
 
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
@@ -9,6 +9,17 @@ import { fetchHealthCheck, fetchServiceStatus } from '../src/api.js'
 import { createDashboardFixture } from '../src/mock-data.js'
 import { createAppRouter } from '../src/router/router.js'
 import { DashboardProvider } from '../src/contexts/dashboard-context.js'
+import { preloadAllLazyRoutes } from '../src/router/routes.js'
+
+// Routes are lazy-loaded in production (see
+// `apps/web/src/router/routes.tsx → lazyRouteComponent(...)`).
+// `renderToStaticMarkup` cannot suspend, so the lazy components must be
+// preloaded before any test renders them — otherwise the page <main>
+// element comes back empty. `preloadAllLazyRoutes` awaits every
+// `.preload()` promise so the components are synchronously available.
+beforeAll(async () => {
+  await preloadAllLazyRoutes()
+})
 
 type TestWindowConfig = {
   __CANONRY_CONFIG__?: {

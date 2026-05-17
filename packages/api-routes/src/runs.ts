@@ -15,7 +15,8 @@ import {
   parseRunError,
   serializeRunError,
 } from '@ainyc/canonry-contracts'
-import { resolveProject, resolveSnapshotAnswerMentioned, resolveSnapshotMentionState, resolveSnapshotVisibilityState, resolveSnapshotMatchedTerms, writeAuditLog } from './helpers.js'
+import { notProbeRun, resolveProject, resolveSnapshotAnswerMentioned, resolveSnapshotMentionState, resolveSnapshotVisibilityState, resolveSnapshotMatchedTerms, writeAuditLog } from './helpers.js'
+import { gte } from 'drizzle-orm'
 import { queueRunIfProjectIdle } from './run-queue.js'
 
 export interface RunRoutesOptions {
@@ -252,9 +253,41 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
     })
   })
 
-  // GET /runs — list all runs
-  app.get('/runs', async (_request, reply) => {
-    const rows = app.db.select().from(runs).all()
+  // GET /runs — list runs newest-first with sensible defaults
+  //
+  // Default behavior:
+  //   - ORDER BY created_at DESC, id DESC (deterministic tiebreak)
+  //   - LIMIT 500
+  //   - Excludes probe runs (trigger='probe' — operator/agent test runs
+  //     that shouldn't pollute aggregates or the dashboard list)
+  //   - Filters to the last 30 days
+  //
+  // Without these defaults, an instance with thousands of historical runs
+  // returns multi-MB JSON on every dashboard mount (the SPA's
+  // `useDashboard` hook hits this endpoint to compute "latest run per
+  // project"), gating first paint behind a full-table scan + JSON parse.
+  //
+  // Query params let agents and the CLI override when needed:
+  //   ?limit=N         — cap at N rows (default 500, max 5000)
+  //   ?since=ISO       — only runs with created_at >= ISO (default 30d ago)
+  //   ?includeProbe=1  — include probe runs (rarely needed; operator only)
+  app.get<{
+    Querystring: { limit?: string; since?: string; includeProbe?: string }
+  }>('/runs', async (request, reply) => {
+    const limit = parseListLimit(request.query.limit, 500, 5000)
+    const since = parseListSince(request.query.since)
+    const includeProbe = request.query.includeProbe === '1' || request.query.includeProbe === 'true'
+
+    const filters = [gte(runs.createdAt, since)]
+    if (!includeProbe) filters.push(notProbeRun())
+
+    const rows = app.db
+      .select()
+      .from(runs)
+      .where(and(...filters))
+      .orderBy(desc(runs.createdAt), desc(runs.id))
+      .limit(limit)
+      .all()
     return reply.send(rows.map(formatRun))
   })
 
@@ -382,6 +415,39 @@ function parseRunTriggerRequest(value: unknown) {
       message: issue.message,
     })),
   })
+}
+
+/**
+ * Parse the `?limit=` query param for `GET /runs`. Defaults + caps protect
+ * the unbounded-list footgun: dashboards and agents shouldn't be able to
+ * trigger a full table scan by passing `limit=1000000`. Cap and default are
+ * tuned for the home-page use case (dashboard wants ~latest 100 per project
+ * × 5 projects worst case = ~500 rows).
+ */
+function parseListLimit(raw: string | undefined, defaultValue: number, max: number): number {
+  if (raw === undefined) return defaultValue
+  const parsed = Number(raw)
+  if (!Number.isFinite(parsed) || parsed < 1 || !Number.isInteger(parsed)) {
+    throw validationError('"limit" must be a positive integer')
+  }
+  return Math.min(parsed, max)
+}
+
+/**
+ * Parse the `?since=` query param. Accepts an ISO 8601 timestamp; defaults
+ * to 30 days ago. SQLite text comparisons on `created_at` work because the
+ * column is consistently ISO 8601 UTC ("YYYY-MM-DDTHH:MM:SS.SSSZ").
+ */
+function parseListSince(raw: string | undefined): string {
+  if (raw === undefined) {
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+    return thirtyDaysAgo.toISOString()
+  }
+  const date = new Date(raw)
+  if (Number.isNaN(date.getTime())) {
+    throw validationError('"since" must be a valid ISO 8601 timestamp')
+  }
+  return date.toISOString()
 }
 
 function formatRun(row: {
