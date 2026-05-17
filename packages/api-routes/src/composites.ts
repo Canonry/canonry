@@ -830,8 +830,8 @@ function mapInsightRow(r: typeof insights.$inferSelect): InsightDto {
     title: r.title,
     query: r.query,
     provider: r.provider,
-    recommendation: parseJsonColumn<InsightDto['recommendation']>(r.recommendation, undefined),
-    cause: parseJsonColumn<InsightDto['cause']>(r.cause, undefined),
+    recommendation: r.recommendation ?? undefined,
+    cause: r.cause ?? undefined,
     dismissed: r.dismissed,
     createdAt: r.createdAt,
   }
@@ -845,7 +845,7 @@ function mapHealthRow(r: typeof healthSnapshots.$inferSelect): HealthSnapshotDto
     overallCitedRate: Number(r.overallCitedRate),
     totalPairs: r.totalPairs,
     citedPairs: r.citedPairs,
-    providerBreakdown: parseJsonColumn<HealthSnapshotDto['providerBreakdown']>(r.providerBreakdown, {}),
+    providerBreakdown: r.providerBreakdown,
     createdAt: r.createdAt,
     status: 'ready',
   }
@@ -926,8 +926,8 @@ function buildSnapshotHit(
 
 function buildInsightHit(row: typeof insights.$inferSelect, searchTerm: string): ProjectSearchInsightHitDto {
   const lower = searchTerm.toLowerCase()
-  const recommendation = row.recommendation ?? ''
-  const cause = row.cause ?? ''
+  const recommendation = row.recommendation ? `${row.recommendation.action}${row.recommendation.target ? ` ${row.recommendation.target}` : ''} ${row.recommendation.reason}` : ''
+  const cause = row.cause ? `${row.cause.cause}${row.cause.competitorDomain ? ` ${row.cause.competitorDomain}` : ''}${row.cause.details ? ` ${row.cause.details}` : ''}` : ''
   let matchedField: InsightMatchedField
   let snippet: string
   if (row.title.toLowerCase().includes(lower)) {

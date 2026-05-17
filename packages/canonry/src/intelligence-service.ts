@@ -413,8 +413,8 @@ export class IntelligenceService {
           title: insight.title,
           query: insight.query,
           provider: insight.provider,
-          recommendation: insight.recommendation ? JSON.stringify(insight.recommendation) : null,
-          cause: insight.cause ? JSON.stringify(insight.cause) : null,
+          recommendation: insight.recommendation ?? null,
+          cause: insight.cause ?? null,
           dismissed: wasDismissed,
           createdAt: insight.createdAt,
         }).run()
@@ -427,7 +427,7 @@ export class IntelligenceService {
         overallCitedRate: String(result.health.overallCitedRate),
         totalPairs: result.health.totalPairs,
         citedPairs: result.health.citedPairs,
-        providerBreakdown: JSON.stringify(result.health.providerBreakdown),
+        providerBreakdown: result.health.providerBreakdown,
         createdAt: now,
       }).run()
     })

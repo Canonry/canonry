@@ -229,7 +229,7 @@ describe('canonry', () => {
       name: 'test',
       keyHash,
       keyPrefix: rawKey.slice(0, 9),
-      scopes: '["*"]',
+      scopes: ['*'],
       createdAt: new Date().toISOString(),
     }).run()
 
@@ -269,7 +269,7 @@ describe('canonry', () => {
       name: 'test',
       keyHash,
       keyPrefix: rawKey.slice(0, 9),
-      scopes: '["*"]',
+      scopes: ['*'],
       createdAt: new Date().toISOString(),
     }).run()
 
@@ -404,7 +404,7 @@ describe('canonry', () => {
       name: 'test',
       keyHash,
       keyPrefix: rawKey.slice(0, 9),
-      scopes: '["*"]',
+      scopes: ['*'],
       createdAt: new Date().toISOString(),
     }).run()
 
@@ -470,7 +470,7 @@ describe('canonry', () => {
       name: 'test',
       keyHash,
       keyPrefix: rawKey.slice(0, 9),
-      scopes: '["*"]',
+      scopes: ['*'],
       createdAt: new Date().toISOString(),
     }).run()
 
@@ -715,7 +715,7 @@ describe('canonry', () => {
       name: 'test',
       keyHash,
       keyPrefix: rawKey.slice(0, 9),
-      scopes: '["*"]',
+      scopes: ['*'],
       createdAt: new Date().toISOString(),
     }).run()
 
@@ -769,7 +769,7 @@ describe('canonry', () => {
       name: 'test',
       keyHash,
       keyPrefix: rawKey.slice(0, 9),
-      scopes: '["*"]',
+      scopes: ['*'],
       createdAt: new Date().toISOString(),
     }).run()
 
@@ -869,7 +869,7 @@ describe('canonry', () => {
       name: 'test',
       keyHash,
       keyPrefix: rawKey.slice(0, 9),
-      scopes: '["*"]',
+      scopes: ['*'],
       createdAt: new Date().toISOString(),
     }).run()
 
@@ -906,7 +906,7 @@ describe('canonry', () => {
       name: 'test',
       keyHash,
       keyPrefix: rawKey.slice(0, 9),
-      scopes: '["*"]',
+      scopes: ['*'],
       createdAt: new Date().toISOString(),
     }).run()
 
@@ -947,7 +947,7 @@ describe('canonry', () => {
       name: 'test',
       keyHash,
       keyPrefix: rawKey.slice(0, 9),
-      scopes: '["*"]',
+      scopes: ['*'],
       createdAt: new Date().toISOString(),
     }).run()
 
@@ -992,7 +992,7 @@ describe('canonry', () => {
       name: 'test',
       keyHash,
       keyPrefix: rawKey.slice(0, 9),
-      scopes: '["*"]',
+      scopes: ['*'],
       createdAt: new Date().toISOString(),
     }).run()
 
@@ -1049,7 +1049,7 @@ describe('canonry', () => {
       name: 'test',
       keyHash,
       keyPrefix: rawKey.slice(0, 9),
-      scopes: '["*"]',
+      scopes: ['*'],
       createdAt: new Date().toISOString(),
     }).run()
 
@@ -1095,7 +1095,7 @@ describe('canonry', () => {
       name: 'test',
       keyHash,
       keyPrefix: rawKey.slice(0, 9),
-      scopes: '["*"]',
+      scopes: ['*'],
       createdAt: new Date().toISOString(),
     }).run()
 

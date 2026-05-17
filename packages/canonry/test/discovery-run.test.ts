@@ -10,7 +10,6 @@ import {
   discoverySessions,
   insights,
   migrate,
-  parseJsonColumn,
   projects,
   runs,
 } from '@ainyc/canonry-db'
@@ -137,7 +136,7 @@ describe('executeDiscoveryRun', () => {
     expect(sessionRow.aspirationalCount).toBe(1)
     expect(sessionRow.seedProvider).toBe('gemini-test')
     // The orchestrator's classification pass types every recurring cited domain.
-    expect(parseJsonColumn(sessionRow.competitorMap, [])).toEqual([
+    expect(sessionRow.competitorMap).toEqual([
       { domain: 'aurora-solar.com', hits: 2, competitorType: 'direct-competitor' },
       { domain: 'random.com', hits: 1, competitorType: 'other' },
     ])
@@ -161,9 +160,16 @@ describe('executeDiscoveryRun', () => {
     expect(insight.dismissed).toBe(false)
     // 50% wasted-surface → severity 'high'
     expect(insight.severity).toBe('high')
-    const recommendation = parseJsonColumn<{ bucketCounts: Record<string, number>; topCompetitors: Array<{ domain: string }> }>(insight.recommendation, { bucketCounts: {}, topCompetitors: [] })
-    expect(recommendation.bucketCounts).toEqual({ cited: 1, aspirational: 1, 'wasted-surface': 2 })
-    expect(recommendation.topCompetitors.some(c => c.domain === 'aurora-solar.com')).toBe(true)
+    const recommendation = insight.recommendation
+    expect(recommendation).not.toBeNull()
+    expect(recommendation!.action).toBe('review-discovered-basket')
+    expect(recommendation!.target).toBe(sessionId)
+    // reason text encodes both the bucket counts and the top competitors so
+    // operators see them inline in the insight body.
+    expect(recommendation!.reason).toContain('cited=1')
+    expect(recommendation!.reason).toContain('aspirational=1')
+    expect(recommendation!.reason).toContain('wasted=2')
+    expect(recommendation!.reason).toContain('aurora-solar.com')
   })
 
   it('dismisses prior basket-divergence insights for the project when a new session writes one', async () => {
@@ -188,8 +194,8 @@ describe('executeDiscoveryRun', () => {
       title: 'Older divergence (notional prior session)',
       query: 'discovery:older-session',
       provider: 'gemini-test',
-      recommendation: JSON.stringify({}),
-      cause: JSON.stringify({}),
+      recommendation: null,
+      cause: null,
       dismissed: false,
       createdAt: new Date(Date.now() - 60_000).toISOString(),
     }).run()
@@ -203,8 +209,8 @@ describe('executeDiscoveryRun', () => {
       title: 'Unrelated regression',
       query: 'some query',
       provider: 'openai',
-      recommendation: JSON.stringify({}),
-      cause: JSON.stringify({}),
+      recommendation: null,
+      cause: null,
       dismissed: false,
       createdAt: new Date(Date.now() - 60_000).toISOString(),
     }).run()

@@ -16,7 +16,7 @@ test('malformed Authorization headers return the structured AUTH_REQUIRED envelo
     name: 'test',
     keyHash: crypto.createHash('sha256').update('cnry_test').digest('hex'),
     keyPrefix: 'cnry_test',
-    scopes: '["*"]',
+    scopes: ['*'],
     createdAt: new Date().toISOString(),
   }).run()
 

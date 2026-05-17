@@ -80,7 +80,7 @@ async function buildHarness(): Promise<Harness> {
     lastError: null,
     lastEventIds: null,
     archivedAt: null,
-    configJson: '{}',
+    configJson: {},
     createdAt: now,
     updatedAt: now,
   }).run()
@@ -95,7 +95,7 @@ async function buildHarness(): Promise<Harness> {
     lastError: null,
     lastEventIds: null,
     archivedAt: null,
-    configJson: '{}',
+    configJson: {},
     createdAt: now,
     updatedAt: now,
   }).run()

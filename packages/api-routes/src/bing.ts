@@ -286,9 +286,9 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
     let snapshotRunId: string | null = null
 
     for (const [, row] of latestByUrl) {
-      if (row.inIndex === 1) {
+      if (row.inIndex === true) {
         indexedUrls.push(row)
-      } else if (row.inIndex === 0) {
+      } else if (row.inIndex === false) {
         notIndexedUrls.push(row)
       } else {
         unknownUrls.push(row)
@@ -308,7 +308,7 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
       id: r.id,
       url: r.url,
       httpCode: r.httpCode,
-      inIndex: r.inIndex === 1 ? true : r.inIndex === 0 ? false : null,
+      inIndex: r.inIndex,
       lastCrawledDate: r.lastCrawledDate,
       inIndexDate: r.inIndexDate,
       inspectedAt: r.inspectedAt,
@@ -404,7 +404,7 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
       id: r.id,
       url: r.url,
       httpCode: r.httpCode,
-      inIndex: r.inIndex === 1 ? true : r.inIndex === 0 ? false : null,
+      inIndex: r.inIndex,
       lastCrawledDate: r.lastCrawledDate,
       inIndexDate: r.inIndexDate,
       inspectedAt: r.inspectedAt,
@@ -504,7 +504,7 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
         projectId: project.id,
         url,
         httpCode,
-        inIndex: derivedInIndex === true ? 1 : derivedInIndex === false ? 0 : null,
+        inIndex: derivedInIndex,
         lastCrawledDate,
         inIndexDate,
         inspectedAt: now,
@@ -612,7 +612,7 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
 
       const unindexedUrls: string[] = []
       for (const [url, row] of latestByUrl) {
-        if (row.inIndex === 0 || row.inIndex === null) {
+        if (row.inIndex === false || row.inIndex === null) {
           unindexedUrls.push(url)
         }
       }

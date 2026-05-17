@@ -169,7 +169,7 @@ export async function discoveryRoutes(app: FastifyInstance, opts: DiscoveryRoute
         status: DiscoverySessionStatuses.queued,
         icpDescription,
         dedupThreshold: parsed.data.dedupThreshold,
-        competitorMap: '[]',
+        competitorMap: [],
         createdAt: now,
       }).run()
 
@@ -518,23 +518,21 @@ function serializeProbe(row: typeof discoveryProbes.$inferSelect): DiscoveryProb
     query: row.query,
     bucket: bucketParsed?.success ? bucketParsed.data : null,
     citationState: stateParsed.success ? stateParsed.data : 'not-cited',
-    citedDomains: parseJsonColumn<string[]>(row.citedDomains, []),
+    citedDomains: row.citedDomains,
     createdAt: row.createdAt,
   }
 }
 
 /**
- * Parse a `discovery_sessions.competitor_map` JSON column into normalized
- * entries. `parseJsonColumn` does not apply Zod defaults, so a competitor map
- * persisted before classification existed has entries without
- * `competitorType` — normalize those to `unknown` here so every consumer sees
- * a well-formed `DiscoveryCompetitorMapEntry`.
+ * Normalize a `discovery_sessions.competitor_map` value. Drizzle JSON-mode
+ * deserializes the column for us, but a competitor map persisted before
+ * classification existed has entries without `competitorType` — normalize
+ * those to `unknown` here so every consumer sees a well-formed
+ * `DiscoveryCompetitorMapEntry`.
  */
-function parseCompetitorMap(json: string): DiscoveryCompetitorMapEntry[] {
-  const raw = parseJsonColumn<Array<Partial<DiscoveryCompetitorMapEntry> & { domain: string; hits: number }>>(
-    json,
-    [],
-  )
+function parseCompetitorMap(
+  raw: ReadonlyArray<Partial<DiscoveryCompetitorMapEntry> & { domain: string; hits: number }>,
+): DiscoveryCompetitorMapEntry[] {
   return raw.map(entry => ({
     domain: entry.domain,
     hits: entry.hits,

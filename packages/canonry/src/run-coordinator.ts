@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/canonry-db'
-import { discoverySessions, runs, parseJsonColumn } from '@ainyc/canonry-db'
+import { discoverySessions, runs } from '@ainyc/canonry-db'
 import {
   RunKinds,
   RunTriggers,
@@ -156,9 +156,7 @@ export class RunCoordinator {
       .where(eq(discoverySessions.runId, runId))
       .get()
 
-    const competitorMap = session
-      ? parseJsonColumn<DiscoveryCompetitorMapEntry[]>(session.competitorMap, [])
-      : []
+    const competitorMap = session ? session.competitorMap : []
 
     return {
       kind: RunKinds['aeo-discover-probe'],

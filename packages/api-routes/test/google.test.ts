@@ -557,7 +557,7 @@ describe('googleRoutes: GET /projects/:name/google/gsc/coverage/history', () => 
       date: '2025-01-01',
       indexed: 80,
       notIndexed: 20,
-      reasonBreakdown: JSON.stringify({ 'Crawled - currently not indexed': 15, 'Duplicate without user-selected canonical': 5 }),
+      reasonBreakdown: { 'Crawled - currently not indexed': 15, 'Duplicate without user-selected canonical': 5 },
       createdAt: now,
     }).run()
 
@@ -568,7 +568,7 @@ describe('googleRoutes: GET /projects/:name/google/gsc/coverage/history', () => 
       date: '2025-01-02',
       indexed: 85,
       notIndexed: 15,
-      reasonBreakdown: JSON.stringify({ 'Crawled - currently not indexed': 10, 'Duplicate without user-selected canonical': 5 }),
+      reasonBreakdown: { 'Crawled - currently not indexed': 10, 'Duplicate without user-selected canonical': 5 },
       createdAt: now,
     }).run()
 
@@ -709,7 +709,7 @@ describe('googleRoutes: coverage snapshot deduplication', () => {
       date: '2025-03-01',
       indexed: 50,
       notIndexed: 50,
-      reasonBreakdown: '{}',
+      reasonBreakdown: {},
       createdAt: now,
     }).run()
 
@@ -756,7 +756,7 @@ describe('googleRoutes: coverage snapshot deduplication', () => {
       date: '2025-03-01',
       indexed: 90,
       notIndexed: 10,
-      reasonBreakdown: '{}',
+      reasonBreakdown: {},
       createdAt: new Date().toISOString(),
     }).run()
 
@@ -876,7 +876,7 @@ describe('googleRoutes: GET /projects/:name/google/gsc/coverage', () => {
       date: '2026-05-04',
       indexed: 1,
       notIndexed: 0,
-      reasonBreakdown: '{}',
+      reasonBreakdown: {},
       createdAt: syncTime,
     }).run()
 
@@ -901,7 +901,7 @@ describe('googleRoutes: GET /projects/:name/google/gsc/coverage', () => {
       date: '2026-05-02',
       indexed: 1,
       notIndexed: 0,
-      reasonBreakdown: '{}',
+      reasonBreakdown: {},
       createdAt: earlierSync,
     }).run()
 
@@ -912,7 +912,7 @@ describe('googleRoutes: GET /projects/:name/google/gsc/coverage', () => {
       date: '2026-05-05',
       indexed: 1,
       notIndexed: 0,
-      reasonBreakdown: '{}',
+      reasonBreakdown: {},
       createdAt: latestSync,
     }).run()
 

@@ -17,6 +17,7 @@
     "lint": "eslint src/ test/"
   },
   "dependencies": {
+    "@ainyc/canonry-contracts": "workspace:*",
     "better-sqlite3": "^12.6.2",
     "drizzle-orm": "^0.45.1"
   },

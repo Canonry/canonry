@@ -82,7 +82,7 @@ function insertTrafficSource(
     lastError: args.lastError ?? null,
     lastEventIds: null,
     archivedAt: args.status === 'archived' ? now : null,
-    configJson: '{}',
+    configJson: {},
     createdAt: now,
     updatedAt: now,
   }).run()

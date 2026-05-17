@@ -1,3 +1,4 @@
+import type { DiscoveryCompetitorMapEntry } from '@ainyc/canonry-contracts'
 import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
 
 export const projects = sqliteTable('projects', {
@@ -119,7 +120,7 @@ export const apiKeys = sqliteTable('api_keys', {
   name: text('name').notNull(),
   keyHash: text('key_hash').notNull().unique(),
   keyPrefix: text('key_prefix').notNull(),
-  scopes: text('scopes').notNull().default('["*"]'),
+  scopes: text('scopes', { mode: 'json' }).$type<string[]>().notNull().default(['*']),
   createdAt: text('created_at').notNull(),
   lastUsedAt: text('last_used_at'),
   revokedAt: text('revoked_at'),
@@ -169,7 +170,7 @@ export const googleConnections = sqliteTable('google_connections', {
   connectionType: text('connection_type').notNull(),
   propertyId: text('property_id'),
   sitemapUrl: text('sitemap_url'),
-  scopes: text('scopes').notNull().default('[]'),
+  scopes: text('scopes', { mode: 'json' }).$type<string[]>().notNull().default([]),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 }, (table) => [
@@ -208,9 +209,9 @@ export const gscUrlInspections = sqliteTable('gsc_url_inspections', {
   robotsTxtState: text('robots_txt_state'),
   crawlTime: text('crawl_time'),
   lastCrawlResult: text('last_crawl_result'),
-  isMobileFriendly: integer('is_mobile_friendly'),
-  richResults: text('rich_results').notNull().default('[]'),
-  referringUrls: text('referring_urls').notNull().default('[]'),
+  isMobileFriendly: integer('is_mobile_friendly', { mode: 'boolean' }),
+  richResults: text('rich_results', { mode: 'json' }).$type<string[]>().notNull().default([]),
+  referringUrls: text('referring_urls', { mode: 'json' }).$type<string[]>().notNull().default([]),
   inspectedAt: text('inspected_at').notNull(),
   createdAt: text('created_at').notNull(),
 }, (table) => [
@@ -226,7 +227,7 @@ export const gscCoverageSnapshots = sqliteTable('gsc_coverage_snapshots', {
   date: text('date').notNull(),
   indexed: integer('indexed').notNull().default(0),
   notIndexed: integer('not_indexed').notNull().default(0),
-  reasonBreakdown: text('reason_breakdown').notNull().default('{}'),
+  reasonBreakdown: text('reason_breakdown', { mode: 'json' }).$type<Record<string, number>>().notNull().default({}),
   createdAt: text('created_at').notNull(),
 }, (table) => [
   index('idx_gsc_coverage_snap_project_date').on(table.projectId, table.date),
@@ -262,7 +263,7 @@ export const bingUrlInspections = sqliteTable('bing_url_inspections', {
   projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
   url: text('url').notNull(),
   httpCode: integer('http_code'),
-  inIndex: integer('in_index'),
+  inIndex: integer('in_index', { mode: 'boolean' }),
   lastCrawledDate: text('last_crawled_date'),
   inIndexDate: text('in_index_date'),
   inspectedAt: text('inspected_at').notNull(),
@@ -440,8 +441,8 @@ export const insights = sqliteTable('insights', {
   title: text('title').notNull(),
   query: text('query').notNull(),
   provider: text('provider').notNull(),
-  recommendation: text('recommendation'),
-  cause: text('cause'),
+  recommendation: text('recommendation', { mode: 'json' }).$type<{ action: string; target?: string; reason: string }>(),
+  cause: text('cause', { mode: 'json' }).$type<{ cause: string; competitorDomain?: string; details?: string }>(),
   dismissed: integer('dismissed', { mode: 'boolean' }).notNull().default(false),
   createdAt: text('created_at').notNull(),
 }, (table) => [
@@ -458,7 +459,7 @@ export const healthSnapshots = sqliteTable('health_snapshots', {
   overallCitedRate: text('overall_cited_rate').notNull(),
   totalPairs: integer('total_pairs').notNull(),
   citedPairs: integer('cited_pairs').notNull(),
-  providerBreakdown: text('provider_breakdown').notNull().default('{}'),
+  providerBreakdown: text('provider_breakdown', { mode: 'json' }).$type<Record<string, { citedRate: number; cited: number; total: number }>>().notNull().default({}),
   createdAt: text('created_at').notNull(),
 }, (table) => [
   index('idx_health_snapshots_project').on(table.projectId),
@@ -591,9 +592,9 @@ export const trafficSources = sqliteTable('traffic_sources', {
   // observed in the most recent successful sync. Bounded ring buffer used to
   // dedupe across sync runs at the boundary timestamp where lastSyncedAt
   // clamping alone leaves a small overlap window.
-  lastEventIds: text('last_event_ids'),
+  lastEventIds: text('last_event_ids', { mode: 'json' }).$type<string[]>(),
   archivedAt: text('archived_at'),
-  configJson: text('config_json').notNull().default('{}'),
+  configJson: text('config_json', { mode: 'json' }).$type<Record<string, unknown>>().notNull().default({}),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 }, (table) => [
@@ -680,7 +681,7 @@ export const rawEventSamples = sqliteTable('raw_event_samples', {
   pathNormalized: text('path_normalized').notNull(),
   status: integer('status'),
   refererHost: text('referer_host'),
-  classifierDetailsJson: text('classifier_details_json').notNull().default('{}'),
+  classifierDetailsJson: text('classifier_details_json', { mode: 'json' }).$type<Record<string, unknown>>().notNull().default({}),
   createdAt: text('created_at').notNull(),
 }, (table) => [
   index('idx_raw_event_samples_project_ts').on(table.projectId, table.ts),
@@ -702,7 +703,7 @@ export const discoverySessions = sqliteTable('discovery_sessions', {
   citedCount: integer('cited_count'),
   aspirationalCount: integer('aspirational_count'),
   wastedCount: integer('wasted_count'),
-  competitorMap: text('competitor_map').notNull().default('[]'),
+  competitorMap: text('competitor_map', { mode: 'json' }).$type<DiscoveryCompetitorMapEntry[]>().notNull().default([]),
   error: text('error'),
   startedAt: text('started_at'),
   finishedAt: text('finished_at'),
@@ -719,7 +720,7 @@ export const discoveryProbes = sqliteTable('discovery_probes', {
   query: text('query').notNull(),
   bucket: text('bucket'),
   citationState: text('citation_state').notNull(),
-  citedDomains: text('cited_domains').notNull().default('[]'),
+  citedDomains: text('cited_domains', { mode: 'json' }).$type<string[]>().notNull().default([]),
   rawResponse: text('raw_response'),
   createdAt: text('created_at').notNull(),
 }, (table) => [

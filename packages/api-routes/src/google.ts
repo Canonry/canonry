@@ -543,9 +543,9 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
       robotsTxtState: idx?.robotsTxtState ?? null,
       crawlTime: idx?.lastCrawlTime ?? null,
       lastCrawlResult: idx?.crawlResult ?? null,
-      isMobileFriendly: mob?.verdict === 'PASS' ? 1 : mob?.verdict === 'FAIL' ? 0 : null,
-      richResults: JSON.stringify(rich?.detectedItems?.map((d: { richResultType: string }) => d.richResultType) ?? []),
-      referringUrls: JSON.stringify(idx?.referringUrls ?? []),
+      isMobileFriendly: mob?.verdict === 'PASS' ? true : mob?.verdict === 'FAIL' ? false : null,
+      richResults: rich?.detectedItems?.map((d: { richResultType: string }) => d.richResultType) ?? [],
+      referringUrls: idx?.referringUrls ?? [],
       inspectedAt: now,
       createdAt: now,
     }).run()
@@ -596,9 +596,9 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
       robotsTxtState: r.robotsTxtState,
       crawlTime: r.crawlTime,
       lastCrawlResult: r.lastCrawlResult,
-      isMobileFriendly: r.isMobileFriendly === 1 ? true : r.isMobileFriendly === 0 ? false : null,
-      richResults: JSON.parse(r.richResults) as unknown,
-      referringUrls: JSON.parse(r.referringUrls) as unknown,
+      isMobileFriendly: r.isMobileFriendly,
+      richResults: r.richResults,
+      referringUrls: r.referringUrls,
       inspectedAt: r.inspectedAt,
     }))
   })
@@ -753,8 +753,8 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
       robotsTxtState: r.robotsTxtState,
       crawlTime: r.crawlTime,
       lastCrawlResult: r.lastCrawlResult,
-      isMobileFriendly: r.isMobileFriendly === 1 ? true : r.isMobileFriendly === 0 ? false : null,
-      richResults: JSON.parse(r.richResults) as unknown,
+      isMobileFriendly: r.isMobileFriendly,
+      richResults: r.richResults,
       inspectedAt: r.inspectedAt,
     })
 
@@ -816,7 +816,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
         date: r.date,
         indexed: r.indexed,
         notIndexed: r.notIndexed,
-        reasonBreakdown: JSON.parse(r.reasonBreakdown) as Record<string, number>,
+        reasonBreakdown: r.reasonBreakdown,
       }))
       .reverse()
   })
