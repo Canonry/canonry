@@ -2,7 +2,7 @@
 
 ## Purpose
 
-OpenAI adapter — implements `ProviderAdapter` for OpenAI's Responses API using the `web_search_preview` tool. Extracts cited domains from URL annotations.
+OpenAI adapter — implements `ProviderAdapter` for OpenAI's Responses API using the `web_search` tool (the current GA tool — see [ADR 0010](../../docs/adr/0010-openai-web-search-tool.md)). Extracts cited domains from URL annotations.
 
 ## Key Files
 
@@ -23,7 +23,7 @@ All provider packages follow the same 4-file structure and implement the same `P
 - **`normalizeResult(raw)`** — convert provider-specific response to standard `NormalizedQueryResult`
 - **`generateText(config, prompt)`** — general-purpose text generation
 
-Note: The OpenAI `web_search_preview` API returns fewer/different results than the ChatGPT UI search.
+Note: The OpenAI `web_search` API returns fewer/different results than the ChatGPT UI search. That gap is structural (the API does not carry logged-in user context, conversation history, or personalization) and is addressed separately by the planned browser provider (`docs/roadmap.md` → "Browser Provider (ChatGPT UI)"), not by switching API tool flavors.
 
 ## Common Mistakes
 

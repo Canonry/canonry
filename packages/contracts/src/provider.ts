@@ -129,7 +129,7 @@ const PROVIDER_LOCATION_HANDLING: Record<string, ProviderLocationHandling> = {
   },
   openai: {
     treatment: 'request-param',
-    description: 'Location sent as a structured `user_location` field on OpenAI’s web_search_preview tool.',
+    description: 'Location sent as a structured `user_location` field on OpenAI’s web_search tool.',
   },
   claude: {
     treatment: 'request-param',

@@ -57,7 +57,7 @@ export async function executeTrackedQuery(input: OpenAITrackedQueryInput): Promi
   const model = input.config.model ?? DEFAULT_MODEL
   const client = new OpenAI({ apiKey: input.config.apiKey })
 
-  const webSearchTool: Record<string, unknown> = { type: 'web_search_preview' }
+  const webSearchTool: Record<string, unknown> = { type: 'web_search' }
   if (input.location) {
     webSearchTool.user_location = {
       type: 'approximate',
@@ -72,7 +72,7 @@ export async function executeTrackedQuery(input: OpenAITrackedQueryInput): Promi
     const response = await withRetry(() =>
       client.responses.create({
         model,
-        tools: [webSearchTool as { type: 'web_search_preview' }],
+        tools: [webSearchTool as { type: 'web_search' }],
         tool_choice: 'required' as never,
         input: buildPrompt(input.query),
       }),

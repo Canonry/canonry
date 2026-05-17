@@ -136,7 +136,7 @@ Cloud SaaS AEO tools query from data centers, producing a single decontextualize
 **Impact**: Enables audience-segmented AEO monitoring using existing API providers — no new infrastructure. "Homeowners see us cited, property managers don't" becomes a trackable metric.
 
 ### Browser Provider (ChatGPT UI)
-**Gap**: API-based queries (`web_search_preview`) return different results than the real ChatGPT UI. The UI reflects logged-in user context, conversation history, and real personalization.
+**Gap**: API-based queries (OpenAI's `web_search` tool) return different results than the real ChatGPT UI. The UI reflects logged-in user context, conversation history, and real personalization — and that gap is structural, not a function of which API tool flavor canonry calls (see [ADR 0010](./adr/0010-openai-web-search-tool.md)).
 **Implementation**: New `packages/provider-chatgpt-browser/` adapter. Chrome MCP integration first (leverages existing MCP ecosystem), CDP (Chrome DevTools Protocol) as fallback. Implements standard `ProviderAdapter` interface. Navigates to ChatGPT, submits query, extracts answer text + cited sources from DOM.
 **Impact**: Highest-signal provider. Captures what real users actually see. Combined with personas and node identity, creates a multi-dimensional observation matrix.
 

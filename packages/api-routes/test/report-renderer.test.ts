@@ -120,7 +120,7 @@ function richReport(): ProjectReportDto {
       },
       providerLocationHandling: [
         { provider: 'gemini', treatment: 'prompt', description: 'Location appended to the query text the Gemini model receives.' },
-        { provider: 'openai', treatment: 'request-param', description: 'Location sent as a structured `user_location` field on OpenAI’s web_search_preview tool.' },
+        { provider: 'openai', treatment: 'request-param', description: 'Location sent as a structured `user_location` field on OpenAI’s web_search tool.' },
       ],
       periodStart: '2026-04-01T00:00:00Z',
       periodEnd: '2026-04-30T00:00:00Z',
@@ -661,7 +661,7 @@ describe('renderReportHtml', () => {
     expect(executive).toContain('Not included')
     expect(executive).toContain('florida')
     expect(executive).not.toContain('Location handling')
-    expect(executive).not.toContain('web_search_preview')
+    expect(executive).not.toContain('web_search')
     expect(executive).not.toContain('How the location reached the model')
   })
 

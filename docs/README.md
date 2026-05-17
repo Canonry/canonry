@@ -62,6 +62,9 @@ Plans describe implementation work. They are not current-behavior reference docs
 | [`0005-distributed-node-hub-architecture.md`](adr/0005-distributed-node-hub-architecture.md) | ADR | Define the long-term distributed node and hub architecture |
 | [`0006-location-aware-tracking.md`](adr/0006-location-aware-tracking.md) | ADR (superseded) | Historical proposal for query-scoped location tracking |
 | [`0007-project-scoped-location-context.md`](adr/0007-project-scoped-location-context.md) | ADR | Keep locations project-scoped and use them as run context |
+| [`0008-canonry-package-split.md`](adr/0008-canonry-package-split.md) | ADR | Split `@ainyc/canonry` into smaller publishable packages |
+| [`0009-content-action-outcome-ledger-and-publish-boundary.md`](adr/0009-content-action-outcome-ledger-and-publish-boundary.md) | ADR | Content action outcome ledger + publish transformer/adapter boundary |
+| [`0010-openai-web-search-tool.md`](adr/0010-openai-web-search-tool.md) | ADR | Use OpenAI's GA `web_search` tool over legacy `web_search_preview`; keep its new knobs off |
 
 ## Reading Order
 
