@@ -24,7 +24,6 @@
  */
 import { z, type ZodType } from 'zod'
 import {
-  agentMemoryUpsertRequestSchema,
   auditLogEntrySchema,
   backlinkHistoryEntrySchema,
   backlinkListResponseSchema,
@@ -45,6 +44,7 @@ import {
   discoveryPromoteResultSchema,
   discoverySessionDetailDtoSchema,
   discoverySessionDtoSchema,
+  doctorReportSchema,
   ga4AiReferralHistoryEntrySchema,
   ga4SessionHistoryEntrySchema,
   ga4SocialReferralHistoryEntrySchema,
@@ -73,7 +73,6 @@ import {
   trafficSourceListResponseSchema,
   trafficStatusResponseSchema,
   trafficSyncResponseSchema,
-  wordpressAuditIssueDtoSchema,
   wordpressAuditPageDtoSchema,
   wordpressBulkMetaResultDtoSchema,
   wordpressDiffDtoSchema,
@@ -93,7 +92,6 @@ import {
  * obvious in review.
  */
 const SCHEMA_TABLE = {
-  AgentMemoryUpsertRequest: agentMemoryUpsertRequestSchema,
   AuditLogEntry: auditLogEntrySchema,
   BacklinkHistoryEntry: backlinkHistoryEntrySchema,
   BacklinkListResponse: backlinkListResponseSchema,
@@ -114,6 +112,7 @@ const SCHEMA_TABLE = {
   DiscoveryPromoteResult: discoveryPromoteResultSchema,
   DiscoverySessionDetailDto: discoverySessionDetailDtoSchema,
   DiscoverySessionDto: discoverySessionDtoSchema,
+  DoctorReportDto: doctorReportSchema,
   GA4AiReferralHistoryEntry: ga4AiReferralHistoryEntrySchema,
   GA4SessionHistoryEntry: ga4SessionHistoryEntrySchema,
   GA4SocialReferralHistoryEntry: ga4SocialReferralHistoryEntrySchema,
@@ -142,7 +141,6 @@ const SCHEMA_TABLE = {
   TrafficSourceListResponse: trafficSourceListResponseSchema,
   TrafficStatusResponse: trafficStatusResponseSchema,
   TrafficSyncResponse: trafficSyncResponseSchema,
-  WordpressAuditIssueDto: wordpressAuditIssueDtoSchema,
   WordpressAuditPageDto: wordpressAuditPageDtoSchema,
   WordpressBulkMetaResultDto: wordpressBulkMetaResultDtoSchema,
   WordpressDiffDto: wordpressDiffDtoSchema,

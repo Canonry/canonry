@@ -379,7 +379,7 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['queries'],
     parameters: [nameParameter],
     responses: {
-      200: { description: 'Queries returned.' },
+      200: jsonArrayResponse('Queries returned.', 'QueryDto'),
     },
   },
   {
@@ -403,7 +403,7 @@ const routeCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      200: { description: 'Queries replaced.' },
+      200: jsonArrayResponse('Queries replaced.', 'QueryDto'),
     },
   },
   {
@@ -427,8 +427,8 @@ const routeCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      200: { description: 'Remaining queries returned.' },
-      400: { description: 'Invalid query delete request.' },
+      200: jsonArrayResponse('Remaining queries returned.', 'QueryDto'),
+      400: errorResponse('Invalid query delete request.'),
     },
   },
   {
@@ -452,7 +452,7 @@ const routeCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      200: { description: 'Queries appended.' },
+      200: jsonArrayResponse('Queries appended.', 'QueryDto'),
     },
   },
   {
@@ -477,8 +477,9 @@ const routeCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      200: { description: 'Replace preview returned.' },
-      404: { description: 'Project not found.' },
+      // TODO: Add `QueriesReplacePreviewDto` Zod schema in contracts.
+      200: rawJsonResponse('Replace preview returned.', looseObjectSchema),
+      404: errorResponse('Project not found.'),
     },
   },
   {
@@ -503,8 +504,8 @@ const routeCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      200: { description: 'Query suggestions returned.' },
-      501: { description: 'Query generation is not available.' },
+      200: rawJsonResponse('Query suggestions returned.', { type: 'object', properties: { suggestions: { type: 'array', items: { type: 'string' } } } }),
+      501: errorResponse('Query generation is not available.'),
     },
   },
   {
@@ -514,7 +515,7 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['queries'],
     parameters: [nameParameter],
     responses: {
-      200: { description: 'Legacy keyword-shaped queries returned.' },
+      200: jsonArrayResponse('Legacy keyword-shaped queries returned.', 'KeywordDto'),
     },
   },
   {
@@ -538,7 +539,7 @@ const routeCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      200: { description: 'Legacy keyword-shaped queries replaced.' },
+      200: jsonArrayResponse('Legacy keyword-shaped queries replaced.', 'KeywordDto'),
     },
   },
   {
@@ -1314,9 +1315,9 @@ const routeCatalog: OpenApiOperation[] = [
       { name: 'error', in: 'query', description: 'OAuth error code.', schema: stringSchema },
     ],
     responses: {
-      200: { description: 'OAuth callback handled.' },
-      400: { description: 'Invalid callback request.' },
-      500: { description: 'OAuth configuration is incomplete.' },
+      200: rawJsonResponse('OAuth callback handled.', { type: 'object', properties: { status: { type: 'string' } } }),
+      400: errorResponse('Invalid callback request.'),
+      500: errorResponse('OAuth configuration is incomplete.'),
     },
   },
   {
@@ -1332,9 +1333,9 @@ const routeCatalog: OpenApiOperation[] = [
       { name: 'error', in: 'query', description: 'OAuth error code.', schema: stringSchema },
     ],
     responses: {
-      200: { description: 'OAuth callback handled.' },
-      400: { description: 'Invalid callback request.' },
-      500: { description: 'OAuth configuration is incomplete.' },
+      200: rawJsonResponse('OAuth callback handled.', { type: 'object', properties: { status: { type: 'string' } } }),
+      400: errorResponse('Invalid callback request.'),
+      500: errorResponse('OAuth configuration is incomplete.'),
     },
   },
   {
@@ -1344,8 +1345,8 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['google'],
     parameters: [nameParameter],
     responses: {
-      200: { description: 'Google connections returned.' },
-      404: { description: 'Project not found.' },
+      200: jsonArrayResponse('Google connections returned.', 'GoogleConnectionDto'),
+      404: errorResponse('Project not found.'),
     },
   },
   {
@@ -1371,8 +1372,8 @@ const routeCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      200: { description: 'Google auth URL returned.' },
-      400: { description: 'Invalid Google connection request.' },
+      200: rawJsonResponse('Google auth URL returned.', { type: 'object', properties: { url: { type: 'string' } } }),
+      400: errorResponse('Invalid Google connection request.'),
     },
   },
   {
@@ -1383,7 +1384,7 @@ const routeCatalog: OpenApiOperation[] = [
     parameters: [nameParameter, googleTypeParameter],
     responses: {
       204: { description: 'Google connection deleted.' },
-      404: { description: 'Project or connection not found.' },
+      404: errorResponse('Project or connection not found.'),
     },
   },
   {
@@ -1393,9 +1394,10 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['google'],
     parameters: [nameParameter],
     responses: {
-      200: { description: 'Google properties returned.' },
-      400: { description: 'Google OAuth is not configured.' },
-      404: { description: 'Project not found.' },
+      // TODO: Add `GooglePropertiesResponse` Zod schema in contracts.
+      200: rawJsonResponse('Google properties returned.', looseObjectSchema),
+      400: errorResponse('Google OAuth is not configured.'),
+      404: errorResponse('Project not found.'),
     },
   },
   {
@@ -1419,9 +1421,9 @@ const routeCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      200: { description: 'Google property updated.' },
-      400: { description: 'Invalid property request.' },
-      404: { description: 'Project or connection not found.' },
+      200: jsonResponse('Google property updated.', 'GoogleConnectionDto'),
+      400: errorResponse('Invalid property request.'),
+      404: errorResponse('Project or connection not found.'),
     },
   },
   {
@@ -1445,9 +1447,9 @@ const routeCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      200: { description: 'Google sitemap updated.' },
-      400: { description: 'Invalid sitemap request.' },
-      404: { description: 'Project or connection not found.' },
+      200: jsonResponse('Google sitemap updated.', 'GoogleConnectionDto'),
+      400: errorResponse('Invalid sitemap request.'),
+      404: errorResponse('Project or connection not found.'),
     },
   },
   {
@@ -1470,9 +1472,9 @@ const routeCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      200: { description: 'GSC sync run returned.' },
-      400: { description: 'Invalid GSC sync request.' },
-      404: { description: 'Project or connection not found.' },
+      200: jsonResponse('GSC sync run returned.', 'RunDto'),
+      400: errorResponse('Invalid GSC sync request.'),
+      404: errorResponse('Project or connection not found.'),
     },
   },
   {
@@ -1491,8 +1493,8 @@ const routeCatalog: OpenApiOperation[] = [
       analyticsWindowParameter,
     ],
     responses: {
-      200: { description: 'GSC performance rows returned.' },
-      404: { description: 'Project not found.' },
+      200: jsonResponse('GSC performance rows returned.', 'GscSearchDataDto'),
+      404: errorResponse('Project not found.'),
     },
   },
   {
@@ -1507,8 +1509,8 @@ const routeCatalog: OpenApiOperation[] = [
       analyticsWindowParameter,
     ],
     responses: {
-      200: { description: 'Daily aggregate (date → clicks/impressions/ctr) plus window totals.' },
-      404: { description: 'Project not found.' },
+      200: jsonResponse('Daily aggregate (date → clicks/impressions/ctr) plus window totals.', 'GscPerformanceDailyDto'),
+      404: errorResponse('Project not found.'),
     },
   },
   {
@@ -1900,9 +1902,9 @@ const routeCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      200: { description: 'WordPress connection status returned.' },
-      400: { description: 'Invalid WordPress connection request.' },
-      404: { description: 'Project not found.' },
+      200: jsonResponse('WordPress connection status returned.', 'WordpressStatusDto'),
+      400: errorResponse('Invalid WordPress connection request.'),
+      404: errorResponse('Project not found.'),
     },
   },
   {
@@ -1913,7 +1915,7 @@ const routeCatalog: OpenApiOperation[] = [
     parameters: [nameParameter],
     responses: {
       204: { description: 'WordPress connection deleted.' },
-      404: { description: 'Project or connection not found.' },
+      404: errorResponse('Project or connection not found.'),
     },
   },
   {
@@ -1923,8 +1925,8 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['wordpress'],
     parameters: [nameParameter],
     responses: {
-      200: { description: 'WordPress status returned.' },
-      404: { description: 'Project not found.' },
+      200: jsonResponse('WordPress status returned.', 'WordpressStatusDto'),
+      404: errorResponse('Project not found.'),
     },
   },
   {
@@ -1934,9 +1936,9 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['wordpress'],
     parameters: [nameParameter, wordpressEnvQueryParameter],
     responses: {
-      200: { description: 'WordPress pages returned.' },
-      400: { description: 'Invalid environment or missing connection.' },
-      404: { description: 'Project not found.' },
+      200: jsonArrayResponse('WordPress pages returned.', 'WordpressPageSummaryDto'),
+      400: errorResponse('Invalid environment or missing connection.'),
+      404: errorResponse('Project not found.'),
     },
   },
   {
@@ -1946,9 +1948,9 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['wordpress'],
     parameters: [nameParameter, wordpressSlugQueryParameter, wordpressEnvQueryParameter],
     responses: {
-      200: { description: 'WordPress page returned.' },
-      400: { description: 'Invalid slug or environment.' },
-      404: { description: 'Project, connection, or page not found.' },
+      200: jsonResponse('WordPress page returned.', 'WordpressPageDetailDto'),
+      400: errorResponse('Invalid slug or environment.'),
+      404: errorResponse('Project, connection, or page not found.'),
     },
   },
   {
@@ -1976,9 +1978,9 @@ const routeCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      200: { description: 'WordPress page created.' },
-      400: { description: 'Invalid page creation request.' },
-      404: { description: 'Project or connection not found.' },
+      200: jsonResponse('WordPress page created.', 'WordpressPageDetailDto'),
+      400: errorResponse('Invalid page creation request.'),
+      404: errorResponse('Project or connection not found.'),
     },
   },
   {
@@ -2496,8 +2498,9 @@ const routeCatalog: OpenApiOperation[] = [
       { name: 'id', in: 'path', required: true, description: 'Insight ID.', schema: stringSchema },
     ],
     responses: {
-      200: { description: 'Insight dismissed.' },
-      404: { description: 'Insight not found.' },
+      // TODO: Add `InsightDto` Zod schema in contracts.
+      200: rawJsonResponse('Insight dismissed.', looseObjectSchema),
+      404: errorResponse('Insight not found.'),
     },
   },
   {
@@ -2509,8 +2512,9 @@ const routeCatalog: OpenApiOperation[] = [
       'Bundles every section the canonry-report HTML output needs (executive summary, client summary, agency diagnostics, action plan, citation scorecard, competitor landscape — citation + mention landscapes, AI citation sources, GSC, GA4, social/AI referrals, indexing health, citations trend, insights, and recommended next steps) into a single canonical JSON payload. Backs `canonry report <project>` and MCP report reads.',
     parameters: [nameParameter],
     responses: {
-      200: { description: 'Report returned.' },
-      404: { description: 'Project not found.' },
+      // TODO: Add `ProjectReportDto` Zod schema in contracts.
+      200: rawJsonResponse('Report returned.', looseObjectSchema),
+      404: errorResponse('Project not found.'),
     },
   },
   {
@@ -2522,8 +2526,8 @@ const routeCatalog: OpenApiOperation[] = [
       'Server-rendered self-contained HTML version of the project report. Same data as `/projects/{name}/report` (JSON), rendered through the canonry HTML report renderer in agency or client mode. Returns `text/html` with `Content-Disposition: attachment` so browsers download it as `canonry-report-<project>-<audience>-YYYY-MM-DD.html`. Open in a browser and Print → Save as PDF for a PDF copy.',
     parameters: [nameParameter, reportAudienceQueryParameter],
     responses: {
-      200: { description: 'HTML report returned.' },
-      404: { description: 'Project not found.' },
+      200: { description: 'HTML report returned.', content: { 'text/html': { schema: { type: 'string' } } } },
+      404: errorResponse('Project not found.'),
     },
   },
   {
@@ -2535,8 +2539,9 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['intelligence'],
     parameters: [nameParameter],
     responses: {
-      200: { description: 'Health snapshot or no-data sentinel returned.' },
-      404: { description: 'Project not found.' },
+      // TODO: Add `HealthSnapshotDto` Zod schema in contracts.
+      200: rawJsonResponse('Health snapshot or no-data sentinel returned.', looseObjectSchema),
+      404: errorResponse('Project not found.'),
     },
   },
   {
@@ -2549,8 +2554,9 @@ const routeCatalog: OpenApiOperation[] = [
       { name: 'limit', in: 'query', description: 'Max results.', schema: stringSchema },
     ],
     responses: {
-      200: { description: 'Health history returned.' },
-      404: { description: 'Project not found.' },
+      // TODO: Add `HealthSnapshotDto` Zod schema in contracts.
+      200: rawJsonResponse('Health history returned.', { type: 'array', items: looseObjectSchema }),
+      404: errorResponse('Project not found.'),
     },
   },
   {
@@ -2562,8 +2568,8 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['intelligence'],
     parameters: [nameParameter],
     responses: {
-      200: { description: 'Citation visibility report or no-data sentinel returned.' },
-      404: { description: 'Project not found.' },
+      200: jsonResponse('Citation visibility report or no-data sentinel returned.', 'CitationVisibilityResponse'),
+      404: errorResponse('Project not found.'),
     },
   },
 
@@ -2581,9 +2587,9 @@ const routeCatalog: OpenApiOperation[] = [
       { name: 'include-in-progress', in: 'query', description: 'Include rows with in-flight tracked actions.', schema: stringSchema },
     ],
     responses: {
-      200: { description: 'Targets returned.' },
-      400: { description: 'Invalid limit.' },
-      404: { description: 'Project not found.' },
+      200: jsonResponse('Targets returned.', 'ContentTargetsResponseDto'),
+      400: errorResponse('Invalid limit.'),
+      404: errorResponse('Project not found.'),
     },
   },
   {
@@ -2595,8 +2601,8 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['content'],
     parameters: [nameParameter],
     responses: {
-      200: { description: 'Sources returned.' },
-      404: { description: 'Project not found.' },
+      200: jsonResponse('Sources returned.', 'ContentSourcesResponseDto'),
+      404: errorResponse('Project not found.'),
     },
   },
   {
@@ -2608,8 +2614,8 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['content'],
     parameters: [nameParameter],
     responses: {
-      200: { description: 'Gaps returned.' },
-      404: { description: 'Project not found.' },
+      200: jsonResponse('Gaps returned.', 'ContentGapsResponseDto'),
+      404: errorResponse('Project not found.'),
     },
   },
   {
@@ -2621,8 +2627,9 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['intelligence'],
     parameters: [nameParameter],
     responses: {
-      200: { description: 'Overview returned.' },
-      404: { description: 'Project not found.' },
+      // TODO: Add `ProjectOverviewDto` Zod schema in contracts.
+      200: rawJsonResponse('Overview returned.', looseObjectSchema),
+      404: errorResponse('Project not found.'),
     },
   },
   {
@@ -2638,9 +2645,10 @@ const routeCatalog: OpenApiOperation[] = [
       { name: 'limit', in: 'query', description: 'Max combined hits (1-50, default 25).', schema: stringSchema },
     ],
     responses: {
-      200: { description: 'Search hits returned.' },
-      400: { description: 'Query string missing or too short.' },
-      404: { description: 'Project not found.' },
+      // TODO: Add `ProjectSearchResponseDto` Zod schema in contracts (projectSearchResponseSchema exists).
+      200: rawJsonResponse('Search hits returned.', looseObjectSchema),
+      400: errorResponse('Query string missing or too short.'),
+      404: errorResponse('Project not found.'),
     },
   },
   {
@@ -2659,7 +2667,7 @@ const routeCatalog: OpenApiOperation[] = [
       },
     ],
     responses: {
-      200: { description: 'Doctor report returned.' },
+      200: jsonResponse('Doctor report returned.', 'DoctorReportDto'),
     },
   },
   {
@@ -2679,8 +2687,8 @@ const routeCatalog: OpenApiOperation[] = [
       },
     ],
     responses: {
-      200: { description: 'Doctor report returned.' },
-      404: { description: 'Project not found.' },
+      200: jsonResponse('Doctor report returned.', 'DoctorReportDto'),
+      404: errorResponse('Project not found.'),
     },
   },
   {
@@ -2691,8 +2699,8 @@ const routeCatalog: OpenApiOperation[] = [
       'Reports whether @duckdb/node-api is installed in the local plugin dir. Returns MISSING_DEPENDENCY (422) on deployments that cannot host the plugin (e.g. the cloud API).',
     tags: ['backlinks'],
     responses: {
-      200: { description: 'Install status returned.' },
-      422: { description: 'Backlinks feature is not available on this deployment.' },
+      200: jsonResponse('Install status returned.', 'BacklinksInstallStatusDto'),
+      422: errorResponse('Backlinks feature is not available on this deployment.'),
     },
   },
   {
@@ -2703,8 +2711,8 @@ const routeCatalog: OpenApiOperation[] = [
       'Idempotently installs DuckDB into the canonry plugin dir. Returns MISSING_DEPENDENCY (422) when the host cannot perform the install.',
     tags: ['backlinks'],
     responses: {
-      200: { description: 'Installed (or already present).' },
-      422: { description: 'Backlinks feature is not available on this deployment.' },
+      200: jsonResponse('Installed (or already present).', 'BacklinksInstallResultDto'),
+      422: errorResponse('Backlinks feature is not available on this deployment.'),
     },
   },
   {
@@ -2728,10 +2736,10 @@ const routeCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      200: { description: 'Existing in-flight sync returned.' },
-      201: { description: 'Sync queued.' },
-      400: { description: 'Invalid release id.' },
-      422: { description: 'Backlinks feature is not available on this deployment.' },
+      200: jsonResponse('Existing in-flight sync returned.', 'CcReleaseSyncDto'),
+      201: jsonResponse('Sync queued.', 'CcReleaseSyncDto'),
+      400: errorResponse('Invalid release id.'),
+      422: errorResponse('Backlinks feature is not available on this deployment.'),
     },
   },
   {
@@ -2741,7 +2749,7 @@ const routeCatalog: OpenApiOperation[] = [
     description: 'Returns syncs ordered by updatedAt DESC — re-queued rows surface ahead of untouched newer rows.',
     tags: ['backlinks'],
     responses: {
-      200: { description: 'Sync history returned.' },
+      200: jsonArrayResponse('Sync history returned.', 'CcReleaseSyncDto'),
     },
   },
   {
@@ -2750,7 +2758,10 @@ const routeCatalog: OpenApiOperation[] = [
     summary: 'Get the most recently-updated Common Crawl release sync',
     tags: ['backlinks'],
     responses: {
-      200: { description: 'Latest sync returned, or null when no sync exists.' },
+      // Returns CcReleaseSyncDto | null
+      200: rawJsonResponse('Latest sync returned, or null when no sync exists.', {
+        oneOf: [{ $ref: '#/components/schemas/CcReleaseSyncDto' }, { type: 'null' }],
+      }),
     },
   },
   {
@@ -2759,7 +2770,7 @@ const routeCatalog: OpenApiOperation[] = [
     summary: 'List cached Common Crawl releases on the local filesystem',
     tags: ['backlinks'],
     responses: {
-      200: { description: 'Cached release metadata returned.' },
+      200: jsonArrayResponse('Cached release metadata returned.', 'CcCachedRelease'),
     },
   },
   {
@@ -2770,8 +2781,10 @@ const routeCatalog: OpenApiOperation[] = [
       'Probes Common Crawl by HEAD-checking quarterly release slugs and returns the newest one published. The local server caches the result for ~5 minutes so repeated calls do not hammer Common Crawl.',
     tags: ['backlinks'],
     responses: {
-      200: { description: 'Latest available release, or null when no candidate slug responded.' },
-      422: { description: 'Backlinks feature is not available on this deployment.' },
+      200: rawJsonResponse('Latest available release, or null when no candidate slug responded.', {
+        oneOf: [{ $ref: '#/components/schemas/CcAvailableRelease' }, { type: 'null' }],
+      }),
+      422: errorResponse('Backlinks feature is not available on this deployment.'),
     },
   },
   {
@@ -2789,9 +2802,10 @@ const routeCatalog: OpenApiOperation[] = [
       },
     ],
     responses: {
-      200: { description: 'Cache pruned.' },
-      400: { description: 'Invalid release id.' },
-      422: { description: 'Backlinks feature is not available on this deployment.' },
+      // TODO: Add `BacklinksCachePruneResultDto` Zod schema in contracts.
+      200: rawJsonResponse('Cache pruned.', looseObjectSchema),
+      400: errorResponse('Invalid release id.'),
+      422: errorResponse('Backlinks feature is not available on this deployment.'),
     },
   },
   {
@@ -2816,10 +2830,10 @@ const routeCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      201: { description: 'Extract run queued.' },
-      400: { description: 'Invalid release id.' },
-      404: { description: 'Project not found.' },
-      422: { description: 'Backlinks feature is not available on this deployment.' },
+      201: jsonResponse('Extract run queued.', 'RunDto'),
+      400: errorResponse('Invalid release id.'),
+      404: errorResponse('Project not found.'),
+      422: errorResponse('Backlinks feature is not available on this deployment.'),
     },
   },
   {
@@ -2832,8 +2846,10 @@ const routeCatalog: OpenApiOperation[] = [
       { name: 'release', in: 'query', description: 'Release id filter.', schema: stringSchema },
     ],
     responses: {
-      200: { description: 'Summary returned, or null when no backlinks exist.' },
-      404: { description: 'Project not found.' },
+      200: rawJsonResponse('Summary returned, or null when no backlinks exist.', {
+        oneOf: [{ $ref: '#/components/schemas/BacklinkSummaryDto' }, { type: 'null' }],
+      }),
+      404: errorResponse('Project not found.'),
     },
   },
   {
@@ -2848,8 +2864,8 @@ const routeCatalog: OpenApiOperation[] = [
       { name: 'offset', in: 'query', description: 'Pagination offset.', schema: stringSchema },
     ],
     responses: {
-      200: { description: 'Domain list returned.' },
-      404: { description: 'Project not found.' },
+      200: jsonResponse('Domain list returned.', 'BacklinkListResponse'),
+      404: errorResponse('Project not found.'),
     },
   },
   {
@@ -2859,8 +2875,8 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['backlinks'],
     parameters: [nameParameter],
     responses: {
-      200: { description: 'History returned oldest-first by queriedAt.' },
-      404: { description: 'Project not found.' },
+      200: jsonArrayResponse('History returned oldest-first by queriedAt.', 'BacklinkHistoryEntry'),
+      404: errorResponse('Project not found.'),
     },
   },
   {
@@ -2890,9 +2906,9 @@ const routeCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      200: { description: 'Traffic source DTO returned.' },
-      400: { description: 'Invalid Cloud Run connection request.' },
-      404: { description: 'Project not found.' },
+      200: jsonResponse('Traffic source DTO returned.', 'TrafficSourceDto'),
+      400: errorResponse('Invalid Cloud Run connection request.'),
+      404: errorResponse('Project not found.'),
     },
   },
   {
@@ -2921,10 +2937,10 @@ const routeCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      200: { description: 'Traffic source DTO returned.' },
-      400: { description: 'Invalid WordPress connection request.' },
-      404: { description: 'Project not found.' },
-      502: { description: 'WordPress plugin endpoint probe failed (bad credentials, unreachable host, etc.).' },
+      200: jsonResponse('Traffic source DTO returned.', 'TrafficSourceDto'),
+      400: errorResponse('Invalid WordPress connection request.'),
+      404: errorResponse('Project not found.'),
+      502: errorResponse('WordPress plugin endpoint probe failed (bad credentials, unreachable host, etc.).'),
     },
   },
   {
@@ -2954,10 +2970,10 @@ const routeCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      200: { description: 'Traffic source DTO returned.' },
-      400: { description: 'Invalid Vercel connection request.' },
-      404: { description: 'Project not found.' },
-      502: { description: 'Vercel request-logs endpoint probe failed (bad token, wrong project / team id, unreachable host, etc.).' },
+      200: jsonResponse('Traffic source DTO returned.', 'TrafficSourceDto'),
+      400: errorResponse('Invalid Vercel connection request.'),
+      404: errorResponse('Project not found.'),
+      502: errorResponse('Vercel request-logs endpoint probe failed (bad token, wrong project / team id, unreachable host, etc.).'),
     },
   },
   {
@@ -2985,10 +3001,10 @@ const routeCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      200: { description: 'Sync summary returned.' },
-      400: { description: 'Invalid sync request or missing credentials.' },
-      404: { description: 'Project or traffic source not found.' },
-      502: { description: 'Upstream Cloud Run pull or auth-token resolution failed.' },
+      200: jsonResponse('Sync summary returned.', 'TrafficSyncResponse'),
+      400: errorResponse('Invalid sync request or missing credentials.'),
+      404: errorResponse('Project or traffic source not found.'),
+      502: errorResponse('Upstream Cloud Run pull or auth-token resolution failed.'),
     },
   },
   {
@@ -3016,9 +3032,9 @@ const routeCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      200: { description: 'Backfill submitted; poll the returned runId for completion.' },
-      400: { description: 'Invalid backfill request or missing credentials.' },
-      404: { description: 'Project or traffic source not found.' },
+      200: jsonResponse('Backfill submitted; poll the returned runId for completion.', 'TrafficBackfillResponse'),
+      400: errorResponse('Invalid backfill request or missing credentials.'),
+      404: errorResponse('Project or traffic source not found.'),
     },
   },
   {
@@ -3028,8 +3044,8 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['traffic'],
     parameters: [nameParameter],
     responses: {
-      200: { description: 'Source list returned.' },
-      404: { description: 'Project not found.' },
+      200: jsonResponse('Source list returned.', 'TrafficSourceListResponse'),
+      404: errorResponse('Project not found.'),
     },
   },
   {
@@ -3041,8 +3057,8 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['traffic'],
     parameters: [nameParameter],
     responses: {
-      200: { description: 'Status returned.' },
-      404: { description: 'Project not found.' },
+      200: jsonResponse('Status returned.', 'TrafficStatusResponse'),
+      404: errorResponse('Project not found.'),
     },
   },
   {
@@ -3055,8 +3071,8 @@ const routeCatalog: OpenApiOperation[] = [
       { name: 'id', in: 'path', required: true, description: 'Traffic source ID.', schema: stringSchema },
     ],
     responses: {
-      200: { description: 'Source detail returned.' },
-      404: { description: 'Project or source not found.' },
+      200: jsonResponse('Source detail returned.', 'TrafficSourceDetailDto'),
+      404: errorResponse('Project or source not found.'),
     },
   },
   {
@@ -3075,9 +3091,9 @@ const routeCatalog: OpenApiOperation[] = [
       { name: 'sourceId', in: 'query', description: 'Restrict to a single traffic source.', schema: stringSchema },
     ],
     responses: {
-      200: { description: 'Events returned with windowed totals.' },
-      400: { description: 'Invalid query parameters.' },
-      404: { description: 'Project not found.' },
+      200: jsonResponse('Events returned with windowed totals.', 'TrafficEventsResponse'),
+      400: errorResponse('Invalid query parameters.'),
+      404: errorResponse('Project not found.'),
     },
   },
   {
@@ -3109,10 +3125,11 @@ const routeCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      200: { description: 'An in-flight session with the same project + ICP was reused; returns { runId, sessionId, status, consolidated: true }. The request\'s dedupThreshold / maxProbes are ignored.' },
-      201: { description: 'New discovery session enqueued; returns { runId, sessionId, status, consolidated: false }.' },
-      400: { description: 'Missing or invalid ICP / parameters.' },
-      404: { description: 'Project not found.' },
+      // TODO: Add `DiscoveryRunResponse` Zod schema in contracts (`{ runId, sessionId, status, consolidated }`).
+      200: rawJsonResponse('An in-flight session with the same project + ICP was reused; returns { runId, sessionId, status, consolidated: true }. The request\'s dedupThreshold / maxProbes are ignored.', looseObjectSchema),
+      201: rawJsonResponse('New discovery session enqueued; returns { runId, sessionId, status, consolidated: false }.', looseObjectSchema),
+      400: errorResponse('Missing or invalid ICP / parameters.'),
+      404: errorResponse('Project not found.'),
     },
   },
   {
@@ -3126,8 +3143,8 @@ const routeCatalog: OpenApiOperation[] = [
       { name: 'limit', in: 'query', description: 'Max sessions returned. Default 50.', schema: stringSchema },
     ],
     responses: {
-      200: { description: 'Sessions returned.' },
-      404: { description: 'Project not found.' },
+      200: jsonArrayResponse('Sessions returned.', 'DiscoverySessionDto'),
+      404: errorResponse('Project not found.'),
     },
   },
   {
@@ -3141,8 +3158,8 @@ const routeCatalog: OpenApiOperation[] = [
       { name: 'id', in: 'path', required: true, description: 'Discovery session ID.', schema: stringSchema },
     ],
     responses: {
-      200: { description: 'Session detail returned.' },
-      404: { description: 'Project or session not found.' },
+      200: jsonResponse('Session detail returned.', 'DiscoverySessionDetailDto'),
+      404: errorResponse('Project or session not found.'),
     },
   },
   {
@@ -3156,8 +3173,8 @@ const routeCatalog: OpenApiOperation[] = [
       { name: 'id', in: 'path', required: true, description: 'Discovery session ID.', schema: stringSchema },
     ],
     responses: {
-      200: { description: 'Promote preview returned.' },
-      404: { description: 'Project or session not found.' },
+      200: jsonResponse('Promote preview returned.', 'DiscoveryPromotePreview'),
+      404: errorResponse('Project or session not found.'),
     },
   },
   {
@@ -3202,9 +3219,9 @@ const routeCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      200: { description: 'Promotion applied; returns promoted + skipped query/competitor lists.' },
-      400: { description: 'Session is not completed, or invalid request body.' },
-      404: { description: 'Project or session not found.' },
+      200: jsonResponse('Promotion applied; returns promoted + skipped query/competitor lists.', 'DiscoveryPromoteResult'),
+      400: errorResponse('Session is not completed, or invalid request body.'),
+      404: errorResponse('Project or session not found.'),
     },
   },
 ]
@@ -3227,8 +3244,9 @@ const canonryLocalRouteCatalog: OpenApiOperation[] = [
     tags: ['agent'],
     parameters: [nameParameter],
     responses: {
-      200: { description: 'Transcript returned.' },
-      404: { description: 'Project not found.' },
+      // TODO: Add `AgentTranscriptDto` Zod schema in contracts.
+      200: rawJsonResponse('Transcript returned.', looseObjectSchema),
+      404: errorResponse('Project not found.'),
     },
   },
   {
@@ -3240,8 +3258,9 @@ const canonryLocalRouteCatalog: OpenApiOperation[] = [
     tags: ['agent'],
     parameters: [nameParameter],
     responses: {
-      200: { description: 'Session reset.' },
-      404: { description: 'Project not found.' },
+      // Returns { status: 'reset' } sentinel.
+      200: rawJsonResponse('Session reset.', { type: 'object', properties: { status: { type: 'string', enum: ['reset'] } } }),
+      404: errorResponse('Project not found.'),
     },
   },
   {
@@ -3253,8 +3272,9 @@ const canonryLocalRouteCatalog: OpenApiOperation[] = [
     tags: ['agent'],
     parameters: [nameParameter],
     responses: {
-      200: { description: 'Memory entries returned.' },
-      404: { description: 'Project not found.' },
+      // TODO: Add `AgentMemoryListResponse` Zod schema in contracts.
+      200: rawJsonResponse('Memory entries returned.', looseObjectSchema),
+      404: errorResponse('Project not found.'),
     },
   },
   {
@@ -3281,9 +3301,10 @@ const canonryLocalRouteCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      200: { description: 'Entry upserted.' },
-      400: { description: 'Validation failed (key length, value size, reserved prefix).' },
-      404: { description: 'Project not found.' },
+      // TODO: Add `AgentMemoryEntryDto` Zod schema in contracts.
+      200: rawJsonResponse('Entry upserted.', looseObjectSchema),
+      400: errorResponse('Validation failed (key length, value size, reserved prefix).'),
+      404: errorResponse('Project not found.'),
     },
   },
   {
@@ -3309,9 +3330,10 @@ const canonryLocalRouteCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      200: { description: 'Entry removed or already absent.' },
-      400: { description: 'Validation failed (reserved prefix).' },
-      404: { description: 'Project not found.' },
+      // Returns { status: 'removed' | 'missing' } sentinel.
+      200: rawJsonResponse('Entry removed or already absent.', { type: 'object', properties: { status: { type: 'string', enum: ['removed', 'missing'] } } }),
+      400: errorResponse('Validation failed (reserved prefix).'),
+      404: errorResponse('Project not found.'),
     },
   },
   {
@@ -3323,8 +3345,9 @@ const canonryLocalRouteCatalog: OpenApiOperation[] = [
     tags: ['agent'],
     parameters: [nameParameter],
     responses: {
-      200: { description: 'Providers returned.' },
-      404: { description: 'Project not found.' },
+      // TODO: Add `AgentProvidersResponse` Zod schema in contracts.
+      200: rawJsonResponse('Providers returned.', looseObjectSchema),
+      404: errorResponse('Project not found.'),
     },
   },
   {
@@ -3364,10 +3387,11 @@ const canonryLocalRouteCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      200: { description: 'SSE stream of AgentEvent frames.' },
-      400: { description: 'Missing or empty prompt.' },
-      404: { description: 'Project not found.' },
-      409: { description: 'Another Aero turn is already in flight.' },
+      // Returns text/event-stream — codegen consumers should treat as a stream.
+      200: { description: 'SSE stream of AgentEvent frames.', content: { 'text/event-stream': { schema: { type: 'string' } } } },
+      400: errorResponse('Missing or empty prompt.'),
+      404: errorResponse('Project not found.'),
+      409: errorResponse('Another Aero turn is already in flight.'),
     },
   },
 ]
