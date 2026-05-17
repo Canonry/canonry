@@ -242,4 +242,33 @@ export default tseslint.config(
       }],
     },
   },
+  {
+    // Analog of the apps/web SDK enforcement, for the CLI. Every CLI / job
+    // runner / server-internal call into the canonry API must go through
+    // `ApiClient` (which delegates to the generated SDK via `invoke()`),
+    // not raw `fetch()`. The only legitimate raw fetches are inside
+    // `client.ts` itself: the `/health` probe (bootstrap check that lives
+    // outside `/api/v1`) and the SSE `streamPost()` (the SDK can't
+    // represent text/event-stream cleanly). Both are bounded by file.
+    files: ['packages/canonry/src/**/*.ts'],
+    ignores: [
+      // `ApiClient`'s `/health` probe + SSE prompt stream.
+      'packages/canonry/src/client.ts',
+      // External HTTP — not the canonry API:
+      // - daemon.ts probes localhost `/health` for serve-readiness
+      // - sitemap-parser.ts fetches the user's own sitemap.xml URL
+      // - telemetry.ts POSTs to the public telemetry collector
+      // - update-check.ts polls npm dist-tags
+      'packages/canonry/src/commands/daemon.ts',
+      'packages/canonry/src/sitemap-parser.ts',
+      'packages/canonry/src/telemetry.ts',
+      'packages/canonry/src/update-check.ts',
+    ],
+    rules: {
+      'no-restricted-syntax': ['error', {
+        selector: "CallExpression[callee.name='fetch']",
+        message: 'Use the generated `@ainyc/canonry-api-client` SDK via `ApiClient` / `createApiClient()` (which routes through `invoke()` for tracing, CliError mapping, and the base-path probe) instead of raw `fetch()`. If you genuinely need raw `fetch()` for an external (non-canonry) HTTP call, add the file to the `ignores` list in `eslint.config.js` with a one-line comment naming the external service.',
+      }],
+    },
+  },
 )
