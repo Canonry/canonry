@@ -33,7 +33,7 @@ Add location as a first-class dimension to query tracking. Each query can be tra
 
 | Provider | Param | Fields |
 |----------|-------|--------|
-| OpenAI `web_search_preview` | `user_location` | `{ type: 'approximate', country?, region?, city?, timezone? }` |
+| OpenAI `web_search` | `user_location` | `{ type: 'approximate', country?, region?, city?, timezone? }` |
 | Claude `web_search_20250305` | `user_location` | `{ type: 'approximate', country?, region?, city?, timezone? }` |
 | Gemini `googleSearch` | None in SDK | Prompt-level hint |
 | Local | N/A | Prompt-level hint |
@@ -105,7 +105,7 @@ Each adapter's `executeTrackedQuery` (line ~49) manually reconstructs input — 
 ### OpenAI — native `user_location`
 File: `packages/provider-openai/src/normalize.ts`
 
-Pass `user_location: { type: 'approximate', country, region, city, timezone }` to `web_search_preview` tool config.
+Pass `user_location: { type: 'approximate', country, region, city, timezone }` to `web_search` tool config.
 
 ### Claude — native `user_location`
 File: `packages/provider-claude/src/normalize.ts`
@@ -255,7 +255,7 @@ Verify each adapter forwards location fields to API call / prompt.
 | `packages/contracts/src/run.ts` | 1 | Extend snapshot DTO |
 | `packages/contracts/src/config-schema.ts` | 1 | locations in spec, query location references |
 | `packages/provider-openai/src/adapter.ts` | 2 | Forward location fields |
-| `packages/provider-openai/src/normalize.ts` | 2 | Pass user_location to web_search_preview |
+| `packages/provider-openai/src/normalize.ts` | 2 | Pass user_location to web_search |
 | `packages/provider-claude/src/adapter.ts` | 2 | Forward location fields |
 | `packages/provider-claude/src/normalize.ts` | 2 | Pass user_location to web_search_20250305 |
 | `packages/provider-gemini/src/adapter.ts` | 2 | Forward location fields |
