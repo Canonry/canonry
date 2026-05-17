@@ -674,7 +674,7 @@ export async function fetchAiReferrals(
           { name: 'date' },
           { name: sourceDim },
           { name: mediumDim },
-          { name: 'sessionDefaultChannelGroup' },
+          { name: 'sessionDefaultChannelGrouping' },
           { name: 'landingPagePlusQueryString' },
         ],
         metrics: [
