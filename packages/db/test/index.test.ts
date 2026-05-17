@@ -526,14 +526,14 @@ test('CRUD: insert run and query snapshot', () => {
     queryId: 'q_1',
     provider: 'gemini',
     citationState: 'cited',
-    citedDomains: '["example.com"]',
+    citedDomains: ['example.com'],
     createdAt: now,
   }).run()
 
   const [snap] = db.select().from(querySnapshots).where(eq(querySnapshots.runId, 'run_1')).all()
   expect(snap.citationState).toBe('cited')
-  expect(JSON.parse(snap.citedDomains)).toEqual(['example.com'])
-  expect(JSON.parse(snap.recommendedCompetitors)).toEqual([])
+  expect(snap.citedDomains).toEqual(['example.com'])
+  expect(snap.recommendedCompetitors).toEqual([])
 })
 
 test('unique constraint on queries(project_id, query)', () => {

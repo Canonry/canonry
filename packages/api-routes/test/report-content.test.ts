@@ -114,7 +114,7 @@ function seedRichProject(db: ReturnType<typeof createClient>): SeededRich {
     queryId: queryIds.get('best aeo platform')!,
     provider: 'gemini',
     citationState: 'not-cited',
-    competitorOverlap: JSON.stringify(['rival-a.com', 'rival-b.com']),
+    competitorOverlap: ['rival-a.com', 'rival-b.com'],
     rawResponse: JSON.stringify({
       groundingSources: [
         { uri: 'https://rival-a.com/best-aeo', title: 'Best AEO' },
@@ -131,7 +131,7 @@ function seedRichProject(db: ReturnType<typeof createClient>): SeededRich {
     queryId: queryIds.get('instant roofing estimate tool')!,
     provider: 'gemini',
     citationState: 'not-cited',
-    competitorOverlap: JSON.stringify(['rival-a.com']),
+    competitorOverlap: ['rival-a.com'],
     rawResponse: JSON.stringify({
       groundingSources: [
         { uri: 'https://rival-a.com/roofing-estimate', title: 'Roofing Estimate' },

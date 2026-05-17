@@ -104,7 +104,7 @@ function seedProject(db: ReturnType<typeof createClient>): SeededProject {
     queryId: queryIds.get('q1_create')!,
     provider: 'gemini',
     citationState: 'not-cited',
-    competitorOverlap: JSON.stringify(['competitor-a.com', 'competitor-b.com', 'competitor-c.com']),
+    competitorOverlap: ['competitor-a.com', 'competitor-b.com', 'competitor-c.com'],
     rawResponse: JSON.stringify({
       groundingSources: [
         { uri: 'https://competitor-a.com/guides/crm', title: 'CRM Guide' },
@@ -121,7 +121,7 @@ function seedProject(db: ReturnType<typeof createClient>): SeededProject {
     queryId: queryIds.get('q2_refresh')!,
     provider: 'gemini',
     citationState: 'not-cited',
-    competitorOverlap: JSON.stringify(['competitor-a.com', 'competitor-b.com']),
+    competitorOverlap: ['competitor-a.com', 'competitor-b.com'],
     rawResponse: JSON.stringify({
       groundingSources: [
         { uri: 'https://competitor-a.com/blog/email', title: 'Email Marketing' },
@@ -150,7 +150,7 @@ function seedProject(db: ReturnType<typeof createClient>): SeededProject {
     queryId: queryIds.get('q3_expand')!,
     provider: 'gemini',
     citationState: 'not-cited',
-    competitorOverlap: JSON.stringify(['competitor-b.com']),
+    competitorOverlap: ['competitor-b.com'],
     rawResponse: JSON.stringify({ groundingSources: [] }),
     createdAt: now,
   }).run()
@@ -175,7 +175,7 @@ function seedProject(db: ReturnType<typeof createClient>): SeededProject {
     queryId: queryIds.get('q4_addschema_eligible')!,
     provider: 'gemini',
     citationState: 'cited',
-    competitorOverlap: JSON.stringify([]),
+    competitorOverlap: [],
     rawResponse: JSON.stringify({
       groundingSources: [
         { uri: 'https://example.com/blog/saas-billing', title: 'SaaS Billing' },
@@ -447,7 +447,7 @@ describe('content routes', () => {
         queryId: kwId,
         provider: 'gemini',
         citationState: 'not-cited',
-        competitorOverlap: JSON.stringify(['competitor-a.com']),
+        competitorOverlap: ['competitor-a.com'],
         rawResponse: JSON.stringify({ groundingSources: [] }),
         createdAt: now,
       }).run()
@@ -532,7 +532,7 @@ describe('content routes', () => {
         queryId: kwId,
         provider: 'gemini',
         citationState: 'cited',
-        competitorOverlap: JSON.stringify([]),
+        competitorOverlap: [],
         rawResponse: JSON.stringify({
           groundingSources: [{ uri: 'https://example.com/blog/api-gateway', title: 'Old' }],
         }),
@@ -555,7 +555,7 @@ describe('content routes', () => {
         queryId: kwId,
         provider: 'gemini',
         citationState: 'not-cited',
-        competitorOverlap: JSON.stringify(['competitor-a.com']),
+        competitorOverlap: ['competitor-a.com'],
         rawResponse: JSON.stringify({
           groundingSources: [{ uri: 'https://competitor-a.com/api', title: 'Comp' }],
         }),
@@ -620,7 +620,7 @@ describe('content routes', () => {
         queryId: kwForQuery!.id,
         provider: 'gemini',
         citationState: 'not-cited',
-        competitorOverlap: JSON.stringify(['competitor-a.com', 'competitor-b.com']),
+        competitorOverlap: ['competitor-a.com', 'competitor-b.com'],
         rawResponse: JSON.stringify({
           groundingSources: [
             { uri: 'https://competitor-a.com/blog/email', title: 'Email' },
@@ -706,7 +706,7 @@ describe('content routes', () => {
           queryId: kwId,
           provider,
           citationState: 'cited',
-          competitorOverlap: JSON.stringify([]),
+          competitorOverlap: [],
           rawResponse: JSON.stringify({
             groundingSources: [
               { uri: 'https://example.com/blog/observability', title: 'Observability' },

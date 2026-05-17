@@ -120,9 +120,9 @@ function seedFanOutScenario(opts: { currentSiblingStatus?: RunSpec['status'] } =
     citationState: s.citationState,
     answerMentioned: s.citationState === 'cited',
     location: s.location,
-    citedDomains: s.citationState === 'cited' ? '["azcoatings.example"]' : '[]',
-    competitorOverlap: '[]',
-    recommendedCompetitors: '[]',
+    citedDomains: s.citationState === 'cited' ? ['azcoatings.example'] : [],
+    competitorOverlap: [],
+    recommendedCompetitors: [],
     rawResponse: '{}',
     createdAt: s.runId.includes('latest') ? '2026-05-13T17:23:21.000Z' : '2026-05-12T17:23:21.000Z',
   }))).run()
@@ -270,8 +270,8 @@ describe('Notifier multi-location fan-out (#480)', () => {
       { id: latestMiId, projectId, kind: 'answer-visibility', status: 'completed', trigger: 'manual', location: 'michigan', createdAt: latestCreatedAt, finishedAt: latestCreatedAt },
     ]).run()
     db.insert(querySnapshots).values([
-      { id: crypto.randomUUID(), runId: latestFlId, queryId, provider: 'gemini', citationState: 'cited', answerMentioned: true, location: 'florida',  citedDomains: '["example.com"]', competitorOverlap: '[]', recommendedCompetitors: '[]', rawResponse: '{}', createdAt: latestCreatedAt },
-      { id: crypto.randomUUID(), runId: latestMiId, queryId, provider: 'gemini', citationState: 'cited', answerMentioned: true, location: 'michigan', citedDomains: '["example.com"]', competitorOverlap: '[]', recommendedCompetitors: '[]', rawResponse: '{}', createdAt: latestCreatedAt },
+      { id: crypto.randomUUID(), runId: latestFlId, queryId, provider: 'gemini', citationState: 'cited', answerMentioned: true, location: 'florida',  citedDomains: ['example.com'], competitorOverlap: [], recommendedCompetitors: [], rawResponse: '{}', createdAt: latestCreatedAt },
+      { id: crypto.randomUUID(), runId: latestMiId, queryId, provider: 'gemini', citationState: 'cited', answerMentioned: true, location: 'michigan', citedDomains: ['example.com'], competitorOverlap: [], recommendedCompetitors: [], rawResponse: '{}', createdAt: latestCreatedAt },
     ]).run()
 
     const notifier = new Notifier(db, 'http://localhost:4100')

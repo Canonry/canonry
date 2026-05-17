@@ -618,8 +618,8 @@ export class IntelligenceService {
         continue
       }
 
-      const domains = parseJsonColumn<string[]>(r.citedDomains, [])
-      const competitors = parseJsonColumn<string[]>(r.competitorOverlap, [])
+      const domains = r.citedDomains
+      const competitors = r.competitorOverlap
       snapshots.push({
         query: resolvedQuery,
         provider: r.provider,

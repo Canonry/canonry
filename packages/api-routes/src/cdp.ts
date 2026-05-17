@@ -3,7 +3,7 @@ import path from 'node:path'
 import os from 'node:os'
 import type { FastifyInstance } from 'fastify'
 import { eq, and } from 'drizzle-orm'
-import { filterTrackedSnapshots, parseJsonColumn, querySnapshots, runs, queries } from '@ainyc/canonry-db'
+import { filterTrackedSnapshots, querySnapshots, runs, queries } from '@ainyc/canonry-db'
 import { CitationStates, notFound, notImplemented, validationError, type GroundingSource } from '@ainyc/canonry-contracts'
 import { resolveProject } from './helpers.js'
 
@@ -229,13 +229,13 @@ export async function cdpRoutes(app: FastifyInstance, opts: CDPRoutesOptions) {
           api: api ? {
             provider: api.provider,
             citationState: api.citationState,
-            citedDomains: parseJsonColumn<string[]>(api.citedDomains, []),
+            citedDomains: api.citedDomains,
             groundingSources: parseGroundingSources(api),
           } : null,
           browser: browser ? {
             provider: browser.provider,
             citationState: browser.citationState,
-            citedDomains: parseJsonColumn<string[]>(browser.citedDomains, []),
+            citedDomains: browser.citedDomains,
             groundingSources: parseGroundingSources(browser),
             screenshotUrl: browser.screenshotPath ? `${opts.routePrefix ?? '/api/v1'}/screenshots/${browser.id}` : undefined,
           } : null,

@@ -107,7 +107,7 @@ test('JobRunner marks citations on owned domains as cited', async () => {
   const [snapshot] = db.select().from(querySnapshots).where(eq(querySnapshots.runId, runId)).all()
   expect(snapshot?.citationState).toBe('cited')
   expect(snapshot?.answerMentioned).toBe(false)
-  expect(JSON.parse(snapshot.citedDomains)).toEqual(['docs.example.com'])
+  expect(snapshot.citedDomains).toEqual(['docs.example.com'])
 })
 
 test('JobRunner stores answerMentioned when the answer names the project', async () => {

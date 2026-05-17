@@ -78,7 +78,7 @@ function seedProject(db: ReturnType<typeof createClient>): SeededProject {
     queryId: queryIds.get('q1_create')!,
     provider: 'gemini',
     citationState: 'not-cited',
-    competitorOverlap: JSON.stringify(['competitor-a.com', 'competitor-b.com', 'competitor-c.com']),
+    competitorOverlap: ['competitor-a.com', 'competitor-b.com', 'competitor-c.com'],
     rawResponse: JSON.stringify({
       groundingSources: [
         { uri: 'https://competitor-a.com/guides/crm', title: 'CRM Guide' },
@@ -93,7 +93,7 @@ function seedProject(db: ReturnType<typeof createClient>): SeededProject {
     queryId: queryIds.get('q2_refresh')!,
     provider: 'gemini',
     citationState: 'not-cited',
-    competitorOverlap: JSON.stringify(['competitor-a.com']),
+    competitorOverlap: ['competitor-a.com'],
     rawResponse: JSON.stringify({ groundingSources: [] }),
     createdAt: now,
   }).run()
@@ -117,7 +117,7 @@ function seedProject(db: ReturnType<typeof createClient>): SeededProject {
     queryId: queryIds.get('q3_expand')!,
     provider: 'gemini',
     citationState: 'not-cited',
-    competitorOverlap: JSON.stringify(['competitor-b.com']),
+    competitorOverlap: ['competitor-b.com'],
     rawResponse: JSON.stringify({ groundingSources: [] }),
     createdAt: now,
   }).run()
@@ -141,7 +141,7 @@ function seedProject(db: ReturnType<typeof createClient>): SeededProject {
     queryId: queryIds.get('q4_skip')!,
     provider: 'gemini',
     citationState: 'cited',
-    competitorOverlap: JSON.stringify([]),
+    competitorOverlap: [],
     rawResponse: JSON.stringify({
       groundingSources: [
         { uri: 'https://example.com/blog/saas-billing', title: 'SaaS Billing' },

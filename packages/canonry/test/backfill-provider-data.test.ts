@@ -108,9 +108,9 @@ describe('backfill answer-visibility provider reparsing', () => {
       citationState: 'cited',
       answerMentioned: false,
       answerText: 'Old answer text',
-      citedDomains: '["canonry.ai"]',
-      competitorOverlap: '[]',
-      recommendedCompetitors: '[]',
+      citedDomains: ['canonry.ai'],
+      competitorOverlap: [],
+      recommendedCompetitors: [],
       rawResponse: JSON.stringify({
         model: 'gpt-5.4',
         groundingSources: [{ uri: 'https://canonry.ai/stale', title: 'Stale source' }],
@@ -156,9 +156,9 @@ describe('backfill answer-visibility provider reparsing', () => {
       citationState: 'not-cited',
       answerMentioned: false,
       answerText: '',
-      citedDomains: '[]',
-      competitorOverlap: '[]',
-      recommendedCompetitors: '[]',
+      citedDomains: [],
+      competitorOverlap: [],
+      recommendedCompetitors: [],
       rawResponse: JSON.stringify({
         model: 'claude-sonnet-4-6',
         groundingSources: [{ uri: 'https://competitor.com/review', title: 'Competitor review' }],
@@ -202,9 +202,9 @@ describe('backfill answer-visibility provider reparsing', () => {
       citationState: 'not-cited',
       answerMentioned: false,
       answerText: 'Perplexity answer',
-      citedDomains: '["competitor.com"]',
-      competitorOverlap: '["competitor.com"]',
-      recommendedCompetitors: '[]',
+      citedDomains: ['competitor.com'],
+      competitorOverlap: ['competitor.com'],
+      recommendedCompetitors: [],
       rawResponse: JSON.stringify({
         model: 'sonar',
         groundingSources: [{ uri: 'https://competitor.com/alt', title: '' }],
@@ -237,7 +237,7 @@ describe('backfill answer-visibility provider reparsing', () => {
     const claudeSnapshot = snapshots.find(snapshot => snapshot.provider === 'claude')
     expect(claudeSnapshot?.citationState).toBe('cited')
     expect(claudeSnapshot?.answerMentioned).toBe(true)
-    expect(JSON.parse(claudeSnapshot!.citedDomains)).toEqual(['canonry.ai'])
+    expect(claudeSnapshot!.citedDomains).toEqual(['canonry.ai'])
     expect(JSON.parse(claudeSnapshot!.rawResponse!)).toMatchObject({
       searchQueries: ['canonry audit workflow'],
       groundingSources: [{ uri: 'https://canonry.ai/blog/audit-workflow', title: 'Canonry audit workflow' }],
@@ -295,9 +295,9 @@ describe('backfill answer-visibility provider reparsing', () => {
       citationState: 'not-cited',
       answerMentioned: false,
       answerText: '',
-      citedDomains: '["retrieved-only.example.com","canonry.ai"]',
-      competitorOverlap: '[]',
-      recommendedCompetitors: '[]',
+      citedDomains: ['retrieved-only.example.com', 'canonry.ai'],
+      competitorOverlap: [],
+      recommendedCompetitors: [],
       rawResponse: JSON.stringify({
         model: 'gemini-3-flash',
         groundingSources: [
@@ -336,7 +336,7 @@ describe('backfill answer-visibility provider reparsing', () => {
       .all()
 
     expect(snapshot.citationState).toBe('cited')
-    expect(JSON.parse(snapshot.citedDomains)).toEqual(['canonry.ai'])
+    expect(snapshot.citedDomains).toEqual(['canonry.ai'])
     expect(JSON.parse(snapshot.rawResponse!)).toMatchObject({
       groundingSources: [{ uri: 'https://canonry.ai/docs', title: 'Canonry Docs' }],
     })
@@ -400,9 +400,9 @@ describe('backfill answer-visibility provider reparsing', () => {
         citationState: 'not-cited',
         answerMentioned: false,
         answerText: '',
-        citedDomains: '[]',
-        competitorOverlap: '[]',
-        recommendedCompetitors: '[]',
+        citedDomains: [],
+        competitorOverlap: [],
+        recommendedCompetitors: [],
         rawResponse: JSON.stringify({
           output: [
             {
@@ -441,9 +441,9 @@ describe('backfill answer-visibility provider reparsing', () => {
         citationState: 'not-cited',
         answerMentioned: false,
         answerText: 'Local answer without provider envelope',
-        citedDomains: '[]',
-        competitorOverlap: '[]',
-        recommendedCompetitors: '[]',
+        citedDomains: [],
+        competitorOverlap: [],
+        recommendedCompetitors: [],
         rawResponse: JSON.stringify({ foo: 'bar' }),
         createdAt: now,
       },
@@ -456,9 +456,9 @@ describe('backfill answer-visibility provider reparsing', () => {
         citationState: 'not-cited',
         answerMentioned: false,
         answerText: '',
-        citedDomains: '[]',
-        competitorOverlap: '[]',
-        recommendedCompetitors: '[]',
+        citedDomains: [],
+        competitorOverlap: [],
+        recommendedCompetitors: [],
         rawResponse: JSON.stringify({
           output: [
             {
@@ -558,7 +558,7 @@ describe('backfill answer-visibility provider reparsing', () => {
       provider: 'openai', model: 'gpt-5',
       citationState: originalCitationState, answerMentioned: false,
       answerText: 'Canonry costs $99/mo.',
-      citedDomains: '[]', competitorOverlap: '[]', recommendedCompetitors: '[]',
+      citedDomains: [], competitorOverlap: [], recommendedCompetitors: [],
       rawResponse: originalRawResponse, createdAt: now,
     }).run()
 

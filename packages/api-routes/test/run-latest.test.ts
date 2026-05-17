@@ -76,9 +76,9 @@ describe('GET /api/v1/projects/:name/runs/latest', () => {
       provider: 'gemini',
       citationState: 'cited',
       answerMentioned: true,
-      citedDomains: '["example.com"]',
-      competitorOverlap: '[]',
-      recommendedCompetitors: '[]',
+      citedDomains: ['example.com'],
+      competitorOverlap: [],
+      recommendedCompetitors: [],
       createdAt: '2026-04-18T14:20:00.000Z',
     }).run()
 

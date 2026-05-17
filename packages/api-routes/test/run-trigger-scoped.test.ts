@@ -4,7 +4,7 @@ import path from 'node:path'
 import os from 'node:os'
 import Fastify from 'fastify'
 import { eq } from 'drizzle-orm'
-import { createClient, migrate, runs, queries, parseJsonColumn } from '@ainyc/canonry-db'
+import { createClient, migrate, runs, queries } from '@ainyc/canonry-db'
 import { apiRoutes } from '../src/index.js'
 
 function buildApp() {
@@ -74,7 +74,7 @@ describe('POST /api/v1/projects/:name/runs — queries scope', () => {
 
     const row = db.select().from(runs).where(eq(runs.id, body.id)).get()
     expect(row).toBeTruthy()
-    expect(parseJsonColumn<string[]>(row!.queries, [])).toEqual(['alpha', 'beta'])
+    expect(row!.queries).toEqual(['alpha', 'beta'])
   })
 
   it('leaves queries column null for a full sweep (no queries field)', async () => {
@@ -157,7 +157,7 @@ describe('POST /api/v1/projects/:name/runs — queries scope', () => {
     for (const r of body) {
       expect(r.queries).toEqual(['alpha'])
       const row = db.select().from(runs).where(eq(runs.id, r.id)).get()
-      expect(parseJsonColumn<string[]>(row!.queries, [])).toEqual(['alpha'])
+      expect(row!.queries).toEqual(['alpha'])
     }
   })
 })

@@ -57,19 +57,19 @@ function seedProject(db: ReturnType<typeof createClient>): { projectId: string; 
 
   db.insert(querySnapshots).values({
     id: crypto.randomUUID(), runId, queryId: qA, provider: 'gemini',
-    citationState: 'cited', citedDomains: '[]', competitorOverlap: '[]', recommendedCompetitors: '[]', createdAt: now,
+    citationState: 'cited', citedDomains: [], competitorOverlap: [], recommendedCompetitors: [], createdAt: now,
   }).run()
   db.insert(querySnapshots).values({
     id: crypto.randomUUID(), runId, queryId: qA, provider: 'claude',
-    citationState: 'not-cited', citedDomains: '[]', competitorOverlap: '[]', recommendedCompetitors: '[]', createdAt: now,
+    citationState: 'not-cited', citedDomains: [], competitorOverlap: [], recommendedCompetitors: [], createdAt: now,
   }).run()
   db.insert(querySnapshots).values({
     id: crypto.randomUUID(), runId, queryId: qB, provider: 'gemini',
-    citationState: 'not-cited', citedDomains: JSON.stringify(['rival.com']), competitorOverlap: '[]', recommendedCompetitors: '[]', createdAt: now,
+    citationState: 'not-cited', citedDomains: ['rival.com'], competitorOverlap: [], recommendedCompetitors: [], createdAt: now,
   }).run()
   db.insert(querySnapshots).values({
     id: crypto.randomUUID(), runId, queryId: qB, provider: 'claude',
-    citationState: 'not-cited', citedDomains: '[]', competitorOverlap: '[]', recommendedCompetitors: '[]', createdAt: now,
+    citationState: 'not-cited', citedDomains: [], competitorOverlap: [], recommendedCompetitors: [], createdAt: now,
   }).run()
 
   return { projectId, runId }

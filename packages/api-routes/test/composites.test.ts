@@ -73,14 +73,14 @@ function seedProjectWithRuns() {
   ]).run()
   // previous run: A cited (gemini), B not cited
   db.insert(querySnapshots).values([
-    { id: crypto.randomUUID(), runId: previousRunId, queryId: queryA, provider: 'gemini', citationState: 'cited', answerMentioned: true, citedDomains: '["example.com"]', competitorOverlap: '[]', recommendedCompetitors: '[]', answerText: 'Example.com is the leader in answer engine optimization.', createdAt: '2026-04-18T14:10:30.000Z' },
-    { id: crypto.randomUUID(), runId: previousRunId, queryId: queryB, provider: 'gemini', citationState: 'not-cited', answerMentioned: false, citedDomains: '[]', competitorOverlap: '[]', recommendedCompetitors: '[]', answerText: null, createdAt: '2026-04-18T14:10:30.000Z' },
+    { id: crypto.randomUUID(), runId: previousRunId, queryId: queryA, provider: 'gemini', citationState: 'cited', answerMentioned: true, citedDomains: ['example.com'], competitorOverlap: [], recommendedCompetitors: [], answerText: 'Example.com is the leader in answer engine optimization.', createdAt: '2026-04-18T14:10:30.000Z' },
+    { id: crypto.randomUUID(), runId: previousRunId, queryId: queryB, provider: 'gemini', citationState: 'not-cited', answerMentioned: false, citedDomains: [], competitorOverlap: [], recommendedCompetitors: [], answerText: null, createdAt: '2026-04-18T14:10:30.000Z' },
   ]).run()
   // latest run: A still cited, B newly cited (gained), plus an openai snapshot for variety
   db.insert(querySnapshots).values([
-    { id: crypto.randomUUID(), runId: latestRunId, queryId: queryA, provider: 'gemini', citationState: 'cited', answerMentioned: true, citedDomains: '["example.com"]', competitorOverlap: '[]', recommendedCompetitors: '[]', answerText: 'Example.com is the leader in answer engine optimization. Rival.com is the runner-up.', createdAt: '2026-04-18T14:20:30.000Z' },
-    { id: crypto.randomUUID(), runId: latestRunId, queryId: queryB, provider: 'gemini', citationState: 'cited', answerMentioned: true, citedDomains: '["example.com"]', competitorOverlap: '[]', recommendedCompetitors: '[]', answerText: 'Example.com offers AEO monitoring tools.', createdAt: '2026-04-18T14:20:30.000Z' },
-    { id: crypto.randomUUID(), runId: latestRunId, queryId: queryA, provider: 'openai', citationState: 'not-cited', answerMentioned: false, citedDomains: '[]', competitorOverlap: '[]', recommendedCompetitors: '[]', answerText: null, createdAt: '2026-04-18T14:20:30.000Z' },
+    { id: crypto.randomUUID(), runId: latestRunId, queryId: queryA, provider: 'gemini', citationState: 'cited', answerMentioned: true, citedDomains: ['example.com'], competitorOverlap: [], recommendedCompetitors: [], answerText: 'Example.com is the leader in answer engine optimization. Rival.com is the runner-up.', createdAt: '2026-04-18T14:20:30.000Z' },
+    { id: crypto.randomUUID(), runId: latestRunId, queryId: queryB, provider: 'gemini', citationState: 'cited', answerMentioned: true, citedDomains: ['example.com'], competitorOverlap: [], recommendedCompetitors: [], answerText: 'Example.com offers AEO monitoring tools.', createdAt: '2026-04-18T14:20:30.000Z' },
+    { id: crypto.randomUUID(), runId: latestRunId, queryId: queryA, provider: 'openai', citationState: 'not-cited', answerMentioned: false, citedDomains: [], competitorOverlap: [], recommendedCompetitors: [], answerText: null, createdAt: '2026-04-18T14:20:30.000Z' },
   ]).run()
   db.insert(healthSnapshots).values({
     id: crypto.randomUUID(),
@@ -149,8 +149,8 @@ function seedTwoLocationFanOut(opts: { withPreviousGroup: boolean }) {
     ]).run()
     // Previous group: cited in BOTH locations.
     db.insert(querySnapshots).values([
-      { id: crypto.randomUUID(), runId: prevFlId, queryId, provider: 'gemini', citationState: 'cited', answerMentioned: true, location: 'florida',  citedDomains: '["azcoatings.example"]', competitorOverlap: '[]', recommendedCompetitors: '[]', answerText: null, createdAt: prevCreatedAt },
-      { id: crypto.randomUUID(), runId: prevMiId, queryId, provider: 'gemini', citationState: 'cited', answerMentioned: true, location: 'michigan', citedDomains: '["azcoatings.example"]', competitorOverlap: '[]', recommendedCompetitors: '[]', answerText: null, createdAt: prevCreatedAt },
+      { id: crypto.randomUUID(), runId: prevFlId, queryId, provider: 'gemini', citationState: 'cited', answerMentioned: true, location: 'florida',  citedDomains: ['azcoatings.example'], competitorOverlap: [], recommendedCompetitors: [], answerText: null, createdAt: prevCreatedAt },
+      { id: crypto.randomUUID(), runId: prevMiId, queryId, provider: 'gemini', citationState: 'cited', answerMentioned: true, location: 'michigan', citedDomains: ['azcoatings.example'], competitorOverlap: [], recommendedCompetitors: [], answerText: null, createdAt: prevCreatedAt },
     ]).run()
   }
 
@@ -160,8 +160,8 @@ function seedTwoLocationFanOut(opts: { withPreviousGroup: boolean }) {
   ]).run()
   // Latest group: cited in florida only; not cited in michigan.
   db.insert(querySnapshots).values([
-    { id: crypto.randomUUID(), runId: latestFlId, queryId, provider: 'gemini', citationState: 'cited',     answerMentioned: true,  location: 'florida',  citedDomains: '["azcoatings.example"]', competitorOverlap: '[]', recommendedCompetitors: '[]', answerText: null, createdAt: latestCreatedAt },
-    { id: crypto.randomUUID(), runId: latestMiId, queryId, provider: 'gemini', citationState: 'not-cited', answerMentioned: false, location: 'michigan', citedDomains: '[]',                       competitorOverlap: '[]', recommendedCompetitors: '[]', answerText: null, createdAt: latestCreatedAt },
+    { id: crypto.randomUUID(), runId: latestFlId, queryId, provider: 'gemini', citationState: 'cited',     answerMentioned: true,  location: 'florida',  citedDomains: ['azcoatings.example'], competitorOverlap: [], recommendedCompetitors: [], answerText: null, createdAt: latestCreatedAt },
+    { id: crypto.randomUUID(), runId: latestMiId, queryId, provider: 'gemini', citationState: 'not-cited', answerMentioned: false, location: 'michigan', citedDomains: [],                       competitorOverlap: [], recommendedCompetitors: [], answerText: null, createdAt: latestCreatedAt },
   ]).run()
 
   return { app, db, projectId, queryId, latestFlId, latestMiId }

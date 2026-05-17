@@ -105,8 +105,8 @@ function insertSnapshot(
     citationState: opts.citationState ?? 'cited',
     answerMentioned: opts.answerMentioned ?? false,
     answerText: opts.answerText ?? null,
-    citedDomains: JSON.stringify(opts.citedDomains ?? []),
-    competitorOverlap: JSON.stringify(opts.competitorOverlap ?? []),
+    citedDomains: opts.citedDomains ?? [],
+    competitorOverlap: opts.competitorOverlap ?? [],
     rawResponse: opts.rawResponse ? JSON.stringify(opts.rawResponse) : null,
     createdAt: new Date().toISOString(),
   }).run()

@@ -71,8 +71,8 @@ function seedSnapshot(
     provider,
     model: 'test-model',
     citationState,
-    citedDomains: JSON.stringify(opts?.citedDomains ?? []),
-    competitorOverlap: JSON.stringify(opts?.competitorOverlap ?? []),
+    citedDomains: opts?.citedDomains ?? [],
+    competitorOverlap: opts?.competitorOverlap ?? [],
     createdAt: new Date().toISOString(),
   }).run()
 }
@@ -731,8 +731,8 @@ describe('IntelligenceService', () => {
         provider,
         model: 'test-model',
         citationState,
-        citedDomains: '[]',
-        competitorOverlap: '[]',
+        citedDomains: [],
+        competitorOverlap: [],
         createdAt: new Date().toISOString(),
       }).run()
     }
@@ -815,8 +815,8 @@ describe('IntelligenceService', () => {
           provider: 'gemini',
           model: 'test-model',
           citationState,
-          citedDomains: citationState === 'cited' ? '["example.com"]' : '[]',
-          competitorOverlap: '[]',
+          citedDomains: citationState === 'cited' ? ['example.com'] : [],
+          competitorOverlap: [],
           createdAt: new Date().toISOString(),
         }).run()
       }
@@ -860,8 +860,8 @@ describe('IntelligenceService', () => {
             provider: 'gemini',
             model: 'test-model',
             citationState: 'not-cited',
-            citedDomains: '[]',
-            competitorOverlap: '[]',
+            citedDomains: [],
+            competitorOverlap: [],
             createdAt: new Date().toISOString(),
           }).run()
         }

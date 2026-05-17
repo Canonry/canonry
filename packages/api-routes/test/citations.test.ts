@@ -90,9 +90,9 @@ function insertSnapshot(
     provider: args.provider,
     citationState: args.citationState,
     answerMentioned: args.answerMentioned ?? null,
-    citedDomains: JSON.stringify(args.citedDomains ?? []),
-    competitorOverlap: JSON.stringify(args.competitorOverlap ?? []),
-    recommendedCompetitors: '[]',
+    citedDomains: args.citedDomains ?? [],
+    competitorOverlap: args.competitorOverlap ?? [],
+    recommendedCompetitors: [],
     createdAt: args.createdAt,
   }).run()
 }

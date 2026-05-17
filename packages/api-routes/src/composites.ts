@@ -463,8 +463,8 @@ function loadSnapshotsByRunIds(
       citationState: row.citationState,
       answerMentioned: row.answerMentioned,
       answerText: row.answerText,
-      competitorOverlap: parseJsonColumn<string[]>(row.competitorOverlap, []),
-      citedDomains: parseJsonColumn<string[]>(row.citedDomains, []),
+      competitorOverlap: row.competitorOverlap,
+      citedDomains: row.citedDomains,
     })
     result.set(row.runId, list)
   }
@@ -883,7 +883,7 @@ function buildSnapshotHit(
     model: string | null
     citationState: string
     answerText: string | null
-    citedDomains: string
+    citedDomains: string[]
     rawResponse: string | null
     createdAt: string
   },
@@ -892,16 +892,16 @@ function buildSnapshotHit(
   const lower = searchTerm.toLowerCase()
   const query = row.queryText ?? ''
   const answer = row.answerText ?? ''
-  const cited = row.citedDomains
+  const citedJoined = row.citedDomains.join(',')
   const raw = row.rawResponse ?? ''
   let matchedField: SnapshotMatchedField
   let snippet: string
   if (answer.toLowerCase().includes(lower)) {
     matchedField = 'answerText'
     snippet = makeSnippet(answer, searchTerm)
-  } else if (cited.toLowerCase().includes(lower)) {
+  } else if (citedJoined.toLowerCase().includes(lower)) {
     matchedField = 'citedDomains'
-    snippet = makeSnippet(cited, searchTerm)
+    snippet = makeSnippet(citedJoined, searchTerm)
   } else if (raw.toLowerCase().includes(lower)) {
     matchedField = 'searchQueries'
     snippet = makeSnippet(raw, searchTerm)

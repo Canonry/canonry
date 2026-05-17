@@ -89,8 +89,8 @@ function seedRegressionScenario(
     provider: 'gemini',
     model: 'test',
     citationState: 'cited',
-    citedDomains: JSON.stringify(['sev.example.com']),
-    competitorOverlap: '[]',
+    citedDomains: ['sev.example.com'],
+    competitorOverlap: [],
     createdAt: previousAt,
   }).run()
   // Current run: not-cited (regression)
@@ -101,8 +101,8 @@ function seedRegressionScenario(
     provider: 'gemini',
     model: 'test',
     citationState: 'not-cited',
-    citedDomains: '[]',
-    competitorOverlap: '[]',
+    citedDomains: [],
+    competitorOverlap: [],
     createdAt: now.toISOString(),
   }).run()
 

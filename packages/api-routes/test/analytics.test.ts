@@ -89,8 +89,8 @@ describe('analytics routes', () => {
       model: 'gemini-2.5-flash',
       citationState: 'cited',
       answerText: 'Example.com is great...',
-      citedDomains: '["example.com"]',
-      competitorOverlap: '[]',
+      citedDomains: ['example.com'],
+      competitorOverlap: [],
       location: null,
       rawResponse: JSON.stringify({
         model: 'gemini-2.5-flash',
@@ -112,8 +112,8 @@ describe('analytics routes', () => {
       model: 'gpt-4o',
       citationState: 'not-cited',
       answerText: 'Here are tools...',
-      citedDomains: '["competitor.com"]',
-      competitorOverlap: '["competitor.com"]',
+      citedDomains: ['competitor.com'],
+      competitorOverlap: ['competitor.com'],
       location: null,
       rawResponse: JSON.stringify({
         model: 'gpt-4o',
@@ -135,8 +135,8 @@ describe('analytics routes', () => {
       model: 'gemini-2.5-flash',
       citationState: 'not-cited',
       answerText: 'AEO monitoring is...',
-      citedDomains: '["competitor.com"]',
-      competitorOverlap: '["competitor.com"]',
+      citedDomains: ['competitor.com'],
+      competitorOverlap: ['competitor.com'],
       location: null,
       rawResponse: JSON.stringify({
         model: 'gemini-2.5-flash',
@@ -157,8 +157,8 @@ describe('analytics routes', () => {
       model: 'gemini-2.5-flash',
       citationState: 'not-cited',
       answerText: 'Website analytics are...',
-      citedDomains: '[]',
-      competitorOverlap: '[]',
+      citedDomains: [],
+      competitorOverlap: [],
       location: null,
       rawResponse: JSON.stringify({
         model: 'gemini-2.5-flash',
@@ -345,7 +345,7 @@ describe('analytics routes', () => {
     db.insert(querySnapshots).values({
       id: crypto.randomUUID(), runId: infraRunId, queryId: infraQId,
       provider: 'gemini', model: 'gemini-2.5-flash', citationState: 'not-cited',
-      answerText: 'test', citedDomains: '[]', competitorOverlap: '[]', location: null,
+      answerText: 'test', citedDomains: [], competitorOverlap: [], location: null,
       rawResponse: JSON.stringify({
         groundingSources: [
           { uri: 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/AbC123', title: 'Vertex proxy' },
@@ -417,8 +417,8 @@ describe('analytics routes', () => {
       model: 'gemini-2.5-flash',
       citationState: 'cited',
       answerText: 'test',
-      citedDomains: '["gapbucket.com"]',
-      competitorOverlap: '[]',
+      citedDomains: ['gapbucket.com'],
+      competitorOverlap: [],
       location: null,
       rawResponse: '{}',
       createdAt: day1.toISOString(),
@@ -447,8 +447,8 @@ describe('analytics routes', () => {
       model: 'gemini-2.5-flash',
       citationState: 'not-cited',
       answerText: 'test',
-      citedDomains: '[]',
-      competitorOverlap: '[]',
+      citedDomains: [],
+      competitorOverlap: [],
       location: null,
       rawResponse: '{}',
       createdAt: day2.toISOString(),
@@ -497,8 +497,8 @@ describe('analytics routes', () => {
         error: null, createdAt: day1ISO,
       }).run()
       db.insert(querySnapshots).values([
-        { id: crypto.randomUUID(), runId: run1Id, queryId: origQ1, provider: 'gemini', citationState: 'cited', answerText: '', citedDomains: '[]', competitorOverlap: '[]', location: null, rawResponse: '{}', createdAt: day1ISO },
-        { id: crypto.randomUUID(), runId: run1Id, queryId: origQ2, provider: 'gemini', citationState: 'cited', answerText: '', citedDomains: '[]', competitorOverlap: '[]', location: null, rawResponse: '{}', createdAt: day1ISO },
+        { id: crypto.randomUUID(), runId: run1Id, queryId: origQ1, provider: 'gemini', citationState: 'cited', answerText: '', citedDomains: [], competitorOverlap: [], location: null, rawResponse: '{}', createdAt: day1ISO },
+        { id: crypto.randomUUID(), runId: run1Id, queryId: origQ2, provider: 'gemini', citationState: 'cited', answerText: '', citedDomains: [], competitorOverlap: [], location: null, rawResponse: '{}', createdAt: day1ISO },
       ]).run()
 
       // Day 2: add 3 new queries
@@ -522,11 +522,11 @@ describe('analytics routes', () => {
         error: null, createdAt: day2ISO,
       }).run()
       db.insert(querySnapshots).values([
-        { id: crypto.randomUUID(), runId: run2Id, queryId: origQ1, provider: 'gemini', citationState: 'cited', answerText: '', citedDomains: '[]', competitorOverlap: '[]', location: null, rawResponse: '{}', createdAt: day2ISO },
-        { id: crypto.randomUUID(), runId: run2Id, queryId: origQ2, provider: 'gemini', citationState: 'cited', answerText: '', citedDomains: '[]', competitorOverlap: '[]', location: null, rawResponse: '{}', createdAt: day2ISO },
-        { id: crypto.randomUUID(), runId: run2Id, queryId: newQ1, provider: 'gemini', citationState: 'not-cited', answerText: '', citedDomains: '[]', competitorOverlap: '[]', location: null, rawResponse: '{}', createdAt: day2ISO },
-        { id: crypto.randomUUID(), runId: run2Id, queryId: newQ2, provider: 'gemini', citationState: 'not-cited', answerText: '', citedDomains: '[]', competitorOverlap: '[]', location: null, rawResponse: '{}', createdAt: day2ISO },
-        { id: crypto.randomUUID(), runId: run2Id, queryId: newQ3, provider: 'gemini', citationState: 'not-cited', answerText: '', citedDomains: '[]', competitorOverlap: '[]', location: null, rawResponse: '{}', createdAt: day2ISO },
+        { id: crypto.randomUUID(), runId: run2Id, queryId: origQ1, provider: 'gemini', citationState: 'cited', answerText: '', citedDomains: [], competitorOverlap: [], location: null, rawResponse: '{}', createdAt: day2ISO },
+        { id: crypto.randomUUID(), runId: run2Id, queryId: origQ2, provider: 'gemini', citationState: 'cited', answerText: '', citedDomains: [], competitorOverlap: [], location: null, rawResponse: '{}', createdAt: day2ISO },
+        { id: crypto.randomUUID(), runId: run2Id, queryId: newQ1, provider: 'gemini', citationState: 'not-cited', answerText: '', citedDomains: [], competitorOverlap: [], location: null, rawResponse: '{}', createdAt: day2ISO },
+        { id: crypto.randomUUID(), runId: run2Id, queryId: newQ2, provider: 'gemini', citationState: 'not-cited', answerText: '', citedDomains: [], competitorOverlap: [], location: null, rawResponse: '{}', createdAt: day2ISO },
+        { id: crypto.randomUUID(), runId: run2Id, queryId: newQ3, provider: 'gemini', citationState: 'not-cited', answerText: '', citedDomains: [], competitorOverlap: [], location: null, rawResponse: '{}', createdAt: day2ISO },
       ]).run()
 
       const res = await app.inject({ method: 'GET', url: '/api/v1/projects/norm-project/analytics/metrics' })
@@ -664,8 +664,8 @@ describe('analytics fan-out (#480)', () => {
     // the query is "cited" project-wide but the not-cited michigan snapshot
     // should still surface providers in the cited/gap classification logic.
     db.insert(querySnapshots).values([
-      { id: crypto.randomUUID(), runId: flLatestId, queryId, provider: 'gemini', model: 'gemini-2.5', citationState: 'cited',     answerMentioned: true,  answerText: 'florida answer', citedDomains: '["azcoatings.example"]', competitorOverlap: '[]', recommendedCompetitors: '[]', location: 'florida',  rawResponse: '{}', createdAt: latestCreatedAt },
-      { id: crypto.randomUUID(), runId: miLatestId, queryId, provider: 'gemini', model: 'gemini-2.5', citationState: 'not-cited', answerMentioned: false, answerText: 'michigan answer', citedDomains: '[]',                       competitorOverlap: '[]', recommendedCompetitors: '[]', location: 'michigan', rawResponse: '{}', createdAt: latestCreatedAt },
+      { id: crypto.randomUUID(), runId: flLatestId, queryId, provider: 'gemini', model: 'gemini-2.5', citationState: 'cited',     answerMentioned: true,  answerText: 'florida answer', citedDomains: ['azcoatings.example'], competitorOverlap: [], recommendedCompetitors: [], location: 'florida',  rawResponse: '{}', createdAt: latestCreatedAt },
+      { id: crypto.randomUUID(), runId: miLatestId, queryId, provider: 'gemini', model: 'gemini-2.5', citationState: 'not-cited', answerMentioned: false, answerText: 'michigan answer', citedDomains: [],                       competitorOverlap: [], recommendedCompetitors: [], location: 'michigan', rawResponse: '{}', createdAt: latestCreatedAt },
     ]).run()
   })
 

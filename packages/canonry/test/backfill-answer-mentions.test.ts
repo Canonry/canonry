@@ -126,9 +126,9 @@ describe('backfill answer-mentions', () => {
       citationState: 'not-cited',
       answerMentioned: false,
       answerText: 'Energy Design Systems offers a white-label lead generation tool. Demand IQ uses AI-driven estimates.',
-      citedDomains: '[]',
-      competitorOverlap: '["offers.roofle.com"]',
-      recommendedCompetitors: '[]',
+      citedDomains: [],
+      competitorOverlap: ['offers.roofle.com'],
+      recommendedCompetitors: [],
       rawResponse: JSON.stringify({ groundingSources: [], searchQueries: [] }),
       createdAt: now,
     }).run()
@@ -145,7 +145,7 @@ describe('backfill answer-mentions', () => {
       .from(querySnapshots)
       .where(eq(querySnapshots.id, snapshotId))
       .get()
-    expect(JSON.parse(snapshot!.competitorOverlap)).toEqual([])
+    expect(snapshot!.competitorOverlap).toEqual([])
     expect(snapshot!.answerMentioned).toBe(true)
   })
 
@@ -166,9 +166,9 @@ describe('backfill answer-mentions', () => {
       citationState: 'not-cited',
       answerMentioned: false,
       answerText: 'Brokers turn to Roofle when they need quick install quotes.',
-      citedDomains: '[]',
-      competitorOverlap: '[]',
-      recommendedCompetitors: '[]',
+      citedDomains: [],
+      competitorOverlap: [],
+      recommendedCompetitors: [],
       rawResponse: JSON.stringify({ groundingSources: [], searchQueries: [] }),
       createdAt: now,
     }).run()
@@ -181,7 +181,7 @@ describe('backfill answer-mentions', () => {
       .from(querySnapshots)
       .where(eq(querySnapshots.id, snapshotId))
       .get()
-    expect(JSON.parse(snapshot!.competitorOverlap)).toEqual(['offers.roofle.com'])
+    expect(snapshot!.competitorOverlap).toEqual(['offers.roofle.com'])
   })
 
   it('updates snapshots from providers without a reparse adapter (covers the gap left by answer-visibility backfill)', async () => {
@@ -205,9 +205,9 @@ describe('backfill answer-mentions', () => {
       citationState: 'not-cited',
       answerMentioned: false,
       answerText: 'Energy Design Systems offers a white-label lead generation tool.',
-      citedDomains: '[]',
-      competitorOverlap: '["offers.roofle.com"]',
-      recommendedCompetitors: '[]',
+      citedDomains: [],
+      competitorOverlap: ['offers.roofle.com'],
+      recommendedCompetitors: [],
       rawResponse: '{}',
       createdAt: now,
     }).run()
@@ -220,7 +220,7 @@ describe('backfill answer-mentions', () => {
       .from(querySnapshots)
       .where(eq(querySnapshots.id, snapshotId))
       .get()
-    expect(JSON.parse(snapshot!.competitorOverlap)).toEqual([])
+    expect(snapshot!.competitorOverlap).toEqual([])
     // answerMentioned remains false — the answer doesn't mention Demand IQ.
     expect(snapshot!.answerMentioned).toBe(false)
   })
@@ -241,9 +241,9 @@ describe('backfill answer-mentions', () => {
       citationState: 'not-cited',
       answerMentioned: false,
       answerText: 'Energy Design Systems offers a white-label lead generation tool. Demand IQ uses AI-driven estimates.',
-      citedDomains: '[]',
-      competitorOverlap: '["offers.roofle.com"]',
-      recommendedCompetitors: '[]',
+      citedDomains: [],
+      competitorOverlap: ['offers.roofle.com'],
+      recommendedCompetitors: [],
       rawResponse: JSON.stringify({ groundingSources: [], searchQueries: [] }),
       createdAt: now,
     }).run()
@@ -284,9 +284,9 @@ describe('backfill answer-mentions', () => {
       citationState: 'cited',
       answerMentioned: false,
       answerText: 'Energy Design Systems offers a white-label lead generation tool.',
-      citedDomains: '["demand-iq.com"]',
-      competitorOverlap: '["offers.roofle.com"]',
-      recommendedCompetitors: '[]',
+      citedDomains: ['demand-iq.com'],
+      competitorOverlap: ['offers.roofle.com'],
+      recommendedCompetitors: [],
       rawResponse: originalRawResponse,
       createdAt: now,
     }).run()
@@ -300,7 +300,7 @@ describe('backfill answer-mentions', () => {
       .where(eq(querySnapshots.id, snapshotId))
       .get()
     expect(snapshot!.citationState).toBe('cited')
-    expect(snapshot!.citedDomains).toBe('["demand-iq.com"]')
+    expect(snapshot!.citedDomains).toEqual(['demand-iq.com'])
     expect(snapshot!.rawResponse).toBe(originalRawResponse)
   })
 
@@ -331,9 +331,9 @@ describe('backfill answer-mentions', () => {
       citationState: 'not-cited',
       answerMentioned: false,
       answerText: 'Energy Design Systems offers a white-label lead generation tool.',
-      citedDomains: '[]',
-      competitorOverlap: '["offers.roofle.com"]',
-      recommendedCompetitors: '[]',
+      citedDomains: [],
+      competitorOverlap: ['offers.roofle.com'],
+      recommendedCompetitors: [],
       rawResponse: '{}',
       createdAt: now,
     }).run()
@@ -350,7 +350,7 @@ describe('backfill answer-mentions', () => {
       .from(querySnapshots)
       .where(eq(querySnapshots.id, auditSnapshotId))
       .get()
-    expect(JSON.parse(auditSnapshot!.competitorOverlap)).toEqual(['offers.roofle.com'])
+    expect(auditSnapshot!.competitorOverlap).toEqual(['offers.roofle.com'])
   })
 
   it('--dry-run reports would-update count without writing to the DB', async () => {
@@ -371,9 +371,9 @@ describe('backfill answer-mentions', () => {
       citationState: 'not-cited',
       answerMentioned: false,
       answerText: 'Energy Design Systems offers a white-label lead generation tool.',
-      citedDomains: '[]',
+      citedDomains: [],
       competitorOverlap: originalCompetitorOverlap,
-      recommendedCompetitors: '[]',
+      recommendedCompetitors: [],
       rawResponse: JSON.stringify({ groundingSources: [], searchQueries: [] }),
       createdAt: now,
     }).run()
