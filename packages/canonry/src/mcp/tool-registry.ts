@@ -1352,7 +1352,3 @@ export const canonryMcpTools = [
 export const CANONRY_MCP_TOOL_COUNT = canonryMcpTools.length
 export const CANONRY_MCP_READ_TOOL_COUNT = canonryMcpTools.filter(tool => tool.access === 'read').length
 export const CANONRY_MCP_CORE_TOOL_COUNT = canonryMcpTools.filter(tool => tool.tier === 'core').length
-
-export function canonryMcpToolsByTier(tier: CanonryMcpTier): readonly CanonryMcpTool[] {
-  return canonryMcpTools.filter(tool => tool.tier === tier)
-}

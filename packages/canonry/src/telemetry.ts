@@ -78,21 +78,12 @@ export interface TrackEventOptions {
 const SESSION_ID = crypto.randomUUID()
 let CURRENT_SOURCE: TelemetrySource = 'cli'
 
-/** Returns the per-process session ID. Stable for the lifetime of the process. */
-export function getSessionId(): string {
-  return SESSION_ID
-}
-
 /**
  * Override the global default source for subsequent `trackEvent` calls.
  * Callers can still pass `options.source` to override per-event.
  */
 export function setTelemetrySource(source: TelemetrySource): void {
   CURRENT_SOURCE = source
-}
-
-export function getTelemetrySource(): TelemetrySource {
-  return CURRENT_SOURCE
 }
 
 /**

@@ -6,8 +6,6 @@ import { X } from 'lucide-react'
 import { cn } from '../../lib/utils.js'
 
 const Sheet = Dialog.Root
-const SheetTrigger = Dialog.Trigger
-const SheetClose = Dialog.Close
 const SheetPortal = Dialog.Portal
 
 const SheetOverlay = React.forwardRef<
@@ -109,11 +107,9 @@ SheetDescription.displayName = Dialog.Description.displayName
 
 export {
   Sheet,
-  SheetClose,
   SheetContent,
   SheetDescription,
   SheetHeader,
   SheetPortal,
   SheetTitle,
-  SheetTrigger,
 }

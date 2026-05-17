@@ -17,18 +17,6 @@ export type ApplySummary = {
   errorCount: number
 }
 
-export async function applyConfig(filePath: string): Promise<void> {
-  const result = await applyConfigFile(filePath)
-
-  for (const applied of result.applied) {
-    console.log(`Applied config for "${applied.name}" (revision ${applied.configRevision})`)
-  }
-
-  if (result.errors.length > 0) {
-    throw new Error(`${result.errors.length} document(s) failed in ${filePath}:\n${result.errors.map(e => `  - ${e}`).join('\n')}`)
-  }
-}
-
 export async function applyConfigFile(filePath: string): Promise<ApplyFileResult> {
   if (!fs.existsSync(filePath)) {
     throw new Error(`File not found: ${filePath}`)

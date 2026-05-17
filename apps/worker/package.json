@@ -13,9 +13,6 @@
   "dependencies": {
     "@ainyc/aeo-audit": "1.3.2",
     "@ainyc/canonry-config": "workspace:*",
-    "@ainyc/canonry-contracts": "workspace:*",
-    "@ainyc/canonry-db": "workspace:*",
-    "@ainyc/canonry-provider-gemini": "workspace:*",
     "tsx": "^4.20.5"
   }
 }
