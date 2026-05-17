@@ -94,4 +94,74 @@ describe('openapi contract', () => {
     expect(body.paths['/api/v1/google/callback']?.get?.security).toEqual([])
     expect(body.paths['/api/v1/projects/{name}/google/callback']?.get?.security).toEqual([])
   })
+
+  it('every 2xx response declares a body schema (or carries a non-JSON content type)', async () => {
+    // Codegen tools rely on response schemas to derive typed return values.
+    // 2xx responses must either reference a `components.schemas` entry via
+    // `$ref` (the normal path) or declare a non-JSON content type with its
+    // own schema (binary downloads, HTML, SSE streams). 204 No Content is
+    // exempt — it has no body.
+    const ctx = buildObservedApp()
+    contexts.push(ctx)
+    await ctx.app.ready()
+
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/openapi.json' })
+    expect(res.statusCode).toBe(200)
+
+    type ResponseDef = { description: string; content?: Record<string, { schema?: unknown }> }
+    const body = res.json() as {
+      paths: Record<string, Record<string, { responses: Record<string, ResponseDef> }>>
+    }
+
+    const missingBodies: string[] = []
+    for (const [path, operations] of Object.entries(body.paths)) {
+      for (const [method, op] of Object.entries(operations)) {
+        for (const [status, response] of Object.entries(op.responses)) {
+          const code = Number(status)
+          if (code < 200 || code >= 300) continue
+          if (code === 204) continue
+          const content = response.content
+          if (!content || Object.keys(content).length === 0) {
+            missingBodies.push(`${method.toUpperCase()} ${path} → ${status}`)
+            continue
+          }
+          for (const [mediaType, media] of Object.entries(content)) {
+            if (!media.schema) {
+              missingBodies.push(`${method.toUpperCase()} ${path} → ${status} (${mediaType} has no schema)`)
+            }
+          }
+        }
+      }
+    }
+
+    expect(missingBodies, `Routes missing a 2xx response body schema:\n  ${missingBodies.join('\n  ')}`).toEqual([])
+  })
+
+  it('every registered component schema is referenced by at least one route', async () => {
+    // Keeps the schema table honest: removing a schema from a route without
+    // removing it from `openapi-schemas.ts` is a slow leak. This test
+    // catches that as soon as the last reference disappears.
+    const ctx = buildObservedApp()
+    contexts.push(ctx)
+    await ctx.app.ready()
+
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/openapi.json' })
+    expect(res.statusCode).toBe(200)
+
+    const body = res.json() as {
+      components?: { schemas?: Record<string, unknown> }
+      paths: Record<string, Record<string, unknown>>
+    }
+
+    const schemaNames = Object.keys(body.components?.schemas ?? {})
+    expect(schemaNames.length).toBeGreaterThan(0)
+
+    const serialized = JSON.stringify(body.paths)
+    const unreferenced = schemaNames.filter((name) => !serialized.includes(`#/components/schemas/${name}`))
+
+    expect(
+      unreferenced,
+      `Registered schemas with no $ref in any route:\n  ${unreferenced.join('\n  ')}`,
+    ).toEqual([])
+  })
 })

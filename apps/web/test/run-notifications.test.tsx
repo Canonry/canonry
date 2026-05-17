@@ -91,7 +91,7 @@ test('persists tracked runs to session storage', () => {
 
 test('emits one terminal toast for a tracked run and does not duplicate it', async () => {
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-    const url = String(input)
+    const url = input instanceof Request ? input.url : String(input)
     if (url.includes('/api/v1/runs')) return jsonResponse([makeRun('completed')])
     if (url.includes('/api/v1/projects')) return jsonResponse([makeProject()])
     throw new Error(`Unexpected fetch: ${url}`)
@@ -131,7 +131,7 @@ test('emits one terminal toast for a tracked run and does not duplicate it', asy
 
 test('refetches runs on focus only when tracked runs are pending', async () => {
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-    const url = String(input)
+    const url = input instanceof Request ? input.url : String(input)
     if (url.includes('/api/v1/runs')) return jsonResponse([makeRun('running')])
     if (url.includes('/api/v1/projects')) return jsonResponse([makeProject()])
     throw new Error(`Unexpected fetch: ${url}`)
@@ -160,14 +160,14 @@ test('refetches runs on focus only when tracked runs are pending', async () => {
   window.dispatchEvent(new Event('focus'))
 
   await waitFor(() => {
-    expect(fetchMock.mock.calls.some(([input]) => String(input).includes('/api/v1/runs'))).toBe(true)
+    expect(fetchMock.mock.calls.some(([input]) => (input instanceof Request ? input.url : String(input)).includes('/api/v1/runs'))).toBe(true)
   })
 })
 
 test('keeps run notifications active when the app is bootstrapped from dashboard context', async () => {
   const fixture = createDashboardFixture()
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-    const url = String(input)
+    const url = input instanceof Request ? input.url : String(input)
     if (url.includes('/api/v1/runs')) return jsonResponse([makeRun('completed')])
     if (url.includes('/api/v1/projects')) return jsonResponse([makeProject()])
     throw new Error(`Unexpected fetch: ${url}`)
@@ -193,7 +193,7 @@ test('keeps run notifications active when the app is bootstrapped from dashboard
   )
 
   await waitFor(() => {
-    expect(fetchMock.mock.calls.some(([input]) => String(input).includes('/api/v1/runs'))).toBe(true)
+    expect(fetchMock.mock.calls.some(([input]) => (input instanceof Request ? input.url : String(input)).includes('/api/v1/runs'))).toBe(true)
   })
 
   await waitFor(() => {
@@ -203,7 +203,7 @@ test('keeps run notifications active when the app is bootstrapped from dashboard
 
 test('emits one aggregate batch toast for run-all completions', async () => {
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-    const url = String(input)
+    const url = input instanceof Request ? input.url : String(input)
     if (url.includes('/api/v1/runs')) {
       return jsonResponse([
         makeRun('completed'),
@@ -323,7 +323,7 @@ function TriggerRunButton() {
 
 test('invalidates GSC project queries when a tracked gsc-sync run completes', async () => {
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-    const url = String(input)
+    const url = input instanceof Request ? input.url : String(input)
     if (url.includes('/api/v1/runs')) {
       return jsonResponse([{ ...makeRun('completed'), kind: 'gsc-sync' }])
     }
@@ -361,7 +361,7 @@ test('invalidates GSC project queries when a tracked gsc-sync run completes', as
 
 test('does not invalidate GSC project queries for non-GSC runs', async () => {
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-    const url = String(input)
+    const url = input instanceof Request ? input.url : String(input)
     if (url.includes('/api/v1/runs')) return jsonResponse([makeRun('completed')])
     if (url.includes('/api/v1/projects')) return jsonResponse([makeProject()])
     throw new Error(`Unexpected fetch: ${url}`)

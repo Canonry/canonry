@@ -382,6 +382,8 @@ export type { SafeWebhookTarget } from './webhooks.js'
 export type { RunRoutesOptions } from './runs.js'
 export { renderReportHtml } from './report-renderer.js'
 export type { RenderReportHtmlOptions } from './report-renderer.js'
+export { buildOpenApiDocument } from './openapi.js'
+export type { OpenApiInfo } from './openapi.js'
 
 /**
  * Build the per-source-type validator map consumed by the generic

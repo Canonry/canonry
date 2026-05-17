@@ -2,9 +2,22 @@ import { test, expect, onTestFinished, describe } from 'vitest'
 
 import { connectGa } from '../src/api.js'
 
+/**
+ * The hey-api SDK passes a `Request` object to fetch (not `(url, init)`).
+ * This shim normalizes both shapes so tests can keep the `(url, init)`
+ * signature they had before the migration.
+ */
 function mockFetch(handler: (url: string, init?: RequestInit) => Response | Promise<Response>) {
   const realFetch = globalThis.fetch
-  globalThis.fetch = handler as typeof fetch
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (input instanceof Request) {
+      const body = await input.clone().text().then((t) => (t.length ? t : undefined)).catch(() => undefined)
+      const headersObj: Record<string, string> = {}
+      input.headers.forEach((v, k) => { headersObj[k] = v })
+      return handler(input.url, { method: input.method, headers: headersObj, body })
+    }
+    return handler(String(input), init)
+  }) as typeof fetch
   return () => {
     globalThis.fetch = realFetch
   }

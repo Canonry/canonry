@@ -86,6 +86,182 @@ import type {
   DiscoveryPromoteRequest,
   DiscoveryPromoteResult,
 } from '@ainyc/canonry-contracts'
+import {
+  createClient as createHeyClient,
+  type Client,
+  // Projects
+  getApiV1Projects,
+  getApiV1ProjectsByName,
+  putApiV1ProjectsByName,
+  deleteApiV1ProjectsByName,
+  getApiV1ProjectsByNameDeletePreview,
+  getApiV1ProjectsByNameExport,
+  getApiV1ProjectsByNameOverview,
+  getApiV1ProjectsByNameSearch,
+  getApiV1ProjectsByNameReport,
+  postApiV1Apply,
+  // Queries / keywords / competitors
+  getApiV1ProjectsByNameQueries,
+  putApiV1ProjectsByNameQueries,
+  postApiV1ProjectsByNameQueries,
+  deleteApiV1ProjectsByNameQueries,
+  postApiV1ProjectsByNameQueriesReplacePreview,
+  postApiV1ProjectsByNameQueriesGenerate,
+  getApiV1ProjectsByNameKeywords,
+  putApiV1ProjectsByNameKeywords,
+  postApiV1ProjectsByNameKeywords,
+  deleteApiV1ProjectsByNameKeywords,
+  postApiV1ProjectsByNameKeywordsGenerate,
+  getApiV1ProjectsByNameCompetitors,
+  postApiV1ProjectsByNameCompetitors,
+  deleteApiV1ProjectsByNameCompetitors,
+  // Runs / timeline / history / snapshots
+  getApiV1ProjectsByNameRuns,
+  postApiV1ProjectsByNameRuns,
+  getApiV1ProjectsByNameRunsLatest,
+  getApiV1RunsById,
+  postApiV1RunsByIdCancel,
+  getApiV1ProjectsByNameTimeline,
+  getApiV1ProjectsByNameHistory,
+  getApiV1ProjectsByNameSnapshots,
+  getApiV1ProjectsByNameSnapshotsDiff,
+  // Analytics
+  getApiV1ProjectsByNameAnalyticsMetrics,
+  getApiV1ProjectsByNameAnalyticsGaps,
+  getApiV1ProjectsByNameAnalyticsSources,
+  // Settings / snapshot / telemetry
+  getApiV1Settings,
+  putApiV1SettingsProvidersByName,
+  postApiV1Snapshot,
+  getApiV1Telemetry,
+  putApiV1Telemetry,
+  // Schedules / notifications
+  getApiV1ProjectsByNameSchedule,
+  putApiV1ProjectsByNameSchedule,
+  deleteApiV1ProjectsByNameSchedule,
+  getApiV1ProjectsByNameNotifications,
+  postApiV1ProjectsByNameNotifications,
+  deleteApiV1ProjectsByNameNotificationsById,
+  postApiV1ProjectsByNameNotificationsByIdTest,
+  // Locations
+  getApiV1ProjectsByNameLocations,
+  postApiV1ProjectsByNameLocations,
+  deleteApiV1ProjectsByNameLocationsByLabel,
+  putApiV1ProjectsByNameLocationsDefault,
+  // Google connections
+  postApiV1ProjectsByNameGoogleConnect,
+  getApiV1ProjectsByNameGoogleConnections,
+  deleteApiV1ProjectsByNameGoogleConnectionsByType,
+  getApiV1ProjectsByNameGoogleProperties,
+  putApiV1ProjectsByNameGoogleConnectionsByTypeProperty,
+  putApiV1ProjectsByNameGoogleConnectionsByTypeSitemap,
+  // GSC
+  postApiV1ProjectsByNameGoogleGscSync,
+  getApiV1ProjectsByNameGoogleGscPerformance,
+  getApiV1ProjectsByNameGoogleGscPerformanceDaily,
+  postApiV1ProjectsByNameGoogleGscInspect,
+  getApiV1ProjectsByNameGoogleGscInspections,
+  getApiV1ProjectsByNameGoogleGscDeindexed,
+  getApiV1ProjectsByNameGoogleGscCoverage,
+  getApiV1ProjectsByNameGoogleGscCoverageHistory,
+  postApiV1ProjectsByNameGoogleGscInspectSitemap,
+  getApiV1ProjectsByNameGoogleGscSitemaps,
+  postApiV1ProjectsByNameGoogleGscDiscoverSitemaps,
+  // Google Indexing
+  postApiV1ProjectsByNameGoogleIndexingRequest,
+  // Bing
+  postApiV1ProjectsByNameBingConnect,
+  deleteApiV1ProjectsByNameBingDisconnect,
+  getApiV1ProjectsByNameBingStatus,
+  getApiV1ProjectsByNameBingSites,
+  postApiV1ProjectsByNameBingSetSite,
+  getApiV1ProjectsByNameBingCoverage,
+  getApiV1ProjectsByNameBingCoverageHistory,
+  getApiV1ProjectsByNameBingInspections,
+  postApiV1ProjectsByNameBingInspectUrl,
+  postApiV1ProjectsByNameBingInspectSitemap,
+  postApiV1ProjectsByNameBingRequestIndexing,
+  getApiV1ProjectsByNameBingPerformance,
+  // CDP
+  getApiV1CdpStatus,
+  postApiV1CdpScreenshot,
+  getApiV1ProjectsByNameRunsByRunIdBrowserDiff,
+  // GA4
+  postApiV1ProjectsByNameGaConnect,
+  deleteApiV1ProjectsByNameGaDisconnect,
+  getApiV1ProjectsByNameGaStatus,
+  postApiV1ProjectsByNameGaSync,
+  getApiV1ProjectsByNameGaTraffic,
+  getApiV1ProjectsByNameGaCoverage,
+  getApiV1ProjectsByNameGaAiReferralHistory,
+  getApiV1ProjectsByNameGaSocialReferralHistory,
+  getApiV1ProjectsByNameGaSocialReferralTrend,
+  getApiV1ProjectsByNameGaAttributionTrend,
+  getApiV1ProjectsByNameGaSessionHistory,
+  // Traffic
+  postApiV1ProjectsByNameTrafficConnectCloudRun,
+  postApiV1ProjectsByNameTrafficConnectWordpress,
+  postApiV1ProjectsByNameTrafficConnectVercel,
+  postApiV1ProjectsByNameTrafficSourcesByIdSync,
+  postApiV1ProjectsByNameTrafficSourcesByIdBackfill,
+  getApiV1ProjectsByNameTrafficSources,
+  getApiV1ProjectsByNameTrafficStatus,
+  getApiV1ProjectsByNameTrafficSourcesById,
+  getApiV1ProjectsByNameTrafficEvents,
+  // Discovery
+  postApiV1ProjectsByNameDiscoverRun,
+  getApiV1ProjectsByNameDiscoverSessions,
+  getApiV1ProjectsByNameDiscoverSessionsById,
+  getApiV1ProjectsByNameDiscoverSessionsByIdPromote,
+  postApiV1ProjectsByNameDiscoverSessionsByIdPromote,
+  // Wordpress
+  postApiV1ProjectsByNameWordpressConnect,
+  deleteApiV1ProjectsByNameWordpressDisconnect,
+  getApiV1ProjectsByNameWordpressStatus,
+  getApiV1ProjectsByNameWordpressPages,
+  getApiV1ProjectsByNameWordpressPage,
+  postApiV1ProjectsByNameWordpressPages,
+  putApiV1ProjectsByNameWordpressPage,
+  postApiV1ProjectsByNameWordpressPageMeta,
+  postApiV1ProjectsByNameWordpressPagesMetaBulk,
+  getApiV1ProjectsByNameWordpressSchema,
+  postApiV1ProjectsByNameWordpressSchemaManual,
+  postApiV1ProjectsByNameWordpressSchemaDeploy,
+  getApiV1ProjectsByNameWordpressSchemaStatus,
+  postApiV1ProjectsByNameWordpressOnboard,
+  getApiV1ProjectsByNameWordpressLlmsTxt,
+  postApiV1ProjectsByNameWordpressLlmsTxtManual,
+  getApiV1ProjectsByNameWordpressAudit,
+  getApiV1ProjectsByNameWordpressDiff,
+  getApiV1ProjectsByNameWordpressStagingStatus,
+  postApiV1ProjectsByNameWordpressStagingPush,
+  // Insights
+  getApiV1ProjectsByNameInsights,
+  getApiV1ProjectsByNameInsightsById,
+  postApiV1ProjectsByNameInsightsByIdDismiss,
+  // Content / health / search / report / doctor / citation visibility
+  getApiV1ProjectsByNameContentTargets,
+  getApiV1ProjectsByNameContentSources,
+  getApiV1ProjectsByNameContentGaps,
+  getApiV1ProjectsByNameHealthLatest,
+  getApiV1ProjectsByNameHealthHistory,
+  getApiV1ProjectsByNameCitationsVisibility,
+  getApiV1Doctor,
+  getApiV1ProjectsByNameDoctor,
+  // Backlinks
+  getApiV1BacklinksStatus,
+  postApiV1BacklinksInstall,
+  postApiV1BacklinksSyncs,
+  getApiV1BacklinksLatestRelease,
+  getApiV1BacklinksSyncsLatest,
+  getApiV1BacklinksSyncs,
+  getApiV1BacklinksReleases,
+  deleteApiV1BacklinksCacheByRelease,
+  postApiV1ProjectsByNameBacklinksExtract,
+  getApiV1ProjectsByNameBacklinksSummary,
+  getApiV1ProjectsByNameBacklinksDomains,
+  getApiV1ProjectsByNameBacklinksHistory,
+} from '@ainyc/canonry-api-client'
 
 export type { BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto, AuditLogEntry, CompetitorDto, KeywordDto, QueryDto }
 
@@ -127,7 +303,6 @@ export interface TelemetryDto {
   anonymousId?: string
 }
 
-/** Timeline DTO */
 /** Aero transcript response from GET /projects/{name}/agent/transcript. Loose shape — messages are pi-agent-core `AgentMessage` union types which we don't re-export here. */
 export interface AgentTranscriptDto {
   messages: Array<{ role: string; content: unknown; timestamp?: number; [k: string]: unknown }>
@@ -206,18 +381,40 @@ export function createApiClient(): ApiClient {
   return new ApiClient(config.apiUrl, config.apiKey, { skipProbe: basePathResolved })
 }
 
+/**
+ * Shape returned by the generated SDK operations. The SDK never throws on
+ * non-2xx responses — it returns `{ data, error, request, response }` and lets
+ * the caller decide. `invoke()` consumes this shape and throws `CliError`.
+ *
+ * `data` is typed `unknown` deliberately: routes whose spec used
+ * `looseObjectSchema` or `rawJsonResponse` generate `{ [k: string]: unknown }`
+ * data types, which don't match the hand-written DTOs every ApiClient method
+ * declares. The `as TData` cast inside `invoke()` widens that back. Once the
+ * spec registers proper schemas for every route, this can tighten back to
+ * `data?: TData`.
+ */
+type SdkResult = {
+  data?: unknown
+  error?: unknown
+  request: Request
+  response: Response
+}
+
 export class ApiClient {
-  private baseUrl: string
   private originUrl: string
   private apiKey: string
   private probePromise: Promise<void> | null = null
   private probeSkipped: boolean
+  private heyClient: Client
+  /** Tracks the base URL most recently applied to `heyClient` so probe-driven updates only re-configure when something actually changed. */
+  private heyClientBaseUrl: string
 
   constructor(baseUrl: string, apiKey: string, opts?: { skipProbe?: boolean }) {
     this.originUrl = baseUrl.replace(/\/$/, '')
-    this.baseUrl = this.originUrl + '/api/v1'
     this.apiKey = apiKey
     this.probeSkipped = opts?.skipProbe ?? false
+    this.heyClientBaseUrl = this.originUrl
+    this.heyClient = createHeyClient({ baseUrl: this.originUrl, apiKey: this.apiKey })
   }
 
   /**
@@ -241,7 +438,6 @@ export class ApiClient {
               const normalized = '/' + body.basePath.replace(/^\/|\/$/g, '')
               if (normalized !== '/') {
                 this.originUrl = origin + normalized
-                this.baseUrl = this.originUrl + '/api/v1'
               }
             }
           }
@@ -255,31 +451,105 @@ export class ApiClient {
     return this.probePromise
   }
 
+  /** Apply the probe's discovered base URL to `heyClient` if it changed since last call. */
+  private refreshHeyClientBaseUrl(): void {
+    if (this.originUrl !== this.heyClientBaseUrl) {
+      this.heyClient.setConfig({ baseUrl: this.originUrl, headers: { authorization: `Bearer ${this.apiKey}` } })
+      this.heyClientBaseUrl = this.originUrl
+    }
+  }
+
+  /**
+   * Wrap a generated SDK call with probe, tracing, and CliError mapping.
+   * The SDK returns `{ data?, error?, request, response }` — this turns that
+   * into either the unwrapped data (success) or a thrown CliError.
+   */
+  private async invoke<TData>(call: () => Promise<SdkResult>): Promise<TData> {
+    await this.probeBasePath()
+    this.refreshHeyClientBaseUrl()
+
+    const traceEnabled = process.env.CANONRY_TRACE === '1'
+    const traceStart = traceEnabled ? Date.now() : 0
+
+    let result: SdkResult
+    try {
+      result = await call()
+    } catch (err) {
+      if (err instanceof CliError) throw err
+      const msg = err instanceof Error ? err.message : String(err)
+      if (traceEnabled) {
+        process.stderr.write(`[trace] (sdk-call) → ERROR (${Date.now() - traceStart}ms): ${msg}\n`)
+      }
+      if (
+        msg.includes('fetch failed') ||
+        msg.includes('ECONNREFUSED') ||
+        msg.includes('connect ECONNREFUSED')
+      ) {
+        throw new CliError({
+          code: 'CONNECTION_ERROR',
+          message:
+            `Could not connect to canonry server at ${this.originUrl}. ` +
+            'Start it with "canonry serve" (or "canonry serve &" to run in background).',
+          exitCode: EXIT_SYSTEM_ERROR,
+        })
+      }
+      throw new CliError({ code: 'CONNECTION_ERROR', message: msg, exitCode: EXIT_SYSTEM_ERROR })
+    }
+
+    if (traceEnabled) {
+      const durMs = Date.now() - traceStart
+      process.stderr.write(
+        `[trace] ${result.request.method} ${result.request.url} → ${result.response.status} (${durMs}ms)\n`,
+      )
+    }
+
+    if (result.error !== undefined && result.error !== null) {
+      const errorObj =
+        typeof result.error === 'object' &&
+        result.error !== null &&
+        'error' in result.error &&
+        typeof (result.error as { error?: unknown }).error === 'object' &&
+        (result.error as { error?: unknown }).error !== null
+          ? (result.error as { error: { code?: string; message?: string; details?: Record<string, unknown> } }).error
+          : null
+      const msg = errorObj?.message
+        ? String(errorObj.message)
+        : `HTTP ${result.response.status}: ${result.response.statusText}`
+      const code = errorObj?.code ? String(errorObj.code) : 'API_ERROR'
+      const exitCode = result.response.status >= 500 ? EXIT_SYSTEM_ERROR : EXIT_USER_ERROR
+      throw new CliError({
+        code,
+        message: msg,
+        exitCode,
+        details: { ...(errorObj?.details ?? {}), httpStatus: result.response.status },
+      })
+    }
+
+    return result.data as TData
+  }
+
+  /**
+   * Raw HTTP call — used for the agent transcript / providers / memory routes,
+   * which are registered locally in `packages/canonry/src/agent/agent-routes.ts`
+   * and aren't (yet) emitted by the OpenAPI spec. Once they're in the spec we
+   * regen the client and migrate these to `invoke()` like every other method.
+   */
   private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
     await this.probeBasePath()
-    const url = `${this.baseUrl}${path}`
+    const url = `${this.originUrl}/api/v1${path}`
     const serializedBody = body != null ? JSON.stringify(body) : undefined
     const headers: Record<string, string> = {
-      'Authorization': `Bearer ${this.apiKey}`,
-      'Accept': 'application/json',
+      Authorization: `Bearer ${this.apiKey}`,
+      Accept: 'application/json',
       ...(serializedBody != null ? { 'Content-Type': 'application/json' } : {}),
     }
 
-    // `--trace` agent-debug mode: emit a one-line summary of each HTTP
-    // round-trip to stderr so an agent can see which endpoint a CLI call
-    // hit and how long it took. Triggered by CANONRY_TRACE=1 (set by the
-    // CLI dispatcher when --trace is passed). Stays on stderr so stdout
-    // remains a clean JSON contract for `--format json` consumers.
     const traceEnabled = process.env.CANONRY_TRACE === '1'
     const traceStart = traceEnabled ? Date.now() : 0
 
     let res: Response
     try {
-      res = await fetch(url, {
-        method,
-        headers,
-        body: serializedBody,
-      })
+      res = await fetch(url, { method, headers, body: serializedBody })
     } catch (err) {
       if (traceEnabled) {
         const durMs = Date.now() - traceStart
@@ -291,7 +561,7 @@ export class ApiClient {
         throw new CliError({
           code: 'CONNECTION_ERROR',
           message:
-            `Could not connect to canonry server at ${this.baseUrl.replace('/api/v1', '')}. ` +
+            `Could not connect to canonry server at ${this.originUrl}. ` +
             'Start it with "canonry serve" (or "canonry serve &" to run in background).',
           exitCode: EXIT_SYSTEM_ERROR,
         })
@@ -321,10 +591,7 @@ export class ApiClient {
         code,
         message: msg,
         exitCode,
-        details: {
-          ...(errorObj?.details ?? {}),
-          httpStatus: res.status,
-        },
+        details: { ...(errorObj?.details ?? {}), httpStatus: res.status },
       })
     }
 
@@ -333,39 +600,26 @@ export class ApiClient {
       process.stderr.write(`[trace] ${method} ${url} → ${res.status} (${durMs}ms)\n`)
     }
 
-    if (res.status === 204) {
-      return undefined as T
-    }
-
+    if (res.status === 204) return undefined as T
     return (await res.json()) as T
   }
 
+  // ── Agent (routes not in OpenAPI spec — raw request<T>) ─────────────────
+
   async getAgentTranscript(project: string): Promise<AgentTranscriptDto> {
-    return this.request<AgentTranscriptDto>(
-      'GET',
-      `/projects/${encodeURIComponent(project)}/agent/transcript`,
-    )
+    return this.request<AgentTranscriptDto>('GET', `/projects/${encodeURIComponent(project)}/agent/transcript`)
   }
 
   async resetAgentTranscript(project: string): Promise<void> {
-    await this.request<unknown>(
-      'DELETE',
-      `/projects/${encodeURIComponent(project)}/agent/transcript`,
-    )
+    await this.request<unknown>('DELETE', `/projects/${encodeURIComponent(project)}/agent/transcript`)
   }
 
   async listAgentProviders(project: string): Promise<AgentProvidersResponse> {
-    return this.request<AgentProvidersResponse>(
-      'GET',
-      `/projects/${encodeURIComponent(project)}/agent/providers`,
-    )
+    return this.request<AgentProvidersResponse>('GET', `/projects/${encodeURIComponent(project)}/agent/providers`)
   }
 
   async listAgentMemory(project: string): Promise<AgentMemoryListResponse> {
-    return this.request<AgentMemoryListResponse>(
-      'GET',
-      `/projects/${encodeURIComponent(project)}/agent/memory`,
-    )
+    return this.request<AgentMemoryListResponse>('GET', `/projects/${encodeURIComponent(project)}/agent/memory`)
   }
 
   async setAgentMemory(
@@ -379,10 +633,7 @@ export class ApiClient {
     )
   }
 
-  async forgetAgentMemory(
-    project: string,
-    key: string,
-  ): Promise<{ status: 'forgotten' | 'missing'; key: string }> {
+  async forgetAgentMemory(project: string, key: string): Promise<{ status: 'forgotten' | 'missing'; key: string }> {
     return this.request<{ status: 'forgotten' | 'missing'; key: string }>(
       'DELETE',
       `/projects/${encodeURIComponent(project)}/agent/memory`,
@@ -398,7 +649,7 @@ export class ApiClient {
    */
   async streamPost(path: string, body: unknown, signal?: AbortSignal): Promise<Response> {
     await this.probeBasePath()
-    const url = `${this.baseUrl}${path}`
+    const url = `${this.originUrl}/api/v1${path}`
     const headers: Record<string, string> = {
       Authorization: `Bearer ${this.apiKey}`,
       'Content-Type': 'application/json',
@@ -407,12 +658,7 @@ export class ApiClient {
 
     let res: Response
     try {
-      res = await fetch(url, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(body ?? {}),
-        signal,
-      })
+      res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body ?? {}), signal })
     } catch (err) {
       if (err instanceof CliError) throw err
       const msg = err instanceof Error ? err.message : String(err)
@@ -420,7 +666,7 @@ export class ApiClient {
         throw new CliError({
           code: 'CONNECTION_ERROR',
           message:
-            `Could not connect to canonry server at ${this.baseUrl.replace('/api/v1', '')}. ` +
+            `Could not connect to canonry server at ${this.originUrl}. ` +
             'Start it with "canonry serve" (or "canonry serve &" to run in background).',
           exitCode: EXIT_SYSTEM_ERROR,
         })
@@ -448,136 +694,300 @@ export class ApiClient {
     return res
   }
 
+  // ── Projects ────────────────────────────────────────────────────────────
+
   async putProject(name: string, body: object): Promise<ProjectDto> {
-    return this.request<ProjectDto>('PUT', `/projects/${encodeURIComponent(name)}`, body)
+    return this.invoke<ProjectDto>(() =>
+      putApiV1ProjectsByName({ client: this.heyClient, path: { name }, body: body as never }),
+    )
   }
 
   async listProjects(): Promise<ProjectDto[]> {
-    return this.request<ProjectDto[]>('GET', '/projects')
+    return this.invoke<ProjectDto[]>(() => getApiV1Projects({ client: this.heyClient }))
   }
 
   async getProject(name: string): Promise<ProjectDto> {
-    return this.request<ProjectDto>('GET', `/projects/${encodeURIComponent(name)}`)
+    return this.invoke<ProjectDto>(() => getApiV1ProjectsByName({ client: this.heyClient, path: { name } }))
   }
 
   async deleteProject(name: string): Promise<void> {
-    await this.request<void>('DELETE', `/projects/${encodeURIComponent(name)}`)
+    await this.invoke<unknown>(() => deleteApiV1ProjectsByName({ client: this.heyClient, path: { name } }))
   }
 
   async previewProjectDelete(name: string): Promise<ProjectDeletePreviewDto> {
-    return this.request<ProjectDeletePreviewDto>('GET', `/projects/${encodeURIComponent(name)}/delete-preview`)
+    return this.invoke<ProjectDeletePreviewDto>(() =>
+      getApiV1ProjectsByNameDeletePreview({ client: this.heyClient, path: { name } }),
+    )
   }
 
+  async getStatus(project: string): Promise<ProjectDto> {
+    return this.invoke<ProjectDto>(() =>
+      getApiV1ProjectsByName({ client: this.heyClient, path: { name: project } }),
+    )
+  }
+
+  async getExport(project: string): Promise<ExportDto> {
+    return this.invoke<ExportDto>(() =>
+      getApiV1ProjectsByNameExport({ client: this.heyClient, path: { name: project } }),
+    )
+  }
+
+  async apply(config: object): Promise<ApplyResultDto> {
+    return this.invoke<ApplyResultDto>(() => postApiV1Apply({ client: this.heyClient, body: config as never }))
+  }
+
+  async getProjectOverview(
+    project: string,
+    opts?: { location?: string; since?: string },
+  ): Promise<ProjectOverviewDto> {
+    return this.invoke<ProjectOverviewDto>(() =>
+      getApiV1ProjectsByNameOverview({
+        client: this.heyClient,
+        path: { name: project },
+        query: { location: opts?.location, since: opts?.since } as never,
+      }),
+    )
+  }
+
+  async searchProject(project: string, opts: { q: string; limit?: number }): Promise<ProjectSearchResponseDto> {
+    return this.invoke<ProjectSearchResponseDto>(() =>
+      getApiV1ProjectsByNameSearch({
+        client: this.heyClient,
+        path: { name: project },
+        query: { q: opts.q, limit: opts.limit !== undefined ? String(opts.limit) : undefined } as never,
+      }),
+    )
+  }
+
+  async getReport(project: string): Promise<ProjectReportDto> {
+    return this.invoke<ProjectReportDto>(() =>
+      getApiV1ProjectsByNameReport({ client: this.heyClient, path: { name: project } }),
+    )
+  }
+
+  // ── Queries / keywords / competitors ────────────────────────────────────
+
   async putQueries(project: string, queries: string[]): Promise<void> {
-    await this.request<unknown>('PUT', `/projects/${encodeURIComponent(project)}/queries`, { queries })
+    await this.invoke<unknown>(() =>
+      putApiV1ProjectsByNameQueries({ client: this.heyClient, path: { name: project }, body: { queries } }),
+    )
   }
 
   async previewReplaceQueries(project: string, queries: string[]): Promise<QueriesReplacePreviewDto> {
-    return this.request<QueriesReplacePreviewDto>(
-      'POST',
-      `/projects/${encodeURIComponent(project)}/queries/replace-preview`,
-      { queries },
+    return this.invoke<QueriesReplacePreviewDto>(() =>
+      postApiV1ProjectsByNameQueriesReplacePreview({
+        client: this.heyClient,
+        path: { name: project },
+        body: { queries },
+      }),
     )
   }
 
   async listQueries(project: string): Promise<QueryDto[]> {
-    return this.request<QueryDto[]>('GET', `/projects/${encodeURIComponent(project)}/queries`)
+    return this.invoke<QueryDto[]>(() =>
+      getApiV1ProjectsByNameQueries({ client: this.heyClient, path: { name: project } }),
+    )
   }
 
   async deleteQueries(project: string, queries: string[]): Promise<void> {
-    await this.request<unknown>('DELETE', `/projects/${encodeURIComponent(project)}/queries`, { queries })
+    await this.invoke<unknown>(() =>
+      deleteApiV1ProjectsByNameQueries({ client: this.heyClient, path: { name: project }, body: { queries } }),
+    )
   }
 
   async appendQueries(project: string, queries: string[]): Promise<void> {
-    await this.request<unknown>('POST', `/projects/${encodeURIComponent(project)}/queries`, { queries })
+    await this.invoke<unknown>(() =>
+      postApiV1ProjectsByNameQueries({ client: this.heyClient, path: { name: project }, body: { queries } }),
+    )
+  }
+
+  async generateQueries(project: string, provider: string, count?: number): Promise<{ queries: string[]; provider: string }> {
+    return this.invoke<{ queries: string[]; provider: string }>(() =>
+      postApiV1ProjectsByNameQueriesGenerate({
+        client: this.heyClient,
+        path: { name: project },
+        body: { provider, count } as never,
+      }),
+    )
   }
 
   async putKeywords(project: string, keywords: string[]): Promise<void> {
-    await this.request<unknown>('PUT', `/projects/${encodeURIComponent(project)}/keywords`, { keywords })
+    await this.invoke<unknown>(() =>
+      putApiV1ProjectsByNameKeywords({ client: this.heyClient, path: { name: project }, body: { keywords } }),
+    )
   }
 
   async listKeywords(project: string): Promise<KeywordDto[]> {
-    return this.request<KeywordDto[]>('GET', `/projects/${encodeURIComponent(project)}/keywords`)
+    return this.invoke<KeywordDto[]>(() =>
+      getApiV1ProjectsByNameKeywords({ client: this.heyClient, path: { name: project } }),
+    )
   }
 
   async deleteKeywords(project: string, keywords: string[]): Promise<void> {
-    await this.request<unknown>('DELETE', `/projects/${encodeURIComponent(project)}/keywords`, { keywords })
+    await this.invoke<unknown>(() =>
+      deleteApiV1ProjectsByNameKeywords({ client: this.heyClient, path: { name: project }, body: { keywords } }),
+    )
   }
 
   async appendKeywords(project: string, keywords: string[]): Promise<void> {
-    await this.request<unknown>('POST', `/projects/${encodeURIComponent(project)}/keywords`, { keywords })
+    await this.invoke<unknown>(() =>
+      postApiV1ProjectsByNameKeywords({ client: this.heyClient, path: { name: project }, body: { keywords } }),
+    )
+  }
+
+  async generateKeywords(project: string, provider: string, count?: number): Promise<{ keywords: string[]; provider: string }> {
+    return this.invoke<{ keywords: string[]; provider: string }>(() =>
+      postApiV1ProjectsByNameKeywordsGenerate({
+        client: this.heyClient,
+        path: { name: project },
+        body: { provider, count } as never,
+      }),
+    )
   }
 
   async listCompetitors(project: string): Promise<CompetitorDto[]> {
-    return this.request<CompetitorDto[]>('GET', `/projects/${encodeURIComponent(project)}/competitors`)
+    return this.invoke<CompetitorDto[]>(() =>
+      getApiV1ProjectsByNameCompetitors({ client: this.heyClient, path: { name: project } }),
+    )
   }
 
   async appendCompetitors(project: string, competitors: string[]): Promise<CompetitorDto[]> {
-    return this.request<CompetitorDto[]>('POST', `/projects/${encodeURIComponent(project)}/competitors`, { competitors })
+    return this.invoke<CompetitorDto[]>(() =>
+      postApiV1ProjectsByNameCompetitors({
+        client: this.heyClient,
+        path: { name: project },
+        body: { competitors },
+      }),
+    )
   }
 
   async deleteCompetitors(project: string, competitors: string[]): Promise<CompetitorDto[]> {
-    return this.request<CompetitorDto[]>('DELETE', `/projects/${encodeURIComponent(project)}/competitors`, { competitors })
+    return this.invoke<CompetitorDto[]>(() =>
+      deleteApiV1ProjectsByNameCompetitors({
+        client: this.heyClient,
+        path: { name: project },
+        body: { competitors },
+      }),
+    )
   }
 
+  // ── Runs / timeline / history / snapshots ───────────────────────────────
+
   async triggerRun(project: string, body?: Record<string, unknown>): Promise<RunDto | RunDto[]> {
-    return this.request<RunDto | RunDto[]>('POST', `/projects/${encodeURIComponent(project)}/runs`, body ?? {})
+    return this.invoke<RunDto | RunDto[]>(() =>
+      postApiV1ProjectsByNameRuns({
+        client: this.heyClient,
+        path: { name: project },
+        body: (body ?? {}) as never,
+      }),
+    )
   }
 
   async listRuns(project: string, limit?: number): Promise<RunDto[]> {
-    const query = limit != null ? `?limit=${encodeURIComponent(String(limit))}` : ''
-    return this.request<RunDto[]>('GET', `/projects/${encodeURIComponent(project)}/runs${query}`)
+    return this.invoke<RunDto[]>(() =>
+      getApiV1ProjectsByNameRuns({ client: this.heyClient, path: { name: project }, query: { limit } }),
+    )
   }
 
   async getLatestRun(project: string): Promise<LatestProjectRunDto> {
-    return this.request<LatestProjectRunDto>('GET', `/projects/${encodeURIComponent(project)}/runs/latest`)
+    return this.invoke<LatestProjectRunDto>(() =>
+      getApiV1ProjectsByNameRunsLatest({ client: this.heyClient, path: { name: project } }),
+    )
   }
 
   async getRun(id: string): Promise<RunDetailDto> {
-    return this.request<RunDetailDto>('GET', `/runs/${encodeURIComponent(id)}`)
+    return this.invoke<RunDetailDto>(() => getApiV1RunsById({ client: this.heyClient, path: { id } }))
   }
 
   async cancelRun(id: string): Promise<RunDto> {
-    return this.request<RunDto>('POST', `/runs/${encodeURIComponent(id)}/cancel`)
+    return this.invoke<RunDto>(() => postApiV1RunsByIdCancel({ client: this.heyClient, path: { id } }))
   }
 
   async getTimeline(project: string, location?: string): Promise<TimelineDto[]> {
-    const qs = location != null ? `?location=${encodeURIComponent(location)}` : ''
-    return this.request<TimelineDto[]>('GET', `/projects/${encodeURIComponent(project)}/timeline${qs}`)
+    return this.invoke<TimelineDto[]>(() =>
+      getApiV1ProjectsByNameTimeline({ client: this.heyClient, path: { name: project }, query: { location } }),
+    )
   }
 
   async getHistory(project: string): Promise<AuditLogEntry[]> {
-    return this.request<AuditLogEntry[]>('GET', `/projects/${encodeURIComponent(project)}/history`)
+    return this.invoke<AuditLogEntry[]>(() =>
+      getApiV1ProjectsByNameHistory({ client: this.heyClient, path: { name: project } }),
+    )
   }
 
-  async getSnapshots(project: string, opts?: { limit?: number; offset?: number; location?: string }): Promise<SnapshotListResponse> {
-    const params = new URLSearchParams()
-    if (opts?.limit != null) params.set('limit', String(opts.limit))
-    if (opts?.offset != null) params.set('offset', String(opts.offset))
-    if (opts?.location != null) params.set('location', opts.location)
-    const qs = params.toString()
-    return this.request<SnapshotListResponse>('GET', `/projects/${encodeURIComponent(project)}/snapshots${qs ? `?${qs}` : ''}`)
+  async getSnapshots(
+    project: string,
+    opts?: { limit?: number; offset?: number; location?: string },
+  ): Promise<SnapshotListResponse> {
+    return this.invoke<SnapshotListResponse>(() =>
+      getApiV1ProjectsByNameSnapshots({
+        client: this.heyClient,
+        path: { name: project },
+        query: { limit: opts?.limit, offset: opts?.offset, location: opts?.location },
+      }),
+    )
   }
 
   async getSnapshotDiff(project: string, run1: string, run2: string): Promise<SnapshotDiffResponse> {
-    const params = new URLSearchParams({ run1, run2 })
-    return this.request<SnapshotDiffResponse>('GET', `/projects/${encodeURIComponent(project)}/snapshots/diff?${params.toString()}`)
+    return this.invoke<SnapshotDiffResponse>(() =>
+      getApiV1ProjectsByNameSnapshotsDiff({
+        client: this.heyClient,
+        path: { name: project },
+        query: { run1, run2 },
+      }),
+    )
   }
 
-  async getExport(project: string): Promise<ExportDto> {
-    return this.request<ExportDto>('GET', `/projects/${encodeURIComponent(project)}/export`)
+  // ── Analytics ───────────────────────────────────────────────────────────
+
+  async getAnalyticsMetrics(project: string, window?: string): Promise<BrandMetricsDto> {
+    return this.invoke<BrandMetricsDto>(() =>
+      getApiV1ProjectsByNameAnalyticsMetrics({
+        client: this.heyClient,
+        path: { name: project },
+        query: { window } as never,
+      }),
+    )
   }
 
-  async apply(config: object): Promise<ApplyResultDto> {
-    return this.request<ApplyResultDto>('POST', '/apply', config)
+  async getAnalyticsGaps(project: string, window?: string): Promise<GapAnalysisDto> {
+    return this.invoke<GapAnalysisDto>(() =>
+      getApiV1ProjectsByNameAnalyticsGaps({
+        client: this.heyClient,
+        path: { name: project },
+        query: { window } as never,
+      }),
+    )
   }
 
-  async getStatus(project: string): Promise<ProjectDto> {
-    return this.request<ProjectDto>('GET', `/projects/${encodeURIComponent(project)}`)
+  async getAnalyticsSources(project: string, window?: string): Promise<SourceBreakdownDto> {
+    return this.invoke<SourceBreakdownDto>(() =>
+      getApiV1ProjectsByNameAnalyticsSources({
+        client: this.heyClient,
+        path: { name: project },
+        query: { window } as never,
+      }),
+    )
   }
+
+  // ── Settings / providers / snapshot / telemetry ─────────────────────────
 
   async getSettings(): Promise<SettingsDto> {
-    return this.request<SettingsDto>('GET', '/settings')
+    return this.invoke<SettingsDto>(() => getApiV1Settings({ client: this.heyClient }))
+  }
+
+  async updateProvider(
+    name: string,
+    body: {
+      apiKey?: string
+      baseUrl?: string
+      model?: string
+      quota?: { maxConcurrency?: number; maxRequestsPerMinute?: number; maxRequestsPerDay?: number }
+    },
+  ): Promise<object> {
+    return this.invoke<object>(() =>
+      putApiV1SettingsProvidersByName({ client: this.heyClient, path: { name } as never, body }),
+    )
   }
 
   async createSnapshot(body: {
@@ -586,314 +996,510 @@ export class ApiClient {
     queries?: string[]
     competitors?: string[]
   }): Promise<SnapshotReportDto> {
-    return this.request<SnapshotReportDto>('POST', '/snapshot', body)
-  }
-
-  async updateProvider(name: string, body: { apiKey?: string; baseUrl?: string; model?: string; quota?: { maxConcurrency?: number; maxRequestsPerMinute?: number; maxRequestsPerDay?: number } }): Promise<object> {
-    return this.request<object>('PUT', `/settings/providers/${encodeURIComponent(name)}`, body)
-  }
-
-  async putSchedule(project: string, body: object): Promise<ScheduleDto> {
-    return this.request<ScheduleDto>('PUT', `/projects/${encodeURIComponent(project)}/schedule`, body)
-  }
-
-  async getSchedule(project: string, kind?: string): Promise<ScheduleDto> {
-    const qs = kind ? `?kind=${encodeURIComponent(kind)}` : ''
-    return this.request<ScheduleDto>('GET', `/projects/${encodeURIComponent(project)}/schedule${qs}`)
-  }
-
-  async deleteSchedule(project: string, kind?: string): Promise<void> {
-    const qs = kind ? `?kind=${encodeURIComponent(kind)}` : ''
-    await this.request<void>('DELETE', `/projects/${encodeURIComponent(project)}/schedule${qs}`)
-  }
-
-  async createNotification(project: string, body: object): Promise<NotificationDto> {
-    return this.request<NotificationDto>('POST', `/projects/${encodeURIComponent(project)}/notifications`, body)
-  }
-
-  async listNotifications(project: string): Promise<NotificationDto[]> {
-    return this.request<NotificationDto[]>('GET', `/projects/${encodeURIComponent(project)}/notifications`)
-  }
-
-  async deleteNotification(project: string, id: string): Promise<void> {
-    await this.request<void>('DELETE', `/projects/${encodeURIComponent(project)}/notifications/${encodeURIComponent(id)}`)
-  }
-
-  async testNotification(project: string, id: string): Promise<{ status: number; ok: boolean }> {
-    return this.request<{ status: number; ok: boolean }>('POST', `/projects/${encodeURIComponent(project)}/notifications/${encodeURIComponent(id)}/test`)
-  }
-
-  async addLocation(project: string, body: LocationContext): Promise<LocationContext> {
-    return this.request<LocationContext>('POST', `/projects/${encodeURIComponent(project)}/locations`, body)
-  }
-
-  async listLocations(project: string): Promise<{ locations: LocationContext[]; defaultLocation: string | null }> {
-    return this.request<{ locations: LocationContext[]; defaultLocation: string | null }>('GET', `/projects/${encodeURIComponent(project)}/locations`)
-  }
-
-  async removeLocation(project: string, label: string): Promise<void> {
-    await this.request<void>('DELETE', `/projects/${encodeURIComponent(project)}/locations/${encodeURIComponent(label)}`)
-  }
-
-  async setDefaultLocation(project: string, label: string): Promise<{ defaultLocation: string }> {
-    return this.request<{ defaultLocation: string }>('PUT', `/projects/${encodeURIComponent(project)}/locations/default`, { label })
+    return this.invoke<SnapshotReportDto>(() => postApiV1Snapshot({ client: this.heyClient, body }))
   }
 
   async getTelemetry(): Promise<TelemetryDto> {
-    return this.request<TelemetryDto>('GET', '/telemetry')
+    return this.invoke<TelemetryDto>(() => getApiV1Telemetry({ client: this.heyClient }))
   }
 
   async updateTelemetry(enabled: boolean): Promise<TelemetryDto> {
-    return this.request<TelemetryDto>('PUT', '/telemetry', { enabled })
+    return this.invoke<TelemetryDto>(() => putApiV1Telemetry({ client: this.heyClient, body: { enabled } }))
   }
 
-  async generateQueries(project: string, provider: string, count?: number): Promise<{ queries: string[]; provider: string }> {
-    return this.request<{ queries: string[]; provider: string }>(
-      'POST',
-      `/projects/${encodeURIComponent(project)}/queries/generate`,
-      { provider, count },
+  // ── Schedules / notifications / locations ───────────────────────────────
+
+  async putSchedule(project: string, body: object): Promise<ScheduleDto> {
+    return this.invoke<ScheduleDto>(() =>
+      putApiV1ProjectsByNameSchedule({
+        client: this.heyClient,
+        path: { name: project },
+        body: body as never,
+      }),
     )
   }
 
-  async generateKeywords(project: string, provider: string, count?: number): Promise<{ keywords: string[]; provider: string }> {
-    return this.request<{ keywords: string[]; provider: string }>(
-      'POST',
-      `/projects/${encodeURIComponent(project)}/keywords/generate`,
-      { provider, count },
+  async getSchedule(project: string, kind?: string): Promise<ScheduleDto> {
+    return this.invoke<ScheduleDto>(() =>
+      getApiV1ProjectsByNameSchedule({
+        client: this.heyClient,
+        path: { name: project },
+        query: kind ? ({ kind } as never) : undefined,
+      }),
     )
   }
 
-  // Google connection management
-  async googleConnect(project: string, body: { type: string; propertyId?: string; publicUrl?: string }): Promise<{ authUrl: string; redirectUri?: string }> {
-    return this.request<{ authUrl: string; redirectUri?: string }>('POST', `/projects/${encodeURIComponent(project)}/google/connect`, body)
+  async deleteSchedule(project: string, kind?: string): Promise<void> {
+    await this.invoke<unknown>(() =>
+      deleteApiV1ProjectsByNameSchedule({
+        client: this.heyClient,
+        path: { name: project },
+        query: kind ? ({ kind } as never) : undefined,
+      }),
+    )
+  }
+
+  async createNotification(project: string, body: object): Promise<NotificationDto> {
+    return this.invoke<NotificationDto>(() =>
+      postApiV1ProjectsByNameNotifications({
+        client: this.heyClient,
+        path: { name: project },
+        body: body as never,
+      }),
+    )
+  }
+
+  async listNotifications(project: string): Promise<NotificationDto[]> {
+    return this.invoke<NotificationDto[]>(() =>
+      getApiV1ProjectsByNameNotifications({ client: this.heyClient, path: { name: project } }),
+    )
+  }
+
+  async deleteNotification(project: string, id: string): Promise<void> {
+    await this.invoke<unknown>(() =>
+      deleteApiV1ProjectsByNameNotificationsById({ client: this.heyClient, path: { name: project, id } }),
+    )
+  }
+
+  async testNotification(project: string, id: string): Promise<{ status: number; ok: boolean }> {
+    return this.invoke<{ status: number; ok: boolean }>(() =>
+      postApiV1ProjectsByNameNotificationsByIdTest({ client: this.heyClient, path: { name: project, id } }),
+    )
+  }
+
+  async addLocation(project: string, body: LocationContext): Promise<LocationContext> {
+    return this.invoke<LocationContext>(() =>
+      postApiV1ProjectsByNameLocations({ client: this.heyClient, path: { name: project }, body }),
+    )
+  }
+
+  async listLocations(project: string): Promise<{ locations: LocationContext[]; defaultLocation: string | null }> {
+    return this.invoke<{ locations: LocationContext[]; defaultLocation: string | null }>(() =>
+      getApiV1ProjectsByNameLocations({ client: this.heyClient, path: { name: project } }),
+    )
+  }
+
+  async removeLocation(project: string, label: string): Promise<void> {
+    await this.invoke<unknown>(() =>
+      deleteApiV1ProjectsByNameLocationsByLabel({
+        client: this.heyClient,
+        path: { name: project, label },
+      }),
+    )
+  }
+
+  async setDefaultLocation(project: string, label: string): Promise<{ defaultLocation: string }> {
+    return this.invoke<{ defaultLocation: string }>(() =>
+      putApiV1ProjectsByNameLocationsDefault({
+        client: this.heyClient,
+        path: { name: project },
+        body: { label },
+      }),
+    )
+  }
+
+  // ── Google connections + GSC ───────────────────────────────────────────
+
+  async googleConnect(
+    project: string,
+    body: { type: string; propertyId?: string; publicUrl?: string },
+  ): Promise<{ authUrl: string; redirectUri?: string }> {
+    return this.invoke<{ authUrl: string; redirectUri?: string }>(() =>
+      postApiV1ProjectsByNameGoogleConnect({
+        client: this.heyClient,
+        path: { name: project },
+        body: body as never,
+      }),
+    )
   }
 
   async googleConnections(project: string): Promise<GoogleConnectionDto[]> {
-    return this.request<GoogleConnectionDto[]>('GET', `/projects/${encodeURIComponent(project)}/google/connections`)
+    return this.invoke<GoogleConnectionDto[]>(() =>
+      getApiV1ProjectsByNameGoogleConnections({ client: this.heyClient, path: { name: project } }),
+    )
   }
 
   async googleDisconnect(project: string, type: string): Promise<void> {
-    await this.request<void>('DELETE', `/projects/${encodeURIComponent(project)}/google/connections/${encodeURIComponent(type)}`)
+    await this.invoke<unknown>(() =>
+      deleteApiV1ProjectsByNameGoogleConnectionsByType({
+        client: this.heyClient,
+        path: { name: project, type } as never,
+      }),
+    )
   }
 
   async googleProperties(project: string): Promise<{ sites: Array<{ siteUrl: string; permissionLevel: string }> }> {
-    return this.request<{ sites: Array<{ siteUrl: string; permissionLevel: string }> }>('GET', `/projects/${encodeURIComponent(project)}/google/properties`)
+    return this.invoke<{ sites: Array<{ siteUrl: string; permissionLevel: string }> }>(() =>
+      getApiV1ProjectsByNameGoogleProperties({ client: this.heyClient, path: { name: project } }),
+    )
   }
 
   async googleSetProperty(project: string, type: string, propertyId: string): Promise<GoogleConnectionDto> {
-    return this.request<GoogleConnectionDto>('PUT', `/projects/${encodeURIComponent(project)}/google/connections/${encodeURIComponent(type)}/property`, { propertyId })
+    return this.invoke<GoogleConnectionDto>(() =>
+      putApiV1ProjectsByNameGoogleConnectionsByTypeProperty({
+        client: this.heyClient,
+        path: { name: project, type } as never,
+        body: { propertyId },
+      }),
+    )
   }
 
   async googleSetSitemap(project: string, type: string, sitemapUrl: string): Promise<GoogleConnectionDto> {
-    return this.request<GoogleConnectionDto>('PUT', `/projects/${encodeURIComponent(project)}/google/connections/${encodeURIComponent(type)}/sitemap`, { sitemapUrl })
+    return this.invoke<GoogleConnectionDto>(() =>
+      putApiV1ProjectsByNameGoogleConnectionsByTypeSitemap({
+        client: this.heyClient,
+        path: { name: project, type } as never,
+        body: { sitemapUrl },
+      }),
+    )
   }
 
-  // GSC data
   async gscSync(project: string, body?: { days?: number; full?: boolean }): Promise<RunDto> {
-    return this.request<RunDto>('POST', `/projects/${encodeURIComponent(project)}/google/gsc/sync`, body ?? {})
+    return this.invoke<RunDto>(() =>
+      postApiV1ProjectsByNameGoogleGscSync({
+        client: this.heyClient,
+        path: { name: project },
+        body: body ?? {},
+      }),
+    )
   }
 
   async gscPerformance(project: string, params?: Record<string, string>): Promise<GscSearchDataDto[]> {
-    const qs = params ? '?' + new URLSearchParams(params).toString() : ''
-    return this.request<GscSearchDataDto[]>('GET', `/projects/${encodeURIComponent(project)}/google/gsc/performance${qs}`)
+    return this.invoke<GscSearchDataDto[]>(() =>
+      getApiV1ProjectsByNameGoogleGscPerformance({
+        client: this.heyClient,
+        path: { name: project },
+        query: params as never,
+      }),
+    )
   }
 
   async gscPerformanceDaily(project: string, params?: Record<string, string>): Promise<GscPerformanceDailyDto> {
-    const qs = params ? '?' + new URLSearchParams(params).toString() : ''
-    return this.request<GscPerformanceDailyDto>('GET', `/projects/${encodeURIComponent(project)}/google/gsc/performance/daily${qs}`)
+    return this.invoke<GscPerformanceDailyDto>(() =>
+      getApiV1ProjectsByNameGoogleGscPerformanceDaily({
+        client: this.heyClient,
+        path: { name: project },
+        query: params as never,
+      }),
+    )
   }
 
   async gscInspect(project: string, url: string): Promise<GscUrlInspectionDto> {
-    return this.request<GscUrlInspectionDto>('POST', `/projects/${encodeURIComponent(project)}/google/gsc/inspect`, { url })
+    return this.invoke<GscUrlInspectionDto>(() =>
+      postApiV1ProjectsByNameGoogleGscInspect({
+        client: this.heyClient,
+        path: { name: project },
+        body: { url },
+      }),
+    )
   }
 
   async gscInspections(project: string, params?: Record<string, string>): Promise<GscUrlInspectionDto[]> {
-    const qs = params ? '?' + new URLSearchParams(params).toString() : ''
-    return this.request<GscUrlInspectionDto[]>('GET', `/projects/${encodeURIComponent(project)}/google/gsc/inspections${qs}`)
+    return this.invoke<GscUrlInspectionDto[]>(() =>
+      getApiV1ProjectsByNameGoogleGscInspections({
+        client: this.heyClient,
+        path: { name: project },
+        query: params as never,
+      }),
+    )
   }
 
   async gscDeindexed(project: string): Promise<object[]> {
-    return this.request<object[]>('GET', `/projects/${encodeURIComponent(project)}/google/gsc/deindexed`)
+    return this.invoke<object[]>(() =>
+      getApiV1ProjectsByNameGoogleGscDeindexed({ client: this.heyClient, path: { name: project } }),
+    )
   }
 
   async gscCoverage(project: string): Promise<GscCoverageSummaryDto> {
-    return this.request<GscCoverageSummaryDto>('GET', `/projects/${encodeURIComponent(project)}/google/gsc/coverage`)
+    return this.invoke<GscCoverageSummaryDto>(() =>
+      getApiV1ProjectsByNameGoogleGscCoverage({ client: this.heyClient, path: { name: project } }),
+    )
   }
 
   async gscCoverageHistory(project: string, params?: { limit?: number }): Promise<GscCoverageSnapshotDto[]> {
-    const qs = params?.limit != null ? `?limit=${params.limit}` : ''
-    return this.request<GscCoverageSnapshotDto[]>('GET', `/projects/${encodeURIComponent(project)}/google/gsc/coverage/history${qs}`)
+    return this.invoke<GscCoverageSnapshotDto[]>(() =>
+      getApiV1ProjectsByNameGoogleGscCoverageHistory({
+        client: this.heyClient,
+        path: { name: project },
+        query: { limit: params?.limit },
+      }),
+    )
   }
 
   async gscInspectSitemap(project: string, body?: { sitemapUrl?: string }): Promise<object> {
-    return this.request<object>('POST', `/projects/${encodeURIComponent(project)}/google/gsc/inspect-sitemap`, body ?? {})
+    return this.invoke<object>(() =>
+      postApiV1ProjectsByNameGoogleGscInspectSitemap({
+        client: this.heyClient,
+        path: { name: project },
+        body: body ?? {},
+      }),
+    )
   }
 
   async gscSitemaps(project: string): Promise<object> {
-    return this.request<object>('GET', `/projects/${encodeURIComponent(project)}/google/gsc/sitemaps`)
+    return this.invoke<object>(() =>
+      getApiV1ProjectsByNameGoogleGscSitemaps({ client: this.heyClient, path: { name: project } }),
+    )
   }
 
   async gscDiscoverSitemaps(project: string): Promise<object> {
-    return this.request<object>('POST', `/projects/${encodeURIComponent(project)}/google/gsc/discover-sitemaps`, {})
+    return this.invoke<object>(() =>
+      postApiV1ProjectsByNameGoogleGscDiscoverSitemaps({ client: this.heyClient, path: { name: project } }),
+    )
   }
 
-  // Analytics
-  async getAnalyticsMetrics(project: string, window?: string): Promise<BrandMetricsDto> {
-    const qs = window ? `?window=${encodeURIComponent(window)}` : ''
-    return this.request<BrandMetricsDto>('GET', `/projects/${encodeURIComponent(project)}/analytics/metrics${qs}`)
-  }
+  // ── Google Indexing API ────────────────────────────────────────────────
 
-  async getAnalyticsGaps(project: string, window?: string): Promise<GapAnalysisDto> {
-    const qs = window ? `?window=${encodeURIComponent(window)}` : ''
-    return this.request<GapAnalysisDto>('GET', `/projects/${encodeURIComponent(project)}/analytics/gaps${qs}`)
-  }
-
-  async getAnalyticsSources(project: string, window?: string): Promise<SourceBreakdownDto> {
-    const qs = window ? `?window=${encodeURIComponent(window)}` : ''
-    return this.request<SourceBreakdownDto>('GET', `/projects/${encodeURIComponent(project)}/analytics/sources${qs}`)
-  }
-
-  // Google Indexing API
   async googleRequestIndexing(project: string, body: { urls: string[]; allUnindexed?: boolean }): Promise<object> {
-    return this.request<object>('POST', `/projects/${encodeURIComponent(project)}/google/indexing/request`, body)
+    return this.invoke<object>(() =>
+      postApiV1ProjectsByNameGoogleIndexingRequest({
+        client: this.heyClient,
+        path: { name: project },
+        body,
+      }),
+    )
   }
 
-  // Bing Webmaster Tools
+  // ── Bing Webmaster Tools ───────────────────────────────────────────────
+
   async bingConnect(project: string, body: { apiKey: string }): Promise<object> {
-    return this.request<object>('POST', `/projects/${encodeURIComponent(project)}/bing/connect`, body)
+    return this.invoke<object>(() =>
+      postApiV1ProjectsByNameBingConnect({ client: this.heyClient, path: { name: project }, body }),
+    )
   }
 
   async bingDisconnect(project: string): Promise<void> {
-    await this.request<void>('DELETE', `/projects/${encodeURIComponent(project)}/bing/disconnect`)
+    await this.invoke<unknown>(() =>
+      deleteApiV1ProjectsByNameBingDisconnect({ client: this.heyClient, path: { name: project } }),
+    )
   }
 
   async bingStatus(project: string): Promise<object> {
-    return this.request<object>('GET', `/projects/${encodeURIComponent(project)}/bing/status`)
+    return this.invoke<object>(() =>
+      getApiV1ProjectsByNameBingStatus({ client: this.heyClient, path: { name: project } }),
+    )
   }
 
   async bingSites(project: string): Promise<object> {
-    return this.request<object>('GET', `/projects/${encodeURIComponent(project)}/bing/sites`)
+    return this.invoke<object>(() =>
+      getApiV1ProjectsByNameBingSites({ client: this.heyClient, path: { name: project } }),
+    )
   }
 
   async bingSetSite(project: string, siteUrl: string): Promise<object> {
-    return this.request<object>('POST', `/projects/${encodeURIComponent(project)}/bing/set-site`, { siteUrl })
+    return this.invoke<object>(() =>
+      postApiV1ProjectsByNameBingSetSite({
+        client: this.heyClient,
+        path: { name: project },
+        body: { siteUrl },
+      }),
+    )
   }
 
   async bingCoverage(project: string): Promise<object> {
-    return this.request<object>('GET', `/projects/${encodeURIComponent(project)}/bing/coverage`)
+    return this.invoke<object>(() =>
+      getApiV1ProjectsByNameBingCoverage({ client: this.heyClient, path: { name: project } }),
+    )
   }
 
   async bingCoverageHistory(project: string, params?: { limit?: number }): Promise<BingCoverageSnapshotDto[]> {
-    const qs = params?.limit != null ? `?limit=${params.limit}` : ''
-    return this.request<BingCoverageSnapshotDto[]>('GET', `/projects/${encodeURIComponent(project)}/bing/coverage/history${qs}`)
+    return this.invoke<BingCoverageSnapshotDto[]>(() =>
+      getApiV1ProjectsByNameBingCoverageHistory({
+        client: this.heyClient,
+        path: { name: project },
+        query: { limit: params?.limit },
+      }),
+    )
   }
 
   async bingInspections(project: string, params?: Record<string, string>): Promise<object[]> {
-    const qs = params ? '?' + new URLSearchParams(params).toString() : ''
-    return this.request<object[]>('GET', `/projects/${encodeURIComponent(project)}/bing/inspections${qs}`)
+    return this.invoke<object[]>(() =>
+      getApiV1ProjectsByNameBingInspections({
+        client: this.heyClient,
+        path: { name: project },
+        query: params as never,
+      }),
+    )
   }
 
   async bingInspectUrl(project: string, url: string): Promise<object> {
-    return this.request<object>('POST', `/projects/${encodeURIComponent(project)}/bing/inspect-url`, { url })
+    return this.invoke<object>(() =>
+      postApiV1ProjectsByNameBingInspectUrl({
+        client: this.heyClient,
+        path: { name: project },
+        body: { url },
+      }),
+    )
   }
 
   async bingInspectSitemap(project: string, body?: { sitemapUrl?: string }): Promise<object> {
-    return this.request<object>('POST', `/projects/${encodeURIComponent(project)}/bing/inspect-sitemap`, body ?? {})
+    return this.invoke<object>(() =>
+      postApiV1ProjectsByNameBingInspectSitemap({
+        client: this.heyClient,
+        path: { name: project },
+        body: body ?? {},
+      }),
+    )
   }
 
   async bingRequestIndexing(project: string, body: { urls?: string[]; allUnindexed?: boolean }): Promise<object> {
-    return this.request<object>('POST', `/projects/${encodeURIComponent(project)}/bing/request-indexing`, body)
+    return this.invoke<object>(() =>
+      postApiV1ProjectsByNameBingRequestIndexing({
+        client: this.heyClient,
+        path: { name: project },
+        body,
+      }),
+    )
   }
 
   async bingPerformance(project: string, params?: Record<string, string>): Promise<object[]> {
-    const qs = params ? '?' + new URLSearchParams(params).toString() : ''
-    return this.request<object[]>('GET', `/projects/${encodeURIComponent(project)}/bing/performance${qs}`)
+    return this.invoke<object[]>(() =>
+      getApiV1ProjectsByNameBingPerformance({
+        client: this.heyClient,
+        path: { name: project },
+        query: params as never,
+      }),
+    )
   }
 
-  // CDP browser provider
+  // ── CDP browser provider ───────────────────────────────────────────────
+
   async getCdpStatus(): Promise<CdpStatusDto> {
-    return this.request<CdpStatusDto>('GET', '/cdp/status')
+    return this.invoke<CdpStatusDto>(() => getApiV1CdpStatus({ client: this.heyClient }))
   }
 
   async cdpScreenshot(query: string, targets?: string[]): Promise<CdpScreenshotResultDto> {
-    return this.request<CdpScreenshotResultDto>('POST', '/cdp/screenshot', { query, targets })
+    return this.invoke<CdpScreenshotResultDto>(() =>
+      postApiV1CdpScreenshot({ client: this.heyClient, body: { query, targets } }),
+    )
   }
 
   async getBrowserDiff(project: string, runId: string): Promise<object> {
-    return this.request<object>('GET', `/projects/${encodeURIComponent(project)}/runs/${encodeURIComponent(runId)}/browser-diff`)
+    return this.invoke<object>(() =>
+      getApiV1ProjectsByNameRunsByRunIdBrowserDiff({
+        client: this.heyClient,
+        path: { name: project, runId },
+      }),
+    )
   }
 
-  // Google Analytics 4
+  // ── Google Analytics 4 ─────────────────────────────────────────────────
+
   async gaConnect(project: string, body: { propertyId: string; keyJson?: string }): Promise<GaConnectResponse> {
-    return this.request<GaConnectResponse>('POST', `/projects/${encodeURIComponent(project)}/ga/connect`, body)
+    return this.invoke<GaConnectResponse>(() =>
+      postApiV1ProjectsByNameGaConnect({ client: this.heyClient, path: { name: project }, body: body as never }),
+    )
   }
 
   async gaDisconnect(project: string): Promise<void> {
-    await this.request<void>('DELETE', `/projects/${encodeURIComponent(project)}/ga/disconnect`)
+    await this.invoke<unknown>(() =>
+      deleteApiV1ProjectsByNameGaDisconnect({ client: this.heyClient, path: { name: project } }),
+    )
   }
 
   async gaStatus(project: string): Promise<GaStatusResponse> {
-    return this.request<GaStatusResponse>('GET', `/projects/${encodeURIComponent(project)}/ga/status`)
+    return this.invoke<GaStatusResponse>(() =>
+      getApiV1ProjectsByNameGaStatus({ client: this.heyClient, path: { name: project } }),
+    )
   }
 
   async gaSync(project: string, body?: { days?: number; only?: string }): Promise<GaSyncResponse> {
-    return this.request<GaSyncResponse>('POST', `/projects/${encodeURIComponent(project)}/ga/sync`, body ?? {})
+    return this.invoke<GaSyncResponse>(() =>
+      postApiV1ProjectsByNameGaSync({
+        client: this.heyClient,
+        path: { name: project },
+        body: body ?? {},
+      }),
+    )
   }
 
   async gaTraffic(project: string, params?: Record<string, string>): Promise<GaTrafficResponse> {
-    const qs = params ? '?' + new URLSearchParams(params).toString() : ''
-    return this.request<GaTrafficResponse>('GET', `/projects/${encodeURIComponent(project)}/ga/traffic${qs}`)
+    return this.invoke<GaTrafficResponse>(() =>
+      getApiV1ProjectsByNameGaTraffic({
+        client: this.heyClient,
+        path: { name: project },
+        query: params as never,
+      }),
+    )
   }
 
   async gaCoverage(project: string): Promise<GaCoverageResponse> {
-    return this.request<GaCoverageResponse>('GET', `/projects/${encodeURIComponent(project)}/ga/coverage`)
+    return this.invoke<GaCoverageResponse>(() =>
+      getApiV1ProjectsByNameGaCoverage({ client: this.heyClient, path: { name: project } }),
+    )
   }
 
   async gaAiReferralHistory(project: string, params?: Record<string, string>): Promise<GA4AiReferralHistoryEntry[]> {
-    const qs = params ? '?' + new URLSearchParams(params).toString() : ''
-    return this.request<GA4AiReferralHistoryEntry[]>('GET', `/projects/${encodeURIComponent(project)}/ga/ai-referral-history${qs}`)
+    return this.invoke<GA4AiReferralHistoryEntry[]>(() =>
+      getApiV1ProjectsByNameGaAiReferralHistory({
+        client: this.heyClient,
+        path: { name: project },
+        query: params as never,
+      }),
+    )
   }
 
   async gaSocialReferralHistory(project: string, params?: Record<string, string>): Promise<GA4SocialReferralHistoryEntry[]> {
-    const qs = params ? '?' + new URLSearchParams(params).toString() : ''
-    return this.request<GA4SocialReferralHistoryEntry[]>('GET', `/projects/${encodeURIComponent(project)}/ga/social-referral-history${qs}`)
+    return this.invoke<GA4SocialReferralHistoryEntry[]>(() =>
+      getApiV1ProjectsByNameGaSocialReferralHistory({
+        client: this.heyClient,
+        path: { name: project },
+        query: params as never,
+      }),
+    )
   }
 
   async gaSocialReferralTrend(project: string): Promise<GaSocialReferralTrendResponse> {
-    return this.request<GaSocialReferralTrendResponse>('GET', `/projects/${encodeURIComponent(project)}/ga/social-referral-trend`)
+    return this.invoke<GaSocialReferralTrendResponse>(() =>
+      getApiV1ProjectsByNameGaSocialReferralTrend({ client: this.heyClient, path: { name: project } }),
+    )
   }
 
   async gaAttributionTrend(project: string): Promise<GaAttributionTrendResponse> {
-    return this.request<GaAttributionTrendResponse>('GET', `/projects/${encodeURIComponent(project)}/ga/attribution-trend`)
+    return this.invoke<GaAttributionTrendResponse>(() =>
+      getApiV1ProjectsByNameGaAttributionTrend({ client: this.heyClient, path: { name: project } }),
+    )
   }
 
   async gaSessionHistory(project: string, params?: Record<string, string>): Promise<GA4SessionHistoryEntry[]> {
-    const qs = params ? '?' + new URLSearchParams(params).toString() : ''
-    return this.request<GA4SessionHistoryEntry[]>('GET', `/projects/${encodeURIComponent(project)}/ga/session-history${qs}`)
+    return this.invoke<GA4SessionHistoryEntry[]>(() =>
+      getApiV1ProjectsByNameGaSessionHistory({
+        client: this.heyClient,
+        path: { name: project },
+        query: params as never,
+      }),
+    )
   }
 
-  // Traffic — server-side ingestion
+  // ── Traffic — server-side ingestion ────────────────────────────────────
+
   async trafficConnectCloudRun(project: string, body: TrafficConnectCloudRunRequest): Promise<TrafficSourceDto> {
-    return this.request<TrafficSourceDto>(
-      'POST',
-      `/projects/${encodeURIComponent(project)}/traffic/connect/cloud-run`,
-      body,
+    return this.invoke<TrafficSourceDto>(() =>
+      postApiV1ProjectsByNameTrafficConnectCloudRun({
+        client: this.heyClient,
+        path: { name: project },
+        body: body as never,
+      }),
     )
   }
 
   async trafficConnectWordpress(project: string, body: TrafficConnectWordpressRequest): Promise<TrafficSourceDto> {
-    return this.request<TrafficSourceDto>(
-      'POST',
-      `/projects/${encodeURIComponent(project)}/traffic/connect/wordpress`,
-      body,
+    return this.invoke<TrafficSourceDto>(() =>
+      postApiV1ProjectsByNameTrafficConnectWordpress({
+        client: this.heyClient,
+        path: { name: project },
+        body,
+      }),
     )
   }
 
   async trafficConnectVercel(project: string, body: TrafficConnectVercelRequest): Promise<TrafficSourceDto> {
-    return this.request<TrafficSourceDto>(
-      'POST',
-      `/projects/${encodeURIComponent(project)}/traffic/connect/vercel`,
-      body,
+    return this.invoke<TrafficSourceDto>(() =>
+      postApiV1ProjectsByNameTrafficConnectVercel({
+        client: this.heyClient,
+        path: { name: project },
+        body,
+      }),
     )
   }
 
@@ -902,10 +1508,12 @@ export class ApiClient {
     sourceId: string,
     body?: { sinceMinutes?: number },
   ): Promise<TrafficSyncResponse> {
-    return this.request<TrafficSyncResponse>(
-      'POST',
-      `/projects/${encodeURIComponent(project)}/traffic/sources/${encodeURIComponent(sourceId)}/sync`,
-      body ?? {},
+    return this.invoke<TrafficSyncResponse>(() =>
+      postApiV1ProjectsByNameTrafficSourcesByIdSync({
+        client: this.heyClient,
+        path: { name: project, id: sourceId },
+        body: body ?? {},
+      }),
     )
   }
 
@@ -914,31 +1522,33 @@ export class ApiClient {
     sourceId: string,
     body?: { days?: number },
   ): Promise<TrafficBackfillResponse> {
-    return this.request<TrafficBackfillResponse>(
-      'POST',
-      `/projects/${encodeURIComponent(project)}/traffic/sources/${encodeURIComponent(sourceId)}/backfill`,
-      body ?? {},
+    return this.invoke<TrafficBackfillResponse>(() =>
+      postApiV1ProjectsByNameTrafficSourcesByIdBackfill({
+        client: this.heyClient,
+        path: { name: project, id: sourceId },
+        body: body ?? {},
+      }),
     )
   }
 
   async trafficListSources(project: string): Promise<TrafficSourceListResponse> {
-    return this.request<TrafficSourceListResponse>(
-      'GET',
-      `/projects/${encodeURIComponent(project)}/traffic/sources`,
+    return this.invoke<TrafficSourceListResponse>(() =>
+      getApiV1ProjectsByNameTrafficSources({ client: this.heyClient, path: { name: project } }),
     )
   }
 
   async trafficStatus(project: string): Promise<TrafficStatusResponse> {
-    return this.request<TrafficStatusResponse>(
-      'GET',
-      `/projects/${encodeURIComponent(project)}/traffic/status`,
+    return this.invoke<TrafficStatusResponse>(() =>
+      getApiV1ProjectsByNameTrafficStatus({ client: this.heyClient, path: { name: project } }),
     )
   }
 
   async trafficGetSource(project: string, sourceId: string): Promise<TrafficSourceDetailDto> {
-    return this.request<TrafficSourceDetailDto>(
-      'GET',
-      `/projects/${encodeURIComponent(project)}/traffic/sources/${encodeURIComponent(sourceId)}`,
+    return this.invoke<TrafficSourceDetailDto>(() =>
+      getApiV1ProjectsByNameTrafficSourcesById({
+        client: this.heyClient,
+        path: { name: project, id: sourceId },
+      }),
     )
   }
 
@@ -946,49 +1556,61 @@ export class ApiClient {
     project: string,
     params?: { since?: string; until?: string; kind?: string; limit?: number; sourceId?: string },
   ): Promise<TrafficEventsResponse> {
-    const search: Record<string, string> = {}
-    if (params?.since) search.since = params.since
-    if (params?.until) search.until = params.until
-    if (params?.kind) search.kind = params.kind
-    if (params?.limit !== undefined) search.limit = String(params.limit)
-    if (params?.sourceId) search.sourceId = params.sourceId
-    const qs = Object.keys(search).length ? '?' + new URLSearchParams(search).toString() : ''
-    return this.request<TrafficEventsResponse>(
-      'GET',
-      `/projects/${encodeURIComponent(project)}/traffic/events${qs}`,
+    return this.invoke<TrafficEventsResponse>(() =>
+      getApiV1ProjectsByNameTrafficEvents({
+        client: this.heyClient,
+        path: { name: project },
+        query: {
+          since: params?.since,
+          until: params?.until,
+          kind: params?.kind,
+          limit: params?.limit !== undefined ? String(params.limit) : undefined,
+          sourceId: params?.sourceId,
+        } as never,
+      }),
     )
   }
+
+  // ── Discovery ──────────────────────────────────────────────────────────
 
   async triggerDiscoveryRun(
     project: string,
     body?: { icpDescription?: string; dedupThreshold?: number; maxProbes?: number; locations?: string[] },
   ): Promise<DiscoveryRunStartResponse> {
-    return this.request<DiscoveryRunStartResponse>(
-      'POST',
-      `/projects/${encodeURIComponent(project)}/discover/run`,
-      body ?? {},
+    return this.invoke<DiscoveryRunStartResponse>(() =>
+      postApiV1ProjectsByNameDiscoverRun({
+        client: this.heyClient,
+        path: { name: project },
+        body: body ?? {},
+      }),
     )
   }
 
   async listDiscoverySessions(project: string, opts?: { limit?: number }): Promise<DiscoverySessionDto[]> {
-    const qs = opts?.limit ? `?limit=${encodeURIComponent(String(opts.limit))}` : ''
-    return this.request<DiscoverySessionDto[]>(
-      'GET',
-      `/projects/${encodeURIComponent(project)}/discover/sessions${qs}`,
+    return this.invoke<DiscoverySessionDto[]>(() =>
+      getApiV1ProjectsByNameDiscoverSessions({
+        client: this.heyClient,
+        path: { name: project },
+        query: { limit: opts?.limit !== undefined ? String(opts.limit) : undefined } as never,
+      }),
     )
   }
 
   async getDiscoverySession(project: string, sessionId: string): Promise<DiscoverySessionDetailDto> {
-    return this.request<DiscoverySessionDetailDto>(
-      'GET',
-      `/projects/${encodeURIComponent(project)}/discover/sessions/${encodeURIComponent(sessionId)}`,
+    return this.invoke<DiscoverySessionDetailDto>(() =>
+      getApiV1ProjectsByNameDiscoverSessionsById({
+        client: this.heyClient,
+        path: { name: project, id: sessionId },
+      }),
     )
   }
 
   async previewDiscoveryPromote(project: string, sessionId: string): Promise<DiscoveryPromotePreview> {
-    return this.request<DiscoveryPromotePreview>(
-      'GET',
-      `/projects/${encodeURIComponent(project)}/discover/sessions/${encodeURIComponent(sessionId)}/promote`,
+    return this.invoke<DiscoveryPromotePreview>(() =>
+      getApiV1ProjectsByNameDiscoverSessionsByIdPromote({
+        client: this.heyClient,
+        path: { name: project, id: sessionId },
+      }),
     )
   }
 
@@ -997,12 +1619,16 @@ export class ApiClient {
     sessionId: string,
     body?: DiscoveryPromoteRequest,
   ): Promise<DiscoveryPromoteResult> {
-    return this.request<DiscoveryPromoteResult>(
-      'POST',
-      `/projects/${encodeURIComponent(project)}/discover/sessions/${encodeURIComponent(sessionId)}/promote`,
-      body ?? {},
+    return this.invoke<DiscoveryPromoteResult>(() =>
+      postApiV1ProjectsByNameDiscoverSessionsByIdPromote({
+        client: this.heyClient,
+        path: { name: project, id: sessionId },
+        body: body ?? {},
+      }),
     )
   }
+
+  // ── WordPress ──────────────────────────────────────────────────────────
 
   async wordpressConnect(
     project: string,
@@ -1014,47 +1640,87 @@ export class ApiClient {
       defaultEnv?: WordpressEnv
     },
   ): Promise<WordpressStatusDto> {
-    return this.request<WordpressStatusDto>('POST', `/projects/${encodeURIComponent(project)}/wordpress/connect`, body)
+    return this.invoke<WordpressStatusDto>(() =>
+      postApiV1ProjectsByNameWordpressConnect({
+        client: this.heyClient,
+        path: { name: project },
+        body,
+      }),
+    )
   }
 
   async wordpressDisconnect(project: string): Promise<void> {
-    await this.request<void>('DELETE', `/projects/${encodeURIComponent(project)}/wordpress/disconnect`)
+    await this.invoke<unknown>(() =>
+      deleteApiV1ProjectsByNameWordpressDisconnect({ client: this.heyClient, path: { name: project } }),
+    )
   }
 
   async wordpressStatus(project: string): Promise<WordpressStatusDto> {
-    return this.request<WordpressStatusDto>('GET', `/projects/${encodeURIComponent(project)}/wordpress/status`)
+    return this.invoke<WordpressStatusDto>(() =>
+      getApiV1ProjectsByNameWordpressStatus({ client: this.heyClient, path: { name: project } }),
+    )
   }
 
-  async wordpressPages(project: string, env?: WordpressEnv): Promise<{ env: WordpressEnv; pages: WordpressPageSummaryDto[] }> {
-    const qs = env ? `?env=${encodeURIComponent(env)}` : ''
-    return this.request<{ env: WordpressEnv; pages: WordpressPageSummaryDto[] }>('GET', `/projects/${encodeURIComponent(project)}/wordpress/pages${qs}`)
+  async wordpressPages(
+    project: string,
+    env?: WordpressEnv,
+  ): Promise<{ env: WordpressEnv; pages: WordpressPageSummaryDto[] }> {
+    return this.invoke<{ env: WordpressEnv; pages: WordpressPageSummaryDto[] }>(() =>
+      getApiV1ProjectsByNameWordpressPages({
+        client: this.heyClient,
+        path: { name: project },
+        query: { env },
+      }),
+    )
   }
 
   async wordpressPage(project: string, slug: string, env?: WordpressEnv): Promise<WordpressPageDetailDto> {
-    const params = new URLSearchParams({ slug })
-    if (env) params.set('env', env)
-    return this.request<WordpressPageDetailDto>('GET', `/projects/${encodeURIComponent(project)}/wordpress/page?${params.toString()}`)
+    return this.invoke<WordpressPageDetailDto>(() =>
+      getApiV1ProjectsByNameWordpressPage({
+        client: this.heyClient,
+        path: { name: project },
+        query: { slug, env },
+      }),
+    )
   }
 
   async wordpressCreatePage(
     project: string,
     body: { title: string; slug: string; content: string; status?: string; env?: WordpressEnv },
   ): Promise<WordpressPageDetailDto> {
-    return this.request<WordpressPageDetailDto>('POST', `/projects/${encodeURIComponent(project)}/wordpress/pages`, body)
+    return this.invoke<WordpressPageDetailDto>(() =>
+      postApiV1ProjectsByNameWordpressPages({
+        client: this.heyClient,
+        path: { name: project },
+        body,
+      }),
+    )
   }
 
   async wordpressUpdatePage(
     project: string,
     body: { currentSlug: string; title?: string; slug?: string; content?: string; status?: string; env?: WordpressEnv },
   ): Promise<WordpressPageDetailDto> {
-    return this.request<WordpressPageDetailDto>('PUT', `/projects/${encodeURIComponent(project)}/wordpress/page`, body)
+    return this.invoke<WordpressPageDetailDto>(() =>
+      putApiV1ProjectsByNameWordpressPage({
+        client: this.heyClient,
+        path: { name: project },
+        body,
+      }),
+    )
   }
 
   async wordpressSetMeta(
     project: string,
     body: { slug: string; title?: string; description?: string; noindex?: boolean; env?: WordpressEnv },
   ): Promise<WordpressPageDetailDto> {
-    return this.request<WordpressPageDetailDto>('POST', `/projects/${encodeURIComponent(project)}/wordpress/page/meta`, body)
+    return this.invoke<WordpressPageDetailDto>(() =>
+      postApiV1ProjectsByNameWordpressPageMeta({
+        client: this.heyClient,
+        path: { name: project },
+        body,
+      }),
+    )
   }
 
   async wordpressBulkSetMeta(
@@ -1064,7 +1730,13 @@ export class ApiClient {
       env?: WordpressEnv
     },
   ): Promise<WordpressBulkMetaResultDto> {
-    return this.request<WordpressBulkMetaResultDto>('POST', `/projects/${encodeURIComponent(project)}/wordpress/pages/meta/bulk`, body)
+    return this.invoke<WordpressBulkMetaResultDto>(() =>
+      postApiV1ProjectsByNameWordpressPagesMetaBulk({
+        client: this.heyClient,
+        path: { name: project },
+        body,
+      }),
+    )
   }
 
   async wordpressSchema(
@@ -1072,33 +1744,49 @@ export class ApiClient {
     slug: string,
     env?: WordpressEnv,
   ): Promise<{ env: WordpressEnv; slug: string; blocks: WordpressSchemaBlockDto[] }> {
-    const params = new URLSearchParams({ slug })
-    if (env) params.set('env', env)
-    return this.request<{ env: WordpressEnv; slug: string; blocks: WordpressSchemaBlockDto[] }>('GET', `/projects/${encodeURIComponent(project)}/wordpress/schema?${params.toString()}`)
+    return this.invoke<{ env: WordpressEnv; slug: string; blocks: WordpressSchemaBlockDto[] }>(() =>
+      getApiV1ProjectsByNameWordpressSchema({
+        client: this.heyClient,
+        path: { name: project },
+        query: { slug, env },
+      }),
+    )
   }
 
   async wordpressSetSchema(
     project: string,
     body: { slug: string; type?: string; json: string; env?: WordpressEnv },
   ): Promise<WordpressManualAssistDto> {
-    return this.request<WordpressManualAssistDto>('POST', `/projects/${encodeURIComponent(project)}/wordpress/schema/manual`, body)
+    return this.invoke<WordpressManualAssistDto>(() =>
+      postApiV1ProjectsByNameWordpressSchemaManual({
+        client: this.heyClient,
+        path: { name: project },
+        body,
+      }),
+    )
   }
 
   async wordpressSchemaDeploy(
     project: string,
     body: { profile: unknown; env?: WordpressEnv },
   ): Promise<WordpressSchemaDeployResultDto> {
-    return this.request<WordpressSchemaDeployResultDto>('POST', `/projects/${encodeURIComponent(project)}/wordpress/schema/deploy`, body)
+    return this.invoke<WordpressSchemaDeployResultDto>(() =>
+      postApiV1ProjectsByNameWordpressSchemaDeploy({
+        client: this.heyClient,
+        path: { name: project },
+        body: body as never,
+      }),
+    )
   }
 
-  async wordpressSchemaStatus(
-    project: string,
-    env?: WordpressEnv,
-  ): Promise<WordpressSchemaStatusResultDto> {
-    const params = new URLSearchParams()
-    if (env) params.set('env', env)
-    const qs = params.toString()
-    return this.request<WordpressSchemaStatusResultDto>('GET', `/projects/${encodeURIComponent(project)}/wordpress/schema/status${qs ? `?${qs}` : ''}`)
+  async wordpressSchemaStatus(project: string, env?: WordpressEnv): Promise<WordpressSchemaStatusResultDto> {
+    return this.invoke<WordpressSchemaStatusResultDto>(() =>
+      getApiV1ProjectsByNameWordpressSchemaStatus({
+        client: this.heyClient,
+        path: { name: project },
+        query: { env },
+      }),
+    )
   }
 
   async wordpressOnboard(
@@ -1114,35 +1802,62 @@ export class ApiClient {
       skipSubmit?: boolean
     },
   ): Promise<WordpressOnboardResultDto> {
-    return this.request<WordpressOnboardResultDto>('POST', `/projects/${encodeURIComponent(project)}/wordpress/onboard`, body)
+    return this.invoke<WordpressOnboardResultDto>(() =>
+      postApiV1ProjectsByNameWordpressOnboard({
+        client: this.heyClient,
+        path: { name: project },
+        body: body as never,
+      }),
+    )
   }
 
   async wordpressLlmsTxt(
     project: string,
     env?: WordpressEnv,
   ): Promise<{ env: WordpressEnv; url: string; content: string | null }> {
-    const qs = env ? `?env=${encodeURIComponent(env)}` : ''
-    return this.request<{ env: WordpressEnv; url: string; content: string | null }>('GET', `/projects/${encodeURIComponent(project)}/wordpress/llms-txt${qs}`)
+    return this.invoke<{ env: WordpressEnv; url: string; content: string | null }>(() =>
+      getApiV1ProjectsByNameWordpressLlmsTxt({
+        client: this.heyClient,
+        path: { name: project },
+        query: { env },
+      }),
+    )
   }
 
   async wordpressSetLlmsTxt(
     project: string,
     body: { content: string; env?: WordpressEnv },
   ): Promise<WordpressManualAssistDto> {
-    return this.request<WordpressManualAssistDto>('POST', `/projects/${encodeURIComponent(project)}/wordpress/llms-txt/manual`, body)
+    return this.invoke<WordpressManualAssistDto>(() =>
+      postApiV1ProjectsByNameWordpressLlmsTxtManual({
+        client: this.heyClient,
+        path: { name: project },
+        body,
+      }),
+    )
   }
 
   async wordpressAudit(
     project: string,
     env?: WordpressEnv,
   ): Promise<{ env: WordpressEnv; pages: WordpressAuditPageDto[]; issues: WordpressAuditIssueDto[] }> {
-    const qs = env ? `?env=${encodeURIComponent(env)}` : ''
-    return this.request<{ env: WordpressEnv; pages: WordpressAuditPageDto[]; issues: WordpressAuditIssueDto[] }>('GET', `/projects/${encodeURIComponent(project)}/wordpress/audit${qs}`)
+    return this.invoke<{ env: WordpressEnv; pages: WordpressAuditPageDto[]; issues: WordpressAuditIssueDto[] }>(() =>
+      getApiV1ProjectsByNameWordpressAudit({
+        client: this.heyClient,
+        path: { name: project },
+        query: { env },
+      }),
+    )
   }
 
   async wordpressDiff(project: string, slug: string): Promise<WordpressDiffDto> {
-    const params = new URLSearchParams({ slug })
-    return this.request<WordpressDiffDto>('GET', `/projects/${encodeURIComponent(project)}/wordpress/diff?${params.toString()}`)
+    return this.invoke<WordpressDiffDto>(() =>
+      getApiV1ProjectsByNameWordpressDiff({
+        client: this.heyClient,
+        path: { name: project },
+        query: { slug },
+      }),
+    )
   }
 
   async wordpressStagingStatus(project: string): Promise<{
@@ -1151,181 +1866,204 @@ export class ApiClient {
     wpStagingActive: boolean
     adminUrl: string
   }> {
-    return this.request<{
+    return this.invoke<{
       stagingConfigured: boolean
       stagingUrl: string | null
       wpStagingActive: boolean
       adminUrl: string
-    }>('GET', `/projects/${encodeURIComponent(project)}/wordpress/staging/status`)
+    }>(() =>
+      getApiV1ProjectsByNameWordpressStagingStatus({ client: this.heyClient, path: { name: project } }),
+    )
   }
 
   async wordpressStagingPush(project: string): Promise<WordpressManualAssistDto> {
-    return this.request<WordpressManualAssistDto>('POST', `/projects/${encodeURIComponent(project)}/wordpress/staging/push`)
+    return this.invoke<WordpressManualAssistDto>(() =>
+      postApiV1ProjectsByNameWordpressStagingPush({ client: this.heyClient, path: { name: project } }),
+    )
   }
 
-  // ── Intelligence ──────────────────────────────────────────────────────
+  // ── Intelligence ────────────────────────────────────────────────────────
 
   async getInsights(project: string, opts?: { dismissed?: boolean; runId?: string }): Promise<InsightDto[]> {
-    const params = new URLSearchParams()
-    if (opts?.dismissed) params.set('dismissed', 'true')
-    if (opts?.runId) params.set('runId', opts.runId)
-    const qs = params.toString()
-    return this.request<InsightDto[]>('GET', `/projects/${encodeURIComponent(project)}/insights${qs ? `?${qs}` : ''}`)
+    return this.invoke<InsightDto[]>(() =>
+      getApiV1ProjectsByNameInsights({
+        client: this.heyClient,
+        path: { name: project },
+        query: {
+          dismissed: opts?.dismissed ? 'true' : undefined,
+          runId: opts?.runId,
+        } as never,
+      }),
+    )
   }
 
   async getInsight(project: string, id: string): Promise<InsightDto> {
-    return this.request<InsightDto>('GET', `/projects/${encodeURIComponent(project)}/insights/${encodeURIComponent(id)}`)
+    return this.invoke<InsightDto>(() =>
+      getApiV1ProjectsByNameInsightsById({ client: this.heyClient, path: { name: project, id } }),
+    )
   }
 
   async dismissInsight(project: string, id: string): Promise<{ ok: boolean }> {
-    return this.request<{ ok: boolean }>('POST', `/projects/${encodeURIComponent(project)}/insights/${encodeURIComponent(id)}/dismiss`)
+    return this.invoke<{ ok: boolean }>(() =>
+      postApiV1ProjectsByNameInsightsByIdDismiss({ client: this.heyClient, path: { name: project, id } }),
+    )
   }
 
-  // ── Content ──────────────────────────────────────────────────────────
+  // ── Content / health / search / report / doctor / citation visibility ──
 
   async getContentTargets(
     project: string,
     opts?: { limit?: number; includeInProgress?: boolean },
   ): Promise<ContentTargetsResponseDto> {
-    const params = new URLSearchParams()
-    if (opts?.limit !== undefined) params.set('limit', String(opts.limit))
-    if (opts?.includeInProgress) params.set('include-in-progress', 'true')
-    const qs = params.toString()
-    return this.request<ContentTargetsResponseDto>(
-      'GET',
-      `/projects/${encodeURIComponent(project)}/content/targets${qs ? `?${qs}` : ''}`,
+    return this.invoke<ContentTargetsResponseDto>(() =>
+      getApiV1ProjectsByNameContentTargets({
+        client: this.heyClient,
+        path: { name: project },
+        query: {
+          limit: opts?.limit,
+          'include-in-progress': opts?.includeInProgress ? 'true' : undefined,
+        } as never,
+      }),
     )
   }
 
   async getContentSources(project: string): Promise<ContentSourcesResponseDto> {
-    return this.request<ContentSourcesResponseDto>(
-      'GET',
-      `/projects/${encodeURIComponent(project)}/content/sources`,
+    return this.invoke<ContentSourcesResponseDto>(() =>
+      getApiV1ProjectsByNameContentSources({ client: this.heyClient, path: { name: project } }),
     )
   }
 
   async getContentGaps(project: string): Promise<ContentGapsResponseDto> {
-    return this.request<ContentGapsResponseDto>(
-      'GET',
-      `/projects/${encodeURIComponent(project)}/content/gaps`,
+    return this.invoke<ContentGapsResponseDto>(() =>
+      getApiV1ProjectsByNameContentGaps({ client: this.heyClient, path: { name: project } }),
     )
   }
 
   async getHealth(project: string): Promise<HealthSnapshotDto> {
-    return this.request<HealthSnapshotDto>('GET', `/projects/${encodeURIComponent(project)}/health/latest`)
-  }
-
-  async getProjectOverview(
-    project: string,
-    opts?: { location?: string; since?: string },
-  ): Promise<ProjectOverviewDto> {
-    const params = new URLSearchParams()
-    if (opts?.location) params.set('location', opts.location)
-    if (opts?.since) params.set('since', opts.since)
-    const query = params.toString()
-    const path = `/projects/${encodeURIComponent(project)}/overview${query ? `?${query}` : ''}`
-    return this.request<ProjectOverviewDto>('GET', path)
-  }
-
-  async searchProject(project: string, opts: { q: string; limit?: number }): Promise<ProjectSearchResponseDto> {
-    const params = new URLSearchParams({ q: opts.q })
-    if (opts.limit !== undefined) params.set('limit', String(opts.limit))
-    return this.request<ProjectSearchResponseDto>(
-      'GET',
-      `/projects/${encodeURIComponent(project)}/search?${params.toString()}`,
+    return this.invoke<HealthSnapshotDto>(() =>
+      getApiV1ProjectsByNameHealthLatest({ client: this.heyClient, path: { name: project } }),
     )
-  }
-
-  async getReport(project: string): Promise<ProjectReportDto> {
-    return this.request<ProjectReportDto>('GET', `/projects/${encodeURIComponent(project)}/report`)
   }
 
   async runDoctor(opts: { project?: string; checkIds?: string[] } = {}): Promise<DoctorReportDto> {
-    const qs = opts.checkIds && opts.checkIds.length > 0
-      ? `?check=${encodeURIComponent(opts.checkIds.join(','))}`
-      : ''
-    const path = opts.project
-      ? `/projects/${encodeURIComponent(opts.project)}/doctor${qs}`
-      : `/doctor${qs}`
-    return this.request<DoctorReportDto>('GET', path)
-  }
-
-  async getHealthHistory(project: string, limit?: number): Promise<HealthSnapshotDto[]> {
-    const qs = limit ? `?limit=${limit}` : ''
-    return this.request<HealthSnapshotDto[]>('GET', `/projects/${encodeURIComponent(project)}/health/history${qs}`)
-  }
-
-  async getCitationVisibility(project: string): Promise<CitationVisibilityResponse> {
-    return this.request<CitationVisibilityResponse>(
-      'GET',
-      `/projects/${encodeURIComponent(project)}/citations/visibility`,
+    const checkQuery = opts.checkIds && opts.checkIds.length > 0 ? { check: opts.checkIds.join(',') } : undefined
+    if (opts.project) {
+      return this.invoke<DoctorReportDto>(() =>
+        getApiV1ProjectsByNameDoctor({
+          client: this.heyClient,
+          path: { name: opts.project! },
+          query: checkQuery,
+        }),
+      )
+    }
+    return this.invoke<DoctorReportDto>(() =>
+      getApiV1Doctor({ client: this.heyClient, query: checkQuery }),
     )
   }
 
-  // --- Backlinks ---------------------------------------------------------
+  async getHealthHistory(project: string, limit?: number): Promise<HealthSnapshotDto[]> {
+    return this.invoke<HealthSnapshotDto[]>(() =>
+      getApiV1ProjectsByNameHealthHistory({
+        client: this.heyClient,
+        path: { name: project },
+        query: { limit: limit !== undefined ? String(limit) : undefined } as never,
+      }),
+    )
+  }
+
+  async getCitationVisibility(project: string): Promise<CitationVisibilityResponse> {
+    return this.invoke<CitationVisibilityResponse>(() =>
+      getApiV1ProjectsByNameCitationsVisibility({ client: this.heyClient, path: { name: project } }),
+    )
+  }
+
+  // ── Backlinks — workspace-level ────────────────────────────────────────
 
   async backlinksStatus(): Promise<BacklinksInstallStatusDto> {
-    return this.request<BacklinksInstallStatusDto>('GET', '/backlinks/status')
+    return this.invoke<BacklinksInstallStatusDto>(() => getApiV1BacklinksStatus({ client: this.heyClient }))
   }
 
   async backlinksInstall(): Promise<BacklinksInstallResultDto> {
-    return this.request<BacklinksInstallResultDto>('POST', '/backlinks/install')
+    return this.invoke<BacklinksInstallResultDto>(() => postApiV1BacklinksInstall({ client: this.heyClient }))
   }
 
   async backlinksTriggerSync(release?: string): Promise<CcReleaseSyncDto> {
-    return this.request<CcReleaseSyncDto>('POST', '/backlinks/syncs', release ? { release } : undefined)
+    return this.invoke<CcReleaseSyncDto>(() =>
+      postApiV1BacklinksSyncs({ client: this.heyClient, body: release ? { release } : undefined }),
+    )
   }
 
   async backlinksLatestRelease(): Promise<CcAvailableRelease | null> {
-    return this.request<CcAvailableRelease | null>('GET', '/backlinks/latest-release')
+    return this.invoke<CcAvailableRelease | null>(() => getApiV1BacklinksLatestRelease({ client: this.heyClient }))
   }
 
   async backlinksLatestSync(): Promise<CcReleaseSyncDto | null> {
-    return this.request<CcReleaseSyncDto | null>('GET', '/backlinks/syncs/latest')
+    return this.invoke<CcReleaseSyncDto | null>(() => getApiV1BacklinksSyncsLatest({ client: this.heyClient }))
   }
 
   async backlinksListSyncs(): Promise<CcReleaseSyncDto[]> {
-    return this.request<CcReleaseSyncDto[]>('GET', '/backlinks/syncs')
+    return this.invoke<CcReleaseSyncDto[]>(() => getApiV1BacklinksSyncs({ client: this.heyClient }))
   }
 
   async backlinksCachedReleases(): Promise<CcCachedRelease[]> {
-    return this.request<CcCachedRelease[]>('GET', '/backlinks/releases')
+    return this.invoke<CcCachedRelease[]>(() => getApiV1BacklinksReleases({ client: this.heyClient }))
   }
 
   async backlinksPruneCache(release: string): Promise<{ ok: boolean }> {
-    return this.request<{ ok: boolean }>('DELETE', `/backlinks/cache/${encodeURIComponent(release)}`)
+    return this.invoke<{ ok: boolean }>(() =>
+      deleteApiV1BacklinksCacheByRelease({ client: this.heyClient, path: { release } }),
+    )
   }
 
+  // ── Backlinks — project-scoped ─────────────────────────────────────────
+
   async backlinksExtract(project: string, release?: string): Promise<RunDto> {
-    return this.request<RunDto>('POST', `/projects/${encodeURIComponent(project)}/backlinks/extract`, release ? { release } : {})
+    return this.invoke<RunDto>(() =>
+      postApiV1ProjectsByNameBacklinksExtract({
+        client: this.heyClient,
+        path: { name: project },
+        body: release ? { release } : {},
+      }),
+    )
   }
 
   async backlinksSummary(
     project: string,
     opts: { release?: string; excludeCrawlers?: boolean } = {},
   ): Promise<BacklinkSummaryDto | null> {
-    const qs = new URLSearchParams()
-    if (opts.release) qs.set('release', opts.release)
-    if (opts.excludeCrawlers) qs.set('excludeCrawlers', '1')
-    const suffix = qs.toString() ? `?${qs.toString()}` : ''
-    return this.request<BacklinkSummaryDto | null>('GET', `/projects/${encodeURIComponent(project)}/backlinks/summary${suffix}`)
+    return this.invoke<BacklinkSummaryDto | null>(() =>
+      getApiV1ProjectsByNameBacklinksSummary({
+        client: this.heyClient,
+        path: { name: project },
+        query: {
+          release: opts.release,
+          excludeCrawlers: opts.excludeCrawlers ? '1' : undefined,
+        } as never,
+      }),
+    )
   }
 
   async backlinksDomains(
     project: string,
     opts: { limit?: number; offset?: number; release?: string; excludeCrawlers?: boolean } = {},
   ): Promise<BacklinkListResponse> {
-    const qs = new URLSearchParams()
-    if (opts.limit !== undefined) qs.set('limit', String(opts.limit))
-    if (opts.offset !== undefined) qs.set('offset', String(opts.offset))
-    if (opts.release) qs.set('release', opts.release)
-    if (opts.excludeCrawlers) qs.set('excludeCrawlers', '1')
-    const suffix = qs.toString() ? `?${qs.toString()}` : ''
-    return this.request<BacklinkListResponse>('GET', `/projects/${encodeURIComponent(project)}/backlinks/domains${suffix}`)
+    return this.invoke<BacklinkListResponse>(() =>
+      getApiV1ProjectsByNameBacklinksDomains({
+        client: this.heyClient,
+        path: { name: project },
+        query: {
+          limit: opts.limit,
+          offset: opts.offset,
+          release: opts.release,
+          excludeCrawlers: opts.excludeCrawlers ? '1' : undefined,
+        } as never,
+      }),
+    )
   }
 
   async backlinksHistory(project: string): Promise<BacklinkHistoryEntry[]> {
-    return this.request<BacklinkHistoryEntry[]>('GET', `/projects/${encodeURIComponent(project)}/backlinks/history`)
+    return this.invoke<BacklinkHistoryEntry[]>(() =>
+      getApiV1ProjectsByNameBacklinksHistory({ client: this.heyClient, path: { name: project } }),
+    )
   }
-
 }

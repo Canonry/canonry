@@ -23,7 +23,15 @@ const ALT_CHART_LIB_PATTERNS = [
 
 export default tseslint.config(
   {
-    ignores: ['dist/', 'node_modules/', 'apps/**/dist/', 'packages/**/dist/'],
+    ignores: [
+      'dist/',
+      'node_modules/',
+      'apps/**/dist/',
+      'packages/**/dist/',
+      // Auto-generated hey-api client — never hand-edited; lint warnings
+      // would only show up to be regenerated away on the next `pnpm gen`.
+      'packages/api-client-generated/src/generated/**',
+    ],
   },
   {
     // CLI commands must be fully non-interactive. readline is only allowed in
