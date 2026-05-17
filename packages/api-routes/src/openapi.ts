@@ -1,5 +1,13 @@
 import type { FastifyInstance } from 'fastify'
 import { AGENT_PROVIDER_IDS } from '@ainyc/canonry-contracts'
+import {
+  buildComponentSchemas,
+  errorResponse,
+  jsonArrayResponse,
+  jsonResponse,
+  looseObjectSchema,
+  rawJsonResponse,
+} from './openapi-schemas.js'
 
 export interface OpenApiInfo {
   title?: string
@@ -25,6 +33,16 @@ interface OpenApiParameter {
   schema: Record<string, unknown>
 }
 
+/**
+ * A response definition. `description` alone is the legacy shape used for
+ * status codes without a body (204 No Content, error responses where the
+ * envelope is documented elsewhere). The `content`-bearing shape declares a
+ * typed body so codegen tools can produce strongly typed clients.
+ */
+type ResponseDefinition =
+  | { description: string }
+  | { description: string; content: Record<string, { schema: Record<string, unknown> }> }
+
 interface OpenApiOperation {
   method: HttpMethod
   path: string
@@ -38,7 +56,7 @@ interface OpenApiOperation {
     description?: string
     content: Record<string, { schema: Record<string, unknown> }>
   }
-  responses: Record<string, { description: string }>
+  responses: Record<string, ResponseDefinition>
 }
 
 const stringSchema = { type: 'string' }
@@ -189,7 +207,7 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['meta'],
     auth: false,
     responses: {
-      200: { description: 'OpenAPI document.' },
+      200: rawJsonResponse('OpenAPI document.', looseObjectSchema),
     },
   },
   {
@@ -224,8 +242,8 @@ const routeCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      200: { description: 'Project updated.' },
-      201: { description: 'Project created.' },
+      200: jsonResponse('Project updated.', 'ProjectDto'),
+      201: jsonResponse('Project created.', 'ProjectDto'),
     },
   },
   {
@@ -234,7 +252,7 @@ const routeCatalog: OpenApiOperation[] = [
     summary: 'List projects',
     tags: ['projects'],
     responses: {
-      200: { description: 'Projects returned.' },
+      200: jsonArrayResponse('Projects returned.', 'ProjectDto'),
     },
   },
   {
@@ -244,8 +262,8 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['projects'],
     parameters: [nameParameter],
     responses: {
-      200: { description: 'Project returned.' },
-      404: { description: 'Project not found.' },
+      200: jsonResponse('Project returned.', 'ProjectDto'),
+      404: errorResponse('Project not found.'),
     },
   },
   {
@@ -256,7 +274,7 @@ const routeCatalog: OpenApiOperation[] = [
     parameters: [nameParameter],
     responses: {
       204: { description: 'Project deleted.' },
-      404: { description: 'Project not found.' },
+      404: errorResponse('Project not found.'),
     },
   },
   {
@@ -267,8 +285,9 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['projects'],
     parameters: [nameParameter],
     responses: {
-      200: { description: 'Preview of cascade impact.' },
-      404: { description: 'Project not found.' },
+      // TODO: Define `ProjectDeletePreviewDto` Zod schema in contracts and reference here.
+      200: rawJsonResponse('Preview of cascade impact.', looseObjectSchema),
+      404: errorResponse('Project not found.'),
     },
   },
   {
@@ -286,9 +305,9 @@ const routeCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      201: { description: 'Location created.' },
-      400: { description: 'Invalid location.' },
-      404: { description: 'Project not found.' },
+      201: jsonResponse('Location created.', 'LocationContext'),
+      400: errorResponse('Invalid location.'),
+      404: errorResponse('Project not found.'),
     },
   },
   {
@@ -298,8 +317,9 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['projects'],
     parameters: [nameParameter],
     responses: {
-      200: { description: 'Locations returned.' },
-      404: { description: 'Project not found.' },
+      // TODO: Define `ProjectLocationsResponse` Zod schema (`{ locations: LocationContext[]; defaultLocation: string | null }`) in contracts.
+      200: rawJsonResponse('Locations returned.', looseObjectSchema),
+      404: errorResponse('Project not found.'),
     },
   },
   {
@@ -310,8 +330,8 @@ const routeCatalog: OpenApiOperation[] = [
     parameters: [nameParameter, locationLabelParameter],
     responses: {
       204: { description: 'Location removed.' },
-      400: { description: 'Invalid location.' },
-      404: { description: 'Project or location not found.' },
+      400: errorResponse('Invalid location.'),
+      404: errorResponse('Project or location not found.'),
     },
   },
   {
@@ -335,9 +355,9 @@ const routeCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      200: { description: 'Default location updated.' },
-      400: { description: 'Invalid location.' },
-      404: { description: 'Project not found.' },
+      200: jsonResponse('Default location updated.', 'ProjectDto'),
+      400: errorResponse('Invalid location.'),
+      404: errorResponse('Project not found.'),
     },
   },
   {
@@ -347,8 +367,9 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['projects'],
     parameters: [nameParameter],
     responses: {
-      200: { description: 'Project configuration returned.' },
-      404: { description: 'Project not found.' },
+      // TODO: Define an `ExportedProjectConfig` Zod schema in contracts (mirrors canonry.yaml shape).
+      200: rawJsonResponse('Project configuration returned.', looseObjectSchema),
+      404: errorResponse('Project not found.'),
     },
   },
   {
@@ -3343,6 +3364,12 @@ export function buildOpenApiDocument(info: OpenApiInfo = {}) {
     return acc
   }, {})
 
+  // Emit every registered Zod response schema as `components.schemas`.
+  // Routes reference them via `$ref` so the spec stays DRY and codegen tools
+  // can produce one TS type per schema. Conversion uses Zod v4's built-in
+  // `z.toJSONSchema` — no third-party converter required.
+  const schemas = buildComponentSchemas()
+
   return {
     openapi: '3.1.0',
     info: {
@@ -3364,6 +3391,7 @@ export function buildOpenApiDocument(info: OpenApiInfo = {}) {
           bearerFormat: 'API key',
         },
       },
+      schemas,
     },
     paths,
   }
