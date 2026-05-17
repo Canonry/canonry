@@ -39,6 +39,7 @@ import {
   type LocationContext,
   type ProviderName,
 } from '@ainyc/canonry-contracts'
+import { notProbeRun } from './helpers.js'
 
 const RECENT_RUNS_WINDOW = 5
 
@@ -235,6 +236,9 @@ function listRecentAnswerVisibilityRunIds(
         // snapshots; including them risks pointing latestRunId at a run with
         // no usable evidence.
         inArray(runs.status, [RunStatuses.completed, RunStatuses.partial]),
+        // Probe runs are operator/agent test runs; they must not poison the
+        // recent-runs window the content engine uses to recommend actions.
+        notProbeRun(),
       ),
     )
     .orderBy(desc(runs.createdAt))

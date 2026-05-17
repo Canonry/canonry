@@ -66,7 +66,7 @@ import {
   providerKey,
   type SuggestedQueryGscRow,
 } from '@ainyc/canonry-intelligence'
-import { resolveProject } from './helpers.js'
+import { notProbeRun, resolveProject } from './helpers.js'
 
 const TOP_INSIGHT_LIMIT = 5
 const SEARCH_HIT_HARD_LIMIT = 50
@@ -112,7 +112,7 @@ export async function compositeRoutes(app: FastifyInstance) {
     const allRunsRaw = app.db
       .select()
       .from(runs)
-      .where(eq(runs.projectId, project.id))
+      .where(and(eq(runs.projectId, project.id), notProbeRun()))
       .orderBy(desc(runs.createdAt), desc(runs.id))
       .all()
     const allRuns = allRunsRaw.filter(r => runMatchesFilters(r, filterLocation, sinceIso))

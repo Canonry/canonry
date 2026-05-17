@@ -21,7 +21,23 @@ export const runKindSchema = z.enum([
 export type RunKind = z.infer<typeof runKindSchema>
 export const RunKinds = runKindSchema.enum
 
-export const runTriggerSchema = z.enum(['manual', 'scheduled', 'config-apply', 'backfill'])
+/**
+ * What caused this run to be created.
+ *
+ * - `manual`        operator-initiated full sweep (CLI `canonry run` or the
+ *                   dashboard "Run now" button) — feeds dashboard + analytics
+ * - `scheduled`     fired by the cron scheduler — feeds dashboard + analytics
+ * - `config-apply`  triggered by `canonry apply` after a queries/competitors
+ *                   change — feeds dashboard + analytics
+ * - `backfill`      historical recomputation (CLI `canonry backfill`) — does
+ *                   not displace the latest "live" run on the dashboard
+ * - `probe`         operator/agent test run that exercises a query × provider
+ *                   slice to verify behavior (e.g. "did the OpenAI provider
+ *                   migration still work?"). Probes do NOT feed dashboard,
+ *                   analytics, intelligence, or notifications. They remain
+ *                   queryable for audit but never displace a real sweep.
+ */
+export const runTriggerSchema = z.enum(['manual', 'scheduled', 'config-apply', 'backfill', 'probe'])
 export type RunTrigger = z.infer<typeof runTriggerSchema>
 export const RunTriggers = runTriggerSchema.enum
 
@@ -57,9 +73,16 @@ export const mentionTransitionSchema = z.enum(['new', 'mentioned', 'lost', 'emer
 export type MentionTransition = z.infer<typeof mentionTransitionSchema>
 export const MentionTransitions = mentionTransitionSchema.enum
 
+/**
+ * Operator-supplied triggers on POST /runs. The other RunTrigger values
+ * (`scheduled`, `config-apply`, `backfill`) are set server-side based on
+ * the call site and aren't accepted from external callers.
+ */
+const operatorTriggerSchema = z.enum([RunTriggers.manual, RunTriggers.probe])
+
 export const runTriggerRequestSchema = z.object({
   kind: z.literal(RunKinds['answer-visibility']).optional(),
-  trigger: z.literal(RunTriggers.manual).optional(),
+  trigger: operatorTriggerSchema.optional(),
   providers: z.array(providerNameSchema).optional(),
   queries: z.array(z.string().min(1)).min(1).optional(),
   location: z.string().min(1).optional(),

@@ -1,8 +1,8 @@
-import { eq, desc, inArray } from 'drizzle-orm'
+import { and, eq, desc, inArray } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { auditLog, querySnapshots, runs, queries, parseJsonColumn } from '@ainyc/canonry-db'
 import { CitationStates, validationError } from '@ainyc/canonry-contracts'
-import { resolveProject, resolveSnapshotAnswerMentioned, resolveSnapshotMentionState, resolveSnapshotVisibilityState } from './helpers.js'
+import { notProbeRun, resolveProject, resolveSnapshotAnswerMentioned, resolveSnapshotMentionState, resolveSnapshotVisibilityState } from './helpers.js'
 import { redactNotificationDiff } from './notification-redaction.js'
 
 export async function historyRoutes(app: FastifyInstance) {
@@ -45,7 +45,7 @@ export async function historyRoutes(app: FastifyInstance) {
     const projectRuns = app.db
       .select({ id: runs.id })
       .from(runs)
-      .where(eq(runs.projectId, project.id))
+      .where(and(eq(runs.projectId, project.id), notProbeRun()))
       .all()
 
     if (projectRuns.length === 0) {
@@ -123,7 +123,7 @@ export async function historyRoutes(app: FastifyInstance) {
     const projectRuns = app.db
       .select()
       .from(runs)
-      .where(eq(runs.projectId, project.id))
+      .where(and(eq(runs.projectId, project.id), notProbeRun()))
       .orderBy(runs.createdAt)
       .all()
 

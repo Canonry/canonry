@@ -3,6 +3,7 @@ import type { DatabaseClient } from '@ainyc/canonry-db'
 import { discoverySessions, runs, parseJsonColumn } from '@ainyc/canonry-db'
 import {
   RunKinds,
+  RunTriggers,
   type DiscoveryCompetitorMapEntry,
   type RunKind,
 } from '@ainyc/canonry-contracts'
@@ -66,6 +67,17 @@ export class RunCoordinator {
   async onRunCompleted(runId: string, projectId: string): Promise<void> {
     const runRow = this.db.select().from(runs).where(eq(runs.id, runId)).get()
     const kind = (runRow?.kind ?? RunKinds['answer-visibility']) as RunKind
+
+    // Probe runs are operator/agent test runs — they write snapshots so the
+    // operator can inspect what the provider returned, but they must not
+    // displace real data: no intelligence analysis, no notifier webhooks,
+    // no Aero wake-up. Skip the entire post-run pipeline. The dashboard +
+    // analytics endpoints filter trigger='probe' separately so the snapshots
+    // never feed aggregations either.
+    if (runRow?.trigger === RunTriggers.probe) {
+      log.info('probe.skip-side-effects', { runId, projectId, kind })
+      return
+    }
 
     let insightCount = 0
     let criticalOrHigh = 0

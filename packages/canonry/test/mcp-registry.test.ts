@@ -170,7 +170,12 @@ describe('MCP tool registry', () => {
 
     const runTriggerRequest = schemaProperty(inputSchemaFor('canonry_run_trigger'), 'request')
     expect(schemaProperty(runTriggerRequest, 'kind')).toMatchObject({ const: 'answer-visibility' })
-    expect(schemaProperty(runTriggerRequest, 'trigger')).toMatchObject({ const: 'manual' })
+    // Operator-supplied triggers: 'manual' (default) or 'probe' (test runs
+    // excluded from dashboard / analytics — see root AGENTS.md "Probe runs").
+    expect(schemaProperty(runTriggerRequest, 'trigger')).toMatchObject({
+      type: 'string',
+      enum: ['manual', 'probe'],
+    })
     expect(runTriggerRequest.required ?? []).not.toContain('kind')
     expect(runTriggerRequest.required ?? []).not.toContain('trigger')
 

@@ -9,7 +9,7 @@ Shared Fastify route plugins used by both the local server (`packages/canonry`) 
 | File | Role |
 |------|------|
 | `src/index.ts` | Plugin entry point, global error handler, `ApiRoutesOptions` interface |
-| `src/helpers.ts` | `resolveProject()`, `writeAuditLog()`, `incrementUsage()` |
+| `src/helpers.ts` | `resolveProject()`, `writeAuditLog()`, `incrementUsage()`, `notProbeRun()` (Drizzle predicate every dashboard/analytics/report/timeline/intelligence read MUST AND-in to exclude probe runs — see root AGENTS.md "Probe runs" section) |
 | `src/projects.ts` | Project CRUD routes (largest route file) |
 | `src/runs.ts` | Run trigger, status, and list routes |
 | `src/auth.ts` | Auth plugin — API key and session validation |

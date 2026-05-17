@@ -56,7 +56,15 @@ export function useDashboard(initialDashboard?: DashboardVm | null) {
     queries: projects.map((project) => {
       const projectRuns = allRuns.filter(r => r.projectId === project.id)
       const completedRuns = projectRuns
-        .filter(r => (r.status === 'completed' || r.status === 'partial') && r.kind === 'answer-visibility')
+        .filter(r =>
+          (r.status === 'completed' || r.status === 'partial')
+          && r.kind === 'answer-visibility'
+          // Probe runs are operator/agent test runs — they write a
+          // snapshot for inspection but must never displace a real sweep
+          // on the dashboard. /runs (the operator-facing list endpoint)
+          // intentionally includes probes, so the dashboard has to filter
+          // them out client-side.
+          && r.trigger !== 'probe')
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
 
       // Multi-location sweeps fan out into one run per location with an identical

@@ -1,4 +1,4 @@
-import { eq, inArray } from 'drizzle-orm'
+import { and, eq, inArray } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { competitors, queries, querySnapshots, runs, parseJsonColumn } from '@ainyc/canonry-db'
 import {
@@ -11,7 +11,7 @@ import {
   type CompetitorGapRow,
   type CitationState,
 } from '@ainyc/canonry-contracts'
-import { resolveProject } from './helpers.js'
+import { notProbeRun, resolveProject } from './helpers.js'
 
 interface SnapshotRow {
   id: string
@@ -49,7 +49,7 @@ export async function citationRoutes(app: FastifyInstance) {
     const projectRuns = app.db
       .select({ id: runs.id, createdAt: runs.createdAt })
       .from(runs)
-      .where(eq(runs.projectId, project.id))
+      .where(and(eq(runs.projectId, project.id), notProbeRun()))
       .all()
 
     if (projectRuns.length === 0) {

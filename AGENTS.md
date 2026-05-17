@@ -52,6 +52,7 @@ canonry competitor add <project> <domain>...
 canonry competitor remove <project> <domain>...
 canonry run <project>
 canonry run <project> --provider gemini          # single-provider run
+canonry run <project> --probe --provider openai --query "..."  # operator/agent test run — writes a snapshot for inspection but is EXCLUDED from dashboard, analytics, intelligence, and notifications
 canonry status <project>
 canonry apply <file...>                          # multi-doc YAML + multiple files
 canonry export <project>
@@ -281,7 +282,7 @@ if (answerMentioned) mentioned++
 |----------|------|--------|
 | `RunKinds` | `RunKind` | `RunKinds['answer-visibility']`, `RunKinds['gsc-sync']`, etc. |
 | `RunStatuses` | `RunStatus` | `RunStatuses.completed`, `RunStatuses.failed`, etc. |
-| `RunTriggers` | `RunTrigger` | `RunTriggers.manual`, `RunTriggers.scheduled`, etc. |
+| `RunTriggers` | `RunTrigger` | `RunTriggers.manual`, `RunTriggers.scheduled`, `RunTriggers.probe`, etc. |
 | `CitationStates` | `CitationState` | `CitationStates.cited`, `CitationStates['not-cited']` |
 | `VisibilityStates` | `VisibilityState` | `VisibilityStates.visible`, `VisibilityStates['not-visible']` |
 | `ComputedTransitions` | `ComputedTransition` | `ComputedTransitions.lost`, `ComputedTransitions.emerging`, etc. |
@@ -718,6 +719,30 @@ All endpoints under `/api/v1/`. Auth via `Authorization: Bearer cnry_...`. Key e
 - `GET /api/v1/openapi.json` — OpenAPI spec (no auth)
 
 See OpenAPI spec at `/api/v1/openapi.json` for the complete API surface.
+
+## Probe runs (Critical)
+
+A **probe run** (`runs.trigger = 'probe'`, `RunTriggers.probe`) is an operator/agent test run that writes a snapshot so the operator can inspect provider behavior — but it MUST NOT influence the dashboard, analytics, intelligence, report, or notifications. Examples: verifying a provider migration still works; agent-initiated regression checks after a code change.
+
+Triggered via `canonry run <project> --probe ...` or `POST /api/v1/projects/:name/runs` with `{ "trigger": "probe", ... }`.
+
+### Rules for new code
+
+1. **Read-aggregate endpoints MUST exclude probes.** Every Drizzle query that does `from(runs).where(eq(runs.projectId, ...))` for dashboard / analytics / report / timeline / intelligence purposes MUST AND-in `notProbeRun()` from `packages/api-routes/src/helpers.ts`. The test that catches regressions is `packages/api-routes/test/probe-exclusion.test.ts` — add a case when you ship a new aggregate endpoint.
+
+2. **Per-run detail endpoints INCLUDE probes.** Endpoints that take a `runId` from the caller (`GET /runs/:id`, screenshot, browser-diff, GSC inspect lookups) MUST work for probe runs — the operator needs to inspect the snapshot they just created.
+
+3. **Operator-facing list endpoints INCLUDE probes.** `GET /runs` and `GET /projects/:name/runs` show probes alongside real runs so operators can find their tests. The dashboard's TanStack Query consumer (`apps/web/src/queries/use-dashboard.ts`) filters probes client-side after fetching the unfiltered list.
+
+4. **`RunCoordinator` short-circuits probes.** `packages/canonry/src/run-coordinator.ts` returns early without running intelligence, firing webhooks, or waking Aero when `runRow.trigger === 'probe'`. Don't add new post-run subscribers that skip this check.
+
+5. **Operator triggers only.** `runTriggerRequestSchema` only accepts `manual` or `probe` from external callers. `scheduled`, `config-apply`, `backfill` are server-set based on the call site.
+
+### Checklist when adding a new run-aggregate endpoint
+
+- [ ] Drizzle query AND-in `notProbeRun()` from `helpers.ts`
+- [ ] Add a case to `probe-exclusion.test.ts` asserting the endpoint reads from the real run, not the probe
+- [ ] If the endpoint pages through historical runs (insights / health / report), confirm the recent-runs window also excludes probes
 
 ## Base Path Awareness (Critical)
 

@@ -1,4 +1,4 @@
-import { eq, desc, inArray } from 'drizzle-orm'
+import { and, eq, desc, inArray } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { filterTrackedSnapshots, groupRunsByCreatedAt, pickGroupRepresentative, querySnapshots, runs, queries, parseJsonColumn } from '@ainyc/canonry-db'
 import { AI_PROVIDER_INFRA_DOMAINS, categorizeSource, categoryLabel, CitationStates, parseWindow, windowCutoff } from '@ainyc/canonry-contracts'
@@ -7,7 +7,7 @@ import type {
   TimeBucket, TrendDirection, GapQuery, GapCategory,
   SourceCategory, SourceCategoryCount, ProviderMetric, QueryChangeEvent,
 } from '@ainyc/canonry-contracts'
-import { resolveProject, resolveSnapshotAnswerMentioned } from './helpers.js'
+import { notProbeRun, resolveProject, resolveSnapshotAnswerMentioned } from './helpers.js'
 
 export async function analyticsRoutes(app: FastifyInstance) {
   // GET /projects/:name/analytics/metrics — citation rate trends
@@ -23,7 +23,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
     const projectRuns = app.db
       .select()
       .from(runs)
-      .where(eq(runs.projectId, project.id))
+      .where(and(eq(runs.projectId, project.id), notProbeRun()))
       .orderBy(runs.createdAt)
       .all()
       .filter(r => r.status === 'completed' || r.status === 'partial')
@@ -118,7 +118,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
     const completedRuns = app.db
       .select()
       .from(runs)
-      .where(eq(runs.projectId, project.id))
+      .where(and(eq(runs.projectId, project.id), notProbeRun()))
       .orderBy(desc(runs.createdAt), desc(runs.id))
       .all()
       .filter(r => r.status === 'completed' || r.status === 'partial')
@@ -134,7 +134,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
     const windowRuns = app.db
       .select()
       .from(runs)
-      .where(eq(runs.projectId, project.id))
+      .where(and(eq(runs.projectId, project.id), notProbeRun()))
       .orderBy(runs.createdAt)
       .all()
       .filter(r => r.status === 'completed' || r.status === 'partial')
@@ -306,7 +306,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
     const windowRuns = app.db
       .select()
       .from(runs)
-      .where(eq(runs.projectId, project.id))
+      .where(and(eq(runs.projectId, project.id), notProbeRun()))
       .orderBy(desc(runs.createdAt), desc(runs.id))
       .all()
       .filter(r => r.status === 'completed' || r.status === 'partial')

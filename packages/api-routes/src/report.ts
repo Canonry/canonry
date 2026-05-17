@@ -62,7 +62,7 @@ import {
   mapOpportunitiesToNextSteps,
   smoothedRunDelta,
 } from '@ainyc/canonry-intelligence'
-import { resolveProject } from './helpers.js'
+import { notProbeRun, resolveProject } from './helpers.js'
 import { renderReportHtml } from './report-renderer.js'
 import {
   extractGroundingSources,
@@ -971,7 +971,7 @@ function buildCitationsTrend(
   const visibilityRuns = db
     .select()
     .from(runs)
-    .where(and(eq(runs.projectId, projectId), eq(runs.kind, RunKinds['answer-visibility'])))
+    .where(and(eq(runs.projectId, projectId), eq(runs.kind, RunKinds['answer-visibility']), notProbeRun()))
     .all()
     .filter(r => locationFilter === undefined || (r.location ?? null) === locationFilter)
 
@@ -1053,6 +1053,7 @@ function buildInsightList(
         eq(runs.projectId, projectId),
         eq(runs.kind, RunKinds['answer-visibility']),
         or(eq(runs.status, RunStatuses.completed), eq(runs.status, RunStatuses.partial)),
+        notProbeRun(),
       ),
     )
     .orderBy(desc(runs.createdAt))
@@ -1797,7 +1798,7 @@ function buildProjectReport(db: DatabaseClient, projectName: string): ProjectRep
   const allRuns = db
     .select()
     .from(runs)
-    .where(eq(runs.projectId, project.id))
+    .where(and(eq(runs.projectId, project.id), notProbeRun()))
     .orderBy(desc(runs.createdAt), desc(runs.id))
     .all()
 

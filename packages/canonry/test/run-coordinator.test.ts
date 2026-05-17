@@ -174,6 +174,135 @@ describe('RunCoordinator', () => {
     expect(callOrder).toEqual(['intelligence', 'notifier'])
   })
 
+  describe("trigger='probe' runs skip downstream side-effects", () => {
+    // A probe is an operator/agent test run — meant to verify wire-level
+    // behavior (e.g. "did the OpenAI provider migration still work?")
+    // without polluting the dashboard, generating insights, firing webhooks,
+    // or waking Aero. The snapshot data is still written so the operator
+    // can inspect what the provider returned. RunCoordinator is the chokepoint
+    // for those side-effects, so the skip lives here.
+
+    function seedProbeRun(db: ReturnType<typeof createTempDb>['db']) {
+      const now = new Date().toISOString()
+      const projectId = crypto.randomUUID()
+      db.insert(projects).values({
+        id: projectId,
+        name: 'probe-test',
+        displayName: 'Probe Test',
+        canonicalDomain: 'example.com',
+        country: 'US',
+        language: 'en',
+        providers: '["gemini"]',
+        createdAt: now,
+        updatedAt: now,
+      }).run()
+
+      const queryId = crypto.randomUUID()
+      db.insert(queries).values({
+        id: queryId,
+        projectId,
+        query: 'probe query',
+        createdAt: now,
+      }).run()
+
+      const runId = crypto.randomUUID()
+      db.insert(runs).values({
+        id: runId,
+        projectId,
+        kind: 'answer-visibility',
+        status: 'completed',
+        trigger: 'probe',
+        createdAt: now,
+        finishedAt: now,
+      }).run()
+
+      db.insert(querySnapshots).values({
+        id: crypto.randomUUID(),
+        runId,
+        queryId,
+        provider: 'gemini',
+        model: 'test-model',
+        citationState: 'cited',
+        citedDomains: '["example.com"]',
+        competitorOverlap: '[]',
+        createdAt: now,
+      }).run()
+
+      return { projectId, runId }
+    }
+
+    it('does NOT run intelligence analysis (no health snapshots, no insights)', async () => {
+      const { db } = createTempDb('coord-probe-intel-')
+      const { projectId, runId } = seedProbeRun(db)
+
+      const notifier = createMockNotifier()
+      const service = new IntelligenceService(db)
+      const intelSpy = vi.spyOn(service, 'analyzeAndPersist')
+
+      const coordinator = new RunCoordinator(db, notifier as Notifier, service)
+      await coordinator.onRunCompleted(runId, projectId)
+
+      expect(intelSpy).not.toHaveBeenCalled()
+      const healthRows = db.select().from(healthSnapshots).all()
+      expect(healthRows).toHaveLength(0)
+    })
+
+    it('does NOT call the notifier (webhooks stay quiet)', async () => {
+      const { db } = createTempDb('coord-probe-notify-')
+      const { projectId, runId } = seedProbeRun(db)
+
+      const notifier = createMockNotifier()
+      const service = new IntelligenceService(db)
+      const coordinator = new RunCoordinator(db, notifier as Notifier, service)
+
+      await coordinator.onRunCompleted(runId, projectId)
+
+      expect(notifier.onRunCompleted).not.toHaveBeenCalled()
+    })
+
+    it('does NOT wake Aero', async () => {
+      const { db } = createTempDb('coord-probe-aero-')
+      const { projectId, runId } = seedProbeRun(db)
+
+      const notifier = createMockNotifier()
+      const service = new IntelligenceService(db)
+      const aeroSpy = vi.fn(async () => {})
+
+      const coordinator = new RunCoordinator(db, notifier as Notifier, service, undefined, aeroSpy)
+      await coordinator.onRunCompleted(runId, projectId)
+
+      expect(aeroSpy).not.toHaveBeenCalled()
+    })
+
+    it('still resolves cleanly (no thrown errors) — probes are silent successes', async () => {
+      const { db } = createTempDb('coord-probe-clean-')
+      const { projectId, runId } = seedProbeRun(db)
+
+      const notifier = createMockNotifier()
+      const service = new IntelligenceService(db)
+      const coordinator = new RunCoordinator(db, notifier as Notifier, service)
+
+      await expect(coordinator.onRunCompleted(runId, projectId)).resolves.toBeUndefined()
+    })
+
+    it("regression guard: non-probe runs (trigger='manual') still trigger intelligence + notifier", async () => {
+      // Make sure the probe skip doesn't accidentally widen and silence
+      // real runs. This is the symmetric "happy path" assertion.
+      const { db } = createTempDb('coord-probe-regression-')
+      const { projectId, runId } = seedFixture(db) // trigger defaults to 'manual'
+
+      const notifier = createMockNotifier()
+      const service = new IntelligenceService(db)
+      const intelSpy = vi.spyOn(service, 'analyzeAndPersist')
+
+      const coordinator = new RunCoordinator(db, notifier as Notifier, service)
+      await coordinator.onRunCompleted(runId, projectId)
+
+      expect(intelSpy).toHaveBeenCalled()
+      expect(notifier.onRunCompleted).toHaveBeenCalled()
+    })
+  })
+
   it('discovery aero context resolves the session by runId, not by "latest non-queued"', async () => {
     // Regression: two discovery sessions on the same project must be
     // disambiguated by runId. Picking the most recent non-queued session
