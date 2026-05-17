@@ -2,9 +2,42 @@ import { test, expect, onTestFinished, describe } from 'vitest'
 
 import { connectServerTrafficWordpress, installBacklinks, triggerGscSync } from '../src/api.js'
 
-function mockFetch(handler: (url: string, init?: RequestInit) => Response | Promise<Response>) {
+/**
+ * After the hey-api migration the SDK calls `fetch(new Request(...))` —
+ * a single `Request` object instead of `(url, init)`. These helpers
+ * normalize both call shapes so the assertions don't care which
+ * transport built the request.
+ */
+interface Observed {
+  url: string
+  /** Path-only portion of `url` (drops scheme + host + basePath prefix). */
+  path: string
+  method: string | undefined
+  body: BodyInit | null | undefined
+  headers: Headers
+}
+
+function mockFetch(handler: (req: Observed) => Response | Promise<Response>) {
   const realFetch = globalThis.fetch
-  globalThis.fetch = handler as typeof fetch
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    let url: string
+    let method: string | undefined
+    let body: BodyInit | null | undefined
+    let headers: Headers
+    if (input instanceof Request) {
+      url = input.url
+      method = input.method
+      body = init?.body ?? (await input.clone().text().then((t) => (t.length ? t : null)).catch(() => null))
+      headers = new Headers(input.headers)
+    } else {
+      url = String(input)
+      method = init?.method
+      body = init?.body
+      headers = new Headers(init?.headers as HeadersInit | undefined)
+    }
+    const path = url.replace(/^https?:\/\/[^/]+/, '') || url
+    return handler({ url, path, method, body, headers })
+  }) as typeof fetch
   return () => {
     globalThis.fetch = realFetch
   }
@@ -17,22 +50,11 @@ function jsonResponse(body: unknown, status = 200) {
   })
 }
 
-function headerFromInit(init: RequestInit | undefined, name: string): string | null {
-  const headers = init?.headers
-  if (!headers) return null
-  if (headers instanceof Headers) return headers.get(name)
-  const lowerName = name.toLowerCase()
-  for (const [k, v] of Object.entries(headers as Record<string, string>)) {
-    if (k.toLowerCase() === lowerName) return v
-  }
-  return null
-}
-
 describe('apiFetch Content-Type header', () => {
   test('omits Content-Type on POST without body (Fastify rejects empty JSON bodies)', async () => {
-    let observed: RequestInit | undefined
-    const restore = mockFetch((_url, init) => {
-      observed = init
+    let observed: Observed | undefined
+    const restore = mockFetch((req) => {
+      observed = req
       return jsonResponse({ status: 'ok' })
     })
     onTestFinished(restore)
@@ -40,14 +62,14 @@ describe('apiFetch Content-Type header', () => {
     await installBacklinks()
 
     expect(observed?.method).toBe('POST')
-    expect(observed?.body).toBeUndefined()
-    expect(headerFromInit(observed, 'Content-Type')).toBeNull()
+    expect(observed?.body).toBeFalsy()
+    expect(observed?.headers.get('content-type')).toBeNull()
   })
 
   test('sets Content-Type on requests with a body', async () => {
-    let observed: RequestInit | undefined
-    const restore = mockFetch((_url, init) => {
-      observed = init
+    let observed: Observed | undefined
+    const restore = mockFetch((req) => {
+      observed = req
       return jsonResponse({ id: 'run-1', status: 'pending' })
     })
     onTestFinished(restore)
@@ -55,16 +77,14 @@ describe('apiFetch Content-Type header', () => {
     await triggerGscSync('demo', { days: 7 })
 
     expect(observed?.method).toBe('POST')
-    expect(observed?.body).toBeDefined()
-    expect(headerFromInit(observed, 'Content-Type')).toBe('application/json')
+    expect(observed?.body).toBeTruthy()
+    expect(observed?.headers.get('content-type')).toBe('application/json')
   })
 
   test('posts WordPress traffic connects to the adapter-specific endpoint', async () => {
-    let observedUrl = ''
-    let observed: RequestInit | undefined
-    const restore = mockFetch((url, init) => {
-      observedUrl = url
-      observed = init
+    let observed: Observed | undefined
+    const restore = mockFetch((req) => {
+      observed = req
       return jsonResponse({
         id: 'source-1',
         projectId: 'project-1',
@@ -89,9 +109,9 @@ describe('apiFetch Content-Type header', () => {
       displayName: 'WP logs',
     })
 
-    expect(observedUrl).toBe('/api/v1/projects/demo%20project/traffic/connect/wordpress')
+    expect(observed?.path).toBe('/api/v1/projects/demo%20project/traffic/connect/wordpress')
     expect(observed?.method).toBe('POST')
-    expect(headerFromInit(observed, 'Content-Type')).toBe('application/json')
+    expect(observed?.headers.get('content-type')).toBe('application/json')
     expect(JSON.parse(String(observed?.body))).toEqual({
       baseUrl: 'https://example.com',
       username: 'admin',

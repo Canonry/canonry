@@ -5,20 +5,11 @@ import { render, screen, act, cleanup } from '@testing-library/react'
 
 import { handleAuthExpired } from '../src/api.js'
 import { AuthGate } from '../src/components/auth/AuthGate.js'
+import { mockFetch as installMockFetch, jsonResponse } from './mock-fetch.js'
 
 function mockFetch(handler: (url: string, init?: RequestInit) => Response | Promise<Response>) {
-  const realFetch = globalThis.fetch
-  globalThis.fetch = handler as typeof fetch
-  onTestFinished(() => {
-    globalThis.fetch = realFetch
-  })
-}
-
-function jsonResponse(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { 'content-type': 'application/json' },
-  })
+  const restore = installMockFetch(handler)
+  onTestFinished(restore)
 }
 
 const API_SESSION = '/api/v1/session'

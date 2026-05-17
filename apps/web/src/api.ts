@@ -1,4 +1,118 @@
 import type { ErrorCode, GroundingSource, ProjectOverviewDto, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto, GscPerformanceDailyDto, IndexingRequestResultDto, MetricsWindow, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry, InsightDto, ProjectReportDto, ReportAudience, RunKind, RunStatus, RunTrigger, RunErrorDto, CitationState, CitationVisibilityResponse, BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinkHistoryEntry, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcAvailableRelease, CcCachedRelease, CcReleaseSyncDto, TrafficSourceDto, TrafficSourceDetailDto, TrafficSourceListResponse, TrafficStatusResponse, TrafficEventsResponse, TrafficConnectCloudRunRequest, TrafficConnectWordpressRequest, TrafficConnectVercelRequest, TrafficSyncResponse, DiscoveryRunRequest, DiscoverySessionDto, DiscoverySessionDetailDto, DiscoveryPromotePreview, DiscoveryPromoteRequest, DiscoveryPromoteResult } from '@ainyc/canonry-contracts'
+import {
+  createClient as createHeyClient,
+  // Projects + queries + competitors + locations + runs + apply + settings + telemetry
+  getApiV1Projects,
+  getApiV1ProjectsByName,
+  putApiV1ProjectsByName,
+  deleteApiV1ProjectsByName,
+  getApiV1ProjectsByNameOverview,
+  getApiV1ProjectsByNameExport,
+  getApiV1ProjectsByNameQueries,
+  putApiV1ProjectsByNameQueries,
+  postApiV1ProjectsByNameQueries,
+  postApiV1ProjectsByNameQueriesGenerate,
+  getApiV1ProjectsByNameCompetitors,
+  putApiV1ProjectsByNameCompetitors,
+  postApiV1ProjectsByNameLocations,
+  deleteApiV1ProjectsByNameLocationsByLabel,
+  putApiV1ProjectsByNameLocationsDefault,
+  getApiV1Runs,
+  postApiV1Runs,
+  getApiV1ProjectsByNameRuns,
+  getApiV1RunsById,
+  postApiV1ProjectsByNameRuns,
+  getApiV1ProjectsByNameTimeline,
+  postApiV1Apply,
+  getApiV1Settings,
+  putApiV1SettingsProvidersByName,
+  putApiV1SettingsGoogle,
+  putApiV1SettingsBing,
+  putApiV1SettingsCdp,
+  // Schedules / notifications
+  getApiV1ProjectsByNameSchedule,
+  putApiV1ProjectsByNameSchedule,
+  deleteApiV1ProjectsByNameSchedule,
+  getApiV1ProjectsByNameNotifications,
+  postApiV1ProjectsByNameNotifications,
+  deleteApiV1ProjectsByNameNotificationsById,
+  postApiV1ProjectsByNameNotificationsByIdTest,
+  // CDP
+  getApiV1CdpStatus,
+  // Google connections + GSC + Indexing
+  postApiV1ProjectsByNameGoogleConnect,
+  getApiV1ProjectsByNameGoogleConnections,
+  deleteApiV1ProjectsByNameGoogleConnectionsByType,
+  getApiV1ProjectsByNameGoogleProperties,
+  putApiV1ProjectsByNameGoogleConnectionsByTypeProperty,
+  putApiV1ProjectsByNameGoogleConnectionsByTypeSitemap,
+  postApiV1ProjectsByNameGoogleGscSync,
+  getApiV1ProjectsByNameGoogleGscPerformance,
+  getApiV1ProjectsByNameGoogleGscPerformanceDaily,
+  postApiV1ProjectsByNameGoogleGscInspect,
+  getApiV1ProjectsByNameGoogleGscInspections,
+  getApiV1ProjectsByNameGoogleGscDeindexed,
+  getApiV1ProjectsByNameGoogleGscCoverage,
+  getApiV1ProjectsByNameGoogleGscCoverageHistory,
+  postApiV1ProjectsByNameGoogleGscInspectSitemap,
+  getApiV1ProjectsByNameGoogleGscSitemaps,
+  postApiV1ProjectsByNameGoogleGscDiscoverSitemaps,
+  postApiV1ProjectsByNameGoogleIndexingRequest,
+  // Discovery
+  postApiV1ProjectsByNameDiscoverRun,
+  getApiV1ProjectsByNameDiscoverSessions,
+  getApiV1ProjectsByNameDiscoverSessionsById,
+  getApiV1ProjectsByNameDiscoverSessionsByIdPromote,
+  postApiV1ProjectsByNameDiscoverSessionsByIdPromote,
+  // Bing
+  postApiV1ProjectsByNameBingConnect,
+  deleteApiV1ProjectsByNameBingDisconnect,
+  getApiV1ProjectsByNameBingStatus,
+  getApiV1ProjectsByNameBingSites,
+  postApiV1ProjectsByNameBingSetSite,
+  getApiV1ProjectsByNameBingCoverage,
+  getApiV1ProjectsByNameBingInspections,
+  postApiV1ProjectsByNameBingInspectUrl,
+  postApiV1ProjectsByNameBingInspectSitemap,
+  postApiV1ProjectsByNameBingRequestIndexing,
+  getApiV1ProjectsByNameBingPerformance,
+  // Report
+  getApiV1ProjectsByNameReport,
+  // GA4
+  getApiV1ProjectsByNameGaStatus,
+  postApiV1ProjectsByNameGaConnect,
+  deleteApiV1ProjectsByNameGaDisconnect,
+  postApiV1ProjectsByNameGaSync,
+  getApiV1ProjectsByNameGaTraffic,
+  getApiV1ProjectsByNameGaAiReferralHistory,
+  getApiV1ProjectsByNameGaSocialReferralHistory,
+  getApiV1ProjectsByNameGaSessionHistory,
+  // Traffic — server-side
+  getApiV1ProjectsByNameTrafficSources,
+  getApiV1ProjectsByNameTrafficStatus,
+  getApiV1ProjectsByNameTrafficSourcesById,
+  getApiV1ProjectsByNameTrafficEvents,
+  postApiV1ProjectsByNameTrafficConnectCloudRun,
+  postApiV1ProjectsByNameTrafficConnectWordpress,
+  postApiV1ProjectsByNameTrafficConnectVercel,
+  postApiV1ProjectsByNameTrafficSourcesByIdSync,
+  // Intelligence
+  getApiV1ProjectsByNameInsights,
+  getApiV1ProjectsByNameCitationsVisibility,
+  // Backlinks
+  getApiV1BacklinksStatus,
+  postApiV1BacklinksInstall,
+  getApiV1BacklinksSyncsLatest,
+  getApiV1BacklinksSyncs,
+  postApiV1BacklinksSyncs,
+  getApiV1BacklinksReleases,
+  getApiV1BacklinksLatestRelease,
+  deleteApiV1BacklinksCacheByRelease,
+  getApiV1ProjectsByNameBacklinksSummary,
+  getApiV1ProjectsByNameBacklinksDomains,
+  getApiV1ProjectsByNameBacklinksHistory,
+  postApiV1ProjectsByNameBacklinksExtract,
+} from '@ainyc/canonry-api-client'
 export type { ProjectOverviewDto }
 export type { BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinkHistoryEntry, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcAvailableRelease, CcCachedRelease, CcReleaseSyncDto }
 export type { TrafficSourceDto, TrafficSourceDetailDto, TrafficSourceListResponse, TrafficStatusResponse, TrafficEventsResponse, TrafficConnectCloudRunRequest, TrafficConnectWordpressRequest, TrafficConnectVercelRequest, TrafficSyncResponse }
@@ -46,6 +160,22 @@ function getApiBase(): string {
 
 const API_BASE = getApiBase()
 
+/**
+ * Absolute origin (scheme://host[:port]) plus any configured basePath.
+ * The generated SDK builds requests through `new Request(url, …)` which
+ * rejects relative URLs — `fetch('/api/v1/…')` works at runtime in a
+ * browser but `new Request('/api/v1/…')` throws ERR_INVALID_URL. Anchoring
+ * to `window.location.origin` keeps the URL absolute in every environment
+ * (jsdom tests included).
+ */
+function getApiOrigin(): string {
+  const origin = typeof window !== 'undefined' && window.location ? window.location.origin : ''
+  if (typeof window !== 'undefined' && window.__CANONRY_CONFIG__?.basePath) {
+    return origin + window.__CANONRY_CONFIG__.basePath.replace(/\/$/, '')
+  }
+  return origin
+}
+
 function getPublicBase(): string {
   if (typeof window !== 'undefined' && window.__CANONRY_CONFIG__?.basePath) {
     return window.__CANONRY_CONFIG__.basePath.replace(/\/$/, '')
@@ -84,12 +214,80 @@ export function setOnAuthExpired(handler: (() => void) | null): void {
 
 /**
  * Trigger the registered auth-expiry handler. Called automatically by
- * apiFetch on 401/403 responses; also callable from tests.
+ * apiFetch / invokeWeb on 401/403 responses; also callable from tests.
  */
 export function handleAuthExpired(): void {
   _onAuthExpired?.()
 }
 
+/**
+ * Module-level hey-api client preconfigured with the dashboard's basePath
+ * and `VITE_API_KEY` (when set). Operations call it explicitly via the
+ * `client` option; we don't rely on the SDK's default global client because
+ * tests can stub this module's client and the dashboard's basePath is known
+ * at import time.
+ */
+const heyClient = createHeyClient({
+  baseUrl: getApiOrigin(),
+  apiKey: getApiKey() || undefined,
+})
+
+/**
+ * Result shape returned by every generated SDK operation. `data` is typed
+ * `unknown` here — see `packages/canonry/src/client.ts` for the rationale
+ * (looseObjectSchema routes generate `{ [k]: unknown }` data; tightening
+ * forces hand-written DTOs to widen). `invokeWeb()` consumes this and
+ * either throws an `ApiError` or returns `data as T`.
+ */
+type SdkResult = {
+  data?: unknown
+  error?: unknown
+  request: Request
+  response: Response
+}
+
+/**
+ * Wrap a generated SDK call with `ApiError` mapping and `handleAuthExpired`
+ * dispatch on 401/403 (so the dashboard routes back to the login screen
+ * when the user's session goes away).
+ */
+async function invokeWeb<T>(call: () => Promise<SdkResult>): Promise<T> {
+  const result = await call()
+  if (result.error !== undefined && result.error !== null) {
+    const status = result.response.status
+    if (status === 401 || status === 403) {
+      handleAuthExpired()
+    }
+    let message = `API ${status}: ${result.response.statusText}`
+    let code: ErrorCode | undefined
+    if (typeof result.error === 'object' && result.error !== null) {
+      const inner = (result.error as { error?: unknown }).error
+      if (typeof inner === 'string') {
+        message = inner
+      } else if (inner && typeof inner === 'object') {
+        const obj = inner as { message?: string; code?: string }
+        if (obj.message) message = obj.message
+        if (obj.code) code = obj.code as ErrorCode
+      } else {
+        const flat = result.error as { message?: string; code?: string }
+        if (flat.message) message = flat.message
+        if (flat.code) code = flat.code as ErrorCode
+      }
+    } else if (typeof result.error === 'string') {
+      message = result.error
+    }
+    throw new ApiError(message, status, code)
+  }
+  if (result.response.status === 204) return undefined as T
+  return result.data as T
+}
+
+/**
+ * Raw HTTP — used for routes that aren't in the OpenAPI spec
+ * (`/session*` login + setup flows, `/health` and other public probes
+ * that live outside `/api/v1`). Everything else goes through the
+ * generated SDK via `invokeWeb()`.
+ */
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   const key = getApiKey()
   const hasBody = options?.body != null
@@ -257,49 +455,50 @@ export interface ApiTimelineEntry {
 }
 
 export function fetchProjects(): Promise<ApiProject[]> {
-  return apiFetch('/projects')
+  return invokeWeb<ApiProject[]>(() => getApiV1Projects({ client: heyClient }))
 }
 
 export function fetchProject(name: string): Promise<ApiProject> {
-  return apiFetch(`/projects/${encodeURIComponent(name)}`)
+  return invokeWeb<ApiProject>(() => getApiV1ProjectsByName({ client: heyClient, path: { name } }))
 }
 
 export function fetchAllRuns(): Promise<ApiRun[]> {
-  return apiFetch('/runs')
+  return invokeWeb<ApiRun[]>(() => getApiV1Runs({ client: heyClient }))
 }
 
 export function fetchProjectRuns(name: string): Promise<ApiRun[]> {
-  return apiFetch(`/projects/${encodeURIComponent(name)}/runs`)
+  return invokeWeb<ApiRun[]>(() => getApiV1ProjectsByNameRuns({ client: heyClient, path: { name } }))
 }
 
 export function fetchRunDetail(id: string): Promise<ApiRunDetail> {
-  return apiFetch(`/runs/${encodeURIComponent(id)}`)
+  return invokeWeb<ApiRunDetail>(() => getApiV1RunsById({ client: heyClient, path: { id } }))
 }
 
 export function fetchQueries(name: string): Promise<ApiQuery[]> {
-  return apiFetch(`/projects/${encodeURIComponent(name)}/queries`)
+  return invokeWeb<ApiQuery[]>(() => getApiV1ProjectsByNameQueries({ client: heyClient, path: { name } }))
 }
 
 export function fetchCompetitors(name: string): Promise<ApiCompetitor[]> {
-  return apiFetch(`/projects/${encodeURIComponent(name)}/competitors`)
+  return invokeWeb<ApiCompetitor[]>(() => getApiV1ProjectsByNameCompetitors({ client: heyClient, path: { name } }))
 }
 
 export function fetchTimeline(name: string, location?: string): Promise<ApiTimelineEntry[]> {
-  const params = new URLSearchParams()
-  if (location !== undefined) params.set('location', location)
-  const qs = params.toString()
-  return apiFetch(`/projects/${encodeURIComponent(name)}/timeline${qs ? `?${qs}` : ''}`)
+  return invokeWeb<ApiTimelineEntry[]>(() =>
+    getApiV1ProjectsByNameTimeline({ client: heyClient, path: { name }, query: { location } }),
+  )
 }
 
 export function fetchProjectOverview(
   name: string,
   opts?: { location?: string; since?: string },
 ): Promise<ProjectOverviewDto> {
-  const params = new URLSearchParams()
-  if (opts?.location) params.set('location', opts.location)
-  if (opts?.since) params.set('since', opts.since)
-  const qs = params.toString()
-  return apiFetch(`/projects/${encodeURIComponent(name)}/overview${qs ? `?${qs}` : ''}`)
+  return invokeWeb<ProjectOverviewDto>(() =>
+    getApiV1ProjectsByNameOverview({
+      client: heyClient,
+      path: { name },
+      query: { location: opts?.location, since: opts?.since } as never,
+    }),
+  )
 }
 
 export function createProject(name: string, body: {
@@ -316,31 +515,31 @@ export function createProject(name: string, body: {
   defaultLocation?: string | null
   autoExtractBacklinks?: boolean
 }): Promise<ApiProject> {
-  return apiFetch(`/projects/${encodeURIComponent(name)}`, {
-    method: 'PUT',
-    body: JSON.stringify(body),
-  })
+  return invokeWeb<ApiProject>(() =>
+    putApiV1ProjectsByName({ client: heyClient, path: { name }, body: body as never }),
+  )
 }
 
 export function setQueries(projectName: string, queries: string[]): Promise<ApiQuery[]> {
-  return apiFetch(`/projects/${encodeURIComponent(projectName)}/queries`, {
-    method: 'PUT',
-    body: JSON.stringify({ queries }),
-  })
+  return invokeWeb<ApiQuery[]>(() =>
+    putApiV1ProjectsByNameQueries({ client: heyClient, path: { name: projectName }, body: { queries } }),
+  )
 }
 
 export function appendQueries(projectName: string, queries: string[]): Promise<ApiQuery[]> {
-  return apiFetch(`/projects/${encodeURIComponent(projectName)}/queries`, {
-    method: 'POST',
-    body: JSON.stringify({ queries }),
-  })
+  return invokeWeb<ApiQuery[]>(() =>
+    postApiV1ProjectsByNameQueries({ client: heyClient, path: { name: projectName }, body: { queries } }),
+  )
 }
 
 export function setCompetitors(projectName: string, competitors: string[]): Promise<ApiCompetitor[]> {
-  return apiFetch(`/projects/${encodeURIComponent(projectName)}/competitors`, {
-    method: 'PUT',
-    body: JSON.stringify({ competitors }),
-  })
+  return invokeWeb<ApiCompetitor[]>(() =>
+    putApiV1ProjectsByNameCompetitors({
+      client: heyClient,
+      path: { name: projectName },
+      body: { competitors },
+    }),
+  )
 }
 
 export async function updateOwnedDomains(projectName: string, ownedDomains: string[]): Promise<ApiProject> {
@@ -408,33 +607,41 @@ export function triggerRun(name: string, opts?: { location?: string; allLocation
   if (opts?.location) body.location = opts.location
   if (opts?.allLocations) body.allLocations = true
   if (opts?.noLocation) body.noLocation = true
-  return apiFetch(`/projects/${encodeURIComponent(name)}/runs`, { method: 'POST', body: JSON.stringify(body) })
+  return invokeWeb<ApiRun>(() =>
+    postApiV1ProjectsByNameRuns({ client: heyClient, path: { name }, body: body as never }),
+  )
 }
 
 export function addLocation(project: string, location: ApiLocation): Promise<ApiLocation> {
-  return apiFetch(`/projects/${encodeURIComponent(project)}/locations`, {
-    method: 'POST',
-    body: JSON.stringify(location),
-  })
+  return invokeWeb<ApiLocation>(() =>
+    postApiV1ProjectsByNameLocations({ client: heyClient, path: { name: project }, body: location }),
+  )
 }
 
 export async function removeLocation(project: string, label: string): Promise<void> {
-  await apiFetch(`/projects/${encodeURIComponent(project)}/locations/${encodeURIComponent(label)}`, { method: 'DELETE' })
+  await invokeWeb<unknown>(() =>
+    deleteApiV1ProjectsByNameLocationsByLabel({ client: heyClient, path: { name: project, label } }),
+  )
 }
 
 export function setDefaultLocation(project: string, label: string): Promise<{ defaultLocation: string }> {
-  return apiFetch(`/projects/${encodeURIComponent(project)}/locations/default`, {
-    method: 'PUT',
-    body: JSON.stringify({ label }),
-  })
+  return invokeWeb<{ defaultLocation: string }>(() =>
+    putApiV1ProjectsByNameLocationsDefault({
+      client: heyClient,
+      path: { name: project },
+      body: { label },
+    }),
+  )
 }
 
 export async function deleteProject(name: string): Promise<void> {
-  await apiFetch(`/projects/${encodeURIComponent(name)}`, { method: 'DELETE', body: '{}' })
+  await invokeWeb<unknown>(() =>
+    deleteApiV1ProjectsByName({ client: heyClient, path: { name } }),
+  )
 }
 
 export function fetchExport(name: string): Promise<unknown> {
-  return apiFetch(`/projects/${encodeURIComponent(name)}/export`)
+  return invokeWeb<unknown>(() => getApiV1ProjectsByNameExport({ client: heyClient, path: { name } }))
 }
 
 export interface ApiProviderSummary {
@@ -462,13 +669,15 @@ export interface ApiSettings {
 }
 
 export function fetchSettings(): Promise<ApiSettings> {
-  return apiFetch('/settings')
+  return invokeWeb<ApiSettings>(() => getApiV1Settings({ client: heyClient }))
 }
 
 export interface ApiSessionState {
   authenticated: boolean
   setupRequired?: boolean
 }
+
+// /session* routes are not in the OpenAPI spec — keep on raw apiFetch.
 
 export function fetchSession(): Promise<ApiSessionState> {
   return apiFetch('/session')
@@ -488,6 +697,8 @@ export function loginWithPassword(password: string): Promise<ApiSessionState> {
   })
 }
 
+// /health is outside /api/v1 — keep on raw fetch.
+
 export async function fetchHealthCheck(): Promise<{ status: string }> {
   const res = await fetch(publicPath('/health'), { credentials: 'same-origin' })
   if (!res.ok) {
@@ -502,27 +713,31 @@ export function updateProviderConfig(provider: string, body: {
   model?: string
   quota?: { maxConcurrency?: number; maxRequestsPerMinute?: number; maxRequestsPerDay?: number }
 }): Promise<ApiProviderSummary> {
-  return apiFetch(`/settings/providers/${encodeURIComponent(provider)}`, {
-    method: 'PUT',
-    body: JSON.stringify(body),
-  })
+  return invokeWeb<ApiProviderSummary>(() =>
+    putApiV1SettingsProvidersByName({
+      client: heyClient,
+      path: { name: provider } as never,
+      body,
+    }),
+  )
 }
 
 export function updateGoogleAuthConfig(body: {
   clientId: string
   clientSecret: string
 }): Promise<{ configured: boolean }> {
-  return apiFetch('/settings/google', {
-    method: 'PUT',
-    body: JSON.stringify(body),
-  })
+  return invokeWeb<{ configured: boolean }>(() =>
+    putApiV1SettingsGoogle({ client: heyClient, body }),
+  )
 }
 
 export type ApiSchedule = ScheduleDto
 
 export async function fetchSchedule(project: string): Promise<ApiSchedule | null> {
   try {
-    return await apiFetch<ApiSchedule>(`/projects/${encodeURIComponent(project)}/schedule`)
+    return await invokeWeb<ApiSchedule>(() =>
+      getApiV1ProjectsByNameSchedule({ client: heyClient, path: { name: project } }),
+    )
   } catch (e) {
     if (e instanceof ApiError && e.statusCode === 404) return null
     throw e
@@ -536,20 +751,27 @@ export function saveSchedule(project: string, body: {
   providers?: string[]
   enabled?: boolean
 }): Promise<ApiSchedule> {
-  return apiFetch(`/projects/${encodeURIComponent(project)}/schedule`, {
-    method: 'PUT',
-    body: JSON.stringify(body),
-  })
+  return invokeWeb<ApiSchedule>(() =>
+    putApiV1ProjectsByNameSchedule({
+      client: heyClient,
+      path: { name: project },
+      body: body as never,
+    }),
+  )
 }
 
 export async function removeSchedule(project: string): Promise<void> {
-  await apiFetch(`/projects/${encodeURIComponent(project)}/schedule`, { method: 'DELETE', body: '{}' })
+  await invokeWeb<unknown>(() =>
+    deleteApiV1ProjectsByNameSchedule({ client: heyClient, path: { name: project } }),
+  )
 }
 
 export type ApiNotification = Omit<NotificationDto, 'webhookSecret'>
 
 export function listNotifications(project: string): Promise<ApiNotification[]> {
-  return apiFetch(`/projects/${encodeURIComponent(project)}/notifications`)
+  return invokeWeb<ApiNotification[]>(() =>
+    getApiV1ProjectsByNameNotifications({ client: heyClient, path: { name: project } }),
+  )
 }
 
 export function addNotification(project: string, body: {
@@ -557,28 +779,41 @@ export function addNotification(project: string, body: {
   url: string
   events: string[]
 }): Promise<ApiNotification> {
-  return apiFetch(`/projects/${encodeURIComponent(project)}/notifications`, {
-    method: 'POST',
-    body: JSON.stringify(body),
-  })
+  return invokeWeb<ApiNotification>(() =>
+    postApiV1ProjectsByNameNotifications({
+      client: heyClient,
+      path: { name: project },
+      body: body as never,
+    }),
+  )
 }
 
 export async function removeNotification(project: string, id: string): Promise<void> {
-  await apiFetch(`/projects/${encodeURIComponent(project)}/notifications/${encodeURIComponent(id)}`, { method: 'DELETE', body: '{}' })
+  await invokeWeb<unknown>(() =>
+    deleteApiV1ProjectsByNameNotificationsById({
+      client: heyClient,
+      path: { name: project, id },
+    }),
+  )
 }
 
 export function sendTestNotification(project: string, id: string): Promise<{ status: number; ok: boolean }> {
-  return apiFetch(`/projects/${encodeURIComponent(project)}/notifications/${encodeURIComponent(id)}/test`, {
-    method: 'POST',
-    body: '{}',
-  })
+  return invokeWeb<{ status: number; ok: boolean }>(() =>
+    postApiV1ProjectsByNameNotificationsByIdTest({
+      client: heyClient,
+      path: { name: project, id },
+    }),
+  )
 }
 
 export function generateQueries(projectName: string, provider: string, count?: number): Promise<{ queries: string[]; provider: string }> {
-  return apiFetch(`/projects/${encodeURIComponent(projectName)}/queries/generate`, {
-    method: 'POST',
-    body: JSON.stringify({ provider, count }),
-  })
+  return invokeWeb<{ queries: string[]; provider: string }>(() =>
+    postApiV1ProjectsByNameQueriesGenerate({
+      client: heyClient,
+      path: { name: projectName },
+      body: { provider, count } as never,
+    }),
+  )
 }
 
 export interface ApiApplyResult {
@@ -589,17 +824,13 @@ export interface ApiApplyResult {
 }
 
 export function applyProjectConfig(config: object): Promise<ApiApplyResult> {
-  return apiFetch('/apply', {
-    method: 'POST',
-    body: JSON.stringify(config),
-  })
+  return invokeWeb<ApiApplyResult>(() => postApiV1Apply({ client: heyClient, body: config as never }))
 }
 
 export function triggerAllRuns(body?: { providers?: string[] }): Promise<ApiTriggerAllRunsResult[]> {
-  return apiFetch('/runs', {
-    method: 'POST',
-    body: JSON.stringify(body ?? {}),
-  })
+  return invokeWeb<ApiTriggerAllRunsResult[]>(() =>
+    postApiV1Runs({ client: heyClient, body: (body ?? {}) as never }),
+  )
 }
 
 export interface ApiGoogleConnection {
@@ -654,119 +885,165 @@ export interface ApiGscDeindexedRow {
 }
 
 export function fetchGoogleConnections(project: string): Promise<ApiGoogleConnection[]> {
-  return apiFetch(`/projects/${encodeURIComponent(project)}/google/connections`)
+  return invokeWeb<ApiGoogleConnection[]>(() =>
+    getApiV1ProjectsByNameGoogleConnections({ client: heyClient, path: { name: project } }),
+  )
 }
 
 export function googleConnect(project: string, type: 'gsc' | 'ga4'): Promise<{ authUrl: string }> {
-  return apiFetch(`/projects/${encodeURIComponent(project)}/google/connect`, {
-    method: 'POST',
-    body: JSON.stringify({ type }),
-  })
+  return invokeWeb<{ authUrl: string }>(() =>
+    postApiV1ProjectsByNameGoogleConnect({
+      client: heyClient,
+      path: { name: project },
+      body: { type } as never,
+    }),
+  )
 }
 
 export function googleDisconnect(project: string, type: string): Promise<void> {
-  return apiFetch(`/projects/${encodeURIComponent(project)}/google/connections/${encodeURIComponent(type)}`, {
-    method: 'DELETE',
-    body: '{}',
-  })
+  return invokeWeb<void>(() =>
+    deleteApiV1ProjectsByNameGoogleConnectionsByType({
+      client: heyClient,
+      path: { name: project, type } as never,
+    }),
+  )
 }
 
 export function fetchGoogleProperties(project: string): Promise<{ sites: ApiGoogleProperty[] }> {
-  return apiFetch(`/projects/${encodeURIComponent(project)}/google/properties`)
+  return invokeWeb<{ sites: ApiGoogleProperty[] }>(() =>
+    getApiV1ProjectsByNameGoogleProperties({ client: heyClient, path: { name: project } }),
+  )
 }
 
 export function saveGoogleProperty(project: string, type: 'gsc' | 'ga4', propertyId: string): Promise<{ propertyId: string }> {
-  return apiFetch(`/projects/${encodeURIComponent(project)}/google/connections/${encodeURIComponent(type)}/property`, {
-    method: 'PUT',
-    body: JSON.stringify({ propertyId }),
-  })
+  return invokeWeb<{ propertyId: string }>(() =>
+    putApiV1ProjectsByNameGoogleConnectionsByTypeProperty({
+      client: heyClient,
+      path: { name: project, type } as never,
+      body: { propertyId },
+    }),
+  )
 }
 
 export function saveSitemapUrl(project: string, type: 'gsc' | 'ga4', sitemapUrl: string): Promise<{ sitemapUrl: string }> {
-  return apiFetch(`/projects/${encodeURIComponent(project)}/google/connections/${encodeURIComponent(type)}/sitemap`, {
-    method: 'PUT',
-    body: JSON.stringify({ sitemapUrl }),
-  })
+  return invokeWeb<{ sitemapUrl: string }>(() =>
+    putApiV1ProjectsByNameGoogleConnectionsByTypeSitemap({
+      client: heyClient,
+      path: { name: project, type } as never,
+      body: { sitemapUrl },
+    }),
+  )
 }
 
 export function triggerGscSync(project: string, opts?: { days?: number; full?: boolean }): Promise<ApiRun> {
-  return apiFetch(`/projects/${encodeURIComponent(project)}/google/gsc/sync`, {
-    method: 'POST',
-    body: JSON.stringify(opts ?? {}),
-  })
+  return invokeWeb<ApiRun>(() =>
+    postApiV1ProjectsByNameGoogleGscSync({
+      client: heyClient,
+      path: { name: project },
+      body: opts ?? {},
+    }),
+  )
 }
 
 export function fetchGscPerformance(
   project: string,
   params?: { startDate?: string; endDate?: string; query?: string; page?: string; limit?: number; offset?: number; window?: MetricsWindow },
 ): Promise<ApiGscPerformanceRow[]> {
-  const qs = new URLSearchParams()
-  if (params?.startDate) qs.set('startDate', params.startDate)
-  if (params?.endDate) qs.set('endDate', params.endDate)
-  if (params?.window && params.window !== 'all' && !params.startDate) qs.set('window', params.window)
-  if (params?.query) qs.set('query', params.query)
-  if (params?.page) qs.set('page', params.page)
-  if (params?.limit !== undefined) qs.set('limit', String(params.limit))
-  if (params?.offset !== undefined && params.offset > 0) qs.set('offset', String(params.offset))
-  const query = qs.toString() ? `?${qs.toString()}` : ''
-  return apiFetch(`/projects/${encodeURIComponent(project)}/google/gsc/performance${query}`)
+  const query: Record<string, string> = {}
+  if (params?.startDate) query.startDate = params.startDate
+  if (params?.endDate) query.endDate = params.endDate
+  if (params?.window && params.window !== 'all' && !params.startDate) query.window = params.window
+  if (params?.query) query.query = params.query
+  if (params?.page) query.page = params.page
+  if (params?.limit !== undefined) query.limit = String(params.limit)
+  if (params?.offset !== undefined && params.offset > 0) query.offset = String(params.offset)
+  return invokeWeb<ApiGscPerformanceRow[]>(() =>
+    getApiV1ProjectsByNameGoogleGscPerformance({
+      client: heyClient,
+      path: { name: project },
+      query: query as never,
+    }),
+  )
 }
 
 export function fetchGscPerformanceDaily(
   project: string,
   params?: { startDate?: string; endDate?: string; window?: MetricsWindow },
 ): Promise<GscPerformanceDailyDto> {
-  const qs = new URLSearchParams()
-  if (params?.startDate) qs.set('startDate', params.startDate)
-  if (params?.endDate) qs.set('endDate', params.endDate)
-  if (params?.window && params.window !== 'all' && !params.startDate) qs.set('window', params.window)
-  const query = qs.toString() ? `?${qs.toString()}` : ''
-  return apiFetch(`/projects/${encodeURIComponent(project)}/google/gsc/performance/daily${query}`)
+  const query: Record<string, string> = {}
+  if (params?.startDate) query.startDate = params.startDate
+  if (params?.endDate) query.endDate = params.endDate
+  if (params?.window && params.window !== 'all' && !params.startDate) query.window = params.window
+  return invokeWeb<GscPerformanceDailyDto>(() =>
+    getApiV1ProjectsByNameGoogleGscPerformanceDaily({
+      client: heyClient,
+      path: { name: project },
+      query: query as never,
+    }),
+  )
 }
 
 export function inspectGscUrl(project: string, url: string): Promise<ApiGscInspection> {
-  return apiFetch(`/projects/${encodeURIComponent(project)}/google/gsc/inspect`, {
-    method: 'POST',
-    body: JSON.stringify({ url }),
-  })
+  return invokeWeb<ApiGscInspection>(() =>
+    postApiV1ProjectsByNameGoogleGscInspect({
+      client: heyClient,
+      path: { name: project },
+      body: { url },
+    }),
+  )
 }
 
 export function fetchGscInspections(
   project: string,
   params?: { url?: string; limit?: number },
 ): Promise<ApiGscInspection[]> {
-  const qs = new URLSearchParams()
-  if (params?.url) qs.set('url', params.url)
-  if (params?.limit !== undefined) qs.set('limit', String(params.limit))
-  const query = qs.toString() ? `?${qs.toString()}` : ''
-  return apiFetch(`/projects/${encodeURIComponent(project)}/google/gsc/inspections${query}`)
+  const query: Record<string, string> = {}
+  if (params?.url) query.url = params.url
+  if (params?.limit !== undefined) query.limit = String(params.limit)
+  return invokeWeb<ApiGscInspection[]>(() =>
+    getApiV1ProjectsByNameGoogleGscInspections({
+      client: heyClient,
+      path: { name: project },
+      query: query as never,
+    }),
+  )
 }
 
 export function fetchGscDeindexed(project: string): Promise<ApiGscDeindexedRow[]> {
-  return apiFetch(`/projects/${encodeURIComponent(project)}/google/gsc/deindexed`)
+  return invokeWeb<ApiGscDeindexedRow[]>(() =>
+    getApiV1ProjectsByNameGoogleGscDeindexed({ client: heyClient, path: { name: project } }),
+  )
 }
 
 export type { GscCoverageSummaryDto as ApiGscCoverageSummary }
 
 export function fetchGscCoverage(project: string): Promise<GscCoverageSummaryDto> {
-  return apiFetch(`/projects/${encodeURIComponent(project)}/google/gsc/coverage`)
+  return invokeWeb<GscCoverageSummaryDto>(() =>
+    getApiV1ProjectsByNameGoogleGscCoverage({ client: heyClient, path: { name: project } }),
+  )
 }
 
 export function fetchGscCoverageHistory(
   project: string,
   params?: { limit?: number },
 ): Promise<GscCoverageSnapshotDto[]> {
-  const qs = new URLSearchParams()
-  if (params?.limit !== undefined) qs.set('limit', String(params.limit))
-  const query = qs.toString() ? `?${qs.toString()}` : ''
-  return apiFetch(`/projects/${encodeURIComponent(project)}/google/gsc/coverage/history${query}`)
+  return invokeWeb<GscCoverageSnapshotDto[]>(() =>
+    getApiV1ProjectsByNameGoogleGscCoverageHistory({
+      client: heyClient,
+      path: { name: project },
+      query: { limit: params?.limit !== undefined ? String(params.limit) : undefined } as never,
+    }),
+  )
 }
 
 export function triggerInspectSitemap(project: string, opts?: { sitemapUrl?: string }): Promise<ApiRun> {
-  return apiFetch(`/projects/${encodeURIComponent(project)}/google/gsc/inspect-sitemap`, {
-    method: 'POST',
-    body: JSON.stringify(opts ?? {}),
-  })
+  return invokeWeb<ApiRun>(() =>
+    postApiV1ProjectsByNameGoogleGscInspectSitemap({
+      client: heyClient,
+      path: { name: project },
+      body: opts ?? {},
+    }),
+  )
 }
 
 export interface ApiGscSitemap {
@@ -782,48 +1059,65 @@ export interface ApiGscSitemap {
 }
 
 export function fetchGscSitemaps(project: string): Promise<{ sitemaps: ApiGscSitemap[] }> {
-  return apiFetch(`/projects/${encodeURIComponent(project)}/google/gsc/sitemaps`)
+  return invokeWeb<{ sitemaps: ApiGscSitemap[] }>(() =>
+    getApiV1ProjectsByNameGoogleGscSitemaps({ client: heyClient, path: { name: project } }),
+  )
 }
 
 export function triggerDiscoverSitemaps(project: string): Promise<{ sitemaps: ApiGscSitemap[]; primarySitemapUrl: string; run: ApiRun }> {
-  return apiFetch(`/projects/${encodeURIComponent(project)}/google/gsc/discover-sitemaps`, {
-    method: 'POST',
-    body: '{}',
-  })
+  return invokeWeb<{ sitemaps: ApiGscSitemap[]; primarySitemapUrl: string; run: ApiRun }>(() =>
+    postApiV1ProjectsByNameGoogleGscDiscoverSitemaps({ client: heyClient, path: { name: project } }),
+  )
 }
 
 export function triggerDiscoveryRun(
   project: string,
   body?: DiscoveryRunRequest,
 ): Promise<ApiDiscoveryRunStartResponse> {
-  return apiFetch(`/projects/${encodeURIComponent(project)}/discover/run`, {
-    method: 'POST',
-    body: JSON.stringify(body ?? {}),
-  })
+  return invokeWeb<ApiDiscoveryRunStartResponse>(() =>
+    postApiV1ProjectsByNameDiscoverRun({
+      client: heyClient,
+      path: { name: project },
+      body: (body ?? {}) as never,
+    }),
+  )
 }
 
 export function fetchDiscoverySessions(
   project: string,
   opts?: { limit?: number },
 ): Promise<DiscoverySessionDto[]> {
-  const qs = new URLSearchParams()
-  if (opts?.limit !== undefined) qs.set('limit', String(opts.limit))
-  const query = qs.toString() ? `?${qs.toString()}` : ''
-  return apiFetch(`/projects/${encodeURIComponent(project)}/discover/sessions${query}`)
+  return invokeWeb<DiscoverySessionDto[]>(() =>
+    getApiV1ProjectsByNameDiscoverSessions({
+      client: heyClient,
+      path: { name: project },
+      query: { limit: opts?.limit !== undefined ? String(opts.limit) : undefined } as never,
+    }),
+  )
 }
 
 export function fetchDiscoverySession(
   project: string,
   sessionId: string,
 ): Promise<DiscoverySessionDetailDto> {
-  return apiFetch(`/projects/${encodeURIComponent(project)}/discover/sessions/${encodeURIComponent(sessionId)}`)
+  return invokeWeb<DiscoverySessionDetailDto>(() =>
+    getApiV1ProjectsByNameDiscoverSessionsById({
+      client: heyClient,
+      path: { name: project, id: sessionId },
+    }),
+  )
 }
 
 export function previewDiscoveryPromote(
   project: string,
   sessionId: string,
 ): Promise<DiscoveryPromotePreview> {
-  return apiFetch(`/projects/${encodeURIComponent(project)}/discover/sessions/${encodeURIComponent(sessionId)}/promote`)
+  return invokeWeb<DiscoveryPromotePreview>(() =>
+    getApiV1ProjectsByNameDiscoverSessionsByIdPromote({
+      client: heyClient,
+      path: { name: project, id: sessionId },
+    }),
+  )
 }
 
 export function promoteDiscovery(
@@ -831,10 +1125,13 @@ export function promoteDiscovery(
   sessionId: string,
   body?: DiscoveryPromoteRequest,
 ): Promise<DiscoveryPromoteResult> {
-  return apiFetch(`/projects/${encodeURIComponent(project)}/discover/sessions/${encodeURIComponent(sessionId)}/promote`, {
-    method: 'POST',
-    body: JSON.stringify(body ?? {}),
-  })
+  return invokeWeb<DiscoveryPromoteResult>(() =>
+    postApiV1ProjectsByNameDiscoverSessionsByIdPromote({
+      client: heyClient,
+      path: { name: project, id: sessionId },
+      body: (body ?? {}) as never,
+    }),
+  )
 }
 
 export interface ApiIndexingRequestResponse {
@@ -857,24 +1154,26 @@ export interface ApiCdpStatus {
 }
 
 export function fetchCdpStatus(): Promise<ApiCdpStatus> {
-  return apiFetch('/cdp/status')
+  return invokeWeb<ApiCdpStatus>(() => getApiV1CdpStatus({ client: heyClient }))
 }
 
 export function configureCdp(host: string, port: number): Promise<{ endpoint: string }> {
-  return apiFetch('/settings/cdp', {
-    method: 'PUT',
-    body: JSON.stringify({ host, port }),
-  })
+  return invokeWeb<{ endpoint: string }>(() =>
+    putApiV1SettingsCdp({ client: heyClient, body: { host, port } }),
+  )
 }
 
 export function requestIndexing(
   project: string,
   body: { urls: string[]; allUnindexed?: boolean },
 ): Promise<ApiIndexingRequestResponse> {
-  return apiFetch(`/projects/${encodeURIComponent(project)}/google/indexing/request`, {
-    method: 'POST',
-    body: JSON.stringify(body),
-  })
+  return invokeWeb<ApiIndexingRequestResponse>(() =>
+    postApiV1ProjectsByNameGoogleIndexingRequest({
+      client: heyClient,
+      path: { name: project },
+      body,
+    }),
+  )
 }
 
 // ── Bing Webmaster Tools ─────────────────────────────────────────────────────
@@ -925,7 +1224,9 @@ export interface ApiBingKeywordStats {
 }
 
 export function fetchBingStatus(project: string): Promise<ApiBingConnection> {
-  return apiFetch(`/projects/${encodeURIComponent(project)}/bing/status`)
+  return invokeWeb<ApiBingConnection>(() =>
+    getApiV1ProjectsByNameBingStatus({ client: heyClient, path: { name: project } }),
+  )
 }
 
 export function bingConnect(project: string, apiKey: string): Promise<{
@@ -933,57 +1234,77 @@ export function bingConnect(project: string, apiKey: string): Promise<{
   domain: string
   availableSites: ApiBingSite[]
 }> {
-  return apiFetch(`/projects/${encodeURIComponent(project)}/bing/connect`, {
-    method: 'POST',
-    body: JSON.stringify({ apiKey }),
-  })
+  return invokeWeb<{ connected: boolean; domain: string; availableSites: ApiBingSite[] }>(() =>
+    postApiV1ProjectsByNameBingConnect({
+      client: heyClient,
+      path: { name: project },
+      body: { apiKey },
+    }),
+  )
 }
 
 export function bingDisconnect(project: string): Promise<void> {
-  return apiFetch(`/projects/${encodeURIComponent(project)}/bing/disconnect`, {
-    method: 'DELETE',
-    body: '{}',
-  })
+  return invokeWeb<void>(() =>
+    deleteApiV1ProjectsByNameBingDisconnect({ client: heyClient, path: { name: project } }),
+  )
 }
 
 export function fetchBingSites(project: string): Promise<{ sites: ApiBingSite[] }> {
-  return apiFetch(`/projects/${encodeURIComponent(project)}/bing/sites`)
+  return invokeWeb<{ sites: ApiBingSite[] }>(() =>
+    getApiV1ProjectsByNameBingSites({ client: heyClient, path: { name: project } }),
+  )
 }
 
 export function bingSetSite(project: string, siteUrl: string): Promise<{ siteUrl: string }> {
-  return apiFetch(`/projects/${encodeURIComponent(project)}/bing/set-site`, {
-    method: 'POST',
-    body: JSON.stringify({ siteUrl }),
-  })
+  return invokeWeb<{ siteUrl: string }>(() =>
+    postApiV1ProjectsByNameBingSetSite({
+      client: heyClient,
+      path: { name: project },
+      body: { siteUrl },
+    }),
+  )
 }
 
 export function fetchBingCoverage(project: string): Promise<ApiBingCoverageSummary> {
-  return apiFetch(`/projects/${encodeURIComponent(project)}/bing/coverage`)
+  return invokeWeb<ApiBingCoverageSummary>(() =>
+    getApiV1ProjectsByNameBingCoverage({ client: heyClient, path: { name: project } }),
+  )
 }
 
 export function fetchBingInspections(
   project: string,
   params?: { url?: string; limit?: number },
 ): Promise<ApiBingInspection[]> {
-  const qs = new URLSearchParams()
-  if (params?.url) qs.set('url', params.url)
-  if (params?.limit !== undefined) qs.set('limit', String(params.limit))
-  const query = qs.toString() ? `?${qs.toString()}` : ''
-  return apiFetch(`/projects/${encodeURIComponent(project)}/bing/inspections${query}`)
+  const query: Record<string, string> = {}
+  if (params?.url) query.url = params.url
+  if (params?.limit !== undefined) query.limit = String(params.limit)
+  return invokeWeb<ApiBingInspection[]>(() =>
+    getApiV1ProjectsByNameBingInspections({
+      client: heyClient,
+      path: { name: project },
+      query: query as never,
+    }),
+  )
 }
 
 export function inspectBingUrl(project: string, url: string): Promise<ApiBingInspection> {
-  return apiFetch(`/projects/${encodeURIComponent(project)}/bing/inspect-url`, {
-    method: 'POST',
-    body: JSON.stringify({ url }),
-  })
+  return invokeWeb<ApiBingInspection>(() =>
+    postApiV1ProjectsByNameBingInspectUrl({
+      client: heyClient,
+      path: { name: project },
+      body: { url },
+    }),
+  )
 }
 
 export function inspectBingSitemap(project: string, opts?: { sitemapUrl?: string }): Promise<ApiRun> {
-  return apiFetch(`/projects/${encodeURIComponent(project)}/bing/inspect-sitemap`, {
-    method: 'POST',
-    body: opts?.sitemapUrl ? JSON.stringify({ sitemapUrl: opts.sitemapUrl }) : undefined,
-  })
+  return invokeWeb<ApiRun>(() =>
+    postApiV1ProjectsByNameBingInspectSitemap({
+      client: heyClient,
+      path: { name: project },
+      body: opts?.sitemapUrl ? { sitemapUrl: opts.sitemapUrl } : {},
+    }),
+  )
 }
 
 export function bingRequestIndexing(
@@ -993,26 +1314,35 @@ export function bingRequestIndexing(
   summary: { total: number; succeeded: number; failed: number }
   results: Array<{ url: string; status: string; submittedAt: string; error?: string }>
 }> {
-  return apiFetch(`/projects/${encodeURIComponent(project)}/bing/request-indexing`, {
-    method: 'POST',
-    body: JSON.stringify(body),
-  })
+  return invokeWeb<{
+    summary: { total: number; succeeded: number; failed: number }
+    results: Array<{ url: string; status: string; submittedAt: string; error?: string }>
+  }>(() =>
+    postApiV1ProjectsByNameBingRequestIndexing({
+      client: heyClient,
+      path: { name: project },
+      body,
+    }),
+  )
 }
 
 export function fetchBingPerformance(project: string): Promise<ApiBingKeywordStats[]> {
-  return apiFetch(`/projects/${encodeURIComponent(project)}/bing/performance`)
+  return invokeWeb<ApiBingKeywordStats[]>(() =>
+    getApiV1ProjectsByNameBingPerformance({ client: heyClient, path: { name: project } }),
+  )
 }
 
 export function updateBingApiKey(apiKey: string): Promise<{ configured: boolean }> {
-  return apiFetch('/settings/bing', {
-    method: 'PUT',
-    body: JSON.stringify({ apiKey }),
-  })
+  return invokeWeb<{ configured: boolean }>(() =>
+    putApiV1SettingsBing({ client: heyClient, body: { apiKey } }),
+  )
 }
 
 // Report
 export function fetchReport(project: string): Promise<ProjectReportDto> {
-  return apiFetch(`/projects/${encodeURIComponent(project)}/report`)
+  return invokeWeb<ProjectReportDto>(() =>
+    getApiV1ProjectsByNameReport({ client: heyClient, path: { name: project } }),
+  )
 }
 
 function parseFilenameFromContentDisposition(header: string | null): string | null {
@@ -1021,6 +1351,9 @@ function parseFilenameFromContentDisposition(header: string | null): string | nu
   return match?.[1] ?? null
 }
 
+// Blob download — keep raw fetch so we can read the binary body + parse
+// the Content-Disposition filename. The generated SDK would JSON-parse the
+// response and discard the binary payload.
 export async function downloadReportHtml(project: string, audience: ReportAudience = 'agency'): Promise<void> {
   const key = getApiKey()
   const params = new URLSearchParams({ audience })
@@ -1171,53 +1504,86 @@ export interface ApiGaSyncResult {
 }
 
 export function fetchGaStatus(project: string): Promise<ApiGaStatus> {
-  return apiFetch(`/projects/${encodeURIComponent(project)}/ga/status`)
+  return invokeWeb<ApiGaStatus>(() =>
+    getApiV1ProjectsByNameGaStatus({ client: heyClient, path: { name: project } }),
+  )
 }
 
 export function fetchGaTraffic(project: string, limit?: number, window?: MetricsWindow): Promise<ApiGaTraffic> {
-  const params = new URLSearchParams()
-  if (limit) params.set('limit', String(limit))
-  if (window && window !== 'all') params.set('window', window)
-  const qs = params.toString() ? `?${params}` : ''
-  return apiFetch(`/projects/${encodeURIComponent(project)}/ga/traffic${qs}`)
+  const query: Record<string, string> = {}
+  if (limit) query.limit = String(limit)
+  if (window && window !== 'all') query.window = window
+  return invokeWeb<ApiGaTraffic>(() =>
+    getApiV1ProjectsByNameGaTraffic({
+      client: heyClient,
+      path: { name: project },
+      query: query as never,
+    }),
+  )
 }
 
 export function triggerGaSync(project: string, days?: number): Promise<ApiGaSyncResult> {
-  return apiFetch(`/projects/${encodeURIComponent(project)}/ga/sync`, {
-    method: 'POST',
-    body: JSON.stringify(days ? { days } : {}),
-  })
+  return invokeWeb<ApiGaSyncResult>(() =>
+    postApiV1ProjectsByNameGaSync({
+      client: heyClient,
+      path: { name: project },
+      body: days ? { days } : {},
+    }),
+  )
 }
 
 export function connectGa(project: string, body: { propertyId: string; keyJson: string }): Promise<{ connected: boolean; propertyId: string; clientEmail: string }> {
-  return apiFetch(`/projects/${encodeURIComponent(project)}/ga/connect`, {
-    method: 'POST',
-    body: JSON.stringify(body),
-  })
+  return invokeWeb<{ connected: boolean; propertyId: string; clientEmail: string }>(() =>
+    postApiV1ProjectsByNameGaConnect({
+      client: heyClient,
+      path: { name: project },
+      body,
+    }),
+  )
 }
 
 export type { GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry }
 
 export function fetchGaAiReferralHistory(project: string, window?: MetricsWindow): Promise<GA4AiReferralHistoryEntry[]> {
-  const qs = window && window !== 'all' ? `?window=${window}` : ''
-  return apiFetch(`/projects/${encodeURIComponent(project)}/ga/ai-referral-history${qs}`)
+  const query: Record<string, string> = {}
+  if (window && window !== 'all') query.window = window
+  return invokeWeb<GA4AiReferralHistoryEntry[]>(() =>
+    getApiV1ProjectsByNameGaAiReferralHistory({
+      client: heyClient,
+      path: { name: project },
+      query: query as never,
+    }),
+  )
 }
 
 export function fetchGaSocialReferralHistory(project: string, window?: MetricsWindow): Promise<GA4SocialReferralHistoryEntry[]> {
-  const qs = window && window !== 'all' ? `?window=${window}` : ''
-  return apiFetch(`/projects/${encodeURIComponent(project)}/ga/social-referral-history${qs}`)
+  const query: Record<string, string> = {}
+  if (window && window !== 'all') query.window = window
+  return invokeWeb<GA4SocialReferralHistoryEntry[]>(() =>
+    getApiV1ProjectsByNameGaSocialReferralHistory({
+      client: heyClient,
+      path: { name: project },
+      query: query as never,
+    }),
+  )
 }
 
 export function fetchGaSessionHistory(project: string, window?: MetricsWindow): Promise<GA4SessionHistoryEntry[]> {
-  const qs = window && window !== 'all' ? `?window=${window}` : ''
-  return apiFetch(`/projects/${encodeURIComponent(project)}/ga/session-history${qs}`)
+  const query: Record<string, string> = {}
+  if (window && window !== 'all') query.window = window
+  return invokeWeb<GA4SessionHistoryEntry[]>(() =>
+    getApiV1ProjectsByNameGaSessionHistory({
+      client: heyClient,
+      path: { name: project },
+      query: query as never,
+    }),
+  )
 }
 
 export function disconnectGa(project: string): Promise<void> {
-  return apiFetch(`/projects/${encodeURIComponent(project)}/ga/disconnect`, {
-    method: 'DELETE',
-    body: '{}',
-  })
+  return invokeWeb<void>(() =>
+    deleteApiV1ProjectsByNameGaDisconnect({ client: heyClient, path: { name: project } }),
+  )
 }
 
 // ── Server traffic (Cloud Run / log-based ingestion) ────────────────────────
@@ -1229,59 +1595,82 @@ export type ApiTrafficEvents = TrafficEventsResponse
 export type ApiTrafficSyncResult = TrafficSyncResponse
 
 export function fetchServerTrafficSources(project: string): Promise<TrafficSourceListResponse> {
-  return apiFetch(`/projects/${encodeURIComponent(project)}/traffic/sources`)
+  return invokeWeb<TrafficSourceListResponse>(() =>
+    getApiV1ProjectsByNameTrafficSources({ client: heyClient, path: { name: project } }),
+  )
 }
 
 export function fetchServerTrafficStatus(project: string): Promise<TrafficStatusResponse> {
-  return apiFetch(`/projects/${encodeURIComponent(project)}/traffic/status`)
+  return invokeWeb<TrafficStatusResponse>(() =>
+    getApiV1ProjectsByNameTrafficStatus({ client: heyClient, path: { name: project } }),
+  )
 }
 
 export function fetchServerTrafficSource(project: string, sourceId: string): Promise<TrafficSourceDetailDto> {
-  return apiFetch(`/projects/${encodeURIComponent(project)}/traffic/sources/${encodeURIComponent(sourceId)}`)
+  return invokeWeb<TrafficSourceDetailDto>(() =>
+    getApiV1ProjectsByNameTrafficSourcesById({
+      client: heyClient,
+      path: { name: project, id: sourceId },
+    }),
+  )
 }
 
 export function fetchServerTrafficEvents(
   project: string,
   params?: { since?: string; until?: string; kind?: 'all' | 'crawler' | 'ai-referral'; sourceId?: string; limit?: number },
 ): Promise<TrafficEventsResponse> {
-  const search: Record<string, string> = {}
-  if (params?.since) search.since = params.since
-  if (params?.until) search.until = params.until
-  if (params?.kind) search.kind = params.kind
-  if (params?.sourceId) search.sourceId = params.sourceId
-  if (params?.limit !== undefined) search.limit = String(params.limit)
-  const qs = Object.keys(search).length ? '?' + new URLSearchParams(search).toString() : ''
-  return apiFetch(`/projects/${encodeURIComponent(project)}/traffic/events${qs}`)
+  const query: Record<string, string> = {}
+  if (params?.since) query.since = params.since
+  if (params?.until) query.until = params.until
+  if (params?.kind) query.kind = params.kind
+  if (params?.sourceId) query.sourceId = params.sourceId
+  if (params?.limit !== undefined) query.limit = String(params.limit)
+  return invokeWeb<TrafficEventsResponse>(() =>
+    getApiV1ProjectsByNameTrafficEvents({
+      client: heyClient,
+      path: { name: project },
+      query: query as never,
+    }),
+  )
 }
 
 export function connectServerTrafficCloudRun(
   project: string,
   body: TrafficConnectCloudRunRequest,
 ): Promise<TrafficSourceDto> {
-  return apiFetch(`/projects/${encodeURIComponent(project)}/traffic/connect/cloud-run`, {
-    method: 'POST',
-    body: JSON.stringify(body),
-  })
+  return invokeWeb<TrafficSourceDto>(() =>
+    postApiV1ProjectsByNameTrafficConnectCloudRun({
+      client: heyClient,
+      path: { name: project },
+      body: body as never,
+    }),
+  )
 }
 
 export function connectServerTrafficWordpress(
   project: string,
   body: TrafficConnectWordpressRequest,
 ): Promise<TrafficSourceDto> {
-  return apiFetch(`/projects/${encodeURIComponent(project)}/traffic/connect/wordpress`, {
-    method: 'POST',
-    body: JSON.stringify(body),
-  })
+  return invokeWeb<TrafficSourceDto>(() =>
+    postApiV1ProjectsByNameTrafficConnectWordpress({
+      client: heyClient,
+      path: { name: project },
+      body,
+    }),
+  )
 }
 
 export function connectServerTrafficVercel(
   project: string,
   body: TrafficConnectVercelRequest,
 ): Promise<TrafficSourceDto> {
-  return apiFetch(`/projects/${encodeURIComponent(project)}/traffic/connect/vercel`, {
-    method: 'POST',
-    body: JSON.stringify(body),
-  })
+  return invokeWeb<TrafficSourceDto>(() =>
+    postApiV1ProjectsByNameTrafficConnectVercel({
+      client: heyClient,
+      path: { name: project },
+      body,
+    }),
+  )
 }
 
 export function triggerServerTrafficSync(
@@ -1289,21 +1678,31 @@ export function triggerServerTrafficSync(
   sourceId: string,
   body?: { sinceMinutes?: number },
 ): Promise<TrafficSyncResponse> {
-  return apiFetch(`/projects/${encodeURIComponent(project)}/traffic/sources/${encodeURIComponent(sourceId)}/sync`, {
-    method: 'POST',
-    body: JSON.stringify(body ?? {}),
-  })
+  return invokeWeb<TrafficSyncResponse>(() =>
+    postApiV1ProjectsByNameTrafficSourcesByIdSync({
+      client: heyClient,
+      path: { name: project, id: sourceId },
+      body: body ?? {},
+    }),
+  )
 }
 
 // ── Intelligence ────────────────────────────────────────────────────────────
 
 export function fetchInsights(project: string, runId?: string): Promise<InsightDto[]> {
-  const qs = runId ? `?runId=${encodeURIComponent(runId)}` : ''
-  return apiFetch(`/projects/${encodeURIComponent(project)}/insights${qs}`)
+  return invokeWeb<InsightDto[]>(() =>
+    getApiV1ProjectsByNameInsights({
+      client: heyClient,
+      path: { name: project },
+      query: { runId } as never,
+    }),
+  )
 }
 
 export function fetchCitationVisibility(project: string): Promise<CitationVisibilityResponse> {
-  return apiFetch(`/projects/${encodeURIComponent(project)}/citations/visibility`)
+  return invokeWeb<CitationVisibilityResponse>(() =>
+    getApiV1ProjectsByNameCitationsVisibility({ client: heyClient, path: { name: project } }),
+  )
 }
 
 // ── Health ──────────────────────────────────────────────────────────────────
@@ -1354,7 +1753,7 @@ export async function fetchServiceStatus(path: string, label: string): Promise<S
       lastHeartbeatAt ? `heartbeat ${lastHeartbeatAt}` : undefined,
     ]
       .filter(Boolean)
-      .join(' \u00b7 ')
+      .join(' · ')
 
     return {
       label,
@@ -1380,73 +1779,87 @@ export async function fetchServiceStatus(path: string, label: string): Promise<S
 // --- Backlinks (Common Crawl) ---
 
 export function fetchBacklinksStatus(): Promise<BacklinksInstallStatusDto> {
-  return apiFetch('/backlinks/status')
+  return invokeWeb<BacklinksInstallStatusDto>(() => getApiV1BacklinksStatus({ client: heyClient }))
 }
 
 export function installBacklinks(): Promise<BacklinksInstallResultDto> {
-  return apiFetch('/backlinks/install', { method: 'POST' })
+  return invokeWeb<BacklinksInstallResultDto>(() => postApiV1BacklinksInstall({ client: heyClient }))
 }
 
 export function fetchLatestReleaseSync(): Promise<CcReleaseSyncDto | null> {
-  return apiFetch('/backlinks/syncs/latest')
+  return invokeWeb<CcReleaseSyncDto | null>(() => getApiV1BacklinksSyncsLatest({ client: heyClient }))
 }
 
 export function fetchReleaseSyncs(): Promise<CcReleaseSyncDto[]> {
-  return apiFetch('/backlinks/syncs')
+  return invokeWeb<CcReleaseSyncDto[]>(() => getApiV1BacklinksSyncs({ client: heyClient }))
 }
 
 export function triggerReleaseSync(release?: string): Promise<CcReleaseSyncDto> {
-  return apiFetch('/backlinks/syncs', {
-    method: 'POST',
-    body: JSON.stringify(release ? { release } : {}),
-  })
+  return invokeWeb<CcReleaseSyncDto>(() =>
+    postApiV1BacklinksSyncs({ client: heyClient, body: release ? { release } : {} }),
+  )
 }
 
 export function fetchCachedReleases(): Promise<CcCachedRelease[]> {
-  return apiFetch('/backlinks/releases')
+  return invokeWeb<CcCachedRelease[]>(() => getApiV1BacklinksReleases({ client: heyClient }))
 }
 
 export function fetchLatestAvailableRelease(): Promise<CcAvailableRelease | null> {
-  return apiFetch('/backlinks/latest-release')
+  return invokeWeb<CcAvailableRelease | null>(() => getApiV1BacklinksLatestRelease({ client: heyClient }))
 }
 
 export function pruneCachedRelease(release: string): Promise<{ ok: boolean }> {
-  return apiFetch(`/backlinks/cache/${encodeURIComponent(release)}`, {
-    method: 'DELETE',
-  })
+  return invokeWeb<{ ok: boolean }>(() =>
+    deleteApiV1BacklinksCacheByRelease({ client: heyClient, path: { release } }),
+  )
 }
 
 export function fetchBacklinkSummary(
   projectName: string,
   opts: { release?: string; excludeCrawlers?: boolean } = {},
 ): Promise<BacklinkSummaryDto | null> {
-  const params = new URLSearchParams()
-  if (opts.release) params.set('release', opts.release)
-  if (opts.excludeCrawlers) params.set('excludeCrawlers', '1')
-  const qs = params.toString()
-  return apiFetch(`/projects/${encodeURIComponent(projectName)}/backlinks/summary${qs ? `?${qs}` : ''}`)
+  return invokeWeb<BacklinkSummaryDto | null>(() =>
+    getApiV1ProjectsByNameBacklinksSummary({
+      client: heyClient,
+      path: { name: projectName },
+      query: {
+        release: opts.release,
+        excludeCrawlers: opts.excludeCrawlers ? '1' : undefined,
+      } as never,
+    }),
+  )
 }
 
 export function fetchBacklinkDomains(
   projectName: string,
   opts: { limit?: number; offset?: number; release?: string; excludeCrawlers?: boolean } = {},
 ): Promise<BacklinkListResponse> {
-  const params = new URLSearchParams()
-  if (opts.limit !== undefined) params.set('limit', String(opts.limit))
-  if (opts.offset !== undefined) params.set('offset', String(opts.offset))
-  if (opts.release) params.set('release', opts.release)
-  if (opts.excludeCrawlers) params.set('excludeCrawlers', '1')
-  const qs = params.toString()
-  return apiFetch(`/projects/${encodeURIComponent(projectName)}/backlinks/domains${qs ? `?${qs}` : ''}`)
+  return invokeWeb<BacklinkListResponse>(() =>
+    getApiV1ProjectsByNameBacklinksDomains({
+      client: heyClient,
+      path: { name: projectName },
+      query: {
+        limit: opts.limit !== undefined ? String(opts.limit) : undefined,
+        offset: opts.offset !== undefined ? String(opts.offset) : undefined,
+        release: opts.release,
+        excludeCrawlers: opts.excludeCrawlers ? '1' : undefined,
+      } as never,
+    }),
+  )
 }
 
 export function fetchBacklinkHistory(projectName: string): Promise<BacklinkHistoryEntry[]> {
-  return apiFetch(`/projects/${encodeURIComponent(projectName)}/backlinks/history`)
+  return invokeWeb<BacklinkHistoryEntry[]>(() =>
+    getApiV1ProjectsByNameBacklinksHistory({ client: heyClient, path: { name: projectName } }),
+  )
 }
 
 export function triggerBacklinkExtract(projectName: string, release?: string): Promise<ApiRun> {
-  return apiFetch(`/projects/${encodeURIComponent(projectName)}/backlinks/extract`, {
-    method: 'POST',
-    body: JSON.stringify({ release: release ?? undefined }),
-  })
+  return invokeWeb<ApiRun>(() =>
+    postApiV1ProjectsByNameBacklinksExtract({
+      client: heyClient,
+      path: { name: projectName },
+      body: { release: release ?? undefined },
+    }),
+  )
 }

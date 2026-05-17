@@ -66,6 +66,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@ainyc/canonry-api-client':
+        specifier: workspace:*
+        version: link:../../packages/api-client-generated
       '@ainyc/canonry-contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
