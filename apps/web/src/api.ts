@@ -1,4 +1,4 @@
-import type { ErrorCode, GroundingSource, ProjectOverviewDto, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto, GscPerformanceDailyDto, IndexingRequestResultDto, MetricsWindow, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry, InsightDto, ProjectReportDto, ReportAudience, CitationVisibilityResponse, BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinkHistoryEntry, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcAvailableRelease, CcCachedRelease, CcReleaseSyncDto, TrafficSourceDto, TrafficSourceDetailDto, TrafficSourceListResponse, TrafficStatusResponse, TrafficEventsResponse, TrafficConnectCloudRunRequest, TrafficConnectWordpressRequest, TrafficConnectVercelRequest, TrafficSyncResponse, DiscoveryRunRequest, DiscoverySessionDto, DiscoverySessionDetailDto, DiscoveryPromotePreview, DiscoveryPromoteRequest, DiscoveryPromoteResult, ProjectDto, QueryDto, CompetitorDto, LocationContext, GoogleConnectionDto } from '@ainyc/canonry-contracts'
+import type { ErrorCode, GroundingSource, ProjectOverviewDto, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto, GscPerformanceDailyDto, IndexingRequestResultDto, MetricsWindow, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry, InsightDto, ProjectReportDto, ReportAudience, CitationVisibilityResponse, BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinkHistoryEntry, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcAvailableRelease, CcCachedRelease, CcReleaseSyncDto, TrafficSourceDto, TrafficSourceDetailDto, TrafficSourceListResponse, TrafficStatusResponse, TrafficEventsResponse, TrafficConnectCloudRunRequest, TrafficConnectWordpressRequest, TrafficConnectVercelRequest, TrafficSyncResponse, DiscoveryRunRequest, DiscoverySessionDto, DiscoverySessionDetailDto, DiscoveryPromotePreview, DiscoveryPromoteRequest, DiscoveryPromoteResult, ProjectDto, QueryDto, CompetitorDto, LocationContext, GoogleConnectionDto, GscUrlInspectionDto, GscDeindexedRowDto, BingUrlInspectionDto, BingCoverageSummaryDto, BingKeywordStatsDto } from '@ainyc/canonry-contracts'
 import {
   createClient as createHeyClient,
   // Projects + queries + competitors + locations + runs + apply + settings + telemetry
@@ -843,28 +843,16 @@ export interface ApiGscPerformanceRow {
   position: number
 }
 
-export interface ApiGscInspection {
-  id: string
-  url: string
-  indexingState: string | null
-  verdict: string | null
-  coverageState: string | null
-  pageFetchState: string | null
-  robotsTxtState: string | null
-  crawlTime: string | null
-  lastCrawlResult: string | null
-  isMobileFriendly: boolean | null
-  richResults: string[]
-  referringUrls: string[]
-  inspectedAt: string
-}
+/**
+ * Re-export of the generated `GscUrlInspectionDto`. After PR #568 added
+ * `referringUrls` to the contracts schema, this is now field-equivalent
+ * to the hand-typed interface. Spec marks several fields as optional
+ * (`?: T | null`); consumers already nullable-coalesce.
+ */
+export type ApiGscInspection = GscUrlInspectionDto
 
-export interface ApiGscDeindexedRow {
-  url: string
-  previousState: string | null
-  currentState: string | null
-  transitionDate: string
-}
+/** Re-export of the generated `GscDeindexedRowDto`. Identical shape. */
+export type ApiGscDeindexedRow = GscDeindexedRowDto
 
 export function fetchGoogleConnections(project: string): Promise<ApiGoogleConnection[]> {
   return invokeWeb<ApiGoogleConnection[]>(() =>
@@ -1173,37 +1161,14 @@ export interface ApiBingSite {
   verified: boolean
 }
 
-export interface ApiBingInspection {
-  id: string
-  url: string
-  httpCode: number | null
-  inIndex: boolean | null
-  lastCrawledDate: string | null
-  inIndexDate: string | null
-  inspectedAt: string
-}
+/** Re-export of the generated `BingUrlInspectionDto`. */
+export type ApiBingInspection = BingUrlInspectionDto
 
-export interface ApiBingCoverageSummary {
-  summary: {
-    total: number
-    indexed: number
-    notIndexed: number
-    unknown?: number
-    percentage: number
-  }
-  lastInspectedAt: string | null
-  indexed: ApiBingInspection[]
-  notIndexed: ApiBingInspection[]
-  unknown?: ApiBingInspection[]
-}
+/** Re-export of the generated `BingCoverageSummaryDto`. */
+export type ApiBingCoverageSummary = BingCoverageSummaryDto
 
-export interface ApiBingKeywordStats {
-  query: string
-  impressions: number
-  clicks: number
-  ctr: number
-  averagePosition: number
-}
+/** Re-export of the generated `BingKeywordStatsDto`. */
+export type ApiBingKeywordStats = BingKeywordStatsDto
 
 export function fetchBingStatus(project: string): Promise<ApiBingConnection> {
   return invokeWeb<ApiBingConnection>(() =>
