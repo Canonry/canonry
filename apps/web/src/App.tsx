@@ -21,7 +21,8 @@ import {
 import { CitationStates, RunKinds, formatRunErrorOneLine, type RunKind } from '@ainyc/canonry-contracts'
 
 import { formatErrorLog } from './lib/format-helpers.js'
-import { fetchAllRuns, fetchProjects, type ApiProject, type ApiRun } from './api.js'
+import { heyClient, type ApiProject, type ApiRun } from './api.js'
+import { getApiV1ProjectsOptions, getApiV1RunsOptions } from '@ainyc/canonry-api-client/react-query'
 import { serviceStatusTooltip } from './lib/health-helpers.js'
 import { addToast, type ToastTone } from './lib/toast-store.js'
 import {
@@ -49,7 +50,6 @@ import { useInitialDashboard } from './contexts/dashboard-context.js'
 import { Toaster } from './components/layout/Toaster.js'
 import { AeroBarHost } from './components/shared/AeroBar.js'
 import { RUNS_STALE_MS } from './queries/query-client.js'
-import { queryKeys } from './queries/query-keys.js'
 import { invalidateQueriesForRunKind } from './queries/run-invalidations.js'
 import type {
   HealthSnapshot,
@@ -144,8 +144,7 @@ export function RunNotificationObserver() {
   const trackedState = useSyncExternalStore(subscribeRunTracker, getRunTrackerState, getRunTrackerState)
   const hasPendingTracking = Object.keys(trackedState.runs).length > 0 || Object.keys(trackedState.batches).length > 0
   const runsQuery = useQuery({
-    queryKey: queryKeys.runs.all,
-    queryFn: fetchAllRuns,
+    ...getApiV1RunsOptions({ client: heyClient }),
     // Keep notification polling live whenever this browser session is tracking runs,
     // even if the app was bootstrapped with initial dashboard context.
     enabled: hasPendingTracking,
@@ -153,8 +152,7 @@ export function RunNotificationObserver() {
     refetchInterval: 3000,
   })
   const projectsQuery = useQuery({
-    queryKey: queryKeys.projects.all,
-    queryFn: fetchProjects,
+    ...getApiV1ProjectsOptions({ client: heyClient }),
     enabled: hasPendingTracking,
   })
   const prevStatusesRef = useRef<Record<string, string>>({})

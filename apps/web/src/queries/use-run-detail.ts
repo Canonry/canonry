@@ -1,11 +1,10 @@
 import { useQuery } from '@tanstack/react-query'
-import { fetchRunDetail } from '../api.js'
-import { queryKeys } from './query-keys.js'
+import { getApiV1RunsByIdOptions } from '@ainyc/canonry-api-client/react-query'
+import { heyClient } from '../api.js'
 
 export function useRunDetail(runId: string | null) {
   return useQuery({
-    queryKey: queryKeys.runs.detail(runId ?? ''),
-    queryFn: () => fetchRunDetail(runId!),
+    ...getApiV1RunsByIdOptions({ client: heyClient, path: { id: runId ?? '' } }),
     enabled: !!runId,
     refetchInterval: (query) => {
       const status = query.state.data?.status

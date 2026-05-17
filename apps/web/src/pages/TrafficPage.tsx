@@ -5,7 +5,8 @@ import { Plus, RefreshCw } from 'lucide-react'
 
 import { TrafficSourceStatuses, type TrafficSourceDto } from '@ainyc/canonry-contracts'
 
-import { fetchProjects, fetchServerTrafficSource, type ApiProject, type ApiTrafficSourceDetail } from '../api.js'
+import { fetchServerTrafficSource, heyClient, type ApiProject, type ApiTrafficSourceDetail } from '../api.js'
+import { getApiV1ProjectsOptions } from '@ainyc/canonry-api-client/react-query'
 import { Button } from '../components/ui/button.js'
 import { Card } from '../components/ui/card.js'
 import { ToneBadge } from '../components/shared/ToneBadge.js'
@@ -38,10 +39,7 @@ export function TrafficPage() {
   const [selectedProject, setSelectedProject] = useState<string>('')
   const [connectOpen, setConnectOpen] = useState(false)
 
-  const projectsQuery = useQuery({
-    queryKey: queryKeys.projects.all,
-    queryFn: fetchProjects,
-  })
+  const projectsQuery = useQuery(getApiV1ProjectsOptions({ client: heyClient }))
   const projects: ApiProject[] = projectsQuery.data ?? []
 
   const activeProject = useMemo(() => {

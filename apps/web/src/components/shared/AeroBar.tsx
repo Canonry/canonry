@@ -17,7 +17,8 @@ import {
 import { useLocation } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import ReactMarkdown from 'react-markdown'
-import { fetchProjects } from '../../api.js'
+import { heyClient } from '../../api.js'
+import { getApiV1ProjectsOptions } from '@ainyc/canonry-api-client/react-query'
 import { asyncHandler } from '../../lib/async-handler.js'
 import { queryKeys } from '../../queries/query-keys.js'
 import {
@@ -1248,8 +1249,7 @@ export function AeroBarHost() {
   const urlSegment = match ? decodeURIComponent(match[1]) : null
 
   const projectsQuery = useQuery({
-    queryKey: queryKeys.projects.all,
-    queryFn: fetchProjects,
+    ...getApiV1ProjectsOptions({ client: heyClient }),
     enabled: urlSegment !== null,
     staleTime: 60_000,
   })
