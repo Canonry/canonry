@@ -75,6 +75,45 @@ try { resolveProject(app.db, name) } catch (e) { reply.status(e.statusCode).send
 
 Use Zod schemas from `@ainyc/canonry-contracts`. Parse with `.safeParse()`, throw `validationError()` on failure.
 
+### Typed responses (Critical)
+
+**Every new route MUST register a Zod schema for its response and reference it via `jsonResponse(...)`.** The SDK (`@ainyc/canonry-api-client`) is regenerated from this spec on every `pnpm gen`; routes that return `rawJsonResponse(..., looseObjectSchema)` give web consumers `Record<string, unknown>` and silently break the end-to-end type pipeline.
+
+The pattern:
+
+1. Define the response shape in `packages/contracts/src/<topic>.ts` as a Zod schema:
+   ```typescript
+   export const myResponseDtoSchema = z.object({ /* ... */ })
+   export type MyResponseDto = z.infer<typeof myResponseDtoSchema>
+   ```
+2. Register it in `packages/api-routes/src/openapi-schemas.ts` (alphabetized):
+   ```typescript
+   const SCHEMA_TABLE = {
+     // ...
+     MyResponseDto: myResponseDtoSchema,
+     // ...
+   }
+   ```
+3. Reference it from the route definition in `src/openapi.ts`:
+   ```typescript
+   responses: {
+     200: jsonResponse('Successful response.', 'MyResponseDto'),
+     404: errorResponse('Not found.'),
+   },
+   ```
+4. Run `pnpm --filter @ainyc/canonry-api-client gen` to regenerate the SDK.
+
+`rawJsonResponse(..., looseObjectSchema)` is **capped** by the test
+`packages/api-routes/test/no-new-loose-routes.test.ts` — the current count is
+the high-water mark, and CI fails if it grows. To add an endpoint without a
+schema you'd have to raise the cap, which is reviewable as a deliberate
+decision. Don't.
+
+For existing loose endpoints that you're typing for the first time, the same
+test's TODO-comment cap will go DOWN by one as you remove the `// TODO: Add
+`XxxDto` Zod schema in contracts.` placeholder. Drive both numbers toward 0
+incrementally.
+
 ### Event callbacks
 
 Routes fire lifecycle hooks via `opts` callbacks — `onRunCreated`, `onProviderUpdate`, `onScheduleUpdated`, `onProjectDeleted`. Fire these **after** the database transaction commits, not inside it.
