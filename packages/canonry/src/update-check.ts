@@ -97,14 +97,6 @@ export async function fetchLatestVersion(opts?: { timeoutMs?: number }): Promise
 }
 
 /**
- * Returns the running CLI/server's package version. Single source of truth so
- * callers don't each re-import `package.json`.
- */
-export function getCurrentVersion(): string {
-  return PKG_VERSION
-}
-
-/**
  * Build an `UpdateAvailable` payload if `latest` is strictly newer than
  * `current`. Returns null when no upgrade is available or inputs are
  * malformed.

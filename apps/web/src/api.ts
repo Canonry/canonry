@@ -1,4 +1,4 @@
-import type { ErrorCode, GroundingSource, ProjectOverviewDto, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto, GscPerformanceDailyDto, IndexingRequestResultDto, MetricsWindow, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry, InsightDto, HealthSnapshotDto, ProjectReportDto, ReportAudience, RunKind, RunStatus, RunTrigger, RunErrorDto, CitationState, CitationVisibilityResponse, BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinkHistoryEntry, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcAvailableRelease, CcCachedRelease, CcReleaseSyncDto, TrafficSourceDto, TrafficSourceDetailDto, TrafficSourceListResponse, TrafficStatusResponse, TrafficEventsResponse, TrafficConnectCloudRunRequest, TrafficConnectWordpressRequest, TrafficConnectVercelRequest, TrafficSyncResponse, DiscoveryRunRequest, DiscoverySessionDto, DiscoverySessionDetailDto, DiscoveryPromotePreview, DiscoveryPromoteRequest, DiscoveryPromoteResult } from '@ainyc/canonry-contracts'
+import type { ErrorCode, GroundingSource, ProjectOverviewDto, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto, GscPerformanceDailyDto, IndexingRequestResultDto, MetricsWindow, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry, InsightDto, ProjectReportDto, ReportAudience, RunKind, RunStatus, RunTrigger, RunErrorDto, CitationState, CitationVisibilityResponse, BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinkHistoryEntry, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcAvailableRelease, CcCachedRelease, CcReleaseSyncDto, TrafficSourceDto, TrafficSourceDetailDto, TrafficSourceListResponse, TrafficStatusResponse, TrafficEventsResponse, TrafficConnectCloudRunRequest, TrafficConnectWordpressRequest, TrafficConnectVercelRequest, TrafficSyncResponse, DiscoveryRunRequest, DiscoverySessionDto, DiscoverySessionDetailDto, DiscoveryPromotePreview, DiscoveryPromoteRequest, DiscoveryPromoteResult } from '@ainyc/canonry-contracts'
 export type { ProjectOverviewDto }
 export type { BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinkHistoryEntry, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcAvailableRelease, CcCachedRelease, CcReleaseSyncDto }
 export type { TrafficSourceDto, TrafficSourceDetailDto, TrafficSourceListResponse, TrafficStatusResponse, TrafficEventsResponse, TrafficConnectCloudRunRequest, TrafficConnectWordpressRequest, TrafficConnectVercelRequest, TrafficSyncResponse }
@@ -256,17 +256,6 @@ export interface ApiTimelineEntry {
   modelRuns?: Record<string, ApiTimelineRunEntry[]>
 }
 
-export interface ApiAuditEntry {
-  id: string
-  projectId: string | null
-  actor: string
-  action: string
-  entityType: string
-  entityId: string | null
-  diff: unknown
-  createdAt: string
-}
-
 export function fetchProjects(): Promise<ApiProject[]> {
   return apiFetch('/projects')
 }
@@ -300,10 +289,6 @@ export function fetchTimeline(name: string, location?: string): Promise<ApiTimel
   if (location !== undefined) params.set('location', location)
   const qs = params.toString()
   return apiFetch(`/projects/${encodeURIComponent(name)}/timeline${qs ? `?${qs}` : ''}`)
-}
-
-export function fetchHistory(name: string): Promise<ApiAuditEntry[]> {
-  return apiFetch(`/projects/${encodeURIComponent(name)}/history`)
 }
 
 export function fetchProjectOverview(
@@ -340,13 +325,6 @@ export function createProject(name: string, body: {
 export function setQueries(projectName: string, queries: string[]): Promise<ApiQuery[]> {
   return apiFetch(`/projects/${encodeURIComponent(projectName)}/queries`, {
     method: 'PUT',
-    body: JSON.stringify({ queries }),
-  })
-}
-
-export function deleteQueries(projectName: string, queries: string[]): Promise<ApiQuery[]> {
-  return apiFetch(`/projects/${encodeURIComponent(projectName)}/queries`, {
-    method: 'DELETE',
     body: JSON.stringify({ queries }),
   })
 }
@@ -440,10 +418,6 @@ export function addLocation(project: string, location: ApiLocation): Promise<Api
   })
 }
 
-export function fetchLocations(project: string): Promise<{ locations: ApiLocation[]; defaultLocation: string | null }> {
-  return apiFetch(`/projects/${encodeURIComponent(project)}/locations`)
-}
-
 export async function removeLocation(project: string, label: string): Promise<void> {
   await apiFetch(`/projects/${encodeURIComponent(project)}/locations/${encodeURIComponent(label)}`, { method: 'DELETE' })
 }
@@ -511,13 +485,6 @@ export function loginWithPassword(password: string): Promise<ApiSessionState> {
   return apiFetch('/session', {
     method: 'POST',
     body: JSON.stringify({ password }),
-  })
-}
-
-export function loginWithApiKey(apiKey: string): Promise<ApiSessionState> {
-  return apiFetch('/session', {
-    method: 'POST',
-    body: JSON.stringify({ apiKey }),
   })
 }
 
@@ -626,10 +593,6 @@ export function applyProjectConfig(config: object): Promise<ApiApplyResult> {
     method: 'POST',
     body: JSON.stringify(config),
   })
-}
-
-export function fetchNotificationEvents(): Promise<string[]> {
-  return apiFetch('/notifications/events')
 }
 
 export function triggerAllRuns(body?: { providers?: string[] }): Promise<ApiTriggerAllRunsResult[]> {
@@ -874,8 +837,6 @@ export function promoteDiscovery(
   })
 }
 
-export type ApiIndexingRequestResult = IndexingRequestResultDto
-
 export interface ApiIndexingRequestResponse {
   summary: { total: number; succeeded: number; failed: number }
   results: IndexingRequestResultDto[]
@@ -903,16 +864,6 @@ export function configureCdp(host: string, port: number): Promise<{ endpoint: st
   return apiFetch('/settings/cdp', {
     method: 'PUT',
     body: JSON.stringify({ host, port }),
-  })
-}
-
-export function triggerCdpScreenshot(
-  query: string,
-  targets?: string[],
-): Promise<{ results: { target: string; screenshotPath: string; answerText: string; citations: { uri: string; title: string }[] }[] }> {
-  return apiFetch('/cdp/screenshot', {
-    method: 'POST',
-    body: JSON.stringify({ query, targets }),
   })
 }
 
@@ -1271,7 +1222,6 @@ export function disconnectGa(project: string): Promise<void> {
 
 // ── Server traffic (Cloud Run / log-based ingestion) ────────────────────────
 
-export type ApiTrafficSource = TrafficSourceDto
 export type ApiTrafficSourceDetail = TrafficSourceDetailDto
 export type ApiTrafficSourceList = TrafficSourceListResponse
 export type ApiTrafficStatus = TrafficStatusResponse
@@ -1350,10 +1300,6 @@ export function triggerServerTrafficSync(
 export function fetchInsights(project: string, runId?: string): Promise<InsightDto[]> {
   const qs = runId ? `?runId=${encodeURIComponent(runId)}` : ''
   return apiFetch(`/projects/${encodeURIComponent(project)}/insights${qs}`)
-}
-
-export function fetchLatestHealth(project: string): Promise<HealthSnapshotDto> {
-  return apiFetch(`/projects/${encodeURIComponent(project)}/health/latest`)
 }
 
 export function fetchCitationVisibility(project: string): Promise<CitationVisibilityResponse> {

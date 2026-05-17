@@ -15,10 +15,3 @@ export const ALL_CHECKS: readonly CheckDefinition[] = [
   ...AGENT_CHECKS,
 ]
 
-export const CHECK_BY_ID: Record<string, CheckDefinition> = Object.fromEntries(
-  ALL_CHECKS.map((check) => [check.id, check]),
-)
-
-export function listCheckIds(): string[] {
-  return ALL_CHECKS.map((check) => check.id)
-}

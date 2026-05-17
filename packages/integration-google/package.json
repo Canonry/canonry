@@ -16,7 +16,5 @@
     "test": "vitest run",
     "lint": "eslint src/ test/"
   },
-  "dependencies": {
-    "@ainyc/canonry-contracts": "workspace:*"
-  }
+  "dependencies": {}
 }

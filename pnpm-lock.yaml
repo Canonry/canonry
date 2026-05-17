@@ -54,9 +54,6 @@ importers:
       '@ainyc/canonry-config':
         specifier: workspace:*
         version: link:../../packages/config
-      '@ainyc/canonry-contracts':
-        specifier: workspace:*
-        version: link:../../packages/contracts
       '@ainyc/canonry-db':
         specifier: workspace:*
         version: link:../../packages/db
@@ -130,9 +127,6 @@ importers:
       '@testing-library/react':
         specifier: ^16.3.2
         version: 16.3.2(@testing-library/dom@10.4.1)(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
-      '@testing-library/user-event':
-        specifier: ^14.6.1
-        version: 14.6.1(@testing-library/dom@10.4.1)
       '@types/react':
         specifier: ^19.2.2
         version: 19.2.14
@@ -145,9 +139,6 @@ importers:
       '@vitejs/plugin-react':
         specifier: ^5.1.0
         version: 5.1.4(vite@7.3.1(@types/node@24.12.0)(jiti@2.6.1)(lightningcss@1.31.1)(tsx@4.21.0)(yaml@2.8.2))
-      jsdom:
-        specifier: ^29.0.0
-        version: 29.0.0
       tailwindcss:
         specifier: ^4.1.13
         version: 4.2.1
@@ -163,15 +154,6 @@ importers:
       '@ainyc/canonry-config':
         specifier: workspace:*
         version: link:../../packages/config
-      '@ainyc/canonry-contracts':
-        specifier: workspace:*
-        version: link:../../packages/contracts
-      '@ainyc/canonry-db':
-        specifier: workspace:*
-        version: link:../../packages/db
-      '@ainyc/canonry-provider-gemini':
-        specifier: workspace:*
-        version: link:../../packages/provider-gemini
       tsx:
         specifier: ^4.20.5
         version: 4.21.0
@@ -373,11 +355,7 @@ importers:
         specifier: ^0.31.9
         version: 0.31.9
 
-  packages/integration-bing:
-    dependencies:
-      '@ainyc/canonry-contracts':
-        specifier: workspace:*
-        version: link:../contracts
+  packages/integration-bing: {}
 
   packages/integration-cloud-run:
     dependencies:
@@ -395,11 +373,7 @@ importers:
         specifier: 1.4.4-r.3
         version: 1.4.4-r.3
 
-  packages/integration-google:
-    dependencies:
-      '@ainyc/canonry-contracts':
-        specifier: workspace:*
-        version: link:../contracts
+  packages/integration-google: {}
 
   packages/integration-google-analytics:
     dependencies:
@@ -2016,12 +1990,6 @@ packages:
         optional: true
       '@types/react-dom':
         optional: true
-
-  '@testing-library/user-event@14.6.1':
-    resolution: {integrity: sha512-vq7fv0rnt+QTXgPxr5Hjc210p6YKq2kmdziLgnsZGgLJ9e6VAShx1pACLuRjd/AS/sr7phAR58OIIpf0LlmQNw==}
-    engines: {node: '>=12', npm: '>=6'}
-    peerDependencies:
-      '@testing-library/dom': '>=7.21.4'
 
   '@tootallnate/quickjs-emscripten@0.23.0':
     resolution: {integrity: sha512-C5Mc6rdnsaJDjO3UpGW/CQTHtCKaYlScZTly4JIu97Jxo/odCiH0ITnDXSJPTOrEKk/ycSZ0AOgTmkDtkOsvIA==}
@@ -6423,10 +6391,6 @@ snapshots:
     optionalDependencies:
       '@types/react': 19.2.14
       '@types/react-dom': 19.2.3(@types/react@19.2.14)
-
-  '@testing-library/user-event@14.6.1(@testing-library/dom@10.4.1)':
-    dependencies:
-      '@testing-library/dom': 10.4.1
 
   '@tootallnate/quickjs-emscripten@0.23.0': {}
 

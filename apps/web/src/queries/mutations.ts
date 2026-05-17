@@ -5,18 +5,11 @@ import {
   type ApiRun,
   type ApiTriggerAllRunsResult,
   appendQueries,
-  deleteQueries,
-  fetchCompetitors,
-  setCompetitors,
   triggerRun,
   triggerAllRuns,
   triggerGscSync,
   triggerDiscoverSitemaps,
   triggerInspectSitemap,
-  deleteProject,
-  updateOwnedDomains,
-  updateProject,
-  createProject,
 } from '../api.js'
 import { createTrackedBatch, trackRun, type TrackedRunSourceAction } from '../lib/run-tracker-store.js'
 import { addToast } from '../lib/toast-store.js'
@@ -254,16 +247,6 @@ export function useTriggerInspectSitemap() {
   })
 }
 
-export function useDeleteProject() {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: (projectName: string) => deleteProject(projectName),
-    onSuccess: () => {
-      invalidateProjectAndRunQueries(queryClient)
-    },
-  })
-}
-
 export function useAppendQueries() {
   const queryClient = useQueryClient()
   return useMutation({
@@ -271,77 +254,6 @@ export function useAppendQueries() {
       appendQueries(projectName, queries),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.projects.all })
-    },
-  })
-}
-
-export function useDeleteQueries() {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: ({ projectName, queries }: { projectName: string; queries: string[] }) =>
-      deleteQueries(projectName, queries),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.projects.all })
-    },
-  })
-}
-
-export function useAddCompetitors() {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: async ({ projectName, domains }: { projectName: string; domains: string[] }) => {
-      const existing = await fetchCompetitors(projectName)
-      const existingDomains = existing.map(c => c.domain)
-      const merged = [...new Set([...existingDomains, ...domains])]
-      return setCompetitors(projectName, merged)
-    },
-    onMutate: async () => {
-      // Cancel any in-flight project queries to avoid overwriting with stale data
-      await queryClient.cancelQueries({ queryKey: queryKeys.projects.all })
-    },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.projects.all })
-    },
-  })
-}
-
-export function useUpdateOwnedDomains() {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: ({ projectName, ownedDomains }: { projectName: string; ownedDomains: string[] }) =>
-      updateOwnedDomains(projectName, ownedDomains),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.projects.all })
-    },
-  })
-}
-
-export function useUpdateProject() {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: ({ projectName, updates }: {
-      projectName: string
-      updates: {
-        displayName?: string
-        canonicalDomain?: string
-        ownedDomains?: string[]
-        country?: string
-        language?: string
-      }
-    }) => updateProject(projectName, updates),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.projects.all })
-    },
-  })
-}
-
-export function useCreateProject() {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: ({ name, body }: { name: string; body: Parameters<typeof createProject>[1] }) =>
-      createProject(name, body),
-    onSuccess: () => {
-      invalidateProjectAndRunQueries(queryClient)
     },
   })
 }

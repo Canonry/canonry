@@ -92,11 +92,6 @@ export function subscribeRunTracker(listener: Listener): () => void {
   }
 }
 
-export function hasTrackedRunsOrBatches() {
-  const snapshot = getRunTrackerState()
-  return Object.keys(snapshot.runs).length > 0 || Object.keys(snapshot.batches).length > 0
-}
-
 export function trackRun(run: Pick<ApiRun, 'id' | 'projectId' | 'kind'> & {
   projectLabel?: string
   sourceAction: TrackedRunSourceAction

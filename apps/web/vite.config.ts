@@ -15,6 +15,23 @@ export default defineConfig({
     // not from the pnpm store peer-dep variant which has incomplete ESM files.
     dedupe: ['recharts', '@reduxjs/toolkit', 'react-redux', 'redux'],
   },
+  build: {
+    rollupOptions: {
+      output: {
+        // Split large vendors into separate chunks so the main bundle stays
+        // below the 500 kB warning threshold and big libs cache independently
+        // of app code.
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return undefined
+          if (id.includes('recharts')) return 'vendor-recharts'
+          if (id.includes('@tanstack')) return 'vendor-tanstack'
+          if (id.includes('react-markdown') || id.includes('remark') || id.includes('micromark') || id.includes('mdast') || id.includes('unist')) return 'vendor-markdown'
+          if (id.includes('@radix-ui')) return 'vendor-radix'
+          return undefined
+        },
+      },
+    },
+  },
   server: {
     proxy: {
       '/api/v1': {
