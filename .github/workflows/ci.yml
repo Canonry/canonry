@@ -76,6 +76,20 @@ jobs:
         name: Check documentation coverage (AGENTS.md per package)
       - run: pnpm run lint
 
+  codegen-drift:
+    # Regenerates the hey-api client from the OpenAPI spec and fails if the
+    # committed output differs. Run separately from `lint` so a stale client
+    # surfaces as its own check name and a contributor knows to run
+    # `pnpm --filter @ainyc/canonry-api-client gen` locally.
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - run: pnpm --filter @ainyc/canonry-api-client gen:check
+        name: Verify generated API client matches OpenAPI spec
+
   build:
     runs-on: ubuntu-latest
     permissions:
@@ -88,7 +102,7 @@ jobs:
 
   validate:
     runs-on: ubuntu-latest
-    needs: [typecheck, test, lint, build]
+    needs: [typecheck, test, lint, codegen-drift, build]
     if: always()
     steps:
       - name: Verify all validate jobs succeeded
@@ -96,6 +110,7 @@ jobs:
           if [ "${{ needs.typecheck.result }}" != "success" ] || \
              [ "${{ needs.test.result }}" != "success" ] || \
              [ "${{ needs.lint.result }}" != "success" ] || \
+             [ "${{ needs.codegen-drift.result }}" != "success" ] || \
              [ "${{ needs.build.result }}" != "success" ]; then
             echo "One or more validate jobs failed"
             exit 1

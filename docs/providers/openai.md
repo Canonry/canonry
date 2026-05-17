@@ -16,7 +16,7 @@ Makes a lightweight OpenAI API call to verify the key works. Returns ok/error wi
 
 ### `executeTrackedQuery(input: OpenAITrackedQueryInput): Promise<OpenAIRawResult>`
 
-Sends the query to the OpenAI Responses API with `web_search_preview` tool enabled. The query is sent as-is. Returns:
+Sends the query to the OpenAI Responses API with `web_search` tool enabled. The query is sent as-is. Returns:
 
 - `rawResponse` — the full OpenAI API response (output items, usage metadata)
 - `groundingSources` — extracted `{ uri, title }` pairs from URL citation annotations
@@ -38,13 +38,15 @@ Default: `gpt-5.4`. Configurable via `OpenAIConfig.model`.
 
 ## Web Search & Citation Detection
 
-The provider uses OpenAI's **web search preview** tool (`web_search_preview`). When enabled, the Responses API:
+The provider uses OpenAI's **web search** tool (`web_search`, the current GA tool — released 2025-08-26 in the SDK as `web_search_2025_08_26`). When enabled, the Responses API:
 
 1. Executes web searches relevant to the query (exposed as `web_search_call` output items)
 2. Generates a response with inline URL citations
 3. URL citations appear as annotations on `output_text` content blocks
 
 Citation detection works by extracting domains from final `output_text.annotations` entries where `type === 'url_citation'`. The provider intentionally does not treat `web_search_call.action.sources` as citations, because those are retrieval/search telemetry rather than final answer citations. The job runner then matches the cited domains against the project's canonical domain and competitor domains to determine citation state.
+
+We deliberately do **not** set the new `web_search` tool's `filters.allowed_domains` — Canonry tracks who actually gets cited across the open web, so allow-listing would defeat the point. See [ADR 0010](../adr/0010-openai-web-search-tool.md) for the full rationale on choosing `web_search` over `web_search_preview`.
 
 ### Upstream references
 

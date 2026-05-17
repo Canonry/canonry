@@ -1,0 +1,26 @@
+{
+  "name": "@ainyc/canonry-api-client",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "license": "FSL-1.1-ALv2",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "lint": "eslint src/ test/ codegen.ts",
+    "gen": "tsx codegen.ts",
+    "gen:check": "tsx codegen.ts && git diff --exit-code -- src/generated"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@ainyc/canonry-api-routes": "workspace:*",
+    "@hey-api/openapi-ts": "^0.85.0"
+  }
+}

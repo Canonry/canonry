@@ -25,6 +25,7 @@ const SHARED_INCLUDE = ['test/**/*.test.ts', 'test/**/*.test.tsx']
 const SHARED_SETUP = [path.resolve(import.meta.dirname, 'test-setup/vitest-defaults.ts')]
 
 const NODE_PACKAGES = [
+  'api-client-generated',
   'api-routes',
   'canonry',
   'config',

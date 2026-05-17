@@ -38,6 +38,7 @@ export default defineConfig({
   ],
   // Workspace packages — bundle into dist/
   noExternal: [
+    '@ainyc/canonry-api-client',
     '@ainyc/canonry-contracts',
     '@ainyc/canonry-config',
     '@ainyc/canonry-db',

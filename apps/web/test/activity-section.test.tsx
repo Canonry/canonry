@@ -31,20 +31,7 @@ function renderActivitySection() {
   )
 }
 
-function mockFetch(handler: (url: string, init?: RequestInit) => Response | Promise<Response>) {
-  const realFetch = globalThis.fetch
-  globalThis.fetch = handler as typeof fetch
-  return () => {
-    globalThis.fetch = realFetch
-  }
-}
-
-function jsonResponse(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { 'content-type': 'application/json' },
-  })
-}
+import { mockFetch, jsonResponse } from './mock-fetch.js'
 
 test('loads connected GA4 data without changing hook order', async () => {
   const restoreFetch = mockFetch((url) => {
