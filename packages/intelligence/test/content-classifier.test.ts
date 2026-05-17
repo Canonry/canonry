@@ -131,6 +131,98 @@ describe('classifyContentAction', () => {
     })
   })
 
+  describe('homepage-only match: treat as no-page → CREATE', () => {
+    // Regression: GSC routinely reports `page='/'` for queries the
+    // site's brand ranks for (e.g., "spray foam insulation" → homepage
+    // of a coatings business). The classifier used to read that as "we
+    // have a top-ranking page" and recommend REFRESH, which is wrong on
+    // two counts: (1) the homepage isn't a topical page, (2) refreshing
+    // it to address one query would harm every other query the
+    // homepage targets. The right action is CREATE a topical page.
+
+    it('CREATE when ourPage.url is "/" even with strong SEO rank, not cited', () => {
+      expect(
+        classifyContentAction({
+          ourPage: { url: '/', position: 4, source: 'gsc' },
+          ourPageInGroundingSources: false,
+          ourPageHasSchema: false,
+        }),
+      ).toBe('create')
+    })
+
+    it('CREATE when ourPage.url is "/" even with mid-range SEO rank', () => {
+      expect(
+        classifyContentAction({
+          ourPage: { url: '/', position: 22, source: 'gsc' },
+          ourPageInGroundingSources: false,
+          ourPageHasSchema: false,
+        }),
+      ).toBe('create')
+    })
+
+    it('CREATE when ourPage.url is "" (empty path from a malformed GSC row)', () => {
+      expect(
+        classifyContentAction({
+          ourPage: { url: '', position: 5, source: 'gsc' },
+          ourPageInGroundingSources: false,
+          ourPageHasSchema: false,
+        }),
+      ).toBe('create')
+    })
+
+    it('CREATE even when the homepage IS cited — citation on the homepage doesn\'t mean we have a topical page', () => {
+      // The intent: a query like "spray foam insulation" cited via the
+      // brand homepage isn't "we have a winning topical page" — it's
+      // "AI picked us up via brand association." A topical page would
+      // still be a stronger long-term play. Skip add-schema (which only
+      // makes sense for topical pages) and recommend CREATE.
+      expect(
+        classifyContentAction({
+          ourPage: { url: '/', position: 4, source: 'gsc' },
+          ourPageInGroundingSources: true,
+          ourPageHasSchema: false,
+        }),
+      ).toBe('create')
+    })
+
+    it('strips trailing slashes when judging homepage-only', () => {
+      expect(
+        classifyContentAction({
+          ourPage: { url: '//', position: 4, source: 'gsc' },
+          ourPageInGroundingSources: false,
+          ourPageHasSchema: false,
+        }),
+      ).toBe('create')
+    })
+
+    it('strips query strings when judging homepage-only', () => {
+      // Defensive: extractPath in content-data.ts uses URL.pathname which
+      // already drops query strings, but a quirky upstream row could
+      // still slip through. This check makes the classifier robust to
+      // that case.
+      expect(
+        classifyContentAction({
+          ourPage: { url: '/?utm_source=newsletter', position: 4, source: 'gsc' },
+          ourPageInGroundingSources: false,
+          ourPageHasSchema: false,
+        }),
+      ).toBe('create')
+    })
+
+    it('does NOT trigger on a topical path that happens to be one level deep', () => {
+      // Sanity check: only the literal homepage triggers the exception.
+      // A real top-level page like /spray-foam still goes through the
+      // normal SEO triage.
+      expect(
+        classifyContentAction({
+          ourPage: { url: '/spray-foam-insulation', position: 4, source: 'gsc' },
+          ourPageInGroundingSources: false,
+          ourPageHasSchema: false,
+        }),
+      ).toBe('refresh')
+    })
+  })
+
   describe('exhaustive coverage of the 2x2 (cited × rank) matrix', () => {
     it.each([
       // [position, cited, hasSchema, expected]
