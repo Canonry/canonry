@@ -283,7 +283,7 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
                 <p className="text-sm font-medium text-zinc-100">Extract running</p>
                 <ToneBadge tone="neutral">{activeRun.status}</ToneBadge>
                 <span className="text-xs text-zinc-500 tabular-nums">
-                  {formatElapsed(activeRun.startedAt, activeRun.createdAt)} elapsed · refreshing every 3s
+                  {formatElapsed(activeRun.startedAt ?? null, activeRun.createdAt)} elapsed · refreshing every 3s
                 </span>
                 <span className="sr-only">now={now}</span>
               </div>

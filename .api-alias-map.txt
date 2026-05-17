@@ -1,0 +1,47 @@
+== Clean aliases (zero-risk) ==
+
+ApiLocation → LocationContext (from @ainyc/canonry-contracts; identical fields)
+
+
+== Aliases needing consumer fixes ==
+
+ApiRunDetail → RunDetailDto | drift: hand inherits ApiRun where `location/startedAt/finishedAt: string|null` are REQUIRED; gen makes them OPTIONAL (`?: string|null`). Hand `error: RunErrorDto|null` and `snapshots: ApiSnapshot[]` REQUIRED; gen both OPTIONAL. Gen adds `queries?: string[]|null`. Consumers destructuring `snapshots` must guard for undefined.
+
+ApiSnapshot → RunDetailDto['snapshots'] element (no top-level SnapshotDto exists) | drift: hand `query/answerText/model/location: string|null` REQUIRED; gen all OPTIONAL (`?: string|null`, plus `query?: string` w/o |null). Hand `visibilityState?: string` / `mentionState?: string` widened; gen narrows to literal unions. Hand `recommendedCompetitors?/matchedTerms?` OPTIONAL; gen REQUIRED. Gen adds `transition?` hand lacks. Gen inlines grounding `{uri,title}` vs hand GroundingSource alias.
+
+ApiGoogleConnection → GoogleConnectionDto | drift: hand `propertyId/sitemapUrl: string|null` REQUIRED; gen `?: string|null` OPTIONAL. Low impact — consumers already nullable-aware.
+
+ApiGscPerformanceRow → GscSearchDataDto | drift: hand `country/device: string|null` REQUIRED; gen OPTIONAL. Spec registers operation as singular DTO (not array) — spec bug; in practice returns array.
+
+ApiGscInspection → GscUrlInspectionDto | drift: hand `indexingState/verdict/coverageState/pageFetchState/robotsTxtState/crawlTime/lastCrawlResult/isMobileFriendly` REQUIRED nullable; gen OPTIONAL. Hand `referringUrls: string[]` field DROPPED by gen — alias would lose data. Register `referringUrls` in Zod schema first.
+
+ApiGscDeindexedRow → GscCoverageSummaryDto['deindexed'][number] | drift: shape matches; only available inline inside coverage summary. Deindexed list endpoint itself returns `{[key:string]:unknown}`.
+
+
+== No generated equivalent ==
+
+ApiTimelineRunEntry, ApiTimelineEntry — Timeline endpoint returns `{[key:string]:unknown}`.
+ApiProviderSummary, ApiSettings — GetApiV1Settings returns loose object.
+ApiSessionState — /session* routes intentionally excluded from spec.
+ApiApplyResult — PostApiV1Apply returns loose object.
+ApiGoogleProperty — GetApiV1...GoogleProperties returns loose object.
+ApiGscSitemap — GscSitemaps + DiscoverSitemaps return loose objects.
+ApiIndexingRequestResponse — wrapper is loose; inner IndexingRequestResultDto already imported.
+ApiCdpTarget, ApiCdpStatus — GetApiV1CdpStatus returns loose object.
+ApiBingConnection — BingConnectionDto exists but DRIFTS HARD: gen `{id,domain,siteUrl?,createdAt,updatedAt}` vs hand `{connected,domain,siteUrl,createdAt|null,updatedAt|null}`. Different field set (hand `connected`, gen `id`). Spec is wrong vs runtime; do not alias.
+ApiBingSite — inside loose BingConnect/BingSites response.
+ApiBingInspection — BingInspections/BingInspectUrl return loose objects.
+ApiBingCoverageSummary — gen `BingCoverageSnapshotDto` is a flat daily history row `{date,indexed,notIndexed,unknown}`, NOT the nested summary shape; different concept, do not alias.
+ApiBingKeywordStats — BingPerformance returns loose object.
+ApiGaStatus, ApiGaSyncResult — GaStatus + GaSync return loose objects.
+ApiGaTrafficPage, ApiGaTrafficReferral, ApiGaTrafficAiLandingPage, ApiGaSocialReferral, ApiGaChannelBucket, ApiGaChannelBreakdown, ApiGaTraffic — entire GA traffic surface is one loose object; ~30 fields all hand-typed.
+
+
+== Recommended order ==
+
+1. ApiLocation → LocationContext (zero risk).
+2. ApiGoogleConnection → GoogleConnectionDto (one trivial optional/required gap).
+3. ApiGscPerformanceRow → GscSearchDataDto (after spec fix to Array).
+4. ApiGscInspection → GscUrlInspectionDto (after adding `referringUrls` to Zod schema).
+5. ApiRunDetail + ApiSnapshot — extract via `type ApiSnapshot = NonNullable<RunDetailDto['snapshots']>[number]`; bridge optional/required gaps in consumers.
+6. All others blocked on registering proper Zod schemas in packages/api-routes/src/openapi-schemas.ts — loose-object responses cannot drive typed aliases.

@@ -693,7 +693,7 @@ export function RootLayout() {
             <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 mb-2">Activity Log</p>
             {runDetailLoading ? (
               <p className="text-sm text-zinc-500">Loading run details...</p>
-            ) : runDetail && runDetail.snapshots.length > 0 ? (
+            ) : runDetail?.snapshots && runDetail.snapshots.length > 0 ? (
               <div className="space-y-2">
                 {runDetail.snapshots.map((snap) => (
                   <div key={snap.id} className="rounded-lg border border-zinc-800/60 bg-zinc-900/30 p-3">
