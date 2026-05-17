@@ -638,6 +638,54 @@ describe('content routes', () => {
       expect(secondRow.targetRef).toBe(firstRef)
       expect(secondBody.contextMetrics.latestRunId).toBe(newRunId)
     })
+
+    // Regression for the dismiss UX bug: a user marks a recommendation
+    // addressed, refreshes, and the recommendation reappears because the
+    // orchestrator picked a different "best matching owned page" between
+    // runs — which used to flip the targetRef even though the
+    // recommendation's intent (query + action) was identical. With
+    // `targetPage` removed from the hash input, the ref is now stable
+    // across that shift and the dismissal filter applies on subsequent
+    // loads.
+    it('produces the same targetRef when only the best-page candidate shifts', async () => {
+      const { projectId, latestRunId } = seedProject(db)
+
+      const before = await app.inject({ method: 'GET', url: '/projects/example/content/targets' })
+      const beforeBody = JSON.parse(before.payload)
+      const original = beforeBody.targets.find(
+        (t: { query: string }) => t.query === 'best email marketing software',
+      )
+      expect(original).toBeDefined()
+
+      // Shift the orchestrator's view of "best matching owned page" by
+      // inserting a stronger GSC row pointing at a different blog slug
+      // for the same query. The action stays 'refresh' (still poor SEO,
+      // not cited), so the new recommendation IS conceptually the same;
+      // only the inferred targetPage changes.
+      db.insert(gscSearchData).values({
+        id: crypto.randomUUID(),
+        projectId,
+        syncRunId: latestRunId,
+        date: '2026-04-01',
+        query: 'best email marketing software',
+        page: 'https://example.com/blog/email-marketing-2026-roundup',
+        clicks: 80,
+        impressions: 8000,
+        ctr: '0.01',
+        position: '4.2',
+        createdAt: new Date().toISOString(),
+      }).onConflictDoNothing().run()
+
+      const after = await app.inject({ method: 'GET', url: '/projects/example/content/targets' })
+      const afterBody = JSON.parse(after.payload)
+      const updated = afterBody.targets.find(
+        (t: { query: string }) => t.query === 'best email marketing software',
+      )
+      expect(updated).toBeDefined()
+      // Same intent (query + action) → same ref, regardless of which page
+      // the orchestrator picked as "ourBestPage" this time.
+      expect(updated.targetRef).toBe(original.targetRef)
+    })
   })
 
   describe('regression: filters by run status (no queued/failed runs become latest)', () => {
