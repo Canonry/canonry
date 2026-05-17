@@ -19,7 +19,6 @@ import {
   gscSearchData,
   gaTrafficSnapshots,
   gaAiReferrals,
-  parseJsonColumn,
 } from '@ainyc/canonry-db'
 import type { DatabaseClient } from '@ainyc/canonry-db'
 import {

@@ -141,7 +141,7 @@ test('notification APIs and history redact webhook secrets while keeping stored 
 
     const stored = db.select().from(notifications).all()[0]
     expect(stored).toBeDefined()
-    expect(JSON.parse(stored!.config) as { url: string }).toEqual({
+    expect(stored!.config).toEqual({
       url: secretUrl,
       events: ['run.completed'],
     })

@@ -617,8 +617,8 @@ test('CRUD: insert and query a schedule', () => {
     cronExpr: '0 6 * * *',
     preset: 'daily',
     timezone: 'UTC',
-    enabled: 1,
-    providers: '[]',
+    enabled: true,
+    providers: [],
     createdAt: now,
     updatedAt: now,
   }).run()
@@ -626,7 +626,7 @@ test('CRUD: insert and query a schedule', () => {
   const [sched] = db.select().from(schedules).where(eq(schedules.projectId, 'proj_1')).all()
   expect(sched.cronExpr).toBe('0 6 * * *')
   expect(sched.preset).toBe('daily')
-  expect(sched.enabled).toBe(1)
+  expect(sched.enabled).toBe(true)
 })
 
 test('schedules unique constraint on project_id (one per project)', () => {
@@ -684,8 +684,8 @@ test('CRUD: insert and query notifications', () => {
     id: 'notif_1',
     projectId: 'proj_1',
     channel: 'webhook',
-    config: JSON.stringify({ url: 'https://hooks.example.com/test', events: ['citation.lost'] }),
-    enabled: 1,
+    config: { url: 'https://hooks.example.com/test', events: ['citation.lost'] },
+    enabled: true,
     createdAt: now,
     updatedAt: now,
   }).run()
@@ -693,7 +693,7 @@ test('CRUD: insert and query notifications', () => {
   const notifs = db.select().from(notifications).where(eq(notifications.projectId, 'proj_1')).all()
   expect(notifs).toHaveLength(1)
   expect(notifs[0].channel).toBe('webhook')
-  const config = JSON.parse(notifs[0].config) as { url: string; events: string[] }
+  const config = notifs[0].config
   expect(config.url).toBe('https://hooks.example.com/test')
   expect(config.events).toEqual(['citation.lost'])
 })

@@ -16,7 +16,6 @@ import {
   insights,
   pickGroupRepresentative,
   queries,
-  parseJsonColumn,
   querySnapshots,
   runs,
   trafficSources,
