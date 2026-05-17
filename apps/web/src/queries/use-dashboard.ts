@@ -1,8 +1,6 @@
 import { useCallback, useMemo } from 'react'
 import { useQuery, useQueries } from '@tanstack/react-query'
 import {
-  fetchProjects,
-  fetchAllRuns,
   fetchSettings,
   fetchQueries,
   fetchCompetitors,
@@ -12,7 +10,9 @@ import {
   fetchBingCoverage,
   fetchInsights,
   fetchProjectOverview,
+  heyClient,
 } from '../api.js'
+import { getApiV1ProjectsOptions, getApiV1RunsOptions } from '@ainyc/canonry-api-client/react-query'
 import { buildDashboard } from '../build-dashboard.js'
 import type { ProjectData } from '../build-dashboard.js'
 import type { DashboardVm } from '../view-models.js'
@@ -25,14 +25,12 @@ export function useDashboard(initialDashboard?: DashboardVm | null) {
   const effectiveInitial = initialDashboard ?? contextDashboard?.dashboard ?? null
 
   const projectsQuery = useQuery({
-    queryKey: queryKeys.projects.all,
-    queryFn: fetchProjects,
+    ...getApiV1ProjectsOptions({ client: heyClient }),
     enabled: !effectiveInitial,
   })
 
   const runsQuery = useQuery({
-    queryKey: queryKeys.runs.all,
-    queryFn: fetchAllRuns,
+    ...getApiV1RunsOptions({ client: heyClient }),
     enabled: !effectiveInitial,
     staleTime: RUNS_STALE_MS,
     refetchInterval: (query) => {
@@ -42,6 +40,8 @@ export function useDashboard(initialDashboard?: DashboardVm | null) {
     },
   })
 
+  // /settings returns a loose-object response (not yet schemed) — stays on
+  // the hand-typed apiFetch wrapper until the spec gains a SettingsDto.
   const settingsQuery = useQuery({
     queryKey: queryKeys.settings,
     queryFn: () => fetchSettings().catch(() => null),

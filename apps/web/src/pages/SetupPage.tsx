@@ -11,10 +11,11 @@ import {
   createProject,
   setQueries,
   setCompetitors,
-  fetchRunDetail,
   generateQueries as apiGenerateQueries,
   updateProviderConfig,
+  heyClient,
 } from '../api.js'
+import { getApiV1RunsByIdOptions } from '@ainyc/canonry-api-client/react-query'
 import { useTriggerRun } from '../queries/mutations.js'
 import { useDashboard } from '../queries/use-dashboard.js'
 import { useHealth } from '../queries/use-health.js'
@@ -134,8 +135,7 @@ export function SetupPage() {
   // where the failure toast fired on the dashboard while the wizard
   // card remained amber.
   const launchedRun = useQuery({
-    queryKey: ['setup', 'launched-run', launchedRunId],
-    queryFn: () => fetchRunDetail(launchedRunId!),
+    ...getApiV1RunsByIdOptions({ client: heyClient, path: { id: launchedRunId ?? '' } }),
     enabled: !!launchedRunId,
     refetchInterval: ({ state }) => {
       const status = state.data?.status

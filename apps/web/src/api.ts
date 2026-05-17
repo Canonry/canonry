@@ -1,4 +1,4 @@
-import type { ErrorCode, GroundingSource, ProjectOverviewDto, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto, GscPerformanceDailyDto, IndexingRequestResultDto, MetricsWindow, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry, InsightDto, ProjectReportDto, ReportAudience, RunKind, RunStatus, RunTrigger, RunErrorDto, CitationState, CitationVisibilityResponse, BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinkHistoryEntry, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcAvailableRelease, CcCachedRelease, CcReleaseSyncDto, TrafficSourceDto, TrafficSourceDetailDto, TrafficSourceListResponse, TrafficStatusResponse, TrafficEventsResponse, TrafficConnectCloudRunRequest, TrafficConnectWordpressRequest, TrafficConnectVercelRequest, TrafficSyncResponse, DiscoveryRunRequest, DiscoverySessionDto, DiscoverySessionDetailDto, DiscoveryPromotePreview, DiscoveryPromoteRequest, DiscoveryPromoteResult } from '@ainyc/canonry-contracts'
+import type { ErrorCode, GroundingSource, ProjectOverviewDto, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto, GscPerformanceDailyDto, IndexingRequestResultDto, MetricsWindow, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry, InsightDto, ProjectReportDto, ReportAudience, CitationVisibilityResponse, BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinkHistoryEntry, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcAvailableRelease, CcCachedRelease, CcReleaseSyncDto, TrafficSourceDto, TrafficSourceDetailDto, TrafficSourceListResponse, TrafficStatusResponse, TrafficEventsResponse, TrafficConnectCloudRunRequest, TrafficConnectWordpressRequest, TrafficConnectVercelRequest, TrafficSyncResponse, DiscoveryRunRequest, DiscoverySessionDto, DiscoverySessionDetailDto, DiscoveryPromotePreview, DiscoveryPromoteRequest, DiscoveryPromoteResult, ProjectDto, QueryDto, CompetitorDto, LocationContext, GoogleConnectionDto, GscUrlInspectionDto, GscDeindexedRowDto, BingUrlInspectionDto, BingCoverageSummaryDto, BingKeywordStatsDto, BingStatusDto, BingConnectResponseDto, BingSetSiteResponseDto, BingSitesResponseDto } from '@ainyc/canonry-contracts'
 import {
   createClient as createHeyClient,
   // Projects + queries + competitors + locations + runs + apply + settings + telemetry
@@ -113,6 +113,7 @@ import {
   getApiV1ProjectsByNameBacklinksHistory,
   postApiV1ProjectsByNameBacklinksExtract,
 } from '@ainyc/canonry-api-client'
+import type { RunDto, RunDetailDto } from '@ainyc/canonry-api-client'
 export type { ProjectOverviewDto }
 export type { BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinkHistoryEntry, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcAvailableRelease, CcCachedRelease, CcReleaseSyncDto }
 export type { TrafficSourceDto, TrafficSourceDetailDto, TrafficSourceListResponse, TrafficStatusResponse, TrafficEventsResponse, TrafficConnectCloudRunRequest, TrafficConnectWordpressRequest, TrafficConnectVercelRequest, TrafficSyncResponse }
@@ -226,10 +227,30 @@ export function handleAuthExpired(): void {
  * `client` option; we don't rely on the SDK's default global client because
  * tests can stub this module's client and the dashboard's basePath is known
  * at import time.
+ *
+ * Exported so TanStack Query hooks can pass it to the generated
+ * `<op>Options(...)` / `<op>Mutation(...)` helpers from
+ * `@ainyc/canonry-api-client/react-query`. The hooks import this client
+ * rather than re-creating one so the dashboard's auth + basePath + test
+ * stubs stay in one place.
  */
-const heyClient = createHeyClient({
+export const heyClient = createHeyClient({
   baseUrl: getApiOrigin(),
   apiKey: getApiKey() || undefined,
+})
+
+// Session-expiry interceptor — runs for every response regardless of who
+// called the SDK (invokeWeb wrapper, generated TanStack Query options, raw
+// SDK call). Without this, hooks that bypass `invokeWeb` (e.g. components
+// using `useQuery(getApiV1...Options(...))`) would silently 401 and leave
+// the user staring at a broken dashboard instead of being kicked to login.
+// Skips /session/* routes — a 401 there means "wrong password," not
+// "your session expired."
+heyClient.interceptors.response.use((res, req) => {
+  if ((res.status === 401 || res.status === 403) && !req.url.includes('/api/v1/session')) {
+    handleAuthExpired()
+  }
+  return res
 })
 
 /**
@@ -247,17 +268,18 @@ type SdkResult = {
 }
 
 /**
- * Wrap a generated SDK call with `ApiError` mapping and `handleAuthExpired`
- * dispatch on 401/403 (so the dashboard routes back to the login screen
- * when the user's session goes away).
+ * Wrap a generated SDK call with `ApiError` mapping.
+ *
+ * 401/403 → `handleAuthExpired()` is handled by the `heyClient.interceptors.response`
+ * hook (declared at module top) so generated TanStack Query options get the
+ * same redirect-on-expiry behavior. Don't dispatch it here too — that would
+ * fire the handler twice for every expired-session request that flows through
+ * this wrapper.
  */
 async function invokeWeb<T>(call: () => Promise<SdkResult>): Promise<T> {
   const result = await call()
   if (result.error !== undefined && result.error !== null) {
     const status = result.response.status
-    if (status === 401 || status === 403) {
-      handleAuthExpired()
-    }
     let message = `API ${status}: ${result.response.statusText}`
     let code: ErrorCode | undefined
     if (typeof result.error === 'object' && result.error !== null) {
@@ -336,47 +358,23 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   return res.json() as Promise<T>
 }
 
-export interface ApiLocation {
-  label: string
-  city: string
-  region: string
-  country: string
-  timezone?: string
-}
+/** Re-export of the contracts `LocationContext` — identical fields. */
+export type ApiLocation = LocationContext
 
-export interface ApiProject {
-  id: string
-  name: string
-  displayName: string
-  canonicalDomain: string
-  ownedDomains: string[]
-  aliases: string[]
-  country: string
-  language: string
-  tags: string[]
-  labels: Record<string, string>
-  providers: string[]
-  locations: ApiLocation[]
-  defaultLocation: string | null
-  autoExtractBacklinks: boolean
-  configSource: string
-  configRevision: number
-  createdAt: string
-  updatedAt: string
-}
+/**
+ * Re-export of the generated `ProjectDto` from the spec.
+ * `displayName`, `createdAt`, `updatedAt` are optional (`?: string`) — all
+ * consumers already coalesce with `displayName || name` / `?? name`.
+ * `locations` is inlined (no longer references the local `ApiLocation`).
+ */
+export type ApiProject = ProjectDto
 
-export interface ApiRun {
-  id: string
-  projectId: string
-  kind: RunKind
-  status: RunStatus
-  trigger: RunTrigger
-  location: string | null
-  startedAt: string | null
-  finishedAt: string | null
-  error: RunErrorDto | null
-  createdAt: string
-}
+/**
+ * Re-export of the generated `RunDto`. Spec marks `location`/`startedAt`/
+ * `finishedAt`/`error` as `?: T | null` (optional + nullable); consumers
+ * already coalesce / nullable-check.
+ */
+export type ApiRun = RunDto
 
 export interface ApiDiscoveryRunStartResponse {
   runId: string
@@ -393,44 +391,32 @@ export interface ApiTriggerAllRunsConflict {
 
 export type ApiTriggerAllRunsResult = (ApiRun & { projectName: string }) | ApiTriggerAllRunsConflict
 
-export interface ApiSnapshot {
-  id: string
-  runId: string
-  queryId: string
-  query: string | null
-  provider: string
-  citationState: CitationState
-  answerMentioned?: boolean
-  /** @deprecated legacy alias for `mentionState`; same data, kept for backwards compatibility. */
-  visibilityState?: string
-  mentionState?: string
-  answerText: string | null
-  citedDomains: string[]
-  competitorOverlap: string[]
-  recommendedCompetitors?: string[]
-  matchedTerms?: string[]
-  groundingSources: GroundingSource[]
-  searchQueries: string[]
-  model: string | null
-  location: string | null
-  createdAt: string
-}
+/**
+ * Snapshot shape returned inside `RunDetailDto.snapshots[]`. There's no
+ * standalone `SnapshotDto` in the spec — the snapshot fields are only
+ * defined as an inline array element on the run-detail response. Use
+ * `NonNullable<...>` because `snapshots?: Array<...>` is optional in the
+ * spec (a queued/running run has no snapshots yet).
+ */
+export type ApiSnapshot = NonNullable<RunDetailDto['snapshots']>[number]
 
-export interface ApiRunDetail extends ApiRun {
-  snapshots: ApiSnapshot[]
-}
+/**
+ * Re-export of the generated `RunDetailDto`. Consumers that destructure
+ * `.snapshots` must guard for `undefined` (queued/running runs have none).
+ */
+export type ApiRunDetail = RunDetailDto
 
-export interface ApiQuery {
-  id: string
-  query: string
-  createdAt: string
-}
+/**
+ * Re-export of the generated `QueryDto` from the spec.
+ * Shape matches; zero consumer migration needed.
+ */
+export type ApiQuery = QueryDto
 
-export interface ApiCompetitor {
-  id: string
-  domain: string
-  createdAt: string
-}
+/**
+ * Re-export of the generated `CompetitorDto` from the spec.
+ * Shape matches; zero consumer migration needed.
+ */
+export type ApiCompetitor = CompetitorDto
 
 export interface ApiTimelineRunEntry {
   runId: string
@@ -545,7 +531,7 @@ export function setCompetitors(projectName: string, competitors: string[]): Prom
 export async function updateOwnedDomains(projectName: string, ownedDomains: string[]): Promise<ApiProject> {
   const project = await fetchProject(projectName)
   return createProject(projectName, {
-    displayName: project.displayName,
+    displayName: project.displayName ?? project.name,
     canonicalDomain: project.canonicalDomain,
     ownedDomains,
     aliases: project.aliases,
@@ -562,7 +548,7 @@ export async function updateOwnedDomains(projectName: string, ownedDomains: stri
 export async function updateAliases(projectName: string, aliases: string[]): Promise<ApiProject> {
   const project = await fetchProject(projectName)
   return createProject(projectName, {
-    displayName: project.displayName,
+    displayName: project.displayName ?? project.name,
     canonicalDomain: project.canonicalDomain,
     ownedDomains: project.ownedDomains,
     aliases,
@@ -588,7 +574,7 @@ export async function updateProject(projectName: string, updates: {
 }): Promise<ApiProject> {
   const project = await fetchProject(projectName)
   return createProject(projectName, {
-    displayName: updates.displayName ?? project.displayName,
+    displayName: updates.displayName ?? project.displayName ?? project.name,
     canonicalDomain: updates.canonicalDomain ?? project.canonicalDomain,
     ownedDomains: updates.ownedDomains ?? project.ownedDomains,
     aliases: updates.aliases ?? project.aliases,
@@ -833,16 +819,12 @@ export function triggerAllRuns(body?: { providers?: string[] }): Promise<ApiTrig
   )
 }
 
-export interface ApiGoogleConnection {
-  id: string
-  domain: string
-  connectionType: 'gsc' | 'ga4'
-  propertyId: string | null
-  sitemapUrl: string | null
-  scopes: string[]
-  createdAt: string
-  updatedAt: string
-}
+/**
+ * Re-export of the generated `GoogleConnectionDto`. Spec marks
+ * `propertyId` / `sitemapUrl` as optional (`?: string | null`); consumers
+ * already nullable-coalesce so no consumer changes needed.
+ */
+export type ApiGoogleConnection = GoogleConnectionDto
 
 export interface ApiGoogleProperty {
   siteUrl: string
@@ -861,28 +843,16 @@ export interface ApiGscPerformanceRow {
   position: number
 }
 
-export interface ApiGscInspection {
-  id: string
-  url: string
-  indexingState: string | null
-  verdict: string | null
-  coverageState: string | null
-  pageFetchState: string | null
-  robotsTxtState: string | null
-  crawlTime: string | null
-  lastCrawlResult: string | null
-  isMobileFriendly: boolean | null
-  richResults: string[]
-  referringUrls: string[]
-  inspectedAt: string
-}
+/**
+ * Re-export of the generated `GscUrlInspectionDto`. After PR #568 added
+ * `referringUrls` to the contracts schema, this is now field-equivalent
+ * to the hand-typed interface. Spec marks several fields as optional
+ * (`?: T | null`); consumers already nullable-coalesce.
+ */
+export type ApiGscInspection = GscUrlInspectionDto
 
-export interface ApiGscDeindexedRow {
-  url: string
-  previousState: string | null
-  currentState: string | null
-  transitionDate: string
-}
+/** Re-export of the generated `GscDeindexedRowDto`. Identical shape. */
+export type ApiGscDeindexedRow = GscDeindexedRowDto
 
 export function fetchGoogleConnections(project: string): Promise<ApiGoogleConnection[]> {
   return invokeWeb<ApiGoogleConnection[]>(() =>
@@ -1178,50 +1148,21 @@ export function requestIndexing(
 
 // ── Bing Webmaster Tools ─────────────────────────────────────────────────────
 
-export interface ApiBingConnection {
-  connected: boolean
-  domain: string
-  siteUrl: string | null
-  createdAt: string | null
-  updatedAt: string | null
-}
+/** Re-export of the generated `BingStatusDto`. */
+export type ApiBingConnection = BingStatusDto
 
-export interface ApiBingSite {
-  url: string
-  verified: boolean
-}
+/** Inline-array item shape from `BingSitesResponseDto.sites` — the spec
+ * inlines it rather than $ref-ing a `BingSiteDto` component. */
+export type ApiBingSite = BingSitesResponseDto['sites'][number]
 
-export interface ApiBingInspection {
-  id: string
-  url: string
-  httpCode: number | null
-  inIndex: boolean | null
-  lastCrawledDate: string | null
-  inIndexDate: string | null
-  inspectedAt: string
-}
+/** Re-export of the generated `BingUrlInspectionDto`. */
+export type ApiBingInspection = BingUrlInspectionDto
 
-export interface ApiBingCoverageSummary {
-  summary: {
-    total: number
-    indexed: number
-    notIndexed: number
-    unknown?: number
-    percentage: number
-  }
-  lastInspectedAt: string | null
-  indexed: ApiBingInspection[]
-  notIndexed: ApiBingInspection[]
-  unknown?: ApiBingInspection[]
-}
+/** Re-export of the generated `BingCoverageSummaryDto`. */
+export type ApiBingCoverageSummary = BingCoverageSummaryDto
 
-export interface ApiBingKeywordStats {
-  query: string
-  impressions: number
-  clicks: number
-  ctr: number
-  averagePosition: number
-}
+/** Re-export of the generated `BingKeywordStatsDto`. */
+export type ApiBingKeywordStats = BingKeywordStatsDto
 
 export function fetchBingStatus(project: string): Promise<ApiBingConnection> {
   return invokeWeb<ApiBingConnection>(() =>
@@ -1229,12 +1170,8 @@ export function fetchBingStatus(project: string): Promise<ApiBingConnection> {
   )
 }
 
-export function bingConnect(project: string, apiKey: string): Promise<{
-  connected: boolean
-  domain: string
-  availableSites: ApiBingSite[]
-}> {
-  return invokeWeb<{ connected: boolean; domain: string; availableSites: ApiBingSite[] }>(() =>
+export function bingConnect(project: string, apiKey: string): Promise<BingConnectResponseDto> {
+  return invokeWeb<BingConnectResponseDto>(() =>
     postApiV1ProjectsByNameBingConnect({
       client: heyClient,
       path: { name: project },
@@ -1249,14 +1186,14 @@ export function bingDisconnect(project: string): Promise<void> {
   )
 }
 
-export function fetchBingSites(project: string): Promise<{ sites: ApiBingSite[] }> {
-  return invokeWeb<{ sites: ApiBingSite[] }>(() =>
+export function fetchBingSites(project: string): Promise<BingSitesResponseDto> {
+  return invokeWeb<BingSitesResponseDto>(() =>
     getApiV1ProjectsByNameBingSites({ client: heyClient, path: { name: project } }),
   )
 }
 
-export function bingSetSite(project: string, siteUrl: string): Promise<{ siteUrl: string }> {
-  return invokeWeb<{ siteUrl: string }>(() =>
+export function bingSetSite(project: string, siteUrl: string): Promise<BingSetSiteResponseDto> {
+  return invokeWeb<BingSetSiteResponseDto>(() =>
     postApiV1ProjectsByNameBingSetSite({
       client: heyClient,
       path: { name: project },

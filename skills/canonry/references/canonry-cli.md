@@ -78,15 +78,28 @@ cnry run <project> --wait                      # block until complete
 cnry run <project> --location <label>          # run with specific location context
 cnry run <project> --all-locations             # run for every configured location
 cnry run <project> --no-location               # explicitly skip location context
+cnry run <project> --probe --provider openai --query "..."  # operator/agent test run — snapshot is inspectable but EXCLUDED from dashboard, analytics, intelligence, report, and notifications. Use for verification / "did this fix work?" / regression hypothesis testing.
 cnry run --all --wait                          # all projects
 cnry run cancel <project> [run-id]             # force-cancel stuck runs
-cnry runs <project> --limit 10                 # list recent runs
+cnry runs <project> --limit 10                 # list recent runs (includes both real and probe runs; filter on `trigger` if you only want one)
 cnry run show <id>                             # show run details
 ```
 
 Run statuses: `queued` → `running` → `completed` / `failed` / `partial`
 
 `partial` = some providers failed (usually rate limits) — successful snapshots are still saved.
+
+### Probe vs real runs
+
+| Trigger | Source | Feeds dashboard/analytics | Runs intelligence | Fires notifications | Wakes Aero |
+|---|---|---|---|---|---|
+| `manual` | `cnry run <project>` | ✅ | ✅ | ✅ | ✅ |
+| `scheduled` | cron schedule | ✅ | ✅ | ✅ | ✅ |
+| `config-apply` | `cnry apply` after queries change | ✅ | ✅ | ✅ | ✅ |
+| `backfill` | `cnry backfill ...` | partial (historical) | ✅ | — | — |
+| **`probe`** | `cnry run --probe ...` | ❌ | ❌ | ❌ | ❌ |
+
+Use `--probe` whenever you're testing on your own initiative — verifying a fix landed, reproducing a regression, sanity-checking a query — rather than producing data the user/dashboard will consume.
 
 `snapshot` does not create a project or write to the DB. It generates category queries, runs providers, and produces a report for prospecting.
 

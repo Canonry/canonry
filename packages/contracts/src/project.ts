@@ -96,6 +96,13 @@ export const projectDtoSchema = z.object({
   language: z.string().min(2),
   tags: z.array(z.string()).default([]),
   labels: z.record(z.string(), z.string()).default({}),
+  // Provider names this project sweeps against (subset of available providers).
+  // The server emits this on every project response (see GET /projects/:name in
+  // packages/api-routes/src/projects.ts) — the schema was historically missing
+  // the field even though the wire shape always included it. Add it here so
+  // ProjectDto consumers (web + CLI ApiClient) typecheck against the real
+  // response surface.
+  providers: z.array(z.string()).default([]),
   locations: z.array(locationContextSchema).default([]),
   defaultLocation: z.string().nullable().optional(),
   autoExtractBacklinks: z.boolean().default(false),

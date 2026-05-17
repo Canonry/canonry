@@ -822,7 +822,7 @@ const routeCatalog: OpenApiOperation[] = [
     },
     responses: {
       // TODO: Add `ApplyResultDto` Zod schema in contracts (single-doc apply result).
-      200: rawJsonResponse('Config applied.', looseObjectSchema),
+      200: jsonResponse('Config applied.', 'ProjectDto'),
       400: errorResponse('Invalid config.'),
     },
   },
@@ -1259,8 +1259,7 @@ const routeCatalog: OpenApiOperation[] = [
     summary: 'Get CDP connection status',
     tags: ['cdp'],
     responses: {
-      // TODO: Add `CdpStatusDto` Zod schema in contracts.
-      200: rawJsonResponse('CDP status returned.', looseObjectSchema),
+      200: jsonResponse('CDP status returned.', 'CdpStatusDto'),
       501: errorResponse('CDP is not configured.'),
     },
   },
@@ -1394,8 +1393,7 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['google'],
     parameters: [nameParameter],
     responses: {
-      // TODO: Add `GooglePropertiesResponse` Zod schema in contracts.
-      200: rawJsonResponse('Google properties returned.', looseObjectSchema),
+      200: jsonResponse('Google properties returned.', 'GscSiteListResponseDto'),
       400: errorResponse('Google OAuth is not configured.'),
       404: errorResponse('Project not found.'),
     },
@@ -1493,7 +1491,10 @@ const routeCatalog: OpenApiOperation[] = [
       analyticsWindowParameter,
     ],
     responses: {
-      200: jsonResponse('GSC performance rows returned.', 'GscSearchDataDto'),
+      // Handler returns an array of GscSearchDataDto rows (web's
+      // ApiGscPerformanceRow[] confirms). Was incorrectly spec'd as a
+      // single object, which silently truncated client types to one row.
+      200: jsonArrayResponse('GSC performance rows returned.', 'GscSearchDataDto'),
       404: errorResponse('Project not found.'),
     },
   },
@@ -1557,8 +1558,7 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['google'],
     parameters: [nameParameter],
     responses: {
-      // TODO: Add `GscDeindexedListResponse` Zod schema in contracts (already has gscDeindexedRowSchema for elements).
-      200: rawJsonResponse('Deindexed pages returned.', looseObjectSchema),
+      200: jsonArrayResponse('Deindexed pages returned.', 'GscDeindexedRowDto'),
       404: errorResponse('Project not found.'),
     },
   },
@@ -1591,8 +1591,7 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['google'],
     parameters: [nameParameter],
     responses: {
-      // TODO: Add `GscSitemapsResponse` Zod schema in contracts.
-      200: rawJsonResponse('GSC sitemaps returned.', looseObjectSchema),
+      200: jsonResponse('GSC sitemaps returned.', 'GscSitemapListResponseDto'),
       400: errorResponse('Invalid sitemap request.'),
       404: errorResponse('Project or connection not found.'),
     },
@@ -1655,8 +1654,7 @@ const routeCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      // TODO: Add `IndexingRequestResponse` Zod schema in contracts (already has indexingRequestResultDtoSchema for elements).
-      200: rawJsonResponse('Indexing request results returned.', looseObjectSchema),
+      200: jsonResponse('Indexing request results returned.', 'IndexingRequestResponseDto'),
       400: errorResponse('Invalid indexing request.'),
       404: errorResponse('Project or connection not found.'),
     },
@@ -1682,7 +1680,7 @@ const routeCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      200: jsonResponse('Bing connection returned.', 'BingConnectionDto'),
+      200: jsonResponse('Bing connection returned.', 'BingConnectResponseDto'),
       400: errorResponse('Invalid Bing connection request.'),
       404: errorResponse('Project not found.'),
     },
@@ -1705,7 +1703,7 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['bing'],
     parameters: [nameParameter],
     responses: {
-      200: jsonResponse('Bing status returned.', 'BingConnectionDto'),
+      200: jsonResponse('Bing status returned.', 'BingStatusDto'),
       404: errorResponse('Project not found.'),
     },
   },
@@ -1716,8 +1714,7 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['bing'],
     parameters: [nameParameter],
     responses: {
-      // TODO: Add `BingSitesResponse` Zod schema in contracts.
-      200: rawJsonResponse('Bing sites returned.', looseObjectSchema),
+      200: jsonResponse('Bing sites returned.', 'BingSitesResponseDto'),
       400: errorResponse('Bing is not configured for this project.'),
       404: errorResponse('Project not found.'),
     },
@@ -1743,7 +1740,7 @@ const routeCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      200: jsonResponse('Active Bing site updated.', 'BingConnectionDto'),
+      200: jsonResponse('Active Bing site updated.', 'BingSetSiteResponseDto'),
       400: errorResponse('Invalid Bing site request.'),
       404: errorResponse('Project or connection not found.'),
     },
@@ -1755,7 +1752,11 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['bing'],
     parameters: [nameParameter],
     responses: {
-      200: jsonResponse('Bing coverage returned.', 'BingCoverageSnapshotDto'),
+      // Was incorrectly mapped to `BingCoverageSnapshotDto` (the daily
+      // history snapshot — 4 fields). The /coverage handler actually
+      // returns the nested summary shape with indexed/notIndexed/unknown
+      // arrays. `BingCoverageSummaryDto` is the right ref.
+      200: jsonResponse('Bing coverage returned.', 'BingCoverageSummaryDto'),
       400: errorResponse('Bing is not configured for this project.'),
       404: errorResponse('Project not found.'),
     },
@@ -1779,8 +1780,7 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['bing'],
     parameters: [nameParameter, { name: 'url', in: 'query', description: 'Filter by URL.', schema: stringSchema }, limitQueryParameter],
     responses: {
-      // TODO: Add `BingUrlInspectionDto` to the schema table (already exists in contracts).
-      200: rawJsonResponse('Bing inspections returned.', looseObjectSchema),
+      200: jsonArrayResponse('Bing inspections returned.', 'BingUrlInspectionDto'),
       400: errorResponse('Bing is not configured for this project.'),
       404: errorResponse('Project not found.'),
     },
@@ -1806,8 +1806,7 @@ const routeCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      // TODO: Add `BingUrlInspectionDto` to the schema table.
-      200: rawJsonResponse('Bing inspection result returned.', looseObjectSchema),
+      200: jsonResponse('Bing inspection result returned.', 'BingUrlInspectionDto'),
       400: errorResponse('Invalid inspection request.'),
       404: errorResponse('Project or connection not found.'),
     },
@@ -1858,8 +1857,7 @@ const routeCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      // TODO: Add `BingSubmitResultDto` to the schema table (already in contracts).
-      200: rawJsonResponse('Bing indexing request results returned.', looseObjectSchema),
+      200: jsonResponse('Bing indexing request results returned.', 'BingIndexingRequestResponseDto'),
       400: errorResponse('Invalid indexing request.'),
       404: errorResponse('Project or connection not found.'),
     },
@@ -1871,8 +1869,7 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['bing'],
     parameters: [nameParameter, limitQueryParameter],
     responses: {
-      // TODO: Add `BingKeywordStatsDto` to the schema table (already in contracts).
-      200: rawJsonResponse('Bing performance returned.', looseObjectSchema),
+      200: jsonArrayResponse('Bing performance returned.', 'BingKeywordStatsDto'),
       400: errorResponse('Bing is not configured for this project.'),
       404: errorResponse('Project not found.'),
     },
@@ -2336,8 +2333,7 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['ga4'],
     parameters: [nameParameter],
     responses: {
-      // TODO: Add `GaStatusResponse` Zod schema in contracts.
-      200: rawJsonResponse('GA4 status returned.', looseObjectSchema),
+      200: jsonResponse('GA4 status returned.', 'GA4StatusDto'),
       404: errorResponse('Project not found.'),
     },
   },
@@ -2361,8 +2357,7 @@ const routeCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      // TODO: Add `GaSyncResponse` Zod schema in contracts.
-      200: rawJsonResponse('GA4 sync completed.', looseObjectSchema),
+      200: jsonResponse('GA4 sync completed.', 'GA4SyncResponseDto'),
       400: errorResponse('GA4 is not connected.'),
       404: errorResponse('Project not found.'),
     },
@@ -3435,7 +3430,12 @@ export function buildOpenApiDocument(info: OpenApiInfo = {}) {
   const schemas = buildComponentSchemas()
 
   return {
-    openapi: '3.1.0',
+    // OpenAPI 3.0 (not 3.1) so `nullable: true` on emitted schemas is the
+    // canonical nullability marker. `z.toJSONSchema(..., { target: 'openapi-3.0' })`
+    // outputs `nullable: true`; declaring 3.1 would tell consumers (and the
+    // hey-api codegen) to expect 3.1-style `type: ["string", "null"]` instead,
+    // and they'd silently strip the `null` from optional fields.
+    openapi: '3.0.0',
     info: {
       title: info.title ?? 'Canonry API',
       version: info.version ?? '0.0.0',

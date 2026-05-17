@@ -863,6 +863,7 @@ function formatProject(row: typeof projects.$inferSelect): ProjectDto {
     language: row.language,
     tags: parseJsonColumn<string[]>(row.tags, []),
     labels: parseJsonColumn<Record<string, string>>(row.labels, {}),
+    providers: parseJsonColumn<string[]>(row.providers, []),
     locations: parseJsonColumn<LocationContext[]>(row.locations, []),
     defaultLocation: row.defaultLocation,
     autoExtractBacklinks: row.autoExtractBacklinks === 1,

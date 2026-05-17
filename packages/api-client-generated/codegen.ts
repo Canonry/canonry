@@ -45,6 +45,12 @@ async function main() {
       },
       '@hey-api/sdk',
       '@hey-api/typescript',
+      // Generates `<operation>Options` / `<operation>QueryKey` /
+      // `<operation>Mutation` helpers for TanStack Query v5. Consumed by
+      // apps/web in components via `useQuery(getApiV1ProjectsOptions({ client }))`.
+      // Cache keys are derived from path + query params — no hand-curated
+      // key registry needed.
+      '@tanstack/react-query',
     ],
   })
 

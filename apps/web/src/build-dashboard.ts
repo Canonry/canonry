@@ -40,6 +40,7 @@ function toProjectDto(p: ApiProject): ProjectDto {
     language: p.language,
     tags: p.tags,
     labels: p.labels,
+    providers: p.providers ?? [],
     locations: p.locations ?? [],
     defaultLocation: p.defaultLocation ?? null,
     autoExtractBacklinks: p.autoExtractBacklinks ?? false,
@@ -103,7 +104,7 @@ function toRunListItem(run: ApiRun, projectName: string): RunListItemVm {
     location: run.location ?? null,
     createdAt: run.createdAt,
     startedAt: run.startedAt ? formatDate(run.startedAt) : formatDate(run.createdAt),
-    duration: formatDuration(run.startedAt, run.finishedAt),
+    duration: formatDuration(run.startedAt ?? null, run.finishedAt ?? null),
     statusDetail: run.error ? formatRunError(run.error) : statusDetailFromRun(run),
     summary: summaryFromRun(run),
     triggerLabel: triggerLabel(run.trigger),
@@ -155,8 +156,11 @@ function buildEvidenceFromTimeline(
     // Multi-location runs fan out as one ApiRunDetail per location, all with the
     // same `createdAt`. Bucket snapshots by (query × provider × location) so each
     // location's evidence row survives the aggregate instead of being clobbered.
-    const allSnapshots = latestRunDetails.flatMap(r => r.snapshots)
-    const snapshotsByKey = new Map<string, ApiRunDetail['snapshots'][number]>()
+    // Snapshots are optional on `RunDetailDto` (a queued/running run has none).
+    // Default to [] when missing so the rest of the logic sees a homogeneous array.
+    const allSnapshots = latestRunDetails.flatMap(r => r.snapshots ?? [])
+    type SnapshotItem = NonNullable<ApiRunDetail['snapshots']>[number]
+    const snapshotsByKey = new Map<string, SnapshotItem>()
     for (const snap of allSnapshots) {
       if (snap.query) {
         const key = `${snap.query}::${snap.provider}::${snap.location ?? ''}`

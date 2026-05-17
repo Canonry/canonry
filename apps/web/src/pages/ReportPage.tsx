@@ -68,6 +68,8 @@ export function ReportPage({ projectName }: { projectName: string }) {
   const [downloading, setDownloading] = useState(false)
   const [downloadError, setDownloadError] = useState<string | null>(null)
 
+  // /report endpoint returns looseObjectSchema — stays on hand-typed fetcher
+  // until ProjectReportDto is registered in openapi-schemas.ts.
   const reportQuery = useQuery({
     queryKey: queryKeys.report(projectName),
     queryFn: () => fetchReport(projectName),

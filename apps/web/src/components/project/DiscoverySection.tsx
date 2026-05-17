@@ -5,12 +5,13 @@ import type { DiscoveryBucket, DiscoverySessionDto } from '@ainyc/canonry-contra
 
 import {
   fetchDiscoverySession,
-  fetchDiscoverySessions,
   previewDiscoveryPromote,
   promoteDiscovery,
   triggerDiscoveryRun,
+  heyClient,
   type DiscoveryPromoteResult,
 } from '../../api.js'
+import { getApiV1ProjectsByNameDiscoverSessionsOptions } from '@ainyc/canonry-api-client/react-query'
 import { addToast } from '../../lib/toast-store.js'
 import { queryKeys } from '../../queries/query-keys.js'
 import { Button } from '../ui/button.js'
@@ -26,8 +27,11 @@ export function DiscoverySection({ projectName }: { projectName: string }) {
   const [maxProbes, setMaxProbes] = useState('100')
 
   const sessionsQuery = useQuery({
-    queryKey: queryKeys.discovery.sessions(projectName),
-    queryFn: () => fetchDiscoverySessions(projectName, { limit: 10 }),
+    ...getApiV1ProjectsByNameDiscoverSessionsOptions({
+      client: heyClient,
+      path: { name: projectName },
+      query: { limit: '10' },
+    }),
     refetchInterval: (query) => {
       const sessions = query.state.data
       return sessions?.some(session => ACTIVE_DISCOVERY_STATUSES.has(session.status)) ? 3000 : false

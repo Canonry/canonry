@@ -77,7 +77,7 @@ export function EvidenceDetailModal({
     if (!latestHistoryRun) return
     autoFetchedRef.current = true
     fetchRunDetail(latestHistoryRun.runId).then(runDetail => {
-      const snap = runDetail.snapshots.find(
+      const snap = runDetail.snapshots?.find(
         s => s.query === evidence.query && s.provider === evidence.provider,
       )
       if (snap) {
@@ -207,9 +207,9 @@ export function EvidenceDetailModal({
       if (requestId !== activeRequestRef.current) return
 
       // Find the snapshot matching this query + provider
-      const snap = runDetail.snapshots.find(
+      const snap = runDetail.snapshots?.find(
         s => s.query === evidence.query && s.provider === evidence.provider,
-      ) ?? runDetail.snapshots.find(
+      ) ?? runDetail.snapshots?.find(
         s => s.query === evidence.query,
       )
 

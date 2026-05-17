@@ -150,30 +150,46 @@ export interface GaConnectResponse {
   clientEmail?: string
 }
 
-export interface GaStatusResponse {
-  connected: boolean
-  propertyId: string | null
-  clientEmail: string | null
-  authMethod: 'service-account' | 'oauth' | null
-  lastSyncedAt: string | null
-  createdAt?: string
-  updatedAt?: string
-}
+/**
+ * Response shape for `GET /projects/:name/ga/status`. Two branches:
+ *  - disconnected: `{connected: false, propertyId/clientEmail/authMethod/lastSyncedAt: null}` (no createdAt/updatedAt)
+ *  - connected: same fields populated, plus optional `createdAt`/`updatedAt` from the SA or OAuth connection row
+ */
+export const ga4StatusDtoSchema = z.object({
+  connected: z.boolean(),
+  propertyId: z.string().nullable(),
+  clientEmail: z.string().nullable(),
+  authMethod: z.enum(['service-account', 'oauth']).nullable(),
+  lastSyncedAt: z.string().nullable(),
+  createdAt: z.string().nullable().optional(),
+  updatedAt: z.string().nullable().optional(),
+})
+export type GA4StatusDto = z.infer<typeof ga4StatusDtoSchema>
+/** Legacy alias retained for callers that still import `GaStatusResponse`. */
+export type GaStatusResponse = GA4StatusDto
 
-export interface GaSyncResponse {
-  synced: boolean
-  rowCount: number
-  aiReferralCount: number
-  socialReferralCount: number
-  days: number
-  syncedAt: string
+/**
+ * Response shape for `POST /projects/:name/ga/sync`. `syncedComponents`
+ * is present only when the request specified an `only` filter (`'traffic' |
+ * 'ai' | 'social'`).
+ */
+export const ga4SyncResponseDtoSchema = z.object({
+  synced: z.boolean(),
+  rowCount: z.number().int().nonnegative(),
+  aiReferralCount: z.number().int().nonnegative(),
+  socialReferralCount: z.number().int().nonnegative(),
+  days: z.number().int().nonnegative(),
+  syncedAt: z.string(),
   /**
    * Components that were written this run. Present when `only` is set.
    * Always includes `traffic` and `summary` (the share denominator) plus
    * the requested channel breakdown — `ai` and/or `social`.
    */
-  syncedComponents?: string[]
-}
+  syncedComponents: z.array(z.string()).optional(),
+})
+export type GA4SyncResponseDto = z.infer<typeof ga4SyncResponseDtoSchema>
+/** Legacy alias retained for callers that still import `GaSyncResponse`. */
+export type GaSyncResponse = GA4SyncResponseDto
 
 export interface GaSocialReferralTrendResponse {
   socialSessions7d: number

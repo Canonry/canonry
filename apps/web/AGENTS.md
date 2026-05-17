@@ -21,13 +21,55 @@ Vite SPA (React 19 + TanStack Router/Query + Tailwind CSS 4) for the analytics d
 
 ### API calls
 
-Use `apiFetch<T>()` from `src/api.ts` for all API calls. It handles base path, auth, and error wrapping:
+Two paths into the API, choose based on what you're building:
+
+**1. New TanStack Query hooks (preferred for new code)** — use the generated
+`<op>Options(...)` / `<op>QueryKey(...)` / `<op>Mutation(...)` helpers from
+`@ainyc/canonry-api-client/react-query`, passing the exported `heyClient`
+from `src/api.ts`:
 
 ```typescript
-const projects = await apiFetch<ProjectDto[]>('/projects')
+import { useQuery } from '@tanstack/react-query'
+import { getApiV1ProjectsByNameOptions } from '@ainyc/canonry-api-client/react-query'
+import { heyClient } from '../api.js'
+
+function useProject(name: string) {
+  return useQuery(getApiV1ProjectsByNameOptions({ client: heyClient, path: { name } }))
+}
+```
+
+- Cache keys are derived from path + query params — no hand-curated
+  `query-keys.ts` entry needed.
+- Auth-expiry (401/403) still fires `handleAuthExpired()` via the response
+  interceptor wired on `heyClient` in `src/api.ts`.
+- Generated types come from the spec; consumer types stay in sync with the
+  server automatically.
+
+**2. Existing fetchers in `src/api.ts` (for composites and pre-migration sites)** —
+the typed `fetchX()` wrappers still work and feed every existing hook in
+`src/queries/`. They go through `invokeWeb()` which handles `ApiError`
+mapping + 204 No Content + base-path resolution. Use them when you need
+composite orchestration (parallel fan-out, multi-endpoint queryFn) that
+the generated `<op>Options(...)` helpers can't express in a single call.
+
+```typescript
+const projects = await fetchProjects()  // returns ApiProject[]
 ```
 
 Base path comes from `window.__CANONRY_CONFIG__.basePath`. Never hardcode `/api/v1`.
+
+### DTO types — generated vs hand-typed
+
+`src/api.ts` re-exports the generated `RunDto`, `QueryDto`, `CompetitorDto`
+as `ApiRun`, `ApiQuery`, `ApiCompetitor`. Use the `Api*` names — they're
+the same shape but the alias makes it clear the source is the spec.
+
+A few `Api*` interfaces remain hand-defined (`ApiProject`, `ApiSnapshot`,
+`ApiRunDetail`, etc.) because the generated shape would cascade
+`displayName: string | undefined` / `createdAt: string | undefined` drift
+through every consumer that assumes those fields are always present.
+Migrating each requires consumer-side review; track as separate follow-up
+PRs rather than rolling into tooling work.
 
 ### Charting
 
