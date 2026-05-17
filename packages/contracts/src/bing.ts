@@ -63,3 +63,19 @@ export const bingSubmitResultDtoSchema = z.object({
   error: z.string().optional(),
 })
 export type BingSubmitResultDto = z.infer<typeof bingSubmitResultDtoSchema>
+
+/**
+ * Wrapper returned by `POST /projects/:name/bing/request-indexing` — a
+ * `{summary, results[]}` shape. Matches Google's
+ * `IndexingRequestResponseDto` envelope, just with `BingSubmitResultDto`
+ * elements.
+ */
+export const bingIndexingRequestResponseDtoSchema = z.object({
+  summary: z.object({
+    total: z.number().int().nonnegative(),
+    succeeded: z.number().int().nonnegative(),
+    failed: z.number().int().nonnegative(),
+  }),
+  results: z.array(bingSubmitResultDtoSchema).default([]),
+})
+export type BingIndexingRequestResponseDto = z.infer<typeof bingIndexingRequestResponseDtoSchema>

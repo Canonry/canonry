@@ -59,6 +59,12 @@ export const gscUrlInspectionDtoSchema = z.object({
   lastCrawlResult: z.string().nullable().optional(),
   isMobileFriendly: z.boolean().nullable().optional(),
   richResults: z.array(z.string()).default([]),
+  // Spec gap: server has returned `referringUrls` since the GSC inspect
+  // route shipped (see google.ts handler at /gsc/inspect + /gsc/inspections),
+  // but the schema dropped the field so the generated TS client (and
+  // anything else reading from this DTO) lost the data silently. Adding
+  // here restores end-to-end visibility.
+  referringUrls: z.array(z.string()).default([]),
   inspectedAt: z.string(),
 })
 export type GscUrlInspectionDto = z.infer<typeof gscUrlInspectionDtoSchema>
@@ -72,6 +78,7 @@ export const gscDeindexedRowSchema = z.object({
   currentState: z.string().nullable(),
   transitionDate: z.string(),
 })
+export type GscDeindexedRowDto = z.infer<typeof gscDeindexedRowSchema>
 
 export const gscReasonGroupSchema = z.object({
   reason: z.string(),
@@ -112,6 +119,22 @@ export const indexingRequestResultDtoSchema = z.object({
   error: z.string().optional(),
 })
 export type IndexingRequestResultDto = z.infer<typeof indexingRequestResultDtoSchema>
+
+/**
+ * Wrapper returned by `POST /projects/:name/google/indexing/request` — a
+ * `{summary, results[]}` shape consumed by the dashboard's batch-submit
+ * UI and the CLI. Same envelope shape as Bing's indexing-request response
+ * (defined in `bing.ts`), just with `IndexingRequestResultDto` elements.
+ */
+export const indexingRequestResponseDtoSchema = z.object({
+  summary: z.object({
+    total: z.number().int().nonnegative(),
+    succeeded: z.number().int().nonnegative(),
+    failed: z.number().int().nonnegative(),
+  }),
+  results: z.array(indexingRequestResultDtoSchema).default([]),
+})
+export type IndexingRequestResponseDto = z.infer<typeof indexingRequestResponseDtoSchema>
 
 export const gscCoverageSnapshotDtoSchema = z.object({
   date: z.string(),

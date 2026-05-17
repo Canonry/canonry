@@ -822,7 +822,7 @@ const routeCatalog: OpenApiOperation[] = [
     },
     responses: {
       // TODO: Add `ApplyResultDto` Zod schema in contracts (single-doc apply result).
-      200: rawJsonResponse('Config applied.', looseObjectSchema),
+      200: jsonResponse('Config applied.', 'ProjectDto'),
       400: errorResponse('Invalid config.'),
     },
   },
@@ -1493,7 +1493,10 @@ const routeCatalog: OpenApiOperation[] = [
       analyticsWindowParameter,
     ],
     responses: {
-      200: jsonResponse('GSC performance rows returned.', 'GscSearchDataDto'),
+      // Handler returns an array of GscSearchDataDto rows (web's
+      // ApiGscPerformanceRow[] confirms). Was incorrectly spec'd as a
+      // single object, which silently truncated client types to one row.
+      200: jsonArrayResponse('GSC performance rows returned.', 'GscSearchDataDto'),
       404: errorResponse('Project not found.'),
     },
   },
@@ -1557,8 +1560,7 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['google'],
     parameters: [nameParameter],
     responses: {
-      // TODO: Add `GscDeindexedListResponse` Zod schema in contracts (already has gscDeindexedRowSchema for elements).
-      200: rawJsonResponse('Deindexed pages returned.', looseObjectSchema),
+      200: jsonArrayResponse('Deindexed pages returned.', 'GscDeindexedRowDto'),
       404: errorResponse('Project not found.'),
     },
   },
@@ -1655,8 +1657,7 @@ const routeCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      // TODO: Add `IndexingRequestResponse` Zod schema in contracts (already has indexingRequestResultDtoSchema for elements).
-      200: rawJsonResponse('Indexing request results returned.', looseObjectSchema),
+      200: jsonResponse('Indexing request results returned.', 'IndexingRequestResponseDto'),
       400: errorResponse('Invalid indexing request.'),
       404: errorResponse('Project or connection not found.'),
     },
@@ -1755,7 +1756,11 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['bing'],
     parameters: [nameParameter],
     responses: {
-      200: jsonResponse('Bing coverage returned.', 'BingCoverageSnapshotDto'),
+      // Was incorrectly mapped to `BingCoverageSnapshotDto` (the daily
+      // history snapshot — 4 fields). The /coverage handler actually
+      // returns the nested summary shape with indexed/notIndexed/unknown
+      // arrays. `BingCoverageSummaryDto` is the right ref.
+      200: jsonResponse('Bing coverage returned.', 'BingCoverageSummaryDto'),
       400: errorResponse('Bing is not configured for this project.'),
       404: errorResponse('Project not found.'),
     },
@@ -1779,8 +1784,7 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['bing'],
     parameters: [nameParameter, { name: 'url', in: 'query', description: 'Filter by URL.', schema: stringSchema }, limitQueryParameter],
     responses: {
-      // TODO: Add `BingUrlInspectionDto` to the schema table (already exists in contracts).
-      200: rawJsonResponse('Bing inspections returned.', looseObjectSchema),
+      200: jsonArrayResponse('Bing inspections returned.', 'BingUrlInspectionDto'),
       400: errorResponse('Bing is not configured for this project.'),
       404: errorResponse('Project not found.'),
     },
@@ -1806,8 +1810,7 @@ const routeCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      // TODO: Add `BingUrlInspectionDto` to the schema table.
-      200: rawJsonResponse('Bing inspection result returned.', looseObjectSchema),
+      200: jsonResponse('Bing inspection result returned.', 'BingUrlInspectionDto'),
       400: errorResponse('Invalid inspection request.'),
       404: errorResponse('Project or connection not found.'),
     },
@@ -1858,8 +1861,7 @@ const routeCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      // TODO: Add `BingSubmitResultDto` to the schema table (already in contracts).
-      200: rawJsonResponse('Bing indexing request results returned.', looseObjectSchema),
+      200: jsonResponse('Bing indexing request results returned.', 'BingIndexingRequestResponseDto'),
       400: errorResponse('Invalid indexing request.'),
       404: errorResponse('Project or connection not found.'),
     },
@@ -1871,8 +1873,7 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['bing'],
     parameters: [nameParameter, limitQueryParameter],
     responses: {
-      // TODO: Add `BingKeywordStatsDto` to the schema table (already in contracts).
-      200: rawJsonResponse('Bing performance returned.', looseObjectSchema),
+      200: jsonArrayResponse('Bing performance returned.', 'BingKeywordStatsDto'),
       400: errorResponse('Bing is not configured for this project.'),
       404: errorResponse('Project not found.'),
     },
