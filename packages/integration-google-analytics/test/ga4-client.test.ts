@@ -279,7 +279,7 @@ describe('fetchAiReferrals', () => {
       const dimensions = b.dimensions as Array<{ name: string }>
       return dimensions[3]?.name
     })
-    expect(channelGroupDims).toEqual(['sessionDefaultChannelGroup', 'sessionDefaultChannelGroup', 'sessionDefaultChannelGroup'])
+    expect(channelGroupDims).toEqual(['sessionDefaultChannelGrouping', 'sessionDefaultChannelGrouping', 'sessionDefaultChannelGrouping'])
 
     const landingDims = requestBodies.map((b) => {
       const dimensions = b.dimensions as Array<{ name: string }>
