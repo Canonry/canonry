@@ -1,5 +1,4 @@
 import { z } from 'zod'
-import type { AgentProviderId } from './providers.js'
 
 /**
  * Identifier of one of Aero's supported LLM providers. Canonical IDs live
@@ -9,34 +8,44 @@ import type { AgentProviderId } from './providers.js'
  */
 export type { AgentProviderId } from './providers.js'
 
-export interface AgentProviderOption {
+/**
+ * Zod mirror of `AgentProviderId`. Kept inline here (rather than derived
+ * from `AGENT_PROVIDER_IDS`) so `z.toJSONSchema` produces a literal enum
+ * in the OpenAPI components — the SDK needs that to emit a string-union
+ * type instead of a bare `string`.
+ */
+export const agentProviderIdSchema = z.enum(['claude', 'openai', 'gemini', 'zai'])
+
+export const agentProviderOptionDtoSchema = z.object({
   /** Stable identifier — what clients pass back as `provider` on the prompt endpoint. */
-  id: AgentProviderId
+  id: agentProviderIdSchema,
   /** Human-readable label for UI pickers, e.g. "Anthropic (Claude)". */
-  label: string
+  label: z.string(),
   /** Default model if the caller doesn't pick one. */
-  defaultModel: string
+  defaultModel: z.string(),
   /** Whether a usable API key was found (config.yaml or provider env var). */
-  configured: boolean
+  configured: z.boolean(),
   /**
    * Where the key resolved from, if any. `null` when `configured === false`.
    * Surfaced so the UI can nudge users toward their preferred source of truth.
    */
-  keySource: 'config' | 'env' | null
-}
+  keySource: z.enum(['config', 'env']).nullable(),
+})
+export type AgentProviderOption = z.infer<typeof agentProviderOptionDtoSchema>
 
-export interface AgentProvidersResponse {
+export const agentProvidersResponseDtoSchema = z.object({
   /**
    * Every provider Aero knows about. `configured === false` entries are
    * included so the UI can render them disabled with an onboarding hint.
    */
-  providers: AgentProviderOption[]
+  providers: z.array(agentProviderOptionDtoSchema).default([]),
   /**
    * Provider Aero auto-picks when no explicit override is passed. Null if
    * nothing is configured (install never exchanged a key).
    */
-  defaultProvider: AgentProviderId | null
-}
+  defaultProvider: agentProviderIdSchema.nullable(),
+})
+export type AgentProvidersResponse = z.infer<typeof agentProvidersResponseDtoSchema>
 
 /**
  * Source tag for a durable Aero note. `aero` = agent-authored via the

@@ -4,14 +4,16 @@ import { CheckCircle2, Play, RefreshCw } from 'lucide-react'
 import type { DiscoveryBucket, DiscoverySessionDto } from '@ainyc/canonry-contracts'
 
 import {
-  fetchDiscoverySession,
-  previewDiscoveryPromote,
   promoteDiscovery,
   triggerDiscoveryRun,
   heyClient,
   type DiscoveryPromoteResult,
 } from '../../api.js'
-import { getApiV1ProjectsByNameDiscoverSessionsOptions } from '@ainyc/canonry-api-client/react-query'
+import {
+  getApiV1ProjectsByNameDiscoverSessionsByIdOptions,
+  getApiV1ProjectsByNameDiscoverSessionsByIdPromoteOptions,
+  getApiV1ProjectsByNameDiscoverSessionsOptions,
+} from '@ainyc/canonry-api-client/react-query'
 import { addToast } from '../../lib/toast-store.js'
 import { queryKeys } from '../../queries/query-keys.js'
 import { Button } from '../ui/button.js'
@@ -49,10 +51,10 @@ export function DiscoverySection({ projectName }: { projectName: string }) {
   const selectedSession = sessions.find(session => session.id === selectedSessionId) ?? null
 
   const detailQuery = useQuery({
-    queryKey: selectedSessionId
-      ? queryKeys.discovery.session(projectName, selectedSessionId)
-      : queryKeys.discovery.session(projectName, 'none'),
-    queryFn: () => fetchDiscoverySession(projectName, selectedSessionId ?? ''),
+    ...getApiV1ProjectsByNameDiscoverSessionsByIdOptions({
+      client: heyClient,
+      path: { name: projectName, id: selectedSessionId ?? '' },
+    }),
     enabled: Boolean(selectedSessionId),
     refetchInterval: selectedSession && ACTIVE_DISCOVERY_STATUSES.has(selectedSession.status) ? 3000 : false,
   })
@@ -60,10 +62,10 @@ export function DiscoverySection({ projectName }: { projectName: string }) {
   const detail = detailQuery.data ?? null
 
   const previewQuery = useQuery({
-    queryKey: selectedSessionId
-      ? queryKeys.discovery.promotePreview(projectName, selectedSessionId)
-      : queryKeys.discovery.promotePreview(projectName, 'none'),
-    queryFn: () => previewDiscoveryPromote(projectName, selectedSessionId ?? ''),
+    ...getApiV1ProjectsByNameDiscoverSessionsByIdPromoteOptions({
+      client: heyClient,
+      path: { name: projectName, id: selectedSessionId ?? '' },
+    }),
     enabled: Boolean(selectedSessionId && selectedSession?.status === 'completed'),
   })
 
@@ -430,14 +432,20 @@ function promoteResultDetail(result: DiscoveryPromoteResult): string {
 
 async function refreshDiscovery(
   queryClient: QueryClientLike,
-  projectName: string,
-  sessionId: string,
+  _projectName: string,
+  _sessionId: string,
 ) {
+  // Generated `<op>QueryKey` helpers produce flat keys with no shared
+  // hierarchical prefix, so match every discovery op by name pattern.
+  // This catches the list, the detail, the promote-preview, and any
+  // future discovery endpoint added to the SDK.
   await Promise.all([
-    queryClient.invalidateQueries({ queryKey: queryKeys.discovery.project(projectName) }),
-    queryClient.invalidateQueries({ queryKey: queryKeys.discovery.sessions(projectName) }),
-    queryClient.invalidateQueries({ queryKey: queryKeys.discovery.session(projectName, sessionId) }),
-    queryClient.invalidateQueries({ queryKey: queryKeys.discovery.promotePreview(projectName, sessionId) }),
+    queryClient.invalidateQueries({
+      predicate: (query) => {
+        const head = query.queryKey[0] as { _id?: string } | undefined
+        return typeof head?._id === 'string' && head._id.startsWith('getApiV1ProjectsByNameDiscover')
+      },
+    }),
     queryClient.invalidateQueries({ queryKey: queryKeys.runs.all }),
   ])
 }
