@@ -143,3 +143,59 @@ export const gscCoverageSnapshotDtoSchema = z.object({
   reasonBreakdown: z.record(z.string(), z.number()).default({}),
 })
 export type GscCoverageSnapshotDto = z.infer<typeof gscCoverageSnapshotDtoSchema>
+
+/**
+ * A GSC site/property the connected Google principal has access to.
+ * Returned by `listSites` and wrapped in `GscSiteListResponseDto`.
+ */
+export const gscSiteDtoSchema = z.object({
+  siteUrl: z.string(),
+  permissionLevel: z.string(),
+})
+export type GscSiteDto = z.infer<typeof gscSiteDtoSchema>
+
+/**
+ * Response shape for `GET /projects/:name/google/properties`. Wraps the
+ * site list for forward-compat with pagination/cursors.
+ */
+export const gscSiteListResponseDtoSchema = z.object({
+  sites: z.array(gscSiteDtoSchema).default([]),
+})
+export type GscSiteListResponseDto = z.infer<typeof gscSiteListResponseDtoSchema>
+
+/**
+ * Per-format content row inside a sitemap (e.g. submitted vs. indexed
+ * counts per content type — `web`, `image`, `video`).
+ */
+export const gscSitemapContentDtoSchema = z.object({
+  type: z.string(),
+  submitted: z.string(),
+  indexed: z.string(),
+})
+export type GscSitemapContentDto = z.infer<typeof gscSitemapContentDtoSchema>
+
+/**
+ * A sitemap registered for the active GSC property. Mirrors Google's
+ * Search Console API `WmxSitemap` resource.
+ */
+export const gscSitemapDtoSchema = z.object({
+  path: z.string(),
+  lastSubmitted: z.string().optional(),
+  isPending: z.boolean().optional(),
+  isSitemapsIndex: z.boolean().optional(),
+  type: z.string().optional(),
+  lastDownloaded: z.string().optional(),
+  warnings: z.string().optional(),
+  errors: z.string().optional(),
+  contents: z.array(gscSitemapContentDtoSchema).optional(),
+})
+export type GscSitemapDto = z.infer<typeof gscSitemapDtoSchema>
+
+/**
+ * Response shape for `GET /projects/:name/google/gsc/sitemaps`. Wraps
+ * the sitemap list for forward-compat.
+ */
+export const gscSitemapListResponseDtoSchema = z.object({
+  sitemaps: z.array(gscSitemapDtoSchema).default([]),
+})
+export type GscSitemapListResponseDto = z.infer<typeof gscSitemapListResponseDtoSchema>

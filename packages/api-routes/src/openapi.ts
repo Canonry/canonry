@@ -1259,8 +1259,7 @@ const routeCatalog: OpenApiOperation[] = [
     summary: 'Get CDP connection status',
     tags: ['cdp'],
     responses: {
-      // TODO: Add `CdpStatusDto` Zod schema in contracts.
-      200: rawJsonResponse('CDP status returned.', looseObjectSchema),
+      200: jsonResponse('CDP status returned.', 'CdpStatusDto'),
       501: errorResponse('CDP is not configured.'),
     },
   },
@@ -1394,8 +1393,7 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['google'],
     parameters: [nameParameter],
     responses: {
-      // TODO: Add `GooglePropertiesResponse` Zod schema in contracts.
-      200: rawJsonResponse('Google properties returned.', looseObjectSchema),
+      200: jsonResponse('Google properties returned.', 'GscSiteListResponseDto'),
       400: errorResponse('Google OAuth is not configured.'),
       404: errorResponse('Project not found.'),
     },
@@ -1593,8 +1591,7 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['google'],
     parameters: [nameParameter],
     responses: {
-      // TODO: Add `GscSitemapsResponse` Zod schema in contracts.
-      200: rawJsonResponse('GSC sitemaps returned.', looseObjectSchema),
+      200: jsonResponse('GSC sitemaps returned.', 'GscSitemapListResponseDto'),
       400: errorResponse('Invalid sitemap request.'),
       404: errorResponse('Project or connection not found.'),
     },
@@ -2336,8 +2333,7 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['ga4'],
     parameters: [nameParameter],
     responses: {
-      // TODO: Add `GaStatusResponse` Zod schema in contracts.
-      200: rawJsonResponse('GA4 status returned.', looseObjectSchema),
+      200: jsonResponse('GA4 status returned.', 'GA4StatusDto'),
       404: errorResponse('Project not found.'),
     },
   },
@@ -2361,8 +2357,7 @@ const routeCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      // TODO: Add `GaSyncResponse` Zod schema in contracts.
-      200: rawJsonResponse('GA4 sync completed.', looseObjectSchema),
+      200: jsonResponse('GA4 sync completed.', 'GA4SyncResponseDto'),
       400: errorResponse('GA4 is not connected.'),
       404: errorResponse('Project not found.'),
     },

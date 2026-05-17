@@ -224,6 +224,18 @@ export type CcReleaseSyncDto = {
     updatedAt: string;
 };
 
+export type CdpStatusDto = {
+    connected: boolean;
+    endpoint: string;
+    version?: string;
+    browserVersion?: string;
+    targets: Array<{
+        name: string;
+        alive: boolean;
+        lastUsed: string | null;
+    }>;
+};
+
 export type CitationVisibilityResponse = {
     summary: {
         providersConfigured: number;
@@ -497,6 +509,26 @@ export type Ga4SocialReferralHistoryEntry = {
     channelGroup: string;
 };
 
+export type Ga4StatusDto = {
+    connected: boolean;
+    propertyId: string | null;
+    clientEmail: string | null;
+    authMethod: 'service-account' | 'oauth';
+    lastSyncedAt: string | null;
+    createdAt?: string | null;
+    updatedAt?: string | null;
+};
+
+export type Ga4SyncResponseDto = {
+    synced: boolean;
+    rowCount: number;
+    aiReferralCount: number;
+    socialReferralCount: number;
+    days: number;
+    syncedAt: string;
+    syncedComponents?: Array<string>;
+};
+
 export type GoogleConnectionDto = {
     id: string;
     domain: string;
@@ -616,6 +648,31 @@ export type GscSearchDataDto = {
     impressions: number;
     ctr: number;
     position: number;
+};
+
+export type GscSiteListResponseDto = {
+    sites: Array<{
+        siteUrl: string;
+        permissionLevel: string;
+    }>;
+};
+
+export type GscSitemapListResponseDto = {
+    sitemaps: Array<{
+        path: string;
+        lastSubmitted?: string;
+        isPending?: boolean;
+        isSitemapsIndex?: boolean;
+        type?: string;
+        lastDownloaded?: string;
+        warnings?: string;
+        errors?: string;
+        contents?: Array<{
+            type: string;
+            submitted: string;
+            indexed: string;
+        }>;
+    }>;
 };
 
 export type GscUrlInspectionDto = {
@@ -3135,9 +3192,7 @@ export type GetApiV1CdpStatusResponses = {
     /**
      * CDP status returned.
      */
-    200: {
-        [key: string]: unknown;
-    };
+    200: CdpStatusDto;
 };
 
 export type GetApiV1CdpStatusResponse = GetApiV1CdpStatusResponses[keyof GetApiV1CdpStatusResponses];
@@ -3434,9 +3489,7 @@ export type GetApiV1ProjectsByNameGooglePropertiesResponses = {
     /**
      * Google properties returned.
      */
-    200: {
-        [key: string]: unknown;
-    };
+    200: GscSiteListResponseDto;
 };
 
 export type GetApiV1ProjectsByNameGooglePropertiesResponse = GetApiV1ProjectsByNameGooglePropertiesResponses[keyof GetApiV1ProjectsByNameGooglePropertiesResponses];
@@ -3859,9 +3912,7 @@ export type GetApiV1ProjectsByNameGoogleGscSitemapsResponses = {
     /**
      * GSC sitemaps returned.
      */
-    200: {
-        [key: string]: unknown;
-    };
+    200: GscSitemapListResponseDto;
 };
 
 export type GetApiV1ProjectsByNameGoogleGscSitemapsResponse = GetApiV1ProjectsByNameGoogleGscSitemapsResponses[keyof GetApiV1ProjectsByNameGoogleGscSitemapsResponses];
@@ -5278,9 +5329,7 @@ export type GetApiV1ProjectsByNameGaStatusResponses = {
     /**
      * GA4 status returned.
      */
-    200: {
-        [key: string]: unknown;
-    };
+    200: Ga4StatusDto;
 };
 
 export type GetApiV1ProjectsByNameGaStatusResponse = GetApiV1ProjectsByNameGaStatusResponses[keyof GetApiV1ProjectsByNameGaStatusResponses];
@@ -5316,9 +5365,7 @@ export type PostApiV1ProjectsByNameGaSyncResponses = {
     /**
      * GA4 sync completed.
      */
-    200: {
-        [key: string]: unknown;
-    };
+    200: Ga4SyncResponseDto;
 };
 
 export type PostApiV1ProjectsByNameGaSyncResponse = PostApiV1ProjectsByNameGaSyncResponses[keyof PostApiV1ProjectsByNameGaSyncResponses];
