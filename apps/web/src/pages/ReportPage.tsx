@@ -399,39 +399,58 @@ function ActionPlanSection({ report, audience, projectName }: { report: ProjectR
     : report.agencyDiagnostics.priorities.length > 0
       ? report.agencyDiagnostics.priorities
       : report.actionPlan.filter(a => actionAudienceMatches(a, audience))
-  const actions = dedupeReportActions(report, rawActions)
+  const dedupedActions = dedupeReportActions(report, rawActions)
   const isClient = audience === 'client'
   const dismissMutation = useDismissContentTarget()
-  // Per-row pending state so multiple dismisses in sequence don't disable
-  // the whole grid. Mutation `isPending` reflects the most recent mutate(),
-  // not per-row state, so we keep our own set.
-  const [pendingTargetRefs, setPendingTargetRefs] = useState<Set<string>>(new Set())
+  // Optimistic dismissals: a targetRef in this set is rendered as "gone"
+  // immediately on click, before the server confirms. The mutation
+  // invalidates the report query on success; once the refetch returns
+  // without the row, the natural unmount removes the entry. On error we
+  // remove from the set so the card re-appears with a toast.
+  //
+  // This set is the source of truth for "what the user thinks they
+  // dismissed" — the actual server state is whatever the next report
+  // refetch returns. They converge after a successful round-trip.
+  const [optimisticDismissed, setOptimisticDismissed] = useState<Set<string>>(new Set())
+  // Filter dedupedActions through the optimistic set so the UI updates
+  // instantly. Server-side filter still applies on the next refetch;
+  // this is purely a render-time bypass to remove perceived latency.
+  const actions = optimisticDismissed.size > 0
+    ? dedupedActions.filter(a => !a.targetRef || !optimisticDismissed.has(a.targetRef))
+    : dedupedActions
 
   const handleDismiss = (action: ProjectReportDto['actionPlan'][number]) => {
     if (!action.targetRef) return
     const ref = action.targetRef
-    // window.confirm is deliberate: this is a destructive UX action on a
-    // recommendation the user is acknowledging they've handled. A custom
-    // modal with a URL/note input is on the roadmap (see PR description);
-    // confirm() is the smallest thing that prevents misclicks today.
-    const ok = window.confirm(
-      `Mark "${action.title}" as addressed? It will drop off the report immediately; you can un-dismiss it later from the dismissed list (CLI: \`canonry content dismissals list\`).`,
-    )
-    if (!ok) return
-    setPendingTargetRefs(prev => new Set(prev).add(ref))
+    // No `window.confirm` — single-click dismissal with optimistic UI is
+    // the right primitive here. The action is reversible via `DELETE
+    // /content/dismissals/:targetRef` (and a future "Dismissed" panel),
+    // so the friction of a confirm dialog outweighs the misclick risk.
+    // Toast confirms the dismissal landed and gives the user a chance to
+    // notice if it was unintentional.
+    setOptimisticDismissed(prev => new Set(prev).add(ref))
     dismissMutation.mutate(
       { projectName, body: { targetRef: ref } },
       {
         onSuccess: () => {
-          addToast({ tone: 'positive', title: `Dismissed "${action.title}"`, detail: 'Will not appear in future reports until un-dismissed.' })
-          // Don't manually clear pendingTargetRefs here — the mutation
-          // invalidates the report query, the action drops out of `actions`
-          // on the next render, and the row unmounts. We clear on error so
-          // the user can retry.
+          addToast({
+            tone: 'positive',
+            title: `Dismissed "${action.title}"`,
+            detail: 'Will not appear in future reports until un-dismissed.',
+          })
+          // Don't clear optimisticDismissed here — the mutation
+          // invalidates the report query, the row drops out of
+          // `dedupedActions` on refetch, and the natural unmount makes
+          // the optimistic entry redundant (filter is a no-op on a row
+          // that isn't there). We clear on error so the user can retry.
         },
         onError: (err) => {
-          addToast({ tone: 'negative', title: `Couldn't dismiss "${action.title}"`, detail: String(err) })
-          setPendingTargetRefs(prev => {
+          addToast({
+            tone: 'negative',
+            title: `Couldn't dismiss "${action.title}"`,
+            detail: String(err),
+          })
+          setOptimisticDismissed(prev => {
             const next = new Set(prev)
             next.delete(ref)
             return next
@@ -503,11 +522,10 @@ function ActionPlanSection({ report, audience, projectName }: { report: ProjectR
                     <button
                       type="button"
                       onClick={() => handleDismiss(action)}
-                      disabled={pendingTargetRefs.has(action.targetRef)}
-                      className="rounded-md border border-zinc-700/60 bg-zinc-900/50 px-2.5 py-1 text-[11px] font-medium text-zinc-300 hover:border-zinc-600 hover:bg-zinc-800/70 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-50"
+                      className="rounded-md border border-zinc-700/60 bg-zinc-900/50 px-2.5 py-1 text-[11px] font-medium text-zinc-300 hover:border-zinc-600 hover:bg-zinc-800/70 hover:text-zinc-100"
                       title="Stop showing this recommendation. The page-detection logic relies on GSC/GA syncs that lag by days — if you've already addressed it, dismissing keeps the report current."
                     >
-                      {pendingTargetRefs.has(action.targetRef) ? 'Dismissing…' : 'Mark addressed'}
+                      Mark addressed
                     </button>
                   </div>
                 )}

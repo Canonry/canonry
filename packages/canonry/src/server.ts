@@ -1356,15 +1356,43 @@ export async function createServer(opts: {
       // Don't serve index.html automatically — we handle it with config injection
       serve: true,
       index: false,
+      // Hashed asset filenames (Vite emits `index-<hash>.js`,
+      // `vendor-recharts-<hash>.js`, etc.) are content-addressed: the URL
+      // changes whenever the file changes. Safe to cache aggressively —
+      // 1 year + immutable tells the browser to never revalidate.
+      // Without this, the browser hits the server for every JS chunk on
+      // every page load, defeating most of the dashboard's first-paint
+      // budget.
+      setHeaders: (reply, filePath) => {
+        // index.html serving is handled separately below; this static
+        // middleware doesn't actually serve it (index:false), but guard
+        // anyway in case fastify-static falls back through here.
+        if (filePath.endsWith('.html')) {
+          reply.setHeader('Cache-Control', 'no-cache, must-revalidate')
+        } else {
+          reply.setHeader('Cache-Control', 'public, max-age=31536000, immutable')
+        }
+      },
     })
 
     // Serve index.html with injected config for the root/base-path route.
     // Register both the trailing-slash form ('/canonry/') and the bare form
     // ('/canonry') so either URL shape hits the handler without a 404.
+    //
+    // `Cache-Control: no-cache, must-revalidate` is critical here: the
+    // HTML references hashed JS bundles (`index-<hash>.js`), so when we
+    // deploy a new build the bundle filename changes. If the browser
+    // caches the OLD index.html, it keeps loading the OLD bundle
+    // filename — which may not exist on the server anymore, or worse,
+    // does exist but is now stale code. `no-cache` forces a revalidation
+    // request on every page load (typically a fast 304 if unchanged).
     const serveIndex = (_request: FastifyRequest, reply: FastifyReply) => {
       if (fs.existsSync(indexPath)) {
         const html = fs.readFileSync(indexPath, 'utf-8')
-        return reply.type('text/html').send(injectConfig(html))
+        return reply
+          .header('Cache-Control', 'no-cache, must-revalidate')
+          .type('text/html')
+          .send(injectConfig(html))
       }
       return reply.status(404).send({ error: 'Dashboard not built' })
     }
@@ -1401,7 +1429,13 @@ export async function createServer(opts: {
 
       if (fs.existsSync(indexPath)) {
         const html = fs.readFileSync(indexPath, 'utf-8')
-        return reply.type('text/html').send(injectConfig(html))
+        // Same no-cache policy as `serveIndex` — SPA deep links hit this
+        // handler and must always pick up the latest index.html that
+        // points at the current hashed bundles.
+        return reply
+          .header('Cache-Control', 'no-cache, must-revalidate')
+          .type('text/html')
+          .send(injectConfig(html))
       }
       return reply.status(404).send({ error: 'Not found' })
     })
