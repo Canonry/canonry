@@ -332,7 +332,7 @@ export function RootLayout() {
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        closeDrawer()
+        void closeDrawer()
       }
     }
 

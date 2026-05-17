@@ -24,7 +24,7 @@ function parseKindParam(raw: unknown): SchedulableRunKind {
   if (raw === undefined || raw === null || raw === '') return SchedulableRunKinds['answer-visibility']
   const parsed = schedulableRunKindSchema.safeParse(raw)
   if (!parsed.success) {
-    throw validationError(`Invalid kind "${String(raw)}". Must be one of: ${Object.values(SchedulableRunKinds).join(', ')}`)
+    throw validationError(`Invalid kind "${JSON.stringify(raw)}". Must be one of: ${Object.values(SchedulableRunKinds).join(', ')}`)
   }
   return parsed.data
 }

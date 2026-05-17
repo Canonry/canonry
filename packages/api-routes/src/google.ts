@@ -240,7 +240,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
             <ol>
               <li>Go to the <a href="https://console.cloud.google.com/apis/credentials" target="_blank">Google Cloud Console → Credentials</a></li>
               <li>Click your OAuth 2.0 Client ID</li>
-              <li>Under "Authorized redirect URIs", add:<br><code style="background:#1e1e1e;color:#e0e0e0;padding:4px 8px;border-radius:4px;display:inline-block;margin-top:4px">${request.query.state ? (() => { try { const s = verifySignedState(request.query.state, stateSecret); return escapeHtml(String(s?.redirectUri ?? 'Could not determine URI')) } catch { return 'Could not determine URI' } })() : 'Could not determine URI'}</code></li>
+              <li>Under "Authorized redirect URIs", add:<br><code style="background:#1e1e1e;color:#e0e0e0;padding:4px 8px;border-radius:4px;display:inline-block;margin-top:4px">${request.query.state ? (() => { try { const s = verifySignedState(request.query.state, stateSecret); const uri = s?.redirectUri; return escapeHtml(typeof uri === 'string' ? uri : 'Could not determine URI') } catch { return 'Could not determine URI' } })() : 'Could not determine URI'}</code></li>
               <li>Click Save, then retry the connection</li>
             </ol>
             <p style="color:#888">You can close this tab.</p>
@@ -597,8 +597,8 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
       crawlTime: r.crawlTime,
       lastCrawlResult: r.lastCrawlResult,
       isMobileFriendly: r.isMobileFriendly === 1 ? true : r.isMobileFriendly === 0 ? false : null,
-      richResults: JSON.parse(r.richResults),
-      referringUrls: JSON.parse(r.referringUrls),
+      richResults: JSON.parse(r.richResults) as unknown,
+      referringUrls: JSON.parse(r.referringUrls) as unknown,
       inspectedAt: r.inspectedAt,
     }))
   })
@@ -754,7 +754,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
       crawlTime: r.crawlTime,
       lastCrawlResult: r.lastCrawlResult,
       isMobileFriendly: r.isMobileFriendly === 1 ? true : r.isMobileFriendly === 0 ? false : null,
-      richResults: JSON.parse(r.richResults),
+      richResults: JSON.parse(r.richResults) as unknown,
       inspectedAt: r.inspectedAt,
     })
 

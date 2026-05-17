@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { Button } from '../ui/button.js'
 import { addLocation, removeLocation, setDefaultLocation, type ApiLocation } from '../../api.js'
 import { addToast } from '../../lib/toast-store.js'
+import { asyncHandler } from '../../lib/async-handler.js'
 
 export function ProjectSettingsSection({
   project,
@@ -296,7 +297,7 @@ export function ProjectSettingsSection({
           </div>
 
           <div className="flex items-center gap-2 pt-2 border-t border-zinc-800/60">
-            <Button type="button" disabled={saving || !hasChanges || !displayName.trim() || !canonicalDomain.trim()} onClick={handleSave}>
+            <Button type="button" disabled={saving || !hasChanges || !displayName.trim() || !canonicalDomain.trim()} onClick={asyncHandler(handleSave)}>
               {saving ? 'Saving...' : 'Save changes'}
             </Button>
             <Button type="button" variant="outline" disabled={saving} onClick={handleCancel}>
@@ -391,7 +392,7 @@ export function ProjectSettingsSection({
                                   <button
                                     type="button"
                                     disabled={locationWorking}
-                                    onClick={() => handleSetDefaultLocation(loc.label)}
+                                    onClick={() => { void handleSetDefaultLocation(loc.label) }}
                                     className="text-[10px] text-zinc-500 hover:text-emerald-400 transition-colors disabled:opacity-40"
                                     aria-label={`Set ${loc.label} as default location`}
                                   >
@@ -401,7 +402,7 @@ export function ProjectSettingsSection({
                                 <button
                                   type="button"
                                   disabled={locationWorking}
-                                  onClick={() => handleRemoveLocation(loc.label)}
+                                  onClick={() => { void handleRemoveLocation(loc.label) }}
                                   className="text-[10px] text-zinc-500 hover:text-rose-400 transition-colors disabled:opacity-40"
                                   aria-label={`Remove location ${loc.label}`}
                                 >
@@ -442,7 +443,7 @@ export function ProjectSettingsSection({
                         </div>
                       </div>
                       <div className="flex items-center gap-2 pt-1">
-                        <Button type="button" size="sm" disabled={locationWorking || !newLocValid} onClick={handleAddLocation}>
+                        <Button type="button" size="sm" disabled={locationWorking || !newLocValid} onClick={asyncHandler(handleAddLocation)}>
                           {locationWorking ? 'Adding...' : 'Add location'}
                         </Button>
                         <Button type="button" size="sm" variant="outline" disabled={locationWorking} onClick={() => { setShowAddLocation(false); setLocationError(null) }}>

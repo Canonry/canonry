@@ -8,6 +8,7 @@ import { StatusBadge } from '../components/shared/StatusBadge.js'
 import { ToneBadge } from '../components/shared/ToneBadge.js'
 import { YamlApplyPanel } from '../components/project/YamlApplyPanel.js'
 import { addToast } from '../lib/toast-store.js'
+import { asyncHandler } from '../lib/async-handler.js'
 import { createProject } from '../api.js'
 import { useDashboard } from '../queries/use-dashboard.js'
 import { Link } from '@tanstack/react-router'
@@ -84,7 +85,7 @@ export function ProjectsPage() {
       setCountry('US')
       setLanguage('en')
       setShowForm(false)
-      navigate({ to: '/projects/$projectId', params: { projectId: project.id } })
+      void navigate({ to: '/projects/$projectId', params: { projectId: project.id } })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create project')
     } finally {
@@ -183,7 +184,7 @@ export function ProjectsPage() {
           </div>
           {error ? <p className="text-rose-400 text-sm mt-3">{error}</p> : null}
           <div className="flex items-center gap-3 mt-4">
-            <Button type="button" disabled={!slug || !domain || saving} onClick={handleCreate}>
+            <Button type="button" disabled={!slug || !domain || saving} onClick={asyncHandler(handleCreate)}>
               {saving ? 'Creating...' : 'Create project'}
             </Button>
             <Button type="button" variant="ghost" onClick={() => setShowForm(false)}>
@@ -209,7 +210,7 @@ export function ProjectsPage() {
               {projects.map((p) => {
                 const latestRun = p.recentRuns[0]
                 return (
-                  <tr key={p.project.id} className="cursor-pointer" onClick={() => navigate({ to: '/projects/$projectId', params: { projectId: p.project.id } })}>
+                  <tr key={p.project.id} className="cursor-pointer" onClick={() => { void navigate({ to: '/projects/$projectId', params: { projectId: p.project.id } }) }}>
                     <td>
                       <Link
                         to="/projects/$projectId"

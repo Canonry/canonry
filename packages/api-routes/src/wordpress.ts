@@ -27,6 +27,15 @@ import {
 import type { SchemaProfileFile, WordpressConnectionRecord } from '@ainyc/canonry-integration-wordpress'
 import { resolveProject, writeAuditLog } from './helpers.js'
 
+interface IndexingSuccessBody {
+  results?: Array<{ status: string }>
+}
+
+interface IndexingErrorBody {
+  message?: string
+  error?: string
+}
+
 export interface WordpressConnectionStore {
   getConnection: (projectName: string) => WordpressConnectionRecord | undefined
   upsertConnection: (connection: WordpressConnectionRecord) => WordpressConnectionRecord
@@ -678,12 +687,12 @@ export async function wordpressRoutes(app: FastifyInstance, opts: WordpressRoute
           headers: authHeader ? { authorization: authHeader } : {},
         })
         if (googleRes.statusCode === 200) {
-          const body = JSON.parse(googleRes.body)
-          const succeeded = body.results?.filter((r: { status: string }) => r.status === 'success').length ?? 0
+          const body = JSON.parse(googleRes.body) as IndexingSuccessBody
+          const succeeded = body.results?.filter((r) => r.status === 'success').length ?? 0
           steps.push({ name: 'google-submit', status: 'completed', summary: `${succeeded}/${pageUrls.length} URLs submitted` })
         } else {
-          const body = JSON.parse(googleRes.body)
-          const msg = body.message || body.error || `HTTP ${googleRes.statusCode}`
+          const body = JSON.parse(googleRes.body) as IndexingErrorBody
+          const msg = body.message ?? body.error ?? `HTTP ${googleRes.statusCode}`
           // Treat "not configured" as skipped, not failed
           if (googleRes.statusCode === 400 || googleRes.statusCode === 404) {
             steps.push({ name: 'google-submit', status: 'skipped', summary: msg })
@@ -706,12 +715,12 @@ export async function wordpressRoutes(app: FastifyInstance, opts: WordpressRoute
           headers: authHeader ? { authorization: authHeader } : {},
         })
         if (bingRes.statusCode === 200) {
-          const body = JSON.parse(bingRes.body)
-          const succeeded = body.results?.filter((r: { status: string }) => r.status === 'success').length ?? 0
+          const body = JSON.parse(bingRes.body) as IndexingSuccessBody
+          const succeeded = body.results?.filter((r) => r.status === 'success').length ?? 0
           steps.push({ name: 'bing-submit', status: 'completed', summary: `${succeeded}/${pageUrls.length} URLs submitted` })
         } else {
-          const body = JSON.parse(bingRes.body)
-          const msg = body.message || body.error || `HTTP ${bingRes.statusCode}`
+          const body = JSON.parse(bingRes.body) as IndexingErrorBody
+          const msg = body.message ?? body.error ?? `HTTP ${bingRes.statusCode}`
           if (bingRes.statusCode === 400 || bingRes.statusCode === 404) {
             steps.push({ name: 'bing-submit', status: 'skipped', summary: msg })
           } else {

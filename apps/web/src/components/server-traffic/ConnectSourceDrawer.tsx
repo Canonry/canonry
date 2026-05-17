@@ -7,6 +7,7 @@ import {
   useConnectServerTrafficVercel,
   useConnectServerTrafficWordpress,
 } from '../../queries/server-traffic.js'
+import { asyncHandler } from '../../lib/async-handler.js'
 import { Button } from '../ui/button.js'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '../ui/sheet.js'
 
@@ -233,7 +234,7 @@ function WordpressSourceForm({
         onBack={onBack}
       />
 
-      <form onSubmit={handleSubmit} className="mt-6 flex flex-col gap-5 overflow-y-auto pr-1">
+      <form onSubmit={asyncHandler(handleSubmit)} className="mt-6 flex flex-col gap-5 overflow-y-auto pr-1">
         <Field label="Project" description="Canonry project this source attaches to.">
           <input
             type="text"
@@ -394,7 +395,7 @@ function CloudRunSourceForm({
         onBack={onBack}
       />
 
-      <form onSubmit={handleSubmit} className="mt-6 flex flex-col gap-5 overflow-y-auto pr-1">
+      <form onSubmit={asyncHandler(handleSubmit)} className="mt-6 flex flex-col gap-5 overflow-y-auto pr-1">
         <Field label="Project" description="Canonry project this source attaches to.">
           <input
             type="text"
@@ -574,7 +575,7 @@ function VercelSourceForm({
         onBack={onBack}
       />
 
-      <form onSubmit={handleSubmit} className="mt-6 flex flex-col gap-5 overflow-y-auto pr-1">
+      <form onSubmit={asyncHandler(handleSubmit)} className="mt-6 flex flex-col gap-5 overflow-y-auto pr-1">
         <Field label="Project" description="Canonry project this source attaches to.">
           <input
             type="text"

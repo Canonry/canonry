@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { Button } from '../ui/button.js'
 import { updateProviderConfig } from '../../api.js'
 import { addToast } from '../../lib/toast-store.js'
+import { asyncHandler } from '../../lib/async-handler.js'
 
 export function ProviderConfigForm({ providerName, keyUrl, modelHint, onSaved }: {
   providerName: string
@@ -162,7 +163,7 @@ export function ProviderConfigForm({ providerName, keyUrl, modelHint, onSaved }:
       </div>
       {error && <p className="text-xs text-rose-400">{error}</p>}
       {success && <p className="text-xs text-emerald-400">Provider updated.</p>}
-      <Button type="button" size="sm" disabled={!canSave || saving} onClick={handleSave}>
+      <Button type="button" size="sm" disabled={!canSave || saving} onClick={asyncHandler(handleSave)}>
         {saving ? 'Saving...' : 'Save'}
       </Button>
     </div>

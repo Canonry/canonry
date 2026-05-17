@@ -105,39 +105,39 @@ export const SYSTEM_CLI_COMMANDS: readonly CliCommandSpec[] = [
     path: ['stop'],
     usage: 'canonry stop [--format json]',
     allowPositionals: false,
-    run: async (input) => {
-      await stopDaemon(input.format)
+    run: (input) => {
+      stopDaemon(input.format)
     },
   },
   {
     path: ['telemetry', 'status'],
     usage: 'canonry telemetry status [--format json]',
     allowPositionals: false,
-    run: async (input) => {
-      await telemetryCommand('status', input.format)
+    run: (input) => {
+      telemetryCommand('status', input.format)
     },
   },
   {
     path: ['telemetry', 'enable'],
     usage: 'canonry telemetry enable [--format json]',
     allowPositionals: false,
-    run: async (input) => {
-      await telemetryCommand('enable', input.format)
+    run: (input) => {
+      telemetryCommand('enable', input.format)
     },
   },
   {
     path: ['telemetry', 'disable'],
     usage: 'canonry telemetry disable [--format json]',
     allowPositionals: false,
-    run: async (input) => {
-      await telemetryCommand('disable', input.format)
+    run: (input) => {
+      telemetryCommand('disable', input.format)
     },
   },
   {
     path: ['telemetry'],
     usage: 'canonry telemetry <status|enable|disable> [--format json]',
-    run: async (input) => {
-      await unknownSubcommand(input.positionals[0], {
+    run: (input) => {
+      unknownSubcommand(input.positionals[0], {
         command: 'telemetry',
         usage: 'canonry telemetry <status|enable|disable> [--format json]',
         available: ['status', 'enable', 'disable'],

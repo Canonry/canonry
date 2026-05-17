@@ -23,6 +23,7 @@ import {
 import { ToneBadge } from '../components/shared/ToneBadge.js'
 import { Button } from '../components/ui/button.js'
 import { downloadReportHtml, fetchReport, ApiError } from '../api.js'
+import { asyncHandler } from '../lib/async-handler.js'
 import { queryKeys } from '../queries/query-keys.js'
 import type { MetricTone } from '../view-models.js'
 
@@ -118,7 +119,7 @@ export function ReportPage({ projectName }: { projectName: string }) {
           <Button
             variant="secondary"
             size="sm"
-            onClick={handleDownload}
+            onClick={asyncHandler(handleDownload)}
             disabled={downloading}
           >
             <Download className="size-4" />

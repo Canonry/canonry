@@ -64,11 +64,12 @@ export function toCanonryErrorEnvelope(error: unknown): CanonryErrorEnvelope {
   }
 
   if (hasErrorEnvelope(error)) {
+    const { code, message, details } = error.error
     return {
       error: {
-        code: String(error.error.code ?? 'API_ERROR'),
-        message: String(error.error.message ?? 'Canonry API error'),
-        ...(error.error.details !== undefined ? { details: error.error.details } : {}),
+        code: typeof code === 'string' ? code : 'API_ERROR',
+        message: typeof message === 'string' ? message : 'Canonry API error',
+        ...(details !== undefined ? { details } : {}),
       },
     }
   }

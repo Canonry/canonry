@@ -105,31 +105,31 @@ export default tseslint.config(
       },
     },
     rules: {
-      // Surfaced as `warn` to ship the rule without breaking CI on the ~360 pre-existing findings
-      // (mostly defensive `?.` chains on already-narrowed types). Plan: clean up warns incrementally,
-      // then flip to `error`. The original always-true `selectedRun !== undefined` bug class is
-      // already caught — warnings show up in CI output, so new regressions are visible.
+      // Kept as `warn`: 363 pre-existing findings, mostly defensive `?.`/`??` noise. Drain
+      // incrementally before flipping to `error`.
       '@typescript-eslint/no-unnecessary-condition': 'warn',
-      // The recommendedTypeChecked preset turns on a lot of opinionated rules. We only want the one above
-      // for now — disable the rest to avoid landing a giant cleanup we didn't scope for.
-      '@typescript-eslint/no-misused-promises': 'off',
-      '@typescript-eslint/no-floating-promises': 'off',
-      '@typescript-eslint/no-unsafe-assignment': 'off',
-      '@typescript-eslint/no-unsafe-member-access': 'off',
-      '@typescript-eslint/no-unsafe-call': 'off',
-      '@typescript-eslint/no-unsafe-return': 'off',
-      '@typescript-eslint/no-unsafe-argument': 'off',
+      // Soundness rules promoted to error — catch real bug classes (forgotten awaits,
+      // misused promises, `any` leaking into typed code, broken template-string output,
+      // unbound methods, awaiting non-thenables).
+      '@typescript-eslint/no-misused-promises': 'error',
+      '@typescript-eslint/no-floating-promises': 'error',
+      '@typescript-eslint/no-unsafe-assignment': 'error',
+      '@typescript-eslint/no-unsafe-member-access': 'error',
+      '@typescript-eslint/no-unsafe-call': 'error',
+      '@typescript-eslint/no-unsafe-return': 'error',
+      '@typescript-eslint/no-unsafe-argument': 'error',
+      '@typescript-eslint/no-base-to-string': 'error',
+      '@typescript-eslint/await-thenable': 'error',
+      '@typescript-eslint/unbound-method': 'error',
+      '@typescript-eslint/no-duplicate-type-constituents': 'error',
+      '@typescript-eslint/no-implied-eval': 'error',
+      '@typescript-eslint/prefer-promise-reject-errors': 'error',
+      '@typescript-eslint/restrict-plus-operands': 'error',
+      // Lower-value or noisy — left off for now; revisit after the soundness set is drained.
       '@typescript-eslint/restrict-template-expressions': 'off',
       '@typescript-eslint/no-redundant-type-constituents': 'off',
-      '@typescript-eslint/no-base-to-string': 'off',
       '@typescript-eslint/require-await': 'off',
-      '@typescript-eslint/await-thenable': 'off',
-      '@typescript-eslint/unbound-method': 'off',
-      '@typescript-eslint/no-duplicate-type-constituents': 'off',
-      '@typescript-eslint/no-implied-eval': 'off',
-      '@typescript-eslint/prefer-promise-reject-errors': 'off',
       '@typescript-eslint/only-throw-error': 'off',
-      '@typescript-eslint/restrict-plus-operands': 'off',
       '@typescript-eslint/no-unnecessary-type-assertion': 'off',
     },
   },

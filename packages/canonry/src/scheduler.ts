@@ -112,8 +112,8 @@ export class Scheduler {
   }
 
   private stopTask(key: string, task: cron.ScheduledTask, verb: 'Stopped' | 'Removed'): void {
-    task.stop()
-    task.destroy()
+    void task.stop()
+    void task.destroy()
     log.info(`task.${verb.toLowerCase()}`, { key })
   }
 

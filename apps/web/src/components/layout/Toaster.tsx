@@ -29,9 +29,9 @@ export function Toaster() {
     if (!toast.cta) return
 
     if (toast.cta.intent === 'open-run-drawer') {
-      openRun(toast.cta.runId)
+      void openRun(toast.cta.runId)
     } else {
-      navigate({ to: '/runs' })
+      void navigate({ to: '/runs' })
     }
 
     dismissToast(toast.id)

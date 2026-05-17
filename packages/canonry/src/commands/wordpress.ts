@@ -16,6 +16,14 @@ function getClient() {
   return createApiClient()
 }
 
+interface YamlModule {
+  parse(input: string): unknown
+}
+
+async function loadYamlModule(): Promise<YamlModule | null> {
+  return (await import('yaml' as string).catch(() => null)) as YamlModule | null
+}
+
 
 function printJson(value: unknown): void {
   console.log(JSON.stringify(value, null, 2))
@@ -421,7 +429,7 @@ export async function wordpressSchemaDeploy(
 ): Promise<void> {
   const fs = await import('node:fs/promises')
   const path = await import('node:path')
-  const yaml = await import('yaml' as string).catch(() => null)
+  const yaml = await loadYamlModule()
 
   const filePath = path.resolve(opts.profile)
   let raw: string
@@ -438,7 +446,7 @@ export async function wordpressSchemaDeploy(
 
   let parsed: unknown
   try {
-    if (yaml?.parse) {
+    if (yaml) {
       parsed = yaml.parse(raw)
     } else {
       parsed = JSON.parse(raw)
@@ -558,7 +566,7 @@ export async function wordpressOnboard(
   if (opts.profile) {
     const fs = await import('node:fs/promises')
     const path = await import('node:path')
-    const yaml = await import('yaml' as string).catch(() => null)
+    const yaml = await loadYamlModule()
 
     const filePath = path.resolve(opts.profile)
     let raw: string
@@ -573,7 +581,7 @@ export async function wordpressOnboard(
       })
     }
     try {
-      profileData = yaml?.parse ? yaml.parse(raw) : JSON.parse(raw)
+      profileData = yaml ? yaml.parse(raw) : (JSON.parse(raw) as unknown)
     } catch {
       throw new CliError({
         code: 'INVALID_PROFILE',

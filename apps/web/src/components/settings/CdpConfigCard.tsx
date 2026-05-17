@@ -4,6 +4,7 @@ import { Button } from '../ui/button.js'
 import { Card } from '../ui/card.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
 import { addToast } from '../../lib/toast-store.js'
+import { asyncHandler } from '../../lib/async-handler.js'
 import { fetchCdpStatus, configureCdp, type ApiCdpStatus } from '../../api.js'
 
 export function CdpConfigCard() {
@@ -80,7 +81,7 @@ export function CdpConfigCard() {
       {configuringCdp && (
         <form
           className="mt-3 flex flex-col gap-2"
-          onSubmit={async (e) => {
+          onSubmit={asyncHandler(async (e: React.FormEvent) => {
             e.preventDefault()
             setCdpSaving(true)
             try {
@@ -100,7 +101,7 @@ export function CdpConfigCard() {
             } finally {
               setCdpSaving(false)
             }
-          }}
+          })}
         >
           <div className="flex gap-2">
             <input

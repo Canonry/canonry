@@ -321,7 +321,7 @@ async function mapWithConcurrency<T, R>(
   limit: number,
   iteratee: (item: T, index: number) => Promise<R>,
 ): Promise<R[]> {
-  const results: R[] = new Array(items.length)
+  const results: R[] = new Array<R>(items.length)
   let nextIndex = 0
 
   async function worker() {
@@ -875,7 +875,7 @@ export async function deploySchema(
       return {
         slug,
         status: 'stripped',
-        schemasInjected: schemas.map((s) => String(s['@type'] ?? 'Unknown')),
+        schemasInjected: schemas.map((s) => typeof s['@type'] === 'string' ? s['@type'] : 'Unknown'),
         manualAssist: {
           manualRequired: true,
           targetUrl: page.link ?? `${site.siteUrl}/${slug}`,
@@ -893,7 +893,7 @@ export async function deploySchema(
     return {
       slug,
       status: 'deployed',
-      schemasInjected: schemas.map((s) => String(s['@type'] ?? 'Unknown')),
+      schemasInjected: schemas.map((s) => typeof s['@type'] === 'string' ? s['@type'] : 'Unknown'),
     }
   } catch (error) {
     if (error instanceof WordpressApiError && error.code === 'NOT_FOUND') {
@@ -971,7 +971,7 @@ export async function getSchemaStatus(
         while ((jsonMatch = jsonLdRegex.exec(match[1])) !== null) {
           try {
             const parsed = JSON.parse(jsonMatch[1]!.trim()) as Record<string, unknown>
-            canonrySchemas.push(String(parsed['@type'] ?? 'Unknown'))
+            canonrySchemas.push(typeof parsed['@type'] === 'string' ? parsed['@type'] : 'Unknown')
           } catch {
             // ignore
           }

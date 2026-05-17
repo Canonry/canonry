@@ -59,7 +59,7 @@ export type DiscoveryDomainClassification = Record<string, DiscoveryCompetitorTy
  * end-to-end without spinning up the network.
  */
 export interface DiscoveryDeps {
-  seed(input: {
+  seed: (input: {
     project: DiscoveryProjectContext
     icpDescription: string
     /**
@@ -69,14 +69,14 @@ export interface DiscoveryDeps {
      * constrains the generated queries to these areas.
      */
     locations: LocationContext[]
-  }): Promise<DiscoverySeedResult>
+  }) => Promise<DiscoverySeedResult>
 
-  embed(queries: string[]): Promise<number[][]>
+  embed: (queries: string[]) => Promise<number[][]>
 
-  probe(input: {
+  probe: (input: {
     project: DiscoveryProjectContext
     query: string
-  }): Promise<DiscoveryProbeResult>
+  }) => Promise<DiscoveryProbeResult>
 
   /**
    * Classify every recurring cited domain into a `DiscoveryCompetitorType` in
@@ -86,11 +86,11 @@ export interface DiscoveryDeps {
    * classification outage degrades the competitor map rather than failing the
    * session.
    */
-  classifyDomains(input: {
+  classifyDomains: (input: {
     project: DiscoveryProjectContext
     icpDescription: string
     domains: string[]
-  }): Promise<DiscoveryDomainClassification>
+  }) => Promise<DiscoveryDomainClassification>
 }
 
 export interface ExecuteDiscoveryOptions {

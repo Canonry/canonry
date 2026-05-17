@@ -31,7 +31,7 @@ export type CliCommandSpec = {
    * ignored, which would risk writes when the agent thought it was previewing).
    */
   supportsDryRun?: boolean
-  run: (input: CliCommandInput) => Promise<void>
+  run: (input: CliCommandInput) => Promise<void> | void
 }
 
 function commandId(spec: CliCommandSpec): string {
