@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "canonry": {
-      "command": "/home/arberx/.openclaw/workspace/canonry/packages/canonry/bin/canonry-mcp.mjs",
-      "args": []
-    }
-  }
-}
