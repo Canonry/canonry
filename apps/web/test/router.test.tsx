@@ -1,4 +1,4 @@
-import { test, expect } from 'vitest'
+import { test, expect, beforeAll } from 'vitest'
 import React from 'react'
 import { render, waitFor, act } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -9,6 +9,11 @@ import { createAppRouter } from '../src/router/router.js'
 import { DashboardProvider } from '../src/contexts/dashboard-context.js'
 import { heyClient } from '../src/api.js'
 import { getApiV1ProjectsQueryKey } from '@ainyc/canonry-api-client/react-query'
+import { preloadAllLazyRoutes } from '../src/router/routes.js'
+
+beforeAll(async () => {
+  await preloadAllLazyRoutes()
+})
 
 const projectsCacheKey = getApiV1ProjectsQueryKey({ client: heyClient })
 

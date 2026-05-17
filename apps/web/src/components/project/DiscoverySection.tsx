@@ -114,6 +114,20 @@ export function DiscoverySection({ projectName }: { projectName: string }) {
       void queryClient.invalidateQueries({
         queryKey: getApiV1ProjectsQueryKey({ client: heyClient }),
       })
+      // The per-project dashboard detail composite in `use-dashboard.ts`
+      // (key shape `['projects', projectId, latestRunIdsKey]`) fans out to
+      // `fetchQueries` + `fetchProjectOverview`; both surface the newly
+      // promoted queries (tracked-query count, suggested-queries card
+      // drops the now-tracked items). Without invalidating it the user
+      // sees stale counts and a suggestion that's already been added —
+      // same shape of bug as the suggested-queries "Add" button stuck on
+      // "Adding…" before the per-detail invalidation landed.
+      void queryClient.invalidateQueries({
+        predicate: (query) =>
+          Array.isArray(query.queryKey)
+          && query.queryKey[0] === 'projects'
+          && query.queryKey.length > 1,
+      })
       addToast({
         title: 'Queries added',
         detail: promoteResultDetail(result),
