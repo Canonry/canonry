@@ -227,7 +227,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
         .map(s => s.provider)
       const competitorsCiting = new Set<string>()
       for (const s of qSnapshots) {
-        const overlap = parseJsonColumn<string[]>(s.competitorOverlap, [])
+        const overlap = s.competitorOverlap
         for (const c of overlap) competitorsCiting.add(c)
       }
 

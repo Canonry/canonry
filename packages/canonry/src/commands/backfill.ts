@@ -129,18 +129,14 @@ export async function backfillAnswerVisibilityCommand(opts?: {
             }
 
             const nextCitationState = determineCitationState(normalized, projectDomains)
-            const nextCitedDomains = JSON.stringify(reparsedResult.citedDomains)
-            const nextCompetitorOverlap = JSON.stringify(
-              computeCompetitorOverlap(normalized, competitorDomains),
-            )
-            const nextRecommendedCompetitors = JSON.stringify(
-              extractRecommendedCompetitors(
-                normalized.answerText,
-                projectDomains,
-                normalized.citedDomains,
-                competitorDomains,
-                projectBrandNames,
-              ),
+            const nextCitedDomains = reparsedResult.citedDomains
+            const nextCompetitorOverlap = computeCompetitorOverlap(normalized, competitorDomains)
+            const nextRecommendedCompetitors = extractRecommendedCompetitors(
+              normalized.answerText,
+              projectDomains,
+              normalized.citedDomains,
+              competitorDomains,
+              projectBrandNames,
             )
             const nextRawResponse = stringifyStoredSnapshotEnvelope(
               snapshot.rawResponse,
@@ -150,13 +146,13 @@ export async function backfillAnswerVisibilityCommand(opts?: {
             if (snapshot.citationState !== nextCitationState) {
               nextPatch.citationState = nextCitationState
             }
-            if (snapshot.citedDomains !== nextCitedDomains) {
+            if (JSON.stringify(snapshot.citedDomains) !== JSON.stringify(nextCitedDomains)) {
               nextPatch.citedDomains = nextCitedDomains
             }
-            if (snapshot.competitorOverlap !== nextCompetitorOverlap) {
+            if (JSON.stringify(snapshot.competitorOverlap) !== JSON.stringify(nextCompetitorOverlap)) {
               nextPatch.competitorOverlap = nextCompetitorOverlap
             }
-            if (snapshot.recommendedCompetitors !== nextRecommendedCompetitors) {
+            if (JSON.stringify(snapshot.recommendedCompetitors) !== JSON.stringify(nextRecommendedCompetitors)) {
               nextPatch.recommendedCompetitors = nextRecommendedCompetitors
             }
             if (snapshot.rawResponse !== nextRawResponse) {
@@ -542,7 +538,7 @@ export function backfillProjectAnswerMentions(
       const nextAnswerMentioned = determineAnswerMentioned(answerText, projectBrandNames, projectDomains)
       if (nextAnswerMentioned) mentioned++
 
-      const citedDomains = parseJsonColumn<string[]>(snapshot.citedDomains, [])
+      const citedDomains = snapshot.citedDomains
       const groundingSources = readStoredGroundingSources(snapshot.rawResponse)
 
       const normalized: NormalizedQueryResult = {
@@ -553,27 +549,23 @@ export function backfillProjectAnswerMentions(
         searchQueries: [],
       }
 
-      const nextCompetitorOverlap = JSON.stringify(
-        computeCompetitorOverlap(normalized, competitorDomains),
-      )
-      const nextRecommendedCompetitors = JSON.stringify(
-        extractRecommendedCompetitors(
-          answerText,
-          projectDomains,
-          citedDomains,
-          competitorDomains,
-          projectBrandNames,
-        ),
+      const nextCompetitorOverlap = computeCompetitorOverlap(normalized, competitorDomains)
+      const nextRecommendedCompetitors = extractRecommendedCompetitors(
+        answerText,
+        projectDomains,
+        citedDomains,
+        competitorDomains,
+        projectBrandNames,
       )
 
       const nextPatch: Record<string, unknown> = {}
       if (snapshot.answerMentioned !== nextAnswerMentioned) {
         nextPatch.answerMentioned = nextAnswerMentioned
       }
-      if (snapshot.competitorOverlap !== nextCompetitorOverlap) {
+      if (JSON.stringify(snapshot.competitorOverlap) !== JSON.stringify(nextCompetitorOverlap)) {
         nextPatch.competitorOverlap = nextCompetitorOverlap
       }
-      if (snapshot.recommendedCompetitors !== nextRecommendedCompetitors) {
+      if (JSON.stringify(snapshot.recommendedCompetitors) !== JSON.stringify(nextRecommendedCompetitors)) {
         nextPatch.recommendedCompetitors = nextRecommendedCompetitors
       }
 

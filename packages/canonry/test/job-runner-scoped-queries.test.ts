@@ -73,7 +73,7 @@ function buildRegistry(adapter: ProviderAdapter): ProviderRegistry {
   return registry
 }
 
-function seed(db: ReturnType<typeof createClient>, queriesList: string[], runQueriesJson: string | null) {
+function seed(db: ReturnType<typeof createClient>, queriesList: string[], runQueries: string[] | null) {
   const projectId = crypto.randomUUID()
   const runId = crypto.randomUUID()
   const now = new Date().toISOString()
@@ -104,7 +104,7 @@ function seed(db: ReturnType<typeof createClient>, queriesList: string[], runQue
     id: runId,
     projectId,
     status: 'queued',
-    queries: runQueriesJson,
+    queries: runQueries,
     createdAt: now,
   }).run()
 
@@ -116,7 +116,7 @@ test('JobRunner sweeps only the scoped queries when runs.queries is set', async 
   const seen: string[] = []
   const registry = buildRegistry(buildStubAdapter(seen))
 
-  const { projectId, runId } = seed(db, ['alpha', 'beta', 'gamma'], JSON.stringify(['alpha', 'beta']))
+  const { projectId, runId } = seed(db, ['alpha', 'beta', 'gamma'], ['alpha', 'beta'])
 
   const runner = new JobRunner(db, registry)
   await runner.executeRun(runId, projectId)

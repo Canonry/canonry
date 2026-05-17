@@ -71,9 +71,9 @@ test('deleting a tracked query keeps its snapshots (query_id=NULL, query_text in
     citationState: 'cited',
     answerMentioned: true,
     answerText: 'azcoatings is one option…',
-    citedDomains: '["azcoatingsllc.com"]',
-    competitorOverlap: '[]',
-    recommendedCompetitors: '[]',
+    citedDomains: ['azcoatingsllc.com'],
+    competitorOverlap: [],
+    recommendedCompetitors: [],
     location: null,
     rawResponse: null,
     createdAt: now,
@@ -89,7 +89,7 @@ test('deleting a tracked query keeps its snapshots (query_id=NULL, query_text in
   expect(after[0]!.queryId).toBeNull()
   expect(after[0]!.queryText).toBe('best polyurea roof coating')
   expect(after[0]!.citationState).toBe('cited')
-  expect(after[0]!.citedDomains).toBe('["azcoatingsllc.com"]')
+  expect(after[0]!.citedDomains).toEqual(['azcoatingsllc.com'])
 })
 
 test('deleting the run still cascades and removes its snapshots', () => {
@@ -107,9 +107,9 @@ test('deleting the run still cascades and removes its snapshots', () => {
     queryText: 'best polyurea roof coating',
     provider: 'openai',
     citationState: 'cited',
-    citedDomains: '[]',
-    competitorOverlap: '[]',
-    recommendedCompetitors: '[]',
+    citedDomains: [],
+    competitorOverlap: [],
+    recommendedCompetitors: [],
     createdAt: now,
   }).run()
 
@@ -135,9 +135,9 @@ test('PUT-queries-style replace (DELETE+INSERT) no longer destroys snapshot hist
     queryText: 'best polyurea roof coating',
     provider: 'gemini',
     citationState: 'not-cited',
-    citedDomains: '[]',
-    competitorOverlap: '[]',
-    recommendedCompetitors: '[]',
+    citedDomains: [],
+    competitorOverlap: [],
+    recommendedCompetitors: [],
     createdAt: now,
   }).run()
 
@@ -186,9 +186,9 @@ test('migration sanitizes pre-existing dangling query_id refs (production data)'
     queryText: null,
     provider: 'gemini',
     citationState: 'not-cited',
-    citedDomains: '[]',
-    competitorOverlap: '[]',
-    recommendedCompetitors: '[]',
+    citedDomains: [],
+    competitorOverlap: [],
+    recommendedCompetitors: [],
     createdAt: now,
   }).run()
   db.run(sql`PRAGMA foreign_keys = ON`)

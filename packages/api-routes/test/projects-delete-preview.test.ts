@@ -83,7 +83,7 @@ describe('GET /projects/:name/delete-preview', () => {
       const queryId = queryIds[i % queryIds.length]!
       db.insert(querySnapshots).values({
         id: crypto.randomUUID(), runId, queryId, provider: 'gemini', citationState: 'cited',
-        citedDomains: '[]', competitorOverlap: '[]', recommendedCompetitors: '[]', createdAt: now,
+        citedDomains: [], competitorOverlap: [], recommendedCompetitors: [], createdAt: now,
       }).run()
     }
     // 2 insights

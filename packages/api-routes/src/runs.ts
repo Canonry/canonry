@@ -73,7 +73,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
       }
       scopedQueries = body.queries
     }
-    const queriesColumn = scopedQueries ? JSON.stringify(scopedQueries) : null
+    const queriesColumn = scopedQueries ?? null
 
     // Resolve location for this run
     let resolvedLocation: LocationContext | null | undefined
@@ -391,7 +391,7 @@ function formatRun(row: {
   status: string
   trigger: string
   location: string | null
-  queries: string | null
+  queries: string[] | null
   startedAt: string | null
   finishedAt: string | null
   error: string | null
@@ -404,7 +404,7 @@ function formatRun(row: {
     status: row.status,
     trigger: row.trigger,
     location: row.location,
-    queries: parseJsonColumn<string[] | null>(row.queries, null),
+    queries: row.queries ?? null,
     startedAt: row.startedAt,
     finishedAt: row.finishedAt,
     error: parseRunError(row.error),
@@ -484,9 +484,9 @@ function loadRunDetail(app: FastifyInstance, run: typeof runs.$inferSelect) {
           ? resolveSnapshotMentionState(s, project)
           : (answerMentioned ? 'mentioned' : 'not-mentioned'),
         answerText: s.answerText,
-        citedDomains: parseJsonColumn<string[]>(s.citedDomains, []),
-        competitorOverlap: parseJsonColumn<string[]>(s.competitorOverlap, []),
-        recommendedCompetitors: parseJsonColumn<string[]>(s.recommendedCompetitors, []),
+        citedDomains: s.citedDomains,
+        competitorOverlap: s.competitorOverlap,
+        recommendedCompetitors: s.recommendedCompetitors,
         matchedTerms: project ? resolveSnapshotMatchedTerms(s, project) : [],
         model: s.model ?? rawParsed.model,
         location: s.location,

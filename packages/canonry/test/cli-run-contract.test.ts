@@ -4,7 +4,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { eq } from 'drizzle-orm'
-import { createClient, migrate, apiKeys, runs, parseJsonColumn } from '@ainyc/canonry-db'
+import { createClient, migrate, apiKeys, runs } from '@ainyc/canonry-db'
 import { createServer } from '../src/server.js'
 import { ApiClient } from '../src/client.js'
 import { invokeCli } from './cli-test-utils.js'
@@ -203,7 +203,7 @@ describe('run lifecycle CLI contract', () => {
 
     const row = db.select().from(runs).where(eq(runs.id, parsed.id)).get()
     expect(row).toBeTruthy()
-    expect(parseJsonColumn<string[]>(row!.queries, [])).toEqual(['alpha', 'beta'])
+    expect(row!.queries).toEqual(['alpha', 'beta'])
   })
 
   it('returns 400 when --query lists an untracked query', async () => {

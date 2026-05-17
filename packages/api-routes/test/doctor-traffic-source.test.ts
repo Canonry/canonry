@@ -41,7 +41,7 @@ function buildHarness(): Harness {
     canonicalDomain: 'example.com',
     country: 'US',
     language: 'en',
-    queries: '[]',
+    queries: [],
     competitors: '[]',
     providers: '[]',
     createdAt: now,

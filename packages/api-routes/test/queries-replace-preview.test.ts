@@ -56,7 +56,7 @@ function seedSnapshot(db: ReturnType<typeof createClient>, projectId: string, qu
   }).run()
   db.insert(querySnapshots).values({
     id: crypto.randomUUID(), runId, queryId, provider: 'gemini', citationState: 'cited',
-    citedDomains: '[]', competitorOverlap: '[]', recommendedCompetitors: '[]', createdAt: now,
+    citedDomains: [], competitorOverlap: [], recommendedCompetitors: [], createdAt: now,
   }).run()
 }
 

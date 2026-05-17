@@ -472,7 +472,7 @@ function aggregateCandidate(opts: AggregateCandidateOpts): CandidateQuery {
 
   for (const snap of opts.snapshots) {
     const isLatestRun = snap.runId === opts.latestRunId
-    const competitorOverlap = parseJsonColumn<string[]>(snap.competitorOverlap, [])
+    const competitorOverlap = snap.competitorOverlap
     for (const domain of competitorOverlap) {
       const normalized = normalizeDomain(domain)
       if (!opts.competitorSet.has(normalized)) continue

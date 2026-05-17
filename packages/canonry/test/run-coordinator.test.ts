@@ -57,8 +57,8 @@ function seedFixture(db: ReturnType<typeof createClient>) {
     provider: 'gemini',
     model: 'test-model',
     citationState: 'cited',
-    citedDomains: '["example.com"]',
-    competitorOverlap: '[]',
+    citedDomains: ['example.com'],
+    competitorOverlap: [],
     createdAt: now,
   }).run()
 
@@ -223,8 +223,8 @@ describe('RunCoordinator', () => {
         provider: 'gemini',
         model: 'test-model',
         citationState: 'cited',
-        citedDomains: '["example.com"]',
-        competitorOverlap: '[]',
+        citedDomains: ['example.com'],
+        competitorOverlap: [],
         createdAt: now,
       }).run()
 

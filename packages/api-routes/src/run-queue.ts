@@ -9,8 +9,8 @@ export interface QueueRunParams {
   trigger?: string
   createdAt?: string
   location?: string | null
-  /** JSON-serialized array of tracked query strings to scope the sweep to. Null = full sweep. */
-  queries?: string | null
+  /** Array of tracked query strings to scope the sweep to. Null = full sweep. */
+  queries?: string[] | null
 }
 
 export type QueueRunResult =

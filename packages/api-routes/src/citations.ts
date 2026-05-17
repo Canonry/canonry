@@ -19,8 +19,8 @@ interface SnapshotRow {
   queryId: string
   provider: string
   citationState: string
-  citedDomains: string
-  competitorOverlap: string
+  citedDomains: string[]
+  competitorOverlap: string[]
   answerMentioned: boolean | null
   createdAt: string
   runCreatedAt: string
@@ -219,8 +219,8 @@ export function computeCitationVisibility(input: ComputeInput): CitationVisibili
   for (const snap of latestByPair.values()) {
     if (citationStateToCited(snap.citationState as CitationState)) continue
     if (competitorSet.size === 0) continue
-    const cited = parseJsonColumn<string[]>(snap.citedDomains, [])
-    const overlap = parseJsonColumn<string[]>(snap.competitorOverlap, [])
+    const cited = snap.citedDomains
+    const overlap = snap.competitorOverlap
     // Some normalizers populate competitorOverlap directly; others only
     // populate citedDomains. Use either source for resilience.
     const candidates = new Set(

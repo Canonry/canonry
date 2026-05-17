@@ -166,8 +166,8 @@ function loadSnapshotsForRunIds(db: DatabaseClient, runIds: readonly string[]): 
       citationState: r.citationState,
       answerMentioned: r.answerMentioned,
       answerText: r.answerText,
-      citedDomains: parseJsonColumn<string[]>(r.citedDomains, []),
-      competitorOverlap: parseJsonColumn<string[]>(r.competitorOverlap, []),
+      citedDomains: r.citedDomains,
+      competitorOverlap: r.competitorOverlap,
       groundingSources: extractGroundingSources(r.rawResponse),
       createdAt: r.createdAt,
     }))

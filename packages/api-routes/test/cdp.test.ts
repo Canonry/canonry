@@ -266,8 +266,8 @@ describe('GET /api/v1/screenshots/:snapshotId', () => {
       queryId,
       provider: 'cdp:chatgpt',
       citationState: 'cited',
-      citedDomains: '[]',
-      competitorOverlap: '[]',
+      citedDomains: [],
+      competitorOverlap: [],
       screenshotPath: testScreenshotName,
       createdAt: new Date().toISOString(),
     }).run()
@@ -373,8 +373,8 @@ describe('GET /api/v1/projects/:name/runs/:runId/browser-diff', () => {
         queryId,
         provider: 'openai',
         citationState: 'cited',
-        citedDomains: JSON.stringify(['example.com']),
-        competitorOverlap: '[]',
+        citedDomains: ['example.com'],
+        competitorOverlap: [],
         createdAt: new Date().toISOString(),
       },
       {
@@ -383,8 +383,8 @@ describe('GET /api/v1/projects/:name/runs/:runId/browser-diff', () => {
         queryId,
         provider: 'cdp:chatgpt',
         citationState: 'cited',
-        citedDomains: JSON.stringify(['example.com']),
-        competitorOverlap: '[]',
+        citedDomains: ['example.com'],
+        competitorOverlap: [],
         createdAt: new Date().toISOString(),
       },
     ]).run()

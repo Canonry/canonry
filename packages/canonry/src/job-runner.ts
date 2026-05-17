@@ -325,7 +325,7 @@ export class JobRunner {
       log.info('run.dispatch', { runId, providerCount: activeProviders.length, providers: activeProviders.map(p => p.adapter.name) })
 
       // Fetch queries for the project (scope to existingRun.queries if set)
-      const scopedQueryNames = parseJsonColumn<string[] | null>(existingRun.queries, null)
+      const scopedQueryNames = existingRun.queries
       projectQueries = scopedQueryNames
         ? this.db
             .select()
@@ -472,9 +472,9 @@ export class JobRunner {
                 citationState,
                 answerMentioned,
                 answerText: normalized.answerText,
-                citedDomains: JSON.stringify(normalized.citedDomains),
-                competitorOverlap: JSON.stringify(overlap),
-                recommendedCompetitors: JSON.stringify(extractedCompetitors),
+                citedDomains: normalized.citedDomains,
+                competitorOverlap: overlap,
+                recommendedCompetitors: extractedCompetitors,
                 location: runLocation?.label ?? null,
                 screenshotPath: screenshotRelPath,
                 rawResponse: JSON.stringify({
@@ -496,9 +496,9 @@ export class JobRunner {
                 citationState,
                 answerMentioned,
                 answerText: normalized.answerText,
-                citedDomains: JSON.stringify(normalized.citedDomains),
-                competitorOverlap: JSON.stringify(overlap),
-                recommendedCompetitors: JSON.stringify(extractedCompetitors),
+                citedDomains: normalized.citedDomains,
+                competitorOverlap: overlap,
+                recommendedCompetitors: extractedCompetitors,
                 location: runLocation?.label ?? null,
                 rawResponse: JSON.stringify({
                   model: raw.model,
@@ -708,7 +708,7 @@ export class JobRunner {
     }
   }
 
-  private getRunState(runId: string): { status: string; finishedAt: string | null; error: string | null; trigger: string | null; queries: string | null } | undefined {
+  private getRunState(runId: string): { status: string; finishedAt: string | null; error: string | null; trigger: string; queries: string[] | null } | undefined {
     return this.db
       .select({
         status: runs.status,

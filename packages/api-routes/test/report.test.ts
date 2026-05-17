@@ -117,9 +117,9 @@ function insertSnapshot(
     citationState: overrides.citationState ?? 'cited',
     answerMentioned: overrides.answerMentioned ?? true,
     answerText: overrides.answerText ?? '',
-    citedDomains: overrides.citedDomains ?? '[]',
-    competitorOverlap: overrides.competitorOverlap ?? '[]',
-    recommendedCompetitors: overrides.recommendedCompetitors ?? '[]',
+    citedDomains: overrides.citedDomains ?? [],
+    competitorOverlap: overrides.competitorOverlap ?? [],
+    recommendedCompetitors: overrides.recommendedCompetitors ?? [],
     createdAt: overrides.createdAt ?? new Date().toISOString(),
     ...overrides,
   }).run()
@@ -252,14 +252,14 @@ describe('GET /api/v1/projects/:name/report', () => {
     insertSnapshot(ctx.db, runId, kwA, {
       provider: 'gemini',
       citationState: 'cited',
-      citedDomains: JSON.stringify(['landscape.example.com', 'rival.com']),
-      competitorOverlap: JSON.stringify(['rival.com']),
+      citedDomains: ['landscape.example.com', 'rival.com'],
+      competitorOverlap: ['rival.com'],
     })
     insertSnapshot(ctx.db, runId, kwB, {
       provider: 'gemini',
       citationState: 'not-cited',
-      citedDomains: JSON.stringify(['rival.com', 'other.com']),
-      competitorOverlap: JSON.stringify(['rival.com', 'other.com']),
+      citedDomains: ['rival.com', 'other.com'],
+      competitorOverlap: ['rival.com', 'other.com'],
     })
 
     await ctx.app.ready()
@@ -288,7 +288,7 @@ describe('GET /api/v1/projects/:name/report', () => {
     insertSnapshot(ctx.db, runId, kw, {
       provider: 'gemini',
       citationState: 'cited',
-      citedDomains: JSON.stringify(['blog.example.com', 'brand.io']),
+      citedDomains: ['blog.example.com', 'brand.io'],
     })
 
     await ctx.app.ready()
@@ -309,7 +309,7 @@ describe('GET /api/v1/projects/:name/report', () => {
     insertSnapshot(ctx.db, runId, kw, {
       provider: 'gemini',
       citationState: 'cited',
-      citedDomains: JSON.stringify(['blog.rival.com']),
+      citedDomains: ['blog.rival.com'],
     })
 
     await ctx.app.ready()
@@ -327,11 +327,11 @@ describe('GET /api/v1/projects/:name/report', () => {
     const runId = insertRun(ctx.db, projectId)
 
     insertSnapshot(ctx.db, runId, kw, {
-      citedDomains: JSON.stringify(['reddit.com', 'youtube.com', 'wikipedia.org']),
+      citedDomains: ['reddit.com', 'youtube.com', 'wikipedia.org'],
     })
     insertSnapshot(ctx.db, runId, kw, {
       provider: 'openai',
-      citedDomains: JSON.stringify(['reddit.com', 'forbes.com']),
+      citedDomains: ['reddit.com', 'forbes.com'],
     })
 
     await ctx.app.ready()
@@ -376,14 +376,14 @@ describe('GET /api/v1/projects/:name/report', () => {
         provider: 'gemini',
         citationState: 'not-cited',
         answerMentioned: false,
-        citedDomains: JSON.stringify(['external-directory.com', 'paintmag.com']),
+        citedDomains: ['external-directory.com', 'paintmag.com'],
         rawResponse: externalGrounding,
       })
       insertSnapshot(ctx.db, runId, queryId, {
         provider: 'openai',
         citationState: 'not-cited',
         answerMentioned: false,
-        citedDomains: JSON.stringify(['external-directory.com']),
+        citedDomains: ['external-directory.com'],
         rawResponse: externalGrounding,
       })
     }
