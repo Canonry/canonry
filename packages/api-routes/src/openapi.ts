@@ -3341,6 +3341,11 @@ const canonryLocalRouteCatalog: OpenApiOperation[] = [
     parameters: [nameParameter],
     responses: {
       // TODO: Add `AgentProvidersResponse` Zod schema in contracts.
+      // (Schema exists as `agentProvidersResponseDtoSchema` in contracts/agent.ts,
+      // but agent routes ride in `canonryLocalRouteCatalog`, which the codegen
+      // skips, so a named DTO wouldn't reach the SDK today. Switch to
+      // `jsonResponse('AgentProvidersResponseDto')` when the canonry-local
+      // catalog is promoted to first-class.)
       200: rawJsonResponse('Providers returned.', looseObjectSchema),
       404: errorResponse('Project not found.'),
     },

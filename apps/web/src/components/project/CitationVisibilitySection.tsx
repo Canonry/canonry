@@ -2,16 +2,18 @@ import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Minus } from 'lucide-react'
 import type { CitationCoverageProvider, CitationVisibilityResponse } from '@ainyc/canonry-contracts'
-import { fetchCitationVisibility } from '../../api.js'
+import { getApiV1ProjectsByNameCitationsVisibilityOptions } from '@ainyc/canonry-api-client/react-query'
+import { heyClient } from '../../api.js'
 import { STATIC_VISIBILITY_STALE_MS } from '../../queries/query-client.js'
-import { queryKeys } from '../../queries/query-keys.js'
 import { InfoTooltip } from '../shared/InfoTooltip.js'
 import { ProviderBadge } from '../shared/ProviderBadge.js'
 
 export function CitationVisibilitySection({ projectName }: { projectName: string }) {
   const visibilityQuery = useQuery({
-    queryKey: queryKeys.citationVisibility(projectName),
-    queryFn: () => fetchCitationVisibility(projectName),
+    ...getApiV1ProjectsByNameCitationsVisibilityOptions({
+      client: heyClient,
+      path: { name: projectName },
+    }),
     staleTime: STATIC_VISIBILITY_STALE_MS,
   })
   const data = visibilityQuery.data ?? null

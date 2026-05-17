@@ -5,13 +5,15 @@ import { Plus, RefreshCw } from 'lucide-react'
 
 import { TrafficSourceStatuses, type TrafficSourceDto } from '@ainyc/canonry-contracts'
 
-import { fetchServerTrafficSource, heyClient, type ApiProject, type ApiTrafficSourceDetail } from '../api.js'
-import { getApiV1ProjectsOptions } from '@ainyc/canonry-api-client/react-query'
+import { heyClient, type ApiProject, type ApiTrafficSourceDetail } from '../api.js'
+import {
+  getApiV1ProjectsByNameTrafficSourcesByIdOptions,
+  getApiV1ProjectsOptions,
+} from '@ainyc/canonry-api-client/react-query'
 import { Button } from '../components/ui/button.js'
 import { Card } from '../components/ui/card.js'
 import { ToneBadge } from '../components/shared/ToneBadge.js'
 import { ConnectSourceDrawer } from '../components/server-traffic/ConnectSourceDrawer.js'
-import { queryKeys } from '../queries/query-keys.js'
 import {
   toneFromTrafficSourceStatus,
   useServerTrafficSources,
@@ -122,8 +124,10 @@ function SourcesTable({ projectName, sources }: { projectName: string; sources: 
   // returns. Rather than denormalize the totals onto the list endpoint, fan out to /traffic/sources/:id.
   const detailQueries = useQueries({
     queries: sources.map((source) => ({
-      queryKey: queryKeys.serverTraffic.sourceDetail(projectName, source.id),
-      queryFn: () => fetchServerTrafficSource(projectName, source.id),
+      ...getApiV1ProjectsByNameTrafficSourcesByIdOptions({
+        client: heyClient,
+        path: { name: projectName, id: source.id },
+      }),
       staleTime: 30_000,
     })),
   })
