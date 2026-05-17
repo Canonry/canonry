@@ -74,11 +74,11 @@ export async function backfillAnswerVisibilityCommand(opts?: {
 
       const projectDomains = effectiveDomains({
         canonicalDomain: project.canonicalDomain,
-        ownedDomains: parseJsonColumn<string[]>(project.ownedDomains, []),
+        ownedDomains: project.ownedDomains,
       })
       const projectBrandNames = effectiveBrandNames({
         displayName: project.displayName,
-        aliases: parseJsonColumn<string[]>(project.aliases, []),
+        aliases: project.aliases,
       })
 
       for (let offset = 0; offset < runIds.length; offset += SNAPSHOT_BATCH_SIZE) {
@@ -512,11 +512,11 @@ export function backfillProjectAnswerMentions(
 
   const projectDomains = effectiveDomains({
     canonicalDomain: project.canonicalDomain,
-    ownedDomains: parseJsonColumn<string[]>(project.ownedDomains, []),
+    ownedDomains: project.ownedDomains,
   })
   const projectBrandNames = effectiveBrandNames({
     displayName: project.displayName,
-    aliases: parseJsonColumn<string[]>(project.aliases, []),
+    aliases: project.aliases,
   })
 
   for (let offset = 0; offset < runIds.length; offset += SNAPSHOT_BATCH_SIZE) {

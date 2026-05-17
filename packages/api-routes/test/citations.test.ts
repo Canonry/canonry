@@ -34,8 +34,8 @@ function insertProject(db: ReturnType<typeof createClient>, name: string, provid
     canonicalDomain: `${name}.example.com`,
     country: 'US',
     language: 'en',
-    providers: JSON.stringify(providers),
-    locations: '[]',
+    providers,
+    locations: [],
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   }).run()

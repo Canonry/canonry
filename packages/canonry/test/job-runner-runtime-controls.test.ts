@@ -71,7 +71,7 @@ function seedRunFixture(db: ReturnType<typeof createClient>, queryCount: number)
     canonicalDomain: 'example.com',
     country: 'US',
     language: 'en',
-    providers: '[]',
+    providers: [],
     createdAt: now,
     updatedAt: now,
   }).run()

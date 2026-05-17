@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 import { and, eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { projects, queries, competitors, schedules, notifications, parseJsonColumn } from '@ainyc/canonry-db'
+import { projects, queries, competitors, schedules, notifications } from '@ainyc/canonry-db'
 import { normalizeProjectAliases, normalizeProjectDomain, projectConfigSchema, registrableDomain, resolveConfigSpecQueries, SchedulableRunKinds, validationError } from '@ainyc/canonry-contracts'
 import { writeAuditLog } from './helpers.js'
 import { resolvePreset, validateCron, isValidTimezone } from './schedule-utils.js'
@@ -108,7 +108,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
       // Only fire on actual changes to an existing project — a brand-new project
       // has no historical snapshots to backfill.
       if (existing) {
-        const prevAliases = parseJsonColumn<string[]>(existing.aliases, [])
+        const prevAliases = existing.aliases
         aliasesChanged = !aliasArraysEqual(prevAliases, nextAliases)
       }
 
@@ -117,15 +117,15 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
         tx.update(projects).set({
           displayName: config.spec.displayName,
           canonicalDomain: config.spec.canonicalDomain,
-          ownedDomains: JSON.stringify(config.spec.ownedDomains ?? []),
-          aliases: JSON.stringify(nextAliases),
+          ownedDomains: config.spec.ownedDomains ?? [],
+          aliases: nextAliases,
           country: config.spec.country,
           language: config.spec.language,
-          labels: JSON.stringify(config.metadata.labels),
-          providers: JSON.stringify(config.spec.providers ?? []),
-          locations: JSON.stringify(config.spec.locations ?? []),
+          labels: config.metadata.labels,
+          providers: config.spec.providers ?? [],
+          locations: config.spec.locations ?? [],
           defaultLocation: config.spec.defaultLocation ?? null,
-          autoExtractBacklinks: config.spec.autoExtractBacklinks ? 1 : 0,
+          autoExtractBacklinks: config.spec.autoExtractBacklinks ?? false,
           configSource: 'config-file',
           configRevision: existing.configRevision + 1,
           updatedAt: now,
@@ -145,16 +145,16 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
           name,
           displayName: config.spec.displayName,
           canonicalDomain: config.spec.canonicalDomain,
-          ownedDomains: JSON.stringify(config.spec.ownedDomains ?? []),
-          aliases: JSON.stringify(nextAliases),
+          ownedDomains: config.spec.ownedDomains ?? [],
+          aliases: nextAliases,
           country: config.spec.country,
           language: config.spec.language,
-          tags: '[]',
-          labels: JSON.stringify(config.metadata.labels),
-          providers: JSON.stringify(config.spec.providers ?? []),
-          locations: JSON.stringify(config.spec.locations ?? []),
+          tags: [],
+          labels: config.metadata.labels,
+          providers: config.spec.providers ?? [],
+          locations: config.spec.locations ?? [],
           defaultLocation: config.spec.defaultLocation ?? null,
-          autoExtractBacklinks: config.spec.autoExtractBacklinks ? 1 : 0,
+          autoExtractBacklinks: config.spec.autoExtractBacklinks ?? false,
           configSource: 'config-file',
           configRevision: 1,
           createdAt: now,
@@ -306,16 +306,16 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
       name: project.name,
       displayName: project.displayName,
       canonicalDomain: project.canonicalDomain,
-      ownedDomains: parseJsonColumn<string[]>(project.ownedDomains, []),
-      aliases: parseJsonColumn<string[]>(project.aliases, []),
+      ownedDomains: project.ownedDomains,
+      aliases: project.aliases,
       country: project.country,
       language: project.language,
-      tags: parseJsonColumn<string[]>(project.tags, []),
-      labels: parseJsonColumn<Record<string, string>>(project.labels, {}),
-      providers: parseJsonColumn<string[]>(project.providers, []),
-      locations: parseJsonColumn<unknown[]>(project.locations, []),
+      tags: project.tags,
+      labels: project.labels,
+      providers: project.providers,
+      locations: project.locations,
       defaultLocation: project.defaultLocation,
-      autoExtractBacklinks: project.autoExtractBacklinks === 1,
+      autoExtractBacklinks: project.autoExtractBacklinks,
       configSource: project.configSource,
       configRevision: project.configRevision,
       createdAt: project.createdAt,

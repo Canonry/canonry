@@ -1,20 +1,21 @@
 import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
+import type { LocationContext } from '@ainyc/canonry-contracts'
 
 export const projects = sqliteTable('projects', {
   id: text('id').primaryKey(),
   name: text('name').notNull().unique(),
   displayName: text('display_name').notNull(),
   canonicalDomain: text('canonical_domain').notNull(),
-  ownedDomains: text('owned_domains').notNull().default('[]'),
-  aliases: text('aliases').notNull().default('[]'),
+  ownedDomains: text('owned_domains', { mode: 'json' }).$type<string[]>().notNull().default([]),
+  aliases: text('aliases', { mode: 'json' }).$type<string[]>().notNull().default([]),
   country: text('country').notNull(),
   language: text('language').notNull(),
-  tags: text('tags').notNull().default('[]'),
-  labels: text('labels').notNull().default('{}'),
-  providers: text('providers').notNull().default('[]'),
-  locations: text('locations').notNull().default('[]'),
+  tags: text('tags', { mode: 'json' }).$type<string[]>().notNull().default([]),
+  labels: text('labels', { mode: 'json' }).$type<Record<string, string>>().notNull().default({}),
+  providers: text('providers', { mode: 'json' }).$type<string[]>().notNull().default([]),
+  locations: text('locations', { mode: 'json' }).$type<LocationContext[]>().notNull().default([]),
   defaultLocation: text('default_location'),
-  autoExtractBacklinks: integer('auto_extract_backlinks').notNull().default(0),
+  autoExtractBacklinks: integer('auto_extract_backlinks', { mode: 'boolean' }).notNull().default(false),
   configSource: text('config_source').notNull().default('cli'),
   configRevision: integer('config_revision').notNull().default(1),
   icpDescription: text('icp_description'),

@@ -199,7 +199,7 @@ export async function executeReleaseSync(
     })
 
     if (deps.enqueueAutoExtract) {
-      const autoExtractProjects = allProjects.filter((p) => p.autoExtractBacklinks === 1)
+      const autoExtractProjects = allProjects.filter((p) => p.autoExtractBacklinks)
       for (const p of autoExtractProjects) {
         try {
           deps.enqueueAutoExtract({ projectId: p.id, release })

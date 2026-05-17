@@ -362,6 +362,9 @@ importers:
 
   packages/db:
     dependencies:
+      '@ainyc/canonry-contracts':
+        specifier: workspace:*
+        version: link:../contracts
       better-sqlite3:
         specifier: ^12.6.2
         version: 12.6.2

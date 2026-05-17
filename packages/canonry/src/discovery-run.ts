@@ -4,7 +4,6 @@ import type { DatabaseClient } from '@ainyc/canonry-db'
 import {
   competitors,
   insights,
-  parseJsonColumn,
   projects,
   runs,
 } from '@ainyc/canonry-db'
@@ -96,7 +95,7 @@ export async function executeDiscoveryRun(opts: ExecuteDiscoveryRunOptions): Pro
 
     const canonicalDomains = effectiveDomains({
       canonicalDomain: projectRow.canonicalDomain,
-      ownedDomains: parseJsonColumn<string[]>(projectRow.ownedDomains, []),
+      ownedDomains: projectRow.ownedDomains,
     })
 
     const project: DiscoveryProjectContext = {

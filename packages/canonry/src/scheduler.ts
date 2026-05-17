@@ -188,7 +188,7 @@ export class Scheduler {
       }
 
       // answer-visibility (default) — original flow.
-      const projectLocations = parseJsonColumn<LocationContext[]>(project.locations, [])
+      const projectLocations = project.locations
       let resolvedLocation: LocationContext | undefined
       if (project.defaultLocation) {
         const loc = projectLocations.find(l => l.label === project.defaultLocation)

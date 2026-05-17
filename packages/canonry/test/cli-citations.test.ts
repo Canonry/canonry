@@ -28,7 +28,7 @@ function seedProject(db: ReturnType<typeof createClient>): { projectId: string; 
     canonicalDomain: 'example.com',
     country: 'US',
     language: 'en',
-    providers: JSON.stringify(['gemini', 'claude']),
+    providers: ['gemini', 'claude'],
     createdAt: now,
     updatedAt: now,
   }).run()

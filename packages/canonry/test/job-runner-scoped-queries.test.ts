@@ -83,10 +83,10 @@ function seed(db: ReturnType<typeof createClient>, queriesList: string[], runQue
     name: 'scoped',
     displayName: 'Scoped Project',
     canonicalDomain: 'example.com',
-    ownedDomains: '[]',
+    ownedDomains: [],
     country: 'US',
     language: 'en',
-    providers: '[]',
+    providers: [],
     createdAt: now,
     updatedAt: now,
   }).run()

@@ -62,8 +62,8 @@ function buildCtx(): Ctx {
     canonicalDomain: 'real-brand.example.com',
     country: 'US',
     language: 'en',
-    providers: JSON.stringify(['openai']),
-    locations: '[]',
+    providers: ['openai'],
+    locations: [],
     createdAt: realCreatedAt,
     updatedAt: realCreatedAt,
   }).run()

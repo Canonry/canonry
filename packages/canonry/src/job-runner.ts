@@ -308,14 +308,14 @@ export class JobRunner {
       } else if (locationOverride) {
         runLocation = locationOverride
       } else {
-        const projectLocations = parseJsonColumn<LocationContext[]>(project.locations, [])
+        const projectLocations = project.locations
         if (project.defaultLocation && projectLocations.length > 0) {
           runLocation = projectLocations.find(l => l.label === project.defaultLocation)
         }
       }
 
       // Resolve which providers to use — honour per-run override, then project config
-      const projectProviders = providerOverride ?? parseJsonColumn<ProviderName[]>(project.providers, [])
+      const projectProviders = providerOverride ?? (project.providers as ProviderName[])
       activeProviders = this.registry.getForProject(projectProviders)
 
       if (activeProviders.length === 0) {
@@ -348,11 +348,11 @@ export class JobRunner {
       const competitorDomains = projectCompetitors.map(c => c.domain)
       const allDomains = effectiveDomains({
         canonicalDomain: project.canonicalDomain,
-        ownedDomains: parseJsonColumn<string[]>(project.ownedDomains, []),
+        ownedDomains: project.ownedDomains,
       })
       const allBrandNames = effectiveBrandNames({
         displayName: project.displayName,
-        aliases: parseJsonColumn<string[]>(project.aliases, []),
+        aliases: project.aliases,
       })
       const executionContext: RunExecutionContext = {
         providerCount: activeProviders.length,

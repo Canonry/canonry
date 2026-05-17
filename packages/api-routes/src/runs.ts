@@ -77,7 +77,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
 
     // Resolve location for this run
     let resolvedLocation: LocationContext | null | undefined
-    const projectLocations = parseJsonColumn<LocationContext[]>(project.locations, [])
+    const projectLocations = project.locations
 
     if (body.noLocation) {
       resolvedLocation = null // explicitly no location
@@ -292,7 +292,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
 
     for (const project of allProjects) {
       // Resolve default location for this project
-      const projectLocations = parseJsonColumn<LocationContext[]>(project.locations, [])
+      const projectLocations = project.locations
       let resolvedLocation: LocationContext | undefined
       if (project.defaultLocation) {
         const loc = projectLocations.find(l => l.label === project.defaultLocation)
