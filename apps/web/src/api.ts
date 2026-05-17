@@ -1,4 +1,4 @@
-import type { ErrorCode, GroundingSource, ProjectOverviewDto, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto, GscPerformanceDailyDto, IndexingRequestResultDto, MetricsWindow, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry, InsightDto, ProjectReportDto, ReportAudience, CitationVisibilityResponse, BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinkHistoryEntry, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcAvailableRelease, CcCachedRelease, CcReleaseSyncDto, TrafficSourceDto, TrafficSourceDetailDto, TrafficSourceListResponse, TrafficStatusResponse, TrafficEventsResponse, TrafficConnectCloudRunRequest, TrafficConnectWordpressRequest, TrafficConnectVercelRequest, TrafficSyncResponse, DiscoveryRunRequest, DiscoverySessionDto, DiscoverySessionDetailDto, DiscoveryPromotePreview, DiscoveryPromoteRequest, DiscoveryPromoteResult, ProjectDto, QueryDto, CompetitorDto, LocationContext, GoogleConnectionDto, GscUrlInspectionDto, GscDeindexedRowDto, BingUrlInspectionDto, BingCoverageSummaryDto, BingKeywordStatsDto } from '@ainyc/canonry-contracts'
+import type { ErrorCode, GroundingSource, ProjectOverviewDto, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto, GscPerformanceDailyDto, IndexingRequestResultDto, MetricsWindow, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry, InsightDto, ProjectReportDto, ReportAudience, CitationVisibilityResponse, BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinkHistoryEntry, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcAvailableRelease, CcCachedRelease, CcReleaseSyncDto, TrafficSourceDto, TrafficSourceDetailDto, TrafficSourceListResponse, TrafficStatusResponse, TrafficEventsResponse, TrafficConnectCloudRunRequest, TrafficConnectWordpressRequest, TrafficConnectVercelRequest, TrafficSyncResponse, DiscoveryRunRequest, DiscoverySessionDto, DiscoverySessionDetailDto, DiscoveryPromotePreview, DiscoveryPromoteRequest, DiscoveryPromoteResult, ProjectDto, QueryDto, CompetitorDto, LocationContext, GoogleConnectionDto, GscUrlInspectionDto, GscDeindexedRowDto, BingUrlInspectionDto, BingCoverageSummaryDto, BingKeywordStatsDto, BingStatusDto, BingConnectResponseDto, BingSetSiteResponseDto, BingSitesResponseDto } from '@ainyc/canonry-contracts'
 import {
   createClient as createHeyClient,
   // Projects + queries + competitors + locations + runs + apply + settings + telemetry
@@ -1148,18 +1148,12 @@ export function requestIndexing(
 
 // ── Bing Webmaster Tools ─────────────────────────────────────────────────────
 
-export interface ApiBingConnection {
-  connected: boolean
-  domain: string
-  siteUrl: string | null
-  createdAt: string | null
-  updatedAt: string | null
-}
+/** Re-export of the generated `BingStatusDto`. */
+export type ApiBingConnection = BingStatusDto
 
-export interface ApiBingSite {
-  url: string
-  verified: boolean
-}
+/** Inline-array item shape from `BingSitesResponseDto.sites` — the spec
+ * inlines it rather than $ref-ing a `BingSiteDto` component. */
+export type ApiBingSite = BingSitesResponseDto['sites'][number]
 
 /** Re-export of the generated `BingUrlInspectionDto`. */
 export type ApiBingInspection = BingUrlInspectionDto
@@ -1176,12 +1170,8 @@ export function fetchBingStatus(project: string): Promise<ApiBingConnection> {
   )
 }
 
-export function bingConnect(project: string, apiKey: string): Promise<{
-  connected: boolean
-  domain: string
-  availableSites: ApiBingSite[]
-}> {
-  return invokeWeb<{ connected: boolean; domain: string; availableSites: ApiBingSite[] }>(() =>
+export function bingConnect(project: string, apiKey: string): Promise<BingConnectResponseDto> {
+  return invokeWeb<BingConnectResponseDto>(() =>
     postApiV1ProjectsByNameBingConnect({
       client: heyClient,
       path: { name: project },
@@ -1196,14 +1186,14 @@ export function bingDisconnect(project: string): Promise<void> {
   )
 }
 
-export function fetchBingSites(project: string): Promise<{ sites: ApiBingSite[] }> {
-  return invokeWeb<{ sites: ApiBingSite[] }>(() =>
+export function fetchBingSites(project: string): Promise<BingSitesResponseDto> {
+  return invokeWeb<BingSitesResponseDto>(() =>
     getApiV1ProjectsByNameBingSites({ client: heyClient, path: { name: project } }),
   )
 }
 
-export function bingSetSite(project: string, siteUrl: string): Promise<{ siteUrl: string }> {
-  return invokeWeb<{ siteUrl: string }>(() =>
+export function bingSetSite(project: string, siteUrl: string): Promise<BingSetSiteResponseDto> {
+  return invokeWeb<BingSetSiteResponseDto>(() =>
     postApiV1ProjectsByNameBingSetSite({
       client: heyClient,
       path: { name: project },

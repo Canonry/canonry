@@ -68,12 +68,14 @@ export type BacklinksInstallStatusDto = {
     pluginDir: string;
 };
 
-export type BingConnectionDto = {
-    id: string;
+export type BingConnectResponseDto = {
+    connected: boolean;
     domain: string;
-    siteUrl?: string | null;
-    createdAt: string;
-    updatedAt: string;
+    siteUrl: string | null;
+    availableSites: Array<{
+        url: string;
+        verified: boolean;
+    }>;
 };
 
 export type BingCoverageSnapshotDto = {
@@ -150,6 +152,25 @@ export type BingKeywordStatsDto = {
     clicks: number;
     ctr: number;
     averagePosition: number;
+};
+
+export type BingSetSiteResponseDto = {
+    siteUrl: string;
+};
+
+export type BingSitesResponseDto = {
+    sites: Array<{
+        url: string;
+        verified: boolean;
+    }>;
+};
+
+export type BingStatusDto = {
+    connected: boolean;
+    domain: string;
+    siteUrl: string | null;
+    createdAt: string | null;
+    updatedAt: string | null;
 };
 
 export type BingUrlInspectionDto = {
@@ -3985,7 +4006,7 @@ export type PostApiV1ProjectsByNameBingConnectResponses = {
     /**
      * Bing connection returned.
      */
-    200: BingConnectionDto;
+    200: BingConnectResponseDto;
 };
 
 export type PostApiV1ProjectsByNameBingConnectResponse = PostApiV1ProjectsByNameBingConnectResponses[keyof PostApiV1ProjectsByNameBingConnectResponses];
@@ -4045,7 +4066,7 @@ export type GetApiV1ProjectsByNameBingStatusResponses = {
     /**
      * Bing status returned.
      */
-    200: BingConnectionDto;
+    200: BingStatusDto;
 };
 
 export type GetApiV1ProjectsByNameBingStatusResponse = GetApiV1ProjectsByNameBingStatusResponses[keyof GetApiV1ProjectsByNameBingStatusResponses];
@@ -4079,9 +4100,7 @@ export type GetApiV1ProjectsByNameBingSitesResponses = {
     /**
      * Bing sites returned.
      */
-    200: {
-        [key: string]: unknown;
-    };
+    200: BingSitesResponseDto;
 };
 
 export type GetApiV1ProjectsByNameBingSitesResponse = GetApiV1ProjectsByNameBingSitesResponses[keyof GetApiV1ProjectsByNameBingSitesResponses];
@@ -4117,7 +4136,7 @@ export type PostApiV1ProjectsByNameBingSetSiteResponses = {
     /**
      * Active Bing site updated.
      */
-    200: BingConnectionDto;
+    200: BingSetSiteResponseDto;
 };
 
 export type PostApiV1ProjectsByNameBingSetSiteResponse = PostApiV1ProjectsByNameBingSetSiteResponses[keyof PostApiV1ProjectsByNameBingSetSiteResponses];

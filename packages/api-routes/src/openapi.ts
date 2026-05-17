@@ -1683,7 +1683,7 @@ const routeCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      200: jsonResponse('Bing connection returned.', 'BingConnectionDto'),
+      200: jsonResponse('Bing connection returned.', 'BingConnectResponseDto'),
       400: errorResponse('Invalid Bing connection request.'),
       404: errorResponse('Project not found.'),
     },
@@ -1706,7 +1706,7 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['bing'],
     parameters: [nameParameter],
     responses: {
-      200: jsonResponse('Bing status returned.', 'BingConnectionDto'),
+      200: jsonResponse('Bing status returned.', 'BingStatusDto'),
       404: errorResponse('Project not found.'),
     },
   },
@@ -1717,8 +1717,7 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['bing'],
     parameters: [nameParameter],
     responses: {
-      // TODO: Add `BingSitesResponse` Zod schema in contracts.
-      200: rawJsonResponse('Bing sites returned.', looseObjectSchema),
+      200: jsonResponse('Bing sites returned.', 'BingSitesResponseDto'),
       400: errorResponse('Bing is not configured for this project.'),
       404: errorResponse('Project not found.'),
     },
@@ -1744,7 +1743,7 @@ const routeCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      200: jsonResponse('Active Bing site updated.', 'BingConnectionDto'),
+      200: jsonResponse('Active Bing site updated.', 'BingSetSiteResponseDto'),
       400: errorResponse('Invalid Bing site request.'),
       404: errorResponse('Project or connection not found.'),
     },
