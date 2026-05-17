@@ -729,6 +729,33 @@ export const discoveryProbes = sqliteTable('discovery_probes', {
 ])
 
 /**
+ * Per-recommendation dismissal for content-opportunity rows in the report.
+ *
+ * Recommendations are recomputed on every report load from live GSC/GA
+ * inventory (see `loadOrchestratorInput`). Without a persistent dismissal
+ * layer, a recommendation lingers until Google indexes the new page AND a
+ * `canonry google sync` pulls it in — typical lag days to weeks. Users mark
+ * a recommendation "addressed" here so it drops off the report immediately
+ * and stays off until explicitly un-dismissed.
+ *
+ * Keyed by `(project_id, target_ref)` where `target_ref` is the stable hash
+ * `computeTargetRef()` already produces and surfaces on
+ * `ContentTargetRowDto.targetRef`. UNIQUE on `(project_id, target_ref)` so
+ * re-dismissing the same row is a no-op upsert, not a duplicate.
+ */
+export const contentTargetDismissals = sqliteTable('content_target_dismissals', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  targetRef: text('target_ref').notNull(),
+  addressedUrl: text('addressed_url'),
+  note: text('note'),
+  dismissedAt: text('dismissed_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_content_target_dismissals_project_ref').on(table.projectId, table.targetRef),
+  index('idx_content_target_dismissals_project').on(table.projectId),
+])
+
+/**
  * Internal bookkeeping for the migration runner. One row per applied
  * `MIGRATION_VERSIONS` entry. The migrator reads `MAX(version)` on boot and
  * skips anything already recorded; statements never query this table at

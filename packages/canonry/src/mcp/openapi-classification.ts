@@ -140,6 +140,13 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'GET /api/v1/projects/{name}/content/targets': 'included',
   'GET /api/v1/projects/{name}/content/sources': 'included',
   'GET /api/v1/projects/{name}/content/gaps': 'included',
+  // Content-target dismiss endpoints — Aero could use these to record
+  // that a recommendation was addressed (similar to insights dismiss),
+  // but that's a separate workflow design. Defer the MCP tools until the
+  // analyst-side UX is fleshed out; SPA + CLI both already work end-to-end.
+  'GET /api/v1/projects/{name}/content/dismissals': 'deferred',
+  'POST /api/v1/projects/{name}/content/dismissals': 'deferred',
+  'DELETE /api/v1/projects/{name}/content/dismissals/{targetRef}': 'deferred',
   'GET /api/v1/projects/{name}/insights': 'included',
   'GET /api/v1/projects/{name}/insights/{id}': 'included',
   'POST /api/v1/projects/{name}/insights/{id}/dismiss': 'included',

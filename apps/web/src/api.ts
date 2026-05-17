@@ -1,4 +1,4 @@
-import type { ErrorCode, GroundingSource, ProjectOverviewDto, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto, GscPerformanceDailyDto, IndexingRequestResultDto, MetricsWindow, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry, InsightDto, ProjectReportDto, ReportAudience, CitationVisibilityResponse, BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinkHistoryEntry, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcAvailableRelease, CcCachedRelease, CcReleaseSyncDto, TrafficSourceDto, TrafficSourceDetailDto, TrafficSourceListResponse, TrafficStatusResponse, TrafficEventsResponse, TrafficConnectCloudRunRequest, TrafficConnectWordpressRequest, TrafficConnectVercelRequest, TrafficSyncResponse, DiscoveryRunRequest, DiscoverySessionDto, DiscoverySessionDetailDto, DiscoveryPromotePreview, DiscoveryPromoteRequest, DiscoveryPromoteResult, ProjectDto, QueryDto, CompetitorDto, LocationContext, GoogleConnectionDto, GscUrlInspectionDto, GscDeindexedRowDto, BingUrlInspectionDto, BingCoverageSummaryDto, BingKeywordStatsDto, BingStatusDto, BingConnectResponseDto, BingSetSiteResponseDto, BingSitesResponseDto, GscSearchDataDto } from '@ainyc/canonry-contracts'
+import type { ErrorCode, GroundingSource, ProjectOverviewDto, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto, GscPerformanceDailyDto, IndexingRequestResultDto, MetricsWindow, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry, InsightDto, ProjectReportDto, ReportAudience, CitationVisibilityResponse, BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinkHistoryEntry, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcAvailableRelease, CcCachedRelease, CcReleaseSyncDto, TrafficSourceDto, TrafficSourceDetailDto, TrafficSourceListResponse, TrafficStatusResponse, TrafficEventsResponse, TrafficConnectCloudRunRequest, TrafficConnectWordpressRequest, TrafficConnectVercelRequest, TrafficSyncResponse, DiscoveryRunRequest, DiscoverySessionDto, DiscoverySessionDetailDto, DiscoveryPromotePreview, DiscoveryPromoteRequest, DiscoveryPromoteResult, ProjectDto, QueryDto, CompetitorDto, LocationContext, GoogleConnectionDto, GscUrlInspectionDto, GscDeindexedRowDto, BingUrlInspectionDto, BingCoverageSummaryDto, BingKeywordStatsDto, BingStatusDto, BingConnectResponseDto, BingSetSiteResponseDto, BingSitesResponseDto, GscSearchDataDto, ContentTargetDismissalDto, ContentTargetDismissRequest } from '@ainyc/canonry-contracts'
 import {
   createClient as createHeyClient,
   // Projects + queries + competitors + locations + runs + apply + settings + telemetry
@@ -12,6 +12,8 @@ import {
   putApiV1ProjectsByNameQueries,
   postApiV1ProjectsByNameQueries,
   postApiV1ProjectsByNameQueriesGenerate,
+  postApiV1ProjectsByNameContentDismissals,
+  deleteApiV1ProjectsByNameContentDismissalsByTargetRef,
   getApiV1ProjectsByNameCompetitors,
   putApiV1ProjectsByNameCompetitors,
   postApiV1ProjectsByNameLocations,
@@ -515,6 +517,34 @@ export function setQueries(projectName: string, queries: string[]): Promise<ApiQ
 export function appendQueries(projectName: string, queries: string[]): Promise<ApiQuery[]> {
   return invokeWeb<ApiQuery[]>(() =>
     postApiV1ProjectsByNameQueries({ client: heyClient, path: { name: projectName }, body: { queries } }),
+  )
+}
+
+/**
+ * Persist a "mark addressed" dismissal for one content recommendation. The
+ * backend (`POST /projects/:name/content/dismissals`) idempotently upserts a
+ * row keyed by `(projectId, targetRef)`. Returns the stored dismissal so the
+ * caller can confirm what landed (timestamp + audit fields).
+ */
+export function dismissContentTarget(
+  projectName: string,
+  body: ContentTargetDismissRequest,
+): Promise<ContentTargetDismissalDto> {
+  return invokeWeb<ContentTargetDismissalDto>(() =>
+    postApiV1ProjectsByNameContentDismissals({ client: heyClient, path: { name: projectName }, body }),
+  )
+}
+
+/**
+ * Reverse a dismissal. The recommendation reappears on the next report load
+ * if the orchestrator still surfaces it.
+ */
+export function undismissContentTarget(projectName: string, targetRef: string): Promise<void> {
+  return invokeWeb<void>(() =>
+    deleteApiV1ProjectsByNameContentDismissalsByTargetRef({
+      client: heyClient,
+      path: { name: projectName, targetRef },
+    }),
   )
 }
 

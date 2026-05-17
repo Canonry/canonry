@@ -11,6 +11,7 @@ import {
   bingUrlInspectionDtoSchema,
   ccReleaseSyncDtoSchema,
   competitorDtoSchema,
+  contentTargetDismissalDtoSchema,
   discoveryProbeDtoSchema,
   discoverySessionDtoSchema,
   ga4AiReferralDtoSchema,
@@ -303,6 +304,14 @@ const COVERAGE: Record<string, CoverageEntry> = {
     kind: 'dto',
     dto: ccReleaseSyncDtoSchema,
     internal: {},
+  },
+  contentTargetDismissals: {
+    kind: 'dto',
+    dto: contentTargetDismissalDtoSchema,
+    internal: {
+      id: 'Surrogate key; dismissals are addressed by (projectId, targetRef).',
+      projectId: 'Implied by the route scope (/projects/:name/content/dismissals).',
+    },
   },
   trafficSources: {
     kind: 'dto',

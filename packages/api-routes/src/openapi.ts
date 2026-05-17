@@ -2587,6 +2587,65 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'get',
+    path: '/api/v1/projects/{name}/content/dismissals',
+    summary: 'List content-target dismissals for a project',
+    description:
+      'Returns every persisted "mark addressed" record for the project. Each row is `{targetRef, addressedUrl?, note?, dismissedAt}`. The report filters out any opportunity whose `targetRef` appears here; un-dismiss via `DELETE`.',
+    tags: ['content'],
+    parameters: [nameParameter],
+    responses: {
+      200: jsonResponse('Dismissals returned.', 'ContentTargetDismissalsResponseDto'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/projects/{name}/content/dismissals',
+    summary: 'Mark a content opportunity as addressed',
+    description:
+      'Persists a dismissal for one content recommendation, identified by its stable `targetRef` (the value `ContentTargetRowDto.targetRef` exposes — hashed from project + query + action + targetPage by `computeTargetRef`). Idempotent upsert: re-dismissing the same ref overwrites `addressedUrl`/`note` and refreshes `dismissedAt`. The row drops off the report and the dedicated content endpoints on the next read.',
+    tags: ['content'],
+    parameters: [nameParameter],
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            required: ['targetRef'],
+            properties: {
+              targetRef: stringSchema,
+              addressedUrl: stringSchema,
+              note: stringSchema,
+            },
+          },
+        },
+      },
+    },
+    responses: {
+      200: jsonResponse('Dismissal saved.', 'ContentTargetDismissalDto'),
+      400: errorResponse('Invalid request body.'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
+    method: 'delete',
+    path: '/api/v1/projects/{name}/content/dismissals/{targetRef}',
+    summary: 'Un-dismiss a content opportunity',
+    description:
+      'Removes a persisted dismissal. The recommendation reappears on the report on the next read if the orchestrator still surfaces it. 404 if no dismissal exists for that `(project, targetRef)`.',
+    tags: ['content'],
+    parameters: [
+      nameParameter,
+      { name: 'targetRef', in: 'path', required: true, description: 'Stable hash from ContentTargetRowDto.targetRef.', schema: stringSchema },
+    ],
+    responses: {
+      204: { description: 'Dismissal removed.' },
+      404: errorResponse('Project or dismissal not found.'),
+    },
+  },
+  {
+    method: 'get',
     path: '/api/v1/projects/{name}/content/sources',
     summary: 'URL-level competitive grounding-source map per query',
     description:

@@ -1230,6 +1230,32 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `CREATE INDEX IF NOT EXISTS idx_audit_log_created ON audit_log(created_at)`,
     ],
   },
+  {
+    version: 61,
+    name: 'content-target-dismissals',
+    // Persistent per-recommendation dismissal so users can mark a content
+    // opportunity "addressed" after they ship the page. The orchestrator
+    // recomputes opportunities on every report load from live GSC / GA
+    // inventory; without persistent dismissal, a recommendation lingers
+    // until the next sync surfaces the new page (days–weeks of lag).
+    //
+    // Keyed by `(project_id, target_ref)` where `target_ref` is the stable
+    // hash that `computeTargetRef()` already produces — same value the
+    // ContentTargetRowDto exposes, so the client passes back the ref it
+    // sees.
+    statements: [
+      `CREATE TABLE IF NOT EXISTS content_target_dismissals (
+         id             TEXT PRIMARY KEY,
+         project_id     TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+         target_ref     TEXT NOT NULL,
+         addressed_url  TEXT,
+         note           TEXT,
+         dismissed_at   TEXT NOT NULL
+       )`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_content_target_dismissals_project_ref ON content_target_dismissals(project_id, target_ref)`,
+      `CREATE INDEX IF NOT EXISTS idx_content_target_dismissals_project ON content_target_dismissals(project_id)`,
+    ],
+  },
 ]
 
 /**

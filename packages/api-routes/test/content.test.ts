@@ -726,4 +726,176 @@ describe('content routes', () => {
       expect(ours[0].providers.sort()).toEqual(['gemini', 'openai'])
     })
   })
+
+  describe('content-target dismissals', () => {
+    it('returns empty list when no dismissals exist', async () => {
+      seedProject(db)
+      const res = await app.inject({ method: 'GET', url: '/projects/example/content/dismissals' })
+      expect(res.statusCode).toBe(200)
+      const body = JSON.parse(res.payload)
+      expect(body.dismissals).toEqual([])
+    })
+
+    it('persists a dismissal and excludes the targetRef from /content/targets', async () => {
+      seedProject(db)
+      // Pick the first target's stable ref. We use Q1 ("best crm for saas")
+      // because seedProject guarantees it surfaces.
+      const before = await app.inject({ method: 'GET', url: '/projects/example/content/targets' })
+      const q1 = JSON.parse(before.payload).targets.find((t: { query: string }) => t.query === 'best crm for saas')
+      expect(q1).toBeDefined()
+      const targetRef = q1.targetRef
+
+      const dismissRes = await app.inject({
+        method: 'POST',
+        url: '/projects/example/content/dismissals',
+        headers: { 'content-type': 'application/json' },
+        payload: JSON.stringify({ targetRef, addressedUrl: 'https://example.com/blog/crm-guide' }),
+      })
+      expect(dismissRes.statusCode).toBe(200)
+      const dismissBody = JSON.parse(dismissRes.payload)
+      expect(dismissBody.targetRef).toBe(targetRef)
+      expect(dismissBody.addressedUrl).toBe('https://example.com/blog/crm-guide')
+      expect(dismissBody.dismissedAt).toBeTruthy()
+
+      // The target should be gone from the /content/targets response.
+      const after = await app.inject({ method: 'GET', url: '/projects/example/content/targets' })
+      const afterTargets = JSON.parse(after.payload).targets
+      expect(afterTargets.find((t: { targetRef: string }) => t.targetRef === targetRef)).toBeUndefined()
+
+      // And the dismissals listing should include it.
+      const listRes = await app.inject({ method: 'GET', url: '/projects/example/content/dismissals' })
+      const listBody = JSON.parse(listRes.payload)
+      expect(listBody.dismissals).toHaveLength(1)
+      expect(listBody.dismissals[0].targetRef).toBe(targetRef)
+    })
+
+    it('upserts: re-dismissing the same targetRef overwrites fields and refreshes timestamp', async () => {
+      seedProject(db)
+      const before = await app.inject({ method: 'GET', url: '/projects/example/content/targets' })
+      const targetRef = JSON.parse(before.payload).targets[0].targetRef
+
+      const first = await app.inject({
+        method: 'POST',
+        url: '/projects/example/content/dismissals',
+        headers: { 'content-type': 'application/json' },
+        payload: JSON.stringify({ targetRef, note: 'initial' }),
+      })
+      expect(first.statusCode).toBe(200)
+      const firstBody = JSON.parse(first.payload)
+      expect(firstBody.note).toBe('initial')
+      expect(firstBody.addressedUrl).toBeNull()
+
+      // Small wait isn't reliable in a sync test; just assert the upsert
+      // returns the new fields. The DB unique index guarantees there's
+      // still only one row.
+      const second = await app.inject({
+        method: 'POST',
+        url: '/projects/example/content/dismissals',
+        headers: { 'content-type': 'application/json' },
+        payload: JSON.stringify({ targetRef, addressedUrl: 'https://example.com/page', note: 'updated' }),
+      })
+      expect(second.statusCode).toBe(200)
+      const secondBody = JSON.parse(second.payload)
+      expect(secondBody.note).toBe('updated')
+      expect(secondBody.addressedUrl).toBe('https://example.com/page')
+
+      const listRes = await app.inject({ method: 'GET', url: '/projects/example/content/dismissals' })
+      const listBody = JSON.parse(listRes.payload)
+      expect(listBody.dismissals).toHaveLength(1)
+    })
+
+    it('DELETE un-dismisses and the target reappears in /content/targets', async () => {
+      seedProject(db)
+      const before = await app.inject({ method: 'GET', url: '/projects/example/content/targets' })
+      const beforeTargets = JSON.parse(before.payload).targets
+      const targetRef = beforeTargets[0].targetRef
+      const initialCount = beforeTargets.length
+
+      await app.inject({
+        method: 'POST',
+        url: '/projects/example/content/dismissals',
+        headers: { 'content-type': 'application/json' },
+        payload: JSON.stringify({ targetRef }),
+      })
+
+      const dismissedListRes = await app.inject({ method: 'GET', url: '/projects/example/content/targets' })
+      expect(JSON.parse(dismissedListRes.payload).targets.length).toBe(initialCount - 1)
+
+      const undismissRes = await app.inject({
+        method: 'DELETE',
+        url: `/projects/example/content/dismissals/${targetRef}`,
+      })
+      expect(undismissRes.statusCode).toBe(204)
+
+      const restored = await app.inject({ method: 'GET', url: '/projects/example/content/targets' })
+      const restoredTargets = JSON.parse(restored.payload).targets
+      expect(restoredTargets.length).toBe(initialCount)
+      expect(restoredTargets.find((t: { targetRef: string }) => t.targetRef === targetRef)).toBeDefined()
+    })
+
+    it('DELETE returns 404 when no dismissal exists for that targetRef', async () => {
+      seedProject(db)
+      const res = await app.inject({
+        method: 'DELETE',
+        url: '/projects/example/content/dismissals/tgt_does_not_exist',
+      })
+      expect(res.statusCode).toBe(404)
+    })
+
+    it('POST rejects missing targetRef', async () => {
+      seedProject(db)
+      const res = await app.inject({
+        method: 'POST',
+        url: '/projects/example/content/dismissals',
+        headers: { 'content-type': 'application/json' },
+        payload: JSON.stringify({ addressedUrl: 'https://example.com' }),
+      })
+      expect(res.statusCode).toBe(400)
+    })
+
+    it('POST rejects malformed URL', async () => {
+      seedProject(db)
+      const before = await app.inject({ method: 'GET', url: '/projects/example/content/targets' })
+      const targetRef = JSON.parse(before.payload).targets[0].targetRef
+      const res = await app.inject({
+        method: 'POST',
+        url: '/projects/example/content/dismissals',
+        headers: { 'content-type': 'application/json' },
+        payload: JSON.stringify({ targetRef, addressedUrl: 'not-a-url' }),
+      })
+      expect(res.statusCode).toBe(400)
+    })
+
+    it('dismissals scoped to one project do not affect another project', async () => {
+      seedProject(db)
+      // Seed a second project. Reusing seedProject would clash on the
+      // project name; create a minimal second project with no inventory so
+      // /content/targets returns whatever the orchestrator produces.
+      const otherId = crypto.randomUUID()
+      const now = new Date().toISOString()
+      db.insert(projects).values({
+        id: otherId,
+        name: 'other',
+        displayName: 'Other',
+        canonicalDomain: 'other.com',
+        country: 'US',
+        language: 'en',
+        createdAt: now,
+        updatedAt: now,
+      }).run()
+
+      const exampleTargets = await app.inject({ method: 'GET', url: '/projects/example/content/targets' })
+      const exampleRef = JSON.parse(exampleTargets.payload).targets[0].targetRef
+
+      await app.inject({
+        method: 'POST',
+        url: '/projects/example/content/dismissals',
+        headers: { 'content-type': 'application/json' },
+        payload: JSON.stringify({ targetRef: exampleRef }),
+      })
+
+      const otherDismissals = await app.inject({ method: 'GET', url: '/projects/other/content/dismissals' })
+      expect(JSON.parse(otherDismissals.payload).dismissals).toEqual([])
+    })
+  })
 })
