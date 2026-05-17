@@ -26,7 +26,7 @@ export const RUN_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['run'],
-    usage: 'canonry run <project|--all> [--provider <name>] [--query <q>...] [--location <label>] [--all-locations] [--no-location] [--wait] [--format json]',
+    usage: 'canonry run <project|--all> [--provider <name>] [--query <q>...] [--location <label>] [--all-locations] [--no-location] [--probe] [--wait] [--format json]',
     options: {
       provider: stringOption(),
       query: multiStringOption(),
@@ -35,6 +35,11 @@ export const RUN_CLI_COMMANDS: readonly CliCommandSpec[] = [
       location: stringOption(),
       'all-locations': { type: 'boolean', default: false },
       'no-location': { type: 'boolean', default: false },
+      // Probe runs are operator/agent test runs — they write a snapshot
+      // for inspection but are excluded from dashboard / analytics /
+      // intelligence / notifications. Use when you want to verify a
+      // provider works without polluting the project's metrics.
+      probe: { type: 'boolean', default: false },
     },
     run: async (input) => {
       if (getBoolean(input.values, 'all')) {
@@ -80,6 +85,7 @@ export const RUN_CLI_COMMANDS: readonly CliCommandSpec[] = [
         location: getString(input.values, 'location'),
         allLocations: getBoolean(input.values, 'all-locations'),
         noLocation: getBoolean(input.values, 'no-location'),
+        probe: getBoolean(input.values, 'probe'),
         format: input.format,
       })
     },

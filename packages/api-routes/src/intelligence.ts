@@ -2,7 +2,7 @@ import { eq, desc, and, inArray } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { groupRunsByCreatedAt, insights, healthSnapshots, parseJsonColumn, runs } from '@ainyc/canonry-db'
 import { notFound, RunKinds, RunStatuses, type InsightDto, type HealthSnapshotDto } from '@ainyc/canonry-contracts'
-import { resolveProject } from './helpers.js'
+import { notProbeRun, resolveProject } from './helpers.js'
 
 function emptyHealthSnapshot(projectId: string): HealthSnapshotDto {
   return {
@@ -198,6 +198,9 @@ export async function intelligenceRoutes(app: FastifyInstance) {
         eq(runs.projectId, project.id),
         eq(runs.kind, RunKinds['answer-visibility']),
         inArray(runs.status, [RunStatuses.completed, RunStatuses.partial]),
+        // Health-latest is the dashboard headline; probe runs must not
+        // displace the most recent real visibility sweep.
+        notProbeRun(),
       ))
       .orderBy(desc(runs.createdAt), desc(runs.id))
       .all()

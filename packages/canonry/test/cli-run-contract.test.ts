@@ -232,6 +232,30 @@ describe('run lifecycle CLI contract', () => {
     expect(parsed.error.message).toContain('--query cannot be combined with --all')
   })
 
+  it("--probe flag persists the run with trigger='probe' (operator/agent test runs)", async () => {
+    // Probe runs are operator/agent tests — they write a snapshot so the
+    // operator can inspect provider behavior, but they must never poison
+    // the dashboard / analytics / report aggregates. The filter lives in
+    // RunCoordinator + read endpoints; here we just verify the CLI flag
+    // gets the trigger value all the way through to the DB.
+    await client.appendQueries('test-proj', ['probe-query'])
+
+    const result = await invokeCli([
+      'run', 'test-proj',
+      '--probe',
+      '--query', 'probe-query',
+      '--no-location',
+      '--format', 'json',
+    ])
+
+    expect(result.exitCode).toBe(undefined)
+    const parsed = JSON.parse(result.stdout) as { id: string; trigger: string }
+    expect(parsed.trigger).toBe('probe')
+
+    const row = db.select().from(runs).where(eq(runs.id, parsed.id)).get()
+    expect(row?.trigger).toBe('probe')
+  })
+
   it('prints a JSON usage error for runs <project> --limit with a non-integer value', async () => {
     const result = await invokeCli(['runs', 'test-proj', '--limit', 'bogus', '--format', 'json'])
 

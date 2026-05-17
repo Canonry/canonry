@@ -1,17 +1,35 @@
 import crypto from 'node:crypto'
-import { eq, sql } from 'drizzle-orm'
+import { eq, ne, sql, type SQL } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/canonry-db'
-import { projects, auditLog, usageCounters, parseJsonColumn } from '@ainyc/canonry-db'
+import { projects, runs, auditLog, usageCounters, parseJsonColumn } from '@ainyc/canonry-db'
 import {
   extractAnswerMentions,
   effectiveBrandNames,
   effectiveDomains,
   mentionStateFromAnswerMentioned,
   notFound,
+  RunTriggers,
   visibilityStateFromAnswerMentioned,
   type MentionState,
   type VisibilityState,
 } from '@ainyc/canonry-contracts'
+
+/**
+ * Drizzle predicate that excludes probe runs (`trigger='probe'`).
+ *
+ * Probe runs are operator/agent test runs that write snapshots so the
+ * operator can inspect provider behavior, but they must NEVER influence
+ * dashboard / analytics / report / timeline aggregates. Every read-aggregate
+ * query that touches `runs` MUST AND-in this predicate. See
+ * `packages/api-routes/test/probe-exclusion.test.ts` for the surface map.
+ *
+ * INCLUDE probes in: per-run detail endpoints (caller passes the runId),
+ * delete-preview cascade counts (must show true blast radius), the operator
+ * run-list view (`GET /projects/:name/runs`).
+ */
+export function notProbeRun(): SQL {
+  return ne(runs.trigger, RunTriggers.probe)
+}
 
 export function resolveProject(db: DatabaseClient, name: string) {
   const project = db.select().from(projects).where(eq(projects.name, name)).get()

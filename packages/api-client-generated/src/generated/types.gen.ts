@@ -533,7 +533,7 @@ export type LatestProjectRunDto = {
         projectId: string;
         kind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe';
         status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';
-        trigger: 'manual' | 'scheduled' | 'config-apply' | 'backfill';
+        trigger: 'manual' | 'scheduled' | 'config-apply' | 'backfill' | 'probe';
         location?: string;
         queries?: Array<string>;
         startedAt?: string;
@@ -638,7 +638,7 @@ export type RunDetailDto = {
     projectId: string;
     kind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe';
     status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';
-    trigger: 'manual' | 'scheduled' | 'config-apply' | 'backfill';
+    trigger: 'manual' | 'scheduled' | 'config-apply' | 'backfill' | 'probe';
     location?: string;
     queries?: Array<string>;
     startedAt?: string;
@@ -685,7 +685,7 @@ export type RunDto = {
     projectId: string;
     kind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe';
     status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';
-    trigger: 'manual' | 'scheduled' | 'config-apply' | 'backfill';
+    trigger: 'manual' | 'scheduled' | 'config-apply' | 'backfill' | 'probe';
     location?: string;
     queries?: Array<string>;
     startedAt?: string;

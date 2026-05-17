@@ -1,9 +1,9 @@
-import { eq, desc, asc, and, or, inArray } from 'drizzle-orm'
+import { eq, desc, asc, and, ne, or, inArray } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/canonry-db'
 import { competitors, groupRunsByCreatedAt, gscSearchData, healthSnapshots, insights, parseJsonColumn, projects, queries, querySnapshots, runs } from '@ainyc/canonry-db'
 import { analyzeRuns, classifyRegressionSeverity, PERSISTENT_GAP_THRESHOLD } from '@ainyc/canonry-intelligence'
 import type { RunData, Snapshot, AnalysisResult, Insight } from '@ainyc/canonry-intelligence'
-import { CitationStates, RunKinds } from '@ainyc/canonry-contracts'
+import { CitationStates, RunKinds, RunTriggers } from '@ainyc/canonry-contracts'
 import crypto from 'node:crypto'
 import { createLogger } from './logger.js'
 
@@ -33,6 +33,11 @@ export class IntelligenceService {
         and(
           eq(runs.projectId, projectId),
           or(eq(runs.status, 'completed'), eq(runs.status, 'partial')),
+          // Defensive: RunCoordinator already skips probes before this is
+          // called, but if a future call site invokes analyzeAndPersist
+          // directly for a probe, probes still must not pollute the
+          // intelligence window.
+          ne(runs.trigger, RunTriggers.probe),
         ),
       )
       .orderBy(desc(runs.finishedAt), desc(runs.createdAt))
@@ -244,6 +249,8 @@ export class IntelligenceService {
         and(
           eq(runs.projectId, project.id),
           or(eq(runs.status, 'completed'), eq(runs.status, 'partial')),
+          // Backfill must not replay probe runs as if they were real sweeps.
+          ne(runs.trigger, RunTriggers.probe),
         ),
       )
       .orderBy(asc(runs.finishedAt))
@@ -502,6 +509,8 @@ export class IntelligenceService {
           eq(runs.projectId, projectId),
           eq(runs.kind, RunKinds['answer-visibility']),
           or(eq(runs.status, 'completed'), eq(runs.status, 'partial')),
+          // Defensive — see top of file.
+          ne(runs.trigger, RunTriggers.probe),
         ),
       )
       .orderBy(desc(runs.createdAt), desc(runs.id))
