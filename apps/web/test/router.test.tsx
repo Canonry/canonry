@@ -7,7 +7,10 @@ import { RouterProvider } from '@tanstack/react-router'
 import { createDashboardFixture } from '../src/mock-data.js'
 import { createAppRouter } from '../src/router/router.js'
 import { DashboardProvider } from '../src/contexts/dashboard-context.js'
-import { queryKeys } from '../src/queries/query-keys.js'
+import { heyClient } from '../src/api.js'
+import { getApiV1ProjectsQueryKey } from '@ainyc/canonry-api-client/react-query'
+
+const projectsCacheKey = getApiV1ProjectsQueryKey({ client: heyClient })
 
 async function renderRoute(pathname: string, options: Parameters<typeof createDashboardFixture>[0] = {}) {
   const fixture = createDashboardFixture(options)
@@ -92,7 +95,7 @@ test('/ redirects to /setup when portfolio is empty', async () => {
   const fixture = createDashboardFixture({ emptyPortfolio: true })
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   // Pre-seed query cache so beforeLoad can read it
-  queryClient.setQueryData(queryKeys.projects.all, [])
+  queryClient.setQueryData(projectsCacheKey, [])
   const router = createAppRouter(queryClient, { initialEntries: ['/'] })
   await router.load()
 
@@ -111,7 +114,7 @@ test('/setup redirects to / when projects exist', async () => {
   const fixture = createDashboardFixture()
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   // Pre-seed query cache with projects so beforeLoad redirects
-  queryClient.setQueryData(queryKeys.projects.all, fixture.dashboard.projects.map(p => p.project))
+  queryClient.setQueryData(projectsCacheKey, fixture.dashboard.projects.map(p => p.project))
   const router = createAppRouter(queryClient, { initialEntries: ['/setup'] })
   await router.load()
 

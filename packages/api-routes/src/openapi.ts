@@ -940,8 +940,7 @@ const routeCatalog: OpenApiOperation[] = [
     summary: 'Get provider settings summary',
     tags: ['settings'],
     responses: {
-      // TODO: Add `SettingsSummaryDto` Zod schema in contracts.
-      200: rawJsonResponse('Settings returned.', looseObjectSchema),
+      200: jsonResponse('Settings returned.', 'SettingsDto'),
     },
   },
   {
@@ -2507,8 +2506,7 @@ const routeCatalog: OpenApiOperation[] = [
       'Bundles every section the canonry-report HTML output needs (executive summary, client summary, agency diagnostics, action plan, citation scorecard, competitor landscape — citation + mention landscapes, AI citation sources, GSC, GA4, social/AI referrals, indexing health, citations trend, insights, and recommended next steps) into a single canonical JSON payload. Backs `canonry report <project>` and MCP report reads.',
     parameters: [nameParameter],
     responses: {
-      // TODO: Add `ProjectReportDto` Zod schema in contracts.
-      200: rawJsonResponse('Report returned.', looseObjectSchema),
+      200: jsonResponse('Report returned.', 'ProjectReportDto'),
       404: errorResponse('Project not found.'),
     },
   },
@@ -3229,7 +3227,16 @@ const routeCatalog: OpenApiOperation[] = [
  * undefined and these entries will still appear in the spec, reflecting the
  * canonical canonry deployment contract.
  */
-const canonryLocalRouteCatalog: OpenApiOperation[] = [
+/**
+ * Routes registered by canonry itself (the Aero agent layer in
+ * `packages/canonry/src/agent/agent-routes.ts`) rather than this shared
+ * api-routes plugin. Surfaced here so the OpenAPI spec emitted by
+ * `canonry serve` (and consumed by the SDK codegen) lists them, but the
+ * api-routes test app does NOT register the underlying handlers. Tests
+ * that compare observed-routes-vs-spec-routes use this list to subtract
+ * the canonry-local paths before asserting equality.
+ */
+export const canonryLocalRouteCatalog: OpenApiOperation[] = [
   {
     method: 'get',
     path: '/api/v1/projects/{name}/agent/transcript',
@@ -3340,8 +3347,7 @@ const canonryLocalRouteCatalog: OpenApiOperation[] = [
     tags: ['agent'],
     parameters: [nameParameter],
     responses: {
-      // TODO: Add `AgentProvidersResponse` Zod schema in contracts.
-      200: rawJsonResponse('Providers returned.', looseObjectSchema),
+      200: jsonResponse('Providers returned.', 'AgentProvidersResponseDto'),
       404: errorResponse('Project not found.'),
     },
   },

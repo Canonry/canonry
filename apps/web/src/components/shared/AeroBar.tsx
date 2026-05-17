@@ -18,13 +18,14 @@ import { useLocation } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import ReactMarkdown from 'react-markdown'
 import { heyClient } from '../../api.js'
-import { getApiV1ProjectsOptions } from '@ainyc/canonry-api-client/react-query'
+import {
+  getApiV1ProjectsByNameAgentProvidersOptions,
+  getApiV1ProjectsOptions,
+} from '@ainyc/canonry-api-client/react-query'
 import { asyncHandler } from '../../lib/async-handler.js'
-import { queryKeys } from '../../queries/query-keys.js'
 import {
   extractAssistantText,
   fetchAeroTranscript,
-  fetchAgentProviders,
   promptAero,
   resetAeroTranscript,
   type AeroAssistantMessage,
@@ -186,8 +187,10 @@ export function AeroBar({ projectName }: AeroBarProps) {
   }, [paletteMatches.length])
 
   const providersQuery = useQuery({
-    queryKey: queryKeys.agent.providers(projectName),
-    queryFn: () => fetchAgentProviders(projectName),
+    ...getApiV1ProjectsByNameAgentProvidersOptions({
+      client: heyClient,
+      path: { name: projectName },
+    }),
     enabled: open,
     staleTime: 60_000,
   })

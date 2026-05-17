@@ -215,4 +215,31 @@ export default tseslint.config(
       }],
     },
   },
+  {
+    // SDK enforcement: every web call into the canonry API must flow through
+    // the generated `@ainyc/canonry-api-client` SDK (raw call or TanStack
+    // helper), with auth + 401/403 handling provided by the shared
+    // `heyClient` from `apps/web/src/api.ts`. Raw `fetch()` to API URLs
+    // bypasses every spec-derived contract and the auth interceptor.
+    //
+    // The two thin shim files (`api.ts` for the typed wrappers around SDK
+    // calls; `api-aero.ts` for the SSE prompt stream + transcript reads
+    // that ride on `EventSource`) are excluded — those are the only places
+    // raw `fetch()` is legitimate. Tests are also excluded because they
+    // stub `globalThis.fetch` via `vi.stubGlobal`.
+    files: ['apps/web/src/**/*.ts', 'apps/web/src/**/*.tsx'],
+    ignores: [
+      'apps/web/src/api.ts',
+      'apps/web/src/api-aero.ts',
+    ],
+    rules: {
+      'no-restricted-syntax': ['error', {
+        selector: "CallExpression[callee.name='fetch']",
+        message: 'Use the generated `@ainyc/canonry-api-client` SDK (via `heyClient` from `apps/web/src/api.ts`) instead of raw `fetch()`. Spec drift + auth interceptor bypass is silent and pernicious. For an endpoint missing a typed DTO, add a Zod schema in `packages/contracts` and flip the route to `jsonResponse(...)` first.',
+      }, {
+        selector: "NewExpression[callee.name='XMLHttpRequest']",
+        message: 'Use the generated `@ainyc/canonry-api-client` SDK (via `heyClient` from `apps/web/src/api.ts`) instead of `XMLHttpRequest`.',
+      }],
+    },
+  },
 )

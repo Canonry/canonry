@@ -38,22 +38,15 @@ import {
   updateOwnedDomains as apiUpdateOwnedDomains,
   updateAliases as apiUpdateAliases,
   updateProject as apiUpdateProject,
-  fetchBingStatus,
   bingConnect as apiBingConnect,
   bingDisconnect as apiBingDisconnect,
-  fetchBingSites,
   bingSetSite as apiBingSetSite,
-  fetchBingCoverage,
-  fetchBingInspections,
   inspectBingUrl,
   inspectBingSitemap,
   bingRequestIndexing,
   triggerGscSync,
   fetchRunDetail,
-  fetchBingPerformance,
-  fetchSettings,
-  fetchGoogleConnections,
-  fetchGscCoverage,
+  heyClient,
   type ApiBingConnection,
   type ApiBingSite,
   type ApiBingInspection,
@@ -62,9 +55,19 @@ import {
   type ApiGoogleConnection,
   type ApiGscCoverageSummary,
 } from '../api.js'
+import {
+  getApiV1ProjectsByNameBingCoverageOptions,
+  getApiV1ProjectsByNameBingInspectionsOptions,
+  getApiV1ProjectsByNameBingPerformanceOptions,
+  getApiV1ProjectsByNameBingSitesOptions,
+  getApiV1ProjectsByNameBingStatusOptions,
+  getApiV1ProjectsByNameGoogleConnectionsOptions,
+  getApiV1ProjectsByNameGoogleGscCoverageOptions,
+  getApiV1ProjectsQueryKey,
+  getApiV1SettingsOptions,
+} from '@ainyc/canonry-api-client/react-query'
 import { useAppendQueries, useTriggerRun } from '../queries/mutations.js'
 import { GSC_STALE_MS } from '../queries/query-client.js'
-import { queryKeys } from '../queries/query-keys.js'
 import { useDashboard } from '../queries/use-dashboard.js'
 import { useDrawer } from '../hooks/use-drawer.js'
 import { findProjectVm } from '../mock-data.js'
@@ -73,6 +76,22 @@ import type { ProjectCommandCenterVm, RunHistoryPoint } from '../view-models.js'
 export type ProjectPageTab = 'overview' | 'search-console' | 'discovery' | 'report' | 'activity' | 'backlinks' | 'settings'
 
 type SearchConsoleWorkspace = 'google' | 'bing'
+
+/**
+ * Invalidate every generated TanStack query whose operation id starts
+ * with `prefix`. Used to replace the legacy hierarchical `queryKeys.X.project(name)`
+ * invalidations now that all cache keys come from the SDK helpers — the
+ * generated keys are flat (`[{_id: 'getApiV1...', ...}]`) and don't share
+ * a hierarchical prefix.
+ */
+function invalidateByOpPrefix(queryClient: ReturnType<typeof useQueryClient>, prefix: string) {
+  return queryClient.invalidateQueries({
+    predicate: (query) => {
+      const head = query.queryKey[0] as { _id?: string } | undefined
+      return typeof head?._id === 'string' && head._id.startsWith(prefix)
+    },
+  })
+}
 
 function BingSection({
   projectName,
@@ -107,41 +126,36 @@ function BingSection({
     setError(null)
     try {
       const status = await queryClient.fetchQuery({
-        queryKey: queryKeys.bing.status(projectName),
-        queryFn: () => fetchBingStatus(projectName),
+        ...getApiV1ProjectsByNameBingStatusOptions({ client: heyClient, path: { name: projectName } }),
         staleTime: GSC_STALE_MS,
       })
       setConnection(status)
 
       if (status.connected) {
-        const [coverageData, inspectionData, perfData, siteData] = await Promise.all([
+        const [coverageData, inspectionData, perfData, sitesData] = await Promise.all([
           queryClient.fetchQuery({
-            queryKey: queryKeys.bing.coverage(projectName),
-            queryFn: () => fetchBingCoverage(projectName).catch(() => null),
+            ...getApiV1ProjectsByNameBingCoverageOptions({ client: heyClient, path: { name: projectName } }),
             staleTime: GSC_STALE_MS,
-          }),
+          }).catch(() => null),
           queryClient.fetchQuery({
-            queryKey: queryKeys.bing.inspections(projectName),
-            queryFn: () => fetchBingInspections(projectName).catch(() => []),
+            ...getApiV1ProjectsByNameBingInspectionsOptions({ client: heyClient, path: { name: projectName } }),
             staleTime: GSC_STALE_MS,
-          }),
+          }).catch(() => [] as ApiBingInspection[]),
           queryClient.fetchQuery({
-            queryKey: queryKeys.bing.performance(projectName),
-            queryFn: () => fetchBingPerformance(projectName).catch(() => []),
+            ...getApiV1ProjectsByNameBingPerformanceOptions({ client: heyClient, path: { name: projectName } }),
             staleTime: GSC_STALE_MS,
-          }),
+          }).catch(() => [] as ApiBingKeywordStats[]),
           !status.siteUrl
             ? queryClient.fetchQuery({
-                queryKey: queryKeys.bing.sites(projectName),
-                queryFn: () => fetchBingSites(projectName).then((result) => result.sites).catch(() => []),
+                ...getApiV1ProjectsByNameBingSitesOptions({ client: heyClient, path: { name: projectName } }),
                 staleTime: GSC_STALE_MS,
-              })
-            : Promise.resolve([]),
+              }).then((result) => result.sites).catch(() => [] as ApiBingSite[])
+            : Promise.resolve([] as ApiBingSite[]),
         ])
         setCoverage(coverageData)
         setInspections(inspectionData)
         setPerformance(perfData)
-        setSites(siteData)
+        setSites(sitesData)
       } else {
         setCoverage(null)
         setInspections([])
@@ -160,7 +174,7 @@ function BingSection({
     setError(null)
     try {
       const result = await apiBingConnect(projectName, apiKeyInput.trim())
-      await queryClient.invalidateQueries({ queryKey: queryKeys.bing.project(projectName) })
+      await invalidateByOpPrefix(queryClient, "getApiV1ProjectsByNameBing")
       setApiKeyInput('')
       if (result.availableSites.length > 0) {
         setSites(result.availableSites)
@@ -174,7 +188,7 @@ function BingSection({
   async function handleDisconnect() {
     try {
       await apiBingDisconnect(projectName)
-      await queryClient.invalidateQueries({ queryKey: queryKeys.bing.project(projectName) })
+      await invalidateByOpPrefix(queryClient, "getApiV1ProjectsByNameBing")
       setConnection(null)
       setSites([])
       setCoverage(null)
@@ -192,7 +206,7 @@ function BingSection({
     if (!selectedSite) return
     try {
       await apiBingSetSite(projectName, selectedSite)
-      await queryClient.invalidateQueries({ queryKey: queryKeys.bing.project(projectName) })
+      await invalidateByOpPrefix(queryClient, "getApiV1ProjectsByNameBing")
       await loadData()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to set site')
@@ -203,7 +217,7 @@ function BingSection({
     if (!inspectionUrl.trim()) return
     try {
       const result = await inspectBingUrl(projectName, inspectionUrl.trim())
-      await queryClient.invalidateQueries({ queryKey: queryKeys.bing.project(projectName) })
+      await invalidateByOpPrefix(queryClient, "getApiV1ProjectsByNameBing")
       setInspectionResult(result)
       setInspections((prev) => [result, ...prev])
     } catch (e) {
@@ -703,17 +717,15 @@ function SearchConsoleSection({
 
     try {
       const [settings, connections, bingStatus] = await Promise.all([
-        fetchSettings().catch(() => null),
+        queryClient.fetchQuery(getApiV1SettingsOptions({ client: heyClient })).catch(() => null),
         queryClient.fetchQuery({
-          queryKey: queryKeys.gsc.connections(projectName),
-          queryFn: () => fetchGoogleConnections(projectName).catch(() => [] as ApiGoogleConnection[]),
+          ...getApiV1ProjectsByNameGoogleConnectionsOptions({ client: heyClient, path: { name: projectName } }),
           staleTime: GSC_STALE_MS,
-        }),
+        }).catch(() => [] as ApiGoogleConnection[]),
         queryClient.fetchQuery({
-          queryKey: queryKeys.bing.status(projectName),
-          queryFn: () => fetchBingStatus(projectName).catch(() => null),
+          ...getApiV1ProjectsByNameBingStatusOptions({ client: heyClient, path: { name: projectName } }),
           staleTime: GSC_STALE_MS,
-        }),
+        }).catch(() => null),
       ])
 
       const gscConnection = connections.find((connection) => connection.connectionType === 'gsc') ?? null
@@ -725,17 +737,15 @@ function SearchConsoleSection({
       const [googleCoverageData, bingCoverageData] = await Promise.all([
         gscConnection
           ? queryClient.fetchQuery({
-              queryKey: queryKeys.gsc.coverage(projectName),
-              queryFn: () => fetchGscCoverage(projectName).catch(() => null),
+              ...getApiV1ProjectsByNameGoogleGscCoverageOptions({ client: heyClient, path: { name: projectName } }),
               staleTime: GSC_STALE_MS,
-            })
+            }).catch(() => null)
           : Promise.resolve(null),
         bingStatus?.connected
           ? queryClient.fetchQuery({
-              queryKey: queryKeys.bing.coverage(projectName),
-              queryFn: () => fetchBingCoverage(projectName).catch(() => null),
+              ...getApiV1ProjectsByNameBingCoverageOptions({ client: heyClient, path: { name: projectName } }),
               staleTime: GSC_STALE_MS,
-            })
+            }).catch(() => null)
           : Promise.resolve(null),
       ])
 
@@ -792,7 +802,10 @@ function SearchConsoleSection({
       const BING_CONCURRENCY = 10
       async function syncBing() {
         if (!bingConnection?.connected) return
-        const inspections = await fetchBingInspections(projectName).catch(() => [] as ApiBingInspection[])
+        const inspections = await queryClient.fetchQuery({
+          ...getApiV1ProjectsByNameBingInspectionsOptions({ client: heyClient, path: { name: projectName } }),
+          staleTime: 0,
+        }).catch(() => [] as ApiBingInspection[])
         const uniqueUrls = [...new Set(inspections.map((i) => i.url))]
 
         if (uniqueUrls.length === 0) {
@@ -822,8 +835,8 @@ function SearchConsoleSection({
       // Reload both coverage summaries from fresh DB values
       setRefreshState('reloading')
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: queryKeys.gsc.project(projectName) }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.bing.project(projectName) }),
+        invalidateByOpPrefix(queryClient, "getApiV1ProjectsByNameGoogleGsc"),
+        invalidateByOpPrefix(queryClient, "getApiV1ProjectsByNameBing"),
       ])
       await loadSummary(true)
       setWorkspaceRefreshNonce((current) => current + 1)
@@ -1666,7 +1679,11 @@ export function ProjectPage({
     // displayName before the user sees the next render. `refetch()` alone only
     // covers the top-level lists; detail queries were keyed on run IDs and
     // would silently hold the stale project object.
-    await queryClient.invalidateQueries({ queryKey: queryKeys.projects.all })
+    // Project rename / metadata edit — refresh the top-level projects list
+    // so sidebar/dashboard pick up the new displayName. Use the exact key
+    // (not a prefix) so we don't churn every Bing/GSC/GA cache under the
+    // project's sub-tree.
+    await queryClient.invalidateQueries({ queryKey: getApiV1ProjectsQueryKey({ client: heyClient }) })
   }
 
   const isNumericScore = (value: string) => !Number.isNaN(Number.parseInt(value, 10))

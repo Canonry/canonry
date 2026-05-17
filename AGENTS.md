@@ -461,6 +461,17 @@ The CLI and API **are** the agent interface. MCP is allowed only as an adapter o
 - [ ] Matching CLI command exists with `--format json` support
 - [ ] All derived metrics (percentages, trends, diffs) are computed in the API, not the component
 - [ ] JSON shape from CLI matches the API response the UI fetches
+- [ ] Reads flow through the generated `@ainyc/canonry-api-client` SDK (via `heyClient` from `apps/web/src/api.ts`) — raw `fetch()` is ESLint-banned in `apps/web/src/`
+
+### Spec-driven typing (Critical)
+
+The OpenAPI spec at `packages/api-routes/src/openapi.ts` is the single source of truth for HTTP request/response shapes. The web client (`@ainyc/canonry-api-client`), the CLI's `ApiClient`, and the MCP adapter all consume types regenerated from it. Two enforceable rules keep that pipeline intact:
+
+1. **Every new route MUST register a Zod schema and reference it via `jsonResponse(...)`.** New endpoints returning `rawJsonResponse(..., looseObjectSchema)` are blocked by `packages/api-routes/test/no-new-loose-routes.test.ts` — the test caps the current loose-response count, so adding one fails CI. Add the schema in `packages/contracts/src/<topic>.ts`, register it in `openapi-schemas.ts`, flip the route, run `pnpm gen`. See `packages/api-routes/AGENTS.md → "Typed responses"` for the step-by-step pattern.
+
+2. **Every web call into the canonry API MUST go through the generated SDK.** Raw `fetch()` and `XMLHttpRequest` are ESLint-banned in `apps/web/src/` (only `api.ts` and `api-aero.ts` may use them — the former is the SDK wrapper layer, the latter is the SSE prompt / transcript bridge). Use `useQuery(getApiV1...Options({client: heyClient, ...}))` for cached reads, the existing typed `fetchX()` wrappers in `api.ts` for composite calls, and add a new wrapper to `api.ts` (delegating to the generated SDK function) when one doesn't exist. See `apps/web/AGENTS.md → "API calls (Critical)"` for the full rules.
+
+The contract test `packages/api-routes/test/openapi-contract.test.ts` enforces a third invariant: every registered schema must be referenced by at least one route. Deleting the last consumer of a schema means removing it from the registry — no orphan entries.
 
 ## Maintenance Guidance
 

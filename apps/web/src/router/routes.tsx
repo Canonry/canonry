@@ -13,7 +13,8 @@ import { BacklinksPage } from '../pages/BacklinksPage.js'
 import { TrafficPage } from '../pages/TrafficPage.js'
 import { TrafficSourceDetailPage } from '../pages/TrafficSourceDetailPage.js'
 import { NotFoundPage } from '../pages/NotFoundPage.js'
-import { queryKeys } from '../queries/query-keys.js'
+import { heyClient } from '../api.js'
+import { getApiV1ProjectsQueryKey } from '@ainyc/canonry-api-client/react-query'
 
 export interface RouterContext {
   queryClient: QueryClient
@@ -45,7 +46,7 @@ export const indexRoute = createRoute({
   path: '/',
   component: OverviewPage,
   beforeLoad: ({ context }) => {
-    const projects = context.queryClient.getQueryData(queryKeys.projects.all) as unknown[] | undefined
+    const projects = context.queryClient.getQueryData(getApiV1ProjectsQueryKey({ client: heyClient })) as unknown[] | undefined
     if (projects && projects.length === 0) {
       throw redirect({ to: '/setup' })
     }
@@ -127,7 +128,7 @@ export const setupRoute = createRoute({
   path: '/setup',
   component: SetupPage,
   beforeLoad: ({ context }) => {
-    const projects = context.queryClient.getQueryData(queryKeys.projects.all) as unknown[] | undefined
+    const projects = context.queryClient.getQueryData(getApiV1ProjectsQueryKey({ client: heyClient })) as unknown[] | undefined
     if (projects && projects.length > 0) {
       throw redirect({ to: '/' })
     }

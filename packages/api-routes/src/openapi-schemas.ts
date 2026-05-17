@@ -24,6 +24,7 @@
  */
 import { z, type ZodType } from 'zod'
 import {
+  agentProvidersResponseDtoSchema,
   auditLogEntrySchema,
   backlinkHistoryEntrySchema,
   backlinkListResponseSchema,
@@ -73,10 +74,12 @@ import {
   locationContextSchema,
   notificationDtoSchema,
   projectDtoSchema,
+  projectReportDtoSchema,
   queryDtoSchema,
   runDetailDtoSchema,
   runDtoSchema,
   scheduleDtoSchema,
+  settingsDtoSchema,
   snapshotDiffResponseSchema,
   snapshotListResponseSchema,
   snapshotReportSchema,
@@ -106,6 +109,7 @@ import {
  * obvious in review.
  */
 const SCHEMA_TABLE = {
+  AgentProvidersResponseDto: agentProvidersResponseDtoSchema,
   AuditLogEntry: auditLogEntrySchema,
   BacklinkHistoryEntry: backlinkHistoryEntrySchema,
   BacklinkListResponse: backlinkListResponseSchema,
@@ -155,10 +159,12 @@ const SCHEMA_TABLE = {
   LocationContext: locationContextSchema,
   NotificationDto: notificationDtoSchema,
   ProjectDto: projectDtoSchema,
+  ProjectReportDto: projectReportDtoSchema,
   QueryDto: queryDtoSchema,
   RunDetailDto: runDetailDtoSchema,
   RunDto: runDtoSchema,
   ScheduleDto: scheduleDtoSchema,
+  SettingsDto: settingsDtoSchema,
   SnapshotDiffResponse: snapshotDiffResponseSchema,
   SnapshotListResponse: snapshotListResponseSchema,
   SnapshotReportDto: snapshotReportSchema,

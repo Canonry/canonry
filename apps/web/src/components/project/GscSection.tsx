@@ -11,21 +11,14 @@ import { addToast } from '../../lib/toast-store.js'
 import { asyncHandler } from '../../lib/async-handler.js'
 import {
   fetchSettings,
-  fetchGoogleConnections,
-  fetchGoogleProperties,
   googleConnect,
   googleDisconnect,
   saveGoogleProperty,
-  fetchGscPerformance,
-  fetchGscPerformanceDaily,
   inspectGscUrl,
-  fetchGscInspections,
-  fetchGscDeindexed,
-  fetchGscCoverage,
-  fetchGscCoverageHistory,
   saveSitemapUrl,
   fetchGscSitemaps,
   requestIndexing,
+  heyClient,
   type ApiGscSitemap,
   type ApiGoogleConnection,
   type ApiGoogleProperty,
@@ -35,12 +28,22 @@ import {
   type ApiGscCoverageSummary,
 } from '../../api.js'
 import {
+  getApiV1ProjectsByNameGoogleConnectionsOptions,
+  getApiV1ProjectsByNameGoogleGscCoverageHistoryOptions,
+  getApiV1ProjectsByNameGoogleGscCoverageOptions,
+  getApiV1ProjectsByNameGoogleGscDeindexedOptions,
+  getApiV1ProjectsByNameGoogleGscInspectionsOptions,
+  getApiV1ProjectsByNameGoogleGscPerformanceDailyOptions,
+  getApiV1ProjectsByNameGoogleGscPerformanceOptions,
+  getApiV1ProjectsByNameGoogleGscSitemapsQueryKey,
+  getApiV1ProjectsByNameGooglePropertiesOptions,
+} from '@ainyc/canonry-api-client/react-query'
+import {
   useTriggerDiscoverSitemaps,
   useTriggerGscSync,
   useTriggerInspectSitemap,
 } from '../../queries/mutations.js'
 import { GSC_STALE_MS } from '../../queries/query-client.js'
-import { queryKeys } from '../../queries/query-keys.js'
 
 const GSC_WINDOWS: MetricsWindow[] = ['7d', '30d', '90d', 'all']
 const EXPANDED_PERFORMANCE_LIMIT = 500
@@ -138,8 +141,7 @@ export function GscSection({
     setPropertiesLoading(true)
     try {
       const { sites } = await queryClient.fetchQuery({
-        queryKey: queryKeys.gsc.properties(projectName),
-        queryFn: () => fetchGoogleProperties(projectName),
+        ...getApiV1ProjectsByNameGooglePropertiesOptions({ client: heyClient, path: { name: projectName } }),
         staleTime: GSC_STALE_MS,
       })
       setProperties(sites)
@@ -162,25 +164,22 @@ export function GscSection({
       // Paged mode fetches pageSize+1 to detect "has more" without a COUNT query.
       const fetchLimit = isPerformanceExpanded ? EXPANDED_PERFORMANCE_LIMIT : pageSize + 1
       const fetchOffset = isPerformanceExpanded ? 0 : offset
-      const filters = {
-        startDate: performanceFilters.startDate,
-        endDate: performanceFilters.endDate,
-        query: performanceFilters.query,
-        page: performanceFilters.page,
+      // URL-string query params per the spec — empty strings stripped so the
+      // generated cache key only varies on values the server actually sees.
+      const queryParams: Record<string, string> = {
         limit: String(fetchLimit),
-        offset: String(fetchOffset),
-        window: gscWindow,
       }
+      if (performanceFilters.startDate) queryParams.startDate = performanceFilters.startDate
+      if (performanceFilters.endDate) queryParams.endDate = performanceFilters.endDate
+      if (performanceFilters.query) queryParams.query = performanceFilters.query
+      if (performanceFilters.page) queryParams.page = performanceFilters.page
+      if (fetchOffset > 0) queryParams.offset = String(fetchOffset)
+      if (gscWindow && gscWindow !== 'all' && !performanceFilters.startDate) queryParams.window = gscWindow
       const rows = await queryClient.fetchQuery({
-        queryKey: queryKeys.gsc.performance(projectName, filters),
-        queryFn: () => fetchGscPerformance(projectName, {
-          startDate: performanceFilters.startDate || undefined,
-          endDate: performanceFilters.endDate || undefined,
-          query: performanceFilters.query || undefined,
-          page: performanceFilters.page || undefined,
-          limit: fetchLimit,
-          offset: fetchOffset,
-          window: gscWindow,
+        ...getApiV1ProjectsByNameGoogleGscPerformanceOptions({
+          client: heyClient,
+          path: { name: projectName },
+          query: queryParams as never,
         }),
         staleTime: GSC_STALE_MS,
       })
@@ -207,17 +206,15 @@ export function GscSection({
 
   async function loadPerformanceDaily() {
     try {
-      const filters = {
-        startDate: performanceFilters.startDate,
-        endDate: performanceFilters.endDate,
-        window: gscWindow,
-      }
+      const queryParams: Record<string, string> = {}
+      if (performanceFilters.startDate) queryParams.startDate = performanceFilters.startDate
+      if (performanceFilters.endDate) queryParams.endDate = performanceFilters.endDate
+      if (gscWindow && gscWindow !== 'all' && !performanceFilters.startDate) queryParams.window = gscWindow
       const data = await queryClient.fetchQuery({
-        queryKey: queryKeys.gsc.performanceDaily(projectName, filters),
-        queryFn: () => fetchGscPerformanceDaily(projectName, {
-          startDate: performanceFilters.startDate || undefined,
-          endDate: performanceFilters.endDate || undefined,
-          window: gscWindow,
+        ...getApiV1ProjectsByNameGoogleGscPerformanceDailyOptions({
+          client: heyClient,
+          path: { name: projectName },
+          query: queryParams as never,
         }),
         staleTime: GSC_STALE_MS,
       })
@@ -231,18 +228,19 @@ export function GscSection({
     setLoadingInspections(true)
     try {
       const filterUrl = inspectionFilterUrl.trim() || undefined
+      const inspectionsQuery: Record<string, string> = { limit: '20' }
+      if (filterUrl) inspectionsQuery.url = filterUrl
       const [history, deindexedRows] = await Promise.all([
         queryClient.fetchQuery({
-          queryKey: queryKeys.gsc.inspections(projectName, filterUrl),
-          queryFn: () => fetchGscInspections(projectName, {
-            url: filterUrl,
-            limit: 20,
+          ...getApiV1ProjectsByNameGoogleGscInspectionsOptions({
+            client: heyClient,
+            path: { name: projectName },
+            query: inspectionsQuery as never,
           }),
           staleTime: GSC_STALE_MS,
         }),
         queryClient.fetchQuery({
-          queryKey: queryKeys.gsc.deindexed(projectName),
-          queryFn: () => fetchGscDeindexed(projectName),
+          ...getApiV1ProjectsByNameGoogleGscDeindexedOptions({ client: heyClient, path: { name: projectName } }),
           staleTime: GSC_STALE_MS,
         }),
       ])
@@ -262,15 +260,13 @@ export function GscSection({
     try {
       const [data, history] = await Promise.all([
         queryClient.fetchQuery({
-          queryKey: queryKeys.gsc.coverage(projectName),
-          queryFn: () => fetchGscCoverage(projectName),
+          ...getApiV1ProjectsByNameGoogleGscCoverageOptions({ client: heyClient, path: { name: projectName } }),
           staleTime: GSC_STALE_MS,
         }),
         queryClient.fetchQuery({
-          queryKey: queryKeys.gsc.coverageHistory(projectName),
-          queryFn: () => fetchGscCoverageHistory(projectName).catch(() => []),
+          ...getApiV1ProjectsByNameGoogleGscCoverageHistoryOptions({ client: heyClient, path: { name: projectName } }),
           staleTime: GSC_STALE_MS,
-        }),
+        }).catch(() => []),
       ])
       setCoverage(data)
       setCoverageHistory(history)
@@ -333,7 +329,7 @@ export function GscSection({
     setError(null)
     try {
       await saveSitemapUrl(projectName, 'gsc', sitemapUrlInput.trim())
-      await queryClient.invalidateQueries({ queryKey: queryKeys.gsc.project(projectName) })
+      await queryClient.invalidateQueries({ predicate: (query) => { const head = query.queryKey[0] as { _id?: string } | undefined; return typeof head?._id === "string" && head._id.startsWith("getApiV1ProjectsByNameGoogleGsc") } })
       setConnections((prev) => prev.map((c) => (
         c.connectionType === 'gsc' ? { ...c, sitemapUrl: sitemapUrlInput.trim() } : c
       )))
@@ -373,7 +369,10 @@ export function GscSection({
     setError(null)
     try {
       const result = await fetchGscSitemaps(projectName)
-      queryClient.setQueryData(queryKeys.gsc.sitemaps(projectName), result)
+      queryClient.setQueryData(
+        getApiV1ProjectsByNameGoogleGscSitemapsQueryKey({ client: heyClient, path: { name: projectName } }),
+        result,
+      )
       setDiscoveredSitemaps(result.sitemaps)
       if (result.sitemaps.length === 0) {
         setNotice('No sitemaps found in this GSC property. Submit a sitemap in Google Search Console first.')
@@ -392,10 +391,9 @@ export function GscSection({
       const [settings, conns] = await Promise.all([
         fetchSettings().catch(() => null),
         queryClient.fetchQuery({
-          queryKey: queryKeys.gsc.connections(projectName),
-          queryFn: () => fetchGoogleConnections(projectName).catch(() => [] as ApiGoogleConnection[]),
+          ...getApiV1ProjectsByNameGoogleConnectionsOptions({ client: heyClient, path: { name: projectName } }),
           staleTime: GSC_STALE_MS,
-        }),
+        }).catch(() => [] as ApiGoogleConnection[]),
       ])
       setGoogleConfigured(Boolean(settings?.google?.configured))
       setConnections(conns)
@@ -463,7 +461,7 @@ export function GscSection({
         if (popup.closed) {
           window.clearInterval(timer)
           setNotice(null)
-          void queryClient.invalidateQueries({ queryKey: queryKeys.gsc.project(projectName) })
+          void queryClient.invalidateQueries({ predicate: (query) => { const head = query.queryKey[0] as { _id?: string } | undefined; return typeof head?._id === "string" && head._id.startsWith("getApiV1ProjectsByNameGoogleGsc") } })
           void loadSection()
         }
       }, 1000)
@@ -479,7 +477,7 @@ export function GscSection({
     setNotice(null)
     try {
       await googleDisconnect(projectName, 'gsc')
-      await queryClient.invalidateQueries({ queryKey: queryKeys.gsc.project(projectName) })
+      await queryClient.invalidateQueries({ predicate: (query) => { const head = query.queryKey[0] as { _id?: string } | undefined; return typeof head?._id === "string" && head._id.startsWith("getApiV1ProjectsByNameGoogleGsc") } })
       setConnections((prev) => prev.filter((c) => c.connectionType !== 'gsc'))
       setProperties([])
       setSelectedProperty('')
@@ -494,7 +492,7 @@ export function GscSection({
     setError(null)
     try {
       await saveGoogleProperty(projectName, 'gsc', selectedProperty)
-      await queryClient.invalidateQueries({ queryKey: queryKeys.gsc.project(projectName) })
+      await queryClient.invalidateQueries({ predicate: (query) => { const head = query.queryKey[0] as { _id?: string } | undefined; return typeof head?._id === "string" && head._id.startsWith("getApiV1ProjectsByNameGoogleGsc") } })
       setConnections((prev) => prev.map((connection) => (
         connection.connectionType === 'gsc'
           ? { ...connection, propertyId: selectedProperty }
@@ -526,7 +524,7 @@ export function GscSection({
           full: fullSync || undefined,
         },
       })
-      await queryClient.invalidateQueries({ queryKey: queryKeys.gsc.project(projectName) })
+      await queryClient.invalidateQueries({ predicate: (query) => { const head = query.queryKey[0] as { _id?: string } | undefined; return typeof head?._id === "string" && head._id.startsWith("getApiV1ProjectsByNameGoogleGsc") } })
     } catch {
       // Mutation hook handles the toast-only failure path for queued syncs.
     }
@@ -539,7 +537,7 @@ export function GscSection({
     setNotice(null)
     try {
       const result = await inspectGscUrl(projectName, inspectionUrl.trim())
-      await queryClient.invalidateQueries({ queryKey: queryKeys.gsc.project(projectName) })
+      await queryClient.invalidateQueries({ predicate: (query) => { const head = query.queryKey[0] as { _id?: string } | undefined; return typeof head?._id === "string" && head._id.startsWith("getApiV1ProjectsByNameGoogleGsc") } })
       setInspectionResult(result)
       setInspectionUrl('')
       await loadInspectionHistory()
