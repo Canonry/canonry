@@ -89,6 +89,14 @@ import type {
 import {
   createClient as createHeyClient,
   type Client,
+  // Agent (canonry-local routes — included in SDK since codegen was set to
+  // `includeCanonryLocal: true` in v4.50.0; previously called via raw fetch).
+  deleteApiV1ProjectsByNameAgentMemory,
+  deleteApiV1ProjectsByNameAgentTranscript,
+  getApiV1ProjectsByNameAgentMemory,
+  getApiV1ProjectsByNameAgentProviders,
+  getApiV1ProjectsByNameAgentTranscript,
+  putApiV1ProjectsByNameAgentMemory,
   // Projects
   getApiV1Projects,
   getApiV1ProjectsByName,
@@ -528,116 +536,57 @@ export class ApiClient {
     return result.data as TData
   }
 
-  /**
-   * Raw HTTP call — used for the agent transcript / providers / memory routes,
-   * which are registered locally in `packages/canonry/src/agent/agent-routes.ts`
-   * and aren't (yet) emitted by the OpenAPI spec. Once they're in the spec we
-   * regen the client and migrate these to `invoke()` like every other method.
-   */
-  private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
-    await this.probeBasePath()
-    const url = `${this.originUrl}/api/v1${path}`
-    const serializedBody = body != null ? JSON.stringify(body) : undefined
-    const headers: Record<string, string> = {
-      Authorization: `Bearer ${this.apiKey}`,
-      Accept: 'application/json',
-      ...(serializedBody != null ? { 'Content-Type': 'application/json' } : {}),
-    }
-
-    const traceEnabled = process.env.CANONRY_TRACE === '1'
-    const traceStart = traceEnabled ? Date.now() : 0
-
-    let res: Response
-    try {
-      res = await fetch(url, { method, headers, body: serializedBody })
-    } catch (err) {
-      if (traceEnabled) {
-        const durMs = Date.now() - traceStart
-        process.stderr.write(`[trace] ${method} ${url} → ERROR (${durMs}ms)\n`)
-      }
-      if (err instanceof CliError) throw err
-      const msg = err instanceof Error ? err.message : String(err)
-      if (msg.includes('fetch failed') || msg.includes('ECONNREFUSED') || msg.includes('connect ECONNREFUSED')) {
-        throw new CliError({
-          code: 'CONNECTION_ERROR',
-          message:
-            `Could not connect to canonry server at ${this.originUrl}. ` +
-            'Start it with "canonry serve" (or "canonry serve &" to run in background).',
-          exitCode: EXIT_SYSTEM_ERROR,
-        })
-      }
-      throw new CliError({ code: 'CONNECTION_ERROR', message: msg, exitCode: EXIT_SYSTEM_ERROR })
-    }
-
-    if (!res.ok) {
-      let errorBody: unknown
-      try {
-        errorBody = await res.json()
-      } catch {
-        errorBody = { error: { code: 'UNKNOWN', message: res.statusText } }
-      }
-      const errorObj =
-        errorBody &&
-        typeof errorBody === 'object' &&
-        'error' in errorBody &&
-        errorBody.error &&
-        typeof errorBody.error === 'object'
-          ? (errorBody.error as { code?: string; message?: string; details?: Record<string, unknown> })
-          : null
-      const msg = errorObj?.message ? String(errorObj.message) : `HTTP ${res.status}: ${res.statusText}`
-      const code = errorObj?.code ? String(errorObj.code) : 'API_ERROR'
-      const exitCode = res.status >= 500 ? EXIT_SYSTEM_ERROR : EXIT_USER_ERROR
-      throw new CliError({
-        code,
-        message: msg,
-        exitCode,
-        details: { ...(errorObj?.details ?? {}), httpStatus: res.status },
-      })
-    }
-
-    if (traceEnabled) {
-      const durMs = Date.now() - traceStart
-      process.stderr.write(`[trace] ${method} ${url} → ${res.status} (${durMs}ms)\n`)
-    }
-
-    if (res.status === 204) return undefined as T
-    return (await res.json()) as T
-  }
-
-  // ── Agent (routes not in OpenAPI spec — raw request<T>) ─────────────────
+  // ── Agent (canonry-local routes — SDK-typed since v4.50.0) ─────────────
+  //
+  // These endpoints live in `packages/canonry/src/agent/agent-routes.ts` and
+  // are registered through `apiRoutes.registerAuthenticatedRoutes`, not the
+  // shared `routeCatalog`. They appear in the OpenAPI spec only when the
+  // caller passes `includeCanonryLocal: true` to `buildOpenApiDocument` —
+  // which canonry's own server and the codegen both do, so they're in the
+  // generated SDK and we route them through `invoke()` like every other
+  // endpoint. The SSE `POST /agent/prompt` is intentionally not here — it
+  // stays on `streamPost()` below since the SDK can't represent SSE cleanly.
 
   async getAgentTranscript(project: string): Promise<AgentTranscriptDto> {
-    return this.request<AgentTranscriptDto>('GET', `/projects/${encodeURIComponent(project)}/agent/transcript`)
+    return this.invoke<AgentTranscriptDto>(() =>
+      getApiV1ProjectsByNameAgentTranscript({ client: this.heyClient, path: { name: project } }),
+    )
   }
 
   async resetAgentTranscript(project: string): Promise<void> {
-    await this.request<unknown>('DELETE', `/projects/${encodeURIComponent(project)}/agent/transcript`)
+    await this.invoke<unknown>(() =>
+      deleteApiV1ProjectsByNameAgentTranscript({ client: this.heyClient, path: { name: project } }),
+    )
   }
 
   async listAgentProviders(project: string): Promise<AgentProvidersResponse> {
-    return this.request<AgentProvidersResponse>('GET', `/projects/${encodeURIComponent(project)}/agent/providers`)
+    return this.invoke<AgentProvidersResponse>(() =>
+      getApiV1ProjectsByNameAgentProviders({ client: this.heyClient, path: { name: project } }),
+    )
   }
 
   async listAgentMemory(project: string): Promise<AgentMemoryListResponse> {
-    return this.request<AgentMemoryListResponse>('GET', `/projects/${encodeURIComponent(project)}/agent/memory`)
+    return this.invoke<AgentMemoryListResponse>(() =>
+      getApiV1ProjectsByNameAgentMemory({ client: this.heyClient, path: { name: project } }),
+    )
   }
 
   async setAgentMemory(
     project: string,
     body: AgentMemoryUpsertRequest,
   ): Promise<{ status: 'ok'; entry: AgentMemoryEntryDto }> {
-    return this.request<{ status: 'ok'; entry: AgentMemoryEntryDto }>(
-      'PUT',
-      `/projects/${encodeURIComponent(project)}/agent/memory`,
-      body,
+    return this.invoke<{ status: 'ok'; entry: AgentMemoryEntryDto }>(() =>
+      putApiV1ProjectsByNameAgentMemory({ client: this.heyClient, path: { name: project }, body }),
     )
   }
 
   async forgetAgentMemory(project: string, key: string): Promise<{ status: 'forgotten' | 'missing'; key: string }> {
-    return this.request<{ status: 'forgotten' | 'missing'; key: string }>(
-      'DELETE',
-      `/projects/${encodeURIComponent(project)}/agent/memory`,
-      { key },
+    return this.invoke<{ status: 'forgotten' | 'missing'; key: string }>(() =>
+      deleteApiV1ProjectsByNameAgentMemory({
+        client: this.heyClient,
+        path: { name: project },
+        body: { key },
+      }),
     )
   }
 
