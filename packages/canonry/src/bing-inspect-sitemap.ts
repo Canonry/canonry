@@ -134,7 +134,7 @@ export async function executeBingInspectSitemap(
           projectId,
           url: pageUrl,
           httpCode,
-          inIndex: derivedInIndex === true ? 1 : derivedInIndex === false ? 0 : null,
+          inIndex: derivedInIndex,
           lastCrawledDate,
           inIndexDate,
           inspectedAt,
@@ -196,8 +196,8 @@ export async function executeBingInspectSitemap(
     let snapNotIndexed = 0
     let snapUnknown = 0
     for (const [, row] of latestByUrl) {
-      if (row.inIndex === 1) snapIndexed++
-      else if (row.inIndex === 0) snapNotIndexed++
+      if (row.inIndex === true) snapIndexed++
+      else if (row.inIndex === false) snapNotIndexed++
       else snapUnknown++
     }
 

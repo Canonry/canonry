@@ -381,10 +381,10 @@ test('migrate v43 backfills bing_url_inspections.in_index from stored crawl sign
 
   const rows = db.select().from(bingUrlInspections).all()
   const byId = Object.fromEntries(rows.map((row) => [row.id, row]))
-  expect(byId.insp_crawled_zero_size.inIndex).toBe(1)
-  expect(byId.insp_broken.inIndex).toBe(0)
-  expect(byId.insp_discovered.inIndex).toBe(0)
-  expect(byId.insp_demoted.inIndex).toBe(0)
+  expect(byId.insp_crawled_zero_size.inIndex).toBe(true)
+  expect(byId.insp_broken.inIndex).toBe(false)
+  expect(byId.insp_discovered.inIndex).toBe(false)
+  expect(byId.insp_demoted.inIndex).toBe(false)
 })
 
 test('migrate adds sync_run_id columns without reintroducing query_snapshots.default_location', () => {

@@ -1,6 +1,6 @@
 import { eq, desc, and, inArray } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { groupRunsByCreatedAt, insights, healthSnapshots, parseJsonColumn, runs } from '@ainyc/canonry-db'
+import { groupRunsByCreatedAt, insights, healthSnapshots, runs } from '@ainyc/canonry-db'
 import { notFound, RunKinds, RunStatuses, type InsightDto, type HealthSnapshotDto } from '@ainyc/canonry-contracts'
 import { notProbeRun, resolveProject } from './helpers.js'
 
@@ -29,8 +29,8 @@ function mapInsightRow(r: typeof insights.$inferSelect): InsightDto {
     title: r.title,
     query: r.query,
     provider: r.provider,
-    recommendation: parseJsonColumn<InsightDto['recommendation']>(r.recommendation, undefined),
-    cause: parseJsonColumn<InsightDto['cause']>(r.cause, undefined),
+    recommendation: r.recommendation ?? undefined,
+    cause: r.cause ?? undefined,
     dismissed: r.dismissed,
     createdAt: r.createdAt,
   }
@@ -44,7 +44,7 @@ function mapHealthRow(r: typeof healthSnapshots.$inferSelect): HealthSnapshotDto
     overallCitedRate: Number(r.overallCitedRate),
     totalPairs: r.totalPairs,
     citedPairs: r.citedPairs,
-    providerBreakdown: parseJsonColumn<HealthSnapshotDto['providerBreakdown']>(r.providerBreakdown, {}),
+    providerBreakdown: r.providerBreakdown,
     createdAt: r.createdAt,
     status: 'ready',
   }
@@ -78,7 +78,7 @@ function aggregateHealthSnapshots(
     citedPairs += row.citedPairs
     if (row.createdAt > newestCreatedAt) newestCreatedAt = row.createdAt
     if (row.runId) runIds.push(row.runId)
-    const providerBreakdown = parseJsonColumn<HealthSnapshotDto['providerBreakdown']>(row.providerBreakdown, {})
+    const providerBreakdown = row.providerBreakdown
     for (const [provider, entry] of Object.entries(providerBreakdown)) {
       const existing = mergedProviders[provider] ?? { total: 0, cited: 0, citedRate: 0 }
       existing.total += entry.total

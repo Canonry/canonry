@@ -108,7 +108,7 @@ describe('discover CLI commands', () => {
       id: sessionId,
       projectId,
       status: opts.status ?? 'completed',
-      competitorMap: JSON.stringify(competitorMap),
+      competitorMap,
       createdAt: now,
     }).run()
     for (const p of opts.probes ?? []) {
@@ -119,7 +119,7 @@ describe('discover CLI commands', () => {
         query: p.query,
         bucket: p.bucket,
         citationState: p.bucket === 'cited' ? 'cited' : 'not-cited',
-        citedDomains: '[]',
+        citedDomains: [],
         createdAt: now,
       }).run()
     }
@@ -351,7 +351,7 @@ describe('discover CLI commands', () => {
       runId: existingRunId,
       status: 'probing',
       icpDescription: 'in-flight icp',
-      competitorMap: '[]',
+      competitorMap: [],
       createdAt: new Date().toISOString(),
     }).run()
 
@@ -381,7 +381,7 @@ describe('discover CLI commands', () => {
       runId: existingRunId,
       status: 'probing',
       icpDescription: 'in-flight icp',
-      competitorMap: '[]',
+      competitorMap: [],
       createdAt: new Date().toISOString(),
     }).run()
 

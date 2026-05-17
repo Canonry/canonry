@@ -711,7 +711,7 @@ export async function createServer(opts: {
         name: 'default',
         keyHash,
         keyPrefix: prefix,
-        scopes: JSON.stringify(['*']),
+        scopes: ['*'],
         createdAt: new Date().toISOString(),
       }).run()
     }

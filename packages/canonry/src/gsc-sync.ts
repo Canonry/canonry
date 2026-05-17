@@ -168,9 +168,9 @@ export async function executeGscSync(
           robotsTxtState: idx?.robotsTxtState ?? null,
           crawlTime: idx?.lastCrawlTime ?? null,
           lastCrawlResult: idx?.crawlResult ?? null,
-          isMobileFriendly: mob?.verdict === 'PASS' ? 1 : mob?.verdict === 'FAIL' ? 0 : null,
-          richResults: JSON.stringify(rich?.detectedItems?.map((d) => d.richResultType) ?? []),
-          referringUrls: JSON.stringify(idx?.referringUrls ?? []),
+          isMobileFriendly: mob?.verdict === 'PASS' ? true : mob?.verdict === 'FAIL' ? false : null,
+          richResults: rich?.detectedItems?.map((d) => d.richResultType) ?? [],
+          referringUrls: idx?.referringUrls ?? [],
           inspectedAt,
           createdAt: inspectedAt,
         }).run()
@@ -219,7 +219,7 @@ export async function executeGscSync(
       date: snapshotDate,
       indexed: snapIndexed,
       notIndexed: snapNotIndexed,
-      reasonBreakdown: JSON.stringify(reasonCounts),
+      reasonBreakdown: reasonCounts,
       createdAt: new Date().toISOString(),
     }).run()
 

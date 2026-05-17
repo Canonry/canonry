@@ -7,7 +7,6 @@ import {
   aiReferralEventsHourly,
   rawEventSamples,
   runs,
-  parseJsonColumn,
 } from '@ainyc/canonry-db'
 import {
   notFound,
@@ -232,7 +231,7 @@ const BACKFILL_MAX_PAGES = 1_000
 const BACKFILL_SAMPLE_LIMIT = 500
 
 function parseSourceConfig(row: typeof trafficSources.$inferSelect): Record<string, unknown> {
-  return parseJsonColumn<Record<string, unknown>>(row.configJson, {})
+  return row.configJson
 }
 
 function rowToDto(row: typeof trafficSources.$inferSelect): TrafficSourceDto {
@@ -483,10 +482,10 @@ async function runBackfillTask(options: RunBackfillTaskOptions): Promise<void> {
             pathNormalized: sample.pathNormalized,
             status: sample.status,
             refererHost,
-            classifierDetailsJson: JSON.stringify({
+            classifierDetailsJson: {
               crawler: sample.crawler,
               aiReferral: sample.aiReferral,
-            }),
+            },
             createdAt: finishedAt,
           })
           .run()
@@ -498,7 +497,7 @@ async function runBackfillTask(options: RunBackfillTaskOptions): Promise<void> {
           status: TrafficSourceStatuses.connected,
           lastSyncedAt: nextLastSyncedAt,
           lastError: null,
-          lastEventIds: JSON.stringify(newRingBuffer),
+          lastEventIds: newRingBuffer,
           updatedAt: finishedAt,
         })
         .where(eq(trafficSources.id, sourceRow.id))
@@ -602,7 +601,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
           displayName: fallbackName,
           status: TrafficSourceStatuses.connected,
           lastError: null,
-          configJson: JSON.stringify(config),
+          configJson: config,
           updatedAt: now,
         })
         .where(eq(trafficSources.id, activeSource.id))
@@ -626,7 +625,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
           lastCursor: null,
           lastError: null,
           archivedAt: null,
-          configJson: JSON.stringify(config),
+          configJson: config,
           createdAt: now,
           updatedAt: now,
         })
@@ -728,7 +727,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
           displayName: fallbackName,
           status: TrafficSourceStatuses.connected,
           lastError: null,
-          configJson: JSON.stringify(config),
+          configJson: config,
           updatedAt: now,
         })
         .where(eq(trafficSources.id, activeSource.id))
@@ -752,7 +751,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
           lastCursor: null,
           lastError: null,
           archivedAt: null,
-          configJson: JSON.stringify(config),
+          configJson: config,
           createdAt: now,
           updatedAt: now,
         })
@@ -861,7 +860,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
           displayName: fallbackName,
           status: TrafficSourceStatuses.connected,
           lastError: null,
-          configJson: JSON.stringify(config),
+          configJson: config,
           updatedAt: now,
         })
         .where(eq(trafficSources.id, activeSource.id))
@@ -885,7 +884,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
           lastCursor: null,
           lastError: null,
           archivedAt: null,
-          configJson: JSON.stringify(config),
+          configJson: config,
           createdAt: now,
           updatedAt: now,
         })
@@ -1231,7 +1230,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       // observed in the previous successful sync. The lastSyncedAt clamp
       // narrows the fetch window, but events with timestamp == lastSyncedAt
       // (boundary second) can still appear in two consecutive pulls.
-      const previousIds = parseJsonColumn<string[]>(latestRow.lastEventIds, [])
+      const previousIds = latestRow.lastEventIds ?? []
       const seenEventIds = new Set(previousIds)
       const dedupedEvents = seenEventIds.size === 0
         ? allEvents
@@ -1364,10 +1363,10 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
             pathNormalized: sample.pathNormalized,
             status: sample.status,
             refererHost,
-            classifierDetailsJson: JSON.stringify({
+            classifierDetailsJson: {
               crawler: sample.crawler,
               aiReferral: sample.aiReferral,
-            }),
+            },
             createdAt: finishedAt,
           })
           .run()
@@ -1386,7 +1385,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         // past them and they'd be lost.
         lastSyncedAt: windowEnd.toISOString(),
         lastError: null,
-        lastEventIds: JSON.stringify(nextEventIds),
+        lastEventIds: nextEventIds,
         updatedAt: finishedAt,
       }
       if (sourceRow.sourceType === TrafficSourceTypes.wordpress) {

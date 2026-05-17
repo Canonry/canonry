@@ -6,7 +6,6 @@ import { sql } from 'drizzle-orm'
 import {
   createClient,
   migrate,
-  parseJsonColumn,
   projects,
   queries,
   competitors,
@@ -269,6 +268,6 @@ test('discovery_sessions.competitor_map default is an array, not an object (regr
 
   const [row] = db.select().from(discoverySessions).all()
   expect(row.status).toBe('queued')
-  expect(row.competitorMap).toBe('[]')
-  expect(parseJsonColumn(row.competitorMap, null)).toEqual([])
+  // Drizzle JSON-mode deserializes the stored '[]' default into a JS array.
+  expect(row.competitorMap).toEqual([])
 })

@@ -1075,7 +1075,7 @@ function buildInsightList(
   const flat: Array<ReportInsight & { _sortRank: number }> = rows
     .filter(r => !r.dismissed)
     .map(r => {
-      const recommendation = parseJsonColumn<{ action?: string; target?: string; reason?: string } | null>(r.recommendation, null)
+      const recommendation = r.recommendation
       let recText: string | null = null
       if (recommendation) {
         const parts: string[] = []

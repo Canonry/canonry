@@ -424,7 +424,7 @@ describe('GET /api/v1/projects/:name/report', () => {
       date: '2026-04-30',
       indexed: 2,
       notIndexed: 8,
-      reasonBreakdown: '{}',
+      reasonBreakdown: {},
       createdAt: new Date().toISOString(),
     }).run()
 
@@ -755,7 +755,7 @@ describe('GET /api/v1/projects/:name/report', () => {
       date: '2026-04-30',
       indexed: 80,
       notIndexed: 20,
-      reasonBreakdown: '{}',
+      reasonBreakdown: {},
       createdAt: new Date().toISOString(),
     }).run()
 
@@ -1027,7 +1027,7 @@ describe('GET /api/v1/projects/:name/report', () => {
         title: 'Lost citation on query',
         query: 'aeo platform',
         provider: 'gemini',
-        recommendation: JSON.stringify({ action: 'review-content', target: '/landing', reason: 'rival outranking' }),
+        recommendation: { action: 'review-content', target: '/landing', reason: 'rival outranking' },
         cause: null,
         dismissed: false,
         createdAt: '2026-04-30T00:00:00Z',
@@ -1512,7 +1512,7 @@ describe('serverActivity (AI visibility — server-side)', () => {
       lastError: null,
       lastEventIds: null,
       archivedAt: status === 'archived' ? now : null,
-      configJson: '{}',
+      configJson: {},
       createdAt: now,
       updatedAt: now,
     }).run()

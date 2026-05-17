@@ -305,7 +305,7 @@ export async function executeDiscovery(opts: ExecuteDiscoveryOptions): Promise<E
       query,
       bucket,
       citationState: probe.citationState,
-      citedDomains: JSON.stringify(probe.citedDomains),
+      citedDomains: probe.citedDomains,
       rawResponse: JSON.stringify(probe.rawResponse),
       createdAt: new Date().toISOString(),
     }).run()
@@ -331,7 +331,7 @@ export async function executeDiscovery(opts: ExecuteDiscoveryOptions): Promise<E
       citedCount: buckets.cited,
       aspirationalCount: buckets.aspirational,
       wastedCount: buckets['wasted-surface'],
-      competitorMap: JSON.stringify(competitorMap),
+      competitorMap,
       finishedAt: new Date().toISOString(),
     })
     .where(eq(discoverySessions.id, opts.sessionId))

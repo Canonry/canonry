@@ -259,7 +259,7 @@ export async function initCommand(opts?: InitOptions): Promise<ResolvedAgentLLM 
     name: 'default',
     keyHash,
     keyPrefix,
-    scopes: '["*"]',
+    scopes: ['*'],
     createdAt: new Date().toISOString(),
   }).run()
 

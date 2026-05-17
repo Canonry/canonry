@@ -29,7 +29,7 @@ function insertApiKey(db: ReturnType<typeof createClient>, rawKey = `cnry_${cryp
     name: 'test',
     keyHash: crypto.createHash('sha256').update(rawKey).digest('hex'),
     keyPrefix: rawKey.slice(0, 9),
-    scopes: '["*"]',
+    scopes: ['*'],
     createdAt: new Date().toISOString(),
   }).run()
 

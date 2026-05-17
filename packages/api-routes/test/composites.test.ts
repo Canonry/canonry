@@ -89,7 +89,7 @@ function seedProjectWithRuns() {
     overallCitedRate: '0.6667',
     totalPairs: 3,
     citedPairs: 2,
-    providerBreakdown: '{}',
+    providerBreakdown: {},
     createdAt: '2026-04-18T14:21:00.000Z',
   }).run()
   // Two insights, one dismissed
@@ -282,7 +282,7 @@ describe('GET /api/v1/projects/:name/overview', () => {
       date: '2026-04-18',
       indexed: 19,
       notIndexed: 1,
-      reasonBreakdown: '{}',
+      reasonBreakdown: {},
       createdAt: '2026-04-18T14:25:00.000Z',
     }).run()
     db.insert(gscUrlInspections).values([
@@ -310,7 +310,7 @@ describe('GET /api/v1/projects/:name/overview', () => {
       date: '2026-04-18',
       indexed: 6,
       notIndexed: 4,
-      reasonBreakdown: '{}',
+      reasonBreakdown: {},
       createdAt: '2026-04-18T14:25:00.000Z',
     }).run()
     await app.ready()

@@ -70,7 +70,7 @@ export async function bootstrapCommand(_opts?: { force?: boolean; format?: CliFo
       name: 'default',
       keyHash,
       keyPrefix,
-      scopes: '["*"]',
+      scopes: ['*'],
       createdAt: new Date().toISOString(),
     }).run()
   })

@@ -84,7 +84,7 @@ test('traffic_sources supports archived status with archived_at', () => {
     displayName: 'Old host',
     status: 'archived',
     archivedAt: now,
-    configJson: '{}',
+    configJson: {},
     createdAt: now,
     updatedAt: now,
   }).run()
@@ -108,7 +108,7 @@ test('crawler_events_hourly composite PK rejects duplicate inserts and accumulat
     sourceType: 'cloud-run',
     displayName: 'Cloud Run',
     status: 'connected',
-    configJson: '{}',
+    configJson: {},
     createdAt: now,
     updatedAt: now,
   }).run()
@@ -167,7 +167,7 @@ test('ai_referral_events_hourly stores hourly buckets keyed by product+source+ev
     sourceType: 'cloud-run',
     displayName: 'Cloud Run',
     status: 'connected',
-    configJson: '{}',
+    configJson: {},
     createdAt: now,
     updatedAt: now,
   }).run()
@@ -217,7 +217,7 @@ test('raw_event_samples stores debug samples without full IPs', () => {
     sourceType: 'cloud-run',
     displayName: 'Cloud Run',
     status: 'connected',
-    configJson: '{}',
+    configJson: {},
     createdAt: now,
     updatedAt: now,
   }).run()
@@ -256,7 +256,7 @@ test('traffic_sources cascade deletes all dependent rows when project is removed
     sourceType: 'cloud-run',
     displayName: 'Cloud Run',
     status: 'connected',
-    configJson: '{}',
+    configJson: {},
     createdAt: now,
     updatedAt: now,
   }).run()

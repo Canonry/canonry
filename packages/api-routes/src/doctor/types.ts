@@ -20,7 +20,7 @@ export interface TrafficSourceProbe {
   status: string
   lastSyncedAt: string | null
   lastError: string | null
-  configJson: string
+  configJson: Record<string, unknown>
 }
 
 /**

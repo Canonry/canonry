@@ -11,7 +11,6 @@ import {
   discoveryProbes,
   discoverySessions,
   migrate,
-  parseJsonColumn,
   projects,
   queries,
   runs,
@@ -261,7 +260,7 @@ describe('executeDiscovery', () => {
       projectId,
       status: 'queued',
       icpDescription: 'solar contractors',
-      competitorMap: '[]',
+      competitorMap: [],
       createdAt: now,
     }).run()
     db.insert(runs).values({
@@ -348,7 +347,7 @@ describe('executeDiscovery', () => {
     expect(sessionRow.citedCount).toBe(1)
     expect(sessionRow.aspirationalCount).toBe(1)
     expect(sessionRow.wastedCount).toBe(2)
-    expect(parseJsonColumn(sessionRow.competitorMap, [])).toEqual([
+    expect(sessionRow.competitorMap).toEqual([
       { domain: 'aurora-solar.com', hits: 2, competitorType: 'direct-competitor' },
       { domain: 'enerflo.com', hits: 1, competitorType: 'direct-competitor' },
       { domain: 'random.com', hits: 1, competitorType: 'other' },
@@ -374,7 +373,7 @@ describe('executeDiscovery', () => {
       id: sessionId,
       projectId,
       status: 'queued',
-      competitorMap: '[]',
+      competitorMap: [],
       createdAt: now,
     }).run()
     db.insert(runs).values({
@@ -429,7 +428,7 @@ describe('executeDiscovery', () => {
       id: sessionId,
       projectId,
       status: 'queued',
-      competitorMap: '[]',
+      competitorMap: [],
       createdAt: now,
     }).run()
 
@@ -468,7 +467,7 @@ describe('executeDiscovery', () => {
       id: sessionId,
       projectId,
       status: 'queued',
-      competitorMap: '[]',
+      competitorMap: [],
       createdAt: now,
     }).run()
 
@@ -544,7 +543,7 @@ describe('executeDiscovery', () => {
       id: sessionWith,
       projectId,
       status: 'queued',
-      competitorMap: '[]',
+      competitorMap: [],
       createdAt: new Date().toISOString(),
     }).run()
     await executeDiscovery({
@@ -565,7 +564,7 @@ describe('executeDiscovery', () => {
       id: sessionWithout,
       projectId,
       status: 'queued',
-      competitorMap: '[]',
+      competitorMap: [],
       createdAt: new Date().toISOString(),
     }).run()
     await executeDiscovery({
@@ -827,7 +826,7 @@ describe('discovery routes', () => {
       projectId,
       status: 'completed',
       icpDescription: 'industrial coatings',
-      competitorMap: '[]',
+      competitorMap: [],
       createdAt: new Date().toISOString(),
     }).run()
 
@@ -855,7 +854,7 @@ describe('discovery routes', () => {
       projectId,
       status: 'failed',
       icpDescription: 'industrial coatings',
-      competitorMap: '[]',
+      competitorMap: [],
       error: 'gemini quota',
       createdAt: new Date().toISOString(),
     }).run()
@@ -966,7 +965,7 @@ describe('discovery routes', () => {
       runId: 'zombie_run',
       status: 'probing',
       icpDescription: 'industrial coatings',
-      competitorMap: '[]',
+      competitorMap: [],
       createdAt: longAgoIso,
     }).run()
 
@@ -1009,14 +1008,14 @@ describe('discovery routes', () => {
         id: 'older',
         projectId,
         status: 'completed',
-        competitorMap: '[]',
+        competitorMap: [],
         createdAt: '2026-05-01T00:00:00Z',
       },
       {
         id: 'newer',
         projectId,
         status: 'completed',
-        competitorMap: '[]',
+        competitorMap: [],
         createdAt: '2026-05-10T00:00:00Z',
       },
     ]).run()
@@ -1051,7 +1050,7 @@ describe('discovery routes', () => {
       id: 'sess_other',
       projectId: otherProjectId,
       status: 'completed',
-      competitorMap: '[]',
+      competitorMap: [],
       createdAt: new Date().toISOString(),
     }).run()
     // Use the wrong project to look up the session
@@ -1081,7 +1080,7 @@ describe('discovery routes', () => {
       citedCount: 1,
       aspirationalCount: 0,
       wastedCount: 1,
-      competitorMap: JSON.stringify([{ domain: 'aurora-solar.com', hits: 1 }]),
+      competitorMap: [{ domain: 'aurora-solar.com', hits: 1, competitorType: 'unknown' }],
       createdAt: new Date().toISOString(),
     }).run()
     db.insert(discoveryProbes).values([
@@ -1092,7 +1091,7 @@ describe('discovery routes', () => {
         query: 'best solar quoting',
         bucket: 'cited',
         citationState: 'cited',
-        citedDomains: JSON.stringify(['demand-iq.com']),
+        citedDomains: ['demand-iq.com'],
         rawResponse: '{}',
         createdAt: new Date().toISOString(),
       },
@@ -1103,7 +1102,7 @@ describe('discovery routes', () => {
         query: 'aurora alternatives',
         bucket: 'wasted-surface',
         citationState: 'not-cited',
-        citedDomains: JSON.stringify(['aurora-solar.com']),
+        citedDomains: ['aurora-solar.com'],
         rawResponse: '{}',
         createdAt: new Date().toISOString(),
       },
@@ -1133,13 +1132,13 @@ describe('discovery routes', () => {
       id: sessionId,
       projectId,
       status: 'completed',
-      competitorMap: JSON.stringify([
+      competitorMap: [
         { domain: 'aurora-solar.com', hits: 3, competitorType: 'direct-competitor' }, // already tracked
         { domain: 'enerflo.com', hits: 2, competitorType: 'direct-competitor' }, // already tracked
         { domain: 'expedia.com', hits: 3, competitorType: 'ota-aggregator' }, // new + recurring aggregator
         { domain: 'helioscope.com', hits: 2, competitorType: 'direct-competitor' }, // new + recurring
         { domain: 'oneoff.example', hits: 1, competitorType: 'direct-competitor' }, // new but too noisy to suggest
-      ]),
+      ],
       createdAt: new Date().toISOString(),
     }).run()
     db.insert(discoveryProbes).values([
@@ -1251,7 +1250,7 @@ describe('POST /discover/sessions/:id/promote', () => {
       id: sessionId,
       projectId,
       status: opts.status ?? 'completed',
-      competitorMap: JSON.stringify(competitorMap),
+      competitorMap,
       createdAt: now,
     }).run()
     for (const p of opts.probes ?? []) {
@@ -1262,7 +1261,7 @@ describe('POST /discover/sessions/:id/promote', () => {
         query: p.query,
         bucket: p.bucket,
         citationState: p.bucket === 'cited' ? 'cited' : 'not-cited',
-        citedDomains: '[]',
+        citedDomains: [],
         createdAt: now,
       }).run()
     }
@@ -1523,10 +1522,13 @@ describe('POST /discover/sessions/:id/promote', () => {
       id: sessionId,
       projectId,
       status: 'completed',
-      competitorMap: JSON.stringify([
+      // Legacy fixture: entries deliberately lack `competitorType` to exercise
+      // the unknown-normalization fallback. Cast bypasses the typed schema so
+      // we can land malformed JSON like an older row would have.
+      competitorMap: [
         { domain: 'helioscope.com', hits: 3 },
         { domain: 'solargraf.com', hits: 2 },
-      ]),
+      ] as DiscoveryCompetitorMapEntry[],
       createdAt: new Date().toISOString(),
     }).run()
 

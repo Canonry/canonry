@@ -516,17 +516,15 @@ function writeDiscoveryInsight(
       // formalize a session-scoped insight subtype.
       query: `discovery:${input.sessionId}`,
       provider: input.seedProvider,
-      recommendation: JSON.stringify({
+      recommendation: {
         action: 'review-discovered-basket',
-        summary: `Run \`canonry discover show ${input.sessionId} --format json\` to inspect the per-query breakdown, then \`canonry discover promote <project> ${input.sessionId}\` to merge cited + aspirational findings into the project.`,
-        bucketCounts: buckets,
-        topCompetitors,
-      }),
-      cause: JSON.stringify({
-        sessionId: input.sessionId,
-        totalProbes,
-        seedProvider: input.seedProvider,
-      }),
+        target: input.sessionId,
+        reason: `Run \`canonry discover show ${input.sessionId} --format json\` to inspect the per-query breakdown, then \`canonry discover promote <project> ${input.sessionId}\` to merge cited + aspirational findings into the project. Top competitors: ${topCompetitors.map(c => c.domain).join(', ') || 'none'} | Buckets: cited=${buckets.cited} aspirational=${buckets.aspirational} wasted=${buckets['wasted-surface']}`,
+      },
+      cause: {
+        cause: `Discovery session ${input.sessionId} probed ${totalProbes} representative queries via ${input.seedProvider}`,
+        details: `sessionId=${input.sessionId}, totalProbes=${totalProbes}, seedProvider=${input.seedProvider}`,
+      },
       dismissed: false,
       createdAt: new Date().toISOString(),
     }).run()

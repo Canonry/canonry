@@ -126,7 +126,7 @@ describe('executeBingInspectSitemap', () => {
       {
         id: crypto.randomUUID(), projectId,
         url: 'https://azcoatingsllc.com/',
-        httpCode: 200, inIndex: 1,
+        httpCode: 200, inIndex: true,
         lastCrawledDate: '2026-04-19T10:00:00Z', inIndexDate: null,
         inspectedAt: seededAt, syncRunId: null, createdAt: seededAt,
         documentSize: 5000, anchorCount: null, discoveryDate: null,
@@ -134,7 +134,7 @@ describe('executeBingInspectSitemap', () => {
       {
         id: crypto.randomUUID(), projectId,
         url: 'https://azcoatingsllc.com/about/',
-        httpCode: 200, inIndex: 1,
+        httpCode: 200, inIndex: true,
         lastCrawledDate: '2026-04-19T10:00:00Z', inIndexDate: null,
         inspectedAt: seededAt, syncRunId: null, createdAt: seededAt,
         documentSize: 3000, anchorCount: null, discoveryDate: null,
@@ -184,7 +184,7 @@ describe('executeBingInspectSitemap', () => {
     ])
     // Newly discovered URLs are now tracked + indexed
     for (const row of newInspections) {
-      expect(row.inIndex).toBe(1)
+      expect(row.inIndex).toBe(true)
     }
 
     // Coverage snapshot covers the full discovered set, not just the originally
@@ -301,7 +301,7 @@ describe('executeBingInspectSitemap', () => {
       .where(eq(bingUrlInspections.syncRunId, runId)).all()
     const blocked = inspections.find((r) => r.url.endsWith('/blocked'))
     const ok = inspections.find((r) => r.url.endsWith('/ok'))
-    expect(blocked?.inIndex).toBe(0)
-    expect(ok?.inIndex).toBe(1)
+    expect(blocked?.inIndex).toBe(false)
+    expect(ok?.inIndex).toBe(true)
   })
 })

@@ -73,7 +73,7 @@ test('returns 200 with status:"ready" when a snapshot exists', async () => {
     overallCitedRate: 0.42,
     totalPairs: 10,
     citedPairs: 4,
-    providerBreakdown: JSON.stringify({ gemini: { citedRate: 0.5, cited: 5, total: 10 } }),
+    providerBreakdown: { gemini: { citedRate: 0.5, cited: 5, total: 10 } },
     createdAt: '2026-04-27T00:00:00Z',
   }).run()
   await ctx.app.ready()
@@ -119,7 +119,7 @@ test('aggregates healthSnapshots across the latest fan-out group when a multi-lo
       overallCitedRate: '0.6',
       totalPairs: 10,
       citedPairs: 6,
-      providerBreakdown: JSON.stringify({ gemini: { citedRate: 0.6, cited: 6, total: 10 } }),
+      providerBreakdown: { gemini: { citedRate: 0.6, cited: 6, total: 10 } },
       createdAt,
     },
     {
@@ -129,7 +129,7 @@ test('aggregates healthSnapshots across the latest fan-out group when a multi-lo
       overallCitedRate: '0.2',
       totalPairs: 10,
       citedPairs: 2,
-      providerBreakdown: JSON.stringify({ gemini: { citedRate: 0.2, cited: 2, total: 10 } }),
+      providerBreakdown: { gemini: { citedRate: 0.2, cited: 2, total: 10 } },
       createdAt,
     },
   ]).run()

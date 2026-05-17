@@ -404,7 +404,7 @@ describe('POST /traffic/connect/cloud-run', () => {
     expect(second.statusCode).toBe(200)
     const sources = h.db.select().from(trafficSources).all()
     expect(sources.length).toBe(1)
-    const config = JSON.parse(sources[0].configJson) as Record<string, unknown>
+    const config = sources[0].configJson
     expect(config.gcpProjectId).toBe('new-project')
     expect(config.serviceName).toBe('new-svc')
   })
@@ -502,7 +502,7 @@ describe('POST /traffic/connect/wordpress', () => {
     expect(second.statusCode).toBe(200)
     const sources = h.db.select().from(trafficSources).all()
     expect(sources.length).toBe(1)
-    const config = JSON.parse(sources[0].configJson) as Record<string, unknown>
+    const config = sources[0].configJson
     expect(config.username).toBe('new-bot')
   })
 })
@@ -621,7 +621,7 @@ describe('POST /traffic/connect/vercel', () => {
     expect(second.statusCode).toBe(200)
     const sources = h.db.select().from(trafficSources).all()
     expect(sources.length).toBe(1)
-    const config = JSON.parse(sources[0].configJson) as Record<string, unknown>
+    const config = sources[0].configJson
     expect(config.projectId).toBe('prj_new')
     expect(config.teamId).toBe('team_new')
     // Credential record updated in place too.
@@ -661,7 +661,7 @@ describe('POST /traffic/sources/:id/sync — Vercel', () => {
         sourceType: TrafficSourceTypes.vercel,
         displayName: 'orphan vercel',
         status: TrafficSourceStatuses.connected,
-        configJson: JSON.stringify({ projectId: 'prj_abc', teamId: 'team_xyz', environment: 'production' }),
+        configJson: { projectId: 'prj_abc', teamId: 'team_xyz', environment: 'production' },
         createdAt: now,
         updatedAt: now,
       }).run()
@@ -1002,7 +1002,7 @@ describe('POST /traffic/sources/:id/backfill — Vercel', () => {
         sourceType: TrafficSourceTypes.vercel,
         displayName: 'orphan vercel',
         status: TrafficSourceStatuses.connected,
-        configJson: JSON.stringify({ projectId: 'prj_abc', teamId: 'team_xyz', environment: 'production' }),
+        configJson: { projectId: 'prj_abc', teamId: 'team_xyz', environment: 'production' },
         createdAt: now,
         updatedAt: now,
       }).run()
@@ -1046,7 +1046,7 @@ describe('POST /traffic/sources/:id/sync', () => {
         sourceType: TrafficSourceTypes['cloud-run'],
         displayName: 'orphan',
         status: TrafficSourceStatuses.connected,
-        configJson: '{"gcpProjectId":"orphan-project","authMode":"service-account"}',
+        configJson: { gcpProjectId: 'orphan-project', authMode: 'service-account' },
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       }).run()
@@ -1355,7 +1355,7 @@ describe('POST /traffic/sources/:id/sync', () => {
 
       // The dup event ID should be persisted on the source row.
       const afterFirst = h.db.select().from(trafficSources).where(eq(trafficSources.id, sourceId)).all()
-      expect(JSON.parse(afterFirst[0].lastEventIds ?? '[]')).toContain('cloud-run:dup-1')
+      expect(afterFirst[0].lastEventIds ?? []).toContain('cloud-run:dup-1')
 
       // Push a new event into the harness's array — Cloud Logging's
       // bypass-time-filter mock will now return [dup, fresh]. The deduper
@@ -1424,7 +1424,7 @@ describe('POST /traffic/sources/:id/sync', () => {
       })
 
       const rows = h.db.select().from(trafficSources).where(eq(trafficSources.id, sourceId)).all()
-      const persisted: string[] = JSON.parse(rows[0].lastEventIds ?? '[]')
+      const persisted: string[] = rows[0].lastEventIds ?? []
       // Ring buffer must be bounded.
       expect(persisted.length).toBeLessThanOrEqual(1_000)
       expect(persisted.length).toBeGreaterThan(0)
@@ -1683,7 +1683,7 @@ describe('POST /traffic/sources/:id/sync — WordPress', () => {
         sourceType: TrafficSourceTypes.wordpress,
         displayName: 'orphan wp',
         status: TrafficSourceStatuses.connected,
-        configJson: JSON.stringify({ baseUrl: 'https://example.com', username: 'bot' }),
+        configJson: { baseUrl: 'https://example.com', username: 'bot' },
         createdAt: now,
         updatedAt: now,
       }).run()
@@ -2563,7 +2563,7 @@ describe('POST /traffic/sources/:id/backfill — WordPress', () => {
         sourceType: TrafficSourceTypes.wordpress,
         displayName: 'orphan wp',
         status: TrafficSourceStatuses.connected,
-        configJson: JSON.stringify({ baseUrl: 'https://example.com', username: 'bot' }),
+        configJson: { baseUrl: 'https://example.com', username: 'bot' },
         createdAt: now,
         updatedAt: now,
       }).run()
@@ -2709,7 +2709,7 @@ describe('GET /traffic/sources', () => {
         displayName: 'old',
         status: TrafficSourceStatuses.archived,
         archivedAt: now,
-        configJson: '{}',
+        configJson: {},
         createdAt: now,
         updatedAt: now,
       }).run()
@@ -2840,7 +2840,7 @@ describe('GET /traffic/sources/:id', () => {
         sourceType: TrafficSourceTypes['cloud-run'],
         displayName: 'second source',
         status: TrafficSourceStatuses.connected,
-        configJson: '{}',
+        configJson: {},
         createdAt: now,
         updatedAt: now,
       }).run()
@@ -2938,7 +2938,7 @@ describe('GET /traffic/status', () => {
         displayName: 'old',
         status: TrafficSourceStatuses.archived,
         archivedAt: now,
-        configJson: '{}',
+        configJson: {},
         createdAt: now,
         updatedAt: now,
       }).run()
