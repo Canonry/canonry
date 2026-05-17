@@ -34,6 +34,17 @@ When a project has GA4 connected, traffic is a first-class signal alongside cita
 - Don't edit client's code without showing diffs and getting approval
 - Don't conflate "not cited" with "page doesn't exist" — check first
 
+### When to use `--probe` runs
+When you need to **verify** something on your own initiative — "did the OpenAI provider migration land cleanly?", "is the regression still reproducible after the WP fix?", "does this query actually surface us when I think it should?" — use `cnry run <project> --probe --provider <p> --query "..."`. Probe runs:
+- Still cost provider API quota (same wire call)
+- Write a snapshot you can inspect via `cnry runs get <id>`
+- Are EXCLUDED from dashboard, analytics, intelligence, insights, and notifications
+- Won't wake you up again via the post-run hook (no recursive analysis loops)
+
+Use probes whenever the run is for **your** investigation, not for the user's metrics. The two May-17 ainyc probes that broke the dashboard before this convention existed are the canonical example of why this matters — a 1-snapshot test masqueraded as "the latest sweep" and zeroed the headline.
+
+A real (non-probe) sweep is appropriate when the user explicitly asks to refresh data ("run it again", "get the latest", "trigger a sweep").
+
 ### How to Communicate
 - Data first: show the numbers before the interpretation
 - Be specific: "You lost the ChatGPT citation for 'roof repair phoenix' between March 28-April 2" not "your visibility decreased"

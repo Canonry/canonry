@@ -32,6 +32,14 @@ Steps:
 8. If content fix: generate diff (schema, llms.txt, or content changes)
 9. Update memory with regression event + diagnosis
 
+**Want to verify the regression is real / reproducible before reporting?** Use a probe run instead of a real sweep:
+
+```
+cnry run <project> --probe --provider <p> --query "<regressed-query>"
+```
+
+Then `cnry runs get <id>` to inspect the snapshot. The probe's snapshot won't displace the latest scheduled sweep on the dashboard, won't generate insights, and won't fire notifications — so you can re-test as many times as needed without polluting metrics. Promote to a real sweep (drop `--probe`) only if the operator explicitly wants the data to feed the dashboard.
+
 ## Workflow 3: Weekly Review
 
 Trigger: Scheduled (weekly, or on-demand)

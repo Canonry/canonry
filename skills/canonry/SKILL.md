@@ -77,6 +77,8 @@ A canonry engagement follows the same loop regardless of project size:
 4. **Monitor** — Re-run sweeps weekly (`cnry run --all --wait` fans out across every project). Correlate visibility shifts with deployments and competitor moves.
 5. **Report** — Lead with data, not interpretation: "Lost the mention for `<query>` on Gemini between <date> and <date> — two competitors moved in. Here's what to fix." For a one-command client-facing summary, run `cnry report <project>` to generate a self-contained HTML bundle (mention + citation hero, competitor landscape, GSC + GA4 performance, insights, suggested next queries). Same payload is available via `--format json` and the `canonry_report` MCP tool.
 
+**Verifying without polluting metrics**: when you need to test something on your own initiative — "did the latest provider deploy work?", "is this regression reproducible?", "would this query actually surface us?" — use `cnry run <project> --probe --provider <p> --query "..."`. Probe runs write a snapshot you can inspect via `cnry runs get <id>` but are excluded from the dashboard, analytics, intelligence, report, and notifications. Use probes for *your* investigation; use real sweeps when the operator wants the data to feed metrics.
+
 ## Surgical Reads
 
 When you need a specific value rather than a full payload, use the dot-path getter:

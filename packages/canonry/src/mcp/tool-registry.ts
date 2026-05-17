@@ -461,7 +461,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_runs_list',
     title: 'List project runs',
-    description: 'List runs for a Canonry project.',
+    description: "List runs for a Canonry project. Includes both real runs (trigger='manual'/'scheduled'/'config-apply'/'backfill') AND probe runs (trigger='probe'). Probe runs are operator/agent test runs that don't influence dashboard, analytics, intelligence, or notifications — filter by `trigger !== 'probe'` if you only want runs that feed project metrics.",
     access: 'read',
     tier: 'monitoring',
     inputSchema: runsListInputSchema,
@@ -1068,7 +1068,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_run_trigger',
     title: 'Trigger run',
-    description: "Trigger an answer-visibility run for a Canonry project. Pass request.queries[] to scope the sweep to a subset of the project's tracked queries; omit for a full sweep.",
+    description: "Trigger an answer-visibility run for a Canonry project. Pass request.queries[] to scope the sweep to a subset of the project's tracked queries; omit for a full sweep. For verification scenarios (testing whether a provider migration worked, reproducing a regression, sanity-checking after a code change), set request.trigger='probe' — probe runs write a snapshot you can inspect via canonry_runs_get but are EXCLUDED from dashboard, analytics, intelligence, report, and notifications. Use 'probe' whenever you are testing on your own initiative rather than producing data the user/dashboard will consume.",
     access: 'write',
     tier: 'core',
     inputSchema: runTriggerInputSchema,
