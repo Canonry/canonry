@@ -241,7 +241,7 @@ export class Notifier {
       .get()
     const locationCount = Math.max(
       1,
-      parseJsonColumn<unknown[]>(projectLocations?.locations ?? null, []).length,
+      (projectLocations?.locations ?? []).length,
     )
     const RECENT_FETCH_LIMIT = Math.max(8, locationCount * 4)
     const recentRuns = this.db

@@ -29,7 +29,6 @@ import {
   type HealthSnapshotDto,
   type InsightDto,
   type LatestProjectRunDto,
-  type LocationContext,
   type MetricTone,
   type ProjectDto,
   type ProjectOverviewCompetitorDto,
@@ -193,7 +192,7 @@ export async function compositeRoutes(app: FastifyInstance) {
       .all()
     const queryLookup = { byId: new Map(projectQueries.map(q => [q.id, q.query])) }
 
-    const configuredApiProviders = parseJsonColumn<string[]>(project.providers, [])
+    const configuredApiProviders = project.providers
       .filter(p => !p.startsWith('cdp:'))
 
     const mentionShareCompetitors = competitorRows.map(c => ({
@@ -857,16 +856,16 @@ function formatProject(row: typeof projects.$inferSelect): ProjectDto {
     name: row.name,
     displayName: row.displayName,
     canonicalDomain: row.canonicalDomain,
-    ownedDomains: parseJsonColumn<string[]>(row.ownedDomains, []),
-    aliases: parseJsonColumn<string[]>(row.aliases, []),
+    ownedDomains: row.ownedDomains,
+    aliases: row.aliases,
     country: row.country,
     language: row.language,
-    tags: parseJsonColumn<string[]>(row.tags, []),
-    labels: parseJsonColumn<Record<string, string>>(row.labels, {}),
-    providers: parseJsonColumn<string[]>(row.providers, []),
-    locations: parseJsonColumn<LocationContext[]>(row.locations, []),
+    tags: row.tags,
+    labels: row.labels,
+    providers: row.providers,
+    locations: row.locations,
     defaultLocation: row.defaultLocation,
-    autoExtractBacklinks: row.autoExtractBacklinks === 1,
+    autoExtractBacklinks: row.autoExtractBacklinks,
     configSource: row.configSource as ProjectDto['configSource'],
     configRevision: row.configRevision,
     createdAt: row.createdAt,

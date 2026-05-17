@@ -426,8 +426,8 @@ test('CRUD: insert and query a project', () => {
   expect(project.displayName).toBe('Test Project')
   expect(project.configSource).toBe('cli')
   expect(project.configRevision).toBe(1)
-  expect(JSON.parse(project.tags)).toEqual([])
-  expect(JSON.parse(project.labels)).toEqual({})
+  expect(project.tags).toEqual([])
+  expect(project.labels).toEqual({})
 })
 
 test('CRUD: insert queries with project FK', () => {
@@ -776,7 +776,7 @@ test('v4 migration adds owned_domains column to existing DB', () => {
 
   const [project] = db.select().from(projects).where(eq(projects.name, 'test-project')).all()
   expect(project.canonicalDomain).toBe('example.com')
-  expect(project.ownedDomains).toBe('[]')
+  expect(project.ownedDomains).toEqual([])
 })
 
 test('migrate records applied versions and skips them on replay', () => {

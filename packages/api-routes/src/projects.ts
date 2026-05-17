@@ -2,6 +2,7 @@ import crypto from 'node:crypto'
 import { eq, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { projects, queries, competitors, schedules, notifications, runs, querySnapshots, insights, auditLog, parseJsonColumn } from '@ainyc/canonry-db'
+import type { InferSelectModel } from 'drizzle-orm'
 import {
   validationError,
   locationContextSchema,
@@ -73,9 +74,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
 
     const now = new Date().toISOString()
     const existing = app.db.select().from(projects).where(eq(projects.name, name)).get()
-    const existingLocations = existing
-      ? (parseJsonColumn<LocationContext[]>(existing.locations, []))
-      : []
+    const existingLocations = existing ? existing.locations : []
     const nextLocations = body.locations ?? existingLocations
     const duplicateLabels = findDuplicateLocationLabels(nextLocations)
     if (duplicateLabels.length > 0) {
@@ -94,27 +93,27 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
     }
 
     const nextAutoExtractBacklinks = body.autoExtractBacklinks !== undefined
-      ? (body.autoExtractBacklinks ? 1 : 0)
-      : existing?.autoExtractBacklinks ?? 0
+      ? body.autoExtractBacklinks
+      : existing?.autoExtractBacklinks ?? false
 
     const nextAliases = normalizeProjectAliases(body.displayName, body.aliases ?? [])
 
     if (existing) {
-      const prevAliases = parseJsonColumn<string[]>(existing.aliases, [])
+      const prevAliases = existing.aliases
       const aliasesChanged = !aliasArraysEqual(prevAliases, nextAliases)
 
       app.db.transaction((tx) => {
         tx.update(projects).set({
           displayName: body.displayName,
           canonicalDomain: body.canonicalDomain,
-          ownedDomains: JSON.stringify(body.ownedDomains ?? []),
-          aliases: JSON.stringify(nextAliases),
+          ownedDomains: body.ownedDomains ?? [],
+          aliases: nextAliases,
           country: body.country,
           language: body.language,
-          tags: JSON.stringify(body.tags ?? []),
-          labels: JSON.stringify(body.labels ?? {}),
-          providers: JSON.stringify(body.providers ?? []),
-          locations: JSON.stringify(nextLocations),
+          tags: body.tags ?? [],
+          labels: body.labels ?? {},
+          providers: body.providers ?? [],
+          locations: nextLocations,
           defaultLocation: nextDefaultLocation,
           autoExtractBacklinks: nextAutoExtractBacklinks,
           configSource: body.configSource ?? 'api',
@@ -145,14 +144,14 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
         name,
         displayName: body.displayName,
         canonicalDomain: body.canonicalDomain,
-        ownedDomains: JSON.stringify(body.ownedDomains ?? []),
-        aliases: JSON.stringify(nextAliases),
+        ownedDomains: body.ownedDomains ?? [],
+        aliases: nextAliases,
         country: body.country,
         language: body.language,
-        tags: JSON.stringify(body.tags ?? []),
-        labels: JSON.stringify(body.labels ?? {}),
-        providers: JSON.stringify(body.providers ?? []),
-        locations: JSON.stringify(nextLocations),
+        tags: body.tags ?? [],
+        labels: body.labels ?? {},
+        providers: body.providers ?? [],
+        locations: nextLocations,
         defaultLocation: nextDefaultLocation,
         autoExtractBacklinks: nextAutoExtractBacklinks,
         configSource: body.configSource ?? 'api',
@@ -271,7 +270,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
     }
 
     const location = parsed.data
-    const existing = parseJsonColumn<LocationContext[]>(project.locations, [])
+    const existing = [...project.locations]
     if (existing.some(l => l.label === location.label)) {
       throw validationError(`Location "${location.label}" already exists`)
     }
@@ -279,7 +278,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
     existing.push(location)
     const now = new Date().toISOString()
     app.db.update(projects).set({
-      locations: JSON.stringify(existing),
+      locations: existing,
       updatedAt: now,
     }).where(eq(projects.id, project.id)).run()
 
@@ -298,9 +297,8 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
   app.get<{ Params: { name: string } }>('/projects/:name/locations', async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
 
-    const locations = parseJsonColumn<LocationContext[]>(project.locations, [])
     return reply.send({
-      locations,
+      locations: project.locations,
       defaultLocation: project.defaultLocation,
     })
   })
@@ -312,7 +310,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
     const project = resolveProject(app.db, request.params.name)
 
     const label = decodeURIComponent(request.params.label)
-    const existing = parseJsonColumn<LocationContext[]>(project.locations, [])
+    const existing = project.locations
     const filtered = existing.filter(l => l.label !== label)
     if (filtered.length === existing.length) {
       throw validationError(`Location "${label}" not found`)
@@ -320,7 +318,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
 
     const now = new Date().toISOString()
     const updates: Record<string, unknown> = {
-      locations: JSON.stringify(filtered),
+      locations: filtered,
       updatedAt: now,
     }
     // Clear default if the removed location was the default
@@ -352,8 +350,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
       throw validationError('label is required')
     }
 
-    const existing = parseJsonColumn<LocationContext[]>(project.locations, [])
-    if (!existing.some(l => l.label === label)) {
+    if (!project.locations.some(l => l.label === label)) {
       throw validationError(`Location "${label}" not found. Add it first.`)
     }
 
@@ -388,21 +385,21 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
       kind: 'Project',
       metadata: {
         name: project.name,
-        labels: parseJsonColumn<Record<string, string>>(project.labels, {}),
+        labels: project.labels,
       },
       spec: {
         displayName: project.displayName,
         canonicalDomain: project.canonicalDomain,
-        ownedDomains: parseJsonColumn<string[]>(project.ownedDomains, []),
-        aliases: parseJsonColumn<string[]>(project.aliases, []),
+        ownedDomains: project.ownedDomains,
+        aliases: project.aliases,
         country: project.country,
         language: project.language,
         queries: qs.map(q => q.query),
         competitors: comps.map(c => c.domain),
-        providers: parseJsonColumn<string[]>(project.providers, []),
-        locations: parseJsonColumn<LocationContext[]>(project.locations, []),
+        providers: project.providers,
+        locations: project.locations,
         ...(project.defaultLocation ? { defaultLocation: project.defaultLocation } : {}),
-        ...(project.autoExtractBacklinks === 1 ? { autoExtractBacklinks: true } : {}),
+        ...(project.autoExtractBacklinks ? { autoExtractBacklinks: true } : {}),
         notifications: notificationRows.map((row) => {
           const cfg = parseJsonColumn<{ url: string; events: string[] }>(row.config, { url: '', events: [] })
           return {
@@ -425,41 +422,22 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
   })
 }
 
-function formatProject(row: {
-  id: string
-  name: string
-  displayName: string
-  canonicalDomain: string
-  ownedDomains: string
-  aliases: string
-  country: string
-  language: string
-  tags: string
-  labels: string
-  providers: string
-  locations: string
-  defaultLocation: string | null
-  autoExtractBacklinks: number
-  configSource: string
-  configRevision: number
-  createdAt: string
-  updatedAt: string
-}) {
+function formatProject(row: InferSelectModel<typeof projects>) {
   return {
     id: row.id,
     name: row.name,
     displayName: row.displayName,
     canonicalDomain: row.canonicalDomain,
-    ownedDomains: parseJsonColumn<string[]>(row.ownedDomains, []),
-    aliases: parseJsonColumn<string[]>(row.aliases, []),
+    ownedDomains: row.ownedDomains,
+    aliases: row.aliases,
     country: row.country,
     language: row.language,
-    tags: parseJsonColumn<string[]>(row.tags, []),
-    labels: parseJsonColumn<Record<string, string>>(row.labels, {}),
-    providers: parseJsonColumn<string[]>(row.providers, []),
-    locations: parseJsonColumn<LocationContext[]>(row.locations, []),
+    tags: row.tags,
+    labels: row.labels,
+    providers: row.providers,
+    locations: row.locations,
     defaultLocation: row.defaultLocation,
-    autoExtractBacklinks: row.autoExtractBacklinks === 1,
+    autoExtractBacklinks: row.autoExtractBacklinks,
     configSource: row.configSource,
     configRevision: row.configRevision,
     createdAt: row.createdAt,

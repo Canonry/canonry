@@ -1830,9 +1830,9 @@ function buildProjectReport(db: DatabaseClient, projectName: string): ProjectRep
 
   // Treat ownedDomains the same way determineCitationState does — anything
   // matching the canonical domain or an owned subdomain counts as "ours".
-  const ownedDomains = parseJsonColumn<string[]>(project.ownedDomains, [])
+  const ownedDomains = project.ownedDomains
   const projectDomains = [project.canonicalDomain, ...ownedDomains]
-  const projectAliases = parseJsonColumn<string[]>(project.aliases, [])
+  const projectAliases = project.aliases
   const projectBrandNames = effectiveBrandNames({
     displayName: project.displayName,
     aliases: projectAliases,
@@ -1952,7 +1952,7 @@ function buildProjectReport(db: DatabaseClient, projectName: string): ProjectRep
   const periodStart = citationsTrend[0]?.date ?? null
   const periodEnd = citationsTrend.at(-1)?.date ?? null
 
-  const configuredLocations = parseJsonColumn<LocationContext[]>(project.locations, [])
+  const configuredLocations = project.locations
   const reportLocation = buildLocationMeta(representativeLatestRun?.location ?? null, configuredLocations)
   // Per-provider handling only makes sense relative to an actual run location.
   // For locationless runs, surfacing rows that say "Location appended to the

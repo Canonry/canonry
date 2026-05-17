@@ -46,8 +46,8 @@ const RECENT_RUNS_WINDOW = 5
 interface ProjectRow {
   id: string
   canonicalDomain: string
-  ownedDomains?: string | null
-  locations?: string | null
+  ownedDomains?: string[] | null
+  locations?: LocationContext[] | null
 }
 
 /**
@@ -69,7 +69,7 @@ export function loadOrchestratorInput(
 ): OrchestratorInput {
   const projectId = project.id
   const ownDomain = normalizeDomain(project.canonicalDomain)
-  const ownedDomains = parseJsonColumn<string[]>(project.ownedDomains, [])
+  const ownedDomains = project.ownedDomains ?? []
   const ourDomains = new Set([ownDomain, ...ownedDomains.map(normalizeDomain)])
 
   const trackedQueries = listQueries(db, projectId)
@@ -124,7 +124,7 @@ export function loadOrchestratorInput(
 
 function buildQueryIntentModifiers(project: ProjectRow, locationFilter: LocationScope): string[] {
   if (locationFilter === undefined || locationFilter === null) return []
-  const locations = parseJsonColumn<LocationContext[]>(project.locations, [])
+  const locations = project.locations ?? []
   const currentLocation = locations.find(location => location.label === locationFilter)
   const raw = currentLocation
     ? [

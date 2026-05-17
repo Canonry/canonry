@@ -113,7 +113,7 @@ export async function discoveryRoutes(app: FastifyInstance, opts: DiscoveryRoute
     // Resolve the session's service areas: every project location, or the
     // subset named by `locations`. An unknown label throws validationError.
     const locations = resolveLocations(
-      parseJsonColumn<LocationContext[]>(project.locations, []),
+      project.locations,
       parsed.data.locations,
     )
 

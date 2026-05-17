@@ -34,7 +34,7 @@ export async function citationRoutes(app: FastifyInstance) {
     Params: { name: string }
   }>('/projects/:name/citations/visibility', async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
-    const configuredProviders = parseJsonColumn<string[]>(project.providers, [])
+    const configuredProviders = project.providers
 
     const projectQueries = app.db
       .select()

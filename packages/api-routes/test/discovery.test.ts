@@ -64,7 +64,7 @@ function seedProject(
     country: 'US',
     language: 'en',
     icpDescription: opts.icpDescription ?? null,
-    locations: JSON.stringify(opts.locations ?? []),
+    locations: opts.locations ?? [],
     createdAt: now,
     updatedAt: now,
   }).run()

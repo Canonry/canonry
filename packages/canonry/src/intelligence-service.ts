@@ -498,7 +498,7 @@ export class IntelligenceService {
       .get()
     const locationCount = Math.max(
       1,
-      parseJsonColumn<unknown[]>(projectRow?.locations ?? null, []).length,
+      (projectRow?.locations ?? []).length,
     )
     const ROWS_PER_GROUP_BUDGET = Math.max(2, locationCount)
     const recentRunRows = this.db

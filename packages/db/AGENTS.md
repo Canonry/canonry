@@ -51,19 +51,31 @@ How the runner uses it:
 - Never edit a previously-shipped version's `statements[]`. Old DBs already have it recorded as applied and won't run it again — write a new version that fixes things up forward.
 - Mirror the table in `schema.ts` for grep-ability (the runner doesn't query Drizzle, but other code paths might).
 
-### JSON column parsing
+### JSON column reads
 
-Many text columns store JSON. Always use the typed helper:
+The `projects` table uses Drizzle's native `text({ mode: 'json' }).$type<T>()` — column values are auto-parsed by Drizzle on read and auto-stringified on write. Direct property access returns the typed value; no helper needed:
+
+```typescript
+// ✅ Correct — Drizzle auto-parses; type comes from $type<>
+const locations = project.locations   // LocationContext[]
+const labels = project.labels         // Record<string, string>
+const enabled = project.autoExtractBacklinks // boolean (integer mode: 'boolean')
+```
+
+Other tables (`runs`, `querySnapshots`, `schedules`, `notifications`, GA/GSC/Bing rollups, agent sessions, traffic sources, etc.) still store JSON as raw `text(...)` for the moment. Reads from those columns use the typed helper:
 
 ```typescript
 import { parseJsonColumn } from '@ainyc/canonry-db'
 
-// ✅ Correct — handles null, empty string, invalid JSON
-const locations = parseJsonColumn<LocationContext[]>(project.locations, [])
+// ✅ Correct — handles null, empty string, invalid JSON for the legacy raw-text columns
+const breakdown = parseJsonColumn<HealthSnapshotDto['providerBreakdown']>(row.providerBreakdown, {})
+const overlap = parseJsonColumn<string[]>(snap.competitorOverlap, [])
 
 // ❌ Wrong — fragile, no fallback
-const locations = JSON.parse(project.locations || '[]') as LocationContext[]
+const overlap = JSON.parse(snap.competitorOverlap || '[]') as string[]
 ```
+
+The longer-term direction is to migrate the remaining JSON columns to `mode: 'json'` (and boolean columns to `mode: 'boolean'`) table by table. New tables/columns should use the native modes from day one.
 
 ### Transaction boundaries
 

@@ -565,28 +565,52 @@ try {
 return reply.status(400).send({ error: { code: 'VALIDATION_ERROR', message: '...' } }) // never do this
 ```
 
-## JSON Column Parsing (Critical)
+## JSON & Boolean Column Reads (Critical)
 
-Many SQLite text columns store JSON (`projects.locations`, `providers`, `tags`, `labels`, `citedDomains`, etc.). Always use the typed helper from `@ainyc/canonry-db` — never call `JSON.parse` directly on DB column values.
+The schema is mid-migration from raw `text(...)` / `integer(...)` columns to Drizzle's native `text({ mode: 'json' }).$type<T>()` and `integer({ mode: 'boolean' })` modes. Reads depend on which mode the column uses.
 
-### Rules
+### `projects` table (already migrated)
 
-1. **Use `parseJsonColumn(value, fallback)` from `@ainyc/canonry-db`.** It handles null, empty strings, and invalid JSON safely.
-2. **Never write `JSON.parse(row.field || '[]') as SomeType[]`** — this pattern is fragile (missing fallback = crash, wrong cast = silent corruption).
-3. `JSON.parse` is fine for HTTP request bodies, config files, and other non-DB sources.
+JSON and boolean columns are auto-coerced by Drizzle. Direct property access returns the typed value — no helper, no coercion needed:
 
-### Pattern
+```typescript
+// ✅ Correct — Drizzle reads/writes the typed value
+const locations: LocationContext[] = project.locations
+const labels: Record<string, string> = project.labels
+const auto: boolean = project.autoExtractBacklinks
+
+// ✅ Correct — writes use the typed value too
+await db.update(projects).set({
+  locations: [{ label: 'us', country: 'US' }],
+  labels: { team: 'growth' },
+  autoExtractBacklinks: true,
+}).where(eq(projects.id, id)).run()
+```
+
+### Other tables (not yet migrated)
+
+`runs`, `querySnapshots`, `schedules`, `notifications`, GA/GSC/Bing rollups, `agentSessions`, `trafficSources`, etc. still use raw `text(...)` for JSON and raw `integer(...)` for booleans. Reads from those columns require the typed helper, and boolean reads coerce manually:
 
 ```typescript
 import { parseJsonColumn } from '@ainyc/canonry-db'
 
-// ✅ Correct
-const locations = parseJsonColumn<LocationContext[]>(project.locations, [])
-const labels = parseJsonColumn<Record<string, string>>(project.labels, {})
+// ✅ Correct — typed helper for the legacy raw-text columns
+const overlap = parseJsonColumn<string[]>(snap.competitorOverlap, [])
+const breakdown = parseJsonColumn<HealthSnapshotDto['providerBreakdown']>(row.providerBreakdown, {})
 
-// ❌ Wrong
-const locations = JSON.parse(project.locations || '[]') as LocationContext[]
+// ❌ Wrong — fragile, no fallback for malformed historical rows
+const overlap = JSON.parse(snap.competitorOverlap || '[]') as string[]
 ```
+
+### When migrating a table to native modes
+
+1. Update `packages/db/src/schema.ts`: switch JSON columns to `text(col, { mode: 'json' }).$type<T>().notNull().default([])` (or `{}`), boolean columns to `integer(col, { mode: 'boolean' }).notNull().default(false)`.
+2. No DB migration is needed — the storage format is unchanged. Drizzle parses/stringifies in TS.
+3. Update every read site that called `parseJsonColumn<T>(row.X, ...)` to direct access `row.X`.
+4. Update every write site that wrapped values in `JSON.stringify(...)` to pass the raw typed value.
+5. Update every boolean read site (`row.X === 1`) and write site (`x ? 1 : 0`) to use the boolean directly.
+6. Add tests that round-trip a write → read to confirm the type flows end-to-end. (`packages/api-routes/test/db-dto-coverage.test.ts` catches schema drift; round-trip tests catch coercion bugs.)
+7. `JSON.parse` is still fine for HTTP request bodies, config files, and other non-DB sources.
 
 ## ApiClient Type Safety
 

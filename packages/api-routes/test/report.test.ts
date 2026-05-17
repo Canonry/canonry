@@ -49,8 +49,8 @@ function insertProject(
     canonicalDomain: overrides.canonicalDomain ?? `${name}.example.com`,
     country: 'US',
     language: 'en',
-    locations: '[]',
-    providers: '["gemini","openai"]',
+    locations: [],
+    providers: ['gemini', 'openai'],
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     ...overrides,
@@ -280,7 +280,7 @@ describe('GET /api/v1/projects/:name/report', () => {
   test('owned domains and subdomains count toward the project, not as external sources', async () => {
     const projectId = insertProject(ctx.db, 'owned', {
       canonicalDomain: 'example.com',
-      ownedDomains: JSON.stringify(['brand.io']),
+      ownedDomains: ['brand.io'],
     })
     const kw = insertQuery(ctx.db, projectId, 'kw')
     const runId = insertRun(ctx.db, projectId)
@@ -1141,10 +1141,10 @@ describe('GET /api/v1/projects/:name/report', () => {
     // analyst reading the report sees a Miami citation as part of "their"
     // history. See review thread on PR #423.
     const projectId = insertProject(ctx.db, 'loc-scope', {
-      locations: JSON.stringify([
+      locations: [
         { label: 'michigan', city: 'Detroit', region: 'Michigan', country: 'US' },
         { label: 'florida', city: 'Miami', region: 'Florida', country: 'US' },
-      ]),
+      ],
       defaultLocation: 'michigan',
     })
     const kw = insertQuery(ctx.db, projectId, 'kw')
@@ -1190,10 +1190,10 @@ describe('GET /api/v1/projects/:name/report', () => {
     // against the default (michigan). Report must say which location powered
     // the data and explain how each provider in the run consumed it.
     const projectId = insertProject(ctx.db, 'loc-meta', {
-      locations: JSON.stringify([
+      locations: [
         { label: 'michigan', city: 'Detroit', region: 'Michigan', country: 'US' },
         { label: 'florida', city: 'Miami', region: 'Florida', country: 'US' },
-      ]),
+      ],
       defaultLocation: 'michigan',
     })
     const kw = insertQuery(ctx.db, projectId, 'kw')
