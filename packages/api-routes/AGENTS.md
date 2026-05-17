@@ -10,6 +10,7 @@ Shared Fastify route plugins used by both the local server (`packages/canonry`) 
 |------|------|
 | `src/index.ts` | Plugin entry point, global error handler, `ApiRoutesOptions` interface |
 | `src/helpers.ts` | `resolveProject()`, `writeAuditLog()`, `incrementUsage()`, `notProbeRun()` (Drizzle predicate every dashboard/analytics/report/timeline/intelligence read MUST AND-in to exclude probe runs — see root AGENTS.md "Probe runs" section) |
+| `src/db-derived-dtos.ts` | `drizzle-zod`-derived row schemas (`projectRowSchema`, `runRowSchema`, `scheduleRowSchema`, `notificationRowSchema`) for the migrated tables. Per-column refinements narrow JSON columns and enum text columns to the typed Zod shapes the DB writes. Use for runtime validation of rows read from these tables; the hand-rolled DTOs in `@ainyc/canonry-contracts` remain the SDK source (see the "Derived row schemas" section below). |
 | `src/projects.ts` | Project CRUD routes (largest route file) |
 | `src/runs.ts` | Run trigger, status, and list routes |
 | `src/auth.ts` | Auth plugin — API key and session validation |
@@ -117,6 +118,27 @@ incrementally.
 ### Event callbacks
 
 Routes fire lifecycle hooks via `opts` callbacks — `onRunCreated`, `onProviderUpdate`, `onScheduleUpdated`, `onProjectDeleted`. Fire these **after** the database transaction commits, not inside it.
+
+### Derived row schemas (drizzle-zod)
+
+`src/db-derived-dtos.ts` exports `*RowSchema` Zod validators generated from the Drizzle table definitions via `drizzle-zod`'s `createSelectSchema()`. Per-column refinements narrow:
+- JSON columns whose `$type<>` is a TypeScript-only hint (drizzle-zod can't introspect those — it produces a loose `ZodUnion` fallback; the refinement supplies the actual schema)
+- text columns whose values are an enum at the API layer (`configSource`, `runKind`, `runStatus`, etc.)
+
+Use them when you want runtime validation of a row at the DB → DTO seam:
+
+```typescript
+import { projectRowSchema } from './db-derived-dtos.js'
+
+// .parse(row) verifies the row matches the schema. Throws if the column
+// types drifted (e.g. configSource got a value not in the enum).
+const validated = projectRowSchema.parse(row)
+```
+
+Constraints:
+- The hand-rolled DTO schemas in `@ainyc/canonry-contracts` remain the OpenAPI / SDK source. Derived schemas are an internal validator, not a public type — they live in `api-routes` because `contracts` can't import from `db` (db already imports types from contracts for `$type<>`, so the reverse would cycle).
+- `db-derived-dtos.test.ts` asserts each derived schema's field set equals the table's column set, plus round-trip parse tests on representative rows. Adding a new column to a covered table fails the field-set test until the refinements + DTO are updated.
+- Only the migrated tables have derived schemas today (projects, runs, schedules, notifications). Add more by importing the table, listing refinements for any column whose Zod type the SQL type alone can't express, and extending the test's `ENTRIES` table.
 
 ## Common Mistakes
 
