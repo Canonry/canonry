@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Link, useParams } from '@tanstack/react-router'
+import { Link, useCanGoBack, useParams } from '@tanstack/react-router'
 import { ArrowLeft, RefreshCw, X } from 'lucide-react'
 
 import { TrafficEventKinds, type TrafficEventEntry } from '@ainyc/canonry-contracts'
@@ -83,9 +83,56 @@ function formatRelative(iso: string | null): string {
   return `${Math.floor(hours / 24)}d ago`
 }
 
+/**
+ * "← Back" affordance on the source detail page. Prefers browser history
+ * (so a user arriving from `/projects/$id/activity` goes back to that
+ * tab, not to /traffic) and falls back to a hard `/traffic` link when
+ * there's no prior in-app history (deep-link, page refresh, opened in a
+ * new tab). The label tracks the behavior — "Back" when popping
+ * history, "All sources" when falling back to the list.
+ */
+function BackLink({
+  canGoBack,
+  className,
+}: {
+  canGoBack: boolean
+  className?: string
+}) {
+  const baseClasses = 'inline-flex items-center gap-1'
+  if (canGoBack) {
+    // TanStack Router's `router.history.back()` is typed `any` by its
+    // generics (trips ESLint's no-unsafe-call). `window.history.back()`
+    // is equivalent — the router's history adapter delegates to the same
+    // browser history object — and is fully typed.
+    const handleBack = () => {
+      window.history.back()
+    }
+    return (
+      <button
+        type="button"
+        onClick={handleBack}
+        className={`${baseClasses} ${className ?? ''}`}
+      >
+        <ArrowLeft className="size-3" /> Back
+      </button>
+    )
+  }
+  return (
+    <Link to="/traffic" className={`${baseClasses} ${className ?? ''}`}>
+      <ArrowLeft className="size-3" /> All sources
+    </Link>
+  )
+}
+
 export function TrafficSourceDetailPage() {
   const params = useParams({ strict: false }) as { projectName?: string; sourceId?: string }
   const projectName = params.projectName ?? ''
+  // `useCanGoBack` reports whether the browser-history-style back action
+  // would land on a previous in-app page. Avoids the dead-end case where
+  // the user landed on this page directly (deep link, refresh) — there's
+  // no prior history entry, so we render a deterministic Link to /traffic
+  // instead of a back button that would no-op or leave the app.
+  const canGoBack = useCanGoBack()
   const sourceId = params.sourceId ?? ''
 
   const [windowMinutes, setWindowMinutes] = useState<number>(DEFAULT_WINDOW.value)
@@ -227,9 +274,7 @@ export function TrafficSourceDetailPage() {
     return (
       <div className="page-container">
         <p className="text-sm text-rose-300">Could not load this source.</p>
-        <Link to="/traffic" className="mt-2 inline-flex items-center gap-1 text-xs text-zinc-400 hover:text-zinc-200">
-          <ArrowLeft className="size-3" /> Back to sources
-        </Link>
+        <BackLink canGoBack={canGoBack} className="mt-2 text-xs text-zinc-400 hover:text-zinc-200" />
       </div>
     )
   }
@@ -238,9 +283,7 @@ export function TrafficSourceDetailPage() {
     <div className="page-container space-y-8">
       <div className="page-header">
         <div className="page-header-left">
-          <Link to="/traffic" className="inline-flex items-center gap-1 text-xs text-zinc-500 hover:text-zinc-200">
-            <ArrowLeft className="size-3" /> All sources
-          </Link>
+          <BackLink canGoBack={canGoBack} className="text-xs text-zinc-500 hover:text-zinc-200" />
           <h1 className="page-title mt-2">{detail.displayName}</h1>
           <p className="page-subtitle">
             {detail.sourceType} · project <span className="text-zinc-300">{projectName}</span> ·
