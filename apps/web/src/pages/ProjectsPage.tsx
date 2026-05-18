@@ -10,7 +10,7 @@ import { YamlApplyPanel } from '../components/project/YamlApplyPanel.js'
 import { addToast } from '../lib/toast-store.js'
 import { asyncHandler } from '../lib/async-handler.js'
 import { createProject } from '../api.js'
-import { useDashboardOverview as useDashboard } from '../queries/use-dashboard-overview.js'
+import { useDashboard } from '../queries/use-dashboard.js'
 import { Link } from '@tanstack/react-router'
 
 export function ProjectsPage() {
