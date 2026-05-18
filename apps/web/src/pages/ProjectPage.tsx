@@ -68,9 +68,11 @@ import {
 } from '@ainyc/canonry-api-client/react-query'
 import { useAppendQueries, useTriggerRun } from '../queries/mutations.js'
 import { GSC_STALE_MS } from '../queries/query-client.js'
-import { useDashboard } from '../queries/use-dashboard.js'
+import { useQuery } from '@tanstack/react-query'
+import { getApiV1ProjectsOptions } from '@ainyc/canonry-api-client/react-query'
+import { useProjectDashboard } from '../queries/use-project-dashboard.js'
+import { useInitialDashboard } from '../contexts/dashboard-context.js'
 import { useDrawer } from '../hooks/use-drawer.js'
-import { findProjectVm } from '../mock-data.js'
 import type { ProjectCommandCenterVm, RunHistoryPoint } from '../view-models.js'
 
 export type ProjectPageTab = 'overview' | 'search-console' | 'discovery' | 'report' | 'activity' | 'backlinks' | 'settings'
@@ -1380,10 +1382,42 @@ export function ProjectPage({
 }) {
   const { projectId } = useParams({ from: '/projects/$projectId' })
   const navigate = useNavigate()
-  const { dashboard, isLoading, refetch } = useDashboard()
+  // ID → name lookup. The dashboard URL uses `projectId` (UUID) but the
+  // command-center hook keys off project `name` because that's what the API
+  // routes accept.
+  //
+  // Lookup precedence:
+  //  1. SSR/test fixture (DashboardProvider context) — synchronous, no
+  //     query needed. Used by `renderToStaticMarkup` tests and avoids a
+  //     loading-skeleton flash for users on the first render after
+  //     navigation.
+  //  2. Fresh `/projects` list query — same cache the overview hook
+  //     populates, so this is a shared read with no extra request.
+  const contextDashboard = useInitialDashboard()
+  // Resolve the project name from context first. If the SSR/test fixture
+  // has it, we can skip the `/projects` query entirely — no extra request
+  // and no `isLoading=true` flicker during the first synchronous render.
+  // Only fetch the list when context can't provide the answer.
+  const nameFromContext = contextDashboard?.dashboard.projects.find(
+    p => p.project.id === projectId,
+  )?.project.name ?? null
+  const projectsListQuery = useQuery({
+    ...getApiV1ProjectsOptions({ client: heyClient }),
+    enabled: !nameFromContext,
+  })
+  const lookupProjectName = useMemo<string | null>(() => {
+    if (nameFromContext) return nameFromContext
+    return projectsListQuery.data?.find(p => p.id === projectId)?.name ?? null
+  }, [nameFromContext, projectsListQuery.data, projectId])
+  const {
+    commandCenter: model,
+    isLoading: dashboardLoading,
+    refetch,
+  } = useProjectDashboard(lookupProjectName)
+  const isLoading = (!nameFromContext && projectsListQuery.isLoading) || dashboardLoading
   const queryClient = useQueryClient()
 
-  if (!dashboard || isLoading) {
+  if (!model || isLoading) {
     return (
       <div className="page-skeleton">
         <div className="page-skeleton-header">
@@ -1410,7 +1444,7 @@ export function ProjectPage({
     )
   }
 
-  const model = findProjectVm(dashboard, projectId)
+  // `model` is the per-project command center from `useProjectDashboard` above.
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [addingQueries, setAddingQueries] = useState(false)

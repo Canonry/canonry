@@ -5,7 +5,7 @@ import { Card } from '../components/ui/card.js'
 import { RunRow } from '../components/shared/RunRow.js'
 import { toTitleCase } from '../lib/format-helpers.js'
 import { useTriggerAllRuns } from '../queries/mutations.js'
-import { useDashboard } from '../queries/use-dashboard.js'
+import { useDashboardOverview as useDashboard } from '../queries/use-dashboard-overview.js'
 import type { RunFilter } from '../view-models.js'
 
 export function RunsPage() {

@@ -17,7 +17,7 @@ import {
 } from '../api.js'
 import { getApiV1RunsByIdOptions } from '@ainyc/canonry-api-client/react-query'
 import { useTriggerRun } from '../queries/mutations.js'
-import { useDashboard } from '../queries/use-dashboard.js'
+import { useDashboardOverview as useDashboard } from '../queries/use-dashboard-overview.js'
 import { useHealth } from '../queries/use-health.js'
 import { useInitialDashboard } from '../contexts/dashboard-context.js'
 import { buildSetupModel, serviceStatusTooltip } from '../lib/health-helpers.js'
