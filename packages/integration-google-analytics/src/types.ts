@@ -84,9 +84,13 @@ export interface GA4SocialReferralRow {
 
 export class GA4ApiError extends Error {
   public status: number
-  constructor(message: string, status: number) {
+  /** Seconds the GA4 API asked us to wait before retrying. Populated from the
+   *  `Retry-After` response header on 429 and 5xx responses when present. */
+  public retryAfterSeconds?: number
+  constructor(message: string, status: number, retryAfterSeconds?: number) {
     super(message)
     this.name = 'GA4ApiError'
     this.status = status
+    if (retryAfterSeconds !== undefined) this.retryAfterSeconds = retryAfterSeconds
   }
 }

@@ -8,6 +8,9 @@ import {
   GA4_MAX_SYNC_DAYS,
   GA4_REQUEST_TIMEOUT_MS,
   GA4_MAX_PAGES,
+  GA4_MAX_CONCURRENT_REQUESTS,
+  GA4_MAX_RETRIES,
+  GA4_INITIAL_RETRY_DELAY_MS,
   GA4_DIMENSIONS as DIM,
   GA4_METRICS as MET,
 } from './constants.js'
@@ -142,6 +145,102 @@ function escapeRegExp(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
+// --- Concurrency limiter ------------------------------------------------------
+// A single GA4 sync fans out into 5-7 top-level fetches, each of which then
+// paginates serially. With unbounded concurrency we routinely burst over GA4's
+// 10-concurrent-requests-per-property cap. The semaphore below pins the in-flight
+// count for *all* GA4 fetches in this process to GA4_MAX_CONCURRENT_REQUESTS,
+// regardless of which top-level call originated them.
+let gaInFlight = 0
+const gaWaitQueue: Array<() => void> = []
+
+async function acquireGa4Slot(): Promise<void> {
+  if (gaInFlight < GA4_MAX_CONCURRENT_REQUESTS) {
+    gaInFlight++
+    return
+  }
+  await new Promise<void>((resolve) => gaWaitQueue.push(resolve))
+  // Slot was handed off — see releaseGa4Slot — so gaInFlight already reflects us.
+}
+
+function releaseGa4Slot(): void {
+  const next = gaWaitQueue.shift()
+  if (next) {
+    // Hand the slot straight to the waiter; in-flight count stays the same.
+    next()
+  } else {
+    gaInFlight--
+  }
+}
+
+async function withGa4Limit<T>(fn: () => Promise<T>): Promise<T> {
+  await acquireGa4Slot()
+  try {
+    return await fn()
+  } finally {
+    releaseGa4Slot()
+  }
+}
+
+// Exposed for tests that want to assert the semaphore is empty / reset state
+// after exercising error paths. Not part of the public API.
+export function _resetGa4ConcurrencyStateForTests(): void {
+  gaInFlight = 0
+  gaWaitQueue.length = 0
+}
+
+// --- Retry with exponential backoff ------------------------------------------
+// Retries 429 and 5xx responses up to GA4_MAX_RETRIES times with delays of
+// 1s, 2s, 4s … (doubling). If GA4 returned a `Retry-After` header, we honor
+// that value instead of the computed backoff.
+function parseRetryAfter(headerValue: string | null): number | undefined {
+  if (!headerValue) return undefined
+  const trimmed = headerValue.trim()
+  // Numeric form: "Retry-After: 30"
+  const asNum = Number(trimmed)
+  if (Number.isFinite(asNum) && asNum >= 0) return asNum
+  // HTTP-date form: "Retry-After: Wed, 21 Oct 2026 07:28:00 GMT"
+  const asDate = Date.parse(trimmed)
+  if (!Number.isNaN(asDate)) {
+    const seconds = Math.max(0, (asDate - Date.now()) / 1000)
+    return seconds
+  }
+  return undefined
+}
+
+function isRetryableGa4Error(err: unknown): boolean {
+  if (err instanceof GA4ApiError) {
+    return err.status === 429 || err.status >= 500
+  }
+  return false
+}
+
+async function withGa4Retry<T>(fn: () => Promise<T>, errLabel: string): Promise<T> {
+  let lastError: unknown
+  for (let attempt = 0; attempt <= GA4_MAX_RETRIES; attempt++) {
+    try {
+      return await fn()
+    } catch (err) {
+      lastError = err
+      if (attempt >= GA4_MAX_RETRIES || !isRetryableGa4Error(err)) throw err
+      const ga4Err = err as GA4ApiError
+      const computedDelayMs = GA4_INITIAL_RETRY_DELAY_MS * Math.pow(2, attempt)
+      const delayMs = ga4Err.retryAfterSeconds !== undefined
+        ? Math.max(0, ga4Err.retryAfterSeconds * 1000)
+        : computedDelayMs
+      ga4Log('info', `${errLabel}.retry`, {
+        attempt: attempt + 1,
+        maxAttempts: GA4_MAX_RETRIES + 1,
+        status: ga4Err.status,
+        delayMs,
+        usedRetryAfter: ga4Err.retryAfterSeconds !== undefined,
+      })
+      await new Promise<void>((resolve) => setTimeout(resolve, delayMs))
+    }
+  }
+  throw lastError
+}
+
 /**
  * Run a GA4 Data API report.
  */
@@ -154,52 +253,56 @@ async function runReport(
   const safePropertyId = encodeURIComponent(propertyId)
   const url = `${GA4_DATA_API_BASE}/properties/${safePropertyId}:runReport`
 
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(request),
-    signal: AbortSignal.timeout(GA4_REQUEST_TIMEOUT_MS),
-  })
+  return withGa4Limit(() => withGa4Retry(async () => {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(request),
+      signal: AbortSignal.timeout(GA4_REQUEST_TIMEOUT_MS),
+    })
 
-  if (res.status === 401 || res.status === 403) {
-    const body = await res.text().catch(() => '')
-    let detail = ''
-    try {
-      const parsed = JSON.parse(body) as { error?: { message?: string; status?: string } }
-      if (parsed.error?.status === 'SERVICE_DISABLED') {
-        detail =
-          ' The Google Analytics Data API is not enabled for this GCP project. ' +
-          'Enable it at: https://console.developers.google.com/apis/api/analyticsdata.googleapis.com/overview'
-      } else if (parsed.error?.message) {
-        detail = ` ${parsed.error.message}`
+    if (res.status === 401 || res.status === 403) {
+      const body = await res.text().catch(() => '')
+      let detail = ''
+      try {
+        const parsed = JSON.parse(body) as { error?: { message?: string; status?: string } }
+        if (parsed.error?.status === 'SERVICE_DISABLED') {
+          detail =
+            ' The Google Analytics Data API is not enabled for this GCP project. ' +
+            'Enable it at: https://console.developers.google.com/apis/api/analyticsdata.googleapis.com/overview'
+        } else if (parsed.error?.message) {
+          detail = ` ${parsed.error.message}`
+        }
+      } catch {
+        // not JSON — use raw body if short enough
+        if (body.length < 200) detail = ` ${body}`
       }
-    } catch {
-      // not JSON — use raw body if short enough
-      if (body.length < 200) detail = ` ${body}`
+      ga4Log('error', 'report.auth-failed', { propertyId, httpStatus: res.status })
+      throw new GA4ApiError(
+        `GA4 API authentication failed — check service account permissions.${detail}`,
+        res.status,
+      )
     }
-    ga4Log('error', 'report.auth-failed', { propertyId, httpStatus: res.status })
-    throw new GA4ApiError(
-      `GA4 API authentication failed — check service account permissions.${detail}`,
-      res.status,
-    )
-  }
 
-  if (res.status === 429) {
-    ga4Log('error', 'report.rate-limited', { propertyId })
-    throw new GA4ApiError('GA4 API rate limit exceeded', 429)
-  }
+    if (res.status === 429) {
+      const retryAfterSeconds = parseRetryAfter(res.headers.get('retry-after'))
+      ga4Log('error', 'report.rate-limited', { propertyId, retryAfterSeconds })
+      throw new GA4ApiError('GA4 API rate limit exceeded', 429, retryAfterSeconds)
+    }
 
-  if (!res.ok) {
-    const body = await res.text()
-    ga4Log('error', 'report.error', { propertyId, httpStatus: res.status })
-    const detail = body.length <= 500 ? body : `${body.slice(0, 500)}... [truncated]`
-    throw new GA4ApiError(`GA4 API error (${res.status}): ${detail}`, res.status)
-  }
+    if (!res.ok) {
+      const body = await res.text()
+      const retryAfterSeconds = res.status >= 500 ? parseRetryAfter(res.headers.get('retry-after')) : undefined
+      ga4Log('error', 'report.error', { propertyId, httpStatus: res.status, retryAfterSeconds })
+      const detail = body.length <= 500 ? body : `${body.slice(0, 500)}... [truncated]`
+      throw new GA4ApiError(`GA4 API error (${res.status}): ${detail}`, res.status, retryAfterSeconds)
+    }
 
-  return (await res.json()) as GA4RunReportResponse
+    return (await res.json()) as GA4RunReportResponse
+  }, 'report'))
 }
 
 /**
@@ -213,39 +316,43 @@ async function batchRunReports(
 ): Promise<GA4RunReportResponse[]> {
   const url = `${GA4_DATA_API_BASE}/properties/${propertyId}:batchRunReports`
 
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ requests }),
-    signal: AbortSignal.timeout(GA4_REQUEST_TIMEOUT_MS),
-  })
+  return withGa4Limit(() => withGa4Retry(async () => {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ requests }),
+      signal: AbortSignal.timeout(GA4_REQUEST_TIMEOUT_MS),
+    })
 
-  if (res.status === 401 || res.status === 403) {
-    const body = await res.text().catch(() => '')
-    ga4Log('error', 'batch-report.auth-failed', { propertyId, httpStatus: res.status })
-    throw new GA4ApiError(
-      `GA4 API authentication failed — check service account permissions. ${body}`,
-      res.status,
-    )
-  }
+    if (res.status === 401 || res.status === 403) {
+      const body = await res.text().catch(() => '')
+      ga4Log('error', 'batch-report.auth-failed', { propertyId, httpStatus: res.status })
+      throw new GA4ApiError(
+        `GA4 API authentication failed — check service account permissions. ${body}`,
+        res.status,
+      )
+    }
 
-  if (res.status === 429) {
-    ga4Log('error', 'batch-report.rate-limited', { propertyId })
-    throw new GA4ApiError('GA4 API rate limit exceeded', 429)
-  }
+    if (res.status === 429) {
+      const retryAfterSeconds = parseRetryAfter(res.headers.get('retry-after'))
+      ga4Log('error', 'batch-report.rate-limited', { propertyId, retryAfterSeconds })
+      throw new GA4ApiError('GA4 API rate limit exceeded', 429, retryAfterSeconds)
+    }
 
-  if (!res.ok) {
-    const body = await res.text()
-    ga4Log('error', 'batch-report.error', { propertyId, httpStatus: res.status })
-    const detail = body.length <= 500 ? body : `${body.slice(0, 500)}... [truncated]`
-    throw new GA4ApiError(`GA4 API error (${res.status}): ${detail}`, res.status)
-  }
+    if (!res.ok) {
+      const body = await res.text()
+      const retryAfterSeconds = res.status >= 500 ? parseRetryAfter(res.headers.get('retry-after')) : undefined
+      ga4Log('error', 'batch-report.error', { propertyId, httpStatus: res.status, retryAfterSeconds })
+      const detail = body.length <= 500 ? body : `${body.slice(0, 500)}... [truncated]`
+      throw new GA4ApiError(`GA4 API error (${res.status}): ${detail}`, res.status, retryAfterSeconds)
+    }
 
-  const data = (await res.json()) as { reports: GA4RunReportResponse[] }
-  return data.reports
+    const data = (await res.json()) as { reports: GA4RunReportResponse[] }
+    return data.reports
+  }, 'batch-report'))
 }
 
 function formatDate(d: Date): string {

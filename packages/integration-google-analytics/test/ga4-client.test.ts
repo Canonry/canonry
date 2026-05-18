@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
-import { createServiceAccountJwt, fetchAiReferrals, fetchTrafficByLandingPage, getAccessToken, verifyConnectionWithToken, fetchAggregateSummary, fetchWindowSummary } from '../src/ga4-client.js'
+import { createServiceAccountJwt, fetchAiReferrals, fetchTrafficByLandingPage, getAccessToken, verifyConnectionWithToken, fetchAggregateSummary, fetchWindowSummary, _resetGa4ConcurrencyStateForTests } from '../src/ga4-client.js'
+import { GA4_MAX_CONCURRENT_REQUESTS, GA4_MAX_RETRIES } from '../src/constants.js'
 import crypto from 'node:crypto'
 
 describe('createServiceAccountJwt', () => {
@@ -476,5 +477,169 @@ describe('fetchWindowSummary', () => {
     await expect(
       fetchWindowSummary('fake-token', '123456', 'all' as unknown as '7d'),
     ).rejects.toThrow(/Unsupported windowKey/)
+  })
+})
+
+describe('GA4 retry on transient errors', () => {
+  // Uses fake timers so exponential-backoff sleeps (1s, 2s, 4s) don't slow tests.
+  let fetchSpy: ReturnType<typeof vi.spyOn>
+
+  beforeEach(() => {
+    _resetGa4ConcurrencyStateForTests()
+    vi.useFakeTimers()
+    fetchSpy = vi.spyOn(globalThis, 'fetch')
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    fetchSpy.mockRestore()
+    _resetGa4ConcurrencyStateForTests()
+  })
+
+  function okResponse() {
+    return new Response(JSON.stringify({ rows: [], rowCount: 0 }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }
+
+  it('retries a 429 and succeeds on the next attempt', async () => {
+    let callCount = 0
+    fetchSpy.mockImplementation(async () => {
+      callCount++
+      if (callCount === 1) return new Response('rate limited', { status: 429 })
+      return okResponse()
+    })
+
+    const promise = verifyConnectionWithToken('fake-token', '123456')
+    await vi.runAllTimersAsync()
+    await expect(promise).resolves.toBe(true)
+    expect(callCount).toBe(2)
+  })
+
+  it('honors the Retry-After header (numeric seconds) instead of computed backoff', async () => {
+    let callCount = 0
+    fetchSpy.mockImplementation(async () => {
+      callCount++
+      if (callCount === 1) {
+        return new Response('rate limited', {
+          status: 429,
+          headers: { 'Retry-After': '5' },
+        })
+      }
+      return okResponse()
+    })
+
+    const promise = verifyConnectionWithToken('fake-token', '123456')
+    // Advance just under 5s — retry should NOT have fired yet (computed backoff is 1s,
+    // so without Retry-After honoring this assertion would fail at the 1s mark).
+    await vi.advanceTimersByTimeAsync(4000)
+    expect(callCount).toBe(1)
+    // Cross the 5s threshold; retry fires.
+    await vi.advanceTimersByTimeAsync(1500)
+    await expect(promise).resolves.toBe(true)
+    expect(callCount).toBe(2)
+  })
+
+  it('throws GA4ApiError(429) after exhausting retries', async () => {
+    fetchSpy.mockImplementation(async () => new Response('rate limited', { status: 429 }))
+
+    const promise = verifyConnectionWithToken('fake-token', '123456')
+    // Detach from the rejection to avoid unhandled-rejection noise while we advance timers.
+    const settled = promise.catch((e: unknown) => e)
+    await vi.runAllTimersAsync()
+    const err = (await settled) as Error
+    expect(err.message).toMatch(/GA4 API rate limit exceeded/)
+    // GA4_MAX_RETRIES = 3 → 4 total attempts (1 initial + 3 retries).
+    expect(fetchSpy).toHaveBeenCalledTimes(GA4_MAX_RETRIES + 1)
+  })
+
+  it('does NOT retry a 4xx non-429 response', async () => {
+    fetchSpy.mockImplementation(async () => new Response('bad request', { status: 400 }))
+
+    const promise = verifyConnectionWithToken('fake-token', '123456')
+    const settled = promise.catch((e: unknown) => e)
+    await vi.runAllTimersAsync()
+    const err = (await settled) as Error
+    expect(err.message).toMatch(/GA4 API error \(400\)/)
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('retries 5xx server errors', async () => {
+    let callCount = 0
+    fetchSpy.mockImplementation(async () => {
+      callCount++
+      if (callCount === 1) return new Response('upstream', { status: 503 })
+      return okResponse()
+    })
+
+    const promise = verifyConnectionWithToken('fake-token', '123456')
+    await vi.runAllTimersAsync()
+    await expect(promise).resolves.toBe(true)
+    expect(callCount).toBe(2)
+  })
+
+  it('honors Retry-After on a 5xx response', async () => {
+    let callCount = 0
+    fetchSpy.mockImplementation(async () => {
+      callCount++
+      if (callCount === 1) {
+        return new Response('upstream', {
+          status: 503,
+          headers: { 'Retry-After': '5' },
+        })
+      }
+      return okResponse()
+    })
+
+    const promise = verifyConnectionWithToken('fake-token', '123456')
+    // Computed backoff for attempt 0 is 1s — if 5xx Retry-After were ignored,
+    // the retry would have fired by the 1s mark and callCount would be 2 here.
+    await vi.advanceTimersByTimeAsync(4000)
+    expect(callCount).toBe(1)
+    await vi.advanceTimersByTimeAsync(1500)
+    await expect(promise).resolves.toBe(true)
+    expect(callCount).toBe(2)
+  })
+})
+
+describe('GA4 concurrency limiter', () => {
+  let fetchSpy: ReturnType<typeof vi.spyOn>
+
+  beforeEach(() => {
+    _resetGa4ConcurrencyStateForTests()
+    fetchSpy = vi.spyOn(globalThis, 'fetch')
+  })
+
+  afterEach(() => {
+    fetchSpy.mockRestore()
+    _resetGa4ConcurrencyStateForTests()
+  })
+
+  it('caps in-flight requests at GA4_MAX_CONCURRENT_REQUESTS even when callers fan out', async () => {
+    // Fire 2x the cap simultaneously. With a real 10ms delay inside the mock,
+    // the second batch must wait for slots in the first batch to release.
+    const N = GA4_MAX_CONCURRENT_REQUESTS * 2
+    let inFlight = 0
+    let maxInFlight = 0
+
+    fetchSpy.mockImplementation(async () => {
+      inFlight++
+      if (inFlight > maxInFlight) maxInFlight = inFlight
+      await new Promise((r) => setTimeout(r, 10))
+      inFlight--
+      return new Response(JSON.stringify({ rows: [], rowCount: 0 }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    })
+
+    const promises = Array.from({ length: N }, () =>
+      verifyConnectionWithToken('fake-token', '123456'),
+    )
+    await Promise.all(promises)
+
+    expect(maxInFlight).toBe(GA4_MAX_CONCURRENT_REQUESTS)
+    expect(fetchSpy).toHaveBeenCalledTimes(N)
   })
 })
