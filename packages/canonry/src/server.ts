@@ -84,6 +84,7 @@ import { IntelligenceService } from './intelligence-service.js'
 import { RunCoordinator } from './run-coordinator.js'
 import { SessionRegistry } from './agent/session-registry.js'
 import { registerAgentRoutes } from './agent/agent-routes.js'
+import { createRecommendationExplainer } from './agent/recommendation-explainer.js'
 import { ApiClient } from './client.js'
 import { SnapshotService } from './snapshot-service.js'
 import { fetchSiteText } from './site-fetch.js'
@@ -911,12 +912,19 @@ export async function createServer(opts: {
     return value
   }
 
+  // LLM-backed "Why this?" explainer for content recommendations. Injected
+  // into api-routes so the package stays LLM-agnostic — canonry owns the
+  // pi-ai + capability-tier wiring. Falls back to a clean 503 when no
+  // provider is configured (handled inside the explainer factory).
+  const explainContentRecommendation = createRecommendationExplainer({ config: opts.config })
+
   await app.register(apiRoutes, {
     db: opts.db,
     routePrefix: apiPrefix,
     skipAuth: false,
     sessionCookieName: SESSION_COOKIE_NAME,
     resolveSessionApiKeyId,
+    explainContentRecommendation,
     // Local canonry serve runs on the operator's machine, where pointing a
     // webhook at localhost (Discord test container, Pipedream-mock dev server,
     // etc.) is a legitimate workflow. Default to allowing it for the local

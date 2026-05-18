@@ -147,6 +147,12 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'GET /api/v1/projects/{name}/content/dismissals': 'deferred',
   'POST /api/v1/projects/{name}/content/dismissals': 'deferred',
   'DELETE /api/v1/projects/{name}/content/dismissals/{targetRef}': 'deferred',
+  // Recommendation explanation endpoints — on-demand LLM rationale per
+  // content recommendation card. Aero could surface these directly but
+  // the analyst-side UX is being shaped first via the SPA; defer MCP
+  // wiring until the prompt + response shape are validated in real use.
+  'GET /api/v1/projects/{name}/content/recommendations/{targetRef}/analysis': 'deferred',
+  'POST /api/v1/projects/{name}/content/recommendations/{targetRef}/analyze': 'deferred',
   'GET /api/v1/projects/{name}/insights': 'included',
   'GET /api/v1/projects/{name}/insights/{id}': 'included',
   'POST /api/v1/projects/{name}/insights/{id}/dismiss': 'included',

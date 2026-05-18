@@ -947,3 +947,314 @@ describe('content routes', () => {
     })
   })
 })
+
+// ─── Recommendation explanation routes ──────────────────────────────────────
+//
+// Separate `describe` because these routes require the explainer to be wired
+// in via `app.register(contentRoutes, { explainContentRecommendation })`.
+// The default registration above has no explainer (mirrors production with
+// no LLM provider configured).
+
+describe('content recommendation explanation routes', () => {
+  let app: ReturnType<typeof buildApp>['app']
+  let db: ReturnType<typeof buildApp>['db']
+  let tmpDir: string
+  /** Per-test mutable state so each test can swap the explainer behavior. */
+  let mockState: {
+    callCount: number
+    lastInput: unknown
+    response: {
+      promptVersion: string
+      provider: string
+      model: string
+      responseText: string
+      costMillicents: number
+    } | (() => never)
+  }
+
+  beforeEach(async () => {
+    const ctx = buildApp()
+    app = ctx.app
+    db = ctx.db
+    tmpDir = ctx.tmpDir
+    mockState = {
+      callCount: 0,
+      lastInput: null,
+      response: {
+        promptVersion: 'v1',
+        provider: 'claude',
+        model: 'claude-sonnet-4-6',
+        responseText: '- First reason\n- Action\n- Outcome',
+        costMillicents: 42,
+      },
+    }
+    await app.register(contentRoutes, {
+      explainContentRecommendation: async (input) => {
+        mockState.callCount++
+        mockState.lastInput = input
+        if (typeof mockState.response === 'function') mockState.response()
+        return mockState.response as Exclude<typeof mockState.response, () => never>
+      },
+    })
+    await app.ready()
+  })
+
+  afterEach(async () => {
+    await app.close()
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  describe('GET /projects/:name/content/recommendations/:targetRef/analysis', () => {
+    it('returns 404 when project does not exist', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/projects/missing/content/recommendations/tgt_x/analysis',
+      })
+      expect(res.statusCode).toBe(404)
+    })
+
+    it('returns 404 when no cached explanation exists', async () => {
+      seedProject(db)
+      const targetsRes = await app.inject({ method: 'GET', url: '/projects/example/content/targets' })
+      const targetRef = JSON.parse(targetsRes.payload).targets[0].targetRef
+      const res = await app.inject({
+        method: 'GET',
+        url: `/projects/example/content/recommendations/${targetRef}/analysis`,
+      })
+      expect(res.statusCode).toBe(404)
+    })
+
+    it('returns the cached explanation after a successful POST', async () => {
+      seedProject(db)
+      const targetsRes = await app.inject({ method: 'GET', url: '/projects/example/content/targets' })
+      const targetRef = JSON.parse(targetsRes.payload).targets[0].targetRef
+
+      // Populate the cache.
+      await app.inject({
+        method: 'POST',
+        url: `/projects/example/content/recommendations/${targetRef}/analyze`,
+        headers: { 'content-type': 'application/json' },
+        payload: '{}',
+      })
+
+      const res = await app.inject({
+        method: 'GET',
+        url: `/projects/example/content/recommendations/${targetRef}/analysis`,
+      })
+      expect(res.statusCode).toBe(200)
+      const body = JSON.parse(res.payload)
+      expect(body.targetRef).toBe(targetRef)
+      expect(body.promptVersion).toBe('v1')
+      expect(body.provider).toBe('claude')
+      expect(body.model).toBe('claude-sonnet-4-6')
+      expect(body.responseText).toBe('- First reason\n- Action\n- Outcome')
+      expect(body.costMillicents).toBe(42)
+      expect(body.generatedAt).toBeTruthy()
+    })
+  })
+
+  describe('POST /projects/:name/content/recommendations/:targetRef/analyze', () => {
+    it('returns 404 when project does not exist', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/projects/missing/content/recommendations/tgt_x/analyze',
+        headers: { 'content-type': 'application/json' },
+        payload: '{}',
+      })
+      expect(res.statusCode).toBe(404)
+    })
+
+    it('returns 404 when targetRef does not match any current recommendation', async () => {
+      seedProject(db)
+      const res = await app.inject({
+        method: 'POST',
+        url: '/projects/example/content/recommendations/tgt_not_a_real_ref/analyze',
+        headers: { 'content-type': 'application/json' },
+        payload: '{}',
+      })
+      expect(res.statusCode).toBe(404)
+      expect(mockState.callCount).toBe(0)
+    })
+
+    it('invokes the explainer on first call and persists the response', async () => {
+      seedProject(db)
+      const targetsRes = await app.inject({ method: 'GET', url: '/projects/example/content/targets' })
+      const targetRef = JSON.parse(targetsRes.payload).targets[0].targetRef
+
+      const res = await app.inject({
+        method: 'POST',
+        url: `/projects/example/content/recommendations/${targetRef}/analyze`,
+        headers: { 'content-type': 'application/json' },
+        payload: '{}',
+      })
+      expect(res.statusCode).toBe(200)
+      expect(mockState.callCount).toBe(1)
+
+      const body = JSON.parse(res.payload)
+      expect(body.responseText).toBe('- First reason\n- Action\n- Outcome')
+      expect(body.promptVersion).toBe('v1')
+
+      // The input the explainer received carries the full recommendation +
+      // project context — the helper relies on these fields.
+      const input = mockState.lastInput as {
+        projectName: string
+        canonicalDomain: string
+        recommendation: { targetRef: string; query: string }
+      }
+      expect(input.projectName).toBe('example')
+      expect(input.canonicalDomain).toBe('example.com')
+      expect(input.recommendation.targetRef).toBe(targetRef)
+      expect(input.recommendation.query).toBeTruthy()
+    })
+
+    it('returns the cached row on a second call without invoking the explainer again', async () => {
+      seedProject(db)
+      const targetsRes = await app.inject({ method: 'GET', url: '/projects/example/content/targets' })
+      const targetRef = JSON.parse(targetsRes.payload).targets[0].targetRef
+
+      const first = await app.inject({
+        method: 'POST',
+        url: `/projects/example/content/recommendations/${targetRef}/analyze`,
+        headers: { 'content-type': 'application/json' },
+        payload: '{}',
+      })
+      expect(first.statusCode).toBe(200)
+      expect(mockState.callCount).toBe(1)
+
+      const second = await app.inject({
+        method: 'POST',
+        url: `/projects/example/content/recommendations/${targetRef}/analyze`,
+        headers: { 'content-type': 'application/json' },
+        payload: '{}',
+      })
+      expect(second.statusCode).toBe(200)
+      // Cache hit — explainer must not have been called a second time.
+      expect(mockState.callCount).toBe(1)
+      expect(JSON.parse(second.payload).generatedAt).toBe(JSON.parse(first.payload).generatedAt)
+    })
+
+    it('forceRefresh bypasses the cache and overwrites the stored explanation', async () => {
+      seedProject(db)
+      const targetsRes = await app.inject({ method: 'GET', url: '/projects/example/content/targets' })
+      const targetRef = JSON.parse(targetsRes.payload).targets[0].targetRef
+
+      await app.inject({
+        method: 'POST',
+        url: `/projects/example/content/recommendations/${targetRef}/analyze`,
+        headers: { 'content-type': 'application/json' },
+        payload: '{}',
+      })
+      expect(mockState.callCount).toBe(1)
+
+      // Swap the mock response so we can prove the second call's payload
+      // actually got persisted.
+      mockState.response = {
+        promptVersion: 'v1',
+        provider: 'gemini',
+        model: 'gemini-2.5-flash',
+        responseText: '- Refreshed reason',
+        costMillicents: 7,
+      }
+
+      const second = await app.inject({
+        method: 'POST',
+        url: `/projects/example/content/recommendations/${targetRef}/analyze`,
+        headers: { 'content-type': 'application/json' },
+        payload: JSON.stringify({ forceRefresh: true }),
+      })
+      expect(second.statusCode).toBe(200)
+      expect(mockState.callCount).toBe(2)
+      const body = JSON.parse(second.payload)
+      expect(body.provider).toBe('gemini')
+      expect(body.responseText).toBe('- Refreshed reason')
+
+      // A subsequent GET should return the refreshed row, not the original.
+      const cached = await app.inject({
+        method: 'GET',
+        url: `/projects/example/content/recommendations/${targetRef}/analysis`,
+      })
+      expect(JSON.parse(cached.payload).provider).toBe('gemini')
+    })
+
+    it('passes through provider + model overrides to the explainer', async () => {
+      seedProject(db)
+      const targetsRes = await app.inject({ method: 'GET', url: '/projects/example/content/targets' })
+      const targetRef = JSON.parse(targetsRes.payload).targets[0].targetRef
+
+      const res = await app.inject({
+        method: 'POST',
+        url: `/projects/example/content/recommendations/${targetRef}/analyze`,
+        headers: { 'content-type': 'application/json' },
+        payload: JSON.stringify({ provider: 'openai', model: 'gpt-5-mini' }),
+      })
+      expect(res.statusCode).toBe(200)
+      const input = mockState.lastInput as { providerOverride?: string; modelOverride?: string }
+      expect(input.providerOverride).toBe('openai')
+      expect(input.modelOverride).toBe('gpt-5-mini')
+    })
+
+    it('rejects an invalid body shape with 400', async () => {
+      seedProject(db)
+      const targetsRes = await app.inject({ method: 'GET', url: '/projects/example/content/targets' })
+      const targetRef = JSON.parse(targetsRes.payload).targets[0].targetRef
+
+      const res = await app.inject({
+        method: 'POST',
+        url: `/projects/example/content/recommendations/${targetRef}/analyze`,
+        headers: { 'content-type': 'application/json' },
+        payload: JSON.stringify({ forceRefresh: 'yes' }),
+      })
+      expect(res.statusCode).toBe(400)
+      expect(mockState.callCount).toBe(0)
+    })
+  })
+
+  describe('without an explainer wired in', () => {
+    let bareApp: ReturnType<typeof buildApp>['app']
+    let bareDb: ReturnType<typeof buildApp>['db']
+    let bareTmpDir: string
+
+    beforeEach(async () => {
+      const ctx = buildApp()
+      bareApp = ctx.app
+      bareDb = ctx.db
+      bareTmpDir = ctx.tmpDir
+      // No `explainContentRecommendation` — production state when no LLM
+      // provider is configured.
+      await bareApp.register(contentRoutes)
+      await bareApp.ready()
+    })
+
+    afterEach(async () => {
+      await bareApp.close()
+      fs.rmSync(bareTmpDir, { recursive: true, force: true })
+    })
+
+    it('POST returns PROVIDER_ERROR when no explainer is wired', async () => {
+      seedProject(bareDb)
+      const targetsRes = await bareApp.inject({ method: 'GET', url: '/projects/example/content/targets' })
+      const targetRef = JSON.parse(targetsRes.payload).targets[0].targetRef
+      const res = await bareApp.inject({
+        method: 'POST',
+        url: `/projects/example/content/recommendations/${targetRef}/analyze`,
+        headers: { 'content-type': 'application/json' },
+        payload: '{}',
+      })
+      expect(res.statusCode).toBe(502)
+      expect(JSON.parse(res.payload).error.code).toBe('PROVIDER_ERROR')
+    })
+
+    it('GET still works as a cache-only read when no explainer is wired', async () => {
+      seedProject(bareDb)
+      const targetsRes = await bareApp.inject({ method: 'GET', url: '/projects/example/content/targets' })
+      const targetRef = JSON.parse(targetsRes.payload).targets[0].targetRef
+      const res = await bareApp.inject({
+        method: 'GET',
+        url: `/projects/example/content/recommendations/${targetRef}/analysis`,
+      })
+      // No prior write means 404 — but the route doesn't depend on the
+      // explainer for read access.
+      expect(res.statusCode).toBe(404)
+    })
+  })
+})

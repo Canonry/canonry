@@ -756,6 +756,34 @@ export const contentTargetDismissals = sqliteTable('content_target_dismissals', 
 ])
 
 /**
+ * LLM-generated rationale for a content recommendation. Cached per
+ * (project, target_ref, prompt_version) so repeat clicks on the same
+ * recommendation are free; bumping `prompt_version` in the template
+ * invalidates the cache forward without touching the table. Stores the
+ * actual provider + model used and a rough cost estimate so admins can
+ * audit spend without re-deriving it from logs.
+ */
+export const recommendationExplanations = sqliteTable('recommendation_explanations', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  targetRef: text('target_ref').notNull(),
+  promptVersion: text('prompt_version').notNull(),
+  provider: text('provider').notNull(),
+  model: text('model').notNull(),
+  responseText: text('response_text').notNull(),
+  /** Estimated cost in millicents (1/100 of a cent) for audit; 0 if unknown. */
+  costMillicents: integer('cost_millicents').notNull().default(0),
+  generatedAt: text('generated_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_recommendation_explanations_unique').on(
+    table.projectId,
+    table.targetRef,
+    table.promptVersion,
+  ),
+  index('idx_recommendation_explanations_project').on(table.projectId),
+])
+
+/**
  * Internal bookkeeping for the migration runner. One row per applied
  * `MIGRATION_VERSIONS` entry. The migrator reads `MAX(version)` on boot and
  * skips anything already recorded; statements never query this table at

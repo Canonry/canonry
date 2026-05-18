@@ -2646,6 +2646,55 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'get',
+    path: '/api/v1/projects/{name}/content/recommendations/{targetRef}/analysis',
+    summary: 'Get cached LLM explanation for a content recommendation',
+    description:
+      'Returns the most recent cached LLM-generated rationale + recommended next steps for one content recommendation, or 404 if none exists. Triggered by the report SPA when rendering an already-analyzed card without re-paying the LLM cost. Use `POST /analyze` to generate one (idempotent — POST returns the cached row if present).',
+    tags: ['content'],
+    parameters: [
+      nameParameter,
+      { name: 'targetRef', in: 'path', required: true, description: 'Stable hash from ContentTargetRowDto.targetRef.', schema: stringSchema },
+    ],
+    responses: {
+      200: jsonResponse('Cached explanation.', 'RecommendationExplanationDto'),
+      404: errorResponse('No cached explanation for this targetRef yet.'),
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/projects/{name}/content/recommendations/{targetRef}/analyze',
+    summary: 'Generate (or fetch cached) LLM explanation for a recommendation',
+    description:
+      'Returns an LLM-generated rationale + recommended next steps for one content recommendation. Cached per (project, targetRef, promptVersion) — repeat calls without `forceRefresh` return the cached row free. Uses the `analyze` capability tier on the project\'s configured agent provider (Claude → sonnet, OpenAI → mini, Gemini → flash, Zai → turbo). Pass `provider` to force a specific one; pass `model` to override the tier\'s default within that provider.',
+    tags: ['content'],
+    parameters: [
+      nameParameter,
+      { name: 'targetRef', in: 'path', required: true, description: 'Stable hash from ContentTargetRowDto.targetRef.', schema: stringSchema },
+    ],
+    requestBody: {
+      required: false,
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            properties: {
+              provider: stringSchema,
+              model: stringSchema,
+              forceRefresh: { type: 'boolean' },
+            },
+          },
+        },
+      },
+    },
+    responses: {
+      200: jsonResponse('Explanation generated or returned from cache.', 'RecommendationExplanationDto'),
+      400: errorResponse('Invalid request body or unknown provider.'),
+      404: errorResponse('Project not found or targetRef does not match any current recommendation.'),
+      503: errorResponse('No AI provider configured for this project.'),
+    },
+  },
+  {
+    method: 'get',
     path: '/api/v1/projects/{name}/content/sources',
     summary: 'URL-level competitive grounding-source map per query',
     description:

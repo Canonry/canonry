@@ -1256,6 +1256,29 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `CREATE INDEX IF NOT EXISTS idx_content_target_dismissals_project ON content_target_dismissals(project_id)`,
     ],
   },
+  {
+    version: 62,
+    name: 'recommendation-explanations',
+    // LLM-generated rationale for content recommendations. Cached per
+    // (project, target_ref, prompt_version) so repeat clicks are free.
+    // Bumping the prompt version invalidates the cache forward without
+    // touching the table.
+    statements: [
+      `CREATE TABLE IF NOT EXISTS recommendation_explanations (
+         id              TEXT PRIMARY KEY,
+         project_id      TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+         target_ref      TEXT NOT NULL,
+         prompt_version  TEXT NOT NULL,
+         provider        TEXT NOT NULL,
+         model           TEXT NOT NULL,
+         response_text   TEXT NOT NULL,
+         cost_millicents INTEGER NOT NULL DEFAULT 0,
+         generated_at    TEXT NOT NULL
+       )`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_recommendation_explanations_unique ON recommendation_explanations(project_id, target_ref, prompt_version)`,
+      `CREATE INDEX IF NOT EXISTS idx_recommendation_explanations_project ON recommendation_explanations(project_id)`,
+    ],
+  },
 ]
 
 /**

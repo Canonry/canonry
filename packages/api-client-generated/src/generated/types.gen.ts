@@ -377,6 +377,16 @@ export type ContentTargetsResponseDto = {
     };
 };
 
+export type RecommendationExplanationDto = {
+    targetRef: string;
+    promptVersion: string;
+    provider: string;
+    model: string;
+    responseText: string;
+    costMillicents: number;
+    generatedAt: string;
+};
+
 export type DiscoveryPromotePreview = {
     sessionId: string;
     projectId: string;
@@ -6560,6 +6570,86 @@ export type DeleteApiV1ProjectsByNameContentDismissalsByTargetRefResponses = {
 };
 
 export type DeleteApiV1ProjectsByNameContentDismissalsByTargetRefResponse = DeleteApiV1ProjectsByNameContentDismissalsByTargetRefResponses[keyof DeleteApiV1ProjectsByNameContentDismissalsByTargetRefResponses];
+
+export type GetApiV1ProjectsByNameContentRecommendationsByTargetRefAnalysisData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+        /**
+         * Stable hash from ContentTargetRowDto.targetRef.
+         */
+        targetRef: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/content/recommendations/{targetRef}/analysis';
+};
+
+export type GetApiV1ProjectsByNameContentRecommendationsByTargetRefAnalysisErrors = {
+    /**
+     * No cached explanation for this targetRef yet.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameContentRecommendationsByTargetRefAnalysisError = GetApiV1ProjectsByNameContentRecommendationsByTargetRefAnalysisErrors[keyof GetApiV1ProjectsByNameContentRecommendationsByTargetRefAnalysisErrors];
+
+export type GetApiV1ProjectsByNameContentRecommendationsByTargetRefAnalysisResponses = {
+    /**
+     * Cached explanation.
+     */
+    200: RecommendationExplanationDto;
+};
+
+export type GetApiV1ProjectsByNameContentRecommendationsByTargetRefAnalysisResponse = GetApiV1ProjectsByNameContentRecommendationsByTargetRefAnalysisResponses[keyof GetApiV1ProjectsByNameContentRecommendationsByTargetRefAnalysisResponses];
+
+export type PostApiV1ProjectsByNameContentRecommendationsByTargetRefAnalyzeData = {
+    body?: {
+        provider?: string;
+        model?: string;
+        forceRefresh?: boolean;
+    };
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+        /**
+         * Stable hash from ContentTargetRowDto.targetRef.
+         */
+        targetRef: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/content/recommendations/{targetRef}/analyze';
+};
+
+export type PostApiV1ProjectsByNameContentRecommendationsByTargetRefAnalyzeErrors = {
+    /**
+     * Invalid request body or unknown provider.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found or targetRef does not match any current recommendation.
+     */
+    404: ErrorEnvelope;
+    /**
+     * No AI provider configured for this project.
+     */
+    503: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameContentRecommendationsByTargetRefAnalyzeError = PostApiV1ProjectsByNameContentRecommendationsByTargetRefAnalyzeErrors[keyof PostApiV1ProjectsByNameContentRecommendationsByTargetRefAnalyzeErrors];
+
+export type PostApiV1ProjectsByNameContentRecommendationsByTargetRefAnalyzeResponses = {
+    /**
+     * Explanation generated or returned from cache.
+     */
+    200: RecommendationExplanationDto;
+};
+
+export type PostApiV1ProjectsByNameContentRecommendationsByTargetRefAnalyzeResponse = PostApiV1ProjectsByNameContentRecommendationsByTargetRefAnalyzeResponses[keyof PostApiV1ProjectsByNameContentRecommendationsByTargetRefAnalyzeResponses];
 
 export type GetApiV1ProjectsByNameContentSourcesData = {
     body?: never;
