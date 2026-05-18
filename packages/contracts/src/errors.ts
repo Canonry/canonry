@@ -15,6 +15,7 @@ export type ErrorCode =
   | 'DELIVERY_FAILED'
   | 'AGENT_BUSY'
   | 'MISSING_DEPENDENCY'
+  | 'RUNTIME_STATE_MISSING'
 
 export class AppError extends Error {
   readonly code: ErrorCode
@@ -111,4 +112,17 @@ export function missingDependency(message: string, details?: Record<string, unkn
 
 export function internalError(message: string, details?: Record<string, unknown>): AppError {
   return new AppError('INTERNAL_ERROR', message, 500, details)
+}
+
+/**
+ * Fires when a runtime-essential file (DB or config) the daemon opened at
+ * boot has been removed from disk while the daemon is still running. SQLite
+ * holds the inode open through `unlink`, so the daemon would otherwise keep
+ * serving stale data from an orphaned file with no surfacing — operator
+ * deletes `~/.canonry/data.db` expecting a clean slate, daemon happily
+ * returns the old projects, UI looks wrong. This 503 fails loud so the
+ * operator knows to restart `canonry serve`.
+ */
+export function runtimeStateMissing(message: string, details?: Record<string, unknown>): AppError {
+  return new AppError('RUNTIME_STATE_MISSING', message, 503, details)
 }

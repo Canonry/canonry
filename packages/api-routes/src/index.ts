@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyError } from 'fastify'
 import type { DatabaseClient } from '@ainyc/canonry-db'
-import { AppError } from '@ainyc/canonry-contracts'
+import fs from 'node:fs'
+import { AppError, runtimeStateMissing } from '@ainyc/canonry-contracts'
 import { authPlugin } from './auth.js'
 import { projectRoutes } from './projects.js'
 import type { ProjectRoutesOptions } from './projects.js'
@@ -182,6 +183,14 @@ export interface ApiRoutesOptions {
    * dev workflows that point webhooks at localhost.
    */
   allowLoopbackWebhooks?: boolean
+  /**
+   * On-disk paths the daemon depends on at runtime. When wired, a pre-request
+   * hook fails non-doctor / non-health requests with HTTP 503
+   * `RUNTIME_STATE_MISSING` if either path has been deleted while the daemon
+   * is running. Pairs with the `db.file.present` / `config.file.present`
+   * doctor checks. Cloud deployments leave this undefined.
+   */
+  runtimeStatePaths?: { databasePath: string; configPath?: string | null }
 }
 
 export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
@@ -223,6 +232,37 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       },
     })
   })
+
+  // Runtime-state guard — fail loud if the DB or config file the daemon
+  // depends on was deleted out from under it. SQLite holds the file
+  // inode open across `unlink`, so without this hook the daemon would
+  // keep serving stale data from an orphaned file and the operator's
+  // `rm ~/.canonry/data.db` would silently not take effect. Skips the
+  // health and doctor endpoints so operators can still diagnose. Only
+  // active when `runtimeStatePaths` is wired — cloud deployments leave
+  // this undefined (managed DB, no local config).
+  if (opts.runtimeStatePaths) {
+    const { databasePath, configPath } = opts.runtimeStatePaths
+    // Allow-listed paths bypass the guard so an operator can still
+    // diagnose the daemon when the files are gone: `/health` for liveness,
+    // `/doctor` (and `/projects/<name>/doctor`) for the actual `db.file.missing`
+    // / `config.file.missing` check output. Match `/doctor` either at the
+    // end of the URL or immediately followed by `?` so query-stringed
+    // doctor calls (`?check=db.*`) still pass.
+    const isDiagnosticUrl = (url: string) =>
+      url === '/health' || /\/doctor(?:\?|$)/.test(url)
+    app.addHook('onRequest', async (request) => {
+      if (isDiagnosticUrl(request.url)) return
+      const missing: string[] = []
+      if (!fs.existsSync(databasePath)) missing.push(`database file \`${databasePath}\``)
+      if (configPath && !fs.existsSync(configPath)) missing.push(`config file \`${configPath}\``)
+      if (missing.length === 0) return
+      throw runtimeStateMissing(
+        `Runtime state missing: ${missing.join(' and ')}. Restart \`canonry serve\` so a fresh state is created (the daemon's open file handles still point at the deleted inode, so writes are being lost).`,
+        { missing },
+      )
+    })
+  }
 
   // Register route plugins under the configured prefix (default: /api/v1).
   // When a basePath is set and the reverse proxy does not strip it, pass
@@ -357,6 +397,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       publicUrl: opts.publicUrl,
       providerSummary: opts.providerSummary,
       trafficSourceValidators: buildTrafficSourceValidators(opts),
+      runtimeStatePaths: opts.runtimeStatePaths,
     })
     // Local-only extension hook: canonry passes the Aero agent routes here
     // so they live inside the authenticated scope. Cloud leaves it undefined.

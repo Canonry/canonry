@@ -53,6 +53,14 @@ export interface DoctorContext {
    * registered surface a `skipped` result rather than a fail.
    */
   trafficSourceValidators?: Record<string, TrafficSourceValidator>
+  /**
+   * On-disk paths the daemon depends on at runtime. Wired in by
+   * `canonry serve`; cloud deployments (managed DB, no local config)
+   * leave this undefined and the `db.file.present` / `config.file.present`
+   * checks `skipped`. Used both by those checks and by the pre-request
+   * runtime-state guard hook.
+   */
+  runtimeStatePaths?: { databasePath: string; configPath?: string | null }
 }
 
 export interface ProjectInfo {
