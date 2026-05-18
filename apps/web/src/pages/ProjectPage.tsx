@@ -68,10 +68,12 @@ import {
 } from '@ainyc/canonry-api-client/react-query'
 import { useAppendQueries, useTriggerRun } from '../queries/mutations.js'
 import { GSC_STALE_MS } from '../queries/query-client.js'
-import { useDashboard } from '../queries/use-dashboard.js'
+import { useQuery } from '@tanstack/react-query'
+import { getApiV1ProjectsOptions } from '@ainyc/canonry-api-client/react-query'
+import { useProjectDashboard } from '../queries/use-project-dashboard.js'
+import { useInitialDashboard } from '../contexts/dashboard-context.js'
 import { useDrawer } from '../hooks/use-drawer.js'
-import { findProjectVm } from '../mock-data.js'
-import type { DashboardVm, ProjectCommandCenterVm, RunHistoryPoint } from '../view-models.js'
+import type { ProjectCommandCenterVm, RunHistoryPoint } from '../view-models.js'
 
 export type ProjectPageTab = 'overview' | 'search-console' | 'discovery' | 'report' | 'activity' | 'backlinks' | 'settings'
 
@@ -1374,24 +1376,63 @@ function SuggestedQueriesCard({
 }
 
 /**
- * Thin shell that guards on dashboard readiness. The real component
- * (`ProjectPageContent`) declares all the page's ~60 hooks, and React
- * requires the same hook count on every render of a given component
- * instance. Previously the body called `useDashboard()` and then
- * early-returned the skeleton ABOVE the rest of the hook calls — fine
- * on every render where data was already cached, but as soon as the
- * runs-query cache key changed (PR #590) the first render landed in
- * the loading branch (few hooks) and the second in the loaded branch
- * (all hooks), tripping React error #310 ("rendered more hooks").
- *
- * Splitting the conditional into a parent component keeps the inner
- * hook count constant: the parent renders either skeleton OR content,
- * never partially through the content's hooks.
+ * Thin shell that guards on project-dashboard readiness. The real
+ * component (`ProjectPageContent`) declares all the page's ~60 hooks,
+ * and React requires the same hook count on every render of a given
+ * component instance. Inlining the early-return-then-hooks pattern
+ * here (as the original code did before this refactor) trips React
+ * error #310 the first time the query cache is cold, because the
+ * loading-branch render calls fewer hooks than the loaded-branch
+ * render that follows. See PR #592 for the matching fix on the
+ * pre-refactor code path.
  */
 export function ProjectPage(props: { tab: ProjectPageTab }) {
-  const { dashboard, isLoading, refetch } = useDashboard()
+  const { projectId } = useParams({ from: '/projects/$projectId' })
+  // Resolve project name: prefer the SSR/test fixture (synchronous, no
+  // query needed); otherwise hit the shared `/projects` cache that
+  // `useDashboardOverview` populates.
+  const contextDashboard = useInitialDashboard()
+  const nameFromContext = contextDashboard?.dashboard.projects.find(
+    p => p.project.id === projectId,
+  )?.project.name ?? null
+  const projectsListQuery = useQuery({
+    ...getApiV1ProjectsOptions({ client: heyClient }),
+    enabled: !nameFromContext,
+  })
+  const lookupProjectName = nameFromContext
+    ?? projectsListQuery.data?.find(p => p.id === projectId)?.name
+    ?? null
+  const {
+    commandCenter: model,
+    isLoading: dashboardLoading,
+    refetch,
+  } = useProjectDashboard(lookupProjectName)
+  const isLoading = (!nameFromContext && projectsListQuery.isLoading) || dashboardLoading
 
-  if (!dashboard || isLoading) {
+  // Not-found state: both context and the projects-list query resolved
+  // (loading is done), but neither could match the URL's projectId to a
+  // known project name. Render the explicit not-found rather than the
+  // indefinite skeleton so the user can navigate away.
+  const isNotFound = !lookupProjectName
+    && !nameFromContext
+    && projectsListQuery.isSuccess
+    && !dashboardLoading
+
+  if (isNotFound) {
+    return (
+      <div className="page-container">
+        <Card className="surface-card empty-card">
+          <h1>Project not found</h1>
+          <p>Could not find a project with ID "{projectId}".</p>
+          <Button asChild>
+            <Link to="/">Return to overview</Link>
+          </Button>
+        </Card>
+      </div>
+    )
+  }
+
+  if (!model || isLoading) {
     return (
       <div className="page-skeleton">
         <div className="page-skeleton-header">
@@ -1418,23 +1459,20 @@ export function ProjectPage(props: { tab: ProjectPageTab }) {
     )
   }
 
-  return <ProjectPageContent dashboard={dashboard} refetch={refetch} {...props} />
+  return <ProjectPageContent model={model} refetch={refetch} {...props} />
 }
 
 function ProjectPageContent({
   tab,
-  dashboard,
+  model,
   refetch,
 }: {
   tab: ProjectPageTab
-  dashboard: DashboardVm
+  model: ProjectCommandCenterVm
   refetch: () => Promise<void>
 }) {
-  const { projectId } = useParams({ from: '/projects/$projectId' })
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-
-  const model = findProjectVm(dashboard, projectId)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [addingQueries, setAddingQueries] = useState(false)
@@ -1547,19 +1585,10 @@ function ProjectPageContent({
     })
   }, [visibilityEvidence, locationFilter, competitorFilter, locationRunHistoryMap])
 
-  if (!model) {
-    return (
-      <div className="page-container">
-        <Card className="surface-card empty-card">
-          <h1>Project not found</h1>
-          <p>Could not find a project with ID "{projectId}".</p>
-          <Button asChild>
-            <Link to="/">Return to overview</Link>
-          </Button>
-        </Card>
-      </div>
-    )
-  }
+  // `if (!model)` branch removed — the wrapper guarantees `model` is set
+  // by the time we render `ProjectPageContent`. The wrapper also owns the
+  // "project not found" state (when both context and /projects list have
+  // resolved but neither matched the URL's projectId).
 
   async function handleTriggerRun() {
     try {
