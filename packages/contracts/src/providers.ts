@@ -68,3 +68,45 @@ export function isAgentProviderId(value: string): value is AgentProviderId {
 export function isSweepProviderId(value: string): value is SweepProviderId {
   return (SWEEP_PROVIDER_IDS as readonly string[]).includes(value)
 }
+
+/**
+ * Capability tier describing what an LLM call needs. Used by the
+ * per-provider model selector so each feature picks an
+ * appropriately-tiered model without hand-coding model names at every
+ * call site.
+ *
+ * - `agent`    — multi-step tool use, long context, premium models
+ *                (Aero's conversation loop). Default → opus-class /
+ *                full-quality models per provider.
+ * - `analyze`  — single-shot synthesis, structured input → ~1k tokens
+ *                out (explain-this-recommendation, content brief
+ *                generation). Default → mid-tier models (sonnet, mini,
+ *                flash) — 5-10× cheaper than `agent` with comparable
+ *                quality on structured tasks.
+ * - `classify` — single-shot yes/no or short structured judgments
+ *                (semantic page-coverage match, domain classification).
+ *                Default → cheapest fast models (haiku, flash). 50-100×
+ *                cheaper than `agent`.
+ *
+ * Capabilities are intentionally orthogonal to provider selection: a
+ * caller declares its capability, the project's configured provider
+ * decides which actual model fills that capability.
+ *
+ * Adding a new capability requires updating the per-provider mapping in
+ * `packages/canonry/src/agent/providers.ts` → `PROVIDER_MODELS` and
+ * the test `agent/providers.test.ts → "every provider declares every
+ * capability"`.
+ */
+export const LlmCapabilities = {
+  agent: 'agent',
+  analyze: 'analyze',
+  classify: 'classify',
+} as const
+
+export type LlmCapability = (typeof LlmCapabilities)[keyof typeof LlmCapabilities]
+
+export const LLM_CAPABILITIES: readonly LlmCapability[] = Object.values(LlmCapabilities)
+
+export function isLlmCapability(value: string): value is LlmCapability {
+  return (LLM_CAPABILITIES as readonly string[]).includes(value)
+}
