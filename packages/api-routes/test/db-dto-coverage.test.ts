@@ -27,6 +27,7 @@ import {
   projectDtoSchema,
   queryDtoSchema,
   querySnapshotDtoSchema,
+  recommendationExplanationDtoSchema,
   runDtoSchema,
   scheduleDtoSchema,
   trafficSourceDtoSchema,
@@ -311,6 +312,14 @@ const COVERAGE: Record<string, CoverageEntry> = {
     internal: {
       id: 'Surrogate key; dismissals are addressed by (projectId, targetRef).',
       projectId: 'Implied by the route scope (/projects/:name/content/dismissals).',
+    },
+  },
+  recommendationExplanations: {
+    kind: 'dto',
+    dto: recommendationExplanationDtoSchema,
+    internal: {
+      id: 'Surrogate key; explanations are addressed by (projectId, targetRef, promptVersion).',
+      projectId: 'Implied by the route scope (/projects/:name/content/recommendations/:targetRef/analyze).',
     },
   },
   trafficSources: {

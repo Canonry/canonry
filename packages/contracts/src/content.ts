@@ -151,6 +151,52 @@ export const contentTargetDismissRequestSchema = z.object({
 
 export type ContentTargetDismissRequest = z.infer<typeof contentTargetDismissRequestSchema>
 
+// ─── Recommendation explanations (LLM rationale per card) ──────────────────
+//
+// Phase 1 of the LLM-augmented recommendation engine. The heuristic
+// classifier produces the structured recommendation; an on-demand LLM
+// call ("Why this?" button in the UI) explains the reasoning and
+// suggests concrete next steps in natural language. Cached per
+// (project, target_ref, prompt_version) so repeat clicks are free.
+
+export const recommendationExplanationDtoSchema = z.object({
+  targetRef: z.string(),
+  /** Version of the prompt template used. Bumping the version invalidates the cache forward without touching the table. */
+  promptVersion: z.string(),
+  /** Provider that produced the explanation (e.g. "claude", "gemini"). */
+  provider: z.string(),
+  /** Model id within that provider (e.g. "claude-sonnet-4-6"). */
+  model: z.string(),
+  /** Markdown-formatted rationale + recommended next steps. */
+  responseText: z.string(),
+  /** Estimated cost in millicents (1/100 of a cent). 0 when unknown. */
+  costMillicents: z.number().int().nonnegative(),
+  generatedAt: z.string(),
+})
+
+export type RecommendationExplanationDto = z.infer<typeof recommendationExplanationDtoSchema>
+
+export const recommendationExplainRequestSchema = z.object({
+  /**
+   * Optional provider override (e.g. "claude" to force Claude even if
+   * the project's default is Gemini). Falls through to project default
+   * → auto-detect when omitted.
+   */
+  provider: z.string().optional(),
+  /**
+   * Optional model override within the chosen provider. Falls through to
+   * the `analyze`-tier default model when omitted.
+   */
+  model: z.string().optional(),
+  /**
+   * Force a fresh LLM call even if a cached explanation exists for the
+   * current prompt version. Use sparingly — defeats the cache.
+   */
+  forceRefresh: z.boolean().optional(),
+})
+
+export type RecommendationExplainRequest = z.infer<typeof recommendationExplainRequestSchema>
+
 // ─── ContentSources ──────────────────────────────────────────────────────────
 
 const contentGroundingSourceSchema = z.object({

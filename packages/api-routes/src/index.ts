@@ -99,6 +99,15 @@ export interface ApiRoutesOptions {
   onSnapshotRequested?: SnapshotRoutesOptions['onSnapshotRequested']
   /** Callback to generate query suggestions using an LLM provider */
   onGenerateQueries?: QueryRoutesOptions['onGenerateQueries']
+  /**
+   * Optional LLM-backed explainer for content recommendations. When
+   * provided, `POST /projects/:name/content/recommendations/:targetRef/analyze`
+   * calls it (and caches the response). When omitted, that route returns
+   * 503 with `NO_PROVIDER`. Wiring lives in canonry's server.ts where
+   * the pi-ai integration + capability-tier model resolution happens —
+   * api-routes stays LLM-agnostic.
+   */
+  explainContentRecommendation?: import('./content.js').ExplainContentRecommendationFn
   /** Telemetry status/toggle callbacks */
   getTelemetryStatus?: TelemetryRoutesOptions['getTelemetryStatus']
   setTelemetryEnabled?: TelemetryRoutesOptions['setTelemetryEnabled']
@@ -261,7 +270,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     await api.register(reportRoutes)
     await api.register(citationRoutes)
     await api.register(compositeRoutes)
-    await api.register(contentRoutes)
+    await api.register(contentRoutes, { explainContentRecommendation: opts.explainContentRecommendation })
     await api.register(settingsRoutes, {
       providerSummary: opts.providerSummary,
       providerAdapters: opts.providerAdapters,
@@ -382,6 +391,11 @@ export type { SafeWebhookTarget } from './webhooks.js'
 export type { RunRoutesOptions } from './runs.js'
 export { renderReportHtml } from './report-renderer.js'
 export type { RenderReportHtmlOptions } from './report-renderer.js'
+export type {
+  ExplainContentRecommendationFn,
+  ExplainContentRecommendationInput,
+  ExplainContentRecommendationResult,
+} from './content.js'
 export { buildOpenApiDocument } from './openapi.js'
 export type { OpenApiInfo } from './openapi.js'
 
