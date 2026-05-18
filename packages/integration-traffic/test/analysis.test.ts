@@ -45,6 +45,45 @@ describe('traffic analysis', () => {
     })
   })
 
+  it('promotes to `verified` when the source IP is in the operator\'s published range', () => {
+    // 66.249.64.1 is in Googlebot's published 66.249.64.0/19 — bundled
+    // in `src/ip-ranges/googlebot.json`. UA match + IP match should
+    // upgrade `claimed_unverified` → `verified`.
+    expect(classifyCrawler(event({
+      userAgent: 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
+      remoteIp: '66.249.64.1',
+    }))).toMatchObject({
+      botId: 'googlebot',
+      verificationStatus: 'verified',
+    })
+  })
+
+  it('stays `claimed_unverified` when the source IP is outside the operator\'s range', () => {
+    // UA claims Googlebot but the IP is private RFC1918 space — almost
+    // certainly a spoofer (or a local test). The dashboard's separate
+    // `verified` vs `claimed_unverified` buckets surface this.
+    expect(classifyCrawler(event({
+      userAgent: 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
+      remoteIp: '10.0.0.1',
+    }))).toMatchObject({
+      botId: 'googlebot',
+      verificationStatus: 'claimed_unverified',
+    })
+  })
+
+  it('stays `claimed_unverified` for operators without published IP ranges (e.g. Anthropic ClaudeBot)', () => {
+    // Anthropic doesn't publish a ranges file yet — every ClaudeBot hit
+    // is unverified regardless of source IP. This is correct behavior:
+    // we have no data to check against, so we don't claim verification.
+    expect(classifyCrawler(event({
+      userAgent: 'Mozilla/5.0 (compatible; ClaudeBot/1.0; +claudebot@anthropic.com)',
+      remoteIp: '52.5.1.1',
+    }))).toMatchObject({
+      botId: 'anthropic-claudebot',
+      verificationStatus: 'claimed_unverified',
+    })
+  })
+
   it('classifies the LLM crawlers added 2026-05-18 after live-traffic miss', () => {
     // Regression coverage for the canonry.ai/canonry-landing flat-chart
     // incident. Each of these UAs hit the site between 5/16 and 5/18 but
