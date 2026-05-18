@@ -1,8 +1,9 @@
-import { and, eq, inArray, isNull } from 'drizzle-orm'
-import type { GroundingSource, NormalizedQueryResult } from '@ainyc/canonry-contracts'
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm'
+import type { GroundingSource, NormalizedQueryResult, NormalizedTrafficRequest } from '@ainyc/canonry-contracts'
 import type { DatabaseClient } from '@ainyc/canonry-db'
-import { auditLog, createClient, gaAiReferrals, gaTrafficSnapshots, migrate, parseJsonColumn, competitors, projects, querySnapshots, runs } from '@ainyc/canonry-db'
-import { determineAnswerMentioned, effectiveBrandNames, effectiveDomains, normalizeUrlPath, ProviderNames, RunKinds } from '@ainyc/canonry-contracts'
+import { auditLog, crawlerEventsHourly, createClient, gaAiReferrals, gaTrafficSnapshots, migrate, parseJsonColumn, competitors, projects, querySnapshots, rawEventSamples, runs } from '@ainyc/canonry-db'
+import { determineAnswerMentioned, effectiveBrandNames, effectiveDomains, normalizeUrlPath, ProviderNames, RunKinds, TrafficEventConfidences, TrafficEventKinds, TrafficEvidenceKinds, TrafficSourceTypes } from '@ainyc/canonry-contracts'
+import { classifyCrawler } from '@ainyc/canonry-integration-traffic'
 import { reparseStoredResult as reparseOpenAIStoredResult } from '@ainyc/canonry-provider-openai'
 import { reparseStoredResult as reparseClaudeStoredResult } from '@ainyc/canonry-provider-claude'
 import { reparseStoredResult as reparseGeminiStoredResult } from '@ainyc/canonry-provider-gemini'
@@ -1169,4 +1170,244 @@ function stringifyStoredSnapshotEnvelope(
     ...(reparsed.providerError ? { providerError: reparsed.providerError } : {}),
     ...(apiResponse ? { apiResponse } : {}),
   })
+}
+
+// ============================================================================
+// Traffic classification backfill
+//
+// `raw_event_samples` stores every observed request that the sync pipeline
+// captures (capped per-sync for storage); each row carries `event_type`
+// from the classifier at insert time. When the classifier's rule list is
+// updated to recognize a new bot (PR #595 added Claude-SearchBot,
+// MistralBot, DeepSeekBot, Applebot, plus Googlebot/bingbot/...etc),
+// **existing rows do not auto-reclassify** — they stay `event_type =
+// 'unknown'` and the hourly rollups under-count those bots forever.
+//
+// This command walks every `event_type='unknown'` sample, re-runs
+// `classifyCrawler` against it, and for each new match:
+//
+//   1. Updates the sample's `event_type` to 'crawler'.
+//   2. Bumps the corresponding `crawler_events_hourly` bucket
+//      (INSERT-OR-UPDATE on the primary key).
+//
+// AI-referral re-classification is out of scope: the classifier needs
+// the full `referer` / `queryString` / `requestUrl` to evaluate UTM and
+// host-pattern rules, but `raw_event_samples` only stores `referer_host`
+// (the parsed host). Crawler classification works because it only reads
+// `userAgent`, which the sample table preserves fully.
+//
+// Idempotent by filter: after a sample gets reclassified, its
+// `event_type` is no longer 'unknown', so a re-run skips it. Safe to run
+// any number of times.
+// ============================================================================
+
+interface TrafficClassificationBackfillResult {
+  project: string | null
+  examined: number
+  reclassified: number
+  unknownBefore: number
+  unknownAfter: number
+  dryRun: boolean
+  byBot: Record<string, number>
+}
+
+export async function backfillTrafficClassificationCommand(opts?: {
+  project?: string
+  dryRun?: boolean
+  format?: CliFormat
+}): Promise<void> {
+  const config = loadConfig()
+  const db = createClient(config.database)
+  migrate(db)
+
+  const projectFilter = opts?.project?.trim()
+  const isDryRun = opts?.dryRun === true
+  const isJson = opts?.format === 'json'
+
+  const scopedProjects = projectFilter
+    ? db.select().from(projects).where(eq(projects.name, projectFilter)).all()
+    : db.select().from(projects).all()
+
+  if (scopedProjects.length === 0) {
+    if (projectFilter && !isJson) {
+      process.stderr.write(`No project named "${projectFilter}".\n`)
+    }
+    if (isJson) console.log(JSON.stringify({ project: projectFilter ?? null, examined: 0, reclassified: 0 }))
+    return
+  }
+
+  if (!isJson) {
+    const mode = isDryRun ? ' [DRY RUN — no writes]' : ''
+    const scope = projectFilter ? `"${projectFilter}"` : 'all projects'
+    process.stderr.write(`Re-classifying unknown traffic samples for ${scope}${mode}...\n`)
+  }
+
+  const projectIds = scopedProjects.map(p => p.id)
+  const result: TrafficClassificationBackfillResult = {
+    project: projectFilter ?? null,
+    examined: 0,
+    reclassified: 0,
+    unknownBefore: 0,
+    unknownAfter: 0,
+    dryRun: isDryRun,
+    byBot: {},
+  }
+
+  // Count starting unknowns for the report. Computed before the rewrite
+  // so the diff is meaningful even on a re-run with no work to do.
+  const unknownCountRow = db
+    .select({ n: sql<number>`count(*)` })
+    .from(rawEventSamples)
+    .where(and(
+      eq(rawEventSamples.eventType, 'unknown'),
+      inArray(rawEventSamples.projectId, projectIds),
+    ))
+    .get()
+  result.unknownBefore = Number(unknownCountRow?.n ?? 0)
+
+  const unknownSamples = db
+    .select({
+      id: rawEventSamples.id,
+      projectId: rawEventSamples.projectId,
+      sourceId: rawEventSamples.sourceId,
+      ts: rawEventSamples.ts,
+      userAgent: rawEventSamples.userAgent,
+      pathNormalized: rawEventSamples.pathNormalized,
+      status: rawEventSamples.status,
+    })
+    .from(rawEventSamples)
+    .where(and(
+      eq(rawEventSamples.eventType, 'unknown'),
+      inArray(rawEventSamples.projectId, projectIds),
+    ))
+    .all()
+
+  result.examined = unknownSamples.length
+
+  if (unknownSamples.length === 0) {
+    result.unknownAfter = result.unknownBefore
+    emitTrafficClassificationReport(result, isJson)
+    return
+  }
+
+  // Walk and reclassify. Batched DB writes per sample so a single failure
+  // doesn't lose the whole batch; the work is per-row so transactions
+  // wouldn't help — INSERT-OR-UPDATE is naturally atomic per-row.
+  const now = new Date().toISOString()
+  for (const snap of unknownSamples) {
+    if (!snap.userAgent) continue
+    // Build the minimal NormalizedTrafficRequest that classifyCrawler
+    // reads. The classifier ignores most fields for crawler detection
+    // (it only inspects userAgent) so the placeholders are safe.
+    const probe: NormalizedTrafficRequest = {
+      sourceType: TrafficSourceTypes['cloud-run'],
+      evidenceKind: TrafficEvidenceKinds['raw-request'],
+      confidence: TrafficEventConfidences.observed,
+      eventId: snap.id,
+      observedAt: snap.ts,
+      method: 'GET',
+      requestUrl: `https://placeholder${snap.pathNormalized}`,
+      host: 'placeholder',
+      path: snap.pathNormalized,
+      queryString: null,
+      status: snap.status ?? 200,
+      userAgent: snap.userAgent,
+      remoteIp: null,
+      referer: null,
+      latencyMs: null,
+      requestSizeBytes: null,
+      responseSizeBytes: null,
+      providerResource: { type: 'cloud_run_revision', labels: {} },
+      providerLabels: {},
+    }
+    const classified = classifyCrawler(probe)
+    if (!classified) continue
+
+    result.reclassified++
+    result.byBot[classified.botId] = (result.byBot[classified.botId] ?? 0) + 1
+
+    if (isDryRun) continue
+
+    // Update the sample row's event_type so the re-run filter excludes it.
+    db.update(rawEventSamples)
+      .set({ eventType: TrafficEventKinds.crawler })
+      .where(eq(rawEventSamples.id, snap.id))
+      .run()
+
+    // Bump the hourly rollup bucket. Snap ts → top of hour for the
+    // bucket key (matches what the live sync writes).
+    const tsHour = new Date(snap.ts)
+    tsHour.setUTCMinutes(0, 0, 0)
+    db.insert(crawlerEventsHourly).values({
+      projectId: snap.projectId,
+      sourceId: snap.sourceId,
+      tsHour: tsHour.toISOString(),
+      botId: classified.botId,
+      operator: classified.operator,
+      verificationStatus: classified.verificationStatus,
+      pathNormalized: snap.pathNormalized,
+      status: snap.status ?? 200,
+      hits: 1,
+      sampledUserAgent: snap.userAgent,
+      createdAt: now,
+      updatedAt: now,
+    }).onConflictDoUpdate({
+      target: [
+        crawlerEventsHourly.projectId,
+        crawlerEventsHourly.sourceId,
+        crawlerEventsHourly.tsHour,
+        crawlerEventsHourly.botId,
+        crawlerEventsHourly.verificationStatus,
+        crawlerEventsHourly.pathNormalized,
+        crawlerEventsHourly.status,
+      ],
+      set: {
+        hits: sql`${crawlerEventsHourly.hits} + 1`,
+        updatedAt: now,
+      },
+    }).run()
+  }
+
+  // Recompute trailing unknown count so the report shows the net effect.
+  if (!isDryRun) {
+    const afterRow = db
+      .select({ n: sql<number>`count(*)` })
+      .from(rawEventSamples)
+      .where(and(
+        eq(rawEventSamples.eventType, 'unknown'),
+        inArray(rawEventSamples.projectId, projectIds),
+      ))
+      .get()
+    result.unknownAfter = Number(afterRow?.n ?? 0)
+  } else {
+    result.unknownAfter = result.unknownBefore - result.reclassified
+  }
+
+  emitTrafficClassificationReport(result, isJson)
+}
+
+function emitTrafficClassificationReport(
+  result: TrafficClassificationBackfillResult,
+  isJson: boolean,
+): void {
+  if (isJson) {
+    console.log(JSON.stringify(result, null, 2))
+    return
+  }
+  const verb = result.dryRun ? 'Would re-classify' : 'Re-classified'
+  console.log(`\nTraffic classification ${result.dryRun ? 'preview' : 'recovery'} complete.`)
+  console.log(`  Examined unknowns:   ${result.examined}`)
+  console.log(`  ${verb}:        ${result.reclassified}`)
+  console.log(`  Unknown before:      ${result.unknownBefore}`)
+  console.log(`  Unknown after:       ${result.unknownAfter}`)
+  if (result.reclassified > 0) {
+    console.log(`  By bot:`)
+    const sorted = Object.entries(result.byBot).sort(([, a], [, b]) => b - a)
+    for (const [bot, count] of sorted) {
+      console.log(`    ${count.toString().padStart(5)}  ${bot}`)
+    }
+  }
+  if (result.dryRun) {
+    console.log(`\nNo DB writes performed. Re-run without --dry-run to apply.`)
+  }
 }

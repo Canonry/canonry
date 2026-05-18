@@ -1,4 +1,4 @@
-import { backfillAiReferralPathsCommand, backfillAnswerMentionsCommand, backfillAnswerVisibilityCommand, backfillInsightsCommand, backfillNormalizedPathsCommand, backfillSnapshotAttributionCommand } from '../commands/backfill.js'
+import { backfillAiReferralPathsCommand, backfillAnswerMentionsCommand, backfillAnswerVisibilityCommand, backfillInsightsCommand, backfillNormalizedPathsCommand, backfillSnapshotAttributionCommand, backfillTrafficClassificationCommand } from '../commands/backfill.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
 import { requireProject, getString, stringOption, unknownSubcommand } from '../cli-command-helpers.js'
 
@@ -99,13 +99,29 @@ export const BACKFILL_CLI_COMMANDS: readonly CliCommandSpec[] = [
     },
   },
   {
+    path: ['backfill', 'traffic-classification'],
+    usage: 'canonry backfill traffic-classification [--project <name>] [--dry-run] [--format json]',
+    options: {
+      project: stringOption(),
+    },
+    allowPositionals: false,
+    supportsDryRun: true,
+    run: async (input) => {
+      await backfillTrafficClassificationCommand({
+        project: getString(input.values, 'project'),
+        dryRun: input.dryRun,
+        format: input.format,
+      })
+    },
+  },
+  {
     path: ['backfill'],
-    usage: 'canonry backfill <answer-visibility|answer-mentions|insights|normalized-paths|ai-referral-paths|snapshot-attribution> [options]',
+    usage: 'canonry backfill <answer-visibility|answer-mentions|insights|normalized-paths|ai-referral-paths|snapshot-attribution|traffic-classification> [options]',
     run: async (input) => {
       unknownSubcommand(input.positionals[0], {
         command: 'backfill',
-        usage: 'canonry backfill <answer-visibility|answer-mentions|insights|normalized-paths|ai-referral-paths|snapshot-attribution> [options]',
-        available: ['answer-visibility', 'answer-mentions', 'insights', 'normalized-paths', 'ai-referral-paths', 'snapshot-attribution'],
+        usage: 'canonry backfill <answer-visibility|answer-mentions|insights|normalized-paths|ai-referral-paths|snapshot-attribution|traffic-classification> [options]',
+        available: ['answer-visibility', 'answer-mentions', 'insights', 'normalized-paths', 'ai-referral-paths', 'snapshot-attribution', 'traffic-classification'],
       })
     },
   },
