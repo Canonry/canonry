@@ -2,11 +2,36 @@ import { TrafficEventKinds, type TrafficEventEntry } from '@ainyc/canonry-contra
 
 export type EventGranularity = 'hour' | 'day'
 
+/**
+ * Status-class filter values. `'all'` is the no-op default. The numbered
+ * values match an HTTP status's hundreds digit so the filter check is a
+ * cheap `Math.floor(status / 100)` comparison instead of a range lookup.
+ */
+export type StatusClassFilter = 'all' | '2xx' | '3xx' | '4xx' | '5xx'
+
+export const STATUS_CLASS_OPTIONS: ReadonlyArray<{ value: StatusClassFilter; label: string }> = [
+  { value: 'all', label: 'All status' },
+  { value: '2xx', label: '2xx success' },
+  { value: '3xx', label: '3xx redirect' },
+  { value: '4xx', label: '4xx client error' },
+  { value: '5xx', label: '5xx server error' },
+]
+
 export interface TrafficEventFilters {
   selectedBucket: string | null
   identity: string
   operator: string
   pathQuery: string
+  statusClass: StatusClassFilter
+}
+
+/**
+ * `'5xx'` → `5`. Returns null when the filter is `'all'` so callers can
+ * skip the check entirely.
+ */
+function statusClassDigit(filter: StatusClassFilter): number | null {
+  if (filter === 'all') return null
+  return Number.parseInt(filter[0]!, 10)
 }
 
 export function identityOf(event: TrafficEventEntry): string {
@@ -32,11 +57,13 @@ export function filterTrafficEvents(
   granularity: EventGranularity,
 ): TrafficEventEntry[] {
   const needle = filters.pathQuery.trim().toLowerCase()
+  const statusDigit = statusClassDigit(filters.statusClass)
   return events.filter((event) => {
     if (filters.selectedBucket && bucketKeyFor(event.tsHour, granularity) !== filters.selectedBucket) return false
     if (filters.identity && identityOf(event) !== filters.identity) return false
     if (filters.operator && event.operator !== filters.operator) return false
     if (needle && !pathOf(event).toLowerCase().includes(needle)) return false
+    if (statusDigit !== null && Math.floor(event.status / 100) !== statusDigit) return false
     return true
   })
 }

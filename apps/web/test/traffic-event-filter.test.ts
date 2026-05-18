@@ -75,25 +75,31 @@ describe('bucketKeyFor', () => {
 
 describe('filterTrafficEvents', () => {
   const events: TrafficEventEntry[] = [
-    crawler({ tsHour: '2026-05-07T02:00:00.000Z', botId: 'GPTBot', operator: 'OpenAI', pathNormalized: '/sitemap.xml' }),
-    crawler({ tsHour: '2026-05-07T03:00:00.000Z', botId: 'anthropic-claudebot', operator: 'Anthropic', pathNormalized: '/robots.txt' }),
-    aiReferral({ tsHour: '2026-05-08T05:00:00.000Z', product: 'ChatGPT', operator: 'OpenAI', landingPathNormalized: '/blog/post' }),
-    aiReferral({ tsHour: '2026-05-07T02:00:00.000Z', product: 'Perplexity', operator: 'Perplexity', landingPathNormalized: '/sitemap.xml' }),
+    crawler({ tsHour: '2026-05-07T02:00:00.000Z', botId: 'GPTBot', operator: 'OpenAI', pathNormalized: '/sitemap.xml', status: 200 }),
+    crawler({ tsHour: '2026-05-07T03:00:00.000Z', botId: 'anthropic-claudebot', operator: 'Anthropic', pathNormalized: '/robots.txt', status: 404 }),
+    aiReferral({ tsHour: '2026-05-08T05:00:00.000Z', product: 'ChatGPT', operator: 'OpenAI', landingPathNormalized: '/blog/post', status: 301 }),
+    aiReferral({ tsHour: '2026-05-07T02:00:00.000Z', product: 'Perplexity', operator: 'Perplexity', landingPathNormalized: '/sitemap.xml', status: 500 }),
   ]
 
+  // Default filter shape — keeps each test focused on the field it's
+  // exercising instead of repeating the full object literal.
+  const defaults = (): import('../src/lib/traffic-event-filter.js').TrafficEventFilters => ({
+    selectedBucket: null,
+    identity: '',
+    operator: '',
+    pathQuery: '',
+    statusClass: 'all',
+  })
+
   test('returns all events when no filters set', () => {
-    const result = filterTrafficEvents(
-      events,
-      { selectedBucket: null, identity: '', operator: '', pathQuery: '' },
-      'hour',
-    )
+    const result = filterTrafficEvents(events, defaults(), 'hour')
     expect(result.length).toBe(4)
   })
 
   test('filters by selected bucket at hour granularity', () => {
     const result = filterTrafficEvents(
       events,
-      { selectedBucket: '2026-05-07T02:00:00.000Z', identity: '', operator: '', pathQuery: '' },
+      { ...defaults(), selectedBucket: '2026-05-07T02:00:00.000Z' },
       'hour',
     )
     expect(result.length).toBe(2)
@@ -101,48 +107,38 @@ describe('filterTrafficEvents', () => {
   })
 
   test('filters by identity (covers both crawler.botId and ai-referral.product)', () => {
-    const result = filterTrafficEvents(
-      events,
-      { selectedBucket: null, identity: 'Perplexity', operator: '', pathQuery: '' },
-      'hour',
-    )
+    const result = filterTrafficEvents(events, { ...defaults(), identity: 'Perplexity' }, 'hour')
     expect(result.length).toBe(1)
     expect(identityOf(result[0]!)).toBe('Perplexity')
   })
 
   test('filters by operator', () => {
-    const result = filterTrafficEvents(
-      events,
-      { selectedBucket: null, identity: '', operator: 'OpenAI', pathQuery: '' },
-      'hour',
-    )
+    const result = filterTrafficEvents(events, { ...defaults(), operator: 'OpenAI' }, 'hour')
     expect(result.length).toBe(2)
     expect(result.every((e) => e.operator === 'OpenAI')).toBe(true)
   })
 
   test('filters path with case-insensitive substring match', () => {
-    const result = filterTrafficEvents(
-      events,
-      { selectedBucket: null, identity: '', operator: '', pathQuery: 'SITEMAP' },
-      'hour',
-    )
+    const result = filterTrafficEvents(events, { ...defaults(), pathQuery: 'SITEMAP' }, 'hour')
     expect(result.length).toBe(2)
     expect(result.every((e) => pathOf(e).includes('/sitemap.xml'))).toBe(true)
   })
 
   test('trims path query whitespace', () => {
-    const result = filterTrafficEvents(
-      events,
-      { selectedBucket: null, identity: '', operator: '', pathQuery: '   ' },
-      'hour',
-    )
+    const result = filterTrafficEvents(events, { ...defaults(), pathQuery: '   ' }, 'hour')
     expect(result.length).toBe(4)
   })
 
   test('combines all filters with AND semantics', () => {
     const result = filterTrafficEvents(
       events,
-      { selectedBucket: '2026-05-07T02:00:00.000Z', identity: 'GPTBot', operator: 'OpenAI', pathQuery: 'sitemap' },
+      {
+        selectedBucket: '2026-05-07T02:00:00.000Z',
+        identity: 'GPTBot',
+        operator: 'OpenAI',
+        pathQuery: 'sitemap',
+        statusClass: 'all',
+      },
       'hour',
     )
     expect(result.length).toBe(1)
@@ -152,10 +148,48 @@ describe('filterTrafficEvents', () => {
   test('returns empty when conflicting filters match nothing', () => {
     const result = filterTrafficEvents(
       events,
-      { selectedBucket: '2026-05-07T02:00:00.000Z', identity: 'anthropic-claudebot', operator: '', pathQuery: '' },
+      { ...defaults(), selectedBucket: '2026-05-07T02:00:00.000Z', identity: 'anthropic-claudebot' },
       'hour',
     )
     expect(result).toEqual([])
+  })
+
+  test('statusClass filter buckets events by hundreds digit', () => {
+    // 2xx — only the GPTBot/sitemap event (status 200) survives.
+    const twos = filterTrafficEvents(events, { ...defaults(), statusClass: '2xx' }, 'hour')
+    expect(twos.length).toBe(1)
+    expect(twos[0]!.status).toBe(200)
+
+    // 3xx — only the ChatGPT/blog event (status 301).
+    const threes = filterTrafficEvents(events, { ...defaults(), statusClass: '3xx' }, 'hour')
+    expect(threes.length).toBe(1)
+    expect(threes[0]!.status).toBe(301)
+
+    // 4xx — only the ClaudeBot/robots event (status 404).
+    const fours = filterTrafficEvents(events, { ...defaults(), statusClass: '4xx' }, 'hour')
+    expect(fours.length).toBe(1)
+    expect(fours[0]!.status).toBe(404)
+
+    // 5xx — only the Perplexity/sitemap event (status 500).
+    const fives = filterTrafficEvents(events, { ...defaults(), statusClass: '5xx' }, 'hour')
+    expect(fives.length).toBe(1)
+    expect(fives[0]!.status).toBe(500)
+
+    // 'all' is the no-op default.
+    const all = filterTrafficEvents(events, { ...defaults(), statusClass: 'all' }, 'hour')
+    expect(all.length).toBe(4)
+  })
+
+  test('statusClass composes with other filters (AND semantics)', () => {
+    // Both sitemap.xml events (200 and 500). Adding statusClass='2xx'
+    // narrows to just the 200.
+    const result = filterTrafficEvents(
+      events,
+      { ...defaults(), pathQuery: 'sitemap', statusClass: '2xx' },
+      'hour',
+    )
+    expect(result.length).toBe(1)
+    expect(result[0]!.status).toBe(200)
   })
 })
 
