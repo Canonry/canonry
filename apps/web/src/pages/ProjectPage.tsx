@@ -71,7 +71,7 @@ import { GSC_STALE_MS } from '../queries/query-client.js'
 import { useDashboard } from '../queries/use-dashboard.js'
 import { useDrawer } from '../hooks/use-drawer.js'
 import { findProjectVm } from '../mock-data.js'
-import type { ProjectCommandCenterVm, RunHistoryPoint } from '../view-models.js'
+import type { DashboardVm, ProjectCommandCenterVm, RunHistoryPoint } from '../view-models.js'
 
 export type ProjectPageTab = 'overview' | 'search-console' | 'discovery' | 'report' | 'activity' | 'backlinks' | 'settings'
 
@@ -1373,15 +1373,23 @@ function SuggestedQueriesCard({
   )
 }
 
-export function ProjectPage({
-  tab,
-}: {
-  tab: ProjectPageTab
-}) {
-  const { projectId } = useParams({ from: '/projects/$projectId' })
-  const navigate = useNavigate()
+/**
+ * Thin shell that guards on dashboard readiness. The real component
+ * (`ProjectPageContent`) declares all the page's ~60 hooks, and React
+ * requires the same hook count on every render of a given component
+ * instance. Previously the body called `useDashboard()` and then
+ * early-returned the skeleton ABOVE the rest of the hook calls — fine
+ * on every render where data was already cached, but as soon as the
+ * runs-query cache key changed (PR #590) the first render landed in
+ * the loading branch (few hooks) and the second in the loaded branch
+ * (all hooks), tripping React error #310 ("rendered more hooks").
+ *
+ * Splitting the conditional into a parent component keeps the inner
+ * hook count constant: the parent renders either skeleton OR content,
+ * never partially through the content's hooks.
+ */
+export function ProjectPage(props: { tab: ProjectPageTab }) {
   const { dashboard, isLoading, refetch } = useDashboard()
-  const queryClient = useQueryClient()
 
   if (!dashboard || isLoading) {
     return (
@@ -1409,6 +1417,22 @@ export function ProjectPage({
       </div>
     )
   }
+
+  return <ProjectPageContent dashboard={dashboard} refetch={refetch} {...props} />
+}
+
+function ProjectPageContent({
+  tab,
+  dashboard,
+  refetch,
+}: {
+  tab: ProjectPageTab
+  dashboard: DashboardVm
+  refetch: () => Promise<void>
+}) {
+  const { projectId } = useParams({ from: '/projects/$projectId' })
+  const navigate = useNavigate()
+  const queryClient = useQueryClient()
 
   const model = findProjectVm(dashboard, projectId)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
