@@ -137,12 +137,31 @@ describe('verifyIpForRule', () => {
     expect(verifyIpForRule('10.0.0.1', 'googlebot')).toBe(false)
   })
 
+  it('verifies a known Anthropic ClaudeBot IPv4 inside the bundled prefix', () => {
+    // 160.79.104.0/23 is the AS399358 prefix bundled in
+    // anthropic.json. Pick an address inside it.
+    expect(verifyIpForRule('160.79.104.5', 'anthropic-claudebot')).toBe(true)
+    // 209.249.57.0/24 (AS60808) is also Anthropic — bundled too.
+    expect(verifyIpForRule('209.249.57.10', 'anthropic-claudebot')).toBe(true)
+  })
+
+  it('does not verify a random IP outside Anthropic prefixes', () => {
+    expect(verifyIpForRule('1.2.3.4', 'anthropic-claudebot')).toBe(false)
+    // Adjacent /23 outside the allocation — must not match.
+    expect(verifyIpForRule('160.79.106.1', 'anthropic-claudebot')).toBe(false)
+  })
+
+  it('verifies Anthropic IPv6 (AS399358 announces v6 too)', () => {
+    expect(verifyIpForRule('2607:6bc0::1', 'anthropic-claudebot')).toBe(true)
+    expect(verifyIpForRule('2607:6bc0:11::cafe', 'anthropic-claudebot')).toBe(true)
+  })
+
   it('returns false for a rule id without published ranges', () => {
-    // Anthropic doesn't publish a public ranges file yet. The
-    // ClaudeBot rule has no entry in RULE_ID_TO_RANGES, so
+    // Meta doesn't publish a public ranges file. The
+    // meta-externalagent rule has no entry in RULE_ID_TO_RANGES, so
     // verification always returns false (caller stays
     // claimed_unverified).
-    expect(verifyIpForRule('1.2.3.4', 'anthropic-claudebot')).toBe(false)
+    expect(verifyIpForRule('1.2.3.4', 'meta-externalagent')).toBe(false)
   })
 
   it('returns false for null / empty / malformed IP', () => {
@@ -176,13 +195,14 @@ describe('hasVerificationDataFor', () => {
     expect(hasVerificationDataFor('openai-searchbot')).toBe(true)
     expect(hasVerificationDataFor('perplexity-bot')).toBe(true)
     expect(hasVerificationDataFor('perplexity-user')).toBe(true)
+    expect(hasVerificationDataFor('anthropic-claudebot')).toBe(true)
   })
 
   it('is false for operators without bundled ranges yet', () => {
-    expect(hasVerificationDataFor('anthropic-claudebot')).toBe(false)
     expect(hasVerificationDataFor('mistral-ai')).toBe(false)
     expect(hasVerificationDataFor('deepseek')).toBe(false)
     expect(hasVerificationDataFor('bytespider')).toBe(false)
+    expect(hasVerificationDataFor('meta-externalagent')).toBe(false)
   })
 
   it('is false for unknown rule ids', () => {

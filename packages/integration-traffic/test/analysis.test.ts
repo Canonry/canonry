@@ -71,15 +71,42 @@ describe('traffic analysis', () => {
     })
   })
 
-  it('stays `claimed_unverified` for operators without published IP ranges (e.g. Anthropic ClaudeBot)', () => {
-    // Anthropic doesn't publish a ranges file yet — every ClaudeBot hit
-    // is unverified regardless of source IP. This is correct behavior:
-    // we have no data to check against, so we don't claim verification.
+  it('promotes ClaudeBot to `verified` when the IP is in Anthropic\'s bundled prefixes', () => {
+    // 160.79.104.0/23 is in the bundled anthropic.json (BGP-announced
+    // by Anthropic's AS399358). A ClaudeBot UA from that range is the
+    // real crawler.
+    expect(classifyCrawler(event({
+      userAgent: 'Mozilla/5.0 (compatible; ClaudeBot/1.0; +claudebot@anthropic.com)',
+      remoteIp: '160.79.104.42',
+    }))).toMatchObject({
+      botId: 'anthropic-claudebot',
+      verificationStatus: 'verified',
+    })
+  })
+
+  it('stays `claimed_unverified` for ClaudeBot UA from an IP outside Anthropic ranges (probable spoof)', () => {
+    // Same UA from an AWS IP — this is the case the verification gate
+    // exists to catch. UA is matched (so we know it claims to be
+    // ClaudeBot), but the source IP isn't in Anthropic's published
+    // ranges, so we stay unverified rather than promote.
     expect(classifyCrawler(event({
       userAgent: 'Mozilla/5.0 (compatible; ClaudeBot/1.0; +claudebot@anthropic.com)',
       remoteIp: '52.5.1.1',
     }))).toMatchObject({
       botId: 'anthropic-claudebot',
+      verificationStatus: 'claimed_unverified',
+    })
+  })
+
+  it('stays `claimed_unverified` for operators without published IP ranges (e.g. Meta)', () => {
+    // Meta doesn't publish a ranges file. Every meta-externalagent hit
+    // is unverified regardless of source IP. Correct behavior: we have
+    // no data to check against, so we don't claim verification.
+    expect(classifyCrawler(event({
+      userAgent: 'meta-externalagent/1.1 (+https://developers.facebook.com/docs/sharing/webmasters/crawler)',
+      remoteIp: '52.5.1.1',
+    }))).toMatchObject({
+      botId: 'meta-externalagent',
       verificationStatus: 'claimed_unverified',
     })
   })

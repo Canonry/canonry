@@ -1,0 +1,10 @@
+{
+  "_source": "bgp.tools AS399358 + AS60808 (both registered to Anthropic, PBC)",
+  "_notes": "Anthropic does not publish a clean machine-readable IP-range JSON like Google or OpenAI do. These prefixes are the BGP-announced ranges for Anthropic's two ASNs, cross-checked against ARIN RDAP (handle ANTHR5-ARIN allocated 2023-07-31). 160.79.104.0/23 is the range consistently seen in webmaster logs for ClaudeBot crawler traffic; the others are included to cover Anthropic infrastructure as a whole, since the verification gate also requires a ClaudeBot UA match. Refresh by re-running bgp.tools/as/399358 + bgp.tools/as/60808.",
+  "prefixes": [
+    { "ipv4Prefix": "160.79.104.0/23" },
+    { "ipv4Prefix": "209.249.57.0/24" },
+    { "ipv6Prefix": "2607:6bc0::/48" },
+    { "ipv6Prefix": "2607:6bc0:11::/48" }
+  ]
+}

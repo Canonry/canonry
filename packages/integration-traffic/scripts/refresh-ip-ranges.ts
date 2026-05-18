@@ -16,11 +16,16 @@
  * partial failure (still updates the lists that succeeded); prints
  * a per-source summary to stderr.
  *
- * Operators NOT covered here either don't publish a public JSON
- * (Anthropic, Meta, ByteDance, Apple, DeepSeek, Mistral, DuckDuckGo,
- * Yandex, Baidu, Amazon as of 2026) or publish in HTML-only doc
- * pages that need scraping. Add them by editing both `SOURCES` here
- * AND `RULE_ID_TO_RANGES` in `src/ip-verify.ts`.
+ * Anthropic is bundled but not refreshed here — it has no
+ * machine-readable JSON endpoint, so `anthropic.json` is maintained
+ * by hand from bgp.tools for AS399358 + AS60808 (both registered
+ * to Anthropic, PBC). See the `_source` and `_notes` fields in
+ * `src/ip-ranges/anthropic.json` for the refresh procedure.
+ *
+ * Other operators NOT covered here (no public JSON, no easily-scrape
+ * source as of 2026): Meta, ByteDance, Apple, DeepSeek, Mistral,
+ * DuckDuckGo, Yandex, Baidu, Amazon. Add them by editing both
+ * `SOURCES` here AND `RULE_ID_TO_RANGES` in `src/ip-verify.ts`.
  */
 import fs from 'node:fs/promises'
 import path from 'node:path'

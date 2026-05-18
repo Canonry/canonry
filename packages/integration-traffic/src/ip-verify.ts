@@ -17,12 +17,15 @@
  *   - OpenAI OAI-SearchBot   (openai.com/searchbot.json)
  *   - PerplexityBot          (www.perplexity.ai/perplexitybot.json)
  *   - Perplexity-User        (www.perplexity.ai/perplexity-user.json)
+ *   - ClaudeBot              (bgp.tools AS399358 + AS60808 — Anthropic
+ *                             does not ship a JSON; we use the
+ *                             BGP-announced prefixes for its two ASNs)
  *
- * **Not covered (yet).** Anthropic, Meta, ByteDance, Apple, DeepSeek,
- * Mistral, DuckDuckGo, Yandex, Baidu, Amazon — these either don't
- * publish a public IP-range JSON or only publish via PDF/docs pages
- * that need parsing. Add them by dropping a JSON file alongside the
- * existing ones (same shape: `{ prefixes: [{ ipv4Prefix } | { ipv6Prefix }] }`)
+ * **Not covered (yet).** Meta, ByteDance, Apple, DeepSeek, Mistral,
+ * DuckDuckGo, Yandex, Baidu, Amazon — these either don't publish a
+ * public IP-range JSON or only publish via PDF/docs pages that need
+ * parsing. Add them by dropping a JSON file alongside the existing
+ * ones (same shape: `{ prefixes: [{ ipv4Prefix } | { ipv6Prefix }] }`)
  * and adding the rule-id mapping below.
  *
  * **Refresh.** Run `scripts/refresh-ip-ranges.ts` to re-fetch all
@@ -30,6 +33,7 @@
  * writes pretty-printed JSON so diffs show exactly which prefixes the
  * operator added/removed.
  */
+import anthropicRaw from './ip-ranges/anthropic.json' with { type: 'json' }
 import bingbotRaw from './ip-ranges/bingbot.json' with { type: 'json' }
 import chatgptUserRaw from './ip-ranges/chatgpt-user.json' with { type: 'json' }
 import googlebotRaw from './ip-ranges/googlebot.json' with { type: 'json' }
@@ -71,6 +75,10 @@ const RULE_ID_TO_RANGES: Record<string, RawIpRanges> = {
   // Perplexity
   'perplexity-bot': perplexitybotRaw as RawIpRanges,
   'perplexity-user': perplexityUserRaw as RawIpRanges,
+  // Anthropic — same ranges cover every Claude-* UA, so this same
+  // raw set is shared across all the Anthropic rule ids that
+  // classifier.ts can emit.
+  'anthropic-claudebot': anthropicRaw as RawIpRanges,
 }
 
 /**
