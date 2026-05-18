@@ -106,8 +106,13 @@ async function refreshOne(source: Source): Promise<FetchResult> {
     if (!json || !Array.isArray(json.prefixes)) {
       return { source, ok: false, error: 'response missing `prefixes` array' }
     }
+    // Inject `_source` at the top of the file so anyone opening the
+    // JSON directly sees where it came from. Re-injected on every
+    // refresh because publishers strip unknown fields from their
+    // payload — we don't want to lose this trail.
+    const annotated = { _source: source.url, ...json }
     const target = path.join(rangesDir, source.file)
-    await fs.writeFile(target, JSON.stringify(json, null, 2) + '\n', 'utf-8')
+    await fs.writeFile(target, JSON.stringify(annotated, null, 2) + '\n', 'utf-8')
     return { source, ok: true, prefixCount: json.prefixes.length }
   } catch (err) {
     return {

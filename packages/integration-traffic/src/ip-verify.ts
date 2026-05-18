@@ -65,19 +65,41 @@ interface ParsedCidr {
  * operator publishes ranges.
  */
 const RULE_ID_TO_RANGES: Record<string, RawIpRanges> = {
-  // OpenAI
+  // OpenAI — three separate published lists (training crawler vs
+  // user-on-behalf fetcher vs search engine; OpenAI maintains the
+  // split because the IPs really do differ between products).
+  // src: https://openai.com/gptbot.json
   'openai-gptbot': gptbotRaw as RawIpRanges,
+  // src: https://openai.com/chatgpt-user.json
   'openai-chatgpt-user': chatgptUserRaw as RawIpRanges,
+  // src: https://openai.com/searchbot.json
   'openai-searchbot': oaiSearchbotRaw as RawIpRanges,
-  // Search engines
+
+  // Search engines.
+  // src: https://developers.google.com/static/search/apis/ipranges/googlebot.json
+  // (also covers Gemini grounding — Google doesn't publish a
+  // separate Gemini list; Google-Extended traffic comes from the
+  // same Googlebot ranges)
   'googlebot': googlebotRaw as RawIpRanges,
+  // src: https://www.bing.com/toolbox/bingbot.json
+  // (also covers Copilot grounding — Microsoft routes Copilot's
+  // web fetches through bingbot infrastructure)
   'bingbot': bingbotRaw as RawIpRanges,
-  // Perplexity
+
+  // Perplexity — split between crawler and user-on-behalf fetcher,
+  // same shape as OpenAI's split.
+  // src: https://www.perplexity.ai/perplexitybot.json
   'perplexity-bot': perplexitybotRaw as RawIpRanges,
+  // src: https://www.perplexity.ai/perplexity-user.json
   'perplexity-user': perplexityUserRaw as RawIpRanges,
-  // Anthropic — same ranges cover every Claude-* UA, so this same
-  // raw set is shared across all the Anthropic rule ids that
-  // classifier.ts can emit.
+
+  // Anthropic — no machine-readable JSON published. The bundled
+  // anthropic.json is the BGP-announced prefix list for the two ASNs
+  // ARIN has registered to "Anthropic, PBC", refreshed by hand from
+  // bgp.tools when those announcements change. Same raw set covers
+  // every Claude-* UA the classifier can emit.
+  // src: https://bgp.tools/as/399358 + https://bgp.tools/as/60808
+  // (verified against ARIN RDAP handle ANTHR5-ARIN)
   'anthropic-claudebot': anthropicRaw as RawIpRanges,
 }
 
