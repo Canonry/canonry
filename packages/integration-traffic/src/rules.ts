@@ -34,7 +34,19 @@ export const DEFAULT_AI_CRAWLER_RULES: AiCrawlerRule[] = [
     operator: 'Anthropic',
     product: 'ClaudeBot',
     purpose: 'training',
-    userAgentPatterns: [/ClaudeBot\//i, /Claude-Web\//i, /anthropic-ai/i],
+    // Anthropic ships several Claude-* crawlers (ClaudeBot for training,
+    // Claude-Web for chat fetches, Claude-SearchBot for search). The
+    // `Claude-` prefix + `Bot/` suffix is the stable shape — pattern is
+    // permissive enough to catch new Claude-* variants as Anthropic
+    // adds them, without matching unrelated UAs that happen to mention
+    // "claude".
+    userAgentPatterns: [
+      /ClaudeBot\//i,
+      /Claude-Web\//i,
+      /Claude-SearchBot\//i,
+      /Claude-[A-Z]+Bot\//i,
+      /anthropic-ai/i,
+    ],
   },
   {
     id: 'perplexity-bot',
@@ -63,6 +75,17 @@ export const DEFAULT_AI_CRAWLER_RULES: AiCrawlerRule[] = [
     product: 'Applebot-Extended',
     purpose: 'training',
     userAgentPatterns: [/Applebot-Extended/i],
+  },
+  {
+    // Apple's general crawler (separate from Applebot-Extended, which is
+    // the training-opt-out signaling UA). Both indexes pages for Apple
+    // services (Siri/Spotlight); only Applebot-Extended is gated by
+    // training-data opt-out.
+    id: 'applebot',
+    operator: 'Apple',
+    product: 'Applebot',
+    purpose: 'crawl',
+    userAgentPatterns: [/Applebot\//i],
   },
   {
     id: 'meta-externalagent',
@@ -97,7 +120,19 @@ export const DEFAULT_AI_CRAWLER_RULES: AiCrawlerRule[] = [
     operator: 'Mistral AI',
     product: 'MistralAI-User',
     purpose: 'crawl',
-    userAgentPatterns: [/MistralAI/i],
+    // Mistral ships both `MistralAI-User/*` (chat-on-behalf-of-user
+    // fetches) and `MistralBot/*` (general crawler). Earlier rule only
+    // matched `MistralAI` and missed the bot — caught on 2026-05-18
+    // when canonry.ai/canonry-landing's classification chart went flat
+    // and the bot UA was sitting in the `unknown` bucket.
+    userAgentPatterns: [/MistralAI/i, /MistralBot/i],
+  },
+  {
+    id: 'deepseek',
+    operator: 'DeepSeek',
+    product: 'DeepSeekBot',
+    purpose: 'training',
+    userAgentPatterns: [/DeepSeekBot/i],
   },
 ]
 
@@ -107,16 +142,20 @@ export const DEFAULT_AI_CRAWLER_USER_AGENT_SUBSTRINGS = [
   'ChatGPT-User/',
   'ClaudeBot/',
   'Claude-Web/',
+  'Claude-SearchBot/',
   'anthropic-ai',
   'PerplexityBot/',
   'Google-Extended',
   'Bytespider',
   'Applebot-Extended',
+  'Applebot/',
   'meta-externalagent',
   'CCBot/',
   'cohere-ai',
   'Diffbot',
   'MistralAI',
+  'MistralBot',
+  'DeepSeekBot',
 ]
 
 export const DEFAULT_AI_REFERRER_RULES: AiReferrerRule[] = [

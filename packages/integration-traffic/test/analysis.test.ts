@@ -45,6 +45,59 @@ describe('traffic analysis', () => {
     })
   })
 
+  it('classifies the LLM crawlers added 2026-05-18 after live-traffic miss', () => {
+    // Regression coverage for the canonry.ai/canonry-landing flat-chart
+    // incident. Each of these UAs hit the site between 5/16 and 5/18 but
+    // landed in the `unknown` bucket because the rule list hadn't been
+    // updated. The chart correctly reported 0 crawler hits — that was the
+    // problem.
+    //
+    // For each case, the assertion is "classifier returned a result"
+    // (toBeTruthy on a `ClassifiedCrawler | null`) plus the expected
+    // operator. botId is asserted where the spelling is stable.
+
+    // Anthropic Claude-SearchBot (new variant — older rule only caught
+    // ClaudeBot/ and Claude-Web/).
+    expect(classifyCrawler(event({
+      userAgent: 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; Claude-SearchBot/1.0; +searchbot@anthropic.com)',
+    }))).toMatchObject({
+      botId: 'anthropic-claudebot',
+      operator: 'Anthropic',
+    })
+
+    // Permissive variant — any future Claude-*Bot Anthropic introduces.
+    expect(classifyCrawler(event({
+      userAgent: 'Mozilla/5.0 (compatible; Claude-IndexBot/2.0)',
+    }))).toMatchObject({
+      operator: 'Anthropic',
+    })
+
+    // Mistral's general crawler (rule pattern was /MistralAI/i which
+    // doesn't match MistralBot).
+    expect(classifyCrawler(event({
+      userAgent: 'Mozilla/5.0 (compatible; MistralBot/1.0; +https://mistral.ai)',
+    }))).toMatchObject({
+      botId: 'mistral-ai',
+      operator: 'Mistral AI',
+    })
+
+    // DeepSeek wasn't in the list at all.
+    expect(classifyCrawler(event({
+      userAgent: 'Mozilla/5.0 (compatible; DeepSeekBot/1.0; +https://www.deepseek.com/bot)',
+    }))).toMatchObject({
+      botId: 'deepseek',
+      operator: 'DeepSeek',
+    })
+
+    // Apple's general crawler (rule was Applebot-Extended only).
+    expect(classifyCrawler(event({
+      userAgent: 'Mozilla/5.0 (compatible; Applebot/0.1; +http://www.apple.com/go/applebot)',
+    }))).toMatchObject({
+      botId: 'applebot',
+      operator: 'Apple',
+    })
+  })
+
   it('classifies explicit AI referrals from referer and UTM evidence', () => {
     expect(classifyAiReferral(event({ referer: 'https://chatgpt.com/c/abc' }))).toMatchObject({
       product: 'ChatGPT',
