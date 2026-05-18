@@ -35,7 +35,9 @@ import {
   bucketKeyFor,
   filterTrafficEvents,
   identityOf,
+  STATUS_CLASS_OPTIONS,
   type EventGranularity,
+  type StatusClassFilter,
 } from '../lib/traffic-event-filter.js'
 
 type SeriesKind = 'crawler' | 'ai-referral'
@@ -143,6 +145,7 @@ export function TrafficSourceDetailPage() {
   const [identityFilter, setIdentityFilter] = useState<string>('')
   const [operatorFilter, setOperatorFilter] = useState<string>('')
   const [pathFilter, setPathFilter] = useState<string>('')
+  const [statusClassFilter, setStatusClassFilter] = useState<StatusClassFilter>('all')
   const [syncError, setSyncError] = useState<string | null>(null)
   const [syncResult, setSyncResult] = useState<string | null>(null)
 
@@ -197,10 +200,11 @@ export function TrafficSourceDetailPage() {
           identity: identityFilter,
           operator: operatorFilter,
           pathQuery: pathFilter,
+          statusClass: statusClassFilter,
         },
         activeWindow.granularity,
       ),
-    [visibleEvents, selectedBucket, identityFilter, operatorFilter, pathFilter, activeWindow.granularity],
+    [visibleEvents, selectedBucket, identityFilter, operatorFilter, pathFilter, statusClassFilter, activeWindow.granularity],
   )
 
   const selectedBucketLabel = useMemo(
@@ -236,9 +240,12 @@ export function TrafficSourceDetailPage() {
     setIdentityFilter('')
     setOperatorFilter('')
     setPathFilter('')
+    setStatusClassFilter('all')
   }
 
-  const hasRowFilter = Boolean(selectedBucket || identityFilter || operatorFilter || pathFilter.trim())
+  const hasRowFilter = Boolean(
+    selectedBucket || identityFilter || operatorFilter || pathFilter.trim() || statusClassFilter !== 'all',
+  )
 
   const handleSync = async () => {
     setSyncError(null)
@@ -504,6 +511,18 @@ export function TrafficSourceDetailPage() {
                 </option>
               ))}
             </select>
+            <select
+              aria-label="Filter by HTTP status class"
+              value={statusClassFilter}
+              onChange={(e) => setStatusClassFilter(e.target.value as StatusClassFilter)}
+              className="rounded-md border border-zinc-800 bg-zinc-950 px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus-visible:ring-1 focus-visible:ring-zinc-600"
+            >
+              {STATUS_CLASS_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
             <input
               type="search"
               aria-label="Filter by path"
@@ -528,6 +547,12 @@ export function TrafficSourceDetailPage() {
             ) : null}
             {pathFilter.trim() ? (
               <ActiveFilterPill label={`Path: ${pathFilter.trim()}`} onClear={() => setPathFilter('')} />
+            ) : null}
+            {statusClassFilter !== 'all' ? (
+              <ActiveFilterPill
+                label={`Status: ${statusClassFilter}`}
+                onClear={() => setStatusClassFilter('all')}
+              />
             ) : null}
             <button
               type="button"
