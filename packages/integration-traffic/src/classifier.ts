@@ -1,4 +1,5 @@
 import type { NormalizedTrafficRequest } from '@ainyc/canonry-contracts'
+import { verifyIpForRule } from './ip-verify.js'
 import { DEFAULT_AI_CRAWLER_RULES, DEFAULT_AI_REFERRER_RULES } from './rules.js'
 import type { ClassifiedAiReferral, ClassifiedCrawler } from './types.js'
 
@@ -53,12 +54,25 @@ export function classifyCrawler(event: NormalizedTrafficRequest): ClassifiedCraw
 
   for (const rule of DEFAULT_AI_CRAWLER_RULES) {
     if (rule.userAgentPatterns.some((pattern) => pattern.test(userAgent))) {
+      // UA matched — try to upgrade `claimed_unverified` → `verified` by
+      // checking the request's source IP against the operator's
+      // published crawler IP ranges. Falls back to `claimed_unverified`
+      // when (a) the operator doesn't publish ranges (most LLM
+      // operators today), (b) we don't have the IP, or (c) the IP is
+      // outside the published set (probable spoofer — UA matches but
+      // source isn't really the operator).
+      //
+      // The verified vs unverified split surfaces in the dashboard via
+      // separate `crawler_events_hourly` buckets (verification_status
+      // is part of the primary key), so the operator can sort real
+      // crawler traffic from spoofed traffic at a glance.
+      const verified = verifyIpForRule(event.remoteIp, rule.id)
       return {
         botId: rule.id,
         operator: rule.operator,
         product: rule.product,
         purpose: rule.purpose,
-        verificationStatus: 'claimed_unverified',
+        verificationStatus: verified ? 'verified' : 'claimed_unverified',
         matchedUserAgent: userAgent,
       }
     }

@@ -14,7 +14,8 @@
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
-    "lint": "eslint src/ test/"
+    "lint": "eslint src/ test/",
+    "refresh-ip-ranges": "tsx scripts/refresh-ip-ranges.ts"
   },
   "dependencies": {
     "@ainyc/canonry-contracts": "workspace:*"

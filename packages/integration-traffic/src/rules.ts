@@ -56,6 +56,17 @@ export const DEFAULT_AI_CRAWLER_RULES: AiCrawlerRule[] = [
     userAgentPatterns: [/PerplexityBot\//i],
   },
   {
+    // User-initiated fetches when a Perplexity user opens a citation
+    // link. Separate from PerplexityBot (crawl) — different ranges and
+    // different operational signal. Perplexity publishes both UA
+    // patterns at perplexity.ai/perplexity-user.json.
+    id: 'perplexity-user',
+    operator: 'Perplexity',
+    product: 'Perplexity-User',
+    purpose: 'user-agent',
+    userAgentPatterns: [/Perplexity-User\//i],
+  },
+  {
     id: 'google-extended',
     operator: 'Google',
     product: 'Google-Extended',
@@ -216,6 +227,7 @@ export const DEFAULT_AI_CRAWLER_USER_AGENT_SUBSTRINGS = [
   'YandexBot/',
   'Baiduspider',
   'Amazonbot/',
+  'Perplexity-User/',
 ]
 
 export const DEFAULT_AI_REFERRER_RULES: AiReferrerRule[] = [
