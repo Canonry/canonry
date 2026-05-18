@@ -9,6 +9,7 @@ import {
   heyClient,
   type ApiRun,
   type ApiTriggerAllRunsResult,
+  analyzeRecommendation,
   appendQueries,
   dismissContentTarget,
   triggerRun,
@@ -18,7 +19,11 @@ import {
   triggerInspectSitemap,
   undismissContentTarget,
 } from '../api.js'
-import type { ContentTargetDismissRequest } from '@ainyc/canonry-contracts'
+import type {
+  ContentTargetDismissRequest,
+  RecommendationExplainRequest,
+  RecommendationExplanationDto,
+} from '@ainyc/canonry-contracts'
 import { createTrackedBatch, trackRun, type TrackedRunSourceAction } from '../lib/run-tracker-store.js'
 import { addToast } from '../lib/toast-store.js'
 import { invalidateQueriesForRunKind } from './run-invalidations.js'
@@ -348,5 +353,30 @@ export function useUndismissContentTarget() {
       })
       void queryClient.invalidateQueries({ predicate: isProjectDetailQuery })
     },
+  })
+}
+
+/**
+ * Generate (or fetch cached) LLM explanation for one content recommendation.
+ * The backend caches per `(project, targetRef, promptVersion)` — repeat
+ * calls without `forceRefresh` return the cached row free, so the natural
+ * pattern is "fire on panel open, render `mutation.data`."
+ *
+ * We deliberately do NOT invalidate any project-scoped queries here: the
+ * explanation is per-card and does not change the recommendation list,
+ * health scores, or the report DTO. Pulling on those caches would churn
+ * unrelated UI for no reason.
+ *
+ * The mutation's return value is the freshly-fetched explanation; callers
+ * keep it locally (e.g. `mutation.data`) and re-render the panel from it.
+ */
+export function useAnalyzeRecommendation() {
+  return useMutation<
+    RecommendationExplanationDto,
+    Error,
+    { projectName: string; targetRef: string; body: RecommendationExplainRequest }
+  >({
+    mutationFn: ({ projectName, targetRef, body }) =>
+      analyzeRecommendation(projectName, targetRef, body),
   })
 }

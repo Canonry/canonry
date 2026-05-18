@@ -1,4 +1,4 @@
-import type { ErrorCode, GroundingSource, ProjectOverviewDto, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto, GscPerformanceDailyDto, IndexingRequestResultDto, MetricsWindow, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry, InsightDto, ProjectReportDto, ReportAudience, CitationVisibilityResponse, BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinkHistoryEntry, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcAvailableRelease, CcCachedRelease, CcReleaseSyncDto, TrafficSourceDto, TrafficSourceDetailDto, TrafficSourceListResponse, TrafficStatusResponse, TrafficEventsResponse, TrafficConnectCloudRunRequest, TrafficConnectWordpressRequest, TrafficConnectVercelRequest, TrafficSyncResponse, DiscoveryRunRequest, DiscoverySessionDto, DiscoverySessionDetailDto, DiscoveryPromotePreview, DiscoveryPromoteRequest, DiscoveryPromoteResult, ProjectDto, QueryDto, CompetitorDto, LocationContext, GoogleConnectionDto, GscUrlInspectionDto, GscDeindexedRowDto, BingUrlInspectionDto, BingCoverageSummaryDto, BingKeywordStatsDto, BingStatusDto, BingConnectResponseDto, BingSetSiteResponseDto, BingSitesResponseDto, GscSearchDataDto, ContentTargetDismissalDto, ContentTargetDismissRequest } from '@ainyc/canonry-contracts'
+import type { ErrorCode, GroundingSource, ProjectOverviewDto, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto, GscPerformanceDailyDto, IndexingRequestResultDto, MetricsWindow, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry, InsightDto, ProjectReportDto, ReportAudience, CitationVisibilityResponse, BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinkHistoryEntry, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcAvailableRelease, CcCachedRelease, CcReleaseSyncDto, TrafficSourceDto, TrafficSourceDetailDto, TrafficSourceListResponse, TrafficStatusResponse, TrafficEventsResponse, TrafficConnectCloudRunRequest, TrafficConnectWordpressRequest, TrafficConnectVercelRequest, TrafficSyncResponse, DiscoveryRunRequest, DiscoverySessionDto, DiscoverySessionDetailDto, DiscoveryPromotePreview, DiscoveryPromoteRequest, DiscoveryPromoteResult, ProjectDto, QueryDto, CompetitorDto, LocationContext, GoogleConnectionDto, GscUrlInspectionDto, GscDeindexedRowDto, BingUrlInspectionDto, BingCoverageSummaryDto, BingKeywordStatsDto, BingStatusDto, BingConnectResponseDto, BingSetSiteResponseDto, BingSitesResponseDto, GscSearchDataDto, ContentTargetDismissalDto, ContentTargetDismissRequest, RecommendationExplanationDto, RecommendationExplainRequest } from '@ainyc/canonry-contracts'
 import {
   createClient as createHeyClient,
   // Projects + queries + competitors + locations + runs + apply + settings + telemetry
@@ -14,6 +14,8 @@ import {
   postApiV1ProjectsByNameQueriesGenerate,
   postApiV1ProjectsByNameContentDismissals,
   deleteApiV1ProjectsByNameContentDismissalsByTargetRef,
+  getApiV1ProjectsByNameContentRecommendationsByTargetRefAnalysis,
+  postApiV1ProjectsByNameContentRecommendationsByTargetRefAnalyze,
   getApiV1ProjectsByNameCompetitors,
   putApiV1ProjectsByNameCompetitors,
   postApiV1ProjectsByNameLocations,
@@ -544,6 +546,54 @@ export function undismissContentTarget(projectName: string, targetRef: string): 
     deleteApiV1ProjectsByNameContentDismissalsByTargetRef({
       client: heyClient,
       path: { name: projectName, targetRef },
+    }),
+  )
+}
+
+/**
+ * Read-only cache lookup for a recommendation's LLM explanation. Returns
+ * `null` when no cached row exists yet (the GET endpoint 404s in that
+ * case). UI uses this to hydrate the "Why this?" panel without paying for
+ * a fresh LLM call when the user expands a recommendation that was
+ * analyzed in an earlier session.
+ *
+ * Returns `null` (not throws) on 404 so the caller can branch declaratively
+ * — every other error still throws via `invokeWeb`.
+ */
+export async function fetchRecommendationAnalysis(
+  projectName: string,
+  targetRef: string,
+): Promise<RecommendationExplanationDto | null> {
+  try {
+    return await invokeWeb<RecommendationExplanationDto>(() =>
+      getApiV1ProjectsByNameContentRecommendationsByTargetRefAnalysis({
+        client: heyClient,
+        path: { name: projectName, targetRef },
+      }),
+    )
+  } catch (err) {
+    if (err instanceof ApiError && err.statusCode === 404) return null
+    throw err
+  }
+}
+
+/**
+ * Generate (or return cached) LLM explanation for one recommendation.
+ * Idempotent on the server: cached rows are returned free for the same
+ * `(project, targetRef, promptVersion)`. Pass `forceRefresh: true` to
+ * regenerate; pass `provider` / `model` to override the project's default
+ * agent provider.
+ */
+export function analyzeRecommendation(
+  projectName: string,
+  targetRef: string,
+  body: RecommendationExplainRequest,
+): Promise<RecommendationExplanationDto> {
+  return invokeWeb<RecommendationExplanationDto>(() =>
+    postApiV1ProjectsByNameContentRecommendationsByTargetRefAnalyze({
+      client: heyClient,
+      path: { name: projectName, targetRef },
+      body,
     }),
   )
 }
