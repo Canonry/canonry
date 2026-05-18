@@ -1,6 +1,7 @@
 import crypto from 'node:crypto'
 import { eq, inArray, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
+import type { DatabaseClient } from '@ainyc/canonry-db'
 import { queries, querySnapshots } from '@ainyc/canonry-db'
 import { keywordGenerateRequestSchema, queryGenerateRequestSchema, validationError, notImplemented, internalError } from '@ainyc/canonry-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
@@ -11,6 +12,47 @@ export interface QueryRoutesOptions {
   }) => Promise<string[]>
   /** Valid provider names from registered adapters — used to reject unknown providers */
   validProviderNames?: string[]
+}
+
+/**
+ * Pre-delete safety net: copy each query's `query` text into the
+ * `query_text` column on every snapshot that references it. Snapshots
+ * inserted since ~2026-04-08 already carry their `query_text` (the
+ * job-runner populates it at insert time), so this is a no-op for new
+ * data; the value is in covering ANY snapshot that somehow ended up
+ * with NULL `query_text` (older inserts, manual fixups, future code
+ * paths that forget). After this, deleting the query row sets
+ * `query_id` to NULL via the FK but leaves `query_text` intact — so
+ * the timeline endpoint's text-fallback can still attribute the
+ * snapshot if a query with the same text exists later.
+ *
+ * Without this safeguard, `query replace` / `query remove` permanently
+ * detaches the historical record from any query name — exactly the
+ * azcoatings bug recovered by `cnry backfill snapshot-attribution`.
+ *
+ * Pass `queryIds` to scope to a specific subset; omit to cover every
+ * query in the project (used by the full-replace path).
+ */
+function preserveSnapshotQueryText(
+  tx: Pick<DatabaseClient, 'select' | 'update'>,
+  projectId: string,
+  queryIds?: string[],
+): void {
+  const candidates = queryIds && queryIds.length > 0
+    ? tx.select({ id: queries.id, text: queries.query })
+        .from(queries)
+        .where(inArray(queries.id, queryIds))
+        .all()
+    : tx.select({ id: queries.id, text: queries.query })
+        .from(queries)
+        .where(eq(queries.projectId, projectId))
+        .all()
+  for (const q of candidates) {
+    tx.update(querySnapshots)
+      .set({ queryText: q.text })
+      .where(eq(querySnapshots.queryId, q.id))
+      .run()
+  }
 }
 
 export async function queryRoutes(app: FastifyInstance, opts: QueryRoutesOptions) {
@@ -35,8 +77,16 @@ export async function queryRoutes(app: FastifyInstance, opts: QueryRoutesOptions
 
     const now = new Date().toISOString()
 
-    // Atomic replace: delete + insert in a single transaction
+    // Atomic replace: delete + insert in a single transaction. Before
+    // deleting, we denormalize `query_text` onto every snapshot that
+    // references the about-to-be-deleted queries — so the FK going to
+    // NULL doesn't lose attribution. (For snapshots created since
+    // ~2026-04-08 the column is already populated at insert time; this
+    // pre-delete fill is the safety net for any code path that might
+    // have missed it.) See `cnry backfill snapshot-attribution` for the
+    // recovery path when this safety net wasn't yet in place.
     app.db.transaction((tx) => {
+      preserveSnapshotQueryText(tx, project.id)
       tx.delete(queries).where(eq(queries.projectId, project.id)).run()
 
       for (const q of body.queries) {
@@ -135,6 +185,9 @@ export async function queryRoutes(app: FastifyInstance, opts: QueryRoutesOptions
 
     if (idsToDelete.length > 0) {
       app.db.transaction((tx) => {
+        // Preserve query_text on associated snapshots before the FK
+        // detaches. See queries.replaced handler above for rationale.
+        preserveSnapshotQueryText(tx, project.id, idsToDelete)
         for (const id of idsToDelete) {
           tx.delete(queries).where(eq(queries.id, id)).run()
         }
@@ -273,6 +326,7 @@ export async function queryRoutes(app: FastifyInstance, opts: QueryRoutesOptions
     const now = new Date().toISOString()
 
     app.db.transaction((tx) => {
+      preserveSnapshotQueryText(tx, project.id)
       tx.delete(queries).where(eq(queries.projectId, project.id)).run()
 
       for (const keyword of body.keywords) {
@@ -320,6 +374,7 @@ export async function queryRoutes(app: FastifyInstance, opts: QueryRoutesOptions
 
     if (idsToDelete.length > 0) {
       app.db.transaction((tx) => {
+        preserveSnapshotQueryText(tx, project.id, idsToDelete)
         for (const id of idsToDelete) {
           tx.delete(queries).where(eq(queries.id, id)).run()
         }
