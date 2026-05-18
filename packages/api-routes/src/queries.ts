@@ -4,7 +4,7 @@ import type { FastifyInstance } from 'fastify'
 import type { DatabaseClient } from '@ainyc/canonry-db'
 import { queries, querySnapshots } from '@ainyc/canonry-db'
 import { keywordGenerateRequestSchema, queryGenerateRequestSchema, validationError, notImplemented, internalError } from '@ainyc/canonry-contracts'
-import { resolveProject, writeAuditLog } from './helpers.js'
+import { auditFromRequest, resolveProject, writeAuditLog } from './helpers.js'
 
 export interface QueryRoutesOptions {
   onGenerateQueries?: (provider: string, count: number, project: {
@@ -99,13 +99,13 @@ export async function queryRoutes(app: FastifyInstance, opts: QueryRoutesOptions
         }).run()
       }
 
-      writeAuditLog(tx, {
+      writeAuditLog(tx, auditFromRequest(request, {
         projectId: project.id,
         actor: 'api',
         action: 'queries.replaced',
         entityType: 'query',
         diff: { queries: body.queries },
-      })
+      }))
     })
 
     const rows = app.db.select().from(queries).where(eq(queries.projectId, project.id)).all()
@@ -192,13 +192,13 @@ export async function queryRoutes(app: FastifyInstance, opts: QueryRoutesOptions
           tx.delete(queries).where(eq(queries.id, id)).run()
         }
 
-        writeAuditLog(tx, {
+        writeAuditLog(tx, auditFromRequest(request, {
           projectId: project.id,
           actor: 'api',
           action: 'queries.deleted',
           entityType: 'query',
           diff: { deleted: body.queries.filter(q => existing.some(e => e.query === q)) },
-        })
+        }))
       })
     }
 
@@ -242,13 +242,13 @@ export async function queryRoutes(app: FastifyInstance, opts: QueryRoutesOptions
     }
 
     if (added.length > 0) {
-      writeAuditLog(app.db, {
+      writeAuditLog(app.db, auditFromRequest(request, {
         projectId: project.id,
         actor: 'api',
         action: 'queries.appended',
         entityType: 'query',
         diff: { added },
-      })
+      }))
     }
 
     const rows = app.db.select().from(queries).where(eq(queries.projectId, project.id)).all()
@@ -339,13 +339,13 @@ export async function queryRoutes(app: FastifyInstance, opts: QueryRoutesOptions
         }).run()
       }
 
-      writeAuditLog(tx, {
+      writeAuditLog(tx, auditFromRequest(request, {
         projectId: project.id,
         actor: 'api',
         action: 'queries.replaced',
         entityType: 'query',
         diff: { queries: body.keywords },
-      })
+      }))
     })
 
     const rows = app.db.select().from(queries).where(eq(queries.projectId, project.id)).all()
@@ -379,13 +379,13 @@ export async function queryRoutes(app: FastifyInstance, opts: QueryRoutesOptions
           tx.delete(queries).where(eq(queries.id, id)).run()
         }
 
-        writeAuditLog(tx, {
+        writeAuditLog(tx, auditFromRequest(request, {
           projectId: project.id,
           actor: 'api',
           action: 'queries.deleted',
           entityType: 'query',
           diff: { deleted: body.keywords.filter(keyword => existing.some(e => e.query === keyword)) },
-        })
+        }))
       })
     }
 
@@ -428,13 +428,13 @@ export async function queryRoutes(app: FastifyInstance, opts: QueryRoutesOptions
     }
 
     if (added.length > 0) {
-      writeAuditLog(app.db, {
+      writeAuditLog(app.db, auditFromRequest(request, {
         projectId: project.id,
         actor: 'api',
         action: 'queries.appended',
         entityType: 'query',
         diff: { added },
-      })
+      }))
     }
 
     const rows = app.db.select().from(queries).where(eq(queries.projectId, project.id)).all()
