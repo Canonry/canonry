@@ -98,6 +98,42 @@ describe('traffic analysis', () => {
     })
   })
 
+  it('classifies classic search-engine crawlers (Google/Bing/DuckDuckGo/Yandex/Baidu/Amazon)', () => {
+    // Tracked alongside LLM crawlers because SERP indexing is the
+    // upstream that feeds AI answer engines (Bing → ChatGPT search,
+    // Google → Gemini grounding). Operator wants the full machine-
+    // traffic signal, not just the AI-training subset.
+
+    expect(classifyCrawler(event({
+      userAgent: 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
+    }))).toMatchObject({ botId: 'googlebot', operator: 'Google' })
+
+    // Googlebot-Smartphone variant — same prefix.
+    expect(classifyCrawler(event({
+      userAgent: 'Mozilla/5.0 (Linux; Android 6.0.1; Nexus 5X Build/MMB29P) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/W.X.Y.Z Mobile Safari/537.36 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
+    }))).toMatchObject({ botId: 'googlebot', operator: 'Google' })
+
+    expect(classifyCrawler(event({
+      userAgent: 'Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)',
+    }))).toMatchObject({ botId: 'bingbot', operator: 'Microsoft' })
+
+    expect(classifyCrawler(event({
+      userAgent: 'DuckDuckBot/1.1; (+http://duckduckgo.com/duckduckbot.html)',
+    }))).toMatchObject({ botId: 'duckduckbot', operator: 'DuckDuckGo' })
+
+    expect(classifyCrawler(event({
+      userAgent: 'Mozilla/5.0 (compatible; YandexBot/3.0; +http://yandex.com/bots)',
+    }))).toMatchObject({ botId: 'yandexbot', operator: 'Yandex' })
+
+    expect(classifyCrawler(event({
+      userAgent: 'Mozilla/5.0 (compatible; Baiduspider/2.0; +http://www.baidu.com/search/spider.html)',
+    }))).toMatchObject({ botId: 'baiduspider', operator: 'Baidu' })
+
+    expect(classifyCrawler(event({
+      userAgent: 'Mozilla/5.0 (compatible; Amazonbot/0.1; +https://developer.amazon.com/support/amazonbot)',
+    }))).toMatchObject({ botId: 'amazonbot', operator: 'Amazon' })
+  })
+
   it('classifies explicit AI referrals from referer and UTM evidence', () => {
     expect(classifyAiReferral(event({ referer: 'https://chatgpt.com/c/abc' }))).toMatchObject({
       product: 'ChatGPT',
