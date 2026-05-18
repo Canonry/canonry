@@ -261,16 +261,29 @@ export function useTriggerInspectSitemap() {
 }
 
 /**
- * Predicate matching the per-project dashboard detail query keys (shape
- * `['projects', projectId, latestRunIdsKey]` — see `use-dashboard.ts`).
- * Used by mutations that change project-scoped state which is rendered out
- * of that composite query (suggested queries, content recommendations,
- * etc.) so the dashboard refetches and the UI reflects the new state.
+ * Predicate matching the per-project dashboard detail query keys. Two
+ * composite hooks build the project page today and both need to be
+ * invalidated when project-scoped state changes (queries, competitors,
+ * dismissed recommendations, etc.):
+ *
+ *   - `useDashboard` (legacy portfolio-wide) — key shape
+ *     `['projects', projectId, latestRunIdsKey]` from `use-dashboard.ts`.
+ *   - `useProjectDashboard` (current per-project, used by `ProjectPage`)
+ *     — key shape `['project-dashboard-full', projectId, latestRunIdsKey]`
+ *     from `use-project-dashboard.ts`. The split was added in
+ *     `use-project-dashboard.ts` to avoid the per-project fan-out tax
+ *     that the legacy hook paid on every dashboard mount.
+ *
+ * When the project hook was added, this predicate was not updated and
+ * silently stopped matching the per-project page, so newly-added queries
+ * / competitors didn't appear until the user reloaded the page or the
+ * 30-minute staleTime expired. Keep both prefixes in the allow-list
+ * until the legacy hook is fully removed.
  */
-function isProjectDetailQuery(query: { queryKey: readonly unknown[] }): boolean {
-  return Array.isArray(query.queryKey)
-    && query.queryKey[0] === 'projects'
-    && query.queryKey.length > 1
+export function isProjectDetailQuery(query: { queryKey: readonly unknown[] }): boolean {
+  if (!Array.isArray(query.queryKey) || query.queryKey.length <= 1) return false
+  const head: unknown = query.queryKey[0]
+  return head === 'projects' || head === 'project-dashboard-full'
 }
 
 export function useAppendQueries() {
