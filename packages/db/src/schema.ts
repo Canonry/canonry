@@ -104,11 +104,26 @@ export const auditLog = sqliteTable('audit_log', {
   // reader could see it (the deletion would erase the only evidence it
   // happened). Detached rows surface in audit queries with project_id=NULL.
   projectId: text('project_id').references(() => projects.id, { onDelete: 'set null' }),
+  // High-level identity of the caller: 'api' for HTTP requests, 'scheduler'
+  // for cron-triggered work, 'cli' / 'agent' / 'mcp' for direct DB writes
+  // (where applicable). Coarse on purpose — narrower attribution lives in
+  // `userAgent` and `actorSession`.
   actor: text('actor').notNull(),
   action: text('action').notNull(),
   entityType: text('entity_type').notNull(),
   entityId: text('entity_id'),
   diff: text('diff'),
+  // User-Agent header from the originating HTTP request, when available.
+  // The narrowest reliable signal for "which client did this" — distinguishes
+  // CLI (`canonry-cli/X.Y.Z`), dashboard (browser UA), MCP adapter, and
+  // external scripts. NULL for non-HTTP writes (scheduler, run-coordinator,
+  // direct CLI commands that bypass the API).
+  userAgent: text('user_agent'),
+  // Optional caller-supplied trace key for cross-request correlation —
+  // a session ID, prompt ID, batch ID, etc. The Aero agent populates this
+  // with its session id so post-mortems can group a related sequence of
+  // mutations. NULL when the caller didn't provide one.
+  actorSession: text('actor_session'),
   createdAt: text('created_at').notNull(),
 }, (table) => [
   index('idx_audit_log_project').on(table.projectId),

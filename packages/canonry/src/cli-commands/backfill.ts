@@ -1,4 +1,4 @@
-import { backfillAiReferralPathsCommand, backfillAnswerMentionsCommand, backfillAnswerVisibilityCommand, backfillInsightsCommand, backfillNormalizedPathsCommand } from '../commands/backfill.js'
+import { backfillAiReferralPathsCommand, backfillAnswerMentionsCommand, backfillAnswerVisibilityCommand, backfillInsightsCommand, backfillNormalizedPathsCommand, backfillSnapshotAttributionCommand } from '../commands/backfill.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
 import { requireProject, getString, stringOption, unknownSubcommand } from '../cli-command-helpers.js'
 
@@ -85,13 +85,27 @@ export const BACKFILL_CLI_COMMANDS: readonly CliCommandSpec[] = [
     },
   },
   {
+    path: ['backfill', 'snapshot-attribution'],
+    usage: 'canonry backfill snapshot-attribution <project> [--dry-run] [--format json]',
+    supportsDryRun: true,
+    run: async (input) => {
+      const usage = 'canonry backfill snapshot-attribution <project> [--dry-run] [--format json]'
+      const project = requireProject(input, 'backfill snapshot-attribution', usage)
+      await backfillSnapshotAttributionCommand({
+        project,
+        dryRun: input.dryRun,
+        format: input.format,
+      })
+    },
+  },
+  {
     path: ['backfill'],
-    usage: 'canonry backfill <answer-visibility|answer-mentions|insights|normalized-paths|ai-referral-paths> [options]',
+    usage: 'canonry backfill <answer-visibility|answer-mentions|insights|normalized-paths|ai-referral-paths|snapshot-attribution> [options]',
     run: async (input) => {
       unknownSubcommand(input.positionals[0], {
         command: 'backfill',
-        usage: 'canonry backfill <answer-visibility|answer-mentions|insights|normalized-paths|ai-referral-paths> [options]',
-        available: ['answer-visibility', 'answer-mentions', 'insights', 'normalized-paths', 'ai-referral-paths'],
+        usage: 'canonry backfill <answer-visibility|answer-mentions|insights|normalized-paths|ai-referral-paths|snapshot-attribution> [options]',
+        available: ['answer-visibility', 'answer-mentions', 'insights', 'normalized-paths', 'ai-referral-paths', 'snapshot-attribution'],
       })
     },
   },

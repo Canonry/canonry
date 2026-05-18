@@ -150,12 +150,47 @@ export async function historyRoutes(app: FastifyInstance) {
       answerMentioned: resolveSnapshotAnswerMentioned(snapshot, project),
     }))
 
+    // Query attribution fallback ladder. A snapshot's primary link to a
+    // query is `query_id` (FK). When the operator runs `query replace` or
+    // `query remove`, the FK is `ON DELETE SET NULL` and `query_id` goes
+    // to NULL — but `query_text` was denormalized onto the snapshot at
+    // insert time (since ~2026-04-08) precisely so the snapshot can still
+    // attribute itself to a query of the same text if one exists later.
+    // For pre-2026-04-08 snapshots, `query_text` may also be NULL — those
+    // are recovered via the audit-log-replay backfill in
+    // `cnry repair snapshot-attribution`.
+    //
+    // Map each query's id AND its text → the query row, so a snapshot
+    // whose query_id matches OR (query_id is NULL and query_text matches)
+    // lands on the right query in the timeline.
+    const queryByText = new Map<string, typeof projectQueries[number]>()
+    for (const q of projectQueries) queryByText.set(q.query, q)
+    function resolveSnapQueryId(snap: typeof allSnapshots[number]): string | null {
+      if (snap.queryId) return snap.queryId
+      if (snap.queryText) {
+        const match = queryByText.get(snap.queryText)
+        if (match) return match.id
+      }
+      return null
+    }
+    // Pre-compute the resolved query id for each snapshot so downstream
+    // grouping never has to recompute it.
+    const allSnapshotsResolved = allSnapshots.map(s => ({
+      ...s,
+      resolvedQueryId: resolveSnapQueryId(s),
+    }))
+
     // Deduplicate to one entry per (runId, queryId) before building transitions so that
     // multi-provider runs don't produce spurious transition events within a single run.
     // Prefer 'cited' when providers disagree within the same run.
-    const deduped = new Map<string, typeof allSnapshots[number]>()
-    for (const snap of allSnapshots) {
-      const key = `${snap.runId}:${snap.queryId}`
+    const deduped = new Map<string, typeof allSnapshotsResolved[number]>()
+    for (const snap of allSnapshotsResolved) {
+      // Skip snapshots that can't be attributed to a current query — they
+      // have no query_id and their query_text doesn't match any current
+      // query (likely an archived query). The repair command can recover
+      // these by populating query_text from the audit log.
+      if (!snap.resolvedQueryId) continue
+      const key = `${snap.runId}:${snap.resolvedQueryId}`
       const existing = deduped.get(key)
       if (
         !existing ||
@@ -168,18 +203,20 @@ export async function historyRoutes(app: FastifyInstance) {
     const dedupedSnapshots = [...deduped.values()]
 
     // Index raw (un-deduplicated) snapshots by query+provider for per-provider timelines
-    const rawByQueryProvider = new Map<string, typeof allSnapshots[number][]>()
-    for (const snap of allSnapshots) {
-      const key = `${snap.queryId}::${snap.provider}`
+    const rawByQueryProvider = new Map<string, typeof allSnapshotsResolved[number][]>()
+    for (const snap of allSnapshotsResolved) {
+      if (!snap.resolvedQueryId) continue
+      const key = `${snap.resolvedQueryId}::${snap.provider}`
       const arr = rawByQueryProvider.get(key)
       if (arr) arr.push(snap)
       else rawByQueryProvider.set(key, [snap])
     }
 
     // Index raw snapshots by query+provider+model for per-model timelines
-    const rawByQueryModel = new Map<string, typeof allSnapshots[number][]>()
-    for (const snap of allSnapshots) {
-      const key = `${snap.queryId}::${snap.provider}:${snap.model ?? 'unknown'}`
+    const rawByQueryModel = new Map<string, typeof allSnapshotsResolved[number][]>()
+    for (const snap of allSnapshotsResolved) {
+      if (!snap.resolvedQueryId) continue
+      const key = `${snap.resolvedQueryId}::${snap.provider}:${snap.model ?? 'unknown'}`
       const arr = rawByQueryModel.get(key)
       if (arr) arr.push(snap)
       else rawByQueryModel.set(key, [snap])
@@ -233,7 +270,7 @@ export async function historyRoutes(app: FastifyInstance) {
     // Build per-query timeline
     const timeline = projectQueries.map(q => {
       const qSnapshots = dedupedSnapshots
-        .filter(s => s.queryId === q.id)
+        .filter(s => s.resolvedQueryId === q.id)
         .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
 
       const runEntries = computeTransitions(qSnapshots)

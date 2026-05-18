@@ -1279,6 +1279,24 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `CREATE INDEX IF NOT EXISTS idx_recommendation_explanations_project ON recommendation_explanations(project_id)`,
     ],
   },
+  {
+    version: 63,
+    name: 'audit-log-attribution-columns',
+    // Adds `user_agent` and `actor_session` to `audit_log` so post-mortems
+    // can attribute destructive events (like the 2026-05-15 azcoatings
+    // queries.replaced incident — see PR #593) to a specific caller.
+    // Without these columns, every mutation rides as `actor='api'` with no
+    // narrower identity, so it's impossible to tell whether a destructive
+    // event came from CLI, dashboard, MCP, an agent, or an external script.
+    //
+    // Both columns nullable — the audit log accepts writes from sources
+    // that don't have an HTTP request context (scheduler, run-coordinator,
+    // direct DB writes from CLI commands).
+    statements: [
+      `ALTER TABLE audit_log ADD COLUMN user_agent TEXT`,
+      `ALTER TABLE audit_log ADD COLUMN actor_session TEXT`,
+    ],
+  },
 ]
 
 /**

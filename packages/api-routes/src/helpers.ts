@@ -46,6 +46,21 @@ export interface AuditEntry {
   entityType: string
   entityId?: string | null
   diff?: unknown
+  /**
+   * User-Agent header from the originating HTTP request. Pass
+   * `request.headers['user-agent']` from any route handler so
+   * destructive events can be attributed to a specific client
+   * (CLI version, browser, MCP adapter, external script) on
+   * post-mortem. Optional — non-HTTP write paths (scheduler,
+   * run-coordinator, direct CLI writes) leave it null.
+   */
+  userAgent?: string | null
+  /**
+   * Caller-supplied trace key for cross-request correlation. The
+   * Aero agent populates this with its session id so a related
+   * sequence of mutations can be grouped. Optional.
+   */
+  actorSession?: string | null
 }
 
 /** Accepts both the main DatabaseClient and a Drizzle transaction context */
@@ -59,8 +74,41 @@ export function writeAuditLog(db: Pick<DatabaseClient, 'insert'>, entry: AuditEn
     entityType: entry.entityType,
     entityId: entry.entityId ?? null,
     diff: entry.diff != null ? JSON.stringify(entry.diff) : null,
+    userAgent: entry.userAgent ?? null,
+    actorSession: entry.actorSession ?? null,
     createdAt: now,
   }).run()
+}
+
+/**
+ * Helper that extracts attribution fields from a Fastify request and
+ * folds them into an `AuditEntry`. Pass the request object plus the
+ * domain-specific fields and skip the boilerplate of pulling headers
+ * by hand at every call site.
+ *
+ *   writeAuditLog(tx, auditFromRequest(request, {
+ *     projectId, actor: 'api', action: 'queries.replaced', entityType: 'query', diff: {...},
+ *   }))
+ */
+export function auditFromRequest(
+  request: Pick<import('fastify').FastifyRequest, 'headers'>,
+  entry: AuditEntry,
+): AuditEntry {
+  const ua = request.headers['user-agent']
+  // Header is `string | string[] | undefined` per Fastify types; collapse
+  // arrays (rare but possible for duplicated headers) to a comma-joined
+  // string so the DB column stays a single value.
+  const userAgent = Array.isArray(ua) ? ua.join(', ') : ua ?? null
+  // Honor an optional `X-Canonry-Actor-Session` header for callers that
+  // want to thread their own correlation key (Aero agent sessions, agent
+  // runtimes, batch scripts). Stays null when absent.
+  const sess = request.headers['x-canonry-actor-session']
+  const actorSession = Array.isArray(sess) ? sess.join(', ') : sess ?? null
+  return {
+    ...entry,
+    userAgent: entry.userAgent ?? userAgent,
+    actorSession: entry.actorSession ?? actorSession,
+  }
 }
 
 export function incrementUsage(db: DatabaseClient, scope: string, metric: string) {
