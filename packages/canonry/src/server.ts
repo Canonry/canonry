@@ -20,7 +20,7 @@ import { cdpChatgptAdapter } from '@ainyc/canonry-provider-cdp'
 import { perplexityAdapter } from '@ainyc/canonry-provider-perplexity'
 import { authInvalid, validationError, RunKinds, RunStatuses, RunTriggers, type ProviderAdapter } from '@ainyc/canonry-contracts'
 import type { CanonryConfig, ProviderConfigEntry } from './config.js'
-import { saveConfigPatch, loadConfig } from './config.js'
+import { saveConfigPatch, loadConfig, getConfigPath } from './config.js'
 import {
   getGoogleAuthConfig,
   getGoogleConnection,
@@ -925,6 +925,24 @@ export async function createServer(opts: {
     sessionCookieName: SESSION_COOKIE_NAME,
     resolveSessionApiKeyId,
     explainContentRecommendation,
+    // On-disk paths the daemon depends on. The api-routes plugin uses these
+    // to fail loud (HTTP 503) when the operator wipes the DB or config out
+    // from under a running serve — SQLite holds the inode open across
+    // `unlink`, so without this the daemon keeps serving stale data from
+    // an orphaned file and `rm ~/.canonry/data.db` silently does nothing.
+    //
+    // Only attach `configPath` if it actually exists at construction time:
+    // production always boots via `serveCommand`, which calls `loadConfig()`
+    // and would have thrown if the file were missing; tests that construct
+    // `createServer` directly (bypassing `loadConfig`) won't have written
+    // a config and shouldn't get 503s from a stub-missing file.
+    runtimeStatePaths: (() => {
+      const configPath = getConfigPath()
+      return {
+        databasePath: opts.config.database,
+        configPath: fs.existsSync(configPath) ? configPath : null,
+      }
+    })(),
     // Local canonry serve runs on the operator's machine, where pointing a
     // webhook at localhost (Discord test container, Pipedream-mock dev server,
     // etc.) is a legitimate workflow. Default to allowing it for the local

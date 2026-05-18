@@ -163,6 +163,8 @@ Each check returns `status: ok | warn | fail | skipped`, a stable machine-readab
 
 | Category | ID | Scope | Purpose |
 |----------|----|-------|---------|
+| database | `db.file.present` | global | Configured SQLite database file still exists on disk (catches `rm ~/.canonry/data.db` against a running daemon — SQLite holds the inode open across `unlink`) |
+| config | `config.file.present` | global | Configured `~/.canonry/config.yaml` still exists on disk (same gotcha as above) |
 | auth | `google.auth.connection` | project | OAuth credentials present, refresh token works |
 | auth | `google.auth.property-access` | project | Authorized principal can list the selected GSC site |
 | auth | `google.auth.redirect-uri` | project | `publicUrl`-derived redirect URI is valid + advertised |

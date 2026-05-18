@@ -22,6 +22,8 @@ export interface DoctorRoutesOptions {
    * skip with a clear `no-validator` code when an adapter doesn't register.
    */
   trafficSourceValidators?: Record<string, TrafficSourceValidator>
+  /** On-disk paths the daemon depends on. See `DoctorContext.runtimeStatePaths`. */
+  runtimeStatePaths?: { databasePath: string; configPath?: string | null }
 }
 
 function parseCheckIds(raw: string | undefined): string[] {
@@ -56,6 +58,7 @@ export async function doctorRoutes(app: FastifyInstance, opts: DoctorRoutesOptio
       redirectUri,
       providerSummary: opts.providerSummary,
       trafficSourceValidators: opts.trafficSourceValidators,
+      runtimeStatePaths: opts.runtimeStatePaths,
     }
     return runChecks(ctx, ALL_CHECKS, { checkIds })
   })
@@ -82,6 +85,7 @@ export async function doctorRoutes(app: FastifyInstance, opts: DoctorRoutesOptio
       redirectUri,
       providerSummary: opts.providerSummary,
       trafficSourceValidators: opts.trafficSourceValidators,
+      runtimeStatePaths: opts.runtimeStatePaths,
     }
     return runChecks(ctx, ALL_CHECKS, { checkIds })
   })
