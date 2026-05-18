@@ -52,10 +52,22 @@ export function useProjectDashboard(projectName: string | null | undefined) {
     ) ?? null
   }, [contextDashboard, projectName])
 
+  // The three project-page queries below all override the global
+  // `refetchOnWindowFocus: false` default. Rationale: CLI-driven
+  // mutations (`cnry query add`, `cnry competitor add`, `cnry project
+  // create`, etc.) bypass React Query entirely — the dashboard's cache
+  // has no idea state changed on the server. Without focus-refetch,
+  // the operator's typical workflow ("open dashboard → alt-tab to
+  // terminal → run a CLI mutation → alt-tab back") shows stale data
+  // for up to 30 minutes (STATIC_VISIBILITY_STALE_MS). Use `'always'`
+  // (not just `true`) so the refetch fires regardless of staleTime —
+  // a `true` value would only refetch if the cached data had aged
+  // past staleTime, which defeats the alt-tab use case.
   const projectQuery = useQuery({
     ...getApiV1ProjectsByNameOptions({ client: heyClient, path: { name: projectName ?? '' } }),
     enabled: !!projectName && !initialCommandCenter,
     staleTime: STATIC_VISIBILITY_STALE_MS,
+    refetchOnWindowFocus: 'always',
   })
 
   // Project-scoped runs list (still kind-filtered so the cap doesn't bite
@@ -64,6 +76,7 @@ export function useProjectDashboard(projectName: string | null | undefined) {
     ...getApiV1RunsOptions({ client: heyClient, query: { kind: 'answer-visibility' } }),
     enabled: !!projectName,
     staleTime: RUNS_STALE_MS,
+    refetchOnWindowFocus: 'always',
     refetchInterval: (query) => {
       const runs = query.state.data
       const hasActive = runs?.some(r =>
@@ -142,6 +155,7 @@ export function useProjectDashboard(projectName: string | null | undefined) {
     },
     enabled: !!project && !!projectName && runsQuery.isSuccess,
     staleTime: STATIC_VISIBILITY_STALE_MS,
+    refetchOnWindowFocus: 'always',
   })
 
   const commandCenter = useMemo<ProjectCommandCenterVm | null>(() => {
