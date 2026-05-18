@@ -29,7 +29,7 @@ import type { DashboardVm } from '../view-models.js'
 function projectDetailQueryKey(projectId: string, latestRunIdsKey?: string) {
   return ['projects', projectId, latestRunIdsKey] as const
 }
-import { RUNS_STALE_MS, STATIC_VISIBILITY_STALE_MS } from './query-client.js'
+import { PROJECTS_REFRESH_MS, RUNS_STALE_MS, STATIC_VISIBILITY_STALE_MS } from './query-client.js'
 import { useInitialDashboard } from '../contexts/dashboard-context.js'
 
 export function useDashboard(initialDashboard?: DashboardVm | null) {
@@ -39,6 +39,7 @@ export function useDashboard(initialDashboard?: DashboardVm | null) {
   const projectsQuery = useQuery({
     ...getApiV1ProjectsOptions({ client: heyClient }),
     enabled: !effectiveInitial,
+    refetchInterval: PROJECTS_REFRESH_MS,
   })
 
   const runsQuery = useQuery({
