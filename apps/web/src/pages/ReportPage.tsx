@@ -1,13 +1,15 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Download } from 'lucide-react'
 import type {
   ProjectReportDto,
+  RecommendationExplanationDto,
   ReportActionPlanItem,
   ReportAudience,
   ReportInsight,
 } from '@ainyc/canonry-contracts'
 import {
+  AGENT_PROVIDER_IDS,
   contentActionLabel,
   dedupeReportActions,
   dedupeReportOpportunities,
@@ -22,10 +24,10 @@ import {
 
 import { ToneBadge } from '../components/shared/ToneBadge.js'
 import { Button } from '../components/ui/button.js'
-import { downloadReportHtml, heyClient, ApiError } from '../api.js'
+import { downloadReportHtml, fetchRecommendationAnalysis, heyClient, ApiError } from '../api.js'
 import { getApiV1ProjectsByNameReportOptions } from '@ainyc/canonry-api-client/react-query'
 import { asyncHandler } from '../lib/async-handler.js'
-import { useDismissContentTarget } from '../queries/mutations.js'
+import { useAnalyzeRecommendation, useDismissContentTarget } from '../queries/mutations.js'
 import { addToast } from '../lib/toast-store.js'
 import type { MetricTone } from '../view-models.js'
 
@@ -393,6 +395,200 @@ function clientConfidenceLabel(confidence: ReportActionPlanItem['confidence']): 
   }
 }
 
+/**
+ * Render an LLM-generated explanation as a bulleted list. The system
+ * prompt forces dash-prefixed bullets (`- first reason\n- action\n- ...`).
+ * Anything that doesn't lead with `-` falls back to a paragraph so a
+ * misbehaving response still renders rather than disappearing.
+ */
+export function ExplanationBody({ text }: { text: string }) {
+  const lines = text.split('\n').map((l) => l.trim()).filter(Boolean)
+  const bullets = lines
+    .filter((l) => l.startsWith('-') || l.startsWith('•'))
+    .map((l) => l.replace(/^[-•]\s*/, ''))
+  const paragraphs = lines.filter((l) => !l.startsWith('-') && !l.startsWith('•'))
+  return (
+    <div className="space-y-2 text-xs text-zinc-300">
+      {paragraphs.map((p, i) => (
+        <p key={`p-${i}`}>{p}</p>
+      ))}
+      {bullets.length > 0 && (
+        <ul className="list-disc space-y-1 pl-4">
+          {bullets.map((b, i) => <li key={`b-${i}`}>{b}</li>)}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Inline "Why this?" panel — one per action card with a `targetRef`.
+ * On mount: if a cached explanation exists, hydrate from it; otherwise
+ * fire `POST /analyze` immediately. Repeat opens within a session are
+ * cheap because the backend caches per (project, targetRef, promptVersion).
+ *
+ * Provider override: the dropdown lets the operator pick a non-default
+ * provider for this explanation. Switching providers triggers an immediate
+ * regenerate with `forceRefresh: true` so the panel renders the new
+ * provider's output without a second click.
+ *
+ * Cost is rendered in cents (millicents / 1000) to a 4-decimal precision so
+ * even sub-tenth-of-a-cent calls are legible.
+ */
+export function WhyThisPanel({
+  projectName,
+  targetRef,
+  onClose,
+}: {
+  projectName: string
+  targetRef: string
+  onClose: () => void
+}) {
+  const [providerOverride, setProviderOverride] = useState<string>('')
+  const [explanation, setExplanation] = useState<RecommendationExplanationDto | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [isHydrating, setIsHydrating] = useState(true)
+  const analyzeMutation = useAnalyzeRecommendation()
+
+  // Hydrate from the cache on mount. If the GET 404s (no cached
+  // explanation), kick off POST so the panel renders progress immediately.
+  // The provider dropdown isn't applied here — initial hydrate always
+  // pulls whatever's cached for the project's default provider.
+  useEffect(() => {
+    let cancelled = false
+    setIsHydrating(true)
+    setError(null)
+    fetchRecommendationAnalysis(projectName, targetRef)
+      .then((cached) => {
+        if (cancelled) return
+        setIsHydrating(false)
+        if (cached) {
+          setExplanation(cached)
+          return
+        }
+        // No cache — auto-generate so the panel doesn't sit empty.
+        analyzeMutation.mutate(
+          { projectName, targetRef, body: {} },
+          {
+            onSuccess: (data) => {
+              if (!cancelled) setExplanation(data)
+            },
+            onError: (err) => {
+              if (!cancelled) setError(err instanceof Error ? err.message : String(err))
+            },
+          },
+        )
+      })
+      .catch((err) => {
+        if (cancelled) return
+        setIsHydrating(false)
+        setError(err instanceof Error ? err.message : String(err))
+      })
+    return () => {
+      cancelled = true
+    }
+    // Deps are `projectName` + `targetRef` only — re-hydrating on every
+    // mutation state change would re-fire the GET and POST chain on every
+    // keystroke of the provider dropdown. The mutation object is stable
+    // per the useMutation contract for our usage (fire-and-forget mutate
+    // calls from inside the effect).
+  }, [projectName, targetRef])
+
+  const handleRegenerate = (overrideProvider?: string) => {
+    setError(null)
+    const provider = overrideProvider ?? providerOverride
+    analyzeMutation.mutate(
+      {
+        projectName,
+        targetRef,
+        body: {
+          ...(provider ? { provider } : {}),
+          forceRefresh: true,
+        },
+      },
+      {
+        onSuccess: (data) => setExplanation(data),
+        onError: (err) => setError(err instanceof Error ? err.message : String(err)),
+      },
+    )
+  }
+
+  const handleProviderChange = (next: string) => {
+    setProviderOverride(next)
+    // Auto-regenerate when the user picks a new provider — keeps the
+    // dropdown feeling reactive instead of "select then click again."
+    handleRegenerate(next)
+  }
+
+  const isLoading = isHydrating || analyzeMutation.isPending
+  const costCents = explanation ? explanation.costMillicents / 1000 : 0
+
+  return (
+    <div className="mt-3 rounded-md border border-zinc-800/60 bg-zinc-950/40 p-3">
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <p className="eyebrow-soft">Why this recommendation</p>
+        <button
+          type="button"
+          onClick={onClose}
+          className="text-[11px] text-zinc-500 hover:text-zinc-300"
+        >
+          Hide
+        </button>
+      </div>
+      {isLoading && (
+        <p className="text-xs text-zinc-500">
+          {isHydrating ? 'Looking for cached analysis…' : 'Analyzing recommendation…'}
+        </p>
+      )}
+      {!isLoading && error && (
+        <div className="space-y-2">
+          <p className="text-xs text-rose-400">{error}</p>
+          <button
+            type="button"
+            onClick={() => handleRegenerate()}
+            className="rounded-md border border-zinc-700/60 bg-zinc-900/50 px-2.5 py-1 text-[11px] font-medium text-zinc-300 hover:border-zinc-600 hover:bg-zinc-800/70 hover:text-zinc-100"
+          >
+            Try again
+          </button>
+        </div>
+      )}
+      {!isLoading && !error && explanation && (
+        <>
+          <ExplanationBody text={explanation.responseText} />
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-zinc-800/60 pt-2 text-[10px] text-zinc-500">
+            <div className="flex items-center gap-2">
+              <label htmlFor={`provider-${targetRef}`} className="text-zinc-500">
+                Provider
+              </label>
+              <select
+                id={`provider-${targetRef}`}
+                value={providerOverride}
+                onChange={(e) => handleProviderChange(e.target.value)}
+                className="rounded-md border border-zinc-700/60 bg-zinc-900/60 px-1.5 py-0.5 text-[10px] text-zinc-300"
+              >
+                <option value="">{`Default (${explanation.provider})`}</option>
+                {AGENT_PROVIDER_IDS.map((p) => (
+                  <option key={p} value={p}>{p}</option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={() => handleRegenerate()}
+                className="rounded-md border border-zinc-700/60 bg-zinc-900/50 px-2 py-0.5 text-[10px] font-medium text-zinc-400 hover:border-zinc-600 hover:bg-zinc-800/70 hover:text-zinc-100"
+              >
+                Regenerate
+              </button>
+            </div>
+            <span>
+              {explanation.model} · ~{costCents.toFixed(4)}¢
+            </span>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 function ActionPlanSection({ report, audience, projectName }: { report: ProjectReportDto; audience: ReportAudience; projectName: string }) {
   const rawActions = audience === 'client'
     ? report.clientSummary.actionItems
@@ -412,12 +608,25 @@ function ActionPlanSection({ report, audience, projectName }: { report: ProjectR
   // dismissed" — the actual server state is whatever the next report
   // refetch returns. They converge after a successful round-trip.
   const [optimisticDismissed, setOptimisticDismissed] = useState<Set<string>>(new Set())
+  // Set of `targetRef`s whose "Why this?" panel is currently expanded.
+  // Toggling drops/adds the panel — when removed the component unmounts and
+  // its in-flight POST cancels via the cleanup in WhyThisPanel's effect.
+  const [expandedExplanations, setExpandedExplanations] = useState<Set<string>>(new Set())
   // Filter dedupedActions through the optimistic set so the UI updates
   // instantly. Server-side filter still applies on the next refetch;
   // this is purely a render-time bypass to remove perceived latency.
   const actions = optimisticDismissed.size > 0
     ? dedupedActions.filter(a => !a.targetRef || !optimisticDismissed.has(a.targetRef))
     : dedupedActions
+
+  const toggleExplanation = (targetRef: string) => {
+    setExpandedExplanations((prev) => {
+      const next = new Set(prev)
+      if (next.has(targetRef)) next.delete(targetRef)
+      else next.add(targetRef)
+      return next
+    })
+  }
 
   const handleDismiss = (action: ProjectReportDto['actionPlan'][number]) => {
     if (!action.targetRef) return
@@ -518,16 +727,34 @@ function ActionPlanSection({ report, audience, projectName }: { report: ProjectR
                   <span className="font-medium">{isClient ? 'What success looks like:' : 'Win condition:'}</span> {action.successMetric}
                 </p>
                 {action.targetRef && (
-                  <div className="mt-3 flex justify-end">
-                    <button
-                      type="button"
-                      onClick={() => handleDismiss(action)}
-                      className="rounded-md border border-zinc-700/60 bg-zinc-900/50 px-2.5 py-1 text-[11px] font-medium text-zinc-300 hover:border-zinc-600 hover:bg-zinc-800/70 hover:text-zinc-100"
-                      title="Stop showing this recommendation. The page-detection logic relies on GSC/GA syncs that lag by days — if you've already addressed it, dismissing keeps the report current."
-                    >
-                      Mark addressed
-                    </button>
-                  </div>
+                  <>
+                    <div className="mt-3 flex justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => toggleExplanation(action.targetRef!)}
+                        className="rounded-md border border-zinc-700/60 bg-zinc-900/50 px-2.5 py-1 text-[11px] font-medium text-zinc-300 hover:border-zinc-600 hover:bg-zinc-800/70 hover:text-zinc-100"
+                        aria-expanded={expandedExplanations.has(action.targetRef)}
+                        title="Get an LLM-generated rationale plus concrete next steps for this recommendation."
+                      >
+                        {expandedExplanations.has(action.targetRef) ? 'Hide explanation' : 'Why this?'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDismiss(action)}
+                        className="rounded-md border border-zinc-700/60 bg-zinc-900/50 px-2.5 py-1 text-[11px] font-medium text-zinc-300 hover:border-zinc-600 hover:bg-zinc-800/70 hover:text-zinc-100"
+                        title="Stop showing this recommendation. The page-detection logic relies on GSC/GA syncs that lag by days — if you've already addressed it, dismissing keeps the report current."
+                      >
+                        Mark addressed
+                      </button>
+                    </div>
+                    {expandedExplanations.has(action.targetRef) && (
+                      <WhyThisPanel
+                        projectName={projectName}
+                        targetRef={action.targetRef}
+                        onClose={() => toggleExplanation(action.targetRef!)}
+                      />
+                    )}
+                  </>
                 )}
               </article>
             )
