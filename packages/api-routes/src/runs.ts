@@ -271,15 +271,23 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
   //   ?limit=N         — cap at N rows (default 500, max 5000)
   //   ?since=ISO       — only runs with created_at >= ISO (default 30d ago)
   //   ?includeProbe=1  — include probe runs (rarely needed; operator only)
+  //   ?kind=K          — restrict to a single run kind (e.g. 'answer-visibility').
+  //                      Critical for the dashboard: integration syncs
+  //                      (bing-inspect, gsc-sync, ga-sync) fire on cron and
+  //                      can easily fill the 500-row window in <1 hour,
+  //                      pushing the answer-visibility runs the dashboard
+  //                      actually needs off the response.
   app.get<{
-    Querystring: { limit?: string; since?: string; includeProbe?: string }
+    Querystring: { limit?: string; since?: string; includeProbe?: string; kind?: string }
   }>('/runs', async (request, reply) => {
     const limit = parseListLimit(request.query.limit, 500, 5000)
     const since = parseListSince(request.query.since)
     const includeProbe = request.query.includeProbe === '1' || request.query.includeProbe === 'true'
+    const kind = parseListKind(request.query.kind)
 
     const filters = [gte(runs.createdAt, since)]
     if (!includeProbe) filters.push(notProbeRun())
+    if (kind) filters.push(eq(runs.kind, kind))
 
     const rows = app.db
       .select()
@@ -431,6 +439,21 @@ function parseListLimit(raw: string | undefined, defaultValue: number, max: numb
     throw validationError('"limit" must be a positive integer')
   }
   return Math.min(parsed, max)
+}
+
+/**
+ * Parse the `?kind=` query param for `GET /runs`. Restricts the response to
+ * a single run kind. Returns `null` when the param is absent (no filter
+ * applied). Validates against the `RunKinds` enum so a typo produces a 400
+ * instead of silently returning empty.
+ */
+function parseListKind(raw: string | undefined): string | null {
+  if (raw === undefined || raw === '') return null
+  const validKinds = Object.values(RunKinds)
+  if (!validKinds.includes(raw as (typeof validKinds)[number])) {
+    throw validationError(`"kind" must be one of: ${validKinds.join(', ')}`)
+  }
+  return raw
 }
 
 /**

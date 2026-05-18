@@ -42,8 +42,23 @@ export function useDashboard(initialDashboard?: DashboardVm | null) {
     refetchInterval: PROJECTS_REFRESH_MS,
   })
 
+  // Scope the dashboard's `/runs` query to answer-visibility only. PR #580
+  // capped the endpoint at 500 rows to fix cold-load size; on projects with
+  // active integrations (bing-inspect, gsc-sync, ga-sync fire on a tight
+  // cron) the cap fills with sync rows in under an hour and pushes the
+  // sweep runs the dashboard actually needs off the response. Result: the
+  // dashboard sees `latestRunIds = []`, falls through to the "saved query
+  // not yet run" branch in `build-dashboard.ts`, and renders every tracked
+  // query as "Awaiting first run" even when sweeps exist and have recent
+  // snapshots. The `?kind=` filter (added alongside this change in the
+  // server) restores correctness without raising the cap.
+  //
+  // Side effect: per-project `recentRuns` widgets now only surface
+  // answer-visibility runs, not integration-sync runs. That matches the
+  // dashboard's purpose — sweeps are the primary signal; integration
+  // health lives on its own pages (Bing/GSC/GA sections + `cnry doctor`).
   const runsQuery = useQuery({
-    ...getApiV1RunsOptions({ client: heyClient }),
+    ...getApiV1RunsOptions({ client: heyClient, query: { kind: 'answer-visibility' } }),
     enabled: !effectiveInitial,
     staleTime: RUNS_STALE_MS,
     refetchInterval: (query) => {

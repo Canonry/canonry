@@ -169,6 +169,42 @@ const scheduleKindQueryParameter: OpenApiParameter = {
   schema: { type: 'string', enum: ['answer-visibility', 'traffic-sync'] },
 }
 
+const runsListKindQueryParameter: OpenApiParameter = {
+  name: 'kind',
+  in: 'query',
+  description: 'Restrict results to a single run kind. Without this filter, integration syncs (bing-inspect, gsc-sync, ga-sync) can fill the default 500-row cap within minutes on busy projects and push answer-visibility runs out of the response.',
+  schema: {
+    type: 'string',
+    enum: [
+      'answer-visibility',
+      'site-audit',
+      'gsc-sync',
+      'inspect-sitemap',
+      'ga-sync',
+      'bing-inspect',
+      'bing-inspect-sitemap',
+      'backlink-extract',
+      'traffic-sync',
+      'aeo-discover-seed',
+      'aeo-discover-probe',
+    ],
+  },
+}
+
+const runsListSinceQueryParameter: OpenApiParameter = {
+  name: 'since',
+  in: 'query',
+  description: 'Only return runs with created_at >= this ISO 8601 timestamp. Defaults to 30 days ago.',
+  schema: stringSchema,
+}
+
+const runsListIncludeProbeQueryParameter: OpenApiParameter = {
+  name: 'includeProbe',
+  in: 'query',
+  description: 'Set to "1" or "true" to include probe runs. Probes are excluded by default because they are operator/agent test runs and must not pollute dashboard aggregates.',
+  schema: stringSchema,
+}
+
 const reportAudienceQueryParameter: OpenApiParameter = {
   name: 'audience',
   in: 'query',
@@ -756,6 +792,12 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/runs',
     summary: 'List all runs',
     tags: ['runs'],
+    parameters: [
+      limitQueryParameter,
+      runsListSinceQueryParameter,
+      runsListIncludeProbeQueryParameter,
+      runsListKindQueryParameter,
+    ],
     responses: {
       200: jsonArrayResponse('Runs returned.', 'RunDto'),
     },
