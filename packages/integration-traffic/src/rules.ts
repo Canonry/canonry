@@ -134,6 +134,60 @@ export const DEFAULT_AI_CRAWLER_RULES: AiCrawlerRule[] = [
     purpose: 'training',
     userAgentPatterns: [/DeepSeekBot/i],
   },
+  // Classic search-engine crawlers. Not strictly "AI" by training origin,
+  // but the same audience: machine traffic indexing the site for query
+  // surfaces. Operators tracking AI visibility want this signal too —
+  // SERP indexing is the upstream that feeds AI answer engines (Bing
+  // powers ChatGPT search; Google powers Gemini grounding). Classified
+  // alongside LLM crawlers; the dashboard's "AI crawler hits" label is
+  // imprecise here but functionally correct (these are still bots, not
+  // humans).
+  {
+    id: 'googlebot',
+    operator: 'Google',
+    product: 'Googlebot',
+    purpose: 'search',
+    // Googlebot has Smartphone / Desktop / Image / News / Video variants.
+    // All match the `Googlebot/` prefix on first appearance in the UA.
+    // Excludes `Googlebot-Image` etc. that ride a `Googlebot-` prefix —
+    // they also match `Googlebot/` in their UA strings.
+    userAgentPatterns: [/Googlebot[/-]/i],
+  },
+  {
+    id: 'bingbot',
+    operator: 'Microsoft',
+    product: 'bingbot',
+    purpose: 'search',
+    userAgentPatterns: [/bingbot\//i],
+  },
+  {
+    id: 'duckduckbot',
+    operator: 'DuckDuckGo',
+    product: 'DuckDuckBot',
+    purpose: 'search',
+    userAgentPatterns: [/DuckDuckBot/i],
+  },
+  {
+    id: 'yandexbot',
+    operator: 'Yandex',
+    product: 'YandexBot',
+    purpose: 'search',
+    userAgentPatterns: [/YandexBot\//i],
+  },
+  {
+    id: 'baiduspider',
+    operator: 'Baidu',
+    product: 'Baiduspider',
+    purpose: 'search',
+    userAgentPatterns: [/Baiduspider/i],
+  },
+  {
+    id: 'amazonbot',
+    operator: 'Amazon',
+    product: 'Amazonbot',
+    purpose: 'crawl',
+    userAgentPatterns: [/Amazonbot\//i],
+  },
 ]
 
 export const DEFAULT_AI_CRAWLER_USER_AGENT_SUBSTRINGS = [
@@ -156,6 +210,12 @@ export const DEFAULT_AI_CRAWLER_USER_AGENT_SUBSTRINGS = [
   'MistralAI',
   'MistralBot',
   'DeepSeekBot',
+  'Googlebot',
+  'bingbot/',
+  'DuckDuckBot',
+  'YandexBot/',
+  'Baiduspider',
+  'Amazonbot/',
 ]
 
 export const DEFAULT_AI_REFERRER_RULES: AiReferrerRule[] = [
