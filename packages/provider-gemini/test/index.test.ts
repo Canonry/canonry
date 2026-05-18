@@ -17,7 +17,7 @@ test('validateConfig accepts a non-empty API key', () => {
   expect(result.ok).toBe(true)
   expect(result.provider).toBe('gemini')
   expect(result.message).toBe('config valid')
-  expect(result.model).toBe('gemini-3-flash')
+  expect(result.model).toBe('gemini-2.5-flash')
 })
 
 test('validateConfig rejects empty API key', () => {
@@ -50,7 +50,7 @@ test('validateConfig accepts Vertex AI config without API key', () => {
   })
   expect(result.ok).toBe(true)
   expect(result.message).toBe('config valid (Vertex AI)')
-  expect(result.model).toBe('gemini-3-flash')
+  expect(result.model).toBe('gemini-2.5-flash')
 })
 
 test('validateConfig accepts Vertex AI config with custom model', () => {
@@ -272,7 +272,7 @@ test('reparseStoredResult falls back to all grounding chunks when supports are a
 test('normalizeResult prefers reparsed grounding metadata over stale extracted fields when candidates are present', () => {
   const raw: GeminiRawResult = {
     provider: 'gemini',
-    model: 'gemini-3-flash',
+    model: 'gemini-2.5-flash',
     rawResponse: {
       candidates: [
         {

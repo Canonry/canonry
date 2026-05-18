@@ -21,7 +21,7 @@ Sends the query to Gemini with the `googleSearch` tool enabled. The query is sen
 - `rawResponse` — the full Gemini API response (candidates, usage metadata)
 - `groundingSources` — extracted `{ uri, title }` pairs from the grounding chunks referenced by `groundingSupports`
 - `searchQueries` — the web search queries Gemini used internally
-- `model` — the model used (default: `gemini-3-flash`)
+- `model` — the model used (default: `gemini-2.5-flash`)
 
 ### `normalizeResult(raw: GeminiRawResult): GeminiNormalizedResult`
 
@@ -34,7 +34,7 @@ Extracts analyst-relevant fields from the raw response:
 
 ## Model
 
-Default: `gemini-3-flash`. Configurable via `GeminiConfig.model`.
+Default: `gemini-2.5-flash`. Configurable via `GeminiConfig.model`.
 
 ## Grounding & Citation Detection
 

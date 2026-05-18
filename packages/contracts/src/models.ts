@@ -1,5 +1,5 @@
 export interface ModelDefinition {
-  /** API model ID (e.g. "gemini-3-flash") */
+  /** API model ID (e.g. "gemini-2.5-flash") */
   id: string
   /** Human-readable display name */
   displayName: string

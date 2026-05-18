@@ -291,7 +291,7 @@ describe('backfill answer-visibility provider reparsing', () => {
       runId,
       queryId,
       provider: 'gemini',
-      model: 'gemini-3-flash',
+      model: 'gemini-2.5-flash',
       citationState: 'not-cited',
       answerMentioned: false,
       answerText: '',
@@ -299,7 +299,7 @@ describe('backfill answer-visibility provider reparsing', () => {
       competitorOverlap: [],
       recommendedCompetitors: [],
       rawResponse: JSON.stringify({
-        model: 'gemini-3-flash',
+        model: 'gemini-2.5-flash',
         groundingSources: [
           { uri: 'https://retrieved-only.example.com/post', title: 'Retrieved only' },
           { uri: 'https://canonry.ai/docs', title: 'Canonry Docs' },
