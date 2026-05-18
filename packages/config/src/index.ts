@@ -198,7 +198,7 @@ export function getBootstrapEnv(
   if (parsed.GEMINI_API_KEY || parsed.GEMINI_VERTEX_PROJECT) {
     providers.gemini = {
       apiKey: parsed.GEMINI_API_KEY ?? '',
-      model: parsed.GEMINI_MODEL || 'gemini-3-flash',
+      model: parsed.GEMINI_MODEL || 'gemini-2.5-flash',
       quota: providerQuotaPolicySchema.parse({
         maxConcurrency: 2,
         maxRequestsPerMinute: 10,

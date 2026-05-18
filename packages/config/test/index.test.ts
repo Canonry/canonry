@@ -102,7 +102,7 @@ test('getBootstrapEnv configures Gemini via Vertex AI env vars', () => {
   expect(env.providers.gemini!.vertexProject).toBe('my-gcp-project')
   expect(env.providers.gemini!.vertexRegion).toBe('us-east1')
   expect(env.providers.gemini!.vertexCredentials).toBe('/path/to/sa.json')
-  expect(env.providers.gemini!.model).toBe('gemini-3-flash')
+  expect(env.providers.gemini!.model).toBe('gemini-2.5-flash')
 })
 
 test('getBootstrapEnv parses hosted Canonry env vars', () => {
@@ -120,7 +120,7 @@ test('getBootstrapEnv parses hosted Canonry env vars', () => {
   expect(env.apiUrl).toBe('https://canonry.example.com')
   expect(env.databasePath).toBe('/data/canonry/data.db')
   expect(env.providers.gemini?.apiKey).toBe('gemini-key')
-  expect(env.providers.gemini?.model).toBe('gemini-3-flash')
+  expect(env.providers.gemini?.model).toBe('gemini-2.5-flash')
   expect(env.providers.local?.baseUrl).toBe('http://localhost:11434/v1')
   expect(env.providers.local?.model).toBe('llama3')
   expect(env.googleClientId).toBe('google-client-id')
