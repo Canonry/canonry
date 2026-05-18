@@ -229,9 +229,6 @@ importers:
       '@ainyc/aeo-audit':
         specifier: 1.3.2
         version: 1.3.2
-      '@ainyc/canonry-api-client':
-        specifier: workspace:*
-        version: link:../api-client-generated
       '@anthropic-ai/sdk':
         specifier: ^0.78.0
         version: 0.78.0(zod@4.3.6)
@@ -284,6 +281,9 @@ importers:
         specifier: ^4.1.12
         version: 4.3.6
     devDependencies:
+      '@ainyc/canonry-api-client':
+        specifier: workspace:*
+        version: link:../api-client-generated
       '@ainyc/canonry-api-routes':
         specifier: workspace:*
         version: link:../api-routes
