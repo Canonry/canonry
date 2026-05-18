@@ -1,8 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import { getModel } from '@mariozechner/pi-ai'
+import { LLM_CAPABILITIES, LlmCapabilities } from '@ainyc/canonry-contracts'
 import {
   AGENT_PROVIDERS,
   AgentProviders,
+  PROVIDER_MODELS,
   agentProvidersByPriority,
   buildAgentProvidersResponse,
   coerceAgentProvider,
@@ -11,6 +13,7 @@ import {
   listAgentProviders,
   resolveApiKeyFor,
   resolveApiKeySource,
+  resolveModelForCapability,
   resolveModelForProvider,
   validateAgentProviderRegistry,
   type SupportedAgentProvider,
@@ -197,5 +200,103 @@ describe('buildAgentProvidersResponse', () => {
       if (priorEnv === undefined) delete process.env[lowerEnvName]
       else process.env[lowerEnvName] = priorEnv
     }
+  })
+})
+
+describe('PROVIDER_MODELS capability tiers', () => {
+  // Single source of truth for "what model fills capability X on provider
+  // Y." Adding a new capability to LlmCapabilities REQUIRES adding a row
+  // for every provider — these tests are the guardrail that catches the
+  // omission at CI time rather than the first request that uses it.
+
+  it('every provider declares every capability tier', () => {
+    for (const provider of listAgentProviders()) {
+      for (const capability of LLM_CAPABILITIES) {
+        const modelId = PROVIDER_MODELS[provider][capability]
+        expect(modelId, `PROVIDER_MODELS[${provider}][${capability}] is missing`).toBeTruthy()
+        expect(typeof modelId).toBe('string')
+      }
+    }
+  })
+
+  it('AGENT_PROVIDERS.defaultModel mirrors PROVIDER_MODELS[id].agent (single source of truth)', () => {
+    for (const provider of listAgentProviders()) {
+      expect(
+        getAgentProvider(provider).defaultModel,
+        `defaultModel drift on ${provider}`,
+      ).toBe(PROVIDER_MODELS[provider][LlmCapabilities.agent])
+    }
+  })
+
+  it('every (provider, capability) pair resolves to a real pi-ai model', () => {
+    for (const provider of listAgentProviders()) {
+      for (const capability of LLM_CAPABILITIES) {
+        const entry = getAgentProvider(provider)
+        const modelId = PROVIDER_MODELS[provider][capability]
+        const model = getModel(entry.piAiProvider as never, modelId as never)
+        expect(
+          model,
+          `pi-ai catalog missing ${entry.piAiProvider}/${modelId} (capability=${capability})`,
+        ).toBeDefined()
+      }
+    }
+  })
+
+  it('validateAgentProviderRegistry walks every capability and catches drift', () => {
+    // The validator runs every (provider, capability) plus the
+    // defaultModel-mirror check. Doesn't throw on the current registry.
+    expect(() => validateAgentProviderRegistry()).not.toThrow()
+  })
+})
+
+describe('resolveModelForCapability', () => {
+  it('returns each capability\'s model per provider', () => {
+    for (const provider of listAgentProviders()) {
+      for (const capability of LLM_CAPABILITIES) {
+        const model = resolveModelForCapability(provider, capability)
+        const expectedId = PROVIDER_MODELS[provider][capability]
+        // pi-ai's Model exposes `id` (string). The resolver MUST return
+        // the model whose id matches the registry entry — anything else
+        // means the lookup found the wrong model for some provider.
+        expect(
+          (model as { id?: string }).id,
+          `wrong model returned for ${provider} / ${capability}`,
+        ).toBe(expectedId)
+      }
+    }
+  })
+
+  it('honors caller-supplied model override (per-call escape hatch)', () => {
+    // Pick a known cross-capability model that exists for at least one
+    // provider — every Claude tier currently uses a real model id, so
+    // claude-haiku-4-7 (classify tier) is a safe override target for the
+    // claude provider even when the caller requests the `agent`
+    // capability.
+    const overrideId = PROVIDER_MODELS.claude[LlmCapabilities.classify]
+    const model = resolveModelForCapability('claude', LlmCapabilities.agent, overrideId)
+    expect((model as { id?: string }).id).toBe(overrideId)
+  })
+
+  it('throws on an unknown model id (catches typos)', () => {
+    expect(() =>
+      resolveModelForCapability('claude', LlmCapabilities.agent, 'definitely-not-a-model-id'),
+    ).toThrow()
+  })
+
+  it('resolveModelForProvider is a thin wrapper that delegates to the agent capability', () => {
+    // Behavior-preserving equivalence: existing callers of
+    // resolveModelForProvider get the same model they always got.
+    for (const provider of listAgentProviders()) {
+      const viaProvider = resolveModelForProvider(provider)
+      const viaCapability = resolveModelForCapability(provider, LlmCapabilities.agent)
+      expect((viaProvider as { id?: string }).id).toBe((viaCapability as { id?: string }).id)
+    }
+  })
+
+  it('resolveModelForProvider passes through a model-id override', () => {
+    const overrideId = PROVIDER_MODELS.claude[LlmCapabilities.classify]
+    const viaProvider = resolveModelForProvider('claude', overrideId)
+    const viaCapability = resolveModelForCapability('claude', LlmCapabilities.agent, overrideId)
+    expect((viaProvider as { id?: string }).id).toBe((viaCapability as { id?: string }).id)
   })
 })

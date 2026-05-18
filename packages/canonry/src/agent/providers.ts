@@ -2,10 +2,13 @@ import { getEnvApiKey, getModel, type KnownProvider, type Model } from '@marioze
 import {
   AGENT_PROVIDER_IDS,
   AgentProviderIds,
+  LLM_CAPABILITIES,
+  LlmCapabilities,
   isAgentProviderId,
   type AgentProviderId,
   type AgentProviderOption,
   type AgentProvidersResponse,
+  type LlmCapability,
 } from '@ainyc/canonry-contracts'
 
 /**
@@ -14,46 +17,106 @@ import {
  * The canonical `AgentProviderId` union lives in
  * `@ainyc/canonry-contracts` (`providers.ts`) so both sweep and agent
  * surfaces reference the same vocabulary. This file adds the agent-side
- * metadata: pi-ai vendor mapping, default model, priority, label.
+ * metadata: pi-ai vendor mapping, per-capability models, priority, label.
  *
  * Intentionally does NOT list sweep-only providers (`perplexity`, `local`,
  * `cdp:chatgpt`) — they can't drive an agent loop. `zai` is agent-only
  * with no sweep adapter.
+ *
+ * Model selection is two-dimensional: `(provider, capability) → modelId`.
+ * Provider is configured by the user (API key + default); capability is
+ * declared by the calling feature (Aero uses `agent`, the explain-this
+ * feature uses `analyze`, the semantic-coverage check uses `classify`).
+ * `PROVIDER_MODELS` is the single source of truth; `AgentProviderEntry`
+ * exposes `defaultModel` as a shortcut to the `agent`-tier model for
+ * backward-compatible callers (DTO + CLI display).
  */
 export interface AgentProviderEntry {
   /** pi-ai vendor id — what `getModel(provider, id)` and `getEnvApiKey(provider)` accept. */
   piAiProvider: KnownProvider
   /** User-facing label shown in CLI help and dashboard pickers. */
   label: string
-  /** Default model when the caller doesn't specify one. Validated against pi-ai's catalog at module load. */
+  /**
+   * Default model when the caller doesn't specify one and didn't pass a
+   * capability. Equals `PROVIDER_MODELS[id].agent` — the `agent`-tier
+   * model is the historical default since Aero was the only consumer.
+   * Validated against pi-ai's catalog at module load.
+   */
   defaultModel: string
   /** Lower = higher priority in auto-detect. Used when no `--provider` is passed. */
   autoDetectPriority: number
 }
 
+/**
+ * Per-provider, per-capability model selection. This is the canonical
+ * source of truth for "which model fills this capability tier for this
+ * provider." Adding a new capability requires adding an entry for every
+ * provider (enforced at module load + by tests). Bumping model versions
+ * (e.g. opus-4-7 → opus-5-0) happens here — one place, no hunting.
+ *
+ * Cost tiers (rough order of magnitude):
+ *   agent    — $$$  (premium quality for multi-step reasoning)
+ *   analyze  — $$   (mid-tier for structured single-shot synthesis)
+ *   classify — $    (cheapest for short yes/no or label-set outputs)
+ *
+ * Provider notes:
+ *   - Gemini: 2.5-flash is already cheap + capable; no separate analyze /
+ *     classify tier worth using until Gemini ships a dedicated micro
+ *     model. All three tiers point at flash.
+ *   - Zai: glm-5.1 is the agent tier; glm-5.1-flash is the cheap tier
+ *     for analyze + classify.
+ */
+export const PROVIDER_MODELS = {
+  [AgentProviderIds.claude]: {
+    [LlmCapabilities.agent]: 'claude-opus-4-7',
+    [LlmCapabilities.analyze]: 'claude-sonnet-4-6',
+    [LlmCapabilities.classify]: 'claude-haiku-4-5',
+  },
+  [AgentProviderIds.openai]: {
+    [LlmCapabilities.agent]: 'gpt-5.1',
+    [LlmCapabilities.analyze]: 'gpt-5-mini',
+    [LlmCapabilities.classify]: 'gpt-5-nano',
+  },
+  [AgentProviderIds.gemini]: {
+    // Gemini's 2.5-flash is already cheap + capable; flash-lite is the
+    // dedicated micro tier for classify. Analyze stays on flash because
+    // flash-lite drops too much quality for structured synthesis.
+    [LlmCapabilities.agent]: 'gemini-2.5-flash',
+    [LlmCapabilities.analyze]: 'gemini-2.5-flash',
+    [LlmCapabilities.classify]: 'gemini-2.5-flash-lite',
+  },
+  [AgentProviderIds.zai]: {
+    // GLM lineage: 5.1 is the latest agent-class model; 5-turbo is the
+    // cheaper tier good for structured tasks and classification.
+    [LlmCapabilities.agent]: 'glm-5.1',
+    [LlmCapabilities.analyze]: 'glm-5-turbo',
+    [LlmCapabilities.classify]: 'glm-5-turbo',
+  },
+} as const satisfies Record<AgentProviderId, Record<LlmCapability, string>>
+
 export const AGENT_PROVIDERS = {
   [AgentProviderIds.claude]: {
     piAiProvider: 'anthropic',
     label: 'Anthropic (Claude)',
-    defaultModel: 'claude-opus-4-7',
+    defaultModel: PROVIDER_MODELS[AgentProviderIds.claude][LlmCapabilities.agent],
     autoDetectPriority: 0,
   },
   [AgentProviderIds.openai]: {
     piAiProvider: 'openai',
     label: 'OpenAI',
-    defaultModel: 'gpt-5.1',
+    defaultModel: PROVIDER_MODELS[AgentProviderIds.openai][LlmCapabilities.agent],
     autoDetectPriority: 1,
   },
   [AgentProviderIds.gemini]: {
     piAiProvider: 'google',
     label: 'Google (Gemini)',
-    defaultModel: 'gemini-2.5-flash',
+    defaultModel: PROVIDER_MODELS[AgentProviderIds.gemini][LlmCapabilities.agent],
     autoDetectPriority: 2,
   },
   [AgentProviderIds.zai]: {
     piAiProvider: 'zai',
     label: 'Z.ai (GLM)',
-    defaultModel: 'glm-5.1',
+    defaultModel: PROVIDER_MODELS[AgentProviderIds.zai][LlmCapabilities.agent],
     autoDetectPriority: 3,
   },
 } as const satisfies Record<AgentProviderId, AgentProviderEntry>
@@ -97,6 +160,12 @@ export function findByPiAiProvider(piAiProvider: string): AgentProviderEntry | u
 
 /**
  * Resolve a pi-ai Model for the given agent provider + optional model id.
+ *
+ * Equivalent to `resolveModelForCapability(provider, 'agent', modelId)`.
+ * Kept as a thin wrapper because (a) most existing callers want the
+ * agent-tier model and (b) the per-capability resolver is the right
+ * primitive going forward, so new code should prefer that for clarity.
+ *
  * Throws if the model isn't in pi-ai's catalog (surfaces registry drift
  * between canonry and pi-ai versions at the earliest possible point).
  */
@@ -104,22 +173,67 @@ export function resolveModelForProvider(
   provider: AgentProviderId,
   modelId?: string,
 ): Model<never> {
+  return resolveModelForCapability(provider, LlmCapabilities.agent, modelId)
+}
+
+/**
+ * Resolve a pi-ai Model for the given (provider, capability) pair, with
+ * an optional caller-supplied model id that overrides the default.
+ *
+ * This is the primitive new code should call. The capability tier maps
+ * to a model per provider via `PROVIDER_MODELS` — same provider
+ * selection that Aero uses, but each feature picks an appropriately-
+ * tiered model (premium for agent reasoning, cheap for classification,
+ * mid-tier for synthesis) without hand-coding model names at every
+ * call site.
+ *
+ * Throws if the model isn't in pi-ai's catalog.
+ */
+export function resolveModelForCapability(
+  provider: AgentProviderId,
+  capability: LlmCapability,
+  modelIdOverride?: string,
+): Model<never> {
   const entry = AGENT_PROVIDERS[provider]
-  const id = modelId ?? entry.defaultModel
+  const id = modelIdOverride ?? PROVIDER_MODELS[provider][capability]
   const model = getModel(entry.piAiProvider as never, id as never) as Model<never> | undefined
   if (!model) {
     throw new Error(
       `Model '${id}' not found for pi-ai provider '${entry.piAiProvider}'. ` +
-        `Verify AGENT_PROVIDERS[${provider}].defaultModel against the installed @mariozechner/pi-ai catalog.`,
+        `Verify PROVIDER_MODELS[${provider}][${capability}] against the installed @mariozechner/pi-ai catalog.`,
     )
   }
   return model
 }
 
-/** Module-load sanity check — every registered default must resolve in pi-ai. */
+/**
+ * Module-load sanity check — for every provider, every capability tier
+ * MUST resolve to a real pi-ai model. This catches three categories of
+ * drift at import time, well before any user request triggers them:
+ *
+ *   1. A capability is added to `LlmCapabilities` but the per-provider
+ *      `PROVIDER_MODELS` mapping was forgotten for one of the providers.
+ *   2. A model id is bumped in `PROVIDER_MODELS` but no longer exists in
+ *      pi-ai's catalog (vendor renamed it, pi-ai version drifted, etc.).
+ *   3. `AGENT_PROVIDERS[id].defaultModel` diverged from
+ *      `PROVIDER_MODELS[id].agent` (would silently surface the wrong
+ *      model in the CLI / dashboard provider picker).
+ */
 export function validateAgentProviderRegistry(): void {
   for (const provider of listAgentProviders()) {
-    resolveModelForProvider(provider)
+    for (const capability of LLM_CAPABILITIES) {
+      resolveModelForCapability(provider, capability)
+    }
+    const entry = AGENT_PROVIDERS[provider]
+    const agentModel = PROVIDER_MODELS[provider][LlmCapabilities.agent]
+    if (entry.defaultModel !== agentModel) {
+      throw new Error(
+        `AGENT_PROVIDERS[${provider}].defaultModel ('${entry.defaultModel}') ` +
+          `does not match PROVIDER_MODELS[${provider}].agent ('${agentModel}'). ` +
+          `The two must stay in sync — defaultModel is a backward-compat ` +
+          `shortcut to the agent-tier model.`,
+      )
+    }
   }
 }
 
