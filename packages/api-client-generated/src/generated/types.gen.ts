@@ -2763,7 +2763,24 @@ export type GetApiV1ProjectsByNameRunsLatestResponse = GetApiV1ProjectsByNameRun
 export type GetApiV1RunsData = {
     body?: never;
     path?: never;
-    query?: never;
+    query?: {
+        /**
+         * Maximum number of records to return.
+         */
+        limit?: number;
+        /**
+         * Only return runs with created_at >= this ISO 8601 timestamp. Defaults to 30 days ago.
+         */
+        since?: string;
+        /**
+         * Set to "1" or "true" to include probe runs. Probes are excluded by default because they are operator/agent test runs and must not pollute dashboard aggregates.
+         */
+        includeProbe?: string;
+        /**
+         * Restrict results to a single run kind. Without this filter, integration syncs (bing-inspect, gsc-sync, ga-sync) can fill the default 500-row cap within minutes on busy projects and push answer-visibility runs out of the response.
+         */
+        kind?: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe';
+    };
     url: '/api/v1/runs';
 };
 
