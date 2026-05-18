@@ -100,9 +100,46 @@ jobs:
       - run: pnpm -r run build
         name: Build all packages (catches missing deps, bundler errors)
 
+  publish-smoke-test:
+    # Catches the failure mode where a workspace dep leaks into runtime
+    # `dependencies` (pnpm publish rewrites `workspace:*` → `0.0.0`,
+    # which 404s on `npm install` because private workspace packages
+    # aren't published). Packs canonry the same way the publish workflow
+    # does and runs `npm install` against the tarball from a scratch
+    # directory — exactly what external users do when they `npm i -g`.
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - run: pnpm --filter @ainyc/canonry build
+        name: Build canonry (required for pnpm pack)
+      - name: Pack canonry tarball
+        id: pack
+        shell: bash
+        run: |
+          cd packages/canonry
+          OUTPUT=$(pnpm pack --pack-destination /tmp)
+          TARBALL=$(echo "$OUTPUT" | grep -E '\.tgz$' | tail -1)
+          if [ -z "$TARBALL" ] || [ ! -f "$TARBALL" ]; then
+            echo "pnpm pack did not produce a tarball" >&2
+            echo "$OUTPUT" >&2
+            exit 1
+          fi
+          echo "tarball=$TARBALL" >> "$GITHUB_OUTPUT"
+      - name: Install canonry from tarball into scratch project
+        shell: bash
+        run: |
+          SCRATCH=$(mktemp -d)
+          cd "$SCRATCH"
+          npm init -y > /dev/null
+          npm install "${{ steps.pack.outputs.tarball }}"
+          ./node_modules/.bin/canonry --version
+
   validate:
     runs-on: ubuntu-latest
-    needs: [typecheck, test, lint, codegen-drift, build]
+    needs: [typecheck, test, lint, codegen-drift, build, publish-smoke-test]
     if: always()
     steps:
       - name: Verify all validate jobs succeeded
@@ -111,7 +148,8 @@ jobs:
              [ "${{ needs.test.result }}" != "success" ] || \
              [ "${{ needs.lint.result }}" != "success" ] || \
              [ "${{ needs.codegen-drift.result }}" != "success" ] || \
-             [ "${{ needs.build.result }}" != "success" ]; then
+             [ "${{ needs.build.result }}" != "success" ] || \
+             [ "${{ needs.publish-smoke-test.result }}" != "success" ]; then
             echo "One or more validate jobs failed"
             exit 1
           fi
