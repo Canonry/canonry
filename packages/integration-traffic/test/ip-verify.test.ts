@@ -138,22 +138,31 @@ describe('verifyIpForRule', () => {
   })
 
   it('verifies a known Anthropic ClaudeBot IPv4 inside the bundled prefix', () => {
-    // 160.79.104.0/23 is the AS399358 prefix bundled in
-    // anthropic.json. Pick an address inside it.
+    // 216.73.216.0/22 is the AWS-ANTHROPIC prefix — empirical Cloud
+    // Run logs show all real ClaudeBot traffic comes from here.
+    expect(verifyIpForRule('216.73.216.76', 'anthropic-claudebot')).toBe(true)
+    expect(verifyIpForRule('216.73.217.125', 'anthropic-claudebot')).toBe(true)
+    expect(verifyIpForRule('216.73.219.255', 'anthropic-claudebot')).toBe(true)
+    // 160.79.104.0/21 is Anthropic's own ARIN allocation.
     expect(verifyIpForRule('160.79.104.5', 'anthropic-claudebot')).toBe(true)
-    // 209.249.57.0/24 (AS60808) is also Anthropic — bundled too.
-    expect(verifyIpForRule('209.249.57.10', 'anthropic-claudebot')).toBe(true)
+    expect(verifyIpForRule('160.79.111.254', 'anthropic-claudebot')).toBe(true)
   })
 
   it('does not verify a random IP outside Anthropic prefixes', () => {
     expect(verifyIpForRule('1.2.3.4', 'anthropic-claudebot')).toBe(false)
-    // Adjacent /23 outside the allocation — must not match.
-    expect(verifyIpForRule('160.79.106.1', 'anthropic-claudebot')).toBe(false)
+    // Adjacent /22 outside the AWS-ANTHROPIC allocation.
+    expect(verifyIpForRule('216.73.220.1', 'anthropic-claudebot')).toBe(false)
+    // Adjacent /21 outside Anthropic's own allocation.
+    expect(verifyIpForRule('160.79.112.1', 'anthropic-claudebot')).toBe(false)
+    // bgp.tools had once attributed 209.249.57.0/24 to Anthropic's
+    // AS60808; ARIN says it's Mitel Networks. Must NOT verify.
+    expect(verifyIpForRule('209.249.57.10', 'anthropic-claudebot')).toBe(false)
   })
 
-  it('verifies Anthropic IPv6 (AS399358 announces v6 too)', () => {
+  it('verifies Anthropic IPv6 (entire /32 ANTHROPIC-V6 allocation)', () => {
     expect(verifyIpForRule('2607:6bc0::1', 'anthropic-claudebot')).toBe(true)
     expect(verifyIpForRule('2607:6bc0:11::cafe', 'anthropic-claudebot')).toBe(true)
+    expect(verifyIpForRule('2607:6bc0:ffff:ffff::1', 'anthropic-claudebot')).toBe(true)
   })
 
   it('returns false for a rule id without published ranges', () => {

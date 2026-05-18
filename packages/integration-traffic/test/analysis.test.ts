@@ -71,13 +71,13 @@ describe('traffic analysis', () => {
     })
   })
 
-  it('promotes ClaudeBot to `verified` when the IP is in Anthropic\'s bundled prefixes', () => {
-    // 160.79.104.0/23 is in the bundled anthropic.json (BGP-announced
-    // by Anthropic's AS399358). A ClaudeBot UA from that range is the
-    // real crawler.
+  it('promotes ClaudeBot to `verified` when the IP is in Anthropic\'s AWS-allocated crawler prefix', () => {
+    // 216.73.216.0/22 is the AWS-ANTHROPIC ARIN allocation —
+    // empirical Cloud Run logs (canonry-landing 5/2026) show every
+    // real ClaudeBot request comes from here.
     expect(classifyCrawler(event({
       userAgent: 'Mozilla/5.0 (compatible; ClaudeBot/1.0; +claudebot@anthropic.com)',
-      remoteIp: '160.79.104.42',
+      remoteIp: '216.73.216.76',
     }))).toMatchObject({
       botId: 'anthropic-claudebot',
       verificationStatus: 'verified',
