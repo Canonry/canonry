@@ -414,7 +414,13 @@ export function TrafficSourceDetailPage() {
               onToggle={() => toggleSeries('ai-referral')}
             />
           </div>
-          {chartData.length === 0 ? (
+          {eventsQuery.isError ? (
+            <p className="py-12 text-center text-xs text-rose-400">
+              Failed to load events: {eventsQuery.error instanceof Error ? eventsQuery.error.message : 'Unknown error'}
+            </p>
+          ) : eventsQuery.isLoading ? (
+            <p className="py-12 text-center text-xs text-zinc-500">Loading events…</p>
+          ) : chartData.length === 0 ? (
             <p className="py-12 text-center text-xs text-zinc-500">No events in this window.</p>
           ) : (
             <div className="h-72">

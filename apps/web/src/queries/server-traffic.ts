@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
 
 import type { TrafficSourceStatus } from '@ainyc/canonry-contracts'
@@ -112,11 +113,28 @@ export function useServerTrafficEvents(
   project: string | null,
   filters: ServerTrafficEventsFilters,
 ) {
+  // CRITICAL: memoize the query params on `filters.sinceMinutes`, NOT
+  // on every render. `paramsForFilters` computes `since` via
+  // `Date.now() - sinceMinutes * 60_000`, so calling it inline inside
+  // useQuery on every render produced a new ISO string → new query key
+  // → react-query treated it as a fresh query → fetched → re-rendered
+  // with new data → new query key → fetched again. Infinite loop, with
+  // every cached response retained for cacheTime (5 min default) so
+  // browser memory climbed monotonically.
+  //
+  // Memoizing snaps `since` to the moment `sinceMinutes` changed (or
+  // the page mounted), so the query key is stable until the user picks
+  // a different window. The data is still "last N minutes from now" in
+  // intent — it just doesn't tick forward on every render frame.
+  const stableQuery = useMemo(
+    () => paramsForFilters(filters),
+    [filters.kind, filters.sourceId, filters.sinceMinutes, filters.limit],
+  )
   return useQuery({
     ...getApiV1ProjectsByNameTrafficEventsOptions({
       client: heyClient,
       path: { name: project ?? '' },
-      query: paramsForFilters(filters),
+      query: stableQuery,
     }),
     enabled: Boolean(project),
     staleTime: TRAFFIC_STALE_MS,
