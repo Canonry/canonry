@@ -13,6 +13,16 @@ export const RUNS_STALE_MS = 30_000
 // end-to-end. Trade-off: ~30 req/min from one tab to a SQLite SELECT.
 export const PROJECTS_REFRESH_MS = 2_000
 
+// Per-project detail (queries, competitors, timeline, snapshots) polls
+// slower than the sidebar because each refetch fans out across ~9
+// endpoints (queries / competitors / timeline / latest+previous run
+// detail / GSC / Bing / insights / overview). 5s gives CLI-driven
+// `canonry query add` / `canonry competitor add` visible feedback on
+// the project page without the load multiplier of a 2s poll. Defaults
+// to background-paused via React Query's `refetchIntervalInBackground:
+// false` so idle tabs don't keep pulling.
+export const PROJECT_DETAIL_REFRESH_MS = 5_000
+
 export function createQueryClient() {
   return new QueryClient({
     defaultOptions: {
