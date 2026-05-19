@@ -19,7 +19,7 @@ import { buildProjectCommandCenter } from '../build-dashboard.js'
 import type { ProjectData } from '../build-dashboard.js'
 import type { ProjectCommandCenterVm } from '../view-models.js'
 import { useInitialDashboard } from '../contexts/dashboard-context.js'
-import { RUNS_STALE_MS, STATIC_VISIBILITY_STALE_MS } from './query-client.js'
+import { PROJECT_DETAIL_REFRESH_MS, RUNS_STALE_MS, STATIC_VISIBILITY_STALE_MS } from './query-client.js'
 
 /**
  * Heavy dashboard hook scoped to a single project. Fetches everything
@@ -156,6 +156,14 @@ export function useProjectDashboard(projectName: string | null | undefined) {
     enabled: !!project && !!projectName && runsQuery.isSuccess,
     staleTime: STATIC_VISIBILITY_STALE_MS,
     refetchOnWindowFocus: 'always',
+    // Poll so CLI-driven writes (`canonry query add`, `canonry competitor
+    // add`, etc.) surface on the open project page within a few seconds
+    // without the user having to refresh. The slim portfolio hook polls
+    // `/projects` every 2s for the same reason — the per-project detail
+    // got missed when `useProjectDashboard` was split out. Background
+    // tabs pause polling (React Query default behavior) so idle pages
+    // don't keep pulling.
+    refetchInterval: PROJECT_DETAIL_REFRESH_MS,
   })
 
   const commandCenter = useMemo<ProjectCommandCenterVm | null>(() => {
