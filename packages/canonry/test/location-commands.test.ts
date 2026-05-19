@@ -376,4 +376,55 @@ describe('location CLI commands', () => {
     const { triggerRun } = await import('../src/commands/run.js')
     await expect(() => triggerRun('test-proj', { allLocations: true })).rejects.toThrow(/No locations configured/)
   })
+
+  it('run --all --all-locations is per-project-smart — drops the flag for 0-location projects', async () => {
+    // The single-project `cnry run <proj> --all-locations` against a
+    // 0-location project still fails loud (the test above). But in a
+    // multi-project `--all` loop, one mis-configured project shouldn't
+    // take down the whole sweep — drop `allLocations` per-project for
+    // 0-location projects and let them run a single locationless sweep.
+    // Reported as "🔧 Sweep activity FAILED — No locations configured"
+    // on demand-iq + gjelina-hotel in 2026-05.
+    await client.putProject('no-loc-1', {
+      displayName: 'No Loc 1',
+      canonicalDomain: 'no-loc-1.example.com',
+      country: 'US',
+      language: 'en',
+    })
+    await client.putProject('no-loc-2', {
+      displayName: 'No Loc 2',
+      canonicalDomain: 'no-loc-2.example.com',
+      country: 'US',
+      language: 'en',
+    })
+
+    const { triggerRunAll } = await import('../src/commands/run.js')
+    const logs: string[] = []
+    const origLog = console.log
+    console.log = (...args: unknown[]) => logs.push(args.join(' '))
+    try {
+      await triggerRunAll({ allLocations: true, format: 'json' })
+    } finally {
+      console.log = origLog
+    }
+
+    const jsonLine = logs.find(l => {
+      try { JSON.parse(l); return true } catch { return false }
+    })
+    expect(jsonLine, 'should have a JSON log line').toBeDefined()
+    const parsed = JSON.parse(jsonLine) as Array<{ project: string; runId: string; status: string; error?: string }>
+
+    // Both no-location projects should have queued successfully — before
+    // this fix, both would have returned `status: 'error'` with the
+    // "No locations configured for this project" message.
+    const byProject = new Map(parsed.map(r => [r.project, r]))
+    expect(byProject.get('no-loc-1')?.status, 'no-loc-1 should not error').not.toBe('error')
+    expect(byProject.get('no-loc-2')?.status, 'no-loc-2 should not error').not.toBe('error')
+    expect(byProject.get('no-loc-1')?.error, 'no-loc-1 should have no error message').toBeUndefined()
+    expect(byProject.get('no-loc-2')?.error, 'no-loc-2 should have no error message').toBeUndefined()
+    // And both should have a valid runId — the API returned a single-
+    // object response (201) once `allLocations` was dropped per-project.
+    expect(byProject.get('no-loc-1')?.runId).toBeTruthy()
+    expect(byProject.get('no-loc-2')?.runId).toBeTruthy()
+  })
 })
