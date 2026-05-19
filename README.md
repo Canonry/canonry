@@ -40,6 +40,24 @@ cnry evidence my-site
 cnry insights my-site
 ```
 
+## Or set it up with your AI coding agent
+
+Drop this into Claude Code, Codex, or any shell-capable agent. It installs canonry, runs your first sweep, audits your site for AEO readiness, and stops for your sign-off before taking any action on your behalf:
+
+```text
+Set up canonry for me. Canonry is an open-source platform that tracks how AI answer engines (Gemini, ChatGPT, Claude, Perplexity) cite my site.
+
+1. Ask me for: my domain, 3–5 queries I want to track, and which provider I want to start with (gemini / openai / claude / perplexity). Wait for my answers before proceeding.
+2. Run `npm install -g @ainyc/canonry`.
+3. Run `cnry init` in this directory. This scaffolds config and installs the canonry skills into `.claude/skills/canonry/`, `.claude/skills/aero/`, `.codex/skills/canonry/`, and `.codex/skills/aero/`. If the skills aren't there afterwards, run `cnry skills install`.
+4. Read the operator playbook at `.claude/skills/canonry/SKILL.md` and follow it end-to-end: create the project with my domain and queries, wire up the provider key I chose, and trigger the first sweep.
+5. Open my browser to the dashboard so I can see the run results.
+6. Switch to the analyst playbook at `.claude/skills/aero/SKILL.md` and run a baseline AEO audit on my behalf. Read citation evidence with `cnry evidence <project> --format json`, then run `npx @ainyc/aeo-audit "<my-domain>" --format json` for a site-readiness score.
+7. Summarize what you found: my mention and citation rates per provider, the top 3 queries I'm not yet cited on, and the highest-impact site issues from the audit. Ask me for permission before taking any further action, such as drafting content, submitting URLs for indexing, editing files, or anything else that changes my site.
+```
+
+One-click copy at [canonry.ai](https://canonry.ai).
+
 ## If you get stuck
 
 | Problem | Fix |
