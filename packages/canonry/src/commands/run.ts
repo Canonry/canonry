@@ -123,7 +123,10 @@ export async function triggerRun(project: string, opts?: { provider?: string; qu
 
 export async function triggerRunAll(opts?: { provider?: string; wait?: boolean; format?: string; allLocations?: boolean; noLocation?: boolean }): Promise<void> {
   const client = getClient()
-  const projects = await client.listProjects() as Array<{ name: string }>
+  // Use full ProjectDto (not Array<{name}>) so we can check each
+  // project's `locations` per-iteration. `listProjects()` already returns
+  // the full DTO including `locations` and `defaultLocation`.
+  const projects = await client.listProjects()
 
   if (projects.length === 0) {
     if (opts?.format === 'json') {
@@ -134,22 +137,37 @@ export async function triggerRunAll(opts?: { provider?: string; wait?: boolean; 
     return
   }
 
-  const body: Record<string, unknown> = {}
+  const baseBody: Record<string, unknown> = {}
   if (opts?.provider) {
     const providerInputs = opts.provider.split(',').map(s => s.trim()).filter(Boolean)
     const resolved = providerInputs.flatMap(p => resolveProviderInput(p))
-    body.providers = resolved.length > 0 ? resolved : providerInputs
+    baseBody.providers = resolved.length > 0 ? resolved : providerInputs
   }
   if (opts?.allLocations) {
-    body.allLocations = true
+    baseBody.allLocations = true
   }
   if (opts?.noLocation) {
-    body.noLocation = true
+    baseBody.noLocation = true
   }
 
   const results: Array<{ project: string; runId: string; status: string; error?: string }> = []
 
   for (const p of projects) {
+    // Per-project body: drop `allLocations` when the project has no
+    // locations configured. The API correctly 400s `allLocations: true`
+    // on a 0-location project (the flag requests fan-out across a
+    // dimension that doesn't exist), but applying that strictly in a
+    // multi-project `--all` loop means one mis-configured project takes
+    // down the rest of the sweep. We drop the flag locally — the
+    // remaining body falls through to a single locationless run, same
+    // as `cnry run <project>` would do on the same project — and let
+    // the loud 400 surface only when a user explicitly aimed
+    // `--all-locations` at a single 0-location project.
+    const body: Record<string, unknown> = { ...baseBody }
+    if (body.allLocations && p.locations.length === 0) {
+      delete body.allLocations
+    }
+
     try {
       const run = await client.triggerRun(p.name, body) as { id: string; status: string }
       results.push({ project: p.name, runId: run.id, status: run.status })
