@@ -377,26 +377,30 @@ describe('location CLI commands', () => {
     await expect(() => triggerRun('test-proj', { allLocations: true })).rejects.toThrow(/No locations configured/)
   })
 
-  it('run --all --all-locations is per-project-smart — drops the flag for 0-location projects', async () => {
-    // The single-project `cnry run <proj> --all-locations` against a
-    // 0-location project still fails loud (the test above). But in a
-    // multi-project `--all` loop, one mis-configured project shouldn't
-    // take down the whole sweep — drop `allLocations` per-project for
-    // 0-location projects and let them run a single locationless sweep.
-    // Reported as "🔧 Sweep activity FAILED — No locations configured"
-    // on demand-iq + gjelina-hotel in 2026-05.
-    await client.putProject('no-loc-1', {
-      displayName: 'No Loc 1',
-      canonicalDomain: 'no-loc-1.example.com',
+  it('run --all --all-locations handles mixed-config portfolios correctly', async () => {
+    // Two regressions this case guards:
+    //   1. 0-location projects (demand-iq, gjelina-hotel in the original
+    //      report) shouldn't 400 — the multi-project loop drops the flag
+    //      per-project so they run a single locationless sweep.
+    //   2. Projects with locations should still fan out and ALL their
+    //      per-location runs should appear in the results, not collapse
+    //      into a single `{ runId: undefined }` row. Pre-existing cast
+    //      bug — the cast `as { id, status }` silently mishandled the
+    //      207-array response shape.
+    await client.putProject('no-loc', {
+      displayName: 'No Loc',
+      canonicalDomain: 'no-loc.example.com',
       country: 'US',
       language: 'en',
     })
-    await client.putProject('no-loc-2', {
-      displayName: 'No Loc 2',
-      canonicalDomain: 'no-loc-2.example.com',
+    await client.putProject('with-loc', {
+      displayName: 'With Loc',
+      canonicalDomain: 'with-loc.example.com',
       country: 'US',
       language: 'en',
     })
+    await client.addLocation('with-loc', { label: 'nyc', city: 'New York', region: 'NY', country: 'US' })
+    await client.addLocation('with-loc', { label: 'lax', city: 'Los Angeles', region: 'CA', country: 'US' })
 
     const { triggerRunAll } = await import('../src/commands/run.js')
     const logs: string[] = []
@@ -412,19 +416,20 @@ describe('location CLI commands', () => {
       try { JSON.parse(l); return true } catch { return false }
     })
     expect(jsonLine, 'should have a JSON log line').toBeDefined()
-    const parsed = JSON.parse(jsonLine) as Array<{ project: string; runId: string; status: string; error?: string }>
+    const parsed = JSON.parse(jsonLine) as Array<{ project: string; runId: string; status: string; location: string | null; error?: string }>
 
-    // Both no-location projects should have queued successfully — before
-    // this fix, both would have returned `status: 'error'` with the
-    // "No locations configured for this project" message.
-    const byProject = new Map(parsed.map(r => [r.project, r]))
-    expect(byProject.get('no-loc-1')?.status, 'no-loc-1 should not error').not.toBe('error')
-    expect(byProject.get('no-loc-2')?.status, 'no-loc-2 should not error').not.toBe('error')
-    expect(byProject.get('no-loc-1')?.error, 'no-loc-1 should have no error message').toBeUndefined()
-    expect(byProject.get('no-loc-2')?.error, 'no-loc-2 should have no error message').toBeUndefined()
-    // And both should have a valid runId — the API returned a single-
-    // object response (201) once `allLocations` was dropped per-project.
-    expect(byProject.get('no-loc-1')?.runId).toBeTruthy()
-    expect(byProject.get('no-loc-2')?.runId).toBeTruthy()
+    // Three rows total: one for `no-loc` (locationless), two for
+    // `with-loc` (one per configured location).
+    expect(parsed).toHaveLength(3)
+
+    const byKey = new Map(parsed.map(r => [`${r.project}:${r.location ?? '—'}`, r]))
+    expect(byKey.get('no-loc:—')?.status, 'no-loc should not error').not.toBe('error')
+    expect(byKey.get('no-loc:—')?.runId, 'no-loc should have a runId').toBeTruthy()
+    expect(byKey.get('no-loc:—')?.error, 'no-loc should have no error').toBeUndefined()
+
+    expect(byKey.get('with-loc:nyc')?.runId, 'with-loc nyc fan-out should have a runId').toBeTruthy()
+    expect(byKey.get('with-loc:lax')?.runId, 'with-loc lax fan-out should have a runId').toBeTruthy()
+    expect(byKey.get('with-loc:nyc')?.status, 'with-loc nyc should not error').not.toBe('error')
+    expect(byKey.get('with-loc:lax')?.status, 'with-loc lax should not error').not.toBe('error')
   })
 })
