@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 
 import {
@@ -41,8 +41,9 @@ import { ProviderBadge } from './components/shared/ProviderBadge.js'
 import { StatusBadge } from './components/shared/StatusBadge.js'
 import { Drawer } from './components/layout/Drawer.js'
 import { EvidenceDetailModal } from './components/layout/EvidenceDetailModal.js'
-import { findEvidenceById, findRunById } from './mock-data.js'
+import { findEvidenceForModal, findRunById } from './mock-data.js'
 import { useDashboardOverview as useDashboard } from './queries/use-dashboard-overview.js'
+import { useProjectDashboard } from './queries/use-project-dashboard.js'
 import { useHealth } from './queries/use-health.js'
 import { useRunDetail } from './queries/use-run-detail.js'
 import { useDrawer } from './hooks/use-drawer.js'
@@ -355,7 +356,32 @@ export function RootLayout() {
     && safeDashboard.portfolioOverview.projects.length === 0
 
   const selectedRun = runId && safeDashboard ? findRunById(safeDashboard, runId) : undefined
-  const selectedEvidenceContext = evidenceId && safeDashboard ? findEvidenceById(safeDashboard, evidenceId) : undefined
+
+  // Evidence lookup spans two data sources because `useDashboard()` here is
+  // the slim portfolio hook — its per-project `visibilityEvidence` is
+  // intentionally empty (see use-dashboard-overview.ts). The full evidence
+  // list is only built by `useProjectDashboard`, which the ProjectPage uses
+  // to render the table whose "View" button writes `?evidenceId=…` into the
+  // URL. Without this second lookup the modal silently never opens on a
+  // project route.
+  //
+  // Subscribing to `useProjectDashboard` here is free in steady state — its
+  // query keys overlap with ProjectPage's, so React Query dedupes the
+  // fetches via the shared cache.
+  const projectIdFromRoute = useMemo(() => {
+    const match = location.pathname.match(/^\/projects\/([^/]+)/)
+    return match?.[1] ?? null
+  }, [location.pathname])
+  const currentProjectName = useMemo(() => {
+    if (!projectIdFromRoute || !safeDashboard) return null
+    return safeDashboard.projects.find(p => p.project.id === projectIdFromRoute)?.project.name ?? null
+  }, [projectIdFromRoute, safeDashboard])
+  const { commandCenter: currentProjectCommandCenter } = useProjectDashboard(currentProjectName)
+
+  const selectedEvidenceContext = useMemo(() => {
+    if (!evidenceId) return undefined
+    return findEvidenceForModal(currentProjectCommandCenter, safeDashboard, evidenceId)
+  }, [evidenceId, currentProjectCommandCenter, safeDashboard])
 
   // Derive breadcrumb label from current location
   const breadcrumbLabel = (() => {

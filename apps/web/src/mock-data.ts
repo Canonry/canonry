@@ -1176,3 +1176,33 @@ export function findEvidenceById(
 
   return undefined
 }
+
+/**
+ * Cross-source evidence lookup for the modal listener in `App.tsx`.
+ *
+ * The slim `useDashboardOverview` hook intentionally leaves per-project
+ * `visibilityEvidence` empty (see `queries/use-dashboard-overview.ts`).
+ * The full evidence list lives on the per-project `commandCenter` built
+ * by `useProjectDashboard`, which is what ProjectPage uses to render the
+ * EvidenceTable whose "View" button writes `?evidenceId=…` into the URL.
+ *
+ * So the modal lookup tries the project-specific source first, then
+ * falls back to the dashboard walk (still useful if the slim shape ever
+ * starts carrying evidence for cross-project deep links).
+ */
+export function findEvidenceForModal(
+  commandCenter: ProjectCommandCenterVm | null | undefined,
+  dashboard: DashboardVm | null | undefined,
+  evidenceId: string,
+): { project: ProjectCommandCenterVm; evidence: CitationInsightVm } | undefined {
+  if (commandCenter) {
+    const evidence = commandCenter.visibilityEvidence.find((entry) => entry.id === evidenceId)
+    if (evidence) {
+      return { project: commandCenter, evidence }
+    }
+  }
+  if (dashboard) {
+    return findEvidenceById(dashboard, evidenceId)
+  }
+  return undefined
+}
