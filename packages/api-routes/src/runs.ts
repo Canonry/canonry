@@ -80,8 +80,25 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
     let resolvedLocation: LocationContext | null | undefined
     const projectLocations = project.locations
 
-    if (body.noLocation) {
-      resolvedLocation = null // explicitly no location
+    // `allLocations: true` on a project with zero configured locations is a
+    // common over-include from agents (Aero, Claude Code, scripts) that pass
+    // the optional field by reflex. Rather than failing the run loud (which
+    // makes the agent's "sweep everything" intent unactionable), degrade
+    // gracefully to a single locationless run — same outcome the operator
+    // would get by passing `noLocation: true` or omitting both flags on an
+    // unlocated project. The audit-log channel below still surfaces who
+    // triggered it so the noisy caller can be hunted down if needed.
+    const allLocationsRequestedButEmpty = body.allLocations === true && projectLocations.length === 0
+    if (allLocationsRequestedButEmpty) {
+      app.log.info({
+        projectId: project.id,
+        projectName: project.name,
+        trigger,
+      }, 'runs.all-locations-empty-fallback')
+    }
+
+    if (body.noLocation || allLocationsRequestedButEmpty) {
+      resolvedLocation = null // explicitly no location, or fallback from allLocations-on-empty
     } else if (body.allLocations) {
       // allLocations triggers one run per location — handled below
     } else if (body.location) {
@@ -107,11 +124,11 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
     // calls (manual + scheduled, two CLI shells, etc.) can no longer stack
     // duplicate sweeps on the same project, double-billing provider calls
     // and racing snapshots into the same window.
-    if (body.allLocations) {
-      if (projectLocations.length === 0) {
-        throw validationError('No locations configured for this project')
-      }
-
+    //
+    // Empty-locations case is the `allLocationsRequestedButEmpty` branch
+    // above — it falls through to the single locationless run below
+    // instead of hitting this fan-out path.
+    if (body.allLocations && !allLocationsRequestedButEmpty) {
       const result = app.db.transaction((tx) => {
         const activeRun = tx
           .select({ id: runs.id })

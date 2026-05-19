@@ -365,7 +365,14 @@ describe('location CLI commands', () => {
     }
   })
 
-  it('run --all-locations returns an error when no locations configured', async () => {
+  it('run --all-locations on a 0-location project falls back to a single locationless run', async () => {
+    // Was previously a hard 400. Agents (Aero, Claude Code, external scripts)
+    // routinely pass `allLocations: true` by reflex when triggering sweeps —
+    // failing loud just makes the agent's "sweep everything" intent
+    // unactionable on unlocated projects. We now treat
+    // `allLocations + projectLocations.length === 0` as a no-op for the flag
+    // and queue one locationless run (same outcome as `noLocation: true` or
+    // omitting both). See `runs.all-locations-empty-fallback` server log.
     await client.putProject('test-proj', {
       displayName: 'Test',
       canonicalDomain: 'example.com',
@@ -374,6 +381,23 @@ describe('location CLI commands', () => {
     })
 
     const { triggerRun } = await import('../src/commands/run.js')
-    await expect(() => triggerRun('test-proj', { allLocations: true })).rejects.toThrow(/No locations configured/)
+    const logs: string[] = []
+    const origLog = console.log
+    console.log = (...args: unknown[]) => logs.push(args.join(' '))
+    try {
+      await triggerRun('test-proj', { allLocations: true, format: 'json' })
+    } finally {
+      console.log = origLog
+    }
+
+    // Single-object response (not the 207 multi-location array shape).
+    const jsonLine = logs.find(l => {
+      try { JSON.parse(l); return true } catch { return false }
+    })
+    expect(jsonLine, 'should have a JSON log line').toBeDefined()
+    const parsed = JSON.parse(jsonLine) as { id: string; status: string; location: string | null }
+    expect(Array.isArray(parsed), 'response should be a single object, not the multi-location array').toBe(false)
+    expect(parsed.id, 'run should have an id').toBeDefined()
+    expect(parsed.location, 'fallback run should be locationless').toBeNull()
   })
 })
