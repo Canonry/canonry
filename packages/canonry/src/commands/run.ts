@@ -150,7 +150,12 @@ export async function triggerRunAll(opts?: { provider?: string; wait?: boolean; 
     baseBody.noLocation = true
   }
 
-  const results: Array<{ project: string; runId: string; status: string; error?: string }> = []
+  // `location: string | null` distinguishes the multi-location fan-out
+  // rows (one per configured location) from locationless / single-
+  // location runs. JSON output gains this field; the table output adds
+  // a corresponding LOCATION column. Both are additive — existing JSON
+  // consumers that ignore unknown fields keep working.
+  const results: Array<{ project: string; runId: string; status: string; location: string | null; error?: string }> = []
 
   for (const p of projects) {
     // Per-project body: drop `allLocations` when the project has no
@@ -169,11 +174,26 @@ export async function triggerRunAll(opts?: { provider?: string; wait?: boolean; 
     }
 
     try {
-      const run = await client.triggerRun(p.name, body) as { id: string; status: string }
-      results.push({ project: p.name, runId: run.id, status: run.status })
+      // Response shape varies by code path:
+      //   - `allLocations: true` + locations present → 207 + RunDto[] (one per location)
+      //   - everything else → 201 + RunDto (single run)
+      // Normalize to an array so we record one results row per dispatched
+      // run. Without this, multi-location projects had their entire fan-out
+      // collapsed into `{ runId: undefined, status: undefined }` and
+      // displayed as `(failed)` even when every per-location run was queued.
+      const response = await client.triggerRun(p.name, body)
+      const dispatched = Array.isArray(response) ? response : [response]
+      for (const r of dispatched) {
+        results.push({
+          project: p.name,
+          runId: r.id,
+          status: r.status,
+          location: r.location ?? null,
+        })
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
-      results.push({ project: p.name, runId: '', status: 'error', error: msg })
+      results.push({ project: p.name, runId: '', status: 'error', location: null, error: msg })
     }
   }
 
@@ -194,13 +214,29 @@ export async function triggerRunAll(opts?: { provider?: string; wait?: boolean; 
     return
   }
 
-  console.log(`Triggered ${results.length} run(s):\n`)
-  console.log('  PROJECT                          RUN ID                                STATUS')
-  console.log('  ───────────────────────────────  ────────────────────────────────────  ──────────')
-  for (const r of results) {
-    const proj = r.project.padEnd(31)
-    const id = (r.runId || '(failed)').padEnd(36)
-    console.log(`  ${proj}  ${id}  ${r.status}`)
+  // Show a LOCATION column only when at least one row has a location set
+  // — keeps the older single-location-everywhere display clean and adds
+  // the column the moment any per-location fan-out happens in the sweep.
+  const showLocationColumn = results.some(r => r.location !== null)
+  const projectCount = new Set(results.map(r => r.project)).size
+  console.log(`Triggered ${results.length} run(s) across ${projectCount} project(s):\n`)
+  if (showLocationColumn) {
+    console.log('  PROJECT                          LOCATION         RUN ID                                STATUS')
+    console.log('  ───────────────────────────────  ───────────────  ────────────────────────────────────  ──────────')
+    for (const r of results) {
+      const proj = r.project.padEnd(31)
+      const loc = (r.location ?? '—').padEnd(15)
+      const id = (r.runId || '(failed)').padEnd(36)
+      console.log(`  ${proj}  ${loc}  ${id}  ${r.status}`)
+    }
+  } else {
+    console.log('  PROJECT                          RUN ID                                STATUS')
+    console.log('  ───────────────────────────────  ────────────────────────────────────  ──────────')
+    for (const r of results) {
+      const proj = r.project.padEnd(31)
+      const id = (r.runId || '(failed)').padEnd(36)
+      console.log(`  ${proj}  ${id}  ${r.status}`)
+    }
   }
 }
 
