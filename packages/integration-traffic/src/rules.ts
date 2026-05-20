@@ -37,9 +37,11 @@ export const DEFAULT_AI_CRAWLER_RULES: AiCrawlerRule[] = [
     // Anthropic ships several Claude-* crawlers (ClaudeBot for training,
     // Claude-Web for chat fetches, Claude-SearchBot for search). The
     // `Claude-` prefix + `Bot/` suffix is the stable shape — pattern is
-    // permissive enough to catch new Claude-* variants as Anthropic
+    // permissive enough to catch new Claude-*Bot variants as Anthropic
     // adds them, without matching unrelated UAs that happen to mention
-    // "claude".
+    // "claude". The per-user fetcher `Claude-User` has no `Bot/` suffix
+    // and is intentionally NOT matched here — it routes through the
+    // separate `claude-user` rule below (purpose: 'user-agent').
     userAgentPatterns: [
       /ClaudeBot\//i,
       /Claude-Web\//i,
@@ -47,6 +49,21 @@ export const DEFAULT_AI_CRAWLER_RULES: AiCrawlerRule[] = [
       /Claude-[A-Z]+Bot\//i,
       /anthropic-ai/i,
     ],
+  },
+  {
+    // Anthropic's on-behalf-of-user fetcher: Claude fetches a URL when
+    // a person asks about it mid-conversation (citation click, "read
+    // this page" prompt). Distinct from ClaudeBot (training crawl) —
+    // same operator, opposite operational signal, mirroring OpenAI's
+    // GPTBot vs. ChatGPT-User split. The `anthropic-claudebot` rule
+    // above does not match `Claude-User/` (its `Claude-[A-Z]+Bot/`
+    // pattern needs a `Bot/` suffix), so this is the only rule that
+    // routes it — into the user-fetch bucket, not bulk crawl.
+    id: 'claude-user',
+    operator: 'Anthropic',
+    product: 'Claude-User',
+    purpose: 'user-agent',
+    userAgentPatterns: [/Claude-User\//i],
   },
   {
     id: 'perplexity-bot',
@@ -230,6 +247,7 @@ export const DEFAULT_AI_CRAWLER_USER_AGENT_SUBSTRINGS = [
   'ClaudeBot/',
   'Claude-Web/',
   'Claude-SearchBot/',
+  'Claude-User/',
   'anthropic-ai',
   'PerplexityBot/',
   'Google-Extended',

@@ -540,6 +540,11 @@ describe('traffic analysis', () => {
     expect(classifyAiUserFetch(event({
       userAgent: 'Mozilla/5.0 (compatible; OAI-SearchBot/1.0; +https://openai.com/searchbot)',
     }))).toBeNull()
+    // ClaudeBot is the training crawler — the `claude-user` rule's
+    // `/Claude-User\//i` pattern must not swallow it.
+    expect(classifyAiUserFetch(event({
+      userAgent: 'Mozilla/5.0 (compatible; ClaudeBot/1.0; +claudebot@anthropic.com)',
+    }))).toBeNull()
   })
 
   it('routes MistralAI-User to ai-user-fetch and MistralBot to crawler (disjoint)', () => {
@@ -564,6 +569,33 @@ describe('traffic analysis', () => {
       botId: 'mistral-bot',
       operator: 'Mistral AI',
       product: 'MistralBot',
+    })
+  })
+
+  it('routes Claude-User to ai-user-fetch, not crawler', () => {
+    // Anthropic's on-behalf-of-user fetcher. The `anthropic-claudebot`
+    // crawler rule does not match `Claude-User/` (its `Claude-[A-Z]+Bot/`
+    // pattern needs a `Bot/` suffix), so before the `claude-user` rule
+    // this UA fell through to the `unknown` bucket entirely.
+    const evt = event({ userAgent: 'Mozilla/5.0 (compatible; Claude-User/1.0; +Anthropic)' })
+    expect(classifyCrawler(evt)).toBeNull()
+    expect(classifyAiUserFetch(evt)).toMatchObject({
+      botId: 'claude-user',
+      operator: 'Anthropic',
+      product: 'Claude-User',
+      verificationStatus: 'claimed_unverified',
+    })
+  })
+
+  it('promotes Claude-User to `verified` when the source IP is in Anthropic\'s range', () => {
+    // 216.73.216.0/22 is the AWS-ANTHROPIC ARIN allocation; the bundled
+    // anthropic.json verifies both ClaudeBot and Claude-User.
+    expect(classifyAiUserFetch(event({
+      userAgent: 'Mozilla/5.0 (compatible; Claude-User/1.0; +Anthropic)',
+      remoteIp: '216.73.216.76',
+    }))).toMatchObject({
+      botId: 'claude-user',
+      verificationStatus: 'verified',
     })
   })
 

@@ -17,11 +17,13 @@
  *   - OpenAI OAI-SearchBot   (openai.com/searchbot.json)
  *   - PerplexityBot          (www.perplexity.ai/perplexitybot.json)
  *   - Perplexity-User        (www.perplexity.ai/perplexity-user.json)
- *   - ClaudeBot              (ARIN RDAP — Anthropic does not ship a
+ *   - ClaudeBot, Claude-User (ARIN RDAP — Anthropic does not ship a
  *                             machine-readable JSON; we use the three
  *                             networks registered to Anthropic, PBC
  *                             at ARIN. The crawler block is
- *                             AWS-ANTHROPIC 216.73.216.0/22.)
+ *                             AWS-ANTHROPIC 216.73.216.0/22. Both the
+ *                             crawler and the per-user fetcher verify
+ *                             against this shared set.)
  *
  * **Not covered (yet).** Meta, ByteDance, Apple, DeepSeek, Mistral,
  * DuckDuckGo, Yandex, Baidu, Amazon — these either don't publish a
@@ -100,10 +102,12 @@ const RULE_ID_TO_RANGES: Record<string, RawIpRanges> = {
   // PBC at ARIN (the authoritative allocation record). Maintained by
   // hand; refresh by re-querying the ARIN entity below. The crawler
   // block is AWS-ANTHROPIC 216.73.216.0/22 — empirical Cloud Run
-  // logs show all real ClaudeBot traffic comes from there. Same raw
-  // set is shared across every Claude-* UA the classifier emits.
+  // logs show all real ClaudeBot traffic comes from there. The same
+  // raw set is shared across every Claude-* UA the classifier emits:
+  // both the training crawler and the per-user fetcher map here.
   // src: https://rdap.arin.net/registry/entity/AP-2440
   'anthropic-claudebot': anthropicRaw as RawIpRanges,
+  'claude-user': anthropicRaw as RawIpRanges,
 }
 
 /**
