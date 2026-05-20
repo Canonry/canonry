@@ -128,7 +128,7 @@ describe('backfill traffic-classification', () => {
 
     const mistralBucket = db.select().from(crawlerEventsHourly)
       .where(and(
-        eq(crawlerEventsHourly.botId, 'mistral-ai'),
+        eq(crawlerEventsHourly.botId, 'mistral-bot'),
         eq(crawlerEventsHourly.tsHour, '2026-05-18T10:00:00.000Z'),
       ))
       .get()

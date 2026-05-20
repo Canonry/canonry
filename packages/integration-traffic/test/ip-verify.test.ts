@@ -208,7 +208,8 @@ describe('hasVerificationDataFor', () => {
   })
 
   it('is false for operators without bundled ranges yet', () => {
-    expect(hasVerificationDataFor('mistral-ai')).toBe(false)
+    expect(hasVerificationDataFor('mistral-ai-user')).toBe(false)
+    expect(hasVerificationDataFor('mistral-bot')).toBe(false)
     expect(hasVerificationDataFor('deepseek')).toBe(false)
     expect(hasVerificationDataFor('bytespider')).toBe(false)
     expect(hasVerificationDataFor('meta-externalagent')).toBe(false)

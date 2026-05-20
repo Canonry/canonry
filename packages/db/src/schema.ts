@@ -649,6 +649,40 @@ export const crawlerEventsHourly = sqliteTable('crawler_events_hourly', {
   index('idx_crawler_hourly_path').on(table.projectId, table.pathNormalized),
 ])
 
+// Hourly rollup of on-demand per-user fetches from AI surfaces — ChatGPT-User,
+// Perplexity-User, MistralAI-User, etc. UA-evidenced like a crawler, but each
+// hit was initiated by a real user (citation click, "read this URL" prompt).
+// Kept disjoint from `crawler_events_hourly` so dashboard / API / report
+// totals don't conflate machine crawl with human-in-the-loop fetch.
+export const aiUserFetchEventsHourly = sqliteTable('ai_user_fetch_events_hourly', {
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  sourceId: text('source_id').notNull().references(() => trafficSources.id, { onDelete: 'cascade' }),
+  tsHour: text('ts_hour').notNull(),
+  botId: text('bot_id').notNull(),
+  operator: text('operator').notNull(),
+  verificationStatus: text('verification_status').notNull(),
+  pathNormalized: text('path_normalized').notNull(),
+  status: integer('status').notNull(),
+  hits: integer('hits').notNull().default(0),
+  sampledUserAgent: text('sampled_user_agent'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  primaryKey({
+    columns: [
+      table.projectId,
+      table.sourceId,
+      table.tsHour,
+      table.botId,
+      table.verificationStatus,
+      table.pathNormalized,
+      table.status,
+    ],
+  }),
+  index('idx_ai_user_fetch_hourly_project_ts').on(table.projectId, table.tsHour),
+  index('idx_ai_user_fetch_hourly_path').on(table.projectId, table.pathNormalized),
+])
+
 // Hourly rollup of human visits with explicit AI-origin evidence (referer
 // host or UTM source). Independent from `crawler_events_hourly` — never
 // collapse the two; they answer different questions.

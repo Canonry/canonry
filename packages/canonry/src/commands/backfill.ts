@@ -1,9 +1,9 @@
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm'
 import type { GroundingSource, NormalizedQueryResult, NormalizedTrafficRequest } from '@ainyc/canonry-contracts'
 import type { DatabaseClient } from '@ainyc/canonry-db'
-import { auditLog, crawlerEventsHourly, createClient, gaAiReferrals, gaTrafficSnapshots, migrate, parseJsonColumn, competitors, projects, querySnapshots, rawEventSamples, runs } from '@ainyc/canonry-db'
+import { aiUserFetchEventsHourly, auditLog, crawlerEventsHourly, createClient, gaAiReferrals, gaTrafficSnapshots, migrate, parseJsonColumn, competitors, projects, querySnapshots, rawEventSamples, runs } from '@ainyc/canonry-db'
 import { determineAnswerMentioned, effectiveBrandNames, effectiveDomains, normalizeUrlPath, ProviderNames, RunKinds, TrafficEventConfidences, TrafficEventKinds, TrafficEvidenceKinds, TrafficSourceTypes } from '@ainyc/canonry-contracts'
-import { classifyCrawler } from '@ainyc/canonry-integration-traffic'
+import { classifyAiUserFetch, classifyCrawler } from '@ainyc/canonry-integration-traffic'
 import { reparseStoredResult as reparseOpenAIStoredResult } from '@ainyc/canonry-provider-openai'
 import { reparseStoredResult as reparseClaudeStoredResult } from '@ainyc/canonry-provider-claude'
 import { reparseStoredResult as reparseGeminiStoredResult } from '@ainyc/canonry-provider-gemini'
@@ -1320,7 +1320,12 @@ export async function backfillTrafficClassificationCommand(opts?: {
       providerResource: { type: 'cloud_run_revision', labels: {} },
       providerLabels: {},
     }
-    const classified = classifyCrawler(probe)
+    // Per-user-fetch UAs (ChatGPT-User, Perplexity-User, MistralAI-User) are
+    // disjoint from bulk-crawler UAs by rule purpose. Try the user-fetch
+    // matcher first so a ChatGPT-User UA isn't dropped just because
+    // classifyCrawler skips `purpose: 'user-agent'` rules.
+    const userFetch = classifyAiUserFetch(probe)
+    const classified = userFetch ?? classifyCrawler(probe)
     if (!classified) continue
 
     result.reclassified++
@@ -1330,42 +1335,74 @@ export async function backfillTrafficClassificationCommand(opts?: {
 
     // Update the sample row's event_type so the re-run filter excludes it.
     db.update(rawEventSamples)
-      .set({ eventType: TrafficEventKinds.crawler })
+      .set({ eventType: userFetch ? TrafficEventKinds['ai-user-fetch'] : TrafficEventKinds.crawler })
       .where(eq(rawEventSamples.id, snap.id))
       .run()
 
     // Bump the hourly rollup bucket. Snap ts → top of hour for the
-    // bucket key (matches what the live sync writes).
+    // bucket key (matches what the live sync writes). User-fetch and
+    // crawler hits go to disjoint tables.
     const tsHour = new Date(snap.ts)
     tsHour.setUTCMinutes(0, 0, 0)
-    db.insert(crawlerEventsHourly).values({
-      projectId: snap.projectId,
-      sourceId: snap.sourceId,
-      tsHour: tsHour.toISOString(),
-      botId: classified.botId,
-      operator: classified.operator,
-      verificationStatus: classified.verificationStatus,
-      pathNormalized: snap.pathNormalized,
-      status: snap.status ?? 200,
-      hits: 1,
-      sampledUserAgent: snap.userAgent,
-      createdAt: now,
-      updatedAt: now,
-    }).onConflictDoUpdate({
-      target: [
-        crawlerEventsHourly.projectId,
-        crawlerEventsHourly.sourceId,
-        crawlerEventsHourly.tsHour,
-        crawlerEventsHourly.botId,
-        crawlerEventsHourly.verificationStatus,
-        crawlerEventsHourly.pathNormalized,
-        crawlerEventsHourly.status,
-      ],
-      set: {
-        hits: sql`${crawlerEventsHourly.hits} + 1`,
+    if (userFetch) {
+      db.insert(aiUserFetchEventsHourly).values({
+        projectId: snap.projectId,
+        sourceId: snap.sourceId,
+        tsHour: tsHour.toISOString(),
+        botId: userFetch.botId,
+        operator: userFetch.operator,
+        verificationStatus: userFetch.verificationStatus,
+        pathNormalized: snap.pathNormalized,
+        status: snap.status ?? 200,
+        hits: 1,
+        sampledUserAgent: snap.userAgent,
+        createdAt: now,
         updatedAt: now,
-      },
-    }).run()
+      }).onConflictDoUpdate({
+        target: [
+          aiUserFetchEventsHourly.projectId,
+          aiUserFetchEventsHourly.sourceId,
+          aiUserFetchEventsHourly.tsHour,
+          aiUserFetchEventsHourly.botId,
+          aiUserFetchEventsHourly.verificationStatus,
+          aiUserFetchEventsHourly.pathNormalized,
+          aiUserFetchEventsHourly.status,
+        ],
+        set: {
+          hits: sql`${aiUserFetchEventsHourly.hits} + 1`,
+          updatedAt: now,
+        },
+      }).run()
+    } else {
+      db.insert(crawlerEventsHourly).values({
+        projectId: snap.projectId,
+        sourceId: snap.sourceId,
+        tsHour: tsHour.toISOString(),
+        botId: classified.botId,
+        operator: classified.operator,
+        verificationStatus: classified.verificationStatus,
+        pathNormalized: snap.pathNormalized,
+        status: snap.status ?? 200,
+        hits: 1,
+        sampledUserAgent: snap.userAgent,
+        createdAt: now,
+        updatedAt: now,
+      }).onConflictDoUpdate({
+        target: [
+          crawlerEventsHourly.projectId,
+          crawlerEventsHourly.sourceId,
+          crawlerEventsHourly.tsHour,
+          crawlerEventsHourly.botId,
+          crawlerEventsHourly.verificationStatus,
+          crawlerEventsHourly.pathNormalized,
+          crawlerEventsHourly.status,
+        ],
+        set: {
+          hits: sql`${crawlerEventsHourly.hits} + 1`,
+          updatedAt: now,
+        },
+      }).run()
+    }
   }
 
   // Recompute trailing unknown count so the report shows the net effect.

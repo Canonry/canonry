@@ -9,9 +9,11 @@ import {
   projects,
   trafficSources,
   crawlerEventsHourly,
+  aiUserFetchEventsHourly,
   aiReferralEventsHourly,
   rawEventSamples,
 } from '../src/index.js'
+import { MIGRATION_VERSIONS } from '../src/migrate.js'
 
 function createTempDb() {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-traffic-test-'))
@@ -241,6 +243,216 @@ test('raw_event_samples stores debug samples without full IPs', () => {
   expect(row.eventType).toBe('crawler')
   expect(row.ipHash).toBe('abc123def')
   expect(row.userAgent).toBe('GPTBot/1.0')
+})
+
+test('ai_user_fetch_events_hourly accepts inserts keyed like crawler_events_hourly', () => {
+  // The new table mirrors crawler_events_hourly schema-wise but holds the
+  // human-in-the-loop UA matches (ChatGPT-User, Perplexity-User, etc.) so
+  // dashboard / API counts can split machine crawl from user-driven fetch.
+  const { db, tmpDir } = createTempDb()
+  onTestFinished(() => cleanup(tmpDir))
+
+  seedProject(db)
+
+  const now = new Date().toISOString()
+  db.insert(trafficSources).values({
+    id: 'src_user_fetch',
+    projectId: 'proj_1',
+    sourceType: 'cloud-run',
+    displayName: 'Cloud Run',
+    status: 'connected',
+    configJson: {},
+    createdAt: now,
+    updatedAt: now,
+  }).run()
+
+  db.insert(aiUserFetchEventsHourly).values({
+    projectId: 'proj_1',
+    sourceId: 'src_user_fetch',
+    tsHour: '2026-05-19T20:00:00.000Z',
+    botId: 'openai-chatgpt-user',
+    operator: 'OpenAI',
+    verificationStatus: 'verified',
+    pathNormalized: '/',
+    status: 200,
+    hits: 1,
+    sampledUserAgent: 'Mozilla/5.0 ChatGPT-User/1.0',
+    createdAt: now,
+    updatedAt: now,
+  }).run()
+
+  const [row] = db
+    .select()
+    .from(aiUserFetchEventsHourly)
+    .where(
+      and(
+        eq(aiUserFetchEventsHourly.projectId, 'proj_1'),
+        eq(aiUserFetchEventsHourly.botId, 'openai-chatgpt-user'),
+      ),
+    )
+    .all()
+
+  expect(row).toBeDefined()
+  expect(row.verificationStatus).toBe('verified')
+  expect(row.hits).toBe(1)
+})
+
+test('migration 64 moves legacy user-fetch rows out of crawler_events_hourly', () => {
+  // Before the split, ChatGPT-User and Perplexity-User UAs were classified as
+  // crawlers and persisted into crawler_events_hourly. The migration's job is
+  // to move those rows into ai_user_fetch_events_hourly so historical totals
+  // stop double-counting user-fetch as machine crawl. Re-runs the v64 SQL
+  // explicitly against pre-existing rows (the migration runner records v64
+  // as applied on first boot and won't re-run it, so this seeds the same
+  // state that production DBs reached just before applying v64).
+  const { db, tmpDir } = createTempDb()
+  onTestFinished(() => cleanup(tmpDir))
+
+  seedProject(db)
+
+  const now = new Date().toISOString()
+  db.insert(trafficSources).values({
+    id: 'src_legacy',
+    projectId: 'proj_1',
+    sourceType: 'cloud-run',
+    displayName: 'Cloud Run',
+    status: 'connected',
+    configJson: {},
+    createdAt: now,
+    updatedAt: now,
+  }).run()
+
+  // Two legacy user-fetch rows (one ChatGPT-User, one Perplexity-User) plus
+  // one genuine bulk crawler row that must stay put.
+  for (const row of [
+    {
+      botId: 'openai-chatgpt-user',
+      operator: 'OpenAI',
+      pathNormalized: '/',
+      sampledUserAgent: 'Mozilla/5.0 ChatGPT-User/1.0',
+    },
+    {
+      botId: 'perplexity-user',
+      operator: 'Perplexity',
+      pathNormalized: '/pricing',
+      sampledUserAgent: 'Mozilla/5.0 Perplexity-User/1.0',
+    },
+    {
+      botId: 'openai-gptbot',
+      operator: 'OpenAI',
+      pathNormalized: '/blog/post-1',
+      sampledUserAgent: 'GPTBot/1.0',
+    },
+  ]) {
+    db.insert(crawlerEventsHourly).values({
+      projectId: 'proj_1',
+      sourceId: 'src_legacy',
+      tsHour: '2026-05-19T20:00:00.000Z',
+      botId: row.botId,
+      operator: row.operator,
+      verificationStatus: 'verified',
+      pathNormalized: row.pathNormalized,
+      status: 200,
+      hits: 3,
+      sampledUserAgent: row.sampledUserAgent,
+      createdAt: now,
+      updatedAt: now,
+    }).run()
+  }
+
+  // Re-execute v64's statements directly. The runner has already applied
+  // them on the empty pre-seed DB; this proves the SQL itself handles the
+  // populated case correctly.
+  const v64 = MIGRATION_VERSIONS.find(v => v.version === 64)
+  expect(v64).toBeDefined()
+  for (const sql of v64!.statements) {
+    db.$client.exec(sql)
+  }
+
+  const moved = db.select().from(aiUserFetchEventsHourly).all()
+  expect(moved).toHaveLength(2)
+  expect(new Set(moved.map(r => r.botId))).toEqual(new Set(['openai-chatgpt-user', 'perplexity-user']))
+  expect(moved.every(r => r.hits === 3 && r.verificationStatus === 'verified')).toBe(true)
+
+  const remainingCrawlers = db.select().from(crawlerEventsHourly).all()
+  expect(remainingCrawlers).toHaveLength(1)
+  expect(remainingCrawlers[0].botId).toBe('openai-gptbot')
+})
+
+test('migration 65 splits legacy mistral-ai rows by sampled user agent', () => {
+  // The legacy `mistral-ai` rule matched both MistralAI-User (user-fetch)
+  // and MistralBot (bulk crawl), so historical buckets collapsed both
+  // under one id. v65 splits them: MistralAI-User-flavored rows move to
+  // ai_user_fetch_events_hourly (bot_id='mistral-ai-user'); the rest are
+  // renamed to bot_id='mistral-bot' in place.
+  const { db, tmpDir } = createTempDb()
+  onTestFinished(() => cleanup(tmpDir))
+
+  seedProject(db)
+
+  const now = new Date().toISOString()
+  db.insert(trafficSources).values({
+    id: 'src_mistral',
+    projectId: 'proj_1',
+    sourceType: 'cloud-run',
+    displayName: 'Cloud Run',
+    status: 'connected',
+    configJson: {},
+    createdAt: now,
+    updatedAt: now,
+  }).run()
+
+  for (const row of [
+    {
+      pathNormalized: '/blog/post-a',
+      sampledUserAgent: 'Mozilla/5.0 MistralAI-User/1.0',
+    },
+    {
+      pathNormalized: '/blog/post-b',
+      sampledUserAgent: 'Mozilla/5.0 (compatible; MistralBot/1.0; +https://mistral.ai)',
+    },
+    {
+      pathNormalized: '/blog/post-c',
+      // Null sample — historically possible since sampled_user_agent is
+      // nullable. Stays as crawler with renamed bot_id.
+      sampledUserAgent: null,
+    },
+  ]) {
+    db.insert(crawlerEventsHourly).values({
+      projectId: 'proj_1',
+      sourceId: 'src_mistral',
+      tsHour: '2026-05-19T20:00:00.000Z',
+      botId: 'mistral-ai',
+      operator: 'Mistral AI',
+      verificationStatus: 'claimed_unverified',
+      pathNormalized: row.pathNormalized,
+      status: 200,
+      hits: 5,
+      sampledUserAgent: row.sampledUserAgent,
+      createdAt: now,
+      updatedAt: now,
+    }).run()
+  }
+
+  const v65 = MIGRATION_VERSIONS.find(v => v.version === 65)
+  expect(v65).toBeDefined()
+  for (const sql of v65!.statements) {
+    db.$client.exec(sql)
+  }
+
+  const userFetch = db.select().from(aiUserFetchEventsHourly).all()
+  expect(userFetch).toHaveLength(1)
+  expect(userFetch[0]).toMatchObject({
+    botId: 'mistral-ai-user',
+    operator: 'Mistral AI',
+    pathNormalized: '/blog/post-a',
+    hits: 5,
+  })
+
+  const crawlers = db.select().from(crawlerEventsHourly).all()
+  expect(crawlers).toHaveLength(2)
+  expect(crawlers.every(r => r.botId === 'mistral-bot')).toBe(true)
+  expect(new Set(crawlers.map(r => r.pathNormalized))).toEqual(new Set(['/blog/post-b', '/blog/post-c']))
 })
 
 test('traffic_sources cascade deletes all dependent rows when project is removed', () => {

@@ -4,6 +4,7 @@ import type { FastifyInstance } from 'fastify'
 import {
   trafficSources,
   crawlerEventsHourly,
+  aiUserFetchEventsHourly,
   aiReferralEventsHourly,
   rawEventSamples,
   runs,
@@ -131,6 +132,8 @@ export interface TrafficSyncedEvent {
   pulledEvents: number
   /** Crawler hourly bucket inserts/updates. 0 for failed syncs. */
   crawlerHits: number
+  /** AI user-fetch hourly bucket inserts/updates (ChatGPT-User, Perplexity-User, …). 0 for failed syncs. */
+  aiUserFetchHits: number
   /** AI-referral hourly bucket inserts/updates. 0 for failed syncs. */
   aiReferralHits: number
   /** End-to-end duration including pull, classification, rollup write. */
@@ -398,6 +401,16 @@ async function runBackfillTask(options: RunBackfillTaskOptions): Promise<void> {
         )
         .run()
       tx
+        .delete(aiUserFetchEventsHourly)
+        .where(
+          and(
+            eq(aiUserFetchEventsHourly.sourceId, sourceRow.id),
+            gte(aiUserFetchEventsHourly.tsHour, windowStartIso),
+            lte(aiUserFetchEventsHourly.tsHour, windowEndIso),
+          ),
+        )
+        .run()
+      tx
         .delete(aiReferralEventsHourly)
         .where(
           and(
@@ -438,6 +451,26 @@ async function runBackfillTask(options: RunBackfillTaskOptions): Promise<void> {
           .run()
       }
 
+      for (const bucket of report.aiUserFetchEventsHourly) {
+        tx
+          .insert(aiUserFetchEventsHourly)
+          .values({
+            projectId: project.id,
+            sourceId: sourceRow.id,
+            tsHour: bucket.tsHour,
+            botId: bucket.botId,
+            operator: bucket.operator,
+            verificationStatus: bucket.verificationStatus,
+            pathNormalized: bucket.pathNormalized,
+            status: bucket.status ?? 0,
+            hits: bucket.hits,
+            sampledUserAgent: bucket.sampledUserAgent,
+            createdAt: finishedAt,
+            updatedAt: finishedAt,
+          })
+          .run()
+      }
+
       for (const bucket of report.aiReferralEventsHourly) {
         tx
           .insert(aiReferralEventsHourly)
@@ -460,7 +493,13 @@ async function runBackfillTask(options: RunBackfillTaskOptions): Promise<void> {
       }
 
       for (const sample of report.samples) {
-        const eventType = sample.crawler ? 'crawler' : sample.aiReferral ? 'ai_referral' : 'unknown'
+        const eventType = sample.crawler
+          ? 'crawler'
+          : sample.aiUserFetch
+            ? 'ai_user_fetch'
+            : sample.aiReferral
+              ? 'ai_referral'
+              : 'unknown'
         const refererHost = (() => {
           if (!sample.referer) return null
           try {
@@ -484,6 +523,7 @@ async function runBackfillTask(options: RunBackfillTaskOptions): Promise<void> {
             refererHost,
             classifierDetailsJson: {
               crawler: sample.crawler,
+              aiUserFetch: sample.aiUserFetch,
               aiReferral: sample.aiReferral,
             },
             createdAt: finishedAt,
@@ -982,6 +1022,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
           sourceId: sourceRow.id,
           pulledEvents: 0,
           crawlerHits: 0,
+          aiUserFetchHits: 0,
           aiReferralHits: 0,
           durationMs: Date.now() - syncStartedAtMs,
           errorCode,
@@ -1204,6 +1245,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
     }
 
     let crawlerBucketRows = 0
+    let aiUserFetchBucketRows = 0
     let aiReferralBucketRows = 0
     let sampleRows = 0
     // These get assigned inside the transaction (after we re-read the row to
@@ -1212,6 +1254,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
     let finishedAt = new Date().toISOString()
     let pulledEventsCount = 0
     let crawlerHitsCount = 0
+    let aiUserFetchHitsCount = 0
     let aiReferralHitsCount = 0
     let unknownHitsCount = 0
 
@@ -1259,6 +1302,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       finishedAt = new Date().toISOString()
       pulledEventsCount = report.totals.normalizedEvents
       crawlerHitsCount = report.totals.crawlerHits
+      aiUserFetchHitsCount = report.totals.aiUserFetchHits
       aiReferralHitsCount = report.totals.aiReferralHits
       unknownHitsCount = report.totals.unknownHits
 
@@ -1301,6 +1345,44 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         crawlerBucketRows += 1
       }
 
+      for (const bucket of report.aiUserFetchEventsHourly) {
+        const status = bucket.status ?? 0
+        tx
+          .insert(aiUserFetchEventsHourly)
+          .values({
+            projectId: project.id,
+            sourceId: sourceRow.id,
+            tsHour: bucket.tsHour,
+            botId: bucket.botId,
+            operator: bucket.operator,
+            verificationStatus: bucket.verificationStatus,
+            pathNormalized: bucket.pathNormalized,
+            status,
+            hits: bucket.hits,
+            sampledUserAgent: bucket.sampledUserAgent,
+            createdAt: finishedAt,
+            updatedAt: finishedAt,
+          })
+          .onConflictDoUpdate({
+            target: [
+              aiUserFetchEventsHourly.projectId,
+              aiUserFetchEventsHourly.sourceId,
+              aiUserFetchEventsHourly.tsHour,
+              aiUserFetchEventsHourly.botId,
+              aiUserFetchEventsHourly.verificationStatus,
+              aiUserFetchEventsHourly.pathNormalized,
+              aiUserFetchEventsHourly.status,
+            ],
+            set: {
+              hits: sql`${aiUserFetchEventsHourly.hits} + ${bucket.hits}`,
+              sampledUserAgent: bucket.sampledUserAgent,
+              updatedAt: finishedAt,
+            },
+          })
+          .run()
+        aiUserFetchBucketRows += 1
+      }
+
       for (const bucket of report.aiReferralEventsHourly) {
         const status = bucket.status ?? 0
         tx
@@ -1341,7 +1423,13 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       }
 
       for (const sample of report.samples) {
-        const eventType = sample.crawler ? 'crawler' : sample.aiReferral ? 'ai_referral' : 'unknown'
+        const eventType = sample.crawler
+          ? 'crawler'
+          : sample.aiUserFetch
+            ? 'ai_user_fetch'
+            : sample.aiReferral
+              ? 'ai_referral'
+              : 'unknown'
         const refererHost = (() => {
           if (!sample.referer) return null
           try {
@@ -1365,6 +1453,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
             refererHost,
             classifierDetailsJson: {
               crawler: sample.crawler,
+              aiUserFetch: sample.aiUserFetch,
               aiReferral: sample.aiReferral,
             },
             createdAt: finishedAt,
@@ -1420,6 +1509,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         sourceId: sourceRow.id,
         pulledEvents: pulledEventsCount,
         crawlerHits: crawlerHitsCount,
+        aiUserFetchHits: aiUserFetchHitsCount,
         aiReferralHits: aiReferralHitsCount,
         durationMs: Date.now() - syncStartedAtMs,
       })
@@ -1433,9 +1523,11 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       syncedAt: finishedAt,
       pulledEvents: pulledEventsCount,
       crawlerHits: crawlerHitsCount,
+      aiUserFetchHits: aiUserFetchHitsCount,
       aiReferralHits: aiReferralHitsCount,
       unknownHits: unknownHitsCount,
       crawlerBucketRows,
+      aiUserFetchBucketRows,
       aiReferralBucketRows,
       sampleRows,
       windowStart: windowStart.toISOString(),
@@ -1691,6 +1783,17 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       )
       .get()
 
+    const aiUserFetchTotals = app.db
+      .select({ total: sql<number>`COALESCE(SUM(${aiUserFetchEventsHourly.hits}), 0)` })
+      .from(aiUserFetchEventsHourly)
+      .where(
+        and(
+          eq(aiUserFetchEventsHourly.sourceId, row.id),
+          gte(aiUserFetchEventsHourly.tsHour, since),
+        ),
+      )
+      .get()
+
     const aiTotals = app.db
       .select({ total: sql<number>`COALESCE(SUM(${aiReferralEventsHourly.sessionsOrHits}), 0)` })
       .from(aiReferralEventsHourly)
@@ -1731,6 +1834,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       ...rowToDto(row),
       totals24h: {
         crawlerHits: Number(crawlerTotals?.total ?? 0),
+        aiUserFetchHits: Number(aiUserFetchTotals?.total ?? 0),
         aiReferralHits: Number(aiTotals?.total ?? 0),
         sampleCount: Number(sampleTotals?.total ?? 0),
       },
@@ -1825,10 +1929,17 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
     const kindParam = request.query?.kind
     let kind: TrafficEventKind | 'all' = 'all'
     if (kindParam !== undefined) {
-      if (kindParam === 'all' || kindParam === TrafficEventKinds.crawler || kindParam === TrafficEventKinds['ai-referral']) {
+      if (
+        kindParam === 'all'
+        || kindParam === TrafficEventKinds.crawler
+        || kindParam === TrafficEventKinds['ai-user-fetch']
+        || kindParam === TrafficEventKinds['ai-referral']
+      ) {
         kind = kindParam
       } else {
-        throw validationError(`"kind" must be one of: all, ${TrafficEventKinds.crawler}, ${TrafficEventKinds['ai-referral']}`)
+        throw validationError(
+          `"kind" must be one of: all, ${TrafficEventKinds.crawler}, ${TrafficEventKinds['ai-user-fetch']}, ${TrafficEventKinds['ai-referral']}`,
+        )
       }
     }
 
@@ -1845,6 +1956,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
 
     const events: TrafficEventEntry[] = []
     let crawlerTotal = 0
+    let aiUserFetchTotal = 0
     let aiReferralTotal = 0
 
     if (kind === 'all' || kind === TrafficEventKinds.crawler) {
@@ -1873,6 +1985,44 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       for (const r of rows) {
         events.push({
           kind: TrafficEventKinds.crawler,
+          sourceId: r.sourceId,
+          tsHour: r.tsHour,
+          botId: r.botId,
+          operator: r.operator,
+          verificationStatus: r.verificationStatus,
+          pathNormalized: r.pathNormalized,
+          status: r.status,
+          hits: r.hits,
+        })
+      }
+    }
+
+    if (kind === 'all' || kind === TrafficEventKinds['ai-user-fetch']) {
+      const userFetchFilters = [
+        eq(aiUserFetchEventsHourly.projectId, project.id),
+        gte(aiUserFetchEventsHourly.tsHour, sinceIso),
+        lte(aiUserFetchEventsHourly.tsHour, untilIso),
+      ]
+      if (sourceIdParam) userFetchFilters.push(eq(aiUserFetchEventsHourly.sourceId, sourceIdParam))
+      const userFetchWhere = and(...userFetchFilters)
+
+      const total = app.db
+        .select({ total: sql<number>`COALESCE(SUM(${aiUserFetchEventsHourly.hits}), 0)` })
+        .from(aiUserFetchEventsHourly)
+        .where(userFetchWhere)
+        .get()
+      aiUserFetchTotal = Number(total?.total ?? 0)
+
+      const rows = app.db
+        .select()
+        .from(aiUserFetchEventsHourly)
+        .where(userFetchWhere)
+        .orderBy(desc(aiUserFetchEventsHourly.tsHour))
+        .limit(limit)
+        .all()
+      for (const r of rows) {
+        events.push({
+          kind: TrafficEventKinds['ai-user-fetch'],
           sourceId: r.sourceId,
           tsHour: r.tsHour,
           botId: r.botId,
@@ -1932,6 +2082,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       windowEnd: untilIso,
       totals: {
         crawlerHits: crawlerTotal,
+        aiUserFetchHits: aiUserFetchTotal,
         aiReferralHits: aiReferralTotal,
       },
       events: trimmed,

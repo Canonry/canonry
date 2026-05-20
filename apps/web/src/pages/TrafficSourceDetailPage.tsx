@@ -35,12 +35,13 @@ import {
   bucketKeyFor,
   filterTrafficEvents,
   identityOf,
+  pathOf,
   STATUS_CLASS_OPTIONS,
   type EventGranularity,
   type StatusClassFilter,
 } from '../lib/traffic-event-filter.js'
 
-type SeriesKind = 'crawler' | 'ai-referral'
+type SeriesKind = 'crawler' | 'ai-user-fetch' | 'ai-referral'
 type Granularity = EventGranularity
 
 interface WindowOption {
@@ -62,6 +63,7 @@ const WINDOW_OPTIONS: readonly WindowOption[] = [
 const DEFAULT_WINDOW = WINDOW_OPTIONS.find((w) => w.label === '7d') ?? WINDOW_OPTIONS[2]
 
 const CRAWLER_COLOR = CHART_SERIES_COLORS[0]
+const AI_USER_FETCH_COLOR = CHART_SERIES_COLORS[2]
 const AI_REFERRAL_COLOR = CHART_SERIES_COLORS[1]
 
 function formatHourLabel(iso: string): string {
@@ -139,7 +141,7 @@ export function TrafficSourceDetailPage() {
 
   const [windowMinutes, setWindowMinutes] = useState<number>(DEFAULT_WINDOW.value)
   const [visibleSeries, setVisibleSeries] = useState<Set<SeriesKind>>(
-    () => new Set<SeriesKind>(['crawler', 'ai-referral']),
+    () => new Set<SeriesKind>(['crawler', 'ai-user-fetch', 'ai-referral']),
   )
   const [selectedBucket, setSelectedBucket] = useState<string | null>(null)
   const [identityFilter, setIdentityFilter] = useState<string>('')
@@ -169,11 +171,13 @@ export function TrafficSourceDetailPage() {
 
   const visibleEvents = useMemo(
     () =>
-      allEvents.filter((event) =>
-        event.kind === TrafficEventKinds.crawler
-          ? visibleSeries.has('crawler')
-          : visibleSeries.has('ai-referral'),
-      ),
+      allEvents.filter((event) => {
+        switch (event.kind) {
+          case TrafficEventKinds.crawler: return visibleSeries.has('crawler')
+          case TrafficEventKinds['ai-user-fetch']: return visibleSeries.has('ai-user-fetch')
+          case TrafficEventKinds['ai-referral']: return visibleSeries.has('ai-referral')
+        }
+      }),
     [allEvents, visibleSeries],
   )
 
@@ -319,22 +323,31 @@ export function TrafficSourceDetailPage() {
         <div className="rounded-md border border-emerald-800/50 bg-emerald-950/30 px-3 py-2 text-xs text-emerald-200">{syncResult}</div>
       ) : null}
 
-      <section className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <ScoreGauge
           label="24h crawler hits"
           value={String(detail.totals24h.crawlerHits)}
           delta={detail.lastSyncedAt ? `last sync ${formatRelative(detail.lastSyncedAt)}` : 'never synced'}
           tone={detail.totals24h.crawlerHits > 0 ? 'positive' : 'neutral'}
-          description="GPTBot, ChatGPT-User, PerplexityBot, etc. — verified crawler requests in the last 24h."
+          description="Bulk machine crawl — GPTBot, OAI-SearchBot, PerplexityBot, Googlebot, etc."
           isNumeric
           progress={Math.min(100, Math.round((detail.totals24h.crawlerHits / 1000) * 100))}
+        />
+        <ScoreGauge
+          label="24h AI user fetches"
+          value={String(detail.totals24h.aiUserFetchHits)}
+          delta={detail.lastSyncedAt ? `last sync ${formatRelative(detail.lastSyncedAt)}` : 'never synced'}
+          tone={detail.totals24h.aiUserFetchHits > 0 ? 'positive' : 'neutral'}
+          description="ChatGPT-User, Perplexity-User — fetches initiated by a real user inside an AI surface (citation click, URL read)."
+          isNumeric
+          progress={Math.min(100, Math.round((detail.totals24h.aiUserFetchHits / 1000) * 100))}
         />
         <ScoreGauge
           label="24h AI referral sessions"
           value={String(detail.totals24h.aiReferralHits)}
           delta={detail.lastSyncedAt ? `last sync ${formatRelative(detail.lastSyncedAt)}` : 'never synced'}
           tone={detail.totals24h.aiReferralHits > 0 ? 'positive' : 'neutral'}
-          description="Sessionized visits arriving from chat.openai.com, perplexity.ai, etc. (Referer header evidence)."
+          description="Browser click-throughs from chatgpt.com, perplexity.ai, etc. (Referer / UTM evidence)."
           isNumeric
           progress={Math.min(100, Math.round((detail.totals24h.aiReferralHits / 1000) * 100))}
         />
@@ -382,6 +395,7 @@ export function TrafficSourceDetailPage() {
             {totals ? (
               <p className="mt-1.5 text-xs text-zinc-500">
                 {totals.crawlerHits.toLocaleString('en-US')} crawler ·{' '}
+                {totals.aiUserFetchHits.toLocaleString('en-US')} AI user fetches ·{' '}
                 {totals.aiReferralHits.toLocaleString('en-US')} AI referral sessions · last {activeWindow.label}
               </p>
             ) : null}
@@ -412,6 +426,13 @@ export function TrafficSourceDetailPage() {
               count={totals?.crawlerHits ?? 0}
               active={visibleSeries.has('crawler')}
               onToggle={() => toggleSeries('crawler')}
+            />
+            <SeriesToggle
+              label="AI user fetches"
+              color={AI_USER_FETCH_COLOR}
+              count={totals?.aiUserFetchHits ?? 0}
+              active={visibleSeries.has('ai-user-fetch')}
+              onToggle={() => toggleSeries('ai-user-fetch')}
             />
             <SeriesToggle
               label="AI referral sessions"
@@ -450,6 +471,16 @@ export function TrafficSourceDetailPage() {
                   <RechartsTooltip {...CHART_TOOLTIP_STYLE} />
                   {visibleSeries.has('crawler') ? (
                     <Bar dataKey="crawler" name="Crawler" fill={CRAWLER_COLOR} stackId="a">
+                      {chartData.map((row) => (
+                        <Cell
+                          key={row.bucket}
+                          fillOpacity={selectedBucket && selectedBucket !== row.bucket ? 0.25 : 1}
+                        />
+                      ))}
+                    </Bar>
+                  ) : null}
+                  {visibleSeries.has('ai-user-fetch') ? (
+                    <Bar dataKey="aiUserFetch" name="AI user fetch" fill={AI_USER_FETCH_COLOR} stackId="a">
                       {chartData.map((row) => (
                         <Cell
                           key={row.bucket}
@@ -574,7 +605,12 @@ interface ChartRow {
   bucket: string
   label: string
   crawler: number
+  aiUserFetch: number
   aiReferral: number
+}
+
+function emptyChartRow(bucket: string, label: string): ChartRow {
+  return { bucket, label, crawler: 0, aiUserFetch: 0, aiReferral: 0 }
 }
 
 function bucketLabelFor(key: string, granularity: Granularity): string {
@@ -592,13 +628,19 @@ function buildChartData(
     const key = bucketKeyFor(event.tsHour, granularity)
     let row = byBucket.get(key)
     if (!row) {
-      row = { bucket: key, label: bucketLabelFor(key, granularity), crawler: 0, aiReferral: 0 }
+      row = emptyChartRow(key, bucketLabelFor(key, granularity))
       byBucket.set(key, row)
     }
-    if (event.kind === TrafficEventKinds.crawler) {
-      row.crawler += event.hits
-    } else {
-      row.aiReferral += event.hits
+    switch (event.kind) {
+      case TrafficEventKinds.crawler:
+        row.crawler += event.hits
+        break
+      case TrafficEventKinds['ai-user-fetch']:
+        row.aiUserFetch += event.hits
+        break
+      case TrafficEventKinds['ai-referral']:
+        row.aiReferral += event.hits
+        break
     }
   }
 
@@ -617,7 +659,7 @@ function buildChartData(
         const d = String(current.getUTCDate()).padStart(2, '0')
         const key = `${y}-${m}-${d}`
         if (!byBucket.has(key)) {
-          byBucket.set(key, { bucket: key, label: bucketLabelFor(key, granularity), crawler: 0, aiReferral: 0 })
+          byBucket.set(key, emptyChartRow(key, bucketLabelFor(key, granularity)))
         }
         current.setUTCDate(current.getUTCDate() + 1)
       }
@@ -627,7 +669,7 @@ function buildChartData(
       while (current <= end) {
         const key = current.toISOString()
         if (!byBucket.has(key)) {
-          byBucket.set(key, { bucket: key, label: bucketLabelFor(key, granularity), crawler: 0, aiReferral: 0 })
+          byBucket.set(key, emptyChartRow(key, bucketLabelFor(key, granularity)))
         }
         current.setUTCHours(current.getUTCHours() + 1)
       }
@@ -690,6 +732,34 @@ function SeriesToggle({
   )
 }
 
+function renderKindLabel(kind: TrafficEventEntry['kind']): string {
+  switch (kind) {
+    case TrafficEventKinds.crawler: return 'Crawler'
+    case TrafficEventKinds['ai-user-fetch']: return 'AI hit'
+    case TrafficEventKinds['ai-referral']: return 'AI referral'
+  }
+}
+
+function renderIdentity(event: TrafficEventEntry): string {
+  switch (event.kind) {
+    case TrafficEventKinds.crawler:
+    case TrafficEventKinds['ai-user-fetch']:
+      return event.botId
+    case TrafficEventKinds['ai-referral']:
+      return event.product
+  }
+}
+
+function renderEvidence(event: TrafficEventEntry): string {
+  switch (event.kind) {
+    case TrafficEventKinds.crawler:
+    case TrafficEventKinds['ai-user-fetch']:
+      return `${event.verificationStatus} · HTTP ${event.status}`
+    case TrafficEventKinds['ai-referral']:
+      return `${event.evidenceType} · ${event.sourceDomain}`
+  }
+}
+
 function EventsTable({ events }: { events: readonly TrafficEventEntry[] }) {
   if (events.length === 0) {
     return <Card className="p-6 text-center text-sm text-zinc-500">No event rows match the current filters.</Card>
@@ -711,21 +781,13 @@ function EventsTable({ events }: { events: readonly TrafficEventEntry[] }) {
           {events.map((event, i) => (
             <tr key={`${event.kind}:${event.tsHour}:${i}`} className="hover:bg-zinc-900/40 transition-colors">
               <td className="px-4 py-2 font-mono text-xs text-zinc-300">{formatHourLabel(event.tsHour)}</td>
-              <td className="px-4 py-2 text-zinc-300">
-                {event.kind === TrafficEventKinds.crawler ? 'Crawler' : 'AI referral'}
-              </td>
+              <td className="px-4 py-2 text-zinc-300">{renderKindLabel(event.kind)}</td>
               <td className="px-4 py-2 text-zinc-100">
-                {event.kind === TrafficEventKinds.crawler ? event.botId : event.product}
+                {renderIdentity(event)}
                 <span className="ml-2 text-[11px] text-zinc-500">{event.operator}</span>
               </td>
-              <td className="px-4 py-2 text-zinc-300">
-                {event.kind === TrafficEventKinds.crawler
-                  ? `${event.verificationStatus} · HTTP ${event.status}`
-                  : `${event.evidenceType} · ${event.sourceDomain}`}
-              </td>
-              <td className="px-4 py-2 truncate font-mono text-xs text-zinc-300">
-                {event.kind === TrafficEventKinds.crawler ? event.pathNormalized : event.landingPathNormalized}
-              </td>
+              <td className="px-4 py-2 text-zinc-300">{renderEvidence(event)}</td>
+              <td className="px-4 py-2 truncate font-mono text-xs text-zinc-300">{pathOf(event)}</td>
               <td className="px-4 py-2 text-right tabular-nums text-zinc-100">{event.hits}</td>
             </tr>
           ))}

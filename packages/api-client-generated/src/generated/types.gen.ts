@@ -1551,10 +1551,21 @@ export type TrafficEventsResponse = {
     windowEnd: string;
     totals: {
         crawlerHits: number;
+        aiUserFetchHits: number;
         aiReferralHits: number;
     };
     events: Array<{
         kind: 'crawler';
+        sourceId: string;
+        tsHour: string;
+        botId: string;
+        operator: string;
+        verificationStatus: string;
+        pathNormalized: string;
+        status: number;
+        hits: number;
+    } | {
+        kind: 'ai-user-fetch';
         sourceId: string;
         tsHour: string;
         botId: string;
@@ -1594,6 +1605,7 @@ export type TrafficSourceDetailDto = {
     updatedAt: string;
     totals24h: {
         crawlerHits: number;
+        aiUserFetchHits: number;
         aiReferralHits: number;
         sampleCount: number;
     };
@@ -1660,6 +1672,7 @@ export type TrafficStatusResponse = {
         updatedAt: string;
         totals24h: {
             crawlerHits: number;
+            aiUserFetchHits: number;
             aiReferralHits: number;
             sampleCount: number;
         };
@@ -1679,9 +1692,11 @@ export type TrafficSyncResponse = {
     syncedAt: string;
     pulledEvents: number;
     crawlerHits: number;
+    aiUserFetchHits: number;
     aiReferralHits: number;
     unknownHits: number;
     crawlerBucketRows: number;
+    aiUserFetchBucketRows: number;
     aiReferralBucketRows: number;
     sampleRows: number;
     windowStart: string;

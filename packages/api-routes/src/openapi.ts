@@ -3221,15 +3221,15 @@ const routeCatalog: OpenApiOperation[] = [
   {
     method: 'get',
     path: '/api/v1/projects/{name}/traffic/events',
-    summary: 'List rolled-up crawler hits and AI-referral sessions within a window',
+    summary: 'List rolled-up crawler hits, AI user-fetch hits, and AI-referral sessions within a window',
     description:
-      'Returns hourly rollup rows from `crawler_events_hourly` and `ai_referral_events_hourly`. Defaults to the last 24h. Totals reflect the full window; the `events` array is capped by `limit` (default 500, max 5000).',
+      'Returns hourly rollup rows from `crawler_events_hourly`, `ai_user_fetch_events_hourly`, and `ai_referral_events_hourly`. Defaults to the last 24h. Totals reflect the full window; the `events` array is capped by `limit` (default 500, max 5000).',
     tags: ['traffic'],
     parameters: [
       nameParameter,
       { name: 'since', in: 'query', description: 'ISO-8601 window start (defaults to 24h ago).', schema: stringSchema },
       { name: 'until', in: 'query', description: 'ISO-8601 window end (defaults to now).', schema: stringSchema },
-      { name: 'kind', in: 'query', description: 'Filter to "crawler", "ai-referral", or "all" (default).', schema: stringSchema },
+      { name: 'kind', in: 'query', description: 'Filter to "crawler", "ai-user-fetch", "ai-referral", or "all" (default).', schema: stringSchema },
       { name: 'limit', in: 'query', description: 'Max rows per kind in the events array (default 500, max 5000).', schema: stringSchema },
       { name: 'sourceId', in: 'query', description: 'Restrict to a single traffic source.', schema: stringSchema },
     ],

@@ -127,16 +127,23 @@ export const DEFAULT_AI_CRAWLER_RULES: AiCrawlerRule[] = [
     userAgentPatterns: [/Diffbot/i],
   },
   {
-    id: 'mistral-ai',
+    // Per-user, on-demand fetches initiated by a Mistral user (citation
+    // click, "read this URL" prompt). Separate from MistralBot (crawl)
+    // so the dashboard's user-fetch vs. bulk-crawl split stays honest.
+    id: 'mistral-ai-user',
     operator: 'Mistral AI',
     product: 'MistralAI-User',
+    purpose: 'user-agent',
+    userAgentPatterns: [/MistralAI-User\//i],
+  },
+  {
+    // Mistral's general crawler. Distinct from MistralAI-User (per-user
+    // fetch) — same operator, different operational signal.
+    id: 'mistral-bot',
+    operator: 'Mistral AI',
+    product: 'MistralBot',
     purpose: 'crawl',
-    // Mistral ships both `MistralAI-User/*` (chat-on-behalf-of-user
-    // fetches) and `MistralBot/*` (general crawler). Earlier rule only
-    // matched `MistralAI` and missed the bot — caught on 2026-05-18
-    // when canonry.ai/canonry-landing's classification chart went flat
-    // and the bot UA was sitting in the `unknown` bucket.
-    userAgentPatterns: [/MistralAI/i, /MistralBot/i],
+    userAgentPatterns: [/MistralBot\//i],
   },
   {
     id: 'deepseek',
@@ -144,6 +151,21 @@ export const DEFAULT_AI_CRAWLER_RULES: AiCrawlerRule[] = [
     product: 'DeepSeekBot',
     purpose: 'training',
     userAgentPatterns: [/DeepSeekBot/i],
+  },
+  {
+    id: 'xai-grok-bot',
+    operator: 'xAI',
+    product: 'xAI-Bot',
+    purpose: 'crawl',
+    // xAI documents its crawler at https://x.ai/bots/ as `xAI-Bot/<version>`.
+    // Operators have also observed `Grok-Bot/...` in production logs. xAI
+    // has been less consistent than OpenAI/Anthropic about publishing every
+    // UA variant they ship, so the pattern is intentionally permissive
+    // across the xAI/Grok family — better to over-match the operator than
+    // leave real hits in the `unknown` bucket. A separate `purpose:
+    // 'user-agent'` Grok rule can be added later if xAI ships a citation
+    // user-fetcher UA (the way OpenAI ships ChatGPT-User alongside GPTBot).
+    userAgentPatterns: [/xAI-Bot\//i, /Grok-Bot\//i, /GrokBot\//i],
   },
   // Classic search-engine crawlers. Not strictly "AI" by training origin,
   // but the same audience: machine traffic indexing the site for query
@@ -218,9 +240,12 @@ export const DEFAULT_AI_CRAWLER_USER_AGENT_SUBSTRINGS = [
   'CCBot/',
   'cohere-ai',
   'Diffbot',
-  'MistralAI',
-  'MistralBot',
+  'MistralAI-User/',
+  'MistralBot/',
   'DeepSeekBot',
+  'xAI-Bot/',
+  'Grok-Bot/',
+  'GrokBot/',
   'Googlebot',
   'bingbot/',
   'DuckDuckBot',
@@ -237,6 +262,7 @@ export const DEFAULT_AI_REFERRER_RULES: AiReferrerRule[] = [
   { domain: AI_ENGINE_DOMAINS.claude, operator: 'Anthropic', product: 'Claude' },
   { domain: AI_ENGINE_DOMAINS.gemini, operator: 'Google', product: 'Gemini' },
   { domain: AI_ENGINE_DOMAINS.copilotMicrosoft, operator: 'Microsoft', product: 'Copilot' },
+  { domain: AI_ENGINE_DOMAINS.grok, operator: 'xAI', product: 'Grok' },
   { domain: AI_ENGINE_DOMAINS.phind, operator: 'Phind', product: 'Phind' },
   { domain: AI_ENGINE_DOMAINS.you, operator: 'You.com', product: 'You.com' },
   { domain: AI_ENGINE_DOMAINS.metaAi, operator: 'Meta', product: 'Meta AI' },
