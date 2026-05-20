@@ -2939,9 +2939,9 @@ export const getApiV1ProjectsByNameTrafficSourcesById = <ThrowOnError extends bo
 };
 
 /**
- * List rolled-up crawler hits and AI-referral sessions within a window
+ * List rolled-up crawler hits, AI user-fetch hits, and AI-referral sessions within a window
  *
- * Returns hourly rollup rows from `crawler_events_hourly` and `ai_referral_events_hourly`. Defaults to the last 24h. Totals reflect the full window; the `events` array is capped by `limit` (default 500, max 5000).
+ * Returns hourly rollup rows from `crawler_events_hourly`, `ai_user_fetch_events_hourly`, and `ai_referral_events_hourly`. Defaults to the last 24h. Totals reflect the full window; the `events` array is capped by `limit` (default 500, max 5000).
  */
 export const getApiV1ProjectsByNameTrafficEvents = <ThrowOnError extends boolean = false>(options: Options<GetApiV1ProjectsByNameTrafficEventsData, ThrowOnError>) => {
     return (options.client ?? client).get<GetApiV1ProjectsByNameTrafficEventsResponses, GetApiV1ProjectsByNameTrafficEventsErrors, ThrowOnError>({
