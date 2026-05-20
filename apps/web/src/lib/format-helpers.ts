@@ -102,3 +102,25 @@ export function scheduleLabel(preset: string | null, cronExpr: string, timezone:
   }
   return `${preset} · ${tzShort}`
 }
+
+/**
+ * Combine an IANA zone name with its short abbreviation into a display label,
+ * e.g. ("America/New_York", "EDT") → "America/New_York · EDT". Falls back to
+ * the zone name alone when no distinct abbreviation is available.
+ */
+export function formatTimeZoneLabel(zone: string, abbrev: string | undefined): string {
+  return abbrev && abbrev !== zone ? `${zone} · ${abbrev}` : zone
+}
+
+/**
+ * The viewer's local timezone, for labeling times rendered in local time
+ * (e.g. the server-traffic hourly rollups). Resolved from the browser's Intl
+ * settings — a presentation concern, not server data.
+ */
+export function localTimeZoneLabel(): string {
+  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone
+  const abbrev = new Intl.DateTimeFormat('en-US', { timeZoneName: 'short' })
+    .formatToParts()
+    .find((part) => part.type === 'timeZoneName')?.value
+  return formatTimeZoneLabel(zone, abbrev)
+}

@@ -30,6 +30,7 @@ import {
   useServerTrafficSource,
   useSyncServerTrafficSource,
 } from '../queries/server-traffic.js'
+import { localTimeZoneLabel } from '../lib/format-helpers.js'
 import {
   bucketForChartClick,
   bucketKeyFor,
@@ -65,6 +66,9 @@ const DEFAULT_WINDOW = WINDOW_OPTIONS.find((w) => w.label === '7d') ?? WINDOW_OP
 const CRAWLER_COLOR = CHART_SERIES_COLORS[0]
 const AI_USER_FETCH_COLOR = CHART_SERIES_COLORS[2]
 const AI_REFERRAL_COLOR = CHART_SERIES_COLORS[1]
+
+/** The viewer's timezone — hour labels on this page are rendered in local time. */
+const LOCAL_TZ = localTimeZoneLabel()
 
 function formatHourLabel(iso: string): string {
   const d = new Date(iso)
@@ -396,7 +400,7 @@ export function TrafficSourceDetailPage() {
               <p className="mt-1.5 text-xs text-zinc-500">
                 {totals.crawlerHits.toLocaleString('en-US')} crawler ·{' '}
                 {totals.aiUserFetchHits.toLocaleString('en-US')} AI user fetches ·{' '}
-                {totals.aiReferralHits.toLocaleString('en-US')} AI referral sessions · last {activeWindow.label}
+                {totals.aiReferralHits.toLocaleString('en-US')} AI referral sessions · last {activeWindow.label} · {LOCAL_TZ}
               </p>
             ) : null}
           </div>
@@ -512,7 +516,7 @@ export function TrafficSourceDetailPage() {
             <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">Event rows</p>
             <p className="mt-1 text-xs text-zinc-500">
               Showing <span className="tabular-nums text-zinc-300">{filteredEvents.length.toLocaleString('en-US')}</span> of{' '}
-              <span className="tabular-nums text-zinc-500">{visibleEvents.length.toLocaleString('en-US')}</span> events
+              <span className="tabular-nums text-zinc-500">{visibleEvents.length.toLocaleString('en-US')}</span> events · {LOCAL_TZ}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">

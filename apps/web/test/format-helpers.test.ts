@@ -4,6 +4,8 @@ import {
   buildPreset,
   parsePreset,
   scheduleLabel,
+  formatTimeZoneLabel,
+  localTimeZoneLabel,
 } from '../src/lib/format-helpers.js'
 
 describe('formatHour', () => {
@@ -89,5 +91,27 @@ describe('scheduleLabel', () => {
 
   it('falls through to raw preset for unrecognized preset', () => {
     expect(scheduleLabel('something-else', '', 'UTC')).toBe('something-else · UTC')
+  })
+})
+
+describe('formatTimeZoneLabel', () => {
+  it('combines zone and abbreviation', () => {
+    expect(formatTimeZoneLabel('America/New_York', 'EDT')).toBe('America/New_York · EDT')
+  })
+
+  it('falls back to the zone alone when the abbreviation is missing', () => {
+    expect(formatTimeZoneLabel('America/New_York', undefined)).toBe('America/New_York')
+  })
+
+  it('does not duplicate when the abbreviation equals the zone', () => {
+    expect(formatTimeZoneLabel('UTC', 'UTC')).toBe('UTC')
+  })
+})
+
+describe('localTimeZoneLabel', () => {
+  it('resolves a non-empty timezone label from the runtime', () => {
+    const label = localTimeZoneLabel()
+    expect(typeof label).toBe('string')
+    expect(label.length).toBeGreaterThan(0)
   })
 })
