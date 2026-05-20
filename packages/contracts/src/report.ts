@@ -382,6 +382,15 @@ export const serverActivitySectionSchema = z.object({
   verifiedCrawlerHits: z.object({ current: z.number(), prior: z.number(), deltaPct: z.number().nullable() }),
   /** Last-7d total unverified crawler hits, separated from verified trust metrics. */
   unverifiedCrawlerHits: z.object({ current: z.number(), prior: z.number(), deltaPct: z.number().nullable() }),
+  /**
+   * Last-7d on-demand per-user fetches from AI surfaces (ChatGPT-User,
+   * Perplexity-User, MistralAI-User). Disjoint from `verifiedCrawlerHits` /
+   * `unverifiedCrawlerHits` — those measure bulk crawl; this measures human
+   * users asking an AI to read a URL. Counts verified + unverified together
+   * because the operational question for user-fetch is "is this happening?"
+   * not "is this a confirmed bot identity?"
+   */
+  aiUserFetchHits: z.object({ current: z.number(), prior: z.number(), deltaPct: z.number().nullable() }),
   /** Last-7d AI-referral sessions (sessionized from server-side request evidence). */
   referralArrivals: z.object({ current: z.number(), prior: z.number(), deltaPct: z.number().nullable() }),
 
@@ -391,6 +400,8 @@ export const serverActivitySectionSchema = z.object({
     verifiedHits: z.number(),
     /** Shown to agency audience only — claimed-bot UA, rDNS not confirmed. */
     unverifiedHits: z.number(),
+    /** Per-user fetches from this operator's AI surface (ChatGPT-User, …). */
+    userFetchHits: z.number(),
     referralArrivals: z.number(),
     deltaPct: z.number().nullable(),
   })),
@@ -421,6 +432,7 @@ export const serverActivitySectionSchema = z.object({
   dailyTrend: z.array(z.object({
     date: z.string(),
     verifiedCrawlerHits: z.number(),
+    userFetchHits: z.number(),
     referralArrivals: z.number(),
   })),
 

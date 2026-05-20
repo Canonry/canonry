@@ -2,6 +2,7 @@ import { and, desc, eq, gte, inArray, lt, lte, ne, or, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import {
   aiReferralEventsHourly,
+  aiUserFetchEventsHourly,
   bingCoverageSnapshots,
   competitors,
   crawlerEventsHourly,
@@ -660,10 +661,33 @@ function buildServerActivity(db: DatabaseClient, projectId: string): ProjectRepo
         .get()?.total ?? 0,
     )
 
+  // User-fetch hits roll verified + unverified together. For crawlers we
+  // split because rDNS confirmation is the trust signal; for user-fetch
+  // the operational question is "is an AI surface reading this page on
+  // behalf of a real user, yes or no?" — verification matters less.
+  const sumUserFetches = (windowStartIso: string, windowEndIso: string, exclusiveEnd = false) =>
+    Number(
+      db
+        .select({ total: sql<number>`COALESCE(SUM(${aiUserFetchEventsHourly.hits}), 0)` })
+        .from(aiUserFetchEventsHourly)
+        .where(
+          and(
+            eq(aiUserFetchEventsHourly.projectId, projectId),
+            gte(aiUserFetchEventsHourly.tsHour, windowStartIso),
+            exclusiveEnd
+              ? lt(aiUserFetchEventsHourly.tsHour, windowEndIso)
+              : lte(aiUserFetchEventsHourly.tsHour, windowEndIso),
+          ),
+        )
+        .get()?.total ?? 0,
+    )
+
   const verifiedCurrent = sumVerifiedCrawlers(headlineStart, headlineEnd)
   const verifiedPrior = sumVerifiedCrawlers(priorStart, headlineStart, true)
   const unverifiedCurrent = sumUnverifiedCrawlers(headlineStart, headlineEnd)
   const unverifiedPrior = sumUnverifiedCrawlers(priorStart, headlineStart, true)
+  const userFetchCurrent = sumUserFetches(headlineStart, headlineEnd)
+  const userFetchPrior = sumUserFetches(priorStart, headlineStart, true)
   const referralCurrent = sumReferrals(headlineStart, headlineEnd)
   const referralPrior = sumReferrals(priorStart, headlineStart, true)
 
@@ -719,13 +743,29 @@ function buildServerActivity(db: DatabaseClient, projectId: string): ProjectRepo
     .groupBy(aiReferralEventsHourly.operator)
     .all()
 
+  const userFetchByOperatorRows = db
+    .select({
+      operator: aiUserFetchEventsHourly.operator,
+      hits: sql<number>`COALESCE(SUM(${aiUserFetchEventsHourly.hits}), 0)`,
+    })
+    .from(aiUserFetchEventsHourly)
+    .where(
+      and(
+        eq(aiUserFetchEventsHourly.projectId, projectId),
+        gte(aiUserFetchEventsHourly.tsHour, headlineStart),
+        lte(aiUserFetchEventsHourly.tsHour, headlineEnd),
+      ),
+    )
+    .groupBy(aiUserFetchEventsHourly.operator)
+    .all()
+
   const operatorAgg = new Map<string, {
-    verified: number; unverified: number; referrals: number; prior: number
+    verified: number; unverified: number; userFetch: number; referrals: number; prior: number
   }>()
   const ensureOp = (op: string) => {
     let entry = operatorAgg.get(op)
     if (!entry) {
-      entry = { verified: 0, unverified: 0, referrals: 0, prior: 0 }
+      entry = { verified: 0, unverified: 0, userFetch: 0, referrals: 0, prior: 0 }
       operatorAgg.set(op, entry)
     }
     return entry
@@ -738,6 +778,9 @@ function buildServerActivity(db: DatabaseClient, projectId: string): ProjectRepo
   for (const r of crawlerByOperatorPriorRows) {
     ensureOp(r.operator).prior += Number(r.hits)
   }
+  for (const r of userFetchByOperatorRows) {
+    ensureOp(r.operator).userFetch += Number(r.hits)
+  }
   for (const r of referralByOperatorRows) {
     ensureOp(r.operator).referrals += Number(r.hits)
   }
@@ -747,12 +790,14 @@ function buildServerActivity(db: DatabaseClient, projectId: string): ProjectRepo
       operator,
       verifiedHits: v.verified,
       unverifiedHits: v.unverified,
+      userFetchHits: v.userFetch,
       referralArrivals: v.referrals,
       deltaPct: deltaPercent(v.verified, v.prior),
     }))
-    // Sort by total signal: verified hits first, then unverified and referrals as tiebreakers.
+    // Sort by total signal: verified hits first, then user-fetch, then unverified and referrals.
     .sort((a, b) =>
       b.verifiedHits - a.verifiedHits ||
+      b.userFetchHits - a.userFetchHits ||
       b.unverifiedHits - a.unverifiedHits ||
       b.referralArrivals - a.referralArrivals,
     )
@@ -868,14 +913,36 @@ function buildServerActivity(db: DatabaseClient, projectId: string): ProjectRepo
     .groupBy(sql`SUBSTR(${aiReferralEventsHourly.tsHour}, 1, 10)`)
     .all()
 
-  const dailyTrendMap = new Map<string, { verifiedCrawlerHits: number; referralArrivals: number }>()
+  const userFetchTrendRows = db
+    .select({
+      date: sql<string>`SUBSTR(${aiUserFetchEventsHourly.tsHour}, 1, 10)`,
+      hits: sql<number>`COALESCE(SUM(${aiUserFetchEventsHourly.hits}), 0)`,
+    })
+    .from(aiUserFetchEventsHourly)
+    .where(
+      and(
+        eq(aiUserFetchEventsHourly.projectId, projectId),
+        gte(aiUserFetchEventsHourly.tsHour, trendStart),
+        lte(aiUserFetchEventsHourly.tsHour, headlineEnd),
+      ),
+    )
+    .groupBy(sql`SUBSTR(${aiUserFetchEventsHourly.tsHour}, 1, 10)`)
+    .all()
+
+  const emptyTrendEntry = () => ({ verifiedCrawlerHits: 0, userFetchHits: 0, referralArrivals: 0 })
+  const dailyTrendMap = new Map<string, ReturnType<typeof emptyTrendEntry>>()
   for (const r of crawlerTrendRows) {
-    const e = dailyTrendMap.get(r.date) ?? { verifiedCrawlerHits: 0, referralArrivals: 0 }
+    const e = dailyTrendMap.get(r.date) ?? emptyTrendEntry()
     e.verifiedCrawlerHits += Number(r.hits)
     dailyTrendMap.set(r.date, e)
   }
+  for (const r of userFetchTrendRows) {
+    const e = dailyTrendMap.get(r.date) ?? emptyTrendEntry()
+    e.userFetchHits += Number(r.hits)
+    dailyTrendMap.set(r.date, e)
+  }
   for (const r of referralTrendRows) {
-    const e = dailyTrendMap.get(r.date) ?? { verifiedCrawlerHits: 0, referralArrivals: 0 }
+    const e = dailyTrendMap.get(r.date) ?? emptyTrendEntry()
     e.referralArrivals += Number(r.hits)
     dailyTrendMap.set(r.date, e)
   }
@@ -886,7 +953,8 @@ function buildServerActivity(db: DatabaseClient, projectId: string): ProjectRepo
   return {
     windowStart: headlineStart,
     windowEnd: headlineEnd,
-    hasData: verifiedCurrent + unverifiedCurrent + referralCurrent + verifiedPrior + unverifiedPrior + referralPrior > 0
+    hasData: verifiedCurrent + unverifiedCurrent + userFetchCurrent + referralCurrent
+      + verifiedPrior + unverifiedPrior + userFetchPrior + referralPrior > 0
       || byOperator.length > 0
       || topCrawledPaths.length > 0
       || referralProducts.length > 0,
@@ -899,6 +967,11 @@ function buildServerActivity(db: DatabaseClient, projectId: string): ProjectRepo
       current: unverifiedCurrent,
       prior: unverifiedPrior,
       deltaPct: deltaPercent(unverifiedCurrent, unverifiedPrior),
+    },
+    aiUserFetchHits: {
+      current: userFetchCurrent,
+      prior: userFetchPrior,
+      deltaPct: deltaPercent(userFetchCurrent, userFetchPrior),
     },
     referralArrivals: {
       current: referralCurrent,

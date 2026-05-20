@@ -1057,6 +1057,11 @@ export type ProjectReportDto = {
             prior: number;
             deltaPct: number | null;
         };
+        aiUserFetchHits: {
+            current: number;
+            prior: number;
+            deltaPct: number | null;
+        };
         referralArrivals: {
             current: number;
             prior: number;
@@ -1066,6 +1071,7 @@ export type ProjectReportDto = {
             operator: string;
             verifiedHits: number;
             unverifiedHits: number;
+            userFetchHits: number;
             referralArrivals: number;
             deltaPct: number | null;
         }>;
@@ -1082,6 +1088,7 @@ export type ProjectReportDto = {
         dailyTrend: Array<{
             date: string;
             verifiedCrawlerHits: number;
+            userFetchHits: number;
             referralArrivals: number;
         }>;
         topReferralLandingPaths: Array<{

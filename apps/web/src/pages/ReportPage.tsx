@@ -181,9 +181,12 @@ function ServerActivityClientView({ report }: { report: ProjectReportDto }) {
   }
   const crawlerDelta = formatDeltaCopy(crawlerRequests, 'requests')
   const crawlerSubtitle = `${formatNumber(sa.verifiedCrawlerHits.current)} verified · ${formatNumber(sa.unverifiedCrawlerHits.current)} unverified${crawlerDelta ? ` · ${crawlerDelta}` : ''}`
+  const userFetchDelta = formatDeltaCopy(sa.aiUserFetchHits, 'requests')
   const referralDelta = formatDeltaCopy(sa.referralArrivals, 'sessions')
   // For the client view we cap at the top 5 entries — agencies see the full breakdown in the HTML report.
-  const topOperators = sa.byOperator.filter(o => o.verifiedHits > 0 || o.unverifiedHits > 0 || o.referralArrivals > 0).slice(0, 5)
+  const topOperators = sa.byOperator
+    .filter(o => o.verifiedHits > 0 || o.unverifiedHits > 0 || o.userFetchHits > 0 || o.referralArrivals > 0)
+    .slice(0, 5)
 
   return (
     <section className="page-section-divider">
@@ -192,11 +195,16 @@ function ServerActivityClientView({ report }: { report: ProjectReportDto }) {
         title={SERVER_ACTIVITY_TITLE}
         subtitle={SERVER_ACTIVITY_INTRO_HAS_DATA}
       />
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid gap-3 sm:grid-cols-3">
         <Metric
           label="AI bot requests observed"
           value={formatNumber(crawlerRequests.current)}
           subtitle={crawlerSubtitle}
+        />
+        <Metric
+          label="AI user-fetch requests"
+          value={formatNumber(sa.aiUserFetchHits.current)}
+          subtitle={userFetchDelta || 'ChatGPT-User, Perplexity-User, MistralAI-User'}
         />
         <Metric
           label="AI referral sessions"
@@ -213,6 +221,7 @@ function ServerActivityClientView({ report }: { report: ProjectReportDto }) {
                 <tr>
                   <th>AI tool</th>
                   <th>Bot requests (7d)</th>
+                  <th>User fetches (7d)</th>
                   <th>Referral sessions</th>
                 </tr>
               </thead>
@@ -221,6 +230,7 @@ function ServerActivityClientView({ report }: { report: ProjectReportDto }) {
                   <tr key={o.operator}>
                     <td className="evidence-query-cell">{o.operator}</td>
                     <td>{formatNumber(o.verifiedHits + o.unverifiedHits)}</td>
+                    <td>{formatNumber(o.userFetchHits)}</td>
                     <td>{formatNumber(o.referralArrivals)}</td>
                   </tr>
                 ))}
@@ -228,7 +238,7 @@ function ServerActivityClientView({ report }: { report: ProjectReportDto }) {
             </table>
           </div>
           <p className="mt-2 text-[11px] text-zinc-500">
-            Verified requests are reverse-DNS confirmed. Unverified requests are user-agent claims shown separately in agency diagnostics.
+            Bot requests are bulk crawl (GPTBot, PerplexityBot, …). User fetches are on-demand reads triggered by real users inside an AI surface (ChatGPT-User, Perplexity-User, …). Verified requests are reverse-DNS confirmed; unverified requests are UA claims shown separately in agency diagnostics.
           </p>
         </div>
       )}

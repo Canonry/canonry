@@ -254,11 +254,13 @@ function richReport(): ProjectReportDto {
       hasData: true,
       verifiedCrawlerHits: { current: 234, prior: 117, deltaPct: 100 },
       unverifiedCrawlerHits: { current: 15, prior: 5, deltaPct: 200 },
+      aiUserFetchHits: { current: 42, prior: 18, deltaPct: 133 },
       referralArrivals: { current: 12, prior: 6, deltaPct: 100 },
       byOperator: [
-        { operator: 'OpenAI', verifiedHits: 140, unverifiedHits: 10, referralArrivals: 8, deltaPct: 75 },
-        { operator: 'Anthropic', verifiedHits: 70, unverifiedHits: 0, referralArrivals: 3, deltaPct: 40 },
-        { operator: 'Google AI', verifiedHits: 24, unverifiedHits: 5, referralArrivals: 1, deltaPct: null },
+        { operator: 'OpenAI', verifiedHits: 140, unverifiedHits: 10, userFetchHits: 32, referralArrivals: 8, deltaPct: 75 },
+        { operator: 'Anthropic', verifiedHits: 70, unverifiedHits: 0, userFetchHits: 0, referralArrivals: 3, deltaPct: 40 },
+        { operator: 'Google AI', verifiedHits: 24, unverifiedHits: 5, userFetchHits: 0, referralArrivals: 1, deltaPct: null },
+        { operator: 'Perplexity', verifiedHits: 0, unverifiedHits: 0, userFetchHits: 10, referralArrivals: 0, deltaPct: null },
       ],
       topCrawledPaths: [
         { path: '/blog/foo', verifiedHits: 80, distinctOperators: 2 },
@@ -269,8 +271,8 @@ function richReport(): ProjectReportDto {
         { product: 'Claude', arrivals: 3, distinctLandingPaths: 1 },
       ],
       dailyTrend: [
-        { date: '2026-04-29', verifiedCrawlerHits: 30, referralArrivals: 2 },
-        { date: '2026-04-30', verifiedCrawlerHits: 45, referralArrivals: 3 },
+        { date: '2026-04-29', verifiedCrawlerHits: 30, userFetchHits: 4, referralArrivals: 2 },
+        { date: '2026-04-30', verifiedCrawlerHits: 45, userFetchHits: 8, referralArrivals: 3 },
       ],
       topReferralLandingPaths: [
         { path: '/landing', arrivals: 5, distinctProducts: 2 },
@@ -545,17 +547,33 @@ describe('renderReportHtml', () => {
     expect(html).toContain('AI Visibility — Server-Side')
     // Plain-English client labels (NOT the analyst "Verified crawler hits" copy)
     expect(html).toContain('AI bot requests observed')
+    expect(html).toContain('AI user-fetch requests')
     expect(html).toContain('AI referral sessions')
     expect(html).toContain('reverse-DNS')
     // Section eyebrow in client view is the friendlier "AI engine attention" label
     expect(html).toContain('AI engine attention')
     // Per-engine breakdown rendered with operator names
     expect(html).toContain('OpenAI')
+    // Per-engine table renders the user-fetches column for the client too
+    expect(html).toContain('User fetches (7d)')
     // The agency-only labels MUST NOT appear in the client view
     expect(html).not.toContain('Verified crawler hits (7d)')
     expect(html).not.toContain('Top crawled paths')
     // Section 10 eyebrow is agency-only
     expect(html).not.toContain('Section 10')
+  })
+
+  test('agency HTML renders the AI user-fetch tile and operator column alongside crawler + referral', () => {
+    const html = renderReportHtml(richReport(), { audience: 'agency' })
+    // Headline tile for the new disjoint signal
+    expect(html).toContain('AI user-fetch hits (7d)')
+    // 7d delta against prior 7d, computed in formatDeltaCopy from the fixture
+    expect(html).toContain('Up 133% vs prior 7 days (18 hits)')
+    // Operator table gains a "User fetches" column
+    expect(html).toContain('<th class="numeric">User fetches</th>')
+    // A user-fetch-only operator (Perplexity in fixture) is sorted into the
+    // table even though its verifiedHits / unverifiedHits / referrals are 0
+    expect(html).toContain('Perplexity')
   })
 
   test('client HTML hides the section entirely when no traffic source is connected', () => {
@@ -619,6 +637,7 @@ describe('renderReportHtml', () => {
       hasData: false,
       verifiedCrawlerHits: { current: 0, prior: 0, deltaPct: null },
       unverifiedCrawlerHits: { current: 0, prior: 0, deltaPct: null },
+      aiUserFetchHits: { current: 0, prior: 0, deltaPct: null },
       referralArrivals: { current: 0, prior: 0, deltaPct: null },
       byOperator: [],
       topCrawledPaths: [],

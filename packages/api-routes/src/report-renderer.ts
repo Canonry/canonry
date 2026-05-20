@@ -1892,13 +1892,17 @@ function renderServerActivity(report: ProjectReportDto, audience: ReportAudience
     const crawlerSubtitle = crawlerDelta
       ? `${escapeHtml(crawlerTrustSummary)} · ${crawlerDelta}`
       : escapeHtml(crawlerTrustSummary)
+    const userFetchDelta = formatDelta(sa.aiUserFetchHits, 'requests')
+    const userFetchSubtitle = userFetchDelta
+      || escapeHtml('ChatGPT-User, Perplexity-User, MistralAI-User')
     const clientOperators = sa.byOperator
-      .filter(o => o.verifiedHits > 0 || o.unverifiedHits > 0 || o.referralArrivals > 0)
+      .filter(o => o.verifiedHits > 0 || o.unverifiedHits > 0 || o.userFetchHits > 0 || o.referralArrivals > 0)
       .slice(0, 5)
     const clientOperatorRows = clientOperators.map(o => `
     <tr>
       <td>${escapeHtml(o.operator)}</td>
       <td class="numeric">${formatNumber(o.verifiedHits + o.unverifiedHits)}</td>
+      <td class="numeric">${formatNumber(o.userFetchHits)}</td>
       <td class="numeric">${formatNumber(o.referralArrivals)}</td>
     </tr>`).join('')
 
@@ -1911,6 +1915,11 @@ function renderServerActivity(report: ProjectReportDto, audience: ReportAudience
           <div class="subtitle">${crawlerSubtitle}</div>
         </div>
         <div class="metric">
+          <div class="label">AI user-fetch requests</div>
+          <div class="value">${formatNumber(sa.aiUserFetchHits.current)}</div>
+          <div class="subtitle">${userFetchSubtitle}</div>
+        </div>
+        <div class="metric">
           <div class="label">AI referral sessions</div>
           <div class="value">${formatNumber(sa.referralArrivals.current)}</div>
           <div class="subtitle">${formatDelta(sa.referralArrivals, 'sessions')}</div>
@@ -1918,10 +1927,10 @@ function renderServerActivity(report: ProjectReportDto, audience: ReportAudience
       </div>
       ${clientOperatorRows ? `<div class="chart-card"><h3>By AI tool</h3>
         <table class="report-table">
-          <thead><tr><th>AI tool</th><th class="numeric">Bot requests (7d)</th><th class="numeric">Referral sessions</th></tr></thead>
+          <thead><tr><th>AI tool</th><th class="numeric">Bot requests (7d)</th><th class="numeric">User fetches (7d)</th><th class="numeric">Referral sessions</th></tr></thead>
           <tbody>${clientOperatorRows}</tbody>
         </table>
-        <p class="meta">Verified requests are reverse-DNS confirmed. Unverified requests are user-agent claims shown separately in agency diagnostics.</p>
+        <p class="meta">Bot requests are bulk crawl (GPTBot, PerplexityBot, …). User fetches are on-demand reads triggered by real users inside an AI surface (ChatGPT-User, Perplexity-User, …). Verified requests are reverse-DNS confirmed; unverified requests are UA claims shown separately in agency diagnostics.</p>
       </div>` : ''}`,
     )
   }
@@ -1937,6 +1946,7 @@ function renderServerActivity(report: ProjectReportDto, audience: ReportAudience
       <td>${escapeHtml(o.operator)}</td>
       <td class="numeric">${formatNumber(o.verifiedHits)}</td>
       <td class="numeric meta">${formatNumber(o.unverifiedHits)}</td>
+      <td class="numeric">${formatNumber(o.userFetchHits)}</td>
       <td class="numeric">${formatNumber(o.referralArrivals)}</td>
       <td class="numeric ${toneClass}">${deltaText}</td>
     </tr>`
@@ -1985,6 +1995,11 @@ function renderServerActivity(report: ProjectReportDto, audience: ReportAudience
         <div class="subtitle">${formatDelta(sa.unverifiedCrawlerHits, 'hits')}</div>
       </div>
       <div class="metric">
+        <div class="label">AI user-fetch hits (7d)</div>
+        <div class="value">${formatNumber(sa.aiUserFetchHits.current)}</div>
+        <div class="subtitle">${formatDelta(sa.aiUserFetchHits, 'hits')}</div>
+      </div>
+      <div class="metric">
         <div class="label">AI-referral sessions (7d)</div>
         <div class="value">${formatNumber(sa.referralArrivals.current)}</div>
         <div class="subtitle">${formatDelta(sa.referralArrivals, 'sessions')}</div>
@@ -1992,9 +2007,9 @@ function renderServerActivity(report: ProjectReportDto, audience: ReportAudience
     </div>
     ${trendChart}
     ${operatorRows ? `<div class="chart-card"><h3>Per AI operator</h3>
-      <p class="meta">Verified means rDNS-confirmed. Unverified bots claim the user-agent but couldn't be verified — could be the real bot or an imitator.</p>
+      <p class="meta">Verified means rDNS-confirmed. Unverified bots claim the user-agent but couldn't be verified — could be the real bot or an imitator. User fetches are on-demand reads from an AI surface on behalf of a real user (ChatGPT-User, Perplexity-User, …) — disjoint from bulk crawl.</p>
       <table class="report-table">
-        <thead><tr><th>Operator</th><th class="numeric">Verified hits</th><th class="numeric">Unverified</th><th class="numeric">Referral sessions</th><th class="numeric">7d delta</th></tr></thead>
+        <thead><tr><th>Operator</th><th class="numeric">Verified hits</th><th class="numeric">Unverified</th><th class="numeric">User fetches</th><th class="numeric">Referral sessions</th><th class="numeric">7d delta</th></tr></thead>
         <tbody>${operatorRows}</tbody>
       </table>
     </div>` : ''}
