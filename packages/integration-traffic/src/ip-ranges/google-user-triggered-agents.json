@@ -1,0 +1,66 @@
+{
+  "_source": "https://developers.google.com/static/crawling/ipranges/user-triggered-agents.json",
+  "creationTime": "2026-05-19T14:46:15.000000",
+  "prefixes": [
+    {
+      "ipv6Prefix": "2001:4860:c::/124"
+    },
+    {
+      "ipv6Prefix": "2001:4860:c::10/124"
+    },
+    {
+      "ipv6Prefix": "2001:4860:c::20/124"
+    },
+    {
+      "ipv6Prefix": "2001:4860:c::30/124"
+    },
+    {
+      "ipv6Prefix": "2001:4860:c::40/124"
+    },
+    {
+      "ipv6Prefix": "2001:4860:c::50/124"
+    },
+    {
+      "ipv6Prefix": "2001:4860:c::60/124"
+    },
+    {
+      "ipv6Prefix": "2001:4860:c::70/124"
+    },
+    {
+      "ipv4Prefix": "136.121.16.0/24"
+    },
+    {
+      "ipv4Prefix": "136.121.24.0/21"
+    },
+    {
+      "ipv4Prefix": "136.121.40.0/21"
+    },
+    {
+      "ipv4Prefix": "136.122.0.0/16"
+    },
+    {
+      "ipv4Prefix": "74.125.232.0/28"
+    },
+    {
+      "ipv4Prefix": "74.125.232.112/28"
+    },
+    {
+      "ipv4Prefix": "74.125.232.16/28"
+    },
+    {
+      "ipv4Prefix": "74.125.232.32/28"
+    },
+    {
+      "ipv4Prefix": "74.125.232.48/28"
+    },
+    {
+      "ipv4Prefix": "74.125.232.64/28"
+    },
+    {
+      "ipv4Prefix": "74.125.232.80/28"
+    },
+    {
+      "ipv4Prefix": "74.125.232.96/28"
+    }
+  ]
+}

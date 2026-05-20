@@ -176,6 +176,16 @@ describe('verifyIpForRule', () => {
     expect(verifyIpForRule('1.2.3.4', 'claude-user')).toBe(false)
   })
 
+  it('verifies Google-Agent against Google\'s user-triggered-agents ranges', () => {
+    // user-triggered-agents.json is Google's shared list for every
+    // user-triggered fetcher; the google-agent rule maps to it.
+    expect(verifyIpForRule('136.122.0.10', 'google-agent')).toBe(true)    // 136.122.0.0/16
+    expect(verifyIpForRule('136.121.16.5', 'google-agent')).toBe(true)    // 136.121.16.0/24
+    expect(verifyIpForRule('2001:4860:c::5', 'google-agent')).toBe(true)  // IPv6 2001:4860:c::/124
+    // Outside every published prefix — stays unverified.
+    expect(verifyIpForRule('1.2.3.4', 'google-agent')).toBe(false)
+  })
+
   it('returns false for a rule id without published ranges', () => {
     // Meta doesn't publish a public ranges file. The
     // meta-externalagent rule has no entry in RULE_ID_TO_RANGES, so
@@ -217,6 +227,7 @@ describe('hasVerificationDataFor', () => {
     expect(hasVerificationDataFor('perplexity-user')).toBe(true)
     expect(hasVerificationDataFor('anthropic-claudebot')).toBe(true)
     expect(hasVerificationDataFor('claude-user')).toBe(true)
+    expect(hasVerificationDataFor('google-agent')).toBe(true)
   })
 
   it('is false for operators without bundled ranges yet', () => {
