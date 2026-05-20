@@ -165,6 +165,17 @@ describe('verifyIpForRule', () => {
     expect(verifyIpForRule('2607:6bc0:ffff:ffff::1', 'anthropic-claudebot')).toBe(true)
   })
 
+  it('verifies Claude-User against the shared Anthropic ranges', () => {
+    // Anthropic's per-user fetcher shares the ClaudeBot crawler's ARIN
+    // allocation — the same bundled anthropic.json is keyed to both
+    // rule ids in RULE_ID_TO_RANGES.
+    expect(verifyIpForRule('216.73.216.76', 'claude-user')).toBe(true)
+    expect(verifyIpForRule('160.79.104.5', 'claude-user')).toBe(true)
+    expect(verifyIpForRule('2607:6bc0::1', 'claude-user')).toBe(true)
+    // Outside Anthropic's allocation — stays unverified.
+    expect(verifyIpForRule('1.2.3.4', 'claude-user')).toBe(false)
+  })
+
   it('returns false for a rule id without published ranges', () => {
     // Meta doesn't publish a public ranges file. The
     // meta-externalagent rule has no entry in RULE_ID_TO_RANGES, so
@@ -205,6 +216,7 @@ describe('hasVerificationDataFor', () => {
     expect(hasVerificationDataFor('perplexity-bot')).toBe(true)
     expect(hasVerificationDataFor('perplexity-user')).toBe(true)
     expect(hasVerificationDataFor('anthropic-claudebot')).toBe(true)
+    expect(hasVerificationDataFor('claude-user')).toBe(true)
   })
 
   it('is false for operators without bundled ranges yet', () => {
