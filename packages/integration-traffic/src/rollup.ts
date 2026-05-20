@@ -1,8 +1,9 @@
 import type { NormalizedTrafficRequest } from '@ainyc/canonry-contracts'
-import { classifyAiReferral, classifyCrawler } from './classifier.js'
+import { classifyAiReferral, classifyAiUserFetch, classifyCrawler } from './classifier.js'
 import type {
   AiReferralEventHourlyBucket,
   AiReferralEvidenceType,
+  AiUserFetchEventHourlyBucket,
   BuildTrafficProbeReportOptions,
   ClassifiedAiReferral,
   CrawlerEventHourlyBucket,
@@ -146,6 +147,13 @@ function sortCrawlerBuckets(a: CrawlerEventHourlyBucket, b: CrawlerEventHourlyBu
     String(a.status).localeCompare(String(b.status))
 }
 
+function sortAiUserFetchBuckets(a: AiUserFetchEventHourlyBucket, b: AiUserFetchEventHourlyBucket): number {
+  return a.tsHour.localeCompare(b.tsHour) ||
+    a.botId.localeCompare(b.botId) ||
+    a.pathNormalized.localeCompare(b.pathNormalized) ||
+    String(a.status).localeCompare(String(b.status))
+}
+
 function sortReferralBuckets(a: AiReferralEventHourlyBucket, b: AiReferralEventHourlyBucket): number {
   return a.tsHour.localeCompare(b.tsHour) ||
     a.product.localeCompare(b.product) ||
@@ -174,14 +182,18 @@ export function buildTrafficProbeReport(
     ? configuredSessionWindowMs
     : DEFAULT_AI_REFERRAL_SESSION_WINDOW_MS
   const crawlerBuckets = new Map<string, CrawlerEventHourlyBucket>()
+  const aiUserFetchBuckets = new Map<string, AiUserFetchEventHourlyBucket>()
   const aiReferralBuckets = new Map<string, AiReferralEventHourlyBucket>()
   const aiReferralSessions = new Map<string, AiReferralSession>()
   const topBots = new Map<string, { fields: { botId: string; operator: string }; hits: number }>()
   const topCrawlerPaths = new Map<string, { fields: { pathNormalized: string }; hits: number }>()
+  const topAiUserFetchBots = new Map<string, { fields: { botId: string; operator: string }; hits: number }>()
+  const topAiUserFetchPaths = new Map<string, { fields: { pathNormalized: string }; hits: number }>()
   const topAiReferrers = new Map<string, { fields: { sourceDomain: string; product: string }; hits: number }>()
   const topAiReferralLandingPaths = new Map<string, { fields: { landingPathNormalized: string }; hits: number }>()
 
   let crawlerHits = 0
+  let aiUserFetchHits = 0
   let aiReferralHits = 0
   let unknownHits = 0
   const samples: TrafficProbeReport['samples'] = []
@@ -190,6 +202,7 @@ export function buildTrafficProbeReport(
     const tsHour = hourBucket(event.observedAt)
     const pathNormalized = normalizeTrafficPathPattern(event.path)
     const crawler = classifyCrawler(event)
+    const aiUserFetch = classifyAiUserFetch(event)
     const aiReferral = classifyAiReferral(event)
 
     if (crawler) {
@@ -224,6 +237,38 @@ export function buildTrafficProbeReport(
       incrementBucket(topCrawlerPaths, pathNormalized, { pathNormalized })
     }
 
+    if (aiUserFetch) {
+      aiUserFetchHits += 1
+      const key = [
+        tsHour,
+        aiUserFetch.botId,
+        aiUserFetch.verificationStatus,
+        pathNormalized,
+        event.status ?? 'null',
+      ].join('\t')
+      const existing = aiUserFetchBuckets.get(key)
+      if (existing) {
+        existing.hits += 1
+      } else {
+        aiUserFetchBuckets.set(key, {
+          tsHour,
+          botId: aiUserFetch.botId,
+          operator: aiUserFetch.operator,
+          product: aiUserFetch.product,
+          verificationStatus: aiUserFetch.verificationStatus,
+          pathNormalized,
+          status: event.status,
+          hits: 1,
+          sampledUserAgent: event.userAgent,
+        })
+      }
+      const botKey = `${aiUserFetch.botId}\t${aiUserFetch.operator}`
+      const botEntry = topAiUserFetchBots.get(botKey)
+      if (botEntry) botEntry.hits += 1
+      else topAiUserFetchBots.set(botKey, { fields: { botId: aiUserFetch.botId, operator: aiUserFetch.operator }, hits: 1 })
+      incrementBucket(topAiUserFetchPaths, pathNormalized, { pathNormalized })
+    }
+
     if (aiReferral) {
       aiReferralHits += 1
       const landingPathNormalized = resolveAiReferralLandingPath(event, aiReferral.evidenceType)
@@ -243,7 +288,7 @@ export function buildTrafficProbeReport(
       }
     }
 
-    if (!crawler && !aiReferral) unknownHits += 1
+    if (!crawler && !aiUserFetch && !aiReferral) unknownHits += 1
 
     // Keep the most-recent `sampleLimit` events by iteration order, not the
     // first ones we see. Pulls run timestamp-asc, so a FIFO retention would
@@ -259,6 +304,7 @@ export function buildTrafficProbeReport(
       userAgent: event.userAgent,
       referer: event.referer,
       crawler,
+      aiUserFetch,
       aiReferral,
     })
     if (samples.length > sampleLimit) samples.shift()
@@ -296,14 +342,18 @@ export function buildTrafficProbeReport(
     totals: {
       normalizedEvents: events.length,
       crawlerHits,
+      aiUserFetchHits,
       aiReferralSessions: aiReferralSessions.size,
       aiReferralHits,
       unknownHits,
     },
     crawlerEventsHourly: [...crawlerBuckets.values()].sort(sortCrawlerBuckets),
+    aiUserFetchEventsHourly: [...aiUserFetchBuckets.values()].sort(sortAiUserFetchBuckets),
     aiReferralEventsHourly: [...aiReferralBuckets.values()].sort(sortReferralBuckets),
     topBots: topEntries(topBots, 10),
     topCrawlerPaths: topEntries(topCrawlerPaths, 10),
+    topAiUserFetchBots: topEntries(topAiUserFetchBots, 10),
+    topAiUserFetchPaths: topEntries(topAiUserFetchPaths, 10),
     topAiReferrers: topEntries(topAiReferrers, 10),
     topAiReferralLandingPaths: topEntries(topAiReferralLandingPaths, 10),
     samples,

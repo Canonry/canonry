@@ -449,26 +449,38 @@ export async function trafficStatus(project: string, opts: { format?: string }):
 }
 
 function formatEventLine(event: TrafficEventEntry): string {
-  if (event.kind === TrafficEventKinds.crawler) {
-    return [
-      event.tsHour,
-      'crawler',
-      event.botId,
-      event.verificationStatus,
-      String(event.status),
-      event.pathNormalized,
-      `${event.hits} hits`,
-    ].join('  ')
+  switch (event.kind) {
+    case TrafficEventKinds.crawler:
+      return [
+        event.tsHour,
+        'crawler',
+        event.botId,
+        event.verificationStatus,
+        String(event.status),
+        event.pathNormalized,
+        `${event.hits} hits`,
+      ].join('  ')
+    case TrafficEventKinds['ai-user-fetch']:
+      return [
+        event.tsHour,
+        'ai-user-fetch',
+        event.botId,
+        event.verificationStatus,
+        String(event.status),
+        event.pathNormalized,
+        `${event.hits} hits`,
+      ].join('  ')
+    case TrafficEventKinds['ai-referral']:
+      return [
+        event.tsHour,
+        'ai-referral',
+        event.product,
+        event.evidenceType,
+        event.sourceDomain,
+        event.landingPathNormalized,
+        `${event.hits} hits`,
+      ].join('  ')
   }
-  return [
-    event.tsHour,
-    'ai-referral',
-    event.product,
-    event.evidenceType,
-    event.sourceDomain,
-    event.landingPathNormalized,
-    `${event.hits} hits`,
-  ].join('  ')
 }
 
 export async function trafficEvents(project: string, opts: {
@@ -480,11 +492,17 @@ export async function trafficEvents(project: string, opts: {
   source?: string
   format?: string
 }): Promise<void> {
-  if (opts.kind && opts.kind !== 'all' && opts.kind !== TrafficEventKinds.crawler && opts.kind !== TrafficEventKinds['ai-referral']) {
+  if (
+    opts.kind
+    && opts.kind !== 'all'
+    && opts.kind !== TrafficEventKinds.crawler
+    && opts.kind !== TrafficEventKinds['ai-user-fetch']
+    && opts.kind !== TrafficEventKinds['ai-referral']
+  ) {
     throw new CliError({
       code: 'TRAFFIC_INVALID_KIND',
-      message: `--kind must be one of: all, ${TrafficEventKinds.crawler}, ${TrafficEventKinds['ai-referral']}`,
-      displayMessage: `Error: --kind must be "all", "${TrafficEventKinds.crawler}", or "${TrafficEventKinds['ai-referral']}"`,
+      message: `--kind must be one of: all, ${TrafficEventKinds.crawler}, ${TrafficEventKinds['ai-user-fetch']}, ${TrafficEventKinds['ai-referral']}`,
+      displayMessage: `Error: --kind must be "all", "${TrafficEventKinds.crawler}", "${TrafficEventKinds['ai-user-fetch']}", or "${TrafficEventKinds['ai-referral']}"`,
       details: { project, kind: opts.kind },
     })
   }
@@ -510,7 +528,8 @@ export async function trafficEvents(project: string, opts: {
   }
 
   console.log(`Traffic events for "${project}"  ${result.windowStart}  →  ${result.windowEnd}`)
-  console.log(`  Crawler hits (window):     ${result.totals.crawlerHits}`)
+  console.log(`  Crawler hits (window):         ${result.totals.crawlerHits}`)
+  console.log(`  AI user-fetch hits (window):   ${result.totals.aiUserFetchHits}`)
   console.log(`  AI referral sessions (window): ${result.totals.aiReferralHits}`)
   console.log('')
 

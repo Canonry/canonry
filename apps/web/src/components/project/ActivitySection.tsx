@@ -107,10 +107,10 @@ function ServerActivityPanel({ projectName }: { projectName: string }) {
       <div className="flex items-baseline justify-between mb-3">
         <div>
           <div className="eyebrow">Server activity (last 24h)</div>
-          <h2 className="text-lg font-semibold text-zinc-50">Engine crawler hits &amp; AI-referral sessions</h2>
+          <h2 className="text-lg font-semibold text-zinc-50">Crawler hits, AI fetches &amp; AI referral sessions</h2>
           <p className="text-xs text-zinc-500 mt-1">
-            Server-side log evidence of bots crawling the site and AI-referral sessions — orthogonal
-            to GA4 click-through traffic below. {' '}
+            Server-side log evidence of bulk crawlers, on-demand AI user fetches (ChatGPT-User, Perplexity-User),
+            and AI referral sessions — orthogonal to GA4 click-through traffic below.{' '}
             <Link to="/traffic" className="text-blue-400 hover:underline">Manage sources →</Link>
           </p>
         </div>
@@ -134,6 +134,7 @@ function ServerActivityPanel({ projectName }: { projectName: string }) {
                 <th className="text-left px-4 py-2 font-medium">Source</th>
                 <th className="text-left px-4 py-2 font-medium">Status</th>
                 <th className="text-right px-4 py-2 font-medium">Crawler hits 24h</th>
+                <th className="text-right px-4 py-2 font-medium">AI hits 24h</th>
                 <th className="text-right px-4 py-2 font-medium">AI sessions 24h</th>
                 <th className="text-right px-4 py-2 font-medium">Last sync</th>
                 <th className="text-left px-4 py-2 font-medium" aria-label="open" />
@@ -148,6 +149,9 @@ function ServerActivityPanel({ projectName }: { projectName: string }) {
                   </td>
                   <td className="px-4 py-3 text-right tabular-nums text-zinc-100">
                     {s.totals24h.crawlerHits.toLocaleString('en-US')}
+                  </td>
+                  <td className="px-4 py-3 text-right tabular-nums text-zinc-100">
+                    {s.totals24h.aiUserFetchHits.toLocaleString('en-US')}
                   </td>
                   <td className="px-4 py-3 text-right tabular-nums text-zinc-100">
                     {s.totals24h.aiReferralHits.toLocaleString('en-US')}

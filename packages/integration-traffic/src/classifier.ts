@@ -1,7 +1,19 @@
 import type { NormalizedTrafficRequest } from '@ainyc/canonry-contracts'
 import { verifyIpForRule } from './ip-verify.js'
 import { DEFAULT_AI_CRAWLER_RULES, DEFAULT_AI_REFERRER_RULES } from './rules.js'
-import type { ClassifiedAiReferral, ClassifiedCrawler } from './types.js'
+import type {
+  ClassifiedAiReferral,
+  ClassifiedAiUserFetch,
+  ClassifiedCrawler,
+} from './types.js'
+
+// Rules with this `purpose` represent per-user, on-demand fetches from an AI
+// surface (e.g. ChatGPT-User, Perplexity-User, MistralAI-User) — not bulk
+// crawl. Operators care about the distinction: machine crawl is "AI may
+// reference my page someday"; user-fetch is "AI is reading my page right now
+// because a real user asked." Routed through classifyAiUserFetch, kept out of
+// classifyCrawler so the two signals stay disjoint end-to-end.
+const USER_FETCH_PURPOSE = 'user-agent'
 
 function normalizeHost(host: string): string {
   return host.trim().toLowerCase().replace(/^www\./, '')
@@ -53,6 +65,10 @@ export function classifyCrawler(event: NormalizedTrafficRequest): ClassifiedCraw
   if (!userAgent) return null
 
   for (const rule of DEFAULT_AI_CRAWLER_RULES) {
+    // Skip user-agent (per-user fetch) rules — those route through
+    // classifyAiUserFetch into their own bucket. Letting them match here
+    // would double-count human-in-the-loop fetches as machine crawl.
+    if (rule.purpose === USER_FETCH_PURPOSE) continue
     if (rule.userAgentPatterns.some((pattern) => pattern.test(userAgent))) {
       // UA matched — try to upgrade `claimed_unverified` → `verified` by
       // checking the request's source IP against the operator's
@@ -72,6 +88,30 @@ export function classifyCrawler(event: NormalizedTrafficRequest): ClassifiedCraw
         operator: rule.operator,
         product: rule.product,
         purpose: rule.purpose,
+        verificationStatus: verified ? 'verified' : 'claimed_unverified',
+        matchedUserAgent: userAgent,
+      }
+    }
+  }
+
+  return null
+}
+
+export function classifyAiUserFetch(event: NormalizedTrafficRequest): ClassifiedAiUserFetch | null {
+  const userAgent = event.userAgent?.trim()
+  if (!userAgent) return null
+
+  for (const rule of DEFAULT_AI_CRAWLER_RULES) {
+    if (rule.purpose !== USER_FETCH_PURPOSE) continue
+    if (rule.userAgentPatterns.some((pattern) => pattern.test(userAgent))) {
+      // Same IP-verification path as classifyCrawler — the operator's
+      // published ranges file (e.g. chatgpt-user.json) is what lifts
+      // a UA-only match to `verified`.
+      const verified = verifyIpForRule(event.remoteIp, rule.id)
+      return {
+        botId: rule.id,
+        operator: rule.operator,
+        product: rule.product,
         verificationStatus: verified ? 'verified' : 'claimed_unverified',
         matchedUserAgent: userAgent,
       }

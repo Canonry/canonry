@@ -371,6 +371,10 @@ const COVERAGE: Record<string, CoverageEntry> = {
     kind: 'internal-only',
     reason: 'Hourly rollup consumed via /traffic/events composite, not directly mapped to a DTO.',
   },
+  aiUserFetchEventsHourly: {
+    kind: 'internal-only',
+    reason: 'Hourly rollup consumed via /traffic/events composite, not directly mapped to a DTO.',
+  },
   aiReferralEventsHourly: {
     kind: 'internal-only',
     reason: 'Hourly rollup consumed via /traffic/events composite, not directly mapped to a DTO.',

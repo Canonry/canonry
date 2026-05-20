@@ -26,6 +26,19 @@ export interface ClassifiedCrawler {
   matchedUserAgent: string
 }
 
+// On-demand per-user fetches from an AI surface (ChatGPT-User, Perplexity-User,
+// MistralAI-User, …). Same UA evidence channel as ClassifiedCrawler, but kept
+// in a distinct type so the dashboard, API, and report can split "machine
+// crawl" from "human-in-the-loop fetch". See rules.ts for the `purpose:
+// 'user-agent'` discriminator.
+export interface ClassifiedAiUserFetch {
+  botId: string
+  operator: string
+  product: string
+  verificationStatus: CrawlerVerificationStatus
+  matchedUserAgent: string
+}
+
 export interface ClassifiedAiReferral {
   operator: string
   product: string
@@ -34,6 +47,18 @@ export interface ClassifiedAiReferral {
 }
 
 export interface CrawlerEventHourlyBucket {
+  tsHour: string
+  botId: string
+  operator: string
+  product: string
+  verificationStatus: CrawlerVerificationStatus
+  pathNormalized: string
+  status: number | null
+  hits: number
+  sampledUserAgent: string | null
+}
+
+export interface AiUserFetchEventHourlyBucket {
   tsHour: string
   botId: string
   operator: string
@@ -66,6 +91,7 @@ export interface TrafficProbeSample {
   userAgent: string | null
   referer: string | null
   crawler: ClassifiedCrawler | null
+  aiUserFetch: ClassifiedAiUserFetch | null
   aiReferral: ClassifiedAiReferral | null
 }
 
@@ -74,14 +100,18 @@ export interface TrafficProbeReport {
   totals: {
     normalizedEvents: number
     crawlerHits: number
+    aiUserFetchHits: number
     aiReferralSessions: number
     aiReferralHits: number
     unknownHits: number
   }
   crawlerEventsHourly: CrawlerEventHourlyBucket[]
+  aiUserFetchEventsHourly: AiUserFetchEventHourlyBucket[]
   aiReferralEventsHourly: AiReferralEventHourlyBucket[]
   topBots: Array<{ botId: string; operator: string; hits: number }>
   topCrawlerPaths: Array<{ pathNormalized: string; hits: number }>
+  topAiUserFetchBots: Array<{ botId: string; operator: string; hits: number }>
+  topAiUserFetchPaths: Array<{ pathNormalized: string; hits: number }>
   topAiReferrers: Array<{ sourceDomain: string; product: string; hits: number }>
   topAiReferralLandingPaths: Array<{ landingPathNormalized: string; hits: number }>
   samples: TrafficProbeSample[]

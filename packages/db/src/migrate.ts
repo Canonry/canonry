@@ -1297,6 +1297,78 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `ALTER TABLE audit_log ADD COLUMN actor_session TEXT`,
     ],
   },
+  {
+    version: 64,
+    name: 'ai-user-fetch-events-hourly',
+    // Splits per-user fetches (ChatGPT-User, Perplexity-User) out of
+    // crawler_events_hourly so the dashboard / API can distinguish bulk
+    // machine crawl from human-in-the-loop fetch. Bot IDs are pinned to the
+    // two `purpose: 'user-agent'` rules that existed before this change —
+    // future user-fetch UAs land in the new table directly via the
+    // refactored classifier and never need a backfill.
+    //
+    // Statements are idempotent: CREATE/INDEX are IF NOT EXISTS; the
+    // INSERT … SELECT uses ON CONFLICT DO NOTHING (composite PK rows
+    // already moved skip silently); the DELETE keys on `bot_id`, so a
+    // second run is a no-op after the first DELETE drains the source.
+    statements: [
+      `CREATE TABLE IF NOT EXISTS ai_user_fetch_events_hourly (
+         project_id           TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+         source_id            TEXT NOT NULL REFERENCES traffic_sources(id) ON DELETE CASCADE,
+         ts_hour              TEXT NOT NULL,
+         bot_id               TEXT NOT NULL,
+         operator             TEXT NOT NULL,
+         verification_status  TEXT NOT NULL,
+         path_normalized      TEXT NOT NULL,
+         status               INTEGER NOT NULL,
+         hits                 INTEGER NOT NULL DEFAULT 0,
+         sampled_user_agent   TEXT,
+         created_at           TEXT NOT NULL,
+         updated_at           TEXT NOT NULL,
+         PRIMARY KEY (project_id, source_id, ts_hour, bot_id, verification_status, path_normalized, status)
+       )`,
+      `CREATE INDEX IF NOT EXISTS idx_ai_user_fetch_hourly_project_ts ON ai_user_fetch_events_hourly(project_id, ts_hour)`,
+      `CREATE INDEX IF NOT EXISTS idx_ai_user_fetch_hourly_path ON ai_user_fetch_events_hourly(project_id, path_normalized)`,
+      `INSERT INTO ai_user_fetch_events_hourly
+         (project_id, source_id, ts_hour, bot_id, operator, verification_status, path_normalized, status, hits, sampled_user_agent, created_at, updated_at)
+       SELECT project_id, source_id, ts_hour, bot_id, operator, verification_status, path_normalized, status, hits, sampled_user_agent, created_at, updated_at
+         FROM crawler_events_hourly
+        WHERE bot_id IN ('openai-chatgpt-user', 'perplexity-user')
+       ON CONFLICT DO NOTHING`,
+      `DELETE FROM crawler_events_hourly WHERE bot_id IN ('openai-chatgpt-user', 'perplexity-user')`,
+    ],
+  },
+  {
+    version: 65,
+    name: 'split-mistral-ai-rule',
+    // The pre-existing `mistral-ai` rule matched both `MistralAI-User/*`
+    // (per-user fetch) and `MistralBot/*` (bulk crawl) under one id, so
+    // every historical row landed in crawler_events_hourly with
+    // bot_id='mistral-ai'. The rule is now split into `mistral-ai-user`
+    // (purpose: 'user-agent') and `mistral-bot` (purpose: 'crawl'); this
+    // migration best-effort routes the legacy rows using the bucket's
+    // representative sampled_user_agent.
+    //
+    // Mixed-UA buckets (where a single (project, source, hour, path,
+    // status) accumulated both UAs under the old shared id) are routed
+    // by whichever UA happened to be sampled — the bucket-key granularity
+    // doesn't preserve per-event UAs, so any heuristic has the same
+    // limitation. Going forward the split rules write to disjoint tables.
+    //
+    // Idempotent: the INSERT…SELECT uses ON CONFLICT DO NOTHING; the
+    // UPDATE and DELETE both filter on bot_id='mistral-ai', so a second
+    // run finds no rows after the first apply.
+    statements: [
+      `INSERT INTO ai_user_fetch_events_hourly
+         (project_id, source_id, ts_hour, bot_id, operator, verification_status, path_normalized, status, hits, sampled_user_agent, created_at, updated_at)
+       SELECT project_id, source_id, ts_hour, 'mistral-ai-user', operator, verification_status, path_normalized, status, hits, sampled_user_agent, created_at, updated_at
+         FROM crawler_events_hourly
+        WHERE bot_id = 'mistral-ai' AND sampled_user_agent LIKE '%MistralAI-User%'
+       ON CONFLICT DO NOTHING`,
+      `DELETE FROM crawler_events_hourly WHERE bot_id = 'mistral-ai' AND sampled_user_agent LIKE '%MistralAI-User%'`,
+      `UPDATE crawler_events_hourly SET bot_id = 'mistral-bot' WHERE bot_id = 'mistral-ai'`,
+    ],
+  },
 ]
 
 /**

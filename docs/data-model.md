@@ -36,6 +36,7 @@ erDiagram
 
   projects ||--o{ traffic_sources : has
   traffic_sources ||--o{ crawler_events_hourly : "rolls up"
+  traffic_sources ||--o{ ai_user_fetch_events_hourly : "rolls up"
   traffic_sources ||--o{ ai_referral_events_hourly : "rolls up"
   traffic_sources ||--o{ raw_event_samples : "samples"
 
@@ -94,7 +95,8 @@ erDiagram
 | Table | Purpose |
 |-------|---------|
 | **traffic_sources** | Per-connection metadata (Cloud Run today; future WordPress / Cloudflare / Vercel). Status `connected` / `paused` / `error` / `archived`. Credentials live in `~/.canonry/config.yaml`, never here. FK: projectId → projects. |
-| **crawler_events_hourly** | Hourly rollup of server-observed AI crawler hits. Composite PK `(projectId, sourceId, tsHour, botId, verificationStatus, pathNormalized, status)` so repeat syncs upsert via `hits + ?`. |
+| **crawler_events_hourly** | Hourly rollup of server-observed bulk crawler hits (GPTBot, OAI-SearchBot, PerplexityBot, Googlebot, etc.). Composite PK `(projectId, sourceId, tsHour, botId, verificationStatus, pathNormalized, status)` so repeat syncs upsert via `hits + ?`. Excludes the per-user-fetch UAs — those land in `ai_user_fetch_events_hourly`. |
+| **ai_user_fetch_events_hourly** | Hourly rollup of on-demand per-user fetches from AI surfaces (ChatGPT-User, Perplexity-User, MistralAI-User). UA-evidenced like a crawler, but each hit was initiated by a real user inside an AI surface — kept disjoint from `crawler_events_hourly` so dashboard / API totals don't conflate machine crawl with human-in-the-loop fetch. Composite PK matches `crawler_events_hourly`. |
 | **ai_referral_events_hourly** | Hourly rollup of server-observed human AI-referral clicks (UTM or referer evidence). Composite PK matches the crawler bucket pattern. |
 | **raw_event_samples** | Bounded sample tail for classifier debugging (default 30-day retention). FK: sourceId → traffic_sources. |
 

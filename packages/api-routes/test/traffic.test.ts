@@ -9,6 +9,7 @@ import {
   migrate,
   trafficSources,
   crawlerEventsHourly,
+  aiUserFetchEventsHourly,
   aiReferralEventsHourly,
   rawEventSamples,
   runs,
@@ -2804,7 +2805,59 @@ describe('GET /traffic/sources/:id', () => {
       expect(res.statusCode).toBe(200)
       const body = JSON.parse(res.payload)
       expect(body.latestRun).toBeNull()
-      expect(body.totals24h).toEqual({ crawlerHits: 0, aiReferralHits: 0, sampleCount: 0 })
+      expect(body.totals24h).toEqual({ crawlerHits: 0, aiUserFetchHits: 0, aiReferralHits: 0, sampleCount: 0 })
+    } finally { await h.close() }
+  })
+
+  it('counts ChatGPT-User hits as aiUserFetchHits (not crawlerHits) in totals24h', async () => {
+    // The defining ai-user-fetch behavior at the read path: ChatGPT-User
+    // arrives via UA evidence (same channel as GPTBot) but the operator
+    // wants to see it as a human-in-the-loop fetch, not bulk crawl. The
+    // detail endpoint MUST surface these in their own bucket so the
+    // dashboard's "AI hits" tile is meaningful.
+    const baseTime = new Date(Date.now() - 60 * 60_000)
+    baseTime.setMinutes(0, 0, 0)
+    const fromBase = (mins: number) => new Date(baseTime.getTime() + mins * 60_000).toISOString()
+
+    const events: NormalizedTrafficRequest[] = [
+      buildEvent({ userAgent: 'GPTBot/1.0', path: '/blog/foo', status: 200, observedAt: fromBase(1) }),
+      buildEvent({ userAgent: 'Mozilla/5.0 ChatGPT-User/1.0', path: '/', status: 200, observedAt: fromBase(5) }),
+      buildEvent({ userAgent: 'Mozilla/5.0 ChatGPT-User/1.0', path: '/pricing', status: 200, observedAt: fromBase(10) }),
+    ]
+    const h = await buildHarness(events)
+    try {
+      const connectRes = await h.app.inject({
+        method: 'POST',
+        url: '/api/v1/projects/test-project/traffic/connect/cloud-run',
+        payload: { gcpProjectId: 'openclaw-nyc', keyJson: SA_KEY },
+      })
+      const sourceId = JSON.parse(connectRes.payload).id
+      const syncRes = await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`,
+        payload: { sinceMinutes: 120 },
+      })
+      const syncBody = JSON.parse(syncRes.payload)
+      expect(syncBody.crawlerHits).toBe(1)
+      expect(syncBody.aiUserFetchHits).toBe(2)
+      expect(syncBody.crawlerBucketRows).toBe(1)
+      expect(syncBody.aiUserFetchBucketRows).toBe(2)
+
+      // The new table holds the ChatGPT-User rows; the crawler table only
+      // sees the GPTBot row.
+      expect(h.db.select().from(crawlerEventsHourly).all().length).toBe(1)
+      const userFetchRows = h.db.select().from(aiUserFetchEventsHourly).all()
+      expect(userFetchRows.length).toBe(2)
+      expect(userFetchRows.every(r => r.botId === 'openai-chatgpt-user')).toBe(true)
+
+      const detail = await h.app.inject({
+        method: 'GET',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}`,
+      })
+      const body = JSON.parse(detail.payload)
+      expect(body.totals24h.crawlerHits).toBe(1)
+      expect(body.totals24h.aiUserFetchHits).toBe(2)
+      expect(body.totals24h.aiReferralHits).toBe(0)
     } finally { await h.close() }
   })
 
@@ -3001,10 +3054,103 @@ describe('GET /traffic/events', () => {
       expect(res.statusCode).toBe(200)
       const body = JSON.parse(res.payload)
       expect(body.totals.crawlerHits).toBe(2)
+      expect(body.totals.aiUserFetchHits).toBe(0)
       expect(body.totals.aiReferralHits).toBe(1)
       expect(body.events.length).toBe(2)
       const kinds = body.events.map((e: { kind: string }) => e.kind).sort()
       expect(kinds).toEqual(['ai-referral', 'crawler'])
+    } finally { await h.close() }
+  })
+
+  it('serializes ai-user-fetch entries alongside crawler + ai-referral', async () => {
+    // End-to-end at the read path: when ChatGPT-User events were persisted
+    // into ai_user_fetch_events_hourly, GET /traffic/events MUST return them
+    // as kind=ai-user-fetch with the same crawler-shaped fields (botId,
+    // operator, verificationStatus, pathNormalized, status, hits). This is
+    // what an agent calling `canonry traffic events --format json` reads.
+    const baseTime = new Date(Date.now() - 60 * 60_000)
+    baseTime.setMinutes(0, 0, 0)
+    const fromBase = (mins: number) => new Date(baseTime.getTime() + mins * 60_000).toISOString()
+
+    const events: NormalizedTrafficRequest[] = [
+      buildEvent({ userAgent: 'GPTBot/1.0', path: '/blog/foo', status: 200, observedAt: fromBase(1) }),
+      buildEvent({ userAgent: 'Mozilla/5.0 ChatGPT-User/1.0', path: '/', status: 200, observedAt: fromBase(5) }),
+      buildEvent({
+        userAgent: 'Mozilla/5.0',
+        path: '/landing',
+        queryString: 'utm_source=chatgpt.com',
+        status: 200,
+        observedAt: fromBase(15),
+      }),
+    ]
+    const h = await buildHarness(events)
+    try {
+      const connectRes = await h.app.inject({
+        method: 'POST',
+        url: '/api/v1/projects/test-project/traffic/connect/cloud-run',
+        payload: { gcpProjectId: 'openclaw-nyc', keyJson: SA_KEY },
+      })
+      const sourceId = JSON.parse(connectRes.payload).id
+      await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`,
+        payload: { sinceMinutes: 120 },
+      })
+
+      const res = await h.app.inject({
+        method: 'GET',
+        url: '/api/v1/projects/test-project/traffic/events',
+      })
+      expect(res.statusCode).toBe(200)
+      const body = JSON.parse(res.payload)
+      expect(body.totals).toMatchObject({ crawlerHits: 1, aiUserFetchHits: 1, aiReferralHits: 1 })
+      const kinds = body.events.map((e: { kind: string }) => e.kind).sort()
+      expect(kinds).toEqual(['ai-referral', 'ai-user-fetch', 'crawler'])
+      const userFetch = body.events.find((e: { kind: string }) => e.kind === 'ai-user-fetch')
+      expect(userFetch).toMatchObject({
+        kind: 'ai-user-fetch',
+        botId: 'openai-chatgpt-user',
+        operator: 'OpenAI',
+        pathNormalized: '/',
+        hits: 1,
+      })
+    } finally { await h.close() }
+  })
+
+  it('filters by kind=ai-user-fetch', async () => {
+    const baseTime = new Date(Date.now() - 60 * 60_000)
+    baseTime.setMinutes(0, 0, 0)
+    const fromBase = (mins: number) => new Date(baseTime.getTime() + mins * 60_000).toISOString()
+
+    const events: NormalizedTrafficRequest[] = [
+      buildEvent({ userAgent: 'GPTBot/1.0', path: '/blog/foo', status: 200, observedAt: fromBase(1) }),
+      buildEvent({ userAgent: 'Mozilla/5.0 ChatGPT-User/1.0', path: '/', status: 200, observedAt: fromBase(5) }),
+    ]
+    const h = await buildHarness(events)
+    try {
+      const connectRes = await h.app.inject({
+        method: 'POST',
+        url: '/api/v1/projects/test-project/traffic/connect/cloud-run',
+        payload: { gcpProjectId: 'openclaw-nyc', keyJson: SA_KEY },
+      })
+      const sourceId = JSON.parse(connectRes.payload).id
+      await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`,
+        payload: { sinceMinutes: 120 },
+      })
+
+      const res = await h.app.inject({
+        method: 'GET',
+        url: '/api/v1/projects/test-project/traffic/events?kind=ai-user-fetch',
+      })
+      expect(res.statusCode).toBe(200)
+      const body = JSON.parse(res.payload)
+      expect(body.totals.crawlerHits).toBe(0)
+      expect(body.totals.aiUserFetchHits).toBe(1)
+      expect(body.totals.aiReferralHits).toBe(0)
+      expect(body.events.length).toBe(1)
+      expect(body.events[0].kind).toBe('ai-user-fetch')
     } finally { await h.close() }
   })
 

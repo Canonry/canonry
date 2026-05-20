@@ -35,11 +35,23 @@ function statusClassDigit(filter: StatusClassFilter): number | null {
 }
 
 export function identityOf(event: TrafficEventEntry): string {
-  return event.kind === TrafficEventKinds.crawler ? event.botId : event.product
+  switch (event.kind) {
+    case TrafficEventKinds.crawler:
+    case TrafficEventKinds['ai-user-fetch']:
+      return event.botId
+    case TrafficEventKinds['ai-referral']:
+      return event.product
+  }
 }
 
 export function pathOf(event: TrafficEventEntry): string {
-  return event.kind === TrafficEventKinds.crawler ? event.pathNormalized : event.landingPathNormalized
+  switch (event.kind) {
+    case TrafficEventKinds.crawler:
+    case TrafficEventKinds['ai-user-fetch']:
+      return event.pathNormalized
+    case TrafficEventKinds['ai-referral']:
+      return event.landingPathNormalized
+  }
 }
 
 export function bucketKeyFor(tsHour: string, granularity: EventGranularity): string {

@@ -58,7 +58,7 @@ export function TrafficPage() {
         <div className="page-header-left">
           <h1 className="page-title">Server traffic</h1>
           <p className="page-subtitle">
-            Crawler hits and AI-referral sessions pulled directly from your server logs. Independent of GA — useful when you need server-side evidence that GPTBot or ChatGPT-User actually hit a page.
+            Bulk crawler hits, AI user fetches (ChatGPT-User, Perplexity-User), and AI referral sessions pulled directly from your server logs. Independent of GA — useful when you need server-side evidence that an AI engine actually hit a page.
           </p>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
@@ -147,6 +147,7 @@ function SourcesTable({ projectName, sources }: { projectName: string; sources: 
             <th className="px-4 py-2 text-left">Status</th>
             <th className="px-4 py-2 text-left">Last sync</th>
             <th className="px-4 py-2 text-right">24h crawler</th>
+            <th className="px-4 py-2 text-right">24h AI hits</th>
             <th className="px-4 py-2 text-right">24h AI sessions</th>
             <th className="px-4 py-2 text-right">24h samples</th>
             <th className="px-4 py-2 text-right" />
@@ -172,6 +173,9 @@ function SourcesTable({ projectName, sources }: { projectName: string; sources: 
               <td className="px-4 py-3 text-zinc-300">{relativeTime(source.lastSyncedAt)}</td>
               <td className="px-4 py-3 text-right tabular-nums text-zinc-100">
                 {isLoading ? '—' : formatCompact(detail?.totals24h.crawlerHits ?? 0)}
+              </td>
+              <td className="px-4 py-3 text-right tabular-nums text-zinc-100">
+                {isLoading ? '—' : formatCompact(detail?.totals24h.aiUserFetchHits ?? 0)}
               </td>
               <td className="px-4 py-3 text-right tabular-nums text-zinc-100">
                 {isLoading ? '—' : formatCompact(detail?.totals24h.aiReferralHits ?? 0)}

@@ -9,7 +9,7 @@ Provider-neutral traffic classifier and rollup. Takes `NormalizedTrafficRequest`
 | File | Role |
 |------|------|
 | `src/rules.ts` | Bundled AI crawler UA patterns and known AI-referrer host rules |
-| `src/classifier.ts` | `classifyTrafficRequest` — UA/referrer matching → `ClassifiedCrawler` / `ClassifiedAiReferral` (heuristic; verification status is `claimed_unverified` until IP/rDNS is wired) |
+| `src/classifier.ts` | `classifyCrawler` / `classifyAiUserFetch` / `classifyAiReferral` — three disjoint matchers. `classifyCrawler` matches UA rules with `purpose !== 'user-agent'` (GPTBot, OAI-SearchBot, …). `classifyAiUserFetch` matches UA rules with `purpose === 'user-agent'` (ChatGPT-User, Perplexity-User) so per-user fetches stay separate from bulk crawl. `classifyAiReferral` matches referer host or `utm_source` against known AI domains. All return `claimed_unverified` until IP verification promotes to `verified`. |
 | `src/rollup.ts` | `buildTrafficProbeReport` — aggregates classified events into hourly buckets + top-N summaries |
 | `src/types.ts` | Bucket shapes (`CrawlerEventHourlyBucket`, `AiReferralEventHourlyBucket`), classifier output types, probe report shape |
 | `src/index.ts` | Re-exports public API |
@@ -17,7 +17,7 @@ Provider-neutral traffic classifier and rollup. Takes `NormalizedTrafficRequest`
 ## Patterns
 
 - **Pure functions, no I/O.** Adapters fetch and normalize; this package only classifies and rolls up. Unit-testable end-to-end with fixture events.
-- **Two evidence channels.** Crawlers via UA pattern match; human AI referrals via referer host (and UTM later). Never collapse the two — each maps to its own hourly bucket table per `plans/server-side-ai-traffic-ingestion.md`.
+- **Three evidence channels.** Bulk crawl via UA where `purpose !== 'user-agent'` (`crawler_events_hourly`); per-user AI fetches via UA where `purpose === 'user-agent'` (`ai_user_fetch_events_hourly`); human AI referrals via referer/UTM (`ai_referral_events_hourly`). Never collapse them — each answers a different question: "is AI training on me?" vs. "is AI reading me for a user right now?" vs. "are users clicking through from AI?"
 - **Verification status tiers.** UA-only matches stay `claimed_unverified`. Promotion to `verified` requires IP/rDNS verification, which is not yet implemented. The `unknown_ai_like` bucket is reserved for behavioral heuristics.
 - **Path normalization.** Rollups key on the normalized path so query-string variants don't fragment the bucket counts.
 - **Bounded sample tail.** `buildTrafficProbeReport` keeps a small sample slice for classifier debugging; the durable signal is the hourly bucket counts.

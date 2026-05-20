@@ -174,9 +174,11 @@ export const trafficSyncResponseSchema = z.object({
   syncedAt: z.string(),
   pulledEvents: z.number().int().nonnegative(),
   crawlerHits: z.number().int().nonnegative(),
+  aiUserFetchHits: z.number().int().nonnegative(),
   aiReferralHits: z.number().int().nonnegative(),
   unknownHits: z.number().int().nonnegative(),
   crawlerBucketRows: z.number().int().nonnegative(),
+  aiUserFetchBucketRows: z.number().int().nonnegative(),
   aiReferralBucketRows: z.number().int().nonnegative(),
   sampleRows: z.number().int().nonnegative(),
   windowStart: z.string(),
@@ -210,6 +212,7 @@ export type TrafficBackfillResponse = z.infer<typeof trafficBackfillResponseSche
 
 export const trafficSourceTotalsSchema = z.object({
   crawlerHits: z.number().int().nonnegative(),
+  aiUserFetchHits: z.number().int().nonnegative(),
   aiReferralHits: z.number().int().nonnegative(),
   sampleCount: z.number().int().nonnegative(),
 })
@@ -239,7 +242,7 @@ export const trafficStatusResponseSchema = z.object({
 })
 export type TrafficStatusResponse = z.infer<typeof trafficStatusResponseSchema>
 
-export const trafficEventKindSchema = z.enum(['crawler', 'ai-referral'])
+export const trafficEventKindSchema = z.enum(['crawler', 'ai-user-fetch', 'ai-referral'])
 export type TrafficEventKind = z.infer<typeof trafficEventKindSchema>
 export const TrafficEventKinds = trafficEventKindSchema.enum
 
@@ -255,6 +258,23 @@ export const trafficCrawlerEventEntrySchema = z.object({
   hits: z.number().int().nonnegative(),
 })
 export type TrafficCrawlerEventEntry = z.infer<typeof trafficCrawlerEventEntrySchema>
+
+// On-demand per-user fetch from an AI surface (e.g. ChatGPT-User clicking a
+// citation, Perplexity-User fetching a referenced URL). UA-evidenced like a
+// crawler, but with a real user in the loop — kept in its own kind so the
+// dashboard / API / CLI don't conflate machine crawl with human-driven fetch.
+export const trafficAiUserFetchEventEntrySchema = z.object({
+  kind: z.literal(TrafficEventKinds['ai-user-fetch']),
+  sourceId: z.string(),
+  tsHour: z.string(),
+  botId: z.string(),
+  operator: z.string(),
+  verificationStatus: z.string(),
+  pathNormalized: z.string(),
+  status: z.number().int(),
+  hits: z.number().int().nonnegative(),
+})
+export type TrafficAiUserFetchEventEntry = z.infer<typeof trafficAiUserFetchEventEntrySchema>
 
 export const trafficAiReferralEventEntrySchema = z.object({
   kind: z.literal(TrafficEventKinds['ai-referral']),
@@ -272,6 +292,7 @@ export type TrafficAiReferralEventEntry = z.infer<typeof trafficAiReferralEventE
 
 export const trafficEventEntrySchema = z.discriminatedUnion('kind', [
   trafficCrawlerEventEntrySchema,
+  trafficAiUserFetchEventEntrySchema,
   trafficAiReferralEventEntrySchema,
 ])
 export type TrafficEventEntry = z.infer<typeof trafficEventEntrySchema>
@@ -281,6 +302,7 @@ export const trafficEventsResponseSchema = z.object({
   windowEnd: z.string(),
   totals: z.object({
     crawlerHits: z.number().int().nonnegative(),
+    aiUserFetchHits: z.number().int().nonnegative(),
     aiReferralHits: z.number().int().nonnegative(),
   }),
   events: z.array(trafficEventEntrySchema),
