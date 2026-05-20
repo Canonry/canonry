@@ -532,6 +532,34 @@ describe('traffic analysis', () => {
     })
   })
 
+  it('routes Google-Agent to ai-user-fetch, not crawler', () => {
+    // Google-Agent is Google's agentic fetcher — it "navigates the web
+    // and performs actions upon user request" (Project Mariner et al.),
+    // so it's a user-driven fetch, not bulk crawl. Google ships no
+    // distinct Gemini fetch UA, making this the closest Google
+    // equivalent to ChatGPT-User. The UA is browser-like with a
+    // `compatible; Google-Agent;` token.
+    const ua = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko; compatible; Google-Agent; +https://developers.google.com/crawling/docs/crawlers-fetchers/google-agent) Chrome/W.X.Y.Z Safari/537.36'
+    const evt = event({ userAgent: ua })
+    expect(classifyCrawler(evt)).toBeNull()
+    expect(classifyAiUserFetch(evt)).toMatchObject({
+      botId: 'google-agent',
+      operator: 'Google',
+      product: 'Google-Agent',
+      verificationStatus: 'claimed_unverified',
+    })
+  })
+
+  it('promotes Google-Agent to `verified` when the source IP is in Google\'s user-triggered range', () => {
+    // 136.122.0.10 is in 136.122.0.0/16 — a published prefix in
+    // `src/ip-ranges/google-user-triggered-agents.json`.
+    const ua = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko; compatible; Google-Agent; +https://developers.google.com/crawling/docs/crawlers-fetchers/google-agent) Chrome/W.X.Y.Z Safari/537.36'
+    expect(classifyAiUserFetch(event({ userAgent: ua, remoteIp: '136.122.0.10' }))).toMatchObject({
+      botId: 'google-agent',
+      verificationStatus: 'verified',
+    })
+  })
+
   it('classifyAiUserFetch returns null for bulk crawler UAs', () => {
     // Inverse of the routing rule: classifyAiUserFetch only matches the
     // `purpose: 'user-agent'` rules; GPTBot, OAI-SearchBot, etc. stay in

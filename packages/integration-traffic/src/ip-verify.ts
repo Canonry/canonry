@@ -24,6 +24,9 @@
  *                             AWS-ANTHROPIC 216.73.216.0/22. Both the
  *                             crawler and the per-user fetcher verify
  *                             against this shared set.)
+ *   - Google-Agent           (developers.google.com/static/crawling/ipranges/user-triggered-agents.json
+ *                             — Google's shared list covering every
+ *                             user-triggered fetcher.)
  *
  * **Not covered (yet).** Meta, ByteDance, Apple, DeepSeek, Mistral,
  * DuckDuckGo, Yandex, Baidu, Amazon — these either don't publish a
@@ -40,6 +43,7 @@
 import anthropicRaw from './ip-ranges/anthropic.json' with { type: 'json' }
 import bingbotRaw from './ip-ranges/bingbot.json' with { type: 'json' }
 import chatgptUserRaw from './ip-ranges/chatgpt-user.json' with { type: 'json' }
+import googleUserTriggeredRaw from './ip-ranges/google-user-triggered-agents.json' with { type: 'json' }
 import googlebotRaw from './ip-ranges/googlebot.json' with { type: 'json' }
 import gptbotRaw from './ip-ranges/gptbot.json' with { type: 'json' }
 import oaiSearchbotRaw from './ip-ranges/oai-searchbot.json' with { type: 'json' }
@@ -89,6 +93,13 @@ const RULE_ID_TO_RANGES: Record<string, RawIpRanges> = {
   // (also covers Copilot grounding — Microsoft routes Copilot's
   // web fetches through bingbot infrastructure)
   'bingbot': bingbotRaw as RawIpRanges,
+
+  // Google-Agent — Google's agentic user-triggered fetcher (Project
+  // Mariner et al.). Verified against Google's user-triggered-agents
+  // list, which covers every Google user-triggered fetcher collectively
+  // (Google publishes no per-fetcher split).
+  // src: https://developers.google.com/static/crawling/ipranges/user-triggered-agents.json
+  'google-agent': googleUserTriggeredRaw as RawIpRanges,
 
   // Perplexity — split between crawler and user-on-behalf fetcher,
   // same shape as OpenAI's split.

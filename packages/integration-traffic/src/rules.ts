@@ -91,6 +91,21 @@ export const DEFAULT_AI_CRAWLER_RULES: AiCrawlerRule[] = [
     userAgentPatterns: [/Google-Extended/i],
   },
   {
+    // Google-Agent: agents on Google infrastructure that navigate the
+    // web and act "upon user request" (e.g. Project Mariner) — a
+    // user-driven fetch, routed to the user-fetch bucket. Google ships
+    // no distinct Gemini fetch UA (`Google-Extended` above is a
+    // robots.txt control token, not a request UA), so this is the
+    // closest Google equivalent to ChatGPT-User. The UA is browser-like
+    // with a `compatible; Google-Agent;` token. IP ranges:
+    // user-triggered-agents.json.
+    id: 'google-agent',
+    operator: 'Google',
+    product: 'Google-Agent',
+    purpose: 'user-agent',
+    userAgentPatterns: [/Google-Agent/i],
+  },
+  {
     id: 'bytespider',
     operator: 'ByteDance',
     product: 'Bytespider',
@@ -251,6 +266,7 @@ export const DEFAULT_AI_CRAWLER_USER_AGENT_SUBSTRINGS = [
   'anthropic-ai',
   'PerplexityBot/',
   'Google-Extended',
+  'Google-Agent',
   'Bytespider',
   'Applebot-Extended',
   'Applebot/',

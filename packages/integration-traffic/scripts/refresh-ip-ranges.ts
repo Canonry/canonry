@@ -79,6 +79,11 @@ const SOURCES: Source[] = [
     url: 'https://www.perplexity.ai/perplexity-user.json',
     label: 'Perplexity-User',
   },
+  {
+    file: 'google-user-triggered-agents.json',
+    url: 'https://developers.google.com/static/crawling/ipranges/user-triggered-agents.json',
+    label: 'Google-Agent (user-triggered)',
+  },
 ]
 
 interface FetchResult {
