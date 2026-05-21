@@ -69,6 +69,10 @@ function canonry_traffic_logger_register_hooks(): void {
     // so the shutdown-hook recorder remains unaffected.
     add_action('admin_menu', ['\\Canonry\\TrafficLogger\\SettingsPage', 'registerMenu']);
     add_action('admin_init', ['\\Canonry\\TrafficLogger\\SettingsPage', 'registerSetting']);
+
+    // Schema upgrade check. A plugin updated in place never fires the
+    // activation hook; this catches a stale schema on the next admin load.
+    add_action('admin_init', ['\\Canonry\\TrafficLogger\\Plugin', 'maybeUpgrade']);
 }
 
 // Plugin bootstrap: register REST + request observer when WP fires `init`.
