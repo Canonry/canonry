@@ -2825,7 +2825,7 @@ export const postApiV1ProjectsByNameTrafficConnectWordpress = <ThrowOnError exte
 /**
  * Connect a Vercel traffic source
  *
- * Probes Vercel's internal `request-logs` endpoint with the supplied API token (single page, 60-minute window) before persisting. On success, stores the token in `~/.canonry/config.yaml` and creates / updates the project's active Vercel `traffic_sources` row. A probe failure (bad token, wrong project / team id, unreachable host) surfaces as 502 with the upstream status in the message so the caller learns about it up front instead of at the first sync. The project id, team id, and environment are stored as non-secret config on the row; only the API token lives in the credential file.
+ * Probes Vercel's internal `request-logs` endpoint with the supplied personal access token (single page, 60-minute window) before persisting. On success, stores the token in `~/.canonry/config.yaml` and creates / updates the project's active Vercel `traffic_sources` row. A probe failure (bad token, wrong project / team id, unreachable host) surfaces as 502 with the upstream status in the message so the caller learns about it up front instead of at the first sync. The project id, team id, and environment are stored as non-secret config on the row; only the personal access token lives in the credential file.
  */
 export const postApiV1ProjectsByNameTrafficConnectVercel = <ThrowOnError extends boolean = false>(options: Options<PostApiV1ProjectsByNameTrafficConnectVercelData, ThrowOnError>) => {
     return (options.client ?? client).post<PostApiV1ProjectsByNameTrafficConnectVercelResponses, PostApiV1ProjectsByNameTrafficConnectVercelErrors, ThrowOnError>({
@@ -2869,7 +2869,7 @@ export const postApiV1ProjectsByNameTrafficSourcesByIdSync = <ThrowOnError exten
 /**
  * Reclassify historical traffic-source logs
  *
- * Async one-shot backfill: pulls the last `days` of events (clamped server-side to the upstream retention ceiling — 30d for Cloud Logging `_Default`; the WordPress plugin honours the same window via `since`/`until` query params), classifies them with the current rules, and replaces the hourly rollup buckets + sample slice in the window inside one transaction. Returns immediately with `{ runId, status: "running" }`; poll `GET /runs/{id}` for completion. lastSyncedAt only advances forward, so a backfill never undoes incremental sync progress that ran ahead of it. Supported source types: `cloud-run`, `wordpress`.
+ * Async one-shot backfill: pulls the last `days` of events (clamped server-side to the upstream retention ceiling — 30d for Cloud Logging `_Default`; the WordPress plugin honours the same window via `since`/`until` query params), classifies them with the current rules, and replaces the hourly rollup buckets + sample slice in the window inside one transaction. Returns immediately with `{ runId, status: "running" }`; poll `GET /runs/{id}` for completion. lastSyncedAt only advances forward, so a backfill never undoes incremental sync progress that ran ahead of it. Supported source types: `cloud-run`, `wordpress`, `vercel`.
  */
 export const postApiV1ProjectsByNameTrafficSourcesByIdBackfill = <ThrowOnError extends boolean = false>(options: Options<PostApiV1ProjectsByNameTrafficSourcesByIdBackfillData, ThrowOnError>) => {
     return (options.client ?? client).post<PostApiV1ProjectsByNameTrafficSourcesByIdBackfillResponses, PostApiV1ProjectsByNameTrafficSourcesByIdBackfillErrors, ThrowOnError>({

@@ -62,7 +62,7 @@ async function readErrorBody(response: Response): Promise<string | undefined> {
  * page plus the `hasMore` continuation signal.
  *
  * Pure pull adapter — no DB, no classification, no credential storage. The
- * caller supplies the Vercel API token and bounds the time window.
+ * caller supplies the Vercel personal access token and bounds the time window.
  */
 export async function listVercelTrafficEvents(
   options: ListVercelTrafficEventsOptions,

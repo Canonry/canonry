@@ -224,3 +224,44 @@ test('a whitespace-only required field shows a validation error without connecti
   })
   expect(connectVercelMock).not.toHaveBeenCalled()
 })
+
+test('a whitespace-only team ID is caught by the validation chain', async () => {
+  renderDrawer()
+
+  fireEvent.click(screen.getByText('Vercel project'))
+  fireEvent.change(screen.getByPlaceholderText(/prj_/i), { target: { value: 'prj_abc' } })
+  // teamId is whitespace-only; projectId is valid, so this exercises the
+  // second link in the validation chain.
+  fireEvent.change(screen.getByLabelText(/team \/ account id/i), { target: { value: '   ' } })
+  fireEvent.change(screen.getByLabelText(/personal access token/i), { target: { value: 'vcp_secret' } })
+
+  fireEvent.click(screen.getByRole('button', { name: 'Connect' }))
+
+  await waitFor(() => {
+    expect(screen.getByText('Vercel team / account ID is required.')).toBeTruthy()
+  })
+  expect(connectVercelMock).not.toHaveBeenCalled()
+})
+
+test('a backfill kickoff failure keeps the drawer open and surfaces the error', async () => {
+  connectVercelMock.mockResolvedValue({ id: 'src_vercel_1' })
+  backfillMock.mockRejectedValue(new Error('500 internal'))
+
+  renderDrawer()
+
+  fireEvent.click(screen.getByText('Vercel project'))
+  fireEvent.change(screen.getByPlaceholderText(/prj_/i), { target: { value: 'prj_abc' } })
+  fireEvent.change(screen.getByLabelText(/team \/ account id/i), { target: { value: 'org_xyz' } })
+  fireEvent.change(screen.getByLabelText(/personal access token/i), { target: { value: 'vcp_secret' } })
+
+  fireEvent.click(screen.getByRole('button', { name: 'Connect' }))
+
+  // The connect succeeded but the backfill kickoff failed. The error
+  // surfaces and the drawer stays open instead of routing to an empty
+  // detail page.
+  await waitFor(() => {
+    expect(screen.getByText(/starting the initial backfill failed: 500 internal/i)).toBeTruthy()
+  })
+  expect(screen.getByText('Connect a Vercel project')).toBeTruthy()
+  expect(navigateMock).not.toHaveBeenCalled()
+})
