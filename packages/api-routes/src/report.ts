@@ -572,9 +572,9 @@ function nonSubresourceReferralPathCondition() {
  * the latter returns a populated section with `hasData=false` and zeroed
  * counters so the UI can show a "we're collecting" empty state).
  *
- * Crawler trust is split: verified hits are rDNS-confirmed, while
- * claimed-unverified hits are still surfaced separately so a real crawl
- * burst does not look like zero activity before verification lands.
+ * Crawler trust is split: verified hits have a source IP inside the
+ * operator's published range, while claimed-unverified hits are surfaced
+ * separately so a real crawl burst still shows activity.
  */
 function buildServerActivity(db: DatabaseClient, projectId: string): ProjectReportDto['serverActivity'] {
   // 1. Bail if no traffic source is connected at all.
@@ -662,9 +662,9 @@ function buildServerActivity(db: DatabaseClient, projectId: string): ProjectRepo
     )
 
   // User-fetch hits roll verified + unverified together. For crawlers we
-  // split because rDNS confirmation is the trust signal; for user-fetch
+  // split because IP-range confirmation is the trust signal; for user-fetch
   // the operational question is "is an AI surface reading this page on
-  // behalf of a real user, yes or no?" — verification matters less.
+  // behalf of a real user, yes or no?", so verification matters less.
   const sumUserFetches = (windowStartIso: string, windowEndIso: string, exclusiveEnd = false) =>
     Number(
       db

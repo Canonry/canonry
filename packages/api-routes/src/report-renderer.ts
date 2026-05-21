@@ -1930,7 +1930,7 @@ function renderServerActivity(report: ProjectReportDto, audience: ReportAudience
           <thead><tr><th>AI tool</th><th class="numeric">Bot requests (7d)</th><th class="numeric">User fetches (7d)</th><th class="numeric">Referral sessions</th></tr></thead>
           <tbody>${clientOperatorRows}</tbody>
         </table>
-        <p class="meta">Bot requests are bulk crawl (GPTBot, PerplexityBot, …). User fetches are on-demand reads triggered by real users inside an AI surface (ChatGPT-User, Perplexity-User, …). Verified requests are reverse-DNS confirmed; unverified requests are UA claims shown separately in agency diagnostics.</p>
+        <p class="meta">Bot requests are bulk crawl (GPTBot, PerplexityBot, …). User fetches are on-demand reads triggered by real users inside an AI surface (ChatGPT-User, Perplexity-User, …). Verified means the request came from an IP the operator publishes as its own; unverified means the user-agent matched but the IP is not in a published range. User-fetch totals count both, since many genuine user fetches come from outside any published range.</p>
       </div>` : ''}`,
     )
   }
@@ -2007,7 +2007,7 @@ function renderServerActivity(report: ProjectReportDto, audience: ReportAudience
     </div>
     ${trendChart}
     ${operatorRows ? `<div class="chart-card"><h3>Per AI operator</h3>
-      <p class="meta">Verified means rDNS-confirmed. Unverified bots claim the user-agent but couldn't be verified — could be the real bot or an imitator. User fetches are on-demand reads from an AI surface on behalf of a real user (ChatGPT-User, Perplexity-User, …) — disjoint from bulk crawl.</p>
+      <p class="meta">Verified means the request's source IP falls inside the operator's published range. Unverified bots claim the user-agent but the IP is not in a published range, so it could be the real bot or an imitator. User fetches are on-demand reads from an AI surface on behalf of a real user (ChatGPT-User, Perplexity-User, …), disjoint from bulk crawl and counted whether or not the IP can be verified.</p>
       <table class="report-table">
         <thead><tr><th>Operator</th><th class="numeric">Verified hits</th><th class="numeric">Unverified</th><th class="numeric">User fetches</th><th class="numeric">Referral sessions</th><th class="numeric">7d delta</th></tr></thead>
         <tbody>${operatorRows}</tbody>

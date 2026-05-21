@@ -528,7 +528,7 @@ describe('renderReportHtml', () => {
     expect(html).toContain('Verified crawler hits (7d)')
     expect(html).toContain('Unverified crawler hits (7d)')
     expect(html).toContain('AI-referral sessions (7d)')
-    expect(html).toContain('rDNS-confirmed')
+    expect(html).toContain('could be the real bot or an imitator')
     // Per-operator breakdown headings
     expect(html).toContain('Per AI operator')
     expect(html).toContain('Top crawled paths')
@@ -549,7 +549,7 @@ describe('renderReportHtml', () => {
     expect(html).toContain('AI bot requests observed')
     expect(html).toContain('AI user-fetch requests')
     expect(html).toContain('AI referral sessions')
-    expect(html).toContain('reverse-DNS')
+    expect(html).toContain('User-fetch totals count both')
     // Section eyebrow in client view is the friendlier "AI engine attention" label
     expect(html).toContain('AI engine attention')
     // Per-engine breakdown rendered with operator names

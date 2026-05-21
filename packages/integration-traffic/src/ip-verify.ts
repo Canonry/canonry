@@ -35,6 +35,17 @@
  * ones (same shape: `{ prefixes: [{ ipv4Prefix } | { ipv6Prefix }] }`)
  * and adding the rule-id mapping below.
  *
+ * **User-fetch agents and on-device fetches.** A user-triggered fetch
+ * (`ChatGPT-User`, `Claude-User`, `Perplexity-User`, …) does not always
+ * leave the operator's servers. Some surfaces fetch the URL server-side,
+ * so it egresses from the operator's cloud IP and verifies here. A local
+ * app can instead fetch straight from the user's device, egressing from
+ * the user's own residential or cellular IP, which no operator publishes
+ * and never could. That on-device case is structurally unverifiable: a
+ * genuine user fetch then stays `claimed_unverified` permanently, and
+ * that is correct, not a coverage gap. Treat the `ai_user_fetch` channel
+ * count as the signal; an IP-confirmed `verified` is a bonus subset.
+ *
  * **Refresh.** Run `scripts/refresh-ip-ranges.ts` to re-fetch all
  * bundled lists from the publishers. The script is git-friendly: it
  * writes pretty-printed JSON so diffs show exactly which prefixes the

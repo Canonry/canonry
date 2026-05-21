@@ -238,7 +238,7 @@ function ServerActivityClientView({ report }: { report: ProjectReportDto }) {
             </table>
           </div>
           <p className="mt-2 text-[11px] text-zinc-500">
-            Bot requests are bulk crawl (GPTBot, PerplexityBot, …). User fetches are on-demand reads triggered by real users inside an AI surface (ChatGPT-User, Perplexity-User, …). Verified requests are reverse-DNS confirmed; unverified requests are UA claims shown separately in agency diagnostics.
+            Bot requests are bulk crawl (GPTBot, PerplexityBot, …). User fetches are on-demand reads triggered by real users inside an AI surface (ChatGPT-User, Perplexity-User, …). Verified means the request came from an IP the operator publishes as its own; unverified means the user-agent matched but the IP is not in a published range. User-fetch totals count both, since many genuine user fetches come from outside any published range.
           </p>
         </div>
       )}

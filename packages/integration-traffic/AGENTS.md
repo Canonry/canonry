@@ -18,14 +18,14 @@ Provider-neutral traffic classifier and rollup. Takes `NormalizedTrafficRequest`
 
 - **Pure functions, no I/O.** Adapters fetch and normalize; this package only classifies and rolls up. Unit-testable end-to-end with fixture events.
 - **Three evidence channels.** Bulk crawl via UA where `purpose !== 'user-agent'` (`crawler_events_hourly`); per-user AI fetches via UA where `purpose === 'user-agent'` (`ai_user_fetch_events_hourly`); human AI referrals via referer/UTM (`ai_referral_events_hourly`). Never collapse them — each answers a different question: "is AI training on me?" vs. "is AI reading me for a user right now?" vs. "are users clicking through from AI?"
-- **Verification status tiers.** UA-only matches stay `claimed_unverified`. Promotion to `verified` requires IP/rDNS verification, which is not yet implemented. The `unknown_ai_like` bucket is reserved for behavioral heuristics.
+- **Verification status tiers.** A UA-only match stays `claimed_unverified`; it is promoted to `verified` only when the source IP falls in the operator's published range (see `ip-verify.ts`). User-fetch agents are a caveat: an on-device fetch egresses from the user's own IP, so a genuine user fetch can stay `claimed_unverified` permanently. The `unknown_ai_like` bucket is reserved for behavioral heuristics.
 - **Path normalization.** Rollups key on the normalized path so query-string variants don't fragment the bucket counts.
 - **Bounded sample tail.** `buildTrafficProbeReport` keeps a small sample slice for classifier debugging; the durable signal is the hourly bucket counts.
 
 ## Common Mistakes
 
 - **Adding I/O here.** Network/file/DB calls belong in adapters or service code. Keep this package pure.
-- **Treating UA-only matches as verified.** Anyone can spoof a user agent. Until IP/rDNS verification is wired, never promote UA-only matches above `claimed_unverified`.
+- **Treating UA-only matches as verified.** Anyone can spoof a user agent. Promote above `claimed_unverified` only when `verifyIpForRule` confirms the source IP against the operator's published range.
 - **Mixing crawler and referral signals into one bucket.** They answer different questions (machine activity vs human clicks); keep them in separate tables and separate API surfaces.
 
 ## See Also
