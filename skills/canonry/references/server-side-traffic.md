@@ -78,10 +78,13 @@ exposes a paginated REST endpoint protected by an Application Password.
 # 2. In wp-admin, create an Application Password for the operator user:
 #    Users → Profile → Application Passwords. Copy the generated password.
 
-# 3. (Optional) Adjust the retention window:
-#    Settings → Canonry Traffic Logger. The retention input clamps to
-#    7–365 days; default is 90. The page also shows the current event
-#    count and the oldest event timestamp.
+# 3. (Optional) Adjust settings at Settings → Canonry Traffic Logger:
+#    - Retention window: clamps to 7-365 days, default 90.
+#    - "Behind a proxy or CDN": enable this when the site sits behind
+#      Cloudflare or another reverse proxy, so the real visitor IP
+#      (needed to verify AI-bot hits) is read from forwarded headers
+#      rather than the proxy's edge address.
+#    The page also shows the current event count and oldest event.
 
 # 4. Connect from cnry CLI:
 cnry traffic connect wordpress <project> \
@@ -99,7 +102,7 @@ What the events table looks like (mirrors the TS
 | `method`, `host`, `path`, `query_string` | Split `REQUEST_URI` parts |
 | `status` | HTTP response status code |
 | `user_agent`, `referer` | Headers as captured at request time |
-| `remote_ip_hash` | First 12 hex chars of `sha256(ip + per-site-salt)` |
+| `remote_ip` | Client IP address (IPv4 or IPv6), or empty when none was captured |
 
 The plugin auto-prunes events older than the retention window (default
 90 days) once per day via WP-Cron. Operators who want a different

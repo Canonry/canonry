@@ -19,7 +19,6 @@ namespace Canonry\TrafficLogger;
 
 final class Recorder {
     public const TABLE = 'canonry_traffic_events';
-    public const SALT_OPTION = 'canonry_traffic_logger_ip_salt';
 
     /** @param array<string, mixed> $server */
     public static function record(array $server, ?int $status): void {
@@ -33,10 +32,10 @@ final class Recorder {
 
         $userAgent = self::stringOrNull($server['HTTP_USER_AGENT'] ?? null);
         $referer = self::stringOrNull($server['HTTP_REFERER'] ?? null);
-        $remoteIp = self::stringOrNull($server['REMOTE_ADDR'] ?? null);
-
-        $salt = (string) get_option(self::SALT_OPTION, '');
-        $remoteIpHash = $salt !== '' ? IpHasher::hash($remoteIp, $salt) : null;
+        // Resolve the real client IP. Forwarded headers are consulted only
+        // when the operator has marked the site as behind a trusted proxy
+        // (see ClientIp::resolve); otherwise REMOTE_ADDR is used as-is.
+        $remoteIp = ClientIp::resolve($server, Plugin::trustProxy());
 
         $observedAt = self::nowIsoUtc();
 
@@ -52,7 +51,7 @@ final class Recorder {
                 'query_string'   => $queryString,
                 'status'         => $status,
                 'user_agent'     => $userAgent,
-                'remote_ip_hash' => $remoteIpHash,
+                'remote_ip'      => $remoteIp,
                 'referer'        => $referer,
             ],
             // Format hints for wpdb->insert (real wpdb uses these to prepare; the test mock ignores them).

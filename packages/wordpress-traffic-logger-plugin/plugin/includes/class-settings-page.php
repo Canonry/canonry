@@ -2,10 +2,10 @@
 /**
  * Settings page at `Settings → Canonry Traffic Logger`.
  *
- * Minimal by design: one knob (retention days) plus read-only operator
- * visibility into how many events live in the table and how old the
- * oldest row is. Everything else (salt rotation, test-endpoint button,
- * multisite admin) is intentionally out of scope and deferred.
+ * Minimal by design: a retention-days knob and a trusted-proxy toggle,
+ * plus read-only operator visibility into how many events live in the
+ * table and how old the oldest row is. Everything else (test-endpoint
+ * button, multisite admin) is intentionally out of scope and deferred.
  *
  * Capability gate: `manage_options`. Same capability that gates the REST
  * endpoint — a non-admin must never be able to see or change the
@@ -20,6 +20,7 @@ final class SettingsPage {
     public const MENU_SLUG = 'canonry-traffic-logger';
     public const OPTION_GROUP = 'canonry_traffic_logger';
     public const SECTION_ID = 'canonry_traffic_logger_main';
+    public const SECTION_ID_NETWORK = 'canonry_traffic_logger_network';
 
     public static function registerMenu(): void {
         if (!function_exists('add_options_page')) return;
@@ -56,6 +57,31 @@ final class SettingsPage {
                 [self::class, 'renderRetentionField'],
                 self::MENU_SLUG,
                 self::SECTION_ID
+            );
+        }
+
+        register_setting(self::OPTION_GROUP, Plugin::TRUST_PROXY_OPTION, [
+            'type'              => 'boolean',
+            'description'       => 'Whether the site is behind a trusted proxy or CDN.',
+            'sanitize_callback' => [self::class, 'sanitizeTrustProxy'],
+            'default'           => '',
+        ]);
+
+        if (function_exists('add_settings_section')) {
+            add_settings_section(
+                self::SECTION_ID_NETWORK,
+                'Client IP',
+                [self::class, 'renderNetworkSectionIntro'],
+                self::MENU_SLUG
+            );
+        }
+        if (function_exists('add_settings_field')) {
+            add_settings_field(
+                Plugin::TRUST_PROXY_OPTION,
+                'Behind a proxy or CDN',
+                [self::class, 'renderTrustProxyField'],
+                self::MENU_SLUG,
+                self::SECTION_ID_NETWORK
             );
         }
     }
@@ -95,6 +121,36 @@ final class SettingsPage {
             (int) $current,
             (int) Plugin::RETENTION_MIN,
             (int) Plugin::RETENTION_MAX
+        );
+    }
+
+    /**
+     * Normalize the trusted-proxy checkbox to a stored '1' / '' string. A
+     * checked checkbox posts '1' (or 'on'); an unchecked one posts nothing.
+     */
+    public static function sanitizeTrustProxy($value): string {
+        if ($value === '1' || $value === 1 || $value === true || $value === 'on') {
+            return '1';
+        }
+        return '';
+    }
+
+    public static function renderNetworkSectionIntro(): void {
+        echo '<p>';
+        echo esc_html(
+            'Enable this only if the site sits behind Cloudflare, a load balancer, '
+            . 'or another reverse proxy. When on, the real visitor IP is read from '
+            . 'forwarded headers; when off, the direct connection address is used.'
+        );
+        echo '</p>';
+    }
+
+    public static function renderTrustProxyField(): void {
+        printf(
+            '<label><input type="checkbox" name="%s" value="1"%s /> %s</label>',
+            esc_attr(Plugin::TRUST_PROXY_OPTION),
+            Plugin::trustProxy() ? ' checked' : '',
+            esc_html('This site is behind a CDN or reverse proxy')
         );
     }
 

@@ -63,7 +63,7 @@ final class EndpointAuthTest extends TestCase {
         $event = $body['events'][0];
 
         // Mirror WordpressTrafficEventPayload exactly.
-        foreach (['id', 'observed_at', 'method', 'host', 'path', 'query_string', 'status', 'user_agent', 'remote_ip_hash', 'referer'] as $expected) {
+        foreach (['id', 'observed_at', 'method', 'host', 'path', 'query_string', 'status', 'user_agent', 'remote_ip', 'referer'] as $expected) {
             $this->assertArrayHasKey($expected, $event);
         }
 
@@ -72,6 +72,6 @@ final class EndpointAuthTest extends TestCase {
         $this->assertSame('GET', $event['method']);
         $this->assertSame(200, $event['status']);
         $this->assertSame('GPTBot/1.2', $event['user_agent']);
-        $this->assertMatchesRegex('/^[0-9a-f]{12}$/', $event['remote_ip_hash']);
+        $this->assertSame('203.0.113.4', $event['remote_ip']);
     }
 }

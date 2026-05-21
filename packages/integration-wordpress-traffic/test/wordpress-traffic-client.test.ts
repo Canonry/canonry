@@ -16,7 +16,7 @@ describe('normalizeWordpressTrafficEvent', () => {
       query_string: 'utm_source=chatgpt.com',
       status: 200,
       user_agent: 'GPTBot/1.2',
-      remote_ip_hash: 'sha256:abc',
+      remote_ip: '203.0.113.4',
       referer: 'https://chatgpt.com/',
     })
 
@@ -33,7 +33,7 @@ describe('normalizeWordpressTrafficEvent', () => {
       queryString: 'utm_source=chatgpt.com',
       status: 200,
       userAgent: 'GPTBot/1.2',
-      remoteIp: 'sha256:abc',
+      remoteIp: '203.0.113.4',
       referer: 'https://chatgpt.com/',
       latencyMs: null,
       requestSizeBytes: null,
@@ -56,7 +56,7 @@ describe('normalizeWordpressTrafficEvent', () => {
       query_string: null,
       status: null,
       user_agent: null,
-      remote_ip_hash: null,
+      remote_ip: null,
       referer: null,
     })).toBeNull()
 
@@ -69,7 +69,7 @@ describe('normalizeWordpressTrafficEvent', () => {
       query_string: null,
       status: null,
       user_agent: null,
-      remote_ip_hash: null,
+      remote_ip: null,
       referer: null,
     })).toBeNull()
   })
@@ -84,7 +84,7 @@ describe('normalizeWordpressTrafficEvent', () => {
       query_string: null,
       status: 200,
       user_agent: 'Mozilla/5.0',
-      remote_ip_hash: null,
+      remote_ip: null,
       referer: null,
     })
 
@@ -104,7 +104,7 @@ describe('normalizeWordpressTrafficEvent', () => {
       query_string: '   ',
       status: 200,
       user_agent: '',
-      remote_ip_hash: null,
+      remote_ip: null,
       referer: null,
     })
 
@@ -123,7 +123,7 @@ describe('normalizeWordpressTrafficEvent', () => {
       query_string: null,
       status: 200,
       user_agent: 'GPTBot/1.2',
-      remote_ip_hash: null,
+      remote_ip: null,
       referer: null,
     })
 
@@ -139,7 +139,7 @@ describe('normalizeWordpressTrafficEvent', () => {
       query_string: null,
       status: 200,
       user_agent: 'GPTBot/1.2',
-      remote_ip_hash: null,
+      remote_ip: null,
       referer: null,
     })).toBeNull()
   })
@@ -169,7 +169,7 @@ describe('listWordpressTrafficEvents', () => {
             query_string: null,
             status: 200,
             user_agent: 'GPTBot/1.2',
-            remote_ip_hash: 'sha256:abc',
+            remote_ip: '203.0.113.4',
             referer: null,
           },
         ],
@@ -230,7 +230,7 @@ describe('listWordpressTrafficEvents', () => {
       if (!cursor) {
         return new Response(JSON.stringify({
           events: [
-            { id: 1, observed_at: '2026-05-11T12:00:00.000Z', method: 'GET', host: 'x', path: '/a', query_string: null, status: 200, user_agent: 'a', remote_ip_hash: null, referer: null },
+            { id: 1, observed_at: '2026-05-11T12:00:00.000Z', method: 'GET', host: 'x', path: '/a', query_string: null, status: 200, user_agent: 'a', remote_ip: null, referer: null },
           ],
           next_cursor: '1',
           has_more: true,
@@ -238,7 +238,7 @@ describe('listWordpressTrafficEvents', () => {
       }
       return new Response(JSON.stringify({
         events: [
-          { id: 2, observed_at: '2026-05-11T12:01:00.000Z', method: 'GET', host: 'x', path: '/b', query_string: null, status: 200, user_agent: 'a', remote_ip_hash: null, referer: null },
+          { id: 2, observed_at: '2026-05-11T12:01:00.000Z', method: 'GET', host: 'x', path: '/b', query_string: null, status: 200, user_agent: 'a', remote_ip: null, referer: null },
         ],
         next_cursor: null,
         has_more: false,
@@ -265,7 +265,7 @@ describe('listWordpressTrafficEvents', () => {
     fetchSpy.mockImplementation(async () => (
       new Response(JSON.stringify({
         events: [
-          { id: 1, observed_at: '2026-05-11T12:00:00.000Z', method: 'GET', host: 'x', path: '/a', query_string: null, status: 200, user_agent: 'a', remote_ip_hash: null, referer: null },
+          { id: 1, observed_at: '2026-05-11T12:00:00.000Z', method: 'GET', host: 'x', path: '/a', query_string: null, status: 200, user_agent: 'a', remote_ip: null, referer: null },
         ],
         next_cursor: '999',
         has_more: true,
@@ -287,8 +287,8 @@ describe('listWordpressTrafficEvents', () => {
     fetchSpy.mockImplementation(async () => (
       new Response(JSON.stringify({
         events: [
-          { id: 1, observed_at: '2026-05-11T12:00:00.000Z', method: 'GET', host: 'x', path: '/a', query_string: null, status: 200, user_agent: 'a', remote_ip_hash: null, referer: null },
-          { id: 2, observed_at: '', method: null, host: null, path: '', query_string: null, status: null, user_agent: null, remote_ip_hash: null, referer: null },
+          { id: 1, observed_at: '2026-05-11T12:00:00.000Z', method: 'GET', host: 'x', path: '/a', query_string: null, status: 200, user_agent: 'a', remote_ip: null, referer: null },
+          { id: 2, observed_at: '', method: null, host: null, path: '', query_string: null, status: null, user_agent: null, remote_ip: null, referer: null },
         ],
         next_cursor: null,
         has_more: false,
@@ -352,7 +352,7 @@ describe('listWordpressTrafficEvents', () => {
       if (!cursor) {
         return new Response(JSON.stringify({
           events: [
-            { id: 1, observed_at: '2026-05-11T12:00:00.000Z', method: 'GET', host: 'x', path: '/a', query_string: null, status: 200, user_agent: 'a', remote_ip_hash: null, referer: null },
+            { id: 1, observed_at: '2026-05-11T12:00:00.000Z', method: 'GET', host: 'x', path: '/a', query_string: null, status: 200, user_agent: 'a', remote_ip: null, referer: null },
           ],
           next_cursor: 'NEXT',
           has_more: true,
@@ -360,7 +360,7 @@ describe('listWordpressTrafficEvents', () => {
       }
       return new Response(JSON.stringify({
         events: [
-          { id: 2, observed_at: '2026-05-11T12:30:00.000Z', method: 'GET', host: 'x', path: '/b', query_string: null, status: 200, user_agent: 'a', remote_ip_hash: null, referer: null },
+          { id: 2, observed_at: '2026-05-11T12:30:00.000Z', method: 'GET', host: 'x', path: '/b', query_string: null, status: 200, user_agent: 'a', remote_ip: null, referer: null },
         ],
         next_cursor: null,
         has_more: false,

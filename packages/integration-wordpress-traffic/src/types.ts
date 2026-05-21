@@ -7,12 +7,12 @@ import type { NormalizedTrafficRequest } from '@ainyc/canonry-contracts'
  * intermediate transform.
  *
  * The plugin captures requests post-hygiene-filter (no static assets, no
- * `/wp-admin/`, no POSTs by default). It does NOT classify — UA pattern /
- * referer matching happens server-side in `packages/integration-traffic`.
+ * `/wp-admin/`, no POSTs by default). It does NOT classify; UA pattern and
+ * referer matching happen server-side in `packages/integration-traffic`.
  *
- * IPs are hashed by the plugin (sha256 prefix) before the row is written, so
- * canonry never sees raw client IPs. Verification stays `claimed_unverified`
- * for every WordPress event until rDNS / IP-range verification is wired.
+ * The plugin records the real client IP (plugin 0.3.0+), so `remoteIp` on
+ * the normalized event is a routable address the classifier can verify
+ * against published operator IP ranges, the same as the Cloud Run adapter.
  */
 export interface WordpressTrafficEventPayload {
   /** Plugin-assigned auto-increment id; used as the pagination cursor. */
@@ -29,8 +29,8 @@ export interface WordpressTrafficEventPayload {
   /** HTTP response status as observed by the plugin. */
   status: number | null
   user_agent: string | null
-  /** SHA-256 prefix or null when hashing is disabled and no IP was captured. */
-  remote_ip_hash: string | null
+  /** Real client IP (IPv4 or IPv6), or null when none was captured. */
+  remote_ip: string | null
   referer: string | null
 }
 

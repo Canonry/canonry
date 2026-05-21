@@ -18,13 +18,26 @@ declare(strict_types=1);
 namespace Canonry\TrafficLogger;
 
 final class Plugin {
-    public const SCHEMA_VERSION = '1';
+    // Schema 2 (plugin 0.3.0): the per-site IP hash was replaced by the raw
+    // client IP so the canonry server can verify bot claims against
+    // published operator IP ranges.
+    public const SCHEMA_VERSION = '2';
     public const SCHEMA_VERSION_OPTION = 'canonry_traffic_logger_schema_version';
 
     public const RETENTION_OPTION = 'canonry_traffic_logger_retention_days';
     public const RETENTION_DEFAULT = 90;
     public const RETENTION_MIN = 7;
     public const RETENTION_MAX = 365;
+
+    // When true, the site is behind a CDN/reverse proxy and forwarded
+    // headers (CF-Connecting-IP, X-Forwarded-For, ...) are consulted to
+    // find the real client IP. Off by default: on a non-proxied site those
+    // headers are visitor-settable and would let a visitor forge their IP.
+    public const TRUST_PROXY_OPTION = 'canonry_traffic_logger_trust_proxy';
+
+    // Pre-0.3.0 stored a per-site IP-hash salt. Hashing is gone; the option
+    // is deleted on uninstall so upgraded sites do not leave it behind.
+    public const LEGACY_SALT_OPTION = 'canonry_traffic_logger_ip_salt';
 
     public const PRUNE_HOOK = 'canonry_traffic_logger_prune';
 
@@ -46,7 +59,7 @@ final class Plugin {
             . "  query_string text NULL,\n"
             . "  status smallint unsigned NULL,\n"
             . "  user_agent varchar(1024) NULL,\n"
-            . "  remote_ip_hash varchar(24) NULL,\n"
+            . "  remote_ip varchar(45) NULL,\n"
             . "  referer varchar(2048) NULL,\n"
             . "  PRIMARY KEY  (id),\n"
             . "  KEY observed_at_id (observed_at, id)\n"
@@ -61,15 +74,11 @@ final class Plugin {
             dbDelta($sql);
         }
 
-        // Create salt option only if it does not already exist (preserve on
-        // re-activation so existing hashes remain comparable).
-        if (get_option(Recorder::SALT_OPTION, null) === null) {
-            $salt = self::generateSalt();
-            add_option(Recorder::SALT_OPTION, $salt);
-        }
-        if (get_option(self::SCHEMA_VERSION_OPTION, null) === null) {
-            add_option(self::SCHEMA_VERSION_OPTION, self::SCHEMA_VERSION);
-        }
+        self::dropLegacyIpHashColumn($table);
+
+        // Keep the recorded schema version current. update_option also
+        // creates the option on a fresh install.
+        update_option(self::SCHEMA_VERSION_OPTION, self::SCHEMA_VERSION);
 
         // Schedule daily prune only if not already scheduled (re-activation
         // should be idempotent and not push the next-fire timestamp forward).
@@ -80,18 +89,47 @@ final class Plugin {
         }
     }
 
+    /**
+     * Drop the pre-0.3.0 `remote_ip_hash` column when a site upgrades.
+     * `dbDelta` adds the new `remote_ip` column but never drops old ones,
+     * so the stale hash column is removed here. Guarded by a column-exists
+     * check so re-activation stays idempotent.
+     */
+    private static function dropLegacyIpHashColumn(string $table): void {
+        global $wpdb;
+        $exists = $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(*) FROM information_schema.COLUMNS "
+            . "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s "
+            . "AND COLUMN_NAME = 'remote_ip_hash'",
+            $table
+        ));
+        if ((int) $exists > 0) {
+            $wpdb->query("ALTER TABLE {$table} DROP COLUMN remote_ip_hash");
+        }
+    }
+
     public static function uninstall(): void {
         global $wpdb;
         $table = $wpdb->prefix . Recorder::TABLE;
         $wpdb->query("DROP TABLE IF EXISTS {$table}");
 
-        delete_option(Recorder::SALT_OPTION);
         delete_option(self::SCHEMA_VERSION_OPTION);
         delete_option(self::RETENTION_OPTION);
+        delete_option(self::TRUST_PROXY_OPTION);
+        delete_option(self::LEGACY_SALT_OPTION);
 
         if (function_exists('wp_clear_scheduled_hook')) {
             wp_clear_scheduled_hook(self::PRUNE_HOOK);
         }
+    }
+
+    /**
+     * Whether the site is behind a trusted CDN/reverse proxy. When true,
+     * `ClientIp::resolve()` consults forwarded headers for the real visitor
+     * IP; when false it uses REMOTE_ADDR only.
+     */
+    public static function trustProxy(): bool {
+        return (string) get_option(self::TRUST_PROXY_OPTION, '') === '1';
     }
 
     /**
@@ -113,7 +151,7 @@ final class Plugin {
     /**
      * WP-Cron callback. Delete events older than the configured retention
      * window. Stored timestamps are ISO 8601 UTC (`observed_at`), which
-     * sort lexicographically against any same-format cutoff string — so
+     * sort lexicographically against any same-format cutoff string, so
      * a simple `observed_at < <iso-cutoff>` comparison is sound.
      */
     public static function pruneExpired(): void {
@@ -131,13 +169,6 @@ final class Plugin {
 
         $sql = $wpdb->prepare("DELETE FROM {$table} WHERE observed_at < %s", $cutoff);
         $wpdb->query($sql);
-    }
-
-    private static function generateSalt(): string {
-        if (function_exists('wp_generate_password')) {
-            return wp_generate_password(64, true);
-        }
-        return bin2hex(random_bytes(32));
     }
 }
 

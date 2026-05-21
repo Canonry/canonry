@@ -33,10 +33,12 @@ site and shares only the Application-Password auth pattern.
 - **No classification.** This package only pulls + normalizes. UA pattern
   matching and AI-referer detection happen in `packages/integration-traffic`
   alongside Cloud Run events, so classifier rules evolve without plugin updates.
-- **IP hashing happens upstream.** The plugin hashes (sha256 prefix) or omits
-  client IPs before writing event rows, so this adapter never sees raw IPs.
-  Every WordPress event currently stays `claimed_unverified` — IP/rDNS
-  verification needs raw IPs and is future work.
+- **The plugin sends the real client IP.** Plugin 0.3.0+ records the raw
+  client IP (`remote_ip`), so `normalize.ts` maps it straight to `remoteIp`.
+  The classifier in `packages/integration-traffic` verifies it against
+  operator IP ranges, exactly as it does for Cloud Run events. An older
+  plugin (pre-0.3.0) omits the field, so those events stay
+  `claimed_unverified` until the site updates the plugin.
 - **Provider-neutral output.** Every adapter in the traffic stack emits the
   same `NormalizedTrafficRequest` shape from `@ainyc/canonry-contracts`. Do
   not leak WordPress-specific types past the package boundary.

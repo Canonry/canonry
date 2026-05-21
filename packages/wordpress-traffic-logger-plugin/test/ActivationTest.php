@@ -1,6 +1,6 @@
 <?php
 /**
- * Activation hook: creates table, generates per-site salt option.
+ * Activation hook: creates the events table and records the schema version.
  */
 
 declare(strict_types=1);
@@ -14,27 +14,27 @@ final class ActivationTest extends TestCase {
         wpshim_reset();
     }
 
-    public function test_activation_creates_table_and_salt_option(): void {
+    public function test_activation_records_schema_version(): void {
         \Canonry\TrafficLogger\Plugin::activate();
 
-        $salt = get_option('canonry_traffic_logger_ip_salt', null);
-        $this->assertNotNull($salt);
-        $this->assertTrue(is_string($salt) && strlen($salt) >= 32, 'salt must be at least 32 chars');
-
         $version = get_option('canonry_traffic_logger_schema_version', null);
-        $this->assertNotNull($version);
+        $this->assertSame(\Canonry\TrafficLogger\Plugin::SCHEMA_VERSION, $version);
 
-        // dbDelta is a no-op in the shim; we just confirm activate() called it for the events table.
-        // The wpdb mock auto-creates table rows arrays on first insert, so we can't assert table DDL
-        // directly. We exercise creation indirectly via the ingestion test.
+        // dbDelta is a no-op in the shim, so the table DDL is not asserted
+        // directly; the ingestion and endpoint tests exercise table creation.
         $this->assertTrue(true);
     }
 
-    public function test_activation_does_not_overwrite_existing_salt(): void {
-        update_option('canonry_traffic_logger_ip_salt', 'preexisting-salt-value');
+    public function test_activation_updates_schema_version_on_reactivation(): void {
+        // An older install carries a stale schema version; re-activation must
+        // bring it current (update_option, not a one-shot add_option).
+        update_option('canonry_traffic_logger_schema_version', '1');
 
         \Canonry\TrafficLogger\Plugin::activate();
 
-        $this->assertSame('preexisting-salt-value', get_option('canonry_traffic_logger_ip_salt', null));
+        $this->assertSame(
+            \Canonry\TrafficLogger\Plugin::SCHEMA_VERSION,
+            get_option('canonry_traffic_logger_schema_version', null)
+        );
     }
 }
