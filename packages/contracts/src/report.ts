@@ -398,7 +398,7 @@ export const serverActivitySectionSchema = z.object({
   byOperator: z.array(z.object({
     operator: z.string(),
     verifiedHits: z.number(),
-    /** Shown to agency audience only — claimed-bot UA, rDNS not confirmed. */
+    /** Shown to agency audience only: claimed-bot UA, source IP not in a published range. */
     unverifiedHits: z.number(),
     /** Per-user fetches from this operator's AI surface (ChatGPT-User, …). */
     userFetchHits: z.number(),
