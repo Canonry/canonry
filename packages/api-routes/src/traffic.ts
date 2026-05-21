@@ -57,6 +57,7 @@ import type {
   WordpressTrafficEventsPage,
 } from '@ainyc/canonry-integration-wordpress-traffic'
 import {
+  drainVercelTrafficEvents,
   listVercelTrafficEvents,
   VercelLogsApiError,
 } from '@ainyc/canonry-integration-vercel'
@@ -222,12 +223,15 @@ const DEFAULT_SAMPLE_LIMIT = 100
 const DEFAULT_WP_PAGE_SIZE = 500
 const DEFAULT_WP_MAX_PAGES = 20
 // Vercel's `request-logs` endpoint paginates by page number within a fixed
-// `[startDate, endDate]` window and exposes no resumable page cursor — so a
-// sync must drain the entire window in one pass. This budget is generous
-// enough that an incremental sync (window clamped forward to `lastSyncedAt`)
-// never hits it; if it does, the sync fails loudly rather than advancing
-// `lastSyncedAt` past the un-pulled pages. Backfill uses BACKFILL_MAX_PAGES.
+// `[startDate, endDate]` window and exposes no resumable page cursor. A
+// window holding more than this many pages cannot be pulled in one pass, so
+// `drainVercelTrafficEvents` narrows the time window adaptively until each
+// slice fits. This is the per-sub-window page budget.
 const DEFAULT_VERCEL_MAX_PAGES = 50
+// Hard cap on adaptive sub-windows a single Vercel drain may walk before it
+// gives up. Generous enough that a normal sync or a 30-day backfill never
+// reaches it; a window this fragmented should be narrowed by the operator.
+const VERCEL_MAX_SUB_WINDOWS = 5_000
 // Bounded ring buffer of the most-recent normalized event IDs from the last
 // sync. Used to dedupe events that fall in the small overlap window between
 // `lastSyncedAt` and the new sync's `windowStart`. Sized for the practical
@@ -1266,12 +1270,10 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       }
     } else {
       // Vercel `request-logs` adapter. Pulls a clamped `[windowStart,
-      // windowEnd]` time window — like Cloud Run — but Vercel paginates by
-      // page number with no resumable cursor, so the whole window must be
-      // drained in one pass. We walk every page up to `vercelMaxPages`; if
-      // the adapter still reports `hasMore`, the window overflowed the
-      // budget and we fail rather than advance `lastSyncedAt` past the
-      // un-pulled pages (which would silently drop them).
+      // windowEnd]` time window. Vercel paginates by page number with no
+      // resumable cursor, so a dense window is drained in adaptive time
+      // sub-windows: `drainVercelTrafficEvents` narrows the span until each
+      // slice fits the per-sub-window page budget, deduping by eventId.
       auditAction = 'traffic.vercel.synced'
       const credentialStore = opts.vercelTrafficCredentialStore
       if (!credentialStore) {
@@ -1310,32 +1312,24 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         Math.min(windowEnd.getTime(), Math.max(requestedStartMs, lastSyncedMs)),
       )
 
-      let page: VercelTrafficEventsPage
       try {
-        page = await pullVercelEvents({
+        const drained = await drainVercelTrafficEvents({
+          pull: pullVercelEvents,
           token: credential.token,
           projectId: vercelProjectId,
           teamId: vercelTeamId,
           environment: vercelEnvironment,
           startDate: windowStart.getTime(),
           endDate: windowEnd.getTime(),
-          maxPages: vercelMaxPages,
+          pagesPerSubWindow: vercelMaxPages,
+          maxSubWindows: VERCEL_MAX_SUB_WINDOWS,
         })
+        allEvents = drained.events
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e)
         markFailed(msg, 'PROVIDER_PULL')
         throw providerError(`Vercel pull failed: ${msg}`)
       }
-      if (page.hasMore) {
-        // Budget exhausted with the window not fully drained. Advancing
-        // `lastSyncedAt` here would skip the un-pulled pages, so fail
-        // instead — the next sync (or a narrower `--since-minutes`, or a
-        // backfill) can cover the window without losing rows.
-        const msg = `Vercel sync window exceeded the ${vercelMaxPages}-page budget — narrow the window with --since-minutes or run a backfill`
-        markFailed(msg, 'PROVIDER_PULL')
-        throw providerError(`Vercel pull failed: ${msg}`)
-      }
-      allEvents = page.events
     }
 
     let crawlerBucketRows = 0
@@ -1811,21 +1805,18 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
 
       pullErrorPrefix = 'Vercel pull failed'
       pullForBackfill = async () => {
-        const page = await pullVercelEvents({
+        const drained = await drainVercelTrafficEvents({
+          pull: pullVercelEvents,
           token: credential.token,
           projectId: vercelProjectId,
           teamId: vercelTeamId,
           environment: vercelEnvironment,
           startDate: windowStart.getTime(),
           endDate: windowEnd.getTime(),
-          maxPages: BACKFILL_MAX_PAGES,
+          pagesPerSubWindow: vercelMaxPages,
+          maxSubWindows: VERCEL_MAX_SUB_WINDOWS,
         })
-        if (page.hasMore) {
-          throw new Error(
-            `backfill window exceeded the ${BACKFILL_MAX_PAGES}-page budget — narrow the window with --days`,
-          )
-        }
-        return page.events
+        return drained.events
       }
     }
 
