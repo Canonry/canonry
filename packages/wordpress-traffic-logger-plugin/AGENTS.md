@@ -4,7 +4,7 @@
 
 PHP WordPress plugin that ships the **producer side** of canonry's WordPress
 traffic-ingestion path. It captures every non-admin, non-AJAX GET page-load
-on a WP site, hashes the client IP per-site, and exposes the resulting event
+on a WP site, records the real client IP, and exposes the resulting event
 log through a Basic-auth (Application Password) REST endpoint that the
 `@ainyc/canonry-integration-wordpress-traffic` TS adapter pulls. Non-GET
 requests (comment submissions, logins, admin saves) are skipped — AI
@@ -30,20 +30,20 @@ plugin/
     class-plugin.php            Activation + uninstall + retention prune callback
     class-recorder.php          Request -> row writer (shutdown hook entry point)
     class-rest.php              GET /wp-json/canonry/v1/events handler + cursor pagination + since/until
-    class-ip-hasher.php         Pure sha256-prefix hashing utility
+    class-client-ip.php         Pure client-IP resolver (proxy-header aware)
     class-settings-page.php     Settings → Canonry Traffic Logger admin form
 test/
   run-tests.php                 Discovers *Test.php, runs every public test_* method
   lib/TestCase.php              Minimal assertion API (no PHPUnit dependency)
   lib/WpShim.php                In-memory stub of the WP API surface the plugin touches
-  *Test.php                     Test cases (Activation, Ingestion, IpHash, EndpointAuth, CursorPagination, WindowFilter, Uninstall, Retention, SettingsPage)
+  *Test.php                     Test cases (Activation, Ingestion, ClientIp, EndpointAuth, CursorPagination, WindowFilter, Uninstall, Retention, SettingsPage)
 ```
 
 ## Auth
 
 - The REST endpoint requires the authenticated user to have the
   `manage_options` capability. Traffic-log access is admin-equivalent: paths,
-  UAs, referrers, and hashed IPs together effectively de-anonymize visitors
+  UAs, referrers, and client IPs together effectively de-anonymize visitors
   to the operator who holds them. Granting Editor/Author access would let
   someone whose role is "publish posts" read everyone else's visit log.
 - Authentication happens via the standard WP Application Password flow
@@ -52,20 +52,28 @@ test/
   `wp-admin → Users → Profile → Application Passwords` and revokes them
   there too.
 
-## IP hashing
+## Client IP
 
-`hash('sha256', $ip . $salt)`, first 12 hex chars. The salt is generated
-once at activation via `wp_generate_password(64, true)` and stored in the
-`canonry_traffic_logger_ip_salt` WP option. The plugin never sees raw IPs
-again after the request hook returns.
+The plugin records the **real client IP** (`remote_ip`, IPv4 or IPv6) on
+every event. The canonry server needs it to verify bot claims against
+published operator IP ranges, the same as the Cloud Run and Vercel traffic
+loggers. `ClientIp::resolve()` is a pure function (`class-client-ip.php`):
 
-- Same IP + same salt produces the same 12-char hash (so unique-visitor
-  counts work inside a single salt window).
-- Different salts diverge, so re-installing the plugin produces a brand-new
-  hash space (intentional — re-installation is a privacy boundary).
-- 48 bits of hash space (12 hex chars) make brute-forcing infeasible without
-  the salt while keeping collisions inside a single rolling window negligible
-  for any plausible visitor volume.
+- **Default:** the IP is `REMOTE_ADDR`, the address the web server saw
+  directly.
+- **Behind a proxy/CDN:** when the operator enables the "behind a trusted
+  proxy" setting, `ClientIp::resolve()` consults the forwarded headers a CDN
+  sets, in order: `CF-Connecting-IP`, `True-Client-IP`, `X-Real-IP`, then
+  `X-Forwarded-For`. `X-Forwarded-For` is read right-to-left so a visitor
+  cannot win by prepending a forged entry.
+- The toggle is off by default. Forwarded headers are visitor-settable, so
+  trusting them on a non-proxied site would let a visitor forge their IP
+  (and forge a "verified" bot hit). Operators turn it on only when the site
+  genuinely sits behind a CDN.
+
+Plugin 0.3.0 replaced the previous per-site SHA-256 IP hash. Schema 2 drops
+the legacy `remote_ip_hash` column on activation, and the old
+`canonry_traffic_logger_ip_salt` option is deleted on uninstall.
 
 ## What's in scope (wave 2 shipped)
 
@@ -74,8 +82,8 @@ again after the request hook returns.
   (default 90, clamped to 7–365). Scheduled at activation, cleared at
   uninstall.
 - **Settings page.** `Settings → Canonry Traffic Logger` renders the
-  retention input, the current event count, and the oldest event
-  timestamp. Capability gate: `manage_options`.
+  retention input, the trusted-proxy toggle, the current event count, and
+  the oldest event timestamp. Capability gate: `manage_options`.
 - **Window filter on the REST endpoint.** `GET /wp-json/canonry/v1/events`
   accepts optional `since` / `until` ISO 8601 query params and filters
   events to the half-open window `[since, until)`. Powers the TS backfill
@@ -83,8 +91,6 @@ again after the request hook returns.
 
 ## What's out of scope (deferred)
 
-- Salt rotation UI. The operator can edit the `canonry_traffic_logger_ip_salt`
-  option in `wp_options` directly (or via WP-CLI) if rotation is needed.
 - "Test endpoint" admin button. The operator can curl the REST endpoint
   with a WP Application Password.
 - Multisite-aware activation (works in single-site mode only; multisite
@@ -108,11 +114,12 @@ value over a 100-line harness for the assertions the plugin needs.
 
 Test files cover:
 
-- **ActivationTest** — table + salt + schema-version options created; salt
-  not overwritten on re-activation.
+- **ActivationTest** — the events table and the schema-version option are
+  created; re-activation updates the recorded schema version.
 - **IngestionTest** — non-admin / non-AJAX page-loads write one row matching
   the TS `WordpressTrafficEventPayload` shape.
-- **IpHashTest** — deterministic per-salt, 12-hex, sha256 prefix.
+- **ClientIpTest** — `ClientIp::resolve()` uses `REMOTE_ADDR` when untrusted,
+  CDN headers when trusted, and reads `X-Forwarded-For` right-to-left.
 - **EndpointAuthTest** — 401 without `manage_options`; 200 with; response
   shape matches `WordpressTrafficEventsResponseBody`.
 - **CursorPaginationTest** — three-page walk in `(observed_at, id)` order;
@@ -126,9 +133,9 @@ Test files cover:
   uninstall; `pruneExpired()` deletes rows older than the configured
   window; clamps to 7..365; default 90 when unset.
 - **SettingsPageTest** — admin options page registered under Settings;
-  retention setting registered with clamp-to-range sanitizer; render
-  requires `manage_options` and shows current retention + event count
-  + oldest event.
+  retention and trusted-proxy settings registered with their sanitizers;
+  render requires `manage_options` and shows current retention, the
+  trusted-proxy checkbox, event count, and oldest event.
 
 ## See also
 

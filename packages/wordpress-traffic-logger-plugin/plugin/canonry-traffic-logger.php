@@ -2,8 +2,8 @@
 /**
  * Plugin Name: Canonry Traffic Logger
  * Plugin URI:  https://canonry.ai
- * Description: Captures non-admin page-load events and exposes them via REST for the canonry traffic-ingestion pipeline. Hashes IPs per-site, no classification — server does that.
- * Version:     0.2.1
+ * Description: Captures non-admin page-load events and exposes them via REST for the canonry traffic-ingestion pipeline. No classification; the server does that.
+ * Version:     0.3.0
  * Requires PHP: 7.4
  * Author:      Canonry
  * License:     MIT
@@ -11,18 +11,18 @@
  * This plugin produces rows matching the WordpressTrafficEventPayload contract
  * consumed by packages/integration-wordpress-traffic. It is intentionally minimal:
  * one writer (request hook), one reader (REST GET endpoint), one activation
- * (table + salt creation), one uninstall (drop both). Salt rotation UI and the
- * test-button admin page are deliberately out of scope and deferred. Retention
- * auto-prune and a minimal settings page ship in this slice (wave 2).
+ * (table creation), one uninstall (drop it). Retention auto-prune and a minimal
+ * settings page ship alongside.
  *
  * Security model:
  * - REST endpoint requires manage_options (chosen because traffic-log access is
- *   admin-equivalent: it exposes paths, UAs, referrers, and hashed IPs that
+ *   admin-equivalent: it exposes paths, UAs, referrers, and client IPs that
  *   together reveal site visitors. Editor/Author capabilities are insufficient).
- * - IPs are hashed with a per-site secret salt + sha256, only the first 12
- *   hex chars are stored — short enough to be infeasible to brute-force without
- *   the salt, long enough that collisions inside a single rolling window are
- *   negligible.
+ * - The real client IP is recorded so the canonry server can verify bot claims
+ *   against published operator IP ranges, matching the Cloud Run and Vercel
+ *   traffic loggers. Forwarded headers (X-Forwarded-For, CF-Connecting-IP) are
+ *   honored only when the operator marks the site as behind a trusted proxy;
+ *   otherwise REMOTE_ADDR is used so a visitor cannot forge their IP.
  */
 
 declare(strict_types=1);
@@ -32,7 +32,7 @@ if (!defined('ABSPATH') && !defined('CANONRY_TRAFFIC_LOGGER_TEST_MODE')) {
     define('CANONRY_TRAFFIC_LOGGER_TEST_MODE', true);
 }
 
-require_once __DIR__ . '/includes/class-ip-hasher.php';
+require_once __DIR__ . '/includes/class-client-ip.php';
 require_once __DIR__ . '/includes/class-recorder.php';
 require_once __DIR__ . '/includes/class-rest.php';
 require_once __DIR__ . '/includes/class-plugin.php';

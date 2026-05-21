@@ -40,7 +40,7 @@ final class IngestionTest extends TestCase {
         $this->assertSame(200, $row['status']);
         $this->assertSame('GPTBot/1.2', $row['user_agent']);
         $this->assertSame('https://chatgpt.com/', $row['referer']);
-        $this->assertMatchesRegex('/^[0-9a-f]{12}$/', $row['remote_ip_hash']);
+        $this->assertSame('203.0.113.4', $row['remote_ip']);
         $this->assertMatchesRegex('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/', $row['observed_at']);
     }
 
@@ -124,6 +124,6 @@ final class IngestionTest extends TestCase {
         $this->assertNotNull($row);
         $this->assertNull($row['user_agent']);
         $this->assertNull($row['referer']);
-        $this->assertNull($row['remote_ip_hash']);
+        $this->assertNull($row['remote_ip']);
     }
 }

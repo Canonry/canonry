@@ -43,7 +43,7 @@ export function normalizeWordpressTrafficEvent(
     queryString,
     status: typeof event.status === 'number' && Number.isFinite(event.status) ? event.status : null,
     userAgent: trimOrNull(event.user_agent),
-    remoteIp: trimOrNull(event.remote_ip_hash),
+    remoteIp: trimOrNull(event.remote_ip),
     referer: trimOrNull(event.referer),
     latencyMs: null,
     requestSizeBytes: null,

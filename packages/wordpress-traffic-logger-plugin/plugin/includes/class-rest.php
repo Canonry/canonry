@@ -125,7 +125,7 @@ final class Rest {
         $whereClause = $whereParts === [] ? '' : ('WHERE ' . implode(' AND ', $whereParts) . ' ');
 
         $sql = $wpdb->prepare(
-            "SELECT id, observed_at, method, host, path, query_string, status, user_agent, remote_ip_hash, referer "
+            "SELECT id, observed_at, method, host, path, query_string, status, user_agent, remote_ip, referer "
             . "FROM {$table} "
             . $whereClause
             . "ORDER BY observed_at ASC, id ASC "
@@ -154,7 +154,7 @@ final class Rest {
             'has_more'    => $hasMore,
             'site'        => [
                 'url'             => function_exists('home_url') ? home_url() : null,
-                'plugin_version'  => '0.2.0',
+                'plugin_version'  => '0.3.0',
             ],
         ], 200);
     }
@@ -170,7 +170,7 @@ final class Rest {
             'query_string'   => $row['query_string'] !== null ? (string) $row['query_string'] : null,
             'status'         => $row['status'] !== null ? (int) $row['status'] : null,
             'user_agent'     => $row['user_agent'] !== null ? (string) $row['user_agent'] : null,
-            'remote_ip_hash' => $row['remote_ip_hash'] !== null ? (string) $row['remote_ip_hash'] : null,
+            'remote_ip'      => $row['remote_ip'] !== null ? (string) $row['remote_ip'] : null,
             'referer'        => $row['referer'] !== null ? (string) $row['referer'] : null,
         ];
     }

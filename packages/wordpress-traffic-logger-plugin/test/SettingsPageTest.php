@@ -121,4 +121,48 @@ final class SettingsPageTest extends TestCase {
         $this->assertTrue($hasAdminMenu, 'admin_menu action must be wired in the main plugin file');
         $this->assertTrue($hasAdminInit, 'admin_init action must be wired in the main plugin file');
     }
+
+    public function test_trust_proxy_setting_is_registered(): void {
+        \Canonry\TrafficLogger\SettingsPage::registerSetting();
+
+        $registered = $GLOBALS['__wp_registered_settings'] ?? [];
+        $this->assertArrayHasKey(\Canonry\TrafficLogger\Plugin::TRUST_PROXY_OPTION, $registered);
+
+        $args = $registered[\Canonry\TrafficLogger\Plugin::TRUST_PROXY_OPTION];
+        $this->assertSame('canonry_traffic_logger', $args['option_group']);
+        $this->assertTrue(is_callable($args['args']['sanitize_callback'] ?? null));
+    }
+
+    public function test_trust_proxy_sanitizer_normalizes_to_flag(): void {
+        $sanitize = [\Canonry\TrafficLogger\SettingsPage::class, 'sanitizeTrustProxy'];
+
+        $this->assertSame('1', call_user_func($sanitize, '1'));    // checked
+        $this->assertSame('1', call_user_func($sanitize, 'on'));   // checked (alt post value)
+        $this->assertSame('1', call_user_func($sanitize, true));   // boolean true
+        $this->assertSame('',  call_user_func($sanitize, ''));     // unchecked
+        $this->assertSame('',  call_user_func($sanitize, '0'));    // explicit off
+        $this->assertSame('',  call_user_func($sanitize, null));   // absent
+    }
+
+    public function test_trust_proxy_option_round_trips_through_accessor(): void {
+        $this->assertFalse(\Canonry\TrafficLogger\Plugin::trustProxy()); // default off
+
+        update_option(\Canonry\TrafficLogger\Plugin::TRUST_PROXY_OPTION, '1');
+        $this->assertTrue(\Canonry\TrafficLogger\Plugin::trustProxy());
+
+        update_option(\Canonry\TrafficLogger\Plugin::TRUST_PROXY_OPTION, '');
+        $this->assertFalse(\Canonry\TrafficLogger\Plugin::trustProxy());
+    }
+
+    public function test_render_shows_trust_proxy_checkbox(): void {
+        $GLOBALS['__wp_current_user_can'] = true;
+        \Canonry\TrafficLogger\SettingsPage::registerSetting();
+
+        ob_start();
+        \Canonry\TrafficLogger\SettingsPage::render();
+        $html = ob_get_clean();
+
+        $this->assertStringContainsString('type="checkbox"', $html);
+        $this->assertStringContainsString('canonry_traffic_logger_trust_proxy', $html);
+    }
 }

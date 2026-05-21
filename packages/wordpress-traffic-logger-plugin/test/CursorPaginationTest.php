@@ -33,7 +33,7 @@ final class CursorPaginationTest extends TestCase {
                 'query_string'   => null,
                 'status'         => 200,
                 'user_agent'     => 'GPTBot/1.2',
-                'remote_ip_hash' => null,
+                'remote_ip'      => null,
                 'referer'        => null,
             ]);
         }
