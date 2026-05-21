@@ -17,6 +17,7 @@ with **no in-app instrumentation** required on the user's Vercel project.
 | File | Role |
 |------|------|
 | `src/client.ts` | `listVercelTrafficEvents` — page-paginated `request-logs` pull, `VercelLogsApiError` |
+| `src/drain.ts` | `drainVercelTrafficEvents` — adaptive time-sub-window drain over a wide window; retention-clamps the start |
 | `src/normalize.ts` | `normalizeVercelLogRow` — converts a raw `request-logs` row into a `NormalizedTrafficRequest` |
 | `src/types.ts` | Adapter option/response shapes (`VercelRequestLogRow`, `ListVercelTrafficEventsOptions`, `VercelTrafficEventsPage`) |
 | `src/index.ts` | Re-exports public API |
@@ -32,6 +33,18 @@ with **no in-app instrumentation** required on the user's Vercel project.
   `page` and reports `hasMoreRows`. No push, no SaaS relay. Incremental syncs
   advance the time window (the `lastSyncedAt` timestamp is the cursor), not a
   page token.
+- **Adaptive sub-window drain.** Page-number pagination has no resumable
+  cursor, so a window denser than the page budget cannot be pulled in one
+  pass. `drainVercelTrafficEvents` narrows the window into adaptive time
+  slices — halving the span on page-budget overflow, doubling back up after a
+  clean slice — and dedupes by `eventId` across slice boundaries.
+- **Retention clamp.** Vercel rejects a window starting before the plan's
+  `request-logs` retention with HTTP 400 `ExceedsBillingLimitError`.
+  `drainVercelTrafficEvents` detects that, binary-searches the retention
+  boundary, clamps the start forward to what Vercel will serve, and flags the
+  result `retentionClamped` instead of failing the whole drain. A normal
+  recurring sync keeps the window small, so the clamp only fires on a wide
+  backfill or a long-idle source.
 - **Internal endpoint, defensively read.** `request-logs` is not the
   documented `api.vercel.com` REST API — it is the endpoint the official CLI
   uses. Every field read is optional and tolerated-missing; never assume a
@@ -69,8 +82,8 @@ with **no in-app instrumentation** required on the user's Vercel project.
 - `packages/integration-cloud-run/` / `packages/integration-wordpress-traffic/`
   — sibling pull adapters; mirror this file layout
 - `packages/api-routes/src/traffic.ts` — the consumer: `POST /traffic/connect/vercel`
-  + the `vercel` branch of the sync / backfill dispatchers. The sync route drains
-  the whole time window in one pass (page-number pagination has no resumable
-  cursor) and fails loudly if `hasMore` is still true rather than advancing
-  `lastSyncedAt` past un-pulled rows.
+  + the `vercel` branch of the sync / backfill dispatchers. Both drain via
+  `drainVercelTrafficEvents`, which sub-windows the span and retention-clamps
+  the start; the route logs a warning when `retentionClamped` is set so an
+  operator can see the requested window was trimmed.
 - `plans/server-side-ai-traffic-ingestion.md` — overall traffic plan

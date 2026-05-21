@@ -1324,6 +1324,20 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
           pagesPerSubWindow: vercelMaxPages,
           maxSubWindows: VERCEL_MAX_SUB_WINDOWS,
         })
+        if (drained.retentionClamped) {
+          // An idle source whose lastSyncedAt aged past Vercel's request-logs
+          // retention self-heals here: drain what is still served, advance the
+          // cursor, surface the gap rather than failing every sync forever.
+          app.log.warn(
+            {
+              sourceId: sourceRow.id,
+              requestedStart: windowStart.toISOString(),
+              servedStart: new Date(drained.effectiveStartMs).toISOString(),
+            },
+            'Vercel request-logs retention clamp: sync window predated plan retention; '
+              + 'ingested only the portion Vercel still serves',
+          )
+        }
         allEvents = drained.events
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e)
@@ -1816,6 +1830,26 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
           pagesPerSubWindow: vercelMaxPages,
           maxSubWindows: VERCEL_MAX_SUB_WINDOWS,
         })
+        if (drained.retentionClamped) {
+          // Requested more history than Vercel's plan retains. The drain
+          // clamped the start forward to what request-logs would serve, so
+          // the backfill succeeds with the available portion instead of
+          // failing on an opaque HTTP 400.
+          const servedDays = Math.round(
+            (windowEnd.getTime() - drained.effectiveStartMs) / 86_400_000,
+          )
+          app.log.warn(
+            {
+              sourceId: sourceRow.id,
+              requestedDays,
+              servedDays,
+              requestedStart: windowStart.toISOString(),
+              servedStart: new Date(drained.effectiveStartMs).toISOString(),
+            },
+            'Vercel request-logs retention clamp: backfill window predates plan retention; '
+              + 'ingested only the portion Vercel still serves',
+          )
+        }
         return drained.events
       }
     }
