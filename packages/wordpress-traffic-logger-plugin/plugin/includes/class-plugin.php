@@ -1,11 +1,16 @@
 <?php
 /**
- * Plugin lifecycle: activate / uninstall + retention auto-prune.
+ * Plugin lifecycle: activate / uninstall, schema migration, retention auto-prune.
  *
  * Deactivate is intentionally absent for the table: deactivating should not
  * destroy data, the operator may re-activate later and expect their event
  * log to still be present. We *do* unschedule the cron event on uninstall
  * so a removed plugin does not leave a phantom hook behind.
+ *
+ * Schema migration has two entry points: `activate()` (clean install or
+ * reactivation) and `maybeUpgrade()` on `admin_init` (a plugin updated in
+ * place never fires the activation hook, so the schema would otherwise stay
+ * stale). Both run the idempotent `runSchemaMigration()`.
  *
  * Retention auto-prune: WP-Cron runs `canonry_traffic_logger_prune` once a
  * day, which deletes events older than the configured retention window
@@ -42,6 +47,40 @@ final class Plugin {
     public const PRUNE_HOOK = 'canonry_traffic_logger_prune';
 
     public static function activate(): void {
+        self::runSchemaMigration();
+        update_option(self::SCHEMA_VERSION_OPTION, self::SCHEMA_VERSION);
+
+        // Schedule daily prune only if not already scheduled (re-activation
+        // should be idempotent and not push the next-fire timestamp forward).
+        if (function_exists('wp_next_scheduled') && function_exists('wp_schedule_event')) {
+            if (!wp_next_scheduled(self::PRUNE_HOOK)) {
+                wp_schedule_event(time() + DAY_IN_SECONDS_FALLBACK, 'daily', self::PRUNE_HOOK);
+            }
+        }
+    }
+
+    /**
+     * Bring the schema current when the plugin was updated in place. A
+     * file-only update (the WP plugin updater, or re-uploading the zip)
+     * never fires the activation hook, so `activate()` does not run and the
+     * table would keep the old schema. Hooked to `admin_init`; a no-op once
+     * the recorded schema version matches the current one.
+     */
+    public static function maybeUpgrade(): void {
+        if ((string) get_option(self::SCHEMA_VERSION_OPTION, '') === self::SCHEMA_VERSION) {
+            return;
+        }
+        self::runSchemaMigration();
+        update_option(self::SCHEMA_VERSION_OPTION, self::SCHEMA_VERSION);
+    }
+
+    /**
+     * Reconcile the events-table schema. `dbDelta` creates the table on a
+     * fresh install and adds the `remote_ip` column on an upgrade; the
+     * legacy `remote_ip_hash` column is then dropped. Idempotent, so it is
+     * safe to call from both `activate()` and `maybeUpgrade()`.
+     */
+    private static function runSchemaMigration(): void {
         global $wpdb;
         $table = $wpdb->prefix . Recorder::TABLE;
         $charsetCollate = $wpdb->get_charset_collate();
@@ -75,25 +114,13 @@ final class Plugin {
         }
 
         self::dropLegacyIpHashColumn($table);
-
-        // Keep the recorded schema version current. update_option also
-        // creates the option on a fresh install.
-        update_option(self::SCHEMA_VERSION_OPTION, self::SCHEMA_VERSION);
-
-        // Schedule daily prune only if not already scheduled (re-activation
-        // should be idempotent and not push the next-fire timestamp forward).
-        if (function_exists('wp_next_scheduled') && function_exists('wp_schedule_event')) {
-            if (!wp_next_scheduled(self::PRUNE_HOOK)) {
-                wp_schedule_event(time() + DAY_IN_SECONDS_FALLBACK, 'daily', self::PRUNE_HOOK);
-            }
-        }
     }
 
     /**
      * Drop the pre-0.3.0 `remote_ip_hash` column when a site upgrades.
      * `dbDelta` adds the new `remote_ip` column but never drops old ones,
      * so the stale hash column is removed here. Guarded by a column-exists
-     * check so re-activation stays idempotent.
+     * check so re-running it stays idempotent.
      */
     private static function dropLegacyIpHashColumn(string $table): void {
         global $wpdb;

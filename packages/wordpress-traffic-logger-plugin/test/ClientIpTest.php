@@ -59,9 +59,9 @@ final class ClientIpTest extends TestCase {
         // "client, internal-hop": the rightmost public entry is the client.
         $ip = ClientIp::resolve([
             'REMOTE_ADDR'          => '198.51.100.1',
-            'HTTP_X_FORWARDED_FOR' => '203.0.113.20, 10.0.0.5',
+            'HTTP_X_FORWARDED_FOR' => '8.8.8.8, 10.0.0.5',
         ], true);
-        $this->assertSame('203.0.113.20', $ip);
+        $this->assertSame('8.8.8.8', $ip);
     }
 
     public function test_trusted_xff_ignores_prepended_forgery(): void {
@@ -69,9 +69,9 @@ final class ClientIpTest extends TestCase {
         // address it actually saw. Reading right-to-left picks the real one.
         $ip = ClientIp::resolve([
             'REMOTE_ADDR'          => '198.51.100.1',
-            'HTTP_X_FORWARDED_FOR' => '1.2.3.4, 203.0.113.21',
+            'HTTP_X_FORWARDED_FOR' => '1.2.3.4, 9.9.9.9',
         ], true);
-        $this->assertSame('203.0.113.21', $ip);
+        $this->assertSame('9.9.9.9', $ip);
     }
 
     public function test_trusted_falls_back_to_remote_addr(): void {

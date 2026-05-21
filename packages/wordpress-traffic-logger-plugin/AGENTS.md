@@ -72,7 +72,8 @@ loggers. `ClientIp::resolve()` is a pure function (`class-client-ip.php`):
   genuinely sits behind a CDN.
 
 Plugin 0.3.0 replaced the previous per-site SHA-256 IP hash. Schema 2 drops
-the legacy `remote_ip_hash` column on activation, and the old
+the legacy `remote_ip_hash` column on upgrade (`Plugin::maybeUpgrade()` runs
+on `admin_init`, so an in-place plugin update is migrated too), and the old
 `canonry_traffic_logger_ip_salt` option is deleted on uninstall.
 
 ## What's in scope (wave 2 shipped)
@@ -114,8 +115,9 @@ value over a 100-line harness for the assertions the plugin needs.
 
 Test files cover:
 
-- **ActivationTest** — the events table and the schema-version option are
-  created; re-activation updates the recorded schema version.
+- **ActivationTest** — the events table and schema-version option are
+  created; activation and the `admin_init` `maybeUpgrade()` check both bring
+  the recorded schema version current.
 - **IngestionTest** — non-admin / non-AJAX page-loads write one row matching
   the TS `WordpressTrafficEventPayload` shape.
 - **ClientIpTest** — `ClientIp::resolve()` uses `REMOTE_ADDR` when untrusted,

@@ -126,4 +126,27 @@ final class IngestionTest extends TestCase {
         $this->assertNull($row['referer']);
         $this->assertNull($row['remote_ip']);
     }
+
+    public function test_records_forwarded_ip_when_trust_proxy_enabled(): void {
+        // End-to-end: the trusted-proxy option flows through Recorder ->
+        // Plugin::trustProxy() -> ClientIp::resolve(), so a CDN-fronted
+        // request is logged with the real visitor IP, not the edge IP.
+        update_option('canonry_traffic_logger_trust_proxy', '1');
+
+        $request = [
+            'REQUEST_METHOD'       => 'GET',
+            'HTTP_HOST'            => 'example.com',
+            'REQUEST_URI'          => '/blog/post',
+            'HTTP_USER_AGENT'      => 'GPTBot/1.2',
+            'REMOTE_ADDR'          => '198.51.100.1',   // CDN edge
+            'HTTP_X_FORWARDED_FOR' => '9.9.9.9',        // real visitor
+        ];
+
+        \Canonry\TrafficLogger\Recorder::record($request, 200);
+
+        global $wpdb;
+        $row = ($wpdb->rows[$wpdb->prefix . 'canonry_traffic_events'] ?? [])[0] ?? null;
+        $this->assertNotNull($row);
+        $this->assertSame('9.9.9.9', $row['remote_ip']);
+    }
 }
