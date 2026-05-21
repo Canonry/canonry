@@ -3,7 +3,7 @@
  * Plugin Name: Canonry Traffic Logger
  * Plugin URI:  https://canonry.ai
  * Description: Captures non-admin page-load events and exposes them via REST for the canonry traffic-ingestion pipeline. No classification; the server does that.
- * Version:     0.3.0
+ * Version:     0.3.1
  * Requires PHP: 7.4
  * Author:      Canonry
  * License:     MIT

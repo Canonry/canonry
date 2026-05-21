@@ -30,6 +30,12 @@ site and shares only the Application-Password auth pattern.
 - **Pull-only, cursor-paginated.** `listWordpressTrafficEvents` accepts an opaque
   `cursor` string returned from the previous page (`next_cursor`). No push,
   no SaaS relay.
+- **Cache-buster on every request.** Each call to the plugin endpoint carries
+  a unique `_cb` query param and a `Cache-Control: no-cache` request header.
+  Some WordPress hosts front the site with a page cache (LiteSpeed and
+  similar) that caches the REST response keyed on the URL despite its
+  no-cache headers; without a varying URL the sync reads a frozen page and
+  silently misses new events.
 - **No classification.** This package only pulls + normalizes. UA pattern
   matching and AI-referer detection happen in `packages/integration-traffic`
   alongside Cloud Run events, so classifier rules evolve without plugin updates.

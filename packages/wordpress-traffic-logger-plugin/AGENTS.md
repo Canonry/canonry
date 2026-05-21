@@ -29,14 +29,14 @@ plugin/
   includes/
     class-plugin.php            Activation + uninstall + retention prune callback
     class-recorder.php          Request -> row writer (shutdown hook entry point)
-    class-rest.php              GET /wp-json/canonry/v1/events handler + cursor pagination + since/until
+    class-rest.php              GET /wp-json/canonry/v1/events handler + cursor pagination + since/until + page-cache opt-out
     class-client-ip.php         Pure client-IP resolver (proxy-header aware)
     class-settings-page.php     Settings → Canonry Traffic Logger admin form
 test/
   run-tests.php                 Discovers *Test.php, runs every public test_* method
   lib/TestCase.php              Minimal assertion API (no PHPUnit dependency)
   lib/WpShim.php                In-memory stub of the WP API surface the plugin touches
-  *Test.php                     Test cases (Activation, Ingestion, ClientIp, EndpointAuth, CursorPagination, WindowFilter, Uninstall, Retention, SettingsPage)
+  *Test.php                     Test cases (Activation, Ingestion, ClientIp, EndpointAuth, CursorPagination, WindowFilter, CacheControl, Uninstall, Retention, SettingsPage)
 ```
 
 ## Auth
@@ -89,6 +89,13 @@ on `admin_init`, so an in-place plugin update is migrated too), and the old
   accepts optional `since` / `until` ISO 8601 query params and filters
   events to the half-open window `[since, until)`. Powers the TS backfill
   route's historical pulls.
+- **Page-cache opt-out.** `GET /wp-json/canonry/v1/events` signals fronting
+  page caches not to store its response: the LiteSpeed
+  `litespeed_control_set_nocache` action, the `DONOTCACHEPAGE` constant, and
+  an `X-LiteSpeed-Cache-Control` header. The feed is authenticated and
+  per-request, so a cached copy would freeze the traffic canonry pulls. The
+  TS pull adapter also appends a unique cache-buster param as a second line
+  of defense.
 
 ## What's out of scope (deferred)
 
@@ -130,6 +137,9 @@ Test files cover:
   filter events to the half-open window `[since, until)`; cursor pagination
   still walks inside the window; invalid timestamps → 400. Used by the TS
   backfill route to scope historical pulls.
+- **CacheControlTest** verifies the events endpoint signals fronting page
+  caches (the LiteSpeed `litespeed_control_set_nocache` action plus the
+  `DONOTCACHEPAGE` constant) not to cache its authenticated per-request response.
 - **UninstallTest** — table dropped + options deleted; scheduled prune cleared.
 - **RetentionTest** — daily cron scheduled at activation, cleared at
   uninstall; `pruneExpired()` deletes rows older than the configured
