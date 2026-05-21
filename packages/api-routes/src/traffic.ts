@@ -1,4 +1,5 @@
 import crypto from 'node:crypto'
+import { Agent as UndiciAgent } from 'undici'
 import { and, desc, eq, gte, lte, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import {
@@ -64,6 +65,7 @@ import type {
   VercelTrafficEventsPage,
 } from '@ainyc/canonry-integration-vercel'
 import { resolveProject, writeAuditLog } from './helpers.js'
+import { resolveWebhookTarget } from './webhooks.js'
 
 export interface CloudRunCredentialRecord {
   projectName: string
@@ -198,6 +200,15 @@ export interface TrafficRoutesOptions {
   defaultSampleLimit?: number
   /** Fire-and-forget hook called after every sync completes (success OR failure). Used by canonry to emit telemetry. */
   onTrafficSynced?: (event: TrafficSyncedEvent) => void
+  /**
+   * Allow WordPress `baseUrl` to resolve to a loopback address. Mirrors
+   * `allowLoopbackWebhooks` on the parent `ApiRoutesOptions` — only enabled by
+   * the local `canonry serve` so dev users can point at `http://localhost`.
+   * Cloud deployments leave this off so an API-key holder cannot coerce the
+   * server into fetching its own metadata service or sidecar admin endpoints
+   * with the attached Basic-auth credentials.
+   */
+  allowLoopbackWebhooks?: boolean
 }
 
 const DEFAULT_SYNC_WINDOW_MINUTES = 43_200
@@ -559,6 +570,56 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
   const resolveAccessToken = opts.resolveCloudRunAccessToken ?? defaultResolveAccessToken
   const pullWordpressEvents = opts.pullWordpressTrafficEvents ?? listWordpressTrafficEvents
   const pullVercelEvents = opts.pullVercelTrafficEvents ?? listVercelTrafficEvents
+  const allowLoopback = opts.allowLoopbackWebhooks === true
+
+  /**
+   * SSRF guard for the operator-supplied WordPress `baseUrl`. Every pull-side
+   * call into `pullWordpressEvents` attaches Basic-auth credentials, so we
+   * resolve the host before each fetch and refuse private / link-local /
+   * metadata addresses. Loopback is opt-in via `allowLoopbackWebhooks` to
+   * preserve the local dev experience without ever shipping that capability
+   * to cloud.
+   *
+   * Returns an undici `Dispatcher` whose `connect.lookup` is pinned to the
+   * IP we just validated, so the subsequent `fetch` cannot be coerced into
+   * a different address via DNS rebinding between validation and request.
+   * The dispatcher is passed straight to `listWordpressTrafficEvents`, which
+   * forwards it to `fetch(url, { dispatcher })`. Re-validating on every
+   * sync (not just at connect time) closes the DNS-flip window where a
+   * public-IP domain becomes a private-IP one between syncs.
+   */
+  async function assertWordpressTargetAllowed(baseUrl: string): Promise<UndiciAgent> {
+    const check = await resolveWebhookTarget(baseUrl, { allowLoopback })
+    if (!check.ok) {
+      throw validationError(`WordPress baseUrl rejected: ${check.message}`)
+    }
+    const { address, family } = check.target
+    return new UndiciAgent({
+      connect: {
+        lookup: (_hostname, _options, cb) => {
+          // Always resolve to the pre-validated public IP, regardless of
+          // what the OS resolver would return now. Closes the rebinding
+          // TOCTOU between `resolveWebhookTarget` above and the fetch
+          // performed inside the WordPress integration package.
+          cb(null, address, family === 6 ? 6 : 4)
+        },
+      },
+    })
+  }
+  // Keep the live pinned dispatchers around so they can be `close()`d after
+  // the request finishes — undici pools sockets internally, so dropping the
+  // reference without closing leaks the agent.
+  async function withPinnedWordpressDispatcher<T>(
+    baseUrl: string,
+    fn: (dispatcher: UndiciAgent) => Promise<T>,
+  ): Promise<T> {
+    const dispatcher = await assertWordpressTargetAllowed(baseUrl)
+    try {
+      return await fn(dispatcher)
+    } finally {
+      await dispatcher.close().catch(() => {})
+    }
+  }
   const vercelMaxPages = opts.defaultVercelMaxPages ?? DEFAULT_VERCEL_MAX_PAGES
   const syncWindowMinutes = opts.defaultSyncWindowMinutes ?? DEFAULT_SYNC_WINDOW_MINUTES
   const pageSize = opts.defaultPageSize ?? DEFAULT_PAGE_SIZE
@@ -715,25 +776,38 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
     }
     const { baseUrl, username, applicationPassword, displayName } = parsed.data
 
-    // Probe the plugin endpoint up-front so the caller learns about a bad
-    // URL / wrong credential before we touch any persistent state.
-    try {
-      await pullWordpressEvents({
-        baseUrl,
-        username,
-        applicationPassword,
-        pageSize: 1,
-        maxPages: 1,
-      })
-    } catch (e) {
-      if (e instanceof WordpressTrafficApiError) {
-        throw providerError(
-          `WordPress traffic probe failed (HTTP ${e.status}): ${e.message}${e.body ? ` — ${e.body}` : ''}`,
-        )
+    // SSRF guard: the probe attaches Basic-auth creds, so refuse any baseUrl
+    // that resolves to a private / loopback / link-local address before the
+    // fetch goes out. Without this check an API-key holder can target the
+    // host's metadata service (169.254.169.254, metadata.google.internal),
+    // RFC1918 ranges, or sidecar admin endpoints — and the error body
+    // bubbles back through providerError below.
+    //
+    // The returned dispatcher pins DNS to the validated IP, so the probe's
+    // fetch can't be steered to a different address by DNS rebinding in the
+    // window between validation and request.
+    await withPinnedWordpressDispatcher(baseUrl, async (dispatcher) => {
+      // Probe the plugin endpoint up-front so the caller learns about a bad
+      // URL / wrong credential before we touch any persistent state.
+      try {
+        await pullWordpressEvents({
+          baseUrl,
+          username,
+          applicationPassword,
+          pageSize: 1,
+          maxPages: 1,
+          dispatcher,
+        })
+      } catch (e) {
+        if (e instanceof WordpressTrafficApiError) {
+          throw providerError(
+            `WordPress traffic probe failed (HTTP ${e.status}): ${e.message}${e.body ? ` — ${e.body}` : ''}`,
+          )
+        }
+        const msg = e instanceof Error ? e.message : String(e)
+        throw providerError(`WordPress traffic probe failed: ${msg}`)
       }
-      const msg = e instanceof Error ? e.message : String(e)
-      throw providerError(`WordPress traffic probe failed: ${msg}`)
-    }
+    })
 
     const now = new Date().toISOString()
     const existing = credentialStore.getConnection(project.name)
@@ -1140,6 +1214,23 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       const wpPageSize = opts.defaultWordpressPageSize ?? DEFAULT_WP_PAGE_SIZE
       const wpMaxPages = opts.defaultWordpressMaxPages ?? DEFAULT_WP_MAX_PAGES
 
+      // Re-validate the persisted baseUrl on every sync AND pin the resolved
+      // IP for the duration of this sync's fetches. The pinned dispatcher
+      // closes the DNS-flip window two ways: (a) `assertWordpressTargetAllowed`
+      // refuses to issue a dispatcher if the host now resolves to a private
+      // address, and (b) every subsequent fetch through the dispatcher uses
+      // the validated IP, so DNS rebinding between validation and any of the
+      // per-page fetches below can't redirect Basic-auth creds to a metadata
+      // or RFC1918 host.
+      let pinnedDispatcher: UndiciAgent
+      try {
+        pinnedDispatcher = await assertWordpressTargetAllowed(credential.baseUrl)
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        markFailed(msg, 'PROVIDER_PULL')
+        throw e
+      }
+
       const collected: NormalizedTrafficRequest[] = []
       let cursor: string | undefined = sourceRow.lastCursor ?? undefined
       try {
@@ -1151,6 +1242,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
             cursor,
             pageSize: wpPageSize,
             maxPages: 1,
+            dispatcher: pinnedDispatcher,
           })
           collected.push(...pageResult.events)
           const previousCursor = cursor
@@ -1169,6 +1261,8 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         const msg = e instanceof Error ? e.message : String(e)
         markFailed(msg, 'PROVIDER_PULL')
         throw providerError(`WordPress pull failed: ${msg}`)
+      } finally {
+        await pinnedDispatcher.close().catch(() => {})
       }
     } else {
       // Vercel `request-logs` adapter. Pulls a clamped `[windowStart,
@@ -1642,38 +1736,53 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         )
       }
 
+      // Synchronous fail-fast: if the baseUrl can't pass the SSRF guard right
+      // now, return 400 before enqueuing the background task. The closure
+      // below re-validates AND pins DNS for the actual fetches, because the
+      // background task runs after the HTTP response is sent.
+      await (await assertWordpressTargetAllowed(credential.baseUrl)).close().catch(() => {})
+
       const wpPageSize = opts.defaultWordpressPageSize ?? DEFAULT_WP_PAGE_SIZE
       pullErrorPrefix = 'WordPress pull failed'
       pullForBackfill = async () => {
-        // Page through the plugin's `[since, until)` window via opaque
-        // cursors. The window is fixed for the entire backfill — only the
-        // cursor advances — so each page sees the same bounds. Stops on
-        // `hasMore=false` OR an exhausted cursor (defensive guard against a
-        // misbehaving plugin emitting the same cursor forever).
-        const collected: NormalizedTrafficRequest[] = []
-        const windowStartIso = windowStart.toISOString()
-        const windowEndIso = windowEnd.toISOString()
-        let cursor: string | undefined = undefined
-        for (let page = 0; page < BACKFILL_MAX_PAGES; page += 1) {
-          const pageResult = await pullWordpressEvents({
-            baseUrl: credential.baseUrl,
-            username: credential.username,
-            applicationPassword: credential.applicationPassword,
-            cursor,
-            pageSize: wpPageSize,
-            // Each call fetches a single page; the for-loop drives
-            // continuation. Matches the WP sync path's pattern.
-            maxPages: 1,
-            since: windowStartIso,
-            until: windowEndIso,
-          })
-          collected.push(...pageResult.events)
-          const previousCursor: string | undefined = cursor
-          cursor = pageResult.nextCursor
-          if (!pageResult.hasMore) break
-          if (!cursor || cursor === previousCursor) break
+        // Re-validate at task-execution time and pin DNS for the entire
+        // window pull. Backfill is fire-and-forget — the synchronous check
+        // above protects request-time, this protects task-time.
+        const pinnedDispatcher = await assertWordpressTargetAllowed(credential.baseUrl)
+        try {
+          // Page through the plugin's `[since, until)` window via opaque
+          // cursors. The window is fixed for the entire backfill — only the
+          // cursor advances — so each page sees the same bounds. Stops on
+          // `hasMore=false` OR an exhausted cursor (defensive guard against a
+          // misbehaving plugin emitting the same cursor forever).
+          const collected: NormalizedTrafficRequest[] = []
+          const windowStartIso = windowStart.toISOString()
+          const windowEndIso = windowEnd.toISOString()
+          let cursor: string | undefined = undefined
+          for (let page = 0; page < BACKFILL_MAX_PAGES; page += 1) {
+            const pageResult = await pullWordpressEvents({
+              baseUrl: credential.baseUrl,
+              username: credential.username,
+              applicationPassword: credential.applicationPassword,
+              cursor,
+              pageSize: wpPageSize,
+              // Each call fetches a single page; the for-loop drives
+              // continuation. Matches the WP sync path's pattern.
+              maxPages: 1,
+              since: windowStartIso,
+              until: windowEndIso,
+              dispatcher: pinnedDispatcher,
+            })
+            collected.push(...pageResult.events)
+            const previousCursor: string | undefined = cursor
+            cursor = pageResult.nextCursor
+            if (!pageResult.hasMore) break
+            if (!cursor || cursor === previousCursor) break
+          }
+          return collected
+        } finally {
+          await pinnedDispatcher.close().catch(() => {})
         }
-        return collected
       }
     } else {
       // Vercel `request-logs` window backfill. Pulls the fixed

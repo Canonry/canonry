@@ -1,8 +1,50 @@
 import crypto from 'node:crypto'
 import { eq } from 'drizzle-orm'
-import type { FastifyInstance } from 'fastify'
+import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { apiKeys } from '@ainyc/canonry-db'
-import { authRequired, authInvalid } from '@ainyc/canonry-contracts'
+import { authRequired, authInvalid, forbidden } from '@ainyc/canonry-contracts'
+
+/**
+ * Resolved API key attached to every authenticated request. Used by scope
+ * gates on sensitive routes — see `requireScope`.
+ */
+export interface AuthedApiKey {
+  id: string
+  name: string
+  scopes: string[]
+}
+
+declare module 'fastify' {
+  interface FastifyRequest {
+    /**
+     * The API key that authenticated the current request. Present on every
+     * request that passed `authPlugin` (i.e. everything not in the
+     * skip-paths list). Routes that need scope checks should call
+     * `requireScope(request, '<scope>')`.
+     */
+    apiKey?: AuthedApiKey
+  }
+}
+
+/**
+ * Reject the request unless the authenticated key carries the named scope
+ * (or the wildcard `'*'`). The wildcard is what `canonry init` writes for
+ * the install's root key — operators don't have to opt in to existing
+ * capabilities. Created delegate keys (when a key-management UI lands)
+ * must declare their scopes explicitly to satisfy this gate.
+ */
+export function requireScope(request: FastifyRequest, scope: string): void {
+  const key = request.apiKey
+  // No key on the request means the auth plugin didn't run — happens when
+  // `apiRoutes` is mounted with `skipAuth: true` (test harnesses, fixtures).
+  // The deployable code path always registers `authPlugin` before routes,
+  // so a real request without a key would have been rejected upstream.
+  // Treat the absence as "auth not enforced" rather than as a deny — this
+  // keeps the test harness ergonomic without weakening the prod gate.
+  if (!key) return
+  if (key.scopes.includes('*') || key.scopes.includes(scope)) return
+  throw forbidden(`This action requires the "${scope}" scope on your API key.`)
+}
 
 function hashKey(key: string): string {
   return crypto.createHash('sha256').update(key).digest('hex')
@@ -96,5 +138,11 @@ export async function authPlugin(app: FastifyInstance, opts: AuthPluginOptions =
       .set({ lastUsedAt: new Date().toISOString() })
       .where(eq(apiKeys.id, key.id))
       .run()
+
+    // Attach the resolved key to the request so scope-gated routes can
+    // inspect it without re-querying. `key.scopes` is a string[] from the
+    // JSON column; the type assertion mirrors what Drizzle returns.
+    const scopes = Array.isArray(key.scopes) ? key.scopes : []
+    request.apiKey = { id: key.id, name: key.name, scopes }
   })
 }

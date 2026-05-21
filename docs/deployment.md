@@ -2,6 +2,26 @@
 
 Canonry runs as a self-hosted server. This guide covers common deployment patterns.
 
+## Tenancy model (read this first)
+
+**Canonry is single-tenant.** Every deployment — local `canonry serve` or the
+Cloud Run `apps/api` shape — is designed to host exactly one trust boundary:
+one operator's projects, or one team's projects. There is no per-tenant
+isolation inside an instance.
+
+What this means:
+- Every valid `cnry_…` API key can read and write every project on the
+  instance. Treat each key like a root credential.
+- Two projects on the same instance that track the same `canonicalDomain`
+  share their Google Search Console / Bing OAuth connections by design.
+- `PUT /api/v1/settings/*` rewrites global provider keys and OAuth client
+  secrets — anyone with any key can flip them.
+
+If you need to host multiple unrelated teams, deploy one Cloud Run service
+per team, with separate databases and OAuth clients. Multi-tenancy as a
+schema feature is **not** on the current roadmap — see root `AGENTS.md`
+→ "Deployment Posture" for what it would take to build it.
+
 ## Local (default)
 
 ```bash

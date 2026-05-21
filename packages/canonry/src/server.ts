@@ -136,6 +136,76 @@ function hashApiKey(key: string): string {
   return crypto.createHash('sha256').update(key).digest('hex')
 }
 
+// Dashboard password storage uses scrypt (salted, slow KDF) — not plain
+// SHA-256. The bearer-token path above still hashes with SHA-256 because
+// those are 128-bit random `cnry_…` tokens (no brute-force exposure on a
+// 64-hex hash). Dashboard passwords are user-chosen and may be reused from
+// elsewhere, so a leaked `config.yaml` must not be trivially cracked
+// against a wordlist.
+//
+// Stored format: `scrypt$1$<base64-salt>$<base64-hash>`. The version field
+// (`1`) lets future code rotate to a stronger KDF without breaking existing
+// installs. Legacy 64-hex SHA-256 hashes are still accepted at login time
+// (see `verifyDashboardPassword`); when one matches, the caller writes the
+// fresh scrypt-format hash back into the config so the next login no longer
+// needs the legacy fallback.
+const DASHBOARD_SCRYPT_KEYLEN = 64
+const DASHBOARD_SCRYPT_COST = 1 << 15 // N=32768 — ~80ms on a modern laptop
+// Node's default scrypt `maxmem` is 32 MiB which is exactly at the boundary
+// for our chosen N (128 * 32768 * 8 ≈ 32 MiB). Bump to 64 MiB to leave
+// headroom and keep the derivation comfortably within the limit.
+const DASHBOARD_SCRYPT_MAXMEM = 64 * 1024 * 1024
+
+function hashDashboardPassword(password: string): string {
+  const salt = crypto.randomBytes(16)
+  const derived = crypto.scryptSync(password, salt, DASHBOARD_SCRYPT_KEYLEN, {
+    N: DASHBOARD_SCRYPT_COST,
+    maxmem: DASHBOARD_SCRYPT_MAXMEM,
+  })
+  return `scrypt$1$${salt.toString('base64')}$${derived.toString('base64')}`
+}
+
+interface DashboardPasswordVerifyResult {
+  ok: boolean
+  needsRehash: boolean
+}
+
+function verifyDashboardPassword(password: string, storedHash: string): DashboardPasswordVerifyResult {
+  // New format: scrypt with salt.
+  if (storedHash.startsWith('scrypt$1$')) {
+    const parts = storedHash.split('$')
+    if (parts.length !== 4) return { ok: false, needsRehash: false }
+    const saltB64 = parts[2]
+    const hashB64 = parts[3]
+    if (!saltB64 || !hashB64) return { ok: false, needsRehash: false }
+    let salt: Buffer
+    let expected: Buffer
+    try {
+      salt = Buffer.from(saltB64, 'base64')
+      expected = Buffer.from(hashB64, 'base64')
+    } catch {
+      return { ok: false, needsRehash: false }
+    }
+    const derived = crypto.scryptSync(password, salt, expected.length, {
+      N: DASHBOARD_SCRYPT_COST,
+      maxmem: DASHBOARD_SCRYPT_MAXMEM,
+    })
+    if (derived.length !== expected.length) return { ok: false, needsRehash: false }
+    return { ok: crypto.timingSafeEqual(derived, expected), needsRehash: false }
+  }
+
+  // Legacy SHA-256 hex format — accept once for migration, then rehash.
+  if (/^[a-f0-9]{64}$/i.test(storedHash)) {
+    const candidate = Buffer.from(hashApiKey(password), 'hex')
+    const expected = Buffer.from(storedHash, 'hex')
+    if (candidate.length !== expected.length) return { ok: false, needsRehash: false }
+    const ok = crypto.timingSafeEqual(candidate, expected)
+    return { ok, needsRehash: ok }
+  }
+
+  return { ok: false, needsRehash: false }
+}
+
 function parseCookies(header: string | undefined): Record<string, string> {
   if (!header) return {}
 
@@ -457,19 +527,21 @@ export async function createServer(opts: {
       domain: string
       apiKey: string
       siteUrl?: string | null
+      createdByProjectId?: string | null
       createdAt: string
       updatedAt: string
     }) => {
       if (!opts.config.bing) opts.config.bing = {}
       if (!opts.config.bing.connections) opts.config.bing.connections = []
       const idx = opts.config.bing.connections.findIndex((c) => c.domain === connection.domain)
+      const normalized = { ...connection, createdByProjectId: connection.createdByProjectId ?? null }
       if (idx >= 0) {
-        opts.config.bing.connections[idx] = connection
+        opts.config.bing.connections[idx] = normalized
       } else {
-        opts.config.bing.connections.push(connection)
+        opts.config.bing.connections.push(normalized)
       }
       saveConfigPatch(opts.config)
-      return connection
+      return normalized
     },
     updateConnection: (
       domain: string,
@@ -610,6 +682,7 @@ export async function createServer(opts: {
       refreshToken?: string | null
       tokenExpiresAt?: string | null
       scopes?: string[]
+      createdByProjectId?: string | null
       createdAt: string
       updatedAt: string
     }) => {
@@ -810,7 +883,7 @@ export async function createServer(opts: {
       return reply.status(err.statusCode).send(err.toJSON())
     }
 
-    opts.config.dashboardPasswordHash = hashApiKey(password)
+    opts.config.dashboardPasswordHash = hashDashboardPassword(password)
     saveConfigPatch(opts.config)
 
     if (!createPasswordSession(reply)) {
@@ -832,8 +905,16 @@ export async function createServer(opts: {
         const err = validationError('No dashboard password configured — use /session/setup first')
         return reply.status(err.statusCode).send(err.toJSON())
       }
-      if (hashApiKey(password) !== opts.config.dashboardPasswordHash) {
+      const verification = verifyDashboardPassword(password, opts.config.dashboardPasswordHash)
+      if (!verification.ok) {
         return reply.status(401).send({ error: { code: 'AUTH_INVALID', message: 'Incorrect password' } })
+      }
+      // Transparent migration: a successful login against the legacy
+      // unsalted SHA-256 hash rewrites the config with a fresh scrypt hash
+      // so the next login no longer needs the legacy fallback path.
+      if (verification.needsRehash) {
+        opts.config.dashboardPasswordHash = hashDashboardPassword(password)
+        saveConfigPatch(opts.config)
       }
       if (!createPasswordSession(reply)) {
         return reply.status(401).send({ error: { code: 'AUTH_INVALID', message: 'Server API key not found — re-run canonry init' } })

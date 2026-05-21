@@ -5,6 +5,20 @@ import {
   notImplemented,
   internalError,
 } from '@ainyc/canonry-contracts'
+import { requireScope } from './auth.js'
+
+/**
+ * Scope required to mutate any global setting — provider API keys,
+ * Google OAuth client credentials, Bing API key, CDP endpoint.
+ *
+ * Without this gate any caller with any valid bearer token could swap the
+ * operator's OpenAI/Anthropic/Gemini/Perplexity keys for an attacker's
+ * (siphoning quota), or swap the Google OAuth client secret to harvest
+ * future OAuth grants. The default key written by `canonry init` carries
+ * `scopes: ['*']` which satisfies this gate by wildcard; future
+ * delegate-key flows must opt in explicitly.
+ */
+export const SETTINGS_WRITE_SCOPE = 'settings.write'
 
 export interface ProviderSummaryEntry {
   name: string
@@ -56,6 +70,7 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
     Params: { name: string }
     Body: { apiKey?: string; baseUrl?: string; model?: string; quota?: Partial<ProviderQuotaPolicy> }
   }>('/settings/providers/:name', async (request) => {
+    requireScope(request, SETTINGS_WRITE_SCOPE)
     const { apiKey, baseUrl, model, quota } = request.body ?? {}
     const name = request.params.name
 
@@ -125,6 +140,7 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
   app.put<{
     Body: { clientId?: string; clientSecret?: string }
   }>('/settings/google', async (request) => {
+    requireScope(request, SETTINGS_WRITE_SCOPE)
     const { clientId, clientSecret } = request.body ?? {}
 
     if (!clientId || typeof clientId !== 'string' || !clientSecret || typeof clientSecret !== 'string') {
@@ -146,6 +162,7 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
   app.put<{
     Body: { apiKey?: string }
   }>('/settings/bing', async (request) => {
+    requireScope(request, SETTINGS_WRITE_SCOPE)
     const { apiKey } = request.body ?? {}
 
     if (!apiKey || typeof apiKey !== 'string') {

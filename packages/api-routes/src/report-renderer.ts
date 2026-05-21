@@ -59,6 +59,25 @@ function escapeHtml(value: string): string {
     .replace(/'/g, '&#39;')
 }
 
+/**
+ * Safe `href` value for anchor tags. Citation and competitor URLs in the
+ * report come from LLM grounding sources — attackers who plant `javascript:`
+ * or `data:` URIs in cited content (or on their own pages) would otherwise
+ * smuggle them through `escapeHtml` (which only escapes HTML metacharacters,
+ * not URL schemes) and detonate when an operator clicks the link in the
+ * downloaded file. Returns `#` for any non-http(s)/mailto value.
+ */
+function safeHref(value: string | null | undefined): string {
+  const trimmed = (value ?? '').trim()
+  if (!trimmed) return '#'
+  // Permit absolute paths so HTML the SPA also emits stays usable; the
+  // renderer's other sites still resolve relative URLs upstream.
+  if (trimmed.startsWith('/')) return escapeHtml(trimmed)
+  if (/^https?:\/\//i.test(trimmed)) return escapeHtml(trimmed)
+  if (/^mailto:/i.test(trimmed)) return escapeHtml(trimmed)
+  return '#'
+}
+
 function summarizeQueryParams(params: URLSearchParams): string {
   const keys = Array.from(params.keys())
   const total = keys.length
@@ -1433,7 +1452,7 @@ function renderCompetitorLandscape(report: ProjectReportDto): string {
     const mentionTotal = mention?.totalCount ?? mentionLandscape.totalAnswerSnapshots
     const pagesDisclosure = c.theirCitedPages.length > 0
       ? `<details class="cited-pages"><summary>${c.theirCitedPages.length} cited URL${c.theirCitedPages.length > 1 ? 's' : ''}</summary>
-          <ul>${c.theirCitedPages.map(p => `<li><a href="${escapeHtml(p.url)}">${escapeHtml(p.url)}</a> <span class="cited-for">${escapeHtml(p.citedFor.join(', '))}</span></li>`).join('')}</ul>
+          <ul>${c.theirCitedPages.map(p => `<li><a href="${safeHref(p.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(p.url)}</a> <span class="cited-for">${escapeHtml(p.citedFor.join(', '))}</span></li>`).join('')}</ul>
         </details>`
       : ''
     return `<tr>
@@ -2181,10 +2200,10 @@ function renderOpportunities(report: ProjectReportDto): string {
   </div>`
   const rows = opps.slice(0, 10).map((o) => {
     const ourPage = o.ourBestPage
-      ? `<a href="${escapeHtml(absolutizeProjectUrl(o.ourBestPage.url, canonical))}">${escapeHtml(o.ourBestPage.url)}</a>`
+      ? `<a href="${safeHref(absolutizeProjectUrl(o.ourBestPage.url, canonical))}" target="_blank" rel="noopener noreferrer">${escapeHtml(o.ourBestPage.url)}</a>`
       : '<span class="cell-not-cited">No page yet</span>'
     const winning = o.winningCompetitor
-      ? `<a href="${escapeHtml(o.winningCompetitor.url)}">${escapeHtml(o.winningCompetitor.domain)}</a>`
+      ? `<a href="${safeHref(o.winningCompetitor.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(o.winningCompetitor.domain)}</a>`
       : '<span class="cell-not-cited">—</span>'
     const drivers = o.drivers.length > 0
       ? `<ul class="driver-list">${o.drivers.map(d => `<li>${escapeHtml(d)}</li>`).join('')}</ul>`
@@ -2584,10 +2603,28 @@ export function renderReportHtml(report: ProjectReportDto, opts: RenderReportHtm
 
   const json = escapeJsonForScript(JSON.stringify(report))
 
+  // Strict CSP. The report bundles the full DTO inside a
+  // `<script type="application/json">` island (non-executable by spec, so
+  // `script-src 'none'` does not block it). `style-src 'unsafe-inline'` is
+  // required for the inline `<style>` block and inline SVG attributes;
+  // `connect-src 'none'` prevents any exfil even if a script slipped past
+  // `script-src` — defense in depth for the client-facing download.
+  const csp =
+    "default-src 'none'; " +
+    "style-src 'unsafe-inline'; " +
+    "img-src 'self' data: https:; " +
+    "font-src 'self' data: https:; " +
+    "connect-src 'none'; " +
+    "script-src 'none'; " +
+    "base-uri 'none'; " +
+    "form-action 'none'; " +
+    "frame-ancestors 'none'"
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8" />
+<meta http-equiv="Content-Security-Policy" content="${csp}" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>${escapeHtml(title)}</title>
 <style>${STYLE}</style>

@@ -1369,6 +1369,68 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `UPDATE crawler_events_hourly SET bot_id = 'mistral-bot' WHERE bot_id = 'mistral-ai'`,
     ],
   },
+  {
+    version: 66,
+    name: 'oauth-connections-track-owning-project',
+    // Cross-project OAuth takeover defense. Before this column, the OAuth
+    // callback for Google and the connect route for Bing keyed everything on
+    // `domain` alone — an attacker who created a project pointed at a victim's
+    // canonical domain could complete OAuth from their own Google/Bing account
+    // and silently overwrite the legitimate refresh token under that domain
+    // key. The new `created_by_project_id` column records the project that
+    // first established each connection; the callback and DELETE routes refuse
+    // cross-project writes when it doesn't match.
+    //
+    // Backfill: for each existing connection row, set the owner to the project
+    // whose `canonical_domain` matches AND whose `created_at` is oldest (the
+    // most likely original owner in a 1:N domain-shared install). Rows with no
+    // matching project stay NULL — treated as "unowned" so a future legitimate
+    // connect from any project can claim them.
+    //
+    // Uses the `run` hook so the schema-edit + backfill only fire when the
+    // target tables exist. The legacy-keyword test scenario seeds a DB at v46
+    // without google_connections / bing_connections (they're created in v6 but
+    // the test bypasses the bootstrap) — without the guard, this version's
+    // ALTER fails with "no such table".
+    //
+    // Idempotent: column-existence guard means re-running this version is a
+    // no-op; the backfill UPDATE only writes rows where the column is NULL.
+    statements: [],
+    run: (db) => {
+      if (tableExists(db, 'google_connections') && !columnExists(db, 'google_connections', 'created_by_project_id')) {
+        db.run(sql.raw(
+          `ALTER TABLE google_connections ADD COLUMN created_by_project_id TEXT REFERENCES projects(id) ON DELETE SET NULL`,
+        ))
+        db.run(sql.raw(`CREATE INDEX IF NOT EXISTS idx_google_conn_project ON google_connections(created_by_project_id)`))
+        db.run(sql.raw(
+          `UPDATE google_connections
+              SET created_by_project_id = (
+                SELECT p.id FROM projects p
+                 WHERE LOWER(p.canonical_domain) = LOWER(google_connections.domain)
+                 ORDER BY p.created_at ASC
+                 LIMIT 1
+              )
+            WHERE created_by_project_id IS NULL`,
+        ))
+      }
+      if (tableExists(db, 'bing_connections') && !columnExists(db, 'bing_connections', 'created_by_project_id')) {
+        db.run(sql.raw(
+          `ALTER TABLE bing_connections ADD COLUMN created_by_project_id TEXT REFERENCES projects(id) ON DELETE SET NULL`,
+        ))
+        db.run(sql.raw(`CREATE INDEX IF NOT EXISTS idx_bing_conn_project ON bing_connections(created_by_project_id)`))
+        db.run(sql.raw(
+          `UPDATE bing_connections
+              SET created_by_project_id = (
+                SELECT p.id FROM projects p
+                 WHERE LOWER(p.canonical_domain) = LOWER(bing_connections.domain)
+                 ORDER BY p.created_at ASC
+                 LIMIT 1
+              )
+            WHERE created_by_project_id IS NULL`,
+        ))
+      }
+    },
+  },
 ]
 
 /**

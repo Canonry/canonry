@@ -225,20 +225,25 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
     return reply.send(rows.map(formatRun))
   })
 
-  // GET /projects/:name/runs/latest — latest run plus total run count
+  // GET /projects/:name/runs/latest — latest run plus total run count.
+  // Excludes probe runs: this powers the dashboard headline, `canonry status`,
+  // `canonry export`, and the MCP `canonry_project_overview` tool, so a probe
+  // written after the most recent real sweep must not become the project's
+  // public state. Per-run detail endpoints (`GET /runs/:id`) still include
+  // probes for operator inspection.
   app.get<{ Params: { name: string } }>('/projects/:name/runs/latest', async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
     const countRow = app.db
       .select({ count: sql<number>`count(*)` })
       .from(runs)
-      .where(eq(runs.projectId, project.id))
+      .where(and(eq(runs.projectId, project.id), notProbeRun()))
       .get()
     const totalRuns = countRow?.count ?? 0
 
     const latestRun = app.db
       .select()
       .from(runs)
-      .where(eq(runs.projectId, project.id))
+      .where(and(eq(runs.projectId, project.id), notProbeRun()))
       .orderBy(desc(runs.createdAt), desc(runs.id))
       .limit(1)
       .get()

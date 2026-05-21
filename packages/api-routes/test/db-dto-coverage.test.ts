@@ -147,7 +147,9 @@ const COVERAGE: Record<string, CoverageEntry> = {
   googleConnections: {
     kind: 'dto',
     dto: googleConnectionDtoSchema,
-    internal: {},
+    internal: {
+      createdByProjectId: 'Ownership marker for cross-project takeover defense; enforced by the OAuth callback and DELETE route, not exposed on the public DTO.',
+    },
   },
   gscSearchData: {
     kind: 'dto',
@@ -181,7 +183,9 @@ const COVERAGE: Record<string, CoverageEntry> = {
   bingConnections: {
     kind: 'dto',
     dto: bingConnectionDtoSchema,
-    internal: {},
+    internal: {
+      createdByProjectId: 'Ownership marker for cross-project takeover defense; enforced by the connect / disconnect routes, not exposed on the public DTO.',
+    },
   },
   bingCoverageSnapshots: {
     kind: 'dto',

@@ -81,6 +81,13 @@ export interface BingConnectionRecord {
   domain: string
   apiKey: string
   siteUrl?: string | null
+  /**
+   * Project ID that first established this connection. `null`/`undefined` on
+   * legacy rows written before the column existed. The connect route refuses
+   * to overwrite a row whose owner doesn't match the requesting project, and
+   * the DELETE route refuses to remove one for the same reason.
+   */
+  createdByProjectId?: string | null
   createdAt: string
   updatedAt: string
 }
@@ -145,10 +152,21 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
 
     const now = new Date().toISOString()
     const existing = store.getConnection(project.canonicalDomain)
+
+    // Cross-project takeover defense: refuse to overwrite a connection owned
+    // by a different project. Legacy rows without an owner are claimable; the
+    // first connect to land on them sets the owner and locks future writes.
+    if (existing && existing.createdByProjectId && existing.createdByProjectId !== project.id) {
+      throw validationError(
+        `This domain already has a Bing connection owned by another project. Disconnect it from that project first before re-connecting from "${project.name}".`,
+      )
+    }
+
     store.upsertConnection({
       domain: project.canonicalDomain,
       apiKey,
       siteUrl: existing?.siteUrl ?? null,
+      createdByProjectId: existing?.createdByProjectId ?? project.id,
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
     })
@@ -174,6 +192,19 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
     const store = requireConnectionStore()
 
     const project = resolveProject(app.db, request.params.name)
+
+    // Cross-project takeover defense: only the owning project (or no-owner
+    // legacy rows) may disconnect.
+    const existing = store.getConnection(project.canonicalDomain)
+    if (!existing) {
+      throw notFound('Bing connection', project.canonicalDomain)
+    }
+    if (existing.createdByProjectId && existing.createdByProjectId !== project.id) {
+      throw validationError(
+        `This Bing connection is owned by a different project. Disconnect from the owning project instead.`,
+      )
+    }
+
     const deleted = store.deleteConnection(project.canonicalDomain)
     if (!deleted) {
       throw notFound('Bing connection', project.canonicalDomain)
