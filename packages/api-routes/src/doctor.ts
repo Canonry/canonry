@@ -4,6 +4,7 @@ import { runChecks } from './doctor/runner.js'
 import type { DoctorContext, TrafficSourceValidator } from './doctor/types.js'
 import type { GoogleConnectionStore } from './google.js'
 import type { BingConnectionStore } from './bing.js'
+import type { WordpressConnectionStore } from './wordpress.js'
 import type { Ga4CredentialStore } from './ga.js'
 import type { ProviderSummaryEntry } from './settings.js'
 import { resolveProject } from './helpers.js'
@@ -11,6 +12,7 @@ import { resolveProject } from './helpers.js'
 export interface DoctorRoutesOptions {
   googleConnectionStore?: GoogleConnectionStore
   bingConnectionStore?: BingConnectionStore
+  wordpressConnectionStore?: WordpressConnectionStore
   ga4CredentialStore?: Ga4CredentialStore
   getGoogleAuthConfig?: () => { clientId?: string; clientSecret?: string }
   /** Used to derive the redirect URI displayed by the redirect-uri check. */
@@ -53,6 +55,7 @@ export async function doctorRoutes(app: FastifyInstance, opts: DoctorRoutesOptio
       project: null,
       googleConnectionStore: opts.googleConnectionStore,
       bingConnectionStore: opts.bingConnectionStore,
+      wordpressConnectionStore: opts.wordpressConnectionStore,
       ga4CredentialStore: opts.ga4CredentialStore,
       getGoogleAuthConfig: opts.getGoogleAuthConfig,
       redirectUri,
@@ -80,6 +83,7 @@ export async function doctorRoutes(app: FastifyInstance, opts: DoctorRoutesOptio
       },
       googleConnectionStore: opts.googleConnectionStore,
       bingConnectionStore: opts.bingConnectionStore,
+      wordpressConnectionStore: opts.wordpressConnectionStore,
       ga4CredentialStore: opts.ga4CredentialStore,
       getGoogleAuthConfig: opts.getGoogleAuthConfig,
       redirectUri,

@@ -170,6 +170,7 @@ Each check returns `status: ok | warn | fail | skipped`, a stable machine-readab
 | auth | `google.auth.redirect-uri` | project | `publicUrl`-derived redirect URI is valid + advertised |
 | auth | `google.auth.scopes` | project | Granted GSC + Indexing scopes match what's stored |
 | auth | `ga.auth.connection` | project | GA4 service account verifies against the configured property |
+| auth | `wordpress.publish.connection` | project | WordPress publishing connection (`integration-wordpress`): the Application Password authenticates and the `wp/v2` REST API responds; skipped when no connection is configured |
 | auth | `traffic.source.credentials` | project | Per-source-type credential validation (Cloud Run service-account access token resolves; WordPress and Vercel probe-call their endpoints) |
 | auth | `traffic.source.scopes` | project | Per-source-type scope validation (skipped where the adapter has no explicit scope check — e.g. WordPress Application Passwords, Vercel API tokens) |
 | integrations | `traffic.source.connected` | project | At least one non-archived server-side traffic source exists for the project |
