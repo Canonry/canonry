@@ -5,11 +5,14 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 
 import { ConnectSourceDrawer } from '../src/components/server-traffic/ConnectSourceDrawer.js'
 
-const { navigateMock, connectVercelMock, backfillMock } = vi.hoisted(() => ({
-  navigateMock: vi.fn(),
-  connectVercelMock: vi.fn(),
-  backfillMock: vi.fn(),
-}))
+const { navigateMock, connectVercelMock, connectWordpressMock, connectCloudRunMock, backfillMock } =
+  vi.hoisted(() => ({
+    navigateMock: vi.fn(),
+    connectVercelMock: vi.fn(),
+    connectWordpressMock: vi.fn(),
+    connectCloudRunMock: vi.fn(),
+    backfillMock: vi.fn(),
+  }))
 
 vi.mock('@tanstack/react-router', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@tanstack/react-router')>()),
@@ -19,6 +22,8 @@ vi.mock('@tanstack/react-router', async (importOriginal) => ({
 vi.mock('../src/api.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../src/api.js')>()),
   connectServerTrafficVercel: connectVercelMock,
+  connectServerTrafficWordpress: connectWordpressMock,
+  connectServerTrafficCloudRun: connectCloudRunMock,
   triggerServerTrafficBackfill: backfillMock,
 }))
 
@@ -117,5 +122,66 @@ test('connecting a Vercel source closes the drawer and kicks off a backfill', as
     token: 'vcp_secret',
     environment: 'production',
     displayName: undefined,
+  })
+})
+
+test('connecting a WordPress source closes the drawer and kicks off a backfill', async () => {
+  connectWordpressMock.mockResolvedValue({ id: 'src_wp_1' })
+  backfillMock.mockResolvedValue({ sourceId: 'src_wp_1', runId: 'run_1', status: 'running' })
+
+  renderDrawer()
+
+  fireEvent.click(screen.getByText('WordPress site'))
+  expect(screen.getByText('Connect a WordPress site')).toBeTruthy()
+
+  fireEvent.change(screen.getByPlaceholderText('https://example.com'), {
+    target: { value: 'https://wp.example.com' },
+  })
+  fireEvent.change(screen.getByLabelText(/^username/i), { target: { value: 'bot' } })
+  fireEvent.change(screen.getByLabelText(/^application password/i), {
+    target: { value: 'abcd efgh ijkl' },
+  })
+
+  fireEvent.click(screen.getByRole('button', { name: 'Connect' }))
+
+  await waitFor(() => {
+    expect(backfillMock).toHaveBeenCalledWith('test-project', 'src_wp_1')
+  })
+  await waitFor(() => {
+    expect(screen.queryByText('Connect a WordPress site')).toBeNull()
+  })
+  expect(navigateMock).toHaveBeenCalledWith({
+    to: '/traffic/$projectName/$sourceId',
+    params: { projectName: 'test-project', sourceId: 'src_wp_1' },
+  })
+})
+
+test('connecting a Cloud Run source closes the drawer and kicks off a backfill', async () => {
+  connectCloudRunMock.mockResolvedValue({ id: 'src_cr_1' })
+  backfillMock.mockResolvedValue({ sourceId: 'src_cr_1', runId: 'run_1', status: 'running' })
+
+  renderDrawer()
+
+  fireEvent.click(screen.getByText('Google Cloud Run'))
+  expect(screen.getByText('Connect a Cloud Run service')).toBeTruthy()
+
+  fireEvent.change(screen.getByLabelText(/^GCP project ID/i), {
+    target: { value: 'my-prod-foo' },
+  })
+  fireEvent.change(screen.getByPlaceholderText(/service_account/i), {
+    target: { value: '{"type":"service_account"}' },
+  })
+
+  fireEvent.click(screen.getByRole('button', { name: 'Connect' }))
+
+  await waitFor(() => {
+    expect(backfillMock).toHaveBeenCalledWith('test-project', 'src_cr_1')
+  })
+  await waitFor(() => {
+    expect(screen.queryByText('Connect a Cloud Run service')).toBeNull()
+  })
+  expect(navigateMock).toHaveBeenCalledWith({
+    to: '/traffic/$projectName/$sourceId',
+    params: { projectName: 'test-project', sourceId: 'src_cr_1' },
   })
 })

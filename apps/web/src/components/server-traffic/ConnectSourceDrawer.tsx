@@ -172,6 +172,32 @@ function WizardHeader({
   )
 }
 
+/**
+ * After a source connects, hand off to its detail page: kick off a backfill
+ * so the source has historical data without a manual sync, close the drawer,
+ * and route to the source detail page where the backfill run is visible.
+ * Backfill, not an incremental sync, is the first-load primitive: a sync's
+ * default window can overrun an adapter's per-sync page budget.
+ */
+function useConnectedSourceHandoff(projectName: string, onClose: () => void) {
+  const navigate = useNavigate()
+  return async (sourceId: string) => {
+    // Best-effort: the source is already connected, so a kickoff failure
+    // still routes to the detail page, where the run state and any error
+    // are shown.
+    try {
+      await triggerServerTrafficBackfill(projectName, sourceId)
+    } catch {
+      // Detail page surfaces backfill run failures.
+    }
+    onClose()
+    void navigate({
+      to: '/traffic/$projectName/$sourceId',
+      params: { projectName, sourceId },
+    })
+  }
+}
+
 function WordpressSourceForm({
   projectName,
   onBack,
@@ -186,14 +212,13 @@ function WordpressSourceForm({
   const [applicationPassword, setApplicationPassword] = useState('')
   const [displayName, setDisplayName] = useState('')
   const [error, setError] = useState<string | null>(null)
-  const [success, setSuccess] = useState<string | null>(null)
 
   const connect = useConnectServerTrafficWordpress(projectName || null)
+  const handoff = useConnectedSourceHandoff(projectName, onClose)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError(null)
-    setSuccess(null)
     if (!baseUrl.trim()) {
       setError('WordPress site URL is required.')
       return
@@ -213,8 +238,9 @@ function WordpressSourceForm({
         applicationPassword: applicationPassword.trim(),
         displayName: displayName.trim() || undefined,
       })
+      // Don't keep the Application Password around in memory after submit.
       setApplicationPassword('')
-      setSuccess(`Connected ${result.displayName}.`)
+      await handoff(result.id)
     } catch (e) {
       const message = e instanceof ApiError ? e.message : e instanceof Error ? e.message : String(e)
       setError(message)
@@ -309,11 +335,6 @@ function WordpressSourceForm({
             {error}
           </p>
         ) : null}
-        {success ? (
-          <p className="rounded-md border border-emerald-800/50 bg-emerald-950/30 px-3 py-2 text-xs text-emerald-200">
-            {success}
-          </p>
-        ) : null}
 
         <div className="mt-2 flex items-center justify-end gap-2 border-t border-zinc-800/60 pt-4">
           <Button type="button" variant="ghost" size="sm" onClick={onClose}>
@@ -343,14 +364,13 @@ function CloudRunSourceForm({
   const [displayName, setDisplayName] = useState('')
   const [keyJson, setKeyJson] = useState('')
   const [error, setError] = useState<string | null>(null)
-  const [success, setSuccess] = useState<string | null>(null)
 
   const connect = useConnectServerTrafficCloudRun(projectName || null)
+  const handoff = useConnectedSourceHandoff(projectName, onClose)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError(null)
-    setSuccess(null)
     if (!gcpProjectId.trim()) {
       setError('GCP project ID is required.')
       return
@@ -369,7 +389,7 @@ function CloudRunSourceForm({
       })
       // Don't keep the private-key payload around in memory after submit.
       setKeyJson('')
-      setSuccess(`Connected ${result.displayName}.`)
+      await handoff(result.id)
     } catch (e) {
       const message = e instanceof ApiError ? e.message : e instanceof Error ? e.message : String(e)
       setError(message)
@@ -491,11 +511,6 @@ function CloudRunSourceForm({
             {error}
           </p>
         ) : null}
-        {success ? (
-          <p className="rounded-md border border-emerald-800/50 bg-emerald-950/30 px-3 py-2 text-xs text-emerald-200">
-            {success}
-          </p>
-        ) : null}
 
         <div className="mt-2 flex items-center justify-end gap-2 border-t border-zinc-800/60 pt-4">
           <Button type="button" variant="ghost" size="sm" onClick={onClose}>
@@ -526,8 +541,8 @@ function VercelSourceForm({
   const [displayName, setDisplayName] = useState('')
   const [error, setError] = useState<string | null>(null)
 
-  const navigate = useNavigate()
   const connect = useConnectServerTrafficVercel(projectName || null)
+  const handoff = useConnectedSourceHandoff(projectName, onClose)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -554,21 +569,7 @@ function VercelSourceForm({
       })
       // Don't keep the token around in memory after submit.
       setToken('')
-      // Auto-start a backfill so the new source has data without a manual
-      // sync. Backfill, not sync: a busy site's first 30-day pull overruns
-      // the Vercel per-sync page budget. Best-effort: the source is already
-      // connected, so a kickoff failure still routes to the detail page,
-      // where the backfill run state and any error are shown.
-      try {
-        await triggerServerTrafficBackfill(projectName, result.id)
-      } catch {
-        // Detail page surfaces backfill run failures.
-      }
-      onClose()
-      void navigate({
-        to: '/traffic/$projectName/$sourceId',
-        params: { projectName, sourceId: result.id },
-      })
+      await handoff(result.id)
     } catch (e) {
       const message = e instanceof ApiError ? e.message : e instanceof Error ? e.message : String(e)
       setError(message)
