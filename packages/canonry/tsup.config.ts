@@ -33,6 +33,11 @@ export default defineConfig({
     'pino-pretty',
     'zod',
     'pino',
+    // undici has internal `require('node:assert')` / dynamic requires that
+    // tsup's ESM bundler turns into the `Dynamic require of "assert" is not
+    // supported` error at runtime. Resolve it from node_modules at runtime
+    // — must stay in lockstep with the entry in `packages/canonry/package.json`.
+    'undici',
     // Opt-in plugin resolved at runtime via createRequire against ~/.canonry/plugins/
     '@duckdb/node-api',
   ],
