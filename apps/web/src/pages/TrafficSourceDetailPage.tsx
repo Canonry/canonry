@@ -8,7 +8,7 @@ import { Button } from '../components/ui/button.js'
 import { Card } from '../components/ui/card.js'
 import { ScoreGauge } from '../components/shared/ScoreGauge.js'
 import { ToneBadge } from '../components/shared/ToneBadge.js'
-import { ApiError } from '../api.js'
+import { extractErrorMessage } from '../lib/extract-error-message.js'
 import {
   Bar,
   BarChart,
@@ -264,8 +264,7 @@ export function TrafficSourceDetailPage() {
         `Pulled ${result.pulledEvents} entries · ${result.crawlerHits} crawler · ${result.aiReferralHits} AI referral · ${result.unknownHits} unknown`,
       )
     } catch (e) {
-      const message = e instanceof ApiError ? e.message : e instanceof Error ? e.message : String(e)
-      setSyncError(message)
+      setSyncError(extractErrorMessage(e))
     }
   }
 
