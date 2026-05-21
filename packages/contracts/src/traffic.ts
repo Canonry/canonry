@@ -115,7 +115,7 @@ export const VercelTrafficEnvironments = vercelTrafficEnvironmentSchema.enum
 export const vercelTrafficSourceConfigSchema = z.object({
   /** Vercel project id (e.g. `prj_...`). */
   projectId: z.string().min(1),
-  /** Vercel team / owner id (e.g. `team_...`). */
+  /** Vercel team or account id: the org that owns the project. */
   teamId: z.string().min(1),
   environment: vercelTrafficEnvironmentSchema,
 })
@@ -159,9 +159,9 @@ export type TrafficConnectWordpressRequest = z.infer<typeof trafficConnectWordpr
 export const trafficConnectVercelRequestSchema = z.object({
   /** Vercel project id (e.g. `prj_...`) — from the Vercel dashboard or `.vercel/project.json`. */
   projectId: z.string().min(1),
-  /** Vercel team / owner id (e.g. `team_...`). */
+  /** Vercel team or account id: the org that owns the project ("orgId" in .vercel/project.json). */
   teamId: z.string().min(1),
-  /** Vercel API token (personal access token). Stored in `~/.canonry/config.yaml`, never the DB. */
+  /** Vercel personal access token. Stored in `~/.canonry/config.yaml`, never the DB. */
   token: z.string().min(1),
   /** Which deployment environment's request logs to pull. Default: `production`. */
   environment: vercelTrafficEnvironmentSchema.optional(),
