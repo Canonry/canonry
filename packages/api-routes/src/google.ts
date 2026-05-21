@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 import { eq, and, desc, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { gscSearchData, gscUrlInspections, gscCoverageSnapshots, runs } from '@ainyc/canonry-db'
+import { gscSearchData, gscUrlInspections, gscCoverageSnapshots, runs, projects } from '@ainyc/canonry-db'
 import { validationError, notFound, normalizeProjectDomain, parseWindow, windowCutoff } from '@ainyc/canonry-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import {
@@ -27,6 +27,14 @@ export interface GoogleConnectionRecord {
   refreshToken?: string | null
   tokenExpiresAt?: string | null
   scopes?: string[]
+  /**
+   * Project ID that first established this connection. `null`/`undefined` on
+   * legacy rows written before the column existed — treated as "unowned" so
+   * the first new connect call can claim them. The OAuth callback refuses to
+   * overwrite a row whose owner doesn't match the requesting project, and the
+   * DELETE route refuses to remove one for the same reason.
+   */
+  createdByProjectId?: string | null
   createdAt: string
   updatedAt: string
 }
@@ -206,8 +214,21 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     }
 
     const scopes = type === 'gsc' ? [GSC_SCOPE, INDEXING_SCOPE] : [GA4_SCOPE]
+    // Bind the OAuth state to the *initiating project* (by id and name) in
+    // addition to the domain. The callback re-validates all three so an
+    // attacker can't (a) initiate OAuth from a different project name with a
+    // forged state — the HMAC catches that — or (b) cause the callback to
+    // attach the resulting tokens to a project they don't own. See the
+    // takeover-prevention comment in `handleOAuthCallback`.
     const stateEncoded = buildSignedState(
-      { domain: project.canonicalDomain, type, propertyId, redirectUri },
+      {
+        projectId: project.id,
+        projectName: project.name,
+        domain: project.canonicalDomain,
+        type,
+        propertyId,
+        redirectUri,
+      },
       stateSecret,
     )
 
@@ -260,11 +281,48 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
       return reply.status(400).send('Invalid or tampered state parameter')
     }
 
-    const { domain, type, propertyId, redirectUri } = stateData as {
+    const { domain, type, propertyId, redirectUri, projectId, projectName } = stateData as {
       domain: string
       type: string
       propertyId?: string
       redirectUri: string
+      projectId?: string
+      projectName?: string
+    }
+
+    // Signed states minted before `projectId` was added to the payload carry
+    // no owner binding. Accepting one here would skip the ownership-mismatch
+    // check below (the `projectId &&` clause short-circuits) and let the
+    // upsert overwrite the existing project's `accessToken`/`refreshToken`
+    // with whatever the OAuth `code` exchanged for. Since signed states
+    // have no TTL, a captured pre-upgrade state would otherwise stay
+    // replayable. Reject and force a fresh `/google/connect`.
+    if (!projectId) {
+      return reply.status(400).send('Stale OAuth state — restart the connect flow.')
+    }
+
+    // Re-resolve the initiating project at callback time and refuse the
+    // attach if the project has been deleted or renamed-against-canonical
+    // since the OAuth flow started. This blocks the most direct takeover
+    // path — `PUT /projects/<attacker> { canonicalDomain: victim.com }` →
+    // start OAuth → callback writes tokens under "victim.com" — by requiring
+    // that the project ID in the signed state still maps to a project that
+    // owns this canonical domain at attach time.
+    const project = app.db
+      .select()
+      .from(projects)
+      .where(eq(projects.id, projectId))
+      .get()
+    if (!project) {
+      return reply.status(400).send('Project no longer exists. Restart the connect flow.')
+    }
+    if (project.canonicalDomain.toLowerCase() !== domain.toLowerCase()) {
+      return reply
+        .status(400)
+        .send(
+          `Project "${projectName ?? project.name}" canonical domain changed since this OAuth flow started. ` +
+            `Expected "${domain}", got "${project.canonicalDomain}". Restart the connect flow.`,
+        )
     }
 
     let tokens
@@ -288,6 +346,20 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     const now = new Date().toISOString()
     const expiresAt = new Date(Date.now() + tokens.expires_in * 1000).toISOString()
     const existing = store.getConnection(domain, type as 'gsc' | 'ga4')
+
+    // Refuse to overwrite a connection owned by a different project. Legacy
+    // rows without an owner (NULL `createdByProjectId`) are claimable; the
+    // first connect to land on them sets the owner and locks future writes.
+    if (existing && existing.createdByProjectId && existing.createdByProjectId !== projectId) {
+      return reply
+        .status(403)
+        .send(
+          `This domain already has a Google ${String(type).toUpperCase()} connection owned by another project. ` +
+            `Disconnect it from that project first (DELETE /api/v1/projects/<owner>/google/connections/${escapeHtml(String(type))}) ` +
+            `before re-connecting from "${escapeHtml(projectName ?? '')}".`,
+        )
+    }
+
     store.upsertConnection({
       domain,
       connectionType: type as 'gsc' | 'ga4',
@@ -296,6 +368,9 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
       refreshToken: tokens.refresh_token ?? existing?.refreshToken ?? null,
       tokenExpiresAt: expiresAt,
       scopes: tokens.scope?.split(' ') ?? [],
+      // Stamp ownership on first write; subsequent same-project re-connects
+      // preserve it.
+      createdByProjectId: existing?.createdByProjectId ?? projectId,
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
     })
@@ -338,9 +413,25 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     const store = requireConnectionStore()
 
     const project = resolveProject(app.db, request.params.name)
-    const deleted = store.deleteConnection(project.canonicalDomain, request.params.type as 'gsc' | 'ga4')
+    const type = request.params.type as 'gsc' | 'ga4'
+
+    // Cross-project takeover defense: only the owning project (or no-owner
+    // legacy rows) may disconnect. Without this, an attacker who created a
+    // rogue project with the victim's canonical_domain could wipe the
+    // legitimate connection and re-OAuth into the freed slot.
+    const existing = store.getConnection(project.canonicalDomain, type)
+    if (!existing) {
+      throw notFound('Google connection', type)
+    }
+    if (existing.createdByProjectId && existing.createdByProjectId !== project.id) {
+      throw validationError(
+        `This Google ${type.toUpperCase()} connection is owned by a different project. Disconnect from the owning project instead.`,
+      )
+    }
+
+    const deleted = store.deleteConnection(project.canonicalDomain, type)
     if (!deleted) {
-      throw notFound('Google connection', request.params.type)
+      throw notFound('Google connection', type)
     }
 
     writeAuditLog(app.db, {
@@ -348,7 +439,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
       actor: 'api',
       action: 'google.disconnected',
       entityType: 'google_connection',
-      entityId: request.params.type,
+      entityId: type,
     })
 
     return reply.status(204).send()

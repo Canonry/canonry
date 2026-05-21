@@ -186,10 +186,19 @@ export const googleConnections = sqliteTable('google_connections', {
   propertyId: text('property_id'),
   sitemapUrl: text('sitemap_url'),
   scopes: text('scopes', { mode: 'json' }).$type<string[]>().notNull().default([]),
+  // The project that established this connection. Used by the OAuth callback
+  // and the DELETE route to refuse cross-project takeover (a malicious caller
+  // who points another project at the same `canonicalDomain` cannot overwrite
+  // or remove an existing connection owned by the original project). Nullable
+  // for legacy rows written before the column existed — those are treated as
+  // unowned and the first connect call to claim them succeeds. See root
+  // AGENTS.md "Deployment Posture" for the broader multi-tenancy posture.
+  createdByProjectId: text('created_by_project_id').references(() => projects.id, { onDelete: 'set null' }),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 }, (table) => [
   uniqueIndex('idx_google_conn_domain_type').on(table.domain, table.connectionType),
+  index('idx_google_conn_project').on(table.createdByProjectId),
 ])
 
 export const gscSearchData = sqliteTable('gsc_search_data', {
@@ -267,10 +276,16 @@ export const bingConnections = sqliteTable('bing_connections', {
   id: text('id').primaryKey(),
   domain: text('domain').notNull(),
   siteUrl: text('site_url'),
+  // Same takeover-prevention column as `google_connections.createdByProjectId`.
+  // The Bing connect / disconnect routes refuse cross-project writes when an
+  // existing row's owner doesn't match. Null for legacy rows (treated as
+  // unowned).
+  createdByProjectId: text('created_by_project_id').references(() => projects.id, { onDelete: 'set null' }),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 }, (table) => [
   uniqueIndex('idx_bing_conn_domain').on(table.domain),
+  index('idx_bing_conn_project').on(table.createdByProjectId),
 ])
 
 export const bingUrlInspections = sqliteTable('bing_url_inspections', {

@@ -34,6 +34,14 @@ export interface GoogleConnectionConfigEntry {
   refreshToken?: string | null
   tokenExpiresAt?: string | null
   scopes?: string[]
+  /**
+   * Project ID that first established this connection. Mirrors the
+   * `google_connections.created_by_project_id` DB column — written when the
+   * OAuth callback completes from a known project. Null/undefined for legacy
+   * connections written before the column existed; the API treats those as
+   * unowned (claimable by any project's next connect).
+   */
+  createdByProjectId?: string | null
   createdAt: string
   updatedAt: string
 }
@@ -48,6 +56,11 @@ export interface BingConnectionConfigEntry {
   domain: string
   apiKey: string
   siteUrl?: string | null
+  /**
+   * Project ID that first established this connection. Mirrors the
+   * `bing_connections.created_by_project_id` DB column.
+   */
+  createdByProjectId?: string | null
   createdAt: string
   updatedAt: string
 }

@@ -63,6 +63,14 @@ export interface ListWordpressTrafficEventsOptions {
   maxPages?: number
   timeoutMs?: number
   /**
+   * Optional undici `Dispatcher` (typed as `unknown` to avoid an undici dep
+   * on this package — the caller imports `undici` and constructs one). Used
+   * to pin DNS to a pre-validated IP so the fetch can't be rebound to a
+   * private / metadata address between SSRF validation and request time.
+   * Forwarded verbatim to `fetch(url, { dispatcher })`; ignored when undefined.
+   */
+  dispatcher?: unknown
+  /**
    * Optional INCLUSIVE lower bound on `observed_at` — ISO 8601. When set,
    * the plugin returns only events with `observed_at >= since`. Used by the
    * backfill route to scope a historical pull to a specific window.

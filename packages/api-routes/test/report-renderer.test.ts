@@ -448,6 +448,102 @@ describe('renderReportHtml', () => {
     expect(html).toContain('"name":"rich"')
   })
 
+  test('serves a strict Content-Security-Policy meta tag', () => {
+    // The downloadable HTML is opened from `file://` by operators (and
+    // increasingly shared with clients), so a click-XSS via a smuggled
+    // `javascript:` href would bypass cookies and beacon data out. The
+    // CSP defends in depth: `script-src 'none'` blocks any executable
+    // script even if a link slipped past `safeHref`, `connect-src 'none'`
+    // blocks all egress, `frame-ancestors 'none'` blocks clickjacking.
+    const html = renderReportHtml(emptyReport())
+    expect(html).toMatch(/<meta http-equiv="Content-Security-Policy"/)
+    expect(html).toContain("default-src 'none'")
+    expect(html).toContain("script-src 'none'")
+    expect(html).toContain("connect-src 'none'")
+    expect(html).toContain("frame-ancestors 'none'")
+    // Inline `<style>` block has to be allowed.
+    expect(html).toContain("style-src 'unsafe-inline'")
+    // The CSP must NOT allow `'unsafe-eval'` or `'unsafe-inline'` for scripts.
+    expect(html).not.toContain("script-src 'unsafe-inline'")
+    expect(html).not.toContain("script-src 'unsafe-eval'")
+  })
+
+  test('competitor cited-page links reject javascript:/data: URIs (safeHref)', () => {
+    // Citations come from LLM grounding — an attacker who can plant URIs in
+    // a cited page (or in the LLM's output) must not be able to smuggle a
+    // `javascript:` or `data:` URL into an operator-facing anchor.
+    const report = richReport()
+    report.competitorLandscape.competitors = [
+      {
+        domain: 'evil.example',
+        citationCount: 1,
+        totalCount: 4,
+        pressureLabel: 'High',
+        citedQueries: ['x'],
+        sharePct: 25,
+        theirCitedPages: [
+          { url: 'javascript:alert(1)', citedFor: ['x'] },
+          { url: 'data:text/html,<script>alert(2)</script>', citedFor: ['x'] },
+          { url: 'https://benign.example/post', citedFor: ['x'] },
+        ],
+      },
+    ]
+    const html = renderReportHtml(report, { audience: 'agency' })
+    // No anchor should carry an executable scheme.
+    expect(html).not.toMatch(/href="javascript:/i)
+    expect(html).not.toMatch(/href="data:/i)
+    // The benign URL still renders as an anchor; the bad ones collapse to "#".
+    expect(html).toContain('href="https://benign.example/post"')
+    // Visible text retains the bad URL so the operator sees what was attempted,
+    // but the href is neutered.
+    expect(html).toContain('javascript:alert(1)')
+    expect(html).toContain('href="#"')
+  })
+
+  test('winning competitor link rejects javascript:/data: URIs (safeHref)', () => {
+    const report = richReport()
+    report.contentOpportunities = [
+      {
+        targetRef: 'evil:create:x',
+        query: 'x',
+        action: 'create',
+        ourBestPage: null,
+        winningCompetitor: {
+          domain: 'rival.com',
+          url: 'javascript:alert(1)',
+          title: 'evil',
+          citationCount: 1,
+        },
+        score: 50,
+        scoreBreakdown: { demand: 0.5, competitor: 0.5, absence: 0.5, gapSeverity: 0.5 },
+        drivers: [],
+        demandSource: 'competitor-evidence',
+        actionConfidence: 'medium',
+        existingAction: null,
+      },
+    ]
+    const html = renderReportHtml(report, { audience: 'agency' })
+    expect(html).not.toMatch(/href="javascript:/i)
+  })
+
+  test('citation/opportunity anchors carry rel="noopener noreferrer" and target="_blank"', () => {
+    // Tabnabbing + Referer leakage protection. Without these attributes a
+    // hosted version of the report (operator shares with a client) lets
+    // any clicked link rewrite the opener tab.
+    const report = richReport()
+    report.competitorLandscape.competitors = [{
+      domain: 'rival.com',
+      citationCount: 1,
+      totalCount: 4,
+      pressureLabel: 'High',
+      citedQueries: ['x'],
+      sharePct: 25,
+      theirCitedPages: [{ url: 'https://rival.com/post', citedFor: ['x'] }],
+    }]
+    const html = renderReportHtml(report, { audience: 'agency' })
+    expect(html).toMatch(/<a href="https:\/\/rival\.com\/post"[^>]*target="_blank"[^>]*rel="noopener noreferrer"/)
+  })
+
   test('renders a section anchor for every report section', () => {
     const html = renderReportHtml(richReport())
     const expectedSections = [

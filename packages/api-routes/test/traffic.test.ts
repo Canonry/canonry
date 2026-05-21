@@ -431,6 +431,34 @@ describe('POST /traffic/connect/wordpress', () => {
     expect(res.statusCode).toBe(400)
   })
 
+  it('rejects baseUrl that resolves to a private / metadata address (SSRF guard)', async () => {
+    // The probe attaches Basic-auth credentials, so an API-key holder could
+    // otherwise coerce the server into reaching its own metadata service or
+    // sidecar admin endpoints. The SSRF helper rejects RFC1918, link-local
+    // (including 169.254.169.254), and loopback by default.
+    const blocked = [
+      'http://169.254.169.254/wp-json/',        // AWS / GCP metadata
+      'http://10.0.0.5/wp-json/',               // RFC1918
+      'http://192.168.1.1/wp-json/',            // RFC1918
+      'http://127.0.0.1/wp-json/',              // loopback
+      'http://[::1]/wp-json/',                  // IPv6 loopback
+    ]
+    for (const baseUrl of blocked) {
+      const res = await h.app.inject({
+        method: 'POST',
+        url: '/api/v1/projects/test-project/traffic/connect/wordpress',
+        payload: { ...validBody, baseUrl },
+      })
+      expect(res.statusCode, `expected ${baseUrl} to be blocked`).toBe(400)
+      const err = JSON.parse(res.payload)
+      expect(err.error?.code).toBe('VALIDATION_ERROR')
+      expect(err.error?.message).toMatch(/WordPress baseUrl rejected/i)
+    }
+    // The SSRF guard must run BEFORE pullWordpressEvents — no probe should have
+    // happened for any of the blocked targets.
+    expect(h.getWpProbeInvocations().length).toBe(0)
+  })
+
   it('rejects requests with empty applicationPassword', async () => {
     const res = await h.app.inject({
       method: 'POST',

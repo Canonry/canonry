@@ -644,6 +644,108 @@ describe('Bing routes', () => {
     }
   })
 
+  it('refuses bing/connect when a connection for the same domain is owned by another project (takeover defense)', async () => {
+    // Seed an existing connection owned by `test-project`. Then create a
+    // rogue project pointed at the same canonical_domain and attempt to
+    // connect from it — the route must refuse rather than overwrite the
+    // legitimate refresh credentials.
+    connections.set('example.com', {
+      domain: 'example.com',
+      apiKey: 'legit-key',
+      siteUrl: 'https://example.com/',
+      createdByProjectId: projectId,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    })
+
+    const rogueId = crypto.randomUUID()
+    const now = new Date().toISOString()
+    db.insert(projects).values({
+      id: rogueId,
+      name: 'rogue-project',
+      displayName: 'Rogue',
+      canonicalDomain: 'example.com',
+      ownedDomains: [],
+      country: 'US',
+      language: 'en',
+      tags: [],
+      labels: {},
+      providers: [],
+      locations: [],
+      defaultLocation: null,
+      configSource: 'cli',
+      configRevision: 1,
+      createdAt: now,
+      updatedAt: now,
+    }).run()
+
+    try {
+      const bingModule = await import('@ainyc/canonry-integration-bing')
+      vi.spyOn(bingModule, 'getSites').mockResolvedValue([])
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/projects/rogue-project/bing/connect',
+        payload: { apiKey: 'attacker-key' },
+      })
+      expect(res.statusCode).toBe(400)
+      // Test harness uses just `bingRoutes` (no apiRoutes global handler), so
+      // Fastify renders AppError via its default formatter. The message ride
+      // unmolested either way — that's what we assert.
+      expect(res.payload).toMatch(/owned by another project/)
+      // Legitimate connection unchanged.
+      expect(connections.get('example.com')!.apiKey).toBe('legit-key')
+      expect(connections.get('example.com')!.createdByProjectId).toBe(projectId)
+    } finally {
+      db.delete(projects).where(eq(projects.id, rogueId)).run()
+    }
+  })
+
+  it('refuses bing/disconnect when the connection is owned by another project (takeover defense)', async () => {
+    connections.set('example.com', {
+      domain: 'example.com',
+      apiKey: 'legit-key',
+      siteUrl: 'https://example.com/',
+      createdByProjectId: projectId,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    })
+
+    const rogueId = crypto.randomUUID()
+    const now = new Date().toISOString()
+    db.insert(projects).values({
+      id: rogueId,
+      name: 'rogue-disconnect',
+      displayName: 'Rogue',
+      canonicalDomain: 'example.com',
+      ownedDomains: [],
+      country: 'US',
+      language: 'en',
+      tags: [],
+      labels: {},
+      providers: [],
+      locations: [],
+      defaultLocation: null,
+      configSource: 'cli',
+      configRevision: 1,
+      createdAt: now,
+      updatedAt: now,
+    }).run()
+
+    try {
+      const res = await app.inject({
+        method: 'DELETE',
+        url: '/projects/rogue-disconnect/bing/disconnect',
+      })
+      expect(res.statusCode).toBe(400)
+      expect(res.payload).toMatch(/owned by a different project/)
+      // Connection NOT deleted.
+      expect(connections.has('example.com')).toBe(true)
+    } finally {
+      db.delete(projects).where(eq(projects.id, rogueId)).run()
+    }
+  })
+
   it('coverage-history respects limit parameter', async () => {
     const now = new Date().toISOString()
     db.insert(bingCoverageSnapshots).values([

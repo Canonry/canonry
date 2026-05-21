@@ -6,6 +6,7 @@ import { brandKeyFromText, brandLabelFromDomain, CitationStates, effectiveDomain
 
 import { InfoTooltip } from '../shared/InfoTooltip.js'
 import { highlightTermsInText, type HighlightTermGroup } from '../../lib/highlight.js'
+import { safeExternalUrl } from '../../lib/safe-url.js'
 import { fetchRunDetail, type GroundingSource } from '../../api.js'
 import type { CitationInsightVm, ProjectCommandCenterVm } from '../../view-models.js'
 
@@ -661,13 +662,21 @@ export function EvidenceDetailModal({
                             <InfoTooltip text="Links the model used as grounding or supporting context while producing the answer. These are not the same thing as answer visibility." />
                           </div>
                           <ul className="grid gap-0.5">
-                            {display.groundingSources.map((src, i) => (
-                              <li key={i} className="truncate text-sm">
-                                <a href={src.uri} target="_blank" rel="noopener noreferrer" className="text-zinc-400 hover:text-zinc-200 transition-colors">
-                                  {src.title || src.uri}
-                                </a>
-                              </li>
-                            ))}
+                            {display.groundingSources.map((src, i) => {
+                              const href = safeExternalUrl(src.uri)
+                              const label = src.title || src.uri
+                              return (
+                                <li key={i} className="truncate text-sm">
+                                  {href ? (
+                                    <a href={href} target="_blank" rel="noopener noreferrer" className="text-zinc-400 hover:text-zinc-200 transition-colors">
+                                      {label}
+                                    </a>
+                                  ) : (
+                                    <span className="text-zinc-400">{label}</span>
+                                  )}
+                                </li>
+                              )
+                            })}
                           </ul>
                         </div>
                       )}
@@ -676,13 +685,20 @@ export function EvidenceDetailModal({
                         <div>
                           <p className="drawer-section-label">Evidence URLs</p>
                           <ul className="grid gap-1">
-                            {display.evidenceUrls.map((url) => (
-                              <li key={url} className="truncate text-sm">
-                                <a href={url} target="_blank" rel="noopener noreferrer" className="text-zinc-400 hover:text-zinc-200 transition-colors">
-                                  {url}
-                                </a>
-                              </li>
-                            ))}
+                            {display.evidenceUrls.map((url) => {
+                              const href = safeExternalUrl(url)
+                              return (
+                                <li key={url} className="truncate text-sm">
+                                  {href ? (
+                                    <a href={href} target="_blank" rel="noopener noreferrer" className="text-zinc-400 hover:text-zinc-200 transition-colors">
+                                      {url}
+                                    </a>
+                                  ) : (
+                                    <span className="text-zinc-400">{url}</span>
+                                  )}
+                                </li>
+                              )
+                            })}
                           </ul>
                         </div>
                       )}

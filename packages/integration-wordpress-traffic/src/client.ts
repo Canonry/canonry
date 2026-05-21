@@ -86,6 +86,10 @@ export async function listWordpressTrafficEvents(
   let skippedEntryCount = 0
   let hasMore = false
   const events: WordpressTrafficEventsPage['events'] = []
+  // Forwarded to fetch as the `dispatcher` option when supplied. Typed as
+  // `unknown` here so this package doesn't pull in undici types; the api-routes
+  // caller passes a real undici `Agent` with pinned DNS for SSRF protection.
+  const dispatcher = options.dispatcher
 
   for (let page = 0; page < maxPages; page += 1) {
     const url = new URL(endpoint)
@@ -108,7 +112,7 @@ export async function listWordpressTrafficEvents(
     // events. A fresh value per request forces a distinct cache key.
     url.searchParams.set('_cb', randomUUID())
 
-    const response = await fetch(url, {
+    const fetchInit: RequestInit & { dispatcher?: unknown } = {
       method: 'GET',
       headers: {
         Authorization: authHeader,
@@ -116,7 +120,11 @@ export async function listWordpressTrafficEvents(
         'Cache-Control': 'no-cache',
       },
       signal: AbortSignal.timeout(timeoutMs),
-    })
+    }
+    if (dispatcher !== undefined) {
+      fetchInit.dispatcher = dispatcher
+    }
+    const response = await fetch(url, fetchInit)
 
     if (!response.ok) {
       const body = await readErrorBody(response)

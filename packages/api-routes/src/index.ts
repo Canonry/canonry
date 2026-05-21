@@ -371,6 +371,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       vercelTrafficCredentialStore: opts.vercelTrafficCredentialStore,
       pullVercelTrafficEvents: opts.pullVercelTrafficEvents,
       onTrafficSynced: opts.onTrafficSynced,
+      allowLoopbackWebhooks: opts.allowLoopbackWebhooks,
     } satisfies TrafficRoutesOptions)
     // Always mount the backlinks routes so read endpoints (summary, domains,
     // history, sync list) work off the shared DB. Action routes (install,

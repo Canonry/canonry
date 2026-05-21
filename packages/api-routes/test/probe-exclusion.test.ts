@@ -176,6 +176,19 @@ describe('probe runs are excluded from dashboard / analytics aggregates', () => 
     expect(body.latestRun?.run?.id).toBe(ctx.realRunId)
   })
 
+  it('runs/latest returns the real run and totalRuns excludes the probe', async () => {
+    // The probe is intentionally newer than the real run, so an unfiltered
+    // ORDER BY created_at DESC + LIMIT 1 would surface the probe. This
+    // endpoint powers the dashboard headline, `canonry status`, `canonry
+    // export`, and the MCP `canonry_project_overview` tool — none of them
+    // should ever show a probe as the project's current state.
+    const { body } = await get<{ totalRuns: number; run: { id: string } | null }>(
+      `/api/v1/projects/probe-excl/runs/latest`,
+    )
+    expect(body.run?.id).toBe(ctx.realRunId)
+    expect(body.totalRuns).toBe(1)
+  })
+
   it('analytics/metrics overall rate reflects the real run only (probe excluded from totals)', async () => {
     const { body } = await get<{ overall: { citationRate: number; cited: number; total: number } }>(
       `/api/v1/projects/probe-excl/analytics/metrics`,

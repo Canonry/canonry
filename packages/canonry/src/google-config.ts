@@ -68,6 +68,7 @@ export function upsertGoogleConnection(
     refreshToken: connection.refreshToken ?? null,
     tokenExpiresAt: connection.tokenExpiresAt ?? null,
     scopes: connection.scopes ?? [],
+    createdByProjectId: connection.createdByProjectId ?? null,
   }
 
   if (index === -1) {

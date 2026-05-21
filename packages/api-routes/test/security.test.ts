@@ -93,6 +93,76 @@ test('bearer auth reaches protected routes and updates key usage', async () => {
   }
 })
 
+test('settings routes refuse keys that lack the settings.write scope', async () => {
+  // Provider key updates can replace the operator's OpenAI / Anthropic /
+  // Google / Bing credentials. Without scope gating, any bearer holder
+  // could swap them. The gate accepts wildcard `'*'` (the default `canonry
+  // init` key) and a future `settings.write` scope. A read-only key (any
+  // scope set that doesn't include either) is forbidden.
+  const { app, db, tmpDir } = buildApp({
+    googleSettingsSummary: { configured: false },
+    onGoogleSettingsUpdate: () => ({ configured: true }),
+  })
+
+  // Read-only key — explicit, narrow scope list.
+  const readOnlyRaw = `cnry_${crypto.randomBytes(16).toString('hex')}`
+  db.insert(apiKeys).values({
+    id: crypto.randomUUID(),
+    name: 'read-only',
+    keyHash: crypto.createHash('sha256').update(readOnlyRaw).digest('hex'),
+    keyPrefix: readOnlyRaw.slice(0, 9),
+    scopes: ['read'],
+    createdAt: new Date().toISOString(),
+  }).run()
+
+  // Admin key — wildcard. Mirrors what `canonry init` writes for the
+  // install's primary key.
+  const adminRaw = insertApiKey(db)
+
+  await app.ready()
+  try {
+    // Read-only key is forbidden.
+    const forbidden = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/settings/google',
+      headers: { authorization: `Bearer ${readOnlyRaw}` },
+      payload: { clientId: 'g', clientSecret: 's' },
+    })
+    expect(forbidden.statusCode).toBe(403)
+    expect(JSON.parse(forbidden.body).error.code).toBe('FORBIDDEN')
+
+    // Wildcard key works.
+    const allowed = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/settings/google',
+      headers: { authorization: `Bearer ${adminRaw}` },
+      payload: { clientId: 'g', clientSecret: 's' },
+    })
+    expect(allowed.statusCode).toBe(200)
+
+    // A key that explicitly carries 'settings.write' (no wildcard) works.
+    const scopedRaw = `cnry_${crypto.randomBytes(16).toString('hex')}`
+    db.insert(apiKeys).values({
+      id: crypto.randomUUID(),
+      name: 'settings-only',
+      keyHash: crypto.createHash('sha256').update(scopedRaw).digest('hex'),
+      keyPrefix: scopedRaw.slice(0, 9),
+      scopes: ['settings.write'],
+      createdAt: new Date().toISOString(),
+    }).run()
+    const scoped = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/settings/google',
+      headers: { authorization: `Bearer ${scopedRaw}` },
+      payload: { clientId: 'g', clientSecret: 's' },
+    })
+    expect(scoped.statusCode).toBe(200)
+  } finally {
+    await app.close()
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  }
+})
+
 test('notification APIs and history redact webhook secrets while keeping stored delivery config intact', async () => {
   const { app, db, tmpDir } = buildApp()
   const rawKey = insertApiKey(db)

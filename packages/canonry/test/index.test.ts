@@ -382,6 +382,79 @@ describe('canonry', () => {
         payload: { password: 'wrong-password' },
       })
       expect(badLoginRes.statusCode).toBe(401)
+
+      // Hash is stored in scrypt format (salted, slow KDF), not raw SHA-256
+      expect(config.dashboardPasswordHash).toMatch(/^scrypt\$1\$/)
+      // The on-disk format must NOT be a 64-char hex SHA-256 digest
+      expect(config.dashboardPasswordHash).not.toMatch(/^[a-f0-9]{64}$/)
+    } finally {
+      await app.close()
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  it('dashboard login transparently migrates a legacy unsalted SHA-256 password hash to scrypt', async () => {
+    // Simulate an install upgraded from a pre-scrypt build by pre-populating
+    // config.dashboardPasswordHash with the legacy SHA-256 hex format. The
+    // first successful login should accept it (so users aren't locked out)
+    // and rewrite the config with a fresh scrypt-format hash.
+    const tmpDir = path.join(os.tmpdir(), `canonry-pw-migration-${crypto.randomUUID()}`)
+    fs.mkdirSync(tmpDir, { recursive: true })
+    const dbPath = path.join(tmpDir, 'test.db')
+    const db = createClient(dbPath)
+    migrate(db)
+
+    const rawKey = `cnry_${crypto.randomBytes(16).toString('hex')}`
+    const keyHash = crypto.createHash('sha256').update(rawKey).digest('hex')
+    db.insert(apiKeys).values({
+      id: crypto.randomUUID(),
+      name: 'test',
+      keyHash,
+      keyPrefix: rawKey.slice(0, 9),
+      scopes: ['*'],
+      createdAt: new Date().toISOString(),
+    }).run()
+
+    const legacyPassword = 'legacy-password'
+    // Legacy storage: raw SHA-256 hex, no salt.
+    const legacyHash = crypto.createHash('sha256').update(legacyPassword).digest('hex')
+    const config = {
+      apiUrl: 'http://localhost:4100',
+      database: dbPath,
+      apiKey: rawKey,
+      geminiApiKey: 'test-key',
+      dashboardPasswordHash: legacyHash,
+    }
+    const app = await createServer({ config, db, logger: false })
+
+    try {
+      // Wrong password still rejected on legacy format.
+      const badLogin = await app.inject({
+        method: 'POST',
+        url: '/api/v1/session',
+        payload: { password: 'not-the-password' },
+      })
+      expect(badLogin.statusCode).toBe(401)
+      // Wrong attempt must not rewrite the stored hash.
+      expect(config.dashboardPasswordHash).toBe(legacyHash)
+
+      // Correct password is accepted AND triggers rehash.
+      const goodLogin = await app.inject({
+        method: 'POST',
+        url: '/api/v1/session',
+        payload: { password: legacyPassword },
+      })
+      expect(goodLogin.statusCode).toBe(200)
+      expect(config.dashboardPasswordHash).toMatch(/^scrypt\$1\$/)
+      expect(config.dashboardPasswordHash).not.toBe(legacyHash)
+
+      // Next login uses the fresh scrypt hash and still works.
+      const secondLogin = await app.inject({
+        method: 'POST',
+        url: '/api/v1/session',
+        payload: { password: legacyPassword },
+      })
+      expect(secondLogin.statusCode).toBe(200)
     } finally {
       await app.close()
       fs.rmSync(tmpDir, { recursive: true, force: true })

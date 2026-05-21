@@ -6,6 +6,8 @@ import { eq, and } from 'drizzle-orm'
 import { filterTrackedSnapshots, querySnapshots, runs, queries } from '@ainyc/canonry-db'
 import { CitationStates, notFound, notImplemented, validationError, type GroundingSource } from '@ainyc/canonry-contracts'
 import { resolveProject } from './helpers.js'
+import { requireScope } from './auth.js'
+import { SETTINGS_WRITE_SCOPE } from './settings.js'
 
 export interface CDPRoutesOptions {
   /** Callback to get CDP connection status */
@@ -68,6 +70,7 @@ export async function cdpRoutes(app: FastifyInstance, opts: CDPRoutesOptions) {
 
   // PUT /settings/cdp — configure the CDP endpoint (host + port)
   app.put<{ Body: { host: string; port?: number } }>('/settings/cdp', async (request, reply) => {
+    requireScope(request, SETTINGS_WRITE_SCOPE)
     if (!opts.onCdpConfigure) {
       const err = notImplemented('CDP configuration not supported in this deployment')
       return reply.code(err.statusCode).send(err.toJSON())

@@ -207,6 +207,25 @@ describe('googleRoutes: GET /projects/:name/google/callback', () => {
     expect(res.body).toMatch(/tampered|Invalid/)
   })
 
+  it('rejects callback with a correctly-signed legacy state that omits projectId', async () => {
+    // Pre-PR signed states had `{domain, type, propertyId, redirectUri}` and
+    // no project binding. Replaying one now would let the OAuth code be
+    // exchanged and the resulting tokens written onto whichever connection
+    // happens to share the domain — the ownership-mismatch check would be
+    // skipped because `projectId` is falsy. The callback rejects such states
+    // outright instead so the bypass is closed.
+    const legacyState = buildSignedState(
+      { domain: 'example.com', type: 'gsc', redirectUri: 'http://localhost/callback' },
+      'test-secret',
+    )
+    const res = await app.inject({
+      method: 'GET',
+      url: `/projects/my-project/google/callback?code=abc&state=${encodeURIComponent(legacyState)}`,
+    })
+    expect(res.statusCode).toBe(400)
+    expect(res.body).toMatch(/Stale OAuth state/i)
+  })
+
   it('returns error page when OAuth error is present', async () => {
     const res = await app.inject({
       method: 'GET',
