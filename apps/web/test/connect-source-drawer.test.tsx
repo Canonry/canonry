@@ -185,3 +185,42 @@ test('connecting a Cloud Run source closes the drawer and kicks off a backfill',
     params: { projectName: 'test-project', sourceId: 'src_cr_1' },
   })
 })
+
+test('a failed connect keeps the drawer open and surfaces the error', async () => {
+  connectVercelMock.mockRejectedValue(new Error('bad token'))
+
+  renderDrawer()
+
+  fireEvent.click(screen.getByText('Vercel project'))
+  fireEvent.change(screen.getByPlaceholderText(/prj_/i), { target: { value: 'prj_abc' } })
+  fireEvent.change(screen.getByLabelText(/team \/ account id/i), { target: { value: 'org_xyz' } })
+  fireEvent.change(screen.getByLabelText(/personal access token/i), { target: { value: 'vcp_secret' } })
+
+  fireEvent.click(screen.getByRole('button', { name: 'Connect' }))
+
+  // The error message surfaces in the form.
+  await waitFor(() => {
+    expect(screen.getByText('bad token')).toBeTruthy()
+  })
+  // The drawer stays open; no backfill or navigation happened.
+  expect(screen.getByText('Connect a Vercel project')).toBeTruthy()
+  expect(backfillMock).not.toHaveBeenCalled()
+  expect(navigateMock).not.toHaveBeenCalled()
+})
+
+test('a whitespace-only required field shows a validation error without connecting', async () => {
+  renderDrawer()
+
+  fireEvent.click(screen.getByText('Vercel project'))
+  // Whitespace passes the HTML `required` attribute but fails the trimmed check.
+  fireEvent.change(screen.getByPlaceholderText(/prj_/i), { target: { value: '   ' } })
+  fireEvent.change(screen.getByLabelText(/team \/ account id/i), { target: { value: 'org_xyz' } })
+  fireEvent.change(screen.getByLabelText(/personal access token/i), { target: { value: 'vcp_secret' } })
+
+  fireEvent.click(screen.getByRole('button', { name: 'Connect' }))
+
+  await waitFor(() => {
+    expect(screen.getByText('Vercel project ID is required.')).toBeTruthy()
+  })
+  expect(connectVercelMock).not.toHaveBeenCalled()
+})

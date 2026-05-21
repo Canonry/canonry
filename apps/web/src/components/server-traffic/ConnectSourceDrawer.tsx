@@ -2,13 +2,14 @@ import { useEffect, useState } from 'react'
 import { ArrowLeft, Cloud, Globe, Triangle } from 'lucide-react'
 import { useNavigate } from '@tanstack/react-router'
 
-import { ApiError, triggerServerTrafficBackfill } from '../../api.js'
+import { triggerServerTrafficBackfill } from '../../api.js'
 import {
   useConnectServerTrafficCloudRun,
   useConnectServerTrafficVercel,
   useConnectServerTrafficWordpress,
 } from '../../queries/server-traffic.js'
 import { asyncHandler } from '../../lib/async-handler.js'
+import { extractErrorMessage } from '../../lib/extract-error-message.js'
 import { Button } from '../ui/button.js'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '../ui/sheet.js'
 
@@ -198,6 +199,110 @@ function useConnectedSourceHandoff(projectName: string, onClose: () => void) {
   }
 }
 
+/**
+ * Connect-form flow shared by every source type: holds the validation error,
+ * gates on form-specific validation, fires the connect mutation, clears the
+ * secret field, and hands off to the new source's detail page. Each form
+ * supplies only the type-specific steps.
+ */
+function useConnectFlow(projectName: string, onClose: () => void) {
+  const [error, setError] = useState<string | null>(null)
+  const handoff = useConnectedSourceHandoff(projectName, onClose)
+
+  const runConnect = async (steps: {
+    /** Return a message when the form is invalid, or null when it is ready. */
+    validate: () => string | null
+    /** Fire the typed connect mutation and resolve with the created source. */
+    mutate: () => Promise<{ id: string }>
+    /** Runs once after a successful connect, e.g. to clear the secret field. */
+    onConnected?: () => void
+  }) => {
+    setError(null)
+    const validationMessage = steps.validate()
+    if (validationMessage) {
+      setError(validationMessage)
+      return
+    }
+    try {
+      const source = await steps.mutate()
+      steps.onConnected?.()
+      await handoff(source.id)
+    } catch (e) {
+      setError(extractErrorMessage(e))
+    }
+  }
+
+  return { error, runConnect }
+}
+
+/**
+ * Shared chrome for every connect form: the wizard header, the scrolling form
+ * body with the read-only project field, the validation-error banner, and the
+ * Close / Connect footer. Each form supplies its header copy and its
+ * type-specific fields as children.
+ */
+function ConnectSourceFormShell({
+  title,
+  description,
+  projectName,
+  onBack,
+  onClose,
+  onSubmit,
+  isPending,
+  error,
+  children,
+}: {
+  title: string
+  description: React.ReactNode
+  projectName: string
+  onBack: () => void
+  onClose: () => void
+  onSubmit: () => Promise<void>
+  isPending: boolean
+  error: string | null
+  children: React.ReactNode
+}) {
+  return (
+    <>
+      <WizardHeader title={title} description={description} onBack={onBack} />
+
+      <form
+        onSubmit={asyncHandler(async (e: React.FormEvent) => {
+          e.preventDefault()
+          await onSubmit()
+        })}
+        className="mt-6 flex flex-col gap-5 overflow-y-auto pr-1"
+      >
+        <Field label="Project" description="Canonry project this source attaches to.">
+          <input
+            type="text"
+            value={projectName}
+            disabled
+            className="w-full rounded border border-zinc-700 bg-zinc-900/50 px-2 py-1.5 text-sm text-zinc-300"
+          />
+        </Field>
+
+        {children}
+
+        {error ? (
+          <p className="rounded-md border border-rose-800/50 bg-rose-950/30 px-3 py-2 text-xs text-rose-200">
+            {error}
+          </p>
+        ) : null}
+
+        <div className="mt-2 flex items-center justify-end gap-2 border-t border-zinc-800/60 pt-4">
+          <Button type="button" variant="ghost" size="sm" onClick={onClose}>
+            Close
+          </Button>
+          <Button type="submit" disabled={isPending} size="sm">
+            {isPending ? 'Connecting…' : 'Connect'}
+          </Button>
+        </div>
+      </form>
+    </>
+  )
+}
+
 function WordpressSourceForm({
   projectName,
   onBack,
@@ -211,141 +316,105 @@ function WordpressSourceForm({
   const [username, setUsername] = useState('')
   const [applicationPassword, setApplicationPassword] = useState('')
   const [displayName, setDisplayName] = useState('')
-  const [error, setError] = useState<string | null>(null)
 
   const connect = useConnectServerTrafficWordpress(projectName || null)
-  const handoff = useConnectedSourceHandoff(projectName, onClose)
+  const { error, runConnect } = useConnectFlow(projectName, onClose)
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setError(null)
-    if (!baseUrl.trim()) {
-      setError('WordPress site URL is required.')
-      return
-    }
-    if (!username.trim()) {
-      setError('Username is required.')
-      return
-    }
-    if (!applicationPassword.trim()) {
-      setError('Application Password is required.')
-      return
-    }
-    try {
-      const result = await connect.mutateAsync({
-        baseUrl: baseUrl.trim(),
-        username: username.trim(),
-        applicationPassword: applicationPassword.trim(),
-        displayName: displayName.trim() || undefined,
-      })
+  const handleSubmit = () =>
+    runConnect({
+      validate: () => {
+        if (!baseUrl.trim()) return 'WordPress site URL is required.'
+        if (!username.trim()) return 'Username is required.'
+        if (!applicationPassword.trim()) return 'Application Password is required.'
+        return null
+      },
+      mutate: () =>
+        connect.mutateAsync({
+          baseUrl: baseUrl.trim(),
+          username: username.trim(),
+          applicationPassword: applicationPassword.trim(),
+          displayName: displayName.trim() || undefined,
+        }),
       // Don't keep the Application Password around in memory after submit.
-      setApplicationPassword('')
-      await handoff(result.id)
-    } catch (e) {
-      const message = e instanceof ApiError ? e.message : e instanceof Error ? e.message : String(e)
-      setError(message)
-    }
-  }
+      onConnected: () => setApplicationPassword(''),
+    })
 
   return (
-    <>
-      <WizardHeader
-        title="Connect a WordPress site"
-        description={
-          <>
-            Pulls request events from the Canonry Traffic Logger plugin. The Application Password is
-            stored in <code>~/.canonry/config.yaml</code> on the server and never echoed back to the
-            dashboard.
-          </>
-        }
-        onBack={onBack}
-      />
-
-      <form onSubmit={asyncHandler(handleSubmit)} className="mt-6 flex flex-col gap-5 overflow-y-auto pr-1">
-        <Field label="Project" description="Canonry project this source attaches to.">
-          <input
-            type="text"
-            value={projectName}
-            disabled
-            className="w-full rounded border border-zinc-700 bg-zinc-900/50 px-2 py-1.5 text-sm text-zinc-300"
-          />
-        </Field>
-
-        <Field
-          label="WordPress site URL"
-          description="Base URL of the site running the Canonry Traffic Logger plugin."
+    <ConnectSourceFormShell
+      title="Connect a WordPress site"
+      description={
+        <>
+          Pulls request events from the Canonry Traffic Logger plugin. The Application Password is
+          stored in <code>~/.canonry/config.yaml</code> on the server and never echoed back to the
+          dashboard.
+        </>
+      }
+      projectName={projectName}
+      onBack={onBack}
+      onClose={onClose}
+      onSubmit={handleSubmit}
+      isPending={connect.isPending}
+      error={error}
+    >
+      <Field
+        label="WordPress site URL"
+        description="Base URL of the site running the Canonry Traffic Logger plugin."
+        required
+      >
+        <input
+          type="url"
+          value={baseUrl}
+          onChange={(e) => setBaseUrl(e.target.value)}
           required
-        >
-          <input
-            type="url"
-            value={baseUrl}
-            onChange={(e) => setBaseUrl(e.target.value)}
-            required
-            autoComplete="url"
-            placeholder="https://example.com"
-            className="w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
-          />
-        </Field>
+          autoComplete="url"
+          placeholder="https://example.com"
+          className="w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+        />
+      </Field>
 
-        <Field
-          label="Username"
-          description="WordPress user that owns the Application Password."
+      <Field
+        label="Username"
+        description="WordPress user that owns the Application Password."
+        required
+      >
+        <input
+          type="text"
+          value={username}
+          onChange={(e) => setUsername(e.target.value)}
           required
-        >
-          <input
-            type="text"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            required
-            autoComplete="username"
-            className="w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
-          />
-        </Field>
+          autoComplete="username"
+          className="w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+        />
+      </Field>
 
-        <Field
-          label="Application Password"
-          description="Create one in wp-admin under Users -> Profile -> Application Passwords."
+      <Field
+        label="Application Password"
+        description="Create one in wp-admin under Users -> Profile -> Application Passwords."
+        required
+      >
+        <input
+          type="password"
+          value={applicationPassword}
+          onChange={(e) => setApplicationPassword(e.target.value)}
           required
-        >
-          <input
-            type="password"
-            value={applicationPassword}
-            onChange={(e) => setApplicationPassword(e.target.value)}
-            required
-            autoComplete="new-password"
-            className="w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
-          />
-        </Field>
+          autoComplete="new-password"
+          className="w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+        />
+      </Field>
 
-        <Field
-          label="Display name (optional)"
-          description="Friendly label shown in the dashboard. Defaults to the WordPress host."
-        >
-          <input
-            type="text"
-            value={displayName}
-            onChange={(e) => setDisplayName(e.target.value)}
-            autoComplete="off"
-            className="w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
-          />
-        </Field>
-
-        {error ? (
-          <p className="rounded-md border border-rose-800/50 bg-rose-950/30 px-3 py-2 text-xs text-rose-200">
-            {error}
-          </p>
-        ) : null}
-
-        <div className="mt-2 flex items-center justify-end gap-2 border-t border-zinc-800/60 pt-4">
-          <Button type="button" variant="ghost" size="sm" onClick={onClose}>
-            Close
-          </Button>
-          <Button type="submit" disabled={connect.isPending} size="sm">
-            {connect.isPending ? 'Connecting...' : 'Connect'}
-          </Button>
-        </div>
-      </form>
-    </>
+      <Field
+        label="Display name (optional)"
+        description="Friendly label shown in the dashboard. Defaults to the WordPress host."
+      >
+        <input
+          type="text"
+          value={displayName}
+          onChange={(e) => setDisplayName(e.target.value)}
+          autoComplete="off"
+          className="w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+        />
+      </Field>
+    </ConnectSourceFormShell>
   )
 }
 
@@ -363,38 +432,28 @@ function CloudRunSourceForm({
   const [location, setLocation] = useState('')
   const [displayName, setDisplayName] = useState('')
   const [keyJson, setKeyJson] = useState('')
-  const [error, setError] = useState<string | null>(null)
 
   const connect = useConnectServerTrafficCloudRun(projectName || null)
-  const handoff = useConnectedSourceHandoff(projectName, onClose)
+  const { error, runConnect } = useConnectFlow(projectName, onClose)
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setError(null)
-    if (!gcpProjectId.trim()) {
-      setError('GCP project ID is required.')
-      return
-    }
-    if (!keyJson.trim()) {
-      setError('Service-account JSON content is required.')
-      return
-    }
-    try {
-      const result = await connect.mutateAsync({
-        gcpProjectId: gcpProjectId.trim(),
-        serviceName: serviceName.trim() || undefined,
-        location: location.trim() || undefined,
-        displayName: displayName.trim() || undefined,
-        keyJson: keyJson.trim(),
-      })
+  const handleSubmit = () =>
+    runConnect({
+      validate: () => {
+        if (!gcpProjectId.trim()) return 'GCP project ID is required.'
+        if (!keyJson.trim()) return 'Service-account JSON content is required.'
+        return null
+      },
+      mutate: () =>
+        connect.mutateAsync({
+          gcpProjectId: gcpProjectId.trim(),
+          serviceName: serviceName.trim() || undefined,
+          location: location.trim() || undefined,
+          displayName: displayName.trim() || undefined,
+          keyJson: keyJson.trim(),
+        }),
       // Don't keep the private-key payload around in memory after submit.
-      setKeyJson('')
-      await handoff(result.id)
-    } catch (e) {
-      const message = e instanceof ApiError ? e.message : e instanceof Error ? e.message : String(e)
-      setError(message)
-    }
-  }
+      onConnected: () => setKeyJson(''),
+    })
 
   const handleFile = async (file: File | null) => {
     if (!file) return
@@ -403,125 +462,102 @@ function CloudRunSourceForm({
   }
 
   return (
-    <>
-      <WizardHeader
-        title="Connect a Cloud Run service"
-        description={
-          <>
-            v1 supports service-account JSON only. The private key is stored in{' '}
-            <code>~/.canonry/config.yaml</code> on the server and never echoed back to the
-            dashboard.
-          </>
-        }
-        onBack={onBack}
-      />
-
-      <form onSubmit={asyncHandler(handleSubmit)} className="mt-6 flex flex-col gap-5 overflow-y-auto pr-1">
-        <Field label="Project" description="Canonry project this source attaches to.">
-          <input
-            type="text"
-            value={projectName}
-            disabled
-            className="w-full rounded border border-zinc-700 bg-zinc-900/50 px-2 py-1.5 text-sm text-zinc-300"
-          />
-        </Field>
-
-        <Field
-          label="GCP project ID"
-          description="The Google Cloud project hosting the Cloud Run service (e.g. my-prod-foo)."
+    <ConnectSourceFormShell
+      title="Connect a Cloud Run service"
+      description={
+        <>
+          v1 supports service-account JSON only. The private key is stored in{' '}
+          <code>~/.canonry/config.yaml</code> on the server and never echoed back to the
+          dashboard.
+        </>
+      }
+      projectName={projectName}
+      onBack={onBack}
+      onClose={onClose}
+      onSubmit={handleSubmit}
+      isPending={connect.isPending}
+      error={error}
+    >
+      <Field
+        label="GCP project ID"
+        description="The Google Cloud project hosting the Cloud Run service (e.g. my-prod-foo)."
+        required
+      >
+        <input
+          type="text"
+          value={gcpProjectId}
+          onChange={(e) => setGcpProjectId(e.target.value)}
           required
-        >
-          <input
-            type="text"
-            value={gcpProjectId}
-            onChange={(e) => setGcpProjectId(e.target.value)}
-            required
-            autoComplete="off"
-            className="w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
-          />
-        </Field>
+          autoComplete="off"
+          className="w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+        />
+      </Field>
 
-        <Field
-          label="Service name (optional)"
-          description="Restrict log pulls to a specific Cloud Run service. Omit to pull all services in the project."
-        >
-          <input
-            type="text"
-            value={serviceName}
-            onChange={(e) => setServiceName(e.target.value)}
-            autoComplete="off"
-            className="w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
-          />
-        </Field>
+      <Field
+        label="Service name (optional)"
+        description="Restrict log pulls to a specific Cloud Run service. Omit to pull all services in the project."
+      >
+        <input
+          type="text"
+          value={serviceName}
+          onChange={(e) => setServiceName(e.target.value)}
+          autoComplete="off"
+          className="w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+        />
+      </Field>
 
-        <Field
-          label="Location (optional)"
-          description="Region of the Cloud Run service (e.g. us-central1). Helpful when multiple regions emit logs."
-        >
-          <input
-            type="text"
-            value={location}
-            onChange={(e) => setLocation(e.target.value)}
-            autoComplete="off"
-            className="w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
-          />
-        </Field>
+      <Field
+        label="Location (optional)"
+        description="Region of the Cloud Run service (e.g. us-central1). Helpful when multiple regions emit logs."
+      >
+        <input
+          type="text"
+          value={location}
+          onChange={(e) => setLocation(e.target.value)}
+          autoComplete="off"
+          className="w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+        />
+      </Field>
 
-        <Field
-          label="Display name (optional)"
-          description="Friendly label shown in the dashboard. Defaults to the project + service combo."
-        >
-          <input
-            type="text"
-            value={displayName}
-            onChange={(e) => setDisplayName(e.target.value)}
-            autoComplete="off"
-            className="w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
-          />
-        </Field>
+      <Field
+        label="Display name (optional)"
+        description="Friendly label shown in the dashboard. Defaults to the project + service combo."
+      >
+        <input
+          type="text"
+          value={displayName}
+          onChange={(e) => setDisplayName(e.target.value)}
+          autoComplete="off"
+          className="w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+        />
+      </Field>
 
-        <Field
-          label="Service-account JSON"
-          description="Paste the contents of the SA key (JSON). The SA needs roles/logging.viewer (or any role granting logging.logEntries.list)."
+      <Field
+        label="Service-account JSON"
+        description="Paste the contents of the SA key (JSON). The SA needs roles/logging.viewer (or any role granting logging.logEntries.list)."
+        required
+      >
+        <textarea
+          value={keyJson}
+          onChange={(e) => setKeyJson(e.target.value)}
+          rows={6}
+          spellCheck={false}
+          autoComplete="off"
+          className="w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 font-mono text-[11px] text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+          placeholder='{"type":"service_account","project_id":"…","private_key":"…"}'
           required
-        >
-          <textarea
-            value={keyJson}
-            onChange={(e) => setKeyJson(e.target.value)}
-            rows={6}
-            spellCheck={false}
-            autoComplete="off"
-            className="w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 font-mono text-[11px] text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
-            placeholder='{"type":"service_account","project_id":"…","private_key":"…"}'
-            required
+        />
+        <label className="mt-2 inline-flex cursor-pointer items-center gap-2 text-xs text-zinc-400 hover:text-zinc-200">
+          <input
+            type="file"
+            accept="application/json,.json"
+            className="hidden"
+            onChange={(e) => void handleFile(e.target.files?.[0] ?? null)}
           />
-          <label className="mt-2 inline-flex cursor-pointer items-center gap-2 text-xs text-zinc-400 hover:text-zinc-200">
-            <input
-              type="file"
-              accept="application/json,.json"
-              className="hidden"
-              onChange={(e) => void handleFile(e.target.files?.[0] ?? null)}
-            />
-            <span className="rounded-md border border-zinc-800 px-2 py-1">Or upload a key file</span>
-          </label>
-        </Field>
-
-        {error ? (
-          <p className="rounded-md border border-rose-800/50 bg-rose-950/30 px-3 py-2 text-xs text-rose-200">
-            {error}
-          </p>
-        ) : null}
-
-        <div className="mt-2 flex items-center justify-end gap-2 border-t border-zinc-800/60 pt-4">
-          <Button type="button" variant="ghost" size="sm" onClick={onClose}>
-            Close
-          </Button>
-          <Button type="submit" disabled={connect.isPending} size="sm">
-            {connect.isPending ? 'Connecting…' : 'Connect'}
-          </Button>
-        </div>
-      </form>
-    </>
+          <span className="rounded-md border border-zinc-800 px-2 py-1">Or upload a key file</span>
+        </label>
+      </Field>
+    </ConnectSourceFormShell>
   )
 }
 
@@ -539,156 +575,120 @@ function VercelSourceForm({
   const [token, setToken] = useState('')
   const [environment, setEnvironment] = useState<'production' | 'preview'>('production')
   const [displayName, setDisplayName] = useState('')
-  const [error, setError] = useState<string | null>(null)
 
   const connect = useConnectServerTrafficVercel(projectName || null)
-  const handoff = useConnectedSourceHandoff(projectName, onClose)
+  const { error, runConnect } = useConnectFlow(projectName, onClose)
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setError(null)
-    if (!projectId.trim()) {
-      setError('Vercel project ID is required.')
-      return
-    }
-    if (!teamId.trim()) {
-      setError('Vercel team / account ID is required.')
-      return
-    }
-    if (!token.trim()) {
-      setError('Vercel personal access token is required.')
-      return
-    }
-    try {
-      const result = await connect.mutateAsync({
-        projectId: projectId.trim(),
-        teamId: teamId.trim(),
-        token: token.trim(),
-        environment,
-        displayName: displayName.trim() || undefined,
-      })
+  const handleSubmit = () =>
+    runConnect({
+      validate: () => {
+        if (!projectId.trim()) return 'Vercel project ID is required.'
+        if (!teamId.trim()) return 'Vercel team / account ID is required.'
+        if (!token.trim()) return 'Vercel personal access token is required.'
+        return null
+      },
+      mutate: () =>
+        connect.mutateAsync({
+          projectId: projectId.trim(),
+          teamId: teamId.trim(),
+          token: token.trim(),
+          environment,
+          displayName: displayName.trim() || undefined,
+        }),
       // Don't keep the token around in memory after submit.
-      setToken('')
-      await handoff(result.id)
-    } catch (e) {
-      const message = e instanceof ApiError ? e.message : e instanceof Error ? e.message : String(e)
-      setError(message)
-    }
-  }
+      onConnected: () => setToken(''),
+    })
 
   return (
-    <>
-      <WizardHeader
-        title="Connect a Vercel project"
-        description={
-          <>
-            Pulls request logs straight from Vercel, no in-app instrumentation needed. The personal
-            access token is stored in <code>~/.canonry/config.yaml</code> on the server and never
-            echoed back to the dashboard.
-          </>
-        }
-        onBack={onBack}
-      />
-
-      <form onSubmit={asyncHandler(handleSubmit)} className="mt-6 flex flex-col gap-5 overflow-y-auto pr-1">
-        <Field label="Project" description="Canonry project this source attaches to.">
-          <input
-            type="text"
-            value={projectName}
-            disabled
-            className="w-full rounded border border-zinc-700 bg-zinc-900/50 px-2 py-1.5 text-sm text-zinc-300"
-          />
-        </Field>
-
-        <Field
-          label="Vercel project ID"
-          description="The prj_… id from the Vercel dashboard or .vercel/project.json."
+    <ConnectSourceFormShell
+      title="Connect a Vercel project"
+      description={
+        <>
+          Pulls request logs straight from Vercel, no in-app instrumentation needed. The personal
+          access token is stored in <code>~/.canonry/config.yaml</code> on the server and never
+          echoed back to the dashboard.
+        </>
+      }
+      projectName={projectName}
+      onBack={onBack}
+      onClose={onClose}
+      onSubmit={handleSubmit}
+      isPending={connect.isPending}
+      error={error}
+    >
+      <Field
+        label="Vercel project ID"
+        description="The prj_… id from the Vercel dashboard or .vercel/project.json."
+        required
+      >
+        <input
+          type="text"
+          value={projectId}
+          onChange={(e) => setProjectId(e.target.value)}
           required
-        >
-          <input
-            type="text"
-            value={projectId}
-            onChange={(e) => setProjectId(e.target.value)}
-            required
-            autoComplete="off"
-            placeholder="prj_…"
-            className="w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
-          />
-        </Field>
+          autoComplete="off"
+          placeholder="prj_…"
+          className="w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+        />
+      </Field>
 
-        <Field
-          label="Vercel team / account ID"
-          description="The Vercel team or personal account that owns the project. Find it as orgId in your .vercel/project.json."
+      <Field
+        label="Vercel team / account ID"
+        description="The Vercel team or personal account that owns the project. Find it as orgId in your .vercel/project.json."
+        required
+      >
+        <input
+          type="text"
+          value={teamId}
+          onChange={(e) => setTeamId(e.target.value)}
           required
-        >
-          <input
-            type="text"
-            value={teamId}
-            onChange={(e) => setTeamId(e.target.value)}
-            required
-            autoComplete="off"
-            className="w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
-          />
-        </Field>
+          autoComplete="off"
+          className="w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+        />
+      </Field>
 
-        <Field
-          label="Personal access token"
-          description="Create a Vercel personal access token under Account Settings → Tokens. Tokens can expire, so use a long-lived one."
+      <Field
+        label="Personal access token"
+        description="Create a Vercel personal access token under Account Settings → Tokens. Tokens can expire, so use a long-lived one."
+        required
+      >
+        <input
+          type="password"
+          value={token}
+          onChange={(e) => setToken(e.target.value)}
           required
+          autoComplete="new-password"
+          className="w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+        />
+      </Field>
+
+      <Field
+        label="Environment"
+        description="Which deployment environment's request logs to pull."
+      >
+        <select
+          value={environment}
+          onChange={(e) => setEnvironment(e.target.value as 'production' | 'preview')}
+          className="w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 focus:border-zinc-500 focus:outline-none"
         >
-          <input
-            type="password"
-            value={token}
-            onChange={(e) => setToken(e.target.value)}
-            required
-            autoComplete="new-password"
-            className="w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
-          />
-        </Field>
+          <option value="production">production</option>
+          <option value="preview">preview</option>
+        </select>
+      </Field>
 
-        <Field
-          label="Environment"
-          description="Which deployment environment's request logs to pull."
-        >
-          <select
-            value={environment}
-            onChange={(e) => setEnvironment(e.target.value as 'production' | 'preview')}
-            className="w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 focus:border-zinc-500 focus:outline-none"
-          >
-            <option value="production">production</option>
-            <option value="preview">preview</option>
-          </select>
-        </Field>
-
-        <Field
-          label="Display name (optional)"
-          description="Friendly label shown in the dashboard. Defaults to the Vercel project ID."
-        >
-          <input
-            type="text"
-            value={displayName}
-            onChange={(e) => setDisplayName(e.target.value)}
-            autoComplete="off"
-            className="w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
-          />
-        </Field>
-
-        {error ? (
-          <p className="rounded-md border border-rose-800/50 bg-rose-950/30 px-3 py-2 text-xs text-rose-200">
-            {error}
-          </p>
-        ) : null}
-
-        <div className="mt-2 flex items-center justify-end gap-2 border-t border-zinc-800/60 pt-4">
-          <Button type="button" variant="ghost" size="sm" onClick={onClose}>
-            Close
-          </Button>
-          <Button type="submit" disabled={connect.isPending} size="sm">
-            {connect.isPending ? 'Connecting…' : 'Connect'}
-          </Button>
-        </div>
-      </form>
-    </>
+      <Field
+        label="Display name (optional)"
+        description="Friendly label shown in the dashboard. Defaults to the Vercel project ID."
+      >
+        <input
+          type="text"
+          value={displayName}
+          onChange={(e) => setDisplayName(e.target.value)}
+          autoComplete="off"
+          className="w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+        />
+      </Field>
+    </ConnectSourceFormShell>
   )
 }
 
