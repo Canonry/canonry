@@ -169,9 +169,9 @@ export async function trafficConnectCloudRun(project: string, opts: {
 export async function trafficConnectVercel(project: string, opts: {
   projectId: string
   teamId: string
-  /** Inline Vercel API token value. Mutually exclusive with `tokenFile`. */
+  /** Inline Vercel personal access token value. Mutually exclusive with `tokenFile`. */
   token?: string
-  /** Path to a file containing the Vercel API token. Preferred — keeps the secret out of shell history. */
+  /** Path to a file containing the Vercel personal access token. Preferred: keeps the secret out of shell history. */
   tokenFile?: string
   environment?: string
   displayName?: string
@@ -189,7 +189,7 @@ export async function trafficConnectVercel(project: string, opts: {
     throw new CliError({
       code: 'TRAFFIC_VERCEL_TEAM_ID_REQUIRED',
       message: '--team-id is required',
-      displayMessage: 'Error: --team-id is required (the Vercel team / owner id, e.g. team_...)',
+      displayMessage: 'Error: --team-id is required (the Vercel team or personal account that owns the project)',
       details: { project },
     })
   }
@@ -220,7 +220,7 @@ export async function trafficConnectVercel(project: string, opts: {
     throw new CliError({
       code: 'TRAFFIC_VERCEL_TOKEN_REQUIRED',
       message: '--token or --token-file is required',
-      displayMessage: 'Error: pass --token <token> or --token-file <path>',
+      displayMessage: 'Error: pass the Vercel personal access token via --token <token> or --token-file <path>',
       details: { project },
     })
   }

@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { ArrowLeft, Cloud, Globe, Triangle } from 'lucide-react'
+import { useNavigate } from '@tanstack/react-router'
 
-import { ApiError } from '../../api.js'
+import { ApiError, triggerServerTrafficBackfill } from '../../api.js'
 import {
   useConnectServerTrafficCloudRun,
   useConnectServerTrafficVercel,
@@ -105,7 +106,7 @@ const SOURCE_TYPES: Array<{
     name: 'Vercel project',
     tagline: 'For sites hosted on Vercel',
     description:
-      'Connect a Vercel API token so Canonry can pull request logs straight from Vercel — no in-app instrumentation needed.',
+      'Connect a Vercel personal access token so Canonry can pull request logs straight from Vercel, no in-app instrumentation needed.',
     icon: Triangle,
   },
 ]
@@ -524,24 +525,23 @@ function VercelSourceForm({
   const [environment, setEnvironment] = useState<'production' | 'preview'>('production')
   const [displayName, setDisplayName] = useState('')
   const [error, setError] = useState<string | null>(null)
-  const [success, setSuccess] = useState<string | null>(null)
 
+  const navigate = useNavigate()
   const connect = useConnectServerTrafficVercel(projectName || null)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError(null)
-    setSuccess(null)
     if (!projectId.trim()) {
       setError('Vercel project ID is required.')
       return
     }
     if (!teamId.trim()) {
-      setError('Vercel team ID is required.')
+      setError('Vercel team / account ID is required.')
       return
     }
     if (!token.trim()) {
-      setError('Vercel API token is required.')
+      setError('Vercel personal access token is required.')
       return
     }
     try {
@@ -552,9 +552,23 @@ function VercelSourceForm({
         environment,
         displayName: displayName.trim() || undefined,
       })
-      // Don't keep the API token around in memory after submit.
+      // Don't keep the token around in memory after submit.
       setToken('')
-      setSuccess(`Connected ${result.displayName}.`)
+      // Auto-start a backfill so the new source has data without a manual
+      // sync. Backfill, not sync: a busy site's first 30-day pull overruns
+      // the Vercel per-sync page budget. Best-effort: the source is already
+      // connected, so a kickoff failure still routes to the detail page,
+      // where the backfill run state and any error are shown.
+      try {
+        await triggerServerTrafficBackfill(projectName, result.id)
+      } catch {
+        // Detail page surfaces backfill run failures.
+      }
+      onClose()
+      void navigate({
+        to: '/traffic/$projectName/$sourceId',
+        params: { projectName, sourceId: result.id },
+      })
     } catch (e) {
       const message = e instanceof ApiError ? e.message : e instanceof Error ? e.message : String(e)
       setError(message)
@@ -567,9 +581,9 @@ function VercelSourceForm({
         title="Connect a Vercel project"
         description={
           <>
-            Pulls request logs straight from Vercel — no in-app instrumentation needed. The API
-            token is stored in <code>~/.canonry/config.yaml</code> on the server and never echoed
-            back to the dashboard.
+            Pulls request logs straight from Vercel, no in-app instrumentation needed. The personal
+            access token is stored in <code>~/.canonry/config.yaml</code> on the server and never
+            echoed back to the dashboard.
           </>
         }
         onBack={onBack}
@@ -602,8 +616,8 @@ function VercelSourceForm({
         </Field>
 
         <Field
-          label="Vercel team ID"
-          description="The team_… (or owner) id the project belongs to."
+          label="Vercel team / account ID"
+          description="The Vercel team or personal account that owns the project. Find it as orgId in your .vercel/project.json."
           required
         >
           <input
@@ -612,14 +626,13 @@ function VercelSourceForm({
             onChange={(e) => setTeamId(e.target.value)}
             required
             autoComplete="off"
-            placeholder="team_…"
             className="w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
           />
         </Field>
 
         <Field
-          label="API token"
-          description="Create one in Vercel under Account Settings → Tokens. Tokens can expire — use a long-lived token."
+          label="Personal access token"
+          description="Create a Vercel personal access token under Account Settings → Tokens. Tokens can expire, so use a long-lived one."
           required
         >
           <input
@@ -662,11 +675,6 @@ function VercelSourceForm({
         {error ? (
           <p className="rounded-md border border-rose-800/50 bg-rose-950/30 px-3 py-2 text-xs text-rose-200">
             {error}
-          </p>
-        ) : null}
-        {success ? (
-          <p className="rounded-md border border-emerald-800/50 bg-emerald-950/30 px-3 py-2 text-xs text-emerald-200">
-            {success}
           </p>
         ) : null}
 
