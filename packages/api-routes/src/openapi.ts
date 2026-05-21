@@ -3091,7 +3091,7 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/traffic/connect/vercel',
     summary: 'Connect a Vercel traffic source',
     description:
-      'Probes Vercel\'s internal `request-logs` endpoint with the supplied API token (single page, 60-minute window) before persisting. On success, stores the token in `~/.canonry/config.yaml` and creates / updates the project\'s active Vercel `traffic_sources` row. A probe failure (bad token, wrong project / team id, unreachable host) surfaces as 502 with the upstream status in the message so the caller learns about it up front instead of at the first sync. The project id, team id, and environment are stored as non-secret config on the row; only the API token lives in the credential file.',
+      'Probes Vercel\'s internal `request-logs` endpoint with the supplied personal access token (single page, 60-minute window) before persisting. On success, stores the token in `~/.canonry/config.yaml` and creates / updates the project\'s active Vercel `traffic_sources` row. A probe failure (bad token, wrong project / team id, unreachable host) surfaces as 502 with the upstream status in the message so the caller learns about it up front instead of at the first sync. The project id, team id, and environment are stored as non-secret config on the row; only the personal access token lives in the credential file.',
     tags: ['traffic'],
     parameters: [nameParameter],
     requestBody: {
@@ -3103,8 +3103,8 @@ const routeCatalog: OpenApiOperation[] = [
             required: ['projectId', 'teamId', 'token'],
             properties: {
               projectId: { ...stringSchema, description: 'Vercel project id (e.g. `prj_...`) — from the Vercel dashboard or `.vercel/project.json`.' },
-              teamId: { ...stringSchema, description: 'Vercel team / owner id (e.g. `team_...`).' },
-              token: { ...stringSchema, description: 'Vercel API token (personal access token). Stored in `~/.canonry/config.yaml`, never the DB or response.' },
+              teamId: { ...stringSchema, description: 'Vercel team or account id: the org that owns the project (`orgId` in `.vercel/project.json`).' },
+              token: { ...stringSchema, description: 'Vercel personal access token. Stored in `~/.canonry/config.yaml`, never the DB or response.' },
               environment: { type: 'string', enum: ['production', 'preview'], description: 'Which deployment environment\'s request logs to pull. Default: `production`.' },
               displayName: stringSchema,
             },
@@ -3155,7 +3155,7 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/traffic/sources/{id}/backfill',
     summary: 'Reclassify historical traffic-source logs',
     description:
-      'Async one-shot backfill: pulls the last `days` of events (clamped server-side to the upstream retention ceiling — 30d for Cloud Logging `_Default`; the WordPress plugin honours the same window via `since`/`until` query params), classifies them with the current rules, and replaces the hourly rollup buckets + sample slice in the window inside one transaction. Returns immediately with `{ runId, status: "running" }`; poll `GET /runs/{id}` for completion. lastSyncedAt only advances forward, so a backfill never undoes incremental sync progress that ran ahead of it. Supported source types: `cloud-run`, `wordpress`.',
+      'Async one-shot backfill: pulls the last `days` of events (clamped server-side to the upstream retention ceiling — 30d for Cloud Logging `_Default`; the WordPress plugin honours the same window via `since`/`until` query params), classifies them with the current rules, and replaces the hourly rollup buckets + sample slice in the window inside one transaction. Returns immediately with `{ runId, status: "running" }`; poll `GET /runs/{id}` for completion. lastSyncedAt only advances forward, so a backfill never undoes incremental sync progress that ran ahead of it. Supported source types: `cloud-run`, `wordpress`, `vercel`.',
     tags: ['traffic'],
     parameters: [
       nameParameter,

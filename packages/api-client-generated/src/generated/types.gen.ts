@@ -7327,11 +7327,11 @@ export type PostApiV1ProjectsByNameTrafficConnectVercelData = {
          */
         projectId: string;
         /**
-         * Vercel team / owner id (e.g. `team_...`).
+         * Vercel team or account id: the org that owns the project (`orgId` in `.vercel/project.json`).
          */
         teamId: string;
         /**
-         * Vercel API token (personal access token). Stored in `~/.canonry/config.yaml`, never the DB or response.
+         * Vercel personal access token. Stored in `~/.canonry/config.yaml`, never the DB or response.
          */
         token: string;
         /**

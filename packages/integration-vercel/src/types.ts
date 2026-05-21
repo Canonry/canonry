@@ -45,11 +45,11 @@ export interface VercelRequestLogsResponseBody {
 }
 
 export interface ListVercelTrafficEventsOptions {
-  /** Vercel API token (personal access token). Supplied per call — never stored in this package. */
+  /** Vercel personal access token. Supplied per call, never stored in this package. */
   token: string
   /** Vercel project id (`prj_...`). */
   projectId: string
-  /** Vercel team / owner id (`team_...`). */
+  /** Vercel team or account id: the org that owns the project. */
   teamId: string
   /** Deployment environment to pull. Defaults to `production`. */
   environment?: VercelTrafficEnvironment

@@ -175,22 +175,21 @@ function WizardHeader({
 
 /**
  * After a source connects, hand off to its detail page: kick off a backfill
- * so the source has historical data without a manual sync, close the drawer,
- * and route to the source detail page where the backfill run is visible.
+ * so the source has historical data without a manual sync, then close the
+ * drawer and route to the source detail page where the run is visible.
  * Backfill, not an incremental sync, is the first-load primitive: a sync's
  * default window can overrun an adapter's per-sync page budget.
+ *
+ * Rejects if the backfill kickoff fails. A failed kickoff creates no run
+ * row, so the caller keeps the drawer open and shows the error instead of
+ * routing to a detail page with nothing on it. `afterBackfillStarted` runs
+ * only once the kickoff has succeeded.
  */
 function useConnectedSourceHandoff(projectName: string, onClose: () => void) {
   const navigate = useNavigate()
-  return async (sourceId: string) => {
-    // Best-effort: the source is already connected, so a kickoff failure
-    // still routes to the detail page, where the run state and any error
-    // are shown.
-    try {
-      await triggerServerTrafficBackfill(projectName, sourceId)
-    } catch {
-      // Detail page surfaces backfill run failures.
-    }
+  return async (sourceId: string, afterBackfillStarted?: () => void) => {
+    await triggerServerTrafficBackfill(projectName, sourceId)
+    afterBackfillStarted?.()
     onClose()
     void navigate({
       to: '/traffic/$projectName/$sourceId',
@@ -200,10 +199,10 @@ function useConnectedSourceHandoff(projectName: string, onClose: () => void) {
 }
 
 /**
- * Connect-form flow shared by every source type: holds the validation error,
- * gates on form-specific validation, fires the connect mutation, clears the
- * secret field, and hands off to the new source's detail page. Each form
- * supplies only the type-specific steps.
+ * Connect-form flow shared by every source type: holds the form error,
+ * gates on form-specific validation, fires the connect mutation, and hands
+ * off to the new source's detail page. Each form supplies only the
+ * type-specific steps.
  */
 function useConnectFlow(projectName: string, onClose: () => void) {
   const [error, setError] = useState<string | null>(null)
@@ -214,7 +213,7 @@ function useConnectFlow(projectName: string, onClose: () => void) {
     validate: () => string | null
     /** Fire the typed connect mutation and resolve with the created source. */
     mutate: () => Promise<{ id: string }>
-    /** Runs once after a successful connect, e.g. to clear the secret field. */
+    /** Runs once connect and the backfill kickoff both succeed, e.g. to clear the secret field. */
     onConnected?: () => void
   }) => {
     setError(null)
@@ -223,12 +222,23 @@ function useConnectFlow(projectName: string, onClose: () => void) {
       setError(validationMessage)
       return
     }
+
+    let source: { id: string }
     try {
-      const source = await steps.mutate()
-      steps.onConnected?.()
-      await handoff(source.id)
+      source = await steps.mutate()
     } catch (e) {
       setError(extractErrorMessage(e))
+      return
+    }
+
+    // The source row exists now. Kick off the backfill and route to its
+    // detail page. A backfill kickoff failure (bad credentials, 5xx,
+    // network) creates no run row, so keep the drawer open and surface the
+    // error rather than routing to a detail page with nothing to show.
+    try {
+      await handoff(source.id, steps.onConnected)
+    } catch (e) {
+      setError(`Source connected, but starting the initial backfill failed: ${extractErrorMessage(e)}`)
     }
   }
 
