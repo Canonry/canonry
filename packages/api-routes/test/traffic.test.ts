@@ -791,21 +791,26 @@ describe('POST /traffic/sources/:id/sync — Vercel', () => {
     }
   })
 
-  it('fails loudly without advancing lastSyncedAt when the window overflows the page budget (hasMore=true)', async () => {
-    const baseTime = new Date(Date.now() - 60 * 60_000)
-    baseTime.setMinutes(0, 0, 0)
-    // The adapter reports hasMore=true — the window has more pages than the
-    // per-sync budget could drain. The sync must refuse to advance the cursor.
+  it('drains a window that overflows the per-sub-window page budget via sub-windows', async () => {
+    // The first (full-window) pull reports hasMore=true; the drain halves the
+    // span and the narrower slices drain cleanly, so the sync succeeds
+    // instead of failing wholesale.
+    const observedAt = new Date(Date.now() - 2 * 86_400_000).toISOString()
+    let pullCount = 0
     const h = await buildHarness([], {
       vercelPullPages: ({ maxPages }) => {
         if (maxPages === 1) {
           return { events: [], rawEntryCount: 0, skippedEntryCount: 0, hasMore: false, endpoint: '' }
         }
+        pullCount += 1
+        if (pullCount === 1) {
+          return { events: [], rawEntryCount: 0, skippedEntryCount: 0, hasMore: true, endpoint: '' }
+        }
         return {
-          events: [buildVercelEvent({ eventId: 'vercel:overflow:1', userAgent: 'GPTBot/1.0', path: '/x', observedAt: baseTime.toISOString() })],
+          events: [buildVercelEvent({ eventId: `vercel:sub:${pullCount}`, userAgent: 'GPTBot/1.0', path: '/x', observedAt })],
           rawEntryCount: 1,
           skippedEntryCount: 0,
-          hasMore: true,
+          hasMore: false,
           endpoint: '',
         }
       },
@@ -818,28 +823,19 @@ describe('POST /traffic/sources/:id/sync — Vercel', () => {
         url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`,
         payload: {},
       })
-      // providerError → 502; the message must point the operator at the fix.
-      expect(syncRes.statusCode).toBe(502)
-      expect(JSON.parse(syncRes.payload).error.message).toMatch(/page budget/)
-      expect(JSON.parse(syncRes.payload).error.message).toMatch(/--since-minutes/)
+      expect(syncRes.statusCode).toBe(200)
+      // The drain made more than one sub-window pull to cover the window.
+      expect(pullCount).toBeGreaterThan(1)
 
-      // The cursor must NOT advance — a partially-drained window means the
-      // next sync (or a narrower one) still has to cover it.
+      // The cursor advanced and the sub-window events rolled up.
       const sourceRow = h.db.select().from(trafficSources).where(eq(trafficSources.id, sourceId)).get()!
-      expect(sourceRow.lastSyncedAt).toBeNull()
-      expect(sourceRow.status).toBe(TrafficSourceStatuses.error)
-      expect(sourceRow.lastError).toMatch(/page budget/)
+      expect(sourceRow.lastSyncedAt).not.toBeNull()
+      expect(sourceRow.status).toBe(TrafficSourceStatuses.connected)
+      expect(h.db.select().from(crawlerEventsHourly).all().length).toBeGreaterThan(0)
 
-      // Run finalized as failed; no rollup rows were written.
       const runRows = h.db.select().from(runs).all()
       expect(runRows.length).toBe(1)
-      expect(runRows[0].status).toBe(RunStatuses.failed)
-      expect(h.db.select().from(crawlerEventsHourly).all().length).toBe(0)
-
-      // Telemetry hook saw a failed sync with the PROVIDER_PULL error code.
-      const synced = h.getTrafficSyncedEvents() as Array<{ status: string; errorCode?: string }>
-      expect(synced.at(-1)?.status).toBe('failed')
-      expect(synced.at(-1)?.errorCode).toBe('PROVIDER_PULL')
+      expect(runRows[0].status).toBe(RunStatuses.completed)
     } finally {
       await h.close()
     }
@@ -948,11 +944,11 @@ describe('POST /traffic/sources/:id/backfill — Vercel', () => {
       expect(finalRun.trigger).toBe('backfill')
       expect(finalRun.kind).toBe(RunKinds['traffic-sync'])
 
-      // The backfill pull walked the requested window with the large
-      // backfill page budget — not the probe's maxPages=1.
+      // The backfill drains the requested window with the per-sub-window
+      // page budget, not the probe's maxPages=1.
       const backfillCalls = observedWindows.filter((c) => c.maxPages !== 1)
       expect(backfillCalls.length).toBeGreaterThanOrEqual(1)
-      expect(backfillCalls[0]!.maxPages).toBe(1000)
+      expect(backfillCalls[0]!.maxPages).toBe(50)
       expect(backfillCalls[0]!.startDate).toBe(new Date(submitted.windowStart).getTime())
       expect(backfillCalls[0]!.endDate).toBe(new Date(submitted.windowEnd).getTime())
 
@@ -971,23 +967,25 @@ describe('POST /traffic/sources/:id/backfill — Vercel', () => {
     }
   })
 
-  it('fails the backfill run when the window overflows the page budget (hasMore=true)', async () => {
-    const baseTime = new Date(Date.now() - 60 * 60_000)
-    baseTime.setMinutes(0, 0, 0)
-    // The adapter reports hasMore=true — the window has more pages than the
-    // backfill budget could drain. Backfill is replace mode, so a truncated
-    // pull would delete the window's existing rollups and leave only a
-    // partial set; the run must fail instead of completing.
+  it('drains a backfill window that overflows the per-sub-window budget via sub-windows', async () => {
+    // The first (full-window) pull reports hasMore=true; the drain halves the
+    // span so the backfill completes instead of failing wholesale.
+    const observedAt = new Date(Date.now() - 2 * 86_400_000).toISOString()
+    let pullCount = 0
     const h = await buildHarness([], {
       vercelPullPages: ({ maxPages }) => {
         if (maxPages === 1) {
           return { events: [], rawEntryCount: 0, skippedEntryCount: 0, hasMore: false, endpoint: '' }
         }
+        pullCount += 1
+        if (pullCount === 1) {
+          return { events: [], rawEntryCount: 0, skippedEntryCount: 0, hasMore: true, endpoint: '' }
+        }
         return {
-          events: [buildVercelEvent({ eventId: 'vercel:bf:overflow:1', userAgent: 'GPTBot/1.0', path: '/x', observedAt: baseTime.toISOString() })],
+          events: [buildVercelEvent({ eventId: `vercel:bf:${pullCount}`, userAgent: 'GPTBot/1.0', path: '/x', observedAt })],
           rawEntryCount: 1,
           skippedEntryCount: 0,
-          hasMore: true,
+          hasMore: false,
           endpoint: '',
         }
       },
@@ -1004,16 +1002,9 @@ describe('POST /traffic/sources/:id/backfill — Vercel', () => {
       const submitted = JSON.parse(submitRes.payload)
 
       const finalRun = await waitForRunComplete(h.db, submitted.runId)
-      expect(finalRun.status).toBe(RunStatuses.failed)
-      expect(finalRun.error).toMatch(/page budget/)
-      expect(finalRun.error).toMatch(/--days/)
-
-      // Replace mode never ran — no rollup rows were written, and the
-      // source row carries the error.
-      expect(h.db.select().from(crawlerEventsHourly).all().length).toBe(0)
-      const sourceRow = h.db.select().from(trafficSources).where(eq(trafficSources.id, sourceId)).get()!
-      expect(sourceRow.status).toBe(TrafficSourceStatuses.error)
-      expect(sourceRow.lastError).toMatch(/page budget/)
+      expect(finalRun.status).toBe(RunStatuses.completed)
+      expect(pullCount).toBeGreaterThan(1)
+      expect(h.db.select().from(crawlerEventsHourly).all().length).toBeGreaterThan(0)
     } finally {
       await h.close()
     }
