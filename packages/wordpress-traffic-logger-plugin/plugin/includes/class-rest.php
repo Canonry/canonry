@@ -52,7 +52,33 @@ final class Rest {
         );
     }
 
+    /**
+     * Tell a fronting page cache not to store this endpoint's response.
+     * The events feed is authenticated and per-request; a cached copy
+     * silently freezes the traffic the canonry sync reads. WordPress already
+     * sends `Cache-Control: no-cache` for an authenticated REST request, but
+     * page caches key on the URL and ignore it, so the common ones are
+     * signalled explicitly. The canonry pull adapter also appends a unique
+     * cache-buster param as a second line of defense.
+     */
+    private static function disablePageCache(): void {
+        // LiteSpeed Cache plugin: its documented per-request opt-out action.
+        if (function_exists('do_action')) {
+            do_action('litespeed_control_set_nocache', 'canonry traffic events endpoint is per-request');
+        }
+        // W3 Total Cache / WP Super Cache / WP Rocket / Batcache honor this.
+        if (!defined('DONOTCACHEPAGE')) {
+            define('DONOTCACHEPAGE', true);
+        }
+        // LiteSpeed at the web-server level reads this response header.
+        if (!headers_sent()) {
+            header('X-LiteSpeed-Cache-Control: no-cache');
+        }
+    }
+
     public static function handleList(\WP_REST_Request $request) {
+        self::disablePageCache();
+
         $limitRaw = $request->get_param('limit');
         $limit = self::clampLimit($limitRaw);
         $cursorRaw = $request->get_param('cursor');
@@ -154,7 +180,7 @@ final class Rest {
             'has_more'    => $hasMore,
             'site'        => [
                 'url'             => function_exists('home_url') ? home_url() : null,
-                'plugin_version'  => '0.3.0',
+                'plugin_version'  => '0.3.1',
             ],
         ], 200);
     }

@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { normalizeWordpressTrafficEvent } from './normalize.js'
 import type {
   ListWordpressTrafficEventsOptions,
@@ -100,12 +101,19 @@ export async function listWordpressTrafficEvents(
       // EXCLUSIVE upper bound — the plugin filters `observed_at < until`.
       url.searchParams.set('until', options.until)
     }
+    // Cache-buster. Some WordPress hosts front the site with a page cache
+    // (LiteSpeed and similar) that caches this REST response keyed on the URL
+    // despite its no-cache headers. Without a unique param the sync's request
+    // URL is identical every run, so it reads a frozen page and never sees new
+    // events. A fresh value per request forces a distinct cache key.
+    url.searchParams.set('_cb', randomUUID())
 
     const response = await fetch(url, {
       method: 'GET',
       headers: {
         Authorization: authHeader,
         Accept: 'application/json',
+        'Cache-Control': 'no-cache',
       },
       signal: AbortSignal.timeout(timeoutMs),
     })

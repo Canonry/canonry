@@ -186,7 +186,9 @@ describe('listWordpressTrafficEvents', () => {
 
     expect(fetchSpy).toHaveBeenCalledTimes(1)
     const [url, init] = fetchSpy.mock.calls[0]!
-    expect(String(url)).toBe('https://example.com/wp-json/canonry/v1/events?limit=500')
+    const parsedUrl = new URL(String(url))
+    expect(parsedUrl.origin + parsedUrl.pathname).toBe('https://example.com/wp-json/canonry/v1/events')
+    expect(parsedUrl.searchParams.get('limit')).toBe('500')
     expect((init as RequestInit).method).toBe('GET')
     const headers = (init as RequestInit).headers as Record<string, string>
     expect(headers.Authorization).toBe(
@@ -216,9 +218,8 @@ describe('listWordpressTrafficEvents', () => {
     })
 
     expect(result.endpoint).toBe('https://example.com/wp-json/canonry/v1/events')
-    expect(String(fetchSpy.mock.calls[0]![0])).toBe(
-      'https://example.com/wp-json/canonry/v1/events?limit=500',
-    )
+    const composedUrl = new URL(String(fetchSpy.mock.calls[0]![0]))
+    expect(composedUrl.origin + composedUrl.pathname).toBe('https://example.com/wp-json/canonry/v1/events')
   })
 
   it('paginates through multiple pages until has_more is false', async () => {
@@ -254,8 +255,12 @@ describe('listWordpressTrafficEvents', () => {
     })
 
     expect(fetchSpy).toHaveBeenCalledTimes(2)
-    expect(urls[0]).toBe('https://example.com/wp-json/canonry/v1/events?limit=100')
-    expect(urls[1]).toBe('https://example.com/wp-json/canonry/v1/events?limit=100&cursor=1')
+    const page0 = new URL(urls[0]!)
+    expect(page0.searchParams.get('limit')).toBe('100')
+    expect(page0.searchParams.get('cursor')).toBeNull()
+    const page1 = new URL(urls[1]!)
+    expect(page1.searchParams.get('limit')).toBe('100')
+    expect(page1.searchParams.get('cursor')).toBe('1')
     expect(result.events.map((event) => event.path)).toEqual(['/a', '/b'])
     expect(result.rawEntryCount).toBe(2)
     expect(result.nextCursor).toBeUndefined()
@@ -409,5 +414,31 @@ describe('listWordpressTrafficEvents', () => {
     const u = new URL(urls[0]!)
     expect(u.searchParams.has('since')).toBe(false)
     expect(u.searchParams.has('until')).toBe(false)
+  })
+
+  it('adds a unique cache-buster param and a no-cache header on every request', async () => {
+    const urls: string[] = []
+    fetchSpy.mockImplementation(async (input) => {
+      urls.push(String(input))
+      return new Response(JSON.stringify({ events: [], next_cursor: null, has_more: false }), {
+        status: 200, headers: { 'Content-Type': 'application/json' },
+      })
+    })
+
+    // Two separate syncs against the same site. A page cache keys on the URL,
+    // so the cache-buster must differ between calls or the second sync reads
+    // the first sync's cached (now stale) page.
+    await listWordpressTrafficEvents({ baseUrl: 'https://example.com', username: 'u', applicationPassword: 'p' })
+    await listWordpressTrafficEvents({ baseUrl: 'https://example.com', username: 'u', applicationPassword: 'p' })
+
+    expect(urls).toHaveLength(2)
+    const cb1 = new URL(urls[0]!).searchParams.get('_cb')
+    const cb2 = new URL(urls[1]!).searchParams.get('_cb')
+    expect(cb1).toBeTruthy()
+    expect(cb2).toBeTruthy()
+    expect(cb1).not.toBe(cb2)
+
+    const init = fetchSpy.mock.calls[0]![1] as RequestInit
+    expect((init.headers as Record<string, string>)['Cache-Control']).toBe('no-cache')
   })
 })
