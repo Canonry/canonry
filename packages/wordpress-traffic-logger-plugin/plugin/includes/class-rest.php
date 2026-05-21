@@ -180,7 +180,7 @@ final class Rest {
             'has_more'    => $hasMore,
             'site'        => [
                 'url'             => function_exists('home_url') ? home_url() : null,
-                'plugin_version'  => '0.3.1',
+                'plugin_version'  => '1.0.0',
             ],
         ], 200);
     }
