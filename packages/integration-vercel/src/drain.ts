@@ -4,11 +4,22 @@ import { VercelLogsApiError } from './client.js'
 import type { ListVercelTrafficEventsOptions, VercelTrafficEventsPage } from './types.js'
 
 /**
- * Smallest sub-window the drain will attempt. If a slice this short still
- * overflows the page budget, the window is pathologically dense and the drain
- * gives up rather than spin.
+ * Smallest sub-window the drain will subdivide a span down to. A slice this
+ * short that still overflows the normal page budget is re-pulled once with the
+ * larger `FLOOR_SLICE_MAX_PAGES` budget rather than failing (see the drain
+ * loop).
  */
 const MIN_SUB_WINDOW_MS = 60_000
+
+/**
+ * Page budget for a re-pull of a one-minute floor slice. When even a
+ * `MIN_SUB_WINDOW_MS` slice overflows the caller's normal `pagesPerSubWindow`
+ * budget, the drain cannot subdivide time any further, so it re-pulls that one
+ * slice with this larger budget and ingests it whole. A single minute of real
+ * request traffic is bounded, so this is deliberately generous headroom; a
+ * minute denser than this is pathological and fails loudly.
+ */
+const FLOOR_SLICE_MAX_PAGES = 1_000
 
 /**
  * Stop the retention-boundary binary search once the servable and unservable
@@ -141,8 +152,10 @@ async function resolveRetainedStart(
  * earliest instant Vercel will serve and the result is flagged
  * `retentionClamped`, rather than failing the whole drain.
  *
- * Throws if a `MIN_SUB_WINDOW_MS` slice still overflows, or if `maxSubWindows`
- * is reached before the window is fully drained.
+ * A `MIN_SUB_WINDOW_MS` slice that still overflows the normal page budget is
+ * re-pulled once with the larger `FLOOR_SLICE_MAX_PAGES` budget. Throws only if
+ * even that re-pull overflows, or if `maxSubWindows` is reached before the
+ * window is fully drained.
  */
 export async function drainVercelTrafficEvents(
   options: DrainVercelTrafficEventsOptions,
@@ -202,15 +215,33 @@ export async function drainVercelTrafficEvents(
 
     if (page.hasMore) {
       const subSpanMs = subEndMs - cursorMs
-      if (subSpanMs <= MIN_SUB_WINDOW_MS) {
+      if (subSpanMs > MIN_SUB_WINDOW_MS) {
+        // Sub-window still overflows: halve the span and retry from the same cursor.
+        spanMs = Math.max(Math.floor(subSpanMs / 2), MIN_SUB_WINDOW_MS)
+        continue
+      }
+      // The slice is already at the one-minute floor and the normal page budget
+      // still overflowed. Time cannot be sliced thinner, so re-pull this floor
+      // slice once with the much larger FLOOR_SLICE_MAX_PAGES budget and drain
+      // it whole. A single one-minute slice is bounded by real request volume,
+      // so the large budget is generous headroom; only a pathologically dense
+      // minute exceeds it, and that genuinely cannot be drained.
+      page = await options.pull({
+        token: options.token,
+        projectId: options.projectId,
+        teamId: options.teamId,
+        environment: options.environment,
+        startDate: cursorMs,
+        endDate: subEndMs,
+        maxPages: FLOOR_SLICE_MAX_PAGES,
+      })
+      subWindowCount += 1
+      if (page.hasMore) {
         throw new Error(
-          `Vercel window holds more than ${options.pagesPerSubWindow} pages within a `
-            + `${MIN_SUB_WINDOW_MS / 60_000}-minute slice — cannot subdivide further`,
+          `Vercel ${MIN_SUB_WINDOW_MS / 60_000}-minute slice holds more than `
+            + `${FLOOR_SLICE_MAX_PAGES} pages and cannot be drained further`,
         )
       }
-      // Sub-window still overflows: halve the span and retry from the same cursor.
-      spanMs = Math.max(Math.floor(subSpanMs / 2), MIN_SUB_WINDOW_MS)
-      continue
     }
 
     for (const event of page.events) {
