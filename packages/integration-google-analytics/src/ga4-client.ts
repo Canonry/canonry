@@ -1,5 +1,5 @@
 import crypto from 'node:crypto'
-import { AI_ENGINE_DOMAINS } from '@ainyc/canonry-contracts'
+import { AI_ENGINE_DOMAINS, withRetry } from '@ainyc/canonry-contracts'
 import {
   GA4_DATA_API_BASE,
   GA4_SCOPE,
@@ -216,29 +216,34 @@ function isRetryableGa4Error(err: unknown): boolean {
 }
 
 async function withGa4Retry<T>(fn: () => Promise<T>, errLabel: string): Promise<T> {
-  let lastError: unknown
-  for (let attempt = 0; attempt <= GA4_MAX_RETRIES; attempt++) {
-    try {
-      return await fn()
-    } catch (err) {
-      lastError = err
-      if (attempt >= GA4_MAX_RETRIES || !isRetryableGa4Error(err)) throw err
+  return withRetry(fn, {
+    maxRetries: GA4_MAX_RETRIES,
+    baseDelayMs: GA4_INITIAL_RETRY_DELAY_MS,
+    // Retry loop predates jittered backoff; preserve the deterministic
+    // schedule operators have been seeing in production until we have a
+    // reason to introduce variance.
+    jitter: false,
+    isRetryable: isRetryableGa4Error,
+    // Honor `Retry-After` when the server supplies it; fall back to the
+    // computed exponential delay otherwise.
+    computeDelayMs: (_attempt, err, defaultMs) => {
       const ga4Err = err as GA4ApiError
-      const computedDelayMs = GA4_INITIAL_RETRY_DELAY_MS * Math.pow(2, attempt)
-      const delayMs = ga4Err.retryAfterSeconds !== undefined
-        ? Math.max(0, ga4Err.retryAfterSeconds * 1000)
-        : computedDelayMs
+      if (ga4Err?.retryAfterSeconds !== undefined) {
+        return Math.max(0, ga4Err.retryAfterSeconds * 1000)
+      }
+      return defaultMs
+    },
+    onRetry: ({ attempt, err, delayMs }) => {
+      const ga4Err = err as GA4ApiError
       ga4Log('info', `${errLabel}.retry`, {
         attempt: attempt + 1,
         maxAttempts: GA4_MAX_RETRIES + 1,
-        status: ga4Err.status,
+        status: ga4Err?.status,
         delayMs,
-        usedRetryAfter: ga4Err.retryAfterSeconds !== undefined,
+        usedRetryAfter: ga4Err?.retryAfterSeconds !== undefined,
       })
-      await new Promise<void>((resolve) => setTimeout(resolve, delayMs))
-    }
-  }
-  throw lastError
+    },
+  })
 }
 
 /**

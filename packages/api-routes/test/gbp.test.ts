@@ -216,18 +216,37 @@ describe('GBP routes (Phase 1)', () => {
       expect(res.json()).toMatchObject({ error: { code: 'VALIDATION_ERROR' } })
     })
 
-    it('maps RATE_LIMIT_EXCEEDED to a 429 QUOTA_EXCEEDED error', async () => {
+    it('maps the 0-QPM access-form gate to a 429 QUOTA_EXCEEDED error (no retry)', async () => {
       ctx.seedProject('hotels', 'hotels.example.com')
       ctx.seedGbpConnection('hotels.example.com', 'valid-access-token')
-      fetchSpy.mockResolvedValue({
+      // `quota_limit_value: "0"` is the access-form gate. gbpFetchGet must
+      // NOT retry this — the project hasn't been approved by Google, and
+      // retrying just burns time. We verify that by mocking ONCE: if the
+      // retry kicked in, the second fetch would resolve to undefined and
+      // crash the test instead of producing a clean QUOTA_EXCEEDED.
+      fetchSpy.mockResolvedValueOnce({
         ok: false,
         status: 429,
-        text: async () => JSON.stringify({ error: { code: 429, message: "Quota exceeded for quota metric 'Requests'", status: 'RESOURCE_EXHAUSTED', details: [{ reason: 'RATE_LIMIT_EXCEEDED' }] } }),
+        text: async () => JSON.stringify({
+          error: {
+            code: 429,
+            message: "Quota exceeded for quota metric 'Requests'",
+            status: 'RESOURCE_EXHAUSTED',
+            details: [{
+              reason: 'RATE_LIMIT_EXCEEDED',
+              metadata: { quota_limit_value: '0', quota_unit: '1/min/{project}' },
+            }],
+          },
+        }),
       })
 
       const res = await ctx.app.inject({ method: 'POST', url: '/projects/hotels/gbp/locations/discover', payload: {} })
       expect(res.statusCode).toBe(429)
       expect(res.json()).toMatchObject({ error: { code: 'QUOTA_EXCEEDED' } })
+      // The message must call out the access-form gate, not generic rate limiting.
+      expect((res.json() as { error: { message: string } }).error.message).toMatch(/access form pending approval/i)
+      // Single call — no retry burn.
+      expect(fetchSpy).toHaveBeenCalledTimes(1)
     })
 
     it('writes an audit log entry on successful discover', async () => {

@@ -1228,8 +1228,18 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
       )
     }
     if (err.reason === 'RATE_LIMIT_EXCEEDED' || /quota/i.test(err.message)) {
+      // `quotaLimitValue === 0` is the access-form gate — the project has
+      // not been approved by Google yet. Any other value (typically 300)
+      // means an approved project briefly exceeded its per-minute cap;
+      // gbpFetchGet already retries those with exponential backoff per
+      // Google's guidance, so seeing one here means the retries exhausted.
+      if (err.quotaLimitValue === 0) {
+        return quotaExceeded(
+          'Google Business Profile API (0 QPM — access form pending approval). See https://support.google.com/business/contact/api_default',
+        )
+      }
       return quotaExceeded(
-        'Google Business Profile API (0 QPM — access form pending approval)',
+        `Google Business Profile API rate limit exceeded${err.quotaLimitValue ? ` (${err.quotaLimitValue} QPM cap)` : ''}. Retries exhausted; try again shortly.`,
       )
     }
     if (err.reason === 'API_DISABLED' || err.reason === 'CONSUMER_INVALID') {

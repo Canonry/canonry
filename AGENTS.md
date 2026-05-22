@@ -509,7 +509,7 @@ The contract test `packages/api-routes/test/openapi-contract.test.ts` enforces a
 
 ### Rules
 
-1. **Default to centralizing.** Before defining a helper inline, check `packages/contracts/src/` for an existing equivalent. Specifically check `formatting.ts`, `url-normalize.ts`, `report-dedup.ts`, and `errors.ts` — those are the established homes for cross-package utilities.
+1. **Default to centralizing.** Before defining a helper inline, check `packages/contracts/src/` for an existing equivalent. Specifically check `formatting.ts`, `url-normalize.ts`, `report-dedup.ts`, `retry.ts`, and `errors.ts` — those are the established homes for cross-package utilities.
 2. **Make helpers as generic as possible.** A helper named `formatGscDate` that handles only GSC's date format is a missed abstraction. Name and shape it so the next caller (GA, BWT, reports) can reuse it without modification. Domain-specific wrappers can live in the consumer file and call into the generic core.
 3. **No duplicate implementations.** If two packages both need to convert ISO 8601 to `YYYY-MM-DD`, there is exactly one function for that — `formatIsoDate` in `contracts/formatting.ts` — and both packages import it. Catch this in review: if you see a second implementation appearing, replace it with the import.
 4. **Pure functions only.** Utilities in `contracts` must have no side effects, no I/O, no DB access, no logging. They take values and return values. Anything else belongs in the consuming package.
@@ -524,6 +524,7 @@ The contract test `packages/api-routes/test/openapi-contract.test.ts` enforces a
 | URL / domain normalization | `packages/contracts/src/url-normalize.ts` |
 | Report action / opportunity dedup | `packages/contracts/src/report-dedup.ts` |
 | Error factories | `packages/contracts/src/errors.ts` |
+| Retry / exponential backoff | `packages/contracts/src/retry.ts` (`withRetry`, `backoffDelayMs`, `isRetryableHttpError`) |
 | JSON column parsing (DB-only) | `packages/db` (`parseJsonColumn`) |
 
 Add new utility files to `packages/contracts/src/` and re-export them from `index.ts`. Keep modules small and focused — a `formatting.ts` for formatters, a separate file for the next category. One file per concern.
