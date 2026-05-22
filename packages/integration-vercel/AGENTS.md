@@ -59,8 +59,14 @@ with **no in-app instrumentation** required on the user's Vercel project.
   AI-referer detection happen in `packages/integration-traffic` alongside
   Cloud Run and WordPress events, so the classifier rule set evolves in one
   place.
-- **No client IP.** The endpoint does not expose a client IP, so `remoteIp` is
-  always `null` and Vercel events stay `claimed_unverified` in the classifier.
+- **No client IP from the pull endpoint.** `request-logs` does not expose a
+  client IP, so `remoteIp` is always `null` and Vercel crawler hits stay
+  `claimed_unverified` (UA-only) in the classifier. rDNS / IP-range
+  verification is impossible on this surface. Vercel only exposes the real
+  client IP via a **Configurable Log Drain** (`proxy.clientIp` in the
+  request-log payload), a push model (Vercel POSTs to an HTTPS receiver,
+  Pro/Enterprise plan only) that is not implemented here. Verified Vercel
+  hits would require building that receiver.
 - **Provider-neutral output.** Every adapter in the traffic stack emits the
   same `NormalizedTrafficRequest` shape from `@ainyc/canonry-contracts`. Do not
   leak Vercel-specific types past the package boundary.
@@ -90,3 +96,6 @@ with **no in-app instrumentation** required on the user's Vercel project.
   the start; the route logs a warning when `retentionClamped` is set so an
   operator can see the requested window was trimmed.
 - `plans/server-side-ai-traffic-ingestion.md` — overall traffic plan
+- Vercel Configurable Log Drains (`https://vercel.com/docs/drains`): the only
+  Vercel surface that exposes the client IP (`proxy.clientIp`). Relevant only
+  if verified Vercel crawler hits are ever required.

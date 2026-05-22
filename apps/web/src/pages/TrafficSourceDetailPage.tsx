@@ -326,7 +326,7 @@ export function TrafficSourceDetailPage() {
         <div className="rounded-md border border-emerald-800/50 bg-emerald-950/30 px-3 py-2 text-xs text-emerald-200">{syncResult}</div>
       ) : null}
 
-      <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <ScoreGauge
           label="24h crawler hits"
           value={String(detail.totals24h.crawlerHits)}
@@ -353,15 +353,6 @@ export function TrafficSourceDetailPage() {
           description="Browser click-throughs from chatgpt.com, perplexity.ai, etc. (Referer / UTM evidence)."
           isNumeric
           progress={Math.min(100, Math.round((detail.totals24h.aiReferralHits / 1000) * 100))}
-        />
-        <ScoreGauge
-          label="24h sample rows"
-          value={String(detail.totals24h.sampleCount)}
-          delta="bounded per sync"
-          tone="neutral"
-          description="Per-request samples retained for evidence (capped to keep storage bounded)."
-          isNumeric
-          progress={Math.min(100, Math.round((detail.totals24h.sampleCount / 100) * 100))}
         />
       </section>
 

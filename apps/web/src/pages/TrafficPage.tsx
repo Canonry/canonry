@@ -149,7 +149,6 @@ function SourcesTable({ projectName, sources }: { projectName: string; sources: 
             <th className="px-4 py-2 text-right">24h crawler</th>
             <th className="px-4 py-2 text-right">24h AI hits</th>
             <th className="px-4 py-2 text-right">24h AI sessions</th>
-            <th className="px-4 py-2 text-right">24h samples</th>
             <th className="px-4 py-2 text-right" />
           </tr>
         </thead>
@@ -179,9 +178,6 @@ function SourcesTable({ projectName, sources }: { projectName: string; sources: 
               </td>
               <td className="px-4 py-3 text-right tabular-nums text-zinc-100">
                 {isLoading ? '—' : formatCompact(detail?.totals24h.aiReferralHits ?? 0)}
-              </td>
-              <td className="px-4 py-3 text-right tabular-nums text-zinc-300">
-                {isLoading ? '—' : formatCompact(detail?.totals24h.sampleCount ?? 0)}
               </td>
               <td className="px-4 py-3 text-right">
                 <Link
