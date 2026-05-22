@@ -125,6 +125,7 @@ import {
   deleteApiV1ProjectsByNameCompetitors,
   // Runs / timeline / history / snapshots
   getApiV1ProjectsByNameRuns,
+  type GetApiV1ProjectsByNameRunsData,
   postApiV1ProjectsByNameRuns,
   getApiV1ProjectsByNameRunsLatest,
   getApiV1RunsById,
@@ -832,9 +833,14 @@ export class ApiClient {
     )
   }
 
-  async listRuns(project: string, limit?: number): Promise<RunDto[]> {
+  async listRuns(project: string, limit?: number, kind?: string): Promise<RunDto[]> {
     return this.invoke<RunDto[]>(() =>
-      getApiV1ProjectsByNameRuns({ client: this.heyClient, path: { name: project }, query: { limit } }),
+      getApiV1ProjectsByNameRuns({
+        client: this.heyClient,
+        path: { name: project },
+        // kind arrives as a free CLI string; the server validates it against the enum.
+        query: { limit, kind } as GetApiV1ProjectsByNameRunsData['query'],
+      }),
     )
   }
 

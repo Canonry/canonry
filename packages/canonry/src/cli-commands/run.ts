@@ -92,19 +92,21 @@ export const RUN_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['runs'],
-    usage: 'canonry runs <project> [--limit <n>] [--format json]',
+    usage: 'canonry runs <project> [--limit <n>] [--kind <kind>] [--format json]',
     options: {
       limit: stringOption(),
+      kind: stringOption(),
     },
     run: async (input) => {
-      const project = requireProject(input, 'runs', 'canonry runs <project> [--limit <n>] [--format json]')
+      const project = requireProject(input, 'runs', 'canonry runs <project> [--limit <n>] [--kind <kind>] [--format json]')
       await listRuns(project, {
         format: input.format,
         limit: parseIntegerOption(input, 'limit', {
           command: 'runs',
-          usage: 'canonry runs <project> [--limit <n>] [--format json]',
+          usage: 'canonry runs <project> [--limit <n>] [--kind <kind>] [--format json]',
           message: '--limit must be an integer',
         }),
+        kind: getString(input.values, 'kind'),
       })
     },
   },

@@ -157,3 +157,35 @@ describe('GET /runs ?kind= filter', () => {
     expect(kinds.size).toBeGreaterThan(1) // both bing-inspect and answer-visibility
   })
 })
+
+describe('GET /projects/:name/runs ?kind= filter', () => {
+  it('?kind=answer-visibility surfaces AV runs the limit window would hide', async () => {
+    // limit=10 with 20 newer bing-inspect runs returns zero AV runs unfiltered.
+    const { body: unfiltered } = await get<Array<{ kind: string }>>(
+      `/api/v1/projects/runs-filter/runs?limit=10`,
+    )
+    expect(unfiltered.every(r => r.kind === 'bing-inspect')).toBe(true)
+
+    const { status, body } = await get<Array<{ id: string; kind: string }>>(
+      `/api/v1/projects/runs-filter/runs?limit=10&kind=answer-visibility`,
+    )
+    expect(status).toBe(200)
+    expect(body).toHaveLength(3)
+    expect(body.every(r => r.kind === 'answer-visibility')).toBe(true)
+    expect(new Set(body.map(r => r.id))).toEqual(new Set(ctx.answerVisibilityRunIds))
+  })
+
+  it('?kind=<unknown> returns 400 rather than a silently empty list', async () => {
+    const { status, body } = await get<{ error: { message?: string } }>(
+      `/api/v1/projects/runs-filter/runs?kind=not-a-real-kind`,
+    )
+    expect(status).toBe(400)
+    const err = body as unknown as { error: { message?: string } }
+    expect(err.error.message).toMatch(/kind/i)
+  })
+
+  it('empty ?kind= behaves like no filter', async () => {
+    const { body } = await get<Array<{ kind: string }>>(`/api/v1/projects/runs-filter/runs?kind=`)
+    expect(new Set(body.map(r => r.kind)).size).toBeGreaterThan(1)
+  })
+})
