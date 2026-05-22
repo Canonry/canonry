@@ -37,7 +37,10 @@ with **no in-app instrumentation** required on the user's Vercel project.
   cursor, so a window denser than the page budget cannot be pulled in one
   pass. `drainVercelTrafficEvents` narrows the window into adaptive time
   slices — halving the span on page-budget overflow, doubling back up after a
-  clean slice — and dedupes by `eventId` across slice boundaries.
+  clean slice — and dedupes by `eventId` across slice boundaries. A slice that
+  still overflows at the `MIN_SUB_WINDOW_MS` floor is re-pulled once with the
+  larger `FLOOR_SLICE_MAX_PAGES` budget and drained whole, so a dense minute of
+  ordinary traffic no longer fails the backfill.
 - **Retention clamp.** Vercel rejects a window starting before the plan's
   `request-logs` retention with HTTP 400 `ExceedsBillingLimitError`.
   `drainVercelTrafficEvents` detects that, binary-searches the retention
