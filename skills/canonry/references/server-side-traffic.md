@@ -243,7 +243,12 @@ domains, or PII are surfaced.
   rDNS-verified hits. Unverified bots claim a known UA but couldn't be
   cross-confirmed via reverse-DNS — they may be the real bot or an
   imitator. Don't promote unverified counts in client-facing copy.
-- **Two adapters shipped (Cloud Run + WordPress); more planned.** The
-  doctor checks and the report renderer are adapter-agnostic — adding
-  a new adapter is just a new entry in `traffic_sources.source_type`
-  and a `TrafficSourceValidator` registration.
+  **Vercel sources are a special case:** the Vercel pull API returns
+  no client IP, so every Vercel crawler hit is unverified by
+  construction (UA-only). A Vercel source reading 100% unverified is
+  expected, not a misconfiguration.
+- **Three adapters shipped (Cloud Run + WordPress + Vercel); more
+  planned.** The doctor checks and the report renderer are
+  adapter-agnostic — adding a new adapter is just a new entry in
+  `traffic_sources.source_type` and a `TrafficSourceValidator`
+  registration.
