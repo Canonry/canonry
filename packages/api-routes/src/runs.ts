@@ -199,24 +199,32 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
   // GET /projects/:name/runs — list runs for project
   app.get<{
     Params: { name: string }
-    Querystring: { limit?: string }
+    Querystring: { limit?: string; kind?: string }
   }>('/projects/:name/runs', async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
 
     const parsedLimit = parseInt(request.query.limit ?? '', 10)
     const limit = Number.isNaN(parsedLimit) || parsedLimit <= 0 ? undefined : parsedLimit
 
+    // Per-URL integration runs (bing-inspect especially) can fill the limit
+    // window and push answer-visibility runs out — the same footgun GET /runs
+    // guards against. ?kind= scopes the list to the one kind a caller needs.
+    const kind = parseListKind(request.query.kind)
+    const where = kind
+      ? and(eq(runs.projectId, project.id), eq(runs.kind, kind))
+      : eq(runs.projectId, project.id)
+
     const rows = limit == null
       ? app.db
         .select()
         .from(runs)
-        .where(eq(runs.projectId, project.id))
+        .where(where)
         .orderBy(asc(runs.createdAt))
         .all()
       : app.db
         .select()
         .from(runs)
-        .where(eq(runs.projectId, project.id))
+        .where(where)
         .orderBy(desc(runs.createdAt))
         .limit(limit)
         .all()

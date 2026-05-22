@@ -2710,6 +2710,10 @@ export type GetApiV1ProjectsByNameRunsData = {
          * Maximum number of records to return.
          */
         limit?: number;
+        /**
+         * Restrict results to a single run kind. Without this filter, integration syncs (bing-inspect, gsc-sync, ga-sync) can fill the default 500-row cap within minutes on busy projects and push answer-visibility runs out of the response.
+         */
+        kind?: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe';
     };
     url: '/api/v1/projects/{name}/runs';
 };

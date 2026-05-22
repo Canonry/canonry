@@ -291,9 +291,9 @@ export async function showRun(id: string, format?: string): Promise<void> {
   printRunDetail(run)
 }
 
-export async function listRuns(project: string, opts?: { format?: string; limit?: number }): Promise<void> {
+export async function listRuns(project: string, opts?: { format?: string; limit?: number; kind?: string }): Promise<void> {
   const client = getClient()
-  const runs = await client.listRuns(project, opts?.limit) as Array<{
+  const runs = await client.listRuns(project, opts?.limit, opts?.kind) as Array<{
     id: string
     status: string
     kind: string
