@@ -21,7 +21,8 @@ OAuth and token storage live in `packages/integration-google` and `packages/api-
 - **Single scope** — the Business Profile API family uses one scope: `https://www.googleapis.com/auth/business.manage`. No read-only variant exists. Re-export as `GBP_SCOPE`.
 - **Pagination** — all list endpoints return `nextPageToken`. Each client paginates internally and returns the full collected array; callers don't deal with tokens.
 - **Quota project header** — when the API is called from a context that needs explicit quota attribution (e.g. gcloud-issued tokens), callers pass an `x-goog-user-project` header. The clients accept an optional `quotaProject` argument that they pass through.
-- **Error mapping** — non-2xx responses throw `GbpApiError`. The error carries the HTTP status code and the structured `reason` parsed from `error.details[].reason` so callers in `packages/api-routes` can map cleanly to `AppError` factories (`quotaExceeded`, `authRequired`, `providerError`).
+- **Error mapping** — non-2xx responses throw `GbpApiError`. The error carries the HTTP status code, the structured `reason` parsed from `error.details[].reason`, and the parsed `quotaLimitValue` so callers in `packages/api-routes` can map cleanly to `AppError` factories (`quotaExceeded`, `authRequired`, `providerError`).
+- **Retry / backoff guards** — `gbpFetchGet` implements Google's documented retry policy ([limits doc](https://developers.google.com/my-business/content/limits)): exponential backoff with jitter (`sleep = random() * baseDelayMs * 2^attempt`, default `baseDelayMs = 1000`, `maxRetries = 5`). Retried: 429 (except the 0-QPM access gate — `quotaLimitValue === 0` — which is unrecoverable until Google approves the form) and 503 transient errors. **Not retried**: 401 (auth expired), 403 (scope / API-disabled / permission), 404, validation errors, other 5xx. Callers can override the retry policy with `opts.retry` for tests or alternate behaviors.
 
 ## Hybrid v1/v4 Surface
 
