@@ -600,12 +600,19 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
     const { address, family } = check.target
     return new UndiciAgent({
       connect: {
-        lookup: (_hostname, _options, cb) => {
+        lookup: (_hostname, options, cb) => {
           // Always resolve to the pre-validated public IP, regardless of
           // what the OS resolver would return now. Closes the rebinding
           // TOCTOU between `resolveWebhookTarget` above and the fetch
           // performed inside the WordPress integration package.
-          cb(null, address, family === 6 ? 6 : 4)
+          //
+          // undici v7 passes `{ hints: 32, all: true }`; Node.js expects
+          // an array of `{ address, family }` objects when `all` is set.
+          if (options?.all) {
+            cb(null, [{ address, family: family === 6 ? 6 : 4 }])
+          } else {
+            cb(null, address, family === 6 ? 6 : 4)
+          }
         },
       },
     })
