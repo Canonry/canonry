@@ -36,11 +36,15 @@ with **no in-app instrumentation** required on the user's Vercel project.
 - **Adaptive sub-window drain.** Page-number pagination has no resumable
   cursor, so a window denser than the page budget cannot be pulled in one
   pass. `drainVercelTrafficEvents` narrows the window into adaptive time
-  slices — halving the span on page-budget overflow, doubling back up after a
-  clean slice — and dedupes by `eventId` across slice boundaries. A slice that
-  still overflows at the `MIN_SUB_WINDOW_MS` floor is re-pulled once with the
-  larger `FLOOR_SLICE_MAX_PAGES` budget and drained whole, so a dense minute of
-  ordinary traffic no longer fails the backfill.
+  slices: it halves the span on page-budget overflow and doubles back up
+  after a clean slice, with `eventId` dedup across slice boundaries. The
+  bisection floor is **one second** (`MIN_SUB_WINDOW_MS = 1_000`), small
+  enough to drain real-world burst minutes (sites routinely hit 1000+ log
+  pages in a single minute) without escalating to the floor-budget re-pull. A
+  floor-width slice that still overflows the normal page budget is re-pulled
+  once with the larger `FLOOR_SLICE_MAX_PAGES` budget and drained whole; only
+  a pathologically dense second (1000+ pages of logs in one second) genuinely
+  fails the sync.
 - **Retention clamp.** Vercel rejects a window starting before the plan's
   `request-logs` retention with HTTP 400 `ExceedsBillingLimitError`.
   `drainVercelTrafficEvents` detects that, binary-searches the retention

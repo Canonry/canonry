@@ -4,22 +4,37 @@ import { VercelLogsApiError } from './client.js'
 import type { ListVercelTrafficEventsOptions, VercelTrafficEventsPage } from './types.js'
 
 /**
- * Smallest sub-window the drain will subdivide a span down to. A slice this
- * short that still overflows the normal page budget is re-pulled once with the
- * larger `FLOOR_SLICE_MAX_PAGES` budget rather than failing (see the drain
- * loop).
+ * Smallest sub-window the drain will subdivide a span down to. Vercel's
+ * `request-logs` endpoint accepts millisecond-precision time bounds, so the
+ * floor is a canonry-side choice that trades fewer API calls (wider slices)
+ * against tolerance for dense bursts (narrower slices). One second is small
+ * enough to drain real-world burst minutes (sites routinely hit 1000+ log
+ * pages in a single minute; the previous one-minute floor failed the whole
+ * sync on those minutes) yet still a meaningful traffic window. A floor-width
+ * slice that still overflows the normal page budget is re-pulled once with
+ * the larger `FLOOR_SLICE_MAX_PAGES` budget before the drain gives up.
  */
-const MIN_SUB_WINDOW_MS = 60_000
+const MIN_SUB_WINDOW_MS = 1_000
 
 /**
- * Page budget for a re-pull of a one-minute floor slice. When even a
- * `MIN_SUB_WINDOW_MS` slice overflows the caller's normal `pagesPerSubWindow`
+ * Page budget for a re-pull of a floor-width slice (`MIN_SUB_WINDOW_MS`). When
+ * even the floor slice overflows the caller's normal `pagesPerSubWindow`
  * budget, the drain cannot subdivide time any further, so it re-pulls that one
- * slice with this larger budget and ingests it whole. A single minute of real
- * request traffic is bounded, so this is deliberately generous headroom; a
- * minute denser than this is pathological and fails loudly.
+ * slice with this larger budget and ingests it whole. A single one-second
+ * slice of real request traffic is bounded; only a pathologically dense
+ * second exceeds this and genuinely cannot be drained.
  */
 const FLOOR_SLICE_MAX_PAGES = 1_000
+
+/**
+ * Window size used to probe Vercel's request-logs retention. Kept independent
+ * of `MIN_SUB_WINDOW_MS` (the drain floor) so reducing the drain floor does
+ * not narrow the retention probe to a sliver: the probe only needs a window
+ * wide enough that a successful response reliably means "Vercel will serve
+ * this range." One minute is small enough to keep the binary search cheap
+ * but wide enough to be a meaningful test.
+ */
+const RETENTION_PROBE_WINDOW_MS = 60_000
 
 /**
  * Stop the retention-boundary binary search once the servable and unservable
@@ -120,7 +135,7 @@ async function resolveRetainedStart(
   unservableStartMs: number,
   endMs: number,
 ): Promise<number> {
-  const tailStartMs = Math.max(unservableStartMs, endMs - MIN_SUB_WINDOW_MS)
+  const tailStartMs = Math.max(unservableStartMs, endMs - RETENTION_PROBE_WINDOW_MS)
   if (!(await isServable(options, tailStartMs, endMs))) {
     return endMs
   }
@@ -220,12 +235,13 @@ export async function drainVercelTrafficEvents(
         spanMs = Math.max(Math.floor(subSpanMs / 2), MIN_SUB_WINDOW_MS)
         continue
       }
-      // The slice is already at the one-minute floor and the normal page budget
-      // still overflowed. Time cannot be sliced thinner, so re-pull this floor
-      // slice once with the much larger FLOOR_SLICE_MAX_PAGES budget and drain
-      // it whole. A single one-minute slice is bounded by real request volume,
-      // so the large budget is generous headroom; only a pathologically dense
-      // minute exceeds it, and that genuinely cannot be drained.
+      // The slice is already at the floor (`MIN_SUB_WINDOW_MS`) and the
+      // normal page budget still overflowed. Time cannot be sliced thinner,
+      // so re-pull this floor slice once with the much larger
+      // `FLOOR_SLICE_MAX_PAGES` budget and drain it whole. A single
+      // floor-width slice is bounded by real request volume, so the large
+      // budget is generous headroom; only a pathologically dense floor slice
+      // exceeds it, and that genuinely cannot be drained.
       page = await options.pull({
         token: options.token,
         projectId: options.projectId,
@@ -238,7 +254,7 @@ export async function drainVercelTrafficEvents(
       subWindowCount += 1
       if (page.hasMore) {
         throw new Error(
-          `Vercel ${MIN_SUB_WINDOW_MS / 60_000}-minute slice holds more than `
+          `Vercel ${MIN_SUB_WINDOW_MS / 1000}-second slice holds more than `
             + `${FLOOR_SLICE_MAX_PAGES} pages and cannot be drained further`,
         )
       }
