@@ -202,6 +202,77 @@ describe('IntelligenceService', () => {
       expect(result!.regressions[0]!.query).toBe('roof repair phoenix')
     })
 
+    it('labels a regression with the project domain, not a co-cited competitor', () => {
+      const { db } = createTempDb('intel-regression-label-')
+      const projectId = seedProject(db) // canonicalDomain: example.com
+
+      const queryId = seedQuery(db, projectId, 'roof repair phoenix')
+
+      // Run 1: project cited, but a competitor sorts first in the FULL
+      // citedDomains set (provider order, not project order).
+      const run1 = seedRun(db, projectId, 'completed', '2024-01-01T00:00:00Z')
+      seedSnapshot(db, run1, queryId, 'gemini', 'cited', {
+        citedDomains: ['winntile.com', 'example.com'],
+      })
+
+      // Run 2: project lost its citation.
+      const run2 = seedRun(db, projectId, 'completed', '2024-02-01T00:00:00Z')
+      seedSnapshot(db, run2, queryId, 'gemini', 'not-cited')
+
+      const service = new IntelligenceService(db)
+      const result = service.analyzeAndPersist(run2, projectId)
+
+      expect(result!.regressions).toHaveLength(1)
+      // The regression is real (project lost its own citation), and its target
+      // must be the project's page — never the co-cited competitor.
+      expect(result!.regressions[0]!.previousCitationUrl).toBe('example.com')
+
+      const regressionInsight = db.select().from(insights).all()
+        .find(i => i.type === 'regression')
+      expect(regressionInsight?.recommendation?.target).toBe('example.com')
+    })
+
+    it('labels a gain with the project domain, not a co-cited competitor', () => {
+      const { db } = createTempDb('intel-gain-label-')
+      const projectId = seedProject(db)
+      const queryId = seedQuery(db, projectId, 'roof repair phoenix')
+
+      const run1 = seedRun(db, projectId, 'completed', '2024-01-01T00:00:00Z')
+      seedSnapshot(db, run1, queryId, 'gemini', 'not-cited')
+
+      const run2 = seedRun(db, projectId, 'completed', '2024-02-01T00:00:00Z')
+      seedSnapshot(db, run2, queryId, 'gemini', 'cited', {
+        citedDomains: ['winntile.com', 'example.com'],
+      })
+
+      const service = new IntelligenceService(db)
+      const result = service.analyzeAndPersist(run2, projectId)
+
+      const gain = result!.gains.find(g => g.query === 'roof repair phoenix')
+      expect(gain?.citationUrl).toBe('example.com')
+    })
+
+    it('leaves citationUrl undefined when the project was cited via grounding only', () => {
+      const { db } = createTempDb('intel-grounding-label-')
+      const projectId = seedProject(db)
+      const queryId = seedQuery(db, projectId, 'roof repair phoenix')
+
+      // citationState is 'cited' (matched via a grounding source upstream), but
+      // no project domain is present in the stored citedDomains set — only a
+      // competitor. We must not borrow the competitor as the project's URL.
+      const run1 = seedRun(db, projectId, 'completed', '2024-01-01T00:00:00Z')
+      seedSnapshot(db, run1, queryId, 'gemini', 'cited', { citedDomains: ['winntile.com'] })
+
+      const run2 = seedRun(db, projectId, 'completed', '2024-02-01T00:00:00Z')
+      seedSnapshot(db, run2, queryId, 'gemini', 'not-cited')
+
+      const service = new IntelligenceService(db)
+      const result = service.analyzeAndPersist(run2, projectId)
+
+      expect(result!.regressions).toHaveLength(1)
+      expect(result!.regressions[0]!.previousCitationUrl).toBeUndefined()
+    })
+
     it('persists first-citation, provider-pickup, persistent-gap, and competitor signals', () => {
       const { db } = createTempDb('intel-signals-')
       const projectId = seedProject(db)

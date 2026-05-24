@@ -3,9 +3,10 @@ import type { DatabaseClient } from '@ainyc/canonry-db'
 import { competitors, groupRunsByCreatedAt, gscSearchData, healthSnapshots, insights, projects, queries, querySnapshots, runs } from '@ainyc/canonry-db'
 import { analyzeRuns, classifyRegressionSeverity, PERSISTENT_GAP_THRESHOLD } from '@ainyc/canonry-intelligence'
 import type { RunData, Snapshot, AnalysisResult, Insight } from '@ainyc/canonry-intelligence'
-import { CitationStates, RunKinds, RunTriggers } from '@ainyc/canonry-contracts'
+import { CitationStates, RunKinds, RunTriggers, effectiveDomains } from '@ainyc/canonry-contracts'
 import crypto from 'node:crypto'
 import { createLogger } from './logger.js'
+import { pickProjectCitedDomain } from './citation-utils.js'
 
 const RECURRENCE_LOOKBACK_RUNS = 5
 /** Number of recent runs to load for persistent-gap detection. Must be >= PERSISTENT_GAP_THRESHOLD. */
@@ -585,6 +586,21 @@ export class IntelligenceService {
     completedAt: string,
     location: string | null = null,
   ): RunData {
+    // Project-owned domains, used to label a citation gain/regression with the
+    // project's OWN cited URL rather than `citedDomains[0]` (which is often a
+    // co-cited competitor). One PK lookup per run in the window.
+    const projectDomainRow = this.db
+      .select({ canonicalDomain: projects.canonicalDomain, ownedDomains: projects.ownedDomains })
+      .from(projects)
+      .where(eq(projects.id, projectId))
+      .get()
+    const projectDomains = projectDomainRow
+      ? effectiveDomains({
+          canonicalDomain: projectDomainRow.canonicalDomain,
+          ownedDomains: projectDomainRow.ownedDomains,
+        })
+      : []
+
     const rows = this.db
       .select({
         query: queries.query,
@@ -624,7 +640,9 @@ export class IntelligenceService {
         query: resolvedQuery,
         provider: r.provider,
         cited: r.citationState === CitationStates.cited,
-        citationUrl: domains[0] ?? undefined,
+        // The project's OWN cited domain — never a co-cited competitor that
+        // happens to sort first in the full citedDomains set.
+        citationUrl: pickProjectCitedDomain(domains, projectDomains),
         // Snapshots carry their own location for downstream detectors. In
         // practice every snapshot in a single runId shares the run's
         // location; the per-row column is the same value duplicated, but
