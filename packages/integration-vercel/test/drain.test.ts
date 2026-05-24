@@ -118,11 +118,12 @@ describe('drainVercelTrafficEvents', () => {
     expect(result.events[0].eventId).toBe('shared-boundary')
   })
 
-  test('drains a dense one-minute slice with the large floor page budget', async () => {
-    // Every pull at the normal 50-page budget overflows no matter how short the
-    // slice, so the drain narrows all the way to the one-minute floor. There it
-    // re-pulls with the larger floor budget, which drains the slice cleanly.
-    const MINUTE = 60_000
+  test('drains a dense one-second slice with the large floor page budget', async () => {
+    // Every pull at the normal 50-page budget overflows no matter how short
+    // the slice, so the drain narrows all the way to the one-second floor.
+    // There it re-pulls with the larger floor budget, which drains the slice
+    // cleanly.
+    const SECOND = 1_000
     const pull = vi.fn(async (o: ListVercelTrafficEventsOptions) => {
       if ((o.maxPages ?? 0) > baseOptions.pagesPerSubWindow) {
         return page([makeEvent(`floor-${Number(o.startDate)}`)], false)
@@ -133,20 +134,46 @@ describe('drainVercelTrafficEvents', () => {
       ...baseOptions,
       pull,
       startDate: 0,
-      endDate: 3 * MINUTE,
+      endDate: 3 * SECOND,
     })
     expect(result.events.map((e) => e.eventId).sort()).toEqual(
-      [`floor-0`, `floor-${MINUTE}`, `floor-${2 * MINUTE}`].sort(),
+      [`floor-0`, `floor-${SECOND}`, `floor-${2 * SECOND}`].sort(),
     )
   })
 
-  test('throws only when a one-minute slice overflows even the floor budget', async () => {
+  test('throws only when a one-second slice overflows even the floor budget', async () => {
     // hasMore stays true regardless of maxPages, so even the large floor-budget
     // re-pull cannot drain the slice and the drain genuinely gives up.
     const pull = vi.fn(async () => page([], true))
     await expect(
       drainVercelTrafficEvents({ ...baseOptions, pull, startDate: 0, endDate: 4 * HOUR }),
-    ).rejects.toThrow(/cannot be drained further/)
+    ).rejects.toThrow(/1-second slice holds more than 1000 pages/)
+  })
+
+  test('drains a dense minute via sub-second slicing without hitting the floor budget', async () => {
+    // The gjelina-hotel regression: a single minute holds more than the normal
+    // page budget at the minute level, but each one-second slice drains
+    // cleanly. The previous one-minute floor would have escalated to the
+    // floor-budget re-pull (or failed loudly) on every dense minute; the
+    // one-second floor handles it via ordinary subdivision instead.
+    const MINUTE = 60_000
+    const pull = vi.fn(async (o: ListVercelTrafficEventsOptions) => {
+      if ((o.maxPages ?? 0) > baseOptions.pagesPerSubWindow) {
+        throw new Error('floor-budget re-pull should not be needed for sub-minute slicing')
+      }
+      const span = Number(o.endDate) - Number(o.startDate)
+      // Any slice wider than one second overflows; one-second slices drain cleanly.
+      if (span > 1_000) return page([], true)
+      return page([makeEvent(`ev-${Number(o.startDate)}`)], false)
+    })
+    const result = await drainVercelTrafficEvents({
+      ...baseOptions,
+      pull,
+      startDate: 0,
+      endDate: MINUTE,
+    })
+    // 60 one-second sub-windows drain, one event each.
+    expect(result.events).toHaveLength(60)
   })
 
   test('throws when the window is not drained within the sub-window cap', async () => {
