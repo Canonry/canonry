@@ -7,6 +7,30 @@ function domainMatches(domain: string, canonicalDomain: string): boolean {
   return d === normalized || d.endsWith(`.${normalized}`)
 }
 
+/**
+ * Of the domains an engine cited for a (query, provider) snapshot, return the
+ * first that belongs to the project (canonical or owned domain), or `undefined`
+ * when none do.
+ *
+ * `citedDomains` is the FULL set of cited sources — project domains, tracked
+ * competitors, and third-party references intermingled in provider order. A
+ * project citation gain/regression must be labeled with the project's OWN
+ * cited URL, not `citedDomains[0]`, which is frequently a co-cited competitor
+ * (e.g. a regression on the project's page mislabeled "audit winntile.com").
+ * Returns `undefined` when the citation was established via a grounding-source
+ * match with no project domain present in `citedDomains` — better an empty
+ * target than a competitor's.
+ */
+export function pickProjectCitedDomain(
+  citedDomains: readonly string[],
+  projectDomains: string[],
+): string | undefined {
+  for (const cited of citedDomains) {
+    if (projectDomains.some(pd => domainMatches(cited, pd))) return cited
+  }
+  return undefined
+}
+
 export function determineCitationState(
   normalized: NormalizedQueryResult,
   domains: string[],
