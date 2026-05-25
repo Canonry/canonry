@@ -27,6 +27,15 @@ const MIN_SUB_WINDOW_MS = 1_000
 const FLOOR_SLICE_MAX_PAGES = 1_000
 
 /**
+ * Once a slice has been narrowed all the way to the floor, keep draining
+ * floor-width slices for this many successful pulls before probing a wider
+ * span again. Without this cooldown, a sustained dense minute bounces
+ * 1s -> 2s -> overflow -> 1s for every other second and can burn the route's
+ * sub-window cap before the cursor advances.
+ */
+const FLOOR_CONGESTION_PROBE_INTERVAL = 60
+
+/**
  * Window size used to probe Vercel's request-logs retention. Kept independent
  * of `MIN_SUB_WINDOW_MS` (the drain floor) so reducing the drain floor does
  * not narrow the retention probe to a sliver: the probe only needs a window
@@ -158,9 +167,11 @@ async function resolveRetainedStart(
  * Vercel paginates `request-logs` by page number with no resumable cursor, so
  * a window holding more than `pagesPerSubWindow` pages cannot be pulled in one
  * pass. Instead of failing, this narrows the time window: on overflow the span
- * is halved and retried; after a clean drain the span doubles back up. Events
- * are deduped by `eventId`, so the instant shared by adjacent sub-windows is
- * never double-counted.
+ * is halved and retried; after a clean drain the span usually doubles back up.
+ * Floor-width congestion is held at the floor briefly before probing wider
+ * again, so sustained burst seconds do not burn the sub-window cap by bouncing
+ * 1s -> 2s -> overflow on every other pull. Events are deduped by `eventId`,
+ * so the instant shared by adjacent sub-windows is never double-counted.
  *
  * If the requested window begins before Vercel's plan retention ceiling — the
  * `ExceedsBillingLimitError` 400 — the start is clamped forward to the
@@ -190,6 +201,8 @@ export async function drainVercelTrafficEvents(
   let effectiveStartMs = startMs
   let retentionClamped = false
   let retentionResolved = false
+  let floorSpanProbeCountdown = 0
+  let floorPageBudgetCountdown = 0
 
   while (cursorMs < endMs) {
     if (subWindowCount >= options.maxSubWindows) {
@@ -199,6 +212,9 @@ export async function drainVercelTrafficEvents(
     }
 
     const subEndMs = Math.min(cursorMs + spanMs, endMs)
+    const subSpanMs = subEndMs - cursorMs
+    const useFloorPageBudget = subSpanMs <= MIN_SUB_WINDOW_MS && floorPageBudgetCountdown > 0
+    const pageBudget = useFloorPageBudget ? FLOOR_SLICE_MAX_PAGES : options.pagesPerSubWindow
     let page: VercelTrafficEventsPage
     try {
       page = await options.pull({
@@ -208,7 +224,7 @@ export async function drainVercelTrafficEvents(
         environment: options.environment,
         startDate: cursorMs,
         endDate: subEndMs,
-        maxPages: options.pagesPerSubWindow,
+        maxPages: pageBudget,
       })
     } catch (error) {
       // The requested window predates Vercel's request-logs retention. This
@@ -229,11 +245,19 @@ export async function drainVercelTrafficEvents(
     subWindowCount += 1
 
     if (page.hasMore) {
-      const subSpanMs = subEndMs - cursorMs
       if (subSpanMs > MIN_SUB_WINDOW_MS) {
         // Sub-window still overflows: halve the span and retry from the same cursor.
         spanMs = Math.max(Math.floor(subSpanMs / 2), MIN_SUB_WINDOW_MS)
+        if (spanMs === MIN_SUB_WINDOW_MS) {
+          floorSpanProbeCountdown = FLOOR_CONGESTION_PROBE_INTERVAL
+        }
         continue
+      }
+      if (pageBudget >= FLOOR_SLICE_MAX_PAGES) {
+        throw new Error(
+          `Vercel ${MIN_SUB_WINDOW_MS / 1000}-second slice holds more than `
+            + `${FLOOR_SLICE_MAX_PAGES} pages and cannot be drained further`,
+        )
       }
       // The slice is already at the floor (`MIN_SUB_WINDOW_MS`) and the
       // normal page budget still overflowed. Time cannot be sliced thinner,
@@ -252,6 +276,8 @@ export async function drainVercelTrafficEvents(
         maxPages: FLOOR_SLICE_MAX_PAGES,
       })
       subWindowCount += 1
+      floorSpanProbeCountdown = FLOOR_CONGESTION_PROBE_INTERVAL
+      floorPageBudgetCountdown = FLOOR_CONGESTION_PROBE_INTERVAL
       if (page.hasMore) {
         throw new Error(
           `Vercel ${MIN_SUB_WINDOW_MS / 1000}-second slice holds more than `
@@ -270,7 +296,16 @@ export async function drainVercelTrafficEvents(
     // Clean drain: grow the span for the next stretch, capped at what is left.
     const remainingMs = endMs - cursorMs
     if (remainingMs > 0) {
-      spanMs = Math.min(spanMs * 2, remainingMs)
+      if (spanMs === MIN_SUB_WINDOW_MS && floorSpanProbeCountdown > 0) {
+        floorSpanProbeCountdown -= 1
+        if (floorPageBudgetCountdown > 0) floorPageBudgetCountdown -= 1
+        spanMs = Math.min(MIN_SUB_WINDOW_MS, remainingMs)
+      } else {
+        spanMs = Math.min(spanMs * 2, remainingMs)
+        if (spanMs > MIN_SUB_WINDOW_MS) {
+          floorPageBudgetCountdown = 0
+        }
+      }
     }
   }
 
