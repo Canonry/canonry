@@ -88,6 +88,14 @@ function buildVercelEvent(overrides: Partial<NormalizedTrafficRequest> = {}): No
   })
 }
 
+function vercelRetentionError(): VercelLogsApiError {
+  return new VercelLogsApiError(
+    'Vercel request-logs endpoint returned HTTP 400',
+    400,
+    '{"error":{"name":"ExceedsBillingLimitError","message":"Requested window exceeds plan retention"}}',
+  )
+}
+
 async function buildHarness(
   events: NormalizedTrafficRequest[],
   options: {
@@ -864,6 +872,42 @@ describe('POST /traffic/sources/:id/sync — Vercel', () => {
       await h.close()
     }
   })
+
+  it('fails without advancing lastSyncedAt when Vercel retention cannot cover the requested sync window', async () => {
+    let enforceRetention = false
+    const retentionBoundaryMs = Date.now() - 10 * 60_000
+    const h = await buildHarness([], {
+      vercelPullPages: ({ startDate }) => {
+        if (enforceRetention && startDate < retentionBoundaryMs) {
+          throw vercelRetentionError()
+        }
+        return { events: [], rawEntryCount: 0, skippedEntryCount: 0, hasMore: false, endpoint: '' }
+      },
+    })
+    try {
+      const sourceId = await connectVercel(h)
+      enforceRetention = true
+
+      const syncRes = await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`,
+        payload: {},
+      })
+      expect(syncRes.statusCode).toBe(502)
+      expect(JSON.parse(syncRes.payload).error.message).toMatch(/refusing to advance/)
+
+      const sourceRow = h.db.select().from(trafficSources).where(eq(trafficSources.id, sourceId)).get()!
+      expect(sourceRow.status).toBe(TrafficSourceStatuses.error)
+      expect(sourceRow.lastSyncedAt).toBeNull()
+      expect(h.db.select().from(crawlerEventsHourly).all()).toEqual([])
+
+      const runRows = h.db.select().from(runs).all()
+      expect(runRows.length).toBe(1)
+      expect(runRows[0].status).toBe(RunStatuses.failed)
+    } finally {
+      await h.close()
+    }
+  })
 })
 
 describe('POST /traffic/sources/:id/backfill — Vercel', () => {
@@ -922,7 +966,17 @@ describe('POST /traffic/sources/:id/backfill — Vercel', () => {
         if (maxPages === 1) {
           return { events: [], rawEntryCount: 0, skippedEntryCount: 0, hasMore: false, endpoint: '' }
         }
-        return { events, rawEntryCount: 3, skippedEntryCount: 0, hasMore: false, endpoint: '' }
+        const eventsInWindow = events.filter((event) => {
+          const observedMs = new Date(event.observedAt).getTime()
+          return observedMs >= startDate && observedMs < endDate
+        })
+        return {
+          events: eventsInWindow,
+          rawEntryCount: eventsInWindow.length,
+          skippedEntryCount: 0,
+          hasMore: false,
+          endpoint: '',
+        }
       },
     })
     try {
@@ -944,13 +998,16 @@ describe('POST /traffic/sources/:id/backfill — Vercel', () => {
       expect(finalRun.trigger).toBe('backfill')
       expect(finalRun.kind).toBe(RunKinds['traffic-sync'])
 
-      // The backfill drains the requested window with the per-sub-window
-      // page budget, not the probe's maxPages=1.
+      // The backfill drains the requested window in contiguous hour chunks,
+      // each with the larger one-shot backfill page budget.
       const backfillCalls = observedWindows.filter((c) => c.maxPages !== 1)
-      expect(backfillCalls.length).toBeGreaterThanOrEqual(1)
-      expect(backfillCalls[0]!.maxPages).toBe(50)
+      expect(backfillCalls.length).toBeGreaterThan(1)
+      expect(backfillCalls.every((c) => c.maxPages === 1000)).toBe(true)
       expect(backfillCalls[0]!.startDate).toBe(new Date(submitted.windowStart).getTime())
-      expect(backfillCalls[0]!.endDate).toBe(new Date(submitted.windowEnd).getTime())
+      expect(backfillCalls.at(-1)!.endDate).toBe(new Date(submitted.windowEnd).getTime())
+      for (let i = 1; i < backfillCalls.length; i += 1) {
+        expect(backfillCalls[i]!.startDate).toBe(backfillCalls[i - 1]!.endDate)
+      }
 
       const crawlerRows = h.db.select().from(crawlerEventsHourly).all()
       expect(crawlerRows.length).toBe(1)
@@ -1005,6 +1062,81 @@ describe('POST /traffic/sources/:id/backfill — Vercel', () => {
       expect(finalRun.status).toBe(RunStatuses.completed)
       expect(pullCount).toBeGreaterThan(1)
       expect(h.db.select().from(crawlerEventsHourly).all().length).toBeGreaterThan(0)
+    } finally {
+      await h.close()
+    }
+  })
+
+  it('deduplicates Vercel backfill events repeated across hour chunk boundaries', async () => {
+    const shared = buildVercelEvent({
+      eventId: 'vercel:bf:shared-boundary',
+      userAgent: 'GPTBot/1.0',
+      path: '/chunk-boundary',
+      observedAt: new Date(Date.now() - 30 * 60_000).toISOString(),
+    })
+    const h = await buildHarness([], {
+      vercelPullPages: ({ maxPages }) => {
+        if (maxPages === 1) {
+          return { events: [], rawEntryCount: 0, skippedEntryCount: 0, hasMore: false, endpoint: '' }
+        }
+        return { events: [shared], rawEntryCount: 1, skippedEntryCount: 0, hasMore: false, endpoint: '' }
+      },
+    })
+    try {
+      const sourceId = await connectVercel(h)
+
+      const submitRes = await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/backfill`,
+        payload: { days: 1 },
+      })
+      expect(submitRes.statusCode).toBe(200)
+      const submitted = JSON.parse(submitRes.payload)
+
+      const finalRun = await waitForRunComplete(h.db, submitted.runId)
+      expect(finalRun.status).toBe(RunStatuses.completed)
+
+      const crawlerRows = h.db.select().from(crawlerEventsHourly).all()
+      expect(crawlerRows.length).toBe(1)
+      expect(crawlerRows[0].hits).toBe(1)
+      expect(h.db.select().from(rawEventSamples).all().length).toBe(1)
+    } finally {
+      await h.close()
+    }
+  })
+
+  it('fails the backfill without replacing rollups when Vercel retention cannot cover the requested window', async () => {
+    let enforceRetention = false
+    const retentionBoundaryMs = Date.now() - 10 * 60_000
+    const h = await buildHarness([], {
+      vercelPullPages: ({ startDate }) => {
+        if (enforceRetention && startDate < retentionBoundaryMs) {
+          throw vercelRetentionError()
+        }
+        return { events: [], rawEntryCount: 0, skippedEntryCount: 0, hasMore: false, endpoint: '' }
+      },
+    })
+    try {
+      const sourceId = await connectVercel(h)
+      enforceRetention = true
+
+      const submitRes = await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/backfill`,
+        payload: { days: 7 },
+      })
+      expect(submitRes.statusCode).toBe(200)
+      const submitted = JSON.parse(submitRes.payload)
+
+      const finalRun = await waitForRunComplete(h.db, submitted.runId)
+      expect(finalRun.status).toBe(RunStatuses.failed)
+      expect(finalRun.error).toMatch(/refusing to advance/)
+
+      const sourceRow = h.db.select().from(trafficSources).where(eq(trafficSources.id, sourceId)).get()!
+      expect(sourceRow.status).toBe(TrafficSourceStatuses.error)
+      expect(sourceRow.lastSyncedAt).toBeNull()
+      expect(h.db.select().from(crawlerEventsHourly).all()).toEqual([])
+      expect(h.db.select().from(rawEventSamples).all()).toEqual([])
     } finally {
       await h.close()
     }

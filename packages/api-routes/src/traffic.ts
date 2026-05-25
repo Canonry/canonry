@@ -229,9 +229,14 @@ const DEFAULT_WP_MAX_PAGES = 20
 // slice fits. This is the per-sub-window page budget.
 const DEFAULT_VERCEL_MAX_PAGES = 50
 // Hard cap on adaptive sub-windows a single Vercel drain may walk before it
-// gives up. Generous enough that a normal sync or a 30-day backfill never
-// reaches it; a window this fragmented should be narrowed by the operator.
+// gives up. This bounds provider calls for pathological windows while still
+// leaving room for bursty minutes to drain through one-second slices.
 const VERCEL_MAX_SUB_WINDOWS = 5_000
+// Vercel request-logs uses page-number pagination inside a fixed time window.
+// Backfill large ranges as independent hour chunks so each chunk gets the full
+// adaptive sub-window budget and one dense hour cannot make a multi-day
+// recovery window impossible to drain.
+const VERCEL_BACKFILL_CHUNK_MS = 60 * 60_000
 // Bounded ring buffer of the most-recent normalized event IDs from the last
 // sync. Used to dedupe events that fall in the small overlap window between
 // `lastSyncedAt` and the new sync's `windowStart`. Sized for the practical
@@ -294,6 +299,14 @@ export async function defaultResolveAccessToken(record: CloudRunCredentialRecord
  * route's closure.
  */
 type BackfillPullFn = () => Promise<NormalizedTrafficRequest[]>
+
+function vercelRetentionClampError(requestedStartMs: number, effectiveStartMs: number): Error {
+  return new Error(
+    `Vercel request-logs retention starts at ${new Date(effectiveStartMs).toISOString()}, `
+      + `after requested start ${new Date(requestedStartMs).toISOString()}; refusing to advance `
+      + 'because historical traffic would be skipped',
+  )
+}
 
 interface RunBackfillTaskOptions {
   app: FastifyInstance
@@ -1276,11 +1289,13 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         await pinnedDispatcher.close().catch(() => {})
       }
     } else {
-      // Vercel `request-logs` adapter. Pulls a clamped `[windowStart,
+      // Vercel `request-logs` adapter. Pulls the full `[windowStart,
       // windowEnd]` time window. Vercel paginates by page number with no
       // resumable cursor, so a dense window is drained in adaptive time
       // sub-windows: `drainVercelTrafficEvents` narrows the span until each
-      // slice fits the per-sub-window page budget, deduping by eventId.
+      // slice fits the per-sub-window page budget, deduping by eventId. If
+      // Vercel can only serve a retained tail, the sync fails before commit so
+      // `lastSyncedAt` never advances across missing history.
       auditAction = 'traffic.vercel.synced'
       const credentialStore = opts.vercelTrafficCredentialStore
       if (!credentialStore) {
@@ -1332,18 +1347,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
           maxSubWindows: VERCEL_MAX_SUB_WINDOWS,
         })
         if (drained.retentionClamped) {
-          // An idle source whose lastSyncedAt aged past Vercel's request-logs
-          // retention self-heals here: drain what is still served, advance the
-          // cursor, surface the gap rather than failing every sync forever.
-          app.log.warn(
-            {
-              sourceId: sourceRow.id,
-              requestedStart: windowStart.toISOString(),
-              servedStart: new Date(drained.effectiveStartMs).toISOString(),
-            },
-            'Vercel request-logs retention clamp: sync window predated plan retention; '
-              + 'ingested only the portion Vercel still serves',
-          )
+          throw vercelRetentionClampError(windowStart.getTime(), drained.effectiveStartMs)
         }
         allEvents = drained.events
       } catch (e) {
@@ -1801,12 +1805,12 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       }
     } else {
       // Vercel `request-logs` window backfill. Pulls the fixed
-      // `[windowStart, windowEnd]` window with a large page budget. Backfill
-      // is replace mode — runBackfillTask deletes the window's rollup buckets
-      // before re-ingesting — so a truncated pull would wipe existing data
-      // and leave only a partial set. If the budget is exhausted with
-      // `hasMore` still true, fail loudly (mirrors the sync path) so the
-      // operator re-runs with a narrower `--days` instead of losing rows.
+      // `[windowStart, windowEnd]` window in hour chunks with a large page
+      // budget. Backfill is replace mode — runBackfillTask deletes the
+      // window's rollup buckets before re-ingesting — so a truncated pull
+      // would wipe existing data and leave only a partial set. If Vercel
+      // cannot serve any chunk fully, fail loudly before the replace
+      // transaction instead of losing rows.
       const credentialStore = opts.vercelTrafficCredentialStore
       if (!credentialStore) {
         throw validationError('Vercel traffic credential storage is not configured for this deployment')
@@ -1826,38 +1830,36 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
 
       pullErrorPrefix = 'Vercel pull failed'
       pullForBackfill = async () => {
-        const drained = await drainVercelTrafficEvents({
-          pull: pullVercelEvents,
-          token: credential.token,
-          projectId: vercelProjectId,
-          teamId: vercelTeamId,
-          environment: vercelEnvironment,
-          startDate: windowStart.getTime(),
-          endDate: windowEnd.getTime(),
-          pagesPerSubWindow: vercelMaxPages,
-          maxSubWindows: VERCEL_MAX_SUB_WINDOWS,
-        })
-        if (drained.retentionClamped) {
-          // Requested more history than Vercel's plan retains. The drain
-          // clamped the start forward to what request-logs would serve, so
-          // the backfill succeeds with the available portion instead of
-          // failing on an opaque HTTP 400.
-          const servedDays = Math.round(
-            (windowEnd.getTime() - drained.effectiveStartMs) / 86_400_000,
-          )
-          app.log.warn(
-            {
-              sourceId: sourceRow.id,
-              requestedDays,
-              servedDays,
-              requestedStart: windowStart.toISOString(),
-              servedStart: new Date(drained.effectiveStartMs).toISOString(),
-            },
-            'Vercel request-logs retention clamp: backfill window predates plan retention; '
-              + 'ingested only the portion Vercel still serves',
-          )
+        const collected: NormalizedTrafficRequest[] = []
+        const seenEventIds = new Set<string>()
+        const backfillEndMs = windowEnd.getTime()
+        for (
+          let chunkStartMs = windowStart.getTime();
+          chunkStartMs < backfillEndMs;
+          chunkStartMs += VERCEL_BACKFILL_CHUNK_MS
+        ) {
+          const chunkEndMs = Math.min(chunkStartMs + VERCEL_BACKFILL_CHUNK_MS, backfillEndMs)
+          const drained = await drainVercelTrafficEvents({
+            pull: pullVercelEvents,
+            token: credential.token,
+            projectId: vercelProjectId,
+            teamId: vercelTeamId,
+            environment: vercelEnvironment,
+            startDate: chunkStartMs,
+            endDate: chunkEndMs,
+            pagesPerSubWindow: BACKFILL_MAX_PAGES,
+            maxSubWindows: VERCEL_MAX_SUB_WINDOWS,
+          })
+          if (drained.retentionClamped) {
+            throw vercelRetentionClampError(chunkStartMs, drained.effectiveStartMs)
+          }
+          for (const event of drained.events) {
+            if (seenEventIds.has(event.eventId)) continue
+            seenEventIds.add(event.eventId)
+            collected.push(event)
+          }
         }
-        return drained.events
+        return collected
       }
     }
 

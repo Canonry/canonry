@@ -6,7 +6,9 @@ import { VercelLogsApiError } from '../src/client.js'
 import { drainVercelTrafficEvents } from '../src/drain.js'
 import type { ListVercelTrafficEventsOptions, VercelTrafficEventsPage } from '../src/types.js'
 
-const HOUR = 60 * 60_000
+const SECOND = 1_000
+const MINUTE = 60 * SECOND
+const HOUR = 60 * MINUTE
 
 /** A Vercel retention rejection — HTTP 400 with the `ExceedsBillingLimitError` body. */
 function retentionError(): VercelLogsApiError {
@@ -123,7 +125,6 @@ describe('drainVercelTrafficEvents', () => {
     // the slice, so the drain narrows all the way to the one-second floor.
     // There it re-pulls with the larger floor budget, which drains the slice
     // cleanly.
-    const SECOND = 1_000
     const pull = vi.fn(async (o: ListVercelTrafficEventsOptions) => {
       if ((o.maxPages ?? 0) > baseOptions.pagesPerSubWindow) {
         return page([makeEvent(`floor-${Number(o.startDate)}`)], false)
@@ -150,13 +151,12 @@ describe('drainVercelTrafficEvents', () => {
     ).rejects.toThrow(/1-second slice holds more than 1000 pages/)
   })
 
-  test('drains a dense minute via sub-second slicing without hitting the floor budget', async () => {
+  test('drains a dense minute via one-second slicing without hitting the floor budget', async () => {
     // The gjelina-hotel regression: a single minute holds more than the normal
     // page budget at the minute level, but each one-second slice drains
     // cleanly. The previous one-minute floor would have escalated to the
     // floor-budget re-pull (or failed loudly) on every dense minute; the
     // one-second floor handles it via ordinary subdivision instead.
-    const MINUTE = 60_000
     const pull = vi.fn(async (o: ListVercelTrafficEventsOptions) => {
       if ((o.maxPages ?? 0) > baseOptions.pagesPerSubWindow) {
         throw new Error('floor-budget re-pull should not be needed for sub-minute slicing')
@@ -174,6 +174,56 @@ describe('drainVercelTrafficEvents', () => {
     })
     // 60 one-second sub-windows drain, one event each.
     expect(result.events).toHaveLength(60)
+  })
+
+  test('keeps congested one-second slicing under the sub-window cap', async () => {
+    const pull = vi.fn(async (o: ListVercelTrafficEventsOptions) => {
+      if ((o.maxPages ?? 0) > baseOptions.pagesPerSubWindow) {
+        throw new Error('floor-budget re-pull should not be needed when one-second slices fit')
+      }
+      const span = Number(o.endDate) - Number(o.startDate)
+      if (span > SECOND) return page([], true)
+      return page([makeEvent(`ev-${Number(o.startDate)}`)], false)
+    })
+    const result = await drainVercelTrafficEvents({
+      ...baseOptions,
+      pull,
+      maxSubWindows: 5_000,
+      startDate: 0,
+      endDate: HOUR,
+    })
+    expect(result.events).toHaveLength(60 * 60)
+    expect(result.subWindowCount).toBeLessThan(5_000)
+
+    const widerOverflowPulls = pull.mock.calls.filter(([o]) => {
+      const span = Number(o.endDate) - Number(o.startDate)
+      return span > SECOND
+    })
+    expect(widerOverflowPulls.length).toBeLessThan(100)
+  })
+
+  test('reuses the floor page budget during sustained one-second overflow', async () => {
+    const pull = vi.fn(async (o: ListVercelTrafficEventsOptions) => {
+      const span = Number(o.endDate) - Number(o.startDate)
+      if (span > SECOND) return page([], true)
+      if ((o.maxPages ?? 0) <= baseOptions.pagesPerSubWindow) return page([], true)
+      return page([makeEvent(`floor-${Number(o.startDate)}`)], false)
+    })
+    const result = await drainVercelTrafficEvents({
+      ...baseOptions,
+      pull,
+      maxSubWindows: 5_000,
+      startDate: 0,
+      endDate: HOUR,
+    })
+    expect(result.events).toHaveLength(60 * 60)
+    expect(result.subWindowCount).toBeLessThan(5_000)
+
+    const normalFloorPulls = pull.mock.calls.filter(([o]) => {
+      const span = Number(o.endDate) - Number(o.startDate)
+      return span === SECOND && o.maxPages === baseOptions.pagesPerSubWindow
+    })
+    expect(normalFloorPulls.length).toBeLessThan(100)
   })
 
   test('throws when the window is not drained within the sub-window cap', async () => {
