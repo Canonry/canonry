@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { TrafficEventKinds, type TrafficEventEntry } from '@ainyc/canonry-contracts'
+import { TrafficEventKinds, VerificationStatuses, type TrafficEventEntry } from '@ainyc/canonry-contracts'
 
 import {
   bucketForChartClick,
@@ -7,6 +7,7 @@ import {
   filterTrafficEvents,
   identityOf,
   pathOf,
+  verificationOf,
 } from '../src/lib/traffic-event-filter.js'
 
 function crawler(overrides: Partial<Extract<TrafficEventEntry, { kind: 'crawler' }>> = {}): TrafficEventEntry {
@@ -89,6 +90,7 @@ describe('filterTrafficEvents', () => {
     operator: '',
     pathQuery: '',
     statusClass: 'all',
+    verification: 'all',
   })
 
   test('returns all events when no filters set', () => {
@@ -138,6 +140,7 @@ describe('filterTrafficEvents', () => {
         operator: 'OpenAI',
         pathQuery: 'sitemap',
         statusClass: 'all',
+        verification: 'all',
       },
       'hour',
     )
@@ -190,6 +193,65 @@ describe('filterTrafficEvents', () => {
     )
     expect(result.length).toBe(1)
     expect(result[0]!.status).toBe(200)
+  })
+
+  test('verification=all is the no-op default', () => {
+    const result = filterTrafficEvents(events, { ...defaults(), verification: 'all' }, 'hour')
+    expect(result.length).toBe(4)
+  })
+
+  test('verification=verified keeps only events with that claim and excludes ai-referrals', () => {
+    // The base set has no `verified` crawler — seed one and confirm only
+    // it survives. The ai-referral events lack verificationStatus so they
+    // must drop out when a concrete claim is requested.
+    const seeded = [
+      ...events,
+      crawler({ tsHour: '2026-05-07T04:00:00.000Z', verificationStatus: VerificationStatuses.verified, botId: 'OAI-SearchBot' }),
+    ]
+    const result = filterTrafficEvents(seeded, { ...defaults(), verification: VerificationStatuses.verified }, 'hour')
+    expect(result.length).toBe(1)
+    expect(result[0]!.kind).toBe(TrafficEventKinds.crawler)
+    expect(identityOf(result[0]!)).toBe('OAI-SearchBot')
+  })
+
+  test('verification=claimed_unverified passes UA-only crawler matches and excludes ai-referrals', () => {
+    const result = filterTrafficEvents(
+      events,
+      { ...defaults(), verification: VerificationStatuses.claimed_unverified },
+      'hour',
+    )
+    // Both base crawler events are claimed_unverified; both ai-referrals
+    // must be excluded.
+    expect(result.length).toBe(2)
+    expect(result.every((e) => e.kind === TrafficEventKinds.crawler)).toBe(true)
+  })
+
+  test('verification composes with other filters (AND semantics)', () => {
+    // operator='OpenAI' alone returns 2 events (one crawler verified=false,
+    // one ai-referral). Adding verification=claimed_unverified excludes the
+    // ai-referral, leaving only the GPTBot crawler.
+    const result = filterTrafficEvents(
+      events,
+      { ...defaults(), operator: 'OpenAI', verification: VerificationStatuses.claimed_unverified },
+      'hour',
+    )
+    expect(result.length).toBe(1)
+    expect(identityOf(result[0]!)).toBe('GPTBot')
+  })
+})
+
+describe('verificationOf', () => {
+  test('returns the verification status for crawler events', () => {
+    expect(verificationOf(crawler({ verificationStatus: VerificationStatuses.verified }))).toBe(
+      VerificationStatuses.verified,
+    )
+    expect(verificationOf(crawler({ verificationStatus: VerificationStatuses.claimed_unverified }))).toBe(
+      VerificationStatuses.claimed_unverified,
+    )
+  })
+
+  test('returns null for ai-referral events (no verification concept)', () => {
+    expect(verificationOf(aiReferral())).toBeNull()
   })
 })
 

@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, useCanGoBack, useParams } from '@tanstack/react-router'
-import { ArrowLeft, RefreshCw, X } from 'lucide-react'
+import { ArrowLeft, ChevronLeft, ChevronRight, RefreshCw, X } from 'lucide-react'
 
 import { TrafficEventKinds, type TrafficEventEntry } from '@ainyc/canonry-contracts'
 
@@ -38,8 +38,10 @@ import {
   identityOf,
   pathOf,
   STATUS_CLASS_OPTIONS,
+  VERIFICATION_OPTIONS,
   type EventGranularity,
   type StatusClassFilter,
+  type VerificationFilter,
 } from '../lib/traffic-event-filter.js'
 
 type SeriesKind = 'crawler' | 'ai-user-fetch' | 'ai-referral'
@@ -61,7 +63,9 @@ const WINDOW_OPTIONS: readonly WindowOption[] = [
   { value: 90 * 24 * 60, label: '90d', granularity: 'day', fetchLimit: 5000 },
 ] as const
 
-const DEFAULT_WINDOW = WINDOW_OPTIONS.find((w) => w.label === '7d') ?? WINDOW_OPTIONS[2]
+const DEFAULT_WINDOW = WINDOW_OPTIONS.find((w) => w.label === '24h') ?? WINDOW_OPTIONS[2]
+
+const EVENTS_PAGE_SIZE = 50
 
 const CRAWLER_COLOR = CHART_SERIES_COLORS[0]
 const AI_USER_FETCH_COLOR = CHART_SERIES_COLORS[2]
@@ -152,6 +156,8 @@ export function TrafficSourceDetailPage() {
   const [operatorFilter, setOperatorFilter] = useState<string>('')
   const [pathFilter, setPathFilter] = useState<string>('')
   const [statusClassFilter, setStatusClassFilter] = useState<StatusClassFilter>('all')
+  const [verificationFilter, setVerificationFilter] = useState<VerificationFilter>('all')
+  const [eventsPage, setEventsPage] = useState<number>(1)
   const [syncError, setSyncError] = useState<string | null>(null)
   const [syncResult, setSyncResult] = useState<string | null>(null)
 
@@ -209,11 +215,38 @@ export function TrafficSourceDetailPage() {
           operator: operatorFilter,
           pathQuery: pathFilter,
           statusClass: statusClassFilter,
+          verification: verificationFilter,
         },
         activeWindow.granularity,
       ),
-    [visibleEvents, selectedBucket, identityFilter, operatorFilter, pathFilter, statusClassFilter, activeWindow.granularity],
+    [visibleEvents, selectedBucket, identityFilter, operatorFilter, pathFilter, statusClassFilter, verificationFilter, activeWindow.granularity],
   )
+
+  // Reset to page 1 whenever the underlying event slice changes — filter
+  // tweaks, series toggles, or a different time window — so the user doesn't
+  // land on a stale (now empty) page after a filter narrows the result set.
+  useEffect(() => {
+    setEventsPage(1)
+  }, [
+    visibleEvents,
+    selectedBucket,
+    identityFilter,
+    operatorFilter,
+    pathFilter,
+    statusClassFilter,
+    verificationFilter,
+  ])
+
+  const totalEventsPages = Math.max(1, Math.ceil(filteredEvents.length / EVENTS_PAGE_SIZE))
+  const currentEventsPage = Math.min(Math.max(1, eventsPage), totalEventsPages)
+  const eventsPageStart = (currentEventsPage - 1) * EVENTS_PAGE_SIZE
+  const pagedEvents = useMemo(
+    () => filteredEvents.slice(eventsPageStart, eventsPageStart + EVENTS_PAGE_SIZE),
+    [filteredEvents, eventsPageStart],
+  )
+  const showPagination = filteredEvents.length > EVENTS_PAGE_SIZE
+  const pageRangeStart = filteredEvents.length === 0 ? 0 : eventsPageStart + 1
+  const pageRangeEnd = Math.min(eventsPageStart + EVENTS_PAGE_SIZE, filteredEvents.length)
 
   const selectedBucketLabel = useMemo(
     () => (selectedBucket ? bucketLabelFor(selectedBucket, activeWindow.granularity) : null),
@@ -249,10 +282,16 @@ export function TrafficSourceDetailPage() {
     setOperatorFilter('')
     setPathFilter('')
     setStatusClassFilter('all')
+    setVerificationFilter('all')
   }
 
   const hasRowFilter = Boolean(
-    selectedBucket || identityFilter || operatorFilter || pathFilter.trim() || statusClassFilter !== 'all',
+    selectedBucket
+      || identityFilter
+      || operatorFilter
+      || pathFilter.trim()
+      || statusClassFilter !== 'all'
+      || verificationFilter !== 'all',
   )
 
   const handleSync = async () => {
@@ -548,6 +587,18 @@ export function TrafficSourceDetailPage() {
                 </option>
               ))}
             </select>
+            <select
+              aria-label="Filter by verification claim"
+              value={verificationFilter}
+              onChange={(e) => setVerificationFilter(e.target.value as VerificationFilter)}
+              className="rounded-md border border-zinc-800 bg-zinc-950 px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus-visible:ring-1 focus-visible:ring-zinc-600"
+            >
+              {VERIFICATION_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
             <input
               type="search"
               aria-label="Filter by path"
@@ -579,6 +630,12 @@ export function TrafficSourceDetailPage() {
                 onClear={() => setStatusClassFilter('all')}
               />
             ) : null}
+            {verificationFilter !== 'all' ? (
+              <ActiveFilterPill
+                label={`Claim: ${labelForVerification(verificationFilter)}`}
+                onClear={() => setVerificationFilter('all')}
+              />
+            ) : null}
             <button
               type="button"
               onClick={clearAllFilters}
@@ -589,7 +646,43 @@ export function TrafficSourceDetailPage() {
           </div>
         ) : null}
 
-        <EventsTable events={filteredEvents} />
+        <EventsTable events={pagedEvents} />
+
+        {showPagination ? (
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 text-xs text-zinc-400">
+            <p className="tabular-nums">
+              Showing <span className="text-zinc-300">{pageRangeStart.toLocaleString('en-US')}</span>–
+              <span className="text-zinc-300">{pageRangeEnd.toLocaleString('en-US')}</span> of{' '}
+              <span className="text-zinc-300">{filteredEvents.length.toLocaleString('en-US')}</span> events
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setEventsPage((p) => Math.max(1, p - 1))}
+                disabled={currentEventsPage <= 1}
+                aria-label="Previous page"
+                className="inline-flex items-center gap-1 rounded-md border border-zinc-800 bg-zinc-950 px-2.5 py-1.5 text-zinc-200 transition hover:border-zinc-700 hover:text-zinc-50 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-zinc-800 disabled:hover:text-zinc-200"
+              >
+                <ChevronLeft className="size-3.5" />
+                Prev
+              </button>
+              <span className="tabular-nums">
+                Page <span className="text-zinc-200">{currentEventsPage}</span> of{' '}
+                <span className="text-zinc-200">{totalEventsPages}</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => setEventsPage((p) => Math.min(totalEventsPages, p + 1))}
+                disabled={currentEventsPage >= totalEventsPages}
+                aria-label="Next page"
+                className="inline-flex items-center gap-1 rounded-md border border-zinc-800 bg-zinc-950 px-2.5 py-1.5 text-zinc-200 transition hover:border-zinc-700 hover:text-zinc-50 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-zinc-800 disabled:hover:text-zinc-200"
+              >
+                Next
+                <ChevronRight className="size-3.5" />
+              </button>
+            </div>
+          </div>
+        ) : null}
       </section>
     </div>
   )
@@ -671,6 +764,10 @@ function buildChartData(
   }
 
   return [...byBucket.values()].sort((a, b) => (a.bucket < b.bucket ? -1 : a.bucket > b.bucket ? 1 : 0))
+}
+
+function labelForVerification(value: VerificationFilter): string {
+  return VERIFICATION_OPTIONS.find((opt) => opt.value === value)?.label ?? value
 }
 
 function ActiveFilterPill({ label, onClear }: { label: string; onClear: () => void }) {

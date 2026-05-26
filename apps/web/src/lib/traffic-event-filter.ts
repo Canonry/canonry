@@ -1,4 +1,4 @@
-import { TrafficEventKinds, type TrafficEventEntry } from '@ainyc/canonry-contracts'
+import { TrafficEventKinds, VerificationStatuses, type TrafficEventEntry, type VerificationStatus } from '@ainyc/canonry-contracts'
 
 export type EventGranularity = 'hour' | 'day'
 
@@ -17,12 +17,30 @@ export const STATUS_CLASS_OPTIONS: ReadonlyArray<{ value: StatusClassFilter; lab
   { value: '5xx', label: '5xx server error' },
 ]
 
+/**
+ * Verification-class filter for crawler / AI-user-fetch claims. `'all'` is the
+ * no-op default. The three concrete values mirror `VerificationStatuses` —
+ * `verified` (source IP in the operator's published range), `claimed_unverified`
+ * (UA-only match), and `unknown_ai_like` (behavioral heuristic, reserved). Picking
+ * a concrete value excludes `ai-referral` events, which have no verification
+ * concept (they're session referrers, not bot fetches).
+ */
+export type VerificationFilter = 'all' | VerificationStatus
+
+export const VERIFICATION_OPTIONS: ReadonlyArray<{ value: VerificationFilter; label: string }> = [
+  { value: 'all', label: 'All claims' },
+  { value: VerificationStatuses.verified, label: 'Verified' },
+  { value: VerificationStatuses.claimed_unverified, label: 'Claimed unverified' },
+  { value: VerificationStatuses.unknown_ai_like, label: 'Unknown AI-like' },
+]
+
 export interface TrafficEventFilters {
   selectedBucket: string | null
   identity: string
   operator: string
   pathQuery: string
   statusClass: StatusClassFilter
+  verification: VerificationFilter
 }
 
 /**
@@ -54,6 +72,22 @@ export function pathOf(event: TrafficEventEntry): string {
   }
 }
 
+/**
+ * Returns the event's verification status, or `null` for ai-referral events
+ * (which lack the concept). A `null` return means "not subject to the
+ * verification filter" — picking a concrete verification class will exclude
+ * these events.
+ */
+export function verificationOf(event: TrafficEventEntry): string | null {
+  switch (event.kind) {
+    case TrafficEventKinds.crawler:
+    case TrafficEventKinds['ai-user-fetch']:
+      return event.verificationStatus
+    case TrafficEventKinds['ai-referral']:
+      return null
+  }
+}
+
 export function bucketKeyFor(tsHour: string, granularity: EventGranularity): string {
   if (granularity === 'hour') return tsHour
   const d = new Date(tsHour)
@@ -76,6 +110,7 @@ export function filterTrafficEvents(
     if (filters.operator && event.operator !== filters.operator) return false
     if (needle && !pathOf(event).toLowerCase().includes(needle)) return false
     if (statusDigit !== null && Math.floor(event.status / 100) !== statusDigit) return false
+    if (filters.verification !== 'all' && verificationOf(event) !== filters.verification) return false
     return true
   })
 }
