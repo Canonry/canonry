@@ -6,6 +6,7 @@ import { TrafficEventKinds, type TrafficEventEntry } from '@ainyc/canonry-contra
 
 import { Button } from '../components/ui/button.js'
 import { Card } from '../components/ui/card.js'
+import { InfoTooltip } from '../components/shared/InfoTooltip.js'
 import { ScoreGauge } from '../components/shared/ScoreGauge.js'
 import { ToneBadge } from '../components/shared/ToneBadge.js'
 import { extractErrorMessage } from '../lib/extract-error-message.js'
@@ -549,32 +550,38 @@ export function TrafficSourceDetailPage() {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <select
-              aria-label="Filter by identity"
-              value={identityFilter}
-              onChange={(e) => setIdentityFilter(e.target.value)}
-              className="rounded-md border border-zinc-800 bg-zinc-950 px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus-visible:ring-1 focus-visible:ring-zinc-600"
-            >
-              <option value="">All identities</option>
-              {identityOptions.map((opt) => (
-                <option key={opt} value={opt}>
-                  {opt}
-                </option>
-              ))}
-            </select>
-            <select
-              aria-label="Filter by operator"
-              value={operatorFilter}
-              onChange={(e) => setOperatorFilter(e.target.value)}
-              className="rounded-md border border-zinc-800 bg-zinc-950 px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus-visible:ring-1 focus-visible:ring-zinc-600"
-            >
-              <option value="">All operators</option>
-              {operatorOptions.map((opt) => (
-                <option key={opt} value={opt}>
-                  {opt}
-                </option>
-              ))}
-            </select>
+            <span className="inline-flex items-center text-zinc-400">
+              <select
+                aria-label="Filter by identity"
+                value={identityFilter}
+                onChange={(e) => setIdentityFilter(e.target.value)}
+                className="rounded-md border border-zinc-800 bg-zinc-950 px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus-visible:ring-1 focus-visible:ring-zinc-600"
+              >
+                <option value="">All identities</option>
+                {identityOptions.map((opt) => (
+                  <option key={opt} value={opt}>
+                    {opt}
+                  </option>
+                ))}
+              </select>
+              <InfoTooltip text="The specific bot or AI product making the request (e.g., GPTBot, ChatGPT-User, Perplexity). One operator usually runs several identities." />
+            </span>
+            <span className="inline-flex items-center text-zinc-400">
+              <select
+                aria-label="Filter by operator"
+                value={operatorFilter}
+                onChange={(e) => setOperatorFilter(e.target.value)}
+                className="rounded-md border border-zinc-800 bg-zinc-950 px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus-visible:ring-1 focus-visible:ring-zinc-600"
+              >
+                <option value="">All operators</option>
+                {operatorOptions.map((opt) => (
+                  <option key={opt} value={opt}>
+                    {opt}
+                  </option>
+                ))}
+              </select>
+              <InfoTooltip text="The company that runs the bot or product (e.g., OpenAI, Anthropic, Perplexity). Filtering by operator includes every identity under that company." />
+            </span>
             <select
               aria-label="Filter by HTTP status class"
               value={statusClassFilter}
@@ -865,7 +872,12 @@ function EventsTable({ events }: { events: readonly TrafficEventEntry[] }) {
             <th className="px-4 py-2 text-left">Identity</th>
             <th className="px-4 py-2 text-left">Evidence / status</th>
             <th className="px-4 py-2 text-left">Path</th>
-            <th className="px-4 py-2 text-right">Hits</th>
+            <th className="px-4 py-2 text-right">
+              <span className="inline-flex items-center">
+                Hits
+                <InfoTooltip text="Each row is one hour-bucket, not one request. Hits is the number of requests in that hour that shared the same identity, path, HTTP status, and verification claim." />
+              </span>
+            </th>
           </tr>
         </thead>
         <tbody className="divide-y divide-zinc-800/60">
