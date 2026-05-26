@@ -60,6 +60,18 @@ export interface ListVercelTrafficEventsOptions {
   /** Max pages to walk (the endpoint paginates by `page`). Defaults to 1. */
   maxPages?: number
   timeoutMs?: number
+  /**
+   * Max retry attempts on transient failures (HTTP 429, 5xx, network errors).
+   * Defaults to 3 — total attempts capped at `maxRetries + 1`. Set to 0 to
+   * disable retry entirely (mirrors the pre-retry behavior).
+   */
+  maxRetries?: number
+  /**
+   * Initial backoff before the first retry. Doubles each subsequent attempt
+   * (1s, 2s, 4s …). A `Retry-After` header from Vercel overrides this for
+   * the corresponding attempt. Defaults to 1000ms.
+   */
+  initialRetryDelayMs?: number
 }
 
 export interface VercelTrafficEventsPage {
