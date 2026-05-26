@@ -209,4 +209,177 @@ describe('listVercelTrafficEvents', () => {
     expect(result.skippedEntryCount).toBe(1)
     expect(result.events).toHaveLength(1)
   })
+
+  /**
+   * Retry-on-transient is the difference between a 73-minute backfill that
+   * recovers from one Vercel 502 mid-flight and one that throws all its work
+   * away at the replace-mode rollback. The cases below pin the contract so a
+   * future refactor can't silently remove that resilience.
+   */
+  describe('transient-failure retry', () => {
+    const successPayload = () => new Response(
+      JSON.stringify({ rows: [statusZeroRow], hasMoreRows: false }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    )
+
+    function makeFetch(responses: Array<Response | Error>): () => Promise<Response> {
+      let i = 0
+      return async () => {
+        const next = responses[i++]
+        if (!next) throw new Error('test fetch ran out of scripted responses')
+        if (next instanceof Error) throw next
+        return next
+      }
+    }
+
+    it('retries on HTTP 502 and returns the eventual success', async () => {
+      fetchSpy.mockImplementation(makeFetch([
+        new Response('upstream broken', { status: 502 }),
+        new Response('upstream broken', { status: 502 }),
+        successPayload(),
+      ]))
+
+      const result = await listVercelTrafficEvents({
+        token: 'vcp_test',
+        projectId: 'prj_abc',
+        teamId: 'team_xyz',
+        startDate: 0,
+        endDate: 1,
+        initialRetryDelayMs: 0,
+      })
+      expect(fetchSpy).toHaveBeenCalledTimes(3)
+      expect(result.events).toHaveLength(1)
+    })
+
+    it('retries on HTTP 503 and 429 too', async () => {
+      fetchSpy.mockImplementation(makeFetch([
+        new Response('service unavailable', { status: 503 }),
+        new Response('too many requests', { status: 429 }),
+        successPayload(),
+      ]))
+
+      const result = await listVercelTrafficEvents({
+        token: 'vcp_test',
+        projectId: 'prj_abc',
+        teamId: 'team_xyz',
+        startDate: 0,
+        endDate: 1,
+        initialRetryDelayMs: 0,
+      })
+      expect(fetchSpy).toHaveBeenCalledTimes(3)
+      expect(result.events).toHaveLength(1)
+    })
+
+    it('honors Retry-After when shorter than the computed backoff', async () => {
+      fetchSpy.mockImplementation(makeFetch([
+        new Response('rate limited', {
+          status: 429,
+          headers: { 'Retry-After': '0' },
+        }),
+        successPayload(),
+      ]))
+
+      // No need to mock timing; Retry-After=0 short-circuits any sleep.
+      await listVercelTrafficEvents({
+        token: 'vcp_test',
+        projectId: 'prj_abc',
+        teamId: 'team_xyz',
+        startDate: 0,
+        endDate: 1,
+        // Set a huge initialRetryDelayMs to prove Retry-After overrides it —
+        // if the override were broken this test would hang for ~60s.
+        initialRetryDelayMs: 60_000,
+      })
+      expect(fetchSpy).toHaveBeenCalledTimes(2)
+    })
+
+    it('retries on a network error from fetch itself', async () => {
+      fetchSpy.mockImplementation(makeFetch([
+        new TypeError('fetch failed'),
+        successPayload(),
+      ]))
+
+      const result = await listVercelTrafficEvents({
+        token: 'vcp_test',
+        projectId: 'prj_abc',
+        teamId: 'team_xyz',
+        startDate: 0,
+        endDate: 1,
+        initialRetryDelayMs: 0,
+      })
+      expect(fetchSpy).toHaveBeenCalledTimes(2)
+      expect(result.events).toHaveLength(1)
+    })
+
+    it('does NOT retry on 4xx auth/permission errors', async () => {
+      fetchSpy.mockImplementation(async () => new Response('forbidden', { status: 403 }))
+
+      const error = await listVercelTrafficEvents({
+        token: 'vcp_bad',
+        projectId: 'prj_abc',
+        teamId: 'team_xyz',
+        startDate: 0,
+        endDate: 1,
+        initialRetryDelayMs: 0,
+      }).catch((err: unknown) => err)
+      expect(error).toBeInstanceOf(VercelLogsApiError)
+      expect((error as VercelLogsApiError).status).toBe(403)
+      expect(fetchSpy).toHaveBeenCalledTimes(1)
+    })
+
+    it('does NOT retry on a retention 400 (ExceedsBillingLimitError)', async () => {
+      // The drain.ts retention probe relies on this — a retried retention 400
+      // would multiply probe cost by 4x and slow the backfill noticeably.
+      fetchSpy.mockImplementation(async () => new Response(
+        '{"error":{"name":"ExceedsBillingLimitError","message":"out of retention"}}',
+        { status: 400 },
+      ))
+
+      const error = await listVercelTrafficEvents({
+        token: 'vcp_test',
+        projectId: 'prj_abc',
+        teamId: 'team_xyz',
+        startDate: 0,
+        endDate: 1,
+        initialRetryDelayMs: 0,
+      }).catch((err: unknown) => err)
+      expect(error).toBeInstanceOf(VercelLogsApiError)
+      expect((error as VercelLogsApiError).status).toBe(400)
+      expect(fetchSpy).toHaveBeenCalledTimes(1)
+    })
+
+    it('gives up after maxRetries+1 attempts and rethrows the last error', async () => {
+      fetchSpy.mockImplementation(async () => new Response('upstream broken', { status: 502 }))
+
+      const error = await listVercelTrafficEvents({
+        token: 'vcp_test',
+        projectId: 'prj_abc',
+        teamId: 'team_xyz',
+        startDate: 0,
+        endDate: 1,
+        maxRetries: 2,
+        initialRetryDelayMs: 0,
+      }).catch((err: unknown) => err)
+      expect(error).toBeInstanceOf(VercelLogsApiError)
+      expect((error as VercelLogsApiError).status).toBe(502)
+      // maxRetries=2 means 1 initial + 2 retries = 3 attempts total.
+      expect(fetchSpy).toHaveBeenCalledTimes(3)
+    })
+
+    it('disables retry entirely when maxRetries=0', async () => {
+      fetchSpy.mockImplementation(async () => new Response('upstream broken', { status: 502 }))
+
+      const error = await listVercelTrafficEvents({
+        token: 'vcp_test',
+        projectId: 'prj_abc',
+        teamId: 'team_xyz',
+        startDate: 0,
+        endDate: 1,
+        maxRetries: 0,
+        initialRetryDelayMs: 0,
+      }).catch((err: unknown) => err)
+      expect(error).toBeInstanceOf(VercelLogsApiError)
+      expect(fetchSpy).toHaveBeenCalledTimes(1)
+    })
+  })
 })

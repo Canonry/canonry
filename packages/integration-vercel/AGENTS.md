@@ -55,6 +55,16 @@ with **no in-app instrumentation** required on the user's Vercel project.
   backfill or a long-idle source. Consumers must treat `retentionClamped` as
   an incomplete pull unless explicitly accepting a gap; the API route rejects
   it so `lastSyncedAt` never advances across missing history.
+- **Transient-failure retry.** `listVercelTrafficEvents` retries each page
+  fetch on HTTP 429, HTTP 5xx, and raw network errors up to `maxRetries`
+  times (default 3) with exponential backoff (1s, 2s, 4s). A `Retry-After`
+  header on the failed response overrides the computed delay for that
+  attempt. 4xx errors other than 429 — `Unauthorized`, `Forbidden`, the
+  retention `400` `ExceedsBillingLimitError` — surface immediately so the
+  drain's retention-probe path and the caller see the real error instead of
+  waiting through the backoff. Critical for long backfills: a 13-day pull
+  makes thousands of page fetches, and an unretried single 5xx anywhere in
+  that run would force the whole replace-mode transaction to roll back.
 - **Internal endpoint, defensively read.** `request-logs` is not the
   documented `api.vercel.com` REST API — it is the endpoint the official CLI
   uses. Every field read is optional and tolerated-missing; never assume a
