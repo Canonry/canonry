@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import { useQueryClient } from '@tanstack/react-query'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
 import type { GscPerformanceDailyDto, MetricsWindow } from '@ainyc/canonry-contracts'
 
 import { Button } from '../ui/button.js'
@@ -47,6 +48,7 @@ import { GSC_STALE_MS } from '../../queries/query-client.js'
 
 const GSC_WINDOWS: MetricsWindow[] = ['7d', '30d', '90d', 'all']
 const EXPANDED_PERFORMANCE_LIMIT = 500
+const COVERAGE_PAGE_SIZE = 25
 
 export function GscSection({
   projectName,
@@ -121,6 +123,58 @@ export function GscSection({
   }, [performance, perfSort])
   const [_coverageHistory, setCoverageHistory] = useState<Array<{ date: string; indexed: number; notIndexed: number; reasonBreakdown: Record<string, number> }>>([])
   const [selectedReason, setSelectedReason] = useState<string | null>(null)
+  const [coveragePage, setCoveragePage] = useState<number>(1)
+
+  // Reset to page 1 whenever the active URL list changes (tab switch, drill-down
+  // enter/exit, or a fresh coverage sync), so the user doesn't land on a stale
+  // (now empty) page after the underlying slice shrinks or shifts.
+  useEffect(() => {
+    setCoveragePage(1)
+  }, [coverage, coverageTab, selectedReason])
+
+  const activeReasonGroup = useMemo(
+    () => (selectedReason ? (coverage?.reasonGroups ?? []).find((g) => g.reason === selectedReason) : undefined),
+    [coverage, selectedReason],
+  )
+
+  // The active paginated URL list — the one being displayed as a URL table.
+  // The reason-groups summary view (a small roll-up by reason) is intentionally
+  // not paginated; it's a category index, not a URL list.
+  const coverageList = useMemo<readonly unknown[]>(() => {
+    if (!coverage) return []
+    if (coverageTab === 'indexed') return coverage.indexed
+    if (coverageTab === 'deindexed') return coverage.deindexed
+    if (coverageTab === 'notIndexed') {
+      if (selectedReason) return activeReasonGroup?.urls ?? []
+      if ((coverage.reasonGroups ?? []).length === 0) return coverage.notIndexed
+      return []
+    }
+    return []
+  }, [coverage, coverageTab, selectedReason, activeReasonGroup])
+
+  const coverageTotalPages = Math.max(1, Math.ceil(coverageList.length / COVERAGE_PAGE_SIZE))
+  const coverageCurrentPage = Math.min(Math.max(1, coveragePage), coverageTotalPages)
+  const coveragePageStart = (coverageCurrentPage - 1) * COVERAGE_PAGE_SIZE
+  const coverageShowPagination = coverageList.length > COVERAGE_PAGE_SIZE
+  const coverageRangeStart = coverageList.length === 0 ? 0 : coveragePageStart + 1
+  const coverageRangeEnd = Math.min(coveragePageStart + COVERAGE_PAGE_SIZE, coverageList.length)
+
+  const pagedIndexed = useMemo(
+    () => coverage?.indexed.slice(coveragePageStart, coveragePageStart + COVERAGE_PAGE_SIZE) ?? [],
+    [coverage, coveragePageStart],
+  )
+  const pagedNotIndexedFlat = useMemo(
+    () => coverage?.notIndexed.slice(coveragePageStart, coveragePageStart + COVERAGE_PAGE_SIZE) ?? [],
+    [coverage, coveragePageStart],
+  )
+  const pagedDeindexed = useMemo(
+    () => coverage?.deindexed.slice(coveragePageStart, coveragePageStart + COVERAGE_PAGE_SIZE) ?? [],
+    [coverage, coveragePageStart],
+  )
+  const pagedReasonUrls = useMemo(
+    () => (activeReasonGroup?.urls ?? []).slice(coveragePageStart, coveragePageStart + COVERAGE_PAGE_SIZE),
+    [activeReasonGroup, coveragePageStart],
+  )
   const [requestingIndexing, setRequestingIndexing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
@@ -825,7 +879,7 @@ export function GscSection({
                             </tr>
                           </thead>
                           <tbody>
-                            {coverage.indexed.map((row) => (
+                            {pagedIndexed.map((row) => (
                               <tr key={row.id}>
                                 <td className="max-w-sm truncate text-zinc-200">{row.url}</td>
                                 <td className="text-zinc-400">{row.verdict ?? 'Unknown'}</td>
@@ -872,7 +926,7 @@ export function GscSection({
                             </tr>
                           </thead>
                           <tbody>
-                            {coverage.notIndexed.map((row) => (
+                            {pagedNotIndexedFlat.map((row) => (
                               <tr key={row.id}>
                                 <td className="max-w-sm truncate text-zinc-200">{row.url}</td>
                                 <td className="text-zinc-400">{row.indexingState ?? 'Unknown'}</td>
@@ -923,7 +977,7 @@ export function GscSection({
                                 </tr>
                               </thead>
                               <tbody>
-                                {group.urls.map((row) => (
+                                {pagedReasonUrls.map((row) => (
                                   <tr key={row.id}>
                                     <td className="max-w-sm truncate text-zinc-200">{row.url}</td>
                                     <td className="text-zinc-400">{row.crawlTime ? row.crawlTime.split('T')[0] : '\u2014'}</td>
@@ -958,7 +1012,7 @@ export function GscSection({
                             </tr>
                           </thead>
                           <tbody>
-                            {coverage.deindexed.map((row, i) => (
+                            {pagedDeindexed.map((row, i) => (
                               <tr key={`${row.url}-${i}`}>
                                 <td className="max-w-sm truncate text-zinc-200">{row.url}</td>
                                 <td className="text-zinc-400">{row.previousState}</td>
@@ -973,6 +1027,42 @@ export function GscSection({
                         (coverageTab === 'notIndexed' && !selectedReason && coverage.notIndexed.length === 0) ||
                         (coverageTab === 'deindexed' && coverage.deindexed.length === 0)) && (
                         <p className="text-sm text-zinc-500">No URLs in this category.</p>
+                      )}
+
+                      {coverageShowPagination && (
+                        <div className="mt-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 text-xs text-zinc-400">
+                          <p className="tabular-nums">
+                            Showing <span className="text-zinc-300">{coverageRangeStart.toLocaleString('en-US')}</span>–
+                            <span className="text-zinc-300">{coverageRangeEnd.toLocaleString('en-US')}</span> of{' '}
+                            <span className="text-zinc-300">{coverageList.length.toLocaleString('en-US')}</span> URLs
+                          </p>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setCoveragePage((p) => Math.max(1, p - 1))}
+                              disabled={coverageCurrentPage <= 1}
+                              aria-label="Previous page"
+                              className="inline-flex items-center gap-1 rounded-md border border-zinc-800 bg-zinc-950 px-2.5 py-1.5 text-zinc-200 transition hover:border-zinc-700 hover:text-zinc-50 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-zinc-800 disabled:hover:text-zinc-200"
+                            >
+                              <ChevronLeft className="size-3.5" />
+                              Prev
+                            </button>
+                            <span className="tabular-nums">
+                              Page <span className="text-zinc-200">{coverageCurrentPage}</span> of{' '}
+                              <span className="text-zinc-200">{coverageTotalPages}</span>
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setCoveragePage((p) => Math.min(coverageTotalPages, p + 1))}
+                              disabled={coverageCurrentPage >= coverageTotalPages}
+                              aria-label="Next page"
+                              className="inline-flex items-center gap-1 rounded-md border border-zinc-800 bg-zinc-950 px-2.5 py-1.5 text-zinc-200 transition hover:border-zinc-700 hover:text-zinc-50 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-zinc-800 disabled:hover:text-zinc-200"
+                            >
+                              Next
+                              <ChevronRight className="size-3.5" />
+                            </button>
+                          </div>
+                        </div>
                       )}
                     </div>
                   </>
