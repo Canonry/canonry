@@ -1,4 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useChatScroll } from '../../lib/use-chat-scroll.js'
 import {
   Sparkles,
   X,
@@ -162,7 +163,7 @@ export function AeroBar({ projectName }: AeroBarProps) {
     return stored === 'all' ? 'all' : 'read-only'
   })
   const abortRef = useRef<AbortController | null>(null)
-  const transcriptRef = useRef<HTMLDivElement | null>(null)
+  const { ref: transcriptRef } = useChatScroll<HTMLDivElement>([messages, streamingText, liveTrail])
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
   const [paletteIndex, setPaletteIndex] = useState(0)
 
@@ -284,12 +285,6 @@ export function AeroBar({ projectName }: AeroBarProps) {
       abortRef.current?.abort()
     }
   }, [projectName])
-
-  // Auto-scroll to the bottom on new messages / streaming tokens.
-  useEffect(() => {
-    const el = transcriptRef.current
-    if (el) el.scrollTop = el.scrollHeight
-  }, [messages, streamingText, liveTrail])
 
   async function send(promptText: string) {
     const trimmed = promptText.trim()
