@@ -7,6 +7,7 @@ import type { GscPerformanceDailyDto, MetricsWindow } from '@ainyc/canonry-contr
 import { Button } from '../ui/button.js'
 import { Card } from '../ui/card.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
+import { CHART_NEUTRAL, CHART_TONE, CHART_SERIES_COLORS } from '../shared/ChartPrimitives.js'
 import { formatTimestamp, formatBooleanState, SearchMetric, SEARCH_METRIC_LABELS } from '../../lib/format-helpers.js'
 import { addToast } from '../../lib/toast-store.js'
 import { asyncHandler } from '../../lib/async-handler.js'
@@ -775,7 +776,7 @@ export function GscSection({
                                 {/* Indexed arc — emerald */}
                                 <circle
                                   cx="64" cy="64" r={r} fill="none"
-                                  stroke="#10b981" strokeWidth="14"
+                                  stroke={CHART_TONE.positiveDeep} strokeWidth="14"
                                   strokeDasharray={circ} strokeDashoffset={indexedOffset}
                                   strokeLinecap="round"
                                   transform="rotate(-90 64 64)"
@@ -785,7 +786,7 @@ export function GscSection({
                                 {coverage.summary.notIndexed > 0 && (
                                   <circle
                                     cx="64" cy="64" r={r} fill="none"
-                                    stroke="#52525b" strokeWidth="14"
+                                    stroke={CHART_NEUTRAL.textFaint} strokeWidth="14"
                                     strokeDasharray={`${notIndexedArc} ${circ - notIndexedArc}`}
                                     strokeDashoffset={-notIndexedStart}
                                     transform="rotate(-90 64 64)"
@@ -904,8 +905,17 @@ export function GscSection({
                             {(coverage.reasonGroups ?? []).map((group) => (
                               <tr
                                 key={group.reason}
-                                className="cursor-pointer hover:bg-zinc-800/40"
+                                className="cursor-pointer hover:bg-zinc-800/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400"
                                 onClick={() => setSelectedReason(group.reason)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' || e.key === ' ') {
+                                    e.preventDefault()
+                                    setSelectedReason(group.reason)
+                                  }
+                                }}
+                                tabIndex={0}
+                                role="button"
+                                aria-label={`View ${group.reason} pages`}
                               >
                                 <td className="text-zinc-200">{group.reason}</td>
                                 <td className="text-right tabular-nums text-zinc-400">{group.count}</td>
@@ -1143,7 +1153,7 @@ export function GscSection({
                           <span className="text-xs text-zinc-400">Clicks <span className="text-zinc-200 tabular-nums font-medium">{totalClicks.toLocaleString()}</span></span>
                         </div>
                         <div className="flex items-center gap-1.5">
-                          <span className="inline-block h-2.5 w-2.5 rounded-sm bg-blue-500" />
+                          <span className="inline-block h-2.5 w-2.5 rounded-sm bg-blue-400" />
                           <span className="text-xs text-zinc-400">Impressions <span className="text-zinc-200 tabular-nums font-medium">{totalImpressions.toLocaleString()}</span></span>
                         </div>
                         <span className="text-xs text-zinc-500">CTR <span className="text-amber-400 tabular-nums font-medium">{avgCtr}%</span></span>
@@ -1156,7 +1166,7 @@ export function GscSection({
                             return (
                               <g key={`t-${i}`}>
                                 <line x1={pad.left} y1={y} x2={w - pad.right} y2={y} stroke="rgba(255,255,255,0.06)" strokeWidth="1" />
-                                <text x={pad.left - 6} y={y + 3.5} textAnchor="end" fill="#a1a1aa" fontSize="10" fontFamily="inherit">{fmtNum(tick)}</text>
+                                <text x={pad.left - 6} y={y + 3.5} textAnchor="end" fill={CHART_NEUTRAL.text} fontSize="10" fontFamily="inherit">{fmtNum(tick)}</text>
                               </g>
                             )
                           })}
@@ -1174,7 +1184,7 @@ export function GscSection({
                                   width={barW}
                                   height={Math.max(impressionH, 1)}
                                   rx={2}
-                                  fill="#3b82f6"
+                                  fill={CHART_SERIES_COLORS[1]}
                                   opacity={0.85}
                                 />
                                 <rect
@@ -1183,7 +1193,7 @@ export function GscSection({
                                   width={barW}
                                   height={Math.max(clickH, 1)}
                                   rx={2}
-                                  fill="#10b981"
+                                  fill={CHART_TONE.positiveDeep}
                                   opacity={0.85}
                                 />
                               </g>
@@ -1196,7 +1206,7 @@ export function GscSection({
                               const idx = sorted.length === 1 ? 0 : Math.round((i / (labelCount - 1)) * (sorted.length - 1))
                               const cx = pad.left + barGroupW * idx + barGroupW / 2
                               return (
-                                <text key={`xl-${idx}`} x={cx} y={h - 8} textAnchor="middle" fill="#71717a" fontSize="10" fontFamily="inherit">
+                                <text key={`xl-${idx}`} x={cx} y={h - 8} textAnchor="middle" fill={CHART_NEUTRAL.textDim} fontSize="10" fontFamily="inherit">
                                   {sorted[idx]!.date.slice(5)}
                                 </text>
                               )

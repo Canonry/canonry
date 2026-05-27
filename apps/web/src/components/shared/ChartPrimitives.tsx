@@ -72,6 +72,33 @@ export const CHART_SERIES_COLORS = [
   '#f87171', // red-400
 ] as const
 
+/**
+ * Neutral color tokens for custom SVG visualizations (non-Recharts).
+ * Mirrors the dashboard's zinc neutral ramp so custom charts stay on
+ * the documented palette in DESIGN.md.
+ */
+export const CHART_NEUTRAL = {
+  text: '#a1a1aa',      // zinc-400 — primary axis labels
+  textDim: '#71717a',   // zinc-500 — secondary text
+  textFaint: '#52525b', // zinc-600 — faintest text, track lines
+  surface: '#27272a',   // zinc-800 — area fill, track surface
+  gridLine: 'rgba(255, 255, 255, 0.06)',
+} as const
+
+/**
+ * Tone fills for direct categorical charts (bars, donuts).
+ * Matches the Listening Post tone palette in DESIGN.md. Use the
+ * `Deep` variant when the chart wants heavier visual weight
+ * (large donut arcs); use the base variant for sparklines and gauges.
+ */
+export const CHART_TONE = {
+  positive: '#34d399',     // emerald-400 — gauge fill, sparkline positive
+  positiveDeep: '#10b981', // emerald-500 — donut arc weight
+  caution: '#fbbf24',      // amber-400
+  negative: '#fb7185',     // rose-400
+  neutral: '#a1a1aa',      // zinc-400
+} as const
+
 /** Parse a date string that may be a date-only ("2026-03-15") or full ISO timestamp. */
 function parseChartDate(value: string): Date {
   const s = String(value)

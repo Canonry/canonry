@@ -242,8 +242,16 @@ export function EvidenceTable({
               return (
                 <Fragment key={groupKey}>
                   <tr
-                    className="evidence-phrase-row cursor-pointer hover:bg-zinc-800/40"
+                    className="evidence-phrase-row cursor-pointer hover:bg-zinc-800/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400"
                     onClick={() => toggleRow(groupKey)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        toggleRow(groupKey)
+                      }
+                    }}
+                    tabIndex={0}
+                    role="button"
                     aria-expanded={isExpanded}
                   >
                     <td>

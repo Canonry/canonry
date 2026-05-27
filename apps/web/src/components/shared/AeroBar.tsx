@@ -1,7 +1,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useChatScroll } from '../../lib/use-chat-scroll.js'
 import {
-  Sparkles,
+  Radio,
   X,
   RotateCcw,
   ArrowUp,
@@ -400,7 +400,7 @@ export function AeroBar({ projectName }: AeroBarProps) {
           <div className={expanded ? 'flex h-full flex-col' : 'flex flex-col overflow-hidden rounded-2xl border border-zinc-800/80 bg-zinc-950/95 shadow-xl backdrop-blur'}>
             <div className="flex items-center justify-between gap-2 border-b border-zinc-800/70 px-4 py-2.5">
               <div className="flex items-center gap-2">
-                <Sparkles className="h-4 w-4 text-emerald-400" aria-hidden="true" />
+                <Radio className="h-4 w-4 text-emerald-400" aria-hidden="true" />
                 <span className="text-sm font-medium text-zinc-100">Aero</span>
                 <span className="text-[10px] uppercase tracking-wider text-zinc-500">
                   {streaming ? 'working…' : projectName}
@@ -592,7 +592,7 @@ export function AeroBar({ projectName }: AeroBarProps) {
             className="flex w-full items-center justify-between rounded-full border border-zinc-800/80 bg-zinc-950/95 px-4 py-2 text-left text-sm text-zinc-400 shadow-lg backdrop-blur transition hover:border-zinc-700 hover:bg-zinc-900/90 hover:text-zinc-200"
           >
             <span className="flex items-center gap-2">
-              <Sparkles className="h-4 w-4 text-emerald-400" aria-hidden="true" />
+              <Radio className="h-4 w-4 text-emerald-400" aria-hidden="true" />
               Ask Aero about {projectName}…
             </span>
             <span className="text-[10px] uppercase tracking-wider text-zinc-600">Enter</span>
