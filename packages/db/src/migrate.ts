@@ -1431,6 +1431,24 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       }
     },
   },
+  {
+    version: 67,
+    name: 'traffic-sources-cloudflare-worker-columns',
+    // Push-receive traffic sources (currently only `cloudflare`) need a
+    // per-source bearer for the Worker to authenticate against canonry's
+    // ingest endpoint, plus a place to remember the deployed Worker
+    // version so `cloudflare.worker.version-stale` can compare. The
+    // cleartext bearer + HMAC secret stay in ~/.canonry/config.yaml under
+    // `cloudflareTraffic.connections.<sourceId>`; only the sha256 of the
+    // bearer is stored here.
+    //
+    // Idempotent: `ALTER TABLE ADD COLUMN` errors with "duplicate column
+    // name" on retry, which the runner already swallows.
+    statements: [
+      `ALTER TABLE traffic_sources ADD COLUMN ingest_token_hash TEXT`,
+      `ALTER TABLE traffic_sources ADD COLUMN last_worker_version TEXT`,
+    ],
+  },
 ]
 
 /**
