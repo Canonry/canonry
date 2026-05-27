@@ -994,7 +994,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_traffic_reset',
     title: 'Advance traffic source lastSyncedAt to NOW',
-    description: 'Operator recovery for a stuck traffic source. Advances `lastSyncedAt` to NOW, sets `status` back to `connected`, and clears `last_error`. Use when an idle Vercel/Cloud Run source has aged past the upstream retention boundary and every sync now throws a retention error. Historical events in the gap are unrecoverable from the sync path; run canonry_traffic_backfill separately if any of them are needed.',
+    description: 'Operator recovery for a stuck traffic source. Advances `lastSyncedAt` to NOW, sets `status` back to `connected`, and clears `last_error`. Accepts any non-archived source: the `lastSyncedAt` advance determines the next sync window for time-windowed sources (Vercel, Cloud Run); cursor-based sources (WordPress) keep their `last_cursor` so the advance is informational. Common trigger: an idle Vercel/Cloud Run source whose `lastSyncedAt` aged past the upstream retention boundary and every sync now throws a retention error. Historical events in the gap are unrecoverable from the sync path; run canonry_traffic_backfill separately if any of them are needed. Archived sources are rejected — re-connect via the appropriate canonry_traffic_connect_* tool instead.',
     access: 'write',
     tier: 'traffic',
     inputSchema: trafficResetInputSchema,

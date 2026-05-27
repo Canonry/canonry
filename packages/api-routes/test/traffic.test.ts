@@ -97,6 +97,24 @@ function vercelRetentionError(): VercelLogsApiError {
   )
 }
 
+// Vercel `connect` seeds `lastSyncedAt = NOW` (the first-sync trap fix).
+// Tests that need a non-zero sync window must backdate the row before
+// triggering the sync; otherwise the drain short-circuits on a zero-width
+// window and never exercises the pull. Use this helper instead of inlining
+// the update so future first-sync tests can find the pattern.
+function backdateLastSyncedAt(
+  db: ReturnType<typeof createClient>,
+  sourceId: string,
+  ageMs: number,
+): string {
+  const stale = new Date(Date.now() - ageMs).toISOString()
+  db.update(trafficSources)
+    .set({ lastSyncedAt: stale })
+    .where(eq(trafficSources.id, sourceId))
+    .run()
+  return stale
+}
+
 async function buildHarness(
   events: NormalizedTrafficRequest[],
   options: {
@@ -771,6 +789,9 @@ describe('POST /traffic/sources/:id/sync — Vercel', () => {
     })
     try {
       const sourceId = await connectVercel(h)
+      // Connect seeds lastSyncedAt = NOW; widen the sync window past the
+      // test events (which sit ~25-59 min in the past) so they're inside it.
+      backdateLastSyncedAt(h.db, sourceId, 90 * 60_000)
 
       const syncRes = await h.app.inject({
         method: 'POST',
@@ -847,6 +868,9 @@ describe('POST /traffic/sources/:id/sync — Vercel', () => {
     })
     try {
       const sourceId = await connectVercel(h)
+      // Connect seeds lastSyncedAt = NOW; widen past the 2-day-old test
+      // events so the drain has a window worth subdividing.
+      backdateLastSyncedAt(h.db, sourceId, 3 * 86_400_000)
 
       const syncRes = await h.app.inject({
         method: 'POST',
@@ -875,16 +899,7 @@ describe('POST /traffic/sources/:id/sync — Vercel', () => {
     const h = await buildHarness([], { failVercelPullWith: 'request-logs 500: gateway' })
     try {
       const sourceId = await connectVercel(h)
-      // Connect seeds lastSyncedAt to NOW; backdate it so the sync window is
-      // wide enough to actually call the pull (and hit the harness's failure
-      // injection). Without this the drain short-circuits on the zero-width
-      // window and never exercises the pull-error path.
-      const stale = new Date(Date.now() - 60 * 60_000).toISOString()
-      h.db
-        .update(trafficSources)
-        .set({ lastSyncedAt: stale })
-        .where(eq(trafficSources.id, sourceId))
-        .run()
+      const stale = backdateLastSyncedAt(h.db, sourceId, 60 * 60_000)
 
       const syncRes = await h.app.inject({
         method: 'POST',
@@ -920,15 +935,9 @@ describe('POST /traffic/sources/:id/sync — Vercel', () => {
     })
     try {
       const sourceId = await connectVercel(h)
-      // Backdate lastSyncedAt past the retention boundary so the sync window
+      // Backdate past the harness's retention boundary so the sync window
       // crosses retention and the drain hits the retention-clamp throw.
-      // Connect seeds it to NOW which is inside retention.
-      const stale = new Date(Date.now() - 48 * 60 * 60_000).toISOString()
-      h.db
-        .update(trafficSources)
-        .set({ lastSyncedAt: stale })
-        .where(eq(trafficSources.id, sourceId))
-        .run()
+      const stale = backdateLastSyncedAt(h.db, sourceId, 48 * 60 * 60_000)
       enforceRetention = true
 
       const syncRes = await h.app.inject({
@@ -3473,11 +3482,10 @@ describe('POST /traffic/sources/:id/reset', () => {
     try {
       const sourceId = await connectVercel(h)
       // Simulate a stuck source: aged lastSyncedAt + error state.
-      const stale = new Date(Date.now() - 36 * 60 * 60_000).toISOString()
+      backdateLastSyncedAt(h.db, sourceId, 36 * 60 * 60_000)
       h.db
         .update(trafficSources)
         .set({
-          lastSyncedAt: stale,
           status: TrafficSourceStatuses.error,
           lastError: 'Vercel pull failed: ExceedsBillingLimitError',
         })
@@ -3569,6 +3577,35 @@ describe('POST /traffic/sources/:id/reset', () => {
       const resetEntry = auditRows.find((r) => r.action === 'traffic.source.reset')
       expect(resetEntry).toBeDefined()
       expect(resetEntry!.entityId).toBe(sourceId)
+    } finally {
+      await h.close()
+    }
+  })
+
+  it('rejects reset on an archived source', async () => {
+    // Archived rows are hidden from listing endpoints; allowing reset would
+    // silently flip status back to `connected` and resurrect them. Force a
+    // re-connect instead.
+    const h = await buildHarness([])
+    try {
+      const sourceId = await connectVercel(h)
+      h.db
+        .update(trafficSources)
+        .set({ status: TrafficSourceStatuses.archived, archivedAt: new Date().toISOString() })
+        .where(eq(trafficSources.id, sourceId))
+        .run()
+
+      const res = await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/reset`,
+        payload: { advanceToNow: true },
+      })
+      expect(res.statusCode).toBe(400)
+      expect(JSON.parse(res.payload).error.message).toMatch(/archived/i)
+
+      // Status must not have flipped back to `connected`.
+      const row = h.db.select().from(trafficSources).where(eq(trafficSources.id, sourceId)).get()!
+      expect(row.status).toBe(TrafficSourceStatuses.archived)
     } finally {
       await h.close()
     }
