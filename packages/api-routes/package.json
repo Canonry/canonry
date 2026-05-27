@@ -21,6 +21,7 @@
     "@ainyc/canonry-db": "workspace:*",
     "@ainyc/canonry-integration-bing": "workspace:*",
     "@ainyc/canonry-integration-cloud-run": "workspace:*",
+    "@ainyc/canonry-integration-cloudflare-worker": "workspace:*",
     "@ainyc/canonry-integration-commoncrawl": "workspace:*",
     "@ainyc/canonry-integration-google": "workspace:*",
     "@ainyc/canonry-integration-google-analytics": "workspace:*",

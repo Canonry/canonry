@@ -3121,6 +3121,62 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'post',
+    path: '/api/v1/projects/{name}/traffic/connect/cloudflare',
+    summary: 'Connect a Cloudflare Worker traffic source',
+    description:
+      'Issues a per-source bearer token + HMAC secret, generates a Cloudflare Worker script with those secrets embedded, and creates / updates the project\'s active Cloudflare `traffic_sources` row. The DB only stores the sha256 of the bearer; both cleartext secrets live in `~/.canonry/config.yaml`. Idempotent: reconnect rotates both secrets, re-emits the script, and reuses the same source row so existing rollups stay attached. The operator deploys the returned script to their Cloudflare zone — no upstream probe is performed at connect time.',
+    tags: ['traffic'],
+    parameters: [nameParameter],
+    requestBody: {
+      required: false,
+      content: {
+        'application/json': {
+          schema: { $ref: '#/components/schemas/TrafficConnectCloudflareRequest' },
+        },
+      },
+    },
+    responses: {
+      200: jsonResponse('Connect response with generated Worker script.', 'TrafficConnectCloudflareResponse'),
+      400: errorResponse('Invalid Cloudflare connection request or credential storage not configured.'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/projects/{name}/traffic/cloudflare/ingest',
+    summary: 'Ingest a batch of Cloudflare Worker events',
+    description:
+      'Push-receive endpoint. The customer-deployed Cloudflare Worker `fetch()`-es each filtered request to this endpoint. Authentication is per-source bearer + HMAC-SHA256 over `${timestamp}.${body}` — the global cnry_* bearer is NOT accepted. Headers: `Authorization: Bearer <per-source-token>`, `X-Canonry-Timestamp` (unix seconds), `X-Canonry-Signature` (hex hmac), `X-Canonry-Source-Id`, `X-Canonry-Worker-Version`. Auth failures return a single 401 envelope — never disambiguate which leg of the auth failed. After auth: validates payload, normalizes each event, runs the shared classifier + rollup pipeline, and updates `last_worker_version`.',
+    tags: ['traffic'],
+    parameters: [nameParameter],
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: { $ref: '#/components/schemas/CloudflareWorkerIngestRequest' },
+        },
+      },
+    },
+    responses: {
+      200: rawJsonResponse('Ingest acknowledged.', {
+        type: 'object',
+        properties: {
+          acceptedEvents: integerSchema,
+          droppedEvents: integerSchema,
+          workerVersionAck: stringSchema,
+          crawlerBucketRows: integerSchema,
+          aiUserFetchBucketRows: integerSchema,
+          aiReferralBucketRows: integerSchema,
+          sampleRows: integerSchema,
+        },
+      }),
+      400: errorResponse('Invalid ingest payload.'),
+      401: errorResponse('Authentication failed (bearer, signature, timestamp, or source id mismatch).'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
+    method: 'post',
     path: '/api/v1/projects/{name}/traffic/sources/{id}/sync',
     summary: 'Trigger a sync run for a traffic source',
     description:
