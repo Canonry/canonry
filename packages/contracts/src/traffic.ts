@@ -194,6 +194,22 @@ export const trafficBackfillRequestSchema = z.object({
 export type TrafficBackfillRequest = z.infer<typeof trafficBackfillRequestSchema>
 
 /**
+ * Operator recovery: advance `lastSyncedAt` to NOW and clear the error state
+ * so subsequent scheduled syncs resume from a recent timestamp. Used when an
+ * idle source's `lastSyncedAt` has aged past the upstream's retention window
+ * (Vercel `request-logs`, Cloud Logging) and every sync now throws a
+ * retention error. Skipped history is the explicit trade-off; the operator
+ * runs `traffic backfill` separately if they want to recover any of it.
+ *
+ * `advanceToNow` must be `true` — there is no implicit reset. The schema
+ * rejects `false` / missing to keep the call sites self-documenting.
+ */
+export const trafficResetRequestSchema = z.object({
+  advanceToNow: z.literal(true),
+})
+export type TrafficResetRequest = z.infer<typeof trafficResetRequestSchema>
+
+/**
  * Async backfill response — returned as soon as the run row is created and the
  * background pull starts. Poll `GET /runs/:runId` for completion. Concrete
  * counts are not in this response; once the run is `completed`, query

@@ -13,6 +13,7 @@ import {
   aiReferralEventsHourly,
   rawEventSamples,
   runs,
+  auditLog,
 } from '@ainyc/canonry-db'
 import {
   TrafficSourceTypes,
@@ -615,6 +616,27 @@ describe('POST /traffic/connect/vercel', () => {
     expect(sourceRows[0].sourceType).toBe(TrafficSourceTypes.vercel)
   })
 
+  it('seeds lastSyncedAt to NOW so the first sync uses a tight window', async () => {
+    // Regression: before this fix, lastSyncedAt was null on connect. The first
+    // sync then read DEFAULT_SYNC_WINDOW_MINUTES (30 days) — which exceeds
+    // Vercel's request-logs retention (~14d) and made the very first sync
+    // throw a retention error, leaving the source permanently stuck.
+    const before = Date.now()
+    const res = await h.app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/test-project/traffic/connect/vercel',
+      payload: validBody,
+    })
+    expect(res.statusCode).toBe(200)
+    const after = Date.now()
+
+    const row = h.db.select().from(trafficSources).all()[0]!
+    expect(row.lastSyncedAt).not.toBeNull()
+    const seededMs = new Date(row.lastSyncedAt!).getTime()
+    expect(seededMs).toBeGreaterThanOrEqual(before)
+    expect(seededMs).toBeLessThanOrEqual(after)
+  })
+
   it('defaults environment to production when omitted', async () => {
     const res = await h.app.inject({
       method: 'POST',
@@ -853,6 +875,17 @@ describe('POST /traffic/sources/:id/sync — Vercel', () => {
     const h = await buildHarness([], { failVercelPullWith: 'request-logs 500: gateway' })
     try {
       const sourceId = await connectVercel(h)
+      // Connect seeds lastSyncedAt to NOW; backdate it so the sync window is
+      // wide enough to actually call the pull (and hit the harness's failure
+      // injection). Without this the drain short-circuits on the zero-width
+      // window and never exercises the pull-error path.
+      const stale = new Date(Date.now() - 60 * 60_000).toISOString()
+      h.db
+        .update(trafficSources)
+        .set({ lastSyncedAt: stale })
+        .where(eq(trafficSources.id, sourceId))
+        .run()
+
       const syncRes = await h.app.inject({
         method: 'POST',
         url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`,
@@ -863,7 +896,8 @@ describe('POST /traffic/sources/:id/sync — Vercel', () => {
 
       const sourceRow = h.db.select().from(trafficSources).where(eq(trafficSources.id, sourceId)).get()!
       expect(sourceRow.status).toBe(TrafficSourceStatuses.error)
-      expect(sourceRow.lastSyncedAt).toBeNull()
+      // The failed sync must not advance lastSyncedAt past the value we set.
+      expect(sourceRow.lastSyncedAt).toBe(stale)
 
       const runRows = h.db.select().from(runs).all()
       expect(runRows.length).toBe(1)
@@ -886,6 +920,15 @@ describe('POST /traffic/sources/:id/sync — Vercel', () => {
     })
     try {
       const sourceId = await connectVercel(h)
+      // Backdate lastSyncedAt past the retention boundary so the sync window
+      // crosses retention and the drain hits the retention-clamp throw.
+      // Connect seeds it to NOW which is inside retention.
+      const stale = new Date(Date.now() - 48 * 60 * 60_000).toISOString()
+      h.db
+        .update(trafficSources)
+        .set({ lastSyncedAt: stale })
+        .where(eq(trafficSources.id, sourceId))
+        .run()
       enforceRetention = true
 
       const syncRes = await h.app.inject({
@@ -898,7 +941,8 @@ describe('POST /traffic/sources/:id/sync — Vercel', () => {
 
       const sourceRow = h.db.select().from(trafficSources).where(eq(trafficSources.id, sourceId)).get()!
       expect(sourceRow.status).toBe(TrafficSourceStatuses.error)
-      expect(sourceRow.lastSyncedAt).toBeNull()
+      // The failed sync must not advance lastSyncedAt past the value we set.
+      expect(sourceRow.lastSyncedAt).toBe(stale)
       expect(h.db.select().from(crawlerEventsHourly).all()).toEqual([])
 
       const runRows = h.db.select().from(runs).all()
@@ -1128,13 +1172,23 @@ describe('POST /traffic/sources/:id/backfill — Vercel', () => {
       expect(submitRes.statusCode).toBe(200)
       const submitted = JSON.parse(submitRes.payload)
 
+      // Capture the connect-time lastSyncedAt before the failed backfill so
+      // we can assert it stays put.
+      const connectSyncedAt = h.db
+        .select()
+        .from(trafficSources)
+        .where(eq(trafficSources.id, sourceId))
+        .get()!
+        .lastSyncedAt
+
       const finalRun = await waitForRunComplete(h.db, submitted.runId)
       expect(finalRun.status).toBe(RunStatuses.failed)
       expect(finalRun.error).toMatch(/refusing to advance/)
 
       const sourceRow = h.db.select().from(trafficSources).where(eq(trafficSources.id, sourceId)).get()!
       expect(sourceRow.status).toBe(TrafficSourceStatuses.error)
-      expect(sourceRow.lastSyncedAt).toBeNull()
+      // The failed backfill must not advance lastSyncedAt past the connect-time value.
+      expect(sourceRow.lastSyncedAt).toBe(connectSyncedAt)
       expect(h.db.select().from(crawlerEventsHourly).all()).toEqual([])
       expect(h.db.select().from(rawEventSamples).all()).toEqual([])
     } finally {
@@ -3392,5 +3446,131 @@ describe('GET /traffic/events', () => {
       })
       expect(res.statusCode).toBe(404)
     } finally { await h.close() }
+  })
+})
+
+/**
+ * Operator-recovery surface: `POST /traffic/sources/:id/reset` advances
+ * lastSyncedAt to NOW, clears the error state, and lets the next scheduled
+ * sync resume from a recent timestamp. This exists because a source whose
+ * lastSyncedAt ages past the upstream's retention window (Vercel 14d, Cloud
+ * Logging 30d) gets permanently stuck under the new retention-throw
+ * behavior — the recovery path used to require a raw SQL UPDATE.
+ */
+describe('POST /traffic/sources/:id/reset', () => {
+  async function connectVercel(h: Awaited<ReturnType<typeof buildHarness>>): Promise<string> {
+    const res = await h.app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/test-project/traffic/connect/vercel',
+      payload: { projectId: 'prj_abc', teamId: 'team_xyz', token: 'vcp_test' },
+    })
+    expect(res.statusCode).toBe(200)
+    return JSON.parse(res.payload).id
+  }
+
+  it('advances lastSyncedAt to NOW, clears status and lastError', async () => {
+    const h = await buildHarness([])
+    try {
+      const sourceId = await connectVercel(h)
+      // Simulate a stuck source: aged lastSyncedAt + error state.
+      const stale = new Date(Date.now() - 36 * 60 * 60_000).toISOString()
+      h.db
+        .update(trafficSources)
+        .set({
+          lastSyncedAt: stale,
+          status: TrafficSourceStatuses.error,
+          lastError: 'Vercel pull failed: ExceedsBillingLimitError',
+        })
+        .where(eq(trafficSources.id, sourceId))
+        .run()
+
+      const before = Date.now()
+      const res = await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/reset`,
+        payload: { advanceToNow: true },
+      })
+      expect(res.statusCode).toBe(200)
+      const after = Date.now()
+
+      const dto = JSON.parse(res.payload)
+      expect(dto.id).toBe(sourceId)
+      expect(dto.status).toBe(TrafficSourceStatuses.connected)
+      expect(dto.lastError).toBeNull()
+      const dtoMs = new Date(dto.lastSyncedAt).getTime()
+      expect(dtoMs).toBeGreaterThanOrEqual(before)
+      expect(dtoMs).toBeLessThanOrEqual(after)
+
+      const row = h.db.select().from(trafficSources).where(eq(trafficSources.id, sourceId)).get()!
+      expect(row.status).toBe(TrafficSourceStatuses.connected)
+      expect(row.lastError).toBeNull()
+      expect(new Date(row.lastSyncedAt!).getTime()).toBeGreaterThanOrEqual(before)
+    } finally {
+      await h.close()
+    }
+  })
+
+  it('rejects requests missing the advanceToNow flag (no implicit reset)', async () => {
+    const h = await buildHarness([])
+    try {
+      const sourceId = await connectVercel(h)
+      const res = await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/reset`,
+        payload: {},
+      })
+      expect(res.statusCode).toBe(400)
+      expect(JSON.parse(res.payload).error.message).toMatch(/advanceToNow/)
+    } finally {
+      await h.close()
+    }
+  })
+
+  it('rejects requests with advanceToNow=false (no implicit reset)', async () => {
+    const h = await buildHarness([])
+    try {
+      const sourceId = await connectVercel(h)
+      const res = await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/reset`,
+        payload: { advanceToNow: false },
+      })
+      expect(res.statusCode).toBe(400)
+    } finally {
+      await h.close()
+    }
+  })
+
+  it('returns 404 for an unknown source id', async () => {
+    const h = await buildHarness([])
+    try {
+      const res = await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${crypto.randomUUID()}/reset`,
+        payload: { advanceToNow: true },
+      })
+      expect(res.statusCode).toBe(404)
+    } finally {
+      await h.close()
+    }
+  })
+
+  it('writes an audit log entry', async () => {
+    const h = await buildHarness([])
+    try {
+      const sourceId = await connectVercel(h)
+      const res = await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/reset`,
+        payload: { advanceToNow: true },
+      })
+      expect(res.statusCode).toBe(200)
+      const auditRows = h.db.select().from(auditLog).all()
+      const resetEntry = auditRows.find((r) => r.action === 'traffic.source.reset')
+      expect(resetEntry).toBeDefined()
+      expect(resetEntry!.entityId).toBe(sourceId)
+    } finally {
+      await h.close()
+    }
   })
 })

@@ -18,6 +18,8 @@ Persist only *user-scoped* context (operator preferences, communication style) i
 
 When a project has GA4 connected, traffic is a first-class signal alongside citations. Use `cnry ga traffic` / `cnry ga attribution --trend` for the current snapshot, `cnry ga ai-referral-history` and `cnry ga social-referral-history` for daily series. Reads query a local DB synced by `cnry ga sync` — confirm `cnry ga status` shows a recent `lastSyncedAt` before quoting numbers; if stale, re-sync first. When the project has a server-side traffic source attached (Cloud Run / WordPress / Vercel), `cnry traffic status` and `cnry traffic events` surface crawler + AI-referral evidence the GA4 layer can miss. Full command reference and return shapes live in the co-installed `canonry/references/canonry-cli.md`.
 
+**Diagnosing a stuck Vercel/Cloud Run source:** if `cnry traffic status` shows `status=error` with a recent `lastError` of `refusing to advance` or `ExceedsBillingLimitError`, the source's `lastSyncedAt` has aged past the upstream retention boundary and every sync now throws. Recovery: `cnry traffic reset <project> --source <id> --advance-to-now`. This advances `lastSyncedAt` to NOW and resumes going-forward syncs — historical events in the gap are unrecoverable from the sync path; run `cnry traffic backfill --days N` separately if any of that history is needed (capped at retention).
+
 ## Judgment Rules
 
 ### What to Prioritize

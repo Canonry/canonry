@@ -277,6 +277,14 @@ const trafficBackfillInputSchema = z.object({
     .describe('Lookback window in days. Default 30, capped server-side at the upstream log retention ceiling (Cloud Logging _Default = 30d).'),
 })
 
+const trafficResetInputSchema = z.object({
+  project: projectNameSchema,
+  sourceId: z.string().min(1).describe('Traffic source ID returned by canonry_traffic_sources_list.'),
+  advanceToNow: z
+    .literal(true)
+    .describe('Must be `true`. Explicit gate against accidental resets. Advances lastSyncedAt to NOW and clears the source\'s error state.'),
+})
+
 const trafficEventsInputSchema = z.object({
   project: projectNameSchema,
   since: z.string().optional().describe('ISO 8601 lower bound. Defaults to 24h ago when omitted.'),
@@ -982,6 +990,17 @@ export const canonryMcpTools = [
     annotations: writeAnnotations({ idempotentHint: true, destructiveHint: true, openWorldHint: true }),
     openApiOperations: ['POST /api/v1/projects/{name}/traffic/sources/{id}/backfill'],
     handler: (client, input) => client.trafficBackfill(input.project, input.sourceId, input.days !== undefined ? { days: input.days } : undefined),
+  }),
+  defineTool({
+    name: 'canonry_traffic_reset',
+    title: 'Advance traffic source lastSyncedAt to NOW',
+    description: 'Operator recovery for a stuck traffic source. Advances `lastSyncedAt` to NOW, sets `status` back to `connected`, and clears `last_error`. Use when an idle Vercel/Cloud Run source has aged past the upstream retention boundary and every sync now throws a retention error. Historical events in the gap are unrecoverable from the sync path; run canonry_traffic_backfill separately if any of them are needed.',
+    access: 'write',
+    tier: 'traffic',
+    inputSchema: trafficResetInputSchema,
+    annotations: writeAnnotations({ idempotentHint: true, destructiveHint: true }),
+    openApiOperations: ['POST /api/v1/projects/{name}/traffic/sources/{id}/reset'],
+    handler: (client, input) => client.trafficReset(input.project, input.sourceId),
   }),
   defineTool({
     name: 'canonry_project_upsert',

@@ -23,6 +23,7 @@ import {
   TrafficEventKinds,
   trafficConnectWordpressRequestSchema,
   trafficConnectVercelRequestSchema,
+  trafficResetRequestSchema,
 } from '@ainyc/canonry-contracts'
 import type {
   NormalizedTrafficRequest,
@@ -1018,7 +1019,15 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
           sourceType: TrafficSourceTypes.vercel,
           displayName: fallbackName,
           status: TrafficSourceStatuses.connected,
-          lastSyncedAt: null,
+          // Seed lastSyncedAt to NOW so the first sync uses a tight window.
+          // Leaving this null would make the first sync fall back to
+          // DEFAULT_SYNC_WINDOW_MINUTES (30 days) — which exceeds Vercel's
+          // request-logs retention (~14 days), causing the first sync to
+          // throw a retention error and leaving the source permanently
+          // stuck before it ever drained an event. New users opt into
+          // historical recovery via the explicit `traffic backfill` command;
+          // they do not silently inherit a 30-day pull on connect.
+          lastSyncedAt: now,
           lastCursor: null,
           lastError: null,
           archivedAt: null,
@@ -1992,6 +2001,64 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         : null,
     }
   }
+
+  // POST /projects/:name/traffic/sources/:id/reset
+  //
+  // Operator recovery: advance `lastSyncedAt` to NOW, set `status` back to
+  // `connected`, and clear the prior `last_error`. The next scheduled sync
+  // resumes from a recent timestamp instead of one stuck behind the
+  // upstream's retention boundary. Any pre-existing rollup history stays in
+  // place — only the cursor moves. Skipped history is the explicit
+  // trade-off; the operator runs `traffic backfill` separately if they
+  // want to recover any of it.
+  app.post<{
+    Params: { name: string; id: string }
+    Body: { advanceToNow?: unknown }
+  }>('/projects/:name/traffic/sources/:id/reset', async (request) => {
+    const project = resolveProject(app.db, request.params.name)
+    const parsed = trafficResetRequestSchema.safeParse(request.body ?? {})
+    if (!parsed.success) {
+      throw validationError(
+        '`advanceToNow` must be `true`. There is no implicit reset.',
+      )
+    }
+
+    const sourceRow = app.db
+      .select()
+      .from(trafficSources)
+      .where(and(eq(trafficSources.projectId, project.id), eq(trafficSources.id, request.params.id)))
+      .get()
+    if (!sourceRow) {
+      throw notFound('traffic source', request.params.id)
+    }
+
+    const now = new Date().toISOString()
+    let updatedRow!: typeof trafficSources.$inferSelect
+    app.db.transaction((tx) => {
+      tx.update(trafficSources)
+        .set({
+          lastSyncedAt: now,
+          status: TrafficSourceStatuses.connected,
+          lastError: null,
+          updatedAt: now,
+        })
+        .where(eq(trafficSources.id, sourceRow.id))
+        .run()
+      writeAuditLog(tx, {
+        projectId: project.id,
+        actor: 'api',
+        action: 'traffic.source.reset',
+        entityType: 'traffic_source',
+        entityId: sourceRow.id,
+      })
+      updatedRow = tx
+        .select()
+        .from(trafficSources)
+        .where(eq(trafficSources.id, sourceRow.id))
+        .get()!
+    })
+    return buildSourceDetail(project.id, updatedRow, new Date(Date.now() - 24 * 60 * 60_000).toISOString())
+  })
 
   // GET /projects/:name/traffic/sources
   app.get<{ Params: { name: string } }>('/projects/:name/traffic/sources', async (request) => {

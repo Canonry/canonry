@@ -4,6 +4,7 @@ import {
   trafficConnectVercel,
   trafficConnectWordpress,
   trafficEvents,
+  trafficReset,
   trafficSources,
   trafficStatus,
   trafficSync,
@@ -172,6 +173,29 @@ export const TRAFFIC_CLI_COMMANDS: readonly CliCommandSpec[] = [
         source,
         days,
         wait: getBoolean(input.values, 'wait'),
+        format: input.format,
+      })
+    },
+  },
+  {
+    path: ['traffic', 'reset'],
+    usage: 'canonry traffic reset <project> --source <id> --advance-to-now [--format json]',
+    options: {
+      source: stringOption(),
+      'advance-to-now': { type: 'boolean' },
+    },
+    run: async (input) => {
+      const project = requireProject(
+        input,
+        'traffic.reset',
+        'canonry traffic reset <project> --source <id> --advance-to-now',
+      )
+      const source = getString(input.values, 'source')
+      if (!source) throw new Error('--source <id> is required')
+
+      await trafficReset(project, {
+        source,
+        advanceToNow: getBoolean(input.values, 'advance-to-now'),
         format: input.format,
       })
     },

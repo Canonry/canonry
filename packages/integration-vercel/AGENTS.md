@@ -55,6 +55,23 @@ with **no in-app instrumentation** required on the user's Vercel project.
   backfill or a long-idle source. Consumers must treat `retentionClamped` as
   an incomplete pull unless explicitly accepting a gap; the API route rejects
   it so `lastSyncedAt` never advances across missing history.
+- **First-sync window seeded at connect.** `POST /traffic/connect/vercel`
+  seeds `lastSyncedAt = NOW` on the new `traffic_sources` row. Leaving it
+  null would make the very first scheduled sync fall back to
+  `DEFAULT_SYNC_WINDOW_MINUTES` (30 days), which exceeds Vercel's
+  request-logs retention (~14 days) — every first sync would throw the
+  retention error and leave the source permanently stuck before draining a
+  single event. The trade-off: a newly connected source captures only
+  going-forward traffic. Operators who want any historical recovery run an
+  explicit `cnry traffic backfill --days N` (capped at retention).
+- **Operator recovery from a stuck source.** An idle source whose
+  `lastSyncedAt` ages past retention (or the gjelina-class case where many
+  consecutive syncs failed before this drain was hardened) gets the same
+  permanent-stuck symptom — the operator runs
+  `cnry traffic reset <project> --source <id> --advance-to-now` to advance
+  `lastSyncedAt` to NOW, clear the error state, and resume going-forward
+  syncs. Skipped history is unrecoverable from the sync path; `traffic
+  backfill` is the separate operator action for any of it.
 - **Transient-failure retry.** `listVercelTrafficEvents` retries each page
   fetch on HTTP 429, HTTP 5xx, and raw network errors up to `maxRetries`
   times (default 3) with exponential backoff (1s, 2s, 4s). A `Retry-After`

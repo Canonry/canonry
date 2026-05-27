@@ -213,6 +213,7 @@ import {
   postApiV1ProjectsByNameTrafficConnectVercel,
   postApiV1ProjectsByNameTrafficSourcesByIdSync,
   postApiV1ProjectsByNameTrafficSourcesByIdBackfill,
+  postApiV1ProjectsByNameTrafficSourcesByIdReset,
   getApiV1ProjectsByNameTrafficSources,
   getApiV1ProjectsByNameTrafficStatus,
   getApiV1ProjectsByNameTrafficSourcesById,
@@ -1489,6 +1490,16 @@ export class ApiClient {
   async trafficListSources(project: string): Promise<TrafficSourceListResponse> {
     return this.invoke<TrafficSourceListResponse>(() =>
       getApiV1ProjectsByNameTrafficSources({ client: this.heyClient, path: { name: project } }),
+    )
+  }
+
+  async trafficReset(project: string, sourceId: string): Promise<TrafficSourceDetailDto> {
+    return this.invoke<TrafficSourceDetailDto>(() =>
+      postApiV1ProjectsByNameTrafficSourcesByIdReset({
+        client: this.heyClient,
+        path: { name: project, id: sourceId },
+        body: { advanceToNow: true },
+      }),
     )
   }
 
