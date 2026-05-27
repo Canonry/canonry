@@ -183,6 +183,16 @@ cnry traffic reset <project> --source <id> --advance-to-now
 
 `--advance-to-now` is required — there is no implicit reset.
 
+`reset` accepts any **non-archived** source type. The `lastSyncedAt`
+advance is meaningful for time-windowed sources (Vercel, Cloud Run)
+where it determines the next sync window. Cursor-based sources
+(WordPress) keep their `last_cursor` intact, so the `lastSyncedAt`
+advance is informational — the next WordPress drain still resumes
+from the cursor. The primary use case is the retention-trap recovery
+above; clearing `lastError` for a transient WordPress failure also
+works. Archived sources are rejected — re-connect them with
+`cnry traffic connect ...` instead.
+
 Cross-sync dedupe via the `last_event_ids` ring buffer means re-running a
 sync over an overlapping window cannot double-count rolled-up hourly
 hits. Safe to schedule (see "Scheduling" below) or trigger from CI.

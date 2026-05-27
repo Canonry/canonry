@@ -7493,7 +7493,7 @@ export type PostApiV1ProjectsByNameTrafficSourcesByIdResetData = {
 
 export type PostApiV1ProjectsByNameTrafficSourcesByIdResetErrors = {
     /**
-     * Missing or invalid `advanceToNow` flag.
+     * Missing or invalid `advanceToNow` flag, or the source is archived.
      */
     400: ErrorEnvelope;
     /**

@@ -3185,7 +3185,7 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/traffic/sources/{id}/reset',
     summary: 'Advance lastSyncedAt to NOW and clear the error state',
     description:
-      'Operator recovery: advances `lastSyncedAt` to NOW, sets `status` back to `connected`, and clears `last_error`. The next scheduled sync resumes from a recent timestamp. Used when an idle source\'s `lastSyncedAt` has aged past the upstream\'s retention window (Vercel `request-logs` is ~14d) and every sync now throws a retention error. Any pre-existing rollup history stays in place — only the cursor moves; the skipped history is the explicit trade-off. Run `traffic backfill` separately to recover any of it. `advanceToNow: true` is required — there is no implicit reset.',
+      'Operator recovery: advances `lastSyncedAt` to NOW, sets `status` back to `connected`, and clears `last_error`. Accepts any non-archived source — the `lastSyncedAt` advance determines the next sync window for time-windowed sources (Vercel, Cloud Run) and is informational for cursor-based sources (WordPress, where `last_cursor` governs the next drain and is preserved). Common trigger: an idle Vercel/Cloud Run source whose `lastSyncedAt` has aged past the upstream retention window (`request-logs` ~14d, Cloud Logging 30d) and now throws on every sync. Any pre-existing rollup history stays in place; the skipped history is the explicit trade-off — run `traffic backfill` separately to recover any of it. `advanceToNow: true` is required (no implicit reset). Archived sources are rejected with 400 — re-connect them via the appropriate `traffic/connect/*` endpoint instead.',
     tags: ['traffic'],
     parameters: [
       nameParameter,
@@ -3207,7 +3207,7 @@ const routeCatalog: OpenApiOperation[] = [
     },
     responses: {
       200: jsonResponse('Source reset; lastSyncedAt advanced to NOW.', 'TrafficSourceDetailDto'),
-      400: errorResponse('Missing or invalid `advanceToNow` flag.'),
+      400: errorResponse('Missing or invalid `advanceToNow` flag, or the source is archived.'),
       404: errorResponse('Project or traffic source not found.'),
     },
   },

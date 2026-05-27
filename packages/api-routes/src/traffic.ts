@@ -66,7 +66,7 @@ import type {
   ListVercelTrafficEventsOptions,
   VercelTrafficEventsPage,
 } from '@ainyc/canonry-integration-vercel'
-import { resolveProject, writeAuditLog } from './helpers.js'
+import { auditFromRequest, resolveProject, writeAuditLog } from './helpers.js'
 import { resolveWebhookTarget } from './webhooks.js'
 
 export interface CloudRunCredentialRecord {
@@ -2031,6 +2031,14 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
     if (!sourceRow) {
       throw notFound('traffic source', request.params.id)
     }
+    // Archived sources are intentionally hidden from listing endpoints; a
+    // reset would silently un-archive by flipping status to `connected`.
+    // Force the operator to re-connect explicitly instead.
+    if (sourceRow.status === TrafficSourceStatuses.archived) {
+      throw validationError(
+        `Traffic source "${sourceRow.id}" is archived. Re-connect via "canonry traffic connect ..." to start tracking it again.`,
+      )
+    }
 
     const now = new Date().toISOString()
     let updatedRow!: typeof trafficSources.$inferSelect
@@ -2044,13 +2052,13 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         })
         .where(eq(trafficSources.id, sourceRow.id))
         .run()
-      writeAuditLog(tx, {
+      writeAuditLog(tx, auditFromRequest(request, {
         projectId: project.id,
         actor: 'api',
         action: 'traffic.source.reset',
         entityType: 'traffic_source',
         entityId: sourceRow.id,
-      })
+      }))
       updatedRow = tx
         .select()
         .from(trafficSources)
