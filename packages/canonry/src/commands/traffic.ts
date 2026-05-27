@@ -378,6 +378,54 @@ export async function trafficSync(project: string, opts: {
   console.log(`  Synced at:        ${result.syncedAt}`)
 }
 
+/**
+ * Operator recovery: advance `lastSyncedAt` to NOW so the next scheduled sync
+ * resumes from a recent timestamp. Used when an idle Vercel/Cloud Run source
+ * has aged past the upstream's retention window and every sync now throws a
+ * retention error. Skipped history is the explicit trade-off; run
+ * `canonry traffic backfill` separately if any of it needs to be recovered.
+ *
+ * `--advance-to-now` must be passed — no implicit reset.
+ */
+export async function trafficReset(project: string, opts: {
+  source: string
+  advanceToNow?: boolean
+  format?: string
+}): Promise<void> {
+  if (!opts.source) {
+    throw new CliError({
+      code: 'TRAFFIC_SOURCE_REQUIRED',
+      message: '--source <id> is required',
+      displayMessage: 'Error: --source <id> is required (run `canonry traffic sources` to list connected sources)',
+      details: { project },
+    })
+  }
+  if (!opts.advanceToNow) {
+    throw new CliError({
+      code: 'TRAFFIC_RESET_REQUIRES_FLAG',
+      message: '--advance-to-now is required',
+      displayMessage:
+        'Error: --advance-to-now is required. This skips any history between the source\'s current lastSyncedAt and now; run `canonry traffic backfill` separately if you need to recover it.',
+      details: { project, source: opts.source },
+    })
+  }
+
+  const client = getClient()
+  const updated = await client.trafficReset(project, opts.source)
+
+  if (opts.format === 'json') {
+    console.log(JSON.stringify(updated, null, 2))
+    return
+  }
+
+  console.log(`Traffic source reset for "${project}" (source ${opts.source}).`)
+  console.log(`  Status:        ${updated.status}`)
+  console.log(`  Last synced:   ${updated.lastSyncedAt ?? 'never'}  (advanced to NOW)`)
+  console.log(`  Last error:    ${updated.lastError ?? 'none'}`)
+  console.log('')
+  console.log('Next scheduled sync will resume from this timestamp.')
+}
+
 function formatSourceLine(source: TrafficSourceDto): string {
   const parts = [
     source.id,

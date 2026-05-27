@@ -7470,6 +7470,49 @@ export type PostApiV1ProjectsByNameTrafficSourcesByIdBackfillResponses = {
 
 export type PostApiV1ProjectsByNameTrafficSourcesByIdBackfillResponse = PostApiV1ProjectsByNameTrafficSourcesByIdBackfillResponses[keyof PostApiV1ProjectsByNameTrafficSourcesByIdBackfillResponses];
 
+export type PostApiV1ProjectsByNameTrafficSourcesByIdResetData = {
+    body: {
+        /**
+         * Must be `true` — explicit gate against accidental resets.
+         */
+        advanceToNow: true;
+    };
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+        /**
+         * Traffic source ID.
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/traffic/sources/{id}/reset';
+};
+
+export type PostApiV1ProjectsByNameTrafficSourcesByIdResetErrors = {
+    /**
+     * Missing or invalid `advanceToNow` flag.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project or traffic source not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameTrafficSourcesByIdResetError = PostApiV1ProjectsByNameTrafficSourcesByIdResetErrors[keyof PostApiV1ProjectsByNameTrafficSourcesByIdResetErrors];
+
+export type PostApiV1ProjectsByNameTrafficSourcesByIdResetResponses = {
+    /**
+     * Source reset; lastSyncedAt advanced to NOW.
+     */
+    200: TrafficSourceDetailDto;
+};
+
+export type PostApiV1ProjectsByNameTrafficSourcesByIdResetResponse = PostApiV1ProjectsByNameTrafficSourcesByIdResetResponses[keyof PostApiV1ProjectsByNameTrafficSourcesByIdResetResponses];
+
 export type GetApiV1ProjectsByNameTrafficSourcesData = {
     body?: never;
     path: {

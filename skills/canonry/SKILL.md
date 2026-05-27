@@ -107,6 +107,8 @@ GA4 is a first-class signal alongside citation tracking. Connect once with `cnry
 
 When the project ships behind a server you control, wire crawler + AI-referral evidence directly from the edge: `cnry traffic connect cloud-run | wordpress | vercel <project> ...` writes credentials to `~/.canonry/config.yaml`, `cnry traffic sync` pulls and classifies logs into hourly buckets, and `cnry traffic events / sources / status` expose the rollups. See `references/server-side-traffic.md` for adapter-specific setup.
 
+**Vercel gotcha:** a freshly connected Vercel source captures only going-forward traffic — `lastSyncedAt` is seeded to NOW to avoid the 30-day default window exceeding Vercel's ~14-day request-logs retention (which would otherwise throw on every first sync). Use `cnry traffic backfill <project> --source <id> --days N` for historical recovery. If an idle Vercel/Cloud Run source has been failing long enough that `lastSyncedAt` aged past retention, unstick it with `cnry traffic reset <project> --source <id> --advance-to-now`.
+
 ## Built-in Analyst (Aero)
 
 Canonry ships a built-in agent — Aero — for users who don't already have one. Drive it from the CLI:

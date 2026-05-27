@@ -139,16 +139,49 @@ crawls + AI-referral arrivals into the same `crawler_events_hourly` /
 `ai_referral_events_hourly` tables — downstream commands
 (`cnry traffic events / sources / status`) are source-agnostic.
 
+### Vercel first-sync window (gotcha)
+
+A new Vercel source captures **only going-forward traffic** by default.
+`cnry traffic connect vercel` seeds `lastSyncedAt = NOW` so the first
+scheduled sync uses a tight window inside Vercel's ~14-day
+`request-logs` retention. Without this, the first sync would fall back
+to a 30-day window, exceed retention, and throw — leaving the source
+permanently stuck.
+
+Run `cnry traffic backfill <project> --source <id> --days N` (capped at
+~14 to stay inside retention) if you need any of the pre-connect
+history. It's an explicit operator action; the connect flow never pulls
+it implicitly.
+
 ## Syncing data
 
 ```bash
-# Manual sync — defaults to a 30-day lookback on the first run; subsequent
-# runs are clamped forward to lastSyncedAt to avoid re-pulling.
+# Manual sync — pulls [lastSyncedAt, now]. For a freshly connected
+# source the window is short (since connect-time NOW). For a
+# regular-cadence schedule the window stays ~30 min wide.
 cnry traffic sync <project> --source <id>
 
-# Override the lookback window (minutes):
+# Override the lookback window (minutes) — note: clamped forward to
+# lastSyncedAt, so this can only NARROW the window, never widen it
+# past data already pulled.
 cnry traffic sync <project> --source <id> --since-minutes 4320  # 3 days
 ```
+
+### Unsticking a stuck source
+
+If a Vercel (or Cloud Run) source has been failing for so long that
+`lastSyncedAt` aged past the upstream retention boundary, every sync
+will throw a retention error and `lastSyncedAt` will never advance —
+the source is permanently stuck. Recovery:
+
+```bash
+# Advances lastSyncedAt to NOW, clears the error state. Skipped
+# history is unrecoverable from the sync path; run backfill separately
+# if any of it needs to be captured.
+cnry traffic reset <project> --source <id> --advance-to-now
+```
+
+`--advance-to-now` is required — there is no implicit reset.
 
 Cross-sync dedupe via the `last_event_ids` ring buffer means re-running a
 sync over an overlapping window cannot double-count rolled-up hourly

@@ -3181,6 +3181,37 @@ const routeCatalog: OpenApiOperation[] = [
     },
   },
   {
+    method: 'post',
+    path: '/api/v1/projects/{name}/traffic/sources/{id}/reset',
+    summary: 'Advance lastSyncedAt to NOW and clear the error state',
+    description:
+      'Operator recovery: advances `lastSyncedAt` to NOW, sets `status` back to `connected`, and clears `last_error`. The next scheduled sync resumes from a recent timestamp. Used when an idle source\'s `lastSyncedAt` has aged past the upstream\'s retention window (Vercel `request-logs` is ~14d) and every sync now throws a retention error. Any pre-existing rollup history stays in place — only the cursor moves; the skipped history is the explicit trade-off. Run `traffic backfill` separately to recover any of it. `advanceToNow: true` is required — there is no implicit reset.',
+    tags: ['traffic'],
+    parameters: [
+      nameParameter,
+      { name: 'id', in: 'path', required: true, description: 'Traffic source ID.', schema: stringSchema },
+    ],
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            required: ['advanceToNow'],
+            properties: {
+              advanceToNow: { type: 'boolean', enum: [true], description: 'Must be `true` — explicit gate against accidental resets.' },
+            },
+          },
+        },
+      },
+    },
+    responses: {
+      200: jsonResponse('Source reset; lastSyncedAt advanced to NOW.', 'TrafficSourceDetailDto'),
+      400: errorResponse('Missing or invalid `advanceToNow` flag.'),
+      404: errorResponse('Project or traffic source not found.'),
+    },
+  },
+  {
     method: 'get',
     path: '/api/v1/projects/{name}/traffic/sources',
     summary: 'List non-archived traffic sources for a project',

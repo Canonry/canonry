@@ -307,6 +307,31 @@ describe('traffic CLI commands', () => {
     expect(result.stderr).toMatch(/unknown traffic subcommand/i)
   })
 
+  it('rejects traffic reset without --source', async () => {
+    const result = await invokeCli(['traffic', 'reset', 'test-proj', '--advance-to-now'])
+    expect(result.exitCode).not.toBe(0)
+    expect(result.stderr).toMatch(/--source/)
+  })
+
+  it('rejects traffic reset without --advance-to-now', async () => {
+    const result = await invokeCli(['traffic', 'reset', 'test-proj', '--source', 'some-id'])
+    expect(result.exitCode).not.toBe(0)
+    expect(result.stderr).toMatch(/--advance-to-now/i)
+  })
+
+  it('reports 404 for an unknown traffic source on reset', async () => {
+    const result = await invokeCli([
+      'traffic',
+      'reset',
+      'test-proj',
+      '--source',
+      'no-such-source-id',
+      '--advance-to-now',
+    ])
+    expect(result.exitCode).not.toBe(0)
+    expect(result.stderr).toMatch(/not found/i)
+  })
+
   it('lists no sources when none are connected (`traffic sources --format json`)', async () => {
     const result = await invokeCli(['traffic', 'sources', 'test-proj', '--format', 'json'])
     expect(result.exitCode).toBeUndefined()
