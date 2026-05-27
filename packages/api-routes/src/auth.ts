@@ -57,6 +57,10 @@ function shouldSkipAuth(url: string): boolean {
   if (url.endsWith('/openapi.json')) return true
   if (url.includes('/google/callback')) return true
   if (url.endsWith('/session') || url.endsWith('/session/setup')) return true
+  // Cloudflare Worker ingest carries its own per-source bearer + HMAC
+  // (verified inside the route handler). A canonry `cnry_*` key isn't
+  // available to the Worker — that would defeat the per-source isolation.
+  if (url.includes('/traffic/cloudflare/ingest')) return true
   return false
 }
 
