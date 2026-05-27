@@ -1,0 +1,203 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-05-27T00:00:00.000Z",
+  "title": "Design System: Canonry",
+  "extensions": {
+    "colorMeta": {
+      "zinc-night": {
+        "role": "neutral",
+        "displayName": "Zinc Night",
+        "canonical": "oklch(14% 0.005 286)",
+        "tonalRamp": ["#09090b", "#18181b", "#27272a", "#3f3f46", "#52525b", "#71717a", "#a1a1aa", "#d4d4d8"]
+      },
+      "snow": {
+        "role": "primary",
+        "displayName": "Snow",
+        "canonical": "oklch(98% 0 0)",
+        "tonalRamp": ["#09090b", "#27272a", "#52525b", "#71717a", "#a1a1aa", "#d4d4d8", "#e4e4e7", "#fafafa"]
+      },
+      "surface-ash": {
+        "role": "neutral",
+        "displayName": "Surface Ash",
+        "canonical": "oklch(20% 0.005 286)",
+        "tonalRamp": ["#09090b", "#18181b", "#27272a", "#3f3f46", "#52525b", "#71717a", "#a1a1aa", "#d4d4d8"]
+      },
+      "signal-green": {
+        "role": "secondary",
+        "displayName": "Signal Green",
+        "canonical": "oklch(77% 0.13 162)",
+        "tonalRamp": ["#022c22", "#065f46", "#047857", "#10b981", "#34d399", "#6ee7b7", "#a7f3d0", "#ecfdf5"]
+      },
+      "caution-amber": {
+        "role": "tertiary",
+        "displayName": "Caution Amber",
+        "canonical": "oklch(82% 0.14 80)",
+        "tonalRamp": ["#451a03", "#92400e", "#b45309", "#f59e0b", "#fbbf24", "#fcd34d", "#fde68a", "#fffbeb"]
+      },
+      "alert-rose": {
+        "role": "tertiary",
+        "displayName": "Alert Rose",
+        "canonical": "oklch(70% 0.18 14)",
+        "tonalRamp": ["#4c0519", "#9f1239", "#be123c", "#f43f5e", "#fb7185", "#fda4af", "#fecdd3", "#fff1f2"]
+      }
+    },
+    "typographyMeta": {
+      "hero": { "displayName": "Hero", "purpose": "Single h1 on the project landing card. One per page maximum." },
+      "page-title": { "displayName": "Page Title", "purpose": "Page header title at the top of every route." },
+      "stat": { "displayName": "Stat", "purpose": "Big numeric values in hero rows, metric cards, stat strips. Tabular." },
+      "gauge": { "displayName": "Gauge", "purpose": "Center value of radial score gauges. Tabular." },
+      "body": { "displayName": "Body", "purpose": "Paragraph copy, lede, descriptions. Cap line length 65–75ch." },
+      "body-compact": { "displayName": "Body Compact", "purpose": "Row titles in attention items, run rows, evidence cells. Dominant text size in the dashboard." },
+      "eyebrow": { "displayName": "Eyebrow", "purpose": "Section labels above a card, table headers. Uppercase 0.18em." },
+      "eyebrow-soft": { "displayName": "Eyebrow Soft", "purpose": "The faintest label tier; eyebrows on score gauges and metric cards." },
+      "mono": { "displayName": "Mono", "purpose": "Version strings, code spans, debug payloads. Geist Mono with tnum." }
+    },
+    "shadows": [
+      { "name": "mascot-atmosphere", "value": "drop-shadow(0 10px 18px rgba(8, 11, 15, 0.34))", "purpose": "Brand bird icon at the sidebar top. Only ambient shadow in the resting interface." },
+      { "name": "bubble-glow", "value": "0 8px 20px -10px rgba(245, 158, 11, 0.4), inset 0 0 0 1px rgba(245, 158, 11, 0.06)", "purpose": "Brand update bubble — colored ambient glow under the chirp moment." },
+      { "name": "toast-lift", "value": "0 12px 28px rgba(0, 0, 0, 0.32)", "purpose": "Toast cards floating above content. The only fully-rendered drop shadow." },
+      { "name": "card-hairline", "value": "0 0 0 1px rgba(255, 255, 255, 0.01)", "purpose": "Sub-pixel inset highlight on the Radix Card primitive. Edge sheen, not depth." }
+    ],
+    "motion": [
+      { "name": "ease-standard", "value": "cubic-bezier(0.4, 0, 0.2, 1)", "purpose": "Default easing. 600ms gauge-ring fill animation." },
+      { "name": "ease-out-quint", "value": "cubic-bezier(0.16, 1, 0.3, 1)", "purpose": "Toast slide-in over 180ms." },
+      { "name": "bubble-pop", "value": "cubic-bezier(0.34, 1.56, 0.64, 1)", "purpose": "Brand update bubble pop, 540ms. The one moment of overshoot allowed in the system." },
+      { "name": "skeleton-pulse", "value": "1.5s ease-in-out infinite", "purpose": "Loading skeleton opacity pulse, 0.4 → 0.8." },
+      { "name": "aero-dot-pulse", "value": "1.2s ease-in-out infinite", "purpose": "Aero typing indicator dots, staggered 0.15s apart." }
+    ],
+    "breakpoints": [
+      { "name": "md", "value": "768px" },
+      { "name": "lg", "value": "1024px" },
+      { "name": "xl", "value": "1280px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-default",
+      "description": "Snow-on-Zinc inverted primary action. The dominant CTA on action surfaces.",
+      "html": "<button class=\"ds-btn-primary\">Run sweep</button>",
+      "css": ".ds-btn-primary { display: inline-flex; align-items: center; justify-content: center; gap: 8px; white-space: nowrap; height: 36px; padding: 0 16px; border: none; border-radius: 6px; background-color: #fafafa; color: #09090b; font-family: 'Geist', 'Inter', ui-sans-serif, system-ui, sans-serif; font-size: 14px; font-weight: 500; font-feature-settings: 'cv11', 'ss01', 'ss03'; cursor: pointer; transition: background-color 150ms cubic-bezier(0.4, 0, 0.2, 1); } .ds-btn-primary:hover { background-color: #e4e4e7; } .ds-btn-primary:focus-visible { outline: none; box-shadow: 0 0 0 2px #09090b, 0 0 0 4px #a1a1aa; } .ds-btn-primary:disabled { pointer-events: none; opacity: 0.5; }"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Zinc-Night fill with a hairline border. The non-primary action; sits next to a primary in a header row.",
+      "html": "<button class=\"ds-btn-secondary\">Configure</button>",
+      "css": ".ds-btn-secondary { display: inline-flex; align-items: center; justify-content: center; gap: 8px; white-space: nowrap; height: 36px; padding: 0 16px; border: 1px solid #27272a; border-radius: 6px; background-color: #09090b; color: #f4f4f5; font-family: 'Geist', 'Inter', ui-sans-serif, system-ui, sans-serif; font-size: 14px; font-weight: 500; cursor: pointer; transition: background-color 150ms cubic-bezier(0.4, 0, 0.2, 1); } .ds-btn-secondary:hover { background-color: #18181b; } .ds-btn-secondary:focus-visible { outline: none; box-shadow: 0 0 0 2px #09090b, 0 0 0 4px #a1a1aa; }"
+    },
+    {
+      "name": "Ghost Button",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "Transparent at rest. Used in sidebars, footers, and dense control rows where the button must not compete for attention.",
+      "html": "<button class=\"ds-btn-ghost\">Cancel</button>",
+      "css": ".ds-btn-ghost { display: inline-flex; align-items: center; justify-content: center; gap: 8px; white-space: nowrap; height: 36px; padding: 0 16px; border: none; border-radius: 6px; background-color: transparent; color: #a1a1aa; font-family: 'Geist', 'Inter', ui-sans-serif, system-ui, sans-serif; font-size: 14px; font-weight: 500; cursor: pointer; transition: background-color 150ms cubic-bezier(0.4, 0, 0.2, 1), color 150ms cubic-bezier(0.4, 0, 0.2, 1); } .ds-btn-ghost:hover { background-color: #18181b; color: #fafafa; } .ds-btn-ghost:focus-visible { outline: none; box-shadow: 0 0 0 2px #09090b, 0 0 0 4px #a1a1aa; }"
+    },
+    {
+      "name": "Success Badge",
+      "kind": "chip",
+      "refersTo": "badge-success",
+      "description": "Triple-low-opacity tone badge used for OK / cited / positive state.",
+      "html": "<div class=\"ds-badge-success\">Cited</div>",
+      "css": ".ds-badge-success { display: inline-flex; align-items: center; padding: 2px 8px; border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 6px; background-color: rgba(16, 185, 129, 0.1); color: #6ee7b7; font-family: 'Geist', 'Inter', ui-sans-serif, system-ui, sans-serif; font-size: 11px; font-weight: 500; letter-spacing: 0.025em; }"
+    },
+    {
+      "name": "Health Pill (OK)",
+      "kind": "chip",
+      "refersTo": "health-pill-ok",
+      "description": "Always-visible system-health indicator in the topbar. Full-radius pill, uppercase, very tight tracking.",
+      "html": "<div class=\"ds-health-pill-ok\">OK</div>",
+      "css": ".ds-health-pill-ok { display: inline-flex; align-items: center; padding: 2px 8px; border: 1px solid rgba(16, 185, 129, 0.2); border-radius: 9999px; background-color: rgba(16, 185, 129, 0.08); color: #34d399; font-family: 'Geist', 'Inter', ui-sans-serif, system-ui, sans-serif; font-size: 10px; font-weight: 500; line-height: 1; text-transform: uppercase; letter-spacing: 0.1em; }"
+    },
+    {
+      "name": "Filter Chip (Active)",
+      "kind": "chip",
+      "refersTo": "filter-chip-active",
+      "description": "Pill-shaped filter selector. Active state carried by the fill, never by a side-stripe accent.",
+      "html": "<button class=\"ds-filter-chip-active\">All providers</button>",
+      "css": ".ds-filter-chip-active { display: inline-flex; align-items: center; padding: 6px 12px; border: 1px solid #52525b; border-radius: 9999px; background-color: #27272a; color: #f4f4f5; font-family: 'Geist', 'Inter', ui-sans-serif, system-ui, sans-serif; font-size: 14px; font-weight: 400; cursor: pointer; transition: background-color 150ms cubic-bezier(0.4, 0, 0.2, 1), color 150ms cubic-bezier(0.4, 0, 0.2, 1); } .ds-filter-chip-active:hover { background-color: #3f3f46; }"
+    },
+    {
+      "name": "Surface Card",
+      "kind": "card",
+      "refersTo": "surface-card",
+      "description": "The dominant container in the dashboard. Surface Ash at 30% over Zinc Night, hairline border, 12px radius.",
+      "html": "<section class=\"ds-surface-card\"><div class=\"ds-eyebrow\">Visibility</div><div class=\"ds-stat\">42%</div><div class=\"ds-caption\">Up 6 points since last sweep</div></section>",
+      "css": ".ds-surface-card { padding: 16px; border: 1px solid rgba(39, 39, 42, 0.6); border-radius: 12px; background-color: rgba(24, 24, 27, 0.3); display: flex; flex-direction: column; gap: 12px; font-family: 'Geist', 'Inter', ui-sans-serif, system-ui, sans-serif; min-width: 220px; } .ds-surface-card .ds-eyebrow { font-size: 10px; font-weight: 500; line-height: 1; letter-spacing: 0.16em; text-transform: uppercase; color: #52525b; } .ds-surface-card .ds-stat { font-size: 24px; font-weight: 700; line-height: 1.1; letter-spacing: -0.02em; color: #fafafa; font-variant-numeric: tabular-nums; font-feature-settings: 'cv11', 'ss01', 'ss03', 'tnum'; } .ds-surface-card .ds-caption { font-size: 12px; line-height: 1.4; color: #71717a; }"
+    },
+    {
+      "name": "Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Form input on the setup wizard and inline edit surfaces. Hairline border, quiet focus state (no glow, no colored ring).",
+      "html": "<input class=\"ds-input\" type=\"text\" placeholder=\"example.com\" />",
+      "css": ".ds-input { display: inline-block; height: 36px; padding: 8px 12px; border: 1px solid #3f3f46; border-radius: 6px; background-color: rgba(24, 24, 27, 0.5); color: #f4f4f5; font-family: 'Geist', 'Inter', ui-sans-serif, system-ui, sans-serif; font-size: 14px; font-weight: 400; outline: none; transition: border-color 150ms cubic-bezier(0.4, 0, 0.2, 1), box-shadow 150ms cubic-bezier(0.4, 0, 0.2, 1); } .ds-input::placeholder { color: #52525b; } .ds-input:focus { border-color: #71717a; box-shadow: 0 0 0 1px #71717a; } .ds-input:disabled { opacity: 0.5; cursor: not-allowed; }"
+    },
+    {
+      "name": "Score Gauge (signature)",
+      "kind": "custom",
+      "refersTo": "score-gauge",
+      "description": "96px radial SVG ring with a tone-colored fill. Center value runs in Geist Sans 20/700 tabular. The instrument cluster at the top of every project page.",
+      "html": "<div class=\"ds-score-gauge\"><div class=\"ds-gauge-ring-wrapper\"><svg class=\"ds-gauge-ring\" viewBox=\"0 0 120 120\" aria-hidden=\"true\"><circle class=\"ds-gauge-bg\" cx=\"60\" cy=\"60\" r=\"48\" stroke-width=\"6\"></circle><circle class=\"ds-gauge-fill\" cx=\"60\" cy=\"60\" r=\"48\" stroke-width=\"6\" stroke-dasharray=\"301.59\" stroke-dashoffset=\"108.57\" transform=\"rotate(-90 60 60)\"></circle></svg><div class=\"ds-gauge-center\"><span class=\"ds-gauge-value\">64</span></div></div><p class=\"ds-gauge-label\">Visibility</p><p class=\"ds-gauge-delta\">+6 vs last</p><p class=\"ds-gauge-description\">Cited or mentioned in 64% of tracked queries.</p></div>",
+      "css": ".ds-score-gauge { display: flex; flex-direction: column; align-items: center; padding: 20px 12px; border: 1px solid rgba(39, 39, 42, 0.6); border-radius: 12px; background-color: rgba(24, 24, 27, 0.3); min-width: 180px; font-family: 'Geist', 'Inter', ui-sans-serif, system-ui, sans-serif; } .ds-score-gauge .ds-gauge-ring-wrapper { position: relative; width: 96px; height: 96px; } .ds-score-gauge .ds-gauge-ring { width: 100%; height: 100%; } .ds-score-gauge .ds-gauge-bg { fill: none; stroke: rgba(255, 255, 255, 0.06); } .ds-score-gauge .ds-gauge-fill { fill: none; stroke: #34d399; stroke-linecap: round; transition: stroke-dashoffset 600ms cubic-bezier(0.4, 0, 0.2, 1); } .ds-score-gauge .ds-gauge-center { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; } .ds-score-gauge .ds-gauge-value { font-size: 20px; font-weight: 700; letter-spacing: -0.01em; color: #fafafa; font-variant-numeric: tabular-nums; font-feature-settings: 'cv11', 'ss01', 'ss03', 'tnum'; } .ds-score-gauge .ds-gauge-label { margin-top: 12px; font-size: 10px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.12em; color: #71717a; text-align: center; } .ds-score-gauge .ds-gauge-delta { margin-top: 6px; font-size: 11px; color: #a1a1aa; text-align: center; } .ds-score-gauge .ds-gauge-description { margin-top: 10px; font-size: 11px; line-height: 1.45; color: #71717a; text-align: center; max-width: 180px; }"
+    },
+    {
+      "name": "Sparkline (signature)",
+      "kind": "custom",
+      "refersTo": "sparkline",
+      "description": "Inline polyline trend, 132×42, tone-colored stroke, 1px white-at-6% baseline guide.",
+      "html": "<svg class=\"ds-sparkline ds-sparkline-positive\" viewBox=\"0 0 132 42\" aria-hidden=\"true\"><line class=\"ds-sparkline-guide\" x1=\"5\" x2=\"127\" y1=\"37\" y2=\"37\"></line><polyline points=\"5,30 23,28 41,22 59,24 77,18 95,12 113,14 127,8\"></polyline></svg>",
+      "css": ".ds-sparkline { height: 42px; width: 132px; overflow: hidden; } .ds-sparkline polyline { fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; } .ds-sparkline-guide { stroke: rgba(255, 255, 255, 0.06); stroke-width: 1; } .ds-sparkline-positive polyline { stroke: #34d399; } .ds-sparkline-caution polyline { stroke: #fbbf24; } .ds-sparkline-negative polyline { stroke: #fb7185; } .ds-sparkline-neutral polyline { stroke: #a1a1aa; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Listening Post",
+    "overview": "Canonry is an instrument, not a marketing surface. It sits on an analyst's desk while they (or their agent) scan what AI answer engines are saying about a domain, drill into the regression that just appeared, and decide whether to act. The visual system serves that posture: the room is dim, the chrome is quiet, the data is loud, the rhythm is fast. Whitespace exists to create hierarchy, not atmosphere. Tone color (emerald, amber, rose) is rationed; it appears only when it carries meaning, never as decoration. The aesthetic family is operator-grade dark mode in the Vercel lineage: cool zinc neutrals, tinted toward black with no synthetic blue cast, Geist Sans as a single sans-serif workhorse (no display pairing), tabular numerics everywhere a number lives, eyebrow labels in tight letter-spacing to mark sections, hairline borders instead of cards-within-cards. It explicitly rejects the Semrush / Ahrefs reflex (every-pixel-occupied SEO dashboard) and the AI-startup reflex (purple-to-pink gradients, sparkle icons, glass blurs). The system carries one deliberate moment of warmth: the mascot bird in the sidebar chirps and tilts when a new canonry version is available, with a small amber bubble announcing the upgrade. That is the entire personality budget for the surface.",
+    "keyCharacteristics": [
+      "Dark zinc base (#09090b) with sub-step surface tinting at low opacities, no #000 and no #fff.",
+      "Geist Sans + Geist Mono pairing, OpenType stylistic sets cv11, ss01, ss03 enabled globally.",
+      "Tabular numerics on every metric, gauge value, and stat strip.",
+      "Tables, not card grids, for any list of three or more structured items.",
+      "Tone color is semantic only: emerald = positive, amber = caution, rose = negative, zinc = neutral.",
+      "Hairline borders carry shape; shadows are reserved for floating UI (toasts, evidence modal).",
+      "Page width capped at 1152px; fixed 224px sidebar; no fluid headings."
+    ],
+    "rules": [
+      { "name": "The Semantic-Only Rule", "body": "Tone color (Signal Green, Caution Amber, Alert Rose) is reserved for indicating state. It is forbidden as a decorative accent. A card is never green because green looks nice; it is green because it is reporting a positive signal.", "section": "colors" },
+      { "name": "The White-As-Accent Rule", "body": "The brand accent is Snow (#fafafa). It carries primary actions, active states, and the brightest text. There is no chromatic brand color. Adding one would betray the operator-instrument identity and pull the surface toward SaaS.", "section": "colors" },
+      { "name": "The Rationed Rose Rule", "body": "Alert Rose is the loudest color in the system. A page with three Alert Rose elements is almost certainly wrong: the analyst stops being able to triage. Pull rose back to the genuinely-negative signal.", "section": "colors" },
+      { "name": "The Single-Sans Rule", "body": "Geist carries everything. No serif headlines, no display-only weight, no editorial pairing. The interface earns its hierarchy from scale and weight contrast, not from a font swap.", "section": "typography" },
+      { "name": "The Tabular-Numerics Rule", "body": "Every number that lives inside a column, a gauge, a stat strip, or a delta carries font-variant-numeric: tabular-nums. Two 42.0% values stacked vertically must align at the decimal.", "section": "typography" },
+      { "name": "The Eyebrow-Over-Headline Rule", "body": "Section context is carried by the 10–11px uppercase eyebrow above a card or stat, not by an oversized headline inside it. Inverting this proportion reads as marketing.", "section": "typography" },
+      { "name": "The Flat-By-Default Rule", "body": "Surfaces are flat at rest. Shadows appear only when an element actually floats (toast, modal, mascot drop-shadow) or as a one-moment state response (the amber bubble glow). A card with a drop shadow at rest is wrong.", "section": "elevation" },
+      { "name": "The Tint-Then-Border Rule", "body": "When a surface needs to lift off the canvas, it earns it through a low-opacity background tint plus a hairline border. Never through box-shadow.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do use the Geist + Geist Mono pairing for every typographic decision; turn on cv11, ss01, ss03 (and ss02 for mono) so the 11–13px glyphs hold.",
+      "Do apply tabular numerics (font-variant-numeric: tabular-nums) to every numeric value that lives in a column, a gauge, a stat strip, or a delta.",
+      "Do prefer data tables over card grids for any list of three or more structured items.",
+      "Do use Surface Ash at 30% opacity (bg-zinc-900/30) plus a 60%-opacity hairline border (border-zinc-800/60) as the default container.",
+      "Do ration tone color (Signal Green, Caution Amber, Alert Rose) to semantic state only.",
+      "Do route every chart through components/shared/ChartPrimitives.tsx and use the shared style constants.",
+      "Do use the ToneBadge primitive for every status indicator. Map tones through the helpers (toneFromRunStatus, toneFromCitationState).",
+      "Do show two glyphs when rendering snapshot state in a single cell: one for cited (C/c), one for mentioned (M/m), with – for missing.",
+      "Do respect prefers-reduced-motion. The toast slide, the aero typing dots, the brand mascot's chirp, and the bubble pop must all disable.",
+      "Do keep the page width capped at max-w-6xl (1152px). The sidebar is always 224px."
+    ],
+    "donts": [
+      "Don't use #000 or #fff. The base is Zinc Night (#09090b), the brightest body is Snow (#fafafa).",
+      "Don't introduce a chromatic brand color (no canonry purple, no canonry blue). The accent is Snow.",
+      "Don't ship gradient hero text, gradient buttons, glassmorphism cards, sparkle icons, mesh-gradient backgrounds, or AI-powered stickers.",
+      "Don't build dashboards that look like Semrush or Ahrefs (every-pixel occupied, panels competing for attention) or Profound (the AEO-category reflex).",
+      "Don't import recharts directly. Use ChartPrimitives.tsx. Don't add Chart.js, Highcharts, D3, Plotly, Nivo, or Victory.",
+      "Don't use display fonts for UI labels, buttons, or data.",
+      "Don't drop a card inside a card. Lift the child row with a background tint and a hairline instead.",
+      "Don't apply drop shadows to resting surfaces. Shadows are reserved for the mascot, the toast lift, the bubble glow, and the sub-pixel Card highlight.",
+      "Don't reach for a modal as the first thought. Inline the form, slide a drawer, expand a row, anything before a modal.",
+      "Don't invent a new color name when an existing zinc / emerald / amber / rose token will do."
+    ]
+  }
+}
