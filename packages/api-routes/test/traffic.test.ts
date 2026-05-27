@@ -43,6 +43,8 @@ import type {
   WordpressTrafficCredentialStore,
   VercelTrafficCredentialRecord,
   VercelTrafficCredentialStore,
+  CloudflareTrafficCredentialRecord,
+  CloudflareTrafficCredentialStore,
 } from '../src/traffic.js'
 
 function buildEvent(overrides: Partial<NormalizedTrafficRequest> = {}): NormalizedTrafficRequest {
@@ -201,6 +203,22 @@ async function buildHarness(
 
   const vercelProbeInvocations: ListVercelTrafficEventsOptions[] = []
 
+  const cloudflareCredentials = new Map<string, CloudflareTrafficCredentialRecord>()
+  const cloudflareTrafficCredentialStore: CloudflareTrafficCredentialStore = {
+    getConnection: (projectName) => cloudflareCredentials.get(projectName),
+    getConnectionBySourceId: (sourceId) => {
+      for (const record of cloudflareCredentials.values()) {
+        if (record.sourceId === sourceId) return record
+      }
+      return undefined
+    },
+    upsertConnection: (record) => {
+      cloudflareCredentials.set(record.projectName, record)
+      return record
+    },
+    deleteConnection: (projectName) => cloudflareCredentials.delete(projectName),
+  }
+
   let pullInvocations = 0
   const observedWindows: Array<{ startTime: string; endTime: string }> = []
   const observedFirstSync: Array<boolean | undefined> = []
@@ -315,6 +333,8 @@ async function buildHarness(
       }
     },
     vercelSyncDeadlineMs: options.vercelSyncDeadlineMs,
+    cloudflareTrafficCredentialStore,
+    cloudflareTrafficIngestUrl: 'https://canonry.test/api/v1/projects/{name}/traffic/cloudflare/ingest',
     onTrafficSynced: (event) => { trafficSyncedEvents.push(event) },
     onScheduleUpdated: (action, projectId, kind) => { scheduleUpdates.push({ action, projectId, kind }) },
   })
@@ -338,6 +358,7 @@ async function buildHarness(
     credentials,
     wpCredentials,
     vercelCredentials,
+    cloudflareCredentials,
     tmpDir,
     getPullCount: () => pullInvocations,
     getObservedWindows: () => observedWindows,
