@@ -17,9 +17,9 @@ const buttonVariants = cva(
         destructive: 'bg-rose-600 text-white hover:bg-rose-700',
       },
       size: {
-        default: 'h-9 px-4',
-        sm: 'h-8 px-3 text-xs',
-        icon: 'size-9',
+        default: 'h-10 px-4 md:h-9',
+        sm: 'h-9 px-3 text-xs md:h-8',
+        icon: 'size-10 md:size-9',
       },
     },
     defaultVariants: {

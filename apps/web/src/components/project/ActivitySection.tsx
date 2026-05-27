@@ -12,6 +12,7 @@ import {
   CHART_TOOLTIP_STYLE,
   CHART_AXIS_TICK,
   CHART_AXIS_STROKE,
+  CHART_NEUTRAL,
   CHART_SERIES_COLORS,
   formatChartDateLabel,
   formatChartDateTick,
@@ -56,8 +57,8 @@ const TRAFFIC_WINDOWS: MetricsWindow[] = ['7d', '30d', '90d', 'all']
 
 const SOURCE_COLORS = CHART_SERIES_COLORS
 
-const SOCIAL_OTHER_COLOR = '#71717a'
-const SOCIAL_TOTAL_COLOR = '#52525b'
+const SOCIAL_OTHER_COLOR = CHART_NEUTRAL.textDim
+const SOCIAL_TOTAL_COLOR = CHART_NEUTRAL.textFaint
 const SOCIAL_TABLE_DEFAULT_LIMIT = 25
 
 type PageSortKey = 'landingPage' | 'sessions' | 'organicSessions' | 'users'
@@ -679,7 +680,7 @@ function ClickThroughActivity({ projectName }: { projectName: string }) {
                         }}
                       />
                       <Legend
-                        wrapperStyle={{ fontSize: 11, color: '#a1a1aa' }}
+                        wrapperStyle={{ fontSize: 11, color: CHART_NEUTRAL.text }}
                         formatter={(value: string) => {
                           if (value === '_totalSessions') return 'Total Sessions'
                           if (value === '_organicSessions') return 'Organic Sessions'
@@ -690,8 +691,8 @@ function ClickThroughActivity({ projectName }: { projectName: string }) {
                       <Area
                         type="monotone"
                         dataKey="_totalSessions"
-                        stroke="#52525b"
-                        fill="#27272a"
+                        stroke={CHART_NEUTRAL.textFaint}
+                        fill={CHART_NEUTRAL.surface}
                         fillOpacity={0.4}
                         strokeWidth={1.5}
                         dot={false}
@@ -915,7 +916,7 @@ function ClickThroughActivity({ projectName }: { projectName: string }) {
                         type="monotone"
                         dataKey={SOCIAL_TOTAL_KEY}
                         stroke={SOCIAL_TOTAL_COLOR}
-                        fill="#27272a"
+                        fill={CHART_NEUTRAL.surface}
                         fillOpacity={0.4}
                         strokeWidth={1.5}
                         dot={false}
@@ -1286,12 +1287,16 @@ function SortHeader<K extends string>({
 }) {
   const active = current === key
   return (
-    <th
-      className={`py-1 font-medium cursor-pointer select-none hover:text-zinc-300 transition-colors ${align === 'right' ? 'text-right' : 'text-left'}`}
-      onClick={() => onSort(key)}
-    >
-      {label}
-      {active && <span className="ml-0.5">{dir === 'asc' ? '↑' : '↓'}</span>}
+    <th className={`py-1 ${align === 'right' ? 'text-right' : 'text-left'}`}>
+      <button
+        type="button"
+        className="font-medium cursor-pointer select-none hover:text-zinc-300 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400 rounded"
+        onClick={() => onSort(key)}
+        aria-label={`Sort by ${label}${active ? ` (currently ${dir === 'asc' ? 'ascending' : 'descending'})` : ''}`}
+      >
+        {label}
+        {active && <span className="ml-0.5">{dir === 'asc' ? '↑' : '↓'}</span>}
+      </button>
     </th>
   )
 }

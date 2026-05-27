@@ -1232,8 +1232,17 @@ function InsightSignals({
                 return (
                   <div key={insight.id}>
                     <div
-                      className={`opportunity-item opportunity-item-${insight.tone} ${hasAffected ? 'cursor-pointer' : ''}`}
+                      className={`opportunity-item opportunity-item-${insight.tone} ${hasAffected ? 'cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400' : ''}`}
                       onClick={hasAffected ? () => setExpandedId(isExpanded ? null : insight.id) : undefined}
+                      onKeyDown={hasAffected ? (e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault()
+                          setExpandedId(isExpanded ? null : insight.id)
+                        }
+                      } : undefined}
+                      tabIndex={hasAffected ? 0 : undefined}
+                      role={hasAffected ? 'button' : undefined}
+                      aria-expanded={hasAffected ? isExpanded : undefined}
                     >
                       <div className="flex items-start gap-1.5 min-w-0">
                         {hasAffected && (
