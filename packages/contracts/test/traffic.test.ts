@@ -3,7 +3,12 @@ import {
   TrafficEventConfidences,
   TrafficEvidenceKinds,
   TrafficSourceTypes,
+  cloudflareWorkerEventSchema,
+  cloudflareWorkerIngestRequestSchema,
+  cloudflareWorkerSourceConfigSchema,
   normalizedTrafficRequestSchema,
+  trafficConnectCloudflareRequestSchema,
+  trafficConnectCloudflareResponseSchema,
   trafficConnectVercelRequestSchema,
   trafficConnectWordpressRequestSchema,
   vercelTrafficSourceConfigSchema,
@@ -166,6 +171,253 @@ describe('trafficConnectVercelRequestSchema', () => {
       projectId: 'prj_abc123',
       teamId: 'team_xyz789',
       token: '',
+    })).toThrow()
+  })
+})
+
+describe('cloudflareWorkerSourceConfigSchema', () => {
+  it('accepts a valid Cloudflare Worker source config', () => {
+    const parsed = cloudflareWorkerSourceConfigSchema.parse({
+      schemaVersion: 1,
+      workerVersion: '1.0.0',
+      expectedBotListVersion: '2026-05-27',
+      zoneId: 'zone_abc123',
+      accountId: 'acct_xyz789',
+    })
+    expect(parsed.workerVersion).toBe('1.0.0')
+    expect(parsed.zoneId).toBe('zone_abc123')
+  })
+
+  it('allows zoneId and accountId to be null', () => {
+    const parsed = cloudflareWorkerSourceConfigSchema.parse({
+      schemaVersion: 1,
+      workerVersion: '1.0.0',
+      expectedBotListVersion: '2026-05-27',
+      zoneId: null,
+      accountId: null,
+    })
+    expect(parsed.zoneId).toBeNull()
+    expect(parsed.accountId).toBeNull()
+  })
+
+  it('rejects a schemaVersion other than 1', () => {
+    expect(() => cloudflareWorkerSourceConfigSchema.parse({
+      schemaVersion: 2,
+      workerVersion: '1.0.0',
+      expectedBotListVersion: '2026-05-27',
+      zoneId: null,
+      accountId: null,
+    })).toThrow()
+  })
+
+  it('rejects an empty workerVersion or expectedBotListVersion', () => {
+    expect(() => cloudflareWorkerSourceConfigSchema.parse({
+      schemaVersion: 1,
+      workerVersion: '',
+      expectedBotListVersion: '2026-05-27',
+      zoneId: null,
+      accountId: null,
+    })).toThrow()
+    expect(() => cloudflareWorkerSourceConfigSchema.parse({
+      schemaVersion: 1,
+      workerVersion: '1.0.0',
+      expectedBotListVersion: '',
+      zoneId: null,
+      accountId: null,
+    })).toThrow()
+  })
+})
+
+describe('trafficConnectCloudflareRequestSchema', () => {
+  it('accepts an empty body (all fields optional)', () => {
+    const parsed = trafficConnectCloudflareRequestSchema.parse({})
+    expect(parsed.displayName).toBeUndefined()
+    expect(parsed.zoneId).toBeUndefined()
+    expect(parsed.accountId).toBeUndefined()
+  })
+
+  it('accepts a connect request with every optional field', () => {
+    const parsed = trafficConnectCloudflareRequestSchema.parse({
+      displayName: 'Example zone',
+      zoneId: 'zone_abc123',
+      accountId: 'acct_xyz789',
+    })
+    expect(parsed.displayName).toBe('Example zone')
+    expect(parsed.zoneId).toBe('zone_abc123')
+    expect(parsed.accountId).toBe('acct_xyz789')
+  })
+
+  it('rejects an empty string for any provided field', () => {
+    expect(() => trafficConnectCloudflareRequestSchema.parse({ displayName: '' })).toThrow()
+    expect(() => trafficConnectCloudflareRequestSchema.parse({ zoneId: '' })).toThrow()
+    expect(() => trafficConnectCloudflareRequestSchema.parse({ accountId: '' })).toThrow()
+  })
+})
+
+describe('trafficConnectCloudflareResponseSchema', () => {
+  it('accepts a populated response', () => {
+    const parsed = trafficConnectCloudflareResponseSchema.parse({
+      sourceId: 'src_abc123',
+      workerScript: 'addEventListener("fetch", () => {})',
+      wranglerToml: 'name = "canonry-worker"',
+      workerVersion: '1.0.0',
+      instructions: 'Deploy to your zone',
+    })
+    expect(parsed.sourceId).toBe('src_abc123')
+    expect(parsed.workerScript).toContain('fetch')
+  })
+
+  it('rejects empty string for any required field', () => {
+    expect(() => trafficConnectCloudflareResponseSchema.parse({
+      sourceId: '',
+      workerScript: 'x',
+      wranglerToml: 'x',
+      workerVersion: 'x',
+      instructions: 'x',
+    })).toThrow()
+  })
+})
+
+describe('cloudflareWorkerEventSchema', () => {
+  it('accepts a full event with cf properties populated', () => {
+    const parsed = cloudflareWorkerEventSchema.parse({
+      eventId: '8a3d2b0c-cf-ray',
+      observedAt: '2026-05-27T15:30:00.123Z',
+      method: 'GET',
+      host: 'example.com',
+      path: '/blog/post',
+      queryString: 'utm_source=chatgpt',
+      status: 200,
+      userAgent: 'GPTBot/1.2',
+      remoteIp: '20.171.207.34',
+      referer: 'https://chat.openai.com/',
+      cf: {
+        verifiedBot: true,
+        botScore: 30,
+        country: 'US',
+        asn: 8075,
+        asOrganization: 'Microsoft Corporation',
+      },
+    })
+    expect(parsed.eventId).toBe('8a3d2b0c-cf-ray')
+    expect(parsed.cf?.verifiedBot).toBe(true)
+  })
+
+  it('accepts a minimal event with cf=null and most fields null', () => {
+    const parsed = cloudflareWorkerEventSchema.parse({
+      eventId: 'ray-id',
+      observedAt: '2026-05-27T15:30:00.123Z',
+      method: null,
+      host: null,
+      path: '/',
+      queryString: null,
+      status: null,
+      userAgent: null,
+      remoteIp: null,
+      referer: null,
+      cf: null,
+    })
+    expect(parsed.cf).toBeNull()
+    expect(parsed.path).toBe('/')
+  })
+
+  it('rejects an empty path', () => {
+    expect(() => cloudflareWorkerEventSchema.parse({
+      eventId: 'ray-id',
+      observedAt: '2026-05-27T15:30:00.123Z',
+      method: null,
+      host: null,
+      path: '',
+      queryString: null,
+      status: null,
+      userAgent: null,
+      remoteIp: null,
+      referer: null,
+      cf: null,
+    })).toThrow()
+  })
+
+  it('rejects an empty eventId', () => {
+    expect(() => cloudflareWorkerEventSchema.parse({
+      eventId: '',
+      observedAt: '2026-05-27T15:30:00.123Z',
+      method: null,
+      host: null,
+      path: '/',
+      queryString: null,
+      status: null,
+      userAgent: null,
+      remoteIp: null,
+      referer: null,
+      cf: null,
+    })).toThrow()
+  })
+})
+
+describe('cloudflareWorkerIngestRequestSchema', () => {
+  const validEvent = {
+    eventId: 'ray-id',
+    observedAt: '2026-05-27T15:30:00.123Z',
+    method: 'GET',
+    host: 'example.com',
+    path: '/',
+    queryString: null,
+    status: 200,
+    userAgent: 'GPTBot/1.2',
+    remoteIp: '20.171.207.34',
+    referer: null,
+    cf: null,
+  }
+
+  it('accepts a single-event ingest request', () => {
+    const parsed = cloudflareWorkerIngestRequestSchema.parse({
+      schemaVersion: 1,
+      workerVersion: '1.0.0',
+      events: [validEvent],
+    })
+    expect(parsed.events).toHaveLength(1)
+  })
+
+  it('accepts an array of up to 100 events', () => {
+    const events = Array.from({ length: 100 }, (_, i) => ({ ...validEvent, eventId: `ray-${i}` }))
+    const parsed = cloudflareWorkerIngestRequestSchema.parse({
+      schemaVersion: 1,
+      workerVersion: '1.0.0',
+      events,
+    })
+    expect(parsed.events).toHaveLength(100)
+  })
+
+  it('rejects an empty events array', () => {
+    expect(() => cloudflareWorkerIngestRequestSchema.parse({
+      schemaVersion: 1,
+      workerVersion: '1.0.0',
+      events: [],
+    })).toThrow()
+  })
+
+  it('rejects more than 100 events', () => {
+    const events = Array.from({ length: 101 }, (_, i) => ({ ...validEvent, eventId: `ray-${i}` }))
+    expect(() => cloudflareWorkerIngestRequestSchema.parse({
+      schemaVersion: 1,
+      workerVersion: '1.0.0',
+      events,
+    })).toThrow()
+  })
+
+  it('rejects a non-1 schemaVersion', () => {
+    expect(() => cloudflareWorkerIngestRequestSchema.parse({
+      schemaVersion: 2,
+      workerVersion: '1.0.0',
+      events: [validEvent],
+    })).toThrow()
+  })
+
+  it('rejects an empty workerVersion', () => {
+    expect(() => cloudflareWorkerIngestRequestSchema.parse({
+      schemaVersion: 1,
+      workerVersion: '',
+      events: [validEvent],
     })).toThrow()
   })
 })

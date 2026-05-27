@@ -493,3 +493,87 @@ test('traffic_sources cascade deletes all dependent rows when project is removed
   expect(db.select().from(trafficSources).all().length).toBe(0)
   expect(db.select().from(crawlerEventsHourly).all().length).toBe(0)
 })
+
+test('traffic_sources persists ingest_token_hash and last_worker_version for cloudflare sources', () => {
+  const { db, tmpDir } = createTempDb()
+  onTestFinished(() => cleanup(tmpDir))
+
+  seedProject(db)
+
+  const now = new Date().toISOString()
+  db.insert(trafficSources).values({
+    id: 'src_cf',
+    projectId: 'proj_1',
+    sourceType: 'cloudflare',
+    displayName: 'Cloudflare · example.com',
+    status: 'connected',
+    configJson: {
+      schemaVersion: 1,
+      workerVersion: '1.0.0',
+      expectedBotListVersion: '2026-05-27',
+      zoneId: null,
+      accountId: null,
+    },
+    ingestTokenHash: 'a'.repeat(64),
+    lastWorkerVersion: '1.0.0',
+    createdAt: now,
+    updatedAt: now,
+  }).run()
+
+  const [row] = db.select().from(trafficSources).where(eq(trafficSources.id, 'src_cf')).all()
+  expect(row.sourceType).toBe('cloudflare')
+  expect(row.ingestTokenHash).toBe('a'.repeat(64))
+  expect(row.lastWorkerVersion).toBe('1.0.0')
+})
+
+test('traffic_sources leaves ingest_token_hash and last_worker_version NULL for pull adapters', () => {
+  const { db, tmpDir } = createTempDb()
+  onTestFinished(() => cleanup(tmpDir))
+
+  seedProject(db)
+
+  const now = new Date().toISOString()
+  db.insert(trafficSources).values({
+    id: 'src_vercel',
+    projectId: 'proj_1',
+    sourceType: 'vercel',
+    displayName: 'Vercel · example.com',
+    status: 'connected',
+    configJson: { projectId: 'prj_1', teamId: 'team_1', environment: 'production' },
+    createdAt: now,
+    updatedAt: now,
+  }).run()
+
+  const [row] = db.select().from(trafficSources).where(eq(trafficSources.id, 'src_vercel')).all()
+  expect(row.sourceType).toBe('vercel')
+  expect(row.ingestTokenHash).toBeNull()
+  expect(row.lastWorkerVersion).toBeNull()
+})
+
+test('migration 87 adds ingest_token_hash + last_worker_version to existing traffic_sources rows without losing data', () => {
+  const { db, tmpDir } = createTempDb()
+  onTestFinished(() => cleanup(tmpDir))
+
+  expect(MIGRATION_VERSIONS).toContainEqual(expect.objectContaining({
+    version: 87,
+    name: 'traffic-sources-cloudflare-worker-columns',
+  }))
+
+  seedProject(db)
+
+  const now = new Date().toISOString()
+  db.insert(trafficSources).values({
+    id: 'src_legacy',
+    projectId: 'proj_1',
+    sourceType: 'cloud-run',
+    displayName: 'Legacy row written before v87',
+    status: 'connected',
+    configJson: { gcpProjectId: 'p', authMode: 'service-account' },
+    createdAt: now,
+    updatedAt: now,
+  }).run()
+
+  const [row] = db.select().from(trafficSources).where(eq(trafficSources.id, 'src_legacy')).all()
+  expect(row.ingestTokenHash).toBeNull()
+  expect(row.lastWorkerVersion).toBeNull()
+})

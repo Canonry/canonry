@@ -194,6 +194,91 @@ export const trafficConnectVercelRequestSchema = z.object({
 })
 export type TrafficConnectVercelRequest = z.infer<typeof trafficConnectVercelRequestSchema>
 
+/**
+ * Persisted in `traffic_sources.configJson` for `sourceType = 'cloudflare'`
+ * when the source is a Worker push (the only Cloudflare delivery shape this
+ * release supports). The per-source bearer token + HMAC secret never live
+ * here — they go to `~/.canonry/config.yaml` under
+ * `cloudflareTraffic.connections.<sourceId>`. The DB only carries the
+ * sha256 hash of the bearer for verification.
+ */
+export const cloudflareWorkerSourceConfigSchema = z.object({
+  schemaVersion: z.literal(1),
+  /** Semver of the Worker script bundle that was generated at connect/rotate time. */
+  workerVersion: z.string().min(1),
+  /** Identifier of the bot/referer keyword set baked into the deployed Worker. */
+  expectedBotListVersion: z.string().min(1),
+  /** Operator-supplied Cloudflare zone id for the deployed Worker. Optional in Phase 1. */
+  zoneId: z.string().nullable(),
+  /** Operator-supplied Cloudflare account id. Optional in Phase 1; required for Phase 2 auto-deploy. */
+  accountId: z.string().nullable(),
+})
+export type CloudflareWorkerSourceConfig = z.infer<typeof cloudflareWorkerSourceConfigSchema>
+
+export const trafficConnectCloudflareRequestSchema = z.object({
+  displayName: z.string().min(1).optional(),
+  /** Cloudflare zone id of the deployed Worker (informational; not validated against Cloudflare). */
+  zoneId: z.string().min(1).optional(),
+  /** Cloudflare account id (informational; required when Phase 2 auto-deploy lands). */
+  accountId: z.string().min(1).optional(),
+})
+export type TrafficConnectCloudflareRequest = z.infer<typeof trafficConnectCloudflareRequestSchema>
+
+/**
+ * Returned by `POST /traffic/connect/cloudflare`. The operator deploys the
+ * generated Worker script to their Cloudflare zone; the embedded bearer +
+ * HMAC secret authenticate every subsequent ingest request.
+ */
+export const trafficConnectCloudflareResponseSchema = z.object({
+  sourceId: z.string().min(1),
+  workerScript: z.string().min(1),
+  wranglerToml: z.string().min(1),
+  workerVersion: z.string().min(1),
+  instructions: z.string().min(1),
+})
+export type TrafficConnectCloudflareResponse = z.infer<typeof trafficConnectCloudflareResponseSchema>
+
+/**
+ * One event row inside a `cloudflareWorkerIngestRequest`. Field shape mirrors
+ * what a Cloudflare Worker can pull off a `Request` (`request.url`,
+ * `request.headers`, `request.cf`). Every non-mandatory field is nullable —
+ * `cf.*` properties depend on the customer's plan tier and are absent on
+ * free/Pro plans without Bot Management.
+ */
+export const cloudflareWorkerEventSchema = z.object({
+  /** Cloudflare `cf-ray` request id — globally unique per request. */
+  eventId: z.string().min(1),
+  observedAt: z.string().min(1),
+  method: z.string().nullable(),
+  host: z.string().nullable(),
+  path: z.string().min(1),
+  queryString: z.string().nullable(),
+  status: z.number().int().nullable(),
+  userAgent: z.string().nullable(),
+  remoteIp: z.string().nullable(),
+  referer: z.string().nullable(),
+  cf: z.object({
+    verifiedBot: z.boolean().nullable(),
+    botScore: z.number().int().nullable(),
+    country: z.string().nullable(),
+    asn: z.number().int().nullable(),
+    asOrganization: z.string().nullable(),
+  }).nullable(),
+})
+export type CloudflareWorkerEvent = z.infer<typeof cloudflareWorkerEventSchema>
+
+/**
+ * Body of `POST /api/v1/projects/:name/traffic/cloudflare/ingest`. The
+ * Worker forwards one event per request in this release; the array shape
+ * keeps the door open for a future Logpush sibling adapter that batches.
+ */
+export const cloudflareWorkerIngestRequestSchema = z.object({
+  schemaVersion: z.literal(1),
+  workerVersion: z.string().min(1),
+  events: z.array(cloudflareWorkerEventSchema).min(1).max(100),
+})
+export type CloudflareWorkerIngestRequest = z.infer<typeof cloudflareWorkerIngestRequestSchema>
+
 export const trafficSyncResponseSchema = z.object({
   sourceId: z.string(),
   runId: z.string(),

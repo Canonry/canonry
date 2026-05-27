@@ -433,6 +433,12 @@ importers:
         specifier: workspace:*
         version: link:../contracts
 
+  packages/integration-cloudflare-worker:
+    dependencies:
+      '@ainyc/canonry-contracts':
+        specifier: workspace:*
+        version: link:../contracts
+
   packages/integration-commoncrawl:
     dependencies:
       '@ainyc/canonry-contracts':
