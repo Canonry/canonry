@@ -218,10 +218,10 @@ export function EvidenceTable({
           <thead>
             <tr>
               <th style={{ width: '2rem' }} />
-              <th>Query</th>
-              <th>Status</th>
-              <th>{historyHeader}</th>
-              <th>Change</th>
+              <th scope="col">Query</th>
+              <th scope="col">Status</th>
+              <th scope="col">{historyHeader}</th>
+              <th scope="col">Change</th>
               <th />
             </tr>
           </thead>

@@ -342,17 +342,28 @@ Real shadows appear only on floating, state-carrying UI: the toast viewport, the
 ### Cards & Surfaces
 
 - **Surface Card (the dominant container):** `rounded-xl` (12px), Surface Ash at 30% opacity over the canvas, 60%-opacity hairline border. Internal padding `p-4`. This is the surface every section sits in.
+- **AEO performance hero:** Same surface family, `px-5 py-5`. Holds the three paired Mention / Cited / Mention-share rows plus the mention-share breakdown. The project overview's lead instrument (see "AEO performance hero" below).
 - **Score Gauge container:** Same surface family, `px-3 py-5` for tighter vertical rhythm around the radial.
-- **Metric Card:** Same surface family, `px-4 py-5`, includes the big-number stat plus a 1.5px progress bar and a 12px caption.
+- **Metric Card:** Same surface family, `px-4 py-5`, includes the big-number stat plus a 1.5px progress bar and a 12px caption. Laid out in a `sm:grid-cols-2 lg:grid-cols-3` grid for the overview's secondary metrics.
 - **Hero Copy (project landing):** Same surface family, `px-4 py-4`, contains the project title and brief positioning.
 - **No nested cards.** A card may contain a table, a sparkline, a list of rows, an action button, or a stat ladder, but never another card. If a child needs visual emphasis, lift its row (background tint + hairline) rather than wrapping it in a card.
 
-### Score Gauge (signature component)
+### AEO performance hero (project overview's first-glance instrument)
+
+The top of the project overview page is the **AEO performance hero** — a single Surface Card holding three comparable, full-width metric rows, not a cluster of radial gauges:
+
+- **Three paired rows** — `Mentioned`, `Cited`, `Mention share` — each a four-part grid: label + `InfoTooltip`, a `24px` tabular value, a 1.5px linear progress bar tinted by tone, and an `11px` delta/detail line. Below `480px` the row stacks (label → value → bar → detail) so the fixed desktop columns never overflow a phone.
+- **Mention-share breakdown** — a small ranked bar list (you vs. each tracked competitor) drops in beneath the rows whenever competitor data exists.
+- **Linear bars, not radials, on purpose.** The three numbers are meant to be read against each other top-to-bottom; stacked radials would read as three unrelated dials. Bar fills animate `width` only under `motion-safe` and take their color from `progress-fill-{tone}` (never a hard-coded fill).
+
+Directly below sit the **secondary metric cards** (`Mention Gaps`, `Citation Gaps`, `Index Coverage`) in a `sm:grid-cols-2 lg:grid-cols-3` grid of flat Surface Cards. This hero-plus-cards arrangement is the ratified overview pattern. There must be exactly one `.metric-grid` / `.metric-card` definition — a duplicate once lived in the stylesheet and silently overrode the column count (`lg:grid-cols-3` → `md:grid-cols-2`).
+
+### Score Gauge (radial component)
 
 - 96px (`size-24`) radial SVG ring with a 48px radius and 6px stroke. Background ring renders at 6% white opacity; fill renders in the metric's tone color (Signal Green, Caution Amber, Alert Rose, or neutral Smoke).
-- Fill animates from 0 to the value over 600ms with `cubic-bezier(0.4, 0, 0.2, 1)` easing.
+- Fill animates from 0 to the value over 600ms with `cubic-bezier(0.4, 0, 0.2, 1)` easing; the transition is dropped entirely under `prefers-reduced-motion`.
 - Center value (`20px / 700`, tabular) sits inside the ring; eyebrow label drops below; an optional delta line and description follow.
-- Gauges are arranged in a `lg:grid-cols-5` row at the top of the project page. This is the canonical first-glance instrument cluster: visibility, AEO score, citation share, mention share, technical readiness.
+- Used where a **single** metric reads better as a radial (e.g. the traffic-source detail page), not as the project-overview header cluster. On the overview, reach for the AEO performance hero + metric cards instead.
 
 ### Sparkline (signature component)
 

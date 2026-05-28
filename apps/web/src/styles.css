@@ -467,6 +467,12 @@
     transition: stroke-dashoffset 0.6s cubic-bezier(0.4, 0, 0.2, 1);
   }
 
+  @media (prefers-reduced-motion: reduce) {
+    .gauge-fill {
+      transition: none;
+    }
+  }
+
   .gauge-fill-positive {
     stroke: #34d399;
   }
@@ -522,35 +528,47 @@
   }
 
   .aeo-hero-rows {
-    @apply space-y-3;
+    @apply space-y-4 sm:space-y-3;
   }
 
   .aeo-hero-row {
-    @apply grid items-center gap-x-4;
-    /* First col widened from 100px so "Mention share" fits on one line —
-       previously wrapped and pushed the InfoTooltip icon to the right edge,
-       which made the tooltip bubble render far right of where readers expect. */
-    grid-template-columns: 130px 90px 1fr auto;
+    @apply grid items-center gap-x-4 gap-y-1;
+    /* Mobile: stack label / value / bar / detail so the fixed desktop columns
+       never overflow a narrow viewport. ≥480px restores the single-row layout.
+       First desktop col widened from 100px so "Mention share" fits on one line. */
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "label" "value" "bar" "detail";
+  }
+
+  @media (min-width: 480px) {
+    .aeo-hero-row {
+      grid-template-columns: 130px 90px minmax(0, 1fr) auto;
+      grid-template-areas: "label value bar detail";
+    }
   }
 
   .aeo-hero-row-label {
     @apply text-sm font-medium text-zinc-200 flex items-center gap-1;
+    grid-area: label;
   }
 
   .aeo-hero-row-value {
     @apply text-2xl font-bold tracking-tight tabular-nums;
+    grid-area: value;
   }
 
   .aeo-hero-row-bar {
     @apply h-1.5 w-full rounded-full bg-zinc-800 overflow-hidden;
+    grid-area: bar;
   }
 
   .aeo-hero-row-detail {
     @apply text-[11px] text-zinc-500 tabular-nums;
+    grid-area: detail;
   }
 
   .aeo-hero-context {
-    @apply text-[11px] text-zinc-600 mt-4;
+    @apply text-[11px] text-zinc-400 mt-4;
   }
 
   .mention-share-breakdown {
@@ -567,7 +585,16 @@
 
   .mention-share-breakdown-row {
     @apply grid items-center gap-x-3 text-xs;
-    grid-template-columns: minmax(140px, 1fr) minmax(80px, 2fr) 32px 56px;
+    /* Floors relaxed on mobile so the four columns never exceed a narrow
+       viewport; the truncating label absorbs the squeeze. ≥480px restores the
+       roomier desktop track sizes. */
+    grid-template-columns: minmax(0, 1fr) minmax(56px, 2fr) 28px 48px;
+  }
+
+  @media (min-width: 480px) {
+    .mention-share-breakdown-row {
+      grid-template-columns: minmax(140px, 1fr) minmax(80px, 2fr) 32px 56px;
+    }
   }
 
   .mention-share-breakdown-label {
@@ -633,7 +660,10 @@
   }
 
   .metric-card-bar-fill {
-    @apply h-full rounded-full bg-emerald-500 transition-all duration-300;
+    /* Tone color comes from the paired `progress-fill-{tone}` class. Transition
+       is scoped to `width` (not `all`, which also crossfaded tone swaps) and
+       gated behind `motion-safe` so reduced-motion users get no animation. */
+    @apply h-full rounded-full motion-safe:transition-[width] motion-safe:duration-300;
   }
 
   .metric-card-movement {
@@ -834,7 +864,7 @@
   }
 
   .attention-action {
-    @apply pt-1 text-[10px] font-medium uppercase tracking-[0.14em] text-zinc-600;
+    @apply pt-1 text-[10px] font-medium uppercase tracking-[0.14em] text-zinc-400;
   }
 
   /* ── Compact run ── */
@@ -847,35 +877,12 @@
     @apply mt-0.5 text-[12px] text-zinc-600;
   }
 
-  /* ── Metric card (kept for overview) ── */
-
-  .metric-grid {
-    @apply grid gap-3 md:grid-cols-2;
-  }
-
-  .metric-card {
-    @apply grid gap-3;
-  }
-
-  .metric-card-head {
-    @apply flex items-center justify-between gap-3;
-  }
-
-  .metric-card-body {
-    @apply grid gap-3 sm:grid-cols-[minmax(0,1fr)_8rem] sm:items-center;
-  }
-
-  .metric-value {
-    @apply text-2xl font-semibold tracking-tight text-zinc-50;
-  }
-
-  .progress-track {
-    @apply h-1 overflow-hidden rounded-full bg-zinc-800;
-  }
-
-  .progress-fill {
-    @apply h-full rounded-full transition-all duration-500;
-  }
+  /* ── Metric progress-bar tone fills ──
+     Shared by `.metric-card-bar-fill` (secondary metric cards) and the AEO
+     performance hero rows. The metric card / grid layout itself lives in the
+     "Metric cards (non-gauge)" block above; the duplicate definitions that
+     once lived here silently overrode it (flipping `lg:grid-cols-3` to
+     `md:grid-cols-2`) and have been removed. */
 
   .progress-fill-positive {
     @apply bg-emerald-400;
@@ -1414,16 +1421,12 @@
     @apply relative inline-flex items-center ml-1 align-middle;
   }
 
+  .info-tooltip-trigger {
+    @apply inline-flex items-center justify-center rounded-full p-0.5 text-zinc-500 cursor-help transition hover:text-zinc-300 focus:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500;
+  }
+
   .info-tooltip-icon {
-    @apply size-3 text-zinc-600 cursor-help transition hover:text-zinc-400;
-  }
-
-  .info-tooltip-bubble {
-    @apply pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 w-56 -translate-x-1/2 rounded-lg border border-zinc-700/60 bg-zinc-900 px-3 py-2 text-[11px] font-normal normal-case tracking-normal leading-4 text-zinc-300 opacity-0 shadow-lg transition-opacity;
-  }
-
-  .info-tooltip-wrapper:hover .info-tooltip-bubble {
-    @apply pointer-events-auto opacity-100;
+    @apply size-3;
   }
 
   /* Portal-rendered tooltip uses inline styles — see InfoTooltip.tsx */
