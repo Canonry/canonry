@@ -6,13 +6,19 @@ interface TooltipPos {
   left: number
 }
 
+/**
+ * Inline help affordance. The trigger is a real <button> so it is reachable by
+ * keyboard and exposes the explanatory copy to assistive tech via its
+ * accessible name (`aria-label`) — the visual bubble is decorative
+ * (`aria-hidden`). Hover, focus, click (touch), and Escape all toggle it.
+ */
 export function InfoTooltip({ text }: { text: string }) {
   const [pos, setPos] = useState<TooltipPos | null>(null)
-  const iconRef = useRef<SVGSVGElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
 
   const show = useCallback(() => {
-    if (!iconRef.current) return
-    const rect = iconRef.current.getBoundingClientRect()
+    if (!triggerRef.current) return
+    const rect = triggerRef.current.getBoundingClientRect()
     setPos({
       top: rect.top,
       left: rect.left + rect.width / 2,
@@ -21,15 +27,34 @@ export function InfoTooltip({ text }: { text: string }) {
 
   const hide = useCallback(() => setPos(null), [])
 
+  const toggle = useCallback(() => {
+    if (pos === null) show()
+    else hide()
+  }, [pos, show, hide])
+
   return (
-    <span className="info-tooltip-wrapper" onMouseEnter={show} onMouseLeave={hide} onFocus={show} onBlur={hide}>
-      <svg ref={iconRef} className="info-tooltip-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-        <circle cx="8" cy="8" r="7" stroke="currentColor" strokeWidth="1.5" />
-        <path d="M8 7v4M8 5.5v0" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-      </svg>
+    <span className="info-tooltip-wrapper" onMouseEnter={show} onMouseLeave={hide}>
+      <button
+        ref={triggerRef}
+        type="button"
+        className="info-tooltip-trigger"
+        aria-label={text}
+        aria-expanded={pos !== null}
+        onFocus={show}
+        onBlur={hide}
+        onClick={toggle}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') hide()
+        }}
+      >
+        <svg className="info-tooltip-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <circle cx="8" cy="8" r="7" stroke="currentColor" strokeWidth="1.5" />
+          <path d="M8 7v4M8 5.5v0" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+        </svg>
+      </button>
       {pos !== null && createPortal(
         <span
-          role="tooltip"
+          aria-hidden="true"
           style={{
             position: 'fixed',
             top: pos.top,

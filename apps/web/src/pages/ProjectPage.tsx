@@ -23,6 +23,7 @@ import { CitationVisibilitySection } from '../components/project/CitationVisibil
 import { DiscoverySection } from '../components/project/DiscoverySection.js'
 import { ReportPage } from './ReportPage.js'
 import { formatTimestamp, SEARCH_METRIC_SHORT_LABELS, SearchMetric } from '../lib/format-helpers.js'
+import { METRIC_TONE_TEXT_CLASS, toneFromScore } from '../lib/tone-helpers.js'
 import { addToast } from '../lib/toast-store.js'
 import { asyncHandler } from '../lib/async-handler.js'
 import { ProjectSettingsSection } from '../components/project/ProjectSettingsSection.js'
@@ -1043,7 +1044,7 @@ function MovementBanner({
         ) : (
           <span className="text-zinc-500">−0 lost</span>
         )}
-        <span className="text-zinc-600 ml-2">{verdict}</span>
+        <span className="text-zinc-400 ml-2">{verdict}</span>
       </div>
       {(summary.gainedQueries?.length || summary.lostQueries?.length) ? (
         <div className="movement-banner-detail">
@@ -1125,6 +1126,13 @@ function MentionShareBreakdown({
  * (Recharts is overkill for a 12-point trend at 96px wide). Color is tone-
  * driven from the most recent point so a row reads at a glance.
  */
+const TREND_STROKE_BY_TONE = {
+  positive: 'rgb(52 211 153)', // emerald-400
+  caution: 'rgb(251 191 36)', // amber-400
+  negative: 'rgb(251 113 133)', // rose-400
+  neutral: 'rgb(161 161 170)', // zinc-400
+} as const
+
 function ProviderTrendSparkline({
   trend,
   currentScore,
@@ -1140,11 +1148,7 @@ function ProviderTrendSparkline({
   const max = 100
   const stepX = trend.length > 1 ? w / (trend.length - 1) : 0
   const pts = trend.map((v, i) => `${(i * stepX).toFixed(2)},${(h - (v / max) * h).toFixed(2)}`).join(' ')
-  const stroke = currentScore >= 70
-    ? 'rgb(52 211 153)' // emerald-400
-    : currentScore >= 40
-      ? 'rgb(251 191 36)' // amber-400
-      : 'rgb(251 113 133)' // rose-400
+  const stroke = TREND_STROKE_BY_TONE[toneFromScore(currentScore)]
   const dotX = (trend.length - 1) * stepX
   const dotY = h - (trend[trend.length - 1]! / max) * h
   return (
@@ -1818,7 +1822,7 @@ function ProjectPageContent({
             {(model.project.ownedDomains ?? []).length === 0 && !addingOwnedDomain && (
               <button
                 type="button"
-                className="ml-2 text-[10px] uppercase tracking-wide text-zinc-600 hover:text-zinc-400 transition-colors"
+                className="ml-2 rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/60 transition-colors"
                 onClick={() => setAddingOwnedDomain(true)}
               >+ add domain</button>
             )}
@@ -1841,7 +1845,7 @@ function ProjectPageContent({
                   {d}
                   <button
                     type="button"
-                    className="ml-0.5 text-zinc-500 hover:text-zinc-200 transition-colors"
+                    className="-mr-1 ml-0.5 inline-flex items-center justify-center rounded p-1 leading-none text-zinc-500 hover:bg-zinc-700/40 hover:text-zinc-200 transition-colors"
                     disabled={ownedDomainSaving}
                     onClick={() => { void handleRemoveOwnedDomain(d) }}
                     aria-label={`Remove ${d}`}
@@ -1883,7 +1887,7 @@ function ProjectPageContent({
                 {a}
                 <button
                   type="button"
-                  className="ml-0.5 text-zinc-500 hover:text-zinc-200 transition-colors"
+                  className="-mr-1 ml-0.5 inline-flex items-center justify-center rounded p-1 leading-none text-zinc-500 hover:bg-zinc-700/40 hover:text-zinc-200 transition-colors"
                   disabled={aliasSaving}
                   onClick={() => { void handleRemoveAlias(a) }}
                   aria-label={`Remove ${a}`}
@@ -1956,7 +1960,7 @@ function ProjectPageContent({
         <>
           {/* Hero: three comparable AEO numbers (Mention, Cited, Mention Share). */}
           <section className="aeo-hero">
-            <p className="aeo-hero-title">AEO performance</p>
+            <h2 className="aeo-hero-title">AEO performance</h2>
             <div className="aeo-hero-rows">
               {([
                 { key: 'mention', label: 'Mentioned', tooltip: 'Your domain or company name was in the answer returned by the LLM.', summary: model.mentionSummary },
@@ -2003,6 +2007,7 @@ function ProjectPageContent({
 
           {/* Secondary: at-risk gaps (paired) + technical health */}
           <section className="metric-grid">
+            <h2 className="sr-only">Coverage gaps and index health</h2>
             <div className="metric-card">
               <p className="metric-card-eyebrow">
                 Mention Gaps
@@ -2224,10 +2229,10 @@ function ProjectPageContent({
                 <table className="evidence-table">
                   <thead>
                     <tr>
-                      <th>Model</th>
-                      <th>Score</th>
-                      <th>Trend</th>
-                      <th>Cited queries</th>
+                      <th scope="col">Model</th>
+                      <th scope="col">Score</th>
+                      <th scope="col">Trend</th>
+                      <th scope="col">Cited queries</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -2240,7 +2245,7 @@ function ProjectPageContent({
                           </div>
                         </td>
                         <td>
-                          <span className={`font-semibold ${ps.score >= 70 ? 'text-emerald-400' : ps.score >= 40 ? 'text-amber-400' : 'text-rose-400'}`}>
+                          <span className={`font-semibold ${METRIC_TONE_TEXT_CLASS[toneFromScore(ps.score)]}`}>
                             {ps.score}%
                           </span>
                         </td>
