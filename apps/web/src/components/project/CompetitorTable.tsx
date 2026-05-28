@@ -5,12 +5,16 @@ import type { ProjectCommandCenterVm } from '../../view-models.js'
 export function CompetitorTable({
   competitors,
   onSelectCompetitor,
+  onRemoveCompetitor,
   activeFilter,
 }: {
   competitors: ProjectCommandCenterVm['competitors']
   /** Click handler — fired when an analyst wants to filter the Evidence Table
    *  to the queries where this competitor surfaced. Receives the domain. */
   onSelectCompetitor?: (domain: string) => void
+  /** Remove handler — fired when an analyst removes a tracked competitor.
+   *  Receives the domain. When omitted, no remove control is rendered. */
+  onRemoveCompetitor?: (domain: string) => void
   /** Currently-active competitor filter, for row highlighting. */
   activeFilter?: string | null
 }) {
@@ -19,6 +23,7 @@ export function CompetitorTable({
   }
 
   const clickable = onSelectCompetitor != null
+  const removable = onRemoveCompetitor != null
 
   return (
     <div className="competitor-table-wrap">
@@ -29,6 +34,7 @@ export function CompetitorTable({
             <th>Pressure</th>
             <th>Citations</th>
             <th>Queries</th>
+            {removable && <th><span className="sr-only">Actions</span></th>}
           </tr>
         </thead>
         <tbody>
@@ -61,6 +67,22 @@ export function CompetitorTable({
                     ? competitor.citedQueries.join(', ')
                     : 'Not cited'}
                 </td>
+                {removable && (
+                  <td className="text-right">
+                    <button
+                      type="button"
+                      className="rounded px-1.5 py-0.5 text-xs text-zinc-500 transition-colors hover:text-rose-400 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-rose-500"
+                      aria-label={`Remove competitor ${competitor.domain}`}
+                      title={`Remove ${competitor.domain}`}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        onRemoveCompetitor!(competitor.domain)
+                      }}
+                    >
+                      Remove
+                    </button>
+                  </td>
+                )}
               </tr>
             )
           })}
