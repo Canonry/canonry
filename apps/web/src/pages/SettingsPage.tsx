@@ -63,7 +63,12 @@ export function SettingsPage() {
             <dl className="definition-list mt-3">
               <div>
                 <dt>Model</dt>
-                <dd className="font-mono text-xs">{provider.model}</dd>
+                <dd className="font-mono text-xs">
+                  {provider.model ?? provider.defaultModel ?? 'unknown'}
+                  {!provider.model && provider.defaultModel && (
+                    <span className="ml-1 font-sans text-zinc-500">(default)</span>
+                  )}
+                </dd>
               </div>
               {provider.quota && (
                 <>

@@ -667,6 +667,7 @@ export interface ApiProviderSummary {
   keyUrl?: string
   modelHint?: string
   model?: string
+  defaultModel?: string
   configured: boolean
   quota?: {
     maxConcurrency: number

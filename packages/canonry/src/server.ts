@@ -501,6 +501,7 @@ export async function createServer(opts: {
     keyUrl: adapter.keyUrl,
     modelHint: `e.g. ${adapter.modelRegistry.defaultModel}`,
     model: registry.get(adapter.name)?.config.model,
+    defaultModel: adapter.modelRegistry.defaultModel,
     configured: !!registry.get(adapter.name),
     quota: registry.get(adapter.name)?.config.quotaPolicy,
     vertexConfigured: adapter.name === 'gemini' ? !!opts.config.providers?.gemini?.vertexProject : undefined,

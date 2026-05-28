@@ -746,6 +746,7 @@ export function buildDashboard(projectDataList: ProjectData[], apiSettings?: Api
         keyUrl: p.keyUrl,
         modelHint: p.modelHint,
         model: p.model,
+        defaultModel: p.defaultModel,
         state: (p.configured ? 'ready' : 'needs-config') as 'ready' | 'needs-config',
         detail: p.configured ? 'Provider is configured.' : 'API key is missing.',
         quota: p.quota,

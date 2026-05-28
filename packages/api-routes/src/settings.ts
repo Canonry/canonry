@@ -26,6 +26,8 @@ export interface ProviderSummaryEntry {
   keyUrl?: string
   modelHint?: string
   model?: string
+  /** The adapter's built-in default model (used when `model` is unset). */
+  defaultModel?: string
   configured: boolean
   quota?: ProviderQuotaPolicy
   /** Whether Vertex AI is configured for this provider (Gemini only) */
