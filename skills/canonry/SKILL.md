@@ -71,7 +71,7 @@ Configure `spec.brandAliases` on the project (or pass via `cnry apply`) so the m
 
 A canonry engagement follows the same loop regardless of project size:
 
-1. **Diagnose** — Run a baseline sweep (`cnry run <project> --wait`) and a technical audit (`npx @ainyc/aeo-audit@latest <url> --format json`). Read Mention Coverage first, Citation Coverage second. See `references/aeo-analysis.md`.
+1. **Diagnose** — Run a baseline sweep (`cnry run <project> --wait`) and a technical audit (`npx @ainyc/aeo-audit@latest <url> --sitemap --format json`). `--sitemap` audits every page in the site's sitemap (auto-discovered from `/sitemap.xml`, the sitemap index, or `robots.txt`) so readiness reflects the whole site, not just one page. Read Mention Coverage first, Citation Coverage second. See `references/aeo-analysis.md`.
 2. **Prioritize** — Triage by impact: indexing gaps → schema gaps → content gaps → query strategy. Branded-term losses are urgent.
 3. **Execute** — Apply fixes via the canonry CLI or platform integrations. Use `--dry-run` on supported mutations (`cnry project delete`, `cnry query replace`, `cnry backfill ...`) to preview before committing. See `references/canonry-cli.md` for the full command catalog and `references/wordpress-integration.md` for the WordPress workflow.
 4. **Monitor** — Re-run sweeps weekly (`cnry run --all --wait` fans out across every project). Correlate visibility shifts with deployments and competitor moves.
