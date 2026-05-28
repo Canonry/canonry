@@ -1407,6 +1407,7 @@ export type SettingsDto = {
         keyUrl?: string;
         modelHint?: string;
         model?: string;
+        defaultModel?: string;
         configured: boolean;
         quota?: {
             maxConcurrency: number;

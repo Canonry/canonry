@@ -110,6 +110,29 @@ test('buildDashboard maps Google settings into the dashboard view model', () => 
   expect(dashboard.settings.bootstrapNote).toMatch(/Authentication credentials persist to local config/)
 })
 
+test('buildDashboard surfaces both the model override and the adapter default model', () => {
+  const apiSettings: ApiSettings = {
+    providers: [
+      { name: 'gemini', configured: true, model: 'gemini-2.5-flash', defaultModel: 'gemini-3-flash-preview' },
+      { name: 'openai', configured: true, defaultModel: 'gpt-5.4' },
+    ],
+    google: { configured: false },
+  }
+
+  const statuses = buildDashboard([], apiSettings).settings.providerStatuses
+
+  // Explicit override is preserved verbatim.
+  const gemini = statuses.find((p) => p.name === 'gemini')
+  expect(gemini?.model).toBe('gemini-2.5-flash')
+  expect(gemini?.defaultModel).toBe('gemini-3-flash-preview')
+
+  // No override: model stays undefined, but the adapter default is carried
+  // through so the settings card can show the effective model instead of a blank.
+  const openai = statuses.find((p) => p.name === 'openai')
+  expect(openai?.model).toBeUndefined()
+  expect(openai?.defaultModel).toBe('gpt-5.4')
+})
+
 test('buildDashboard marks Google settings as needing config when OAuth is not configured', () => {
   const apiSettings: ApiSettings = {
     providers: [],

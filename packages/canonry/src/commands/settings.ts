@@ -43,6 +43,7 @@ export async function showSettings(format?: string): Promise<void> {
     providers: Array<{
       name: string
       model?: string
+      defaultModel?: string
       configured: boolean
       quota?: { maxConcurrency: number; maxRequestsPerMinute: number; maxRequestsPerDay: number }
     }>
@@ -64,7 +65,12 @@ export async function showSettings(format?: string): Promise<void> {
     const status = provider.configured ? 'configured' : 'not configured'
     console.log(`  ${provider.name.padEnd(10)} ${status}`)
     if (provider.configured) {
-      console.log(`    Model:     ${provider.model ?? '(default)'}`)
+      const modelLabel = provider.model
+        ? provider.model
+        : provider.defaultModel
+          ? `${provider.defaultModel} (default)`
+          : '(default)'
+      console.log(`    Model:     ${modelLabel}`)
       if (provider.quota) {
         console.log(`    Quota:     ${provider.quota.maxConcurrency} concurrent · ${provider.quota.maxRequestsPerMinute}/min · ${provider.quota.maxRequestsPerDay}/day`)
       }

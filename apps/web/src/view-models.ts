@@ -261,6 +261,7 @@ export interface ProviderStatusVm {
   keyUrl?: string
   modelHint?: string
   model?: string
+  defaultModel?: string
   state: 'ready' | 'needs-config'
   detail: string
   quota?: {

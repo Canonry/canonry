@@ -16,6 +16,11 @@ export const providerSummaryEntryDtoSchema = z.object({
   keyUrl: z.string().optional(),
   modelHint: z.string().optional(),
   model: z.string().optional(),
+  /**
+   * The adapter's built-in default model. Surfaced so the UI and CLI can show
+   * the effective model even when no explicit `model` override is configured.
+   */
+  defaultModel: z.string().optional(),
   configured: z.boolean(),
   quota: providerQuotaPolicySchema.optional(),
   /** Whether Vertex AI is configured for this provider (Gemini only). */
