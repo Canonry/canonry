@@ -35,6 +35,7 @@ import {
   appendQueries as apiAppendQueries,
   fetchCompetitors as apiFetchCompetitors,
   setCompetitors as apiSetCompetitors,
+  removeCompetitors as apiRemoveCompetitors,
   updateOwnedDomains as apiUpdateOwnedDomains,
   updateAliases as apiUpdateAliases,
   updateProject as apiUpdateProject,
@@ -1685,6 +1686,21 @@ function ProjectPageContent({
     }
   }
 
+  async function handleRemoveCompetitor(domain: string) {
+    try {
+      await apiRemoveCompetitors(projectName, [domain])
+      void refetch()
+    } catch (err) {
+      addToast({
+        title: 'Could not remove competitor',
+        detail: err instanceof Error ? err.message : `Failed to remove ${domain}`,
+        tone: 'negative',
+        dedupeKey: 'competitor:remove',
+        dedupeMode: 'replace',
+      })
+    }
+  }
+
   async function handleAddOwnedDomain() {
     const domain = newOwnedDomain.trim()
     if (!domain) return
@@ -2186,6 +2202,7 @@ function ProjectPageContent({
                 setCompetitorFilter(domain)
                 document.getElementById('evidence-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
               }}
+              onRemoveCompetitor={(domain) => { void handleRemoveCompetitor(domain) }}
               activeFilter={competitorFilter}
             />
           </section>
