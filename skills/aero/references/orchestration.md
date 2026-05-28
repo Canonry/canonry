@@ -12,7 +12,7 @@ Trigger: First sweep completes for a new project
 Steps:
 1. `cnry evidence <project> --format json` → get initial citation data
 2. Compute baseline: cited rate, provider breakdown, top/bottom queries
-3. `npx @ainyc/aeo-audit "<domain>" --format json` → site readiness score
+3. `npx @ainyc/aeo-audit "<domain>" --sitemap --format json` → site readiness score across every page in the sitemap (auto-discovered; add `--limit <n>` to cap, default 200)
 4. Identify top 3 gaps (uncited queries with fixable site issues)
 5. Generate onboarding report with baseline + action plan
 6. Store baseline metrics in memory
