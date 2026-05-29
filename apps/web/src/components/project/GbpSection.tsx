@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   getApiV1ProjectsByNameGoogleConnectionsOptions,
@@ -124,6 +124,19 @@ export function GbpSection({ projectName }: { projectName: string }) {
     ...putApiV1ProjectsByNameGbpLocationsByLocationNameSelectionMutation(),
     onSuccess: () => invalidateGbp(),
   })
+
+  // If the active scope is no longer a selectable location — it was untracked,
+  // or the tracked set shrank below the 2 needed to render the scope selector —
+  // fall back to the aggregate view. Otherwise the selector disappears while
+  // `scopeLocation` persists, leaving the section stuck on a hidden/untracked
+  // location with no control to reset it.
+  useEffect(() => {
+    if (!scopeLocation || !locationsQuery.data) return
+    const tracked = locationsQuery.data.locations.filter((l) => l.selected)
+    if (tracked.length <= 1 || !tracked.some((l) => l.locationName === scopeLocation)) {
+      setScopeLocation(null)
+    }
+  }, [scopeLocation, locationsQuery.data])
 
   if (connectionsQuery.isLoading) return null
 

@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, expect, onTestFinished, test } from 'vitest'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { GbpSection } from '../src/components/project/GbpSection.js'
 import { mockFetch, jsonResponse } from './mock-fetch.js'
 
@@ -184,6 +184,56 @@ test('shows a location scope selector when multiple locations are tracked', asyn
   await waitFor(() => expect(screen.getByText('All locations')).toBeTruthy())
   expect(screen.getByText('Gjelina Venice')).toBeTruthy()
   expect(screen.getByText('AZ Coatings')).toBeTruthy()
+})
+
+test('falls back to the aggregate scope when the scoped location is untracked', async () => {
+  let bTracked = true
+  // Record the scope of every /gbp/summary fetch so we can prove the section
+  // re-reads in aggregate after the scoped location is untracked.
+  const summaryScopes: string[] = []
+  const restoreFetch = mockFetch((url, init) => {
+    const urlPath = url.split('?')[0]!
+    if (urlPath.endsWith('/projects/test-project/google/connections')) return jsonResponse([gbpConnection])
+    if (urlPath.endsWith('/projects/test-project/gbp/summary')) {
+      summaryScopes.push(/[?&]locationName=/.test(url) ? 'scoped' : 'aggregate')
+      return jsonResponse(emptySummary())
+    }
+    if (urlPath.endsWith('/projects/test-project/gbp/locations')) {
+      return jsonResponse({
+        locations: [
+          makeLocation({}),
+          makeLocation({ id: 'loc-2', locationName: 'locations/456', displayName: 'AZ Coatings', placeId: null, mapsUri: null, selected: bTracked }),
+        ],
+        totalDiscovered: 2,
+        totalSelected: bTracked ? 2 : 1,
+      })
+    }
+    if (urlPath.includes('/gbp/locations/') && urlPath.endsWith('/selection') && init?.method === 'PUT') {
+      bTracked = false
+      return jsonResponse(makeLocation({ id: 'loc-2', locationName: 'locations/456', displayName: 'AZ Coatings', selected: false }))
+    }
+    if (urlPath.endsWith('/projects/test-project/gbp/keywords')) return jsonResponse({ keywords: [], total: 0, thresholdedPct: 0 })
+    if (urlPath.endsWith('/projects/test-project/gbp/places')) return jsonResponse({ places: [], total: 0 })
+    if (urlPath.endsWith('/projects/test-project/insights')) return jsonResponse([])
+    throw new Error(`Unexpected fetch: ${url} ${init?.method ?? ''}`)
+  })
+  onTestFinished(restoreFetch)
+
+  renderGbpSection()
+
+  // Scope to the second location → reads re-fetch with ?locationName=.
+  await waitFor(() => expect(screen.getByRole('tab', { name: 'AZ Coatings' })).toBeTruthy())
+  fireEvent.click(screen.getByRole('tab', { name: 'AZ Coatings' }))
+  await waitFor(() => expect(summaryScopes).toContain('scoped'))
+
+  // Untrack that same location via the Manage locations panel.
+  fireEvent.click(screen.getByRole('button', { name: /Manage locations/ }))
+  fireEvent.click(screen.getAllByRole('button', { name: 'Untrack' })[1]!)
+
+  // Selector disappears (one tracked location left) and the scope resets to
+  // aggregate — without the reset the section stays stuck on the untracked one.
+  await waitFor(() => expect(screen.queryByText('All locations')).toBeNull())
+  await waitFor(() => expect(summaryScopes.at(-1)).toBe('aggregate'))
 })
 
 test('shows a connect empty-state when the project has no GBP connection', async () => {
