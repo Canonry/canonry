@@ -1,8 +1,9 @@
-import { eq, desc, asc, and, ne, or, inArray } from 'drizzle-orm'
+import { eq, desc, asc, and, ne, or, inArray, gte, lte } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/canonry-db'
-import { competitors, groupRunsByCreatedAt, gscSearchData, healthSnapshots, insights, projects, queries, querySnapshots, runs } from '@ainyc/canonry-db'
-import { analyzeRuns, classifyRegressionSeverity, PERSISTENT_GAP_THRESHOLD } from '@ainyc/canonry-intelligence'
-import type { RunData, Snapshot, AnalysisResult, Insight } from '@ainyc/canonry-intelligence'
+import { competitors, groupRunsByCreatedAt, gscSearchData, healthSnapshots, insights, projects, queries, querySnapshots, runs, gbpLocations, gbpDailyMetrics, gbpKeywordMonthly, gbpPlaceActions, gbpLodgingSnapshots } from '@ainyc/canonry-db'
+import { analyzeRuns, analyzeGbp, classifyRegressionSeverity, PERSISTENT_GAP_THRESHOLD } from '@ainyc/canonry-intelligence'
+import type { RunData, Snapshot, AnalysisResult, Insight, GbpLocationSignals, GbpKeywordPoint } from '@ainyc/canonry-intelligence'
+import { buildGbpSummary } from '@ainyc/canonry-api-routes'
 import { CitationStates, RunKinds, RunTriggers, effectiveDomains } from '@ainyc/canonry-contracts'
 import crypto from 'node:crypto'
 import { createLogger } from './logger.js'
@@ -134,6 +135,203 @@ export class IntelligenceService {
     this.persistResult(tieredResult, runId, projectId)
 
     return tieredResult
+  }
+
+  /**
+   * Analyze a completed `gbp-sync` run and persist location-scoped GBP insights.
+   *
+   * Point-in-time (no previous-run comparison): for each SELECTED location it
+   * derives signals from the shared GBP summary math (metric week-over-week,
+   * lodging completeness, place-action CTAs) plus the accumulating keyword
+   * monthly series (month-over-month keyword drop), then runs the pure
+   * `analyzeGbp` analyzer. Persists insights ONLY — no health snapshot, which is
+   * an answer-visibility concept. Idempotent per `runId`; dismissals are
+   * preserved across re-analysis of the same run by the stable insight id.
+   * Returns the persisted insights so the coordinator can count critical/high.
+   */
+  analyzeAndPersistGbp(runId: string, projectId: string): Insight[] {
+    const runRow = this.db
+      .select({ createdAt: runs.createdAt, startedAt: runs.startedAt, finishedAt: runs.finishedAt })
+      .from(runs)
+      .where(eq(runs.id, runId))
+      .get()
+
+    if (!runRow) {
+      log.info('gbp-intelligence.skip', { runId, reason: 'run not found' })
+      this.persistGbpInsights(runId, projectId, [])
+      return []
+    }
+
+    const windowStart = runRow.startedAt ?? runRow.createdAt
+    const windowEnd = runRow.finishedAt ?? new Date().toISOString()
+    const selected = this.db
+      .select()
+      .from(gbpLocations)
+      .where(and(
+        eq(gbpLocations.projectId, projectId),
+        eq(gbpLocations.selected, true),
+        gte(gbpLocations.syncedAt, windowStart),
+        lte(gbpLocations.syncedAt, windowEnd),
+      ))
+      .all()
+
+    if (selected.length === 0) {
+      log.info('gbp-intelligence.skip', { runId, reason: 'no locations synced during run' })
+      this.persistGbpInsights(runId, projectId, [])
+      return []
+    }
+
+    const today = new Date().toISOString().slice(0, 10)
+    const signals = selected.map((loc) =>
+      this.buildGbpLocationSignals(projectId, loc.locationName, loc.displayName, today),
+    )
+    const drafts = analyzeGbp(signals)
+
+    const now = new Date().toISOString()
+    const builtInsights: Insight[] = drafts.map((d) => ({
+      // Stable id: unique per (run, location, type). Embedding runId keeps the
+      // PK unique across runs; embedding locationName keeps two chain locations
+      // that share a displayName from colliding.
+      id: `${runId}::gbp::${d.locationName}::${d.type}`,
+      type: d.type,
+      severity: d.severity,
+      title: d.title,
+      query: d.query,
+      provider: d.provider,
+      recommendation: d.recommendation,
+      createdAt: now,
+    }))
+
+    this.persistGbpInsights(runId, projectId, builtInsights)
+    log.info('gbp-intelligence.analyzed', { runId, locations: selected.length, insights: builtInsights.length })
+    return builtInsights
+  }
+
+  /** Build the per-location signal bundle the GBP analyzer consumes. */
+  private buildGbpLocationSignals(
+    projectId: string,
+    locationName: string,
+    displayName: string,
+    fallbackDate: string,
+  ): GbpLocationSignals {
+    const metricRows = this.db
+      .select({ metric: gbpDailyMetrics.metric, date: gbpDailyMetrics.date, value: gbpDailyMetrics.value })
+      .from(gbpDailyMetrics)
+      .where(and(eq(gbpDailyMetrics.projectId, projectId), eq(gbpDailyMetrics.locationName, locationName)))
+      .all()
+    const placeActionRows = this.db
+      .select({ placeActionType: gbpPlaceActions.placeActionType, providerType: gbpPlaceActions.providerType })
+      .from(gbpPlaceActions)
+      .where(and(eq(gbpPlaceActions.projectId, projectId), eq(gbpPlaceActions.locationName, locationName)))
+      .all()
+    const lodgingRow = this.db
+      .select({ populatedGroupCount: gbpLodgingSnapshots.populatedGroupCount })
+      .from(gbpLodgingSnapshots)
+      .where(and(eq(gbpLodgingSnapshots.projectId, projectId), eq(gbpLodgingSnapshots.locationName, locationName)))
+      .orderBy(desc(gbpLodgingSnapshots.syncedAt))
+      .limit(1)
+      .get()
+
+    // Anchor the window to the latest stored metric date (same as the summary
+    // route) so the recent-vs-prior split is deterministic, not clock-relative.
+    const referenceDate = metricRows.reduce<string>((max, r) => (r.date > max ? r.date : max), '') || fallbackDate
+    const summary = buildGbpSummary({
+      locationName,
+      locationCount: 1,
+      referenceDate,
+      dailyMetrics: metricRows,
+      keywords: [], // keyword coverage is unused here; the trend uses the monthly series below
+      placeActions: placeActionRows.map((r) => ({ placeActionType: r.placeActionType, providerType: r.providerType ?? null })),
+      lodging: lodgingRow ? [{ locationName, populatedGroupCount: lodgingRow.populatedGroupCount }] : [],
+    })
+
+    const trend = this.buildGbpKeywordTrend(projectId, locationName)
+
+    return {
+      locationName,
+      displayName,
+      metricRecent7d: summary.performance.recent7d,
+      metricPrior7d: summary.performance.prior7d,
+      metricDeltaPct: summary.performance.deltaPct,
+      lodgingCapable: summary.lodging.lodgingLocationCount > 0,
+      lodgingEmpty: summary.lodging.emptyLodgingCount > 0,
+      placeActionCount: summary.placeActions.total,
+      hasDirectMerchantCta: summary.placeActions.hasDirectMerchantCta,
+      keywordRecentMonth: trend.recentMonth,
+      keywordPriorMonth: trend.priorMonth,
+      keywordPoints: trend.points,
+    }
+  }
+
+  /** Build the month-over-month keyword series for a location from the
+   *  accumulating gbp_keyword_monthly table (latest complete month vs prior). */
+  private buildGbpKeywordTrend(
+    projectId: string,
+    locationName: string,
+  ): { recentMonth: string | null; priorMonth: string | null; points: GbpKeywordPoint[] } {
+    const rows = this.db
+      .select({ month: gbpKeywordMonthly.month, keyword: gbpKeywordMonthly.keyword, valueCount: gbpKeywordMonthly.valueCount })
+      .from(gbpKeywordMonthly)
+      .where(and(eq(gbpKeywordMonthly.projectId, projectId), eq(gbpKeywordMonthly.locationName, locationName)))
+      .all()
+    if (rows.length === 0) return { recentMonth: null, priorMonth: null, points: [] }
+
+    const months = [...new Set(rows.map((r) => r.month))].sort().reverse()
+    const recentMonth = months[0] ?? null
+    const priorMonth = months[1] ?? null
+    if (!recentMonth || !priorMonth) return { recentMonth, priorMonth: null, points: [] }
+
+    const recentByKeyword = new Map<string, number | null>()
+    const priorByKeyword = new Map<string, number | null>()
+    for (const r of rows) {
+      if (r.month === recentMonth) recentByKeyword.set(r.keyword, r.valueCount)
+      else if (r.month === priorMonth) priorByKeyword.set(r.keyword, r.valueCount)
+    }
+    const points: GbpKeywordPoint[] = []
+    for (const [keyword, recent] of recentByKeyword) {
+      points.push({ keyword, recent: recent ?? null, prior: priorByKeyword.get(keyword) ?? null })
+    }
+    return { recentMonth, priorMonth, points }
+  }
+
+  /**
+   * Persist GBP insights for a run. Mirrors `persistResult`'s idempotency
+   * (delete-then-insert for the run) and dismissal preservation, but keyed by
+   * the stable insight id (GBP insights aren't query/provider-scoped) and
+   * WITHOUT a health snapshot.
+   */
+  private persistGbpInsights(runId: string, projectId: string, gbpInsights: Insight[]): void {
+    const previouslyDismissed = new Set<string>()
+    const existing = this.db
+      .select({ id: insights.id, dismissed: insights.dismissed })
+      .from(insights)
+      .where(eq(insights.runId, runId))
+      .all()
+    for (const row of existing) {
+      if (row.dismissed) previouslyDismissed.add(row.id)
+    }
+
+    this.db.transaction((tx) => {
+      tx.delete(insights).where(eq(insights.runId, runId)).run()
+      for (const insight of gbpInsights) {
+        tx.insert(insights).values({
+          id: insight.id,
+          projectId,
+          runId,
+          type: insight.type,
+          severity: insight.severity,
+          title: insight.title,
+          query: insight.query,
+          provider: insight.provider,
+          recommendation: insight.recommendation ?? null,
+          cause: insight.cause ?? null,
+          dismissed: previouslyDismissed.has(insight.id),
+          createdAt: insight.createdAt,
+        }).run()
+      }
+    })
+
+    log.info('gbp-intelligence.persisted', { runId, insights: gbpInsights.length })
   }
 
   /**

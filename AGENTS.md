@@ -77,11 +77,12 @@ canonry report <project>                         # client-facing AEO report → 
 canonry report <project> --output dist/aeo.html
 canonry report <project> --format json           # raw report payload to stdout
 
-# Schedules — one row per (project, kind) where kind ∈ {answer-visibility, traffic-sync, data-refresh}
+# Schedules — one row per (project, kind) where kind ∈ {answer-visibility, traffic-sync, gbp-sync, data-refresh}
 canonry schedule set <project> --preset daily                                                # answer-visibility (default kind)
 canonry schedule set <project> --kind traffic-sync --cron "*/15 * * * *" --source <id>       # traffic-sync (sourceId required)
+canonry schedule set <project> --kind gbp-sync --preset daily                                # gbp-sync (no source; syncs selected locations)
 canonry schedule set <project> --kind data-refresh --preset daily                            # data-refresh (refreshes connected GSC/Bing/GA/GBP; no source)
-canonry schedule show <project> [--kind answer-visibility|traffic-sync|data-refresh]         # default kind is answer-visibility
+canonry schedule show <project> [--kind answer-visibility|traffic-sync|gbp-sync|data-refresh] # default kind is answer-visibility
 canonry schedule enable  <project> [--kind ...]
 canonry schedule disable <project> [--kind ...]
 canonry schedule remove  <project> [--kind ...]                                              # delete the schedule for that kind
@@ -188,6 +189,10 @@ Each check returns `status: ok | warn | fail | skipped`, a stable machine-readab
 | auth | `google.auth.redirect-uri` | project | `publicUrl`-derived redirect URI is valid + advertised |
 | auth | `google.auth.scopes` | project | Granted GSC + Indexing scopes match what's stored |
 | auth | `ga.auth.connection` | project | GA4 service account verifies against the configured property |
+| auth | `gbp.auth.connection` | project | Google Business Profile OAuth credentials present, refresh token works |
+| auth | `gbp.auth.scopes` | project | Granted scope includes `business.manage` |
+| auth | `gbp.account.access` | project | The tracked GBP account is still listable for the authorized user (maps 0-QPM access-form-pending → warn) |
+| integrations | `gbp.data.recent-sync` | project | A selected GBP location synced in the last 7d (warn) or 30d (fail); warns when never synced |
 | auth | `wordpress.publish.connection` | project | WordPress publishing connection (`integration-wordpress`): the Application Password authenticates and the `wp/v2` REST API responds; skipped when no connection is configured |
 | auth | `traffic.source.credentials` | project | Per-source-type credential validation (Cloud Run service-account access token resolves; WordPress and Vercel probe-call their endpoints) |
 | auth | `traffic.source.scopes` | project | Per-source-type scope validation (skipped where the adapter has no explicit scope check — e.g. WordPress Application Passwords, Vercel API tokens) |

@@ -148,6 +148,43 @@ A single OAuth user often manages **multiple GBP accounts** (a personal account,
 - **`placeActions`** — `{ total, hasReservationCta, hasBookingCta, hasDirectMerchantCta }`. `hasDirectMerchantCta` is false when the only booking links are OTA/aggregator (Expedia/Booking) — a recommendation to add a direct CTA.
 - **`lodging`** — `{ lodgingLocationCount, populatedLodgingCount, emptyLodgingCount }`. `emptyLodgingCount` counts lodging-capable locations with zero structured attributes — the AEO gap to surface.
 
+## Scheduling
+
+`gbp-sync` is a schedulable run kind (alongside `answer-visibility` and `traffic-sync`). It needs no source — it syncs the project's selected locations:
+
+```bash
+canonry schedule set <project> --kind gbp-sync --preset daily
+canonry schedule show <project> --kind gbp-sync
+```
+
+One schedule row per `(project, kind)`, so a GBP sync schedule coexists with a visibility-sweep schedule. The scheduler creates the `gbp-sync` run and runs the same worker the manual `canonry gbp sync` uses; on completion the run flows through the post-run pipeline (insights + Aero wake-up).
+
+## Health Checks (`canonry doctor`)
+
+```bash
+canonry doctor --project <name> --check 'gbp.*'
+```
+
+- `gbp.auth.connection` — OAuth creds present + refresh token works.
+- `gbp.auth.scopes` — granted scope includes `business.manage`.
+- `gbp.account.access` — the tracked account is still listable. A `gbp.account.quota-pending` **warn** means the API access form is still pending Google approval (0 QPM) — auth is fine, the API just isn't enabled yet.
+- `gbp.data.recent-sync` — a selected location synced in the last 7d (warn) / 30d (fail); warns when never synced.
+
+## Insights (after a `gbp-sync` run)
+
+A completed `gbp-sync` run generates location-scoped insights (`provider = 'gbp'`), surfaced in `canonry insights`, the dashboard, notifications (`insight.critical`/`insight.high`), and Aero's proactive wake-up:
+
+- `gbp-lodging-gap` (high) — a lodging-capable location with an empty attribute profile. The insight flags that the GBP API exposes only owner-configured attributes, so the *rendered* Google listing (which synthesizes amenities from Hotel Center / OTAs / Places) may differ — an empty profile is the operator's blind spot, not proof the public listing is empty.
+- `gbp-cta-gap` (medium) — place actions present but no direct-merchant booking CTA (only aggregators).
+- `gbp-metric-drop` (high/medium) — a headline conversion metric (direction requests, website clicks, call clicks) fell sharply week-over-week within the synced window.
+- `gbp-keyword-drop` (high/medium) — a head search term's impressions fell month-over-month.
+
+The month-over-month keyword signal is powered by the **accumulating** `gbp_keyword_monthly` table: each sync fetches the last few complete months (one call per month, since the API aggregates a range into a single figure) and preserves older in-retention months, so a real monthly series builds up over time. The current-snapshot reads (`gbp keywords`, `gbp summary`) are unchanged — they still use the trailing-window `gbp_keyword_impressions` table.
+
+## The Dashboard (`GbpSection`)
+
+The project page shows a self-gating "Google Business Profile" section (only when a GBP connection exists): the performance scorecard with 7-day deltas, CTA-presence + lodging-completeness tiles, a search-terms table, and a locations table with a track/untrack toggle and a Sync button. Every number is computed server-side by `buildGbpSummary` — the component only renders.
+
 ## Hotel-Specific Setup
 
 For hotel groups, two extra signal sources are critical:
@@ -173,6 +210,7 @@ A property with only aggregator booking links and no direct merchant CTA is a re
 
 ## Important Constraints
 
+- **GBP API returns owner-configured data only** — the API exposes only what the profile owner has set. Google's *rendered* hotel listing synthesizes additional amenities, room pricing, and booking links from Google Hotel Center, OTA feeds (Booking/Expedia/Hotels.com), and Places/user-contributed data — none of which the GBP API returns. So an empty lodging profile (the `gbp-lodging-gap` insight) does **not** mean the public listing is empty; it means the operator hasn't populated the structured source AI answer engines read. Pulling the rendered-listing side from the Places API (and cross-referencing it against GBP attributes) is tracked in issue #648.
 - **No read-only OAuth scope** — `business.manage` is the only published scope. The consent screen will warn about write access even though canonry's v1 is read-only.
 - **300 QPM shared quota** — across all GBP sub-APIs on one Google Cloud project. Canonry's sync worker caps per-location concurrency at 4 (~28 in-flight calls at peak) to stay well under the cap.
 - **10 edits/min per profile** — hard cap on writes (relevant for Phase 4). Cannot be raised.

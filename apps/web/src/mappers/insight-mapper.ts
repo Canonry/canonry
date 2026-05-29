@@ -10,6 +10,11 @@ const TONE_MAP: Record<InsightDto['type'], MetricTone> = {
   'persistent-gap': 'caution',
   'competitor-gained': 'negative',
   'competitor-lost': 'neutral',
+  // GBP (local-AEO) insights.
+  'gbp-lodging-gap': 'negative',
+  'gbp-cta-gap': 'caution',
+  'gbp-metric-drop': 'negative',
+  'gbp-keyword-drop': 'negative',
 }
 
 const ACTION_GROUP_MAP: Record<InsightDto['type'], InsightActionGroup> = {
@@ -24,6 +29,11 @@ const ACTION_GROUP_MAP: Record<InsightDto['type'], InsightActionGroup> = {
   gain: 'monitor',
   'first-citation': 'monitor',
   'provider-pickup': 'monitor',
+  // GBP: profile gaps need content/profile work; metric & keyword drops need diagnosis.
+  'gbp-lodging-gap': 'write',
+  'gbp-cta-gap': 'write',
+  'gbp-metric-drop': 'investigate',
+  'gbp-keyword-drop': 'investigate',
 }
 
 const CITATION_STATE_MAP: Record<InsightDto['type'], CitationState> = {
@@ -35,6 +45,11 @@ const CITATION_STATE_MAP: Record<InsightDto['type'], CitationState> = {
   'persistent-gap': 'not-cited',
   'competitor-gained': 'cited',
   'competitor-lost': 'not-cited',
+  // GBP insights aren't citation-state events; map gaps to not-cited, drops to lost.
+  'gbp-lodging-gap': 'not-cited',
+  'gbp-cta-gap': 'not-cited',
+  'gbp-metric-drop': 'lost',
+  'gbp-keyword-drop': 'lost',
 }
 
 const ACTION_LABEL_FALLBACK: Record<InsightDto['type'], string> = {
@@ -46,6 +61,10 @@ const ACTION_LABEL_FALLBACK: Record<InsightDto['type'], string> = {
   'persistent-gap': 'Gap',
   'competitor-gained': 'Competitor',
   'competitor-lost': 'Competitor',
+  'gbp-lodging-gap': 'Lodging gap',
+  'gbp-cta-gap': 'Booking CTA',
+  'gbp-metric-drop': 'Metric drop',
+  'gbp-keyword-drop': 'Keyword drop',
 }
 
 export function mapInsightDtoToVm(dto: InsightDto): ProjectInsightVm {

@@ -26,6 +26,13 @@ erDiagram
   projects ||--o{ ga_ai_referrals : has
   projects ||--o{ ga_social_referrals : has
 
+  projects ||--o{ gbp_locations : has
+  projects ||--o{ gbp_daily_metrics : has
+  projects ||--o{ gbp_keyword_impressions : has
+  projects ||--o{ gbp_keyword_monthly : has
+  projects ||--o{ gbp_place_actions : has
+  projects ||--o{ gbp_lodging_snapshots : has
+
   projects ||--o{ gsc_search_data : has
   projects ||--o{ gsc_url_inspections : has
   projects ||--o{ gsc_coverage_snapshots : has
@@ -89,6 +96,19 @@ erDiagram
 | **ga_traffic_summaries** | Aggregated traffic summaries |
 | **ga_ai_referrals** | AI engine referral tracking. Unique: `(projectId, date, source, medium, sourceDimension)` |
 | **ga_social_referrals** | Social media referral tracking. Unique: `(projectId, date, source, medium, channelGroup)` |
+
+### Integrations — Google Business Profile
+
+Local-AEO signals. The OAuth connection reuses `google_connections` with `connectionType = 'gbp'`. All surface tables are scoped to the project's selected locations.
+
+| Table | Purpose |
+|-------|---------|
+| **gbp_locations** | Discovered locations per project; `selected` flags which feed sync + analytics. FK: projectId → projects |
+| **gbp_daily_metrics** | Daily performance metrics per (location, date, metric). Range-replaced each sync. |
+| **gbp_keyword_impressions** | Search-keyword impressions over the trailing synced window (one aggregate per keyword; `period_start`/`period_end` are YYYY-MM). Range-replaced each sync. Unique: `(projectId, locationName, periodEnd, keyword)` |
+| **gbp_keyword_monthly** | Per-month keyword impressions series — **accumulates** across syncs (recent complete months upserted, older in-retention months preserved) so intelligence can detect month-over-month keyword drops. Unique: `(projectId, locationName, month, keyword)` |
+| **gbp_place_actions** | Booking / reservation / order CTAs per location (`provider_type` MERCHANT = direct, AGGREGATOR = OTA). Range-replaced each sync. |
+| **gbp_lodging_snapshots** | Hotel structured attributes, snapshot-on-change. `populated_group_count = 0` is an AEO gap. |
 
 ### Server-Side Traffic Ingestion
 

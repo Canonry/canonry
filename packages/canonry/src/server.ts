@@ -482,6 +482,31 @@ export async function createServer(opts: {
     )
   }
 
+  // Shared GBP-sync worker entry point. Used by BOTH the manual
+  // `POST /gbp/sync` route hook and the scheduled `gbp-sync` kind, so the run
+  // row → executeGbpSync → post-run pipeline path is identical for both. The
+  // run row is created by the caller (route handler / scheduler); this only
+  // runs the sync and hands off to the post-run coordinator on completion.
+  const runGbpSync = (
+    runId: string,
+    projectId: string,
+    syncOpts?: { locationNames?: string[]; daysOfMetrics?: number; monthsOfKeywords?: number },
+  ): void => {
+    const { clientId: googleClientId, clientSecret: googleClientSecret } = getGoogleAuthConfig(opts.config)
+    if (!googleClientId || !googleClientSecret) {
+      app.log.error('GBP sync requested but Google OAuth credentials are not configured in the local config')
+      return
+    }
+    executeGbpSync(opts.db, runId, projectId, {
+      ...syncOpts,
+      config: opts.config,
+    })
+      .then(() => runCoordinator.onRunCompleted(runId, projectId))
+      .catch((err: unknown) => {
+        app.log.error({ runId, err }, 'GBP sync failed')
+      })
+  }
+
   const scheduler = new Scheduler(opts.db, {
     onRunCreated: (runId, projectId, providers, location) => {
       jobRunner.executeRun(runId, projectId, providers, location).catch((err: unknown) => {
@@ -495,6 +520,11 @@ export async function createServer(opts: {
       aeroClient.trafficSync(projectName, sourceId).catch((err: unknown) => {
         app.log.error({ projectName, sourceId, err: err instanceof Error ? err.message : String(err) }, 'Scheduled traffic sync failed')
       })
+    },
+    onGbpSyncRequested: (runId, projectId) => {
+      // The scheduler already created the gbp-sync run row; run the same
+      // worker the manual route uses (selected-location sync).
+      runGbpSync(runId, projectId)
     },
     onDataRefreshRequested: (projectName) => {
       // Fan out to every connected data integration (GSC, Bing, GA, GBP) via
@@ -1094,17 +1124,7 @@ export async function createServer(opts: {
       })
     },
     onGbpSyncRequested: (runId: string, projectId: string, syncOpts?: { locationNames?: string[]; daysOfMetrics?: number; monthsOfKeywords?: number }) => {
-      const { clientId: googleClientId, clientSecret: googleClientSecret } = getGoogleAuthConfig(opts.config)
-      if (!googleClientId || !googleClientSecret) {
-        app.log.error('GBP sync requested but Google OAuth credentials are not configured in the local config')
-        return
-      }
-      executeGbpSync(opts.db, runId, projectId, {
-        ...syncOpts,
-        config: opts.config,
-      }).catch((err: unknown) => {
-        app.log.error({ runId, err }, 'GBP sync failed')
-      })
+      runGbpSync(runId, projectId, syncOpts)
     },
     getBacklinksStatus: () => ({
       duckdbInstalled: isDuckdbInstalled(),

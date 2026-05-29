@@ -1,10 +1,11 @@
+import crypto from 'node:crypto'
 import cron from 'node-cron'
 import { and, eq } from 'drizzle-orm'
 import { queueRunIfProjectIdle } from '@ainyc/canonry-api-routes'
 import type { DatabaseClient } from '@ainyc/canonry-db'
-import { schedules, projects } from '@ainyc/canonry-db'
+import { schedules, projects, runs } from '@ainyc/canonry-db'
 import type { ProviderName, LocationContext, SchedulableRunKind } from '@ainyc/canonry-contracts'
-import { SchedulableRunKinds } from '@ainyc/canonry-contracts'
+import { SchedulableRunKinds, RunKinds, RunStatuses, RunTriggers } from '@ainyc/canonry-contracts'
 import { createLogger } from './logger.js'
 
 const log = createLogger('Scheduler')
@@ -19,6 +20,15 @@ export interface SchedulerCallbacks {
    * Fire-and-forget: errors are logged by the host, not by the scheduler.
    */
   onTrafficSyncRequested?: (projectName: string, sourceId: string) => void
+  /**
+   * Fired when a gbp-sync schedule triggers. Unlike traffic-sync (which has the
+   * endpoint own run-row creation), the scheduler creates the `gbp-sync` run
+   * row here — mirroring the answer-visibility path — and hands the host the
+   * `runId` so it can run the same worker the manual `POST /gbp/sync` route uses.
+   * GBP needs no `sourceId`: it syncs the project's selected locations.
+   * Fire-and-forget: errors are logged by the host, not by the scheduler.
+   */
+  onGbpSyncRequested?: (runId: string, projectId: string) => void
   /**
    * Fired when a data-refresh schedule triggers. The host refreshes every
    * CONNECTED data integration (GSC, Bing, GA, GBP) for the project. Each
@@ -191,6 +201,35 @@ export class Scheduler {
         }).where(eq(schedules.id, currentSchedule.id)).run()
         log.info('traffic-sync.triggered', { projectName: project.name, sourceId })
         this.callbacks.onTrafficSyncRequested(project.name, sourceId)
+        return
+      }
+
+      if (kind === SchedulableRunKinds['gbp-sync']) {
+        // GBP sync runs over the project's SELECTED locations — no sourceId.
+        // The scheduler owns run-row creation (like answer-visibility) so it
+        // can hand the host a runId; the host runs the same worker the manual
+        // POST /gbp/sync route uses. Skip without orphaning a run row if the
+        // host never registered the callback.
+        if (!this.callbacks.onGbpSyncRequested) {
+          log.warn('gbp-sync.no-callback', { scheduleId, projectId, msg: 'host did not register onGbpSyncRequested' })
+          return
+        }
+        const runId = crypto.randomUUID()
+        this.db.insert(runs).values({
+          id: runId,
+          projectId,
+          kind: RunKinds['gbp-sync'],
+          status: RunStatuses.queued,
+          trigger: RunTriggers.scheduled,
+          createdAt: now,
+        }).run()
+        this.db.update(schedules).set({
+          lastRunAt: now,
+          nextRunAt,
+          updatedAt: now,
+        }).where(eq(schedules.id, currentSchedule.id)).run()
+        log.info('gbp-sync.triggered', { runId, projectName: project.name })
+        this.callbacks.onGbpSyncRequested(runId, projectId)
         return
       }
 
