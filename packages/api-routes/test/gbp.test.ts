@@ -147,6 +147,27 @@ describe('GBP routes (Phase 1)', () => {
     })
   }
 
+  // Account-aware mock: routes the locations call by the account in its request
+  // path ("…/accounts/{n}/locations") so account-selection tests can return a
+  // different location set per account.
+  function mockAccountsAndLocations(opts: {
+    accounts: Array<{ name: string; accountName?: string }>
+    locationsByAccount: Record<string, Array<{ name: string; title?: string }>>
+  }) {
+    fetchSpy.mockImplementation((url: string) => {
+      let parsed: URL
+      try { parsed = new URL(url) } catch { throw new Error(`Unexpected fetch URL: ${url}`) }
+      if (parsed.hostname === 'mybusinessaccountmanagement.googleapis.com') {
+        return Promise.resolve({ ok: true, status: 200, text: async () => JSON.stringify({ accounts: opts.accounts }) })
+      }
+      if (parsed.hostname === 'mybusinessbusinessinformation.googleapis.com') {
+        const account = parsed.pathname.match(/(accounts\/[^/]+)\/locations/)?.[1] ?? ''
+        return Promise.resolve({ ok: true, status: 200, text: async () => JSON.stringify({ locations: opts.locationsByAccount[account] ?? [] }) })
+      }
+      throw new Error(`Unexpected fetch URL: ${url}`)
+    })
+  }
+
   describe('POST /gbp/locations/discover', () => {
     it('discovers locations and persists them with default selection=true', async () => {
       ctx.seedProject('hotels', 'hotels.example.com')
@@ -344,6 +365,100 @@ describe('GBP routes (Phase 1)', () => {
       expect(ctx.db.select().from(gbpLodgingSnapshots).where(eq(gbpLodgingSnapshots.projectId, projectId)).all().length).toBe(0)
       // Connection store entry is gone
       expect(ctx.connections.find(c => c.domain === 'hotels.example.com' && c.connectionType === 'gbp')).toBeUndefined()
+    })
+  })
+
+  describe('account selection (per project)', () => {
+    it('GET /gbp/accounts lists the accounts the connection can access', async () => {
+      ctx.seedProject('hotels', 'hotels.example.com')
+      ctx.seedGbpConnection('hotels.example.com', 'valid-access-token')
+      mockAccountsAndLocations({
+        accounts: [{ name: 'accounts/1', accountName: 'Hotel Group' }, { name: 'accounts/2', accountName: 'Other Biz' }],
+        locationsByAccount: {},
+      })
+      const res = await ctx.app.inject({ method: 'GET', url: '/projects/hotels/gbp/accounts' })
+      expect(res.statusCode).toBe(200)
+      const body = res.json() as { accounts: { name: string; accountName: string | null }[]; total: number }
+      expect(body.total).toBe(2)
+      expect(body.accounts.map((a) => a.name)).toEqual(['accounts/1', 'accounts/2'])
+      expect(body.accounts[0]!.accountName).toBe('Hotel Group')
+    })
+
+    it('discovers locations under an explicitly requested account (not just the first)', async () => {
+      const projectId = ctx.seedProject('hotels', 'hotels.example.com')
+      ctx.seedGbpConnection('hotels.example.com', 'valid-access-token')
+      mockAccountsAndLocations({
+        accounts: [{ name: 'accounts/1' }, { name: 'accounts/2' }],
+        locationsByAccount: { 'accounts/2': [{ name: 'locations/9', title: 'Niche Hotel' }] },
+      })
+      const res = await ctx.app.inject({
+        method: 'POST', url: '/projects/hotels/gbp/locations/discover',
+        payload: { accountName: 'accounts/2' },
+      })
+      expect(res.statusCode).toBe(200)
+      const rows = ctx.db.select().from(gbpLocations).where(eq(gbpLocations.projectId, projectId)).all()
+      expect(rows.map((r) => r.locationName)).toEqual(['locations/9'])
+      expect(rows.every((r) => r.accountName === 'accounts/2')).toBe(true)
+    })
+
+    it('rejects an account the connection cannot access', async () => {
+      ctx.seedProject('hotels', 'hotels.example.com')
+      ctx.seedGbpConnection('hotels.example.com', 'valid-access-token')
+      mockAccountsAndLocations({ accounts: [{ name: 'accounts/1' }], locationsByAccount: {} })
+      const res = await ctx.app.inject({
+        method: 'POST', url: '/projects/hotels/gbp/locations/discover',
+        payload: { accountName: 'accounts/999' },
+      })
+      expect(res.statusCode).toBe(400)
+    })
+
+    it('requires switchAccount to repoint a project, then clears the old account footprint', async () => {
+      const projectId = ctx.seedProject('hotels', 'hotels.example.com')
+      ctx.seedGbpConnection('hotels.example.com', 'valid-access-token')
+      mockAccountsAndLocations({
+        accounts: [{ name: 'accounts/1' }, { name: 'accounts/2' }],
+        locationsByAccount: { 'accounts/1': [{ name: 'locations/1' }], 'accounts/2': [{ name: 'locations/2' }] },
+      })
+      // Initial discover under accounts/1, plus a synced metric for its location.
+      await ctx.app.inject({ method: 'POST', url: '/projects/hotels/gbp/locations/discover', payload: { accountName: 'accounts/1' } })
+      ctx.db.insert(gbpDailyMetrics).values({ id: crypto.randomUUID(), projectId, locationName: 'locations/1', date: '2026-05-01', metric: 'WEBSITE_CLICKS', value: 5, syncRunId: null }).run()
+
+      // Re-pointing at accounts/2 without opting in is rejected; old data survives.
+      const blocked = await ctx.app.inject({ method: 'POST', url: '/projects/hotels/gbp/locations/discover', payload: { accountName: 'accounts/2' } })
+      expect(blocked.statusCode).toBe(400)
+      expect(ctx.db.select().from(gbpLocations).where(eq(gbpLocations.projectId, projectId)).all().map((r) => r.locationName)).toEqual(['locations/1'])
+      expect(ctx.db.select().from(gbpDailyMetrics).where(eq(gbpDailyMetrics.projectId, projectId)).all().length).toBe(1)
+
+      // With switchAccount the old account's locations + data are replaced.
+      const switched = await ctx.app.inject({ method: 'POST', url: '/projects/hotels/gbp/locations/discover', payload: { accountName: 'accounts/2', switchAccount: true } })
+      expect(switched.statusCode).toBe(200)
+      const rows = ctx.db.select().from(gbpLocations).where(eq(gbpLocations.projectId, projectId)).all()
+      expect(rows.map((r) => r.locationName)).toEqual(['locations/2'])
+      expect(rows.every((r) => r.accountName === 'accounts/2')).toBe(true)
+      expect(ctx.db.select().from(gbpDailyMetrics).where(eq(gbpDailyMetrics.projectId, projectId)).all().length).toBe(0)
+    })
+  })
+
+  describe('GET /gbp/summary scope', () => {
+    it('covers only selected locations and reports a matching locationCount', async () => {
+      const projectId = ctx.seedProject('hotels', 'hotels.example.com')
+      const now = new Date().toISOString()
+      // One selected location, one deselected — both carry synced metrics.
+      for (const [loc, selected] of [['locations/1', true], ['locations/2', false]] as const) {
+        ctx.db.insert(gbpLocations).values({
+          id: crypto.randomUUID(), projectId, accountName: 'accounts/1', locationName: loc, displayName: loc,
+          selected, createdAt: now, updatedAt: now,
+        }).run()
+      }
+      ctx.db.insert(gbpDailyMetrics).values({ id: crypto.randomUUID(), projectId, locationName: 'locations/1', date: '2026-05-10', metric: 'WEBSITE_CLICKS', value: 10, syncRunId: null }).run()
+      ctx.db.insert(gbpDailyMetrics).values({ id: crypto.randomUUID(), projectId, locationName: 'locations/2', date: '2026-05-10', metric: 'WEBSITE_CLICKS', value: 99, syncRunId: null }).run()
+
+      const res = await ctx.app.inject({ method: 'GET', url: '/projects/hotels/gbp/summary' })
+      expect(res.statusCode).toBe(200)
+      const body = res.json() as { scope: { locationCount: number }; performance: { totals: Record<string, number> } }
+      // The deselected location's 99 clicks must NOT count; only the selected 10.
+      expect(body.performance.totals.WEBSITE_CLICKS).toBe(10)
+      expect(body.scope.locationCount).toBe(1)
     })
   })
 })

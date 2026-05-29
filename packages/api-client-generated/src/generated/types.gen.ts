@@ -566,6 +566,16 @@ export type Ga4SyncResponseDto = {
     syncedComponents?: Array<string>;
 };
 
+export type GbpAccountListResponse = {
+    accounts: Array<{
+        name: string;
+        accountName: string | null;
+        type: string | null;
+        role: string | null;
+    }>;
+    total: number;
+};
+
 export type GbpDailyMetricListResponse = {
     metrics: Array<{
         locationName: string;
@@ -4705,6 +4715,8 @@ export type PostApiV1ProjectsByNameGoogleIndexingRequestResponse = PostApiV1Proj
 export type PostApiV1ProjectsByNameGbpLocationsDiscoverData = {
     body?: {
         selectAllNew?: boolean;
+        accountName?: string;
+        switchAccount?: boolean;
     };
     path: {
         /**
@@ -4718,7 +4730,7 @@ export type PostApiV1ProjectsByNameGbpLocationsDiscoverData = {
 
 export type PostApiV1ProjectsByNameGbpLocationsDiscoverErrors = {
     /**
-     * Invalid discover request or scope/API problem.
+     * Invalid discover request, unknown account, account-switch not opted into, or scope/API problem.
      */
     400: ErrorEnvelope;
     /**
@@ -4741,6 +4753,44 @@ export type PostApiV1ProjectsByNameGbpLocationsDiscoverResponses = {
 };
 
 export type PostApiV1ProjectsByNameGbpLocationsDiscoverResponse = PostApiV1ProjectsByNameGbpLocationsDiscoverResponses[keyof PostApiV1ProjectsByNameGbpLocationsDiscoverResponses];
+
+export type GetApiV1ProjectsByNameGbpAccountsData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/gbp/accounts';
+};
+
+export type GetApiV1ProjectsByNameGbpAccountsErrors = {
+    /**
+     * No GBP connection or scope/API problem.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * GBP API quota exceeded (access form may not be approved).
+     */
+    429: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameGbpAccountsError = GetApiV1ProjectsByNameGbpAccountsErrors[keyof GetApiV1ProjectsByNameGbpAccountsErrors];
+
+export type GetApiV1ProjectsByNameGbpAccountsResponses = {
+    /**
+     * Accounts the OAuth user manages or owns.
+     */
+    200: GbpAccountListResponse;
+};
+
+export type GetApiV1ProjectsByNameGbpAccountsResponse = GetApiV1ProjectsByNameGbpAccountsResponses[keyof GetApiV1ProjectsByNameGbpAccountsResponses];
 
 export type GetApiV1ProjectsByNameGbpLocationsData = {
     body?: never;

@@ -179,6 +179,8 @@ const gbpListLocationsInputSchema = z.object({
 const gbpDiscoverInputSchema = z.object({
   project: projectNameSchema,
   selectAllNew: z.boolean().optional().default(true),
+  accountName: z.string().regex(/^accounts\//, 'accountName must be a Google resource name like "accounts/12345"').optional(),
+  switchAccount: z.boolean().optional().default(false),
 })
 
 const gbpLocationSelectionInputSchema = z.object({
@@ -203,6 +205,10 @@ const gbpMetricsInputSchema = z.object({
 const gbpLocationScopedInputSchema = z.object({
   project: projectNameSchema,
   locationName: z.string().optional(),
+})
+
+const gbpAccountsInputSchema = z.object({
+  project: projectNameSchema,
 })
 
 const keywordsInputSchema = z.object({
@@ -920,6 +926,17 @@ export const canonryMcpTools = [
   }),
   // ----- Google Business Profile (Phase 1: auth + discovery) -----
   defineTool({
+    name: 'canonry_gbp_accounts',
+    title: 'List Google Business Profile accounts',
+    description: 'List the Google Business Profile accounts the connected OAuth user can access. Use this to pick which account a project should track via canonry_gbp_locations_discover (accountName).',
+    access: 'read',
+    tier: 'gbp',
+    inputSchema: gbpAccountsInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/gbp/accounts'],
+    handler: (client, input) => client.listGbpAccounts(input.project),
+  }),
+  defineTool({
     name: 'canonry_gbp_locations',
     title: 'List Google Business Profile locations',
     description: 'List discovered Google Business Profile locations for a Canonry project, including their selection state.',
@@ -933,13 +950,17 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_gbp_locations_discover',
     title: 'Discover Google Business Profile locations',
-    description: 'Re-discover Google Business Profile locations from Google and upsert them. New locations get the default selection state from `selectAllNew`; existing locations keep their selection.',
+    description: 'Re-discover Google Business Profile locations from Google and upsert them. New locations get the default selection state from `selectAllNew`; existing locations keep their selection. Pass `accountName` ("accounts/{n}", from canonry_gbp_accounts) to target a specific account; switching a project to a DIFFERENT account is destructive and requires `switchAccount: true`.',
     access: 'write',
     tier: 'gbp',
     inputSchema: gbpDiscoverInputSchema,
     annotations: writeAnnotations({ idempotentHint: true }),
     openApiOperations: ['POST /api/v1/projects/{name}/gbp/locations/discover'],
-    handler: (client, input) => client.discoverGbpLocations(input.project, { selectAllNew: input.selectAllNew }),
+    handler: (client, input) => client.discoverGbpLocations(input.project, {
+      selectAllNew: input.selectAllNew,
+      accountName: input.accountName,
+      switchAccount: input.switchAccount,
+    }),
   }),
   defineTool({
     name: 'canonry_gbp_location_select',

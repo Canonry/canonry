@@ -118,13 +118,22 @@ Once GCP setup is done and the access form is approved:
 
 ```bash
 canonry gbp connect <project>
-canonry gbp locations discover <project>
+canonry gbp accounts <project>               # list accessible accounts (pick one)
+canonry gbp locations discover <project> --account accounts/123   # discover that account's locations
 canonry gbp locations <project>              # verify discovered locations
 canonry gbp sync <project> --wait            # run a first sync
 canonry gbp summary <project>                # check derived metrics
 ```
 
 The OAuth scope requested is `https://www.googleapis.com/auth/business.manage`. **There is no read-only variant** — Google does not publish one. The consent screen will say "manage your business profile" even though canonry's read-only surface cannot write anything until Phase 4.
+
+### Account selection is per project
+
+A single OAuth user often manages **multiple GBP accounts** (a personal account, a location group, agency-managed businesses). Each canonry project tracks **one** account's locations — so to track two businesses, use two projects.
+
+- **List accounts:** `canonry gbp accounts <project>` (API `GET /gbp/accounts`, MCP `canonry_gbp_accounts`) shows every account the connection can see, with its `accounts/{n}` resource name.
+- **Pick one at discover time:** `canonry gbp locations discover <project> --account accounts/{n}`. Omitting `--account` reuses the account the project already tracks; on the very first discover with no `--account`, canonry falls back to the **first** account the user can see — so if you manage more than one account, always pass `--account` the first time to avoid silently tracking the wrong business.
+- **Switching accounts is destructive:** re-pointing a project at a *different* account would drop the old account's locations and all its synced data, so it's rejected unless you pass `--switch-account` (API `switchAccount: true`). You can also `canonry gbp disconnect <project>` (which now clears the project's entire GBP footprint) and start fresh.
 
 ## The Summary Scorecard (`canonry gbp summary`)
 
