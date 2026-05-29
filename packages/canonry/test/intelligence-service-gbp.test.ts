@@ -100,7 +100,7 @@ describe('IntelligenceService.analyzeAndPersistGbp', () => {
       for (const i of result) {
         expect(i.provider).toBe('gbp')
         expect(i.query).toBe('Gjelina Venice')
-        expect(i.id.startsWith('run_gbp::gbp::locations/A::')).toBe(true)
+        expect(i.id.startsWith('proj_gbp::gbp::locations/A::')).toBe(true)
       }
 
       // Severities: lodging high, cta medium, metric -80% high, keyword -70% high.
@@ -202,7 +202,7 @@ describe('IntelligenceService.analyzeAndPersistGbp', () => {
 
       service.analyzeAndPersistGbp('run_gbp', 'proj_gbp')
       // Dismiss the lodging-gap insight.
-      const lodgingId = 'run_gbp::gbp::locations/A::gbp-lodging-gap'
+      const lodgingId = 'proj_gbp::gbp::locations/A::lodging'
       db.update(insights).set({ dismissed: true }).where(eq(insights.id, lodgingId)).run()
 
       // Re-analyze the same run — the dismissed flag must survive.
@@ -214,6 +214,87 @@ describe('IntelligenceService.analyzeAndPersistGbp', () => {
       const cta = db.select().from(insights)
         .where(and(eq(insights.runId, 'run_gbp'), eq(insights.type, 'gbp-cta-gap'))).get()
       expect(cta!.dismissed).toBe(false)
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  test('replaces prior-run insights instead of duplicating, and supersedes the lodging gap across runs', () => {
+    const { db, tmpDir } = createTempDb()
+    try {
+      seed(db)
+      const service = new IntelligenceService(db)
+
+      // First sync: location A has an empty lodging profile, no Places data.
+      seedRun(db, 'run_1')
+      service.analyzeAndPersistGbp('run_1', 'proj_gbp')
+      expect(db.select().from(insights).where(eq(insights.provider, 'gbp')).all().map((r) => r.type).sort())
+        .toEqual(['gbp-cta-gap', 'gbp-keyword-drop', 'gbp-lodging-gap', 'gbp-metric-drop'])
+
+      // A Places snapshot now proves the public listing advertises amenities.
+      db.insert(gbpPlaceDetails).values({
+        id: 'pd1', projectId: 'proj_gbp', locationName: 'locations/A', placeId: 'ChIJa',
+        contentHash: 'ph1', tier: 'atmosphere',
+        attributes: { servesBreakfast: true, parkingOptions: { freeParkingLot: true } },
+        syncedAt: NOW, syncRunId: null,
+      }).run()
+
+      // Second sync must NOT duplicate: still exactly 4 GBP insights for the
+      // project, and the lodging slot now holds the discrepancy (gap superseded).
+      seedRun(db, 'run_2')
+      service.analyzeAndPersistGbp('run_2', 'proj_gbp')
+      const after = db.select().from(insights).where(eq(insights.provider, 'gbp')).all()
+      expect(after).toHaveLength(4)
+      expect(after.map((r) => r.type).sort())
+        .toEqual(['gbp-cta-gap', 'gbp-keyword-drop', 'gbp-listing-discrepancy', 'gbp-metric-drop'])
+      const lodgingRow = db.select().from(insights)
+        .where(eq(insights.id, 'proj_gbp::gbp::locations/A::lodging')).get()
+      expect(lodgingRow!.type).toBe('gbp-listing-discrepancy')
+      // The latest run owns the refreshed rows.
+      expect(after.every((r) => r.runId === 'run_2')).toBe(true)
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  test('clears a location insight once its gap is resolved', () => {
+    const { db, tmpDir } = createTempDb()
+    try {
+      seed(db)
+      const service = new IntelligenceService(db)
+      seedRun(db, 'run_1')
+      service.analyzeAndPersistGbp('run_1', 'proj_gbp')
+      expect(db.select().from(insights).where(eq(insights.id, 'proj_gbp::gbp::locations/A::lodging')).get()).toBeDefined()
+
+      // Operator fills location A's lodging attributes — the gap is resolved.
+      db.update(gbpLodgingSnapshots).set({ populatedGroupCount: 5 })
+        .where(eq(gbpLodgingSnapshots.locationName, 'locations/A')).run()
+
+      seedRun(db, 'run_2')
+      service.analyzeAndPersistGbp('run_2', 'proj_gbp')
+      // No lodging insight remains for A, and no stale duplicate lingers.
+      expect(db.select().from(insights).where(eq(insights.id, 'proj_gbp::gbp::locations/A::lodging')).get()).toBeUndefined()
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  test('preserves a dismissal across a later run that re-emits the same slot', () => {
+    const { db, tmpDir } = createTempDb()
+    try {
+      seed(db)
+      const service = new IntelligenceService(db)
+      seedRun(db, 'run_1')
+      service.analyzeAndPersistGbp('run_1', 'proj_gbp')
+      const lodgingId = 'proj_gbp::gbp::locations/A::lodging'
+      db.update(insights).set({ dismissed: true }).where(eq(insights.id, lodgingId)).run()
+
+      // A later run re-emits the lodging gap for the same location/slot.
+      seedRun(db, 'run_2')
+      service.analyzeAndPersistGbp('run_2', 'proj_gbp')
+      const row = db.select().from(insights).where(eq(insights.id, lodgingId)).get()
+      expect(row).toBeDefined()
+      expect(row!.dismissed).toBe(true)
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true })
     }

@@ -1,7 +1,7 @@
 import { eq, desc, asc, and, ne, or, inArray, gte, lte } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/canonry-db'
 import { competitors, groupRunsByCreatedAt, gscSearchData, healthSnapshots, insights, projects, queries, querySnapshots, runs, gbpLocations, gbpDailyMetrics, gbpKeywordMonthly, gbpPlaceActions, gbpLodgingSnapshots, gbpPlaceDetails } from '@ainyc/canonry-db'
-import { analyzeRuns, analyzeGbp, classifyRegressionSeverity, PERSISTENT_GAP_THRESHOLD } from '@ainyc/canonry-intelligence'
+import { analyzeRuns, analyzeGbp, classifyRegressionSeverity, PERSISTENT_GAP_THRESHOLD, GBP_INSIGHT_PROVIDER } from '@ainyc/canonry-intelligence'
 import type { RunData, Snapshot, AnalysisResult, Insight, GbpLocationSignals, GbpKeywordPoint } from '@ainyc/canonry-intelligence'
 import { extractPlaceAmenities, type PlaceDetails } from '@ainyc/canonry-integration-google-places'
 import { buildGbpSummary } from '@ainyc/canonry-api-routes'
@@ -15,6 +15,35 @@ const RECURRENCE_LOOKBACK_RUNS = 5
 const HISTORY_WINDOW_RUNS = Math.max(PERSISTENT_GAP_THRESHOLD, 5)
 
 const log = createLogger('IntelligenceService')
+
+/**
+ * The two mutually-exclusive lodging insights (`gbp-lodging-gap` and its
+ * evidence-backed `gbp-listing-discrepancy` upgrade) share ONE slot per
+ * location, so the discrepancy supersedes the plain gap instead of coexisting.
+ * Every other GBP insight type is its own slot.
+ */
+function gbpInsightSlot(typeOrSlot: string): string {
+  return typeOrSlot === 'gbp-lodging-gap' || typeOrSlot === 'gbp-listing-discrepancy'
+    ? 'lodging'
+    : typeOrSlot
+}
+
+/** Stable, run-independent GBP insight id: `${projectId}::gbp::${location}::${slot}`. */
+function gbpInsightId(projectId: string, locationName: string, type: string): string {
+  return `${projectId}::gbp::${locationName}::${gbpInsightSlot(type)}`
+}
+
+/**
+ * Decode a GBP insight id into `{ location, slot }`. Location + slot are always
+ * the last two `::`-segments, so this also matches the legacy
+ * `${runId}::gbp::${location}::${type}` scheme — letting the dedup replace stale
+ * rows and preserve dismissals written before this fix shipped.
+ */
+function parseGbpInsightId(id: string): { location: string; slot: string } | null {
+  const parts = id.split('::')
+  if (parts.length !== 4 || parts[1] !== 'gbp') return null
+  return { location: parts[2]!, slot: gbpInsightSlot(parts[3]!) }
+}
 
 export class IntelligenceService {
   constructor(private db: DatabaseClient) {}
@@ -159,7 +188,7 @@ export class IntelligenceService {
 
     if (!runRow) {
       log.info('gbp-intelligence.skip', { runId, reason: 'run not found' })
-      this.persistGbpInsights(runId, projectId, [])
+      this.persistGbpInsights(runId, projectId, [], [])
       return []
     }
 
@@ -178,7 +207,7 @@ export class IntelligenceService {
 
     if (selected.length === 0) {
       log.info('gbp-intelligence.skip', { runId, reason: 'no locations synced during run' })
-      this.persistGbpInsights(runId, projectId, [])
+      this.persistGbpInsights(runId, projectId, [], [])
       return []
     }
 
@@ -190,10 +219,11 @@ export class IntelligenceService {
 
     const now = new Date().toISOString()
     const builtInsights: Insight[] = drafts.map((d) => ({
-      // Stable id: unique per (run, location, type). Embedding runId keeps the
-      // PK unique across runs; embedding locationName keeps two chain locations
-      // that share a displayName from colliding.
-      id: `${runId}::gbp::${d.locationName}::${d.type}`,
+      // Stable, run-independent id per (project, location, slot) so each sync
+      // REPLACES the prior insight for that slot instead of appending a per-run
+      // copy. The lodging slot is shared by gbp-lodging-gap and its
+      // gbp-listing-discrepancy upgrade, so the latter supersedes the former.
+      id: gbpInsightId(projectId, d.locationName, d.type),
       type: d.type,
       severity: d.severity,
       title: d.title,
@@ -203,7 +233,7 @@ export class IntelligenceService {
       createdAt: now,
     }))
 
-    this.persistGbpInsights(runId, projectId, builtInsights)
+    this.persistGbpInsights(runId, projectId, builtInsights, signals.map((s) => s.locationName))
     log.info('gbp-intelligence.analyzed', { runId, locations: selected.length, insights: builtInsights.length })
     return builtInsights
   }
@@ -308,25 +338,48 @@ export class IntelligenceService {
   }
 
   /**
-   * Persist GBP insights for a run. Mirrors `persistResult`'s idempotency
-   * (delete-then-insert for the run) and dismissal preservation, but keyed by
-   * the stable insight id (GBP insights aren't query/provider-scoped) and
-   * WITHOUT a health snapshot.
+   * Persist GBP insights as CURRENT STATE for the locations a sync evaluated.
+   * GBP insights are point-in-time profile facts, not run-to-run transitions, so
+   * each sync REPLACES the prior insights for the locations it covered — keyed by
+   * the run-independent `${projectId}::gbp::${location}::${slot}` id — instead of
+   * appending a fresh per-run copy. This collapses run-over-run duplicates,
+   * supersedes `gbp-lodging-gap` with `gbp-listing-discrepancy` (shared `lodging`
+   * slot), and clears a location's stale insight once its gap is resolved.
+   * Dismissals are preserved by (location, slot). Locations NOT covered by this
+   * run (e.g. a `--location`-scoped sync) are left untouched.
    */
-  private persistGbpInsights(runId: string, projectId: string, gbpInsights: Insight[]): void {
-    const previouslyDismissed = new Set<string>()
+  private persistGbpInsights(
+    runId: string,
+    projectId: string,
+    gbpInsights: Insight[],
+    coveredLocationNames: string[],
+  ): void {
+    const covered = new Set(coveredLocationNames)
+
     const existing = this.db
       .select({ id: insights.id, dismissed: insights.dismissed })
       .from(insights)
-      .where(eq(insights.runId, runId))
+      .where(and(eq(insights.projectId, projectId), eq(insights.provider, GBP_INSIGHT_PROVIDER)))
       .all()
+
+    // Prior rows for the covered locations are replaced; remember which
+    // (location, slot) the operator dismissed so the refreshed row stays dismissed.
+    const staleIds: string[] = []
+    const dismissedSlots = new Set<string>()
     for (const row of existing) {
-      if (row.dismissed) previouslyDismissed.add(row.id)
+      const parsed = parseGbpInsightId(row.id)
+      if (!parsed) continue
+      if (covered.has(parsed.location)) staleIds.push(row.id)
+      if (row.dismissed) dismissedSlots.add(`${parsed.location}::${parsed.slot}`)
     }
 
     this.db.transaction((tx) => {
-      tx.delete(insights).where(eq(insights.runId, runId)).run()
+      for (const id of staleIds) {
+        tx.delete(insights).where(eq(insights.id, id)).run()
+      }
       for (const insight of gbpInsights) {
+        const parsed = parseGbpInsightId(insight.id)
+        const dismissed = parsed ? dismissedSlots.has(`${parsed.location}::${parsed.slot}`) : false
         tx.insert(insights).values({
           id: insight.id,
           projectId,
@@ -338,13 +391,13 @@ export class IntelligenceService {
           provider: insight.provider,
           recommendation: insight.recommendation ?? null,
           cause: insight.cause ?? null,
-          dismissed: previouslyDismissed.has(insight.id),
+          dismissed,
           createdAt: insight.createdAt,
         }).run()
       }
     })
 
-    log.info('gbp-intelligence.persisted', { runId, insights: gbpInsights.length })
+    log.info('gbp-intelligence.persisted', { runId, insights: gbpInsights.length, replaced: staleIds.length })
   }
 
   /**
