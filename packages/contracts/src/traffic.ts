@@ -174,6 +174,8 @@ export const trafficSyncResponseSchema = z.object({
   runId: z.string(),
   syncedAt: z.string(),
   pulledEvents: z.number().int().nonnegative(),
+  /** Self-traffic events (Canonry's own tooling) dropped before rollup. */
+  selfTrafficExcluded: z.number().int().nonnegative(),
   crawlerHits: z.number().int().nonnegative(),
   aiUserFetchHits: z.number().int().nonnegative(),
   aiReferralHits: z.number().int().nonnegative(),

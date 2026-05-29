@@ -1850,6 +1850,7 @@ export type TrafficSyncResponse = {
     runId: string;
     syncedAt: string;
     pulledEvents: number;
+    selfTrafficExcluded: number;
     crawlerHits: number;
     aiUserFetchHits: number;
     aiReferralHits: number;

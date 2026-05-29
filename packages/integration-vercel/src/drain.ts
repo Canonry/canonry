@@ -67,6 +67,15 @@ export interface DrainVercelTrafficEventsOptions {
   pagesPerSubWindow: number
   /** Hard cap on sub-window pulls before the drain gives up. */
   maxSubWindows: number
+  /**
+   * Fail immediately if a floor-width slice overflows even `FLOOR_SLICE_MAX_PAGES`
+   * instead of sampling-and-advancing past it. Replace-mode callers (backfill)
+   * set this: a truncated sample must never overwrite a full window's rollup, and
+   * failing on the *first* irreducible slice avoids draining the rest of a window
+   * that will be rejected anyway. The default (additive incremental sync) leaves
+   * this unset so a single pathological second can't wedge the source.
+   */
+  abortOnTruncation?: boolean
 }
 
 export interface DrainVercelTrafficEventsResult {
@@ -192,8 +201,11 @@ async function resolveRetainedStart(
  * re-pulled once with the larger `FLOOR_SLICE_MAX_PAGES` budget. If even that
  * overflows, the slice cannot be sliced thinner: it is ingested as a truncated
  * sample and the drain advances past it (counted in `truncatedSliceCount`)
- * rather than wedging the source forever on one pathological second. Throws
- * only if `maxSubWindows` is reached before the window is fully drained.
+ * rather than wedging the source forever on one pathological second — unless
+ * `abortOnTruncation` is set, in which case the drain throws on the first such
+ * slice so a replace-mode caller fails fast instead of draining the rest of a
+ * window it will reject. Throws also if `maxSubWindows` is reached before the
+ * window is fully drained.
  */
 export async function drainVercelTrafficEvents(
   options: DrainVercelTrafficEventsOptions,
@@ -288,7 +300,17 @@ export async function drainVercelTrafficEvents(
       }
       if (page.hasMore) {
         // Even `FLOOR_SLICE_MAX_PAGES` pages did not drain this one-second
-        // slice, and time cannot be sliced thinner. Failing here would freeze
+        // slice, and time cannot be sliced thinner.
+        if (options.abortOnTruncation) {
+          // Replace-mode caller (backfill): fail fast on the first irreducible
+          // slice so we don't drain the rest of a window we'll reject anyway.
+          throw new Error(
+            `Vercel ${MIN_SUB_WINDOW_MS / 1000}-second slice starting `
+              + `${new Date(cursorMs).toISOString()} holds more than `
+              + `${FLOOR_SLICE_MAX_PAGES} pages and cannot be drained further`,
+          )
+        }
+        // Additive caller (incremental sync): failing here would freeze
         // `lastSyncedAt` and wedge the source forever on this single
         // pathological second (e.g. a bot flood). Instead, ingest the sample
         // we pulled, record the truncation so the caller can surface it

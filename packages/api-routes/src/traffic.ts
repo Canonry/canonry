@@ -48,7 +48,7 @@ import type {
   CloudRunTrafficEventsPage,
   ListCloudRunTrafficEventsOptions,
 } from '@ainyc/canonry-integration-cloud-run'
-import { buildTrafficProbeReport } from '@ainyc/canonry-integration-traffic'
+import { buildTrafficProbeReport, isSelfTraffic } from '@ainyc/canonry-integration-traffic'
 import {
   listWordpressTrafficEvents,
   WordpressTrafficApiError,
@@ -132,8 +132,10 @@ export interface TrafficSyncedEvent {
   sourceType: string
   /** Source row UUID — opaque, no PII. */
   sourceId: string
-  /** Number of normalized events processed (post-dedupe). 0 for failed syncs. */
+  /** Number of normalized events processed (post-dedupe, post-self-traffic-exclusion). 0 for failed syncs. */
   pulledEvents: number
+  /** Self-traffic events (Canonry's own tooling) dropped before rollup. 0 for failed syncs. */
+  selfTrafficExcluded: number
   /** Crawler hourly bucket inserts/updates. 0 for failed syncs. */
   crawlerHits: number
   /** AI user-fetch hourly bucket inserts/updates (ChatGPT-User, Perplexity-User, …). 0 for failed syncs. */
@@ -391,6 +393,14 @@ async function runBackfillTask(options: RunBackfillTaskOptions): Promise<void> {
   }
 
   const report = buildTrafficProbeReport(allEvents, { sampleLimit: BACKFILL_SAMPLE_LIMIT })
+  // Self-traffic exclusion is never silent. The backfill response already
+  // returned, so the log is the surfacing channel here.
+  if (report.totals.selfTrafficExcluded > 0) {
+    app.log.info(
+      { sourceId: sourceRow.id, selfTrafficExcluded: report.totals.selfTrafficExcluded },
+      'Backfill dropped Canonry self-traffic before rollup',
+    )
+  }
   const finishedAt = new Date().toISOString()
   const windowStartIso = windowStart.toISOString()
   const windowEndIso = windowEnd.toISOString()
@@ -399,9 +409,10 @@ async function runBackfillTask(options: RunBackfillTaskOptions): Promise<void> {
   // backfill so subsequent incremental syncs continue to dedupe at the
   // boundary. lastSyncedAt advances to max(current, backfillEnd) — never
   // backwards, so a backfill never undoes incremental progress that ran
-  // ahead of it.
+  // ahead of it. Self-traffic is dropped at rollup, so its IDs never need
+  // cross-sync deduping — keep them out of the bounded ring.
   const newSorted = allEvents
-    .slice()
+    .filter((e) => !isSelfTraffic(e))
     .sort((a, b) => (a.observedAt < b.observedAt ? 1 : a.observedAt > b.observedAt ? -1 : 0))
     .map((e) => e.eventId)
   const newRingBuffer = newSorted.slice(0, MAX_TRACKED_EVENT_IDS)
@@ -1128,6 +1139,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
           sourceType: sourceRow.sourceType,
           sourceId: sourceRow.id,
           pulledEvents: 0,
+          selfTrafficExcluded: 0,
           crawlerHits: 0,
           aiUserFetchHits: 0,
           aiReferralHits: 0,
@@ -1389,6 +1401,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
     // transaction commits for the response + telemetry payload.
     let finishedAt = new Date().toISOString()
     let pulledEventsCount = 0
+    let selfTrafficExcludedCount = 0
     let crawlerHitsCount = 0
     let aiUserFetchHitsCount = 0
     let aiReferralHitsCount = 0
@@ -1420,8 +1433,11 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       // We must retain the previous IDs because Cloud Logging can re-return
       // the same boundary event on more than one subsequent sync; replacing
       // would let it re-enter on the third sync.
+      // Self-traffic is always dropped at rollup, so its IDs never need
+      // cross-sync deduping — keep them out of the bounded ring so they can't
+      // evict real boundary-event IDs.
       const newSorted = dedupedEvents
-        .slice()
+        .filter(e => !isSelfTraffic(e))
         .sort((a, b) => (a.observedAt < b.observedAt ? 1 : a.observedAt > b.observedAt ? -1 : 0))
         .map(e => e.eventId)
       const merged: string[] = []
@@ -1437,6 +1453,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       const report = buildTrafficProbeReport(dedupedEvents, { sampleLimit })
       finishedAt = new Date().toISOString()
       pulledEventsCount = report.totals.normalizedEvents
+      selfTrafficExcludedCount = report.totals.selfTrafficExcluded
       crawlerHitsCount = report.totals.crawlerHits
       aiUserFetchHitsCount = report.totals.aiUserFetchHits
       aiReferralHitsCount = report.totals.aiReferralHits
@@ -1637,6 +1654,16 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       entityId: sourceRow.id,
     })
 
+    // Self-traffic exclusion is never silent: if Canonry's own tooling crawled
+    // the site during this window, surface how many events we dropped so the
+    // (post-exclusion) `pulledEvents` count is explainable.
+    if (selfTrafficExcludedCount > 0) {
+      request.log.info(
+        { sourceId: sourceRow.id, selfTrafficExcluded: selfTrafficExcludedCount },
+        'Dropped Canonry self-traffic before rollup; excluded from pulledEvents',
+      )
+    }
+
     // Fire-and-forget telemetry. Never let a hook block the response.
     try {
       opts.onTrafficSynced?.({
@@ -1644,6 +1671,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         sourceType: sourceRow.sourceType,
         sourceId: sourceRow.id,
         pulledEvents: pulledEventsCount,
+        selfTrafficExcluded: selfTrafficExcludedCount,
         crawlerHits: crawlerHitsCount,
         aiUserFetchHits: aiUserFetchHitsCount,
         aiReferralHits: aiReferralHitsCount,
@@ -1658,6 +1686,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       runId,
       syncedAt: finishedAt,
       pulledEvents: pulledEventsCount,
+      selfTrafficExcluded: selfTrafficExcludedCount,
       crawlerHits: crawlerHitsCount,
       aiUserFetchHits: aiUserFetchHitsCount,
       aiReferralHits: aiReferralHitsCount,
@@ -1862,6 +1891,11 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
           chunkStartMs += VERCEL_BACKFILL_CHUNK_MS
         ) {
           const chunkEndMs = Math.min(chunkStartMs + VERCEL_BACKFILL_CHUNK_MS, backfillEndMs)
+          // Backfill is replace mode — a truncated sample would overwrite a
+          // full prior rollup with a partial one. `abortOnTruncation` makes the
+          // drain throw on the first irreducible one-second slice (the
+          // incremental sync path samples-and-advances instead, since it is
+          // additive, not destructive). Operator can re-run a narrower window.
           const drained = await drainVercelTrafficEvents({
             pull: pullVercelEvents,
             token: credential.token,
@@ -1872,21 +1906,10 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
             endDate: chunkEndMs,
             pagesPerSubWindow: BACKFILL_MAX_PAGES,
             maxSubWindows: VERCEL_MAX_SUB_WINDOWS,
+            abortOnTruncation: true,
           })
           if (drained.retentionClamped) {
             throw vercelRetentionClampError(chunkStartMs, drained.effectiveStartMs)
-          }
-          if (drained.truncatedSliceCount > 0) {
-            // Backfill is replace mode — ingesting a truncated sample would
-            // overwrite a full prior rollup with a partial one. Fail loud here
-            // (the incremental sync path samples-and-advances instead, but it
-            // is additive, not destructive). Operator can re-run a narrower
-            // window.
-            throw new Error(
-              `Vercel backfill chunk starting ${new Date(chunkStartMs).toISOString()} `
-                + 'contains a one-second slice larger than the page budget; refusing to '
-                + 'replace the window with a truncated sample. Re-run a narrower backfill.',
-            )
           }
           for (const event of drained.events) {
             if (seenEventIds.has(event.eventId)) continue

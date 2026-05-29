@@ -163,6 +163,24 @@ describe('drainVercelTrafficEvents', () => {
     expect(result.events).toHaveLength(3)
   })
 
+  test('throws on the first irreducible floor slice when abortOnTruncation is set', async () => {
+    // Replace-mode callers (backfill) opt into fail-fast: the drain must throw
+    // on the FIRST one-second slice it cannot drain rather than sampling and
+    // advancing through the rest of a window it will reject anyway.
+    const pull = vi.fn(async (o: ListVercelTrafficEventsOptions) =>
+      page([makeEvent(`trunc-${Number(o.startDate)}`)], true),
+    )
+    await expect(
+      drainVercelTrafficEvents({
+        ...baseOptions,
+        pull,
+        startDate: 0,
+        endDate: 3 * SECOND,
+        abortOnTruncation: true,
+      }),
+    ).rejects.toThrow(/1-second slice starting .* holds more than 1000 pages/)
+  })
+
   test('drains a dense minute via one-second slicing without hitting the floor budget', async () => {
     // The gjelina-hotel regression: a single minute holds more than the normal
     // page budget at the minute level, but each one-second slice drains
