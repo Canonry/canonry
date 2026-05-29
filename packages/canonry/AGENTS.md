@@ -123,6 +123,12 @@ When a sweep finishes, the flow is: `JobRunner` → `RunCoordinator.onRunComplet
 
 `IntelligenceService` reads query snapshots from the DB, calls the pure analysis functions in `packages/intelligence/`, and persists insights + health snapshots. It also provides `backfill()` for reprocessing historical runs chronologically.
 
+### Index coverage auto-refresh
+
+`gscUrlInspections` (the index-coverage dashboard's source of truth) is only fully populated by a `inspect-sitemap` run — `gsc-sync` inspects just the top 50 pages by clicks, so newly-added / zero-click URLs silently fall out of coverage. To keep it fresh, `server.ts` chains a full GSC `inspect-sitemap` off the **success** of both `executeGscSync` (`gsc-sync`) and `executeBingInspectSitemap` (`bing-inspect-sitemap` — Bing's coverage sync, which has no separate `bing-sync` kind). The chaining lives in the `onGscSyncRequested` / `onBingInspectSitemapRequested` callbacks, so it covers UI and CLI uniformly (both hit the same endpoints) and the dashboard "Refresh all" button.
+
+`maybeRefreshGscCoverage` (`src/coverage-refresh.ts`) owns the decision: it no-ops when GSC isn't connected for the project (so the Bing → GSC chain is silent on Bing-only projects) and skips when an `inspect-sitemap` run already ran within `COVERAGE_REFRESH_MIN_INTERVAL_MS` (1 h) to stay under the URL Inspection quota (2000/property/day, ~1 req/sec). Its project lookup + spacing guard + run-row insert are synchronous so the GSC and Bing arms of "Refresh all" can't both pass the guard. The chained run is `trigger: scheduled`; a refresh failure is logged, never bubbled into the triggering sync's result.
+
 ### Backfill behavior
 
 `canonry backfill answer-visibility` does more than recompute `answerMentioned`. It also reparses stored provider `raw_response` payloads for supported API providers (OpenAI, Claude, Gemini, Perplexity) and refreshes derived snapshot fields such as `citationState`, `citedDomains`, `groundingSources`, and `searchQueries`.

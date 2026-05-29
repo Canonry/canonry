@@ -62,6 +62,7 @@ import { JobRunner } from './job-runner.js'
 import { executeGscSync } from './gsc-sync.js'
 import { executeInspectSitemap } from './gsc-inspect-sitemap.js'
 import { executeBingInspectSitemap } from './bing-inspect-sitemap.js'
+import { maybeRefreshGscCoverage } from './coverage-refresh.js'
 import { executeReleaseSync } from './commoncrawl-sync.js'
 import { executeBacklinkExtract } from './backlink-extract.js'
 import { executeDiscoveryRun } from './discovery-run.js'
@@ -1049,9 +1050,15 @@ export async function createServer(opts: {
       executeGscSync(opts.db, runId, projectId, {
         ...syncOpts,
         config: opts.config,
-      }).catch((err: unknown) => {
-        app.log.error({ runId, err }, 'GSC sync failed')
       })
+        // executeGscSync resolves only when the sync completed, so a full
+        // sitemap-coverage refresh chains directly off success. `gsc-sync`
+        // alone only inspects the top 50 pages by clicks, leaving newly-added
+        // URLs out of the coverage dashboard until the next manual inspection.
+        .then(() => maybeRefreshGscCoverage(opts.db, opts.config, projectId))
+        .catch((err: unknown) => {
+          app.log.error({ runId, err }, 'GSC sync failed')
+        })
     },
     onInspectSitemapRequested: (runId: string, projectId: string, inspectOpts?: { sitemapUrl?: string }) => {
       const { clientId: googleClientId, clientSecret: googleClientSecret } = getGoogleAuthConfig(opts.config)
@@ -1174,9 +1181,21 @@ export async function createServer(opts: {
       executeBingInspectSitemap(opts.db, runId, projectId, {
         ...inspectOpts,
         config: opts.config,
-      }).catch((err: unknown) => {
-        app.log.error({ runId, err }, 'Bing inspect sitemap failed')
       })
+        .then(() => {
+          // Unlike executeGscSync, the Bing executor resolves even when the run
+          // ends `failed` (every URL errored), so gate the cross-engine GSC
+          // coverage refresh on the run actually completing. maybeRefreshGscCoverage
+          // no-ops when GSC isn't connected, so Bing-only projects are unaffected.
+          const finished = opts.db.select({ status: runs.status }).from(runs).where(eq(runs.id, runId)).get()
+          if (finished?.status === RunStatuses.completed || finished?.status === RunStatuses.partial) {
+            return maybeRefreshGscCoverage(opts.db, opts.config, projectId)
+          }
+          return null
+        })
+        .catch((err: unknown) => {
+          app.log.error({ runId, err }, 'Bing inspect sitemap failed')
+        })
     },
     wordpressConnectionStore,
     ga4CredentialStore,
