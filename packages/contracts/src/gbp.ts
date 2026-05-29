@@ -1,5 +1,27 @@
 import { z } from 'zod'
 
+// One GBP account the OAuth user can access. `name` is the resource name
+// ("accounts/{n}") used to list that account's locations; the rest are
+// descriptive. A user with manager/owner access to several businesses sees
+// several accounts here — which is why account selection is per project.
+export const gbpAccountDtoSchema = z.object({
+  /** Resource name, "accounts/{n}". */
+  name: z.string(),
+  /** Human-readable account name, or null when Google omits it. */
+  accountName: z.string().nullable(),
+  /** Account type (PERSONAL, LOCATION_GROUP, ORGANIZATION, …) when present. */
+  type: z.string().nullable(),
+  /** The OAuth user's role on the account (OWNER, MANAGER, …) when present. */
+  role: z.string().nullable(),
+})
+export type GbpAccountDto = z.infer<typeof gbpAccountDtoSchema>
+
+export const gbpAccountListResponseSchema = z.object({
+  accounts: z.array(gbpAccountDtoSchema),
+  total: z.number().int().nonnegative(),
+})
+export type GbpAccountListResponse = z.infer<typeof gbpAccountListResponseSchema>
+
 // One GBP location surfaced to canonry — a row in `gbp_locations`. The
 // `accountName` / `locationName` fields are the resource names returned by
 // Google ("accounts/{n}" / "locations/{n}"); we keep the full form rather
@@ -30,6 +52,19 @@ export type GbpLocationListResponse = z.infer<typeof gbpLocationListResponseSche
 
 export const gbpDiscoverRequestSchema = z.object({
   selectAllNew: z.boolean().default(true),
+  /**
+   * Discover locations under this specific account ("accounts/{n}"). Omit to
+   * use the account the project already tracks, falling back to the first
+   * account the OAuth user can see on the very first discover.
+   */
+  accountName: z.string().optional(),
+  /**
+   * Permit replacing the project's locations when `accountName` names a
+   * DIFFERENT account than the one currently tracked. Switching is destructive
+   * (it clears the old account's locations + synced data), so it must be opted
+   * into explicitly — otherwise a mismatched account is rejected.
+   */
+  switchAccount: z.boolean().default(false),
 })
 export type GbpDiscoverRequest = z.infer<typeof gbpDiscoverRequestSchema>
 

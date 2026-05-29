@@ -371,9 +371,14 @@ Like GA4, `gbp sync` writes to local DB tables and every read command queries th
 
 ```bash
 cnry gbp connect <project> [--public-url <url>]   # OAuth connect (reuses the Google client)
-cnry gbp disconnect <project>                      # remove the GBP connection
-cnry gbp locations discover <project> [--no-select-new]
-                                                   # discover managed accounts/locations; selects all new by default
+cnry gbp disconnect <project>                      # remove the GBP connection + ALL synced GBP data
+cnry gbp accounts <project>                        # list GBP accounts this connection can access
+                                                   # (account selection is per project — pick one below)
+cnry gbp locations discover <project> [--account accounts/{n}] [--switch-account] [--no-select-new]
+                                                   # discover a chosen account's locations; --account targets a
+                                                   # specific account (omit = the account the project already tracks,
+                                                   # else the first visible one); --switch-account opts into the
+                                                   # destructive re-point to a different account; selects all new by default
 cnry gbp locations <project> [--selected-only]     # list discovered locations + selection state
 cnry gbp locations select   <project> --location locations/{n}
 cnry gbp locations deselect <project> --location locations/{n}

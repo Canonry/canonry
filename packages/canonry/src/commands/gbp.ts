@@ -1,4 +1,4 @@
-import type { GbpLocationListResponse, GbpSummaryDto } from '@ainyc/canonry-contracts'
+import type { GbpAccountListResponse, GbpLocationListResponse, GbpSummaryDto } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
 
 function getClient() {
@@ -70,12 +70,49 @@ export async function gbpLocationsList(
   console.log(formatLocationsTable(response))
 }
 
-export async function gbpLocationsDiscover(
+export async function gbpAccounts(
   project: string,
-  opts: { format?: string; selectAllNew?: boolean },
+  opts: { format?: string },
 ): Promise<void> {
   const client = getClient()
-  const body = opts.selectAllNew === undefined ? undefined : { selectAllNew: opts.selectAllNew }
+  const response = await client.listGbpAccounts(project)
+
+  if (opts.format === 'json') {
+    console.log(JSON.stringify(response, null, 2))
+    return
+  }
+  console.log(formatAccountsTable(response))
+}
+
+function formatAccountsTable(response: GbpAccountListResponse): string {
+  if (response.accounts.length === 0) {
+    return 'No GBP accounts visible to this connection. Confirm the OAuth user has manager/owner access on the target Business Profile.'
+  }
+  const lines: string[] = []
+  lines.push(`${response.total} account(s) accessible to this connection:\n`)
+  for (const acc of response.accounts) {
+    const label = acc.accountName ?? '(unnamed)'
+    const meta = [acc.type, acc.role].filter(Boolean).join(', ')
+    lines.push(`  ${acc.name.padEnd(22)}  ${label}${meta ? `  (${meta})` : ''}`)
+  }
+  lines.push('\nDiscover a specific account into a project with:')
+  lines.push('  canonry gbp locations discover <project> --account <accounts/{n}>')
+  return lines.join('\n')
+}
+
+export async function gbpLocationsDiscover(
+  project: string,
+  opts: { format?: string; selectAllNew?: boolean; account?: string; switchAccount?: boolean },
+): Promise<void> {
+  const client = getClient()
+  const hasBody = opts.selectAllNew !== undefined || opts.account !== undefined || opts.switchAccount
+  const body = hasBody
+    ? {
+        ...(opts.selectAllNew === undefined ? {} : { selectAllNew: opts.selectAllNew }),
+        ...(opts.account === undefined ? {} : { accountName: opts.account }),
+        ...(opts.switchAccount ? { switchAccount: true } : {}),
+      }
+    : undefined
   const response = await client.discoverGbpLocations(project, body)
 
   if (opts.format === 'json') {

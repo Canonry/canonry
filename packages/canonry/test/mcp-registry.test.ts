@@ -62,6 +62,7 @@ const expectedToolNames = [
   'canonry_ga_social_referral_trend',
   'canonry_ga_attribution_trend',
   'canonry_ga_session_history',
+  'canonry_gbp_accounts',
   'canonry_gbp_locations',
   'canonry_gbp_locations_discover',
   'canonry_gbp_location_select',
@@ -115,8 +116,8 @@ const expectedToolNames = [
 
 describe('MCP tool registry', () => {
   it('ships the curated v1 surface', () => {
-    expect(CANONRY_MCP_TOOL_COUNT).toBe(95)
-    expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(61)
+    expect(CANONRY_MCP_TOOL_COUNT).toBe(96)
+    expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(62)
     expect(canonryMcpTools.map(tool => tool.name)).toEqual(expectedToolNames)
     const readNames = canonryMcpTools.filter(tool => tool.access === 'read').map(tool => tool.name)
     expect(getCanonryMcpTools('read-only').map(tool => tool.name)).toEqual(readNames)
@@ -156,7 +157,7 @@ describe('MCP tool registry', () => {
     expect(counts.get('setup')).toBe(23)
     expect(counts.get('gsc')).toBe(8)
     expect(counts.get('ga')).toBe(8)
-    expect(counts.get('gbp')).toBe(10)
+    expect(counts.get('gbp')).toBe(11)
     expect(counts.get('traffic')).toBe(10)
     expect(counts.get('agent')).toBe(5)
     expect(counts.get('discovery')).toBe(5)

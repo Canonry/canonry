@@ -39,6 +39,7 @@ import type {
   GA4SessionHistoryEntry,
   AuditLogEntry,
   GoogleConnectionDto,
+  GbpAccountListResponse,
   GbpLocationDto,
   GbpLocationListResponse,
   GbpSyncResponse,
@@ -173,6 +174,7 @@ import {
   putApiV1ProjectsByNameGoogleConnectionsByTypeProperty,
   putApiV1ProjectsByNameGoogleConnectionsByTypeSitemap,
   // Google Business Profile
+  getApiV1ProjectsByNameGbpAccounts,
   postApiV1ProjectsByNameGbpLocationsDiscover,
   getApiV1ProjectsByNameGbpLocations,
   putApiV1ProjectsByNameGbpLocationsByLocationNameSelection,
@@ -1130,7 +1132,16 @@ export class ApiClient {
   }
 
   // Google Business Profile (Phase 1: auth + discovery)
-  async discoverGbpLocations(project: string, body?: { selectAllNew?: boolean }): Promise<GbpLocationListResponse> {
+  async listGbpAccounts(project: string): Promise<GbpAccountListResponse> {
+    return this.invoke<GbpAccountListResponse>(() =>
+      getApiV1ProjectsByNameGbpAccounts({
+        client: this.heyClient,
+        path: { name: project },
+      }),
+    )
+  }
+
+  async discoverGbpLocations(project: string, body?: { selectAllNew?: boolean; accountName?: string; switchAccount?: boolean }): Promise<GbpLocationListResponse> {
     return this.invoke<GbpLocationListResponse>(() =>
       postApiV1ProjectsByNameGbpLocationsDiscover({
         client: this.heyClient,

@@ -1,13 +1,13 @@
 import crypto from 'node:crypto'
-import { eq, and, desc, sql } from 'drizzle-orm'
+import { eq, and, desc, sql, inArray } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { gscSearchData, gscUrlInspections, gscCoverageSnapshots, gbpLocations, gbpDailyMetrics, gbpKeywordImpressions, gbpPlaceActions, gbpLodgingSnapshots, runs, projects } from '@ainyc/canonry-db'
+import { gscSearchData, gscUrlInspections, gscCoverageSnapshots, gbpLocations, gbpDailyMetrics, gbpKeywordImpressions, gbpPlaceActions, gbpLodgingSnapshots, runs, projects, type DatabaseClient } from '@ainyc/canonry-db'
 import {
   validationError, notFound, normalizeProjectDomain, parseWindow, windowCutoff,
   authRequired, quotaExceeded, providerError,
   type GoogleConnectionType,
   gbpDiscoverRequestSchema, gbpLocationSelectionRequestSchema, gbpSyncRequestSchema,
-  type GbpLocationDto, type GbpLocationListResponse,
+  type GbpLocationDto, type GbpLocationListResponse, type GbpAccountListResponse,
 } from '@ainyc/canonry-contracts'
 import { buildGbpSummary } from './gbp-summary.js'
 import { resolveProject, writeAuditLog } from './helpers.js'
@@ -1281,12 +1281,41 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     }
   }
 
+  // Clear a project's entire GBP footprint inside a transaction: discovered
+  // locations + every synced surface. Used by disconnect and by an account
+  // switch (where the old account's data must not linger). These data tables
+  // cascade only on PROJECT deletion, so they have to be cleared explicitly.
+  function clearGbpProjectData(tx: Pick<DatabaseClient, 'delete'>, projectId: string): void {
+    tx.delete(gbpDailyMetrics).where(eq(gbpDailyMetrics.projectId, projectId)).run()
+    tx.delete(gbpKeywordImpressions).where(eq(gbpKeywordImpressions.projectId, projectId)).run()
+    tx.delete(gbpPlaceActions).where(eq(gbpPlaceActions.projectId, projectId)).run()
+    tx.delete(gbpLodgingSnapshots).where(eq(gbpLodgingSnapshots.projectId, projectId)).run()
+    tx.delete(gbpLocations).where(eq(gbpLocations.projectId, projectId)).run()
+  }
+
+  // The account a project currently tracks, derived from its locations (they
+  // all share one account under the one-account-per-project model). Null before
+  // the first discover.
+  function currentProjectAccount(projectId: string): string | null {
+    const row = app.db.select({ accountName: gbpLocations.accountName })
+      .from(gbpLocations)
+      .where(eq(gbpLocations.projectId, projectId))
+      .limit(1)
+      .get()
+    return row?.accountName ?? null
+  }
+
   // POST /projects/:name/gbp/locations/discover
   // Re-discover locations from Google and upsert them. New rows get
   // `selected = body.selectAllNew`. Existing rows keep their selected state.
+  // Account selection is per project: an explicit `accountName` discovers that
+  // account's locations; omitting it reuses the account the project already
+  // tracks (falling back to the first visible account on the first discover).
+  // Pointing a project at a DIFFERENT account is destructive and requires
+  // `switchAccount: true`.
   app.post<{
     Params: { name: string }
-    Body: { selectAllNew?: boolean }
+    Body: { selectAllNew?: boolean; accountName?: string; switchAccount?: boolean }
   }>('/projects/:name/gbp/locations/discover', async (request) => {
     const { clientId: googleClientId, clientSecret: googleClientSecret } = getAuthConfig()
     if (!googleClientId || !googleClientSecret) {
@@ -1299,33 +1328,53 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     if (!parsed.success) {
       throw validationError(parsed.error.issues[0]?.message ?? 'Invalid discover request')
     }
-    const { selectAllNew } = parsed.data
+    const { selectAllNew, accountName: requestedAccount, switchAccount } = parsed.data
 
     const { accessToken } = await getValidToken(
       store, project.canonicalDomain, 'gbp', googleClientId, googleClientSecret,
     )
 
-    // Resolve the account: prefer the remembered one, otherwise pick the
-    // first account visible to the OAuth user.
-    const conn = store.getConnection(project.canonicalDomain, 'gbp')
-    let accountName = conn?.gbpAccountName ?? null
-    if (!accountName) {
-      let accounts
+    const fetchAccounts = async () => {
       try {
-        accounts = await gbpListAccounts(accessToken)
+        return await gbpListAccounts(accessToken)
       } catch (err) {
         if (err instanceof GbpApiError) throw gbpErrorToAppError(err, 'list accounts')
         throw err
       }
-      if (accounts.length === 0) {
-        throw validationError('No GBP accounts are visible to this OAuth user. Confirm the user has manager/owner access on the target Business Profile.')
+    }
+
+    // Resolve the account this discover should target. Source of truth for a
+    // project's current account is its existing locations (they all share one);
+    // the connection's gbpAccountName is only a last-used cache.
+    const conn = store.getConnection(project.canonicalDomain, 'gbp')
+    const current = currentProjectAccount(project.id)
+    let accountName: string
+    if (requestedAccount) {
+      // Validate the explicit account is one the OAuth user can actually see —
+      // otherwise gbpListLocations would 403/404 with a less helpful message.
+      const accounts = await fetchAccounts()
+      if (!accounts.some((a) => a.name === requestedAccount)) {
+        throw validationError(`GBP account "${requestedAccount}" is not accessible to this connection. Run "canonry gbp accounts <project>" to list available accounts.`)
       }
-      accountName = accounts[0]!.name
-      // Remember the account for subsequent calls.
-      store.updateConnection(project.canonicalDomain, 'gbp', {
-        gbpAccountName: accountName,
-        updatedAt: new Date().toISOString(),
-      })
+      accountName = requestedAccount
+    } else {
+      const remembered = current ?? conn?.gbpAccountName ?? null
+      if (remembered) {
+        accountName = remembered
+      } else {
+        const accounts = await fetchAccounts()
+        if (accounts.length === 0) {
+          throw validationError('No GBP accounts are visible to this OAuth user. Confirm the user has manager/owner access on the target Business Profile.')
+        }
+        accountName = accounts[0]!.name
+      }
+    }
+
+    // Switching a project to a different account is destructive — it drops the
+    // old account's locations + synced data. Require explicit opt-in.
+    const switching = current !== null && current !== accountName
+    if (switching && !switchAccount) {
+      throw validationError(`This project currently tracks GBP account "${current}". Re-pointing it at "${accountName}" would replace its locations and all synced data. Pass switchAccount=true (CLI: --switch-account) to confirm, or run "canonry gbp disconnect <project>" first.`)
     }
 
     let remoteLocations
@@ -1336,8 +1385,17 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
       throw err
     }
 
+    // Remember the resolved account on the connection as a last-used cache.
+    store.updateConnection(project.canonicalDomain, 'gbp', {
+      gbpAccountName: accountName,
+      updatedAt: new Date().toISOString(),
+    })
+
     const now = new Date().toISOString()
     app.db.transaction((tx) => {
+      // On an account switch, clear the old account's footprint first so its
+      // locations + synced data don't linger alongside the new account's.
+      if (switching) clearGbpProjectData(tx, project.id)
       for (const remote of remoteLocations) {
         const existing = tx.select()
           .from(gbpLocations)
@@ -1371,13 +1429,48 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
       writeAuditLog(tx, {
         projectId: project.id,
         actor: 'api',
-        action: 'gbp.locations.discovered',
+        action: switching ? 'gbp.account.switched' : 'gbp.locations.discovered',
         entityType: 'gbp_locations',
-        diff: { account: accountName, count: remoteLocations.length, selectAllNew },
+        diff: { account: accountName, switchedFrom: switching ? current : null, count: remoteLocations.length, selectAllNew },
       })
     })
 
     return listSelectionResponse(project.id)
+  })
+
+  // GET /projects/:name/gbp/accounts — accounts the OAuth user can access, so
+  // the operator can pick which one a project tracks (discover --account).
+  app.get<{ Params: { name: string } }>('/projects/:name/gbp/accounts', async (request) => {
+    const { clientId: googleClientId, clientSecret: googleClientSecret } = getAuthConfig()
+    if (!googleClientId || !googleClientSecret) {
+      throw validationError('Google OAuth is not configured')
+    }
+    const project = resolveProject(app.db, request.params.name)
+    const store = requireConnectionStore()
+    const conn = store.getConnection(project.canonicalDomain, 'gbp')
+    if (!conn) {
+      throw validationError('No GBP connection found for this project. Run "canonry gbp connect" first.')
+    }
+    const { accessToken } = await getValidToken(
+      store, project.canonicalDomain, 'gbp', googleClientId, googleClientSecret,
+    )
+    let accounts
+    try {
+      accounts = await gbpListAccounts(accessToken)
+    } catch (err) {
+      if (err instanceof GbpApiError) throw gbpErrorToAppError(err, 'list accounts')
+      throw err
+    }
+    const response: GbpAccountListResponse = {
+      accounts: accounts.map((a) => ({
+        name: a.name,
+        accountName: a.accountName ?? null,
+        type: a.type ?? null,
+        role: a.role ?? null,
+      })),
+      total: accounts.length,
+    }
+    return response
   })
 
   // GET /projects/:name/gbp/locations
@@ -1444,11 +1537,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     const store = requireConnectionStore()
 
     app.db.transaction((tx) => {
-      tx.delete(gbpDailyMetrics).where(eq(gbpDailyMetrics.projectId, project.id)).run()
-      tx.delete(gbpKeywordImpressions).where(eq(gbpKeywordImpressions.projectId, project.id)).run()
-      tx.delete(gbpPlaceActions).where(eq(gbpPlaceActions.projectId, project.id)).run()
-      tx.delete(gbpLodgingSnapshots).where(eq(gbpLodgingSnapshots.projectId, project.id)).run()
-      tx.delete(gbpLocations).where(eq(gbpLocations.projectId, project.id)).run()
+      clearGbpProjectData(tx, project.id)
       writeAuditLog(tx, {
         projectId: project.id,
         actor: 'api',
@@ -1598,26 +1687,35 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     const project = resolveProject(app.db, request.params.name)
     const locationName = request.query.locationName ?? null
 
-    const metricScope = locationName
-      ? and(eq(gbpDailyMetrics.projectId, project.id), eq(gbpDailyMetrics.locationName, locationName))
-      : eq(gbpDailyMetrics.projectId, project.id)
-    const metricRows = app.db.select().from(gbpDailyMetrics).where(metricScope).all()
+    // The summary describes the locations the project actually tracks. With no
+    // explicit location it covers the SELECTED locations only — a deselected
+    // location's stale synced rows must not pollute the aggregates, and the
+    // reported locationCount has to match the data the numbers came from. An
+    // explicit locationName narrows to that one location regardless of its
+    // selection state (operator inspecting a specific location).
+    const locationNames = locationName
+      ? [locationName]
+      : app.db.select({ n: gbpLocations.locationName })
+          .from(gbpLocations)
+          .where(and(eq(gbpLocations.projectId, project.id), eq(gbpLocations.selected, true)))
+          .all().map((r) => r.n)
 
-    const keywordScope = locationName
-      ? and(eq(gbpKeywordImpressions.projectId, project.id), eq(gbpKeywordImpressions.locationName, locationName))
-      : eq(gbpKeywordImpressions.projectId, project.id)
-    const keywordRows = app.db.select().from(gbpKeywordImpressions).where(keywordScope).all()
+    const today = new Date().toISOString().slice(0, 10)
+    if (locationNames.length === 0) {
+      return buildGbpSummary({
+        locationName, locationCount: 0, referenceDate: today,
+        dailyMetrics: [], keywords: [], placeActions: [], lodging: [],
+      })
+    }
 
-    const paScope = locationName
-      ? and(eq(gbpPlaceActions.projectId, project.id), eq(gbpPlaceActions.locationName, locationName))
-      : eq(gbpPlaceActions.projectId, project.id)
-    const placeActionRows = app.db.select().from(gbpPlaceActions).where(paScope).all()
-
-    const lodgingScope = locationName
-      ? and(eq(gbpLodgingSnapshots.projectId, project.id), eq(gbpLodgingSnapshots.locationName, locationName))
-      : eq(gbpLodgingSnapshots.projectId, project.id)
+    const metricRows = app.db.select().from(gbpDailyMetrics)
+      .where(and(eq(gbpDailyMetrics.projectId, project.id), inArray(gbpDailyMetrics.locationName, locationNames))).all()
+    const keywordRows = app.db.select().from(gbpKeywordImpressions)
+      .where(and(eq(gbpKeywordImpressions.projectId, project.id), inArray(gbpKeywordImpressions.locationName, locationNames))).all()
+    const placeActionRows = app.db.select().from(gbpPlaceActions)
+      .where(and(eq(gbpPlaceActions.projectId, project.id), inArray(gbpPlaceActions.locationName, locationNames))).all()
     const lodgingRows = app.db.select().from(gbpLodgingSnapshots)
-      .where(lodgingScope)
+      .where(and(eq(gbpLodgingSnapshots.projectId, project.id), inArray(gbpLodgingSnapshots.locationName, locationNames)))
       .orderBy(desc(gbpLodgingSnapshots.syncedAt))
       .all()
     const latestLodgingByLocation = new Map<string, { locationName: string; populatedGroupCount: number }>()
@@ -1627,18 +1725,13 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
       }
     }
 
-    const selectedCount = app.db.select().from(gbpLocations)
-      .where(and(eq(gbpLocations.projectId, project.id), eq(gbpLocations.selected, true)))
-      .all().length
-
     // Anchor the 7-day windows to the most recent metric date present (or today
     // when there's no data), so the comparison aligns with what was synced.
-    const referenceDate = metricRows.reduce<string>((max, r) => (r.date > max ? r.date : max), '')
-      || new Date().toISOString().slice(0, 10)
+    const referenceDate = metricRows.reduce<string>((max, r) => (r.date > max ? r.date : max), '') || today
 
     return buildGbpSummary({
       locationName,
-      locationCount: selectedCount,
+      locationCount: locationNames.length,
       referenceDate,
       dailyMetrics: metricRows.map((r) => ({ metric: r.metric, date: r.date, value: r.value })),
       keywords: keywordRows.map((r) => ({ valueCount: r.valueCount ?? null, valueThreshold: r.valueThreshold ?? null })),

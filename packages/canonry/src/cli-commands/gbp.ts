@@ -1,6 +1,7 @@
 import {
   gbpConnect,
   gbpDisconnect,
+  gbpAccounts,
   gbpLocationsDiscover,
   gbpLocationsList,
   gbpLocationSelect,
@@ -60,17 +61,29 @@ export const GBP_CLI_COMMANDS: readonly CliCommandSpec[] = [
     },
   },
   {
+    path: ['gbp', 'accounts'],
+    usage: 'canonry gbp accounts <project> [--format json]',
+    run: async (input) => {
+      const project = requireProject(input, 'gbp.accounts', 'canonry gbp accounts <project> [--format json]')
+      await gbpAccounts(project, { format: input.format })
+    },
+  },
+  {
     path: ['gbp', 'locations', 'discover'],
-    usage: 'canonry gbp locations discover <project> [--no-select-new] [--format json]',
+    usage: 'canonry gbp locations discover <project> [--account <accounts/{n}>] [--switch-account] [--no-select-new] [--format json]',
     options: {
       'no-select-new': { type: 'boolean' as const },
+      account: stringOption(),
+      'switch-account': { type: 'boolean' as const },
     },
     run: async (input) => {
-      const project = requireProject(input, 'gbp.locations.discover', 'canonry gbp locations discover <project> [--no-select-new] [--format json]')
+      const project = requireProject(input, 'gbp.locations.discover', 'canonry gbp locations discover <project> [--account <accounts/{n}>] [--switch-account] [--no-select-new] [--format json]')
       const noSelectNew = getBoolean(input.values, 'no-select-new') ?? false
       await gbpLocationsDiscover(project, {
         format: input.format,
         selectAllNew: !noSelectNew,
+        account: getString(input.values, 'account'),
+        switchAccount: getBoolean(input.values, 'switch-account') ?? false,
       })
     },
   },
