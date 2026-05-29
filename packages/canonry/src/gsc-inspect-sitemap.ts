@@ -11,6 +11,7 @@ import { saveConfigPatch } from './config.js'
 import { getGoogleAuthConfig, getGoogleConnection, patchGoogleConnection } from './google-config.js'
 import { fetchAndParseSitemap } from './sitemap-parser.js'
 import { createLogger } from './logger.js'
+import { inspectUrlsPaced, INSPECT_FAILFAST_THRESHOLD } from './gsc-inspect-paced.js'
 
 const log = createLogger('InspectSitemap')
 
@@ -49,6 +50,7 @@ export async function executeInspectSitemap(
     if (!conn.propertyId) {
       throw new Error('No GSC property selected. Use "canonry google properties" to list available sites, then set one.')
     }
+    const propertyId = conn.propertyId
 
     // Refresh token if needed
     let accessToken = conn.accessToken!
@@ -75,48 +77,55 @@ export async function executeInspectSitemap(
       throw new Error('No URLs found in sitemap')
     }
 
-    let inspected = 0
-    let errors = 0
+    const { inspected, errors, aborted, abortError } = await inspectUrlsPaced(
+      urls,
+      {
+        inspectOne: (pageUrl) => inspectUrl(accessToken, pageUrl, propertyId),
+        onResult: (pageUrl, result, index) => {
+          const ir = result.inspectionResult
+          const idx = ir.indexStatusResult
+          const mob = ir.mobileUsabilityResult
+          const rich = ir.richResultsResult
+          const inspectedAt = new Date().toISOString()
 
-    for (const pageUrl of urls) {
-      try {
-        const result = await inspectUrl(accessToken, pageUrl, conn.propertyId)
-        const ir = result.inspectionResult
-        const idx = ir.indexStatusResult
-        const mob = ir.mobileUsabilityResult
-        const rich = ir.richResultsResult
-        const inspectedAt = new Date().toISOString()
+          db.insert(gscUrlInspections).values({
+            id: crypto.randomUUID(),
+            projectId,
+            syncRunId: runId,
+            url: pageUrl,
+            indexingState: idx?.indexingState ?? null,
+            verdict: idx?.verdict ?? null,
+            coverageState: idx?.coverageState ?? null,
+            pageFetchState: idx?.pageFetchState ?? null,
+            robotsTxtState: idx?.robotsTxtState ?? null,
+            crawlTime: idx?.lastCrawlTime ?? null,
+            lastCrawlResult: idx?.crawlResult ?? null,
+            isMobileFriendly: mob?.verdict === 'PASS' ? true : mob?.verdict === 'FAIL' ? false : null,
+            richResults: rich?.detectedItems?.map((d) => d.richResultType) ?? [],
+            referringUrls: idx?.referringUrls ?? [],
+            inspectedAt,
+            createdAt: inspectedAt,
+          }).run()
 
-        db.insert(gscUrlInspections).values({
-          id: crypto.randomUUID(),
-          projectId,
-          syncRunId: runId,
-          url: pageUrl,
-          indexingState: idx?.indexingState ?? null,
-          verdict: idx?.verdict ?? null,
-          coverageState: idx?.coverageState ?? null,
-          pageFetchState: idx?.pageFetchState ?? null,
-          robotsTxtState: idx?.robotsTxtState ?? null,
-          crawlTime: idx?.lastCrawlTime ?? null,
-          lastCrawlResult: idx?.crawlResult ?? null,
-          isMobileFriendly: mob?.verdict === 'PASS' ? true : mob?.verdict === 'FAIL' ? false : null,
-          richResults: rich?.detectedItems?.map((d) => d.richResultType) ?? [],
-          referringUrls: idx?.referringUrls ?? [],
-          inspectedAt,
-          createdAt: inspectedAt,
-        }).run()
+          log.info('inspect.url-done', { runId, projectId, url: pageUrl, progress: `${index + 1}/${urls.length}` })
+        },
+        onError: (pageUrl, err) => {
+          log.error('inspect.url-failed', { runId, projectId, url: pageUrl, error: err instanceof Error ? err.message : String(err) })
+        },
+      },
+      {
+        log: {
+          info: (action, ctx) => log.info(action, { runId, projectId, ...ctx }),
+          error: (action, ctx) => log.error(action, { runId, projectId, ...ctx }),
+        },
+      },
+    )
 
-        inspected++
-        log.info('inspect.url-done', { runId, projectId, url: pageUrl, progress: `${inspected}/${urls.length}` })
-      } catch (err) {
-        errors++
-        log.error('inspect.url-failed', { runId, projectId, url: pageUrl, error: err instanceof Error ? err.message : String(err) })
-      }
-
-      // Rate limit: ~1 request per second to stay within API quotas
-      if (inspected + errors < urls.length) {
-        await new Promise((r) => setTimeout(r, 1000))
-      }
+    if (aborted) {
+      const detail = abortError instanceof Error ? abortError.message : String(abortError)
+      throw new Error(
+        `URL inspection aborted after ${INSPECT_FAILFAST_THRESHOLD} consecutive rate/access failures (likely GSC URL Inspection quota exhaustion or property access loss). Last error: ${detail}`,
+      )
     }
 
     // Record coverage snapshot

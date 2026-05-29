@@ -12,6 +12,7 @@ import type { CanonryConfig } from './config.js'
 import { saveConfigPatch } from './config.js'
 import { getGoogleAuthConfig, getGoogleConnection, patchGoogleConnection } from './google-config.js'
 import { createLogger } from './logger.js'
+import { inspectUrlsPaced } from './gsc-inspect-paced.js'
 
 const log = createLogger('GscSync')
 
@@ -62,6 +63,7 @@ export async function executeGscSync(
     if (!conn.propertyId) {
       throw new Error('No GSC property selected. Use "canonry google properties" to list available sites, then set one with the API.')
     }
+    const propertyId = conn.propertyId
 
     // Refresh token if needed
     let accessToken = conn.accessToken!
@@ -147,37 +149,59 @@ export async function executeGscSync(
 
     log.info('inspect.start', { runId, projectId, urlCount: topPages.length })
 
-    for (const pageUrl of topPages) {
-      try {
-        const result = await inspectUrl(accessToken, pageUrl, conn.propertyId)
-        const ir = result.inspectionResult
-        const idx = ir.indexStatusResult
-        const mob = ir.mobileUsabilityResult
-        const rich = ir.richResultsResult
-        const inspectedAt = new Date().toISOString()
+    // Inspection here is best-effort secondary work — the search-analytics data
+    // above is already saved. Pace + retry to stay under the URL Inspection
+    // quota, but never fail the sync over it (an early circuit-break is logged).
+    const inspectOutcome = await inspectUrlsPaced(
+      topPages,
+      {
+        inspectOne: (pageUrl) => inspectUrl(accessToken, pageUrl, propertyId),
+        onResult: (pageUrl, result) => {
+          const ir = result.inspectionResult
+          const idx = ir.indexStatusResult
+          const mob = ir.mobileUsabilityResult
+          const rich = ir.richResultsResult
+          const inspectedAt = new Date().toISOString()
 
-        db.insert(gscUrlInspections).values({
-          id: crypto.randomUUID(),
-          projectId,
-          syncRunId: runId,
-          url: pageUrl,
-          indexingState: idx?.indexingState ?? null,
-          verdict: idx?.verdict ?? null,
-          coverageState: idx?.coverageState ?? null,
-          pageFetchState: idx?.pageFetchState ?? null,
-          robotsTxtState: idx?.robotsTxtState ?? null,
-          crawlTime: idx?.lastCrawlTime ?? null,
-          lastCrawlResult: idx?.crawlResult ?? null,
-          isMobileFriendly: mob?.verdict === 'PASS' ? true : mob?.verdict === 'FAIL' ? false : null,
-          richResults: rich?.detectedItems?.map((d) => d.richResultType) ?? [],
-          referringUrls: idx?.referringUrls ?? [],
-          inspectedAt,
-          createdAt: inspectedAt,
-        }).run()
-      } catch (err) {
-        // Log but don't fail the whole sync for individual inspection errors
-        log.error('inspect.url-failed', { runId, projectId, url: pageUrl, error: err instanceof Error ? err.message : String(err) })
-      }
+          db.insert(gscUrlInspections).values({
+            id: crypto.randomUUID(),
+            projectId,
+            syncRunId: runId,
+            url: pageUrl,
+            indexingState: idx?.indexingState ?? null,
+            verdict: idx?.verdict ?? null,
+            coverageState: idx?.coverageState ?? null,
+            pageFetchState: idx?.pageFetchState ?? null,
+            robotsTxtState: idx?.robotsTxtState ?? null,
+            crawlTime: idx?.lastCrawlTime ?? null,
+            lastCrawlResult: idx?.crawlResult ?? null,
+            isMobileFriendly: mob?.verdict === 'PASS' ? true : mob?.verdict === 'FAIL' ? false : null,
+            richResults: rich?.detectedItems?.map((d) => d.richResultType) ?? [],
+            referringUrls: idx?.referringUrls ?? [],
+            inspectedAt,
+            createdAt: inspectedAt,
+          }).run()
+        },
+        onError: (pageUrl, err) => {
+          // Log but don't fail the whole sync for individual inspection errors
+          log.error('inspect.url-failed', { runId, projectId, url: pageUrl, error: err instanceof Error ? err.message : String(err) })
+        },
+      },
+      {
+        log: {
+          info: (action, ctx) => log.info(action, { runId, projectId, ...ctx }),
+          error: (action, ctx) => log.error(action, { runId, projectId, ...ctx }),
+        },
+      },
+    )
+
+    if (inspectOutcome.aborted) {
+      log.error('inspect.stopped-early', {
+        runId,
+        projectId,
+        inspected: inspectOutcome.inspected,
+        note: 'URL inspection stopped early after sustained rate/access failures; search-analytics data was still saved',
+      })
     }
 
     // Record coverage snapshot from all inspections for this project (latest per URL)
