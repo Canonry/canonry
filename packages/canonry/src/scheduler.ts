@@ -29,6 +29,13 @@ export interface SchedulerCallbacks {
    * Fire-and-forget: errors are logged by the host, not by the scheduler.
    */
   onGbpSyncRequested?: (runId: string, projectId: string) => void
+  /**
+   * Fired when a data-refresh schedule triggers. The host refreshes every
+   * CONNECTED data integration (GSC, Bing, GA, GBP) for the project. Each
+   * integration sync owns its own run row; per-integration errors are logged
+   * by the host, not the scheduler. Fire-and-forget.
+   */
+  onDataRefreshRequested?: (projectName: string) => void
 }
 
 /** Scheduler tasks are keyed by `(projectId, kind)` so a project can run an
@@ -223,6 +230,24 @@ export class Scheduler {
         }).where(eq(schedules.id, currentSchedule.id)).run()
         log.info('gbp-sync.triggered', { runId, projectName: project.name })
         this.callbacks.onGbpSyncRequested(runId, projectId)
+        return
+      }
+
+      if (kind === SchedulableRunKinds['data-refresh']) {
+        // Data-refresh schedules fan out to every connected data integration
+        // (GSC, Bing, GA, GBP) via the host callback. Each integration sync
+        // owns its own run row + dedupe; the scheduler only fires the trigger.
+        if (!this.callbacks.onDataRefreshRequested) {
+          log.warn('data-refresh.no-callback', { scheduleId, projectId, msg: 'host did not register onDataRefreshRequested' })
+          return
+        }
+        this.db.update(schedules).set({
+          lastRunAt: now,
+          nextRunAt,
+          updatedAt: now,
+        }).where(eq(schedules.id, currentSchedule.id)).run()
+        log.info('data-refresh.triggered', { projectName: project.name })
+        this.callbacks.onDataRefreshRequested(project.name)
         return
       }
 

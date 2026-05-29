@@ -310,3 +310,87 @@ test('traffic-sync trigger skips silently when sourceId is missing', () => {
   expect(trafficCalls).toHaveLength(0)
   fs.rmSync(tmpDir, { recursive: true, force: true })
 })
+
+test('data-refresh trigger fires onDataRefreshRequested with the project name only', () => {
+  const { db, tmpDir } = createTempDb()
+  const now = new Date().toISOString()
+
+  db.insert(projects).values({
+    id: 'proj_dr',
+    name: 'refresh-project',
+    displayName: 'Refresh Project',
+    canonicalDomain: 'example.com',
+    country: 'US',
+    language: 'en',
+    createdAt: now,
+    updatedAt: now,
+  }).run()
+  db.insert(schedules).values({
+    id: 'sched_dr',
+    projectId: 'proj_dr',
+    kind: 'data-refresh',
+    cronExpr: '30 12 * * *',
+    timezone: 'UTC',
+    enabled: true,
+    providers: [],
+    createdAt: now,
+    updatedAt: now,
+  }).run()
+
+  const refreshCalls: string[] = []
+  const runCalls: string[] = []
+  const trafficCalls: unknown[] = []
+  const scheduler = new Scheduler(db, {
+    onRunCreated: (runId) => runCalls.push(runId),
+    onTrafficSyncRequested: () => trafficCalls.push(null),
+    onDataRefreshRequested: (projectName) => refreshCalls.push(projectName),
+  })
+
+  ;(scheduler as unknown as {
+    triggerRun: (scheduleId: string, projectId: string, kind: 'answer-visibility' | 'traffic-sync' | 'data-refresh') => void
+  }).triggerRun('sched_dr', 'proj_dr', 'data-refresh')
+
+  expect(refreshCalls).toEqual(['refresh-project'])
+  // Neither the answer-visibility nor the traffic-sync callback fires for data-refresh.
+  expect(runCalls).toHaveLength(0)
+  expect(trafficCalls).toHaveLength(0)
+
+  fs.rmSync(tmpDir, { recursive: true, force: true })
+})
+
+test('data-refresh trigger skips silently when no onDataRefreshRequested callback is registered', () => {
+  const { db, tmpDir } = createTempDb()
+  const now = new Date().toISOString()
+
+  db.insert(projects).values({
+    id: 'proj_dr2',
+    name: 'refresh-no-cb',
+    displayName: 'Refresh No Callback',
+    canonicalDomain: 'example.com',
+    country: 'US',
+    language: 'en',
+    createdAt: now,
+    updatedAt: now,
+  }).run()
+  db.insert(schedules).values({
+    id: 'sched_dr2',
+    projectId: 'proj_dr2',
+    kind: 'data-refresh',
+    cronExpr: '30 12 * * *',
+    timezone: 'UTC',
+    enabled: true,
+    providers: [],
+    createdAt: now,
+    updatedAt: now,
+  }).run()
+
+  const scheduler = new Scheduler(db, { onRunCreated: () => {} })
+
+  expect(() =>
+    (scheduler as unknown as {
+      triggerRun: (scheduleId: string, projectId: string, kind: 'answer-visibility' | 'traffic-sync' | 'data-refresh') => void
+    }).triggerRun('sched_dr2', 'proj_dr2', 'data-refresh'),
+  ).not.toThrow()
+
+  fs.rmSync(tmpDir, { recursive: true, force: true })
+})

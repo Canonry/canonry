@@ -82,6 +82,7 @@ import {
 import { ccReleaseSyncs as ccReleaseSyncsTable } from '@ainyc/canonry-db'
 import { ProviderRegistry } from './provider-registry.js'
 import { Scheduler } from './scheduler.js'
+import { refreshAllIntegrations } from './data-refresh.js'
 import { Notifier } from './notifier.js'
 import { IntelligenceService } from './intelligence-service.js'
 import { RunCoordinator } from './run-coordinator.js'
@@ -524,6 +525,12 @@ export async function createServer(opts: {
       // The scheduler already created the gbp-sync run row; run the same
       // worker the manual route uses (selected-location sync).
       runGbpSync(runId, projectId)
+    },
+    onDataRefreshRequested: (projectName) => {
+      // Fan out to every connected data integration (GSC, Bing, GA, GBP) via
+      // the same in-process client. refreshAllIntegrations isolates each
+      // integration's failure with Promise.allSettled and never rejects.
+      void refreshAllIntegrations(aeroClient, projectName)
     },
   })
 
