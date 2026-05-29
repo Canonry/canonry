@@ -8,6 +8,8 @@ export const GBP_BUSINESS_INFO_BASE = 'https://mybusinessbusinessinformation.goo
 export const GBP_LEGACY_V4_BASE = 'https://mybusiness.googleapis.com/v4'
 // Performance API — daily metrics + monthly search keywords.
 export const GBP_PERFORMANCE_BASE = 'https://businessprofileperformance.googleapis.com/v1'
+// Lodging API — hotel structured attributes.
+export const GBP_LODGING_BASE = 'https://mybusinesslodging.googleapis.com/v1'
 
 // The 11 DailyMetric enum values the Performance API supports. We sync all of
 // them — zeros are cheap and which ones carry data varies by business type

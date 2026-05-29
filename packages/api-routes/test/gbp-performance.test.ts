@@ -125,7 +125,7 @@ describe('GBP performance routes (Phase 2)', () => {
       ]
       for (const r of rows) {
         ctx.db.insert(gbpKeywordImpressions).values({
-          id: crypto.randomUUID(), projectId, locationName: 'locations/1', month: '2026-05',
+          id: crypto.randomUUID(), projectId, locationName: 'locations/1', periodStart: '2025-06', periodEnd: '2026-05',
           keyword: r.keyword, valueCount: r.valueCount, valueThreshold: r.valueThreshold, syncRunId: null,
         }).run()
       }

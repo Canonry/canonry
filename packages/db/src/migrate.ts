@@ -1475,14 +1475,45 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
         id              TEXT PRIMARY KEY,
         project_id      TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
         location_name   TEXT NOT NULL,
-        month           TEXT NOT NULL,
+        period_start    TEXT NOT NULL,
+        period_end      TEXT NOT NULL,
         keyword         TEXT NOT NULL,
         value_count     INTEGER,
         value_threshold INTEGER,
         sync_run_id     TEXT REFERENCES runs(id) ON DELETE SET NULL
       )`,
-      `CREATE INDEX IF NOT EXISTS idx_gbp_keyword_impr_loc ON gbp_keyword_impressions(project_id, location_name, month)`,
-      `CREATE UNIQUE INDEX IF NOT EXISTS uniq_gbp_keyword_impr ON gbp_keyword_impressions(project_id, location_name, month, keyword)`,
+      `CREATE INDEX IF NOT EXISTS idx_gbp_keyword_impr_loc ON gbp_keyword_impressions(project_id, location_name, period_end)`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS uniq_gbp_keyword_impr ON gbp_keyword_impressions(project_id, location_name, period_end, keyword)`,
+    ],
+  },
+  {
+    version: 69,
+    name: 'gbp-place-actions-and-lodging',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS gbp_place_actions (
+        id                      TEXT PRIMARY KEY,
+        project_id              TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        location_name           TEXT NOT NULL,
+        place_action_link_name  TEXT NOT NULL,
+        place_action_type       TEXT NOT NULL,
+        uri                     TEXT,
+        is_preferred            INTEGER NOT NULL DEFAULT 0,
+        provider_type           TEXT,
+        sync_run_id             TEXT REFERENCES runs(id) ON DELETE SET NULL
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_gbp_place_actions_loc ON gbp_place_actions(project_id, location_name)`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS uniq_gbp_place_actions ON gbp_place_actions(project_id, place_action_link_name)`,
+      `CREATE TABLE IF NOT EXISTS gbp_lodging_snapshots (
+        id                     TEXT PRIMARY KEY,
+        project_id             TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        location_name          TEXT NOT NULL,
+        content_hash           TEXT NOT NULL,
+        attributes             TEXT NOT NULL DEFAULT '{}',
+        populated_group_count  INTEGER NOT NULL DEFAULT 0,
+        synced_at              TEXT NOT NULL,
+        sync_run_id            TEXT REFERENCES runs(id) ON DELETE SET NULL
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_gbp_lodging_loc ON gbp_lodging_snapshots(project_id, location_name, synced_at)`,
     ],
   },
 ]

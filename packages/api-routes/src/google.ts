@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 import { eq, and, desc, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { gscSearchData, gscUrlInspections, gscCoverageSnapshots, gbpLocations, gbpDailyMetrics, gbpKeywordImpressions, runs, projects } from '@ainyc/canonry-db'
+import { gscSearchData, gscUrlInspections, gscCoverageSnapshots, gbpLocations, gbpDailyMetrics, gbpKeywordImpressions, gbpPlaceActions, gbpLodgingSnapshots, runs, projects } from '@ainyc/canonry-db'
 import {
   validationError, notFound, normalizeProjectDomain, parseWindow, windowCutoff,
   authRequired, quotaExceeded, providerError,
@@ -9,6 +9,7 @@ import {
   gbpDiscoverRequestSchema, gbpLocationSelectionRequestSchema, gbpSyncRequestSchema,
   type GbpLocationDto, type GbpLocationListResponse,
 } from '@ainyc/canonry-contracts'
+import { buildGbpSummary } from './gbp-summary.js'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import {
   getAuthUrl,
@@ -1502,15 +1503,15 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     }
   })
 
-  // GET /projects/:name/gbp/keywords — stored monthly keyword impressions.
+  // GET /projects/:name/gbp/keywords — stored keyword impressions (each row
+  // is one keyword aggregated over its [periodStart, periodEnd] window).
   app.get<{
     Params: { name: string }
-    Querystring: { locationName?: string; month?: string }
+    Querystring: { locationName?: string }
   }>('/projects/:name/gbp/keywords', async (request) => {
     const project = resolveProject(app.db, request.params.name)
     const conditions = [eq(gbpKeywordImpressions.projectId, project.id)]
     if (request.query.locationName) conditions.push(eq(gbpKeywordImpressions.locationName, request.query.locationName))
-    if (request.query.month) conditions.push(eq(gbpKeywordImpressions.month, request.query.month))
     const rows = app.db.select().from(gbpKeywordImpressions)
       .where(and(...conditions))
       .all()
@@ -1521,7 +1522,8 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     return {
       keywords: rows.map((r) => ({
         locationName: r.locationName,
-        month: r.month,
+        periodStart: r.periodStart,
+        periodEnd: r.periodEnd,
         keyword: r.keyword,
         valueCount: r.valueCount ?? null,
         valueThreshold: r.valueThreshold ?? null,
@@ -1529,6 +1531,111 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
       total: rows.length,
       thresholdedPct: rows.length ? Math.round((thresholded / rows.length) * 100) : 0,
     }
+  })
+
+  // GET /projects/:name/gbp/place-actions — stored booking / reservation CTAs.
+  app.get<{
+    Params: { name: string }
+    Querystring: { locationName?: string }
+  }>('/projects/:name/gbp/place-actions', async (request) => {
+    const project = resolveProject(app.db, request.params.name)
+    const conditions = [eq(gbpPlaceActions.projectId, project.id)]
+    if (request.query.locationName) conditions.push(eq(gbpPlaceActions.locationName, request.query.locationName))
+    const rows = app.db.select().from(gbpPlaceActions).where(and(...conditions)).all()
+    return {
+      placeActions: rows.map((r) => ({
+        locationName: r.locationName,
+        placeActionLinkName: r.placeActionLinkName,
+        placeActionType: r.placeActionType,
+        uri: r.uri ?? null,
+        isPreferred: Boolean(r.isPreferred),
+        providerType: r.providerType ?? null,
+      })),
+      total: rows.length,
+    }
+  })
+
+  // GET /projects/:name/gbp/lodging — latest lodging snapshot per location.
+  app.get<{
+    Params: { name: string }
+    Querystring: { locationName?: string }
+  }>('/projects/:name/gbp/lodging', async (request) => {
+    const project = resolveProject(app.db, request.params.name)
+    const conditions = [eq(gbpLodgingSnapshots.projectId, project.id)]
+    if (request.query.locationName) conditions.push(eq(gbpLodgingSnapshots.locationName, request.query.locationName))
+    const rows = app.db.select().from(gbpLodgingSnapshots)
+      .where(and(...conditions))
+      .orderBy(desc(gbpLodgingSnapshots.syncedAt))
+      .all()
+    // Collapse to the latest snapshot per location.
+    const latestByLocation = new Map<string, typeof rows[number]>()
+    for (const row of rows) {
+      if (!latestByLocation.has(row.locationName)) latestByLocation.set(row.locationName, row)
+    }
+    const lodging = [...latestByLocation.values()].map((r) => ({
+      locationName: r.locationName,
+      populatedGroupCount: r.populatedGroupCount,
+      syncedAt: r.syncedAt,
+      attributes: r.attributes,
+    }))
+    return { lodging, total: lodging.length }
+  })
+
+  // GET /projects/:name/gbp/summary — composite, all derived numbers server-side.
+  app.get<{
+    Params: { name: string }
+    Querystring: { locationName?: string }
+  }>('/projects/:name/gbp/summary', async (request) => {
+    const project = resolveProject(app.db, request.params.name)
+    const locationName = request.query.locationName ?? null
+
+    const metricScope = locationName
+      ? and(eq(gbpDailyMetrics.projectId, project.id), eq(gbpDailyMetrics.locationName, locationName))
+      : eq(gbpDailyMetrics.projectId, project.id)
+    const metricRows = app.db.select().from(gbpDailyMetrics).where(metricScope).all()
+
+    const keywordScope = locationName
+      ? and(eq(gbpKeywordImpressions.projectId, project.id), eq(gbpKeywordImpressions.locationName, locationName))
+      : eq(gbpKeywordImpressions.projectId, project.id)
+    const keywordRows = app.db.select().from(gbpKeywordImpressions).where(keywordScope).all()
+
+    const paScope = locationName
+      ? and(eq(gbpPlaceActions.projectId, project.id), eq(gbpPlaceActions.locationName, locationName))
+      : eq(gbpPlaceActions.projectId, project.id)
+    const placeActionRows = app.db.select().from(gbpPlaceActions).where(paScope).all()
+
+    const lodgingScope = locationName
+      ? and(eq(gbpLodgingSnapshots.projectId, project.id), eq(gbpLodgingSnapshots.locationName, locationName))
+      : eq(gbpLodgingSnapshots.projectId, project.id)
+    const lodgingRows = app.db.select().from(gbpLodgingSnapshots)
+      .where(lodgingScope)
+      .orderBy(desc(gbpLodgingSnapshots.syncedAt))
+      .all()
+    const latestLodgingByLocation = new Map<string, { locationName: string; populatedGroupCount: number }>()
+    for (const row of lodgingRows) {
+      if (!latestLodgingByLocation.has(row.locationName)) {
+        latestLodgingByLocation.set(row.locationName, { locationName: row.locationName, populatedGroupCount: row.populatedGroupCount })
+      }
+    }
+
+    const selectedCount = app.db.select().from(gbpLocations)
+      .where(and(eq(gbpLocations.projectId, project.id), eq(gbpLocations.selected, true)))
+      .all().length
+
+    // Anchor the 7-day windows to the most recent metric date present (or today
+    // when there's no data), so the comparison aligns with what was synced.
+    const referenceDate = metricRows.reduce<string>((max, r) => (r.date > max ? r.date : max), '')
+      || new Date().toISOString().slice(0, 10)
+
+    return buildGbpSummary({
+      locationName,
+      locationCount: selectedCount,
+      referenceDate,
+      dailyMetrics: metricRows.map((r) => ({ metric: r.metric, date: r.date, value: r.value })),
+      keywords: keywordRows.map((r) => ({ valueCount: r.valueCount ?? null, valueThreshold: r.valueThreshold ?? null })),
+      placeActions: placeActionRows.map((r) => ({ placeActionType: r.placeActionType, providerType: r.providerType ?? null })),
+      lodging: [...latestLodgingByLocation.values()],
+    })
   })
 
 }

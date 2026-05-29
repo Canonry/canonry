@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Shared Fastify route plugins used by both the local server (`packages/canonry`) and the cloud API (`apps/api`). This is the HTTP surface for the entire platform — 109 endpoints across 25 route files.
+Shared Fastify route plugins used by both the local server (`packages/canonry`) and the cloud API (`apps/api`). This is the HTTP surface for the entire platform — ~180 operations across ~27 route files.
 
 ## Key Files
 
@@ -16,7 +16,8 @@ Shared Fastify route plugins used by both the local server (`packages/canonry`) 
 | `src/auth.ts` | Auth plugin — API key and session validation |
 | `src/openapi.ts` | OpenAPI spec generation |
 | `src/analytics.ts` | Analytics and visibility score endpoints |
-| `src/google.ts` | Google Search Console integration routes |
+| `src/google.ts` | Google Search Console **and** Google Business Profile (GBP) routes. GSC: OAuth connect/callback, property selection, sync, coverage. GBP: OAuth connect/callback (shares the Google OAuth client; `gbp` connectionType), `POST /gbp/locations/discover` + select/deselect, `POST /gbp/sync` (creates the `gbp-sync` run, fires `onGbpSyncRequested`), and the read endpoints `GET /gbp/locations`, `/gbp/metrics`, `/gbp/keywords`, `/gbp/place-actions`, `/gbp/lodging` (collapses to the latest snapshot per location), and `/gbp/summary` (loads all four surfaces, anchors the summary's `referenceDate` to the max stored metric date, delegates the math to `buildGbpSummary`). |
+| `src/gbp-summary.ts` | Pure GBP summary calculation module (no DB, no I/O) — `computeMetricTotals`, `computeWindowDelta` (recent-7d vs prior-7d per metric, both windows backfilled with the union of metrics as explicit `0`s; `deltaPct` is `null` when the prior window is `0` to avoid divide-by-zero), `computeKeywordCoverage` (total + thresholded count/pct), `summarizePlaceActions` (CTA-type presence flags), `summarizeLodging` (lodging / populated / empty counts), and `buildGbpSummary` which composes them. Takes an injected `referenceDate` (never reads the clock) so the windowing is deterministic and unit-testable. Tested exhaustively in `test/gbp-summary.test.ts`. |
 | `src/bing.ts` | Bing Webmaster Tools routes |
 | `src/ga.ts` | Google Analytics 4 routes |
 | `src/intelligence.ts` | Intelligence insights and health snapshot routes |

@@ -10,3 +10,7 @@ export type {
   FetchDailyMetricsOptions,
   ListMonthlyKeywordsOptions,
 } from './performance-client.js'
+export { listPlaceActionLinks } from './place-actions-client.js'
+export type { GbpPlaceActionRow } from './place-actions-client.js'
+export { getLodging, countPopulatedGroups, hashLodging } from './lodging-client.js'
+export type { GbpLodging } from './lodging-client.js'
