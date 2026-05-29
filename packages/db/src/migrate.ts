@@ -1535,6 +1535,38 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `CREATE UNIQUE INDEX IF NOT EXISTS uniq_gbp_keyword_monthly ON gbp_keyword_monthly(project_id, location_name, month, keyword)`,
     ],
   },
+  {
+    // Capture the Google Maps Place ID + Maps link on each location so we can
+    // link it to the Places API for supplemental rendered-listing data (#648).
+    // ALTER ADD COLUMN is idempotent here — the runner swallows the duplicate-
+    // column error on re-apply.
+    version: 71,
+    name: 'gbp-locations-place-id',
+    statements: [
+      `ALTER TABLE gbp_locations ADD COLUMN place_id TEXT`,
+      `ALTER TABLE gbp_locations ADD COLUMN maps_uri TEXT`,
+    ],
+  },
+  {
+    // Places (New) Place Details snapshots for lodging locations (#648) —
+    // snapshot-on-change, same shape as gbp_lodging_snapshots.
+    version: 72,
+    name: 'gbp-place-details',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS gbp_place_details (
+        id            TEXT PRIMARY KEY,
+        project_id    TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        location_name TEXT NOT NULL,
+        place_id      TEXT NOT NULL,
+        content_hash  TEXT NOT NULL,
+        tier          TEXT NOT NULL,
+        attributes    TEXT NOT NULL DEFAULT '{}',
+        synced_at     TEXT NOT NULL,
+        sync_run_id   TEXT REFERENCES runs(id) ON DELETE SET NULL
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_gbp_place_details_loc ON gbp_place_details(project_id, location_name, synced_at)`,
+    ],
+  },
 ]
 
 /**

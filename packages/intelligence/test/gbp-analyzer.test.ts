@@ -11,6 +11,7 @@ function healthy(overrides: Partial<GbpLocationSignals> = {}): GbpLocationSignal
     metricDeltaPct: { WEBSITE_CLICKS: 0, BUSINESS_DIRECTION_REQUESTS: 0, CALL_CLICKS: 0 },
     lodgingCapable: true,
     lodgingEmpty: false,
+    placesAmenities: [],
     placeActionCount: 2,
     hasDirectMerchantCta: true,
     keywordRecentMonth: '2026-04',
@@ -52,6 +53,60 @@ describe('analyzeGbp', () => {
     it('does not flag a non-lodging location even when "empty"', () => {
       const insights = analyzeGbp([healthy({ lodgingCapable: false, lodgingEmpty: true })])
       expect(insights.some((i) => i.type === 'gbp-lodging-gap')).toBe(false)
+    })
+  })
+
+  describe('listing discrepancy (#648 Phase B)', () => {
+    it('fires gbp-listing-discrepancy (high) with Places amenities as evidence', () => {
+      const insights = analyzeGbp([healthy({
+        lodgingCapable: true, lodgingEmpty: true,
+        placesAmenities: ['breakfast', 'parking', 'pet-friendly'],
+      })])
+      const disc = insights.filter((i) => i.type === 'gbp-listing-discrepancy')
+      expect(disc).toHaveLength(1)
+      expect(disc[0]!.severity).toBe('high')
+      expect(disc[0]!.provider).toBe('gbp')
+      // Title carries the count (plural), reason names the specific amenities.
+      expect(disc[0]!.title).toContain('3 amenities')
+      expect(disc[0]!.recommendation?.reason).toContain('breakfast, parking, and pet-friendly')
+    })
+
+    it('SUPERSEDES the generic lodging-gap when Places evidence exists', () => {
+      const insights = analyzeGbp([healthy({
+        lodgingCapable: true, lodgingEmpty: true, placesAmenities: ['breakfast'],
+      })])
+      expect(insights.some((i) => i.type === 'gbp-listing-discrepancy')).toBe(true)
+      expect(insights.some((i) => i.type === 'gbp-lodging-gap')).toBe(false)
+    })
+
+    it('uses the singular noun for a single amenity', () => {
+      const insights = analyzeGbp([healthy({
+        lodgingCapable: true, lodgingEmpty: true, placesAmenities: ['breakfast'],
+      })])
+      const disc = insights.find((i) => i.type === 'gbp-listing-discrepancy')!
+      expect(disc.title).toContain('1 amenity')
+      expect(disc.title).not.toContain('amenities')
+    })
+
+    it('falls back to gbp-lodging-gap when there is no Places evidence', () => {
+      const insights = analyzeGbp([healthy({ lodgingCapable: true, lodgingEmpty: true, placesAmenities: [] })])
+      expect(insights.some((i) => i.type === 'gbp-lodging-gap')).toBe(true)
+      expect(insights.some((i) => i.type === 'gbp-listing-discrepancy')).toBe(false)
+    })
+
+    it('does NOT fire when the profile is populated, even if Places lists amenities', () => {
+      const insights = analyzeGbp([healthy({
+        lodgingCapable: true, lodgingEmpty: false, placesAmenities: ['breakfast', 'parking'],
+      })])
+      expect(insights.some((i) => i.type === 'gbp-listing-discrepancy')).toBe(false)
+      expect(insights.some((i) => i.type === 'gbp-lodging-gap')).toBe(false)
+    })
+
+    it('does NOT fire for a non-lodging location', () => {
+      const insights = analyzeGbp([healthy({
+        lodgingCapable: false, lodgingEmpty: true, placesAmenities: ['breakfast'],
+      })])
+      expect(insights.some((i) => i.type === 'gbp-listing-discrepancy')).toBe(false)
     })
   })
 

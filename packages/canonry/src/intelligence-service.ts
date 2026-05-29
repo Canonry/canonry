@@ -1,8 +1,9 @@
 import { eq, desc, asc, and, ne, or, inArray, gte, lte } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/canonry-db'
-import { competitors, groupRunsByCreatedAt, gscSearchData, healthSnapshots, insights, projects, queries, querySnapshots, runs, gbpLocations, gbpDailyMetrics, gbpKeywordMonthly, gbpPlaceActions, gbpLodgingSnapshots } from '@ainyc/canonry-db'
+import { competitors, groupRunsByCreatedAt, gscSearchData, healthSnapshots, insights, projects, queries, querySnapshots, runs, gbpLocations, gbpDailyMetrics, gbpKeywordMonthly, gbpPlaceActions, gbpLodgingSnapshots, gbpPlaceDetails } from '@ainyc/canonry-db'
 import { analyzeRuns, analyzeGbp, classifyRegressionSeverity, PERSISTENT_GAP_THRESHOLD } from '@ainyc/canonry-intelligence'
 import type { RunData, Snapshot, AnalysisResult, Insight, GbpLocationSignals, GbpKeywordPoint } from '@ainyc/canonry-intelligence'
+import { extractPlaceAmenities, type PlaceDetails } from '@ainyc/canonry-integration-google-places'
 import { buildGbpSummary } from '@ainyc/canonry-api-routes'
 import { CitationStates, RunKinds, RunTriggers, effectiveDomains } from '@ainyc/canonry-contracts'
 import crypto from 'node:crypto'
@@ -231,6 +232,17 @@ export class IntelligenceService {
       .orderBy(desc(gbpLodgingSnapshots.syncedAt))
       .limit(1)
       .get()
+    // Latest Places (New) snapshot → the amenities the public listing asserts,
+    // for the GBP-vs-rendered-listing cross-reference (#648). Empty when Places
+    // enrichment is off/unconfigured or the location has no snapshot yet.
+    const placeRow = this.db
+      .select({ attributes: gbpPlaceDetails.attributes })
+      .from(gbpPlaceDetails)
+      .where(and(eq(gbpPlaceDetails.projectId, projectId), eq(gbpPlaceDetails.locationName, locationName)))
+      .orderBy(desc(gbpPlaceDetails.syncedAt))
+      .limit(1)
+      .get()
+    const placesAmenities = placeRow ? extractPlaceAmenities(placeRow.attributes as PlaceDetails) : []
 
     // Anchor the window to the latest stored metric date (same as the summary
     // route) so the recent-vs-prior split is deterministic, not clock-relative.
@@ -255,6 +267,7 @@ export class IntelligenceService {
       metricDeltaPct: summary.performance.deltaPct,
       lodgingCapable: summary.lodging.lodgingLocationCount > 0,
       lodgingEmpty: summary.lodging.emptyLodgingCount > 0,
+      placesAmenities,
       placeActionCount: summary.placeActions.total,
       hasDirectMerchantCta: summary.placeActions.hasDirectMerchantCta,
       keywordRecentMonth: trend.recentMonth,

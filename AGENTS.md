@@ -119,7 +119,7 @@ canonry-mcp --eager                                  # register all API tools at
 
 # MCP client install helpers (operate on local client config files)
 canonry mcp install --client claude-desktop          # merges a canonry entry into the config
-canonry mcp install --client cursor --read-only      # scope to the 45 read API tools
+canonry mcp install --client cursor --read-only      # scope to the 63 read API tools
 canonry mcp config  --client codex                   # print snippet for clients without auto-install
 
 # Skills — install canonry's agent playbook into a user's project
@@ -192,6 +192,7 @@ Each check returns `status: ok | warn | fail | skipped`, a stable machine-readab
 | auth | `gbp.auth.connection` | project | Google Business Profile OAuth credentials present, refresh token works |
 | auth | `gbp.auth.scopes` | project | Granted scope includes `business.manage` |
 | auth | `gbp.account.access` | project | The tracked GBP account is still listable for the authorized user (maps 0-QPM access-form-pending → warn) |
+| auth | `gbp.places.api-key` | project | Google Places API readiness for the listing cross-reference (#648): warns when GBP is connected but no Places key is set, or when no selected location carries a Maps place id; skipped when Places is disabled (`tier: off`) or GBP isn't connected |
 | integrations | `gbp.data.recent-sync` | project | A selected GBP location synced in the last 7d (warn) or 30d (fail); warns when never synced |
 | auth | `wordpress.publish.connection` | project | WordPress publishing connection (`integration-wordpress`): the Application Password authenticates and the `wp/v2` REST API responds; skipped when no connection is configured |
 | auth | `traffic.source.credentials` | project | Per-source-type credential validation (Cloud Run service-account access token resolves; WordPress and Vercel probe-call their endpoints) |
@@ -214,7 +215,7 @@ Each check returns `status: ok | warn | fail | skipped`, a stable machine-readab
 For MCP clients such as Claude Desktop, Codex, or custom agent shells that
 prefer a typed tool catalog over shell or HTTP, the package ships a separate
 `canonry-mcp` bin. It is a thin stdio adapter over `createApiClient()` — not
-a parallel surface. v1 exposes 67 curated API tools (45 read, 22 write) — including
+a parallel surface. v1 exposes 97 curated API tools (63 read, 34 write) — including
 the `canonry_project_overview` and `canonry_search` core composites; the
 catalog is split across a small **core tier** (always loaded) and five
 **toolkits** (`monitoring`, `setup`, `gsc`, `ga`, `agent`) that the client

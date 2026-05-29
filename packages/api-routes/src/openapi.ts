@@ -1879,6 +1879,20 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'get',
+    path: '/api/v1/projects/{name}/gbp/places',
+    summary: 'List latest Google Places rendered-listing snapshots per location',
+    tags: ['gbp'],
+    parameters: [
+      nameParameter,
+      { in: 'query', name: 'locationName', required: false, description: 'Filter to one location resource name', schema: stringSchema },
+    ],
+    responses: {
+      200: jsonResponse('Place Details snapshots returned.', 'GbpPlaceDetailsListResponse'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
+    method: 'get',
     path: '/api/v1/projects/{name}/gbp/summary',
     summary: 'Composite Google Business Profile local-AEO summary (all derived metrics)',
     tags: ['gbp'],

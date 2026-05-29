@@ -45,6 +45,12 @@ export interface DoctorContext {
   wordpressConnectionStore?: WordpressConnectionStore
   ga4CredentialStore?: Ga4CredentialStore
   getGoogleAuthConfig?: () => { clientId?: string; clientSecret?: string }
+  /**
+   * Resolved Google Places config (key + tier + refresh cadence) for the
+   * `gbp.places.api-key` check. Wired by `canonry serve`; cloud deployments
+   * without a canonry config leave it undefined and the check `skipped`.
+   */
+  getPlacesConfig?: () => { apiKey?: string; tier: 'atmosphere' | 'pro' | 'off'; refreshIntervalDays: number }
   /** Resolved redirect URI (publicUrl + /api/v1/google/callback) used by the OAuth flow. */
   redirectUri?: string
   providerSummary?: ProviderSummaryEntry[]

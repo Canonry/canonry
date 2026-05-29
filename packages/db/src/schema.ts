@@ -873,6 +873,12 @@ export const gbpLocations = sqliteTable('gbp_locations', {
   primaryCategoryDisplayName: text('primary_category_display_name'),
   storefrontAddress: text('storefront_address'),
   websiteUri: text('website_uri'),
+  // Google Maps Place ID + public Maps link, sourced from the location's
+  // `metadata` (output-only; populated only when the location is on Maps).
+  // `placeId` links a GBP location to the Places API for supplemental
+  // rendered-listing data. Null when Google has not assigned a Place ID.
+  placeId: text('place_id'),
+  mapsUri: text('maps_uri'),
   selected: integer('selected', { mode: 'boolean' }).notNull().default(true),
   syncedAt: text('synced_at'),
   createdAt: text('created_at').notNull(),
@@ -979,4 +985,25 @@ export const gbpLodgingSnapshots = sqliteTable('gbp_lodging_snapshots', {
   syncRunId: text('sync_run_id').references(() => runs.id, { onDelete: 'set null' }),
 }, (table) => [
   index('idx_gbp_lodging_loc').on(table.projectId, table.locationName, table.syncedAt),
+])
+
+// GBP Places (New) Place Details snapshots — the *rendered-listing* data Google
+// synthesizes (amenities, accessibility, editorial summary), fetched via the
+// Places API key for lodging locations and snapshotted on change (hotel data
+// changes rarely — same pattern as gbp_lodging_snapshots). `attributes` holds
+// the raw Place Details resource; `tier` records the field-mask SKU it was
+// fetched at (which fields are present). Cross-referenced against the GBP
+// lodging profile to detect listing discrepancies (#648).
+export const gbpPlaceDetails = sqliteTable('gbp_place_details', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  locationName: text('location_name').notNull(),
+  placeId: text('place_id').notNull(),
+  contentHash: text('content_hash').notNull(),
+  tier: text('tier').notNull(),
+  attributes: text('attributes', { mode: 'json' }).$type<Record<string, unknown>>().notNull().default({}),
+  syncedAt: text('synced_at').notNull(),
+  syncRunId: text('sync_run_id').references(() => runs.id, { onDelete: 'set null' }),
+}, (table) => [
+  index('idx_gbp_place_details_loc').on(table.projectId, table.locationName, table.syncedAt),
 ])

@@ -276,6 +276,27 @@ export async function gbpLodging(
   }
 }
 
+export async function gbpPlaces(
+  project: string,
+  opts: { location?: string; format?: string },
+): Promise<void> {
+  const client = getClient()
+  const response = await client.listGbpPlaces(project, { locationName: opts.location })
+  if (opts.format === 'json') {
+    console.log(JSON.stringify(response, null, 2))
+    return
+  }
+  if (response.places.length === 0) {
+    console.log('No Places data — set a Places API key (places.apiKey / GOOGLE_PLACES_API_KEY) and run "canonry gbp sync" for lodging locations.')
+    return
+  }
+  console.log(`${response.total} Places listing snapshot(s) — the amenities Google's public listing advertises:`)
+  for (const p of response.places) {
+    const amenities = p.amenities.length > 0 ? p.amenities.join(', ') : '(none detected)'
+    console.log(`  ${p.locationName}  [${p.tier}]  ${amenities}`)
+  }
+}
+
 function fmtDelta(pct: number | null): string {
   if (pct === null) return 'n/a'
   return `${pct >= 0 ? '+' : ''}${pct}%`

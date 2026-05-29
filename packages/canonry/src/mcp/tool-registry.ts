@@ -1045,6 +1045,17 @@ export const canonryMcpTools = [
     handler: (client, input) => client.listGbpLodging(input.project, compactStringParams(input, ['locationName'])),
   }),
   defineTool({
+    name: 'canonry_gbp_places',
+    title: 'Get GBP Places rendered-listing data',
+    description: "List the latest Google Places (New) snapshot per location — the amenities Google's public listing advertises (server-derived `amenities`), cross-referenced against the GBP profile to surface listing discrepancies. Empty until a Places API key is configured and a gbp sync runs.",
+    access: 'read',
+    tier: 'gbp',
+    inputSchema: gbpLocationScopedInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/gbp/places'],
+    handler: (client, input) => client.listGbpPlaces(input.project, compactStringParams(input, ['locationName'])),
+  }),
+  defineTool({
     name: 'canonry_gbp_summary',
     title: 'Get GBP local-AEO summary',
     description: 'Composite Google Business Profile summary for a project: performance totals + 7d deltas, keyword thresholded %, place-action CTA presence, and lodging coverage. All derived numbers computed server-side.',

@@ -53,6 +53,14 @@ export interface GbpLocationSignals {
   lodgingCapable: boolean
   /** True when the lodging profile has zero populated attribute groups. */
   lodgingEmpty: boolean
+  /**
+   * Amenities Google's *rendered* public listing asserts, derived from the
+   * Places API (#648). Empty when Places enrichment is off/unconfigured or the
+   * location has no Place Details snapshot. When the GBP profile is empty but
+   * this is non-empty, the listing-discrepancy insight fires with these as
+   * evidence (superseding the generic lodging-gap insight).
+   */
+  placesAmenities: string[]
   placeActionCount: number
   hasDirectMerchantCta: boolean
   /** Most recent complete month with keyword data (YYYY-MM), or null. */
@@ -85,6 +93,13 @@ function metricLabel(metric: string): string {
   return METRIC_LABELS[metric] ?? metric
 }
 
+/** Join amenities into a readable clause: "a", "a and b", "a, b, and c". */
+function formatAmenityList(amenities: string[]): string {
+  if (amenities.length === 1) return amenities[0]!
+  if (amenities.length === 2) return `${amenities[0]} and ${amenities[1]}`
+  return `${amenities.slice(0, -1).join(', ')}, and ${amenities[amenities.length - 1]}`
+}
+
 /** Analyze per-location GBP signals into location-scoped insight drafts. */
 export function analyzeGbp(signals: GbpLocationSignals[]): GbpInsightDraft[] {
   const drafts: GbpInsightDraft[] = []
@@ -97,16 +112,33 @@ export function analyzeGbp(signals: GbpLocationSignals[]): GbpInsightDraft[] {
     //    and Places/user data, but that synthesized data is NOT what the
     //    structured profile (the source AI answer engines read) exposes.
     if (loc.lodgingCapable && loc.lodgingEmpty) {
-      drafts.push({
-        ...base,
-        type: 'gbp-lodging-gap',
-        severity: 'high',
-        title: `${loc.displayName}: lodging profile has no structured attributes`,
-        recommendation: {
-          action: 'Populate the hotel’s structured amenity attributes in Google Business Profile — the amenity source you directly control',
-          reason: 'The GBP API exposes only owner-configured attributes, and this profile has none. Google’s rendered listing may still show amenities it synthesizes from Hotel Center, OTAs, and user data — so the public listing can differ from this profile — but the structured attributes are what AI answer engines cite and the only amenity data you control.',
-        },
-      })
+      if (loc.placesAmenities.length > 0) {
+        // Evidence-backed (#648 Phase B): the Places API confirms the public
+        // listing shows specific amenities the empty GBP profile exposes none
+        // of. This supersedes the generic lodging-gap with concrete proof.
+        const amenityList = formatAmenityList(loc.placesAmenities)
+        drafts.push({
+          ...base,
+          type: 'gbp-listing-discrepancy',
+          severity: 'high',
+          title: `${loc.displayName}: public listing shows ${loc.placesAmenities.length} amenit${loc.placesAmenities.length === 1 ? 'y' : 'ies'} your GBP profile doesn’t`,
+          recommendation: {
+            action: 'Populate the hotel’s structured amenity attributes in Google Business Profile to match what its public listing already advertises — the amenity source you directly control',
+            reason: `Google’s rendered listing advertises ${amenityList} (synthesized from Hotel Center / OTAs / Places), but your GBP structured profile has zero populated attributes. The structured attributes are what AI answer engines cite and the only amenity data you control, so the public listing is making promises your profile can’t back.`,
+          },
+        })
+      } else {
+        drafts.push({
+          ...base,
+          type: 'gbp-lodging-gap',
+          severity: 'high',
+          title: `${loc.displayName}: lodging profile has no structured attributes`,
+          recommendation: {
+            action: 'Populate the hotel’s structured amenity attributes in Google Business Profile — the amenity source you directly control',
+            reason: 'The GBP API exposes only owner-configured attributes, and this profile has none. Google’s rendered listing may still show amenities it synthesizes from Hotel Center, OTAs, and user data — so the public listing can differ from this profile — but the structured attributes are what AI answer engines cite and the only amenity data you control.',
+          },
+        })
+      }
     }
 
     // 2. No direct-merchant booking CTA — only aggregator/OTA links present.

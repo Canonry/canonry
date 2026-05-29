@@ -44,7 +44,8 @@ A `gbp-sync` run produces a separate family of **location-scoped** insights (`pr
 
 | Type | Meaning | Response |
 |---|---|---|
-| `gbp-lodging-gap` (high) | Lodging-capable location with an empty structured-attribute profile | AI engines have no amenities to cite — recommend populating Lodging attributes (pool, wifi, pets, parking, …) in the Business Profile. Highest-signal local AEO fix for hotels. |
+| `gbp-lodging-gap` (high) | Lodging-capable location with an empty structured-attribute profile, no Places evidence available | AI engines have no amenities to cite — recommend populating Lodging attributes (pool, wifi, pets, parking, …) in the Business Profile. Highest-signal local AEO fix for hotels. |
+| `gbp-listing-discrepancy` (high) | Empty GBP profile **plus** a Places snapshot proving the public listing advertises specific amenities (#648) | The evidence-backed lodging gap — it names the exact amenities (breakfast, parking, pet-friendly, …) the public listing shows but the structured profile doesn't back. Quote them when recommending the fix; supersedes `gbp-lodging-gap`. Requires a Places API key (`gbp.places.api-key` doctor check). |
 | `gbp-cta-gap` (medium) | Place actions present but only aggregator/OTA booking links | Recommend adding a direct (merchant-owned) booking/reservation link as the preferred place action so AI surfaces the property's own site, not an OTA. |
 | `gbp-metric-drop` (high/medium) | A headline conversion metric (direction requests, website clicks, call clicks) fell sharply week-over-week | Investigate profile/category edits, suspensions, or new local competition; correlate with any recent profile changes. |
 | `gbp-keyword-drop` (high/medium) | A head local search term's impressions fell month-over-month | Check whether the property still ranks for the term; refresh the profile / categories. Needs ≥2 accumulated months of `gbp_keyword_monthly` history. |

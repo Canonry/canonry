@@ -11,7 +11,9 @@ import {
   gbpLocations,
   gbpKeywordImpressions,
   gbpKeywordMonthly,
+  gbpPlaceDetails,
 } from '@ainyc/canonry-db'
+import { hashPlaceDetails } from '@ainyc/canonry-integration-google-places'
 import { executeGbpSync } from '../src/gbp-sync.js'
 import type { CanonryConfig } from '../src/config.js'
 
@@ -20,6 +22,7 @@ const fetchDailyMetricsMock = vi.fn()
 const listMonthlyKeywordsMock = vi.fn()
 const listPlaceActionLinksMock = vi.fn()
 const getLodgingMock = vi.fn()
+const getPlaceDetailsMock = vi.fn()
 const refreshAccessTokenMock = vi.fn()
 
 vi.mock('@ainyc/canonry-integration-google-business-profile', async () => {
@@ -40,6 +43,13 @@ vi.mock('@ainyc/canonry-integration-google', async () => {
   )
   return { ...actual, refreshAccessToken: (...a: unknown[]) => refreshAccessTokenMock(...a) }
 })
+// Keep hashPlaceDetails real (snapshot-on-change depends on it); mock only the network call.
+vi.mock('@ainyc/canonry-integration-google-places', async () => {
+  const actual = await vi.importActual<typeof import('@ainyc/canonry-integration-google-places')>(
+    '@ainyc/canonry-integration-google-places',
+  )
+  return { ...actual, getPlaceDetails: (...a: unknown[]) => getPlaceDetailsMock(...a) }
+})
 
 const DOMAIN = 'gjelina.example.com'
 const LOCATION = 'locations/12345'
@@ -59,7 +69,7 @@ function createTempDb() {
   return { db, tmpDir }
 }
 
-function seedProject(db: ReturnType<typeof createClient>) {
+function seedProject(db: ReturnType<typeof createClient>, opts: { placeId?: string } = {}) {
   const now = new Date().toISOString()
   db.insert(projects).values({
     id: 'proj_gbp',
@@ -77,6 +87,7 @@ function seedProject(db: ReturnType<typeof createClient>) {
     accountName: 'accounts/1',
     locationName: LOCATION,
     displayName: 'Gjelina Venice',
+    placeId: opts.placeId ?? null,
     selected: true,
     createdAt: now,
     updatedAt: now,
@@ -124,6 +135,7 @@ beforeEach(() => {
   fetchDailyMetricsMock.mockResolvedValue([])
   listPlaceActionLinksMock.mockResolvedValue([])
   getLodgingMock.mockResolvedValue(null)
+  getPlaceDetailsMock.mockResolvedValue({ id: 'place_default', servesBreakfast: true, allowsDogs: false })
   // Month-aware: a per-month call (startMonth === endMonth) returns a count
   // derived from the month so the test can assert which month was stored; the
   // legacy trailing-window call (startMonth !== endMonth) returns one aggregate.
@@ -215,6 +227,206 @@ describe('executeGbpSync — keyword monthly accumulate', () => {
         db.select().from(gbpKeywordMonthly)
           .where(and(eq(gbpKeywordMonthly.projectId, 'proj_gbp'), eq(gbpKeywordMonthly.month, preserved))).all(),
       ).toHaveLength(1)
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('executeGbpSync — Places enrichment (#648)', () => {
+  const PLACE_ID = 'ChIJgjelina'
+  const LODGING = { name: `${LOCATION}/lodging`, pools: { pool: true } }
+
+  function placesConfig(places: NonNullable<CanonryConfig['places']>): CanonryConfig {
+    return { ...testConfig(), places }
+  }
+
+  function placeRows(db: ReturnType<typeof createClient>) {
+    return db.select().from(gbpPlaceDetails).where(eq(gbpPlaceDetails.projectId, 'proj_gbp')).all()
+  }
+
+  test('snapshots Place Details for a lodging location with a placeId + key', async () => {
+    const { db, tmpDir } = createTempDb()
+    try {
+      seedProject(db, { placeId: PLACE_ID })
+      seedRun(db, 'run_1')
+      getLodgingMock.mockResolvedValue(LODGING)
+      getPlaceDetailsMock.mockResolvedValue({ id: 'p', servesBreakfast: true, allowsDogs: false })
+
+      await executeGbpSync(db, 'run_1', 'proj_gbp', { config: placesConfig({ apiKey: 'K', tier: 'atmosphere' }) })
+
+      expect(getPlaceDetailsMock).toHaveBeenCalledWith(PLACE_ID, 'K', expect.objectContaining({ tier: 'atmosphere' }))
+      const rows = placeRows(db)
+      expect(rows).toHaveLength(1)
+      expect(rows[0]!.placeId).toBe(PLACE_ID)
+      expect(rows[0]!.tier).toBe('atmosphere')
+      expect(rows[0]!.syncRunId).toBe('run_1')
+      expect((rows[0]!.attributes as { servesBreakfast?: boolean }).servesBreakfast).toBe(true)
+      expect(db.select().from(runs).where(eq(runs.id, 'run_1')).get()!.status).toBe('completed')
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  test('does NOT call Places when no API key is configured', async () => {
+    const { db, tmpDir } = createTempDb()
+    try {
+      seedProject(db, { placeId: PLACE_ID })
+      seedRun(db, 'run_1')
+      getLodgingMock.mockResolvedValue(LODGING)
+
+      await executeGbpSync(db, 'run_1', 'proj_gbp', { config: testConfig() }) // no places config
+
+      expect(getPlaceDetailsMock).not.toHaveBeenCalled()
+      expect(placeRows(db)).toHaveLength(0)
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  test('does NOT call Places when tier is off', async () => {
+    const { db, tmpDir } = createTempDb()
+    try {
+      seedProject(db, { placeId: PLACE_ID })
+      seedRun(db, 'run_1')
+      getLodgingMock.mockResolvedValue(LODGING)
+
+      await executeGbpSync(db, 'run_1', 'proj_gbp', { config: placesConfig({ apiKey: 'K', tier: 'off' }) })
+
+      expect(getPlaceDetailsMock).not.toHaveBeenCalled()
+      expect(placeRows(db)).toHaveLength(0)
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  test('does NOT call Places for a non-lodging location', async () => {
+    const { db, tmpDir } = createTempDb()
+    try {
+      seedProject(db, { placeId: PLACE_ID })
+      seedRun(db, 'run_1')
+      getLodgingMock.mockResolvedValue(null) // not lodging-capable
+
+      await executeGbpSync(db, 'run_1', 'proj_gbp', { config: placesConfig({ apiKey: 'K', tier: 'atmosphere' }) })
+
+      expect(getPlaceDetailsMock).not.toHaveBeenCalled()
+      expect(placeRows(db)).toHaveLength(0)
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  test('does NOT call Places when the location has no placeId', async () => {
+    const { db, tmpDir } = createTempDb()
+    try {
+      seedProject(db) // no placeId
+      seedRun(db, 'run_1')
+      getLodgingMock.mockResolvedValue(LODGING)
+
+      await executeGbpSync(db, 'run_1', 'proj_gbp', { config: placesConfig({ apiKey: 'K', tier: 'atmosphere' }) })
+
+      expect(getPlaceDetailsMock).not.toHaveBeenCalled()
+      expect(placeRows(db)).toHaveLength(0)
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  test('refresh cadence: skips the Places call on an immediate re-run within the interval', async () => {
+    const { db, tmpDir } = createTempDb()
+    try {
+      seedProject(db, { placeId: PLACE_ID })
+      getLodgingMock.mockResolvedValue(LODGING)
+      const cfg = placesConfig({ apiKey: 'K', tier: 'atmosphere', refreshIntervalDays: 7 })
+
+      seedRun(db, 'run_1')
+      await executeGbpSync(db, 'run_1', 'proj_gbp', { config: cfg })
+      seedRun(db, 'run_2')
+      await executeGbpSync(db, 'run_2', 'proj_gbp', { config: cfg })
+
+      // Snapshot from run_1 is seconds old (< 7d) → run_2 must not re-fetch.
+      expect(getPlaceDetailsMock).toHaveBeenCalledTimes(1)
+      expect(placeRows(db)).toHaveLength(1)
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  test('refresh cadence: a stable listing past the interval is not re-fetched on every sync', async () => {
+    const { db, tmpDir } = createTempDb()
+    try {
+      seedProject(db, { placeId: PLACE_ID })
+      getLodgingMock.mockResolvedValue(LODGING)
+      const content = { id: 'p', servesBreakfast: true }
+      getPlaceDetailsMock.mockResolvedValue(content)
+      const cfg = placesConfig({ apiKey: 'K', tier: 'atmosphere', refreshIntervalDays: 7 })
+
+      // Existing snapshot 10 days old whose content matches what the next fetch
+      // returns, so the fetch finds the listing UNCHANGED (the common steady
+      // state — amenities change rarely).
+      db.insert(gbpPlaceDetails).values({
+        id: 'seed', projectId: 'proj_gbp', locationName: LOCATION, placeId: PLACE_ID,
+        contentHash: hashPlaceDetails(content), tier: 'atmosphere', attributes: content,
+        syncedAt: new Date(Date.now() - 10 * 86_400_000).toISOString(), syncRunId: null,
+      }).run()
+
+      // First sync: 10d old → re-fetch; unchanged → no new row, but the row's
+      // syncedAt is re-stamped to now so the cadence gate can throttle next time.
+      seedRun(db, 'run_1')
+      await executeGbpSync(db, 'run_1', 'proj_gbp', { config: cfg })
+      expect(getPlaceDetailsMock).toHaveBeenCalledTimes(1)
+      expect(placeRows(db)).toHaveLength(1)
+
+      // Immediate second sync: just verified (< 7d) → must NOT re-fetch (the bug
+      // was that an unchanged listing past the interval re-fetched every sync).
+      seedRun(db, 'run_2')
+      await executeGbpSync(db, 'run_2', 'proj_gbp', { config: cfg })
+      expect(getPlaceDetailsMock).toHaveBeenCalledTimes(1)
+      expect(placeRows(db)).toHaveLength(1)
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  test('snapshot-on-change: re-fetch with identical content adds no new row; changed content does', async () => {
+    const { db, tmpDir } = createTempDb()
+    try {
+      seedProject(db, { placeId: PLACE_ID })
+      getLodgingMock.mockResolvedValue(LODGING)
+      const cfg = placesConfig({ apiKey: 'K', tier: 'atmosphere', refreshIntervalDays: 0 }) // always re-fetch
+
+      getPlaceDetailsMock.mockResolvedValue({ id: 'p', servesBreakfast: true })
+      seedRun(db, 'run_1')
+      await executeGbpSync(db, 'run_1', 'proj_gbp', { config: cfg })
+      seedRun(db, 'run_2')
+      await executeGbpSync(db, 'run_2', 'proj_gbp', { config: cfg })
+      // Identical content → no second row even though the fetch ran twice.
+      expect(getPlaceDetailsMock).toHaveBeenCalledTimes(2)
+      expect(placeRows(db)).toHaveLength(1)
+
+      // Changed content → a new snapshot.
+      getPlaceDetailsMock.mockResolvedValue({ id: 'p', servesBreakfast: false })
+      seedRun(db, 'run_3')
+      await executeGbpSync(db, 'run_3', 'proj_gbp', { config: cfg })
+      expect(placeRows(db)).toHaveLength(2)
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  test('a Places API error does not fail the run (supplemental, best-effort)', async () => {
+    const { db, tmpDir } = createTempDb()
+    try {
+      seedProject(db, { placeId: PLACE_ID })
+      seedRun(db, 'run_1')
+      getLodgingMock.mockResolvedValue(LODGING)
+      getPlaceDetailsMock.mockRejectedValue(new Error('Places 403 PERMISSION_DENIED'))
+
+      await executeGbpSync(db, 'run_1', 'proj_gbp', { config: placesConfig({ apiKey: 'K', tier: 'atmosphere' }) })
+
+      // Metrics/keywords/lodging succeeded → run completes; Places error swallowed.
+      expect(db.select().from(runs).where(eq(runs.id, 'run_1')).get()!.status).toBe('completed')
+      expect(placeRows(db)).toHaveLength(0)
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true })
     }
