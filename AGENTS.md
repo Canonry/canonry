@@ -198,6 +198,8 @@ Each check returns `status: ok | warn | fail | skipped`, a stable machine-readab
 | integrations | `traffic.source.connected` | project | At least one non-archived server-side traffic source exists for the project |
 | integrations | `traffic.source.recent-data` | project | Connected sources have crawler/AI-referral events in the last 7d (warn) or 30d (fail) |
 | providers | `config.providers` | global | At least one provider key configured |
+| agent | `agent.skills.installed` | global | Both bundled skills (`canonry`, `aero`) are present under `~/.claude/skills/` |
+| agent | `agent.skills.current` | global | Installed `~/.claude/skills/` trees are not behind the bundled build — warns when a newly shipped or upstream-updated file has not been picked up (skips when nothing is installed; local edits are reported but do not count as "behind") |
 
 ### Adding a new check
 

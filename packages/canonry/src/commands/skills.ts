@@ -1,3 +1,4 @@
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -5,11 +6,17 @@ import { fileURLToPath } from 'node:url'
 import {
   CodingAgents,
   SkillsClients,
+  SKILL_MANIFEST_FILENAME,
+  classifySkillFile,
+  coerceSkillManifest,
   skillsClientSchema,
+  type BundledSkillSnapshot,
   type CodingAgent,
+  type SkillManifest,
   type SkillsClient,
 } from '@ainyc/canonry-contracts'
 import { CliError } from '../cli-error.js'
+import { PACKAGE_VERSION } from '../package-version.js'
 
 export { CodingAgents, SkillsClients }
 export type { CodingAgent, SkillsClient }
@@ -48,6 +55,19 @@ export interface SkillInstallResult {
   targetPath: string
   status: 'installed' | 'already-installed' | 'updated' | 'linked' | 'already-linked' | 'relinked'
   message: string
+  /**
+   * Per-file reconciliation detail for `.claude` directory installs. Present
+   * only on claude results (codex symlink results omit them). An agent can
+   * treat a non-empty `conflicts` as "local edits were preserved; re-run with
+   * `--force` to overwrite them".
+   */
+  added?: string[]
+  /** Relative paths written — net-new files plus upstream-updated (stale) files plus forced overwrites. */
+  updated?: string[]
+  /** Relative paths left untouched because they already matched the bundle. */
+  unchanged?: string[]
+  /** Relative paths skipped because they are local edits diverging from the bundle (no `--force`). */
+  conflicts?: string[]
 }
 
 export interface SkillsInstallSummary {
@@ -107,66 +127,150 @@ function walkRelative(dir: string, prefix = ''): string[] {
   return out.sort()
 }
 
-function compareDirContent(srcDir: string, destDir: string): 'match' | 'different' | 'missing' {
-  if (!fs.existsSync(destDir)) return 'missing'
-  if (!fs.statSync(destDir).isDirectory()) return 'different'
-  const srcFiles = walkRelative(srcDir)
-  const destFiles = walkRelative(destDir)
-  if (srcFiles.length !== destFiles.length) return 'different'
-  for (let i = 0; i < srcFiles.length; i++) {
-    if (srcFiles[i] !== destFiles[i]) return 'different'
-    const srcBytes = fs.readFileSync(path.join(srcDir, srcFiles[i]))
-    const destBytes = fs.readFileSync(path.join(destDir, destFiles[i]))
-    if (!srcBytes.equals(destBytes)) return 'different'
-  }
-  return 'match'
+function sha256File(filePath: string): string {
+  return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex')
 }
 
-function copyDirRecursive(src: string, dest: string): void {
-  fs.mkdirSync(dest, { recursive: true })
-  for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
-    const srcPath = path.join(src, entry.name)
-    const destPath = path.join(dest, entry.name)
-    if (entry.isDirectory()) {
-      copyDirRecursive(srcPath, destPath)
-    } else if (entry.isFile()) {
-      fs.copyFileSync(srcPath, destPath)
+function readSkillManifest(skillDir: string): SkillManifest | null {
+  try {
+    return coerceSkillManifest(JSON.parse(fs.readFileSync(path.join(skillDir, SKILL_MANIFEST_FILENAME), 'utf-8')))
+  } catch {
+    // Missing or malformed manifest — treat as a legacy install with no record.
+    return null
+  }
+}
+
+function writeSkillManifest(skillDir: string, manifest: SkillManifest): void {
+  fs.writeFileSync(path.join(skillDir, SKILL_MANIFEST_FILENAME), `${JSON.stringify(manifest, null, 2)}\n`, 'utf-8')
+}
+
+interface ReconcileResult {
+  /** Net-new files copied into the install. */
+  added: string[]
+  /** Files written over: upstream-updated (stale) files plus forced overwrites of local edits. */
+  updated: string[]
+  /** Files already byte-identical to the bundle. */
+  unchanged: string[]
+  /** Local edits left untouched because `--force` was not passed. */
+  conflicts: string[]
+  /** Relative path → bundled sha256, captured during the walk for manifest assembly. */
+  bundledHashes: Map<string, string>
+}
+
+/**
+ * Reconcile a bundled skill tree into an installed one, file by file. This is
+ * additive: a missing file is always copied (an unambiguous addition), an
+ * upstream-updated file the operator never touched is refreshed, and a genuine
+ * local edit is preserved unless `force` is set. Files present in the install
+ * but absent from the bundle are left in place — reconciliation never deletes.
+ */
+function reconcileSkillTree(
+  srcDir: string,
+  destDir: string,
+  manifest: SkillManifest | null,
+  force: boolean,
+): ReconcileResult {
+  const result: ReconcileResult = { added: [], updated: [], unchanged: [], conflicts: [], bundledHashes: new Map() }
+  for (const rel of walkRelative(srcDir)) {
+    const srcPath = path.join(srcDir, rel)
+    const destPath = path.join(destDir, rel)
+    const bundledHash = sha256File(srcPath)
+    result.bundledHashes.set(rel, bundledHash)
+    const installedHash = fs.existsSync(destPath) ? sha256File(destPath) : undefined
+    const state = classifySkillFile({ bundledHash, installedHash, manifestHash: manifest?.files[rel] })
+    switch (state) {
+      case 'missing':
+        fs.mkdirSync(path.dirname(destPath), { recursive: true })
+        fs.copyFileSync(srcPath, destPath)
+        result.added.push(rel)
+        break
+      case 'unchanged':
+        result.unchanged.push(rel)
+        break
+      case 'stale':
+        fs.copyFileSync(srcPath, destPath)
+        result.updated.push(rel)
+        break
+      case 'edited':
+        if (force) {
+          fs.copyFileSync(srcPath, destPath)
+          result.updated.push(rel)
+        } else {
+          result.conflicts.push(rel)
+        }
+        break
     }
   }
+  return result
+}
+
+/**
+ * Build the manifest to record what canonry now considers canonical for the
+ * tree. Reconciled files (added / refreshed / unchanged) record the bundle
+ * hash; preserved local edits keep the prior manifest entry so that a later
+ * revert to canonry's content is recognized as refreshable, not as an edit.
+ */
+function buildManifest(
+  skillName: BundledSkillName,
+  recon: ReconcileResult,
+  prior: SkillManifest | null,
+): SkillManifest {
+  const conflicts = new Set(recon.conflicts)
+  const files: Record<string, string> = {}
+  for (const [rel, bundledHash] of recon.bundledHashes) {
+    files[rel] = conflicts.has(rel) ? (prior?.files[rel] ?? bundledHash) : bundledHash
+  }
+  return { skill: skillName, version: PACKAGE_VERSION, files }
+}
+
+function describeChanges(recon: ReconcileResult): string {
+  const parts: string[] = []
+  if (recon.added.length > 0) parts.push(`${recon.added.length} added`)
+  if (recon.updated.length > 0) parts.push(`${recon.updated.length} refreshed`)
+  return parts.length > 0 ? parts.join(', ') : 'no changes'
+}
+
+function buildClaudeMessage(name: string, status: SkillInstallResult['status'], recon: ReconcileResult): string {
+  const rel = `.claude/skills/${name}`
+  let message = status === 'installed'
+    ? `Installed ${rel}`
+    : status === 'updated'
+      ? `Updated ${rel} (${describeChanges(recon)})`
+      : `Already installed: ${rel}`
+  if (recon.conflicts.length > 0) {
+    message += ` — ${recon.conflicts.length} file(s) differ from the bundle (local edits kept; pass --force to overwrite)`
+  }
+  return message
 }
 
 function installClaudeSkill(skill: BundledSkillInfo, targetDir: string, force: boolean): SkillInstallResult {
   const targetPath = path.join(targetDir, '.claude', 'skills', skill.name)
-  const compare = compareDirContent(skill.bundledPath, targetPath)
+  // SKILL.md presence (not bare dir existence) marks a real prior install, so a
+  // half-finished/empty dir is treated as a fresh install rather than an update.
+  const existedBefore = fs.existsSync(path.join(targetPath, 'SKILL.md'))
+  const priorManifest = readSkillManifest(targetPath)
 
-  if (compare === 'match') {
-    return {
-      skill: skill.name, client: CodingAgents.claude, targetPath,
-      status: 'already-installed',
-      message: `Already installed: .claude/skills/${skill.name}`,
-    }
-  }
+  fs.mkdirSync(targetPath, { recursive: true })
+  const recon = reconcileSkillTree(skill.bundledPath, targetPath, priorManifest, force)
+  writeSkillManifest(targetPath, buildManifest(skill.name, recon, priorManifest))
 
-  if (compare === 'different' && !force) {
-    throw new CliError({
-      code: 'VALIDATION_ERROR',
-      message: `.claude/skills/${skill.name}/ already exists and differs from the bundled skill. Pass --force to overwrite.`,
-      details: { skill: skill.name, targetPath },
-      exitCode: 1,
-    })
-  }
+  const changed = recon.added.length + recon.updated.length
+  const status: SkillInstallResult['status'] = !existedBefore
+    ? 'installed'
+    : changed > 0
+      ? 'updated'
+      : 'already-installed'
 
-  if (compare === 'different') {
-    fs.rmSync(targetPath, { recursive: true, force: true })
-  }
-
-  copyDirRecursive(skill.bundledPath, targetPath)
   return {
-    skill: skill.name, client: CodingAgents.claude, targetPath,
-    status: compare === 'missing' ? 'installed' : 'updated',
-    message: compare === 'missing'
-      ? `Installed .claude/skills/${skill.name}`
-      : `Updated .claude/skills/${skill.name}`,
+    skill: skill.name,
+    client: CodingAgents.claude,
+    targetPath,
+    status,
+    message: buildClaudeMessage(skill.name, status, recon),
+    added: recon.added,
+    updated: recon.updated,
+    unchanged: recon.unchanged,
+    conflicts: recon.conflicts,
   }
 }
 
@@ -236,7 +340,28 @@ function buildSummaryMessage(results: SkillInstallResult[]): string {
   const counts: Record<string, number> = {}
   for (const r of results) counts[r.status] = (counts[r.status] ?? 0) + 1
   const parts = Object.entries(counts).map(([status, n]) => `${n} ${status}`)
-  return `Skills install summary: ${parts.join(', ')}.`
+  let message = `Skills install summary: ${parts.join(', ')}.`
+  const totalConflicts = results.reduce((sum, r) => sum + (r.conflicts?.length ?? 0), 0)
+  if (totalConflicts > 0) {
+    message += ` ${totalConflicts} file(s) differ from the bundle and were kept — pass --force to overwrite local edits.`
+  }
+  return message
+}
+
+/**
+ * Snapshot every bundled skill (version + per-file sha256) for the
+ * `agent.skills.current` doctor check. The check lives in `api-routes`, which
+ * cannot resolve canonry's bundled assets, so the running server computes this
+ * and injects it into the doctor context.
+ */
+export function getBundledSkillSnapshots(pkgDir?: string): BundledSkillSnapshot[] {
+  return getBundledSkills(pkgDir).map(skill => {
+    const files: Record<string, string> = {}
+    for (const rel of walkRelative(skill.bundledPath)) {
+      files[rel] = sha256File(path.join(skill.bundledPath, rel))
+    }
+    return { name: skill.name, version: PACKAGE_VERSION, files }
+  })
 }
 
 export async function installSkills(opts: SkillsInstallOptions = {}): Promise<SkillsInstallSummary> {

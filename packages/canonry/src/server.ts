@@ -68,6 +68,7 @@ import { executeReleaseSync } from './commoncrawl-sync.js'
 import { executeBacklinkExtract } from './backlink-extract.js'
 import { executeDiscoveryRun } from './discovery-run.js'
 import { backfillProjectAnswerMentions } from './commands/backfill.js'
+import { getBundledSkillSnapshots } from './commands/skills.js'
 import {
   DUCKDB_SPEC,
   PLUGIN_DIR,
@@ -1055,6 +1056,17 @@ export async function createServer(opts: {
       return {
         databasePath: opts.config.database,
         configPath: fs.existsSync(configPath) ? configPath : null,
+      }
+    })(),
+    // Snapshot the bundled skill trees (version + file hashes) so the
+    // `agent.skills.current` doctor check can flag a `~/.claude/skills/` install
+    // that has drifted behind this build. Best-effort: if the bundled assets
+    // can't be resolved the check simply skips rather than failing boot.
+    bundledSkills: (() => {
+      try {
+        return getBundledSkillSnapshots()
+      } catch {
+        return undefined
       }
     })(),
     // Local canonry serve runs on the operator's machine, where pointing a

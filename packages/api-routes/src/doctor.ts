@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { ALL_CHECKS } from './doctor/registry.js'
 import { runChecks } from './doctor/runner.js'
+import type { BundledSkillSnapshot } from '@ainyc/canonry-contracts'
 import type { DoctorContext, TrafficSourceValidator } from './doctor/types.js'
 import type { GoogleConnectionStore } from './google.js'
 import type { BingConnectionStore } from './bing.js'
@@ -26,6 +27,8 @@ export interface DoctorRoutesOptions {
   trafficSourceValidators?: Record<string, TrafficSourceValidator>
   /** On-disk paths the daemon depends on. See `DoctorContext.runtimeStatePaths`. */
   runtimeStatePaths?: { databasePath: string; configPath?: string | null }
+  /** Bundled-skill snapshots powering the `agent.skills.current` check. See `DoctorContext.bundledSkills`. */
+  bundledSkills?: BundledSkillSnapshot[]
 }
 
 function parseCheckIds(raw: string | undefined): string[] {
@@ -62,6 +65,7 @@ export async function doctorRoutes(app: FastifyInstance, opts: DoctorRoutesOptio
       providerSummary: opts.providerSummary,
       trafficSourceValidators: opts.trafficSourceValidators,
       runtimeStatePaths: opts.runtimeStatePaths,
+      bundledSkills: opts.bundledSkills,
     }
     return runChecks(ctx, ALL_CHECKS, { checkIds })
   })
@@ -90,6 +94,7 @@ export async function doctorRoutes(app: FastifyInstance, opts: DoctorRoutesOptio
       providerSummary: opts.providerSummary,
       trafficSourceValidators: opts.trafficSourceValidators,
       runtimeStatePaths: opts.runtimeStatePaths,
+      bundledSkills: opts.bundledSkills,
     }
     return runChecks(ctx, ALL_CHECKS, { checkIds })
   })
