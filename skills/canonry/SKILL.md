@@ -109,6 +109,12 @@ When the project ships behind a server you control, wire crawler + AI-referral e
 
 **Vercel gotcha:** a freshly connected Vercel source captures only going-forward traffic — `lastSyncedAt` is seeded to NOW to avoid the 30-day default window exceeding Vercel's ~14-day request-logs retention (which would otherwise throw on every first sync). Use `cnry traffic backfill <project> --source <id> --days N` for historical recovery. If an idle Vercel/Cloud Run source has been failing long enough that `lastSyncedAt` aged past retention, unstick it with `cnry traffic reset <project> --source <id> --advance-to-now`.
 
+## Local AEO (Google Business Profile)
+
+For businesses with a physical location or service area, Google Business Profile is the local-AEO signal source — reviews, search-keyword impressions, daily performance metrics, and (for hotels) structured amenities + booking CTAs all feed how AI engines answer local-intent queries. Connect with `cnry gbp connect <project>`, discover locations with `cnry gbp locations discover <project>`, and pick which sync with `cnry gbp locations select/deselect`.
+
+**Hard prerequisites and gotchas — read `references/google-business-profile.md` before attempting setup:** GBP requires a Google access-form approval (0 QPM until granted), the only OAuth scope is the write-capable `business.manage`, **reviews live on a separately-gated legacy v4 API that the Basic approval does NOT grant** (and can't be self-enabled), and the **Q&A API is permanently shut down (HTTP 501)**. Keyword data is heavily privacy-redacted (often 100% for small businesses), and empty lodging/place-action profiles are themselves the AEO finding to surface. The reference doc has the full setup walkthrough, the real-world data shapes, and the troubleshooting matrix.
+
 ## Built-in Analyst (Aero)
 
 Canonry ships a built-in agent — Aero — for users who don't already have one. Drive it from the CLI:
@@ -138,6 +144,7 @@ Aero also wakes unprompted after every `run.completed` so insights and regressio
 | `references/indexing.md` | Submitting URLs, checking GSC/Bing coverage, fixing indexing gaps |
 | `references/wordpress-integration.md` | Connecting to WordPress, editing pages, pushing staging → live |
 | `references/server-side-traffic.md` | Wiring server-log evidence (Cloud Run, WordPress, Vercel adapters) for AI Visibility — Server-Side. Connect, sync, manage sources, troubleshoot. |
+| `references/google-business-profile.md` | Connecting Google Business Profile for local AEO: access-form approval, GCP API enablement, the v4-reviews access gate, hotel lodging/place-action signals, data shapes, troubleshooting. |
 
 ---
 
