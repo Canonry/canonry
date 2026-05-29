@@ -5,7 +5,7 @@ import path from 'node:path'
 import os from 'node:os'
 import Fastify from 'fastify'
 import { eq } from 'drizzle-orm'
-import { createClient, migrate, projects, gbpLocations, auditLog } from '@ainyc/canonry-db'
+import { createClient, migrate, projects, gbpLocations, gbpDailyMetrics, gbpKeywordImpressions, gbpPlaceActions, gbpLodgingSnapshots, auditLog } from '@ainyc/canonry-db'
 import { AppError, type GoogleConnectionType } from '@ainyc/canonry-contracts'
 import { googleRoutes } from '../src/google.js'
 
@@ -127,10 +127,20 @@ describe('GBP routes (Phase 1)', () => {
     locations?: Array<{ name: string; title?: string; websiteUri?: string; categories?: { primaryCategory?: { displayName?: string } } }>
   }) {
     fetchSpy.mockImplementation((url: string) => {
-      if (url.includes('mybusinessaccountmanagement.googleapis.com')) {
+      // Route on the exact hostname, not a substring of the full URL — a
+      // substring match would also accept a wrong host that merely carries the
+      // API domain in its path (e.g. evil.example/mybusinessbusinessinformation.googleapis.com),
+      // masking a production bug where the client builds a URL against the wrong host.
+      let hostname: string
+      try {
+        hostname = new URL(url).hostname
+      } catch {
+        throw new Error(`Unexpected fetch URL: ${url}`)
+      }
+      if (hostname === 'mybusinessaccountmanagement.googleapis.com') {
         return Promise.resolve({ ok: true, status: 200, text: async () => JSON.stringify({ accounts: opts.accounts ?? [] }) })
       }
-      if (url.includes('mybusinessbusinessinformation.googleapis.com')) {
+      if (hostname === 'mybusinessbusinessinformation.googleapis.com') {
         return Promise.resolve({ ok: true, status: 200, text: async () => JSON.stringify({ locations: opts.locations ?? [] }) })
       }
       throw new Error(`Unexpected fetch URL: ${url}`)
@@ -310,6 +320,13 @@ describe('GBP routes (Phase 1)', () => {
       })
       await ctx.app.inject({ method: 'POST', url: '/projects/hotels/gbp/locations/discover', payload: {} })
 
+      // Seed synced performance data across every GBP surface so we can prove
+      // disconnect clears the whole footprint, not just the location rows.
+      ctx.db.insert(gbpDailyMetrics).values({ id: crypto.randomUUID(), projectId, locationName: 'locations/1', date: '2026-05-01', metric: 'WEBSITE_CLICKS', value: 7, syncRunId: null }).run()
+      ctx.db.insert(gbpKeywordImpressions).values({ id: crypto.randomUUID(), projectId, locationName: 'locations/1', periodStart: '2025-06', periodEnd: '2026-05', keyword: 'hotel', valueCount: 100, valueThreshold: null, syncRunId: null }).run()
+      ctx.db.insert(gbpPlaceActions).values({ id: crypto.randomUUID(), projectId, locationName: 'locations/1', placeActionLinkName: 'locations/1/placeActionLinks/x', placeActionType: 'BOOK', uri: 'https://book.example', isPreferred: true, providerType: 'MERCHANT', syncRunId: null }).run()
+      ctx.db.insert(gbpLodgingSnapshots).values({ id: crypto.randomUUID(), projectId, locationName: 'locations/1', contentHash: 'h1', attributes: {}, populatedGroupCount: 0, syncedAt: '2026-05-01T00:00:00Z', syncRunId: null }).run()
+
       // Sanity: both locations persisted
       expect(ctx.db.select().from(gbpLocations).where(eq(gbpLocations.projectId, projectId)).all().length).toBe(2)
       // Sanity: connection exists
@@ -320,6 +337,11 @@ describe('GBP routes (Phase 1)', () => {
 
       // gbp_locations rows for the project are gone
       expect(ctx.db.select().from(gbpLocations).where(eq(gbpLocations.projectId, projectId)).all().length).toBe(0)
+      // Synced performance data is gone too — no stale rows survive a disconnect.
+      expect(ctx.db.select().from(gbpDailyMetrics).where(eq(gbpDailyMetrics.projectId, projectId)).all().length).toBe(0)
+      expect(ctx.db.select().from(gbpKeywordImpressions).where(eq(gbpKeywordImpressions.projectId, projectId)).all().length).toBe(0)
+      expect(ctx.db.select().from(gbpPlaceActions).where(eq(gbpPlaceActions.projectId, projectId)).all().length).toBe(0)
+      expect(ctx.db.select().from(gbpLodgingSnapshots).where(eq(gbpLodgingSnapshots.projectId, projectId)).all().length).toBe(0)
       // Connection store entry is gone
       expect(ctx.connections.find(c => c.domain === 'hotels.example.com' && c.connectionType === 'gbp')).toBeUndefined()
     })

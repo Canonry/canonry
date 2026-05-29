@@ -20,9 +20,10 @@ import { createLogger } from './logger.js'
 
 const log = createLogger('GbpSync')
 
-// How many locations to pull concurrently. Each location issues ~2 calls
-// (daily metrics + monthly keywords); 4 in flight keeps us well under the
-// 300 QPM-per-API cap even for large chains.
+// How many locations to pull concurrently. Each location issues ~4 calls
+// (daily metrics + monthly keywords + place actions + lodging), spread across
+// four different API hosts that each have their own 300 QPM cap; 4 locations
+// in flight keeps every host well under its cap even for large chains.
 const LOCATION_CONCURRENCY = 4
 const DEFAULT_DAYS_OF_METRICS = 30
 const DEFAULT_MONTHS_OF_KEYWORDS = 12

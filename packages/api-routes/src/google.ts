@@ -1433,12 +1433,21 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
   })
 
   // DELETE /projects/:name/gbp/connection
-  // Removes the OAuth connection + all gbp_locations rows for the project.
+  // Removes the OAuth connection + every GBP row for the project: locations and
+  // all synced performance data. These data tables only cascade on project
+  // deletion, so disconnect must clear them explicitly — otherwise reads
+  // (metrics / keywords / place-actions / lodging / summary) keep returning
+  // stale data after a disconnect, and reconnecting a different account mixes
+  // the old account's rows into the project-scoped aggregates.
   app.delete<{ Params: { name: string } }>('/projects/:name/gbp/connection', async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
     const store = requireConnectionStore()
 
     app.db.transaction((tx) => {
+      tx.delete(gbpDailyMetrics).where(eq(gbpDailyMetrics.projectId, project.id)).run()
+      tx.delete(gbpKeywordImpressions).where(eq(gbpKeywordImpressions.projectId, project.id)).run()
+      tx.delete(gbpPlaceActions).where(eq(gbpPlaceActions.projectId, project.id)).run()
+      tx.delete(gbpLodgingSnapshots).where(eq(gbpLodgingSnapshots.projectId, project.id)).run()
       tx.delete(gbpLocations).where(eq(gbpLocations.projectId, project.id)).run()
       writeAuditLog(tx, {
         projectId: project.id,
