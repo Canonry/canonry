@@ -17,6 +17,7 @@ export const runKindSchema = z.enum([
   'traffic-sync',
   'aeo-discover-seed',
   'aeo-discover-probe',
+  'gbp-sync',
 ])
 export type RunKind = z.infer<typeof runKindSchema>
 export const RunKinds = runKindSchema.enum

@@ -89,6 +89,7 @@ function formatTrackedRunKind(kind: RunKind): string {
     case RunKinds['backlink-extract']: return 'Backlink extract'
     case RunKinds['aeo-discover-seed']: return 'Discovery (seed phase)'
     case RunKinds['aeo-discover-probe']: return 'Discovery (probe phase)'
+    case RunKinds['gbp-sync']: return 'Business Profile sync'
   }
 }
 

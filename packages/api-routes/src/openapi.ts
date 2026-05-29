@@ -1777,6 +1777,62 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'post',
+    path: '/api/v1/projects/{name}/gbp/sync',
+    summary: 'Trigger a Google Business Profile performance sync (daily metrics + monthly keywords)',
+    tags: ['gbp'],
+    parameters: [nameParameter],
+    requestBody: {
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            properties: {
+              locationNames: stringArraySchema,
+              daysOfMetrics: integerSchema,
+              monthsOfKeywords: integerSchema,
+            },
+          },
+        },
+      },
+    },
+    responses: {
+      200: jsonResponse('Sync run queued.', 'GbpSyncResponse'),
+      400: errorResponse('Invalid sync request or no GBP connection.'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/gbp/metrics',
+    summary: 'List stored Google Business Profile daily performance metrics',
+    tags: ['gbp'],
+    parameters: [
+      nameParameter,
+      { in: 'query', name: 'locationName', required: false, description: 'Filter to one location resource name', schema: stringSchema },
+      { in: 'query', name: 'metric', required: false, description: 'Filter to one DailyMetric', schema: stringSchema },
+    ],
+    responses: {
+      200: jsonResponse('Daily metrics returned.', 'GbpDailyMetricListResponse'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/gbp/keywords',
+    summary: 'List stored Google Business Profile monthly keyword impressions',
+    tags: ['gbp'],
+    parameters: [
+      nameParameter,
+      { in: 'query', name: 'locationName', required: false, description: 'Filter to one location resource name', schema: stringSchema },
+      { in: 'query', name: 'month', required: false, description: 'Filter to one YYYY-MM month', schema: stringSchema },
+    ],
+    responses: {
+      200: jsonResponse('Keyword impressions returned.', 'GbpKeywordImpressionListResponse'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
+    method: 'post',
     path: '/api/v1/projects/{name}/bing/connect',
     summary: 'Connect Bing Webmaster Tools',
     tags: ['bing'],

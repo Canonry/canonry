@@ -566,6 +566,28 @@ export type Ga4SyncResponseDto = {
     syncedComponents?: Array<string>;
 };
 
+export type GbpDailyMetricListResponse = {
+    metrics: Array<{
+        locationName: string;
+        date: string;
+        metric: string;
+        value: number;
+    }>;
+    total: number;
+};
+
+export type GbpKeywordImpressionListResponse = {
+    keywords: Array<{
+        locationName: string;
+        month: string;
+        keyword: string;
+        valueCount: number | null;
+        valueThreshold: number | null;
+    }>;
+    total: number;
+    thresholdedPct: number;
+};
+
 export type GbpLocationDto = {
     id: string;
     projectId: string;
@@ -598,6 +620,11 @@ export type GbpLocationListResponse = {
     }>;
     totalDiscovered: number;
     totalSelected: number;
+};
+
+export type GbpSyncResponse = {
+    runId: string;
+    status: string;
 };
 
 export type GoogleConnectionDto = {
@@ -788,7 +815,7 @@ export type LatestProjectRunDto = {
     run: {
         id: string;
         projectId: string;
-        kind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe';
+        kind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync';
         status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';
         trigger: 'manual' | 'scheduled' | 'config-apply' | 'backfill' | 'probe';
         location?: string | null;
@@ -1352,7 +1379,7 @@ export type QueryDto = {
 export type RunDetailDto = {
     id: string;
     projectId: string;
-    kind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe';
+    kind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync';
     status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';
     trigger: 'manual' | 'scheduled' | 'config-apply' | 'backfill' | 'probe';
     location?: string | null;
@@ -1399,7 +1426,7 @@ export type RunDetailDto = {
 export type RunDto = {
     id: string;
     projectId: string;
-    kind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe';
+    kind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync';
     status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';
     trigger: 'manual' | 'scheduled' | 'config-apply' | 'backfill' | 'probe';
     location?: string | null;
@@ -4757,6 +4784,122 @@ export type DeleteApiV1ProjectsByNameGbpConnectionResponses = {
 };
 
 export type DeleteApiV1ProjectsByNameGbpConnectionResponse = DeleteApiV1ProjectsByNameGbpConnectionResponses[keyof DeleteApiV1ProjectsByNameGbpConnectionResponses];
+
+export type PostApiV1ProjectsByNameGbpSyncData = {
+    body?: {
+        locationNames?: Array<string>;
+        daysOfMetrics?: number;
+        monthsOfKeywords?: number;
+    };
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/gbp/sync';
+};
+
+export type PostApiV1ProjectsByNameGbpSyncErrors = {
+    /**
+     * Invalid sync request or no GBP connection.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameGbpSyncError = PostApiV1ProjectsByNameGbpSyncErrors[keyof PostApiV1ProjectsByNameGbpSyncErrors];
+
+export type PostApiV1ProjectsByNameGbpSyncResponses = {
+    /**
+     * Sync run queued.
+     */
+    200: GbpSyncResponse;
+};
+
+export type PostApiV1ProjectsByNameGbpSyncResponse = PostApiV1ProjectsByNameGbpSyncResponses[keyof PostApiV1ProjectsByNameGbpSyncResponses];
+
+export type GetApiV1ProjectsByNameGbpMetricsData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Filter to one location resource name
+         */
+        locationName?: string;
+        /**
+         * Filter to one DailyMetric
+         */
+        metric?: string;
+    };
+    url: '/api/v1/projects/{name}/gbp/metrics';
+};
+
+export type GetApiV1ProjectsByNameGbpMetricsErrors = {
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameGbpMetricsError = GetApiV1ProjectsByNameGbpMetricsErrors[keyof GetApiV1ProjectsByNameGbpMetricsErrors];
+
+export type GetApiV1ProjectsByNameGbpMetricsResponses = {
+    /**
+     * Daily metrics returned.
+     */
+    200: GbpDailyMetricListResponse;
+};
+
+export type GetApiV1ProjectsByNameGbpMetricsResponse = GetApiV1ProjectsByNameGbpMetricsResponses[keyof GetApiV1ProjectsByNameGbpMetricsResponses];
+
+export type GetApiV1ProjectsByNameGbpKeywordsData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Filter to one location resource name
+         */
+        locationName?: string;
+        /**
+         * Filter to one YYYY-MM month
+         */
+        month?: string;
+    };
+    url: '/api/v1/projects/{name}/gbp/keywords';
+};
+
+export type GetApiV1ProjectsByNameGbpKeywordsErrors = {
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameGbpKeywordsError = GetApiV1ProjectsByNameGbpKeywordsErrors[keyof GetApiV1ProjectsByNameGbpKeywordsErrors];
+
+export type GetApiV1ProjectsByNameGbpKeywordsResponses = {
+    /**
+     * Keyword impressions returned.
+     */
+    200: GbpKeywordImpressionListResponse;
+};
+
+export type GetApiV1ProjectsByNameGbpKeywordsResponse = GetApiV1ProjectsByNameGbpKeywordsResponses[keyof GetApiV1ProjectsByNameGbpKeywordsResponses];
 
 export type PostApiV1ProjectsByNameBingConnectData = {
     body: {

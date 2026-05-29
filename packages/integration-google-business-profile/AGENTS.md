@@ -14,6 +14,7 @@ OAuth and token storage live in `packages/integration-google` and `packages/api-
 |------|------|
 | `src/accounts-client.ts` | `listAccounts(accessToken)` — Account Management API |
 | `src/locations-client.ts` | `listLocations(accessToken, accountName)` — Business Information API |
+| `src/performance-client.ts` | `fetchDailyMetrics` (all 11 DailyMetric over a date range; parses string-encoded values, treats omitted zero-days as 0, flattens split date objects to YYYY-MM-DD) + `listMonthlyKeywords` (paginated; maps the `insightsValue.value\|threshold` union to typed `valueCount`/`valueThreshold`) — Performance API |
 | `src/types.ts` | `GbpApiError` (carries `status` + structured `reason` like `ACCESS_TOKEN_SCOPE_INSUFFICIENT`, `RATE_LIMIT_EXCEEDED`) + response types |
 | `src/constants.ts` | API hosts, OAuth scope, request timeout, default page sizes |
 | `src/index.ts` | Public re-exports |

@@ -1455,6 +1455,36 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `CREATE UNIQUE INDEX IF NOT EXISTS uniq_gbp_locations_project_location ON gbp_locations(project_id, location_name)`,
     ],
   },
+  {
+    version: 68,
+    name: 'gbp-performance',
+    statements: [
+      // GBP Phase 2 — daily performance metrics + monthly keyword impressions.
+      `CREATE TABLE IF NOT EXISTS gbp_daily_metrics (
+        id             TEXT PRIMARY KEY,
+        project_id     TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        location_name  TEXT NOT NULL,
+        date           TEXT NOT NULL,
+        metric         TEXT NOT NULL,
+        value          INTEGER NOT NULL,
+        sync_run_id    TEXT REFERENCES runs(id) ON DELETE SET NULL
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_gbp_daily_metrics_loc ON gbp_daily_metrics(project_id, location_name, date)`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS uniq_gbp_daily_metrics ON gbp_daily_metrics(project_id, location_name, date, metric)`,
+      `CREATE TABLE IF NOT EXISTS gbp_keyword_impressions (
+        id              TEXT PRIMARY KEY,
+        project_id      TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        location_name   TEXT NOT NULL,
+        month           TEXT NOT NULL,
+        keyword         TEXT NOT NULL,
+        value_count     INTEGER,
+        value_threshold INTEGER,
+        sync_run_id     TEXT REFERENCES runs(id) ON DELETE SET NULL
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_gbp_keyword_impr_loc ON gbp_keyword_impressions(project_id, location_name, month)`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS uniq_gbp_keyword_impr ON gbp_keyword_impressions(project_id, location_name, month, keyword)`,
+    ],
+  },
 ]
 
 /**

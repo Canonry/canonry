@@ -121,6 +121,7 @@ export interface ApiRoutesOptions {
   publicUrl?: string
   onGscSyncRequested?: GoogleRoutesOptions['onGscSyncRequested']
   onInspectSitemapRequested?: GoogleRoutesOptions['onInspectSitemapRequested']
+  onGbpSyncRequested?: GoogleRoutesOptions['onGbpSyncRequested']
   /** Bing Webmaster Tools connection store */
   bingConnectionStore?: BingRoutesOptions['bingConnectionStore']
   /** Bing settings summary for settings endpoint */
@@ -346,6 +347,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       routePrefix: opts.routePrefix,
       onGscSyncRequested: opts.onGscSyncRequested,
       onInspectSitemapRequested: opts.onInspectSitemapRequested,
+      onGbpSyncRequested: opts.onGbpSyncRequested,
     } satisfies GoogleRoutesOptions)
     await api.register(wordpressRoutes, {
       wordpressConnectionStore: opts.wordpressConnectionStore,
