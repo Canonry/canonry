@@ -129,6 +129,44 @@ describe('schedule per-kind invariants', () => {
     expect(body.error.message).toMatch(/sourceId.*traffic-sync/)
   })
 
+  it('accepts a well-formed data-refresh schedule (no sourceId) and round-trips via GET / DELETE', async () => {
+    const putRes = await harness.app.inject({
+      method: 'PUT',
+      url: '/api/v1/projects/site-a/schedule',
+      payload: { kind: 'data-refresh', preset: 'daily' },
+    })
+    expect(putRes.statusCode).toBe(201)
+    const created = JSON.parse(putRes.payload)
+    expect(created.kind).toBe('data-refresh')
+    expect(created.sourceId ?? null).toBeNull()
+    expect(created.providers).toEqual([])
+
+    const getRes = await harness.app.inject({
+      method: 'GET',
+      url: '/api/v1/projects/site-a/schedule?kind=data-refresh',
+    })
+    expect(getRes.statusCode).toBe(200)
+    expect(JSON.parse(getRes.payload).id).toBe(created.id)
+
+    const delRes = await harness.app.inject({
+      method: 'DELETE',
+      url: '/api/v1/projects/site-a/schedule?kind=data-refresh',
+    })
+    expect(delRes.statusCode).toBe(204)
+  })
+
+  it('rejects PUT /schedule with kind=data-refresh and sourceId set', async () => {
+    const res = await harness.app.inject({
+      method: 'PUT',
+      url: '/api/v1/projects/site-a/schedule',
+      payload: { kind: 'data-refresh', preset: 'daily', sourceId: harness.trafficSourceId },
+    })
+    expect(res.statusCode).toBe(400)
+    const body = JSON.parse(res.payload)
+    expect(body.error.code).toBe('VALIDATION_ERROR')
+    expect(body.error.message).toMatch(/sourceId.*traffic-sync/)
+  })
+
   it('rejects PUT /schedule with sourceId when kind is answer-visibility', async () => {
     const res = await harness.app.inject({
       method: 'PUT',

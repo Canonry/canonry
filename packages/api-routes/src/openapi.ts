@@ -166,7 +166,7 @@ const scheduleKindQueryParameter: OpenApiParameter = {
   name: 'kind',
   in: 'query',
   description: 'Schedulable run kind. Defaults to "answer-visibility" for backward compatibility.',
-  schema: { type: 'string', enum: ['answer-visibility', 'traffic-sync'] },
+  schema: { type: 'string', enum: ['answer-visibility', 'traffic-sync', 'data-refresh'] },
 }
 
 const runsListKindQueryParameter: OpenApiParameter = {
@@ -1135,7 +1135,7 @@ const routeCatalog: OpenApiOperation[] = [
           schema: {
             type: 'object',
             properties: {
-              kind: { type: 'string', enum: ['answer-visibility', 'traffic-sync'] },
+              kind: { type: 'string', enum: ['answer-visibility', 'traffic-sync', 'data-refresh'] },
               preset: stringSchema,
               cron: stringSchema,
               timezone: stringSchema,

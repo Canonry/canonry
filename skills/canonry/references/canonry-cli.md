@@ -185,6 +185,7 @@ cnry competitor list <project>
 ```bash
 cnry schedule set <project> --preset daily     # or: weekly, twice-daily, daily@09
 cnry schedule set <project> --cron "0 9 * * *" --timezone America/New_York
+cnry schedule set <project> --kind data-refresh --preset daily   # refresh all connected GSC/Bing/GA/GBP integrations (no --source)
 cnry schedule show <project>
 cnry schedule enable <project>
 cnry schedule disable <project>
