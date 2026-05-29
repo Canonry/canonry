@@ -1358,6 +1358,20 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         if (drained.retentionClamped) {
           throw vercelRetentionClampError(windowStart.getTime(), drained.effectiveStartMs)
         }
+        if (drained.truncatedSliceCount > 0) {
+          // A one-second slice exceeded the page budget and could not be sliced
+          // thinner. The drain ingested a sample and advanced rather than
+          // wedging the source. Surface it (never silent); the incremental sync
+          // is additive so losing the tail of one pathological second is safe.
+          request.log.warn(
+            {
+              sourceId: sourceRow.id,
+              truncatedSlices: drained.truncatedSliceCount,
+              sliceStarts: drained.truncatedSliceStartsMs.map((ms) => new Date(ms).toISOString()),
+            },
+            'Vercel drain truncated dense one-second slice(s); ingested a sample and advanced past them',
+          )
+        }
         allEvents = drained.events
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e)
@@ -1861,6 +1875,18 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
           })
           if (drained.retentionClamped) {
             throw vercelRetentionClampError(chunkStartMs, drained.effectiveStartMs)
+          }
+          if (drained.truncatedSliceCount > 0) {
+            // Backfill is replace mode — ingesting a truncated sample would
+            // overwrite a full prior rollup with a partial one. Fail loud here
+            // (the incremental sync path samples-and-advances instead, but it
+            // is additive, not destructive). Operator can re-run a narrower
+            // window.
+            throw new Error(
+              `Vercel backfill chunk starting ${new Date(chunkStartMs).toISOString()} `
+                + 'contains a one-second slice larger than the page budget; refusing to '
+                + 'replace the window with a truncated sample. Re-run a narrower backfill.',
+            )
           }
           for (const event of drained.events) {
             if (seenEventIds.has(event.eventId)) continue

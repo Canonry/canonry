@@ -85,6 +85,16 @@ export interface DrainVercelTrafficEventsResult {
    * pre-retention remainder is unrecoverable — Vercel no longer holds it.
    */
   retentionClamped: boolean
+  /**
+   * Count of floor-width (`MIN_SUB_WINDOW_MS`) slices that still overflowed the
+   * `FLOOR_SLICE_MAX_PAGES` budget. Time cannot be sliced thinner, so each such
+   * slice was ingested up to the budget and the drain advanced past it instead
+   * of failing the whole sync. A non-zero count means the events for those
+   * seconds are a sample, not the complete set — the caller should surface it.
+   */
+  truncatedSliceCount: number
+  /** Epoch-ms start of each truncated floor slice, for operator logging. */
+  truncatedSliceStartsMs: number[]
 }
 
 function toMs(value: Date | number): number {
@@ -179,9 +189,11 @@ async function resolveRetainedStart(
  * `retentionClamped`, rather than failing the whole drain.
  *
  * A `MIN_SUB_WINDOW_MS` slice that still overflows the normal page budget is
- * re-pulled once with the larger `FLOOR_SLICE_MAX_PAGES` budget. Throws only if
- * even that re-pull overflows, or if `maxSubWindows` is reached before the
- * window is fully drained.
+ * re-pulled once with the larger `FLOOR_SLICE_MAX_PAGES` budget. If even that
+ * overflows, the slice cannot be sliced thinner: it is ingested as a truncated
+ * sample and the drain advances past it (counted in `truncatedSliceCount`)
+ * rather than wedging the source forever on one pathological second. Throws
+ * only if `maxSubWindows` is reached before the window is fully drained.
  */
 export async function drainVercelTrafficEvents(
   options: DrainVercelTrafficEventsOptions,
@@ -192,7 +204,7 @@ export async function drainVercelTrafficEvents(
   const events: NormalizedTrafficRequest[] = []
   const seenEventIds = new Set<string>()
   if (endMs <= startMs) {
-    return { events, subWindowCount: 0, effectiveStartMs: startMs, retentionClamped: false }
+    return { events, subWindowCount: 0, effectiveStartMs: startMs, retentionClamped: false, truncatedSliceCount: 0, truncatedSliceStartsMs: [] }
   }
 
   let cursorMs = startMs
@@ -203,6 +215,8 @@ export async function drainVercelTrafficEvents(
   let retentionResolved = false
   let floorSpanProbeCountdown = 0
   let floorPageBudgetCountdown = 0
+  let truncatedSliceCount = 0
+  const truncatedSliceStartsMs: number[] = []
 
   while (cursorMs < endMs) {
     if (subWindowCount >= options.maxSubWindows) {
@@ -253,36 +267,34 @@ export async function drainVercelTrafficEvents(
         }
         continue
       }
-      if (pageBudget >= FLOOR_SLICE_MAX_PAGES) {
-        throw new Error(
-          `Vercel ${MIN_SUB_WINDOW_MS / 1000}-second slice holds more than `
-            + `${FLOOR_SLICE_MAX_PAGES} pages and cannot be drained further`,
-        )
+      // The slice is already at the floor (`MIN_SUB_WINDOW_MS`). If we only
+      // used the normal page budget, re-pull this one floor slice once with
+      // the much larger `FLOOR_SLICE_MAX_PAGES` budget and drain it whole. A
+      // single floor-width slice is bounded by real request volume, so the
+      // large budget is generous headroom.
+      if (pageBudget < FLOOR_SLICE_MAX_PAGES) {
+        page = await options.pull({
+          token: options.token,
+          projectId: options.projectId,
+          teamId: options.teamId,
+          environment: options.environment,
+          startDate: cursorMs,
+          endDate: subEndMs,
+          maxPages: FLOOR_SLICE_MAX_PAGES,
+        })
+        subWindowCount += 1
+        floorSpanProbeCountdown = FLOOR_CONGESTION_PROBE_INTERVAL
+        floorPageBudgetCountdown = FLOOR_CONGESTION_PROBE_INTERVAL
       }
-      // The slice is already at the floor (`MIN_SUB_WINDOW_MS`) and the
-      // normal page budget still overflowed. Time cannot be sliced thinner,
-      // so re-pull this floor slice once with the much larger
-      // `FLOOR_SLICE_MAX_PAGES` budget and drain it whole. A single
-      // floor-width slice is bounded by real request volume, so the large
-      // budget is generous headroom; only a pathologically dense floor slice
-      // exceeds it, and that genuinely cannot be drained.
-      page = await options.pull({
-        token: options.token,
-        projectId: options.projectId,
-        teamId: options.teamId,
-        environment: options.environment,
-        startDate: cursorMs,
-        endDate: subEndMs,
-        maxPages: FLOOR_SLICE_MAX_PAGES,
-      })
-      subWindowCount += 1
-      floorSpanProbeCountdown = FLOOR_CONGESTION_PROBE_INTERVAL
-      floorPageBudgetCountdown = FLOOR_CONGESTION_PROBE_INTERVAL
       if (page.hasMore) {
-        throw new Error(
-          `Vercel ${MIN_SUB_WINDOW_MS / 1000}-second slice holds more than `
-            + `${FLOOR_SLICE_MAX_PAGES} pages and cannot be drained further`,
-        )
+        // Even `FLOOR_SLICE_MAX_PAGES` pages did not drain this one-second
+        // slice, and time cannot be sliced thinner. Failing here would freeze
+        // `lastSyncedAt` and wedge the source forever on this single
+        // pathological second (e.g. a bot flood). Instead, ingest the sample
+        // we pulled, record the truncation so the caller can surface it
+        // (never silent), and let the cursor advance past the slice below.
+        truncatedSliceCount += 1
+        truncatedSliceStartsMs.push(cursorMs)
       }
     }
 
@@ -309,5 +321,5 @@ export async function drainVercelTrafficEvents(
     }
   }
 
-  return { events, subWindowCount, effectiveStartMs, retentionClamped }
+  return { events, subWindowCount, effectiveStartMs, retentionClamped, truncatedSliceCount, truncatedSliceStartsMs }
 }

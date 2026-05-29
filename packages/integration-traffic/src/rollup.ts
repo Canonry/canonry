@@ -1,5 +1,5 @@
 import type { NormalizedTrafficRequest } from '@ainyc/canonry-contracts'
-import { classifyAiReferral, classifyAiUserFetch, classifyCrawler } from './classifier.js'
+import { classifyAiReferral, classifyAiUserFetch, classifyCrawler, isSelfTraffic } from './classifier.js'
 import type {
   AiReferralEventHourlyBucket,
   AiReferralEvidenceType,
@@ -192,13 +192,19 @@ export function buildTrafficProbeReport(
   const topAiReferrers = new Map<string, { fields: { sourceDomain: string; product: string }; hits: number }>()
   const topAiReferralLandingPaths = new Map<string, { fields: { landingPathNormalized: string }; hits: number }>()
 
+  // Drop Canonry's own tooling (e.g. the AEO auditor) before rollup so our
+  // measurement traffic never inflates a client's crawler / unknown / total
+  // counts. The dropped count is surfaced in `totals.selfTrafficExcluded`.
+  const includedEvents = events.filter((event) => !isSelfTraffic(event))
+  const selfTrafficExcluded = events.length - includedEvents.length
+
   let crawlerHits = 0
   let aiUserFetchHits = 0
   let aiReferralHits = 0
   let unknownHits = 0
   const samples: TrafficProbeReport['samples'] = []
 
-  for (const event of events) {
+  for (const event of includedEvents) {
     const tsHour = hourBucket(event.observedAt)
     const pathNormalized = normalizeTrafficPathPattern(event.path)
     const crawler = classifyCrawler(event)
@@ -340,7 +346,8 @@ export function buildTrafficProbeReport(
   return {
     generatedAt: options.generatedAt ?? new Date().toISOString(),
     totals: {
-      normalizedEvents: events.length,
+      normalizedEvents: includedEvents.length,
+      selfTrafficExcluded,
       crawlerHits,
       aiUserFetchHits,
       aiReferralSessions: aiReferralSessions.size,

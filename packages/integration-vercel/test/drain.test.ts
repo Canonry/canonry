@@ -142,13 +142,25 @@ describe('drainVercelTrafficEvents', () => {
     )
   })
 
-  test('throws only when a one-second slice overflows even the floor budget', async () => {
+  test('samples and advances when a one-second slice overflows even the floor budget', async () => {
     // hasMore stays true regardless of maxPages, so even the large floor-budget
-    // re-pull cannot drain the slice and the drain genuinely gives up.
-    const pull = vi.fn(async () => page([], true))
-    await expect(
-      drainVercelTrafficEvents({ ...baseOptions, pull, startDate: 0, endDate: 4 * HOUR }),
-    ).rejects.toThrow(/1-second slice holds more than 1000 pages/)
+    // re-pull cannot fully drain each one-second slice. Rather than fail — which
+    // would freeze lastSyncedAt and wedge the source forever on this second —
+    // the drain ingests the sample it pulled, records the truncation, and
+    // advances past the slice.
+    const pull = vi.fn(async (o: ListVercelTrafficEventsOptions) =>
+      page([makeEvent(`trunc-${Number(o.startDate)}`)], true),
+    )
+    const result = await drainVercelTrafficEvents({
+      ...baseOptions,
+      pull,
+      startDate: 0,
+      endDate: 3 * SECOND,
+    })
+    // Three one-second floor slices, each truncated + sampled + advanced past.
+    expect(result.truncatedSliceCount).toBe(3)
+    expect(result.truncatedSliceStartsMs).toEqual([0, SECOND, 2 * SECOND])
+    expect(result.events).toHaveLength(3)
   })
 
   test('drains a dense minute via one-second slicing without hitting the floor budget', async () => {

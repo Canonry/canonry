@@ -7,6 +7,19 @@ import type { AiCrawlerRule, AiReferrerRule } from './types.js'
  */
 const LEGACY_CHATGPT_DOMAIN = 'chat.openai.com'
 
+/**
+ * User-agents belonging to Canonry's own tooling. These hit client sites as a
+ * side effect of running an AEO audit / sweep (e.g. `aeo-audit --sitemap`
+ * crawls sitemap.xml, robots.txt, llms.txt, and inner pages) and are NOT real
+ * visitors or third-party crawlers. Events matching these are dropped from the
+ * traffic rollup so our own measurement tooling never inflates a client's
+ * crawler / unknown / total counts. Kept deliberately specific so a real UA
+ * that merely mentions "canonry" is not swept up.
+ */
+export const SELF_TRAFFIC_USER_AGENT_PATTERNS: RegExp[] = [
+  /AINYC-AEO-Audit\//i,
+]
+
 export const DEFAULT_AI_CRAWLER_RULES: AiCrawlerRule[] = [
   {
     id: 'openai-gptbot',
