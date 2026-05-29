@@ -24,6 +24,7 @@ import {
   gbpKeywordImpressionDtoSchema,
   gbpPlaceActionDtoSchema,
   gbpLodgingDtoSchema,
+  gbpPlaceDetailsDtoSchema,
   googleConnectionDtoSchema,
   gscCoverageSnapshotDtoSchema,
   gscSearchDataDtoSchema,
@@ -182,6 +183,17 @@ const COVERAGE: Record<string, CoverageEntry> = {
   gbpKeywordMonthly: {
     kind: 'internal-only',
     reason: 'Accumulating per-month keyword series; an internal trend-history aggregate consumed by the intelligence engine (month-over-month keyword-drop insights), not exposed as its own DTO. The current snapshot is served by gbpKeywordImpressions.',
+  },
+  gbpPlaceDetails: {
+    kind: 'dto',
+    dto: gbpPlaceDetailsDtoSchema,
+    internal: {
+      id: 'Surrogate key.',
+      projectId: 'Implied by the route scope.',
+      contentHash: 'Snapshot-on-change dedupe key; internal.',
+      syncRunId: 'Internal join key.',
+      attributes: 'Exposed as `place` on the DTO (with the derived `amenities` list alongside).',
+    },
   },
   gbpPlaceActions: {
     kind: 'dto',

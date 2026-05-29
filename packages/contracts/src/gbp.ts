@@ -36,6 +36,10 @@ export const gbpLocationDtoSchema = z.object({
   primaryCategoryDisplayName: z.string().nullable(),
   storefrontAddress: z.string().nullable(),
   websiteUri: z.string().nullable(),
+  // Google Maps Place ID + public Maps link (from location metadata; null when
+  // the location is not on Maps). `placeId` is the join key to the Places API.
+  placeId: z.string().nullable(),
+  mapsUri: z.string().nullable(),
   selected: z.boolean(),
   syncedAt: z.string().nullable(),
   createdAt: z.string(),
@@ -160,6 +164,28 @@ export const gbpLodgingListResponseSchema = z.object({
   total: z.number().int().nonnegative(),
 })
 export type GbpLodgingListResponse = z.infer<typeof gbpLodgingListResponseSchema>
+
+// Places (New) rendered-listing snapshot per location (#648). `amenities` is
+// the server-derived cross-reference signal (what the public listing asserts);
+// `place` is the raw Place Details resource for full inspection.
+export const gbpPlaceDetailsDtoSchema = z.object({
+  locationName: z.string(),
+  placeId: z.string(),
+  /** Field-mask SKU tier the snapshot was fetched at ('atmosphere' | 'pro'). */
+  tier: z.string(),
+  /** Amenities the public listing advertises, derived from `place`. */
+  amenities: z.array(z.string()),
+  syncedAt: z.string(),
+  /** Raw Place Details resource as Google returned it. */
+  place: z.record(z.string(), z.unknown()),
+})
+export type GbpPlaceDetailsDto = z.infer<typeof gbpPlaceDetailsDtoSchema>
+
+export const gbpPlaceDetailsListResponseSchema = z.object({
+  places: z.array(gbpPlaceDetailsDtoSchema),
+  total: z.number().int().nonnegative(),
+})
+export type GbpPlaceDetailsListResponse = z.infer<typeof gbpPlaceDetailsListResponseSchema>
 
 // Composite summary — every field is computed server-side by gbp-summary.ts so
 // the dashboard renders without doing math (UI/CLI parity).

@@ -200,6 +200,9 @@ importers:
       '@ainyc/canonry-integration-google-business-profile':
         specifier: workspace:*
         version: link:../integration-google-business-profile
+      '@ainyc/canonry-integration-google-places':
+        specifier: workspace:*
+        version: link:../integration-google-places
       '@ainyc/canonry-integration-traffic':
         specifier: workspace:*
         version: link:../integration-traffic
@@ -321,6 +324,9 @@ importers:
       '@ainyc/canonry-integration-google-business-profile':
         specifier: workspace:*
         version: link:../integration-google-business-profile
+      '@ainyc/canonry-integration-google-places':
+        specifier: workspace:*
+        version: link:../integration-google-places
       '@ainyc/canonry-integration-traffic':
         specifier: workspace:*
         version: link:../integration-traffic
@@ -422,6 +428,12 @@ importers:
         version: link:../contracts
 
   packages/integration-google-business-profile:
+    dependencies:
+      '@ainyc/canonry-contracts':
+        specifier: workspace:*
+        version: link:../contracts
+
+  packages/integration-google-places:
     dependencies:
       '@ainyc/canonry-contracts':
         specifier: workspace:*

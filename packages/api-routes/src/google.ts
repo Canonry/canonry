@@ -1,14 +1,16 @@
 import crypto from 'node:crypto'
 import { eq, and, desc, sql, inArray } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { gscSearchData, gscUrlInspections, gscCoverageSnapshots, gbpLocations, gbpDailyMetrics, gbpKeywordImpressions, gbpKeywordMonthly, gbpPlaceActions, gbpLodgingSnapshots, runs, projects, type DatabaseClient } from '@ainyc/canonry-db'
+import { gscSearchData, gscUrlInspections, gscCoverageSnapshots, gbpLocations, gbpDailyMetrics, gbpKeywordImpressions, gbpKeywordMonthly, gbpPlaceActions, gbpLodgingSnapshots, gbpPlaceDetails, runs, projects, type DatabaseClient } from '@ainyc/canonry-db'
 import {
   validationError, notFound, normalizeProjectDomain, parseWindow, windowCutoff,
   authRequired, quotaExceeded, providerError,
   type GoogleConnectionType,
   gbpDiscoverRequestSchema, gbpLocationSelectionRequestSchema, gbpSyncRequestSchema,
   type GbpLocationDto, type GbpLocationListResponse, type GbpAccountListResponse,
+  type GbpPlaceDetailsListResponse,
 } from '@ainyc/canonry-contracts'
+import { extractPlaceAmenities, type PlaceDetails } from '@ainyc/canonry-integration-google-places'
 import { buildGbpSummary } from './gbp-summary.js'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import {
@@ -1264,6 +1266,8 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
       primaryCategoryDisplayName: row.primaryCategoryDisplayName ?? null,
       storefrontAddress: row.storefrontAddress ?? null,
       websiteUri: row.websiteUri ?? null,
+      placeId: row.placeId ?? null,
+      mapsUri: row.mapsUri ?? null,
       selected: Boolean(row.selected),
       syncedAt: row.syncedAt ?? null,
       createdAt: row.createdAt,
@@ -1409,6 +1413,8 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
             primaryCategoryDisplayName: remote.categories?.primaryCategory?.displayName ?? null,
             storefrontAddress: formatStorefrontAddress(remote),
             websiteUri: remote.websiteUri ?? null,
+            placeId: remote.metadata?.placeId ?? null,
+            mapsUri: remote.metadata?.mapsUri ?? null,
             updatedAt: now,
           }).where(eq(gbpLocations.id, existing.id)).run()
         } else {
@@ -1421,6 +1427,8 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
             primaryCategoryDisplayName: remote.categories?.primaryCategory?.displayName ?? null,
             storefrontAddress: formatStorefrontAddress(remote),
             websiteUri: remote.websiteUri ?? null,
+            placeId: remote.metadata?.placeId ?? null,
+            mapsUri: remote.metadata?.mapsUri ?? null,
             selected: selectAllNew,
             createdAt: now,
             updatedAt: now,
@@ -1678,6 +1686,36 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
       attributes: r.attributes,
     }))
     return { lodging, total: lodging.length }
+  })
+
+  // GET /projects/:name/gbp/places — latest Places (New) rendered-listing
+  // snapshot per location, with the server-derived `amenities` cross-reference
+  // signal (#648). Mirrors /gbp/lodging: collapses to the latest snapshot.
+  app.get<{
+    Params: { name: string }
+    Querystring: { locationName?: string }
+  }>('/projects/:name/gbp/places', async (request): Promise<GbpPlaceDetailsListResponse> => {
+    const project = resolveProject(app.db, request.params.name)
+    const conditions = [eq(gbpPlaceDetails.projectId, project.id)]
+    if (request.query.locationName) conditions.push(eq(gbpPlaceDetails.locationName, request.query.locationName))
+    const rows = app.db.select().from(gbpPlaceDetails)
+      .where(and(...conditions))
+      .orderBy(desc(gbpPlaceDetails.syncedAt))
+      .all()
+    const latestByLocation = new Map<string, typeof rows[number]>()
+    for (const row of rows) {
+      if (!latestByLocation.has(row.locationName)) latestByLocation.set(row.locationName, row)
+    }
+    const places = [...latestByLocation.values()].map((r) => ({
+      locationName: r.locationName,
+      placeId: r.placeId,
+      tier: r.tier,
+      // Derived server-side so agents/UI consume the same amenity list.
+      amenities: extractPlaceAmenities(r.attributes as PlaceDetails),
+      syncedAt: r.syncedAt,
+      place: r.attributes,
+    }))
+    return { places, total: places.length }
   })
 
   // GET /projects/:name/gbp/summary — composite, all derived numbers server-side.

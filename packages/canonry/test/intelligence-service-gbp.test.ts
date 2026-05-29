@@ -15,6 +15,7 @@ import {
   gbpPlaceActions,
   gbpLodgingSnapshots,
   gbpKeywordMonthly,
+  gbpPlaceDetails,
 } from '@ainyc/canonry-db'
 import { IntelligenceService } from '../src/intelligence-service.js'
 
@@ -117,6 +118,38 @@ describe('IntelligenceService.analyzeAndPersistGbp', () => {
 
       // GBP runs never write a health snapshot.
       expect(db.select().from(healthSnapshots).where(eq(healthSnapshots.runId, 'run_gbp')).all()).toHaveLength(0)
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  test('upgrades the lodging gap to gbp-listing-discrepancy when a Places snapshot shows amenities (#648)', () => {
+    const { db, tmpDir } = createTempDb()
+    try {
+      seed(db)
+      // Location A has an EMPTY lodging profile but a Places snapshot proving
+      // its public listing advertises amenities — the evidence-backed case.
+      db.insert(gbpPlaceDetails).values({
+        id: 'pd1', projectId: 'proj_gbp', locationName: 'locations/A', placeId: 'ChIJa',
+        contentHash: 'ph1', tier: 'atmosphere',
+        attributes: { servesBreakfast: true, allowsDogs: true, parkingOptions: { freeParkingLot: true } },
+        syncedAt: NOW, syncRunId: null,
+      }).run()
+      seedRun(db, 'run_gbp')
+
+      const result = new IntelligenceService(db).analyzeAndPersistGbp('run_gbp', 'proj_gbp')
+      const types = result.map((i) => i.type).sort()
+
+      // The discrepancy supersedes the generic lodging-gap for location A.
+      expect(types).toContain('gbp-listing-discrepancy')
+      expect(types).not.toContain('gbp-lodging-gap')
+      const disc = result.find((i) => i.type === 'gbp-listing-discrepancy')!
+      expect(disc.severity).toBe('high')
+      expect(disc.query).toBe('Gjelina Venice')
+      // The reason names the specific amenities extracted from the Places snapshot.
+      expect(disc.recommendation?.reason).toContain('breakfast')
+      expect(disc.recommendation?.reason).toContain('parking')
+      expect(disc.recommendation?.reason).toContain('pet-friendly')
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true })
     }

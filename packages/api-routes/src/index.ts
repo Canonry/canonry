@@ -115,6 +115,8 @@ export interface ApiRoutesOptions {
   setTelemetryEnabled?: TelemetryRoutesOptions['setTelemetryEnabled']
   /** Google auth config and storage */
   getGoogleAuthConfig?: GoogleRoutesOptions['getGoogleAuthConfig']
+  /** Resolved Google Places config for the `gbp.places.api-key` doctor check. */
+  getPlacesConfig?: () => { apiKey?: string; tier: 'atmosphere' | 'pro' | 'off'; refreshIntervalDays: number }
   googleConnectionStore?: GoogleRoutesOptions['googleConnectionStore']
   /** Secret for signing OAuth state parameters */
   googleStateSecret?: string
@@ -406,6 +408,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       wordpressConnectionStore: opts.wordpressConnectionStore,
       ga4CredentialStore: opts.ga4CredentialStore,
       getGoogleAuthConfig: opts.getGoogleAuthConfig,
+      getPlacesConfig: opts.getPlacesConfig,
       publicUrl: opts.publicUrl,
       providerSummary: opts.providerSummary,
       trafficSourceValidators: buildTrafficSourceValidators(opts),

@@ -171,6 +171,22 @@ export interface AgentConfigEntry {
   mode?: 'disabled'
 }
 
+/**
+ * Google Places API config — supplemental rendered-listing data for GBP
+ * lodging locations (#648). The API key authenticates Place Details calls
+ * (`X-Goog-Api-Key`); it is NOT OAuth and is unrelated to `google.clientId`.
+ *   - `tier`: 'atmosphere' (default; amenity booleans for the cross-reference,
+ *     1k free calls/month) | 'pro' (cheaper, accessibility-only) | 'off'.
+ *   - `refreshIntervalDays`: minimum age before a location's Place Details is
+ *     re-fetched during gbp-sync (default 7) — the cost lever, since amenities
+ *     change rarely.
+ */
+export interface PlacesConfigEntry {
+  apiKey?: string
+  tier?: 'atmosphere' | 'pro' | 'off'
+  refreshIntervalDays?: number
+}
+
 export interface CanonryConfig {
   apiUrl: string
   publicUrl?: string
@@ -209,6 +225,8 @@ export interface CanonryConfig {
   lastKnownLatestVersion?: string
   // Agent layer configuration (reserved — native loop TBD)
   agent?: AgentConfigEntry
+  // Google Places API config (supplemental GBP lodging data — #648)
+  places?: PlacesConfigEntry
 }
 
 function normalizeGoogleConfig(config: CanonryConfig): void {

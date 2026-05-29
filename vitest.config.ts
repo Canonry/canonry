@@ -36,6 +36,8 @@ const NODE_PACKAGES = [
   'integration-commoncrawl',
   'integration-google',
   'integration-google-analytics',
+  'integration-google-business-profile',
+  'integration-google-places',
   'integration-traffic',
   'integration-vercel',
   'integration-wordpress',

@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 import { eq, and, desc, inArray, lt } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/canonry-db'
-import { runs, projects, gbpLocations, gbpDailyMetrics, gbpKeywordImpressions, gbpKeywordMonthly, gbpPlaceActions, gbpLodgingSnapshots } from '@ainyc/canonry-db'
+import { runs, projects, gbpLocations, gbpDailyMetrics, gbpKeywordImpressions, gbpKeywordMonthly, gbpPlaceActions, gbpLodgingSnapshots, gbpPlaceDetails } from '@ainyc/canonry-db'
 import { buildRunErrorFromMessages, serializeRunError } from '@ainyc/canonry-contracts'
 import { refreshAccessToken } from '@ainyc/canonry-integration-google'
 import {
@@ -13,10 +13,14 @@ import {
   hashLodging,
   GBP_DAILY_METRICS,
 } from '@ainyc/canonry-integration-google-business-profile'
+import { getPlaceDetails, hashPlaceDetails } from '@ainyc/canonry-integration-google-places'
 import type { CanonryConfig } from './config.js'
 import { saveConfigPatch } from './config.js'
 import { getGoogleAuthConfig, getGoogleConnection, patchGoogleConnection } from './google-config.js'
+import { getPlacesConfig } from './places-config.js'
 import { createLogger } from './logger.js'
+
+const MS_PER_DAY = 86_400_000
 
 const log = createLogger('GbpSync')
 
@@ -131,6 +135,11 @@ export async function executeGbpSync(
     const trendMonths = Array.from({ length: KEYWORD_TREND_MONTHS }, (_, i) => monthMinus(i + 1))
     const keywordRetentionCutoff = monthKey(monthMinus(KEYWORD_HISTORY_RETENTION_MONTHS))
 
+    // Resolved Places config (key + tier + refresh cadence). Enrichment is
+    // gated per-location below; when disabled or unconfigured the sync behaves
+    // exactly as before.
+    const { apiKey: placesApiKey, tier: placesTier, refreshIntervalDays: placesRefreshDays } = getPlacesConfig(opts.config)
+
     log.info('sync.start', { runId, projectId, locations: locationRows.length, daysOfMetrics, monthsOfKeywords })
 
     const errors = new Map<string, string>()
@@ -174,6 +183,32 @@ export async function executeGbpSync(
                 .get()
             : undefined
           const lodgingChanged = lodging !== null && latestLodging?.contentHash !== lodgingHash
+
+          // Places (New) enrichment — supplemental rendered-listing data, only
+          // for lodging-capable locations that carry a Maps placeId. A refresh
+          // cadence gate avoids re-fetching (and re-billing) unchanged hotels;
+          // snapshot-on-change avoids storing duplicate rows. Best-effort: a
+          // Places error is logged and skipped so it never fails the run.
+          let placeToWrite: { contentHash: string; attributes: Record<string, unknown>; tier: string; placeId: string } | null = null
+          if (placesTier !== 'off' && placesApiKey && lodging !== null && loc.placeId) {
+            const latestPlace = db.select().from(gbpPlaceDetails)
+              .where(and(eq(gbpPlaceDetails.projectId, projectId), eq(gbpPlaceDetails.locationName, loc.locationName)))
+              .orderBy(desc(gbpPlaceDetails.syncedAt))
+              .limit(1)
+              .get()
+            const ageDays = latestPlace ? (Date.now() - new Date(latestPlace.syncedAt).getTime()) / MS_PER_DAY : Infinity
+            if (ageDays >= placesRefreshDays) {
+              try {
+                const place = await getPlaceDetails(loc.placeId, placesApiKey, { tier: placesTier })
+                const hash = hashPlaceDetails(place)
+                if (latestPlace?.contentHash !== hash) {
+                  placeToWrite = { contentHash: hash, attributes: place as Record<string, unknown>, tier: placesTier, placeId: loc.placeId }
+                }
+              } catch (placesErr) {
+                log.warn('places.failed', { runId, location: loc.locationName, error: placesErr instanceof Error ? placesErr.message : String(placesErr) })
+              }
+            }
+          }
 
           const insertNow = new Date().toISOString()
           // Range-replace the per-sync surfaces for this location in one
@@ -275,6 +310,22 @@ export async function executeGbpSync(
                 contentHash: lodgingHash!,
                 attributes: lodging,
                 populatedGroupCount: countPopulatedGroups(lodging),
+                syncedAt: insertNow,
+                syncRunId: runId,
+              }).run()
+            }
+
+            // Places: append a new rendered-listing snapshot only when the
+            // Place Details content changed (decided above, gated + cadenced).
+            if (placeToWrite) {
+              tx.insert(gbpPlaceDetails).values({
+                id: crypto.randomUUID(),
+                projectId,
+                locationName: loc.locationName,
+                placeId: placeToWrite.placeId,
+                contentHash: placeToWrite.contentHash,
+                tier: placeToWrite.tier,
+                attributes: placeToWrite.attributes,
                 syncedAt: insertNow,
                 syncRunId: runId,
               }).run()

@@ -608,6 +608,8 @@ export type GbpLocationDto = {
     primaryCategoryDisplayName: string | null;
     storefrontAddress: string | null;
     websiteUri: string | null;
+    placeId: string | null;
+    mapsUri: string | null;
     selected: boolean;
     syncedAt: string | null;
     createdAt: string;
@@ -624,6 +626,8 @@ export type GbpLocationListResponse = {
         primaryCategoryDisplayName: string | null;
         storefrontAddress: string | null;
         websiteUri: string | null;
+        placeId: string | null;
+        mapsUri: string | null;
         selected: boolean;
         syncedAt: string | null;
         createdAt: string;
@@ -653,6 +657,20 @@ export type GbpPlaceActionListResponse = {
         uri: string | null;
         isPreferred: boolean;
         providerType: string | null;
+    }>;
+    total: number;
+};
+
+export type GbpPlaceDetailsListResponse = {
+    places: Array<{
+        locationName: string;
+        placeId: string;
+        tier: string;
+        amenities: Array<string>;
+        syncedAt: string;
+        place: {
+            [key: string]: unknown;
+        };
     }>;
     total: number;
 };
@@ -5082,6 +5100,41 @@ export type GetApiV1ProjectsByNameGbpLodgingResponses = {
 };
 
 export type GetApiV1ProjectsByNameGbpLodgingResponse = GetApiV1ProjectsByNameGbpLodgingResponses[keyof GetApiV1ProjectsByNameGbpLodgingResponses];
+
+export type GetApiV1ProjectsByNameGbpPlacesData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Filter to one location resource name
+         */
+        locationName?: string;
+    };
+    url: '/api/v1/projects/{name}/gbp/places';
+};
+
+export type GetApiV1ProjectsByNameGbpPlacesErrors = {
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameGbpPlacesError = GetApiV1ProjectsByNameGbpPlacesErrors[keyof GetApiV1ProjectsByNameGbpPlacesErrors];
+
+export type GetApiV1ProjectsByNameGbpPlacesResponses = {
+    /**
+     * Place Details snapshots returned.
+     */
+    200: GbpPlaceDetailsListResponse;
+};
+
+export type GetApiV1ProjectsByNameGbpPlacesResponse = GetApiV1ProjectsByNameGbpPlacesResponses[keyof GetApiV1ProjectsByNameGbpPlacesResponses];
 
 export type GetApiV1ProjectsByNameGbpSummaryData = {
     body?: never;

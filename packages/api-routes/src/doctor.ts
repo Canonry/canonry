@@ -16,6 +16,8 @@ export interface DoctorRoutesOptions {
   wordpressConnectionStore?: WordpressConnectionStore
   ga4CredentialStore?: Ga4CredentialStore
   getGoogleAuthConfig?: () => { clientId?: string; clientSecret?: string }
+  /** Resolved Places config for the `gbp.places.api-key` check. See `DoctorContext.getPlacesConfig`. */
+  getPlacesConfig?: () => { apiKey?: string; tier: 'atmosphere' | 'pro' | 'off'; refreshIntervalDays: number }
   /** Used to derive the redirect URI displayed by the redirect-uri check. */
   publicUrl?: string
   providerSummary?: ProviderSummaryEntry[]
@@ -61,6 +63,7 @@ export async function doctorRoutes(app: FastifyInstance, opts: DoctorRoutesOptio
       wordpressConnectionStore: opts.wordpressConnectionStore,
       ga4CredentialStore: opts.ga4CredentialStore,
       getGoogleAuthConfig: opts.getGoogleAuthConfig,
+      getPlacesConfig: opts.getPlacesConfig,
       redirectUri,
       providerSummary: opts.providerSummary,
       trafficSourceValidators: opts.trafficSourceValidators,
@@ -90,6 +93,7 @@ export async function doctorRoutes(app: FastifyInstance, opts: DoctorRoutesOptio
       wordpressConnectionStore: opts.wordpressConnectionStore,
       ga4CredentialStore: opts.ga4CredentialStore,
       getGoogleAuthConfig: opts.getGoogleAuthConfig,
+      getPlacesConfig: opts.getPlacesConfig,
       redirectUri,
       providerSummary: opts.providerSummary,
       trafficSourceValidators: opts.trafficSourceValidators,

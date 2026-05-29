@@ -168,13 +168,15 @@ canonry doctor --project <name> --check 'gbp.*'
 - `gbp.auth.connection` — OAuth creds present + refresh token works.
 - `gbp.auth.scopes` — granted scope includes `business.manage`.
 - `gbp.account.access` — the tracked account is still listable. A `gbp.account.quota-pending` **warn** means the API access form is still pending Google approval (0 QPM) — auth is fine, the API just isn't enabled yet.
+- `gbp.places.api-key` — Places API readiness for the listing cross-reference (#648). **Warns** when GBP is connected but no Places key is set, or when no selected location carries a Maps place id (re-run `gbp locations discover`). Skipped when Places is disabled (`google.places.tier: off`) or GBP isn't connected.
 - `gbp.data.recent-sync` — a selected location synced in the last 7d (warn) / 30d (fail); warns when never synced.
 
 ## Insights (after a `gbp-sync` run)
 
 A completed `gbp-sync` run generates location-scoped insights (`provider = 'gbp'`), surfaced in `canonry insights`, the dashboard, notifications (`insight.critical`/`insight.high`), and Aero's proactive wake-up:
 
-- `gbp-lodging-gap` (high) — a lodging-capable location with an empty attribute profile. The insight flags that the GBP API exposes only owner-configured attributes, so the *rendered* Google listing (which synthesizes amenities from Hotel Center / OTAs / Places) may differ — an empty profile is the operator's blind spot, not proof the public listing is empty.
+- `gbp-lodging-gap` (high) — a lodging-capable location with an empty attribute profile, **and no Places evidence available** (Places disabled, no key, or no snapshot yet). The insight flags that the GBP API exposes only owner-configured attributes, so the *rendered* Google listing (which synthesizes amenities from Hotel Center / OTAs / Places) may differ — an empty profile is the operator's blind spot, not proof the public listing is empty.
+- `gbp-listing-discrepancy` (high) — the **evidence-backed** version of the above (#648 Phase B): the empty GBP profile, *plus* a Places snapshot proving the public listing advertises specific amenities (e.g. breakfast, parking, pet-friendly). Names the exact amenities the profile fails to back. **Supersedes `gbp-lodging-gap`** for that location when Places data exists. Requires a Places API key + a synced lodging location with a place id.
 - `gbp-cta-gap` (medium) — place actions present but no direct-merchant booking CTA (only aggregators).
 - `gbp-metric-drop` (high/medium) — a headline conversion metric (direction requests, website clicks, call clicks) fell sharply week-over-week within the synced window.
 - `gbp-keyword-drop` (high/medium) — a head search term's impressions fell month-over-month.
@@ -208,9 +210,28 @@ Booking and reservation CTAs surfaced in AI answers come from `placeActionLinks`
 
 A property with only aggregator booking links and no direct merchant CTA is a recommendation to surface.
 
+## Places enrichment — the rendered-listing cross-reference (#648)
+
+For lodging locations, canonry pulls the **Places API (New) Place Details** — the amenities Google's *public* listing advertises (breakfast, parking, pet policy, accessibility, editorial summary) — and cross-references them against the owner-configured GBP profile. An empty GBP profile whose public listing shows amenities fires the evidence-backed `gbp-listing-discrepancy` insight naming the exact gaps.
+
+**Setup** — the Places API uses a plain **API key**, not OAuth (unrelated to `google.clientId`). A billing account (card) is required on the GCP project even within the free tier.
+
+```yaml
+# ~/.canonry/config.yaml
+google:
+  places:
+    apiKey: "AIza..."          # or env GOOGLE_PLACES_API_KEY
+    tier: atmosphere           # atmosphere (default) | pro | off
+    refreshIntervalDays: 7     # cost lever — re-fetch a location at most weekly
+```
+
+The next `gbp sync` then snapshots Place Details for selected lodging locations that carry a Maps place id (re-run `gbp locations discover` if `gbp.places.api-key` warns there are none). Read it back with `canonry gbp places <project>` (the `amenities` list is computed server-side).
+
+**Cost** — Place Details is billed at the highest field-mask tier requested. The amenity booleans powering the cross-reference are the **Enterprise + Atmosphere** SKU: **1,000 free calls/month, then $25/1,000**. Because canonry fetches Places only for lodging locations and only past the refresh interval (default weekly), a typical operator book (a handful to ~200 hotels on a weekly refresh) stays inside the free tier — **$0/month**. Drop `tier` to `pro` (5,000 free, accessibility-only — thinner cross-reference) or `off` to disable. `accessibilityOptions` is Pro tier; the IDs-only refresh is free.
+
 ## Important Constraints
 
-- **GBP API returns owner-configured data only** — the API exposes only what the profile owner has set. Google's *rendered* hotel listing synthesizes additional amenities, room pricing, and booking links from Google Hotel Center, OTA feeds (Booking/Expedia/Hotels.com), and Places/user-contributed data — none of which the GBP API returns. So an empty lodging profile (the `gbp-lodging-gap` insight) does **not** mean the public listing is empty; it means the operator hasn't populated the structured source AI answer engines read. Pulling the rendered-listing side from the Places API (and cross-referencing it against GBP attributes) is tracked in issue #648.
+- **GBP API returns owner-configured data only** — the API exposes only what the profile owner has set. Google's *rendered* hotel listing synthesizes additional amenities, room pricing, and booking links from Google Hotel Center, OTA feeds (Booking/Expedia/Hotels.com), and Places/user-contributed data — none of which the GBP API returns. So an empty lodging profile does **not** mean the public listing is empty; it means the operator hasn't populated the structured source AI answer engines read. **Canonry pulls the rendered-listing side from the Places API and cross-references it against the GBP profile** (issue #648, shipped) — see "Places enrichment" below.
 - **No read-only OAuth scope** — `business.manage` is the only published scope. The consent screen will warn about write access even though canonry's v1 is read-only.
 - **300 QPM shared quota** — across all GBP sub-APIs on one Google Cloud project. Canonry's sync worker caps per-location concurrency at 4 (~28 in-flight calls at peak) to stay well under the cap.
 - **10 edits/min per profile** — hard cap on writes (relevant for Phase 4). Cannot be raised.

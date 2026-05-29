@@ -400,6 +400,10 @@ cnry gbp place-actions <project> [--location locations/{n}]
 cnry gbp lodging <project> [--location locations/{n}]
                                                    # latest hotel-attribute snapshot per location (snapshot-on-change):
                                                    # populatedGroupCount + syncedAt; empty profiles are an AEO gap, not an error
+cnry gbp places <project> [--location locations/{n}]
+                                                   # latest Places-API rendered-listing snapshot per location: the
+                                                   # server-derived `amenities` the public listing advertises (#648 cross-reference).
+                                                   # Needs a Places API key (google.places.apiKey / GOOGLE_PLACES_API_KEY)
 cnry gbp summary <project> [--location locations/{n}]
                                                    # composite scorecard: performance totals + recent-vs-prior 7d
                                                    # deltas (deltaPct null when prior=0), keyword coverage,

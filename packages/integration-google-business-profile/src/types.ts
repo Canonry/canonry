@@ -17,6 +17,18 @@ export interface GbpStorefrontAddress {
   addressLines?: string[]
 }
 
+/**
+ * Output-only location metadata. `placeId` is the Google Maps Place ID — present
+ * only when the location appears on Maps — and is the key that links a GBP
+ * location to the Places API (used to pull supplemental rendered-listing data).
+ * `mapsUri` is the public Maps link. Requesting these requires `metadata.*` in
+ * the readMask.
+ */
+export interface GbpLocationMetadata {
+  placeId?: string
+  mapsUri?: string
+}
+
 export interface GbpLocation {
   /** "locations/{n}" */
   name: string
@@ -27,6 +39,7 @@ export interface GbpLocation {
     primaryCategory?: { displayName?: string }
     additionalCategories?: { displayName?: string }[]
   }
+  metadata?: GbpLocationMetadata
 }
 
 /**

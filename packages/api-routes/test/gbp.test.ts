@@ -5,7 +5,7 @@ import path from 'node:path'
 import os from 'node:os'
 import Fastify from 'fastify'
 import { eq } from 'drizzle-orm'
-import { createClient, migrate, projects, gbpLocations, gbpDailyMetrics, gbpKeywordImpressions, gbpKeywordMonthly, gbpPlaceActions, gbpLodgingSnapshots, auditLog } from '@ainyc/canonry-db'
+import { createClient, migrate, projects, gbpLocations, gbpDailyMetrics, gbpKeywordImpressions, gbpKeywordMonthly, gbpPlaceActions, gbpLodgingSnapshots, gbpPlaceDetails, auditLog } from '@ainyc/canonry-db'
 import { AppError, type GoogleConnectionType } from '@ainyc/canonry-contracts'
 import { googleRoutes } from '../src/google.js'
 
@@ -124,7 +124,7 @@ describe('GBP routes (Phase 1)', () => {
 
   function mockGoogleResponses(opts: {
     accounts?: Array<{ name: string; accountName?: string }>
-    locations?: Array<{ name: string; title?: string; websiteUri?: string; categories?: { primaryCategory?: { displayName?: string } } }>
+    locations?: Array<{ name: string; title?: string; websiteUri?: string; categories?: { primaryCategory?: { displayName?: string } }; metadata?: { placeId?: string; mapsUri?: string } }>
   }) {
     fetchSpy.mockImplementation((url: string) => {
       // Route on the exact hostname, not a substring of the full URL — a
@@ -192,6 +192,42 @@ describe('GBP routes (Phase 1)', () => {
       expect(body.totalSelected).toBe(2)
       expect(body.locations.map(l => l.locationName).sort()).toEqual(['locations/1', 'locations/2'])
       expect(body.locations.every(l => l.selected)).toBe(true)
+    })
+
+    it('persists the Maps placeId + mapsUri from location metadata (#648)', async () => {
+      const projectId = ctx.seedProject('hotels', 'hotels.example.com')
+      ctx.seedGbpConnection('hotels.example.com', 'valid-access-token')
+      mockGoogleResponses({
+        accounts: [{ name: 'accounts/123' }],
+        locations: [
+          { name: 'locations/1', title: 'Hotel One', metadata: { placeId: 'ChIJoneplaceid', mapsUri: 'https://maps.google.com/?cid=1' } },
+          { name: 'locations/2', title: 'Off-Maps Location' }, // no metadata → null
+        ],
+      })
+
+      await ctx.app.inject({ method: 'POST', url: '/projects/hotels/gbp/locations/discover', payload: {} })
+
+      const rows = ctx.db.select().from(gbpLocations).where(eq(gbpLocations.projectId, projectId)).all()
+      const one = rows.find(r => r.locationName === 'locations/1')!
+      const two = rows.find(r => r.locationName === 'locations/2')!
+      expect(one.placeId).toBe('ChIJoneplaceid')
+      expect(one.mapsUri).toBe('https://maps.google.com/?cid=1')
+      expect(two.placeId).toBeNull()
+      expect(two.mapsUri).toBeNull()
+    })
+
+    it('refreshes placeId on re-discover when Google later assigns one', async () => {
+      const projectId = ctx.seedProject('hotels', 'hotels.example.com')
+      ctx.seedGbpConnection('hotels.example.com', 'valid-access-token')
+      // First discover: location not yet on Maps.
+      mockGoogleResponses({ accounts: [{ name: 'accounts/123' }], locations: [{ name: 'locations/1', title: 'Hotel One' }] })
+      await ctx.app.inject({ method: 'POST', url: '/projects/hotels/gbp/locations/discover', payload: {} })
+      expect(ctx.db.select().from(gbpLocations).where(eq(gbpLocations.projectId, projectId)).get()!.placeId).toBeNull()
+
+      // Re-discover after Google assigns a Place ID.
+      mockGoogleResponses({ accounts: [{ name: 'accounts/123' }], locations: [{ name: 'locations/1', title: 'Hotel One', metadata: { placeId: 'ChIJlater' } }] })
+      await ctx.app.inject({ method: 'POST', url: '/projects/hotels/gbp/locations/discover', payload: {} })
+      expect(ctx.db.select().from(gbpLocations).where(eq(gbpLocations.projectId, projectId)).get()!.placeId).toBe('ChIJlater')
     })
 
     it('respects selectAllNew=false for newly-discovered locations', async () => {
@@ -464,6 +500,49 @@ describe('GBP routes (Phase 1)', () => {
       // The deselected location's 99 clicks must NOT count; only the selected 10.
       expect(body.performance.totals.WEBSITE_CLICKS).toBe(10)
       expect(body.scope.locationCount).toBe(1)
+    })
+  })
+
+  describe('GET /gbp/places (#648)', () => {
+    const mk = (projectId: string, id: string, loc: string, syncedAt: string, attrs: Record<string, unknown>, tier = 'atmosphere') =>
+      ({ id, projectId, locationName: loc, placeId: `ChIJ${loc}`, contentHash: id, tier, attributes: attrs, syncedAt, syncRunId: null })
+
+    it('returns the latest Place Details snapshot per location with derived amenities', async () => {
+      const projectId = ctx.seedProject('hotels', 'hotels.example.com')
+      ctx.db.insert(gbpPlaceDetails).values([
+        mk(projectId, 'p_old', 'locations/1', '2026-05-01T00:00:00.000Z', { servesBreakfast: false }),
+        mk(projectId, 'p_new', 'locations/1', '2026-05-20T00:00:00.000Z', { servesBreakfast: true, allowsDogs: true }),
+        mk(projectId, 'p_2', 'locations/2', '2026-05-10T00:00:00.000Z', { parkingOptions: { freeParkingLot: true } }),
+      ]).run()
+
+      const res = await ctx.app.inject({ method: 'GET', url: '/projects/hotels/gbp/places' })
+      expect(res.statusCode).toBe(200)
+      const body = res.json() as { places: Array<{ locationName: string; placeId: string; tier: string; amenities: string[]; syncedAt: string }>; total: number }
+      expect(body.total).toBe(2)
+      const one = body.places.find((p) => p.locationName === 'locations/1')!
+      // Latest snapshot wins; amenities are derived server-side (not in the row).
+      expect(one.syncedAt).toBe('2026-05-20T00:00:00.000Z')
+      expect(one.amenities).toEqual(['breakfast', 'pet-friendly'])
+      expect(one.tier).toBe('atmosphere')
+      expect(body.places.find((p) => p.locationName === 'locations/2')!.amenities).toEqual(['parking'])
+    })
+
+    it('filters to a single location via ?locationName', async () => {
+      const projectId = ctx.seedProject('hotels', 'hotels.example.com')
+      ctx.db.insert(gbpPlaceDetails).values([
+        mk(projectId, 'a', 'locations/1', '2026-05-01T00:00:00.000Z', {}),
+        mk(projectId, 'b', 'locations/2', '2026-05-01T00:00:00.000Z', {}),
+      ]).run()
+      const res = await ctx.app.inject({ method: 'GET', url: `/projects/hotels/gbp/places?locationName=${encodeURIComponent('locations/1')}` })
+      const body = res.json() as { total: number; places: Array<{ locationName: string }> }
+      expect(body.total).toBe(1)
+      expect(body.places[0]!.locationName).toBe('locations/1')
+    })
+
+    it('returns an empty list for a project with no Places snapshots', async () => {
+      ctx.seedProject('hotels', 'hotels.example.com')
+      const res = await ctx.app.inject({ method: 'GET', url: '/projects/hotels/gbp/places' })
+      expect(res.json()).toEqual({ places: [], total: 0 })
     })
   })
 })

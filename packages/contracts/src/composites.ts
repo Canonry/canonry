@@ -243,6 +243,7 @@ export const projectSearchInsightHitSchema = z.object({
     'competitor-lost',
     // Google Business Profile (local-AEO) insight types — see InsightType.
     'gbp-lodging-gap',
+    'gbp-listing-discrepancy',
     'gbp-cta-gap',
     'gbp-metric-drop',
     'gbp-keyword-drop',

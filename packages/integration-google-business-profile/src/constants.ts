@@ -38,11 +38,15 @@ export const GBP_DEFAULT_PAGE_SIZE = 100
 // Safety limit: max pagination iterations to avoid infinite loops.
 export const GBP_MAX_PAGES = 200
 
-// Default readMask for listLocations — covers everything Phase 1 needs.
+// Default readMask for listLocations. `metadata.placeId` / `metadata.mapsUri`
+// are output-only and only populated when the location is on Maps — they are
+// the join key to the Places API for supplemental rendered-listing data (#648).
 export const GBP_LOCATIONS_DEFAULT_READ_MASK = [
   'name',
   'title',
   'storefrontAddress',
   'websiteUri',
   'categories.primaryCategory.displayName',
+  'metadata.placeId',
+  'metadata.mapsUri',
 ].join(',')

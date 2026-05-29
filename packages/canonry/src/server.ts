@@ -21,6 +21,7 @@ import { perplexityAdapter } from '@ainyc/canonry-provider-perplexity'
 import { authInvalid, validationError, RunKinds, RunStatuses, RunTriggers, type ProviderAdapter } from '@ainyc/canonry-contracts'
 import type { CanonryConfig, ProviderConfigEntry } from './config.js'
 import { saveConfigPatch, loadConfig, getConfigPath } from './config.js'
+import { getPlacesConfig } from './places-config.js'
 import {
   getGoogleAuthConfig,
   getGoogleConnection,
@@ -1088,6 +1089,7 @@ export async function createServer(opts: {
       registerAgentRoutes(scope, { db: opts.db, sessionRegistry })
     },
     getGoogleAuthConfig: () => getGoogleAuthConfig(opts.config),
+    getPlacesConfig: () => getPlacesConfig(opts.config),
     googleConnectionStore,
     googleStateSecret,
     publicUrl: opts.config.publicUrl,
