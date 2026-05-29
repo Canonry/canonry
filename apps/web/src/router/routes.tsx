@@ -119,6 +119,12 @@ export const projectSearchConsoleRoute = createRoute({
   component: () => <LazyProjectPage tab="search-console" />,
 })
 
+export const projectLocalRoute = createRoute({
+  getParentRoute: () => projectLayoutRoute,
+  path: '/local',
+  component: () => <LazyProjectPage tab="local" />,
+})
+
 export const projectDiscoveryRoute = createRoute({
   getParentRoute: () => projectLayoutRoute,
   path: '/discovery',
@@ -206,6 +212,7 @@ export const routeTree = rootRoute.addChildren([
   projectLayoutRoute.addChildren([
     projectOverviewRoute,
     projectSearchConsoleRoute,
+    projectLocalRoute,
     projectDiscoveryRoute,
     projectReportRoute,
     projectActivityRoute,

@@ -88,6 +88,15 @@ test('/projects/$id/report renders the report tab', async () => {
   expect(container.innerHTML).toMatch(/Loading report/)
 })
 
+test('/projects/$id/local renders the local presence tab', async () => {
+  const { container } = await renderRoute('/projects/project_citypoint/local')
+  // Route resolves to the project shell...
+  expect(container.innerHTML).toMatch(/Citypoint Dental NYC/)
+  // ...and the Local Presence tab renders GbpSection. The fixture has no GBP
+  // connection, so its connect empty-state renders (heading shows in every state).
+  await waitFor(() => expect(container.innerHTML).toMatch(/Google Business Profile/))
+})
+
 test('/projects/$id/discovery renders the discovery tab with plain-language copy', async () => {
   const { container } = await renderRoute('/projects/project_citypoint/discovery')
   expect(container.innerHTML).toMatch(/Find new queries to track/)

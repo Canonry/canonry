@@ -24,7 +24,29 @@ const gbpConnection = {
   updatedAt: '2026-05-01T00:00:00.000Z',
 }
 
-test('renders connected GBP data: scorecard, keywords, and locations', async () => {
+function makeLocation(over: Record<string, unknown>) {
+  return {
+    id: 'loc-1', projectId: 'p1', accountName: 'accounts/1', locationName: 'locations/123',
+    displayName: 'Gjelina Venice', primaryCategoryDisplayName: 'Hotel',
+    storefrontAddress: '1429 Abbot Kinney Blvd', websiteUri: 'https://gjelina.com',
+    placeId: 'ChIJ-place-123', mapsUri: 'https://maps.google.com/?cid=123',
+    selected: true, syncedAt: '2026-05-20T00:00:00.000Z',
+    createdAt: '2026-05-01T00:00:00.000Z', updatedAt: '2026-05-20T00:00:00.000Z',
+    ...over,
+  }
+}
+
+function emptySummary() {
+  return {
+    scope: { locationName: null, locationCount: 1 },
+    performance: { totals: {}, recent7d: {}, prior7d: {}, deltaPct: {} },
+    keywords: { total: 0, thresholdedCount: 0, thresholdedPct: 0 },
+    placeActions: { total: 0, hasReservationCta: false, hasBookingCta: false, hasDirectMerchantCta: false },
+    lodging: { lodgingLocationCount: 0, populatedLodgingCount: 0, emptyLodgingCount: 0 },
+  }
+}
+
+test('renders connected GBP data: scorecard, keywords, and public listing', async () => {
   const restoreFetch = mockFetch((url) => {
     const urlPath = url.split('?')[0]!
     if (urlPath.endsWith('/projects/test-project/google/connections')) {
@@ -45,17 +67,7 @@ test('renders connected GBP data: scorecard, keywords, and locations', async () 
       })
     }
     if (urlPath.endsWith('/projects/test-project/gbp/locations')) {
-      return jsonResponse({
-        locations: [{
-          id: 'loc-1', projectId: 'p1', accountName: 'accounts/1', locationName: 'locations/123',
-          displayName: 'Gjelina Venice', primaryCategoryDisplayName: 'Hotel',
-          storefrontAddress: '1429 Abbot Kinney Blvd', websiteUri: 'https://gjelina.com',
-          selected: true, syncedAt: '2026-05-20T00:00:00.000Z',
-          createdAt: '2026-05-01T00:00:00.000Z', updatedAt: '2026-05-20T00:00:00.000Z',
-        }],
-        totalDiscovered: 1,
-        totalSelected: 1,
-      })
+      return jsonResponse({ locations: [makeLocation({})], totalDiscovered: 1, totalSelected: 1 })
     }
     if (urlPath.endsWith('/projects/test-project/gbp/keywords')) {
       return jsonResponse({
@@ -66,6 +78,18 @@ test('renders connected GBP data: scorecard, keywords, and locations', async () 
         total: 1,
         thresholdedPct: 0,
       })
+    }
+    if (urlPath.endsWith('/projects/test-project/gbp/places')) {
+      return jsonResponse({
+        places: [{
+          locationName: 'locations/123', placeId: 'ChIJ-place-123', tier: 'atmosphere',
+          amenities: ['Pool', 'Free Wi-Fi', 'Spa'], syncedAt: '2026-05-20T00:00:00.000Z', place: {},
+        }],
+        total: 1,
+      })
+    }
+    if (urlPath.endsWith('/projects/test-project/insights')) {
+      return jsonResponse([])
     }
     throw new Error(`Unexpected fetch: ${url}`)
   })
@@ -79,14 +103,90 @@ test('renders connected GBP data: scorecard, keywords, and locations', async () 
   expect(screen.getByText('Connected')).toBeTruthy()
   // Server-computed delta (the component does no math).
   expect(screen.getByText('-80%')).toBeTruthy()
-  // Keyword row + location row.
+  // Keyword row.
   expect(screen.getByText('venice beach hotel')).toBeTruthy()
-  expect(screen.getByText('Gjelina Venice')).toBeTruthy()
   // Lodging gap surfaced (empty profile).
   expect(screen.getByText('1 empty')).toBeTruthy()
+  // Public listing (Places) amenities render; the location name shows in that card.
+  expect(screen.getByText('Pool')).toBeTruthy()
+  expect(screen.getByText('Free Wi-Fi')).toBeTruthy()
+  expect(screen.getByText('Gjelina Venice')).toBeTruthy()
+  // Single tracked location → no scope selector.
+  expect(screen.queryByText('All locations')).toBeNull()
 })
 
-test('self-gates to nothing when the project has no GBP connection', async () => {
+test('renders the owner-vs-public amenity gap insight (server-computed)', async () => {
+  const restoreFetch = mockFetch((url) => {
+    const urlPath = url.split('?')[0]!
+    if (urlPath.endsWith('/projects/test-project/google/connections')) return jsonResponse([gbpConnection])
+    if (urlPath.endsWith('/projects/test-project/gbp/summary')) return jsonResponse(emptySummary())
+    if (urlPath.endsWith('/projects/test-project/gbp/locations')) {
+      return jsonResponse({ locations: [makeLocation({})], totalDiscovered: 1, totalSelected: 1 })
+    }
+    if (urlPath.endsWith('/projects/test-project/gbp/keywords')) {
+      return jsonResponse({ keywords: [], total: 0, thresholdedPct: 0 })
+    }
+    if (urlPath.endsWith('/projects/test-project/gbp/places')) {
+      return jsonResponse({
+        places: [{
+          locationName: 'locations/123', placeId: 'ChIJ-place-123', tier: 'atmosphere',
+          amenities: ['Pool', 'Spa'], syncedAt: '2026-05-20T00:00:00.000Z', place: {},
+        }],
+        total: 1,
+      })
+    }
+    if (urlPath.endsWith('/projects/test-project/insights')) {
+      return jsonResponse([{
+        id: 'ins-1', projectId: 'p1', runId: 'r1', type: 'gbp-listing-discrepancy',
+        severity: 'high', title: 'Gjelina Venice: public listing shows 2 amenities your GBP profile doesn’t',
+        query: 'locations/123', provider: 'gbp',
+        recommendation: { action: 'Populate amenities', reason: 'Google’s rendered listing advertises Pool, Spa but your GBP profile has none.' },
+        dismissed: false, createdAt: '2026-05-21T00:00:00.000Z',
+      }])
+    }
+    throw new Error(`Unexpected fetch: ${url}`)
+  })
+  onTestFinished(restoreFetch)
+
+  renderGbpSection()
+
+  await waitFor(() => expect(
+    screen.getByText('Gjelina Venice: public listing shows 2 amenities your GBP profile doesn’t'),
+  ).toBeTruthy())
+  expect(screen.getByText(/Google’s rendered listing advertises Pool, Spa/)).toBeTruthy()
+})
+
+test('shows a location scope selector when multiple locations are tracked', async () => {
+  const restoreFetch = mockFetch((url) => {
+    const urlPath = url.split('?')[0]!
+    if (urlPath.endsWith('/projects/test-project/google/connections')) return jsonResponse([gbpConnection])
+    if (urlPath.endsWith('/projects/test-project/gbp/summary')) return jsonResponse(emptySummary())
+    if (urlPath.endsWith('/projects/test-project/gbp/locations')) {
+      return jsonResponse({
+        locations: [
+          makeLocation({}),
+          makeLocation({ id: 'loc-2', locationName: 'locations/456', displayName: 'AZ Coatings', placeId: null, mapsUri: null }),
+        ],
+        totalDiscovered: 2,
+        totalSelected: 2,
+      })
+    }
+    if (urlPath.endsWith('/projects/test-project/gbp/keywords')) return jsonResponse({ keywords: [], total: 0, thresholdedPct: 0 })
+    if (urlPath.endsWith('/projects/test-project/gbp/places')) return jsonResponse({ places: [], total: 0 })
+    if (urlPath.endsWith('/projects/test-project/insights')) return jsonResponse([])
+    throw new Error(`Unexpected fetch: ${url}`)
+  })
+  onTestFinished(restoreFetch)
+
+  renderGbpSection()
+
+  // Two tracked locations → the scope selector renders with an "All" option + each location.
+  await waitFor(() => expect(screen.getByText('All locations')).toBeTruthy())
+  expect(screen.getByText('Gjelina Venice')).toBeTruthy()
+  expect(screen.getByText('AZ Coatings')).toBeTruthy()
+})
+
+test('shows a connect empty-state when the project has no GBP connection', async () => {
   const restoreFetch = mockFetch((url) => {
     const urlPath = url.split('?')[0]!
     if (urlPath.endsWith('/projects/test-project/google/connections')) {
@@ -97,9 +197,10 @@ test('self-gates to nothing when the project has no GBP connection', async () =>
   })
   onTestFinished(restoreFetch)
 
-  const { container } = renderGbpSection()
+  renderGbpSection()
 
-  // Give the connections query a tick to resolve, then assert nothing rendered.
-  await waitFor(() => expect(container.querySelector('section')).toBeNull())
-  expect(screen.queryByText('Google Business Profile')).toBeNull()
+  // The dedicated tab renders an explicit empty state (not nothing) so direct
+  // navigation isn't a blank page. No data endpoints are fetched.
+  await waitFor(() => expect(screen.getByText(/No Google Business Profile is connected/)).toBeTruthy())
+  expect(screen.getByText('Google Business Profile')).toBeTruthy()
 })
