@@ -91,7 +91,11 @@ export function analyzeGbp(signals: GbpLocationSignals[]): GbpInsightDraft[] {
   for (const loc of signals) {
     const base = { locationName: loc.locationName, query: loc.displayName, provider: GBP_INSIGHT_PROVIDER }
 
-    // 1. Lodging profile empty — AI engines have no structured amenity data.
+    // 1. Lodging profile empty — the GBP API exposes only owner-configured
+    //    attributes, so an empty profile is the operator's blind spot. Google's
+    //    rendered listing may still synthesize amenities from Hotel Center, OTAs,
+    //    and Places/user data, but that synthesized data is NOT what the
+    //    structured profile (the source AI answer engines read) exposes.
     if (loc.lodgingCapable && loc.lodgingEmpty) {
       drafts.push({
         ...base,
@@ -99,8 +103,8 @@ export function analyzeGbp(signals: GbpLocationSignals[]): GbpInsightDraft[] {
         severity: 'high',
         title: `${loc.displayName}: lodging profile has no structured attributes`,
         recommendation: {
-          action: 'Populate the hotel’s structured amenity attributes in Google Business Profile',
-          reason: 'AI answer engines have no structured amenity data to cite for this property, so it loses to hotels with complete profiles.',
+          action: 'Populate the hotel’s structured amenity attributes in Google Business Profile — the amenity source you directly control',
+          reason: 'The GBP API exposes only owner-configured attributes, and this profile has none. Google’s rendered listing may still show amenities it synthesizes from Hotel Center, OTAs, and user data — so the public listing can differ from this profile — but the structured attributes are what AI answer engines cite and the only amenity data you control.',
         },
       })
     }

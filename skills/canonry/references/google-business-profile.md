@@ -174,7 +174,7 @@ canonry doctor --project <name> --check 'gbp.*'
 
 A completed `gbp-sync` run generates location-scoped insights (`provider = 'gbp'`), surfaced in `canonry insights`, the dashboard, notifications (`insight.critical`/`insight.high`), and Aero's proactive wake-up:
 
-- `gbp-lodging-gap` (high) — a lodging-capable location with an empty attribute profile.
+- `gbp-lodging-gap` (high) — a lodging-capable location with an empty attribute profile. The insight flags that the GBP API exposes only owner-configured attributes, so the *rendered* Google listing (which synthesizes amenities from Hotel Center / OTAs / Places) may differ — an empty profile is the operator's blind spot, not proof the public listing is empty.
 - `gbp-cta-gap` (medium) — place actions present but no direct-merchant booking CTA (only aggregators).
 - `gbp-metric-drop` (high/medium) — a headline conversion metric (direction requests, website clicks, call clicks) fell sharply week-over-week within the synced window.
 - `gbp-keyword-drop` (high/medium) — a head search term's impressions fell month-over-month.
@@ -210,6 +210,7 @@ A property with only aggregator booking links and no direct merchant CTA is a re
 
 ## Important Constraints
 
+- **GBP API returns owner-configured data only** — the API exposes only what the profile owner has set. Google's *rendered* hotel listing synthesizes additional amenities, room pricing, and booking links from Google Hotel Center, OTA feeds (Booking/Expedia/Hotels.com), and Places/user-contributed data — none of which the GBP API returns. So an empty lodging profile (the `gbp-lodging-gap` insight) does **not** mean the public listing is empty; it means the operator hasn't populated the structured source AI answer engines read. Pulling the rendered-listing side from the Places API (and cross-referencing it against GBP attributes) is tracked in issue #648.
 - **No read-only OAuth scope** — `business.manage` is the only published scope. The consent screen will warn about write access even though canonry's v1 is read-only.
 - **300 QPM shared quota** — across all GBP sub-APIs on one Google Cloud project. Canonry's sync worker caps per-location concurrency at 4 (~28 in-flight calls at peak) to stay well under the cap.
 - **10 edits/min per profile** — hard cap on writes (relevant for Phase 4). Cannot be raised.
