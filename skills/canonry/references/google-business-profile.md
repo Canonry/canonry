@@ -168,7 +168,7 @@ canonry doctor --project <name> --check 'gbp.*'
 - `gbp.auth.connection` — OAuth creds present + refresh token works.
 - `gbp.auth.scopes` — granted scope includes `business.manage`.
 - `gbp.account.access` — the tracked account is still listable. A `gbp.account.quota-pending` **warn** means the API access form is still pending Google approval (0 QPM) — auth is fine, the API just isn't enabled yet.
-- `gbp.places.api-key` — Places API readiness for the listing cross-reference (#648). **Warns** when GBP is connected but no Places key is set, or when no selected location carries a Maps place id (re-run `gbp locations discover`). Skipped when Places is disabled (`google.places.tier: off`) or GBP isn't connected.
+- `gbp.places.api-key` — Places API readiness for the listing cross-reference (#648). **Warns** when GBP is connected but no Places key is set, or when no selected location carries a Maps place id (re-run `gbp locations discover`). Skipped when Places is disabled (`places.tier: off`) or GBP isn't connected.
 - `gbp.data.recent-sync` — a selected location synced in the last 7d (warn) / 30d (fail); warns when never synced.
 
 ## Insights (after a `gbp-sync` run)
@@ -217,12 +217,12 @@ For lodging locations, canonry pulls the **Places API (New) Place Details** — 
 **Setup** — the Places API uses a plain **API key**, not OAuth (unrelated to `google.clientId`). A billing account (card) is required on the GCP project even within the free tier.
 
 ```yaml
-# ~/.canonry/config.yaml
-google:
-  places:
-    apiKey: "AIza..."          # or env GOOGLE_PLACES_API_KEY
-    tier: atmosphere           # atmosphere (default) | pro | off
-    refreshIntervalDays: 7     # cost lever — re-fetch a location at most weekly
+# ~/.canonry/config.yaml — top-level `places` block (an API key, not OAuth, so
+# it is separate from the `google` block — same as `ga4`, `bing`, `wordpress`).
+places:
+  apiKey: "AIza..."          # or env GOOGLE_PLACES_API_KEY
+  tier: atmosphere           # atmosphere (default) | pro | off
+  refreshIntervalDays: 7     # cost lever — re-fetch a location at most weekly
 ```
 
 The next `gbp sync` then snapshots Place Details for selected lodging locations that carry a Maps place id (re-run `gbp locations discover` if `gbp.places.api-key` warns there are none). Read it back with `canonry gbp places <project>` (the `amenities` list is computed server-side).

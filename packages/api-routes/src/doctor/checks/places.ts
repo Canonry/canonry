@@ -35,7 +35,7 @@ const apiKeyCheck: CheckDefinition = {
         status: CheckStatuses.skipped,
         code: 'gbp.places.disabled',
         summary: 'Places enrichment is disabled (tier: off).',
-        remediation: 'Set `google.places.tier` to `atmosphere` or `pro` in ~/.canonry/config.yaml to enable it.',
+        remediation: 'Set `places.tier` to `atmosphere` or `pro` in ~/.canonry/config.yaml to enable it.',
       }
     }
 
@@ -55,7 +55,7 @@ const apiKeyCheck: CheckDefinition = {
         status: CheckStatuses.warn,
         code: 'gbp.places.api-key-missing',
         summary: 'No Places API key configured — GBP-vs-rendered-listing discrepancies cannot be detected.',
-        remediation: 'Set `GOOGLE_PLACES_API_KEY` or `google.places.apiKey` in ~/.canonry/config.yaml. The amenity cross-reference fits the 1,000 free Atmosphere calls/month for a typical operator book.',
+        remediation: 'Set `GOOGLE_PLACES_API_KEY` or `places.apiKey` in ~/.canonry/config.yaml. The amenity cross-reference fits the 1,000 free Atmosphere calls/month for a typical operator book.',
         details: { tier: cfg.tier },
       }
     }

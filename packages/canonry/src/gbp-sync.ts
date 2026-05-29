@@ -190,6 +190,12 @@ export async function executeGbpSync(
           // snapshot-on-change avoids storing duplicate rows. Best-effort: a
           // Places error is logged and skipped so it never fails the run.
           let placeToWrite: { contentHash: string; attributes: Record<string, unknown>; tier: string; placeId: string } | null = null
+          // Id of the existing latest snapshot to re-stamp when a fetch returns
+          // unchanged content. `syncedAt` doubles as the last-fetched marker the
+          // cadence gate reads, so it MUST advance on every fetch — not only on
+          // a content change — or a listing that stays stable past the interval
+          // would be re-fetched (and re-billed) on every subsequent sync.
+          let placeToTouch: string | null = null
           if (placesTier !== 'off' && placesApiKey && lodging !== null && loc.placeId) {
             const latestPlace = db.select().from(gbpPlaceDetails)
               .where(and(eq(gbpPlaceDetails.projectId, projectId), eq(gbpPlaceDetails.locationName, loc.locationName)))
@@ -201,8 +207,10 @@ export async function executeGbpSync(
               try {
                 const place = await getPlaceDetails(loc.placeId, placesApiKey, { tier: placesTier })
                 const hash = hashPlaceDetails(place)
-                if (latestPlace?.contentHash !== hash) {
+                if (!latestPlace || latestPlace.contentHash !== hash) {
                   placeToWrite = { contentHash: hash, attributes: place as Record<string, unknown>, tier: placesTier, placeId: loc.placeId }
+                } else {
+                  placeToTouch = latestPlace.id
                 }
               } catch (placesErr) {
                 log.warn('places.failed', { runId, location: loc.locationName, error: placesErr instanceof Error ? placesErr.message : String(placesErr) })
@@ -315,8 +323,10 @@ export async function executeGbpSync(
               }).run()
             }
 
-            // Places: append a new rendered-listing snapshot only when the
-            // Place Details content changed (decided above, gated + cadenced).
+            // Places: append a new rendered-listing snapshot when the Place
+            // Details content changed; otherwise re-stamp the existing latest
+            // row so `syncedAt` records this fetch and the cadence gate can
+            // throttle the next sync (decided above, gated + cadenced).
             if (placeToWrite) {
               tx.insert(gbpPlaceDetails).values({
                 id: crypto.randomUUID(),
@@ -329,6 +339,11 @@ export async function executeGbpSync(
                 syncedAt: insertNow,
                 syncRunId: runId,
               }).run()
+            } else if (placeToTouch) {
+              tx.update(gbpPlaceDetails)
+                .set({ syncedAt: insertNow, syncRunId: runId })
+                .where(eq(gbpPlaceDetails.id, placeToTouch))
+                .run()
             }
 
             tx.update(gbpLocations)

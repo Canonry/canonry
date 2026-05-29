@@ -175,6 +175,7 @@ export const gbpPlaceDetailsDtoSchema = z.object({
   tier: z.string(),
   /** Amenities the public listing advertises, derived from `place`. */
   amenities: z.array(z.string()),
+  /** When this listing was last fetched from Places — advances on every fetch, even when the content is unchanged (this is what the refresh-cadence gate reads). */
   syncedAt: z.string(),
   /** Raw Place Details resource as Google returned it. */
   place: z.record(z.string(), z.unknown()),

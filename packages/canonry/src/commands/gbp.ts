@@ -287,7 +287,7 @@ export async function gbpPlaces(
     return
   }
   if (response.places.length === 0) {
-    console.log('No Places data — set a Places API key (google.places.apiKey / GOOGLE_PLACES_API_KEY) and run "canonry gbp sync" for lodging locations.')
+    console.log('No Places data — set a Places API key (places.apiKey / GOOGLE_PLACES_API_KEY) and run "canonry gbp sync" for lodging locations.')
     return
   }
   console.log(`${response.total} Places listing snapshot(s) — the amenities Google's public listing advertises:`)

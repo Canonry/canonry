@@ -13,6 +13,7 @@ import {
   gbpKeywordMonthly,
   gbpPlaceDetails,
 } from '@ainyc/canonry-db'
+import { hashPlaceDetails } from '@ainyc/canonry-integration-google-places'
 import { executeGbpSync } from '../src/gbp-sync.js'
 import type { CanonryConfig } from '../src/config.js'
 
@@ -344,6 +345,42 @@ describe('executeGbpSync — Places enrichment (#648)', () => {
       await executeGbpSync(db, 'run_2', 'proj_gbp', { config: cfg })
 
       // Snapshot from run_1 is seconds old (< 7d) → run_2 must not re-fetch.
+      expect(getPlaceDetailsMock).toHaveBeenCalledTimes(1)
+      expect(placeRows(db)).toHaveLength(1)
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  test('refresh cadence: a stable listing past the interval is not re-fetched on every sync', async () => {
+    const { db, tmpDir } = createTempDb()
+    try {
+      seedProject(db, { placeId: PLACE_ID })
+      getLodgingMock.mockResolvedValue(LODGING)
+      const content = { id: 'p', servesBreakfast: true }
+      getPlaceDetailsMock.mockResolvedValue(content)
+      const cfg = placesConfig({ apiKey: 'K', tier: 'atmosphere', refreshIntervalDays: 7 })
+
+      // Existing snapshot 10 days old whose content matches what the next fetch
+      // returns, so the fetch finds the listing UNCHANGED (the common steady
+      // state — amenities change rarely).
+      db.insert(gbpPlaceDetails).values({
+        id: 'seed', projectId: 'proj_gbp', locationName: LOCATION, placeId: PLACE_ID,
+        contentHash: hashPlaceDetails(content), tier: 'atmosphere', attributes: content,
+        syncedAt: new Date(Date.now() - 10 * 86_400_000).toISOString(), syncRunId: null,
+      }).run()
+
+      // First sync: 10d old → re-fetch; unchanged → no new row, but the row's
+      // syncedAt is re-stamped to now so the cadence gate can throttle next time.
+      seedRun(db, 'run_1')
+      await executeGbpSync(db, 'run_1', 'proj_gbp', { config: cfg })
+      expect(getPlaceDetailsMock).toHaveBeenCalledTimes(1)
+      expect(placeRows(db)).toHaveLength(1)
+
+      // Immediate second sync: just verified (< 7d) → must NOT re-fetch (the bug
+      // was that an unchanged listing past the interval re-fetched every sync).
+      seedRun(db, 'run_2')
+      await executeGbpSync(db, 'run_2', 'proj_gbp', { config: cfg })
       expect(getPlaceDetailsMock).toHaveBeenCalledTimes(1)
       expect(placeRows(db)).toHaveLength(1)
     } finally {

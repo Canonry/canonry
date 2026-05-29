@@ -12,7 +12,7 @@ a rich public listing, and Places is canonry's read into that gap.
 Unlike the GBP APIs (OAuth, `business.manage` scope), the Places API authenticates
 with a **plain API key** (`X-Goog-Api-Key` header) and requires an explicit
 **field mask** (`X-Goog-FieldMask`) on every request. The key lives in
-`~/.canonry/config.yaml` under `google.placesApiKey` (or the `GOOGLE_PLACES_API_KEY`
+`~/.canonry/config.yaml` under `places.apiKey` (or the `GOOGLE_PLACES_API_KEY`
 env var) — this package only takes the key as a parameter.
 
 The Place ID that addresses a place comes from the GBP location's
