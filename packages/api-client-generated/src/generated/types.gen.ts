@@ -1520,7 +1520,7 @@ export type RunDto = {
 export type ScheduleDto = {
     id: string;
     projectId: string;
-    kind: 'answer-visibility' | 'traffic-sync';
+    kind: 'answer-visibility' | 'traffic-sync' | 'gbp-sync';
     cronExpr: string;
     preset?: string | null;
     timezone: string;

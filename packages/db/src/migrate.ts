@@ -1516,6 +1516,25 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `CREATE INDEX IF NOT EXISTS idx_gbp_lodging_loc ON gbp_lodging_snapshots(project_id, location_name, synced_at)`,
     ],
   },
+  {
+    version: 70,
+    name: 'gbp-keyword-monthly',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS gbp_keyword_monthly (
+        id               TEXT PRIMARY KEY,
+        project_id       TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        location_name    TEXT NOT NULL,
+        month            TEXT NOT NULL,
+        keyword          TEXT NOT NULL,
+        value_count      INTEGER,
+        value_threshold  INTEGER,
+        sync_run_id      TEXT REFERENCES runs(id) ON DELETE SET NULL,
+        synced_at        TEXT NOT NULL
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_gbp_keyword_monthly_loc ON gbp_keyword_monthly(project_id, location_name, month)`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS uniq_gbp_keyword_monthly ON gbp_keyword_monthly(project_id, location_name, month, keyword)`,
+    ],
+  },
 ]
 
 /**

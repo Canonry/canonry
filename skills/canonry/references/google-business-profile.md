@@ -148,6 +148,43 @@ A single OAuth user often manages **multiple GBP accounts** (a personal account,
 - **`placeActions`** — `{ total, hasReservationCta, hasBookingCta, hasDirectMerchantCta }`. `hasDirectMerchantCta` is false when the only booking links are OTA/aggregator (Expedia/Booking) — a recommendation to add a direct CTA.
 - **`lodging`** — `{ lodgingLocationCount, populatedLodgingCount, emptyLodgingCount }`. `emptyLodgingCount` counts lodging-capable locations with zero structured attributes — the AEO gap to surface.
 
+## Scheduling
+
+`gbp-sync` is a schedulable run kind (alongside `answer-visibility` and `traffic-sync`). It needs no source — it syncs the project's selected locations:
+
+```bash
+canonry schedule set <project> --kind gbp-sync --preset daily
+canonry schedule show <project> --kind gbp-sync
+```
+
+One schedule row per `(project, kind)`, so a GBP sync schedule coexists with a visibility-sweep schedule. The scheduler creates the `gbp-sync` run and runs the same worker the manual `canonry gbp sync` uses; on completion the run flows through the post-run pipeline (insights + Aero wake-up).
+
+## Health Checks (`canonry doctor`)
+
+```bash
+canonry doctor --project <name> --check 'gbp.*'
+```
+
+- `gbp.auth.connection` — OAuth creds present + refresh token works.
+- `gbp.auth.scopes` — granted scope includes `business.manage`.
+- `gbp.account.access` — the tracked account is still listable. A `gbp.account.quota-pending` **warn** means the API access form is still pending Google approval (0 QPM) — auth is fine, the API just isn't enabled yet.
+- `gbp.data.recent-sync` — a selected location synced in the last 7d (warn) / 30d (fail); warns when never synced.
+
+## Insights (after a `gbp-sync` run)
+
+A completed `gbp-sync` run generates location-scoped insights (`provider = 'gbp'`), surfaced in `canonry insights`, the dashboard, notifications (`insight.critical`/`insight.high`), and Aero's proactive wake-up:
+
+- `gbp-lodging-gap` (high) — a lodging-capable location with an empty attribute profile.
+- `gbp-cta-gap` (medium) — place actions present but no direct-merchant booking CTA (only aggregators).
+- `gbp-metric-drop` (high/medium) — a headline conversion metric (direction requests, website clicks, call clicks) fell sharply week-over-week within the synced window.
+- `gbp-keyword-drop` (high/medium) — a head search term's impressions fell month-over-month.
+
+The month-over-month keyword signal is powered by the **accumulating** `gbp_keyword_monthly` table: each sync fetches the last few complete months (one call per month, since the API aggregates a range into a single figure) and preserves older in-retention months, so a real monthly series builds up over time. The current-snapshot reads (`gbp keywords`, `gbp summary`) are unchanged — they still use the trailing-window `gbp_keyword_impressions` table.
+
+## The Dashboard (`GbpSection`)
+
+The project page shows a self-gating "Google Business Profile" section (only when a GBP connection exists): the performance scorecard with 7-day deltas, CTA-presence + lodging-completeness tiles, a search-terms table, and a locations table with a track/untrack toggle and a Sync button. Every number is computed server-side by `buildGbpSummary` — the component only renders.
+
 ## Hotel-Specific Setup
 
 For hotel groups, two extra signal sources are critical:

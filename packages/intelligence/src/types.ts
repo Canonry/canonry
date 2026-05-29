@@ -105,6 +105,12 @@ export type InsightType =
   | 'persistent-gap'
   | 'competitor-gained'
   | 'competitor-lost'
+  // Google Business Profile (local-AEO) insights — produced after a gbp-sync
+  // run, scoped to a location rather than a (query, provider) pair.
+  | 'gbp-lodging-gap'
+  | 'gbp-cta-gap'
+  | 'gbp-metric-drop'
+  | 'gbp-keyword-drop'
 
 export interface Insight {
   id: string

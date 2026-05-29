@@ -3,7 +3,8 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { describe, it, expect, vi, onTestFinished } from 'vitest'
-import { createClient, discoverySessions, migrate, projects, runs, queries, querySnapshots, healthSnapshots } from '@ainyc/canonry-db'
+import { eq } from 'drizzle-orm'
+import { createClient, discoverySessions, migrate, projects, runs, queries, querySnapshots, healthSnapshots, insights, gbpLocations, gbpLodgingSnapshots } from '@ainyc/canonry-db'
 import { Notifier } from '../src/notifier.js'
 import { IntelligenceService } from '../src/intelligence-service.js'
 import { RunCoordinator, type AeroEventContext } from '../src/run-coordinator.js'
@@ -301,6 +302,55 @@ describe('RunCoordinator', () => {
       expect(intelSpy).toHaveBeenCalled()
       expect(notifier.onRunCompleted).toHaveBeenCalled()
     })
+  })
+
+  it('runs GBP intelligence for a gbp-sync run and wakes Aero with the insight count', async () => {
+    const { db } = createTempDb('coord-gbp-')
+    const now = new Date().toISOString()
+    const projectId = crypto.randomUUID()
+    db.insert(projects).values({
+      id: projectId, name: 'gbp-coord', displayName: 'GBP', canonicalDomain: 'example.com',
+      country: 'US', language: 'en', createdAt: now, updatedAt: now,
+    }).run()
+    // One selected location with an empty lodging profile → one high lodging-gap insight.
+    db.insert(gbpLocations).values({
+      id: 'l1', projectId, accountName: 'accounts/1', locationName: 'locations/1',
+      displayName: 'Loc 1', selected: true, createdAt: now, updatedAt: now,
+    }).run()
+    db.insert(gbpLodgingSnapshots).values({
+      id: 'lg1', projectId, locationName: 'locations/1', contentHash: 'h', attributes: {},
+      populatedGroupCount: 0, syncedAt: now, syncRunId: null,
+    }).run()
+    const runId = crypto.randomUUID()
+    db.insert(runs).values({
+      id: runId, projectId, kind: 'gbp-sync', status: 'completed', trigger: 'scheduled',
+      createdAt: now, finishedAt: now,
+    }).run()
+
+    const notifier = createMockNotifier()
+    const service = new IntelligenceService(db)
+    const gbpSpy = vi.spyOn(service, 'analyzeAndPersistGbp')
+    const avSpy = vi.spyOn(service, 'analyzeAndPersist')
+    let captured: AeroEventContext | undefined
+    const coordinator = new RunCoordinator(db, notifier as Notifier, service, undefined, async (ctx) => { captured = ctx })
+
+    await coordinator.onRunCompleted(runId, projectId)
+
+    // GBP analyzer ran; the answer-visibility analyzer did NOT (no health snapshot).
+    expect(gbpSpy).toHaveBeenCalledWith(runId, projectId)
+    expect(avSpy).not.toHaveBeenCalled()
+    expect(db.select().from(healthSnapshots).all()).toHaveLength(0)
+
+    // The insight was persisted and the notifier fired.
+    expect(db.select().from(insights).where(eq(insights.runId, runId)).all()).toHaveLength(1)
+    expect(notifier.onRunCompleted).toHaveBeenCalledWith(runId, projectId)
+
+    // Aero woke with the GBP insight count.
+    expect(captured).toBeDefined()
+    if (!captured || captured.kind === 'aeo-discover-probe') throw new Error('expected a gbp-sync aero context')
+    expect(captured.kind).toBe('gbp-sync')
+    expect(captured.insightCount).toBe(1)
+    expect(captured.criticalOrHigh).toBe(1)
   })
 
   it('discovery aero context resolves the session by runId, not by "latest non-queued"', async () => {

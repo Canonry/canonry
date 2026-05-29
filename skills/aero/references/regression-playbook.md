@@ -37,3 +37,16 @@ For each regression, check causes in order:
 3. If actionable: generate fix (schema update, content suggestion, indexing resubmission)
 4. Set monitoring flag to track if the regression resolves
 5. Update memory with the regression event and diagnosis
+
+## Local (Google Business Profile) insights
+
+A `gbp-sync` run produces a separate family of **location-scoped** insights (`provider = 'gbp'`, the location's display name in `query`). They're point-in-time, not run-to-run citation transitions, so triage them on their own terms:
+
+| Type | Meaning | Response |
+|---|---|---|
+| `gbp-lodging-gap` (high) | Lodging-capable location with an empty structured-attribute profile | AI engines have no amenities to cite — recommend populating Lodging attributes (pool, wifi, pets, parking, …) in the Business Profile. Highest-signal local AEO fix for hotels. |
+| `gbp-cta-gap` (medium) | Place actions present but only aggregator/OTA booking links | Recommend adding a direct (merchant-owned) booking/reservation link as the preferred place action so AI surfaces the property's own site, not an OTA. |
+| `gbp-metric-drop` (high/medium) | A headline conversion metric (direction requests, website clicks, call clicks) fell sharply week-over-week | Investigate profile/category edits, suspensions, or new local competition; correlate with any recent profile changes. |
+| `gbp-keyword-drop` (high/medium) | A head local search term's impressions fell month-over-month | Check whether the property still ranks for the term; refresh the profile / categories. Needs ≥2 accumulated months of `gbp_keyword_monthly` history. |
+
+These flow through the same notification + proactive wake-up path as visibility insights, so you'll see them in the post-`gbp-sync` follow-up. Dismissals are location-scoped (one location's gap can be dismissed without silencing the same gap at a sibling location).

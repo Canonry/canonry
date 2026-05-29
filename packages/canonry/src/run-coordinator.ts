@@ -106,6 +106,20 @@ export class RunCoordinator {
       } catch (err) {
         log.error('intelligence.failed', { runId, error: err instanceof Error ? err.message : String(err) })
       }
+    } else if (kind === RunKinds['gbp-sync']) {
+      // GBP sync runs produce location-scoped local-AEO insights (lodging gaps,
+      // missing direct-booking CTAs, metric/keyword drops). The notifier + Aero
+      // steps below pick them up from the DB the same way they do visibility
+      // insights — no extra wiring once they're persisted.
+      try {
+        const gbpInsights = this.intelligenceService.analyzeAndPersistGbp(runId, projectId)
+        insightCount = gbpInsights.length
+        criticalOrHigh = gbpInsights.filter(
+          i => i.severity === 'critical' || i.severity === 'high',
+        ).length
+      } catch (err) {
+        log.error('gbp-intelligence.failed', { runId, error: err instanceof Error ? err.message : String(err) })
+      }
     }
 
     // 2. Notifications — may short-circuit if no webhooks configured, catches its own errors

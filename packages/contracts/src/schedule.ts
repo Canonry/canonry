@@ -7,8 +7,9 @@ import { providerNameSchema } from './provider.js'
  *
  * - `answer-visibility` — citation/mention sweep across configured providers (the original schedulable kind).
  * - `traffic-sync` — server-side traffic-source pull (Cloud Run today; future adapters slot in here too).
+ * - `gbp-sync` — Google Business Profile performance + local-signal pull over the project's selected locations.
  */
-export const schedulableRunKindSchema = z.enum(['answer-visibility', 'traffic-sync'])
+export const schedulableRunKindSchema = z.enum(['answer-visibility', 'traffic-sync', 'gbp-sync'])
 export type SchedulableRunKind = z.infer<typeof schedulableRunKindSchema>
 export const SchedulableRunKinds = schedulableRunKindSchema.enum
 
