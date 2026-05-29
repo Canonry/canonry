@@ -26,6 +26,7 @@ function createTempDb() {
 }
 
 const NOW = '2026-05-25T00:00:00.000Z'
+const STALE = '2026-05-20T00:00:00.000Z'
 
 /**
  * Seed a project with two selected locations (A: unhealthy on every axis,
@@ -38,9 +39,9 @@ function seed(db: ReturnType<typeof createClient>) {
   }).run()
 
   db.insert(gbpLocations).values([
-    { id: 'la', projectId: 'proj_gbp', accountName: 'accounts/1', locationName: 'locations/A', displayName: 'Gjelina Venice', selected: true, createdAt: NOW, updatedAt: NOW },
-    { id: 'lb', projectId: 'proj_gbp', accountName: 'accounts/1', locationName: 'locations/B', displayName: 'Gjelina Marina', selected: true, createdAt: NOW, updatedAt: NOW },
-    { id: 'lc', projectId: 'proj_gbp', accountName: 'accounts/1', locationName: 'locations/C', displayName: 'Gjelina Closed', selected: false, createdAt: NOW, updatedAt: NOW },
+    { id: 'la', projectId: 'proj_gbp', accountName: 'accounts/1', locationName: 'locations/A', displayName: 'Gjelina Venice', selected: true, syncedAt: NOW, createdAt: NOW, updatedAt: NOW },
+    { id: 'lb', projectId: 'proj_gbp', accountName: 'accounts/1', locationName: 'locations/B', displayName: 'Gjelina Marina', selected: true, syncedAt: NOW, createdAt: NOW, updatedAt: NOW },
+    { id: 'lc', projectId: 'proj_gbp', accountName: 'accounts/1', locationName: 'locations/C', displayName: 'Gjelina Closed', selected: false, syncedAt: NOW, createdAt: NOW, updatedAt: NOW },
   ]).run()
 
   // Daily metrics: A drops 100 → 20 week-over-week (refDate = max date 2026-05-20);
@@ -78,7 +79,7 @@ function seed(db: ReturnType<typeof createClient>) {
 function seedRun(db: ReturnType<typeof createClient>, runId: string, projectId = 'proj_gbp') {
   db.insert(runs).values({
     id: runId, projectId, kind: 'gbp-sync', status: 'completed', trigger: 'manual',
-    createdAt: NOW, finishedAt: NOW,
+    createdAt: NOW, startedAt: NOW, finishedAt: NOW,
   }).run()
 }
 
@@ -134,6 +135,26 @@ describe('IntelligenceService.analyzeAndPersistGbp', () => {
       const result = service.analyzeAndPersistGbp('run_empty', 'proj_empty')
       expect(result).toEqual([])
       expect(db.select().from(insights).where(eq(insights.runId, 'run_empty')).all()).toHaveLength(0)
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  test('ignores stale location data that was not synced during the current run', () => {
+    const { db, tmpDir } = createTempDb()
+    try {
+      seed(db)
+      db.update(gbpLocations)
+        .set({ syncedAt: STALE, updatedAt: STALE })
+        .where(eq(gbpLocations.projectId, 'proj_gbp'))
+        .run()
+      seedRun(db, 'run_stale')
+
+      const service = new IntelligenceService(db)
+      const result = service.analyzeAndPersistGbp('run_stale', 'proj_gbp')
+
+      expect(result).toEqual([])
+      expect(db.select().from(insights).where(eq(insights.runId, 'run_stale')).all()).toHaveLength(0)
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true })
     }

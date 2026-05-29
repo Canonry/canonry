@@ -1,4 +1,4 @@
-import { eq, desc, asc, and, ne, or, inArray } from 'drizzle-orm'
+import { eq, desc, asc, and, ne, or, inArray, gte, lte } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/canonry-db'
 import { competitors, groupRunsByCreatedAt, gscSearchData, healthSnapshots, insights, projects, queries, querySnapshots, runs, gbpLocations, gbpDailyMetrics, gbpKeywordMonthly, gbpPlaceActions, gbpLodgingSnapshots } from '@ainyc/canonry-db'
 import { analyzeRuns, analyzeGbp, classifyRegressionSeverity, PERSISTENT_GAP_THRESHOLD } from '@ainyc/canonry-intelligence'
@@ -150,14 +150,33 @@ export class IntelligenceService {
    * Returns the persisted insights so the coordinator can count critical/high.
    */
   analyzeAndPersistGbp(runId: string, projectId: string): Insight[] {
+    const runRow = this.db
+      .select({ createdAt: runs.createdAt, startedAt: runs.startedAt, finishedAt: runs.finishedAt })
+      .from(runs)
+      .where(eq(runs.id, runId))
+      .get()
+
+    if (!runRow) {
+      log.info('gbp-intelligence.skip', { runId, reason: 'run not found' })
+      this.persistGbpInsights(runId, projectId, [])
+      return []
+    }
+
+    const windowStart = runRow.startedAt ?? runRow.createdAt
+    const windowEnd = runRow.finishedAt ?? new Date().toISOString()
     const selected = this.db
       .select()
       .from(gbpLocations)
-      .where(and(eq(gbpLocations.projectId, projectId), eq(gbpLocations.selected, true)))
+      .where(and(
+        eq(gbpLocations.projectId, projectId),
+        eq(gbpLocations.selected, true),
+        gte(gbpLocations.syncedAt, windowStart),
+        lte(gbpLocations.syncedAt, windowEnd),
+      ))
       .all()
 
     if (selected.length === 0) {
-      log.info('gbp-intelligence.skip', { runId, reason: 'no selected locations' })
+      log.info('gbp-intelligence.skip', { runId, reason: 'no locations synced during run' })
       this.persistGbpInsights(runId, projectId, [])
       return []
     }

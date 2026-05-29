@@ -9,7 +9,7 @@ import {
 } from '@ainyc/canonry-contracts'
 import type { Notifier } from './notifier.js'
 import type { IntelligenceService } from './intelligence-service.js'
-import type { AnalysisResult } from '@ainyc/canonry-intelligence'
+import type { AnalysisResult, Insight } from '@ainyc/canonry-intelligence'
 import { createLogger } from './logger.js'
 
 const log = createLogger('RunCoordinator')
@@ -117,6 +117,14 @@ export class RunCoordinator {
         criticalOrHigh = gbpInsights.filter(
           i => i.severity === 'critical' || i.severity === 'high',
         ).length
+
+        if (this.onInsightsGenerated && criticalOrHigh > 0) {
+          try {
+            await this.onInsightsGenerated(runId, projectId, analysisResultFromInsights(gbpInsights))
+          } catch (err) {
+            log.error('gbp-insight-webhook.failed', { runId, error: err instanceof Error ? err.message : String(err) })
+          }
+        }
       } catch (err) {
         log.error('gbp-intelligence.failed', { runId, error: err instanceof Error ? err.message : String(err) })
       }
@@ -188,5 +196,24 @@ export class RunCoordinator {
       status,
       error,
     }
+  }
+}
+
+function analysisResultFromInsights(insights: Insight[]): AnalysisResult {
+  return {
+    regressions: [],
+    gains: [],
+    firstCitations: [],
+    providerPickups: [],
+    persistentGaps: [],
+    competitorGains: [],
+    competitorLosses: [],
+    health: {
+      overallCitedRate: 0,
+      totalPairs: 0,
+      citedPairs: 0,
+      providerBreakdown: {},
+    },
+    insights,
   }
 }

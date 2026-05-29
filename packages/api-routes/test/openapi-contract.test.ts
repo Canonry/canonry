@@ -122,6 +122,34 @@ describe('openapi contract', () => {
     expect(body.paths['/api/v1/projects/{name}/google/callback']?.get?.security).toEqual([])
   })
 
+  it('documents gbp-sync as a schedulable kind in schedule request parameters and bodies', async () => {
+    const ctx = buildObservedApp()
+    contexts.push(ctx)
+    await ctx.app.ready()
+
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/openapi.json' })
+    expect(res.statusCode).toBe(200)
+
+    const body = res.json() as {
+      paths: Record<string, Record<string, {
+        parameters?: Array<{ name: string; schema?: { enum?: string[] } }>
+        requestBody?: {
+          content?: Record<string, { schema?: { properties?: Record<string, { enum?: string[] }> } }>
+        }
+      }>>
+    }
+    const schedulePath = body.paths['/api/v1/projects/{name}/schedule']!
+
+    for (const method of ['put', 'get', 'delete'] as const) {
+      const kindParam = schedulePath[method]?.parameters?.find((p) => p.name === 'kind')
+      expect(kindParam?.schema?.enum).toEqual(['answer-visibility', 'traffic-sync', 'gbp-sync'])
+    }
+
+    const requestKindEnum = schedulePath.put?.requestBody
+      ?.content?.['application/json']?.schema?.properties?.kind?.enum
+    expect(requestKindEnum).toEqual(['answer-visibility', 'traffic-sync', 'gbp-sync'])
+  })
+
   it('every 2xx response declares a body schema (or carries a non-JSON content type)', async () => {
     // Codegen tools rely on response schemas to derive typed return values.
     // 2xx responses must either reference a `components.schemas` entry via

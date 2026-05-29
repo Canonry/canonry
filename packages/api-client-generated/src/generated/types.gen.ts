@@ -3523,7 +3523,7 @@ export type DeleteApiV1ProjectsByNameScheduleData = {
         /**
          * Schedulable run kind. Defaults to "answer-visibility" for backward compatibility.
          */
-        kind?: 'answer-visibility' | 'traffic-sync';
+        kind?: 'answer-visibility' | 'traffic-sync' | 'gbp-sync';
     };
     url: '/api/v1/projects/{name}/schedule';
 };
@@ -3558,7 +3558,7 @@ export type GetApiV1ProjectsByNameScheduleData = {
         /**
          * Schedulable run kind. Defaults to "answer-visibility" for backward compatibility.
          */
-        kind?: 'answer-visibility' | 'traffic-sync';
+        kind?: 'answer-visibility' | 'traffic-sync' | 'gbp-sync';
     };
     url: '/api/v1/projects/{name}/schedule';
 };
@@ -3583,7 +3583,7 @@ export type GetApiV1ProjectsByNameScheduleResponse = GetApiV1ProjectsByNameSched
 
 export type PutApiV1ProjectsByNameScheduleData = {
     body: {
-        kind?: 'answer-visibility' | 'traffic-sync';
+        kind?: 'answer-visibility' | 'traffic-sync' | 'gbp-sync';
         preset?: string;
         cron?: string;
         timezone?: string;
@@ -3601,7 +3601,7 @@ export type PutApiV1ProjectsByNameScheduleData = {
         /**
          * Schedulable run kind. Defaults to "answer-visibility" for backward compatibility.
          */
-        kind?: 'answer-visibility' | 'traffic-sync';
+        kind?: 'answer-visibility' | 'traffic-sync' | 'gbp-sync';
     };
     url: '/api/v1/projects/{name}/schedule';
 };
