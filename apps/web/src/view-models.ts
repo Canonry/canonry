@@ -48,8 +48,10 @@ export interface AttentionItemVm {
   tone: MetricTone
   title: string
   detail: string
-  actionLabel: string
-  href: string
+  /** Omitted for non-actionable status items (e.g. "All projects stable") —
+   *  the renderer shows those as a static row instead of a dead link. */
+  actionLabel?: string
+  href?: string
 }
 
 export interface SystemHealthCardVm {

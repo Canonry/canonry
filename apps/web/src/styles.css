@@ -846,6 +846,16 @@
     @apply border-l-2 border-l-amber-500/60;
   }
 
+  .attention-item-positive {
+    @apply border-l-2 border-l-emerald-500/60;
+  }
+
+  /* Non-actionable status row (e.g. "All projects stable") — not a link, so
+     drop the hover affordance and pointer cursor the linked variant carries. */
+  .attention-item-static {
+    @apply cursor-default hover:border-zinc-800/40 hover:bg-zinc-900/20;
+  }
+
   .attention-title,
   .compact-run-title,
   .run-row-title,

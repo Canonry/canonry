@@ -806,13 +806,14 @@ function buildAttentionItems(projectCenters: ProjectCommandCenterVm[]) {
   }
 
   if (items.length === 0) {
+    // Non-actionable positive status: nothing to navigate to (the portfolio
+    // is this very page). Omit href/actionLabel so the renderer shows a
+    // static "all clear" row rather than a link that goes nowhere.
     items.push({
       id: 'attention_stable',
       tone: 'positive',
       title: 'All projects stable',
       detail: 'No citation losses or active runs to flag.',
-      actionLabel: 'View portfolio',
-      href: '/',
     })
   }
 

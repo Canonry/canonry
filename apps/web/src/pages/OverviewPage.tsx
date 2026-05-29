@@ -138,19 +138,32 @@ export function OverviewPage() {
               </div>
             </div>
             <div className="attention-list attention-list-scrollable">
-              {model.attentionItems.map((item) => (
-                <Link
-                  key={item.id}
-                  to={item.href}
-                  className={`attention-item attention-item-${item.tone}`}
-                >
-                  <div>
-                    <p className="attention-title">{item.title}</p>
-                    <p className="attention-detail">{item.detail}</p>
+              {model.attentionItems.map((item) =>
+                item.href ? (
+                  <Link
+                    key={item.id}
+                    to={item.href}
+                    className={`attention-item attention-item-${item.tone}`}
+                  >
+                    <div>
+                      <p className="attention-title">{item.title}</p>
+                      <p className="attention-detail">{item.detail}</p>
+                    </div>
+                    {item.actionLabel && <span className="attention-action">{item.actionLabel}</span>}
+                  </Link>
+                ) : (
+                  <div
+                    key={item.id}
+                    className={`attention-item attention-item-static attention-item-${item.tone}`}
+                  >
+                    <div>
+                      <p className="attention-title">{item.title}</p>
+                      <p className="attention-detail">{item.detail}</p>
+                    </div>
+                    {item.actionLabel && <span className="attention-action">{item.actionLabel}</span>}
                   </div>
-                  <span className="attention-action">{item.actionLabel}</span>
-                </Link>
-              ))}
+                ),
+              )}
             </div>
           </section>
         )}
