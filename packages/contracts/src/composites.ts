@@ -241,6 +241,11 @@ export const projectSearchInsightHitSchema = z.object({
     'persistent-gap',
     'competitor-gained',
     'competitor-lost',
+    // Google Business Profile (local-AEO) insight types — see InsightType.
+    'gbp-lodging-gap',
+    'gbp-cta-gap',
+    'gbp-metric-drop',
+    'gbp-keyword-drop',
   ]),
   severity: z.enum(['critical', 'high', 'medium', 'low']),
   title: z.string(),

@@ -9,7 +9,7 @@ import {
 } from '@ainyc/canonry-contracts'
 import type { Notifier } from './notifier.js'
 import type { IntelligenceService } from './intelligence-service.js'
-import type { AnalysisResult } from '@ainyc/canonry-intelligence'
+import type { AnalysisResult, Insight } from '@ainyc/canonry-intelligence'
 import { createLogger } from './logger.js'
 
 const log = createLogger('RunCoordinator')
@@ -106,6 +106,28 @@ export class RunCoordinator {
       } catch (err) {
         log.error('intelligence.failed', { runId, error: err instanceof Error ? err.message : String(err) })
       }
+    } else if (kind === RunKinds['gbp-sync']) {
+      // GBP sync runs produce location-scoped local-AEO insights (lodging gaps,
+      // missing direct-booking CTAs, metric/keyword drops). The notifier + Aero
+      // steps below pick them up from the DB the same way they do visibility
+      // insights — no extra wiring once they're persisted.
+      try {
+        const gbpInsights = this.intelligenceService.analyzeAndPersistGbp(runId, projectId)
+        insightCount = gbpInsights.length
+        criticalOrHigh = gbpInsights.filter(
+          i => i.severity === 'critical' || i.severity === 'high',
+        ).length
+
+        if (this.onInsightsGenerated && criticalOrHigh > 0) {
+          try {
+            await this.onInsightsGenerated(runId, projectId, analysisResultFromInsights(gbpInsights))
+          } catch (err) {
+            log.error('gbp-insight-webhook.failed', { runId, error: err instanceof Error ? err.message : String(err) })
+          }
+        }
+      } catch (err) {
+        log.error('gbp-intelligence.failed', { runId, error: err instanceof Error ? err.message : String(err) })
+      }
     }
 
     // 2. Notifications — may short-circuit if no webhooks configured, catches its own errors
@@ -174,5 +196,24 @@ export class RunCoordinator {
       status,
       error,
     }
+  }
+}
+
+function analysisResultFromInsights(insights: Insight[]): AnalysisResult {
+  return {
+    regressions: [],
+    gains: [],
+    firstCitations: [],
+    providerPickups: [],
+    persistentGaps: [],
+    competitorGains: [],
+    competitorLosses: [],
+    health: {
+      overallCitedRate: 0,
+      totalPairs: 0,
+      citedPairs: 0,
+      providerBreakdown: {},
+    },
+    insights,
   }
 }

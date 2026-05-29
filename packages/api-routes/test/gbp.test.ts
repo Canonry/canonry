@@ -5,7 +5,7 @@ import path from 'node:path'
 import os from 'node:os'
 import Fastify from 'fastify'
 import { eq } from 'drizzle-orm'
-import { createClient, migrate, projects, gbpLocations, gbpDailyMetrics, gbpKeywordImpressions, gbpPlaceActions, gbpLodgingSnapshots, auditLog } from '@ainyc/canonry-db'
+import { createClient, migrate, projects, gbpLocations, gbpDailyMetrics, gbpKeywordImpressions, gbpKeywordMonthly, gbpPlaceActions, gbpLodgingSnapshots, auditLog } from '@ainyc/canonry-db'
 import { AppError, type GoogleConnectionType } from '@ainyc/canonry-contracts'
 import { googleRoutes } from '../src/google.js'
 
@@ -345,6 +345,7 @@ describe('GBP routes (Phase 1)', () => {
       // disconnect clears the whole footprint, not just the location rows.
       ctx.db.insert(gbpDailyMetrics).values({ id: crypto.randomUUID(), projectId, locationName: 'locations/1', date: '2026-05-01', metric: 'WEBSITE_CLICKS', value: 7, syncRunId: null }).run()
       ctx.db.insert(gbpKeywordImpressions).values({ id: crypto.randomUUID(), projectId, locationName: 'locations/1', periodStart: '2025-06', periodEnd: '2026-05', keyword: 'hotel', valueCount: 100, valueThreshold: null, syncRunId: null }).run()
+      ctx.db.insert(gbpKeywordMonthly).values({ id: crypto.randomUUID(), projectId, locationName: 'locations/1', month: '2026-04', keyword: 'hotel', valueCount: 100, valueThreshold: null, syncRunId: null, syncedAt: '2026-05-01T00:00:00Z' }).run()
       ctx.db.insert(gbpPlaceActions).values({ id: crypto.randomUUID(), projectId, locationName: 'locations/1', placeActionLinkName: 'locations/1/placeActionLinks/x', placeActionType: 'BOOK', uri: 'https://book.example', isPreferred: true, providerType: 'MERCHANT', syncRunId: null }).run()
       ctx.db.insert(gbpLodgingSnapshots).values({ id: crypto.randomUUID(), projectId, locationName: 'locations/1', contentHash: 'h1', attributes: {}, populatedGroupCount: 0, syncedAt: '2026-05-01T00:00:00Z', syncRunId: null }).run()
 
@@ -361,6 +362,7 @@ describe('GBP routes (Phase 1)', () => {
       // Synced performance data is gone too — no stale rows survive a disconnect.
       expect(ctx.db.select().from(gbpDailyMetrics).where(eq(gbpDailyMetrics.projectId, projectId)).all().length).toBe(0)
       expect(ctx.db.select().from(gbpKeywordImpressions).where(eq(gbpKeywordImpressions.projectId, projectId)).all().length).toBe(0)
+      expect(ctx.db.select().from(gbpKeywordMonthly).where(eq(gbpKeywordMonthly.projectId, projectId)).all().length).toBe(0)
       expect(ctx.db.select().from(gbpPlaceActions).where(eq(gbpPlaceActions.projectId, projectId)).all().length).toBe(0)
       expect(ctx.db.select().from(gbpLodgingSnapshots).where(eq(gbpLodgingSnapshots.projectId, projectId)).all().length).toBe(0)
       // Connection store entry is gone
@@ -422,12 +424,14 @@ describe('GBP routes (Phase 1)', () => {
       // Initial discover under accounts/1, plus a synced metric for its location.
       await ctx.app.inject({ method: 'POST', url: '/projects/hotels/gbp/locations/discover', payload: { accountName: 'accounts/1' } })
       ctx.db.insert(gbpDailyMetrics).values({ id: crypto.randomUUID(), projectId, locationName: 'locations/1', date: '2026-05-01', metric: 'WEBSITE_CLICKS', value: 5, syncRunId: null }).run()
+      ctx.db.insert(gbpKeywordMonthly).values({ id: crypto.randomUUID(), projectId, locationName: 'locations/1', month: '2026-04', keyword: 'hotel', valueCount: 50, valueThreshold: null, syncRunId: null, syncedAt: '2026-05-01T00:00:00Z' }).run()
 
       // Re-pointing at accounts/2 without opting in is rejected; old data survives.
       const blocked = await ctx.app.inject({ method: 'POST', url: '/projects/hotels/gbp/locations/discover', payload: { accountName: 'accounts/2' } })
       expect(blocked.statusCode).toBe(400)
       expect(ctx.db.select().from(gbpLocations).where(eq(gbpLocations.projectId, projectId)).all().map((r) => r.locationName)).toEqual(['locations/1'])
       expect(ctx.db.select().from(gbpDailyMetrics).where(eq(gbpDailyMetrics.projectId, projectId)).all().length).toBe(1)
+      expect(ctx.db.select().from(gbpKeywordMonthly).where(eq(gbpKeywordMonthly.projectId, projectId)).all().length).toBe(1)
 
       // With switchAccount the old account's locations + data are replaced.
       const switched = await ctx.app.inject({ method: 'POST', url: '/projects/hotels/gbp/locations/discover', payload: { accountName: 'accounts/2', switchAccount: true } })
@@ -436,6 +440,7 @@ describe('GBP routes (Phase 1)', () => {
       expect(rows.map((r) => r.locationName)).toEqual(['locations/2'])
       expect(rows.every((r) => r.accountName === 'accounts/2')).toBe(true)
       expect(ctx.db.select().from(gbpDailyMetrics).where(eq(gbpDailyMetrics.projectId, projectId)).all().length).toBe(0)
+      expect(ctx.db.select().from(gbpKeywordMonthly).where(eq(gbpKeywordMonthly.projectId, projectId)).all().length).toBe(0)
     })
   })
 

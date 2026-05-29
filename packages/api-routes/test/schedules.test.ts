@@ -243,6 +243,46 @@ describe('schedule per-kind invariants', () => {
     })
     expect(delRes.statusCode).toBe(204)
   })
+
+  it('accepts a well-formed gbp-sync schedule (no sourceId) and round-trips via GET', async () => {
+    const putRes = await harness.app.inject({
+      method: 'PUT',
+      url: '/api/v1/projects/site-a/schedule',
+      payload: { kind: 'gbp-sync', preset: 'daily' },
+    })
+    expect(putRes.statusCode).toBe(201)
+    const created = JSON.parse(putRes.payload)
+    expect(created.kind).toBe('gbp-sync')
+    // GBP schedules operate on the project's selected locations — no source.
+    expect(created.sourceId).toBeNull()
+    expect(created.providers).toEqual([])
+
+    const getRes = await harness.app.inject({
+      method: 'GET',
+      url: '/api/v1/projects/site-a/schedule?kind=gbp-sync',
+    })
+    expect(getRes.statusCode).toBe(200)
+    expect(JSON.parse(getRes.payload).id).toBe(created.id)
+
+    // The default GET (no kind) must NOT see the gbp-sync schedule.
+    const defaultGetRes = await harness.app.inject({
+      method: 'GET',
+      url: '/api/v1/projects/site-a/schedule',
+    })
+    expect(defaultGetRes.statusCode).toBe(404)
+  })
+
+  it('rejects PUT /schedule with kind=gbp-sync and a sourceId', async () => {
+    const res = await harness.app.inject({
+      method: 'PUT',
+      url: '/api/v1/projects/site-a/schedule',
+      payload: { kind: 'gbp-sync', preset: 'daily', sourceId: harness.trafficSourceId },
+    })
+    expect(res.statusCode).toBe(400)
+    const body = JSON.parse(res.payload)
+    expect(body.error.code).toBe('VALIDATION_ERROR')
+    expect(body.error.message).toMatch(/sourceId.*traffic-sync/)
+  })
 })
 
 describe('apply preserves traffic-sync schedules', () => {

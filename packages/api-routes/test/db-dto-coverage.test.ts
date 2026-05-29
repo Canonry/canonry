@@ -179,6 +179,10 @@ const COVERAGE: Record<string, CoverageEntry> = {
       syncRunId: 'Internal join key.',
     },
   },
+  gbpKeywordMonthly: {
+    kind: 'internal-only',
+    reason: 'Accumulating per-month keyword series; an internal trend-history aggregate consumed by the intelligence engine (month-over-month keyword-drop insights), not exposed as its own DTO. The current snapshot is served by gbpKeywordImpressions.',
+  },
   gbpPlaceActions: {
     kind: 'dto',
     dto: gbpPlaceActionDtoSchema,

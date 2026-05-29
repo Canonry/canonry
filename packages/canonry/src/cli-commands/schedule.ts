@@ -6,7 +6,7 @@ import { usageError } from '../cli-error.js'
 export const SCHEDULE_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['schedule', 'set'],
-    usage: 'canonry schedule set <project> (--preset <preset> | --cron <expr>) [--kind answer-visibility|traffic-sync|data-refresh] [--source <id>] [--timezone <tz>] [--provider <name>...] [--format json]',
+    usage: 'canonry schedule set <project> (--preset <preset> | --cron <expr>) [--kind answer-visibility|traffic-sync|gbp-sync|data-refresh] [--source <id>] [--timezone <tz>] [--provider <name>...] [--format json]',
     options: {
       preset: stringOption(),
       cron: stringOption(),
@@ -16,7 +16,7 @@ export const SCHEDULE_CLI_COMMANDS: readonly CliCommandSpec[] = [
       provider: multiStringOption(),
     },
     run: async (input) => {
-      const usage = 'canonry schedule set <project> (--preset <preset> | --cron <expr>) [--kind answer-visibility|traffic-sync|data-refresh] [--source <id>] [--timezone <tz>] [--provider <name>...] [--format json]'
+      const usage = 'canonry schedule set <project> (--preset <preset> | --cron <expr>) [--kind answer-visibility|traffic-sync|gbp-sync|data-refresh] [--source <id>] [--timezone <tz>] [--provider <name>...] [--format json]'
       const project = requireProject(input, 'schedule.set', usage)
       if (!getString(input.values, 'preset') && !getString(input.values, 'cron')) {
         throw usageError('Error: --preset or --cron is required', {
@@ -41,7 +41,7 @@ export const SCHEDULE_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['schedule', 'show'],
-    usage: 'canonry schedule show <project> [--kind answer-visibility|traffic-sync|data-refresh] [--format json]',
+    usage: 'canonry schedule show <project> [--kind answer-visibility|traffic-sync|gbp-sync|data-refresh] [--format json]',
     options: { kind: stringOption() },
     run: async (input) => {
       const project = requireProject(input, 'schedule.show', 'canonry schedule show <project> [--kind ...]')
@@ -50,7 +50,7 @@ export const SCHEDULE_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['schedule', 'enable'],
-    usage: 'canonry schedule enable <project> [--kind answer-visibility|traffic-sync|data-refresh] [--format json]',
+    usage: 'canonry schedule enable <project> [--kind answer-visibility|traffic-sync|gbp-sync|data-refresh] [--format json]',
     options: { kind: stringOption() },
     run: async (input) => {
       const project = requireProject(input, 'schedule.enable', 'canonry schedule enable <project> [--kind ...]')
@@ -59,7 +59,7 @@ export const SCHEDULE_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['schedule', 'disable'],
-    usage: 'canonry schedule disable <project> [--kind answer-visibility|traffic-sync|data-refresh] [--format json]',
+    usage: 'canonry schedule disable <project> [--kind answer-visibility|traffic-sync|gbp-sync|data-refresh] [--format json]',
     options: { kind: stringOption() },
     run: async (input) => {
       const project = requireProject(input, 'schedule.disable', 'canonry schedule disable <project> [--kind ...]')
@@ -68,7 +68,7 @@ export const SCHEDULE_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['schedule', 'remove'],
-    usage: 'canonry schedule remove <project> [--kind answer-visibility|traffic-sync|data-refresh] [--format json]',
+    usage: 'canonry schedule remove <project> [--kind answer-visibility|traffic-sync|gbp-sync|data-refresh] [--format json]',
     options: { kind: stringOption() },
     run: async (input) => {
       const project = requireProject(input, 'schedule.remove', 'canonry schedule remove <project> [--kind ...]')

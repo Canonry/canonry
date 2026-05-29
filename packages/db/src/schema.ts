@@ -921,6 +921,30 @@ export const gbpKeywordImpressions = sqliteTable('gbp_keyword_impressions', {
   uniqueIndex('uniq_gbp_keyword_impr').on(table.projectId, table.locationName, table.periodEnd, table.keyword),
 ])
 
+// GBP keyword monthly series — one row per (location, calendar month, keyword).
+// Unlike gbp_keyword_impressions (a single range-replaced trailing-window
+// aggregate), this table ACCUMULATES: each sync upserts the most recent
+// complete months and leaves older in-retention months in place, so the
+// intelligence engine can detect month-over-month keyword drops. The monthly
+// endpoint returns one aggregate per range, so a true monthly series requires
+// one call per month — the sync fetches the last few complete months and the
+// history builds up over time. `month` is YYYY-MM; exactly one of valueCount /
+// valueThreshold is non-null per row (the privacy floor when Google redacts).
+export const gbpKeywordMonthly = sqliteTable('gbp_keyword_monthly', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  locationName: text('location_name').notNull(),
+  month: text('month').notNull(),         // YYYY-MM (the calendar month this count covers)
+  keyword: text('keyword').notNull(),
+  valueCount: integer('value_count'),     // exact impressions, or null when thresholded
+  valueThreshold: integer('value_threshold'), // privacy floor, or null when exact
+  syncRunId: text('sync_run_id').references(() => runs.id, { onDelete: 'set null' }),
+  syncedAt: text('synced_at').notNull(),
+}, (table) => [
+  index('idx_gbp_keyword_monthly_loc').on(table.projectId, table.locationName, table.month),
+  uniqueIndex('uniq_gbp_keyword_monthly').on(table.projectId, table.locationName, table.month, table.keyword),
+])
+
 // GBP place action links — booking / reservation / order CTAs surfaced by AI
 // engines. Range-replaced per location each sync (the resource name is the
 // stable key). `providerType` MERCHANT = direct, AGGREGATOR = OTA link.

@@ -445,6 +445,28 @@ export type { SafeWebhookTarget } from './webhooks.js'
 export type { RunRoutesOptions } from './runs.js'
 export { renderReportHtml } from './report-renderer.js'
 export type { RenderReportHtmlOptions } from './report-renderer.js'
+// Pure GBP summary math — reused by the intelligence service to derive
+// per-location signals (window deltas, lodging/CTA flags) for gbp-sync insights.
+export {
+  buildGbpSummary,
+  computeMetricTotals,
+  computeWindowDelta,
+  computeKeywordCoverage,
+  summarizePlaceActions,
+  summarizeLodging,
+} from './gbp-summary.js'
+export type {
+  GbpSummary,
+  GbpSummaryInput,
+  DailyMetricInput,
+  KeywordInput,
+  PlaceActionInput,
+  LodgingInput,
+  WindowDelta,
+  KeywordCoverage,
+  PlaceActionSummary,
+  LodgingSummary,
+} from './gbp-summary.js'
 export type {
   ExplainContentRecommendationFn,
   ExplainContentRecommendationInput,

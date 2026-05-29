@@ -18,6 +18,7 @@ import { SearchConsoleSummaryCard } from '../components/project/SearchConsoleSum
 import { BingSummaryMetric } from '../components/project/BingSummaryMetric.js'
 import { ActivitySection } from '../components/project/ActivitySection.js'
 import { GscSection } from '../components/project/GscSection.js'
+import { GbpSection } from '../components/project/GbpSection.js'
 import { BacklinksSection } from '../components/project/BacklinksSection.js'
 import { CitationVisibilitySection } from '../components/project/CitationVisibilitySection.js'
 import { DiscoverySection } from '../components/project/DiscoverySection.js'
@@ -2292,7 +2293,12 @@ function ProjectPageContent({
       ) : tab === 'backlinks' ? (
         <BacklinksSection projectName={model.project.name} />
       ) : (
-        <SearchConsoleSection projectName={model.project.name} />
+        <>
+          <SearchConsoleSection projectName={model.project.name} />
+          {/* Local presence (Google Business Profile). Self-gates: renders only
+              when the project has a GBP connection. */}
+          <GbpSection projectName={model.project.name} />
+        </>
       )}
     </div>
   )
