@@ -2,7 +2,9 @@
 
 ## Purpose
 
-Google Business Profile (GBP) integration — typed clients for the Account Management, Business Information, Performance, Q&A, Lodging, Place Actions, and v4 Reviews APIs. Used by the local-AEO surface (reviews tracking, keyword impressions, daily metrics, hotel attributes, booking CTAs).
+Google Business Profile (GBP) integration — typed clients for the Account Management, Business Information, Performance, Lodging, Place Actions, and v4 Reviews APIs. Used by the local-AEO surface (reviews tracking, keyword impressions, daily metrics, hotel attributes, booking CTAs).
+
+> **Note:** Google's My Business Q&A API was shut down (returns HTTP 501 `API_UNSUPPORTED` as of 2026). Q&A is not part of this integration. See the smoke-test findings in the PR description.
 
 OAuth and token storage live in `packages/integration-google` and `packages/api-routes/src/google.ts`. This package only takes an access token and makes API calls.
 
