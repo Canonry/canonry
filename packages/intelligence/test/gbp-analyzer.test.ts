@@ -38,6 +38,10 @@ describe('analyzeGbp', () => {
       expect(lodging[0]!.provider).toBe('gbp')
       expect(lodging[0]!.query).toBe('Test Hotel')
       expect(lodging[0]!.locationName).toBe('locations/1')
+      // Flags the API-vs-rendered-listing discrepancy: the API returns only
+      // owner-configured attributes, so the public listing may differ (#648).
+      expect(lodging[0]!.recommendation?.reason).toMatch(/owner-configured/)
+      expect(lodging[0]!.recommendation?.reason).toMatch(/rendered listing/)
     })
 
     it('does not flag a populated lodging profile', () => {
