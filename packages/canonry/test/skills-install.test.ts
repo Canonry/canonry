@@ -1,18 +1,29 @@
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { SKILL_MANIFEST_FILENAME, type SkillManifest } from '@ainyc/canonry-contracts'
 import { CliError } from '../src/cli-error.js'
 import {
   BUNDLED_SKILL_NAMES,
   emitInstallSummary,
   getBundledSkills,
+  getBundledSkillSnapshots,
   getMissingUserSkillsNudge,
   installSkills,
   listSkills,
   parseSkillsClient,
   resolveBundledSkillsRoot,
 } from '../src/commands/skills.js'
+
+function sha256(content: string): string {
+  return crypto.createHash('sha256').update(Buffer.from(content)).digest('hex')
+}
+
+function readManifest(skillDir: string): SkillManifest {
+  return JSON.parse(fs.readFileSync(path.join(skillDir, SKILL_MANIFEST_FILENAME), 'utf-8')) as SkillManifest
+}
 
 let tmpRoot: string
 
@@ -76,13 +87,21 @@ describe('installSkills (claude only)', () => {
     }
   })
 
-  it('refuses to overwrite a divergent local edit without --force', async () => {
+  it('preserves a divergent local edit and reports a conflict without --force', async () => {
     await installSkills({ dir: tmpRoot, client: 'claude' })
 
     const skillFile = path.join(tmpRoot, '.claude', 'skills', 'aero', 'SKILL.md')
     fs.writeFileSync(skillFile, 'tampered content', 'utf-8')
 
-    await expect(installSkills({ dir: tmpRoot, client: 'claude' })).rejects.toThrow(CliError)
+    // Additive install no longer throws on a local edit — it keeps the edit and
+    // surfaces it as a conflict so an agent/operator can decide to --force.
+    const summary = await installSkills({ dir: tmpRoot, client: 'claude' })
+    const aero = summary.results.find(r => r.skill === 'aero')!
+    expect(aero.conflicts).toContain('SKILL.md')
+    expect(aero.status).toBe('already-installed')
+    expect(aero.message).toMatch(/--force/)
+    expect(fs.readFileSync(skillFile, 'utf-8')).toBe('tampered content')
+    expect(summary.message).toMatch(/--force/)
   })
 
   it('overwrites divergent content when --force is set', async () => {
@@ -94,7 +113,107 @@ describe('installSkills (claude only)', () => {
     const summary = await installSkills({ dir: tmpRoot, client: 'claude', force: true })
     const aeroResult = summary.results.find(r => r.skill === 'aero')
     expect(aeroResult?.status).toBe('updated')
+    expect(aeroResult?.updated).toContain('SKILL.md')
+    expect(aeroResult?.conflicts).toEqual([])
     expect(fs.readFileSync(skillFile, 'utf-8')).not.toBe('tampered content')
+  })
+
+  it('additively re-adds a net-new bundled file without --force', async () => {
+    // Simulates an existing install that predates a newly shipped reference:
+    // delete a file post-install, then reinstall — the gap is filled, untouched.
+    await installSkills({ dir: tmpRoot, client: 'claude' })
+    const canonryDir = path.join(tmpRoot, '.claude', 'skills', 'canonry')
+    const refs = fs.readdirSync(path.join(canonryDir, 'references')).filter(f => f.endsWith('.md'))
+    expect(refs.length).toBeGreaterThan(0)
+    const droppedRel = path.join('references', refs[0]!)
+    fs.rmSync(path.join(canonryDir, droppedRel))
+
+    const summary = await installSkills({ dir: tmpRoot, client: 'claude' })
+    const canonry = summary.results.find(r => r.skill === 'canonry')!
+    expect(canonry.status).toBe('updated')
+    expect(canonry.added).toContain(droppedRel)
+    expect(canonry.conflicts).toEqual([])
+    expect(fs.existsSync(path.join(canonryDir, droppedRel))).toBe(true)
+  })
+
+  it('adds a missing file AND preserves an unrelated local edit in the same run (acceptance)', async () => {
+    await installSkills({ dir: tmpRoot, client: 'claude' })
+    const canonryDir = path.join(tmpRoot, '.claude', 'skills', 'canonry')
+    const refs = fs.readdirSync(path.join(canonryDir, 'references')).filter(f => f.endsWith('.md'))
+    const droppedRel = path.join('references', refs[0]!)
+    fs.rmSync(path.join(canonryDir, droppedRel))
+    const skillFile = path.join(canonryDir, 'SKILL.md')
+    fs.writeFileSync(skillFile, 'my local notes', 'utf-8')
+
+    const summary = await installSkills({ dir: tmpRoot, client: 'claude' })
+    const canonry = summary.results.find(r => r.skill === 'canonry')!
+    // Net-new reference filled in...
+    expect(canonry.added).toContain(droppedRel)
+    expect(fs.existsSync(path.join(canonryDir, droppedRel))).toBe(true)
+    // ...while the unrelated local edit is left exactly as the operator left it.
+    expect(canonry.conflicts).toContain('SKILL.md')
+    expect(fs.readFileSync(skillFile, 'utf-8')).toBe('my local notes')
+    expect(canonry.status).toBe('updated')
+  })
+
+  it('refreshes an upstream-updated file the operator never touched (stale), no --force', async () => {
+    await installSkills({ dir: tmpRoot, client: 'claude' })
+    const aeroDir = path.join(tmpRoot, '.claude', 'skills', 'aero')
+    const skillFile = path.join(aeroDir, 'SKILL.md')
+    const bundledContent = fs.readFileSync(skillFile, 'utf-8')
+
+    // Simulate "the bundle shipped a newer SKILL.md since this install": rewrite
+    // the on-disk file AND its manifest entry to the same older hash, so it
+    // matches the manifest (canonry-written) but diverges from the bundle.
+    const olderContent = `${bundledContent}\n<!-- older shipped revision -->\n`
+    fs.writeFileSync(skillFile, olderContent, 'utf-8')
+    const manifest = readManifest(aeroDir)
+    manifest.files['SKILL.md'] = sha256(olderContent)
+    fs.writeFileSync(path.join(aeroDir, SKILL_MANIFEST_FILENAME), JSON.stringify(manifest), 'utf-8')
+
+    const summary = await installSkills({ dir: tmpRoot, client: 'claude' })
+    const aero = summary.results.find(r => r.skill === 'aero')!
+    expect(aero.status).toBe('updated')
+    expect(aero.updated).toContain('SKILL.md')
+    expect(aero.conflicts).toEqual([])
+    // Restored to the bundled content (not the older revision).
+    expect(fs.readFileSync(skillFile, 'utf-8')).toBe(bundledContent)
+  })
+
+  it('writes a manifest (version + per-file hashes) into the installed tree', async () => {
+    await installSkills({ dir: tmpRoot, client: 'claude' })
+    const canonryDir = path.join(tmpRoot, '.claude', 'skills', 'canonry')
+    const manifest = readManifest(canonryDir)
+
+    expect(manifest.skill).toBe('canonry')
+    expect(manifest.version.length).toBeGreaterThan(0)
+    expect(Object.keys(manifest.files).length).toBeGreaterThan(0)
+    // The recorded hash matches the actual installed file content.
+    expect(manifest.files['SKILL.md']).toBe(sha256(fs.readFileSync(path.join(canonryDir, 'SKILL.md'), 'utf-8')))
+    // The manifest is metadata, not tracked content — its presence does not
+    // count as drift, so a second install is still a clean no-op.
+    const second = await installSkills({ dir: tmpRoot, client: 'claude' })
+    for (const r of second.results) expect(r.status).toBe('already-installed')
+  })
+})
+
+describe('getBundledSkillSnapshots', () => {
+  it('returns version + per-file sha256 hashes for every bundled skill', () => {
+    const snapshots = getBundledSkillSnapshots()
+    expect(snapshots.map(s => s.name).sort()).toEqual([...BUNDLED_SKILL_NAMES].sort())
+    for (const snap of snapshots) {
+      expect(snap.version.length).toBeGreaterThan(0)
+      expect(Object.keys(snap.files).length).toBeGreaterThan(0)
+      expect(snap.files['SKILL.md']).toMatch(/^[0-9a-f]{64}$/)
+    }
+  })
+
+  it('matches the hashes written into a fresh install', async () => {
+    await installSkills({ dir: tmpRoot, client: 'claude' })
+    const snapshots = getBundledSkillSnapshots()
+    const aeroSnap = snapshots.find(s => s.name === 'aero')!
+    const aeroManifest = readManifest(path.join(tmpRoot, '.claude', 'skills', 'aero'))
+    expect(aeroManifest.files).toEqual(aeroSnap.files)
   })
 })
 

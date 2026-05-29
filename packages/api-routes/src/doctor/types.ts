@@ -1,5 +1,5 @@
 import type { DatabaseClient } from '@ainyc/canonry-db'
-import type { CheckCategory, CheckResultDto, CheckScope, CheckStatus } from '@ainyc/canonry-contracts'
+import type { BundledSkillSnapshot, CheckCategory, CheckResultDto, CheckScope, CheckStatus } from '@ainyc/canonry-contracts'
 import type { GoogleConnectionStore } from '../google.js'
 import type { BingConnectionStore } from '../bing.js'
 import type { WordpressConnectionStore } from '../wordpress.js'
@@ -63,6 +63,14 @@ export interface DoctorContext {
    * runtime-state guard hook.
    */
   runtimeStatePaths?: { databasePath: string; configPath?: string | null }
+  /**
+   * Per-skill snapshot (version + file hashes) of the skills bundled into the
+   * running canonry build, injected by the server because `api-routes` cannot
+   * resolve canonry's bundled assets. Powers the `agent.skills.current` drift
+   * check; left undefined by deployments that don't ship bundled skills (e.g.
+   * cloud `apps/api`), which makes the check `skipped`.
+   */
+  bundledSkills?: BundledSkillSnapshot[]
 }
 
 export interface ProjectInfo {

@@ -56,6 +56,7 @@ import { doctorRoutes } from './doctor.js'
 import { discoveryRoutes } from './discovery/index.js'
 import type { DiscoveryRoutesOptions } from './discovery/index.js'
 import { CheckStatuses, TrafficSourceTypes } from '@ainyc/canonry-contracts'
+import type { BundledSkillSnapshot } from '@ainyc/canonry-contracts'
 import type { CheckOutput, TrafficSourceProbe, TrafficSourceValidator } from './doctor/types.js'
 
 declare module 'fastify' {
@@ -192,6 +193,13 @@ export interface ApiRoutesOptions {
    * doctor checks. Cloud deployments leave this undefined.
    */
   runtimeStatePaths?: { databasePath: string; configPath?: string | null }
+  /**
+   * Snapshots (version + per-file hashes) of the agent skills bundled into the
+   * running build. Wired by `canonry serve` from its bundled assets; powers the
+   * `agent.skills.current` doctor check. Cloud deployments leave this undefined
+   * and the check `skipped`.
+   */
+  bundledSkills?: BundledSkillSnapshot[]
 }
 
 export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
@@ -402,6 +410,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       providerSummary: opts.providerSummary,
       trafficSourceValidators: buildTrafficSourceValidators(opts),
       runtimeStatePaths: opts.runtimeStatePaths,
+      bundledSkills: opts.bundledSkills,
     })
     // Local-only extension hook: canonry passes the Aero agent routes here
     // so they live inside the authenticated scope. Cloud leaves it undefined.
