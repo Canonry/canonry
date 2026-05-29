@@ -44,6 +44,9 @@ import type {
   GbpSyncResponse,
   GbpDailyMetricListResponse,
   GbpKeywordImpressionListResponse,
+  GbpPlaceActionListResponse,
+  GbpLodgingListResponse,
+  GbpSummaryDto,
   GscSearchDataDto,
   GscPerformanceDailyDto,
   GscUrlInspectionDto,
@@ -177,6 +180,9 @@ import {
   postApiV1ProjectsByNameGbpSync,
   getApiV1ProjectsByNameGbpMetrics,
   getApiV1ProjectsByNameGbpKeywords,
+  getApiV1ProjectsByNameGbpPlaceActions,
+  getApiV1ProjectsByNameGbpLodging,
+  getApiV1ProjectsByNameGbpSummary,
   // GSC
   postApiV1ProjectsByNameGoogleGscSync,
   getApiV1ProjectsByNameGoogleGscPerformance,
@@ -1186,12 +1192,42 @@ export class ApiClient {
     )
   }
 
-  async listGbpKeywords(project: string, opts?: { locationName?: string; month?: string }): Promise<GbpKeywordImpressionListResponse> {
+  async listGbpKeywords(project: string, opts?: { locationName?: string }): Promise<GbpKeywordImpressionListResponse> {
     return this.invoke<GbpKeywordImpressionListResponse>(() =>
       getApiV1ProjectsByNameGbpKeywords({
         client: this.heyClient,
         path: { name: project },
-        query: (opts && (opts.locationName || opts.month)) ? opts as never : undefined,
+        query: opts?.locationName ? { locationName: opts.locationName } as never : undefined,
+      }),
+    )
+  }
+
+  async listGbpPlaceActions(project: string, opts?: { locationName?: string }): Promise<GbpPlaceActionListResponse> {
+    return this.invoke<GbpPlaceActionListResponse>(() =>
+      getApiV1ProjectsByNameGbpPlaceActions({
+        client: this.heyClient,
+        path: { name: project },
+        query: opts?.locationName ? { locationName: opts.locationName } as never : undefined,
+      }),
+    )
+  }
+
+  async listGbpLodging(project: string, opts?: { locationName?: string }): Promise<GbpLodgingListResponse> {
+    return this.invoke<GbpLodgingListResponse>(() =>
+      getApiV1ProjectsByNameGbpLodging({
+        client: this.heyClient,
+        path: { name: project },
+        query: opts?.locationName ? { locationName: opts.locationName } as never : undefined,
+      }),
+    )
+  }
+
+  async getGbpSummary(project: string, opts?: { locationName?: string }): Promise<GbpSummaryDto> {
+    return this.invoke<GbpSummaryDto>(() =>
+      getApiV1ProjectsByNameGbpSummary({
+        client: this.heyClient,
+        path: { name: project },
+        query: opts?.locationName ? { locationName: opts.locationName } as never : undefined,
       }),
     )
   }

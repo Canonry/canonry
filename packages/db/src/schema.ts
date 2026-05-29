@@ -899,19 +899,60 @@ export const gbpDailyMetrics = sqliteTable('gbp_daily_metrics', {
   uniqueIndex('uniq_gbp_daily_metrics').on(table.projectId, table.locationName, table.date, table.metric),
 ])
 
-// GBP monthly search-keyword impressions — one row per (location, month, keyword).
-// Google returns either an exact `value` or a privacy `threshold` (the floor it
-// won't go below). Exactly one of valueCount / valueThreshold is non-null per row.
+// GBP search-keyword impressions — one row per (location, window, keyword).
+// The Performance API returns a single impressions figure per keyword aggregated
+// over the whole requested range, NOT a per-month breakdown — so each row records
+// the trailing window it covers via period_start / period_end (both YYYY-MM,
+// inclusive) rather than a single month. Google returns either an exact `value`
+// or a privacy `threshold` (the floor it won't go below); exactly one of
+// valueCount / valueThreshold is non-null per row.
 export const gbpKeywordImpressions = sqliteTable('gbp_keyword_impressions', {
   id: text('id').primaryKey(),
   projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
   locationName: text('location_name').notNull(),
-  month: text('month').notNull(),         // YYYY-MM
+  periodStart: text('period_start').notNull(), // YYYY-MM, inclusive
+  periodEnd: text('period_end').notNull(),     // YYYY-MM, inclusive
   keyword: text('keyword').notNull(),
   valueCount: integer('value_count'),     // exact impressions, or null when thresholded
   valueThreshold: integer('value_threshold'), // privacy floor, or null when exact
   syncRunId: text('sync_run_id').references(() => runs.id, { onDelete: 'set null' }),
 }, (table) => [
-  index('idx_gbp_keyword_impr_loc').on(table.projectId, table.locationName, table.month),
-  uniqueIndex('uniq_gbp_keyword_impr').on(table.projectId, table.locationName, table.month, table.keyword),
+  index('idx_gbp_keyword_impr_loc').on(table.projectId, table.locationName, table.periodEnd),
+  uniqueIndex('uniq_gbp_keyword_impr').on(table.projectId, table.locationName, table.periodEnd, table.keyword),
+])
+
+// GBP place action links — booking / reservation / order CTAs surfaced by AI
+// engines. Range-replaced per location each sync (the resource name is the
+// stable key). `providerType` MERCHANT = direct, AGGREGATOR = OTA link.
+export const gbpPlaceActions = sqliteTable('gbp_place_actions', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  locationName: text('location_name').notNull(),
+  placeActionLinkName: text('place_action_link_name').notNull(),
+  placeActionType: text('place_action_type').notNull(),
+  uri: text('uri'),
+  isPreferred: integer('is_preferred', { mode: 'boolean' }).notNull().default(false),
+  providerType: text('provider_type'),
+  syncRunId: text('sync_run_id').references(() => runs.id, { onDelete: 'set null' }),
+}, (table) => [
+  index('idx_gbp_place_actions_loc').on(table.projectId, table.locationName),
+  uniqueIndex('uniq_gbp_place_actions').on(table.projectId, table.placeActionLinkName),
+])
+
+// GBP lodging snapshots — hotel structured attributes, snapshotted on change.
+// Hotel profiles change rarely, so we only insert a new row when the content
+// hash differs from the latest stored snapshot for the location. `attributes`
+// holds the raw Lodging resource; `populatedGroupCount` is the count of
+// non-empty top-level attribute groups (0 = empty profile = an AEO gap).
+export const gbpLodgingSnapshots = sqliteTable('gbp_lodging_snapshots', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  locationName: text('location_name').notNull(),
+  contentHash: text('content_hash').notNull(),
+  attributes: text('attributes', { mode: 'json' }).$type<Record<string, unknown>>().notNull().default({}),
+  populatedGroupCount: integer('populated_group_count').notNull().default(0),
+  syncedAt: text('synced_at').notNull(),
+  syncRunId: text('sync_run_id').references(() => runs.id, { onDelete: 'set null' }),
+}, (table) => [
+  index('idx_gbp_lodging_loc').on(table.projectId, table.locationName, table.syncedAt),
 ])

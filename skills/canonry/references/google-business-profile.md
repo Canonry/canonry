@@ -1,17 +1,17 @@
 # Google Business Profile Integration
 
-Canonry integrates with the Google Business Profile (GBP) API to surface local AEO signals: reviews, monthly search-keyword impressions, daily performance metrics, hotel attributes, and booking CTAs. This data feeds the local-AEO dashboard and the Aero analyst.
+Canonry integrates with the Google Business Profile (GBP) API to surface local AEO signals: search-keyword impressions, daily performance metrics, hotel lodging attributes, and booking/reservation CTAs (plus reviews on the projects where Google has granted v4 access — see the gating section). This data feeds the local-AEO dashboard and the Aero analyst.
 
 > **Q&A is not available.** Google shut down the My Business Q&A API — it returns HTTP 501 `API_UNSUPPORTED`. There is no programmatic way to read or write profile Q&A. Don't plan around it.
 
 ## What Canonry Automates
 
-- Discover GBP accounts and locations the connected user manages
-- Sync reviews (text, rating, replies) per location
-- Sync monthly search-keyword impressions (last 12 months)
-- Sync daily performance metrics — impressions, website clicks, call clicks, direction requests
+- Discover GBP accounts and locations the connected user manages, with explicit per-location selection
+- Sync search-keyword impressions aggregated over a date window (default ~12 months; stored with `periodStart`/`periodEnd`)
+- Sync daily performance metrics — impressions, website clicks, call clicks, direction requests (all 11 `DailyMetric`s)
 - For hotels: sync lodging attributes (amenities, accessibility, pets, etc.) and place action links (booking CTAs)
-- Surface a "profile completeness" score and unanswered-content backlog
+- Roll the above into a composite summary scorecard (`canonry gbp summary`)
+- Sync reviews per location — **only where Google has granted v4 access** (gated; unavailable on most projects — see below)
 
 ## What Stays Manual
 
@@ -126,6 +126,19 @@ canonry gbp summary <project>                # check derived metrics
 
 The OAuth scope requested is `https://www.googleapis.com/auth/business.manage`. **There is no read-only variant** — Google does not publish one. The consent screen will say "manage your business profile" even though canonry's read-only surface cannot write anything until Phase 4.
 
+## The Summary Scorecard (`canonry gbp summary`)
+
+`canonry gbp summary <project> [--location locations/XXX]` (API: `GET /gbp/summary`, MCP: `canonry_gbp_summary`) is the single composite read that rolls every synced GBP surface into one scorecard. All math lives in the API (`buildGbpSummary`) — the CLI and dashboard only render it, so `--format json` matches the API response field-for-field. Fields:
+
+- **`scope`** — `{ locationName, locationCount }`. `locationName` is null when summarizing across all selected locations.
+- **`performance`** — daily-metric roll-up:
+  - `totals` — sum per `DailyMetric` over everything synced.
+  - `recent7d` / `prior7d` — per-metric sums for the last 7 days vs the 7 days before, anchored to the **most recent stored metric date** (not wall-clock — GBP data lags ~2–3 days, so anchoring to "today" would always show empty recent windows). Both maps are backfilled with the union of metrics as explicit `0`s so a metric present in only one window still appears in both.
+  - `deltaPct` — percent change recent-vs-prior per metric; **`null` when the prior window is `0`** (no divide-by-zero, and "appeared from nothing" is not a percentage).
+- **`keywords`** — `{ total, thresholdedCount, thresholdedPct }`. `thresholdedPct` (0–100) is the share of keywords whose exact count Google redacted — your headline data-fidelity number (expect ~89% for a busy hotel, 100% for an SMB).
+- **`placeActions`** — `{ total, hasReservationCta, hasBookingCta, hasDirectMerchantCta }`. `hasDirectMerchantCta` is false when the only booking links are OTA/aggregator (Expedia/Booking) — a recommendation to add a direct CTA.
+- **`lodging`** — `{ lodgingLocationCount, populatedLodgingCount, emptyLodgingCount }`. `emptyLodgingCount` counts lodging-capable locations with zero structured attributes — the AEO gap to surface.
+
 ## Hotel-Specific Setup
 
 For hotel groups, two extra signal sources are critical:
@@ -154,7 +167,7 @@ A property with only aggregator booking links and no direct merchant CTA is a re
 - **No read-only OAuth scope** — `business.manage` is the only published scope. The consent screen will warn about write access even though canonry's v1 is read-only.
 - **300 QPM shared quota** — across all GBP sub-APIs on one Google Cloud project. Canonry's sync worker caps per-location concurrency at 4 (~28 in-flight calls at peak) to stay well under the cap.
 - **10 edits/min per profile** — hard cap on writes (relevant for Phase 4). Cannot be raised.
-- **Privacy-redacted keyword impressions** — Google returns either `value` or `threshold` per `(month, keyword)` row. Canonry stores both shapes and surfaces a "% thresholded" stat so the user understands data fidelity.
+- **Privacy-redacted keyword impressions** — for each keyword aggregated over the requested window, Google returns either an exact `value` or only a `threshold` floor (`<N`). Canonry stores both shapes (`valueCount` / `valueThreshold`) against the row's `periodStart`/`periodEnd` and surfaces a "% thresholded" stat so the user understands data fidelity. Note the Performance API aggregates each keyword over the **whole** requested date range — it does not break impressions down per calendar month.
 - **Hybrid v1/v4 surface, separately gated** — reviews live on the legacy v4 host (`mybusiness.googleapis.com/v4`); everything else is v1. **The Basic API Access approval grants the v1 family but NOT v4.** Confirmed in production: a project running v1 at 300 QPM still gets `403 SERVICE_DISABLED` on v4 reviews, and the v4 API is producer-restricted (`gcloud services enable` → `PERMISSION_DENIED 110002`) so it can't be self-enabled even by the approved account. Treat reviews as a separately-gated surface that may be unavailable; never block the rest of the integration on it.
 - **Multi-location chains** — a 200-location chain hits ~600+ API calls per sync. Default sync may take minutes for large chains; scope with `canonry gbp sync <project> --location locations/XXX` to retry a subset.
 

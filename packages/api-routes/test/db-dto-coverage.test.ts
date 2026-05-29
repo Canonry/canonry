@@ -22,6 +22,8 @@ import {
   gbpLocationDtoSchema,
   gbpDailyMetricDtoSchema,
   gbpKeywordImpressionDtoSchema,
+  gbpPlaceActionDtoSchema,
+  gbpLodgingDtoSchema,
   googleConnectionDtoSchema,
   gscCoverageSnapshotDtoSchema,
   gscSearchDataDtoSchema,
@@ -175,6 +177,25 @@ const COVERAGE: Record<string, CoverageEntry> = {
       id: 'Surrogate key.',
       projectId: 'Implied by the route scope.',
       syncRunId: 'Internal join key.',
+    },
+  },
+  gbpPlaceActions: {
+    kind: 'dto',
+    dto: gbpPlaceActionDtoSchema,
+    internal: {
+      id: 'Surrogate key.',
+      projectId: 'Implied by the route scope.',
+      syncRunId: 'Internal join key.',
+    },
+  },
+  gbpLodgingSnapshots: {
+    kind: 'dto',
+    dto: gbpLodgingDtoSchema,
+    internal: {
+      id: 'Surrogate key.',
+      projectId: 'Implied by the route scope.',
+      syncRunId: 'Internal join key.',
+      contentHash: 'Snapshot-on-change dedupe key; internal.',
     },
   },
   gscSearchData: {

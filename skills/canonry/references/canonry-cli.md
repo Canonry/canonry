@@ -363,6 +363,45 @@ cnry ga coverage <project>                    # per-page overlay: {landingPage, 
 
 Every read command queries persisted DB rows, so a stale `lastSyncedAt` means the response is stale — always check `ga status` before drawing conclusions, and re-`ga sync` if the data is older than the analysis window. Use `--only ai` or `--only social` to refresh just one slice when iterating.
 
+## Google Business Profile (Local AEO)
+
+GBP integration tracks how AI engines see a business's local presence — search-keyword impressions, daily performance metrics, hotel lodging attributes, and booking CTAs. It reuses the **Google OAuth client** (same `google.clientId`/`clientSecret` as GSC; the connection is stored under the `gbp` connection type). **Hard prerequisite:** the Google Cloud project must be approved through Google's Business Profile API Basic Access form, or every call returns HTTP 403 at 0 QPM. See `references/google-business-profile.md` for the full GCP-setup + access-request playbook, the reviews/Q&A gating, and real-world data-shape quirks.
+
+Like GA4, `gbp sync` writes to local DB tables and every read command queries the local store — reads are fast and quotaless; a stale sync means stale reads. All commands support `--format json`.
+
+```bash
+cnry gbp connect <project> [--public-url <url>]   # OAuth connect (reuses the Google client)
+cnry gbp disconnect <project>                      # remove the GBP connection
+cnry gbp locations discover <project> [--no-select-new]
+                                                   # discover managed accounts/locations; selects all new by default
+cnry gbp locations <project> [--selected-only]     # list discovered locations + selection state
+cnry gbp locations select   <project> --location locations/{n}
+cnry gbp locations deselect <project> --location locations/{n}
+                                                   # only SELECTED locations are synced
+cnry gbp sync <project> [--location locations/{n}] [--days N] [--months N] [--wait]
+                                                   # fires the gbp-sync run: daily metrics + keyword impressions
+                                                   # + place-action links + lodging snapshot per selected location;
+                                                   # --wait polls to a terminal run status
+cnry gbp metrics <project> [--location locations/{n}] [--metric <DailyMetric>]
+                                                   # stored daily metrics + totals-by-metric
+cnry gbp keywords <project> [--location locations/{n}]
+                                                   # stored search-keyword impressions over the synced
+                                                   # periodStart..periodEnd window; renders exact counts and
+                                                   # <N thresholded floors + a thresholdedPct fidelity stat
+cnry gbp place-actions <project> [--location locations/{n}]
+                                                   # booking / reservation / order CTAs per location, with
+                                                   # placeActionType, providerType (MERCHANT vs AGGREGATOR), isPreferred, uri
+cnry gbp lodging <project> [--location locations/{n}]
+                                                   # latest hotel-attribute snapshot per location (snapshot-on-change):
+                                                   # populatedGroupCount + syncedAt; empty profiles are an AEO gap, not an error
+cnry gbp summary <project> [--location locations/{n}]
+                                                   # composite scorecard: performance totals + recent-vs-prior 7d
+                                                   # deltas (deltaPct null when prior=0), keyword coverage,
+                                                   # place-action CTA presence flags, lodging completeness counts
+```
+
+`gbp sync` produces a run with the standard statuses (`completed` / `partial` / `failed`); `partial` means some selected locations synced and others errored (the per-location errors are on the run). Non-lodging locations are skipped cleanly (Google answers the lodging call with HTTP 400, not 404). Reviews are **not** synced — the v4 Reviews API is producer-restricted by Google and unavailable on most projects; the Q&A API was retired (HTTP 501).
+
 ## Backlinks (Common Crawl)
 
 Workspace-level Common Crawl release sync + per-project backlink extraction. Requires DuckDB; install once with `cnry backlinks install`. Releases are downloaded once per workspace and reused across all projects.

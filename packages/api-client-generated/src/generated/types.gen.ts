@@ -579,7 +579,8 @@ export type GbpDailyMetricListResponse = {
 export type GbpKeywordImpressionListResponse = {
     keywords: Array<{
         locationName: string;
-        month: string;
+        periodStart: string;
+        periodEnd: string;
         keyword: string;
         valueCount: number | null;
         valueThreshold: number | null;
@@ -620,6 +621,67 @@ export type GbpLocationListResponse = {
     }>;
     totalDiscovered: number;
     totalSelected: number;
+};
+
+export type GbpLodgingListResponse = {
+    lodging: Array<{
+        locationName: string;
+        populatedGroupCount: number;
+        syncedAt: string;
+        attributes: {
+            [key: string]: unknown;
+        };
+    }>;
+    total: number;
+};
+
+export type GbpPlaceActionListResponse = {
+    placeActions: Array<{
+        locationName: string;
+        placeActionLinkName: string;
+        placeActionType: string;
+        uri: string | null;
+        isPreferred: boolean;
+        providerType: string | null;
+    }>;
+    total: number;
+};
+
+export type GbpSummaryDto = {
+    scope: {
+        locationName: string | null;
+        locationCount: number;
+    };
+    performance: {
+        totals: {
+            [key: string]: number;
+        };
+        recent7d: {
+            [key: string]: number;
+        };
+        prior7d: {
+            [key: string]: number;
+        };
+        deltaPct: {
+            [key: string]: number | null;
+        };
+    };
+    keywords: {
+        total: number;
+        thresholdedCount: number;
+        thresholdedPct: number;
+    };
+    placeActions: {
+        total: number;
+        hasReservationCta: boolean;
+        hasBookingCta: boolean;
+        hasDirectMerchantCta: boolean;
+    };
+    lodging: {
+        lodgingLocationCount: number;
+        populatedLodgingCount: number;
+        emptyLodgingCount: number;
+    };
 };
 
 export type GbpSyncResponse = {
@@ -4900,6 +4962,111 @@ export type GetApiV1ProjectsByNameGbpKeywordsResponses = {
 };
 
 export type GetApiV1ProjectsByNameGbpKeywordsResponse = GetApiV1ProjectsByNameGbpKeywordsResponses[keyof GetApiV1ProjectsByNameGbpKeywordsResponses];
+
+export type GetApiV1ProjectsByNameGbpPlaceActionsData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Filter to one location resource name
+         */
+        locationName?: string;
+    };
+    url: '/api/v1/projects/{name}/gbp/place-actions';
+};
+
+export type GetApiV1ProjectsByNameGbpPlaceActionsErrors = {
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameGbpPlaceActionsError = GetApiV1ProjectsByNameGbpPlaceActionsErrors[keyof GetApiV1ProjectsByNameGbpPlaceActionsErrors];
+
+export type GetApiV1ProjectsByNameGbpPlaceActionsResponses = {
+    /**
+     * Place actions returned.
+     */
+    200: GbpPlaceActionListResponse;
+};
+
+export type GetApiV1ProjectsByNameGbpPlaceActionsResponse = GetApiV1ProjectsByNameGbpPlaceActionsResponses[keyof GetApiV1ProjectsByNameGbpPlaceActionsResponses];
+
+export type GetApiV1ProjectsByNameGbpLodgingData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Filter to one location resource name
+         */
+        locationName?: string;
+    };
+    url: '/api/v1/projects/{name}/gbp/lodging';
+};
+
+export type GetApiV1ProjectsByNameGbpLodgingErrors = {
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameGbpLodgingError = GetApiV1ProjectsByNameGbpLodgingErrors[keyof GetApiV1ProjectsByNameGbpLodgingErrors];
+
+export type GetApiV1ProjectsByNameGbpLodgingResponses = {
+    /**
+     * Lodging snapshots returned.
+     */
+    200: GbpLodgingListResponse;
+};
+
+export type GetApiV1ProjectsByNameGbpLodgingResponse = GetApiV1ProjectsByNameGbpLodgingResponses[keyof GetApiV1ProjectsByNameGbpLodgingResponses];
+
+export type GetApiV1ProjectsByNameGbpSummaryData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Scope to one location (omit = aggregate across selected)
+         */
+        locationName?: string;
+    };
+    url: '/api/v1/projects/{name}/gbp/summary';
+};
+
+export type GetApiV1ProjectsByNameGbpSummaryErrors = {
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameGbpSummaryError = GetApiV1ProjectsByNameGbpSummaryErrors[keyof GetApiV1ProjectsByNameGbpSummaryErrors];
+
+export type GetApiV1ProjectsByNameGbpSummaryResponses = {
+    /**
+     * Summary returned.
+     */
+    200: GbpSummaryDto;
+};
+
+export type GetApiV1ProjectsByNameGbpSummaryResponse = GetApiV1ProjectsByNameGbpSummaryResponses[keyof GetApiV1ProjectsByNameGbpSummaryResponses];
 
 export type PostApiV1ProjectsByNameBingConnectData = {
     body: {

@@ -1832,6 +1832,48 @@ const routeCatalog: OpenApiOperation[] = [
     },
   },
   {
+    method: 'get',
+    path: '/api/v1/projects/{name}/gbp/place-actions',
+    summary: 'List stored Google Business Profile place action links (booking CTAs)',
+    tags: ['gbp'],
+    parameters: [
+      nameParameter,
+      { in: 'query', name: 'locationName', required: false, description: 'Filter to one location resource name', schema: stringSchema },
+    ],
+    responses: {
+      200: jsonResponse('Place actions returned.', 'GbpPlaceActionListResponse'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/gbp/lodging',
+    summary: 'List latest Google Business Profile lodging snapshots per location',
+    tags: ['gbp'],
+    parameters: [
+      nameParameter,
+      { in: 'query', name: 'locationName', required: false, description: 'Filter to one location resource name', schema: stringSchema },
+    ],
+    responses: {
+      200: jsonResponse('Lodging snapshots returned.', 'GbpLodgingListResponse'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/gbp/summary',
+    summary: 'Composite Google Business Profile local-AEO summary (all derived metrics)',
+    tags: ['gbp'],
+    parameters: [
+      nameParameter,
+      { in: 'query', name: 'locationName', required: false, description: 'Scope to one location (omit = aggregate across selected)', schema: stringSchema },
+    ],
+    responses: {
+      200: jsonResponse('Summary returned.', 'GbpSummaryDto'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
     method: 'post',
     path: '/api/v1/projects/{name}/bing/connect',
     summary: 'Connect Bing Webmaster Tools',

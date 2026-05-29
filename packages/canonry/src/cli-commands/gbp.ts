@@ -8,6 +8,9 @@ import {
   gbpSync,
   gbpMetrics,
   gbpKeywords,
+  gbpPlaceActions,
+  gbpLodging,
+  gbpSummary,
 } from '../commands/gbp.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
 import {
@@ -135,18 +138,49 @@ export const GBP_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['gbp', 'keywords'],
-    usage: 'canonry gbp keywords <project> [--location <name>] [--month YYYY-MM] [--format json]',
+    usage: 'canonry gbp keywords <project> [--location <name>] [--format json]',
     options: {
       location: stringOption(),
-      month: stringOption(),
     },
     run: async (input) => {
-      const project = requireProject(input, 'gbp.keywords', 'canonry gbp keywords <project> [--location <name>] [--month YYYY-MM] [--format json]')
+      const project = requireProject(input, 'gbp.keywords', 'canonry gbp keywords <project> [--location <name>] [--format json]')
       await gbpKeywords(project, {
         location: getString(input.values, 'location'),
-        month: getString(input.values, 'month'),
         format: input.format,
       })
+    },
+  },
+  {
+    path: ['gbp', 'place-actions'],
+    usage: 'canonry gbp place-actions <project> [--location <name>] [--format json]',
+    options: {
+      location: stringOption(),
+    },
+    run: async (input) => {
+      const project = requireProject(input, 'gbp.place-actions', 'canonry gbp place-actions <project> [--location <name>] [--format json]')
+      await gbpPlaceActions(project, { location: getString(input.values, 'location'), format: input.format })
+    },
+  },
+  {
+    path: ['gbp', 'lodging'],
+    usage: 'canonry gbp lodging <project> [--location <name>] [--format json]',
+    options: {
+      location: stringOption(),
+    },
+    run: async (input) => {
+      const project = requireProject(input, 'gbp.lodging', 'canonry gbp lodging <project> [--location <name>] [--format json]')
+      await gbpLodging(project, { location: getString(input.values, 'location'), format: input.format })
+    },
+  },
+  {
+    path: ['gbp', 'summary'],
+    usage: 'canonry gbp summary <project> [--location <name>] [--format json]',
+    options: {
+      location: stringOption(),
+    },
+    run: async (input) => {
+      const project = requireProject(input, 'gbp.summary', 'canonry gbp summary <project> [--location <name>] [--format json]')
+      await gbpSummary(project, { location: getString(input.values, 'location'), format: input.format })
     },
   },
 ]

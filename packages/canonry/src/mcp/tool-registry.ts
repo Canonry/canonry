@@ -200,10 +200,9 @@ const gbpMetricsInputSchema = z.object({
   metric: z.string().optional(),
 })
 
-const gbpKeywordsInputSchema = z.object({
+const gbpLocationScopedInputSchema = z.object({
   project: projectNameSchema,
   locationName: z.string().optional(),
-  month: z.string().optional(),
 })
 
 const keywordsInputSchema = z.object({
@@ -997,10 +996,43 @@ export const canonryMcpTools = [
     description: 'List stored Google Business Profile monthly search-keyword impressions for a project. Includes a thresholdedPct (share privacy-redacted by Google).',
     access: 'read',
     tier: 'gbp',
-    inputSchema: gbpKeywordsInputSchema,
+    inputSchema: gbpLocationScopedInputSchema,
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/gbp/keywords'],
-    handler: (client, input) => client.listGbpKeywords(input.project, compactStringParams(input, ['locationName', 'month'])),
+    handler: (client, input) => client.listGbpKeywords(input.project, compactStringParams(input, ['locationName'])),
+  }),
+  defineTool({
+    name: 'canonry_gbp_place_actions',
+    title: 'Get GBP place actions',
+    description: 'List stored Google Business Profile place action links (booking / reservation / order CTAs) for a project.',
+    access: 'read',
+    tier: 'gbp',
+    inputSchema: gbpLocationScopedInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/gbp/place-actions'],
+    handler: (client, input) => client.listGbpPlaceActions(input.project, compactStringParams(input, ['locationName'])),
+  }),
+  defineTool({
+    name: 'canonry_gbp_lodging',
+    title: 'Get GBP lodging attributes',
+    description: 'List the latest Google Business Profile lodging snapshot per location (hotel structured attributes). populatedGroupCount=0 means an empty profile — an AEO gap.',
+    access: 'read',
+    tier: 'gbp',
+    inputSchema: gbpLocationScopedInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/gbp/lodging'],
+    handler: (client, input) => client.listGbpLodging(input.project, compactStringParams(input, ['locationName'])),
+  }),
+  defineTool({
+    name: 'canonry_gbp_summary',
+    title: 'Get GBP local-AEO summary',
+    description: 'Composite Google Business Profile summary for a project: performance totals + 7d deltas, keyword thresholded %, place-action CTA presence, and lodging coverage. All derived numbers computed server-side.',
+    access: 'read',
+    tier: 'gbp',
+    inputSchema: gbpLocationScopedInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/gbp/summary'],
+    handler: (client, input) => client.getGbpSummary(input.project, compactStringParams(input, ['locationName'])),
   }),
   defineTool({
     name: 'canonry_traffic_sources_list',

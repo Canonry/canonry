@@ -1,12 +1,16 @@
 import crypto from 'node:crypto'
-import { eq, and } from 'drizzle-orm'
+import { eq, and, desc } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/canonry-db'
-import { runs, projects, gbpLocations, gbpDailyMetrics, gbpKeywordImpressions } from '@ainyc/canonry-db'
+import { runs, projects, gbpLocations, gbpDailyMetrics, gbpKeywordImpressions, gbpPlaceActions, gbpLodgingSnapshots } from '@ainyc/canonry-db'
 import { buildRunErrorFromMessages, serializeRunError } from '@ainyc/canonry-contracts'
 import { refreshAccessToken } from '@ainyc/canonry-integration-google'
 import {
   fetchDailyMetrics,
   listMonthlyKeywords,
+  listPlaceActionLinks,
+  getLodging,
+  countPopulatedGroups,
+  hashLodging,
   GBP_DAILY_METRICS,
 } from '@ainyc/canonry-integration-google-business-profile'
 import type { CanonryConfig } from './config.js'
@@ -116,7 +120,7 @@ export async function executeGbpSync(
       const batch = locationRows.slice(i, i + LOCATION_CONCURRENCY)
       await Promise.all(batch.map(async (loc) => {
         try {
-          const [metricRows, keywordRows] = await Promise.all([
+          const [metricRows, keywordRows, placeActionRows, lodging] = await Promise.all([
             fetchDailyMetrics(accessToken, loc.locationName, {
               metrics: GBP_DAILY_METRICS,
               startDate: metricsStart,
@@ -126,11 +130,26 @@ export async function executeGbpSync(
               startMonth: keywordsStart,
               endMonth: keywordsEnd,
             }),
+            listPlaceActionLinks(accessToken, loc.locationName),
+            // null when the location is not a lodging-category property.
+            getLodging(accessToken, loc.locationName),
           ])
 
+          // Lodging snapshot-on-change: only insert a new row when the content
+          // hash differs from the latest stored snapshot for this location.
+          const lodgingHash = lodging ? hashLodging(lodging) : null
+          const latestLodging = lodging
+            ? db.select().from(gbpLodgingSnapshots)
+                .where(and(eq(gbpLodgingSnapshots.projectId, projectId), eq(gbpLodgingSnapshots.locationName, loc.locationName)))
+                .orderBy(desc(gbpLodgingSnapshots.syncedAt))
+                .limit(1)
+                .get()
+            : undefined
+          const lodgingChanged = lodging !== null && latestLodging?.contentHash !== lodgingHash
+
           const insertNow = new Date().toISOString()
-          // Range-replace both surfaces for this location in one transaction so
-          // a re-sync never leaves stale or duplicate rows.
+          // Range-replace the per-sync surfaces for this location in one
+          // transaction so a re-sync never leaves stale or duplicate rows.
           db.transaction((tx) => {
             tx.delete(gbpDailyMetrics)
               .where(and(eq(gbpDailyMetrics.projectId, projectId), eq(gbpDailyMetrics.locationName, loc.locationName)))
@@ -155,10 +174,43 @@ export async function executeGbpSync(
                 id: crypto.randomUUID(),
                 projectId,
                 locationName: loc.locationName,
-                month: keywordMonthKey(keywordsStart, keywordsEnd),
+                periodStart: monthKey(keywordsStart),
+                periodEnd: monthKey(keywordsEnd),
                 keyword: row.keyword,
                 valueCount: row.valueCount,
                 valueThreshold: row.valueThreshold,
+                syncRunId: runId,
+              }).run()
+            }
+
+            tx.delete(gbpPlaceActions)
+              .where(and(eq(gbpPlaceActions.projectId, projectId), eq(gbpPlaceActions.locationName, loc.locationName)))
+              .run()
+            for (const row of placeActionRows) {
+              tx.insert(gbpPlaceActions).values({
+                id: crypto.randomUUID(),
+                projectId,
+                locationName: loc.locationName,
+                placeActionLinkName: row.placeActionLinkName,
+                placeActionType: row.placeActionType,
+                uri: row.uri,
+                isPreferred: row.isPreferred,
+                providerType: row.providerType,
+                syncRunId: runId,
+              }).run()
+            }
+
+            // Lodging: append a new snapshot only when the profile changed
+            // (hotel attributes change rarely — don't store a row per sync).
+            if (lodging !== null && lodgingChanged) {
+              tx.insert(gbpLodgingSnapshots).values({
+                id: crypto.randomUUID(),
+                projectId,
+                locationName: loc.locationName,
+                contentHash: lodgingHash!,
+                attributes: lodging,
+                populatedGroupCount: countPopulatedGroups(lodging),
+                syncedAt: insertNow,
                 syncRunId: runId,
               }).run()
             }
@@ -206,9 +258,8 @@ export async function executeGbpSync(
 }
 
 // The monthly-keywords endpoint aggregates the whole requested range into one
-// figure per keyword (it does not break the count down by month). We key the
-// stored row by the requested window's end month so a re-sync of the same
-// window replaces cleanly.
-function keywordMonthKey(_start: { year: number; month: number }, end: { year: number; month: number }): string {
-  return `${end.year}-${String(end.month).padStart(2, '0')}`
+// figure per keyword (it does not break the count down by month), so each row
+// records the trailing window via periodStart / periodEnd (both YYYY-MM).
+function monthKey(m: { year: number; month: number }): string {
+  return `${m.year}-${String(m.month).padStart(2, '0')}`
 }

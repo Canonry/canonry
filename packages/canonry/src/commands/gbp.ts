@@ -1,4 +1,4 @@
-import type { GbpLocationListResponse } from '@ainyc/canonry-contracts'
+import type { GbpLocationListResponse, GbpSummaryDto } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
 
 function getClient() {
@@ -178,10 +178,10 @@ export async function gbpMetrics(
 
 export async function gbpKeywords(
   project: string,
-  opts: { location?: string; month?: string; format?: string },
+  opts: { location?: string; format?: string },
 ): Promise<void> {
   const client = getClient()
-  const response = await client.listGbpKeywords(project, { locationName: opts.location, month: opts.month })
+  const response = await client.listGbpKeywords(project, { locationName: opts.location })
   if (opts.format === 'json') {
     console.log(JSON.stringify(response, null, 2))
     return
@@ -195,4 +195,83 @@ export async function gbpKeywords(
     const val = k.valueCount !== null ? String(k.valueCount) : `<${k.valueThreshold ?? '?'}`
     console.log(`  ${val.padStart(8)}  ${k.keyword}`)
   }
+}
+
+export async function gbpPlaceActions(
+  project: string,
+  opts: { location?: string; format?: string },
+): Promise<void> {
+  const client = getClient()
+  const response = await client.listGbpPlaceActions(project, { locationName: opts.location })
+  if (opts.format === 'json') {
+    console.log(JSON.stringify(response, null, 2))
+    return
+  }
+  if (response.placeActions.length === 0) {
+    console.log('No place action links (booking/reservation CTAs) configured. For many businesses this is an AEO gap.')
+    return
+  }
+  console.log(`${response.total} place action link(s):`)
+  for (const pa of response.placeActions) {
+    const provider = pa.providerType === 'MERCHANT' ? 'direct' : pa.providerType === 'AGGREGATOR' ? 'aggregator' : (pa.providerType ?? '?')
+    console.log(`  ${pa.placeActionType.padEnd(14)} ${provider.padEnd(11)} ${pa.uri ?? ''}`)
+  }
+}
+
+export async function gbpLodging(
+  project: string,
+  opts: { location?: string; format?: string },
+): Promise<void> {
+  const client = getClient()
+  const response = await client.listGbpLodging(project, { locationName: opts.location })
+  if (opts.format === 'json') {
+    console.log(JSON.stringify(response, null, 2))
+    return
+  }
+  if (response.lodging.length === 0) {
+    console.log('No lodging data — none of the selected locations are lodging-category properties.')
+    return
+  }
+  console.log(`${response.total} lodging profile(s):`)
+  for (const l of response.lodging) {
+    const note = l.populatedGroupCount === 0 ? ' — EMPTY (AEO gap: no structured amenities for AI engines to cite)' : ''
+    console.log(`  ${l.locationName}  ${l.populatedGroupCount} attribute group(s)${note}`)
+  }
+}
+
+function fmtDelta(pct: number | null): string {
+  if (pct === null) return 'n/a'
+  return `${pct >= 0 ? '+' : ''}${pct}%`
+}
+
+export async function gbpSummary(
+  project: string,
+  opts: { location?: string; format?: string },
+): Promise<void> {
+  const client = getClient()
+  const s: GbpSummaryDto = await client.getGbpSummary(project, { locationName: opts.location })
+  if (opts.format === 'json') {
+    console.log(JSON.stringify(s, null, 2))
+    return
+  }
+  const scopeLabel = s.scope.locationName ?? `${s.scope.locationCount} selected location(s)`
+  console.log(`GBP local-AEO summary — ${scopeLabel}\n`)
+
+  console.log('Performance (30d totals, last-7d vs prior-7d):')
+  const metrics = Object.keys(s.performance.totals).sort()
+  if (metrics.length === 0) {
+    console.log('  (no performance data — run `canonry gbp sync` first)')
+  } else {
+    for (const m of metrics) {
+      console.log(`  ${m.padEnd(40)} ${String(s.performance.totals[m]).padStart(8)}   ${fmtDelta(s.performance.deltaPct[m] ?? null)}`)
+    }
+  }
+
+  console.log(`\nKeywords: ${s.keywords.total} tracked, ${s.keywords.thresholdedPct}% privacy-thresholded`)
+  console.log(`Place actions: ${s.placeActions.total} CTA(s)`
+    + ` — reservation:${s.placeActions.hasReservationCta ? 'yes' : 'no'}`
+    + ` booking:${s.placeActions.hasBookingCta ? 'yes' : 'no'}`
+    + ` direct-merchant:${s.placeActions.hasDirectMerchantCta ? 'yes' : 'no'}`)
+  console.log(`Lodging: ${s.lodging.lodgingLocationCount} profile(s), `
+    + `${s.lodging.populatedLodgingCount} populated, ${s.lodging.emptyLodgingCount} empty`)
 }
