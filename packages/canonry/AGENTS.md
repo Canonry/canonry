@@ -31,7 +31,8 @@ The publishable npm package (`@ainyc/canonry`). Bundles the CLI, local Fastify s
 | `src/server.ts` | Fastify server setup — mounts api-routes, serves SPA, registers providers |
 | `src/job-runner.ts` | In-process job runner for visibility sweeps |
 | `src/provider-registry.ts` | `ProviderRegistry` — manages provider adapters |
-| `src/scheduler.ts` | Cron-based schedule runner |
+| `src/scheduler.ts` | Cron-based schedule runner (kinds: `answer-visibility`, `traffic-sync`, `data-refresh`; the `onDataRefreshRequested` callback fans out to every connected integration) |
+| `src/data-refresh.ts` | `refreshAllIntegrations` — fires GSC + Bing + GA + GBP syncs for a project via the in-process API client, `Promise.allSettled` for per-integration isolation. Wired to the scheduler's `data-refresh` kind in `server.ts`. |
 | `src/snapshot-service.ts` | Snapshot creation and diff logic |
 | `src/intelligence-service.ts` | Runs analysis after sweeps, persists insights + health snapshots |
 | `src/run-coordinator.ts` | Post-run orchestrator — dispatches to intelligence + notifications |

@@ -7,8 +7,9 @@ import { providerNameSchema } from './provider.js'
  *
  * - `answer-visibility` — citation/mention sweep across configured providers (the original schedulable kind).
  * - `traffic-sync` — server-side traffic-source pull (Cloud Run today; future adapters slot in here too).
+ * - `data-refresh` — refresh every connected data integration for the project (GSC, Bing, GA, GBP) in one trigger.
  */
-export const schedulableRunKindSchema = z.enum(['answer-visibility', 'traffic-sync'])
+export const schedulableRunKindSchema = z.enum(['answer-visibility', 'traffic-sync', 'data-refresh'])
 export type SchedulableRunKind = z.infer<typeof schedulableRunKindSchema>
 export const SchedulableRunKinds = schedulableRunKindSchema.enum
 
