@@ -5,11 +5,15 @@ import {
   gbpLocationsList,
   gbpLocationSelect,
   gbpLocationDeselect,
+  gbpSync,
+  gbpMetrics,
+  gbpKeywords,
 } from '../commands/gbp.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
 import {
   getBoolean,
   getString,
+  parseIntegerOption,
   requireProject,
   stringOption,
 } from '../cli-command-helpers.js'
@@ -91,6 +95,58 @@ export const GBP_CLI_COMMANDS: readonly CliCommandSpec[] = [
       const location = getString(input.values, 'location')
       if (!location) throw usageError('canonry gbp locations deselect <project> --location <locations/{n}>: --location is required')
       await gbpLocationDeselect(project, { location, format: input.format })
+    },
+  },
+  {
+    path: ['gbp', 'sync'],
+    usage: 'canonry gbp sync <project> [--location <name>] [--days N] [--months N] [--wait] [--format json]',
+    options: {
+      location: stringOption(),
+      days: stringOption(),
+      months: stringOption(),
+      wait: { type: 'boolean' as const },
+    },
+    run: async (input) => {
+      const project = requireProject(input, 'gbp.sync', 'canonry gbp sync <project> [--location <name>] [--days N] [--months N] [--wait] [--format json]')
+      await gbpSync(project, {
+        location: getString(input.values, 'location'),
+        days: parseIntegerOption(input, 'days', { message: '--days must be an integer', usage: 'canonry gbp sync <project> --days N', command: 'gbp.sync' }),
+        months: parseIntegerOption(input, 'months', { message: '--months must be an integer', usage: 'canonry gbp sync <project> --months N', command: 'gbp.sync' }),
+        wait: getBoolean(input.values, 'wait') ?? false,
+        format: input.format,
+      })
+    },
+  },
+  {
+    path: ['gbp', 'metrics'],
+    usage: 'canonry gbp metrics <project> [--location <name>] [--metric <DailyMetric>] [--format json]',
+    options: {
+      location: stringOption(),
+      metric: stringOption(),
+    },
+    run: async (input) => {
+      const project = requireProject(input, 'gbp.metrics', 'canonry gbp metrics <project> [--location <name>] [--metric <DailyMetric>] [--format json]')
+      await gbpMetrics(project, {
+        location: getString(input.values, 'location'),
+        metric: getString(input.values, 'metric'),
+        format: input.format,
+      })
+    },
+  },
+  {
+    path: ['gbp', 'keywords'],
+    usage: 'canonry gbp keywords <project> [--location <name>] [--month YYYY-MM] [--format json]',
+    options: {
+      location: stringOption(),
+      month: stringOption(),
+    },
+    run: async (input) => {
+      const project = requireProject(input, 'gbp.keywords', 'canonry gbp keywords <project> [--location <name>] [--month YYYY-MM] [--format json]')
+      await gbpKeywords(project, {
+        location: getString(input.values, 'location'),
+        month: getString(input.values, 'month'),
+        format: input.format,
+      })
     },
   },
 ]

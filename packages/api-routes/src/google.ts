@@ -1,12 +1,12 @@
 import crypto from 'node:crypto'
 import { eq, and, desc, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { gscSearchData, gscUrlInspections, gscCoverageSnapshots, gbpLocations, runs, projects } from '@ainyc/canonry-db'
+import { gscSearchData, gscUrlInspections, gscCoverageSnapshots, gbpLocations, gbpDailyMetrics, gbpKeywordImpressions, runs, projects } from '@ainyc/canonry-db'
 import {
   validationError, notFound, normalizeProjectDomain, parseWindow, windowCutoff,
   authRequired, quotaExceeded, providerError,
   type GoogleConnectionType,
-  gbpDiscoverRequestSchema, gbpLocationSelectionRequestSchema,
+  gbpDiscoverRequestSchema, gbpLocationSelectionRequestSchema, gbpSyncRequestSchema,
   type GbpLocationDto, type GbpLocationListResponse,
 } from '@ainyc/canonry-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
@@ -85,6 +85,7 @@ export interface GoogleRoutesOptions {
   publicUrl?: string
   onGscSyncRequested?: (runId: string, projectId: string, opts?: { days?: number; full?: boolean }) => void
   onInspectSitemapRequested?: (runId: string, projectId: string, opts?: { sitemapUrl?: string }) => void
+  onGbpSyncRequested?: (runId: string, projectId: string, opts?: { locationNames?: string[]; daysOfMetrics?: number; monthsOfKeywords?: number }) => void
   /** API route prefix (default: '/api/v1') */
   routePrefix?: string
 }
@@ -1448,6 +1449,86 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     store.deleteConnection(project.canonicalDomain, 'gbp')
 
     return reply.status(204).send()
+  })
+
+  // POST /projects/:name/gbp/sync — trigger a gbp-sync run (performance data).
+  app.post<{
+    Params: { name: string }
+    Body: { locationNames?: string[]; daysOfMetrics?: number; monthsOfKeywords?: number }
+  }>('/projects/:name/gbp/sync', async (request) => {
+    const project = resolveProject(app.db, request.params.name)
+    const store = requireConnectionStore()
+    const conn = store.getConnection(project.canonicalDomain, 'gbp')
+    if (!conn) {
+      throw validationError('No GBP connection found for this project. Run "canonry gbp connect" first.')
+    }
+
+    const parsed = gbpSyncRequestSchema.safeParse(request.body ?? {})
+    if (!parsed.success) {
+      throw validationError(parsed.error.issues[0]?.message ?? 'Invalid sync request')
+    }
+
+    const now = new Date().toISOString()
+    const runId = crypto.randomUUID()
+    app.db.insert(runs).values({
+      id: runId,
+      projectId: project.id,
+      kind: 'gbp-sync',
+      status: 'queued',
+      trigger: 'manual',
+      createdAt: now,
+    }).run()
+
+    opts.onGbpSyncRequested?.(runId, project.id, parsed.data)
+    return { runId, status: 'running' }
+  })
+
+  // GET /projects/:name/gbp/metrics — stored daily performance metrics.
+  app.get<{
+    Params: { name: string }
+    Querystring: { locationName?: string; metric?: string }
+  }>('/projects/:name/gbp/metrics', async (request) => {
+    const project = resolveProject(app.db, request.params.name)
+    const conditions = [eq(gbpDailyMetrics.projectId, project.id)]
+    if (request.query.locationName) conditions.push(eq(gbpDailyMetrics.locationName, request.query.locationName))
+    if (request.query.metric) conditions.push(eq(gbpDailyMetrics.metric, request.query.metric))
+    const rows = app.db.select().from(gbpDailyMetrics)
+      .where(and(...conditions))
+      .orderBy(desc(gbpDailyMetrics.date))
+      .all()
+    return {
+      metrics: rows.map((r) => ({ locationName: r.locationName, date: r.date, metric: r.metric, value: r.value })),
+      total: rows.length,
+    }
+  })
+
+  // GET /projects/:name/gbp/keywords — stored monthly keyword impressions.
+  app.get<{
+    Params: { name: string }
+    Querystring: { locationName?: string; month?: string }
+  }>('/projects/:name/gbp/keywords', async (request) => {
+    const project = resolveProject(app.db, request.params.name)
+    const conditions = [eq(gbpKeywordImpressions.projectId, project.id)]
+    if (request.query.locationName) conditions.push(eq(gbpKeywordImpressions.locationName, request.query.locationName))
+    if (request.query.month) conditions.push(eq(gbpKeywordImpressions.month, request.query.month))
+    const rows = app.db.select().from(gbpKeywordImpressions)
+      .where(and(...conditions))
+      .all()
+    // Lead with exact-value keywords (highest impressions first); thresholded
+    // rows have no exact count so they sort last.
+    rows.sort((a, b) => (b.valueCount ?? -1) - (a.valueCount ?? -1))
+    const thresholded = rows.filter((r) => r.valueThreshold !== null).length
+    return {
+      keywords: rows.map((r) => ({
+        locationName: r.locationName,
+        month: r.month,
+        keyword: r.keyword,
+        valueCount: r.valueCount ?? null,
+        valueThreshold: r.valueThreshold ?? null,
+      })),
+      total: rows.length,
+      thresholdedPct: rows.length ? Math.round((thresholded / rows.length) * 100) : 0,
+    }
   })
 
 }

@@ -72,6 +72,9 @@ export function invalidateQueriesForRunKind(
     case RunKinds['aeo-discover-seed']:
     case RunKinds['aeo-discover-probe']:
       return
+    case RunKinds['gbp-sync']:
+      invalidateByOpPrefix(queryClient, 'getApiV1ProjectsByNameGbp')
+      return
     default: {
       const _exhaustive: never = kind
       return _exhaustive

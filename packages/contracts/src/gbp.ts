@@ -37,3 +37,52 @@ export const gbpLocationSelectionRequestSchema = z.object({
   selected: z.boolean(),
 })
 export type GbpLocationSelectionRequest = z.infer<typeof gbpLocationSelectionRequestSchema>
+
+// ----- Phase 2: performance sync (daily metrics + monthly keywords) -----
+
+export const gbpSyncRequestSchema = z.object({
+  /** Restrict the sync to specific locations (resource names). Omit = all selected. */
+  locationNames: z.array(z.string()).optional(),
+  daysOfMetrics: z.number().int().positive().max(540).optional(),
+  monthsOfKeywords: z.number().int().positive().max(18).optional(),
+})
+export type GbpSyncRequest = z.infer<typeof gbpSyncRequestSchema>
+
+export const gbpSyncResponseSchema = z.object({
+  runId: z.string(),
+  status: z.string(),
+})
+export type GbpSyncResponse = z.infer<typeof gbpSyncResponseSchema>
+
+export const gbpDailyMetricDtoSchema = z.object({
+  locationName: z.string(),
+  date: z.string(),
+  metric: z.string(),
+  value: z.number().int(),
+})
+export type GbpDailyMetricDto = z.infer<typeof gbpDailyMetricDtoSchema>
+
+export const gbpDailyMetricListResponseSchema = z.object({
+  metrics: z.array(gbpDailyMetricDtoSchema),
+  total: z.number().int().nonnegative(),
+})
+export type GbpDailyMetricListResponse = z.infer<typeof gbpDailyMetricListResponseSchema>
+
+export const gbpKeywordImpressionDtoSchema = z.object({
+  locationName: z.string(),
+  month: z.string(),
+  keyword: z.string(),
+  /** Exact impressions, or null when Google redacted to a threshold. */
+  valueCount: z.number().int().nullable(),
+  /** Privacy floor, or null when an exact value is available. */
+  valueThreshold: z.number().int().nullable(),
+})
+export type GbpKeywordImpressionDto = z.infer<typeof gbpKeywordImpressionDtoSchema>
+
+export const gbpKeywordImpressionListResponseSchema = z.object({
+  keywords: z.array(gbpKeywordImpressionDtoSchema),
+  total: z.number().int().nonnegative(),
+  /** Share of returned keywords that are privacy-thresholded (0–100, rounded). */
+  thresholdedPct: z.number().int().min(0).max(100),
+})
+export type GbpKeywordImpressionListResponse = z.infer<typeof gbpKeywordImpressionListResponseSchema>

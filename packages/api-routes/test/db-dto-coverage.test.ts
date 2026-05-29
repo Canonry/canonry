@@ -20,6 +20,8 @@ import {
   ga4TrafficSnapshotDtoSchema,
   ga4TrafficSummaryDtoSchema,
   gbpLocationDtoSchema,
+  gbpDailyMetricDtoSchema,
+  gbpKeywordImpressionDtoSchema,
   googleConnectionDtoSchema,
   gscCoverageSnapshotDtoSchema,
   gscSearchDataDtoSchema,
@@ -156,6 +158,24 @@ const COVERAGE: Record<string, CoverageEntry> = {
     kind: 'dto',
     dto: gbpLocationDtoSchema,
     internal: {},
+  },
+  gbpDailyMetrics: {
+    kind: 'dto',
+    dto: gbpDailyMetricDtoSchema,
+    internal: {
+      id: 'Surrogate key.',
+      projectId: 'Implied by the route scope.',
+      syncRunId: 'Internal join key.',
+    },
+  },
+  gbpKeywordImpressions: {
+    kind: 'dto',
+    dto: gbpKeywordImpressionDtoSchema,
+    internal: {
+      id: 'Surrogate key.',
+      projectId: 'Implied by the route scope.',
+      syncRunId: 'Internal join key.',
+    },
   },
   gscSearchData: {
     kind: 'dto',

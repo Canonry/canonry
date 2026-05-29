@@ -111,3 +111,88 @@ export async function gbpLocationDeselect(
   }
   console.log(`Deselected ${opts.location} ("${updated.displayName}"). Future syncs will skip this location.`)
 }
+
+export async function gbpSync(
+  project: string,
+  opts: { location?: string; days?: number; months?: number; wait?: boolean; format?: string },
+): Promise<void> {
+  const client = getClient()
+  const { runId, status } = await client.triggerGbpSync(project, {
+    locationNames: opts.location ? [opts.location] : undefined,
+    daysOfMetrics: opts.days,
+    monthsOfKeywords: opts.months,
+  })
+
+  if (!opts.wait) {
+    if (opts.format === 'json') {
+      console.log(JSON.stringify({ runId, status }, null, 2))
+      return
+    }
+    console.log(`GBP sync started (run ${runId}). Use \`canonry runs get ${runId}\` to check status, or pass --wait.`)
+    return
+  }
+
+  // Poll the run to a terminal state.
+  const terminal = new Set(['completed', 'partial', 'failed', 'cancelled'])
+  const start = Date.now()
+  const timeoutMs = 10 * 60 * 1000
+  if (opts.format !== 'json') process.stderr.write('Syncing')
+  let final = status
+  while (Date.now() - start < timeoutMs) {
+    await new Promise((r) => setTimeout(r, 2000))
+    const run = await client.getRun(runId)
+    if (opts.format !== 'json') process.stderr.write('.')
+    if (terminal.has(run.status)) { final = run.status; break }
+  }
+  if (opts.format !== 'json') process.stderr.write('\n')
+
+  if (opts.format === 'json') {
+    console.log(JSON.stringify({ runId, status: final }, null, 2))
+    return
+  }
+  console.log(`GBP sync ${final} (run ${runId}).`)
+}
+
+export async function gbpMetrics(
+  project: string,
+  opts: { location?: string; metric?: string; format?: string },
+): Promise<void> {
+  const client = getClient()
+  const response = await client.listGbpMetrics(project, { locationName: opts.location, metric: opts.metric })
+  if (opts.format === 'json') {
+    console.log(JSON.stringify(response, null, 2))
+    return
+  }
+  if (response.metrics.length === 0) {
+    console.log('No GBP metrics stored. Run `canonry gbp sync <project>` first.')
+    return
+  }
+  // Aggregate totals per metric for a quick scan.
+  const totals = new Map<string, number>()
+  for (const m of response.metrics) totals.set(m.metric, (totals.get(m.metric) ?? 0) + m.value)
+  console.log(`${response.total} metric row(s). Totals by metric:`)
+  for (const [metric, total] of [...totals.entries()].sort((a, b) => b[1] - a[1])) {
+    console.log(`  ${metric.padEnd(40)} ${total}`)
+  }
+}
+
+export async function gbpKeywords(
+  project: string,
+  opts: { location?: string; month?: string; format?: string },
+): Promise<void> {
+  const client = getClient()
+  const response = await client.listGbpKeywords(project, { locationName: opts.location, month: opts.month })
+  if (opts.format === 'json') {
+    console.log(JSON.stringify(response, null, 2))
+    return
+  }
+  if (response.keywords.length === 0) {
+    console.log('No GBP keyword impressions stored. Run `canonry gbp sync <project>` first.')
+    return
+  }
+  console.log(`${response.total} keyword(s), ${response.thresholdedPct}% privacy-thresholded. Top by impressions:`)
+  for (const k of response.keywords.slice(0, 15)) {
+    const val = k.valueCount !== null ? String(k.valueCount) : `<${k.valueThreshold ?? '?'}`
+    console.log(`  ${val.padStart(8)}  ${k.keyword}`)
+  }
+}

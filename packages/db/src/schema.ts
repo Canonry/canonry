@@ -881,3 +881,37 @@ export const gbpLocations = sqliteTable('gbp_locations', {
   index('idx_gbp_locations_project').on(table.projectId),
   uniqueIndex('uniq_gbp_locations_project_location').on(table.projectId, table.locationName),
 ])
+
+// GBP daily performance metrics — one row per (location, date, metric).
+// `value` is the integer count (Google returns string-encoded; the worker
+// parses it, and omitted zero-days are persisted as 0). The sync range-replaces
+// the window so re-runs don't accumulate duplicates.
+export const gbpDailyMetrics = sqliteTable('gbp_daily_metrics', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  locationName: text('location_name').notNull(),
+  date: text('date').notNull(),           // YYYY-MM-DD
+  metric: text('metric').notNull(),       // BUSINESS_IMPRESSIONS_DESKTOP_MAPS, WEBSITE_CLICKS, …
+  value: integer('value').notNull(),
+  syncRunId: text('sync_run_id').references(() => runs.id, { onDelete: 'set null' }),
+}, (table) => [
+  index('idx_gbp_daily_metrics_loc').on(table.projectId, table.locationName, table.date),
+  uniqueIndex('uniq_gbp_daily_metrics').on(table.projectId, table.locationName, table.date, table.metric),
+])
+
+// GBP monthly search-keyword impressions — one row per (location, month, keyword).
+// Google returns either an exact `value` or a privacy `threshold` (the floor it
+// won't go below). Exactly one of valueCount / valueThreshold is non-null per row.
+export const gbpKeywordImpressions = sqliteTable('gbp_keyword_impressions', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  locationName: text('location_name').notNull(),
+  month: text('month').notNull(),         // YYYY-MM
+  keyword: text('keyword').notNull(),
+  valueCount: integer('value_count'),     // exact impressions, or null when thresholded
+  valueThreshold: integer('value_threshold'), // privacy floor, or null when exact
+  syncRunId: text('sync_run_id').references(() => runs.id, { onDelete: 'set null' }),
+}, (table) => [
+  index('idx_gbp_keyword_impr_loc').on(table.projectId, table.locationName, table.month),
+  uniqueIndex('uniq_gbp_keyword_impr').on(table.projectId, table.locationName, table.month, table.keyword),
+])

@@ -41,6 +41,9 @@ import type {
   GoogleConnectionDto,
   GbpLocationDto,
   GbpLocationListResponse,
+  GbpSyncResponse,
+  GbpDailyMetricListResponse,
+  GbpKeywordImpressionListResponse,
   GscSearchDataDto,
   GscPerformanceDailyDto,
   GscUrlInspectionDto,
@@ -171,6 +174,9 @@ import {
   getApiV1ProjectsByNameGbpLocations,
   putApiV1ProjectsByNameGbpLocationsByLocationNameSelection,
   deleteApiV1ProjectsByNameGbpConnection,
+  postApiV1ProjectsByNameGbpSync,
+  getApiV1ProjectsByNameGbpMetrics,
+  getApiV1ProjectsByNameGbpKeywords,
   // GSC
   postApiV1ProjectsByNameGoogleGscSync,
   getApiV1ProjectsByNameGoogleGscPerformance,
@@ -1153,6 +1159,39 @@ export class ApiClient {
       deleteApiV1ProjectsByNameGbpConnection({
         client: this.heyClient,
         path: { name: project },
+      }),
+    )
+  }
+
+  async triggerGbpSync(
+    project: string,
+    body?: { locationNames?: string[]; daysOfMetrics?: number; monthsOfKeywords?: number },
+  ): Promise<GbpSyncResponse> {
+    return this.invoke<GbpSyncResponse>(() =>
+      postApiV1ProjectsByNameGbpSync({
+        client: this.heyClient,
+        path: { name: project },
+        body: body ?? {},
+      }),
+    )
+  }
+
+  async listGbpMetrics(project: string, opts?: { locationName?: string; metric?: string }): Promise<GbpDailyMetricListResponse> {
+    return this.invoke<GbpDailyMetricListResponse>(() =>
+      getApiV1ProjectsByNameGbpMetrics({
+        client: this.heyClient,
+        path: { name: project },
+        query: (opts && (opts.locationName || opts.metric)) ? opts as never : undefined,
+      }),
+    )
+  }
+
+  async listGbpKeywords(project: string, opts?: { locationName?: string; month?: string }): Promise<GbpKeywordImpressionListResponse> {
+    return this.invoke<GbpKeywordImpressionListResponse>(() =>
+      getApiV1ProjectsByNameGbpKeywords({
+        client: this.heyClient,
+        path: { name: project },
+        query: (opts && (opts.locationName || opts.month)) ? opts as never : undefined,
       }),
     )
   }

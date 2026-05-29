@@ -187,6 +187,25 @@ const gbpLocationSelectionInputSchema = z.object({
   selected: z.boolean(),
 })
 
+const gbpSyncInputSchema = z.object({
+  project: projectNameSchema,
+  locationNames: z.array(z.string()).optional(),
+  daysOfMetrics: z.number().int().positive().max(540).optional(),
+  monthsOfKeywords: z.number().int().positive().max(18).optional(),
+})
+
+const gbpMetricsInputSchema = z.object({
+  project: projectNameSchema,
+  locationName: z.string().optional(),
+  metric: z.string().optional(),
+})
+
+const gbpKeywordsInputSchema = z.object({
+  project: projectNameSchema,
+  locationName: z.string().optional(),
+  month: z.string().optional(),
+})
+
 const keywordsInputSchema = z.object({
   project: projectNameSchema,
   request: keywordBatchRequestSchema,
@@ -944,6 +963,44 @@ export const canonryMcpTools = [
     annotations: writeAnnotations({ idempotentHint: true, destructiveHint: true }),
     openApiOperations: ['DELETE /api/v1/projects/{name}/gbp/connection'],
     handler: (client, input) => client.disconnectGbp(input.project),
+  }),
+  // ----- Google Business Profile (Phase 2: performance sync) -----
+  defineTool({
+    name: 'canonry_gbp_sync',
+    title: 'Sync Google Business Profile performance',
+    description: 'Trigger a GBP performance sync (daily metrics + monthly keyword impressions) for the project\'s selected locations. Returns the run id; poll canonry_run_get for status.',
+    access: 'write',
+    tier: 'gbp',
+    inputSchema: gbpSyncInputSchema,
+    annotations: writeAnnotations({ idempotentHint: true }),
+    openApiOperations: ['POST /api/v1/projects/{name}/gbp/sync'],
+    handler: (client, input) => client.triggerGbpSync(input.project, {
+      locationNames: input.locationNames,
+      daysOfMetrics: input.daysOfMetrics,
+      monthsOfKeywords: input.monthsOfKeywords,
+    }),
+  }),
+  defineTool({
+    name: 'canonry_gbp_metrics',
+    title: 'Get GBP daily metrics',
+    description: 'List stored Google Business Profile daily performance metrics (impressions, direction requests, website/call clicks) for a project.',
+    access: 'read',
+    tier: 'gbp',
+    inputSchema: gbpMetricsInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/gbp/metrics'],
+    handler: (client, input) => client.listGbpMetrics(input.project, compactStringParams(input, ['locationName', 'metric'])),
+  }),
+  defineTool({
+    name: 'canonry_gbp_keywords',
+    title: 'Get GBP keyword impressions',
+    description: 'List stored Google Business Profile monthly search-keyword impressions for a project. Includes a thresholdedPct (share privacy-redacted by Google).',
+    access: 'read',
+    tier: 'gbp',
+    inputSchema: gbpKeywordsInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/gbp/keywords'],
+    handler: (client, input) => client.listGbpKeywords(input.project, compactStringParams(input, ['locationName', 'month'])),
   }),
   defineTool({
     name: 'canonry_traffic_sources_list',

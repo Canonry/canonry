@@ -60,6 +60,7 @@ import { isTelemetryEnabled, getOrCreateAnonymousId, trackEvent } from './teleme
 import { checkLatestVersionForServer } from './update-check.js'
 import { JobRunner } from './job-runner.js'
 import { executeGscSync } from './gsc-sync.js'
+import { executeGbpSync } from './gbp-sync.js'
 import { executeInspectSitemap } from './gsc-inspect-sitemap.js'
 import { executeBingInspectSitemap } from './bing-inspect-sitemap.js'
 import { maybeRefreshGscCoverage } from './coverage-refresh.js'
@@ -1071,6 +1072,19 @@ export async function createServer(opts: {
         config: opts.config,
       }).catch((err: unknown) => {
         app.log.error({ runId, err }, 'Inspect sitemap failed')
+      })
+    },
+    onGbpSyncRequested: (runId: string, projectId: string, syncOpts?: { locationNames?: string[]; daysOfMetrics?: number; monthsOfKeywords?: number }) => {
+      const { clientId: googleClientId, clientSecret: googleClientSecret } = getGoogleAuthConfig(opts.config)
+      if (!googleClientId || !googleClientSecret) {
+        app.log.error('GBP sync requested but Google OAuth credentials are not configured in the local config')
+        return
+      }
+      executeGbpSync(opts.db, runId, projectId, {
+        ...syncOpts,
+        config: opts.config,
+      }).catch((err: unknown) => {
+        app.log.error({ runId, err }, 'GBP sync failed')
       })
     },
     getBacklinksStatus: () => ({
