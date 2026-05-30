@@ -140,6 +140,8 @@ export interface CitationInsightVm {
   matchedTerms?: string[]
   relatedTechnicalSignals: string[]
   groundingSources: GroundingSource[]
+  /** Web search queries this AI model issued while researching the prompt (Gemini grounding queries, the CDP-submitted query, etc.). */
+  searchQueries?: string[]
   summary: string
   runHistory: RunHistoryPoint[]
   historyScope?: EvidenceHistoryScope
