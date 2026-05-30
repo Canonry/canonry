@@ -59,7 +59,9 @@ function withGlobalOptions(options?: ParseArgsOptionsConfig): ParseArgsOptionsCo
 }
 
 function toFormat(value: CliValue, fallbackFormat: CliFormat): CliFormat {
-  return value === 'json' ? 'json' : fallbackFormat
+  if (value === 'json') return 'json'
+  if (value === 'jsonl') return 'jsonl'
+  return fallbackFormat
 }
 
 function printGroupHelp(group: string, specs: readonly CliCommandSpec[]): void {

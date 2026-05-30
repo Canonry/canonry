@@ -2,6 +2,7 @@ import type { CheckResultDto, DoctorReportDto } from '@ainyc/canonry-contracts'
 import { CheckScopes, CheckStatuses } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { CliError, EXIT_USER_ERROR } from '../cli-error.js'
+import { emitJsonl } from '../cli-output.js'
 
 interface DoctorOptions {
   project?: string
@@ -27,6 +28,10 @@ export async function doctorCommand(opts: DoctorOptions): Promise<void> {
 
   if (opts.format === 'json') {
     console.log(JSON.stringify(report, null, 2))
+  } else if (opts.format === 'jsonl') {
+    // One self-contained check per line. Each line carries `project` (null for
+    // global scope) so a line lifted out of context still says what it checked.
+    emitJsonl(report.checks.map(check => ({ project: report.project, ...check })))
   } else {
     printHumanReport(report)
   }
@@ -71,6 +76,14 @@ async function runDoctorAll(opts: DoctorOptions): Promise<void> {
 
   if (opts.format === 'json') {
     console.log(JSON.stringify(byKey, null, 2))
+  } else if (opts.format === 'jsonl') {
+    // Flatten every scope into one stream; `project` (null for global) is the
+    // discriminator so an agent never has to index back into a keyed envelope.
+    const scopes = ['__global__', ...projects.map(p => p.name)]
+    emitJsonl(scopes.flatMap((key) => {
+      const project = key === '__global__' ? null : key
+      return byKey[key]!.checks.map(check => ({ project, ...check }))
+    }))
   } else {
     printAllHumanReport(byKey, projects.map(p => p.name))
   }

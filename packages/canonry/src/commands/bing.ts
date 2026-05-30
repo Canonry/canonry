@@ -1,6 +1,7 @@
 import type { RunDetailDto } from '@ainyc/canonry-contracts'
 import { type ApiClient, createApiClient } from '../client.js'
-import { CliError } from '../cli-error.js'
+import { CliError, isMachineFormat } from '../cli-error.js'
+import { emitJsonl } from '../cli-output.js'
 
 function getClient() {
   return createApiClient()
@@ -76,7 +77,7 @@ export async function bingConnect(project: string, opts?: { apiKey?: string; for
     availableSites: Array<{ url: string; verified: boolean }>
   }
 
-  if (opts?.format === 'json') {
+  if (isMachineFormat(opts?.format)) {
     console.log(JSON.stringify(result, null, 2))
     return
   }
@@ -99,7 +100,7 @@ export async function bingDisconnect(project: string, format?: string): Promise<
   const client = getClient()
   await client.bingDisconnect(project)
 
-  if (format === 'json') {
+  if (isMachineFormat(format)) {
     console.log(JSON.stringify({ project, disconnected: true }, null, 2))
     return
   }
@@ -117,7 +118,7 @@ export async function bingStatus(project: string, format?: string): Promise<void
     updatedAt: string | null
   }
 
-  if (format === 'json') {
+  if (isMachineFormat(format)) {
     console.log(JSON.stringify(result, null, 2))
     return
   }
@@ -143,6 +144,9 @@ export async function bingSites(project: string, format?: string): Promise<void>
   if (format === 'json') {
     console.log(JSON.stringify(result, null, 2))
     return
+  } else if (format === 'jsonl') {
+    emitJsonl(result.sites.map((site) => ({ project, ...site })))
+    return
   }
 
   if (result.sites.length === 0) {
@@ -165,7 +169,7 @@ export async function bingSetSite(project: string, siteUrl: string, format?: str
   const client = getClient()
   await client.bingSetSite(project, siteUrl)
 
-  if (format === 'json') {
+  if (isMachineFormat(format)) {
     console.log(JSON.stringify({ project, siteUrl }, null, 2))
     return
   }
@@ -183,7 +187,7 @@ export async function bingCoverage(project: string, format?: string): Promise<vo
     unknown?: Array<{ url: string; inIndex: boolean | null; httpCode: number | null }>
   }
 
-  if (format === 'json') {
+  if (isMachineFormat(format)) {
     console.log(JSON.stringify(result, null, 2))
     return
   }
@@ -240,6 +244,9 @@ export async function bingCoverageHistory(project: string, opts: { limit?: numbe
   if (opts.format === 'json') {
     console.log(JSON.stringify(rows, null, 2))
     return
+  } else if (opts.format === 'jsonl') {
+    emitJsonl(rows.map((row) => ({ project, ...row })))
+    return
   }
 
   if (rows.length === 0) {
@@ -269,7 +276,7 @@ export async function bingInspect(project: string, url: string, format?: string)
     discoveryDate: string | null
   }
 
-  if (format === 'json') {
+  if (isMachineFormat(format)) {
     console.log(JSON.stringify(result, null, 2))
     return
   }
@@ -307,6 +314,9 @@ export async function bingInspections(project: string, opts: { url?: string; for
   if (opts.format === 'json') {
     console.log(JSON.stringify(rows, null, 2))
     return
+  } else if (opts.format === 'jsonl') {
+    emitJsonl(rows.map((row) => ({ project, ...row })))
+    return
   }
 
   if (rows.length === 0) {
@@ -335,7 +345,7 @@ export async function bingRefresh(project: string, format?: string): Promise<voi
   const uniqueUrls = [...new Set(rows.map((r) => r.url))]
 
   if (uniqueUrls.length === 0) {
-    if (format === 'json') {
+    if (isMachineFormat(format)) {
       console.log(JSON.stringify({ refreshed: 0, message: 'No previously inspected URLs to refresh.' }, null, 2))
       return
     }
@@ -343,7 +353,7 @@ export async function bingRefresh(project: string, format?: string): Promise<voi
     return
   }
 
-  if (format !== 'json') {
+  if (!isMachineFormat(format)) {
     process.stderr.write(`Re-inspecting ${uniqueUrls.length} URL(s) via Bing`)
   }
 
@@ -361,12 +371,12 @@ export async function bingRefresh(project: string, format?: string): Promise<voi
         errors.push(r.reason instanceof Error ? r.reason.message : String(r.reason))
       }
     }
-    if (format !== 'json') {
+    if (!isMachineFormat(format)) {
       process.stderr.write('.')
     }
   }
 
-  if (format !== 'json') {
+  if (!isMachineFormat(format)) {
     process.stderr.write('\n')
   }
   if (errors.length > 0) {
@@ -403,7 +413,7 @@ export async function bingRequestIndexing(project: string, opts: {
     results: Array<{ url: string; status: string; submittedAt: string; error?: string }>
   }
 
-  if (opts.format === 'json') {
+  if (isMachineFormat(opts.format)) {
     console.log(JSON.stringify(result, null, 2))
     return
   }
@@ -435,12 +445,12 @@ export async function bingInspectSitemap(project: string, opts: {
     sitemapUrl: opts.sitemapUrl,
   }) as { id: string; status: string; kind: string }
 
-  if (!opts.wait && opts.format === 'json') {
+  if (!opts.wait && isMachineFormat(opts.format)) {
     console.log(JSON.stringify(run, null, 2))
     return
   }
 
-  if (opts.format !== 'json') {
+  if (!isMachineFormat(opts.format)) {
     console.log(`Bing sitemap inspection started (run ${run.id})`)
   }
 
@@ -458,7 +468,7 @@ export async function bingInspectSitemap(project: string, opts: {
       details: { project },
     })
 
-    if (opts.format === 'json') {
+    if (isMachineFormat(opts.format)) {
       console.log(JSON.stringify(current, null, 2))
       return
     }
@@ -484,6 +494,10 @@ export async function bingPerformance(project: string, format?: string): Promise
 
   if (format === 'json') {
     console.log(JSON.stringify(rows, null, 2))
+    return
+  } else if (format === 'jsonl') {
+    // Emit every row (no 50-row human truncation) — agents read the full set.
+    emitJsonl(rows.map((row) => ({ project, ...row })))
     return
   }
 

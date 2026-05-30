@@ -8,7 +8,8 @@ import type {
   DiscoverySessionDetailDto,
   DiscoverySessionDto,
 } from '@ainyc/canonry-contracts'
-import { CliError } from '../cli-error.js'
+import { CliError, isMachineFormat } from '../cli-error.js'
+import { emitJsonl } from '../cli-output.js'
 
 const TERMINAL_DISCOVERY_STATUSES = new Set<DiscoverySessionDto['status']>([
   'completed',
@@ -106,7 +107,7 @@ export async function discoverRun(project: string, opts: DiscoverRunOptions): Pr
   }
 
   if (!opts.wait) {
-    if (opts.format === 'json') {
+    if (isMachineFormat(opts.format)) {
       console.log(JSON.stringify(multiAngle ? runs.map(r => r.start) : runs[0]!.start, null, 2))
       return
     }
@@ -152,7 +153,7 @@ export async function discoverRun(project: string, opts: DiscoverRunOptions): Pr
   })
 
   if (results.length > 0) {
-    if (opts.format === 'json') {
+    if (isMachineFormat(opts.format)) {
       console.log(JSON.stringify(multiAngle ? results.map(r => r.session) : results[0]!.session, null, 2))
     } else {
       for (const { angle, session } of results) {
@@ -209,6 +210,16 @@ export async function discoverProbe(project: string, sessionId: string, opts: { 
     console.log(JSON.stringify(session, null, 2))
     return
   }
+  if (opts.format === 'jsonl') {
+    // Stream the session's probes — one per-query record per line. Each is
+    // stamped with `project` + `sessionId` so a probe line lifted out of the
+    // session envelope still says which session it came from. The record is
+    // spread last so its own fields win (the probe's own `sessionId` matches
+    // the stamped one — same session — so the record wins harmlessly).
+    const context = { project, sessionId }
+    emitJsonl(session.probes.map(probe => ({ ...context, ...probe })))
+    return
+  }
   printSessionDetail(session)
 }
 
@@ -217,6 +228,13 @@ export async function discoverList(project: string, opts: { limit?: number; form
   const sessions = await client.listDiscoverySessions(project, opts.limit !== undefined ? { limit: opts.limit } : undefined)
   if (opts.format === 'json') {
     console.log(JSON.stringify(sessions, null, 2))
+    return
+  }
+  if (opts.format === 'jsonl') {
+    // One self-contained session per line. Each carries `project` (the records
+    // only self-identify by `projectId`) so a line lifted out still names its
+    // project; the record is spread last so its own fields win.
+    emitJsonl(sessions.map(s => ({ project, ...s })))
     return
   }
   if (sessions.length === 0) {
@@ -244,13 +262,23 @@ export async function discoverShow(project: string, sessionId: string, opts: { f
     console.log(JSON.stringify(session, null, 2))
     return
   }
+  if (opts.format === 'jsonl') {
+    // Stream the session's probes — one per-query record per line. Each is
+    // stamped with `project` + `sessionId` so a probe line lifted out of the
+    // session envelope still says which session it came from. The record is
+    // spread last so its own fields win (the probe's own `sessionId` matches
+    // the stamped one — same session — so the record wins harmlessly).
+    const context = { project, sessionId }
+    emitJsonl(session.probes.map(probe => ({ ...context, ...probe })))
+    return
+  }
   printSessionDetail(session)
 }
 
 export async function discoverPromotePreview(project: string, sessionId: string, opts: { format?: string }): Promise<void> {
   const client = getClient()
   const preview: DiscoveryPromotePreview = await client.previewDiscoveryPromote(project, sessionId)
-  if (opts.format === 'json') {
+  if (isMachineFormat(opts.format)) {
     console.log(JSON.stringify(preview, null, 2))
     return
   }
@@ -291,7 +319,7 @@ export async function discoverPromote(
   if (opts.includeCompetitors === false) body.includeCompetitors = false
 
   const result = await client.promoteDiscovery(project, sessionId, body)
-  if (opts.format === 'json') {
+  if (isMachineFormat(opts.format)) {
     console.log(JSON.stringify(result, null, 2))
     return
   }

@@ -120,6 +120,29 @@ The legacy `request<T>()` raw-fetch wrapper was removed in v4.51; if you find an
 
 All commands that produce output must support `--format json` for machine-parseable output. Use the format flag to switch between human-friendly tables and JSON.
 
+There is a third, agent-first format: **`--format jsonl`** (newline-delimited JSON). Where `json` returns the whole envelope as one pretty-printed document, `jsonl` streams the command's **primary collection** one compact, self-contained record per line. It exists so an agent can read
+
+```
+canonry doctor --check 'google.auth.*' --format jsonl
+```
+
+directly — no `2>/dev/null`, no `| jq '(.checks // .results // [])[] | ...'`, no guessing the envelope key. Each line stands alone for `grep`/`head`/per-line `jq`.
+
+`jsonl` is wired into **every collection command** (a command whose primary output is a list) — `insights`, `runs`, `evidence`, `history`, `query/keyword/competitor list`, `notify list/events`, the `google`/`bing`/`ga` reads, `traffic events/sources/status`, `discover list/show`, `content targets/sources/gaps`, `backlinks list/releases`, `project list/locations`, `agent memory list`, `agent providers`, and `doctor`. The per-command primary collection + the context each line carries is catalogued in `skills/canonry/references/canonry-cli.md` ("Output schema per command" + "Output Formats"). Composite/object commands (`status`, `analytics`, `ga traffic`/`attribution`, `gbp summary`, index `coverage`) have **no** `jsonl` — they stay `json`.
+
+Conventions when adding `jsonl` to a command:
+
+- **Emit via `emitJsonl(records)`** from `src/cli-output.js` (one `process.stdout.write`, compact, newline-terminated). Don't hand-roll `console.log(JSON.stringify(...))` per row.
+- **Pick the primary collection** the agent is really after (doctor → `checks`, list commands → their array). Carry any context the line loses by leaving the envelope into each record by spreading context first, record last: `emitJsonl(rows.map(r => ({ project, ...r })))`. Project-scoped lists stamp `project`; add whatever else the envelope held (`window` for `ga *-history`, `release`/`targetDomain` for `backlinks list`, `sessionId` for `discover show`, `isDefault` for `project locations`). Global lists whose rows self-identify (`project list`, `notify events`, `backlinks releases`) emit bare.
+- **Never let `--format jsonl` fall through to human text (the invariant).** A command that isn't a streamable collection must still emit its JSON document for `jsonl` — gate the machine-output branch on `isMachineFormat(format)`, **never bare `format === 'json'`**. Since `jsonl` was added as a global format value, a `=== 'json'` gate sends a `--format jsonl` request straight into the human-text `else` — an agent asks for machine output and silently gets a decorated table. Every composite/object/mutation command degrades `jsonl` → its `json` document this way; only the collection commands (which have an explicit `else if (format === 'jsonl')` streaming branch) keep a bare `=== 'json'` gate, because their `json` envelope and `jsonl` records are different outputs.
+- **Watch for a local `toFormat`.** A few commands (the `agent-*` handlers) historically narrowed format to `json`-or-`text` inline, which silently swallows `jsonl`. If a command has its own `toFormat`, widen it to pass `jsonl` through (or delete it and use `opts.format` / `isMachineFormat`).
+- **Errors and exit codes are unchanged** — `printCliError` renders a single-line envelope for `jsonl`, and a failing command still throws its `CliError` (so e.g. `doctor` still exits 1 after printing every check line). Agents branch on the exit code, not on parsing stderr.
+- **USAGE strings** are not mass-updated to advertise `json|jsonl` (cosmetic; the global `cnry --help` and the skill reference cover discoverability) — `doctor`'s does as the exemplar.
+
+The stable, machine-readable formats are `json` and `jsonl`; `text` is decorated and not a parse target. `isMachineFormat(format)` distinguishes them.
+
+The CLI also keeps interactive chrome (the "new version available" banner) off a non-interactive stderr — it's gated on `process.stderr.isTTY`, so piped/captured output stays clean without `2>/dev/null`. Errors still go to stderr.
+
 ### Run completion pipeline
 
 When a sweep finishes, the flow is: `JobRunner` → `RunCoordinator.onRunCompleted()` → `IntelligenceService.analyzeAndPersist()` then `Notifier.onRunCompleted()`. The coordinator runs intelligence first (synchronous) so insights are persisted before webhooks fire. Each subscriber is wrapped in an independent try/catch — one failing must not block the others.

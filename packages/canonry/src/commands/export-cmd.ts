@@ -1,6 +1,6 @@
 import { stringify } from 'yaml'
 import { createApiClient, type ApiClient, type ExportDto } from '../client.js'
-import { isEndpointMissing } from '../cli-error.js'
+import { isEndpointMissing, isMachineFormat } from '../cli-error.js'
 
 export async function exportProject(
   project: string,
@@ -15,7 +15,7 @@ export async function exportProject(
     if (results) data.results = results
   }
 
-  if (opts.format === 'json') {
+  if (isMachineFormat(opts.format)) {
     console.log(JSON.stringify(data, null, 2))
     return
   }

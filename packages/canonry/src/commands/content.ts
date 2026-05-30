@@ -1,4 +1,5 @@
 import { createApiClient } from '../client.js'
+import { emitJsonl } from '../cli-output.js'
 
 interface TargetsOpts {
   limit?: number
@@ -15,6 +16,20 @@ export async function listContentTargets(project: string, opts: TargetsOpts): Pr
 
   if (opts.format === 'json') {
     console.log(JSON.stringify(response, null, 2))
+    return
+  }
+
+  if (opts.format === 'jsonl') {
+    // One self-contained target per line. Prepend the envelope context the row
+    // loses — `project` and the run it was computed from — then spread the row
+    // last so its own fields win.
+    emitJsonl(
+      response.targets.map(target => ({
+        project,
+        latestRunId: response.contextMetrics.latestRunId,
+        ...target,
+      })),
+    )
     return
   }
 
@@ -62,6 +77,14 @@ export async function listContentSources(project: string, opts: { format?: strin
     return
   }
 
+  if (opts.format === 'jsonl') {
+    // One self-contained source row per line. Prepend `project` so a line lifted
+    // out of the envelope still says which project it describes; the row's own
+    // fields win on spread.
+    emitJsonl(response.sources.map(row => ({ project, ...row })))
+    return
+  }
+
   if (response.sources.length === 0) {
     console.log('No grounding sources captured yet.')
     return
@@ -87,6 +110,13 @@ export async function listContentGaps(project: string, opts: { format?: string }
 
   if (opts.format === 'json') {
     console.log(JSON.stringify(response, null, 2))
+    return
+  }
+
+  if (opts.format === 'jsonl') {
+    // One self-contained gap row per line. Prepend `project` so the line stands
+    // alone; the row's own fields win on spread.
+    emitJsonl(response.gaps.map(gap => ({ project, ...gap })))
     return
   }
 

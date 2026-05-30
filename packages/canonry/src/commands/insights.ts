@@ -1,4 +1,6 @@
 import { createApiClient } from '../client.js'
+import { isMachineFormat } from '../cli-error.js'
+import { emitJsonl } from '../cli-output.js'
 
 export async function listInsights(
   project: string,
@@ -9,6 +11,14 @@ export async function listInsights(
 
   if (opts.format === 'json') {
     console.log(JSON.stringify(insights, null, 2))
+    return
+  }
+
+  if (opts.format === 'jsonl') {
+    // One self-contained insight per line. Each line carries `project` (the
+    // arg this handler received) so a line lifted out of the array still says
+    // which project it describes; the insight's own fields spread last and win.
+    emitJsonl(insights.map(insight => ({ project, ...insight })))
     return
   }
 
@@ -40,7 +50,7 @@ export async function dismissInsight(
   const client = createApiClient()
   const result = await client.dismissInsight(project, id)
 
-  if (opts.format === 'json') {
+  if (isMachineFormat(opts.format)) {
     console.log(JSON.stringify(result, null, 2))
     return
   }

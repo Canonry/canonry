@@ -1,5 +1,6 @@
 import type { MentionShareDto, ProjectOverviewDto, ScoreSummaryDto } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
+import { isMachineFormat } from '../cli-error.js'
 
 export interface ShowOverviewOpts {
   format?: string
@@ -14,7 +15,7 @@ export async function showOverview(project: string, opts: ShowOverviewOpts): Pro
     since: opts.since,
   })
 
-  if (opts.format === 'json') {
+  if (isMachineFormat(opts.format)) {
     console.log(JSON.stringify(overview, null, 2))
     return
   }
@@ -38,7 +39,7 @@ export async function showAllOverviews(opts: ShowOverviewOpts): Promise<void> {
   const client = createApiClient()
   const projects = await client.listProjects()
   if (projects.length === 0) {
-    if (opts.format === 'json') {
+    if (isMachineFormat(opts.format)) {
       console.log('[]')
       return
     }
@@ -52,7 +53,7 @@ export async function showAllOverviews(opts: ShowOverviewOpts): Promise<void> {
     ),
   )
 
-  if (opts.format === 'json') {
+  if (isMachineFormat(opts.format)) {
     console.log(JSON.stringify(overviews, null, 2))
     return
   }

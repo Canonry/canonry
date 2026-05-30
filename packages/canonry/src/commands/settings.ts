@@ -1,5 +1,6 @@
 import { loadConfig, saveConfigPatch, getConfigPath } from '../config.js'
 import { createApiClient } from '../client.js'
+import { isMachineFormat } from '../cli-error.js'
 import { setGoogleAuthConfig } from '../google-config.js'
 
 function getClient() {
@@ -22,7 +23,7 @@ export async function setProvider(name: string, opts: {
     quota?: { maxConcurrency: number; maxRequestsPerMinute: number; maxRequestsPerDay: number }
   }
 
-  if (format === 'json') {
+  if (isMachineFormat(format)) {
     console.log(JSON.stringify(result, null, 2))
     return
   }
@@ -49,7 +50,7 @@ export async function showSettings(format?: string): Promise<void> {
     }>
   }
 
-  if (format === 'json') {
+  if (isMachineFormat(format)) {
     console.log(JSON.stringify({
       ...settings,
       google: {
@@ -89,7 +90,7 @@ export function setGoogleAuth(opts: { clientId: string; clientSecret: string; fo
   })
   saveConfigPatch(config)
 
-  if (opts.format === 'json') {
+  if (isMachineFormat(opts.format)) {
     console.log(JSON.stringify({
       configured: true,
       configPath: getConfigPath(),

@@ -10,7 +10,8 @@ import type {
 } from '@ainyc/canonry-contracts'
 import { RunStatuses, TrafficEventKinds } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
-import { CliError } from '../cli-error.js'
+import { CliError, isMachineFormat } from '../cli-error.js'
+import { emitJsonl } from '../cli-output.js'
 
 function getClient() {
   return createApiClient()
@@ -86,7 +87,7 @@ export async function trafficConnectWordpress(project: string, opts: {
     displayName: opts.displayName,
   })
 
-  if (opts.format === 'json') {
+  if (isMachineFormat(opts.format)) {
     console.log(JSON.stringify(result, null, 2))
     return
   }
@@ -150,7 +151,7 @@ export async function trafficConnectCloudRun(project: string, opts: {
     keyJson,
   })
 
-  if (opts.format === 'json') {
+  if (isMachineFormat(opts.format)) {
     console.log(JSON.stringify(result, null, 2))
     return
   }
@@ -242,7 +243,7 @@ export async function trafficConnectVercel(project: string, opts: {
     displayName: opts.displayName,
   })
 
-  if (opts.format === 'json') {
+  if (isMachineFormat(opts.format)) {
     console.log(JSON.stringify(result, null, 2))
     return
   }
@@ -280,7 +281,7 @@ export async function trafficBackfill(project: string, opts: {
   })
 
   if (!opts.wait) {
-    if (opts.format === 'json') {
+    if (isMachineFormat(opts.format)) {
       console.log(JSON.stringify(submitted, null, 2))
       return
     }
@@ -317,7 +318,7 @@ export async function trafficBackfill(project: string, opts: {
     })
   }
 
-  if (opts.format === 'json') {
+  if (isMachineFormat(opts.format)) {
     console.log(JSON.stringify({ ...submitted, finalStatus: final.status, finalRun: final }, null, 2))
     return
   }
@@ -362,7 +363,7 @@ export async function trafficSync(project: string, opts: {
     sinceMinutes: opts.sinceMinutes,
   })
 
-  if (opts.format === 'json') {
+  if (isMachineFormat(opts.format)) {
     console.log(JSON.stringify(result, null, 2))
     return
   }
@@ -421,7 +422,7 @@ export async function trafficReset(project: string, opts: {
   const client = getClient()
   const updated = await client.trafficReset(project, opts.source)
 
-  if (opts.format === 'json') {
+  if (isMachineFormat(opts.format)) {
     console.log(JSON.stringify(updated, null, 2))
     return
   }
@@ -452,6 +453,11 @@ export async function trafficSources(project: string, opts: { format?: string })
   if (opts.format === 'json') {
     console.log(JSON.stringify(result, null, 2))
     return
+  } else if (opts.format === 'jsonl') {
+    // One self-contained source per line; `project` is prepended so a line
+    // lifted out of the envelope still says which project it belongs to.
+    emitJsonl(result.sources.map(source => ({ project, ...source })))
+    return
   }
 
   if (result.sources.length === 0) {
@@ -474,6 +480,11 @@ export async function trafficStatus(project: string, opts: { format?: string }):
 
   if (opts.format === 'json') {
     console.log(JSON.stringify(result, null, 2))
+    return
+  } else if (opts.format === 'jsonl') {
+    // One self-contained per-source status (totals24h + latestRun) per line;
+    // `project` is prepended so a line lifted out still identifies its project.
+    emitJsonl(details.map(detail => ({ project, ...detail })))
     return
   }
 
@@ -580,6 +591,17 @@ export async function trafficEvents(project: string, opts: {
 
   if (opts.format === 'json') {
     console.log(JSON.stringify(result, null, 2))
+    return
+  } else if (opts.format === 'jsonl') {
+    // One self-contained event per line. Each row loses the envelope's window
+    // bounds, so `project` + `windowStart`/`windowEnd` are prepended; the
+    // event's own fields (including `kind`) win by spreading last.
+    emitJsonl(result.events.map(event => ({
+      project,
+      windowStart: result.windowStart,
+      windowEnd: result.windowEnd,
+      ...event,
+    })))
     return
   }
 

@@ -1,4 +1,6 @@
 import { createApiClient } from '../client.js'
+import { isMachineFormat } from '../cli-error.js'
+import { emitJsonl } from '../cli-output.js'
 
 function getClient() {
   return createApiClient()
@@ -14,7 +16,7 @@ export async function addCompetitors(project: string, domains: string[], format?
   const currentDomains = current.map(c => c.domain)
   const addedDomains = currentDomains.filter(domain => requested.has(domain) && !existingSet.has(domain))
 
-  if (format === 'json') {
+  if (isMachineFormat(format)) {
     console.log(JSON.stringify({
       project,
       domains: currentDomains,
@@ -40,7 +42,7 @@ export async function removeCompetitors(project: string, domains: string[], form
   const currentSet = new Set(current.map(c => c.domain))
   const removedDomains = existingDomains.filter(domain => requested.has(domain) && !currentSet.has(domain))
 
-  if (format === 'json') {
+  if (isMachineFormat(format)) {
     console.log(JSON.stringify({
       project,
       domains: current.map(c => c.domain),
@@ -70,6 +72,12 @@ export async function listCompetitors(project: string, format?: string): Promise
 
   if (format === 'json') {
     console.log(JSON.stringify(comps, null, 2))
+    return
+  } else if (format === 'jsonl') {
+    // One self-contained competitor per line. Each carries `project` so a line
+    // lifted out of context still says which project it belongs to; the record's
+    // own fields spread last and win.
+    emitJsonl(comps.map(c => ({ project, ...c })))
     return
   }
 

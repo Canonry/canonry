@@ -1,5 +1,5 @@
 import { createApiClient } from '../client.js'
-import { CliError, EXIT_USER_ERROR } from '../cli-error.js'
+import { CliError, EXIT_USER_ERROR, isMachineFormat } from '../cli-error.js'
 
 /**
  * Endpoints `canonry get` knows how to source. Each entry maps a `--from`
@@ -67,7 +67,7 @@ export async function getCommand(opts: GetOptions): Promise<void> {
     })
   }
 
-  if (opts.format === 'json') {
+  if (isMachineFormat(opts.format)) {
     console.log(JSON.stringify(leaf, null, 2))
     return
   }

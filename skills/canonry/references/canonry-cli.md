@@ -524,4 +524,33 @@ cnry agent detach <project> --format json              # JSON output
 
 ## Output Formats
 
-Most commands support `--format json` for machine-readable output.
+Every command takes `--format`:
+
+- **`text`** (default) — human-readable, decorated. Not a stable parse target.
+- **`json`** — one pretty-printed JSON document (the full envelope). Stable contract.
+- **`jsonl`** — newline-delimited JSON: the command's **primary collection**, one self-contained record per line. The agent-friendly machine format — no envelope key to guess (`.checks` vs `.results` vs `.rows`), no `jq` flattening, greppable line by line.
+
+`jsonl` is supported by every **collection** command — one whose primary output is a list: `insights`, `runs`, `evidence`, `history`, `query/keyword/competitor list`, `notify list/events`, `google` reads (`performance`, `performance-daily`, `inspections`, `coverage-history`, `deindexed`, `status`, `properties`, `list-sitemaps`), `bing` reads (`coverage-history`, `inspections`, `performance`, `sites`), `ga` reads (`ai-referral-history`, `social-referral-history`, `session-history`, `coverage`), `traffic events/sources/status`, `discover list/show`, `content targets/sources/gaps`, `backlinks list/releases`, `project list/locations`, `agent memory list`, `agent providers`, and `doctor`.
+
+Each `jsonl` line re-injects the envelope context it would otherwise lose, so a line lifted out still self-describes:
+
+- project-scoped lists stamp `{ "project": "<name>", …row }`;
+- `ga *-history` also stamps `window`; `traffic events` stamps `windowStart`/`windowEnd`; `backlinks list` stamps `release`/`targetDomain`; `discover show` stamps `sessionId`; `content targets` stamps `latestRunId`; `project locations` stamps `isDefault`;
+- global lists whose rows already self-identify (`project list`, `notify events`, `backlinks releases`) emit bare rows.
+
+Empty collection → **no output** (the exit code still conveys success, so "no records" stays distinct from "failure"). On failure a command prints its records (if any), then exits non-zero — branch on the **exit code**, never on parsing stderr. JSON field names and the `{ "error": { "code", "message" } }` envelope are a public contract.
+
+**Composite** commands return a single aggregate object (not a list), so there is nothing to stream — on them `--format jsonl` **degrades to the same JSON document** as `--format json`; it never falls through to decorated human text. So `--format jsonl` is safe to pass to *any* command: collection commands stream their records, every other command emits its JSON document. Composite shapes are below.
+
+## Output schema per command
+
+Compact reference for the composite / keyed commands agents read most (shapes can drift — the linked DTO source file is the source of truth; collection commands simply emit their primary array, see each command's own section above).
+
+| Command | JSON output shape (top-level keys → DTO) | `jsonl` |
+|---|---|---|
+| `cnry doctor [--project p] [--all]` | `{ scope, project, generatedAt, durationMs, summary{total,ok,warn,fail,skipped}, checks[] }` — `DoctorReportDto` @ `contracts/doctor.ts`. `checks[]` = `CheckResultDto{ id, category, scope, title, status(ok\|warn\|fail\|skipped), code, summary, remediation?, details?, durationMs }`. With `--all`: an object keyed by `__global__` + each project name, each value a full report. | ✅ one check / line as `{project, …check}`; still exits non-zero if any `fail` |
+| `cnry analytics <p> [--feature metrics\|gaps\|sources] [--window 7d\|30d\|90d\|all]` | Object **keyed by feature**: `{ metrics?, gaps?, sources? }` (all three present with no `--feature`; one with `--feature X`). `metrics`=`BrandMetricsDto{ window, buckets[], overall, byProvider, trend, mentionTrend, queryChanges[] }`; `gaps`=`GapAnalysisDto{ cited[], gap[], uncited[], mentionedQueries[], mentionGap[], notMentioned[], runId, window }` (each `[]`=`GapQuery`); `sources`=`SourceBreakdownDto{ overall[], byQuery, runId, window }`. @ `contracts/analytics.ts` | → degrades to the `json` document |
+| `cnry google coverage <p>` (index coverage) | `{ summary{total,indexed,notIndexed,deindexed,percentage}, lastInspectedAt, lastSyncedAt, indexed[], notIndexed[], deindexed[], reasonGroups[] }` — `GscCoverageSummaryDto` @ `contracts/google.ts`. `indexed[]`/`notIndexed[]`=`GscUrlInspectionDto`, `deindexed[]`=`GscDeindexedRowDto`. | → degrades to the `json` document. The single-array reads `google inspections` / `coverage-history` / `deindexed` **stream** `jsonl`. |
+| `cnry ga traffic <p> [--window …]` | Object summary — `GA4TrafficSummaryDto` / `GaTrafficResponse` @ `contracts/ga.ts`: `{ totalSessions, totalOrganicSessions, totalDirectSessions, totalUsers, aiSessionsDeduped, aiUsersDeduped, aiSessionsBySession, aiUsersBySession, socialSessions, socialUsers, channelBreakdown{organic,social,direct,ai,other→{sessions,sharePct,sharePctDisplay}}, *SharePct (+ `*Display`), topPages[], aiReferrals[], aiReferralLandingPages[], socialReferrals[], lastSyncedAt, periodStart, periodEnd }`. | → degrades to the `json` document |
+| `cnry ga attribution <p> [--trend]` | Object — a **renamed projection** of `GaTrafficResponse` (⚠️ field names differ from the DTO): `aiSessions`(←`aiSessionsDeduped`), `organicSessions`(←`totalOrganicSessions`), `directSessions`(←`totalDirectSessions`), plus `totalSessions, totalUsers, aiUsers, aiSessionsBySession, aiUsersBySession, socialSessions, socialUsers, {ai,social,organic,direct}SharePct (+ `*Display`), otherSessions, otherSharePct, channelBreakdown, aiReferrals[], aiReferralLandingPages[], socialReferrals[], periodStart, periodEnd`. With `--trend`: drops `periodStart/End`, adds `trend` (`GaAttributionTrendResponse`). Assembled inline in `commands/ga.ts`. | → degrades to the `json` document |
+| `cnry gbp summary <p> [--location …]` | `{ scope{locationName,locationCount}, performance{totals,recent7d,prior7d,deltaPct} (metric-keyed maps; keys are raw `BUSINESS_*` / `WEBSITE_CLICKS` tokens — label via `formatGbpMetricLabel`), freshness{dataThroughDate,latestStoredDate,pendingDays}, timeseries[], keywords{total,thresholdedCount,thresholdedPct}, placeActions{total,hasReservationCta,hasBookingCta,hasDirectMerchantCta}, lodging{lodgingLocationCount,populatedLodgingCount,emptyLodgingCount} }` — `GbpSummaryDto` @ `contracts/gbp.ts`. `timeseries[]`=`{date,pending,metrics}`. | → degrades to the `json` document |

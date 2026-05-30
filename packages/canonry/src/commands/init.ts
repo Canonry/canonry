@@ -8,7 +8,7 @@ import type { CanonryConfig } from '../config.js'
 import { trackEvent, showFirstRunNotice } from '../telemetry.js'
 import { createClient, migrate } from '@ainyc/canonry-db'
 import { apiKeys } from '@ainyc/canonry-db'
-import { CliError, type CliFormat } from '../cli-error.js'
+import { CliError, type CliFormat, isMachineFormat } from '../cli-error.js'
 import { installSkills, type SkillsInstallSummary } from './skills.js'
 import { installMcp, type McpInstallResult } from './mcp.js'
 
@@ -79,12 +79,12 @@ const DEFAULT_AGENT_MODELS: Record<string, string> = {
 export async function initCommand(opts?: InitOptions): Promise<ResolvedAgentLLM | undefined> {
   const format = opts?.format ?? 'text'
 
-  if (format !== 'json') {
+  if (!isMachineFormat(format)) {
     console.log('Initializing canonry...\n')
   }
 
   if (configExists() && !opts?.force) {
-    if (format === 'json') {
+    if (isMachineFormat(format)) {
       console.log(JSON.stringify({
         initialized: false,
         reason: 'config_exists',
@@ -140,7 +140,7 @@ export async function initCommand(opts?: InitOptions): Promise<ResolvedAgentLLM 
   const providers: CanonryConfig['providers'] = {}
   let google: CanonryConfig['google'] | undefined
 
-  if (format === 'json' && !nonInteractive) {
+  if (isMachineFormat(format) && !nonInteractive) {
     throw new CliError({
       code: 'INIT_JSON_REQUIRES_NON_INTERACTIVE',
       message: '--format json requires non-interactive provider configuration via flags or environment variables.',
@@ -319,7 +319,7 @@ export async function initCommand(opts?: InitOptions): Promise<ResolvedAgentLLM 
 
   const nextSteps = buildNextSteps()
 
-  if (format === 'json') {
+  if (isMachineFormat(format)) {
     console.log(JSON.stringify({
       initialized: true,
       configPath: getConfigPath(),
@@ -383,7 +383,7 @@ export async function initCommand(opts?: InitOptions): Promise<ResolvedAgentLLM 
   // Show the first-run telemetry notice during init — this is the natural
   // first command most users run, so the notice must appear here before
   // we generate the anonymousId and fire any telemetry events.
-  if (format !== 'json') {
+  if (!isMachineFormat(format)) {
     showFirstRunNotice()
     console.log('\nNext steps:')
     for (const line of nextSteps) {

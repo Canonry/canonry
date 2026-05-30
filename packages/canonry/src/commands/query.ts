@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import { createApiClient } from '../client.js'
-import { CliError } from '../cli-error.js'
+import { CliError, isMachineFormat } from '../cli-error.js'
+import { emitJsonl } from '../cli-output.js'
 
 function getClient() {
   return createApiClient()
@@ -10,7 +11,7 @@ export async function addQueries(project: string, queries: string[], format?: st
   const client = getClient()
   await client.appendQueries(project, queries)
 
-  if (format === 'json') {
+  if (isMachineFormat(format)) {
     console.log(JSON.stringify({
       project,
       queries,
@@ -28,7 +29,7 @@ export async function replaceQueries(
   opts?: { dryRun?: boolean; format?: string },
 ): Promise<void> {
   const client = getClient()
-  const isJson = opts?.format === 'json'
+  const isJson = isMachineFormat(opts?.format)
 
   if (opts?.dryRun) {
     const preview = await client.previewReplaceQueries(project, queries)
@@ -74,7 +75,7 @@ export async function removeQueries(project: string, queries: string[], format?:
   const removedQueries = queries.filter(q => existingSet.has(q))
   await client.deleteQueries(project, queries)
 
-  if (format === 'json') {
+  if (isMachineFormat(format)) {
     console.log(JSON.stringify({
       project,
       queries,
@@ -97,6 +98,11 @@ export async function listQueries(project: string, format?: string): Promise<voi
 
   if (format === 'json') {
     console.log(JSON.stringify(qs, null, 2))
+    return
+  } else if (format === 'jsonl') {
+    // One self-contained query per line. Each line carries `project` so a line
+    // lifted out of the array still says which project it belongs to.
+    emitJsonl(qs.map(q => ({ project, ...q })))
     return
   }
 
@@ -131,7 +137,7 @@ export async function importQueries(project: string, filePath: string, format?: 
     .filter(line => line.length > 0 && !line.startsWith('#'))
 
   if (queries.length === 0) {
-    if (format === 'json') {
+    if (isMachineFormat(format)) {
       console.log(JSON.stringify({
         project,
         filePath,
@@ -148,7 +154,7 @@ export async function importQueries(project: string, filePath: string, format?: 
   const client = getClient()
   await client.appendQueries(project, queries)
 
-  if (format === 'json') {
+  if (isMachineFormat(format)) {
     console.log(JSON.stringify({
       project,
       filePath,
@@ -170,7 +176,7 @@ export async function generateQueries(
   const result = await client.generateQueries(project, provider, opts.count)
   const saved = Boolean(opts.save && result.queries.length > 0)
 
-  if (opts.format !== 'json') {
+  if (!isMachineFormat(opts.format)) {
     console.log(`Generated ${result.queries.length} ${result.queries.length === 1 ? 'query' : 'queries'} using ${result.provider}:\n`)
     for (const q of result.queries) {
       console.log(`  ${q}`)
@@ -183,12 +189,12 @@ export async function generateQueries(
 
   if (saved) {
     await client.appendQueries(project, result.queries)
-    if (opts.format !== 'json') {
+    if (!isMachineFormat(opts.format)) {
       console.log(`\nSaved ${result.queries.length} ${result.queries.length === 1 ? 'query' : 'queries'} to "${project}".`)
     }
   }
 
-  if (opts.format === 'json') {
+  if (isMachineFormat(opts.format)) {
     console.log(JSON.stringify({
       project,
       provider: result.provider,

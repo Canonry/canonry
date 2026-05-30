@@ -15,7 +15,7 @@ import {
   type SkillManifest,
   type SkillsClient,
 } from '@ainyc/canonry-contracts'
-import { CliError } from '../cli-error.js'
+import { CliError, isMachineFormat } from '../cli-error.js'
 import { PACKAGE_VERSION } from '../package-version.js'
 
 export { CodingAgents, SkillsClients }
@@ -407,7 +407,7 @@ export async function installSkills(opts: SkillsInstallOptions = {}): Promise<Sk
 export async function listSkills(opts: SkillsListOptions = {}): Promise<void> {
   const skills = getBundledSkills()
 
-  if (opts.format === 'json') {
+  if (isMachineFormat(opts.format)) {
     console.log(JSON.stringify({
       skills: skills.map(s => ({
         name: s.name,
@@ -430,7 +430,7 @@ export async function listSkills(opts: SkillsListOptions = {}): Promise<void> {
 }
 
 export function emitInstallSummary(summary: SkillsInstallSummary, format?: string): void {
-  if (format === 'json') {
+  if (isMachineFormat(format)) {
     console.log(JSON.stringify(summary, null, 2))
     return
   }

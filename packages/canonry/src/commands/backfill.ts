@@ -10,6 +10,7 @@ import { reparseStoredResult as reparseGeminiStoredResult } from '@ainyc/canonry
 import { reparseStoredResult as reparsePerplexityStoredResult } from '@ainyc/canonry-provider-perplexity'
 import { loadConfig } from '../config.js'
 import type { CliFormat } from '../cli-error.js'
+import { isMachineFormat } from '../cli-error.js'
 import {
   computeCompetitorOverlap,
   determineCitationState,
@@ -199,7 +200,7 @@ export async function backfillAnswerVisibilityCommand(opts?: {
     result.wouldUpdate = wouldUpdate
   }
 
-  if (opts?.format === 'json') {
+  if (isMachineFormat(opts?.format)) {
     console.log(JSON.stringify(result, null, 2))
     return
   }
@@ -320,7 +321,7 @@ export async function backfillNormalizedPathsCommand(opts?: {
         updated: 0,
         unchanged: 0,
       }
-      if (opts?.format === 'json') {
+      if (isMachineFormat(opts?.format)) {
         console.log(JSON.stringify(result, null, 2))
         return
       }
@@ -339,7 +340,7 @@ export async function backfillNormalizedPathsCommand(opts?: {
     unchanged,
   }
 
-  if (opts?.format === 'json') {
+  if (isMachineFormat(opts?.format)) {
     console.log(JSON.stringify(result, null, 2))
     return
   }
@@ -429,7 +430,7 @@ export async function backfillAiReferralPathsCommand(opts?: {
         updated: 0,
         unchanged: 0,
       }
-      if (opts?.format === 'json') {
+      if (isMachineFormat(opts?.format)) {
         console.log(JSON.stringify(result, null, 2))
         return
       }
@@ -448,7 +449,7 @@ export async function backfillAiReferralPathsCommand(opts?: {
     unchanged,
   }
 
-  if (opts?.format === 'json') {
+  if (isMachineFormat(opts?.format)) {
     console.log(JSON.stringify(result, null, 2))
     return
   }
@@ -648,7 +649,7 @@ export async function backfillAnswerMentionsCommand(opts?: {
     result.wouldUpdate = wouldUpdate
   }
 
-  if (opts?.format === 'json') {
+  if (isMachineFormat(opts?.format)) {
     console.log(JSON.stringify(result, null, 2))
     return
   }
@@ -697,7 +698,7 @@ export async function backfillInsightsCommand(
   migrate(db)
 
   const service = new IntelligenceService(db)
-  const isJson = opts?.format === 'json'
+  const isJson = isMachineFormat(opts?.format)
   const isDryRun = opts?.dryRun === true
 
   if (!isJson) {
@@ -905,7 +906,7 @@ export async function backfillSnapshotAttributionCommand(opts: {
     throw new Error(`Project "${opts.project}" not found`)
   }
 
-  const isJson = opts.format === 'json'
+  const isJson = isMachineFormat(opts.format)
   const isDryRun = opts.dryRun === true
 
   if (!isJson) {
@@ -1222,7 +1223,7 @@ export async function backfillTrafficClassificationCommand(opts?: {
 
   const projectFilter = opts?.project?.trim()
   const isDryRun = opts?.dryRun === true
-  const isJson = opts?.format === 'json'
+  const isJson = isMachineFormat(opts?.format)
 
   const scopedProjects = projectFilter
     ? db.select().from(projects).where(eq(projects.name, projectFilter)).all()

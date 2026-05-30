@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import { createApiClient } from '../client.js'
-import { CliError } from '../cli-error.js'
+import { CliError, isMachineFormat } from '../cli-error.js'
+import { emitJsonl } from '../cli-output.js'
 
 function getClient() {
   return createApiClient()
@@ -10,7 +11,7 @@ export async function addKeywords(project: string, keywords: string[], format?: 
   const client = getClient()
   await client.appendKeywords(project, keywords)
 
-  if (format === 'json') {
+  if (isMachineFormat(format)) {
     console.log(JSON.stringify({
       project,
       keywords,
@@ -26,7 +27,7 @@ export async function replaceKeywords(project: string, keywords: string[], forma
   const client = getClient()
   await client.putKeywords(project, keywords)
 
-  if (format === 'json') {
+  if (isMachineFormat(format)) {
     console.log(JSON.stringify({
       project,
       keywords,
@@ -45,7 +46,7 @@ export async function removeKeywords(project: string, keywords: string[], format
   const removedKeywords = keywords.filter(k => existingSet.has(k))
   await client.deleteKeywords(project, keywords)
 
-  if (format === 'json') {
+  if (isMachineFormat(format)) {
     console.log(JSON.stringify({
       project,
       keywords,
@@ -68,6 +69,12 @@ export async function listKeywords(project: string, format?: string): Promise<vo
 
   if (format === 'json') {
     console.log(JSON.stringify(kws, null, 2))
+    return
+  } else if (format === 'jsonl') {
+    // One self-contained key phrase per line. Prepend `project` so a line
+    // lifted out of the array still says which project it belongs to; spread
+    // the record last so its own fields win.
+    emitJsonl(kws.map(kw => ({ project, ...kw })))
     return
   }
 
@@ -102,7 +109,7 @@ export async function importKeywords(project: string, filePath: string, format?:
     .filter(line => line.length > 0 && !line.startsWith('#'))
 
   if (keywords.length === 0) {
-    if (format === 'json') {
+    if (isMachineFormat(format)) {
       console.log(JSON.stringify({
         project,
         filePath,
@@ -119,7 +126,7 @@ export async function importKeywords(project: string, filePath: string, format?:
   const client = getClient()
   await client.appendKeywords(project, keywords)
 
-  if (format === 'json') {
+  if (isMachineFormat(format)) {
     console.log(JSON.stringify({
       project,
       filePath,
@@ -141,7 +148,7 @@ export async function generateKeywords(
   const result = await client.generateKeywords(project, provider, opts.count)
   const saved = Boolean(opts.save && result.keywords.length > 0)
 
-  if (opts.format !== 'json') {
+  if (!isMachineFormat(opts.format)) {
     console.log(`Generated ${result.keywords.length} key phrase(s) using ${result.provider}:\n`)
     for (const kw of result.keywords) {
       console.log(`  ${kw}`)
@@ -154,12 +161,12 @@ export async function generateKeywords(
 
   if (saved) {
     await client.appendKeywords(project, result.keywords)
-    if (opts.format !== 'json') {
+    if (!isMachineFormat(opts.format)) {
       console.log(`\nSaved ${result.keywords.length} key phrase(s) to "${project}".`)
     }
   }
 
-  if (opts.format === 'json') {
+  if (isMachineFormat(opts.format)) {
     console.log(JSON.stringify({
       project,
       provider: result.provider,

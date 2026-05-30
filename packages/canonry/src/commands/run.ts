@@ -1,6 +1,7 @@
 import { type ApiClient, createApiClient } from '../client.js'
 import { CitationStates, resolveProviderInput, type RunDetailDto } from '@ainyc/canonry-contracts'
-import { CliError } from '../cli-error.js'
+import { CliError, isMachineFormat } from '../cli-error.js'
+import { emitJsonl } from '../cli-output.js'
 
 function getClient() {
   return createApiClient()
@@ -37,7 +38,7 @@ export async function triggerRun(project: string, opts?: { provider?: string; qu
   // allLocations returns HTTP 207 with an array of per-location run objects
   if (Array.isArray(response)) {
     const locationRuns = response as Array<{ id: string; status: string; kind: string; location?: string; error?: string }>
-    if (opts?.format === 'json') {
+    if (isMachineFormat(opts?.format)) {
       if (opts?.wait) {
         const settled = await Promise.all(
           locationRuns.map(async (r) => {
@@ -88,7 +89,7 @@ export async function triggerRun(project: string, opts?: { provider?: string; qu
   if (opts?.wait && run.id && !TERMINAL_STATUSES.has(run.status)) {
     process.stderr.write(`Run ${run.id} started`)
     const result = await pollRun(client, run.id)
-    if (opts?.format === 'json') {
+    if (isMachineFormat(opts?.format)) {
       console.log(JSON.stringify(result, null, 2))
     } else {
       process.stderr.write('\n')
@@ -100,7 +101,7 @@ export async function triggerRun(project: string, opts?: { provider?: string; qu
   if (opts?.wait && (TERMINAL_STATUSES.has(run.status) || !run.id)) {
     // If it's already finished or failed to start, don't poll
     const result = run.id ? await client.getRun(run.id) : run as unknown as RunDetailDto
-    if (opts?.format === 'json') {
+    if (isMachineFormat(opts?.format)) {
       console.log(JSON.stringify(result, null, 2))
     } else {
       printRunDetail(result)
@@ -108,7 +109,7 @@ export async function triggerRun(project: string, opts?: { provider?: string; qu
     return
   }
 
-  if (opts?.format === 'json') {
+  if (isMachineFormat(opts?.format)) {
     console.log(JSON.stringify(run, null, 2))
     return
   }
@@ -129,7 +130,7 @@ export async function triggerRunAll(opts?: { provider?: string; wait?: boolean; 
   const projects = await client.listProjects()
 
   if (projects.length === 0) {
-    if (opts?.format === 'json') {
+    if (isMachineFormat(opts?.format)) {
       console.log('[]')
     } else {
       console.log('No projects found.')
@@ -209,7 +210,7 @@ export async function triggerRunAll(opts?: { provider?: string; wait?: boolean; 
     }
   }
 
-  if (opts?.format === 'json') {
+  if (isMachineFormat(opts?.format)) {
     console.log(JSON.stringify(results, null, 2))
     return
   }
@@ -271,7 +272,7 @@ export async function cancelRun(project: string, runId?: string, format?: string
 
   const result = await client.cancelRun(targetId) as { id: string; status: string }
 
-  if (format === 'json') {
+  if (isMachineFormat(format)) {
     console.log(JSON.stringify(result, null, 2))
     return
   }
@@ -283,7 +284,7 @@ export async function showRun(id: string, format?: string): Promise<void> {
   const client = getClient()
   const run = await client.getRun(id)
 
-  if (format === 'json') {
+  if (isMachineFormat(format)) {
     console.log(JSON.stringify(run, null, 2))
     return
   }
@@ -305,6 +306,11 @@ export async function listRuns(project: string, opts?: { format?: string; limit?
 
   if (opts?.format === 'json') {
     console.log(JSON.stringify(runs, null, 2))
+    return
+  } else if (opts?.format === 'jsonl') {
+    // Prepend `project` (the line loses it when lifted out of the per-project
+    // envelope); spread the run last so its own fields win. Probe runs stay in.
+    emitJsonl(runs.map(run => ({ project, ...run })))
     return
   }
 

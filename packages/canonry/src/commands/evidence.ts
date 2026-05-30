@@ -1,5 +1,6 @@
 import { CitationStates } from '@ainyc/canonry-contracts'
 import { createApiClient, type TimelineDto } from '../client.js'
+import { emitJsonl } from '../cli-output.js'
 
 type EvidenceJsonEntry = TimelineDto & {
   cited: boolean
@@ -19,6 +20,17 @@ export async function showEvidence(project: string, format?: string): Promise<vo
       cited: entry.runs[entry.runs.length - 1]?.citationState === CitationStates.cited,
     }))
     console.log(JSON.stringify(enriched, null, 2))
+    return
+  } else if (format === 'jsonl') {
+    // One self-contained record per tracked query. Each line carries `project`
+    // so a line lifted out of context still says which project it describes;
+    // the record (enriched TimelineDto + derived `cited`) is spread last so its
+    // own fields win.
+    emitJsonl(timeline.map((entry) => ({
+      project,
+      ...entry,
+      cited: entry.runs[entry.runs.length - 1]?.citationState === CitationStates.cited,
+    })))
     return
   }
 

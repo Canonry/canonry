@@ -1,6 +1,7 @@
 import type { GbpAccountListResponse, GbpLocationListResponse, GbpSummaryDto } from '@ainyc/canonry-contracts'
 import { formatGbpMetricLabel } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
+import { isMachineFormat } from '../cli-error.js'
 
 function getClient() {
   return createApiClient()
@@ -30,7 +31,7 @@ export async function gbpConnect(
     publicUrl: opts.publicUrl,
   })
 
-  if (opts.format === 'json') {
+  if (isMachineFormat(opts.format)) {
     console.log(JSON.stringify({ project, type: 'gbp', authUrl, redirectUri: redirectUri ?? null }, null, 2))
     return
   }
@@ -47,7 +48,7 @@ export async function gbpConnect(
 export async function gbpDisconnect(project: string, opts: { format?: string }): Promise<void> {
   const client = getClient()
   await client.disconnectGbp(project)
-  if (opts.format === 'json') {
+  if (isMachineFormat(opts.format)) {
     console.log(JSON.stringify({ project, disconnected: true }, null, 2))
     return
   }
@@ -64,7 +65,7 @@ export async function gbpLocationsList(
     opts.selectedOnly ? { selected: true } : undefined,
   )
 
-  if (opts.format === 'json') {
+  if (isMachineFormat(opts.format)) {
     console.log(JSON.stringify(response, null, 2))
     return
   }
@@ -78,7 +79,7 @@ export async function gbpAccounts(
   const client = getClient()
   const response = await client.listGbpAccounts(project)
 
-  if (opts.format === 'json') {
+  if (isMachineFormat(opts.format)) {
     console.log(JSON.stringify(response, null, 2))
     return
   }
@@ -116,7 +117,7 @@ export async function gbpLocationsDiscover(
     : undefined
   const response = await client.discoverGbpLocations(project, body)
 
-  if (opts.format === 'json') {
+  if (isMachineFormat(opts.format)) {
     console.log(JSON.stringify(response, null, 2))
     return
   }
@@ -130,7 +131,7 @@ export async function gbpLocationSelect(
 ): Promise<void> {
   const client = getClient()
   const updated = await client.setGbpLocationSelection(project, opts.location, true)
-  if (opts.format === 'json') {
+  if (isMachineFormat(opts.format)) {
     console.log(JSON.stringify(updated, null, 2))
     return
   }
@@ -143,7 +144,7 @@ export async function gbpLocationDeselect(
 ): Promise<void> {
   const client = getClient()
   const updated = await client.setGbpLocationSelection(project, opts.location, false)
-  if (opts.format === 'json') {
+  if (isMachineFormat(opts.format)) {
     console.log(JSON.stringify(updated, null, 2))
     return
   }
@@ -162,7 +163,7 @@ export async function gbpSync(
   })
 
   if (!opts.wait) {
-    if (opts.format === 'json') {
+    if (isMachineFormat(opts.format)) {
       console.log(JSON.stringify({ runId, status }, null, 2))
       return
     }
@@ -174,17 +175,17 @@ export async function gbpSync(
   const terminal = new Set(['completed', 'partial', 'failed', 'cancelled'])
   const start = Date.now()
   const timeoutMs = 10 * 60 * 1000
-  if (opts.format !== 'json') process.stderr.write('Syncing')
+  if (!isMachineFormat(opts.format)) process.stderr.write('Syncing')
   let final = status
   while (Date.now() - start < timeoutMs) {
     await new Promise((r) => setTimeout(r, 2000))
     const run = await client.getRun(runId)
-    if (opts.format !== 'json') process.stderr.write('.')
+    if (!isMachineFormat(opts.format)) process.stderr.write('.')
     if (terminal.has(run.status)) { final = run.status; break }
   }
-  if (opts.format !== 'json') process.stderr.write('\n')
+  if (!isMachineFormat(opts.format)) process.stderr.write('\n')
 
-  if (opts.format === 'json') {
+  if (isMachineFormat(opts.format)) {
     console.log(JSON.stringify({ runId, status: final }, null, 2))
     return
   }
@@ -197,7 +198,7 @@ export async function gbpMetrics(
 ): Promise<void> {
   const client = getClient()
   const response = await client.listGbpMetrics(project, { locationName: opts.location, metric: opts.metric })
-  if (opts.format === 'json') {
+  if (isMachineFormat(opts.format)) {
     console.log(JSON.stringify(response, null, 2))
     return
   }
@@ -220,7 +221,7 @@ export async function gbpKeywords(
 ): Promise<void> {
   const client = getClient()
   const response = await client.listGbpKeywords(project, { locationName: opts.location })
-  if (opts.format === 'json') {
+  if (isMachineFormat(opts.format)) {
     console.log(JSON.stringify(response, null, 2))
     return
   }
@@ -241,7 +242,7 @@ export async function gbpPlaceActions(
 ): Promise<void> {
   const client = getClient()
   const response = await client.listGbpPlaceActions(project, { locationName: opts.location })
-  if (opts.format === 'json') {
+  if (isMachineFormat(opts.format)) {
     console.log(JSON.stringify(response, null, 2))
     return
   }
@@ -262,7 +263,7 @@ export async function gbpLodging(
 ): Promise<void> {
   const client = getClient()
   const response = await client.listGbpLodging(project, { locationName: opts.location })
-  if (opts.format === 'json') {
+  if (isMachineFormat(opts.format)) {
     console.log(JSON.stringify(response, null, 2))
     return
   }
@@ -283,7 +284,7 @@ export async function gbpPlaces(
 ): Promise<void> {
   const client = getClient()
   const response = await client.listGbpPlaces(project, { locationName: opts.location })
-  if (opts.format === 'json') {
+  if (isMachineFormat(opts.format)) {
     console.log(JSON.stringify(response, null, 2))
     return
   }
@@ -309,7 +310,7 @@ export async function gbpSummary(
 ): Promise<void> {
   const client = getClient()
   const s: GbpSummaryDto = await client.getGbpSummary(project, { locationName: opts.location })
-  if (opts.format === 'json') {
+  if (isMachineFormat(opts.format)) {
     console.log(JSON.stringify(s, null, 2))
     return
   }

@@ -1,6 +1,6 @@
 import type { ProjectDto, RunDto } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
-import { isEndpointMissing } from '../cli-error.js'
+import { isEndpointMissing, isMachineFormat } from '../cli-error.js'
 
 function getClient() {
   return createApiClient()
@@ -11,7 +11,7 @@ export async function showStatus(project: string, format?: string): Promise<void
   const projectData: ProjectDto = await client.getProject(project)
   const latest = await getLatestRunSummary(client, project)
 
-  if (format === 'json') {
+  if (isMachineFormat(format)) {
     let runs: RunDto[] = []
     try {
       runs = await client.listRuns(project)
