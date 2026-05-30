@@ -1,5 +1,5 @@
 import { createApiClient, type BrandMetricsDto, type GapAnalysisDto, type SourceBreakdownDto } from '../client.js'
-import { CliError } from '../cli-error.js'
+import { CliError, isMachineFormat } from '../cli-error.js'
 
 function getClient() {
   return createApiClient()
@@ -19,19 +19,19 @@ export async function showAnalytics(
       case 'metrics': {
         const data = await client.getAnalyticsMetrics(project, options.window)
         results.metrics = data
-        if (options.format !== 'json') printMetrics(data)
+        if (!isMachineFormat(options.format)) printMetrics(data)
         break
       }
       case 'gaps': {
         const data = await client.getAnalyticsGaps(project, options.window)
         results.gaps = data
-        if (options.format !== 'json') printGaps(data)
+        if (!isMachineFormat(options.format)) printGaps(data)
         break
       }
       case 'sources': {
         const data = await client.getAnalyticsSources(project, options.window)
         results.sources = data
-        if (options.format !== 'json') printSources(data)
+        if (!isMachineFormat(options.format)) printSources(data)
         break
       }
       default:
@@ -47,7 +47,7 @@ export async function showAnalytics(
     }
   }
 
-  if (options.format === 'json') {
+  if (isMachineFormat(options.format)) {
     console.log(JSON.stringify(results, null, 2))
   }
 }

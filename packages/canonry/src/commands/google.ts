@@ -1,6 +1,6 @@
 import type { GscUrlInspectionDto, IndexingRequestResultDto } from '@ainyc/canonry-contracts'
 import { type ApiClient, createApiClient } from '../client.js'
-import { CliError } from '../cli-error.js'
+import { CliError, isMachineFormat } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
 
 const INDEXING_API_SCOPE_NOTICE =
@@ -75,7 +75,7 @@ export async function googleConnect(project: string, opts: { type: string; publi
     publicUrl: opts.publicUrl,
   })
 
-  if (opts.format === 'json') {
+  if (isMachineFormat(opts.format)) {
     console.log(JSON.stringify({
       project,
       type: opts.type,
@@ -113,7 +113,7 @@ export async function googleDisconnect(project: string, opts: { type: string; fo
   const client = getClient()
   await client.googleDisconnect(project, opts.type)
 
-  if (opts.format === 'json') {
+  if (isMachineFormat(opts.format)) {
     console.log(JSON.stringify({ project, type: opts.type, disconnected: true }, null, 2))
     return
   }
@@ -188,7 +188,7 @@ export async function googleSetProperty(project: string, propertyUrl: string, fo
   const client = getClient()
   await client.googleSetProperty(project, 'gsc', propertyUrl)
 
-  if (format === 'json') {
+  if (isMachineFormat(format)) {
     console.log(JSON.stringify({ project, type: 'gsc', propertyUrl }, null, 2))
     return
   }
@@ -210,12 +210,12 @@ export async function googleSync(project: string, opts: {
     kind: string
   }
 
-  if (!opts.wait && opts.format === 'json') {
+  if (!opts.wait && isMachineFormat(opts.format)) {
     console.log(JSON.stringify(run, null, 2))
     return
   }
 
-  if (opts.format !== 'json') {
+  if (!isMachineFormat(opts.format)) {
     console.log(`GSC sync started (run ${run.id})`)
   }
 
@@ -233,7 +233,7 @@ export async function googleSync(project: string, opts: {
       details: { project },
     })
 
-    if (opts.format === 'json') {
+    if (isMachineFormat(opts.format)) {
       console.log(JSON.stringify({ ...run, status: current.status }, null, 2))
       return
     }
@@ -355,7 +355,7 @@ export async function googleInspect(project: string, url: string, format?: strin
     inspectedAt: string
   }
 
-  if (format === 'json') {
+  if (isMachineFormat(format)) {
     console.log(JSON.stringify(result, null, 2))
     return
   }
@@ -422,7 +422,7 @@ export async function googleCoverage(project: string, format?: string): Promise<
     deindexed: Array<{ url: string; previousState: string | null; currentState: string | null; transitionDate: string }>
   }
 
-  if (format === 'json') {
+  if (isMachineFormat(format)) {
     console.log(JSON.stringify(result, null, 2))
     return
   }
@@ -474,7 +474,7 @@ export async function googleSetSitemap(project: string, sitemapUrl: string, form
   const client = getClient()
   await client.googleSetSitemap(project, 'gsc', sitemapUrl)
 
-  if (format === 'json') {
+  if (isMachineFormat(format)) {
     console.log(JSON.stringify({ project, type: 'gsc', sitemapUrl }, null, 2))
     return
   }
@@ -528,12 +528,12 @@ export async function googleInspectSitemap(project: string, opts: {
     sitemapUrl: opts.sitemapUrl,
   }) as { id: string; status: string; kind: string }
 
-  if (!opts.wait && opts.format === 'json') {
+  if (!opts.wait && isMachineFormat(opts.format)) {
     console.log(JSON.stringify(run, null, 2))
     return
   }
 
-  if (opts.format !== 'json') {
+  if (!isMachineFormat(opts.format)) {
     console.log(`Sitemap inspection started (run ${run.id})`)
   }
 
@@ -551,7 +551,7 @@ export async function googleInspectSitemap(project: string, opts: {
       details: { project },
     })
 
-    if (opts.format === 'json') {
+    if (isMachineFormat(opts.format)) {
       console.log(JSON.stringify({ ...run, status: current.status }, null, 2))
       return
     }
@@ -612,12 +612,12 @@ export async function googleDiscoverSitemaps(project: string, opts: { wait?: boo
     run: { id: string; status: string }
   }
 
-  if (!opts.wait && opts.format === 'json') {
+  if (!opts.wait && isMachineFormat(opts.format)) {
     console.log(JSON.stringify(result, null, 2))
     return
   }
 
-  if (opts.format !== 'json') {
+  if (!isMachineFormat(opts.format)) {
     console.log(`\nDiscovered ${result.sitemaps.length} sitemap(s) for project "${project}":\n`)
     for (const s of result.sitemaps) {
       const primary = s.path === result.primarySitemapUrl ? ' (primary)' : ''
@@ -645,7 +645,7 @@ export async function googleDiscoverSitemaps(project: string, opts: { wait?: boo
       details: { project },
     })
 
-    if (opts.format === 'json') {
+    if (isMachineFormat(opts.format)) {
       console.log(JSON.stringify({
         ...result,
         run: {
@@ -691,7 +691,7 @@ export async function googleRequestIndexing(project: string, opts: {
     })
   }
 
-  if (opts.format !== 'json') {
+  if (!isMachineFormat(opts.format)) {
     console.error(INDEXING_API_SCOPE_NOTICE)
     console.error()
   }
@@ -760,7 +760,7 @@ export async function googleRequestIndexing(project: string, opts: {
     }
   }
 
-  if (opts.format === 'json') {
+  if (isMachineFormat(opts.format)) {
     console.log(JSON.stringify({ ...result, ...(opts.wait ? { indexingConfirmed } : {}) }, null, 2))
     return
   }
@@ -793,7 +793,7 @@ export async function googleRefresh(project: string, format?: string): Promise<v
   // Trigger a GSC sync and wait for completion (same as UI refresh button)
   const run = await client.gscSync(project, {}) as { id: string; status: string; kind: string }
 
-  if (format !== 'json') {
+  if (!isMachineFormat(format)) {
     process.stderr.write('Refreshing GSC coverage data')
   }
 
@@ -810,7 +810,7 @@ export async function googleRefresh(project: string, format?: string): Promise<v
     details: { project },
   })
 
-  if (current.status === 'partial' && format !== 'json') {
+  if (current.status === 'partial' && !isMachineFormat(format)) {
     process.stderr.write('Refresh completed with some errors.\n')
   }
 

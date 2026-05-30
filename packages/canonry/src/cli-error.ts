@@ -8,8 +8,15 @@
  */
 export type CliFormat = 'text' | 'json' | 'jsonl'
 
-/** True for the machine-readable formats (`json`, `jsonl`). */
-export function isMachineFormat(format: CliFormat): boolean {
+/**
+ * True for the machine-readable formats (`json`, `jsonl`). Accepts a loose
+ * `string | undefined` so command handlers (which type `format?: string`) can
+ * gate their JSON-output branch on it: a command that doesn't *stream* a jsonl
+ * collection should still emit its JSON document for `--format jsonl` rather
+ * than falling through to decorated human text (a trap for an agent that asked
+ * for machine output).
+ */
+export function isMachineFormat(format: string | undefined): boolean {
   return format === 'json' || format === 'jsonl'
 }
 

@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { SnapshotProviderResultDto, SnapshotReportDto } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
+import { isMachineFormat } from '../cli-error.js'
 import { writeSnapshotPdf } from '../snapshot-pdf.js'
 
 function getClient() {
@@ -54,7 +55,7 @@ export async function createSnapshotReport(
     savedPdfPath = await writeSnapshotPdf(report, pdfPath)
   }
 
-  if (opts.format === 'json') {
+  if (isMachineFormat(opts.format)) {
     console.log(JSON.stringify(report, null, 2))
     if (savedMdPath) process.stderr.write(`Saved markdown: ${savedMdPath}\n`)
     if (savedPdfPath) process.stderr.write(`Saved PDF: ${savedPdfPath}\n`)

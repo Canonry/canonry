@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { createApiClient } from '../client.js'
 import { renderReportHtml } from '@ainyc/canonry-api-routes'
-import type { CliFormat } from '../cli-error.js'
+import { isMachineFormat, type CliFormat } from '../cli-error.js'
 import type { ReportAudience } from '@ainyc/canonry-contracts'
 
 export interface RunReportCommandOptions {
@@ -26,7 +26,7 @@ export async function runReportCommand(
   const report = await client.getReport(project)
   const audience = opts.audience ?? 'agency'
 
-  if (opts.format === 'json') {
+  if (isMachineFormat(opts.format)) {
     console.log(JSON.stringify(report, null, 2))
     return
   }

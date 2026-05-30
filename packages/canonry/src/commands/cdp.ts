@@ -1,6 +1,6 @@
 import { loadConfig, saveConfigPatch } from '../config.js'
 import { createApiClient } from '../client.js'
-import { CliError } from '../cli-error.js'
+import { CliError, isMachineFormat } from '../cli-error.js'
 
 function getClient() {
   return createApiClient()
@@ -22,7 +22,7 @@ export async function cdpConnect(opts: { host?: string; port?: string; format?: 
   }
   saveConfigPatch(config)
 
-  if (opts.format === 'json') {
+  if (isMachineFormat(opts.format)) {
     console.log(JSON.stringify({
       host,
       port,
@@ -45,7 +45,7 @@ export async function cdpStatus(format?: string): Promise<void> {
   try {
     const status = await client.getCdpStatus()
 
-    if (format === 'json') {
+    if (isMachineFormat(format)) {
       console.log(JSON.stringify(status, null, 2))
       return
     }
@@ -68,7 +68,7 @@ export async function cdpStatus(format?: string): Promise<void> {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     if (msg.includes('501') || msg.includes('not configured')) {
-      if (format === 'json') {
+      if (isMachineFormat(format)) {
         console.log(JSON.stringify({
           connected: false,
           endpoint: '',
@@ -122,7 +122,7 @@ export async function cdpScreenshot(query: string, opts?: { targets?: string; fo
   try {
     const response = await client.cdpScreenshot(query, body.targets as string[] | undefined)
 
-    if (opts?.format === 'json') {
+    if (isMachineFormat(opts?.format)) {
       console.log(JSON.stringify(response, null, 2))
       return
     }

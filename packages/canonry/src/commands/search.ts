@@ -1,4 +1,5 @@
 import { createApiClient } from '../client.js'
+import { isMachineFormat } from '../cli-error.js'
 
 export async function searchProject(
   project: string,
@@ -7,7 +8,7 @@ export async function searchProject(
   const client = createApiClient()
   const result = await client.searchProject(project, { q: opts.query, limit: opts.limit })
 
-  if (opts.format === 'json') {
+  if (isMachineFormat(opts.format)) {
     console.log(JSON.stringify(result, null, 2))
     return
   }

@@ -1,5 +1,5 @@
 import { configExists, getConfigPath, loadConfig, saveConfigPatch } from '../config.js'
-import { CliError, type CliFormat, usageError } from '../cli-error.js'
+import { CliError, type CliFormat, isMachineFormat, usageError } from '../cli-error.js'
 
 export function telemetryCommand(subcommand?: string, format: CliFormat = 'text'): void {
   const available = ['status', 'enable', 'disable']
@@ -18,7 +18,7 @@ export function telemetryCommand(subcommand?: string, format: CliFormat = 'text'
       if (process.env.CANONRY_TELEMETRY_DISABLED === '1') {
         payload.enabled = false
         payload.reason = 'CANONRY_TELEMETRY_DISABLED'
-        if (format === 'json') {
+        if (isMachineFormat(format)) {
           console.log(JSON.stringify(payload, null, 2))
           return
         }
@@ -28,7 +28,7 @@ export function telemetryCommand(subcommand?: string, format: CliFormat = 'text'
       if (process.env.DO_NOT_TRACK === '1') {
         payload.enabled = false
         payload.reason = 'DO_NOT_TRACK'
-        if (format === 'json') {
+        if (isMachineFormat(format)) {
           console.log(JSON.stringify(payload, null, 2))
           return
         }
@@ -38,7 +38,7 @@ export function telemetryCommand(subcommand?: string, format: CliFormat = 'text'
       if (process.env.CI) {
         payload.enabled = false
         payload.reason = 'CI'
-        if (format === 'json') {
+        if (isMachineFormat(format)) {
           console.log(JSON.stringify(payload, null, 2))
           return
         }
@@ -47,7 +47,7 @@ export function telemetryCommand(subcommand?: string, format: CliFormat = 'text'
       }
       if (!configExists()) {
         payload.reason = 'NO_CONFIG'
-        if (format === 'json') {
+        if (isMachineFormat(format)) {
           console.log(JSON.stringify(payload, null, 2))
           return
         }
@@ -60,7 +60,7 @@ export function telemetryCommand(subcommand?: string, format: CliFormat = 'text'
       if (config.anonymousId) {
         payload.anonymousIdMasked = config.anonymousId.slice(0, 8) + '...'
       }
-      if (format === 'json') {
+      if (isMachineFormat(format)) {
         console.log(JSON.stringify(payload, null, 2))
         return
       }
@@ -89,7 +89,7 @@ export function telemetryCommand(subcommand?: string, format: CliFormat = 'text'
       config.telemetry = true
       saveConfigPatch(config)
 
-      if (format === 'json') {
+      if (isMachineFormat(format)) {
         console.log(JSON.stringify({
           enabled: true,
           configPath: getConfigPath(),
@@ -116,7 +116,7 @@ export function telemetryCommand(subcommand?: string, format: CliFormat = 'text'
       config.telemetry = false
       saveConfigPatch(config)
 
-      if (format === 'json') {
+      if (isMachineFormat(format)) {
         console.log(JSON.stringify({
           enabled: false,
           configPath: getConfigPath(),

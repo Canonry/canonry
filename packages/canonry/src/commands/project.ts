@@ -1,6 +1,7 @@
 import type { ProjectDto } from '@ainyc/canonry-contracts'
 import { effectiveDomains, normalizeProjectAliases } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
+import { isMachineFormat } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
 
 function getClient() {
@@ -21,7 +22,7 @@ export async function createProject(
     language: opts.language,
   })
 
-  if (opts.format === 'json') {
+  if (isMachineFormat(opts.format)) {
     console.log(JSON.stringify(result, null, 2))
     return
   }
@@ -74,7 +75,7 @@ export async function showProject(name: string, format?: string): Promise<void> 
   const client = getClient()
   const project: ProjectDto = await client.getProject(name)
 
-  if (format === 'json') {
+  if (isMachineFormat(format)) {
     console.log(JSON.stringify(project, null, 2))
     return
   }
@@ -151,7 +152,7 @@ export async function updateProjectSettings(
     language: opts.language ?? project.language,
   })
 
-  if (opts.format === 'json') {
+  if (isMachineFormat(opts.format)) {
     console.log(JSON.stringify(result, null, 2))
     return
   }
@@ -161,7 +162,7 @@ export async function updateProjectSettings(
 
 export async function deleteProject(name: string, opts?: { dryRun?: boolean; format?: string }): Promise<void> {
   const client = getClient()
-  const isJson = opts?.format === 'json'
+  const isJson = isMachineFormat(opts?.format)
 
   if (opts?.dryRun) {
     const preview = await client.previewProjectDelete(name)
@@ -207,7 +208,7 @@ export async function addLocation(
     timezone: opts.timezone,
   })
 
-  if (opts.format === 'json') {
+  if (isMachineFormat(opts.format)) {
     console.log(JSON.stringify(location, null, 2))
     return
   }
@@ -262,7 +263,7 @@ export async function removeLocation(project: string, label: string, format?: st
   const client = getClient()
   await client.removeLocation(project, label)
 
-  if (format === 'json') {
+  if (isMachineFormat(format)) {
     console.log(JSON.stringify({ project, label, removed: true }, null, 2))
     return
   }
@@ -274,7 +275,7 @@ export async function setDefaultLocation(project: string, label: string, format?
   const client = getClient()
   const result = await client.setDefaultLocation(project, label)
 
-  if (format === 'json') {
+  if (isMachineFormat(format)) {
     console.log(JSON.stringify({ project, ...result }, null, 2))
     return
   }

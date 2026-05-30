@@ -8,7 +8,7 @@ import type {
   DiscoverySessionDetailDto,
   DiscoverySessionDto,
 } from '@ainyc/canonry-contracts'
-import { CliError } from '../cli-error.js'
+import { CliError, isMachineFormat } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
 
 const TERMINAL_DISCOVERY_STATUSES = new Set<DiscoverySessionDto['status']>([
@@ -107,7 +107,7 @@ export async function discoverRun(project: string, opts: DiscoverRunOptions): Pr
   }
 
   if (!opts.wait) {
-    if (opts.format === 'json') {
+    if (isMachineFormat(opts.format)) {
       console.log(JSON.stringify(multiAngle ? runs.map(r => r.start) : runs[0]!.start, null, 2))
       return
     }
@@ -153,7 +153,7 @@ export async function discoverRun(project: string, opts: DiscoverRunOptions): Pr
   })
 
   if (results.length > 0) {
-    if (opts.format === 'json') {
+    if (isMachineFormat(opts.format)) {
       console.log(JSON.stringify(multiAngle ? results.map(r => r.session) : results[0]!.session, null, 2))
     } else {
       for (const { angle, session } of results) {
@@ -278,7 +278,7 @@ export async function discoverShow(project: string, sessionId: string, opts: { f
 export async function discoverPromotePreview(project: string, sessionId: string, opts: { format?: string }): Promise<void> {
   const client = getClient()
   const preview: DiscoveryPromotePreview = await client.previewDiscoveryPromote(project, sessionId)
-  if (opts.format === 'json') {
+  if (isMachineFormat(opts.format)) {
     console.log(JSON.stringify(preview, null, 2))
     return
   }
@@ -319,7 +319,7 @@ export async function discoverPromote(
   if (opts.includeCompetitors === false) body.includeCompetitors = false
 
   const result = await client.promoteDiscovery(project, sessionId, body)
-  if (opts.format === 'json') {
+  if (isMachineFormat(opts.format)) {
     console.log(JSON.stringify(result, null, 2))
     return
   }

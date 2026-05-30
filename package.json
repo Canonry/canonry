@@ -1,7 +1,7 @@
 {
   "name": "canonry",
   "private": true,
-  "version": "4.66.0",
+  "version": "4.67.0",
   "type": "module",
   "packageManager": "pnpm@10.28.2",
   "scripts": {

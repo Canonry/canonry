@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { getConfigDir } from '../config.js'
 import type { CliFormat } from '../cli-error.js'
-import { CliError } from '../cli-error.js'
+import { CliError, isMachineFormat } from '../cli-error.js'
 
 function getPidPath(): string {
   return path.join(getConfigDir(), 'canonry.pid')
@@ -89,7 +89,7 @@ export async function startDaemon(opts: { port?: string; host?: string; basePath
 
   const port = opts.port ?? '4100'
   const host = opts.host ?? '127.0.0.1'
-  if (format !== 'json') {
+  if (!isMachineFormat(format)) {
     process.stderr.write('Waiting for server to start...')
   }
   const ready = await waitForReady(host, port)
@@ -107,12 +107,12 @@ export async function startDaemon(opts: { port?: string; host?: string; basePath
       },
     })
   }
-  if (format !== 'json') {
+  if (!isMachineFormat(format)) {
     process.stderr.write('\n')
   }
 
   const url = `http://${host === '0.0.0.0' ? 'localhost' : host}:${port}`
-  if (format === 'json') {
+  if (isMachineFormat(format)) {
     console.log(JSON.stringify({
       started: true,
       pid: child.pid,
@@ -130,7 +130,7 @@ export function stopDaemon(format: CliFormat = 'text'): void {
   const pidPath = getPidPath()
 
   if (!fs.existsSync(pidPath)) {
-    if (format === 'json') {
+    if (isMachineFormat(format)) {
       console.log(JSON.stringify({
         stopped: false,
         reason: 'not_running',
@@ -144,7 +144,7 @@ export function stopDaemon(format: CliFormat = 'text'): void {
   const pid = parseInt(fs.readFileSync(pidPath, 'utf-8').trim(), 10)
 
   if (isNaN(pid)) {
-    if (format === 'json') {
+    if (isMachineFormat(format)) {
       console.log(JSON.stringify({
         stopped: false,
         reason: 'invalid_pid',
@@ -158,7 +158,7 @@ export function stopDaemon(format: CliFormat = 'text'): void {
   }
 
   if (!isProcessAlive(pid)) {
-    if (format === 'json') {
+    if (isMachineFormat(format)) {
       console.log(JSON.stringify({
         stopped: false,
         reason: 'stale_pid',
@@ -175,7 +175,7 @@ export function stopDaemon(format: CliFormat = 'text'): void {
   try {
     process.kill(pid, 'SIGTERM')
     fs.unlinkSync(pidPath)
-    if (format === 'json') {
+    if (isMachineFormat(format)) {
       console.log(JSON.stringify({
         stopped: true,
         pid,

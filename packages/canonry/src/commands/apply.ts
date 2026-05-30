@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import { parseAllDocuments } from 'yaml'
 import { createApiClient, type ApplyResultDto } from '../client.js'
-import { CliError } from '../cli-error.js'
+import { CliError, isMachineFormat } from '../cli-error.js'
 
 
 
@@ -69,7 +69,7 @@ export async function applyConfigs(filePaths: string[], format?: string): Promis
     }
     files.push(result)
 
-    if (format !== 'json') {
+    if (!isMachineFormat(format)) {
       for (const applied of result.applied) {
         console.log(`Applied config for "${applied.name}" (revision ${applied.configRevision})`)
       }
@@ -91,7 +91,7 @@ export async function applyConfigs(filePaths: string[], format?: string): Promis
     })
   }
 
-  if (format === 'json') {
+  if (isMachineFormat(format)) {
     console.log(JSON.stringify(summary, null, 2))
   }
 }

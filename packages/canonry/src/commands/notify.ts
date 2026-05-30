@@ -1,5 +1,6 @@
 import { createApiClient } from '../client.js'
 import { emitJsonl } from '../cli-output.js'
+import { isMachineFormat } from '../cli-error.js'
 import { notificationEventSchema } from '@ainyc/canonry-contracts'
 
 function getClient() {
@@ -29,7 +30,7 @@ export async function addNotification(project: string, opts: {
     events: opts.events,
   }) as NotificationResponse
 
-  if (opts.format === 'json') {
+  if (isMachineFormat(opts.format)) {
     console.log(JSON.stringify(result, null, 2))
     return
   }
@@ -67,7 +68,7 @@ export async function listNotifications(project: string, format?: string): Promi
 export async function removeNotification(project: string, id: string, format?: string): Promise<void> {
   const client = getClient()
   await client.deleteNotification(project, id)
-  if (format === 'json') {
+  if (isMachineFormat(format)) {
     console.log(JSON.stringify({ project, id, removed: true }, null, 2))
     return
   }
@@ -77,7 +78,7 @@ export async function removeNotification(project: string, id: string, format?: s
 export async function testNotification(project: string, id: string, format?: string): Promise<void> {
   const client = getClient()
   const result = await client.testNotification(project, id) as { status: number; ok: boolean }
-  if (format === 'json') {
+  if (isMachineFormat(format)) {
     console.log(JSON.stringify({ project, id, ...result }, null, 2))
     return
   }

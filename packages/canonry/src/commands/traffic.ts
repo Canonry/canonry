@@ -10,7 +10,7 @@ import type {
 } from '@ainyc/canonry-contracts'
 import { RunStatuses, TrafficEventKinds } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
-import { CliError } from '../cli-error.js'
+import { CliError, isMachineFormat } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
 
 function getClient() {
@@ -87,7 +87,7 @@ export async function trafficConnectWordpress(project: string, opts: {
     displayName: opts.displayName,
   })
 
-  if (opts.format === 'json') {
+  if (isMachineFormat(opts.format)) {
     console.log(JSON.stringify(result, null, 2))
     return
   }
@@ -151,7 +151,7 @@ export async function trafficConnectCloudRun(project: string, opts: {
     keyJson,
   })
 
-  if (opts.format === 'json') {
+  if (isMachineFormat(opts.format)) {
     console.log(JSON.stringify(result, null, 2))
     return
   }
@@ -243,7 +243,7 @@ export async function trafficConnectVercel(project: string, opts: {
     displayName: opts.displayName,
   })
 
-  if (opts.format === 'json') {
+  if (isMachineFormat(opts.format)) {
     console.log(JSON.stringify(result, null, 2))
     return
   }
@@ -281,7 +281,7 @@ export async function trafficBackfill(project: string, opts: {
   })
 
   if (!opts.wait) {
-    if (opts.format === 'json') {
+    if (isMachineFormat(opts.format)) {
       console.log(JSON.stringify(submitted, null, 2))
       return
     }
@@ -318,7 +318,7 @@ export async function trafficBackfill(project: string, opts: {
     })
   }
 
-  if (opts.format === 'json') {
+  if (isMachineFormat(opts.format)) {
     console.log(JSON.stringify({ ...submitted, finalStatus: final.status, finalRun: final }, null, 2))
     return
   }
@@ -363,7 +363,7 @@ export async function trafficSync(project: string, opts: {
     sinceMinutes: opts.sinceMinutes,
   })
 
-  if (opts.format === 'json') {
+  if (isMachineFormat(opts.format)) {
     console.log(JSON.stringify(result, null, 2))
     return
   }
@@ -422,7 +422,7 @@ export async function trafficReset(project: string, opts: {
   const client = getClient()
   const updated = await client.trafficReset(project, opts.source)
 
-  if (opts.format === 'json') {
+  if (isMachineFormat(opts.format)) {
     console.log(JSON.stringify(updated, null, 2))
     return
   }

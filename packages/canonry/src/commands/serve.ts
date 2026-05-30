@@ -2,7 +2,7 @@ import { loadConfig } from '../config.js'
 import { createClient, migrate } from '@ainyc/canonry-db'
 import { createServer } from '../server.js'
 import { trackEvent, setTelemetrySource } from '../telemetry.js'
-import { CliError, type CliFormat } from '../cli-error.js'
+import { CliError, type CliFormat, isMachineFormat } from '../cli-error.js'
 import { backfillAiReferralPaths, backfillNormalizedPaths } from './backfill.js'
 import { getMissingUserSkillsNudge } from './skills.js'
 
@@ -90,7 +90,7 @@ export async function serveCommand(format: CliFormat = 'text'): Promise<void> {
     await app.listen({ host, port })
     const url = `http://${host === '0.0.0.0' ? 'localhost' : host}:${port}`
 
-    if (format === 'json') {
+    if (isMachineFormat(format)) {
       console.log(JSON.stringify({
         started: true,
         host,

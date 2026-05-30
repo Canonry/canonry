@@ -1,5 +1,6 @@
 import type { ScheduleDto } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
+import { isMachineFormat } from '../cli-error.js'
 
 function getClient() {
   return createApiClient()
@@ -24,7 +25,7 @@ export async function setSchedule(project: string, opts: {
   if (opts.providers?.length) body.providers = opts.providers
 
   const result: ScheduleDto = await client.putSchedule(project, body)
-  if (opts.format === 'json') {
+  if (isMachineFormat(opts.format)) {
     console.log(JSON.stringify(result, null, 2))
     return
   }
@@ -36,7 +37,7 @@ export async function showSchedule(project: string, format?: string, kind?: stri
   const client = getClient()
   const result: ScheduleDto = await client.getSchedule(project, kind)
 
-  if (format === 'json') {
+  if (isMachineFormat(format)) {
     console.log(JSON.stringify(result, null, 2))
     return
   }
@@ -54,7 +55,7 @@ export async function enableSchedule(project: string, format?: string, kind?: st
   if (current.sourceId) body.sourceId = current.sourceId
 
   const result: ScheduleDto = await client.putSchedule(project, body)
-  if (format === 'json') {
+  if (isMachineFormat(format)) {
     console.log(JSON.stringify(result, null, 2))
     return
   }
@@ -71,7 +72,7 @@ export async function disableSchedule(project: string, format?: string, kind?: s
   if (current.sourceId) body.sourceId = current.sourceId
 
   const result: ScheduleDto = await client.putSchedule(project, body)
-  if (format === 'json') {
+  if (isMachineFormat(format)) {
     console.log(JSON.stringify(result, null, 2))
     return
   }
@@ -82,7 +83,7 @@ export async function removeSchedule(project: string, format?: string, kind?: st
   const client = getClient()
   await client.deleteSchedule(project, kind)
   const resolvedKind = kind ?? 'answer-visibility'
-  if (format === 'json') {
+  if (isMachineFormat(format)) {
     console.log(JSON.stringify({ project, kind: resolvedKind, removed: true }, null, 2))
     return
   }

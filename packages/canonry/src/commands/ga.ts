@@ -1,6 +1,6 @@
 import type { GaConnectResponse, GaStatusResponse, GaSyncResponse, GaTrafficResponse, GaCoverageResponse, GaSocialReferralTrendResponse, GaAttributionTrendResponse, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
-import { CliError } from '../cli-error.js'
+import { CliError, isMachineFormat } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
 
 function getClient() {
@@ -53,7 +53,7 @@ export async function gaConnect(project: string, opts: {
   const client = getClient()
   const result: GaConnectResponse = await client.gaConnect(project, body)
 
-  if (opts.format === 'json') {
+  if (isMachineFormat(opts.format)) {
     console.log(JSON.stringify(result, null, 2))
     return
   }
@@ -71,7 +71,7 @@ export async function gaDisconnect(project: string, format?: string): Promise<vo
   const client = getClient()
   await client.gaDisconnect(project)
 
-  if (format === 'json') {
+  if (isMachineFormat(format)) {
     console.log(JSON.stringify({ project, disconnected: true }, null, 2))
     return
   }
@@ -83,7 +83,7 @@ export async function gaStatus(project: string, format?: string): Promise<void> 
   const client = getClient()
   const result: GaStatusResponse = await client.gaStatus(project)
 
-  if (format === 'json') {
+  if (isMachineFormat(format)) {
     console.log(JSON.stringify(result, null, 2))
     return
   }
@@ -115,7 +115,7 @@ export async function gaSync(project: string, opts?: { days?: number; only?: str
   if (opts?.only) body.only = opts.only
   const result: GaSyncResponse = await client.gaSync(project, body)
 
-  if (opts?.format === 'json') {
+  if (isMachineFormat(opts?.format)) {
     console.log(JSON.stringify(result, null, 2))
     return
   }
@@ -139,7 +139,7 @@ export async function gaTraffic(project: string, opts?: { limit?: number; window
 
   const result: GaTrafficResponse = await client.gaTraffic(project, Object.keys(params).length > 0 ? params : undefined)
 
-  if (opts?.format === 'json') {
+  if (isMachineFormat(opts?.format)) {
     console.log(JSON.stringify(result, null, 2))
     return
   }
@@ -368,7 +368,7 @@ export async function gaSocialReferralSummary(project: string, opts?: { trend?: 
 
   if (opts?.trend) {
     const trend: GaSocialReferralTrendResponse = await client.gaSocialReferralTrend(project)
-    if (opts.format === 'json') {
+    if (isMachineFormat(opts.format)) {
       console.log(JSON.stringify({
         socialSessions: traffic.socialSessions,
         socialUsers: traffic.socialUsers,
@@ -404,7 +404,7 @@ export async function gaSocialReferralSummary(project: string, opts?: { trend?: 
     return
   }
 
-  if (opts?.format === 'json') {
+  if (isMachineFormat(opts?.format)) {
     console.log(JSON.stringify({
       socialSessions: traffic.socialSessions,
       socialUsers: traffic.socialUsers,
@@ -437,7 +437,7 @@ export async function gaAttribution(project: string, opts?: { trend?: boolean; f
   if (opts?.trend) {
     const trend: GaAttributionTrendResponse = await client.gaAttributionTrend(project)
 
-    if (opts.format === 'json') {
+    if (isMachineFormat(opts.format)) {
       console.log(JSON.stringify({
         totalSessions: traffic.totalSessions,
         totalUsers: traffic.totalUsers,
@@ -507,7 +507,7 @@ export async function gaAttribution(project: string, opts?: { trend?: boolean; f
     return
   }
 
-  if (opts?.format === 'json') {
+  if (isMachineFormat(opts?.format)) {
     console.log(JSON.stringify({
       totalSessions: traffic.totalSessions,
       totalUsers: traffic.totalUsers,

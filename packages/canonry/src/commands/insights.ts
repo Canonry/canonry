@@ -1,4 +1,5 @@
 import { createApiClient } from '../client.js'
+import { isMachineFormat } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
 
 export async function listInsights(
@@ -49,7 +50,7 @@ export async function dismissInsight(
   const client = createApiClient()
   const result = await client.dismissInsight(project, id)
 
-  if (opts.format === 'json') {
+  if (isMachineFormat(opts.format)) {
     console.log(JSON.stringify(result, null, 2))
     return
   }

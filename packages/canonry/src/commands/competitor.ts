@@ -1,4 +1,5 @@
 import { createApiClient } from '../client.js'
+import { isMachineFormat } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
 
 function getClient() {
@@ -15,7 +16,7 @@ export async function addCompetitors(project: string, domains: string[], format?
   const currentDomains = current.map(c => c.domain)
   const addedDomains = currentDomains.filter(domain => requested.has(domain) && !existingSet.has(domain))
 
-  if (format === 'json') {
+  if (isMachineFormat(format)) {
     console.log(JSON.stringify({
       project,
       domains: currentDomains,
@@ -41,7 +42,7 @@ export async function removeCompetitors(project: string, domains: string[], form
   const currentSet = new Set(current.map(c => c.domain))
   const removedDomains = existingDomains.filter(domain => requested.has(domain) && !currentSet.has(domain))
 
-  if (format === 'json') {
+  if (isMachineFormat(format)) {
     console.log(JSON.stringify({
       project,
       domains: current.map(c => c.domain),

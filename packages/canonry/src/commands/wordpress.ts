@@ -10,7 +10,7 @@ import type {
   WordpressStatusDto,
 } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
-import { CliError } from '../cli-error.js'
+import { CliError, isMachineFormat } from '../cli-error.js'
 
 function getClient() {
   return createApiClient()
@@ -196,7 +196,7 @@ export async function wordpressConnect(
     defaultEnv: opts.defaultEnv,
   })
 
-  if (opts.format === 'json') {
+  if (isMachineFormat(opts.format)) {
     printJson(result)
     return
   }
@@ -209,7 +209,7 @@ export async function wordpressDisconnect(project: string, format?: string): Pro
   const client = getClient()
   await client.wordpressDisconnect(project)
 
-  if (format === 'json') {
+  if (isMachineFormat(format)) {
     printJson({ project, disconnected: true })
     return
   }
@@ -221,7 +221,7 @@ export async function wordpressStatus(project: string, format?: string): Promise
   const client = getClient()
   const result = await client.wordpressStatus(project)
 
-  if (format === 'json') {
+  if (isMachineFormat(format)) {
     printJson(result)
     return
   }
@@ -233,7 +233,7 @@ export async function wordpressPages(project: string, opts: { env?: WordpressEnv
   const client = getClient()
   const result = await client.wordpressPages(project, opts.env)
 
-  if (opts.format === 'json') {
+  if (isMachineFormat(opts.format)) {
     printJson(result)
     return
   }
@@ -245,7 +245,7 @@ export async function wordpressPage(project: string, slug: string, opts: { env?:
   const client = getClient()
   const result = await client.wordpressPage(project, slug, opts.env)
 
-  if (opts.format === 'json') {
+  if (isMachineFormat(opts.format)) {
     printJson(result)
     return
   }
@@ -260,7 +260,7 @@ export async function wordpressCreatePage(
   const client = getClient()
   const result = await client.wordpressCreatePage(project, body)
 
-  if (body.format === 'json') {
+  if (isMachineFormat(body.format)) {
     printJson(result)
     return
   }
@@ -276,7 +276,7 @@ export async function wordpressUpdatePage(
   const client = getClient()
   const result = await client.wordpressUpdatePage(project, body)
 
-  if (body.format === 'json') {
+  if (isMachineFormat(body.format)) {
     printJson(result)
     return
   }
@@ -292,7 +292,7 @@ export async function wordpressSetMeta(
   const client = getClient()
   const result = await client.wordpressSetMeta(project, body)
 
-  if (body.format === 'json') {
+  if (isMachineFormat(body.format)) {
     printJson(result)
     return
   }
@@ -352,7 +352,7 @@ export async function wordpressBulkSetMeta(
   const client = getClient()
   const result = await client.wordpressBulkSetMeta(project, { entries, env: opts.env })
 
-  if (opts.format === 'json') {
+  if (isMachineFormat(opts.format)) {
     printJson(result)
     return
   }
@@ -399,7 +399,7 @@ export async function wordpressSchema(project: string, slug: string, opts: { env
   const client = getClient()
   const result = await client.wordpressSchema(project, slug, opts.env)
 
-  if (opts.format === 'json') {
+  if (isMachineFormat(opts.format)) {
     printJson(result)
     return
   }
@@ -415,7 +415,7 @@ export async function wordpressSetSchema(
   const client = getClient()
   const result = await client.wordpressSetSchema(project, body)
 
-  if (body.format === 'json') {
+  if (isMachineFormat(body.format)) {
     printJson(result)
     return
   }
@@ -473,7 +473,7 @@ export async function wordpressSchemaDeploy(
   const client = getClient()
   const result = await client.wordpressSchemaDeploy(project, { profile: parsed, env: opts.env })
 
-  if (opts.format === 'json') {
+  if (isMachineFormat(opts.format)) {
     printJson(result)
     return
   }
@@ -517,7 +517,7 @@ export async function wordpressSchemaStatus(
   const client = getClient()
   const result = await client.wordpressSchemaStatus(project, opts.env)
 
-  if (opts.format === 'json') {
+  if (isMachineFormat(opts.format)) {
     printJson(result)
     return
   }
@@ -604,7 +604,7 @@ export async function wordpressOnboard(
     skipSubmit: opts.skipSubmit,
   })
 
-  if (opts.format === 'json') {
+  if (isMachineFormat(opts.format)) {
     printJson(result)
     return
   }
@@ -622,7 +622,7 @@ export async function wordpressLlmsTxt(project: string, opts: { env?: WordpressE
   const client = getClient()
   const result = await client.wordpressLlmsTxt(project, opts.env)
 
-  if (opts.format === 'json') {
+  if (isMachineFormat(opts.format)) {
     printJson(result)
     return
   }
@@ -638,7 +638,7 @@ export async function wordpressSetLlmsTxt(
   const client = getClient()
   const result = await client.wordpressSetLlmsTxt(project, body)
 
-  if (body.format === 'json') {
+  if (isMachineFormat(body.format)) {
     printJson(result)
     return
   }
@@ -650,7 +650,7 @@ export async function wordpressAudit(project: string, opts: { env?: WordpressEnv
   const client = getClient()
   const result = await client.wordpressAudit(project, opts.env)
 
-  if (opts.format === 'json') {
+  if (isMachineFormat(opts.format)) {
     printJson(result)
     return
   }
@@ -665,7 +665,7 @@ export async function wordpressDiff(project: string, slug: string, format?: stri
   const client = getClient()
   const result = await client.wordpressDiff(project, slug)
 
-  if (format === 'json') {
+  if (isMachineFormat(format)) {
     printJson(result)
     return
   }
@@ -677,7 +677,7 @@ export async function wordpressStagingStatus(project: string, format?: string): 
   const client = getClient()
   const result = await client.wordpressStagingStatus(project)
 
-  if (format === 'json') {
+  if (isMachineFormat(format)) {
     printJson(result)
     return
   }
@@ -693,7 +693,7 @@ export async function wordpressStagingPush(project: string, format?: string): Pr
   const client = getClient()
   const result = await client.wordpressStagingPush(project)
 
-  if (format === 'json') {
+  if (isMachineFormat(format)) {
     printJson(result)
     return
   }

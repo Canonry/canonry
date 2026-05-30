@@ -7,7 +7,7 @@ import {
   type McpClientDefinition,
   type McpClientFormat,
 } from '../mcp-clients.js'
-import { CliError } from '../cli-error.js'
+import { CliError, isMachineFormat } from '../cli-error.js'
 
 export interface McpInstallOptions {
   client: string
@@ -231,7 +231,7 @@ export async function printMcpConfig(opts: McpConfigOptions): Promise<void> {
   const entry = buildEntry({ binPath: opts.binPath, readOnly: opts.readOnly, platform: opts.platform })
   const snippet = renderClientSnippet(client, serverName, entry)
 
-  if (opts.format === 'json') {
+  if (isMachineFormat(opts.format)) {
     console.log(JSON.stringify({
       client: client.id,
       configPath: client.configPath(),
@@ -247,7 +247,7 @@ export async function printMcpConfig(opts: McpConfigOptions): Promise<void> {
 }
 
 function emitInstallResult(result: McpInstallResult, format?: string): void {
-  if (format === 'json') {
+  if (isMachineFormat(format)) {
     console.log(JSON.stringify(result, null, 2))
     return
   }
