@@ -132,7 +132,7 @@ export function GbpSection({ projectName }: { projectName: string }) {
           <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-500">
             No Google Business Profile is connected for this project. Connect one with{' '}
             <span className="font-mono text-zinc-400">canonry gbp connect {projectName}</span> to track local
-            performance, search terms, booking CTAs, and how your public Maps listing compares to the profile you control.
+            performance, search terms, and how your public Maps listing compares to the profile you control.
           </p>
         </Card>
       </section>
@@ -167,7 +167,7 @@ export function GbpSection({ projectName }: { projectName: string }) {
             <p className="eyebrow eyebrow-soft">Local presence</p>
             <h2 className="flex items-center gap-2">
               Google Business Profile
-              <InfoTooltip text="How AI answer engines and Maps surface this business: performance, search terms, booking CTAs, and how your public listing compares to the profile you control." />
+              <InfoTooltip text="How AI answer engines and Maps surface this business: performance, search terms, and how your public listing compares to the profile you control." />
             </h2>
           </div>
           <div className="flex items-center gap-2">
@@ -235,36 +235,15 @@ export function GbpSection({ projectName }: { projectName: string }) {
               />
             )}
 
-            {/* CTA presence + lodging completeness tiles. */}
-            {summary && (
-              <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                <SignalTile label="Reservation CTA" present={summary.placeActions.hasReservationCta} />
-                <SignalTile label="Booking CTA" present={summary.placeActions.hasBookingCta} />
-                <SignalTile
-                  label="Direct booking link"
-                  present={summary.placeActions.hasDirectMerchantCta}
-                  absentTone="caution"
-                  absentHint="Only aggregator/OTA links — AI may surface third-party booking"
-                />
-                <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/30 px-3 py-2">
-                  <div className="text-[11px] uppercase tracking-wide text-zinc-500">Lodging profile</div>
-                  {summary.lodging.lodgingLocationCount === 0 ? (
-                    <div className="mt-1 text-sm text-zinc-500">Not a lodging property</div>
-                  ) : (
-                    <div className="mt-1 flex items-baseline justify-between">
-                      <span className="font-mono text-lg text-zinc-50">
-                        {summary.lodging.populatedLodgingCount}/{summary.lodging.lodgingLocationCount}
-                      </span>
-                      {summary.lodging.emptyLodgingCount > 0 ? (
-                        <ToneBadge tone="caution">{summary.lodging.emptyLodgingCount} empty</ToneBadge>
-                      ) : (
-                        <ToneBadge tone="positive">complete</ToneBadge>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
+            {/* Owner-configured Place Action CTAs and the raw lodging-completeness
+                count are deliberately not rendered here. Both come only from the
+                owner-set profile and have no public counterpart to cross-reference,
+                so an "Absent" / "empty" tile reads as fact when it is really an
+                unverifiable owner signal (#648). The cross-referenced lodging gap
+                still surfaces above as the gbp-listing-discrepancy insight, and the
+                public Maps listing surfaces below. Operators who want the raw
+                owner-configured data read `cnry gbp place-actions` / `gbp lodging`;
+                the /gbp/summary API still carries both fields. */}
 
             {/* Public listing (Places, #648) — amenities Google's public Maps listing
                 advertises, derived server-side. The gap vs the owner profile is the
@@ -428,29 +407,6 @@ function ScopeChip({ label, active, onClick }: { label: string; active: boolean;
     >
       {label}
     </button>
-  )
-}
-
-function SignalTile({
-  label,
-  present,
-  absentTone = 'neutral',
-  absentHint,
-}: {
-  label: string
-  present: boolean
-  absentTone?: 'neutral' | 'caution'
-  absentHint?: string
-}) {
-  return (
-    <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/30 px-3 py-2">
-      <div className="text-[11px] uppercase tracking-wide text-zinc-500">{label}</div>
-      <div className="mt-1" title={!present ? absentHint : undefined}>
-        {present
-          ? <ToneBadge tone="positive">Present</ToneBadge>
-          : <ToneBadge tone={absentTone}>Absent</ToneBadge>}
-      </div>
-    </div>
   )
 }
 
