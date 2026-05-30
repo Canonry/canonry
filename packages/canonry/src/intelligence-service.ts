@@ -274,13 +274,13 @@ export class IntelligenceService {
       .get()
     const placesAmenities = placeRow ? extractPlaceAmenities(placeRow.attributes as PlaceDetails) : []
 
-    // Anchor the window to the latest stored metric date (same as the summary
-    // route) so the recent-vs-prior split is deterministic, not clock-relative.
-    const referenceDate = metricRows.reduce<string>((max, r) => (r.date > max ? r.date : max), '') || fallbackDate
+    // buildGbpSummary anchors the recent-vs-prior split to the last COMPLETE
+    // day (latest non-zero), so reporting-lag zeros don't fabricate a regression
+    // signal — same lag-safe windowing the summary route uses (#658).
     const summary = buildGbpSummary({
       locationName,
       locationCount: 1,
-      referenceDate,
+      asOfDate: fallbackDate,
       dailyMetrics: metricRows,
       keywords: [], // keyword coverage is unused here; the trend uses the monthly series below
       placeActions: placeActionRows.map((r) => ({ placeActionType: r.placeActionType, providerType: r.providerType ?? null })),

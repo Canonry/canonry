@@ -1,6 +1,26 @@
+import React from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { afterEach, expect, onTestFinished, test } from 'vitest'
+import { afterEach, expect, onTestFinished, test, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+
+// Recharts needs a sized container (jsdom has none); stub it like the other
+// chart-bearing section tests so we assert on the textual layer, not the SVG.
+vi.mock('recharts', () => {
+  const passthrough = ({ children }: { children?: React.ReactNode }) => <div>{children}</div>
+  return {
+    ResponsiveContainer: passthrough,
+    ComposedChart: passthrough,
+    Line: () => null,
+    Area: () => null,
+    XAxis: () => null,
+    YAxis: () => null,
+    CartesianGrid: () => null,
+    Tooltip: () => null,
+    Legend: () => null,
+    ReferenceArea: () => null,
+  }
+})
+
 import { GbpSection } from '../src/components/project/GbpSection.js'
 import { mockFetch, jsonResponse } from './mock-fetch.js'
 
@@ -40,6 +60,8 @@ function emptySummary() {
   return {
     scope: { locationName: null, locationCount: 1 },
     performance: { totals: {}, recent7d: {}, prior7d: {}, deltaPct: {} },
+    freshness: { dataThroughDate: null, latestStoredDate: null, pendingDays: 0 },
+    timeseries: [],
     keywords: { total: 0, thresholdedCount: 0, thresholdedPct: 0 },
     placeActions: { total: 0, hasReservationCta: false, hasBookingCta: false, hasDirectMerchantCta: false },
     lodging: { lodgingLocationCount: 0, populatedLodgingCount: 0, emptyLodgingCount: 0 },
@@ -56,11 +78,17 @@ test('renders connected GBP data: scorecard, keywords, and public listing', asyn
       return jsonResponse({
         scope: { locationName: null, locationCount: 1 },
         performance: {
-          totals: { WEBSITE_CLICKS: 100, BUSINESS_DIRECTION_REQUESTS: 40 },
+          totals: { WEBSITE_CLICKS: 100, BUSINESS_DIRECTION_REQUESTS: 40, BUSINESS_BOOKINGS: 0 },
           recent7d: { WEBSITE_CLICKS: 20, BUSINESS_DIRECTION_REQUESTS: 10 },
-          prior7d: { WEBSITE_CLICKS: 100, BUSINESS_DIRECTION_REQUESTS: 10 },
-          deltaPct: { WEBSITE_CLICKS: -80, BUSINESS_DIRECTION_REQUESTS: 0 },
+          prior7d: { WEBSITE_CLICKS: 18, BUSINESS_DIRECTION_REQUESTS: 10 },
+          deltaPct: { WEBSITE_CLICKS: 11, BUSINESS_DIRECTION_REQUESTS: 0 },
         },
+        freshness: { dataThroughDate: '2026-05-19', latestStoredDate: '2026-05-20', pendingDays: 1 },
+        timeseries: [
+          { date: '2026-05-18', pending: false, metrics: { WEBSITE_CLICKS: 12, BUSINESS_DIRECTION_REQUESTS: 5, BUSINESS_BOOKINGS: 0 } },
+          { date: '2026-05-19', pending: false, metrics: { WEBSITE_CLICKS: 18, BUSINESS_DIRECTION_REQUESTS: 7, BUSINESS_BOOKINGS: 0 } },
+          { date: '2026-05-20', pending: true, metrics: { WEBSITE_CLICKS: 0, BUSINESS_DIRECTION_REQUESTS: 0, BUSINESS_BOOKINGS: 0 } },
+        ],
         keywords: { total: 1, thresholdedCount: 0, thresholdedPct: 0 },
         placeActions: { total: 1, hasReservationCta: false, hasBookingCta: true, hasDirectMerchantCta: false },
         lodging: { lodgingLocationCount: 1, populatedLodgingCount: 0, emptyLodgingCount: 1 },
@@ -97,12 +125,16 @@ test('renders connected GBP data: scorecard, keywords, and public listing', asyn
 
   renderGbpSection()
 
-  // Wait on a summary-dependent tile (its query resolves after the connection one).
+  // Wait on a summary-dependent label (the conversion totals row).
   await waitFor(() => expect(screen.getByText('Website clicks')).toBeTruthy())
   expect(screen.getByText('Google Business Profile')).toBeTruthy()
   expect(screen.getByText('Connected')).toBeTruthy()
-  // Server-computed delta (the component does no math).
-  expect(screen.getByText('-80%')).toBeTruthy()
+  // Graph-first: exact conversion totals render with human labels (no raw BUSINESS_* keys).
+  expect(screen.getByText('Direction requests')).toBeTruthy()
+  // Honest freshness — the reporting-lag tail is surfaced, never shown as a drop.
+  expect(screen.getByText(/Data through/)).toBeTruthy()
+  // All-zero series (bookings) collapse to a footnote instead of occupying a tile.
+  expect(screen.getByText(/Not active:/)).toBeTruthy()
   // Keyword row.
   expect(screen.getByText('venice beach hotel')).toBeTruthy()
   // Lodging gap surfaced (empty profile).
@@ -153,7 +185,12 @@ test('renders the owner-vs-public amenity gap insight (server-computed)', async 
   await waitFor(() => expect(
     screen.getByText('Gjelina Venice: public listing shows 2 amenities your GBP profile doesn’t'),
   ).toBeTruthy())
-  expect(screen.getByText(/Google’s rendered listing advertises Pool, Spa/)).toBeTruthy()
+  // The reason is heavy explanatory text, so it lives in an InfoTooltip rather
+  // than inline — exposed to assistive tech (and tests) via the trigger
+  // button's accessible name, not as visible body copy.
+  expect(
+    screen.getByRole('button', { name: /Google’s rendered listing advertises Pool, Spa/ }),
+  ).toBeTruthy()
 })
 
 test('shows a location scope selector when multiple locations are tracked', async () => {

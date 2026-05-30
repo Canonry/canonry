@@ -142,8 +142,10 @@ A single OAuth user often manages **multiple GBP accounts** (a personal account,
 - **`scope`** — `{ locationName, locationCount }`. `locationName` is null when summarizing across all selected locations.
 - **`performance`** — daily-metric roll-up:
   - `totals` — sum per `DailyMetric` over everything synced.
-  - `recent7d` / `prior7d` — per-metric sums for the last 7 days vs the 7 days before, anchored to the **most recent stored metric date** (not wall-clock — GBP data lags ~2–3 days, so anchoring to "today" would always show empty recent windows). Both maps are backfilled with the union of metrics as explicit `0`s so a metric present in only one window still appears in both.
-  - `deltaPct` — percent change recent-vs-prior per metric; **`null` when the prior window is `0`** (no divide-by-zero, and "appeared from nothing" is not a percentage).
+  - `recent7d` / `prior7d` — per-metric sums for the last 7 days vs the 7 days before, anchored to the **last complete (non-zero) day** (`freshness.dataThroughDate`), not wall-clock and not the max stored date. GBP data lags ~2–3 days and the trailing days can arrive as not-yet-reported zeros; anchoring to the last complete day keeps those lag zeros out of the recent window so a reporting-lag artifact is never shown as a real decline (#658). Both maps are backfilled with the union of metrics as explicit `0`s.
+  - `deltaPct` — percent change recent-vs-prior per metric, **over complete days only**; **`null` when the prior window is `0`** (no divide-by-zero, and "appeared from nothing" is not a percentage).
+- **`freshness`** — `{ dataThroughDate, latestStoredDate, pendingDays }` (#658). `dataThroughDate` is the last day with reported activity; `latestStoredDate` is the max stored date (≥ dataThroughDate when the lag tail was stored as zeros); `pendingDays` is how many trailing days are still pending vs today. Renderers show "data through &lt;date&gt; · Nd pending" and never treat the tail as a drop.
+- **`timeseries`** — `[{ date, pending, metrics }]` over the most recent ~30 days, for the trend charts. Each day carries every in-window metric (0 where absent that day) and a `pending` flag marking the reporting-lag tail.
 - **`keywords`** — `{ total, thresholdedCount, thresholdedPct }`. `thresholdedPct` (0–100) is the share of keywords whose exact count Google redacted — your headline data-fidelity number (expect ~89% for a busy hotel, 100% for an SMB).
 - **`placeActions`** — `{ total, hasReservationCta, hasBookingCta, hasDirectMerchantCta }`. `hasDirectMerchantCta` is false when the only booking links are OTA/aggregator (Expedia/Booking) — a recommendation to add a direct CTA.
 - **`lodging`** — `{ lodgingLocationCount, populatedLodgingCount, emptyLodgingCount }`. `emptyLodgingCount` counts lodging-capable locations with zero structured attributes — the AEO gap to surface.
@@ -185,7 +187,7 @@ The month-over-month keyword signal is powered by the **accumulating** `gbp_keyw
 
 ## The Dashboard (`GbpSection`)
 
-The project page shows a self-gating "Google Business Profile" section (only when a GBP connection exists): the performance scorecard with 7-day deltas, CTA-presence + lodging-completeness tiles, a search-terms table, and a locations table with a track/untrack toggle and a Sync button. Every number is computed server-side by `buildGbpSummary` — the component only renders.
+The project page shows a self-gating "Google Business Profile" section (only when a GBP connection exists): a **graph-first** performance block — a daily conversion-trend chart (the hero) plus a reach (impressions) area, with the reporting-lag tail greyed as "pending", a "data through &lt;date&gt;" label, and all-zero series collapsed to a "Not active" footnote (#658) — alongside the owner-vs-public gap insight, CTA-presence + lodging-completeness tiles, a search-terms table, and a locations table with a track/untrack toggle and a Sync button. Every number is computed server-side by `buildGbpSummary`; the component only renders (Recharts via `ChartPrimitives`).
 
 ## Hotel-Specific Setup
 

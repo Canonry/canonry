@@ -3,7 +3,7 @@ import os from 'node:os'
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import { createClient, migrate, apiKeys, gbpLocations, projects } from '@ainyc/canonry-db'
+import { createClient, migrate, apiKeys, gbpLocations, gbpDailyMetrics, projects } from '@ainyc/canonry-db'
 import { createServer } from '../src/server.js'
 import { ApiClient } from '../src/client.js'
 import {
@@ -11,7 +11,20 @@ import {
   gbpLocationSelect,
   gbpLocationDeselect,
   gbpDisconnect,
+  gbpSummary,
+  gbpMetrics,
 } from '../src/commands/gbp.js'
+
+/** UTC today as YYYY-MM-DD — matches how the summary route anchors `asOfDate`. */
+function todayUtc(): string {
+  return new Date().toISOString().slice(0, 10)
+}
+function shiftUtc(date: string, days: number): string {
+  const [y, m, d] = date.split('-').map(Number)
+  const dt = new Date(Date.UTC(y!, m! - 1, d!))
+  dt.setUTCDate(dt.getUTCDate() + days)
+  return dt.toISOString().slice(0, 10)
+}
 
 describe('gbp CLI commands', () => {
   let tmpDir: string
@@ -36,6 +49,18 @@ describe('gbp CLI commands', () => {
       syncedAt: null,
       createdAt: now,
       updatedAt: now,
+    }).run()
+  }
+
+  function seedMetric(locationName: string, date: string, metric: string, value: number) {
+    db.insert(gbpDailyMetrics).values({
+      id: crypto.randomUUID(),
+      projectId,
+      locationName,
+      date,
+      metric,
+      value,
+      syncRunId: null,
     }).run()
   }
 
@@ -198,6 +223,82 @@ describe('gbp CLI commands', () => {
 
       const remaining = db.select().from(gbpLocations).all()
       expect(remaining.length).toBe(0)
+    })
+  })
+
+  describe('gbp summary / metrics rendering (#658)', () => {
+    it('summary JSON carries lag-safe freshness + a daily timeseries', async () => {
+      const t = todayUtc()
+      await seedLocation({ locationName: 'locations/sum', displayName: 'Summary Hotel', selected: true })
+      // Real traffic through t-3, then not-yet-reported zeros for the lag tail.
+      seedMetric('locations/sum', shiftUtc(t, -5), 'WEBSITE_CLICKS', 10)
+      seedMetric('locations/sum', shiftUtc(t, -4), 'WEBSITE_CLICKS', 10)
+      seedMetric('locations/sum', shiftUtc(t, -3), 'WEBSITE_CLICKS', 10)
+      seedMetric('locations/sum', shiftUtc(t, -3), 'CALL_CLICKS', 4)
+      seedMetric('locations/sum', shiftUtc(t, -3), 'BUSINESS_BOOKINGS', 0)
+      seedMetric('locations/sum', shiftUtc(t, -2), 'WEBSITE_CLICKS', 0)
+      seedMetric('locations/sum', shiftUtc(t, -1), 'WEBSITE_CLICKS', 0)
+
+      let captured = ''
+      const origLog = console.log
+      console.log = (msg: string) => { captured += msg }
+      try {
+        await gbpSummary('hotels', { format: 'json' })
+      } finally {
+        console.log = origLog
+      }
+      const parsed = JSON.parse(captured) as {
+        freshness: { dataThroughDate: string; latestStoredDate: string; pendingDays: number }
+        performance: { totals: Record<string, number> }
+        timeseries: { date: string; pending: boolean }[]
+      }
+      // The complete day is t-3 (last non-zero), NOT the stored zero tail (t-1).
+      expect(parsed.freshness.dataThroughDate).toBe(shiftUtc(t, -3))
+      expect(parsed.freshness.latestStoredDate).toBe(shiftUtc(t, -1))
+      expect(parsed.freshness.pendingDays).toBe(3)
+      expect(parsed.performance.totals.WEBSITE_CLICKS).toBe(30)
+      expect(parsed.performance.totals.CALL_CLICKS).toBe(4)
+      // The lag tail is present in the series but flagged pending, never a real value.
+      expect(parsed.timeseries.filter((d) => d.pending).length).toBe(2)
+      expect(parsed.timeseries.find((d) => d.date === shiftUtc(t, -3))?.pending).toBe(false)
+    })
+
+    it('summary human output uses labels (no raw BUSINESS_* keys) and shows freshness', async () => {
+      const t = todayUtc()
+      await seedLocation({ locationName: 'locations/sum', displayName: 'Summary Hotel', selected: true })
+      seedMetric('locations/sum', shiftUtc(t, -3), 'WEBSITE_CLICKS', 30)
+      seedMetric('locations/sum', shiftUtc(t, -3), 'BUSINESS_DIRECTION_REQUESTS', 12)
+
+      let captured = ''
+      const origLog = console.log
+      console.log = (msg: string) => { captured += `${msg}\n` }
+      try {
+        await gbpSummary('hotels', {})
+      } finally {
+        console.log = origLog
+      }
+      expect(captured).toContain('Website clicks')
+      expect(captured).toContain('Direction requests')
+      expect(captured).not.toContain('WEBSITE_CLICKS')
+      expect(captured).toContain('Data through')
+      expect(captured).toContain('pending')
+    })
+
+    it('metrics human output renders labels, not raw keys', async () => {
+      const t = todayUtc()
+      await seedLocation({ locationName: 'locations/sum', displayName: 'Summary Hotel', selected: true })
+      seedMetric('locations/sum', shiftUtc(t, -3), 'WEBSITE_CLICKS', 30)
+
+      let captured = ''
+      const origLog = console.log
+      console.log = (msg: string) => { captured += `${msg}\n` }
+      try {
+        await gbpMetrics('hotels', {})
+      } finally {
+        console.log = origLog
+      }
+      expect(captured).toContain('Website clicks')
+      expect(captured).not.toContain('WEBSITE_CLICKS')
     })
   })
 })

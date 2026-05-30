@@ -409,6 +409,7 @@ Directly below sit the **secondary metric cards** (`Mention Gaps`, `Citation Gap
 - **Do** show two glyphs when rendering snapshot state in a single cell: one for cited (`C / c`), one for mentioned (`M / m`), with `–` for missing. Never collapse the two signals into one label.
 - **Do** respect `prefers-reduced-motion`. The toast slide, the aero typing dots, the brand mascot's chirp, and the bubble pop must all disable when the user requests reduced motion. Check the existing `@media (prefers-reduced-motion: reduce)` blocks in `styles.css` for the pattern.
 - **Do** keep the page width capped at `max-w-6xl` (1152px). The sidebar is always 224px. Resist the temptation to widen for "more breathing room"; density is the design metric here.
+- **Do** move explanatory prose into an `InfoTooltip` on the heading, label, or row title rather than setting it inline. A data surface shows values, one-line captions, and eyebrow labels; the "why" rides one hover (and the trigger's `aria-label`) away. Inline paragraphs are reserved for empty and onboarding states, which must instruct.
 
 ### Don't:
 
@@ -422,6 +423,7 @@ Directly below sit the **secondary metric cards** (`Mention Gaps`, `Citation Gap
 - **Don't** apply drop shadows to resting surfaces. The only shadows allowed are the mascot drop-shadow, the toast lift, the bubble glow, and the sub-pixel Card highlight.
 - **Don't** reach for a modal as the first thought. Inline the form, slide a drawer, expand a row, anything before a modal. The evidence-detail modal is the existing exception; new modals need to justify themselves.
 - **Don't** invent a new color name when an existing zinc / emerald / amber / rose token will do. Saturate carefully: every new hue is one more thing for an analyst's eye to triage.
+- **Don't** set multi-sentence explanations, methodology notes, or finding rationale inline in a data view. They push the numbers down and break the scan. Attach them to an `InfoTooltip` instead. (Empty / onboarding states are the documented exception.)
 
 ### House exception: side-stripe borders
 
