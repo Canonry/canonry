@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
-import { X } from 'lucide-react'
+import { Search, X } from 'lucide-react'
 import { brandKeyFromText, brandLabelFromDomain, CitationStates, effectiveDomains, normalizeProjectDomain } from '@ainyc/canonry-contracts'
 
 import { InfoTooltip } from '../shared/InfoTooltip.js'
@@ -24,6 +24,7 @@ export interface EvidenceDisplayData {
   recommendedCompetitors: string[]
   matchedTerms: string[]
   groundingSources: GroundingSource[]
+  searchQueries: string[]
   evidenceUrls: string[]
   changeLabel: string
   summary: string
@@ -95,6 +96,7 @@ export function EvidenceDetailModal({
           recommendedCompetitors: snap.recommendedCompetitors ?? evidence.recommendedCompetitors ?? [],
           matchedTerms: snap.matchedTerms ?? evidence.matchedTerms ?? [],
           groundingSources: snap.groundingSources ?? evidence.groundingSources,
+          searchQueries: snap.searchQueries,
           evidenceUrls: [],
           changeLabel: evidence.visibilityChangeLabel ?? evidence.changeLabel,
           summary: evidence.summary,
@@ -120,6 +122,7 @@ export function EvidenceDetailModal({
       recommendedCompetitors: evidence.recommendedCompetitors ?? [],
       matchedTerms: evidence.matchedTerms ?? [],
       groundingSources: evidence.groundingSources,
+      searchQueries: evidence.searchQueries ?? [],
       evidenceUrls: evidence.evidenceUrls,
       changeLabel: evidence.visibilityChangeLabel ?? evidence.changeLabel,
       summary: evidence.summary,
@@ -227,6 +230,7 @@ export function EvidenceDetailModal({
         recommendedCompetitors: snap.recommendedCompetitors ?? [],
         matchedTerms: snap.matchedTerms ?? [],
         groundingSources: snap.groundingSources,
+        searchQueries: snap.searchQueries,
         evidenceUrls: [],
         changeLabel: describeMentionChange(run.mentionTransition ?? run.visibilityTransition, run.mentionState ?? run.visibilityState),
         summary: '',
@@ -243,6 +247,7 @@ export function EvidenceDetailModal({
         recommendedCompetitors: [],
         matchedTerms: [],
         groundingSources: [],
+        searchQueries: [],
         evidenceUrls: [],
         changeLabel: describeMentionChange(run.mentionTransition ?? run.visibilityTransition, run.mentionState ?? run.visibilityState),
         summary: 'Snapshot data not available for this run.',
@@ -265,6 +270,7 @@ export function EvidenceDetailModal({
         recommendedCompetitors: [],
         matchedTerms: [],
         groundingSources: [],
+        searchQueries: [],
         evidenceUrls: [],
         changeLabel: describeMentionChange(run.mentionTransition ?? run.visibilityTransition, run.mentionState ?? run.visibilityState),
         summary: 'Failed to load historical run data.',
@@ -499,6 +505,24 @@ export function EvidenceDetailModal({
                   {!display.answerSnippet && !loadingHistory && (
                     <div className="rounded-lg border border-zinc-800/40 bg-zinc-900/20 px-4 py-8 text-center text-zinc-600 text-sm">
                       No answer text recorded for this run
+                    </div>
+                  )}
+
+                  {/* Web searches the model ran while researching the prompt */}
+                  {display.searchQueries.length > 0 && (
+                    <div>
+                      <div className="drawer-section-label flex items-center">
+                        <span>Web searches the model ran</span>
+                        <InfoTooltip text="The search queries this AI model issued while researching your prompt. They reveal how the model reformulated the question — the phrasings worth optimizing your content for. Distinct from grounding sources (what it found) and citations (what it linked)." />
+                      </div>
+                      <ul className="grid gap-1">
+                        {display.searchQueries.map((q, i) => (
+                          <li key={`${i}-${q}`} className="flex items-start gap-2 text-sm text-zinc-300">
+                            <Search className="size-3.5 mt-0.5 shrink-0 text-zinc-600" aria-hidden="true" />
+                            <span className="break-words">{q}</span>
+                          </li>
+                        ))}
+                      </ul>
                     </div>
                   )}
 

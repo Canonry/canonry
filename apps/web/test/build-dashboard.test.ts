@@ -88,6 +88,125 @@ test('buildProjectCommandCenter evidence summary uses canonical mention vocabula
   expect(evidence!.summary).not.toMatch(/\bvisible\b/i)
 })
 
+test('buildProjectCommandCenter carries the model web search queries into evidence', () => {
+  // The search queries the model actually issued (snapshot.searchQueries, parsed
+  // from the provider raw response) must reach the evidence view-model so the
+  // detail modal can surface "Web searches the model ran". This is a pure
+  // data-threading path: provider -> snapshot -> RunDetailDto -> evidence VM.
+  const baseRun = {
+    id: 'run_1',
+    projectId: 'proj_1',
+    kind: 'answer-visibility',
+    status: 'completed',
+    trigger: 'manual',
+    startedAt: '2026-03-15T00:00:00Z',
+    finishedAt: '2026-03-15T00:00:10Z',
+    error: null,
+    createdAt: '2026-03-15T00:00:00Z',
+  } as const
+
+  const data: ProjectData = {
+    project: {
+      id: 'proj_1',
+      name: 'web-queries',
+      displayName: 'Web Queries',
+      canonicalDomain: 'example.com',
+      ownedDomains: [],
+      country: 'US',
+      language: 'en',
+      tags: [],
+      labels: {},
+      providers: ['gemini'],
+      configSource: 'api',
+      configRevision: 1,
+      createdAt: '2026-03-10T00:00:00Z',
+      updatedAt: '2026-03-15T00:00:00Z',
+    },
+    runs: [baseRun],
+    queries: [{ id: 'q_1', query: 'best polyurea roof coating', createdAt: '2026-03-10T00:00:00Z' }],
+    competitors: [],
+    timeline: [{
+      query: 'best polyurea roof coating',
+      runs: [{
+        runId: 'run_1',
+        createdAt: '2026-03-15T00:00:00Z',
+        citationState: 'cited',
+        transition: 'new',
+        answerMentioned: true,
+        visibilityState: 'visible',
+        visibilityTransition: 'new',
+        mentionState: 'mentioned',
+        mentionTransition: 'new',
+      }],
+    }],
+    latestRunDetails: [{
+      ...baseRun,
+      snapshots: [{
+        id: 'snap_1',
+        runId: 'run_1',
+        queryId: 'q_1',
+        query: 'best polyurea roof coating',
+        provider: 'gemini',
+        citationState: 'cited',
+        answerMentioned: true,
+        visibilityState: 'visible',
+        mentionState: 'mentioned',
+        answerText: 'The brand is mentioned.',
+        citedDomains: ['example.com'],
+        competitorOverlap: [],
+        groundingSources: [],
+        searchQueries: ['best polyurea roof coating brands', 'polyurea vs silicone roof coating'],
+        model: 'gemini-2.5-flash',
+        location: null,
+        createdAt: '2026-03-15T00:00:00Z',
+      }],
+    }],
+    previousRunDetails: [],
+  }
+
+  const cc = buildProjectCommandCenter(data)
+  const evidence = cc.visibilityEvidence[0]
+  expect(evidence).toBeDefined()
+  expect(evidence!.searchQueries).toEqual([
+    'best polyurea roof coating brands',
+    'polyurea vs silicone roof coating',
+  ])
+})
+
+test('buildProjectCommandCenter defaults searchQueries to empty for not-yet-run queries', () => {
+  // A saved query with no run must still produce a well-formed evidence VM with
+  // an empty searchQueries array (the modal renders nothing rather than crashing).
+  const data: ProjectData = {
+    project: {
+      id: 'proj_1',
+      name: 'pending-q',
+      displayName: 'Pending Q',
+      canonicalDomain: 'example.com',
+      ownedDomains: [],
+      country: 'US',
+      language: 'en',
+      tags: [],
+      labels: {},
+      providers: ['gemini'],
+      configSource: 'api',
+      configRevision: 1,
+      createdAt: '2026-03-10T00:00:00Z',
+      updatedAt: '2026-03-15T00:00:00Z',
+    },
+    runs: [],
+    queries: [{ id: 'q_1', query: 'not run yet', createdAt: '2026-03-10T00:00:00Z' }],
+    competitors: [],
+    timeline: [],
+    latestRunDetails: [],
+    previousRunDetails: [],
+  }
+
+  const cc = buildProjectCommandCenter(data)
+  const evidence = cc.visibilityEvidence.find((e) => e.query === 'not run yet')
+  expect(evidence).toBeDefined()
+  expect(evidence!.searchQueries).toEqual([])
+})
+
 test('buildDashboard maps Google settings into the dashboard view model', () => {
   const apiSettings: ApiSettings = {
     providers: [{
