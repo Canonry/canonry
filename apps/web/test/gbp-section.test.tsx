@@ -137,8 +137,16 @@ test('renders connected GBP data: scorecard, keywords, and public listing', asyn
   expect(screen.getByText(/Not active:/)).toBeTruthy()
   // Keyword row.
   expect(screen.getByText('venice beach hotel')).toBeTruthy()
-  // Lodging gap surfaced (empty profile).
-  expect(screen.getByText('1 empty')).toBeTruthy()
+  // Owner-configured CTA + lodging tiles are no longer rendered: they have no
+  // public counterpart to cross-reference, so an "Absent" / "empty" tile would
+  // read as fact when it is just an unverifiable owner signal (#648). Despite
+  // the fixture carrying hasBookingCta + 1 empty lodging profile, no such tile
+  // appears. The cross-referenced gap surfaces as the discrepancy insight; the
+  // raw owner data stays on `cnry gbp place-actions` / `gbp lodging`.
+  expect(screen.queryByText('Lodging profile')).toBeNull()
+  expect(screen.queryByText('Booking CTA')).toBeNull()
+  expect(screen.queryByText('Reservation CTA')).toBeNull()
+  expect(screen.queryByText('1 empty')).toBeNull()
   // Public listing (Places) amenities render; the location name shows in that card.
   expect(screen.getByText('Pool')).toBeTruthy()
   expect(screen.getByText('Free Wi-Fi')).toBeTruthy()

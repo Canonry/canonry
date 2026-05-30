@@ -187,7 +187,7 @@ The month-over-month keyword signal is powered by the **accumulating** `gbp_keyw
 
 ## The Dashboard (`GbpSection`)
 
-The project page shows a self-gating "Google Business Profile" section (only when a GBP connection exists): a **graph-first** performance block — a daily conversion-trend chart (the hero) plus a reach (impressions) area, with the reporting-lag tail greyed as "pending", a "data through &lt;date&gt;" label, and all-zero series collapsed to a "Not active" footnote (#658) — alongside the owner-vs-public gap insight, CTA-presence + lodging-completeness tiles, a search-terms table, and a locations table with a track/untrack toggle and a Sync button. Every number is computed server-side by `buildGbpSummary`; the component only renders (Recharts via `ChartPrimitives`).
+The project page shows a self-gating "Google Business Profile" section (only when a GBP connection exists): a **graph-first** performance block — a daily conversion-trend chart (the hero) plus a reach (impressions) area, with the reporting-lag tail greyed as "pending", a "data through &lt;date&gt;" label, and all-zero series collapsed to a "Not active" footnote (#658) — alongside the owner-vs-public gap insight (`gbp-listing-discrepancy`), the public-listing (Places) amenity block, a search-terms table, and a locations table with a track/untrack toggle and a Sync button. Every number is computed server-side by `buildGbpSummary`; the component only renders (Recharts via `ChartPrimitives`). The raw owner-configured Place Action CTAs and the lodging-completeness count are **deliberately not shown in the dashboard**: they are owner-set with no public counterpart to cross-reference, so an "Absent" / "empty" tile would read as a fact about the live listing when it is only an unverifiable owner signal (#648, PR #660). Operators still read them via `cnry gbp place-actions` / `cnry gbp lodging`, and the `/gbp/summary` API still carries both fields.
 
 ## Hotel-Specific Setup
 
@@ -230,6 +230,18 @@ places:
 The next `gbp sync` then snapshots Place Details for selected lodging locations that carry a Maps place id (re-run `gbp locations discover` if `gbp.places.api-key` warns there are none). Read it back with `canonry gbp places <project>` (the `amenities` list is computed server-side).
 
 **Cost** — Place Details is billed at the highest field-mask tier requested. The amenity booleans powering the cross-reference are the **Enterprise + Atmosphere** SKU: **1,000 free calls/month, then $25/1,000**. Because canonry fetches Places only for lodging locations and only past the refresh interval (default weekly), a typical operator book (a handful to ~200 hotels on a weekly refresh) stays inside the free tier — **$0/month**. Drop `tier` to `pro` (5,000 free, accessibility-only — thinner cross-reference) or `off` to disable. `accessibilityOptions` is Pro tier; the IDs-only refresh is free.
+
+## Provenance: the three data planes (how to present GBP)
+
+Every GBP number belongs to one of three planes. **Tag each figure by plane before you show or say it.** The two classic mistakes are presenting plane 1 as if it were plane 2, and presenting a plane-3 lag artifact as a real change.
+
+| Plane | Source | How to present it |
+|---|---|---|
+| **1. Owner-configured** (CTAs, amenities, hours) | Business Info / Place Actions / Lodging APIs | "Owner profile completeness", never a fact about the live listing. An empty field is the operator's blind spot, not proof the public listing is empty. Surface as a finding **only when cross-referenced** against plane 2. |
+| **2. Public rendered** (what searchers and AI see) | Places API (New): a thin, schema-bound subset | Label it a **partial** public view. Thin or empty Places data is NOT evidence the listing is sparse, because the full rendered listing also synthesizes Hotel Center pricing, OTA links, and Local Guide contributions that no API returns. |
+| **3. Performance** (impressions, clicks, directions, calls) | Performance API, ~2 to 3 day reporting lag | NOT an owner-content signal: the owner-configured caveat does not apply. The honesty lever here is the lag. Anchor windows to the last complete day, show `freshness`, and never call the unreported tail a decline (worse right after US holidays). |
+
+**The only thing to present as a "finding"** is the plane-1-vs-plane-2 delta: the `gbp-listing-discrepancy` insight. Quote its named amenities as a floor ("the public listing advertises at least X that your profile doesn't"), never a complete inventory.
 
 ## Important Constraints
 
