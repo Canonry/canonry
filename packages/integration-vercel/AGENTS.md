@@ -44,8 +44,16 @@ with **no in-app instrumentation** required on the user's Vercel project.
   floor-width slice that still overflows the normal page budget is re-pulled
   once with the larger `FLOOR_SLICE_MAX_PAGES` budget and drained whole; nearby
   congested floor slices temporarily reuse that floor shape before probing
-  wider again. Only a pathologically dense second (1000+ pages of logs in one
-  second) genuinely fails the sync.
+  wider again. A floor slice that overflows even that budget cannot be sliced
+  thinner (e.g. a bot flood packing 1000+ log pages into one second). Rather
+  than failing — which would freeze `lastSyncedAt` and wedge the source forever
+  on that single second — the drain ingests the sample it pulled, advances past
+  the slice, and records it in `truncatedSliceCount` / `truncatedSliceStartsMs`
+  for the caller to surface. The **incremental sync** samples-and-advances on
+  truncation (it is additive, so losing the tail of one pathological second is
+  safe and `lastSyncedAt` keeps moving); the **replace-mode backfill** instead
+  fails loud on truncation so it never overwrites a full window with a partial
+  sample.
 - **Retention clamp.** Vercel rejects a window starting before the plan's
   `request-logs` retention with HTTP 400 `ExceedsBillingLimitError`.
   `drainVercelTrafficEvents` detects that, binary-searches the retention

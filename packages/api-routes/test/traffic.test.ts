@@ -895,6 +895,56 @@ describe('POST /traffic/sources/:id/sync — Vercel', () => {
     }
   })
 
+  it('samples-and-advances instead of wedging when a one-second slice is irreducibly dense', async () => {
+    // Regression: a single second holding more log pages than even the floor
+    // budget used to throw, failing the sync so lastSyncedAt never advanced and
+    // the source re-failed forever on that second. The incremental sync is
+    // additive, so it now ingests the sample, advances past the slice, and
+    // stays healthy.
+    const observedAt = new Date(Date.now() - 1_000).toISOString()
+    const h = await buildHarness([], {
+      vercelPullPages: ({ maxPages, startDate }) => {
+        if (maxPages === 1) {
+          return { events: [], rawEntryCount: 0, skippedEntryCount: 0, hasMore: false, endpoint: '' }
+        }
+        // hasMore stays true at every span and page budget — the slice cannot be
+        // drained and time cannot be sliced below the one-second floor.
+        return {
+          events: [buildVercelEvent({ eventId: `vercel:dense:${startDate}`, userAgent: 'GPTBot/1.0', path: '/x', observedAt })],
+          rawEntryCount: 1,
+          skippedEntryCount: 0,
+          hasMore: true,
+          endpoint: '',
+        }
+      },
+    })
+    try {
+      const sourceId = await connectVercel(h)
+      // A tight ~3s window so the second-by-second advance stays well under the
+      // sub-window cap (a wide window would hit maxSubWindows — a different path).
+      const stale = backdateLastSyncedAt(h.db, sourceId, 3_000)
+
+      const syncRes = await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`,
+        payload: {},
+      })
+      expect(syncRes.statusCode).toBe(200)
+
+      const sourceRow = h.db.select().from(trafficSources).where(eq(trafficSources.id, sourceId)).get()!
+      // The source advanced past the dense second instead of wedging.
+      expect(sourceRow.status).toBe(TrafficSourceStatuses.connected)
+      expect(sourceRow.lastError).toBeNull()
+      expect(new Date(sourceRow.lastSyncedAt!).getTime()).toBeGreaterThan(new Date(stale).getTime())
+
+      const runRows = h.db.select().from(runs).all()
+      expect(runRows.length).toBe(1)
+      expect(runRows[0].status).toBe(RunStatuses.completed)
+    } finally {
+      await h.close()
+    }
+  })
+
   it('returns 502 and marks the run failed when the Vercel pull throws', async () => {
     const h = await buildHarness([], { failVercelPullWith: 'request-logs 500: gateway' })
     try {
@@ -1205,6 +1255,63 @@ describe('POST /traffic/sources/:id/backfill — Vercel', () => {
     }
   })
 
+  it('fails fast (loud, no rollup replace) on an irreducibly dense one-second slice', async () => {
+    // Backfill is replace mode: a truncated sample must never overwrite a full
+    // window's rollup. The drain runs with abortOnTruncation, so it throws on
+    // the FIRST irreducible second — it does not sample-and-advance through the
+    // rest of a 7-day window it will reject anyway (a few bisecting pulls, not
+    // thousands).
+    let pullCount = 0
+    const h = await buildHarness([], {
+      vercelPullPages: ({ maxPages }) => {
+        if (maxPages === 1) {
+          return { events: [], rawEntryCount: 0, skippedEntryCount: 0, hasMore: false, endpoint: '' }
+        }
+        pullCount += 1
+        return {
+          events: [buildVercelEvent({ eventId: `vercel:bf:dense:${pullCount}`, userAgent: 'GPTBot/1.0', path: '/x' })],
+          rawEntryCount: 1,
+          skippedEntryCount: 0,
+          hasMore: true,
+          endpoint: '',
+        }
+      },
+    })
+    try {
+      const sourceId = await connectVercel(h)
+      const connectSyncedAt = h.db
+        .select()
+        .from(trafficSources)
+        .where(eq(trafficSources.id, sourceId))
+        .get()!
+        .lastSyncedAt
+
+      const submitRes = await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/backfill`,
+        payload: { days: 7 },
+      })
+      expect(submitRes.statusCode).toBe(200)
+      const submitted = JSON.parse(submitRes.payload)
+
+      const finalRun = await waitForRunComplete(h.db, submitted.runId)
+      expect(finalRun.status).toBe(RunStatuses.failed)
+      expect(finalRun.error).toMatch(/holds more than 1000 pages and cannot be drained further/)
+
+      const sourceRow = h.db.select().from(trafficSources).where(eq(trafficSources.id, sourceId)).get()!
+      expect(sourceRow.status).toBe(TrafficSourceStatuses.error)
+      // No rollup was replaced and the cursor never advanced.
+      expect(sourceRow.lastSyncedAt).toBe(connectSyncedAt)
+      expect(h.db.select().from(crawlerEventsHourly).all()).toEqual([])
+      expect(h.db.select().from(rawEventSamples).all()).toEqual([])
+      // Fail-fast: bisecting one hour chunk down to the floor is a handful of
+      // pulls — nowhere near the thousands a full sample-and-advance would make.
+      expect(pullCount).toBeLessThan(50)
+    } finally {
+      await h.close()
+    }
+  })
+
   it('returns validationError pointing to `canonry traffic connect vercel` when no Vercel credential is stored', async () => {
     const h = await buildHarness([])
     try {
@@ -1322,6 +1429,7 @@ describe('POST /traffic/sources/:id/sync', () => {
       expect(syncRes.statusCode).toBe(200)
       const body = JSON.parse(syncRes.payload)
       expect(body.pulledEvents).toBe(4)
+      expect(body.selfTrafficExcluded).toBe(0)
       expect(body.crawlerHits).toBe(2)
       expect(body.aiReferralHits).toBe(1)
       expect(body.unknownHits).toBe(1)
@@ -1358,6 +1466,58 @@ describe('POST /traffic/sources/:id/sync', () => {
       expect(runRows.length).toBe(1)
       expect(runRows[0].kind).toBe(RunKinds['traffic-sync'])
       expect(runRows[0].status).toBe(RunStatuses.completed)
+    } finally {
+      await h.close()
+    }
+  })
+
+  it('drops Canonry self-traffic before rollup and surfaces the count in the sync response', async () => {
+    const baseTime = new Date(Date.now() - 60 * 60_000)
+    baseTime.setMinutes(0, 0, 0)
+    const fromBase = (mins: number) => new Date(baseTime.getTime() + mins * 60_000).toISOString()
+
+    const events: NormalizedTrafficRequest[] = [
+      // Canonry's own AEO auditor crawling the client's sitemap — must not count.
+      buildEvent({ userAgent: 'AINYC-AEO-Audit/1.0', path: '/sitemap.xml', status: 200, observedAt: fromBase(1) }),
+      buildEvent({ userAgent: 'AINYC-AEO-Audit/1.0', path: '/llms.txt', status: 200, observedAt: fromBase(2) }),
+      // A real crawler + a real human visitor — these count.
+      buildEvent({ userAgent: 'GPTBot/1.0', path: '/blog/foo', status: 200, observedAt: fromBase(10) }),
+      buildEvent({ userAgent: 'Mozilla/5.0', path: '/', status: 200, observedAt: fromBase(15) }),
+    ]
+
+    const h = await buildHarness(events)
+    try {
+      const connectRes = await h.app.inject({
+        method: 'POST',
+        url: '/api/v1/projects/test-project/traffic/connect/cloud-run',
+        payload: { gcpProjectId: 'openclaw-nyc', serviceName: 'openclaw-nyc', location: 'us-east1', keyJson: SA_KEY },
+      })
+      expect(connectRes.statusCode).toBe(200)
+      const sourceId = JSON.parse(connectRes.payload).id
+
+      const syncRes = await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`,
+        payload: { sinceMinutes: 120 },
+      })
+      expect(syncRes.statusCode).toBe(200)
+      const body = JSON.parse(syncRes.payload)
+      // Two self-audit hits dropped; pulledEvents counts only the real crawler +
+      // human, and the drop is surfaced (never silent).
+      expect(body.selfTrafficExcluded).toBe(2)
+      expect(body.pulledEvents).toBe(2)
+      expect(body.crawlerHits).toBe(1)
+      expect(body.unknownHits).toBe(1)
+
+      // No self-audit UA leaked into the persisted sample tail.
+      const samples = h.db.select().from(rawEventSamples).all()
+      expect(samples.length).toBe(2)
+      expect(samples.some((s) => s.userAgent === 'AINYC-AEO-Audit/1.0')).toBe(false)
+
+      // Only the real crawler made it into the hourly bucket.
+      const crawlerRows = h.db.select().from(crawlerEventsHourly).all()
+      expect(crawlerRows.length).toBe(1)
+      expect(crawlerRows[0].botId).toBe('openai-gptbot')
     } finally {
       await h.close()
     }

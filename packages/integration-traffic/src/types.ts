@@ -98,7 +98,10 @@ export interface TrafficProbeSample {
 export interface TrafficProbeReport {
   generatedAt: string
   totals: {
+    /** Events rolled up (after dropping Canonry self-traffic). */
     normalizedEvents: number
+    /** Self-traffic events (Canonry's own tooling) dropped before rollup. */
+    selfTrafficExcluded: number
     crawlerHits: number
     aiUserFetchHits: number
     aiReferralSessions: number

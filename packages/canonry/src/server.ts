@@ -1267,6 +1267,7 @@ export async function createServer(opts: {
         sourceType: event.sourceType,
         sourceId: event.sourceId,
         pulledEvents: event.pulledEvents,
+        selfTrafficExcluded: event.selfTrafficExcluded,
         crawlerHits: event.crawlerHits,
         aiReferralHits: event.aiReferralHits,
         durationMs: event.durationMs,

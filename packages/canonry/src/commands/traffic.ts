@@ -371,6 +371,9 @@ export async function trafficSync(project: string, opts: {
   console.log(`  Run ID:           ${result.runId}`)
   console.log(`  Window:           ${result.windowStart}  →  ${result.windowEnd}`)
   console.log(`  Pulled events:    ${result.pulledEvents}`)
+  if (result.selfTrafficExcluded > 0) {
+    console.log(`  Self-traffic excl: ${result.selfTrafficExcluded}  (Canonry's own tooling, dropped before rollup)`)
+  }
   console.log(`  Crawler hits:     ${result.crawlerHits}  (${result.crawlerBucketRows} hourly bucket${result.crawlerBucketRows === 1 ? '' : 's'})`)
   console.log(`  AI referral hits: ${result.aiReferralHits}  (${result.aiReferralBucketRows} hourly bucket${result.aiReferralBucketRows === 1 ? '' : 's'})`)
   console.log(`  Unknown hits:     ${result.unknownHits}`)
