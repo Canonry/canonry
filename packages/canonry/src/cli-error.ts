@@ -1,4 +1,17 @@
-export type CliFormat = 'text' | 'json'
+/**
+ * Output contract an agent can pick per call:
+ *   text  — human-readable, decorated (default). Not a stable parse target.
+ *   json  — one pretty-printed JSON document (the full envelope).
+ *   jsonl — newline-delimited JSON: the command's primary collection, one
+ *           self-contained record per line. The agent-friendly machine format —
+ *           no envelope-key guessing, no `jq` flattening, greppable line by line.
+ */
+export type CliFormat = 'text' | 'json' | 'jsonl'
+
+/** True for the machine-readable formats (`json`, `jsonl`). */
+export function isMachineFormat(format: CliFormat): boolean {
+  return format === 'json' || format === 'jsonl'
+}
 
 /**
  * Exit codes follow a convention agents can branch on:
@@ -78,37 +91,14 @@ export function systemError(
 }
 
 export function printCliError(err: unknown, format: CliFormat): void {
-  if (format === 'json') {
-    if (err instanceof CliError) {
-      console.error(
-        JSON.stringify(
-          {
-            error: {
-              code: err.code,
-              message: err.message,
-              ...(err.details ? { details: err.details } : {}),
-            },
-          },
-          null,
-          2,
-        ),
-      )
-      return
-    }
-
-    const message = err instanceof Error ? err.message : 'An unexpected error occurred'
-    console.error(
-      JSON.stringify(
-        {
-          error: {
-            code: 'CLI_ERROR',
-            message,
-          },
-        },
-        null,
-        2,
-      ),
-    )
+  if (isMachineFormat(format)) {
+    const envelope = err instanceof CliError
+      ? { error: { code: err.code, message: err.message, ...(err.details ? { details: err.details } : {}) } }
+      : { error: { code: 'CLI_ERROR', message: err instanceof Error ? err.message : 'An unexpected error occurred' } }
+    // jsonl keeps everything to a single line so an agent reading the error
+    // stream line-by-line never has to reassemble a multi-line blob; json
+    // stays pretty-printed for the document view.
+    console.error(JSON.stringify(envelope, null, format === 'jsonl' ? 0 : 2))
     return
   }
 

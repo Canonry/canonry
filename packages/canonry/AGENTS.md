@@ -120,6 +120,25 @@ The legacy `request<T>()` raw-fetch wrapper was removed in v4.51; if you find an
 
 All commands that produce output must support `--format json` for machine-parseable output. Use the format flag to switch between human-friendly tables and JSON.
 
+There is a third, agent-first format: **`--format jsonl`** (newline-delimited JSON). Where `json` returns the whole envelope as one pretty-printed document, `jsonl` streams the command's **primary collection** one compact, self-contained record per line. It exists so an agent can read
+
+```
+canonry doctor --check 'google.auth.*' --format jsonl
+```
+
+directly — no `2>/dev/null`, no `| jq '(.checks // .results // [])[] | ...'`, no guessing the envelope key. Each line stands alone for `grep`/`head`/per-line `jq`.
+
+Conventions when adding `jsonl` to a command:
+
+- **Emit via `emitJsonl(records)`** from `src/cli-output.js` (one `process.stdout.write`, compact, newline-terminated). Don't hand-roll `console.log(JSON.stringify(...))` per row.
+- **Pick the primary collection** the agent is really after (doctor → `checks`, list commands → their array). Carry any context the line loses by leaving the envelope into each record (doctor tags every line with `project`, null for global) so a line lifted out still says what it describes.
+- **Object-only commands** (a single status/summary, not a list) may map `jsonl` onto `json` or emit the object as one line — but prefer leaving `jsonl` to genuinely list-shaped output rather than forcing it.
+- **Errors and exit codes are unchanged** — `printCliError` renders a single-line envelope for `jsonl`, and a failing command still throws its `CliError` (so e.g. `doctor` still exits 1 after printing every check line). Agents branch on the exit code, not on parsing stderr.
+
+The stable, machine-readable formats are `json` and `jsonl`; `text` is decorated and not a parse target. `isMachineFormat(format)` distinguishes them.
+
+The CLI also keeps interactive chrome (the "new version available" banner) off a non-interactive stderr — it's gated on `process.stderr.isTTY`, so piped/captured output stays clean without `2>/dev/null`. Errors still go to stderr.
+
 ### Run completion pipeline
 
 When a sweep finishes, the flow is: `JobRunner` → `RunCoordinator.onRunCompleted()` → `IntelligenceService.analyzeAndPersist()` then `Notifier.onRunCompleted()`. The coordinator runs intelligence first (synchronous) so insights are persisted before webhooks fire. Each subscriber is wrapped in an independent try/catch — one failing must not block the others.

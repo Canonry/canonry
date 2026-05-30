@@ -1,5 +1,5 @@
 import { vi, describe, it, expect, afterEach } from 'vitest'
-import { systemError, CliError, EXIT_SYSTEM_ERROR } from '../src/cli-error.js'
+import { systemError, CliError, EXIT_SYSTEM_ERROR, printCliError } from '../src/cli-error.js'
 import { runCli } from '../src/cli.js'
 import { dispatchRegisteredCommand } from '../src/cli-dispatch.js'
 
@@ -24,6 +24,32 @@ describe('systemError()', () => {
     })
     expect(err.displayMessage).toBe('Connection timed out. Please try again.')
     expect(err.details).toEqual({ url: 'https://api.example.com' })
+  })
+})
+
+describe('printCliError() machine formats', () => {
+  function capture(fn: () => void): string {
+    let buf = ''
+    const orig = console.error
+    console.error = (...args: unknown[]) => { buf += args.join(' ') }
+    try { fn() } finally { console.error = orig }
+    return buf
+  }
+
+  it('jsonl emits a single-line error envelope (no embedded newlines)', () => {
+    const err = new CliError({ code: 'DOCTOR_CHECKS_FAILED', message: '1 check failed', details: { failed: ['google.auth.scopes'] } })
+    const out = capture(() => printCliError(err, 'jsonl'))
+    expect(out).not.toContain('\n')
+    expect(JSON.parse(out)).toEqual({
+      error: { code: 'DOCTOR_CHECKS_FAILED', message: '1 check failed', details: { failed: ['google.auth.scopes'] } },
+    })
+  })
+
+  it('json keeps the pretty-printed (multi-line) envelope', () => {
+    const err = new CliError({ code: 'DOCTOR_CHECKS_FAILED', message: '1 check failed' })
+    const out = capture(() => printCliError(err, 'json'))
+    expect(out).toContain('\n')
+    expect(JSON.parse(out)).toEqual({ error: { code: 'DOCTOR_CHECKS_FAILED', message: '1 check failed' } })
   })
 })
 

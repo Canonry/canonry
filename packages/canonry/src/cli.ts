@@ -2,6 +2,7 @@
 import { pathToFileURL } from 'node:url'
 import { trackEvent, isTelemetryEnabled, isFirstRun, getOrCreateAnonymousId, showFirstRunNotice, detectAndTrackUpgrade } from './telemetry.js'
 import { buildSetupState } from './setup-state.js'
+import type { CliFormat } from './cli-error.js'
 import { CliError, EXIT_SYSTEM_ERROR, printCliError, usageError } from './cli-error.js'
 import { dispatchRegisteredCommand } from './cli-dispatch.js'
 import { REGISTERED_CLI_COMMANDS } from './cli-commands.js'
@@ -54,7 +55,8 @@ Admin:
   history <project>     Show audit trail
 
 Global options:
-  --format json         Machine-readable output (all commands)
+  --format json         Machine-readable output: one JSON document (all commands)
+  --format jsonl        Machine-readable output: one record per line, no jq needed
   --help, -h            Show help (use with any command group)
   --version, -v         Show version
 
@@ -65,10 +67,12 @@ import { createRequire } from 'node:module'
 const _require = createRequire(import.meta.url)
 const { version: VERSION } = _require('../package.json') as { version: string }
 
-/** Extract --format flag from args. Returns 'json' or 'text' (default). */
-function extractFormat(cmdArgs: string[]): 'text' | 'json' {
+/** Extract --format flag from args. Returns 'json', 'jsonl', or 'text' (default). */
+function extractFormat(cmdArgs: string[]): CliFormat {
   const idx = cmdArgs.indexOf('--format')
-  if (idx !== -1 && cmdArgs[idx + 1] === 'json') return 'json'
+  const value = idx !== -1 ? cmdArgs[idx + 1] : undefined
+  if (value === 'json') return 'json'
+  if (value === 'jsonl') return 'jsonl'
   return 'text'
 }
 
@@ -132,7 +136,11 @@ export async function runCli(args = process.argv.slice(2)): Promise<number> {
   // 24h cache live in `update-check.ts`; this stays a no-op when the
   // registry is unreachable, the user is offline, or no upgrade is
   // available. Banner goes to stderr so it never pollutes `--format json`.
-  if (!isHelpRequest && command !== 'telemetry') {
+  //
+  // Gated on an interactive stderr: when output is piped or captured (the
+  // agent case), this fire-and-forget banner is skipped entirely so it can
+  // never interleave with command output or force callers to add `2>/dev/null`.
+  if (!isHelpRequest && command !== 'telemetry' && process.stderr.isTTY) {
     void checkLatestVersionForCli().then((update) => {
       if (!update) return
       process.stderr.write(
