@@ -4,8 +4,35 @@ import {
   validationError,
   notImplemented,
   internalError,
+  forbidden,
 } from '@ainyc/canonry-contracts'
 import { requireScope } from './auth.js'
+
+/**
+ * Cloud-mode flag (Track 1 — Canonry Hosted). When
+ * `CANONRY_MANAGED_SETTINGS=1` is set on the tenant container, every
+ * `/settings/*` write returns HTTP 403 — the cloud control plane owns the
+ * provider keys, OAuth client credentials, and Bing API key. Read endpoints
+ * remain available so the dashboard can show the managed values (with
+ * write controls hidden in the UI; that's a separate ticket).
+ *
+ * Defaults to false (OSS posture). Evaluated per-request inside
+ * `requireWritableSettings()` so a test runner that mutates `process.env`
+ * between cases can override it cleanly without a module reset.
+ */
+function managedSettingsEnabled(): boolean {
+  const raw = process.env.CANONRY_MANAGED_SETTINGS?.trim().toLowerCase()
+  return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on'
+}
+
+function requireWritableSettings(): void {
+  if (managedSettingsEnabled()) {
+    // The dashboard UI hides these forms when cloud mode is active, but
+    // direct API callers can still hit the routes — fail closed so a
+    // tenant API key can't rewrite the operator-managed pool keys.
+    throw forbidden('Settings are managed by the control plane in cloud mode; writes are not permitted.')
+  }
+}
 
 /**
  * Scope required to mutate any global setting — provider API keys,
@@ -72,6 +99,7 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
     Params: { name: string }
     Body: { apiKey?: string; baseUrl?: string; model?: string; quota?: Partial<ProviderQuotaPolicy> }
   }>('/settings/providers/:name', async (request) => {
+    requireWritableSettings()
     requireScope(request, SETTINGS_WRITE_SCOPE)
     const { apiKey, baseUrl, model, quota } = request.body ?? {}
     const name = request.params.name
@@ -142,6 +170,7 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
   app.put<{
     Body: { clientId?: string; clientSecret?: string }
   }>('/settings/google', async (request) => {
+    requireWritableSettings()
     requireScope(request, SETTINGS_WRITE_SCOPE)
     const { clientId, clientSecret } = request.body ?? {}
 
@@ -164,6 +193,7 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
   app.put<{
     Body: { apiKey?: string }
   }>('/settings/bing', async (request) => {
+    requireWritableSettings()
     requireScope(request, SETTINGS_WRITE_SCOPE)
     const { apiKey } = request.body ?? {}
 

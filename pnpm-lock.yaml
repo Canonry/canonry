@@ -58,6 +58,9 @@ importers:
       '@ainyc/canonry-db':
         specifier: workspace:*
         version: link:../../packages/db
+      drizzle-orm:
+        specifier: ^0.45.2
+        version: 0.45.2(@types/better-sqlite3@7.6.13)(better-sqlite3@12.6.2)
       fastify:
         specifier: ^5.8.5
         version: 5.8.5

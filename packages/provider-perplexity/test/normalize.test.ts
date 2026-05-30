@@ -1,6 +1,19 @@
-import { describe, it, expect } from 'vitest'
-import { extractCitations, extractCitedDomains, validateConfig, normalizeResult, reparseStoredResult } from '../src/normalize.js'
+import { describe, it, expect, test } from 'vitest'
+import {
+  extractCitations,
+  extractCitedDomains,
+  validateConfig,
+  normalizeResult,
+  reparseStoredResult,
+  createPerplexityClient,
+} from '../src/normalize.js'
 import type { PerplexityRawResult, GroundingSource } from '../src/types.js'
+
+const QUOTA = {
+  maxConcurrency: 2,
+  maxRequestsPerMinute: 10,
+  maxRequestsPerDay: 1000,
+}
 
 describe('extractCitations', () => {
   it('extracts string citations from response', () => {
@@ -261,4 +274,24 @@ describe('reparseStoredResult', () => {
       { uri: 'https://docs.perplexity.ai/guides', title: 'Perplexity Guides' },
     ])
   })
+})
+
+test('createPerplexityClient honours an explicit baseUrl override', () => {
+  // Perplexity uses the OpenAI SDK in compatibility mode; the SDK exposes
+  // the resolved base URL as a public `baseURL` property. Asserting on it
+  // proves Canonry Hosted can route Perplexity traffic through the
+  // per-tenant LLM proxy via the same `ProviderConfig.baseUrl` knob the
+  // other adapters use.
+  const proxyUrl = 'http://canonry-llm-proxy:9200/perplexity'
+  const client = createPerplexityClient({
+    apiKey: 'pplx-test',
+    quotaPolicy: QUOTA,
+    baseUrl: proxyUrl,
+  })
+  expect((client as unknown as { baseURL: string }).baseURL).toContain('canonry-llm-proxy:9200/perplexity')
+})
+
+test('createPerplexityClient defaults to api.perplexity.ai when no override is set', () => {
+  const client = createPerplexityClient({ apiKey: 'pplx-test', quotaPolicy: QUOTA })
+  expect((client as unknown as { baseURL: string }).baseURL).toContain('api.perplexity.ai')
 })

@@ -15,6 +15,19 @@ const DEFAULT_MODEL = 'claude-sonnet-4-6'
 const VALIDATION_PATTERN = /^claude-/
 
 /**
+ * Construct a configured Anthropic client. Threads the optional `baseUrl`
+ * override through so Canonry Hosted can route Anthropic traffic via the
+ * per-tenant LLM proxy. Used by every call site in this adapter and
+ * exported so tests can assert the URL is threaded through.
+ */
+export function createAnthropicClient(config: ClaudeConfig): Anthropic {
+  return new Anthropic({
+    apiKey: config.apiKey,
+    ...(config.baseUrl ? { baseURL: config.baseUrl } : {}),
+  })
+}
+
+/**
  * Resolve the effective model name, validating that it is a recognised Claude
  * model identifier (must start with "claude-"). If an invalid name is stored
  * the default is used and a warning is logged.
@@ -53,7 +66,7 @@ export async function healthcheck(config: ClaudeConfig): Promise<ClaudeHealthche
 
   try {
     const model = resolveModel(config)
-    const client = new Anthropic({ apiKey: config.apiKey })
+    const client = createAnthropicClient(config)
     const response = await withRetry(() =>
       client.messages.create({
         model,
@@ -80,7 +93,7 @@ export async function healthcheck(config: ClaudeConfig): Promise<ClaudeHealthche
 
 export async function executeTrackedQuery(input: ClaudeTrackedQueryInput): Promise<ClaudeRawResult> {
   const model = resolveModel(input.config)
-  const client = new Anthropic({ apiKey: input.config.apiKey })
+  const client = createAnthropicClient(input.config)
 
   const webSearchTool: Record<string, unknown> = {
     type: 'web_search_20250305',
@@ -333,7 +346,7 @@ function extractDomainFromUri(uri: string): string | null {
 
 export async function generateText(prompt: string, config: ClaudeConfig): Promise<string> {
   const model = resolveModel(config)
-  const client = new Anthropic({ apiKey: config.apiKey })
+  const client = createAnthropicClient(config)
   const response = await withRetry(() =>
     client.messages.create({
       model,

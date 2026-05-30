@@ -20,6 +20,7 @@ function toClaudeConfig(config: ProviderConfig): ClaudeConfig {
     apiKey: config.apiKey ?? '',
     model: config.model,
     quotaPolicy: config.quotaPolicy,
+    ...(config.baseUrl ? { baseUrl: config.baseUrl } : {}),
   }
 }
 

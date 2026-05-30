@@ -6,6 +6,13 @@ export interface PerplexityConfig {
   apiKey: string
   quotaPolicy: ProviderQuotaPolicy
   model?: string
+  /**
+   * Optional base URL override. Defaults to `https://api.perplexity.ai` (the
+   * Perplexity Sonar OpenAI-compatible endpoint). Used by Canonry Hosted to
+   * route Perplexity calls through the per-tenant LLM proxy (Track 1).
+   * Same wire format — Perplexity uses the OpenAI SDK in compatibility mode.
+   */
+  baseUrl?: string
 }
 
 export interface PerplexityHealthcheckResult {

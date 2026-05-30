@@ -1,11 +1,13 @@
 import crypto from 'node:crypto'
 import { eq, ne, sql, type SQL } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/canonry-db'
+import type { FastifyRequest } from 'fastify'
 import { projects, runs, auditLog, usageCounters, parseJsonColumn } from '@ainyc/canonry-db'
 import {
   extractAnswerMentions,
   effectiveBrandNames,
   effectiveDomains,
+  forbidden,
   mentionStateFromAnswerMentioned,
   notFound,
   RunTriggers,
@@ -37,6 +39,63 @@ export function resolveProject(db: DatabaseClient, name: string) {
     throw notFound('Project', name)
   }
   return project
+}
+
+/**
+ * Track 3 (Canonry Hosted) — gate for cloud-bridge routes.
+ *
+ * The cloud bridge endpoints (`/cloud/bootstrap`, `/cloud/google/import-tokens`,
+ * `/cloud/bing/import-key`) are designed to be invoked only from a sibling
+ * control-plane container that the operator has deliberately provisioned.
+ * OSS deployments should not expose them at all — calling code paths returns
+ * a 404 indistinguishable from "no such route" when the env flag is unset.
+ *
+ * Two-layer gate:
+ *   1. `CANONRY_ENABLE_CLOUD_BOOTSTRAP=1` (env, set by the host-operator's
+ *      Compose template) — Track 1 owns this flag definitively. This helper
+ *      currently re-reads `process.env` rather than threading config plumbing
+ *      because Track 1 hasn't shipped yet and we don't want to race them on
+ *      `index.ts` options. Consolidate when Track 1 lands.
+ *   2. `X-Admin-Scope: 1` header — gates per-request. The control plane sets
+ *      this header on every cloud-bridge call. Anyone else who somehow gets
+ *      hold of a valid `cnry_…` key (which already has full instance access
+ *      per the deployment-posture rules) will still be rejected without the
+ *      header.
+ *
+ * The two checks together let a sibling control-plane container drive
+ * tenant config without the operator having to construct a privileged
+ * admin scope on the API key. Future hardening (real `admin` scope on the
+ * key + RBAC) lives on the multi-tenancy off-ramp.
+ *
+ * TODO(Track 1): once `CANONRY_ENABLE_CLOUD_BOOTSTRAP` is consolidated into
+ * a single config surface (probably a `cloudBootstrapEnabled` field on
+ * `ApiRoutesOptions`), drop the direct env-var read and accept a boolean.
+ */
+export function requireCloudBootstrap(request: FastifyRequest): void {
+  if (!cloudBootstrapEnabled()) {
+    // Return 404 (not 403) so unauthenticated probes can't fingerprint
+    // whether a deployment is hosted vs. OSS. `notFound('endpoint', ...)`
+    // matches the global error handler's existing 404 envelope.
+    throw notFound('endpoint', request.url.split('?')[0] ?? '/')
+  }
+  // Header values can be string | string[] under HTTP; only accept the
+  // exact scalar '1' so cookies / accidental duplicates never satisfy.
+  const adminScope = request.headers['x-admin-scope']
+  if (adminScope !== '1') {
+    throw forbidden('This endpoint requires the X-Admin-Scope header.')
+  }
+}
+
+/**
+ * Accept the same truthy set as `packages/config/src/index.ts`'s
+ * `parseBooleanFlag` (`1`, `true`, `yes`, `on`, case-insensitive). Keeping
+ * the two helpers in sync avoids a config drift where an operator sees
+ * `readCloudModeFlags()` report cloud-enabled while the routes still 404
+ * because they only honored the literal `'1'`.
+ */
+function cloudBootstrapEnabled(): boolean {
+  const v = process.env.CANONRY_ENABLE_CLOUD_BOOTSTRAP?.trim().toLowerCase()
+  return v === '1' || v === 'true' || v === 'yes' || v === 'on'
 }
 
 export interface AuditEntry {

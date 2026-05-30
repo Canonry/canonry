@@ -7,12 +7,42 @@ export const notificationEventSchema = z.enum([
   'run.failed',
   'insight.critical',
   'insight.high',
+  // Cloud event types (Track 3). Additive — opt-in by webhook subscribers.
+  // These ride the same `notifications` table as the existing events but use
+  // the `CloudWebhookPayload` envelope (source: 'canonry-cloud') when emitted.
+  // Most are emitted by the tenant runtime (`baseline.completed`,
+  // `connection.created`, `connection.revoked`, eventually `digest.generated`).
+  // The two action events are emitted by the cloud control plane, not the
+  // tenant — but the enum value lives here so the control plane can sign and
+  // dispatch them with the same convention.
+  'baseline.completed',
+  'digest.generated',
+  'action.created',
+  'action.completed',
+  'connection.created',
+  'connection.revoked',
 ])
 export type NotificationEvent = z.infer<typeof notificationEventSchema>
 
+/**
+ * Subset of `NotificationEvent` covering the six new cloud event types
+ * introduced in Track 3. Used to type the `CloudWebhookPayload.event` field
+ * narrowly so the legacy + cloud envelopes can be discriminated at the type
+ * level.
+ */
+export const cloudNotificationEventSchema = z.enum([
+  'baseline.completed',
+  'digest.generated',
+  'action.created',
+  'action.completed',
+  'connection.created',
+  'connection.revoked',
+])
+export type CloudNotificationEvent = z.infer<typeof cloudNotificationEventSchema>
+
 export const notificationDtoSchema = z.object({
   id: z.string(),
-  projectId: z.string(),
+  projectId: z.string().nullable(),
   channel: z.literal('webhook'),
   url: z.string().url(),
   urlDisplay: z.string(),
@@ -73,3 +103,34 @@ export interface WebhookPayload {
   }>
   dashboardUrl: string
 }
+
+/**
+ * Cloud webhook payload — additive Track 3 envelope used for the six new
+ * cloud event types. Lives alongside the legacy `WebhookPayload` so existing
+ * subscribers receive the same shape they always have. The control plane is
+ * the primary consumer; OSS deployments will only see these envelopes if
+ * something registers a webhook subscriber for the new events.
+ *
+ * Differences from `WebhookPayload`:
+ *   - `source: 'canonry-cloud'` (vs `'canonry'`) so consumers can route
+ *     dispatch by envelope.
+ *   - Carries an `event_id` (UUID) used as the idempotency key on the control
+ *     plane's `event_idempotency` table. Legacy runs key off `run.id`; the
+ *     new envelope is run-agnostic, so we need a stable per-event id.
+ *   - `payload` is event-specific and intentionally typed as
+ *     `Record<string, unknown>` so each event can ship its own shape without
+ *     a discriminated-union blow-up. Per-event payloads are documented in
+ *     the spec §12 table.
+ */
+export const cloudWebhookPayloadSchema = z.object({
+  source: z.literal('canonry-cloud'),
+  event: cloudNotificationEventSchema,
+  event_id: z.string().uuid(),
+  project: z.object({
+    name: z.string(),
+    canonicalDomain: z.string(),
+  }),
+  payload: z.record(z.string(), z.unknown()),
+  occurred_at: z.string(),
+})
+export type CloudWebhookPayload = z.infer<typeof cloudWebhookPayloadSchema>

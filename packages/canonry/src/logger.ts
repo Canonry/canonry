@@ -42,6 +42,19 @@
 
 const IS_TTY = process.stdout.isTTY === true
 
+/**
+ * Cloud-mode telemetry tag (Track 1 — Canonry Hosted). When
+ * `CANONRY_RUNTIME_MODE=cloud` is set on the tenant container, every log
+ * entry is tagged with `runtime_mode=cloud` so the cloud operator's log
+ * aggregator can filter cloud-runtime emissions from incidental noise.
+ * OSS deployments leave this unset and pay no overhead.
+ *
+ * Read at module-load (process env doesn't change at runtime in either
+ * deployment shape) so we don't pay a `process.env` lookup per log line.
+ */
+const RUNTIME_MODE_TAG =
+  process.env.CANONRY_RUNTIME_MODE?.trim().toLowerCase() === 'cloud' ? 'cloud' : null
+
 type LogLevel = 'info' | 'warn' | 'error'
 
 interface LogEntry {
@@ -50,6 +63,7 @@ interface LogEntry {
   module: string
   action: string
   msg?: string
+  runtime_mode?: string
   [key: string]: unknown
 }
 
@@ -90,6 +104,10 @@ export function createLogger(module: string): Logger {
       level,
       module,
       action,
+      // Cloud tag is emitted first when set so it's the leftmost field after
+      // the standard prefix — log aggregators that scan by prefix don't have
+      // to look deep into the line to know this is a cloud-runtime event.
+      ...(RUNTIME_MODE_TAG ? { runtime_mode: RUNTIME_MODE_TAG } : {}),
       ...ctx,
     }
     emit(entry)

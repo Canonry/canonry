@@ -200,4 +200,12 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'GET /api/v1/projects/{name}/discover/sessions/{id}': 'included',
   'GET /api/v1/projects/{name}/discover/sessions/{id}/promote': 'included',
   'POST /api/v1/projects/{name}/discover/sessions/{id}/promote': 'included',
+  // /aero owner-view onboarding endpoints — deferred from MCP for now.
+  // The flow is browser-driven (anonymous visitor with SSE), not something
+  // an MCP-using agent would orchestrate; expose as MCP tools only when an
+  // agent use case appears.
+  'POST /api/v1/guest/report': 'deferred',
+  'GET /api/v1/guest/report/{id}': 'deferred',
+  'GET /api/v1/guest/report/{id}/stream': 'excluded-protocol',
+  'POST /api/v1/guest/report/{id}/claim': 'deferred',
 } as const satisfies Record<string, OpenApiMcpClassification>

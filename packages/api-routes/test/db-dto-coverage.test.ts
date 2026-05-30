@@ -454,6 +454,26 @@ const COVERAGE: Record<string, CoverageEntry> = {
     kind: 'internal-only',
     reason: 'Internal migration bookkeeping; never exposed.',
   },
+  cloudMetadata: {
+    kind: 'internal-only',
+    reason: 'Tenant bootstrap singleton (Track 3 Canonry Hosted); read by cloud-bridge / doctor only, never on the public DTO surface.',
+  },
+  providerTokenUsage: {
+    kind: 'internal-only',
+    reason: 'Per-(run, provider, model) token-cost telemetry (Track 1 Canonry Hosted); consumed by the cloud control plane for billing, not exposed on a public DTO yet.',
+  },
+  users: {
+    kind: 'internal-only',
+    reason: 'Identity record bound to an api_keys row; the auth/session surface returns booleans + projectName, not the user row itself.',
+  },
+  guestReports: {
+    kind: 'internal-only',
+    reason: 'Anonymous /aero guest-report state; the guest-report endpoints expose a hand-shaped GuestReportDto rather than the raw row.',
+  },
+  appSettings: {
+    kind: 'internal-only',
+    reason: 'Generic instance-wide key/value store (e.g. dashboard password hash for apps/api); deliberately never exposed via a DTO.',
+  },
 }
 
 interface DiscoveredTable {

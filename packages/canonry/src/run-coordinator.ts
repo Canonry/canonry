@@ -1,18 +1,53 @@
-import { eq } from 'drizzle-orm'
+import crypto from 'node:crypto'
+import { and, eq, lt, ne, or } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/canonry-db'
-import { discoverySessions, runs } from '@ainyc/canonry-db'
+import { discoverySessions, projects, providerTokenUsage, querySnapshots, runs } from '@ainyc/canonry-db'
 import {
   RunKinds,
+  RunStatuses,
   RunTriggers,
   type DiscoveryCompetitorMapEntry,
   type RunKind,
 } from '@ainyc/canonry-contracts'
+import { emitCloudEvent } from '@ainyc/canonry-api-routes'
 import type { Notifier } from './notifier.js'
 import type { IntelligenceService } from './intelligence-service.js'
 import type { AnalysisResult, Insight } from '@ainyc/canonry-intelligence'
 import { createLogger } from './logger.js'
+import { extractTokenUsage } from './token-usage.js'
 
 const log = createLogger('RunCoordinator')
+
+/**
+ * Fixed UUID namespace for `baseline.completed` / future stable-id cloud
+ * events. The actual value doesn't matter — it just needs to stay
+ * constant so the same `(eventType, projectId)` always derives the same
+ * v5 UUID. Arbitrary v4 UUID picked once and frozen.
+ */
+const CLOUD_EVENT_NAMESPACE = Buffer.from(
+  '5ba7b811-9dad-11d1-80b4-00c04fd430c8'.replace(/-/g, ''),
+  'hex',
+)
+
+/**
+ * Derive a deterministic RFC 4122 v5 UUID from `(eventType, projectId)`.
+ * Same inputs always yield the same UUID, so the control plane's
+ * `event_idempotency` table collapses accidental duplicates regardless of
+ * how many times the tenant emits.
+ *
+ * Exported for unit testing; production callers go through the
+ * `stableEventId('baseline.completed', projectId)` site inside this module.
+ */
+export function stableEventId(eventType: string, projectId: string): string {
+  const hash = crypto.createHash('sha1')
+  hash.update(CLOUD_EVENT_NAMESPACE)
+  hash.update(`${eventType}:${projectId}`)
+  const bytes = hash.digest().subarray(0, 16)
+  bytes[6] = (bytes[6] & 0x0f) | 0x50
+  bytes[8] = (bytes[8] & 0x3f) | 0x80
+  const hex = bytes.toString('hex')
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`
+}
 
 /**
  * Notifies the built-in Aero agent that a run just completed.
@@ -130,14 +165,51 @@ export class RunCoordinator {
       }
     }
 
-    // 2. Notifications — may short-circuit if no webhooks configured, catches its own errors
+    // 2. Cloud baseline event — fire `baseline.completed` exactly once per
+    //    project, on the first answer-visibility run that lands in a
+    //    terminal-success state. Subsequent runs don't re-emit. Subscribers
+    //    are typically the bootstrap-registered control plane; OSS
+    //    deployments emit but no one listens. Failures are swallowed —
+    //    falling through to notifier/Aero is more important than reaching
+    //    every cloud subscriber.
+    if (
+      kind === RunKinds['answer-visibility'] &&
+      runRow &&
+      (runRow.status === RunStatuses.completed || runRow.status === RunStatuses.partial)
+    ) {
+      try {
+        await this.maybeEmitBaselineCompleted(runRow, projectId)
+      } catch (err) {
+        log.error('cloud.baseline-completed.failed', {
+          runId,
+          error: err instanceof Error ? err.message : String(err),
+        })
+      }
+    }
+
+    // 3. Token-cost telemetry (Track 1 — Canonry Hosted). Persist a
+    //    per-(provider, model) usage row for every query snapshot in this run
+    //    that carries a usage block. Best-effort: persistence failures log
+    //    but never block the rest of the post-run pipeline. OSS deployments
+    //    silently accumulate the rows — the cloud control plane is the
+    //    primary consumer (billing + cost dashboards). Skipped for browser
+    //    providers and snapshots written before the extractor shipped.
+    if (kind === RunKinds['answer-visibility']) {
+      try {
+        this.persistTokenUsage(runId, projectId)
+      } catch (err) {
+        log.error('token-usage.failed', { runId, error: err instanceof Error ? err.message : String(err) })
+      }
+    }
+
+    // 4. Notifications — may short-circuit if no webhooks configured, catches its own errors
     try {
       await this.notifier.onRunCompleted(runId, projectId)
     } catch (err) {
       log.error('notifier.failed', { runId, error: err instanceof Error ? err.message : String(err) })
     }
 
-    // 3. Aero — enqueue + drain so the built-in agent wakes up unprompted.
+    // 5. Aero — enqueue + drain so the built-in agent wakes up unprompted.
     if (this.onAeroEvent) {
       try {
         const ctx: AeroEventContext = kind === RunKinds['aeo-discover-probe']
@@ -154,6 +226,145 @@ export class RunCoordinator {
         log.error('aero.failed', { runId, error: err instanceof Error ? err.message : String(err) })
       }
     }
+  }
+
+  /**
+   * Track 3 (Canonry Hosted) — emit `baseline.completed` if this is the
+   * first successful answer-visibility run for the project. "First" is
+   * defined as: no other `completed` or `partial` answer-visibility run
+   * exists for this project that is strictly older by `createdAt`. Probe
+   * runs are excluded so an operator smoke-test doesn't masquerade as the
+   * baseline.
+   *
+   * Concurrent-completion races (two answer-visibility runs finishing at
+   * once, or an older-but-longer-running run completing AFTER a newer one)
+   * can still produce a second emit because the lookup is non-atomic. To
+   * keep the control plane's `event_idempotency` table doing the right
+   * thing, we derive a STABLE `event_id` from `(event, projectId)` — every
+   * baseline emission for the same project carries the same UUID, so the
+   * control plane collapses accidental duplicates without depending on
+   * tenant-side serialization.
+   */
+  private async maybeEmitBaselineCompleted(
+    runRow: typeof runs.$inferSelect,
+    projectId: string,
+  ): Promise<void> {
+    // Look for any earlier completed/partial answer-visibility run for
+    // this project that isn't a probe. If one exists, this isn't the
+    // baseline.
+    const earlier = this.db
+      .select({ id: runs.id })
+      .from(runs)
+      .where(
+        and(
+          eq(runs.projectId, projectId),
+          eq(runs.kind, RunKinds['answer-visibility']),
+          ne(runs.trigger, RunTriggers.probe),
+          or(eq(runs.status, RunStatuses.completed), eq(runs.status, RunStatuses.partial)),
+          ne(runs.id, runRow.id),
+          lt(runs.createdAt, runRow.createdAt),
+        ),
+      )
+      .limit(1)
+      .get()
+    if (earlier) return
+
+    const project = this.db.select().from(projects).where(eq(projects.id, projectId)).get()
+    if (!project) {
+      log.warn('cloud.baseline-completed.project-missing', { runId: runRow.id, projectId })
+      return
+    }
+
+    await emitCloudEvent(this.db, {
+      event: 'baseline.completed',
+      project: { id: project.id, name: project.name, canonicalDomain: project.canonicalDomain },
+      payload: {
+        runId: runRow.id,
+        reportSummary: {
+          status: runRow.status,
+          finishedAt: runRow.finishedAt,
+          kind: runRow.kind,
+        },
+      },
+      eventId: stableEventId('baseline.completed', projectId),
+    })
+    log.info('cloud.baseline-completed.emitted', { runId: runRow.id, projectId })
+  }
+
+  /**
+   * Track 1 (Canonry Hosted) — persist per-(provider, model) token-cost
+   * telemetry for a completed run.
+   *
+   * Reads every `query_snapshots` row for this run, asks the provider-aware
+   * extractor for a `{ inputTokens, outputTokens, cachedInputTokens }`
+   * triple, and rolls them up by `(provider, model)` so one row covers all
+   * the queries that fanned out to the same model. Snapshots without a
+   * recognized usage block (browser providers, older rows from before
+   * instrumentation shipped) are skipped — we don't write zero-counter
+   * rows that would dilute downstream cost dashboards.
+   *
+   * Writes happen synchronously inside a single transaction so a partial
+   * failure rolls back. The caller wraps this in a try/catch so a
+   * persistence error logs but never blocks the rest of the run-completion
+   * pipeline.
+   */
+  private persistTokenUsage(runId: string, projectId: string): void {
+    const snapshots = this.db
+      .select({
+        provider: querySnapshots.provider,
+        model: querySnapshots.model,
+        rawResponse: querySnapshots.rawResponse,
+      })
+      .from(querySnapshots)
+      .where(eq(querySnapshots.runId, runId))
+      .all()
+
+    if (snapshots.length === 0) return
+
+    type Bucket = { provider: string; model: string | null; input: number; output: number; cached: number }
+    const buckets = new Map<string, Bucket>()
+
+    for (const snap of snapshots) {
+      if (!snap.rawResponse) continue
+      const usage = extractTokenUsage(snap.provider, snap.rawResponse)
+      if (!usage) continue
+      const key = `${snap.provider}::${snap.model ?? ''}`
+      const existing = buckets.get(key)
+      if (existing) {
+        existing.input += usage.inputTokens
+        existing.output += usage.outputTokens
+        existing.cached += usage.cachedInputTokens
+      } else {
+        buckets.set(key, {
+          provider: snap.provider,
+          model: snap.model,
+          input: usage.inputTokens,
+          output: usage.outputTokens,
+          cached: usage.cachedInputTokens,
+        })
+      }
+    }
+
+    if (buckets.size === 0) return
+
+    const now = new Date().toISOString()
+    this.db.transaction((tx) => {
+      for (const bucket of buckets.values()) {
+        tx.insert(providerTokenUsage).values({
+          id: crypto.randomUUID(),
+          runId,
+          projectId,
+          provider: bucket.provider,
+          model: bucket.model,
+          inputTokens: bucket.input,
+          outputTokens: bucket.output,
+          cachedInputTokens: bucket.cached,
+          occurredAt: now,
+        }).run()
+      }
+    })
+
+    log.info('token-usage.persisted', { runId, projectId, bucketCount: buckets.size })
   }
 
   /**

@@ -6,6 +6,15 @@ export interface GeminiConfig {
   apiKey: string
   quotaPolicy: ProviderQuotaPolicy
   model?: string
+  /**
+   * Optional base URL override. When set, every `new GoogleGenAI(...)` call
+   * in this adapter passes it as `httpOptions.baseUrl` (note: `@google/genai`
+   * uses camelCase `baseUrl`, not `baseURL` like the other SDKs). Used by
+   * Canonry Hosted to route Gemini calls through the per-tenant LLM proxy
+   * (Track 1). Ignored on Vertex AI configs — Vertex routes through GCP's
+   * managed endpoint.
+   */
+  baseUrl?: string
   /** Vertex AI GCP project ID — when set, uses Vertex AI instead of AI Studio */
   vertexProject?: string
   /** Vertex AI region (default: "us-central1") */

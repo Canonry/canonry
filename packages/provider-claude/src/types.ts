@@ -6,6 +6,13 @@ export interface ClaudeConfig {
   apiKey: string
   quotaPolicy: ProviderQuotaPolicy
   model?: string
+  /**
+   * Optional base URL override. When set, every `new Anthropic(...)` call in
+   * this adapter passes it as `baseURL`. Defaults to Anthropic's public API
+   * endpoint when omitted. Used by Canonry Hosted to route Anthropic calls
+   * through the per-tenant LLM proxy (Track 1).
+   */
+  baseUrl?: string
 }
 
 export interface ClaudeHealthcheckResult {
