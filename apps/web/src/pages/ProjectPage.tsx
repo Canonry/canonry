@@ -78,7 +78,7 @@ import { useInitialDashboard } from '../contexts/dashboard-context.js'
 import { useDrawer } from '../hooks/use-drawer.js'
 import type { ProjectCommandCenterVm, RunHistoryPoint } from '../view-models.js'
 
-export type ProjectPageTab = 'overview' | 'search-console' | 'discovery' | 'report' | 'activity' | 'backlinks' | 'settings'
+export type ProjectPageTab = 'overview' | 'search-console' | 'local' | 'discovery' | 'report' | 'activity' | 'backlinks' | 'settings'
 
 type SearchConsoleWorkspace = 'google' | 'bing'
 
@@ -1488,6 +1488,13 @@ function ProjectPageContent({
 }) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  // Gate the "Local Presence" tab on an actual GBP connection (same cached
+  // query GbpSection uses, so this dedupes — no extra fetch). Non-local
+  // projects never see the tab.
+  const gbpConnectionQuery = useQuery(
+    getApiV1ProjectsByNameGoogleConnectionsOptions({ client: heyClient, path: { name: model.project.name } }),
+  )
+  const gbpConnected = (gbpConnectionQuery.data ?? []).some((c) => c.connectionType === 'gbp')
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [addingQueries, setAddingQueries] = useState(false)
@@ -1784,6 +1791,9 @@ function ProjectPageContent({
   const projectTabItems: Array<{ key: ProjectPageTab; label: string; href: string }> = [
     { key: 'overview', label: 'Overview', href: `/projects/${model.project.id}` },
     { key: 'search-console', label: 'Search Engine Intelligence', href: `/projects/${model.project.id}/search-console` },
+    ...(gbpConnected
+      ? [{ key: 'local' as const, label: 'Local Presence', href: `/projects/${model.project.id}/local` }]
+      : []),
     { key: 'activity', label: 'Activity', href: `/projects/${model.project.id}/activity` },
     { key: 'report', label: 'Report', href: `/projects/${model.project.id}/report` },
     { key: 'backlinks', label: 'Backlinks', href: `/projects/${model.project.id}/backlinks` },
@@ -2292,13 +2302,12 @@ function ProjectPageContent({
         <ActivitySection projectName={model.project.name} />
       ) : tab === 'backlinks' ? (
         <BacklinksSection projectName={model.project.name} />
+      ) : tab === 'local' ? (
+        // Local presence (Google Business Profile + Places). GbpSection
+        // self-gates on the connection and renders its own empty state.
+        <GbpSection projectName={model.project.name} />
       ) : (
-        <>
-          <SearchConsoleSection projectName={model.project.name} />
-          {/* Local presence (Google Business Profile). Self-gates: renders only
-              when the project has a GBP connection. */}
-          <GbpSection projectName={model.project.name} />
-        </>
+        <SearchConsoleSection projectName={model.project.name} />
       )}
     </div>
   )
