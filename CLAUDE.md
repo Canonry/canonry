@@ -38,6 +38,11 @@ The web dashboard follows a dark, professional analytics aesthetic inspired by *
 - Use cards only for insights/interpretations where narrative matters.
 - Keep eyebrow labels (`text-[10px]`, uppercase, tracking-wide) for section context.
 
+### Text & Tooltips
+- **Heavy text belongs in tooltips, not inline.** A data surface shows values, one-line captions, and eyebrow labels — not prose. Multi-sentence explanations (methodology, "what this means", the evidence behind a finding) push the numbers down and break the analyst's scan, so they move into an `InfoTooltip` (`components/shared/InfoTooltip.tsx`) on the relevant heading, label, or row title. The trigger is a real keyboard-reachable button and the copy rides its `aria-label`, so nothing is lost for assistive tech or for tests (`getByRole('button', { name })`).
+- **What may stay inline:** the metric value itself, a single-line caption/subtitle, eyebrow section labels, and **empty / onboarding states** (which must instruct — a "connect this integration" empty state is the only content, not heavy text).
+- **The test:** if a sentence explains or justifies rather than labels or names, it goes in a tooltip. The section heading gets the info icon; the descriptive paragraph under it should not exist.
+
 ### Accessibility
 - Skip-to-content link.
 - `aria-current="page"` on active nav items.
@@ -61,6 +66,7 @@ The web dashboard follows a dark, professional analytics aesthetic inspired by *
 
 ### Don'ts
 - Don't use hero grids with large descriptive text blocks on the project page. Keep headers compact.
+- Don't set multi-sentence explanatory prose inline in a data view — move it to an `InfoTooltip` on the heading or row title. (Empty / onboarding states are the exception.)
 - Don't put evidence or findings in card grids. Use tables.
 - Don't add decorative background gradients or glow effects.
 - Don't create new component files unless the component is reused across 3+ pages.

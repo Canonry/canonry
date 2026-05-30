@@ -1742,7 +1742,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     const today = new Date().toISOString().slice(0, 10)
     if (locationNames.length === 0) {
       return buildGbpSummary({
-        locationName, locationCount: 0, referenceDate: today,
+        locationName, locationCount: 0, asOfDate: today,
         dailyMetrics: [], keywords: [], placeActions: [], lodging: [],
       })
     }
@@ -1764,14 +1764,13 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
       }
     }
 
-    // Anchor the 7-day windows to the most recent metric date present (or today
-    // when there's no data), so the comparison aligns with what was synced.
-    const referenceDate = metricRows.reduce<string>((max, r) => (r.date > max ? r.date : max), '') || today
-
+    // Pass the server "today"; buildGbpSummary derives the complete-day anchor
+    // from the data (latest non-zero day) so the reporting-lag tail never
+    // contaminates the recent-vs-prior deltas, and reports freshness explicitly.
     return buildGbpSummary({
       locationName,
       locationCount: locationNames.length,
-      referenceDate,
+      asOfDate: today,
       dailyMetrics: metricRows.map((r) => ({ metric: r.metric, date: r.date, value: r.value })),
       keywords: keywordRows.map((r) => ({ valueCount: r.valueCount ?? null, valueThreshold: r.valueThreshold ?? null })),
       placeActions: placeActionRows.map((r) => ({ placeActionType: r.placeActionType, providerType: r.providerType ?? null })),

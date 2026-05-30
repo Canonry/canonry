@@ -1,4 +1,5 @@
 import type { GbpAccountListResponse, GbpLocationListResponse, GbpSummaryDto } from '@ainyc/canonry-contracts'
+import { formatGbpMetricLabel } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
 
 function getClient() {
@@ -209,7 +210,7 @@ export async function gbpMetrics(
   for (const m of response.metrics) totals.set(m.metric, (totals.get(m.metric) ?? 0) + m.value)
   console.log(`${response.total} metric row(s). Totals by metric:`)
   for (const [metric, total] of [...totals.entries()].sort((a, b) => b[1] - a[1])) {
-    console.log(`  ${metric.padEnd(40)} ${total}`)
+    console.log(`  ${formatGbpMetricLabel(metric).padEnd(28)} ${total}`)
   }
 }
 
@@ -313,15 +314,23 @@ export async function gbpSummary(
     return
   }
   const scopeLabel = s.scope.locationName ?? `${s.scope.locationCount} selected location(s)`
-  console.log(`GBP local-AEO summary — ${scopeLabel}\n`)
+  console.log(`GBP local-AEO summary — ${scopeLabel}`)
+  // GBP Performance lags a few days; show the freshness so a stale tail isn't
+  // read as a decline. Deltas below are computed over complete days only.
+  if (s.freshness.dataThroughDate) {
+    const pending = s.freshness.pendingDays > 0 ? ` · ${s.freshness.pendingDays}d pending` : ''
+    console.log(`Data through ${s.freshness.dataThroughDate}${pending}`)
+  }
+  console.log('')
 
-  console.log('Performance (30d totals, last-7d vs prior-7d):')
-  const metrics = Object.keys(s.performance.totals).sort()
+  console.log('Performance (totals, last-7d vs prior-7d over complete days):')
+  const metrics = Object.keys(s.performance.totals)
+    .sort((a, b) => formatGbpMetricLabel(a).localeCompare(formatGbpMetricLabel(b)))
   if (metrics.length === 0) {
     console.log('  (no performance data — run `canonry gbp sync` first)')
   } else {
     for (const m of metrics) {
-      console.log(`  ${m.padEnd(40)} ${String(s.performance.totals[m]).padStart(8)}   ${fmtDelta(s.performance.deltaPct[m] ?? null)}`)
+      console.log(`  ${formatGbpMetricLabel(m).padEnd(28)} ${String(s.performance.totals[m]).padStart(8)}   ${fmtDelta(s.performance.deltaPct[m] ?? null)}`)
     }
   }
 

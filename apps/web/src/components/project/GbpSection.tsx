@@ -10,58 +10,39 @@ import {
   putApiV1ProjectsByNameGbpLocationsByLocationNameSelectionMutation,
 } from '@ainyc/canonry-api-client/react-query'
 
+import {
+  formatGbpMetricLabel,
+  classifyGbpMetric,
+  GBP_CONVERSION_METRICS,
+  GBP_REACH_METRICS,
+} from '@ainyc/canonry-contracts'
+
 import { Button } from '../ui/button.js'
 import { Card } from '../ui/card.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
+import { InfoTooltip } from '../shared/InfoTooltip.js'
+import {
+  ResponsiveContainer,
+  ComposedChart,
+  Line,
+  Area,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  RechartsTooltip,
+  Legend,
+  ReferenceArea,
+  CHART_TOOLTIP_STYLE,
+  CHART_AXIS_TICK,
+  CHART_AXIS_STROKE,
+  CHART_GRID_STROKE,
+  CHART_SERIES_COLORS,
+  CHART_NEUTRAL,
+  formatChartDateTick,
+  formatChartDateLabel,
+} from '../shared/ChartPrimitives.js'
 import { fetchInsights, heyClient } from '../../api.js'
 import { addToast } from '../../lib/toast-store.js'
-
-// Headline conversion metrics first, then the impression breakdowns. Any metric
-// the API returns that isn't listed here still renders (appended, raw name).
-const METRIC_ORDER = [
-  'BUSINESS_DIRECTION_REQUESTS',
-  'WEBSITE_CLICKS',
-  'CALL_CLICKS',
-  'BUSINESS_BOOKINGS',
-  'BUSINESS_CONVERSATIONS',
-  'BUSINESS_IMPRESSIONS_DESKTOP_SEARCH',
-  'BUSINESS_IMPRESSIONS_MOBILE_SEARCH',
-  'BUSINESS_IMPRESSIONS_DESKTOP_MAPS',
-  'BUSINESS_IMPRESSIONS_MOBILE_MAPS',
-]
-
-const METRIC_LABELS: Record<string, string> = {
-  BUSINESS_DIRECTION_REQUESTS: 'Direction requests',
-  WEBSITE_CLICKS: 'Website clicks',
-  CALL_CLICKS: 'Call clicks',
-  BUSINESS_BOOKINGS: 'Bookings',
-  BUSINESS_CONVERSATIONS: 'Conversations',
-  BUSINESS_IMPRESSIONS_DESKTOP_SEARCH: 'Search impressions (desktop)',
-  BUSINESS_IMPRESSIONS_MOBILE_SEARCH: 'Search impressions (mobile)',
-  BUSINESS_IMPRESSIONS_DESKTOP_MAPS: 'Maps impressions (desktop)',
-  BUSINESS_IMPRESSIONS_MOBILE_MAPS: 'Maps impressions (mobile)',
-}
-
-function metricLabel(metric: string): string {
-  return METRIC_LABELS[metric] ?? metric
-}
-
-function orderedMetrics(totals: Record<string, number>): string[] {
-  const present = Object.keys(totals)
-  const ordered = METRIC_ORDER.filter((m) => m in totals)
-  const extra = present.filter((m) => !METRIC_ORDER.includes(m)).sort()
-  return [...ordered, ...extra]
-}
-
-/** Render a 7-day delta as a tone-coloured chip. `null` (no prior window) → em dash. */
-function DeltaChip({ delta }: { delta: number | null | undefined }) {
-  if (delta === null || delta === undefined) {
-    return <span className="text-zinc-600" title="No prior 7-day window to compare">—</span>
-  }
-  const tone = delta > 0 ? 'text-emerald-400' : delta < 0 ? 'text-rose-400' : 'text-zinc-400'
-  const sign = delta > 0 ? '+' : ''
-  return <span className={`font-mono text-xs ${tone}`}>{sign}{delta}%</span>
-}
 
 export function GbpSection({ projectName }: { projectName: string }) {
   const queryClient = useQueryClient()
@@ -184,10 +165,10 @@ export function GbpSection({ projectName }: { projectName: string }) {
         <div className="section-head section-head-inline">
           <div>
             <p className="eyebrow eyebrow-soft">Local presence</p>
-            <h2>Google Business Profile</h2>
-            <p className="mt-1 max-w-3xl text-sm leading-6 text-zinc-500">
-              How AI answer engines and Maps surface this business — performance, search terms, booking CTAs, and how your public listing compares to the profile you control.
-            </p>
+            <h2 className="flex items-center gap-2">
+              Google Business Profile
+              <InfoTooltip text="How AI answer engines and Maps surface this business: performance, search terms, booking CTAs, and how your public listing compares to the profile you control." />
+            </h2>
           </div>
           <div className="flex items-center gap-2">
             <ToneBadge tone="positive">Connected</ToneBadge>
@@ -234,38 +215,24 @@ export function GbpSection({ projectName }: { projectName: string }) {
               <div className="mb-6 grid gap-2">
                 {gapInsights.map((ins) => (
                   <div key={ins.id} className="insight-card insight-card-negative rounded-r-lg border border-zinc-800/60 bg-zinc-900/30 p-3 pl-4">
-                    <p className="text-sm font-medium text-zinc-200">{ins.title}</p>
-                    {ins.recommendation?.reason && (
-                      <p className="text-sm leading-6 text-zinc-400">{ins.recommendation.reason}</p>
-                    )}
+                    <p className="flex items-center gap-2 text-sm font-medium text-zinc-200">
+                      {ins.title}
+                      {ins.recommendation?.reason && <InfoTooltip text={ins.recommendation.reason} />}
+                    </p>
                   </div>
                 ))}
               </div>
             )}
 
-            {/* Performance scorecard — totals + 7-day deltas (all computed server-side). */}
+            {/* Performance — graph-first: a daily conversion trend (the hero) and
+                a reach area, with the reporting-lag tail marked pending and
+                all-zero series collapsed to a footnote (#658). */}
             {summary && (
-              <div className="mb-6">
-                <p className="eyebrow eyebrow-soft mb-2">Performance · last 7 days vs prior 7</p>
-                {orderedMetrics(summary.performance.totals).length === 0 ? (
-                  <p className="text-sm text-zinc-500">No performance data yet — run a sync.</p>
-                ) : (
-                  <div className="metric-grid grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                    {orderedMetrics(summary.performance.totals).map((metric) => (
-                      <div key={metric} className="metric-card rounded-lg border border-zinc-800/60 bg-zinc-900/30 px-3 py-2">
-                        <div className="text-[11px] uppercase tracking-wide text-zinc-500">{metricLabel(metric)}</div>
-                        <div className="mt-1 flex items-baseline justify-between">
-                          <span className="font-mono text-lg text-zinc-50">{(summary.performance.totals[metric] ?? 0).toLocaleString()}</span>
-                          <DeltaChip delta={summary.performance.deltaPct[metric]} />
-                        </div>
-                        <div className="mt-0.5 text-[11px] text-zinc-600">
-                          {(summary.performance.recent7d[metric] ?? 0).toLocaleString()} recent · {(summary.performance.prior7d[metric] ?? 0).toLocaleString()} prior
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+              <GbpPerformance
+                performance={summary.performance}
+                freshness={summary.freshness}
+                timeseries={summary.timeseries}
+              />
             )}
 
             {/* CTA presence + lodging completeness tiles. */}
@@ -483,6 +450,175 @@ function SignalTile({
           ? <ToneBadge tone="positive">Present</ToneBadge>
           : <ToneBadge tone={absentTone}>Absent</ToneBadge>}
       </div>
+    </div>
+  )
+}
+
+// ----- Performance: graph-first conversion trend + reach (#658) -----
+
+interface GbpTimeseriesDay {
+  date: string
+  pending: boolean
+  metrics: Record<string, number>
+}
+
+/**
+ * Replaces the old wall of equal-weight metric tiles. Leads with the daily
+ * conversion trend (the outcome that moves revenue), keeps reach as supporting
+ * context, marks the reporting-lag tail as pending instead of a false decline,
+ * and collapses all-zero series to a one-line footnote.
+ */
+function GbpPerformance({
+  performance,
+  freshness,
+  timeseries,
+}: {
+  performance: { totals: Record<string, number> }
+  freshness: { dataThroughDate: string | null; pendingDays: number }
+  timeseries: GbpTimeseriesDay[]
+}) {
+  const totals = performance.totals
+  const conversionMetrics = GBP_CONVERSION_METRICS.filter((m) => (totals[m] ?? 0) > 0)
+  const reachMetrics = GBP_REACH_METRICS.filter((m) => (totals[m] ?? 0) > 0)
+  // Active "other" outcomes (bookings, conversations, food) — shown as exact
+  // figures next to the conversion totals only when they actually have volume.
+  const otherActive = Object.keys(totals)
+    .filter((m) => (totals[m] ?? 0) > 0 && classifyGbpMetric(m) === 'other')
+    .sort((a, b) => (totals[b] ?? 0) - (totals[a] ?? 0))
+  // All-zero series collapse to a footnote rather than occupying prime tiles.
+  const notActive = Object.keys(totals).filter((m) => (totals[m] ?? 0) === 0).sort()
+
+  // Recharts wants flat rows: { date, <metric>: value, … }.
+  const chartData = timeseries.map((d) => {
+    const row: Record<string, string | number> = { date: d.date }
+    for (const [metric, value] of Object.entries(d.metrics)) row[metric] = value
+    return row
+  })
+  const firstPending = timeseries.find((d) => d.pending)?.date
+  const lastDate = timeseries.length > 0 ? timeseries[timeseries.length - 1]!.date : undefined
+  const hasSeries = chartData.length > 0
+
+  const freshnessLabel = freshness.dataThroughDate
+    ? `Data through ${formatChartDateLabel(freshness.dataThroughDate)}${freshness.pendingDays > 0 ? ` · ${freshness.pendingDays}d pending` : ''}`
+    : null
+
+  const conversionStats = [...conversionMetrics, ...otherActive]
+
+  return (
+    <div className="mb-6 grid gap-6">
+      <div>
+        <div className="mb-2 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+          <p className="eyebrow eyebrow-soft">Conversions · daily</p>
+          {freshnessLabel && <span className="text-[11px] text-zinc-500">{freshnessLabel}</span>}
+        </div>
+        {!hasSeries || conversionMetrics.length === 0 ? (
+          <p className="text-sm text-zinc-500">No conversion activity yet — run a sync.</p>
+        ) : (
+          <>
+            <GbpTrendChart data={chartData} metrics={conversionMetrics} kind="line" firstPending={firstPending} lastDate={lastDate} />
+            <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1">
+              {conversionStats.map((m) => (
+                <span key={m} className="text-sm text-zinc-400">
+                  {formatGbpMetricLabel(m)}{' '}
+                  <span className="font-mono text-zinc-100">{(totals[m] ?? 0).toLocaleString()}</span>
+                </span>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+
+      {hasSeries && reachMetrics.length > 0 && (
+        <div>
+          <p className="eyebrow eyebrow-soft mb-2">Reach · impressions, daily</p>
+          <GbpTrendChart data={chartData} metrics={reachMetrics} kind="area" firstPending={firstPending} lastDate={lastDate} />
+        </div>
+      )}
+
+      {notActive.length > 0 && (
+        <p className="text-xs text-zinc-600">
+          Not active: {notActive.map((m) => formatGbpMetricLabel(m)).join(', ')}
+        </p>
+      )}
+    </div>
+  )
+}
+
+function GbpTrendChart({
+  data,
+  metrics,
+  kind,
+  firstPending,
+  lastDate,
+}: {
+  data: Array<Record<string, string | number>>
+  metrics: readonly string[]
+  kind: 'line' | 'area'
+  firstPending?: string
+  lastDate?: string
+}) {
+  return (
+    <div className="h-48 w-full">
+      <ResponsiveContainer width="100%" height="100%">
+        <ComposedChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+          <CartesianGrid stroke={CHART_GRID_STROKE} vertical={false} />
+          <XAxis
+            dataKey="date"
+            tick={CHART_AXIS_TICK}
+            tickLine={false}
+            axisLine={{ stroke: CHART_AXIS_STROKE }}
+            tickFormatter={formatChartDateTick}
+            minTickGap={24}
+          />
+          <YAxis tick={CHART_AXIS_TICK} tickLine={false} axisLine={false} allowDecimals={false} width={36} />
+          <RechartsTooltip
+            {...CHART_TOOLTIP_STYLE}
+            labelFormatter={formatChartDateLabel}
+            formatter={(value, name) => {
+              const formatted = typeof value === 'number' ? value.toLocaleString() : String(value ?? 0)
+              return [formatted, formatGbpMetricLabel(String(name ?? ''))]
+            }}
+          />
+          <Legend wrapperStyle={{ fontSize: 11, color: CHART_NEUTRAL.text }} formatter={(value: string) => formatGbpMetricLabel(value)} />
+          {/* The reporting-lag tail: a greyed band so a not-yet-reported day is
+              never read as a real dip. */}
+          {firstPending && lastDate && (
+            <ReferenceArea
+              x1={firstPending}
+              x2={lastDate}
+              fill={CHART_NEUTRAL.surface}
+              fillOpacity={0.55}
+              stroke="none"
+              label={{ value: 'pending', position: 'insideTopRight', fill: CHART_NEUTRAL.textDim, fontSize: 10 }}
+            />
+          )}
+          {metrics.map((m, i) => (
+            kind === 'line' ? (
+              <Line
+                key={m}
+                type="monotone"
+                dataKey={m}
+                stroke={CHART_SERIES_COLORS[i % CHART_SERIES_COLORS.length]}
+                strokeWidth={2}
+                dot={false}
+                isAnimationActive={false}
+              />
+            ) : (
+              <Area
+                key={m}
+                type="monotone"
+                dataKey={m}
+                stackId="reach"
+                stroke={CHART_SERIES_COLORS[i % CHART_SERIES_COLORS.length]}
+                fill={CHART_SERIES_COLORS[i % CHART_SERIES_COLORS.length]}
+                fillOpacity={0.25}
+                strokeWidth={1.5}
+                isAnimationActive={false}
+              />
+            )
+          ))}
+        </ComposedChart>
+      </ResponsiveContainer>
     </div>
   )
 }

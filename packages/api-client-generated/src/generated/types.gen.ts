@@ -694,6 +694,18 @@ export type GbpSummaryDto = {
             [key: string]: number | null;
         };
     };
+    freshness: {
+        dataThroughDate: string | null;
+        latestStoredDate: string | null;
+        pendingDays: number;
+    };
+    timeseries: Array<{
+        date: string;
+        pending: boolean;
+        metrics: {
+            [key: string]: number;
+        };
+    }>;
     keywords: {
         total: number;
         thresholdedCount: number;

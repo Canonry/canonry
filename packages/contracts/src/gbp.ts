@@ -199,8 +199,30 @@ export const gbpSummaryDtoSchema = z.object({
     totals: z.record(z.string(), z.number()),
     recent7d: z.record(z.string(), z.number()),
     prior7d: z.record(z.string(), z.number()),
+    // Per-metric % change recent-vs-prior, computed over COMPLETE days only
+    // (the windows anchor to `freshness.dataThroughDate`, never the lagging
+    // tail), so a reporting-lag artifact is never shown as a real delta.
     deltaPct: z.record(z.string(), z.number().nullable()),
   }),
+  // GBP Performance data lags a few days; the most recent stored days can be
+  // not-yet-reported zeros. `freshness` lets every renderer mark the trailing
+  // window as pending instead of treating it as a real decline.
+  freshness: z.object({
+    /** Latest day with reported (non-zero) activity — the last complete day. Null when there's no data. */
+    dataThroughDate: z.string().nullable(),
+    /** Max stored metric date (>= dataThroughDate when Google has emitted not-yet-final zero rows). Null when there's no data. */
+    latestStoredDate: z.string().nullable(),
+    /** Calendar days between dataThroughDate and the as-of date — the trailing window still pending/unreported. */
+    pendingDays: z.number().int().nonnegative(),
+  }),
+  // Daily series (most recent ~30 days) for the trend charts. Each day carries
+  // every metric present in the window (0 where a metric had no row that day),
+  // and a `pending` flag so the lag tail renders distinct, never as zeros.
+  timeseries: z.array(z.object({
+    date: z.string(),
+    pending: z.boolean(),
+    metrics: z.record(z.string(), z.number()),
+  })),
   keywords: z.object({
     total: z.number().int().nonnegative(),
     thresholdedCount: z.number().int().nonnegative(),
@@ -219,3 +241,63 @@ export const gbpSummaryDtoSchema = z.object({
   }),
 })
 export type GbpSummaryDto = z.infer<typeof gbpSummaryDtoSchema>
+
+// ----- Metric presentation (shared by web + CLI so labels never diverge) -----
+
+// Human-readable label per GBP DailyMetric enum key. Unknown keys fall back to
+// `humanizeMetricKey` so a raw `BUSINESS_*` token never reaches a surface.
+const GBP_METRIC_LABELS: Record<string, string> = {
+  BUSINESS_DIRECTION_REQUESTS: 'Direction requests',
+  WEBSITE_CLICKS: 'Website clicks',
+  CALL_CLICKS: 'Call clicks',
+  BUSINESS_BOOKINGS: 'Bookings',
+  BUSINESS_CONVERSATIONS: 'Conversations',
+  BUSINESS_FOOD_ORDERS: 'Food orders',
+  BUSINESS_FOOD_MENU_CLICKS: 'Food menu clicks',
+  BUSINESS_IMPRESSIONS_DESKTOP_SEARCH: 'Search impressions (desktop)',
+  BUSINESS_IMPRESSIONS_MOBILE_SEARCH: 'Search impressions (mobile)',
+  BUSINESS_IMPRESSIONS_DESKTOP_MAPS: 'Maps impressions (desktop)',
+  BUSINESS_IMPRESSIONS_MOBILE_MAPS: 'Maps impressions (mobile)',
+}
+
+/** Strip the `BUSINESS_` prefix and sentence-case an unknown metric key. */
+function humanizeMetricKey(metric: string): string {
+  const words = metric.replace(/^BUSINESS_/, '').split('_').filter(Boolean).map((w) => w.toLowerCase())
+  if (words.length === 0) return metric
+  const joined = words.join(' ')
+  return joined.charAt(0).toUpperCase() + joined.slice(1)
+}
+
+/** Human-readable label for a GBP metric key. Never returns a raw `BUSINESS_*` token. */
+export function formatGbpMetricLabel(metric: string): string {
+  return GBP_METRIC_LABELS[metric] ?? humanizeMetricKey(metric)
+}
+
+/** The outcome metrics a property owner cares about (the conversion hero). */
+export const GBP_CONVERSION_METRICS = [
+  'BUSINESS_DIRECTION_REQUESTS',
+  'WEBSITE_CLICKS',
+  'CALL_CLICKS',
+] as const
+
+/** The reach metrics (impressions) — supporting context, not outcomes. */
+export const GBP_REACH_METRICS = [
+  'BUSINESS_IMPRESSIONS_DESKTOP_SEARCH',
+  'BUSINESS_IMPRESSIONS_MOBILE_SEARCH',
+  'BUSINESS_IMPRESSIONS_DESKTOP_MAPS',
+  'BUSINESS_IMPRESSIONS_MOBILE_MAPS',
+] as const
+
+export type GbpMetricGroup = 'conversion' | 'reach' | 'other'
+
+/**
+ * Classify a metric into the dashboard's two chart groups. `conversion`
+ * (directions / website / calls) is the outcome hero; `reach` (impressions)
+ * is context; everything else (`bookings`, `conversations`, food ordering)
+ * is `other` and only surfaces when it has activity.
+ */
+export function classifyGbpMetric(metric: string): GbpMetricGroup {
+  if ((GBP_CONVERSION_METRICS as readonly string[]).includes(metric)) return 'conversion'
+  if ((GBP_REACH_METRICS as readonly string[]).includes(metric)) return 'reach'
+  return 'other'
+}
