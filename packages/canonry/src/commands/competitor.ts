@@ -1,4 +1,5 @@
 import { createApiClient } from '../client.js'
+import { emitJsonl } from '../cli-output.js'
 
 function getClient() {
   return createApiClient()
@@ -70,6 +71,12 @@ export async function listCompetitors(project: string, format?: string): Promise
 
   if (format === 'json') {
     console.log(JSON.stringify(comps, null, 2))
+    return
+  } else if (format === 'jsonl') {
+    // One self-contained competitor per line. Each carries `project` so a line
+    // lifted out of context still says which project it belongs to; the record's
+    // own fields spread last and win.
+    emitJsonl(comps.map(c => ({ project, ...c })))
     return
   }
 

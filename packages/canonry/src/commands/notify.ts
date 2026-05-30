@@ -1,4 +1,5 @@
 import { createApiClient } from '../client.js'
+import { emitJsonl } from '../cli-output.js'
 import { notificationEventSchema } from '@ainyc/canonry-contracts'
 
 function getClient() {
@@ -43,6 +44,11 @@ export async function listNotifications(project: string, format?: string): Promi
 
   if (format === 'json') {
     console.log(JSON.stringify(results, null, 2))
+    return
+  } else if (format === 'jsonl') {
+    // Each notification already carries `projectId`, so a line stands alone
+    // when lifted out of the list — emit bare, no `project` tag to inject.
+    emitJsonl(results)
     return
   }
 
@@ -93,8 +99,14 @@ const EVENT_DESCRIPTIONS: Record<string, string> = {
 
 export function listEvents(format?: string): void {
   const events = notificationEventSchema.options
+  const catalog = events.map(e => ({ event: e, description: EVENT_DESCRIPTIONS[e] ?? '' }))
   if (format === 'json') {
-    console.log(JSON.stringify(events.map(e => ({ event: e, description: EVENT_DESCRIPTIONS[e] ?? '' })), null, 2))
+    console.log(JSON.stringify(catalog, null, 2))
+    return
+  } else if (format === 'jsonl') {
+    // Global static catalog — each record self-identifies via `event`, so it's
+    // emitted bare (no project / context tag to prepend).
+    emitJsonl(catalog)
     return
   }
   console.log('Available notification events:\n')

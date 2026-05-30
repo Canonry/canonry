@@ -1,6 +1,7 @@
 import type { GscUrlInspectionDto, IndexingRequestResultDto } from '@ainyc/canonry-contracts'
 import { type ApiClient, createApiClient } from '../client.js'
 import { CliError } from '../cli-error.js'
+import { emitJsonl } from '../cli-output.js'
 
 const INDEXING_API_SCOPE_NOTICE =
   "Note: Google's Indexing API officially supports only pages with JobPosting or BroadcastEvent (livestream VideoObject) structured data. " +
@@ -133,6 +134,9 @@ export async function googleStatus(project: string, format?: string): Promise<vo
   if (format === 'json') {
     console.log(JSON.stringify({ connections }, null, 2))
     return
+  } else if (format === 'jsonl') {
+    emitJsonl(connections.map((conn) => ({ project, ...conn })))
+    return
   }
 
   if (connections.length === 0) {
@@ -159,6 +163,9 @@ export async function googleProperties(project: string, format?: string): Promis
 
   if (format === 'json') {
     console.log(JSON.stringify({ sites }, null, 2))
+    return
+  } else if (format === 'jsonl') {
+    emitJsonl(sites.map((site) => ({ project, ...site })))
     return
   }
 
@@ -252,6 +259,9 @@ export async function googlePerformanceDaily(project: string, opts: {
   if (opts.format === 'json') {
     console.log(JSON.stringify(data, null, 2))
     return
+  } else if (opts.format === 'jsonl') {
+    emitJsonl(data.daily.map((row) => ({ project, ...row })))
+    return
   }
 
   if (data.daily.length === 0) {
@@ -304,6 +314,9 @@ export async function googlePerformance(project: string, opts: {
 
   if (opts.format === 'json') {
     console.log(JSON.stringify(rows, null, 2))
+    return
+  } else if (opts.format === 'jsonl') {
+    emitJsonl(rows.map((row) => ({ project, ...row })))
     return
   }
 
@@ -376,6 +389,9 @@ export async function googleInspections(project: string, opts: { url?: string; f
 
   if (opts.format === 'json') {
     console.log(JSON.stringify(rows, null, 2))
+    return
+  } else if (opts.format === 'jsonl') {
+    emitJsonl(rows.map((row) => ({ project, ...row })))
     return
   }
 
@@ -482,6 +498,9 @@ export async function googleListSitemaps(project: string, opts: { format?: strin
   if (opts.format === 'json') {
     console.log(JSON.stringify(result, null, 2))
     return
+  } else if (opts.format === 'jsonl') {
+    emitJsonl(result.sitemaps.map((s) => ({ project, ...s })))
+    return
   }
 
   if (result.sitemaps.length === 0) {
@@ -557,6 +576,9 @@ export async function googleCoverageHistory(project: string, opts: { limit?: num
 
   if (opts.format === 'json') {
     console.log(JSON.stringify(rows, null, 2))
+    return
+  } else if (opts.format === 'jsonl') {
+    emitJsonl(rows.map((row) => ({ project, ...row })))
     return
   }
 
@@ -807,6 +829,9 @@ export async function googleDeindexed(project: string, format?: string): Promise
 
   if (format === 'json') {
     console.log(JSON.stringify(rows, null, 2))
+    return
+  } else if (format === 'jsonl') {
+    emitJsonl(rows.map((row) => ({ project, ...row })))
     return
   }
 

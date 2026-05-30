@@ -1,7 +1,25 @@
 import type { AgentEvent, AgentMessage } from '@mariozechner/pi-agent-core'
-import { CliError, EXIT_SYSTEM_ERROR, printCliError, type CliFormat } from '../cli-error.js'
+import {
+  CliError,
+  EXIT_SYSTEM_ERROR,
+  isMachineFormat,
+  printCliError,
+  type CliFormat,
+} from '../cli-error.js'
 import { createApiClient } from '../client.js'
 import type { SupportedAgentProvider } from '../agent/session.js'
+
+/**
+ * Coerce the raw format flag while preserving `jsonl`. `agent ask` streams an
+ * SSE event sequence, not a list — there's no meaningful primary collection to
+ * stream as newline-delimited records, so `jsonl` routes to the same per-event
+ * JSON machine output as `json` rather than silently falling to human text.
+ */
+function toFormat(raw?: string): CliFormat {
+  if (raw === 'json') return 'json'
+  if (raw === 'jsonl') return 'jsonl'
+  return 'text'
+}
 
 export type AgentAskScope = 'all' | 'read-only'
 
@@ -29,8 +47,9 @@ export interface AgentAskOptions {
  * turn couldn't perform.
  */
 export async function agentAsk(opts: AgentAskOptions): Promise<void> {
-  const format = (opts.format === 'json' ? 'json' : 'text') as CliFormat
-  const isJson = format === 'json'
+  const format = toFormat(opts.format)
+  // Both machine formats stream the same per-event JSON; `text` is decorated.
+  const isJson = isMachineFormat(format)
 
   const controller = new AbortController()
   const onSigint = () => controller.abort()

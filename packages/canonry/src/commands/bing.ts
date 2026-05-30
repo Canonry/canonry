@@ -1,6 +1,7 @@
 import type { RunDetailDto } from '@ainyc/canonry-contracts'
 import { type ApiClient, createApiClient } from '../client.js'
 import { CliError } from '../cli-error.js'
+import { emitJsonl } from '../cli-output.js'
 
 function getClient() {
   return createApiClient()
@@ -143,6 +144,9 @@ export async function bingSites(project: string, format?: string): Promise<void>
   if (format === 'json') {
     console.log(JSON.stringify(result, null, 2))
     return
+  } else if (format === 'jsonl') {
+    emitJsonl(result.sites.map((site) => ({ project, ...site })))
+    return
   }
 
   if (result.sites.length === 0) {
@@ -240,6 +244,9 @@ export async function bingCoverageHistory(project: string, opts: { limit?: numbe
   if (opts.format === 'json') {
     console.log(JSON.stringify(rows, null, 2))
     return
+  } else if (opts.format === 'jsonl') {
+    emitJsonl(rows.map((row) => ({ project, ...row })))
+    return
   }
 
   if (rows.length === 0) {
@@ -306,6 +313,9 @@ export async function bingInspections(project: string, opts: { url?: string; for
 
   if (opts.format === 'json') {
     console.log(JSON.stringify(rows, null, 2))
+    return
+  } else if (opts.format === 'jsonl') {
+    emitJsonl(rows.map((row) => ({ project, ...row })))
     return
   }
 
@@ -484,6 +494,10 @@ export async function bingPerformance(project: string, format?: string): Promise
 
   if (format === 'json') {
     console.log(JSON.stringify(rows, null, 2))
+    return
+  } else if (format === 'jsonl') {
+    // Emit every row (no 50-row human truncation) — agents read the full set.
+    emitJsonl(rows.map((row) => ({ project, ...row })))
     return
   }
 

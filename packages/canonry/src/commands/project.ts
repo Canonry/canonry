@@ -1,6 +1,7 @@
 import type { ProjectDto } from '@ainyc/canonry-contracts'
 import { effectiveDomains, normalizeProjectAliases } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
+import { emitJsonl } from '../cli-output.js'
 
 function getClient() {
   return createApiClient()
@@ -34,6 +35,13 @@ export async function listProjects(format?: string): Promise<void> {
 
   if (format === 'json') {
     console.log(JSON.stringify(projects, null, 2))
+    return
+  }
+
+  if (format === 'jsonl') {
+    // Global command — each project already self-identifies via name/id, so
+    // records emit bare with no envelope tag to prepend.
+    emitJsonl(projects)
     return
   }
 
@@ -213,6 +221,19 @@ export async function listLocations(project: string, format?: string): Promise<v
 
   if (format === 'json') {
     console.log(JSON.stringify(result, null, 2))
+    return
+  }
+
+  if (format === 'jsonl') {
+    // Project-scoped — prepend the `project` tag the line loses by leaving the
+    // envelope, plus `isDefault` derived from the envelope's default marker so
+    // the default location stays identifiable per line. Spread the location
+    // record last so its own fields win.
+    emitJsonl(result.locations.map(loc => ({
+      project,
+      isDefault: loc.label === result.defaultLocation,
+      ...loc,
+    })))
     return
   }
 

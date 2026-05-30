@@ -9,6 +9,7 @@ import type {
   DiscoverySessionDto,
 } from '@ainyc/canonry-contracts'
 import { CliError } from '../cli-error.js'
+import { emitJsonl } from '../cli-output.js'
 
 const TERMINAL_DISCOVERY_STATUSES = new Set<DiscoverySessionDto['status']>([
   'completed',
@@ -209,6 +210,16 @@ export async function discoverProbe(project: string, sessionId: string, opts: { 
     console.log(JSON.stringify(session, null, 2))
     return
   }
+  if (opts.format === 'jsonl') {
+    // Stream the session's probes — one per-query record per line. Each is
+    // stamped with `project` + `sessionId` so a probe line lifted out of the
+    // session envelope still says which session it came from. The record is
+    // spread last so its own fields win (the probe's own `sessionId` matches
+    // the stamped one — same session — so the record wins harmlessly).
+    const context = { project, sessionId }
+    emitJsonl(session.probes.map(probe => ({ ...context, ...probe })))
+    return
+  }
   printSessionDetail(session)
 }
 
@@ -217,6 +228,13 @@ export async function discoverList(project: string, opts: { limit?: number; form
   const sessions = await client.listDiscoverySessions(project, opts.limit !== undefined ? { limit: opts.limit } : undefined)
   if (opts.format === 'json') {
     console.log(JSON.stringify(sessions, null, 2))
+    return
+  }
+  if (opts.format === 'jsonl') {
+    // One self-contained session per line. Each carries `project` (the records
+    // only self-identify by `projectId`) so a line lifted out still names its
+    // project; the record is spread last so its own fields win.
+    emitJsonl(sessions.map(s => ({ project, ...s })))
     return
   }
   if (sessions.length === 0) {
@@ -242,6 +260,16 @@ export async function discoverShow(project: string, sessionId: string, opts: { f
   const session = await client.getDiscoverySession(project, sessionId)
   if (opts.format === 'json') {
     console.log(JSON.stringify(session, null, 2))
+    return
+  }
+  if (opts.format === 'jsonl') {
+    // Stream the session's probes — one per-query record per line. Each is
+    // stamped with `project` + `sessionId` so a probe line lifted out of the
+    // session envelope still says which session it came from. The record is
+    // spread last so its own fields win (the probe's own `sessionId` matches
+    // the stamped one — same session — so the record wins harmlessly).
+    const context = { project, sessionId }
+    emitJsonl(session.probes.map(probe => ({ ...context, ...probe })))
     return
   }
   printSessionDetail(session)

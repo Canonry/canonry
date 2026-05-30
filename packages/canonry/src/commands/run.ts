@@ -1,6 +1,7 @@
 import { type ApiClient, createApiClient } from '../client.js'
 import { CitationStates, resolveProviderInput, type RunDetailDto } from '@ainyc/canonry-contracts'
 import { CliError } from '../cli-error.js'
+import { emitJsonl } from '../cli-output.js'
 
 function getClient() {
   return createApiClient()
@@ -305,6 +306,11 @@ export async function listRuns(project: string, opts?: { format?: string; limit?
 
   if (opts?.format === 'json') {
     console.log(JSON.stringify(runs, null, 2))
+    return
+  } else if (opts?.format === 'jsonl') {
+    // Prepend `project` (the line loses it when lifted out of the per-project
+    // envelope); spread the run last so its own fields win. Probe runs stay in.
+    emitJsonl(runs.map(run => ({ project, ...run })))
     return
   }
 

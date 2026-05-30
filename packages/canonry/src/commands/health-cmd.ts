@@ -1,4 +1,5 @@
 import { createApiClient } from '../client.js'
+import { emitJsonl } from '../cli-output.js'
 
 export async function showHealth(
   project: string,
@@ -11,6 +12,12 @@ export async function showHealth(
 
     if (opts.format === 'json') {
       console.log(JSON.stringify(snapshots, null, 2))
+      return
+    } else if (opts.format === 'jsonl') {
+      // Stream one self-contained snapshot per line. Prepend `project` (which
+      // the snapshot itself doesn't name) so a line lifted out of the history
+      // envelope still says which project it describes.
+      emitJsonl(snapshots.map(snap => ({ project, ...snap })))
       return
     }
 
@@ -32,7 +39,10 @@ export async function showHealth(
 
   const health = await client.getHealth(project)
 
-  if (opts.format === 'json') {
+  // The default path returns a single health object, not a list. jsonl maps
+  // onto json here (one machine object, same bytes) rather than falling
+  // through to human text.
+  if (opts.format === 'json' || opts.format === 'jsonl') {
     console.log(JSON.stringify(health, null, 2))
     return
   }

@@ -128,12 +128,16 @@ canonry doctor --check 'google.auth.*' --format jsonl
 
 directly — no `2>/dev/null`, no `| jq '(.checks // .results // [])[] | ...'`, no guessing the envelope key. Each line stands alone for `grep`/`head`/per-line `jq`.
 
+`jsonl` is wired into **every collection command** (a command whose primary output is a list) — `insights`, `runs`, `evidence`, `history`, `query/keyword/competitor list`, `notify list/events`, the `google`/`bing`/`ga` reads, `traffic events/sources/status`, `discover list/show`, `content targets/sources/gaps`, `backlinks list/releases`, `project list/locations`, `agent memory list`, `agent providers`, and `doctor`. The per-command primary collection + the context each line carries is catalogued in `skills/canonry/references/canonry-cli.md` ("Output schema per command" + "Output Formats"). Composite/object commands (`status`, `analytics`, `ga traffic`/`attribution`, `gbp summary`, index `coverage`) have **no** `jsonl` — they stay `json`.
+
 Conventions when adding `jsonl` to a command:
 
 - **Emit via `emitJsonl(records)`** from `src/cli-output.js` (one `process.stdout.write`, compact, newline-terminated). Don't hand-roll `console.log(JSON.stringify(...))` per row.
-- **Pick the primary collection** the agent is really after (doctor → `checks`, list commands → their array). Carry any context the line loses by leaving the envelope into each record (doctor tags every line with `project`, null for global) so a line lifted out still says what it describes.
-- **Object-only commands** (a single status/summary, not a list) may map `jsonl` onto `json` or emit the object as one line — but prefer leaving `jsonl` to genuinely list-shaped output rather than forcing it.
+- **Pick the primary collection** the agent is really after (doctor → `checks`, list commands → their array). Carry any context the line loses by leaving the envelope into each record by spreading context first, record last: `emitJsonl(rows.map(r => ({ project, ...r })))`. Project-scoped lists stamp `project`; add whatever else the envelope held (`window` for `ga *-history`, `release`/`targetDomain` for `backlinks list`, `sessionId` for `discover show`, `isDefault` for `project locations`). Global lists whose rows self-identify (`project list`, `notify events`, `backlinks releases`) emit bare.
+- **Object-only commands** (a single status/summary, not a list) may map `jsonl` onto `json` (via `isMachineFormat(format)`) or emit the object as one line — but prefer leaving `jsonl` to genuinely list-shaped output rather than forcing it.
+- **Watch for a local `toFormat`.** A few commands (the `agent-*` handlers) historically narrowed format to `json`-or-`text` inline, which silently swallows `jsonl`. If a command has its own `toFormat`, widen it to pass `jsonl` through (or delete it and use `opts.format` / `isMachineFormat`).
 - **Errors and exit codes are unchanged** — `printCliError` renders a single-line envelope for `jsonl`, and a failing command still throws its `CliError` (so e.g. `doctor` still exits 1 after printing every check line). Agents branch on the exit code, not on parsing stderr.
+- **USAGE strings** are not mass-updated to advertise `json|jsonl` (cosmetic; the global `cnry --help` and the skill reference cover discoverability) — `doctor`'s does as the exemplar.
 
 The stable, machine-readable formats are `json` and `jsonl`; `text` is decorated and not a parse target. `isMachineFormat(format)` distinguishes them.
 

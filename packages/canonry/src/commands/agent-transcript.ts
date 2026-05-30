@@ -1,4 +1,4 @@
-import { CliError, printCliError, type CliFormat } from '../cli-error.js'
+import { CliError, isMachineFormat, printCliError, type CliFormat } from '../cli-error.js'
 import { createApiClient } from '../client.js'
 
 export interface AgentTranscriptOptions {
@@ -6,13 +6,25 @@ export interface AgentTranscriptOptions {
   format?: string
 }
 
+/**
+ * Coerce the raw format flag while preserving `jsonl` — without this the local
+ * 2-value coercion silently routed `--format jsonl` to human text.
+ */
+function toFormat(raw?: string): CliFormat {
+  if (raw === 'json') return 'json'
+  if (raw === 'jsonl') return 'jsonl'
+  return 'text'
+}
+
 export async function agentTranscript(opts: AgentTranscriptOptions): Promise<void> {
-  const format = (opts.format === 'json' ? 'json' : 'text') as CliFormat
+  const format = toFormat(opts.format)
   try {
     const client = createApiClient()
     const transcript = await client.getAgentTranscript(opts.project)
 
-    if (format === 'json') {
+    // Single transcript object (not a list) — both machine formats emit the
+    // same JSON document rather than falling through to human text on jsonl.
+    if (isMachineFormat(format)) {
       console.log(JSON.stringify(transcript, null, 2))
       return
     }
@@ -49,11 +61,12 @@ export async function agentTranscript(opts: AgentTranscriptOptions): Promise<voi
 }
 
 export async function agentTranscriptReset(opts: AgentTranscriptOptions): Promise<void> {
-  const format = (opts.format === 'json' ? 'json' : 'text') as CliFormat
+  const format = toFormat(opts.format)
   try {
     const client = createApiClient()
     await client.resetAgentTranscript(opts.project)
-    if (format === 'json') {
+    // Single-object result — both machine formats emit the same JSON.
+    if (isMachineFormat(format)) {
       console.log(JSON.stringify({ status: 'reset', project: opts.project }))
     } else {
       console.log(`Aero conversation reset for "${opts.project}".`)

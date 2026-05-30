@@ -1,6 +1,7 @@
 import type { GaConnectResponse, GaStatusResponse, GaSyncResponse, GaTrafficResponse, GaCoverageResponse, GaSocialReferralTrendResponse, GaAttributionTrendResponse, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { CliError } from '../cli-error.js'
+import { emitJsonl } from '../cli-output.js'
 
 function getClient() {
   return createApiClient()
@@ -239,6 +240,11 @@ export async function gaAiReferralHistory(project: string, opts?: { window?: str
   if (opts?.format === 'json') {
     console.log(JSON.stringify(result, null, 2))
     return
+  } else if (opts?.format === 'jsonl') {
+    // One self-contained referral-day per line; prepend the envelope context
+    // (project + resolved window) so a line lifted out still says what it covers.
+    emitJsonl(result.map(row => ({ project, window: opts?.window, ...row })))
+    return
   }
 
   if (result.length === 0) {
@@ -266,6 +272,11 @@ export async function gaSocialReferralHistory(project: string, opts?: { window?:
 
   if (opts?.format === 'json') {
     console.log(JSON.stringify(result, null, 2))
+    return
+  } else if (opts?.format === 'jsonl') {
+    // One self-contained referral-day per line; prepend the envelope context
+    // (project + resolved window) so a line lifted out still says what it covers.
+    emitJsonl(result.map(row => ({ project, window: opts?.window, ...row })))
     return
   }
 
@@ -295,6 +306,11 @@ export async function gaSessionHistory(project: string, opts?: { window?: string
   if (opts?.format === 'json') {
     console.log(JSON.stringify(result, null, 2))
     return
+  } else if (opts?.format === 'jsonl') {
+    // One self-contained session-day per line; prepend the envelope context
+    // (project + resolved window) so a line lifted out still says what it covers.
+    emitJsonl(result.map(row => ({ project, window: opts?.window, ...row })))
+    return
   }
 
   if (result.length === 0) {
@@ -319,6 +335,11 @@ export async function gaCoverage(project: string, format?: string): Promise<void
 
   if (format === 'json') {
     console.log(JSON.stringify(result, null, 2))
+    return
+  } else if (format === 'jsonl') {
+    // One self-contained page per line; prepend `project` so a line lifted out
+    // of the envelope still says which project it covers.
+    emitJsonl(result.pages.map(row => ({ project, ...row })))
     return
   }
 

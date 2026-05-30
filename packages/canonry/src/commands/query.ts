@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import { createApiClient } from '../client.js'
 import { CliError } from '../cli-error.js'
+import { emitJsonl } from '../cli-output.js'
 
 function getClient() {
   return createApiClient()
@@ -97,6 +98,11 @@ export async function listQueries(project: string, format?: string): Promise<voi
 
   if (format === 'json') {
     console.log(JSON.stringify(qs, null, 2))
+    return
+  } else if (format === 'jsonl') {
+    // One self-contained query per line. Each line carries `project` so a line
+    // lifted out of the array still says which project it belongs to.
+    emitJsonl(qs.map(q => ({ project, ...q })))
     return
   }
 

@@ -1,8 +1,13 @@
-import { CliError, printCliError, type CliFormat } from '../cli-error.js'
+import { CliError, isMachineFormat, printCliError, type CliFormat } from '../cli-error.js'
 import { createApiClient } from '../client.js'
+import { emitJsonl } from '../cli-output.js'
 
 function toFormat(raw?: string): CliFormat {
-  return (raw === 'json' ? 'json' : 'text') as CliFormat
+  // Preserve `jsonl` so the agent-friendly machine format isn't silently
+  // coerced to `text` — json → json, jsonl → jsonl, anything else → text.
+  if (raw === 'json') return 'json'
+  if (raw === 'jsonl') return 'jsonl'
+  return 'text'
 }
 
 export interface AgentMemoryListOptions {
@@ -18,6 +23,11 @@ export async function agentMemoryList(opts: AgentMemoryListOptions): Promise<voi
 
     if (format === 'json') {
       console.log(JSON.stringify(result, null, 2))
+      return
+    } else if (format === 'jsonl') {
+      // One self-contained note per line, prefixed with the project it belongs
+      // to so a line lifted out of context still says which project it scopes.
+      emitJsonl(result.entries.map((entry) => ({ project: opts.project, ...entry })))
       return
     }
 
@@ -54,7 +64,9 @@ export async function agentMemorySet(opts: AgentMemorySetOptions): Promise<void>
       value: opts.value,
     })
 
-    if (format === 'json') {
+    // Single-object mutation: both machine formats emit the same JSON object
+    // (never silently fall through to human text on `--format jsonl`).
+    if (isMachineFormat(format)) {
       console.log(JSON.stringify(result, null, 2))
       return
     }
@@ -78,7 +90,8 @@ export async function agentMemoryForget(opts: AgentMemoryForgetOptions): Promise
     const client = createApiClient()
     const result = await client.forgetAgentMemory(opts.project, opts.key)
 
-    if (format === 'json') {
+    // Single-object mutation: both machine formats emit the same JSON object.
+    if (isMachineFormat(format)) {
       console.log(JSON.stringify(result, null, 2))
       return
     }

@@ -1,5 +1,6 @@
 import { createApiClient } from '../client.js'
 import { CliError } from '../cli-error.js'
+import { emitJsonl } from '../cli-output.js'
 
 function getClient() {
   return createApiClient()
@@ -13,6 +14,14 @@ export async function showHistory(project: string, format?: string): Promise<voi
 
     if (format === 'json') {
       console.log(JSON.stringify(entries, null, 2))
+      return
+    }
+
+    if (format === 'jsonl') {
+      // One self-contained audit entry per line. Each line carries `project`
+      // (the arg the handler received) so a line lifted out of the stream still
+      // says which project it describes; the entry's own fields win (spread last).
+      emitJsonl(entries.map(entry => ({ project, ...entry })))
       return
     }
 

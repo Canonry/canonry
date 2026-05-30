@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import { createApiClient } from '../client.js'
 import { CliError } from '../cli-error.js'
+import { emitJsonl } from '../cli-output.js'
 
 function getClient() {
   return createApiClient()
@@ -68,6 +69,12 @@ export async function listKeywords(project: string, format?: string): Promise<vo
 
   if (format === 'json') {
     console.log(JSON.stringify(kws, null, 2))
+    return
+  } else if (format === 'jsonl') {
+    // One self-contained key phrase per line. Prepend `project` so a line
+    // lifted out of the array still says which project it belongs to; spread
+    // the record last so its own fields win.
+    emitJsonl(kws.map(kw => ({ project, ...kw })))
     return
   }
 

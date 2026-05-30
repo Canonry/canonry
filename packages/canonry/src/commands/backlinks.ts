@@ -10,6 +10,7 @@ import type {
 } from '@ainyc/canonry-contracts'
 import { CcReleaseSyncStatuses, RunStatuses, formatRunErrorOneLine } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
+import { emitJsonl } from '../cli-output.js'
 
 function getClient() {
   return createApiClient()
@@ -221,6 +222,15 @@ export async function backlinksList(opts: FormatOptions & {
   if (opts.format === 'json') {
     printJson(response)
     return
+  } else if (opts.format === 'jsonl') {
+    // Rows are thin (linkingDomain + numHosts), so prepend the envelope context
+    // they'd otherwise lose — project, plus the release + target domain the
+    // summary carries — and spread the row last so its own fields win. When no
+    // ready release exists `rows` is empty, so this emits nothing.
+    const release = response.summary?.release ?? null
+    const targetDomain = response.summary?.targetDomain ?? null
+    emitJsonl(response.rows.map(row => ({ project: opts.project, release, targetDomain, ...row })))
+    return
   }
   console.log(formatSummaryAndDomains(opts.project, response))
 }
@@ -229,6 +239,11 @@ export async function backlinksReleases(opts: FormatOptions = {}): Promise<void>
   const rows = await getClient().backlinksCachedReleases()
   if (opts.format === 'json') {
     printJson(rows)
+    return
+  } else if (opts.format === 'jsonl') {
+    // Workspace-level cache, not project-scoped — each release row already
+    // self-identifies by `release`, so emit it bare with no context tag.
+    emitJsonl(rows)
     return
   }
   console.log(formatCachedReleases(rows))
