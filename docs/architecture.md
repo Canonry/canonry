@@ -17,10 +17,10 @@ flowchart LR
 
   subgraph Process["canonry serve"]
     direction LR
-    SPA["Static SPA\n/"] --> API["Fastify API\n/api/v1/*"]
-    API --> JobRunner["In-process\njob runner"]
+    SPA["Static SPA<br/>/"] --> API["Fastify API<br/>/api/v1/*"]
+    API --> JobRunner["In-process<br/>job runner"]
     API --> SQLite["SQLite"]
-    JobRunner --> Registry["Provider\nRegistry"]
+    JobRunner --> Registry["Provider<br/>Registry"]
     Registry --> Gemini["provider-gemini"]
     Registry --> OpenAI["provider-openai"]
     Registry --> Claude["provider-claude"]
@@ -41,8 +41,8 @@ flowchart LR
 ### Key components
 
 - **`packages/canonry/`** — publishable npm package (`@ainyc/canonry`). Bundles CLI, Fastify server, job runner, and pre-built SPA.
-- **`packages/api-routes/`** — shared Fastify route plugins. Used by both the local server and the cloud `apps/api/`.
-- **`packages/db/`** — Drizzle ORM schema. SQLite locally, Postgres for cloud. Auto-migration on startup.
+- **`packages/api-routes/`** — shared Fastify route plugins. The HTTP surface consumed by the local `cnry serve` process.
+- **`packages/db/`** — Drizzle ORM schema, backed by SQLite. Auto-migration on startup.
 - **`packages/provider-*/`** — Provider adapters. Each implements `ProviderAdapter` from contracts.
 - **`packages/contracts/`** — shared DTOs, enums, config-schema (Zod), error codes.
 - **`apps/web/`** — Vite SPA source. Built and bundled into `packages/canonry/assets/`.
@@ -61,8 +61,6 @@ flowchart LR
 ```mermaid
 flowchart TD
   subgraph Apps
-    api["apps/api"]
-    worker["apps/worker"]
     web["apps/web"]
   end
 
@@ -91,10 +89,6 @@ flowchart TD
     wp["integration-wordpress"]
   end
 
-  api --> routes
-  api --> db
-  worker --> routes
-  worker --> db
   web -.-> contracts
 
   canonry --> routes
@@ -167,17 +161,9 @@ The `ProviderRegistry` in `packages/canonry` collects all adapters at startup. W
 3. Calls `normalizeResult()` to convert provider-specific responses to standard `NormalizedQueryResult`
 4. Persists `query_snapshots` — one per query per provider per run
 
-## Cloud Architecture
+## Deployment Model
 
-| Concern | Local | Cloud |
-|---------|-------|-------|
-| Database | SQLite | Managed Postgres |
-| Process model | Single process | API + Worker + CDN |
-| Job queue | In-process async | pg-boss |
-| Auth | Auto-generated local key | Bootstrap endpoint + team keys |
-| Web hosting | Fastify static | CDN |
-
-The same API routes, contracts, Drizzle schema, and dashboard code are used in both modes. The cloud deployment replaces the single-process server with separate services.
+Canonry ships as a **self-hosted single-process install** — that is the only supported deployment. You run `cnry serve` on your own machine, a VPS, or a container; the SPA, API, job runner, and SQLite database all live in that one process. See [docs/deployment.md](deployment.md) for Docker, Railway, Render, systemd, and Tailscale recipes.
 
 ## Service Boundaries
 
@@ -189,15 +175,13 @@ The same API routes, contracts, Drizzle schema, and dashboard code are used in b
 - **`packages/db/`** — schema, migrations, database access.
 - **`packages/contracts/`** — DTOs, enums, config validation, error codes.
 - **`packages/config/`** — typed environment parsing.
-- **`apps/api/`** — cloud API entry point (imports `packages/api-routes/`).
-- **`apps/worker/`** — cloud worker entry point.
 - **`apps/web/`** — SPA source code.
 
 ## Design Constraints
 
 - This repo remains independent from the audit package repo
 - Consume only published `@ainyc/aeo-audit` releases
-- Same auth path for local and cloud (API key-based)
+- API key-based auth
 - Raw observation snapshots only; transitions computed at query time
 
 ## Score Families

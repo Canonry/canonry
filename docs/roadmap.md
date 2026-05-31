@@ -15,7 +15,7 @@ Canonry is a fully functional agent-first open-source AEO operating platform wit
 - **Audit logging**: All config mutations tracked with diffs
 - **Snapshot history**: Timeline with computed transitions, run diffs, per-provider breakdowns
 - **Project-scoped location-aware runs**: Named project locations, default location selection, explicit per-run overrides, all-location sweeps, and location-filtered history
-- **Auth**: API key auth with scopes, same path local and cloud
+- **Auth**: API key auth with scopes
 - **OpenAPI spec**: Auto-generated at `/api/v1/openapi.json`
 - **SQLite**: Local-first with Drizzle ORM and auto-migration
 
