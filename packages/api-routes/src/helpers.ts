@@ -10,7 +10,6 @@ import {
   forbidden,
   mentionStateFromAnswerMentioned,
   notFound,
-  quotaExceeded,
   RunTriggers,
   visibilityStateFromAnswerMentioned,
   type MentionState,
@@ -97,58 +96,6 @@ export function requireCloudBootstrap(request: FastifyRequest): void {
 function cloudBootstrapEnabled(): boolean {
   const v = process.env.CANONRY_ENABLE_CLOUD_BOOTSTRAP?.trim().toLowerCase()
   return v === '1' || v === 'true' || v === 'yes' || v === 'on'
-}
-
-/**
- * Minimal in-memory fixed-window rate limiter for the unauthenticated /
- * brute-force-exposed endpoints (password login, first-time setup, guest
- * report claim). Keyed per `(bucket, client-ip)`.
- *
- * In-memory matches the single-tenant deployment posture (one process per
- * trust boundary — see root AGENTS.md "Deployment Posture") and the
- * existing in-memory session store. Behind a reverse proxy without
- * `trustProxy`, all clients collapse to the proxy IP, so the limiter just
- * becomes stricter (a global cap) rather than failing open — acceptable for
- * brute-force defense.
- *
- * **Construct one per plugin registration** (closure-scoped state), NOT at
- * module load — that keeps each Fastify app instance (and each test) isolated
- * instead of sharing a process-global bucket map.
- */
-export interface RateLimiter {
-  /**
-   * Throw `quotaExceeded` (429) when the caller's IP has exceeded `max`
-   * requests in the trailing `windowMs` for this `bucket`. Otherwise record
-   * the hit and return.
-   */
-  check(request: Pick<FastifyRequest, 'ip'>, opts: { bucket: string; max: number; windowMs: number }): void
-}
-
-export function createRateLimiter(): RateLimiter {
-  const buckets = new Map<string, { count: number; resetAt: number }>()
-  return {
-    check(request, opts) {
-      const now = Date.now()
-      // Opportunistic prune so the map can't grow unbounded under churn.
-      if (buckets.size > 2000) {
-        for (const [k, v] of buckets) {
-          if (v.resetAt <= now) buckets.delete(k)
-        }
-      }
-      const ip = request.ip || 'unknown'
-      const key = `${opts.bucket}:${ip}`
-      const entry = buckets.get(key)
-      if (!entry || entry.resetAt <= now) {
-        buckets.set(key, { count: 1, resetAt: now + opts.windowMs })
-        return
-      }
-      entry.count++
-      if (entry.count > opts.max) {
-        const seconds = Math.round(opts.windowMs / 1000)
-        throw quotaExceeded(`${opts.bucket} (max ${opts.max} requests per ${seconds}s — slow down and retry shortly)`)
-      }
-    },
-  }
 }
 
 export interface AuditEntry {

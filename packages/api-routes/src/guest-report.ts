@@ -22,9 +22,9 @@ import crypto from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import { eq, lt, isNull } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
+import rateLimit from '@fastify/rate-limit'
 import { guestReports, projects, users } from '@ainyc/canonry-db'
 import { validationError, notFound, authRequired } from '@ainyc/canonry-contracts'
-import { createRateLimiter } from './helpers.js'
 
 const REPORT_TTL_DAYS = 7
 
@@ -391,11 +391,12 @@ function serializeGuestReport(row: typeof guestReports.$inferSelect): {
 }
 
 export async function guestReportRoutes(app: FastifyInstance, opts: GuestReportRoutesOptions = {}) {
-  // Per-registration brute-force / abuse guard. These routes are anonymous,
-  // so cap per-IP: `create` spins up a project + audit job (resource abuse),
-  // `claim` performs authorization (CodeQL #78). Limits sit well above any
-  // legitimate human usage.
-  const rateLimiter = createRateLimiter()
+  // Abuse guard for the anonymous /guest/report surface. `@fastify/rate-limit`
+  // is scoped to this encapsulated plugin (only guest routes live here), so it
+  // never touches the rest of the API. The 60/min default is generous for the
+  // SPA's status polling + SSE; `create` (spins up a project + audit) and
+  // `claim` (performs authorization) tighten via per-route config.
+  await app.register(rateLimit, { global: true, max: 60, timeWindow: '1 minute' })
 
   /** Sweep expired unclaimed rows on startup. Cheap — bounded to a few hundred
    *  per deployment in practice. We also clear the transient guest project so
@@ -424,8 +425,9 @@ export async function guestReportRoutes(app: FastifyInstance, opts: GuestReportR
 
   // POST /api/v1/guest/report — start a new guest report.
   // Anonymous — no auth required.
-  app.post<{ Body: { domain?: string } }>('/guest/report', async (request, reply) => {
-    rateLimiter.check(request, { bucket: 'guest-report-create', max: 15, windowMs: 60_000 })
+  app.post<{ Body: { domain?: string } }>('/guest/report', {
+    config: { rateLimit: { max: 15, timeWindow: '1 minute' } },
+  }, async (request, reply) => {
     const domain = normalizeDomain(request.body?.domain ?? '')
     const id = shortId()
     const projectId = crypto.randomUUID()
@@ -624,8 +626,9 @@ export async function guestReportRoutes(app: FastifyInstance, opts: GuestReportR
   // Requires auth (cookie or API key). After claim, the transient guest
   // project becomes a regular project — name stays as `guest-<id>` for now
   // (the SPA can offer rename later) but configSource flips to 'dashboard'.
-  app.post<{ Params: { id: string } }>('/guest/report/:id/claim', async (request, reply) => {
-    rateLimiter.check(request, { bucket: 'guest-report-claim', max: 20, windowMs: 60_000 })
+  app.post<{ Params: { id: string } }>('/guest/report/:id/claim', {
+    config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
+  }, async (request, reply) => {
     if (!request.apiKey) throw authRequired()
     const row = app.db.select().from(guestReports).where(eq(guestReports.id, request.params.id)).get()
     if (!row) throw notFound('Guest report', request.params.id)

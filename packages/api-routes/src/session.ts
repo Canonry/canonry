@@ -26,9 +26,9 @@ import crypto from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import type { FastifyInstance, FastifyReply } from 'fastify'
 
+import rateLimit from '@fastify/rate-limit'
 import { apiKeys, type DatabaseClient } from '@ainyc/canonry-db'
 import { authInvalid, validationError } from '@ainyc/canonry-contracts'
-import { createRateLimiter } from './helpers.js'
 
 // ─── Session store ───────────────────────────────────────────────────────────
 
@@ -259,11 +259,12 @@ export interface SessionRoutesOptions {
  * does that via `shouldSkipAuth`).
  */
 export async function sessionRoutes(app: FastifyInstance, opts: SessionRoutesOptions) {
-  // Per-registration brute-force guard for the auth-mutating routes. Limits
-  // are well above any legitimate human/test usage — they only bite a
-  // password-guessing attacker. Constructed here (not module-global) so each
-  // app instance / test gets isolated buckets.
-  const rateLimiter = createRateLimiter()
+  // Brute-force guard. `@fastify/rate-limit` is scoped to THIS encapsulated
+  // plugin instance, which contains only the (sensitive) /session routes —
+  // so it never throttles the main dashboard/API surface. In-memory store
+  // matches the single-tenant deployment posture. The 30/min default covers
+  // status + logout; login + setup tighten to 10/min via per-route config.
+  await app.register(rateLimit, { global: true, max: 30, timeWindow: '1 minute' })
 
   const createPasswordSession = (reply: FastifyReply): boolean => {
     const key = opts.getDefaultApiKey()
@@ -291,8 +292,9 @@ export async function sessionRoutes(app: FastifyInstance, opts: SessionRoutesOpt
   // First-time password setup. Only works when no password is configured yet.
   app.post<{
     Body: { password?: string }
-  }>('/session/setup', async (request, reply) => {
-    rateLimiter.check(request, { bucket: 'session-setup', max: 10, windowMs: 60_000 })
+  }>('/session/setup', {
+    config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
+  }, async (request, reply) => {
     if (opts.dashboardPassword.get()) {
       throw validationError('Dashboard password is already configured')
     }
@@ -313,8 +315,9 @@ export async function sessionRoutes(app: FastifyInstance, opts: SessionRoutesOpt
   // Login with dashboard password or `cnry_…` bearer.
   app.post<{
     Body: { password?: string; apiKey?: string }
-  }>('/session', async (request, reply) => {
-    rateLimiter.check(request, { bucket: 'session-login', max: 10, windowMs: 60_000 })
+  }>('/session', {
+    config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
+  }, async (request, reply) => {
     const password = request.body?.password?.trim()
     const apiKey = request.body?.apiKey?.trim()
 
@@ -370,8 +373,8 @@ export async function sessionRoutes(app: FastifyInstance, opts: SessionRoutesOpt
     throw validationError('Either password or apiKey is required')
   })
 
+  // Logout uses the plugin's 30/min default (no per-route override needed).
   app.delete('/session', async (request, reply) => {
-    rateLimiter.check(request, { bucket: 'session-logout', max: 30, windowMs: 60_000 })
     const sessionId = parseCookies(request.headers.cookie)[opts.cookieName]
     opts.store.clearSession(sessionId)
     reply.header('set-cookie', serializeSessionCookie({
