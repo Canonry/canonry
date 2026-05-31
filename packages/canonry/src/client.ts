@@ -95,6 +95,10 @@ import type {
   DiscoveryPromotePreview,
   DiscoveryPromoteRequest,
   DiscoveryPromoteResult,
+  ApiKeyDto,
+  ApiKeyListDto,
+  CreateApiKeyRequest,
+  CreatedApiKeyDto,
 } from '@ainyc/canonry-contracts'
 import {
   createClient as createHeyClient,
@@ -154,6 +158,10 @@ import {
   postApiV1Snapshot,
   getApiV1Telemetry,
   putApiV1Telemetry,
+  // API key management
+  getApiV1Keys,
+  postApiV1Keys,
+  postApiV1KeysByIdRevoke,
   // Schedules / notifications
   getApiV1ProjectsByNameSchedule,
   putApiV1ProjectsByNameSchedule,
@@ -953,6 +961,22 @@ export class ApiClient {
 
   async getSettings(): Promise<SettingsDto> {
     return this.invoke<SettingsDto>(() => getApiV1Settings({ client: this.heyClient }))
+  }
+
+  // ── API key management ──────────────────────────────────────────────────
+
+  async listApiKeys(): Promise<ApiKeyListDto> {
+    return this.invoke<ApiKeyListDto>(() => getApiV1Keys({ client: this.heyClient }))
+  }
+
+  async createApiKey(body: CreateApiKeyRequest): Promise<CreatedApiKeyDto> {
+    return this.invoke<CreatedApiKeyDto>(() => postApiV1Keys({ client: this.heyClient, body }))
+  }
+
+  async revokeApiKey(id: string): Promise<ApiKeyDto> {
+    return this.invoke<ApiKeyDto>(() =>
+      postApiV1KeysByIdRevoke({ client: this.heyClient, path: { id } }),
+    )
   }
 
   async updateProvider(

@@ -25,7 +25,11 @@
 import { z, type ZodType } from 'zod'
 import {
   agentProvidersResponseDtoSchema,
+  apiKeyDtoSchema,
+  apiKeyListDtoSchema,
   auditLogEntrySchema,
+  createApiKeyRequestSchema,
+  createdApiKeyDtoSchema,
   backlinkHistoryEntrySchema,
   backlinkListResponseSchema,
   backlinkSummaryDtoSchema,
@@ -123,6 +127,8 @@ import {
  */
 const SCHEMA_TABLE = {
   AgentProvidersResponseDto: agentProvidersResponseDtoSchema,
+  ApiKeyDto: apiKeyDtoSchema,
+  ApiKeyListDto: apiKeyListDtoSchema,
   AuditLogEntry: auditLogEntrySchema,
   BacklinkHistoryEntry: backlinkHistoryEntrySchema,
   BacklinkListResponse: backlinkListResponseSchema,
@@ -149,6 +155,8 @@ const SCHEMA_TABLE = {
   ContentTargetDismissalDto: contentTargetDismissalDtoSchema,
   ContentTargetDismissalsResponseDto: contentTargetDismissalsResponseDtoSchema,
   ContentTargetsResponseDto: contentTargetsResponseDtoSchema,
+  CreateApiKeyRequest: createApiKeyRequestSchema,
+  CreatedApiKeyDto: createdApiKeyDtoSchema,
   RecommendationExplanationDto: recommendationExplanationDtoSchema,
   DiscoveryPromotePreview: discoveryPromotePreviewSchema,
   DiscoveryPromoteResult: discoveryPromoteResultSchema,

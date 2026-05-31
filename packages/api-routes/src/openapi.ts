@@ -102,6 +102,14 @@ const notificationIdParameter: OpenApiParameter = {
   schema: stringSchema,
 }
 
+const keyIdParameter: OpenApiParameter = {
+  name: 'id',
+  in: 'path',
+  required: true,
+  description: 'API key ID.',
+  schema: stringSchema,
+}
+
 const providerNameParameter: OpenApiParameter = {
   name: 'name',
   in: 'path',
@@ -1040,6 +1048,53 @@ const routeCatalog: OpenApiOperation[] = [
       200: rawJsonResponse('Google settings updated.', looseObjectSchema),
       400: errorResponse('Invalid Google settings.'),
       501: errorResponse('Google settings updates are not supported.'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/keys',
+    summary: 'List API keys',
+    description:
+      'Returns every API key on the instance, newest first, as SAFE metadata only — id, name, key prefix, scopes, created / last-used / revoked timestamps. The stored hash and the plaintext token are NEVER returned here; the raw token is shown exactly once at creation. Ungated: any valid bearer can list.',
+    tags: ['keys'],
+    responses: {
+      200: jsonResponse('Keys returned.', 'ApiKeyListDto'),
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/keys',
+    summary: 'Create an API key',
+    description:
+      'Mints a new `cnry_…` API key. Requires the `keys.write` scope (the default `*` key satisfies it). The response includes the plaintext `key` field exactly ONCE — it is stored only as a sha256 hash and cannot be recovered later, so persist it on receipt. Omit `scopes` to default to `["*"]`.',
+    tags: ['keys'],
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: { $ref: '#/components/schemas/CreateApiKeyRequest' },
+        },
+      },
+    },
+    responses: {
+      200: jsonResponse('Key created. Includes the one-time plaintext `key`.', 'CreatedApiKeyDto'),
+      400: errorResponse('Invalid request body.'),
+      403: errorResponse('Missing the keys.write scope.'),
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/keys/{id}/revoke',
+    summary: 'Revoke an API key',
+    description:
+      'Revokes the key by id. Requires the `keys.write` scope. Revocation is immediate — the auth layer rejects a revoked key on the next request. Idempotent: revoking an already-revoked key returns it unchanged. Refuses to revoke the key the caller is currently authenticating with (use a different key).',
+    tags: ['keys'],
+    parameters: [keyIdParameter],
+    responses: {
+      200: jsonResponse('Key revoked (or already revoked).', 'ApiKeyDto'),
+      400: errorResponse('Cannot revoke the currently-authenticating key.'),
+      403: errorResponse('Missing the keys.write scope.'),
+      404: errorResponse('Key not found.'),
     },
   },
   {

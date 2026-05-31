@@ -19,6 +19,7 @@
 
 - **Do not deploy `apps/api` as a multi-tenant SaaS.** One Cloud Run service per team. If you need to host multiple teams, deploy multiple isolated Cloud Run services with separate databases and OAuth clients.
 - **Do not hand out `cnry_…` API keys outside the trust boundary you'd give a teammate.** A leaked key reads and writes every project on the instance.
+- **API key management (`canonry key create` / `list` / `revoke`, `POST /keys`, `POST /keys/:id/revoke`) is gated by the `keys.write` scope.** The default `*` key written by `canonry init` satisfies it; narrower delegate keys must declare `keys.write` explicitly. Listing keys is ungated but returns SAFE metadata only (id, name, prefix, scopes, timestamps) — never the stored hash or the plaintext token. The raw `cnry_…` token is returned exactly once, at creation. Revoke sets `revokedAt` (it does not delete the row) and takes effect on the next request; you cannot revoke the key you are currently authenticating with.
 - **If a multi-tenant story becomes a requirement,** the work is substantial — add `owner_id` to every domain table, attach `apiKey.ownerId` to `request` in `authPlugin`, AND-in `eq(table.ownerId, request.apiKey.ownerId)` on every read/write, rekey `google_connections` / `bing_connections` to include `project_id`, and gate `/settings/*` on a real `admin` scope. The trade-off is real — a schema migration that touches ~15 tables and every route file. Plan accordingly.
 
 ## Workspace Map
@@ -127,6 +128,11 @@ canonry skills list                                  # show bundled skills (cano
 canonry skills install                               # write both skills into ./.claude/skills/ + ./.codex/skills/ (default)
 canonry skills install aero --client claude          # install only the analyst skill, no codex symlink
 canonry skills install --dir ~/projects/foo --force  # custom target, overwrite divergent local edits
+
+# API keys — mint / list / revoke (gated by the keys.write scope; the default * key satisfies it)
+canonry key list [--format json|jsonl]                          # safe metadata only (never the hash or plaintext)
+canonry key create --name <name> [--scope <s> ...] [--format json]  # prints the plaintext key ONCE; omit --scope to default to *
+canonry key revoke <id> [--format json]                         # revoke (not delete); takes effect on the next request
 ```
 
 ## Agent Layer

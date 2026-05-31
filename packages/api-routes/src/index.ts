@@ -23,6 +23,7 @@ import { openApiRoutes } from './openapi.js'
 import type { OpenApiInfo } from './openapi.js'
 import { settingsRoutes } from './settings.js'
 import type { SettingsRoutesOptions, ProviderSummaryEntry, ProviderAdapterInfo } from './settings.js'
+import { keysRoutes } from './keys.js'
 import { snapshotRoutes } from './snapshot.js'
 import type { SnapshotRoutesOptions } from './snapshot.js'
 import { telemetryRoutes } from './telemetry.js'
@@ -331,6 +332,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       bing: opts.bingSettingsSummary,
       onBingUpdate: opts.onBingSettingsUpdate,
     } satisfies SettingsRoutesOptions)
+    await api.register(keysRoutes)
     await api.register(snapshotRoutes, {
       onSnapshotRequested: opts.onSnapshotRequested,
     } satisfies SnapshotRoutesOptions)

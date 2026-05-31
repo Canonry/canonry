@@ -51,6 +51,13 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'POST /api/v1/snapshot': 'deferred',
   'PUT /api/v1/settings/bing': 'deferred',
   'PUT /api/v1/settings/cdp': 'deferred',
+  // API key management — deliberately not surfaced as MCP tools. Minting and
+  // revoking bearer tokens is a privilege-granting / access-cutting operation
+  // (gated by the keys.write scope), in the same sensitive class as the
+  // settings credential mutations above. CLI + API only for now.
+  'GET /api/v1/keys': 'deferred',
+  'POST /api/v1/keys': 'deferred',
+  'POST /api/v1/keys/{id}/revoke': 'deferred',
   'PUT /api/v1/projects/{name}/schedule': 'included',
   'GET /api/v1/projects/{name}/schedule': 'included',
   'DELETE /api/v1/projects/{name}/schedule': 'included',
