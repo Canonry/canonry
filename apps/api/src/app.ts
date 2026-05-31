@@ -16,6 +16,12 @@ import { registerHealthRoutes } from './routes/health.js'
 const SESSION_COOKIE_NAME = 'canonry_session'
 const DASHBOARD_PASSWORD_KEY = 'dashboard_password_hash'
 
+// Hashes the opaque `cnry_…` API key (a 128-bit random token, not a
+// user password) for the api_keys lookup. Fast SHA-256 is correct here —
+// there is no wordlist to brute-force a high-entropy token, so a slow KDF
+// would only add per-request latency. Dashboard passwords use salted scrypt
+// (packages/api-routes session plugin). (CodeQL flags this as weak password
+// hashing — false positive for opaque tokens.)
 function hashApiKey(key: string): string {
   return crypto.createHash('sha256').update(key).digest('hex')
 }

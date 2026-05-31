@@ -24,6 +24,7 @@ import { eq, lt, isNull } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { guestReports, projects, users } from '@ainyc/canonry-db'
 import { validationError, notFound, authRequired } from '@ainyc/canonry-contracts'
+import { createRateLimiter } from './helpers.js'
 
 const REPORT_TTL_DAYS = 7
 
@@ -88,14 +89,20 @@ function shortId(): string {
  * Normalize a user-entered domain to bare host. Accepts "https://www.acme.com/path",
  * "acme.com", "Acme.com" and returns "acme.com". Throws on garbage.
  */
-function normalizeDomain(raw: string): string {
+export function normalizeDomain(raw: string): string {
   const trimmed = (raw ?? '').trim().toLowerCase()
   if (!trimmed) throw validationError('domain is required')
-  const stripped = trimmed
-    .replace(/^https?:\/\//, '')
-    .replace(/^www\./, '')
-    .replace(/\/.*$/, '')
-    .replace(/[^a-z0-9.-]/g, '')
+  // Use linear, non-backtracking string ops instead of regex on the
+  // user-controlled value (CodeQL: polynomial-regex ReDoS on a string of
+  // many '/'). Strip the scheme, then the path/query/fragment, then a
+  // leading `www.`.
+  let host = trimmed
+  const schemeIdx = host.indexOf('://')
+  if (schemeIdx !== -1) host = host.slice(schemeIdx + 3)
+  host = host.split('/', 1)[0]! // drop everything from the first slash on — O(n), no backtracking
+  if (host.startsWith('www.')) host = host.slice(4)
+  // Single linear character-class strip (no quantifier ambiguity → ReDoS-safe).
+  const stripped = host.replace(/[^a-z0-9.-]/g, '')
   if (!stripped.includes('.') || stripped.length < 4) {
     throw validationError('Enter a valid domain — e.g. acme.com')
   }
@@ -384,6 +391,12 @@ function serializeGuestReport(row: typeof guestReports.$inferSelect): {
 }
 
 export async function guestReportRoutes(app: FastifyInstance, opts: GuestReportRoutesOptions = {}) {
+  // Per-registration brute-force / abuse guard. These routes are anonymous,
+  // so cap per-IP: `create` spins up a project + audit job (resource abuse),
+  // `claim` performs authorization (CodeQL #78). Limits sit well above any
+  // legitimate human usage.
+  const rateLimiter = createRateLimiter()
+
   /** Sweep expired unclaimed rows on startup. Cheap — bounded to a few hundred
    *  per deployment in practice. We also clear the transient guest project so
    *  the projects list stays clean. */
@@ -412,6 +425,7 @@ export async function guestReportRoutes(app: FastifyInstance, opts: GuestReportR
   // POST /api/v1/guest/report — start a new guest report.
   // Anonymous — no auth required.
   app.post<{ Body: { domain?: string } }>('/guest/report', async (request, reply) => {
+    rateLimiter.check(request, { bucket: 'guest-report-create', max: 15, windowMs: 60_000 })
     const domain = normalizeDomain(request.body?.domain ?? '')
     const id = shortId()
     const projectId = crypto.randomUUID()
@@ -611,6 +625,7 @@ export async function guestReportRoutes(app: FastifyInstance, opts: GuestReportR
   // project becomes a regular project — name stays as `guest-<id>` for now
   // (the SPA can offer rename later) but configSource flips to 'dashboard'.
   app.post<{ Params: { id: string } }>('/guest/report/:id/claim', async (request, reply) => {
+    rateLimiter.check(request, { bucket: 'guest-report-claim', max: 20, windowMs: 60_000 })
     if (!request.apiKey) throw authRequired()
     const row = app.db.select().from(guestReports).where(eq(guestReports.id, request.params.id)).get()
     if (!row) throw notFound('Guest report', request.params.id)

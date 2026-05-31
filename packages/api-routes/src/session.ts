@@ -28,6 +28,7 @@ import type { FastifyInstance, FastifyReply } from 'fastify'
 
 import { apiKeys, type DatabaseClient } from '@ainyc/canonry-db'
 import { authInvalid, validationError } from '@ainyc/canonry-contracts'
+import { createRateLimiter } from './helpers.js'
 
 // ─── Session store ───────────────────────────────────────────────────────────
 
@@ -109,6 +110,14 @@ const DASHBOARD_SCRYPT_COST = 1 << 15
 // headroom and keep the derivation comfortably within the limit.
 const DASHBOARD_SCRYPT_MAXMEM = 64 * 1024 * 1024
 
+// `cnry_…` API keys are 128-bit cryptographically-random tokens (see
+// `canonry init`), NOT user-chosen passwords. Fast SHA-256 is the correct
+// choice for hashing high-entropy tokens — a slow KDF (scrypt/argon2) would
+// add latency to every authenticated request for zero security gain, since
+// there is no wordlist to brute-force against a 128-bit random value. User
+// *passwords* use salted scrypt instead — see `hashDashboardPassword`.
+// (CodeQL "insufficient computational effort" flags this as password
+// hashing; it is a false positive for opaque tokens.)
 function hashApiKey(key: string): string {
   return crypto.createHash('sha256').update(key).digest('hex')
 }
@@ -250,6 +259,12 @@ export interface SessionRoutesOptions {
  * does that via `shouldSkipAuth`).
  */
 export async function sessionRoutes(app: FastifyInstance, opts: SessionRoutesOptions) {
+  // Per-registration brute-force guard for the auth-mutating routes. Limits
+  // are well above any legitimate human/test usage — they only bite a
+  // password-guessing attacker. Constructed here (not module-global) so each
+  // app instance / test gets isolated buckets.
+  const rateLimiter = createRateLimiter()
+
   const createPasswordSession = (reply: FastifyReply): boolean => {
     const key = opts.getDefaultApiKey()
     if (!key || key.revokedAt) return false
@@ -277,6 +292,7 @@ export async function sessionRoutes(app: FastifyInstance, opts: SessionRoutesOpt
   app.post<{
     Body: { password?: string }
   }>('/session/setup', async (request, reply) => {
+    rateLimiter.check(request, { bucket: 'session-setup', max: 10, windowMs: 60_000 })
     if (opts.dashboardPassword.get()) {
       throw validationError('Dashboard password is already configured')
     }
@@ -298,6 +314,7 @@ export async function sessionRoutes(app: FastifyInstance, opts: SessionRoutesOpt
   app.post<{
     Body: { password?: string; apiKey?: string }
   }>('/session', async (request, reply) => {
+    rateLimiter.check(request, { bucket: 'session-login', max: 10, windowMs: 60_000 })
     const password = request.body?.password?.trim()
     const apiKey = request.body?.apiKey?.trim()
 
@@ -354,6 +371,7 @@ export async function sessionRoutes(app: FastifyInstance, opts: SessionRoutesOpt
   })
 
   app.delete('/session', async (request, reply) => {
+    rateLimiter.check(request, { bucket: 'session-logout', max: 30, windowMs: 60_000 })
     const sessionId = parseCookies(request.headers.cookie)[opts.cookieName]
     opts.store.clearSession(sessionId)
     reply.header('set-cookie', serializeSessionCookie({

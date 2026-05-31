@@ -291,4 +291,54 @@ describe('session routes', () => {
     // The stored hash should now be in scrypt format.
     expect(ctx.dashboardPassword.current()).toMatch(/^scrypt\$1\$/)
   })
+
+  it('rate-limits repeated password-login attempts with 429 (brute-force guard)', async () => {
+    await ctx.app.inject({
+      method: 'POST',
+      url: '/api/v1/session/setup',
+      payload: { password: 'brute-force-target-1' },
+    })
+
+    // The login limiter allows 10/min; the 11th wrong-password attempt from
+    // the same IP must be rejected with 429 (QUOTA_EXCEEDED), not another 401.
+    let saw429 = false
+    let attempts = 0
+    for (let i = 0; i < 15; i++) {
+      attempts++
+      const res = await ctx.app.inject({
+        method: 'POST',
+        url: '/api/v1/session',
+        payload: { password: 'wrong-guess-xxxx' },
+      })
+      if (res.statusCode === 429) {
+        // 429 = QUOTA_EXCEEDED (AppError.statusCode). The canonry
+        // `{error:{code}}` envelope is applied by the global error handler
+        // in the full apiRoutes plugin; this isolated harness uses Fastify's
+        // default serializer, so we assert on the status code here.
+        saw429 = true
+        break
+      }
+      expect(res.statusCode).toBe(401)
+    }
+    expect(saw429).toBe(true)
+    // The guard should trip right after the 10-request window, not let all 15 through.
+    expect(attempts).toBeLessThanOrEqual(11)
+  })
+
+  it('does not rate-limit a normal login burst under the threshold', async () => {
+    await ctx.app.inject({
+      method: 'POST',
+      url: '/api/v1/session/setup',
+      payload: { password: 'normal-usage-pwd-1' },
+    })
+    // 5 legitimate logins in a row stay well under the 10/min cap.
+    for (let i = 0; i < 5; i++) {
+      const res = await ctx.app.inject({
+        method: 'POST',
+        url: '/api/v1/session',
+        payload: { password: 'normal-usage-pwd-1' },
+      })
+      expect(res.statusCode).toBe(200)
+    }
+  })
 })
