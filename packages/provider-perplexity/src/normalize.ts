@@ -13,6 +13,21 @@ import type {
 const DEFAULT_MODEL = 'sonar'
 const BASE_URL = 'https://api.perplexity.ai'
 
+/**
+ * Construct a configured OpenAI-compatible client pointed at the Perplexity
+ * Sonar API. Threads the optional `baseUrl` override through so Canonry
+ * Hosted can route Perplexity traffic via the per-tenant LLM proxy. Same
+ * wire protocol either way — Perplexity exposes an OpenAI-compatible
+ * `chat.completions` surface. Exported so adapter tests can assert the URL
+ * is threaded through.
+ */
+export function createPerplexityClient(config: PerplexityConfig): OpenAI {
+  return new OpenAI({
+    apiKey: config.apiKey,
+    baseURL: config.baseUrl ?? BASE_URL,
+  })
+}
+
 export function validateConfig(config: PerplexityConfig): PerplexityHealthcheckResult {
   if (!config.apiKey || config.apiKey.length === 0) {
     return { ok: false, provider: 'perplexity', message: 'missing api key' }
@@ -30,7 +45,7 @@ export async function healthcheck(config: PerplexityConfig): Promise<PerplexityH
   if (!validation.ok) return validation
 
   try {
-    const client = new OpenAI({ apiKey: config.apiKey, baseURL: BASE_URL })
+    const client = createPerplexityClient(config)
     const response = await withRetry(() =>
       client.chat.completions.create({
         model: config.model ?? DEFAULT_MODEL,
@@ -56,7 +71,7 @@ export async function healthcheck(config: PerplexityConfig): Promise<PerplexityH
 
 export async function executeTrackedQuery(input: PerplexityTrackedQueryInput): Promise<PerplexityRawResult> {
   const model = input.config.model ?? DEFAULT_MODEL
-  const client = new OpenAI({ apiKey: input.config.apiKey, baseURL: BASE_URL })
+  const client = createPerplexityClient(input.config)
 
   const prompt = buildPrompt(input.query, input.location)
 
@@ -270,7 +285,7 @@ function extractDomainFromUri(uri: string): string | null {
 
 export async function generateText(prompt: string, config: PerplexityConfig): Promise<string> {
   const model = config.model ?? DEFAULT_MODEL
-  const client = new OpenAI({ apiKey: config.apiKey, baseURL: BASE_URL })
+  const client = createPerplexityClient(config)
   const response = await withRetry(() =>
     client.chat.completions.create({
       model,

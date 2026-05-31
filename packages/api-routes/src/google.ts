@@ -13,6 +13,7 @@ import {
 import { extractPlaceAmenities, type PlaceDetails } from '@ainyc/canonry-integration-google-places'
 import { buildGbpSummary } from './gbp-summary.js'
 import { resolveProject, writeAuditLog } from './helpers.js'
+import { emitConnectionEvent } from './cloud/emit-connection-event.js'
 import {
   getAuthUrl,
   exchangeCode,
@@ -416,6 +417,20 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
       diff: { domain, type, propertyId },
     })
 
+    // Track 3 (Canonry Hosted): emit a cloud `connection.created` event so
+    // the bootstrap-registered control-plane subscriber can update its
+    // `oauth_connections.state` cache. Fired after the DB write, swallows
+    // its own errors so a flaky subscriber doesn't block the OAuth UX.
+    await emitConnectionEvent(app.db, {
+      event: 'connection.created',
+      project: { id: project.id, name: project.name, canonicalDomain: project.canonicalDomain },
+      payload: {
+        connectionType: type as 'gsc' | 'ga4',
+        propertyRef: propertyId ?? existing?.propertyId ?? null,
+        scopes: tokens.scope?.split(' ') ?? [],
+      },
+    })
+
     return reply.type('text/html').send(
       `<html><body style="font-family:system-ui;text-align:center;padding:60px">
         <h2>Connected successfully!</h2>
@@ -472,6 +487,19 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
       action: 'google.disconnected',
       entityType: 'google_connection',
       entityId: type,
+    })
+
+    // Track 3 (Canonry Hosted): emit `connection.revoked` so the
+    // bootstrap-registered subscriber can mark the surface revoked.
+    await emitConnectionEvent(app.db, {
+      event: 'connection.revoked',
+      project: { id: project.id, name: project.name, canonicalDomain: project.canonicalDomain },
+      payload: {
+        connectionType: type,
+        propertyRef: existing.propertyId ?? null,
+        scopes: existing.scopes ?? [],
+        reason: 'user-disconnected',
+      },
     })
 
     return reply.status(204).send()

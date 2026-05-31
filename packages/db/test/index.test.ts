@@ -36,6 +36,7 @@ import {
   gaTrafficSummaries,
   insights,
   healthSnapshots,
+  providerTokenUsage,
 } from '../src/index.js'
 
 function createTempDb() {
@@ -867,4 +868,94 @@ test('_migrations table is created on first migrate', () => {
 
   const tableInfo = sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='_migrations'").all()
   expect(tableInfo.length).toBe(1)
+})
+
+test('v68 creates provider_token_usage table with the documented columns', () => {
+  const { dbPath, tmpDir } = createTempDb()
+  onTestFinished(() => cleanup(tmpDir))
+
+  const sqlite = new Database(dbPath, { readonly: true })
+  onTestFinished(() => sqlite.close())
+
+  const cols = sqlite
+    .prepare(`PRAGMA table_info(provider_token_usage)`)
+    .all() as Array<{ name: string; notnull: number; dflt_value: string | null }>
+
+  const names = cols.map(c => c.name).sort()
+  expect(names).toEqual([
+    'cached_input_tokens',
+    'id',
+    'input_tokens',
+    'model',
+    'occurred_at',
+    'output_tokens',
+    'project_id',
+    'provider',
+    'run_id',
+  ])
+
+  // Every counter has a NOT NULL DEFAULT 0 so a row with zero usage is
+  // valid — providers that don't expose `cache_read_input_tokens` should
+  // still produce a token-usage row.
+  const counterCols = new Set(['input_tokens', 'output_tokens', 'cached_input_tokens'])
+  for (const col of cols) {
+    if (counterCols.has(col.name)) {
+      expect(col.notnull, `${col.name} should be NOT NULL`).toBe(1)
+      expect(col.dflt_value, `${col.name} should default to 0`).toBe('0')
+    }
+  }
+})
+
+test('provider_token_usage round-trips a row with all counters', () => {
+  const { db, tmpDir } = createTempDb()
+  onTestFinished(() => cleanup(tmpDir))
+
+  const now = new Date().toISOString()
+  db.insert(projects).values({
+    id: 'proj_tok', name: 'tok', displayName: 'tok',
+    canonicalDomain: 'example.com', country: 'US', language: 'en',
+    createdAt: now, updatedAt: now,
+  }).run()
+  db.insert(runs).values({
+    id: 'run_tok', projectId: 'proj_tok', kind: 'answer-visibility', status: 'completed',
+    trigger: 'manual', startedAt: now, finishedAt: now, createdAt: now,
+  }).run()
+
+  db.insert(providerTokenUsage).values({
+    id: 'tok_1', runId: 'run_tok', projectId: 'proj_tok',
+    provider: 'claude', model: 'claude-sonnet-4-6',
+    inputTokens: 1234, outputTokens: 567, cachedInputTokens: 89,
+    occurredAt: now,
+  }).run()
+
+  const [row] = db.select().from(providerTokenUsage).where(eq(providerTokenUsage.runId, 'run_tok')).all()
+  expect(row.provider).toBe('claude')
+  expect(row.model).toBe('claude-sonnet-4-6')
+  expect(row.inputTokens).toBe(1234)
+  expect(row.outputTokens).toBe(567)
+  expect(row.cachedInputTokens).toBe(89)
+})
+
+test('provider_token_usage cascades on run delete', () => {
+  const { db, tmpDir } = createTempDb()
+  onTestFinished(() => cleanup(tmpDir))
+
+  const now = new Date().toISOString()
+  db.insert(projects).values({
+    id: 'proj_tok', name: 'tok', displayName: 'tok',
+    canonicalDomain: 'example.com', country: 'US', language: 'en',
+    createdAt: now, updatedAt: now,
+  }).run()
+  db.insert(runs).values({
+    id: 'run_tok', projectId: 'proj_tok', kind: 'answer-visibility', status: 'completed',
+    trigger: 'manual', createdAt: now,
+  }).run()
+  db.insert(providerTokenUsage).values({
+    id: 'tok_1', runId: 'run_tok', projectId: 'proj_tok',
+    provider: 'openai', inputTokens: 10, outputTokens: 20, cachedInputTokens: 0,
+    occurredAt: now,
+  }).run()
+
+  db.delete(runs).where(eq(runs.id, 'run_tok')).run()
+  expect(db.select().from(providerTokenUsage).all()).toEqual([])
 })

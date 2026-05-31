@@ -1,6 +1,11 @@
 import { test, expect } from 'vitest'
 
-import { validateConfig, normalizeResult, reparseStoredResult } from '../src/index.js'
+import {
+  validateConfig,
+  normalizeResult,
+  reparseStoredResult,
+  createAnthropicClient,
+} from '../src/index.js'
 import type { ClaudeRawResult } from '../src/index.js'
 
 const validConfig = {
@@ -330,4 +335,26 @@ test('normalizeResult prefers reparsed citations over stale extracted fields whe
   ])
   expect(result.citedDomains).toEqual(['canonry.ai'])
   expect(result.searchQueries).toEqual(['canonry reviews'])
+})
+
+test('createAnthropicClient threads baseUrl through to the SDK as baseURL', () => {
+  // Canonry Hosted routes Anthropic traffic through a per-tenant LLM proxy
+  // by setting `ProviderConfig.baseUrl`. The Anthropic SDK exposes the
+  // resolved base URL as a public `baseURL` property — asserting on it
+  // proves the override is honoured end-to-end.
+  const proxyUrl = 'http://canonry-llm-proxy:9200/anthropic'
+  const client = createAnthropicClient({
+    apiKey: 'sk-test',
+    quotaPolicy: validConfig.quotaPolicy,
+    baseUrl: proxyUrl,
+  })
+  expect((client as unknown as { baseURL: string }).baseURL).toContain('canonry-llm-proxy:9200/anthropic')
+})
+
+test('createAnthropicClient defaults to api.anthropic.com when no baseUrl is provided', () => {
+  const client = createAnthropicClient({
+    apiKey: 'sk-test',
+    quotaPolicy: validConfig.quotaPolicy,
+  })
+  expect((client as unknown as { baseURL: string }).baseURL).toContain('api.anthropic.com')
 })

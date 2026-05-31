@@ -102,7 +102,13 @@ describe('openapi contract', () => {
     const body = res.json() as { paths: Record<string, Record<string, unknown>> }
     const localIds = canonryLocalRouteIds()
     const specMinusLocal = normalizeSpecRoutes(body.paths).filter((entry) => !localIds.has(entry))
-    expect(specMinusLocal).toEqual(normalizeObservedRoutes(ctx.observedRoutes))
+    // `/cloud/*` are admin-scope routes (Track 3 — Canonry Hosted bridge). They are
+    // registered by api-routes but intentionally excluded from the public OpenAPI spec
+    // because they are admin-scope only and not part of the public surface.
+    const observedMinusCloud = normalizeObservedRoutes(ctx.observedRoutes).filter(
+      (id) => !id.includes(' /api/v1/cloud/'),
+    )
+    expect(specMinusLocal).toEqual(observedMinusCloud)
   })
 
   it('marks public unauthenticated routes with empty security requirements', async () => {

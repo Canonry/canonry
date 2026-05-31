@@ -740,6 +740,58 @@ export type GoogleConnectionDto = {
     updatedAt: string;
 };
 
+export type GuestReportClaimResponseDto = {
+    claimed?: true;
+    alreadyClaimed?: true;
+    projectName: string | null;
+    projectId: string;
+};
+
+export type GuestReportCreateResponseDto = {
+    id: string;
+    domain: string;
+    status: 'pending' | 'auditing' | 'sweeping' | 'completed' | 'failed';
+    expiresAt: string;
+};
+
+export type GuestReportDto = {
+    id: string;
+    domain: string;
+    projectId: string;
+    status: 'pending' | 'auditing' | 'sweeping' | 'completed' | 'failed';
+    auditScore: number | null;
+    auditPagesCrawled: number;
+    auditFindingsCount: number;
+    auditTopFindings: Array<{
+        severity: string;
+        title: string;
+        url: string;
+        pointsLost: number;
+    }>;
+    overallScore: number | null;
+    aiCitedCount: number | null;
+    aiQueryCount: number | null;
+    aiMentionedCount: number | null;
+    topCompetitor: string | null;
+    topCompetitorCitedCount: number | null;
+    proposedPlan: Array<{
+        label: string;
+        pointsImpact: number;
+        rationale: string;
+    }>;
+    progressEvents: Array<{
+        at: string;
+        type: 'sitemap-pulled' | 'page-audited' | 'audit-complete' | 'sweep-started' | 'provider-checked' | 'overall-complete' | 'failed';
+        payload: {
+            [key: string]: unknown;
+        };
+    }>;
+    errorMessage: string | null;
+    createdAt: string;
+    expiresAt: string;
+    claimedAt: string | null;
+};
+
 export type GscCoverageSnapshotDto = {
     date: string;
     indexed: number;
@@ -972,12 +1024,12 @@ export type LocationContext = {
 
 export type NotificationDto = {
     id: string;
-    projectId: string;
+    projectId: string | null;
     channel: 'webhook';
     url: string;
     urlDisplay: string;
     urlHost: string;
-    events: Array<'citation.lost' | 'citation.gained' | 'run.completed' | 'run.failed' | 'insight.critical' | 'insight.high'>;
+    events: Array<'citation.lost' | 'citation.gained' | 'run.completed' | 'run.failed' | 'insight.critical' | 'insight.high' | 'baseline.completed' | 'digest.generated' | 'action.created' | 'action.completed' | 'connection.created' | 'connection.revoked'>;
     enabled: boolean;
     source?: string;
     webhookSecret?: string;
@@ -2119,6 +2171,100 @@ export type GetApiV1OpenapiJsonResponses = {
 };
 
 export type GetApiV1OpenapiJsonResponse = GetApiV1OpenapiJsonResponses[keyof GetApiV1OpenapiJsonResponses];
+
+export type PostApiV1GuestReportData = {
+    body: {
+        /**
+         * Bare domain or full URL — normalized server-side.
+         */
+        domain: string;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/guest/report';
+};
+
+export type PostApiV1GuestReportErrors = {
+    /**
+     * Invalid or missing domain.
+     */
+    400: ErrorEnvelope;
+};
+
+export type PostApiV1GuestReportError = PostApiV1GuestReportErrors[keyof PostApiV1GuestReportErrors];
+
+export type PostApiV1GuestReportResponses = {
+    /**
+     * Guest report created.
+     */
+    201: GuestReportCreateResponseDto;
+};
+
+export type PostApiV1GuestReportResponse = PostApiV1GuestReportResponses[keyof PostApiV1GuestReportResponses];
+
+export type GetApiV1GuestReportByIdData = {
+    body?: never;
+    path: {
+        /**
+         * Guest report id.
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/guest/report/{id}';
+};
+
+export type GetApiV1GuestReportByIdErrors = {
+    /**
+     * Guest report not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1GuestReportByIdError = GetApiV1GuestReportByIdErrors[keyof GetApiV1GuestReportByIdErrors];
+
+export type GetApiV1GuestReportByIdResponses = {
+    /**
+     * Guest report returned.
+     */
+    200: GuestReportDto;
+};
+
+export type GetApiV1GuestReportByIdResponse = GetApiV1GuestReportByIdResponses[keyof GetApiV1GuestReportByIdResponses];
+
+export type PostApiV1GuestReportByIdClaimData = {
+    body?: never;
+    path: {
+        /**
+         * Guest report id.
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/guest/report/{id}/claim';
+};
+
+export type PostApiV1GuestReportByIdClaimErrors = {
+    /**
+     * Authentication required.
+     */
+    401: ErrorEnvelope;
+    /**
+     * Guest report not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type PostApiV1GuestReportByIdClaimError = PostApiV1GuestReportByIdClaimErrors[keyof PostApiV1GuestReportByIdClaimErrors];
+
+export type PostApiV1GuestReportByIdClaimResponses = {
+    /**
+     * Report claimed (or already claimed).
+     */
+    200: GuestReportClaimResponseDto;
+};
+
+export type PostApiV1GuestReportByIdClaimResponse = PostApiV1GuestReportByIdClaimResponses[keyof PostApiV1GuestReportByIdClaimResponses];
 
 export type DeleteApiV1ProjectsByNameData = {
     body?: never;

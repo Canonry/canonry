@@ -96,6 +96,12 @@ const EVENT_DESCRIPTIONS: Record<string, string> = {
   'run.failed': 'An AEO sweep failed',
   'insight.critical': 'A critical-severity insight was generated',
   'insight.high': 'A high-severity insight was generated',
+  'baseline.completed': 'The first answer-visibility sweep finished and the baseline report is ready',
+  'digest.generated': 'A daily morning digest was produced for the project',
+  'action.created': 'Aero proposed a new content action (e.g. a new FAQ page)',
+  'action.completed': 'A proposed action was published (PR merged) or terminated',
+  'connection.created': 'A new integration (GSC / GA4 / Bing / GitHub) was connected',
+  'connection.revoked': 'An integration was disconnected',
 }
 
 export function listEvents(format?: string): void {

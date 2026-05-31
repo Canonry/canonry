@@ -57,6 +57,12 @@ function shouldSkipAuth(url: string): boolean {
   if (url.endsWith('/openapi.json')) return true
   if (url.includes('/google/callback')) return true
   if (url.endsWith('/session') || url.endsWith('/session/setup')) return true
+  // Aero owner-view onboarding: the free first report runs before the
+  // visitor signs up. POST /guest/report, GET /guest/report/:id, and the
+  // SSE stream are anonymous. The /claim endpoint requires auth and is
+  // intentionally NOT in the skip list — the matcher uses non-capturing
+  // groups so /claim falls through to the auth check.
+  if (url.match(/\/guest\/report(?:\/[^/]+(?:\/stream)?)?$/)) return true
   return false
 }
 

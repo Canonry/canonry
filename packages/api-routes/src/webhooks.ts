@@ -25,6 +25,16 @@ export interface ResolveWebhookTargetOptions {
    * dev workflows that point webhooks at localhost.
    */
   allowLoopback?: boolean
+  /**
+   * Allow private RFC 1918 ranges (10/8, 172.16/12, 192.168/16) plus CGNAT
+   * (100.64/10), link-local (169.254/16), and benchmark (198.18/15). Defaults
+   * to false. Hosted Canonry deployments (spec §1.1) need this set when the
+   * control plane is reachable via a Docker bridge or VPN hostname — the
+   * tenant runtime POSTs to e.g. `http://canonry-control-plane:8080` which
+   * resolves into the Docker 172.16/12 range. Operators trust this address
+   * because they wrote it into the tenant manifest themselves.
+   */
+  allowPrivateNetworks?: boolean
 }
 
 export async function resolveWebhookTarget(
@@ -184,8 +194,12 @@ function isBlockedIpv4(address: string, options: ResolveWebhookTargetOptions): b
   if (first === 127 && !options.allowLoopback) {
     return true
   }
+  if (first === 0) return true
+  if (options.allowPrivateNetworks) {
+    // Operator opted in (e.g. Docker bridge networks, VPN endpoints).
+    return false
+  }
   return (
-    first === 0 ||
     first === 10 ||
     (first === 100 && second >= 64 && second <= 127) ||
     (first === 169 && second === 254) ||
@@ -208,6 +222,12 @@ function isBlockedIpv6(address: string, options: ResolveWebhookTargetOptions): b
   const firstHextet = firstHextetText === '' ? 0 : Number.parseInt(firstHextetText, 16)
   if (Number.isNaN(firstHextet)) {
     return true
+  }
+
+  if (options.allowPrivateNetworks) {
+    // Operator opted in — same posture as the IPv4 branch. Lets IPv6-routed
+    // Docker bridges / VPN endpoints through.
+    return false
   }
 
   return (

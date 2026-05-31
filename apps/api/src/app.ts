@@ -1,18 +1,41 @@
+import crypto from 'node:crypto'
 import Fastify from 'fastify'
+import { eq } from 'drizzle-orm'
 
 import type { PlatformEnv } from '@ainyc/canonry-config'
-import { createClient } from '@ainyc/canonry-db'
-import { apiRoutes } from '@ainyc/canonry-api-routes'
+import { createClient, migrate, apiKeys, appSettings } from '@ainyc/canonry-db'
+import {
+  apiRoutes,
+  createSessionStore,
+  sessionRoutes,
+  type DashboardPasswordStore,
+} from '@ainyc/canonry-api-routes'
 
 import { registerHealthRoutes } from './routes/health.js'
+
+const SESSION_COOKIE_NAME = 'canonry_session'
+const DASHBOARD_PASSWORD_KEY = 'dashboard_password_hash'
+
+// Hashes the opaque `cnry_…` API key (a 128-bit random token, not a
+// user password) for the api_keys lookup. Fast SHA-256 is correct here —
+// there is no wordlist to brute-force a high-entropy token, so a slow KDF
+// would only add per-request latency. Dashboard passwords use salted scrypt
+// (packages/api-routes session plugin). (CodeQL flags this as weak password
+// hashing — false positive for opaque tokens.)
+function hashApiKey(key: string): string {
+  return crypto.createHash('sha256').update(key).digest('hex')
+}
 
 export function buildApp(env: PlatformEnv) {
   const app = Fastify({
     logger: true,
   })
 
-  // Connect to database and register shared API routes
+  // Connect to database and register shared API routes. Run migrations
+  // up-front — apps/api is the entry point for cloud deployments, so the
+  // operator has no prior CLI step that would have applied them.
   const db = createClient(env.databaseUrl)
+  migrate(db)
 
   const providerSummary = (['gemini', 'openai', 'claude', 'perplexity'] as const).map(name => ({
     name,
@@ -21,10 +44,81 @@ export function buildApp(env: PlatformEnv) {
     quota: env.providers[name]?.quota,
   }))
 
+  // Seed the install's default API key into the api_keys table when set.
+  // The same pattern lives in `packages/canonry/src/server.ts`. Without this
+  // row, dashboard-password sessions have no apiKey to bind to.
+  if (env.apiKey) {
+    const keyHash = hashApiKey(env.apiKey)
+    const existing = db.select().from(apiKeys).where(eq(apiKeys.keyHash, keyHash)).get()
+    if (!existing) {
+      const prefix = env.apiKey.slice(0, 12)
+      db.insert(apiKeys).values({
+        id: `key_${crypto.randomBytes(8).toString('hex')}`,
+        name: 'default',
+        keyHash,
+        keyPrefix: prefix,
+        scopes: ['*'],
+        createdAt: new Date().toISOString(),
+      }).run()
+    }
+  }
+
+  // Cookie-backed browser session. Cloud Run instances have no writable
+  // local config file, so the dashboard password hash lives in the
+  // `app_settings` DB row instead of `~/.canonry/config.yaml`.
+  const apiPrefix = env.basePath === '/' ? '/api/v1' : `${env.basePath.replace(/\/$/, '')}/api/v1`
+  const sessionCookiePath = env.basePath === '/' ? '/' : env.basePath.replace(/\/?$/, '/')
+  const sessionCookieSecure = Boolean(env.publicUrl?.startsWith('https://'))
+  const sessionStore = createSessionStore()
+
+  const dashboardPassword: DashboardPasswordStore = {
+    get: () => {
+      const row = db.select().from(appSettings).where(eq(appSettings.key, DASHBOARD_PASSWORD_KEY)).get()
+      return row?.value
+    },
+    set: (hash) => {
+      const now = new Date().toISOString()
+      db.insert(appSettings)
+        .values({ key: DASHBOARD_PASSWORD_KEY, value: hash, updatedAt: now })
+        .onConflictDoUpdate({
+          target: appSettings.key,
+          set: { value: hash, updatedAt: now },
+        })
+        .run()
+    },
+  }
+
+  // Register session routes BEFORE the main api-routes plugin so the
+  // cookie can be issued before any auth-gated route runs. The
+  // api-routes auth hook already skips /session* via shouldSkipAuth.
+  app.register(async (scope) => {
+    await sessionRoutes(scope, {
+      db,
+      store: sessionStore,
+      cookieName: SESSION_COOKIE_NAME,
+      cookiePath: sessionCookiePath,
+      cookieSecure: sessionCookieSecure,
+      ttlMs: sessionStore.ttlMs,
+      dashboardPassword,
+      getDefaultApiKey: () => {
+        if (!env.apiKey) return undefined
+        return db
+          .select()
+          .from(apiKeys)
+          .where(eq(apiKeys.keyHash, hashApiKey(env.apiKey)))
+          .get()
+      },
+    })
+  }, { prefix: apiPrefix })
+
   app.register(apiRoutes, {
     db,
     skipAuth: false,
-    routePrefix: env.basePath === '/' ? '/api/v1' : `${env.basePath.replace(/\/$/, '')}/api/v1`,
+    routePrefix: apiPrefix,
+    sessionCookieName: SESSION_COOKIE_NAME,
+    // Arrow-wrap so `this` stays bound when the auth plugin invokes it
+    // detached from the store (eslint @typescript-eslint/unbound-method).
+    resolveSessionApiKeyId: (sid) => sessionStore.resolveSessionApiKeyId(sid),
     openApiInfo: {
       title: 'Canonry API',
       version: '0.1.0',

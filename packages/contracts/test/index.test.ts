@@ -452,10 +452,80 @@ test('AppError is an instance of Error', () => {
   expect(err.name).toBe('AppError')
 })
 
+import { cloudNotificationEventSchema, cloudWebhookPayloadSchema } from '../src/notification.js'
+
+describe('cloudWebhookPayloadSchema (Track 3)', () => {
+
+test('cloudWebhookPayloadSchema accepts a baseline.completed envelope', () => {
+  const payload = cloudWebhookPayloadSchema.parse({
+    source: 'canonry-cloud',
+    event: 'baseline.completed',
+    event_id: '8df9b3e0-9c4e-4f1b-b9d7-2c1f9b4c1234',
+    project: { name: 'acme', canonicalDomain: 'acme.com' },
+    payload: { runId: 'run-1', reportSummary: { status: 'completed' } },
+    occurred_at: '2026-05-22T12:00:00.000Z',
+  })
+  expect(payload.source).toBe('canonry-cloud')
+  expect(payload.event).toBe('baseline.completed')
+})
+
+test('cloudWebhookPayloadSchema rejects a legacy `source: canonry`', () => {
+  expect(() =>
+    cloudWebhookPayloadSchema.parse({
+      source: 'canonry',
+      event: 'baseline.completed',
+      event_id: '8df9b3e0-9c4e-4f1b-b9d7-2c1f9b4c1234',
+      project: { name: 'acme', canonicalDomain: 'acme.com' },
+      payload: {},
+      occurred_at: '2026-05-22T12:00:00.000Z',
+    }),
+  ).toThrow()
+})
+
+test('cloudWebhookPayloadSchema rejects a legacy notification event', () => {
+  expect(() =>
+    cloudWebhookPayloadSchema.parse({
+      source: 'canonry-cloud',
+      event: 'run.completed',
+      event_id: '8df9b3e0-9c4e-4f1b-b9d7-2c1f9b4c1234',
+      project: { name: 'acme', canonicalDomain: 'acme.com' },
+      payload: {},
+      occurred_at: '2026-05-22T12:00:00.000Z',
+    }),
+  ).toThrow()
+})
+
+test('cloudNotificationEventSchema enumerates exactly the six new events', () => {
+  const all = cloudNotificationEventSchema.options
+  expect(all.sort()).toEqual([
+    'action.completed',
+    'action.created',
+    'baseline.completed',
+    'connection.created',
+    'connection.revoked',
+    'digest.generated',
+  ])
+})
+
+}) // end cloudWebhookPayloadSchema
+
 describe('notificationEventSchema', () => {
 
-test('notificationEventSchema accepts valid events', () => {
-  for (const event of ['citation.lost', 'citation.gained', 'run.completed', 'run.failed']) {
+test('notificationEventSchema accepts valid legacy events', () => {
+  for (const event of ['citation.lost', 'citation.gained', 'run.completed', 'run.failed', 'insight.critical', 'insight.high']) {
+    expect(notificationEventSchema.parse(event)).toBe(event)
+  }
+})
+
+test('notificationEventSchema accepts new cloud event types (Track 3)', () => {
+  for (const event of [
+    'baseline.completed',
+    'digest.generated',
+    'action.created',
+    'action.completed',
+    'connection.created',
+    'connection.revoked',
+  ]) {
     expect(notificationEventSchema.parse(event)).toBe(event)
   }
 })

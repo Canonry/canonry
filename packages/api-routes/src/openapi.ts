@@ -247,6 +247,82 @@ const routeCatalog: OpenApiOperation[] = [
       200: rawJsonResponse('OpenAPI document.', looseObjectSchema),
     },
   },
+  // ─── Aero owner-view onboarding (anonymous guest report) ───────────────
+  // The /aero free-first-report flow: a visitor drops a domain, we run the
+  // audit + AI sweep on a transient guest project, then optionally promote
+  // the report into their workspace when they sign up. The three guest
+  // endpoints below are anonymous (excluded from auth via shouldSkipAuth);
+  // the claim endpoint requires auth and lives behind the standard bearer
+  // + session cookie surface.
+  {
+    method: 'post',
+    path: '/api/v1/guest/report',
+    summary: 'Create an anonymous guest report for a domain',
+    description:
+      'Kicks off the audit + AI sweep on a transient guest project for the given domain. Returns immediately with the report id so the SPA can subscribe to the SSE stream; the actual work runs in the background. Anonymous — no auth required. Rows expire after 7 days unless claimed.',
+    tags: ['guest-report'],
+    auth: false,
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            required: ['domain'],
+            properties: {
+              domain: { type: 'string', description: 'Bare domain or full URL — normalized server-side.' },
+            },
+          },
+        },
+      },
+    },
+    responses: {
+      201: jsonResponse('Guest report created.', 'GuestReportCreateResponseDto'),
+      400: errorResponse('Invalid or missing domain.'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/guest/report/{id}',
+    summary: 'Fetch a guest report',
+    description: 'Returns the current state of the report including audit/sweep scores, top findings, proposed plan, and the full progressEvents replay buffer. Anonymous — no auth required.',
+    tags: ['guest-report'],
+    auth: false,
+    parameters: [{ name: 'id', in: 'path', required: true, description: 'Guest report id.', schema: stringSchema }],
+    responses: {
+      200: jsonResponse('Guest report returned.', 'GuestReportDto'),
+      404: errorResponse('Guest report not found.'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/guest/report/{id}/stream',
+    summary: 'Subscribe to guest report progress (SSE)',
+    description:
+      'Server-Sent Events stream of `state` and progress event frames for the guest report. Each frame is `data: <JSON>\\n\\n`. The server replays existing progressEvents on connect (so a reload mid-audit catches up) and then forwards live events as they fire. Closes when the report reaches `completed` or `failed`. Anonymous — no auth required.',
+    tags: ['guest-report'],
+    auth: false,
+    parameters: [{ name: 'id', in: 'path', required: true, description: 'Guest report id.', schema: stringSchema }],
+    responses: {
+      // Returns text/event-stream — codegen consumers should treat as a stream.
+      200: { description: 'SSE stream of GuestReport frames.', content: { 'text/event-stream': { schema: { type: 'string' } } } },
+      404: errorResponse('Guest report not found.'),
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/guest/report/{id}/claim',
+    summary: 'Claim a guest report into the authenticated workspace',
+    description:
+      'Promotes the transient guest project into the operator workspace, marking the report claimed. Idempotent — calling twice returns `alreadyClaimed: true` with the same projectId. Requires a valid session cookie or bearer token.',
+    tags: ['guest-report'],
+    parameters: [{ name: 'id', in: 'path', required: true, description: 'Guest report id.', schema: stringSchema }],
+    responses: {
+      200: jsonResponse('Report claimed (or already claimed).', 'GuestReportClaimResponseDto'),
+      401: errorResponse('Authentication required.'),
+      404: errorResponse('Guest report not found.'),
+    },
+  },
   {
     method: 'put',
     path: '/api/v1/projects/{name}',

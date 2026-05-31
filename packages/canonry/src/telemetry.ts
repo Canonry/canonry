@@ -59,9 +59,23 @@ export interface TelemetryEvent {
   arch: string
   /** Stable error classifier when the event represents a failure. */
   errorCode?: string
+  /**
+   * Cloud-mode tag (Track 1). Present only when
+   * `CANONRY_RUNTIME_MODE=cloud` is set on the tenant container. Lets the
+   * telemetry receiver filter cloud-runtime emissions from OSS noise.
+   * Absent in OSS deployments.
+   */
+  runtimeMode?: 'cloud'
   /** Free-shape per-event payload. */
   properties?: TelemetryProperties
 }
+
+/**
+ * Read at module load so it doesn't change between events in one process —
+ * env vars don't mutate at runtime in either deployment shape.
+ */
+const RUNTIME_MODE_TAG: 'cloud' | undefined =
+  process.env.CANONRY_RUNTIME_MODE?.trim().toLowerCase() === 'cloud' ? 'cloud' : undefined
 
 export interface TrackEventOptions {
   /** Override the global default source — used by `canonry serve` to flip
@@ -293,6 +307,7 @@ export function trackEvent(
     arch: process.arch,
     ...(options?.sourceContext ? { sourceContext: options.sourceContext } : {}),
     ...(options?.errorCode ? { errorCode: options.errorCode } : {}),
+    ...(RUNTIME_MODE_TAG ? { runtimeMode: RUNTIME_MODE_TAG } : {}),
     ...(properties ? { properties } : {}),
   }
 

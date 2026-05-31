@@ -6,6 +6,13 @@ export interface OpenAIConfig {
   apiKey: string
   quotaPolicy: ProviderQuotaPolicy
   model?: string
+  /**
+   * Optional base URL override. When set, every `new OpenAI(...)` call in
+   * this adapter passes it as `baseURL`. Defaults to OpenAI's public API
+   * endpoint when omitted. Used by Canonry Hosted to route OpenAI calls
+   * through the per-tenant LLM proxy (Track 1).
+   */
+  baseUrl?: string
 }
 
 export interface OpenAIHealthcheckResult {

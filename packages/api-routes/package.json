@@ -19,6 +19,7 @@
   "dependencies": {
     "@ainyc/canonry-contracts": "workspace:*",
     "@ainyc/canonry-db": "workspace:*",
+    "@fastify/rate-limit": "^10.2.2",
     "@ainyc/canonry-integration-bing": "workspace:*",
     "@ainyc/canonry-integration-cloud-run": "workspace:*",
     "@ainyc/canonry-integration-commoncrawl": "workspace:*",

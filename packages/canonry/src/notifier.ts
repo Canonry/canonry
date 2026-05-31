@@ -1,4 +1,4 @@
-import { eq, desc, and, inArray, or } from 'drizzle-orm'
+import { eq, desc, and, inArray, or, isNull } from 'drizzle-orm'
 import { deliverWebhook, redactNotificationUrl, resolveWebhookTarget } from '@ainyc/canonry-api-routes'
 import type { DatabaseClient } from '@ainyc/canonry-db'
 import { auditLog, groupRunsByCreatedAt, notifications, projects, queries, querySnapshots, runs } from '@ainyc/canonry-db'
@@ -22,13 +22,9 @@ export class Notifier {
   async onRunCompleted(runId: string, projectId: string): Promise<void> {
     log.info('run.completed', { runId, projectId })
 
-    // Get project notifications
-    const notifs = this.db
-      .select()
-      .from(notifications)
-      .where(eq(notifications.projectId, projectId))
-      .all()
-      .filter(n => n.enabled)
+    // Get project-scoped notifications plus tenant-scoped subscribers
+    // (projectId NULL) registered by cloud bootstrap.
+    const notifs = this.listEnabledNotifications(projectId)
 
     if (notifs.length === 0) {
       log.info('notifications.none-enabled', { projectId })
@@ -112,12 +108,7 @@ export class Notifier {
     if (highInsights.length > 0) insightEvents.push('insight.high')
     if (insightEvents.length === 0) return
 
-    const notifs = this.db
-      .select()
-      .from(notifications)
-      .where(eq(notifications.projectId, projectId))
-      .all()
-      .filter(n => n.enabled)
+    const notifs = this.listEnabledNotifications(projectId)
 
     if (notifs.length === 0) return
 
@@ -154,6 +145,15 @@ export class Notifier {
         await this.sendWebhook(config.url, payload, notif.id, projectId, notif.webhookSecret ?? null)
       }
     }
+  }
+
+  private listEnabledNotifications(projectId: string): Array<typeof notifications.$inferSelect> {
+    return this.db
+      .select()
+      .from(notifications)
+      .where(or(eq(notifications.projectId, projectId), isNull(notifications.projectId)))
+      .all()
+      .filter(n => n.enabled)
   }
 
   private computeTransitions(runId: string, projectId: string): Array<{

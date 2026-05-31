@@ -10,6 +10,20 @@ import { createLogger } from './logger.js'
 
 const log = createLogger('Scheduler')
 
+/**
+ * Cloud-mode flag (Track 1 — Canonry Hosted). When `CANONRY_SCHEDULER=external`
+ * is set on the tenant container, the in-process node-cron scheduler stops
+ * firing — the cloud control plane dispatches runs instead. Schedule API
+ * endpoints still accept writes so the dashboard can mirror the cloud
+ * scheduler's state, but `start()`, `upsert()`, and the cron tick handler
+ * all become no-ops to avoid double-firing alongside the control plane.
+ *
+ * Read at module load so the flag is stable for the lifetime of the
+ * `canonry serve` process. OSS deployments leave it unset.
+ */
+const SCHEDULER_EXTERNAL =
+  process.env.CANONRY_SCHEDULER?.trim().toLowerCase() === 'external'
+
 export interface SchedulerCallbacks {
   /** Fired when an answer-visibility schedule triggers. Existing canonry callsites wire this to the JobRunner. */
   onRunCreated: (runId: string, projectId: string, providers?: ProviderName[], location?: LocationContext | null) => void
@@ -56,6 +70,13 @@ export class Scheduler {
 
   /** Load all enabled schedules from DB and register cron jobs. */
   start(): void {
+    if (SCHEDULER_EXTERNAL) {
+      // Cloud mode — the control plane dispatches runs via the run-dispatch
+      // queue (spec §13). Skip the cron registration; schedule API endpoints
+      // still accept writes so the dashboard mirrors the cloud state.
+      log.info('scheduler.external', { msg: 'CANONRY_SCHEDULER=external — in-process scheduler disabled' })
+      return
+    }
     const allSchedules = this.db
       .select()
       .from(schedules)
@@ -91,8 +112,14 @@ export class Scheduler {
    * Add or update a cron registration at runtime (called when schedule API
    * is used). Keyed by `(projectId, kind)` so a project's traffic-sync and
    * answer-visibility schedules can coexist independently.
+   *
+   * Cloud-mode short-circuit: when `CANONRY_SCHEDULER=external` the cron
+   * tasks map stays empty (and `start()` never populated it), so the
+   * stop/register dance is unnecessary work. Endpoints still call upsert
+   * after the DB row lands; we simply don't act on it.
    */
   upsert(projectId: string, kind: SchedulableRunKind): void {
+    if (SCHEDULER_EXTERNAL) return
     const key = taskKey(projectId, kind)
     const existing = this.tasks.get(key)
     if (existing) {

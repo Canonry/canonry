@@ -20,6 +20,7 @@ function toOpenAIConfig(config: ProviderConfig): OpenAIConfig {
     apiKey: config.apiKey ?? '',
     model: config.model,
     quotaPolicy: config.quotaPolicy,
+    ...(config.baseUrl ? { baseUrl: config.baseUrl } : {}),
   }
 }
 
