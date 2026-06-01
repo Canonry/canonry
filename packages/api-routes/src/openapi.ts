@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify'
-import { AGENT_PROVIDER_IDS, SchedulableRunKinds } from '@ainyc/canonry-contracts'
+import { AGENT_PROVIDER_IDS } from '@ainyc/canonry-contracts'
 import {
   buildComponentSchemas,
   errorResponse,
@@ -65,7 +65,6 @@ const integerSchema = { type: 'integer' }
 const objectSchema = { type: 'object', additionalProperties: true }
 const stringArraySchema = { type: 'array', items: stringSchema }
 const googleConnectionTypeSchema = { type: 'string', enum: ['gsc', 'ga4', 'gbp'] }
-const scheduleKindEnum = Object.values(SchedulableRunKinds)
 const locationSchema = {
   type: 'object',
   required: ['label', 'city', 'region', 'country'],
@@ -167,7 +166,7 @@ const scheduleKindQueryParameter: OpenApiParameter = {
   name: 'kind',
   in: 'query',
   description: 'Schedulable run kind. Defaults to "answer-visibility" for backward compatibility.',
-  schema: { type: 'string', enum: scheduleKindEnum },
+  schema: { $ref: '#/components/schemas/SchedulableRunKind' },
 }
 
 const runsListKindQueryParameter: OpenApiParameter = {
@@ -1135,7 +1134,7 @@ const routeCatalog: OpenApiOperation[] = [
           schema: {
             type: 'object',
             properties: {
-              kind: { type: 'string', enum: scheduleKindEnum },
+              kind: { $ref: '#/components/schemas/SchedulableRunKind' },
               preset: stringSchema,
               cron: stringSchema,
               timezone: stringSchema,

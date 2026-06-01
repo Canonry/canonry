@@ -92,6 +92,7 @@ import {
   queryDtoSchema,
   runDetailDtoSchema,
   runDtoSchema,
+  schedulableRunKindSchema,
   scheduleDtoSchema,
   settingsDtoSchema,
   snapshotDiffResponseSchema,
@@ -191,6 +192,7 @@ const SCHEMA_TABLE = {
   QueryDto: queryDtoSchema,
   RunDetailDto: runDetailDtoSchema,
   RunDto: runDtoSchema,
+  SchedulableRunKind: schedulableRunKindSchema,
   ScheduleDto: scheduleDtoSchema,
   SettingsDto: settingsDtoSchema,
   SnapshotDiffResponse: snapshotDiffResponseSchema,
@@ -236,6 +238,19 @@ const SCHEMA_TABLE = {
 export type RegisteredSchemaName = keyof typeof SCHEMA_TABLE
 
 /**
+ * Properties whose value is a shared enum that also exists as its own
+ * component. Zod's `toJSONSchema` inlines the enum union at every use site;
+ * we rewrite those occurrences to a `$ref` so codegen emits ONE named TS type
+ * (e.g. `SchedulableRunKind`) instead of repeating the union in every DTO.
+ * Both sides derive from the same Zod schema, so the values can't drift.
+ * Route-level uses (query params, request bodies) `$ref` the component
+ * directly in `openapi.ts`.
+ */
+const SHARED_ENUM_REFS: ReadonlyArray<{ schema: RegisteredSchemaName; property: string; component: RegisteredSchemaName }> = [
+  { schema: 'ScheduleDto', property: 'kind', component: 'SchedulableRunKind' },
+]
+
+/**
  * Convert every registered schema to its OpenAPI 3.0 JSON Schema. Called once
  * during spec build, embedded as `components.schemas` in the OpenAPI doc.
  */
@@ -243,6 +258,12 @@ export function buildComponentSchemas(): Record<string, Record<string, unknown>>
   const out: Record<string, Record<string, unknown>> = {}
   for (const [name, schema] of Object.entries(SCHEMA_TABLE) as [string, ZodType][]) {
     out[name] = z.toJSONSchema(schema, { target: 'openapi-3.0' }) as Record<string, unknown>
+  }
+  for (const { schema, property, component } of SHARED_ENUM_REFS) {
+    const properties = out[schema]?.properties as Record<string, unknown> | undefined
+    if (properties && properties[property]) {
+      properties[property] = { $ref: `#/components/schemas/${component}` }
+    }
   }
   return out
 }
