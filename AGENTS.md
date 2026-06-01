@@ -248,6 +248,10 @@ The MCP adapter must follow the boundary rules in `Surface Priority → Agent
 file): no DB, route, job-runner, telemetry, or logger imports; never write
 non-MCP data to stdout. Every new MCP tool must already exist as a public
 API endpoint and CLI command — MCP is not a place to add capabilities.
+MCP parity is the default for every new public API/CLI capability: either add
+the matching tool, or explicitly classify the OpenAPI operation as `deferred`
+or `excluded-protocol` with a short security/protocol/product rationale in
+`openapi-classification.ts`. Do not silently skip MCP.
 
 ### Notification events (shared)
 
@@ -480,6 +484,7 @@ The CLI and API **are** the agent interface. MCP is allowed only as an adapter o
 6. **Stable output contracts.** JSON field names, endpoint paths, and error codes are public API. Renaming a JSON field is a breaking change. Add fields freely; never remove or rename without a version bump.
 7. **UI/CLI parity.** Every piece of data or computed metric visible in the web UI must be retrievable via the API and CLI. If the UI shows it, an agent must be able to `curl` or `canonry ... --format json` it. Derived calculations (percentages, trends, roll-ups) belong in the API response, not in frontend code. See the "UI/CLI parity" section above for the full rules.
 8. **MCP adapter boundary.** `canonry-mcp` may call `createApiClient()` and public client methods only. It must not import DB modules, API routes, job runners, CLI dispatch, telemetry, or loggers, and it must never write non-MCP data to stdout.
+9. **MCP parity by default.** Every new public API endpoint and CLI command must either add an equivalent MCP tool, or classify the OpenAPI operation as `deferred` / `excluded-protocol` with an explicit rationale in `packages/canonry/src/mcp/openapi-classification.ts`. Security-sensitive credential or token operations may be deferred, but the PR must say why.
 
 #### Checklist for any new command or endpoint
 
@@ -487,6 +492,7 @@ The CLI and API **are** the agent interface. MCP is allowed only as an adapter o
 - [ ] `--format json` supported, outputs to stdout
 - [ ] Errors output structured JSON to stderr with a code from `CliError`
 - [ ] Write operations are idempotent (or return conflict details)
+- [ ] Equivalent MCP tool added, or `openapi-classification.ts` has an explicit `deferred` / `excluded-protocol` rationale
 - [ ] Common read patterns achievable in a single API call
 - [ ] Exit code follows 0/1/2 convention
 
@@ -853,6 +859,7 @@ The SPA receives `basePath` via an injected config object. Use it for all API fe
 
 - [ ] Server route registered via the plugin's `routePrefix` (not hardcoded `/api/v1`)
 - [ ] CLI command uses `createApiClient()` (not `new ApiClient(loadConfig().apiUrl, ...)`)
+- [ ] MCP parity handled: add the tool, or document a `deferred` / `excluded-protocol` classification rationale
 - [ ] Any redirect URLs or OAuth callback URLs use `publicUrl` or `apiUrl` (which already include basePath)
 - [ ] Frontend fetch calls prepend `window.__CANONRY_CONFIG__.basePath`
 
@@ -908,7 +915,7 @@ This repo uses per-package `AGENTS.md` files for local context. **These must sta
 | Add a new package under `packages/` or `apps/` | Create `AGENTS.md` + `CLAUDE.md` (`@AGENTS.md`) in the new package |
 | Add a new table or column in `packages/db/src/schema.ts` | Update `docs/data-model.md` (ER diagram + table groups) |
 | Add a new API route file in `packages/api-routes/src/` | Update `packages/api-routes/AGENTS.md` key files table |
-| Add a new CLI command | Update `packages/canonry/AGENTS.md` |
+| Add a new CLI command | Update `packages/canonry/AGENTS.md`; add the equivalent MCP tool or document the explicit classification exception |
 | Add or change an MCP tool | Update `packages/canonry/src/mcp/tool-registry.ts` (tag with a `tier`), `openapi-classification.ts`, `docs/mcp.md`, and the `mcp-registry`/`mcp-stdio` tests. The built-in Aero agent picks the new tool up automatically through `agent/mcp-to-agent-tool.ts` — no second registration in `agent/tools.ts`. Add the name to `AERO_EXCLUDED_MCP_TOOLS` only if Aero must not invoke it (e.g. `canonry_agent_clear`). |
 | Add a new doctor check | Add a `CheckDefinition` in `packages/api-routes/src/doctor/checks/<topic>.ts`, register in `doctor/registry.ts`, add tests in `packages/api-routes/test/doctor-*`, document the new check ID in `AGENTS.md`'s "Doctor" section |
 | Add a new MCP toolkit | Add the toolkit name to `packages/canonry/src/mcp/toolkits.ts`, tag the relevant tools with the new tier, and update the toolkit table in `docs/mcp.md` |

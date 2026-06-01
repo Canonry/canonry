@@ -117,6 +117,8 @@ The legacy `request<T>()` raw-fetch wrapper was removed in v4.51; if you find an
 
 `canonry-mcp` is the only MCP executable. It is allowed only as a stdio adapter over `createApiClient()` and must not import DB modules, API routes, job runners, CLI command dispatch, telemetry, or loggers. It must never write to stdout except MCP protocol frames. Add tools only when the same capability already exists through the public API/CLI, and keep input schemas tied to `packages/contracts` Zod schemas.
 
+MCP parity is the default for every new public API/CLI capability. When adding a command or `ApiClient` method, either add the matching tool in `src/mcp/tool-registry.ts` and update `docs/mcp.md` + MCP tests, or classify the OpenAPI operation as `deferred` / `excluded-protocol` in `src/mcp/openapi-classification.ts` with a short rationale. Security-sensitive credential/token operations may be deferred, but the PR must explain the exception.
+
 ### Command output
 
 All commands that produce output must support `--format json` for machine-parseable output. Use the format flag to switch between human-friendly tables and JSON.

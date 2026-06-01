@@ -4,6 +4,8 @@ Canonry is CLI/API-first. MCP exists to make that same public surface easier to 
 
 MCP is useful here because many agent clients can discover typed tools, validate arguments, and call them without asking the user to compose `curl` or `canonry ... --format json` invocations. It is not more authoritative than the API or CLI. `canonry-mcp` is an adapter over `createApiClient()` only, so it must not expose capabilities that do not already exist through Canonry's public API/CLI.
 
+New public API/CLI capabilities should get MCP parity by default. If a capability is intentionally not exposed as an MCP tool, classify its OpenAPI operation as `deferred` or `excluded-protocol` in `packages/canonry/src/mcp/openapi-classification.ts` and include the reason there. Credential, bearer-token, browser-session, and other high-risk operations may be deferred, but they should be explicit exceptions rather than silent omissions.
+
 ## Install
 
 Install Canonry normally:
