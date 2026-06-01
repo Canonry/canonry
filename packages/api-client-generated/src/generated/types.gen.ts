@@ -15,6 +15,28 @@ export type AgentProvidersResponseDto = {
     defaultProvider: 'claude' | 'openai' | 'gemini' | 'zai';
 };
 
+export type ApiKeyDto = {
+    id: string;
+    name: string;
+    keyPrefix: string;
+    scopes: Array<string>;
+    createdAt: string;
+    lastUsedAt: string | null;
+    revokedAt: string | null;
+};
+
+export type ApiKeyListDto = {
+    keys: Array<{
+        id: string;
+        name: string;
+        keyPrefix: string;
+        scopes: Array<string>;
+        createdAt: string;
+        lastUsedAt: string | null;
+        revokedAt: string | null;
+    }>;
+};
+
 export type AuditLogEntry = {
     id: string;
     projectId?: string | null;
@@ -421,6 +443,22 @@ export type ContentTargetsResponseDto = {
         latestRunId: string;
         runTimestamp: string;
     };
+};
+
+export type CreateApiKeyRequest = {
+    name: string;
+    scopes?: Array<string>;
+};
+
+export type CreatedApiKeyDto = {
+    id: string;
+    name: string;
+    keyPrefix: string;
+    scopes: Array<string>;
+    createdAt: string;
+    lastUsedAt: string | null;
+    revokedAt: string | null;
+    key: string;
 };
 
 export type RecommendationExplanationDto = {
@@ -3486,6 +3524,89 @@ export type PutApiV1SettingsGoogleResponses = {
 };
 
 export type PutApiV1SettingsGoogleResponse = PutApiV1SettingsGoogleResponses[keyof PutApiV1SettingsGoogleResponses];
+
+export type GetApiV1KeysData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/keys';
+};
+
+export type GetApiV1KeysResponses = {
+    /**
+     * Keys returned.
+     */
+    200: ApiKeyListDto;
+};
+
+export type GetApiV1KeysResponse = GetApiV1KeysResponses[keyof GetApiV1KeysResponses];
+
+export type PostApiV1KeysData = {
+    body: CreateApiKeyRequest;
+    path?: never;
+    query?: never;
+    url: '/api/v1/keys';
+};
+
+export type PostApiV1KeysErrors = {
+    /**
+     * Invalid request body.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Missing the keys.write scope.
+     */
+    403: ErrorEnvelope;
+};
+
+export type PostApiV1KeysError = PostApiV1KeysErrors[keyof PostApiV1KeysErrors];
+
+export type PostApiV1KeysResponses = {
+    /**
+     * Key created. Includes the one-time plaintext `key`.
+     */
+    200: CreatedApiKeyDto;
+};
+
+export type PostApiV1KeysResponse = PostApiV1KeysResponses[keyof PostApiV1KeysResponses];
+
+export type PostApiV1KeysByIdRevokeData = {
+    body?: never;
+    path: {
+        /**
+         * API key ID.
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/keys/{id}/revoke';
+};
+
+export type PostApiV1KeysByIdRevokeErrors = {
+    /**
+     * Cannot revoke the currently-authenticating key.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Missing the keys.write scope.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Key not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type PostApiV1KeysByIdRevokeError = PostApiV1KeysByIdRevokeErrors[keyof PostApiV1KeysByIdRevokeErrors];
+
+export type PostApiV1KeysByIdRevokeResponses = {
+    /**
+     * Key revoked (or already revoked).
+     */
+    200: ApiKeyDto;
+};
+
+export type PostApiV1KeysByIdRevokeResponse = PostApiV1KeysByIdRevokeResponses[keyof PostApiV1KeysByIdRevokeResponses];
 
 export type PostApiV1SnapshotData = {
     body: {

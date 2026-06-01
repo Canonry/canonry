@@ -16,6 +16,7 @@ The publishable npm package (`@ainyc/canonry`). Bundles the CLI, local Fastify s
 | `src/commands/` | Command implementations (one file per domain) |
 | `src/commands/competitor.ts` | Competitor commands: `competitor add`, `remove`/`delete`, `list` |
 | `src/commands/query.ts` | Query commands: `query add`, `replace`, `remove`/`delete`, `list`, `import`, `generate` |
+| `src/commands/keys.ts` | API key commands: `key list` (table NAME / PREFIX / SCOPES / CREATED / LAST USED / STATUS; `--format json\|jsonl`), `key create --name <name> [--scope <s> ...]` (prints the plaintext key ONCE with a "will not be shown again" warning; JSON mode includes the key), `key revoke <id>` (confirms revocation). Flag-driven, no prompts; delegates to `ApiClient.listApiKeys` / `createApiKey` / `revokeApiKey`. Registered via `src/cli-commands/keys.ts`. |
 | `src/commands/mcp.ts` | MCP client install helpers: `mcp install`, `mcp config` (writes to client config files only — separate from the `canonry-mcp` stdio bin) |
 | `src/mcp-clients.ts` | Registry of supported MCP clients (Claude Desktop, Cursor, Codex) — config-path resolvers and format hints used by `mcp install`/`mcp config` |
 | `src/commands/skills.ts` | `installSkills` / `listSkills` — reconciles bundled `skills/<name>/` trees into a user's `.claude/skills/<name>/` **additively** (missing files copied without `--force`; upstream-updated files the operator never touched refreshed; genuine local edits preserved and reported as conflicts unless `--force`), writes a `.canonry-skill-manifest.json` recording what canonry last wrote, and creates relative `.codex/skills/<name>` symlinks. `getBundledSkillSnapshots()` exposes the bundled version + per-file hashes for the `agent.skills.current` doctor check. Auto-invoked by `canonry init` when cwd looks like a project. |
@@ -115,6 +116,8 @@ The legacy `request<T>()` raw-fetch wrapper was removed in v4.51; if you find an
 ### MCP adapter
 
 `canonry-mcp` is the only MCP executable. It is allowed only as a stdio adapter over `createApiClient()` and must not import DB modules, API routes, job runners, CLI command dispatch, telemetry, or loggers. It must never write to stdout except MCP protocol frames. Add tools only when the same capability already exists through the public API/CLI, and keep input schemas tied to `packages/contracts` Zod schemas.
+
+MCP parity is the default for every new public API/CLI capability. When adding a command or `ApiClient` method, either add the matching tool in `src/mcp/tool-registry.ts` and update `docs/mcp.md` + MCP tests, or classify the OpenAPI operation as `deferred` / `excluded-protocol` in `src/mcp/openapi-classification.ts` with a short rationale. Security-sensitive credential/token operations may be deferred, but the PR must explain the exception.
 
 ### Command output
 
