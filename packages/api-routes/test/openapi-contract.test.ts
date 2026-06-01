@@ -122,7 +122,7 @@ describe('openapi contract', () => {
     expect(body.paths['/api/v1/projects/{name}/google/callback']?.get?.security).toEqual([])
   })
 
-  it('documents all schedulable kinds (incl. backlinks-sync) in schedule request parameters and bodies', async () => {
+  it('documents all schedulable kinds (incl. backlinks-sync) via a single SchedulableRunKind component', async () => {
     const ctx = buildObservedApp()
     contexts.push(ctx)
     await ctx.app.ready()
@@ -131,23 +131,31 @@ describe('openapi contract', () => {
     expect(res.statusCode).toBe(200)
 
     const body = res.json() as {
+      components?: { schemas?: Record<string, { enum?: string[] }> }
       paths: Record<string, Record<string, {
-        parameters?: Array<{ name: string; schema?: { enum?: string[] } }>
+        parameters?: Array<{ name: string; schema?: { $ref?: string } }>
         requestBody?: {
-          content?: Record<string, { schema?: { properties?: Record<string, { enum?: string[] }> } }>
+          content?: Record<string, { schema?: { properties?: Record<string, { $ref?: string }> } }>
         }
       }>>
     }
-    const schedulePath = body.paths['/api/v1/projects/{name}/schedule']!
 
+    // The enum values live in exactly one place — the shared component — so the
+    // union isn't repeated across every schedule param, body, and the DTO.
+    const KIND_REF = '#/components/schemas/SchedulableRunKind'
+    expect(body.components?.schemas?.SchedulableRunKind?.enum).toEqual(
+      ['answer-visibility', 'traffic-sync', 'gbp-sync', 'data-refresh', 'backlinks-sync'],
+    )
+
+    const schedulePath = body.paths['/api/v1/projects/{name}/schedule']!
     for (const method of ['put', 'get', 'delete'] as const) {
       const kindParam = schedulePath[method]?.parameters?.find((p) => p.name === 'kind')
-      expect(kindParam?.schema?.enum).toEqual(['answer-visibility', 'traffic-sync', 'gbp-sync', 'data-refresh', 'backlinks-sync'])
+      expect(kindParam?.schema?.$ref).toBe(KIND_REF)
     }
 
-    const requestKindEnum = schedulePath.put?.requestBody
-      ?.content?.['application/json']?.schema?.properties?.kind?.enum
-    expect(requestKindEnum).toEqual(['answer-visibility', 'traffic-sync', 'gbp-sync', 'data-refresh', 'backlinks-sync'])
+    const requestKindRef = schedulePath.put?.requestBody
+      ?.content?.['application/json']?.schema?.properties?.kind?.$ref
+    expect(requestKindRef).toBe(KIND_REF)
   })
 
   it('every 2xx response declares a body schema (or carries a non-JSON content type)', async () => {
