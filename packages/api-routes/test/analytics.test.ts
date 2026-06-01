@@ -228,6 +228,37 @@ describe('analytics routes', () => {
       expect(body.byProvider.gemini).toBeDefined()
       expect(body.byProvider.gemini.total).toBeGreaterThan(0)
     })
+
+    it('carries a per-provider breakdown on every bucket that sums to the bucket totals', async () => {
+      const res = await app.inject({ method: 'GET', url: '/api/v1/projects/test-site/analytics/metrics' })
+      const body = JSON.parse(res.payload)
+      expect(body.buckets.length).toBeGreaterThan(0)
+      for (const bucket of body.buckets) {
+        expect(bucket.byProvider).toBeDefined()
+        expect(Object.keys(bucket.byProvider).length).toBeGreaterThan(0)
+
+        let sumTotal = 0
+        let sumCited = 0
+        let sumMentioned = 0
+        for (const metric of Object.values(bucket.byProvider) as Array<{
+          citationRate: number; mentionRate: number; cited: number; total: number; mentionedCount: number
+        }>) {
+          // 4dp rounding invariant — same rounding computeProviderMetric applies to `overall`
+          expect(metric.citationRate).toBe(Math.round(metric.citationRate * 10000) / 10000)
+          expect(metric.mentionRate).toBe(Math.round(metric.mentionRate * 10000) / 10000)
+          // a provider can't cite/mention more than its own snapshot total
+          expect(metric.cited).toBeLessThanOrEqual(metric.total)
+          expect(metric.mentionedCount).toBeLessThanOrEqual(metric.total)
+          sumTotal += metric.total
+          sumCited += metric.cited
+          sumMentioned += metric.mentionedCount
+        }
+        // disjoint partition: provider slices sum to the bucket aggregate
+        expect(sumTotal).toBe(bucket.total)
+        expect(sumCited).toBe(bucket.cited)
+        expect(sumMentioned).toBe(bucket.mentionedCount)
+      }
+    })
   })
 
   describe('GET /projects/:name/analytics/gaps', () => {
@@ -538,6 +569,10 @@ describe('analytics routes', () => {
       const lastBucket = body.buckets[body.buckets.length - 1]
       expect(lastBucket.citationRate).toBe(1) // 2/2 = 100%
       expect(lastBucket.queryCount).toBe(2)
+      // Per-provider rides the SAME normalized `usable` set — gemini's bucket
+      // slice excludes the 3 newly-added queries too (total 2, not 5).
+      expect(lastBucket.byProvider.gemini.total).toBe(2)
+      expect(lastBucket.byProvider.gemini.citationRate).toBe(1)
     })
 
     it('returns queryChanges annotations', async () => {

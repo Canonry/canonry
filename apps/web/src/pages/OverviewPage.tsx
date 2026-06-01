@@ -35,7 +35,7 @@ function OverviewProjectCard({
       </div>
       <div className="project-row-stat">
         <div className="metric-inline-block">
-          <p className="metric-inline-label">Answer Visibility</p>
+          <p className="metric-inline-label">Cited</p>
           <p className={`metric-inline-value ${project.visibilityTone === 'caution' ? 'text-amber-400' : ''}`}>{project.visibilityScore}</p>
           <p className="metric-inline-delta">{project.visibilityDelta}</p>
           {project.providerCoverage && <p className="text-[10px] font-medium text-amber-400/80">{project.providerCoverage}</p>}

@@ -921,8 +921,7 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['analytics'],
     parameters: [nameParameter, analyticsWindowParameter],
     responses: {
-      // TODO: Add `BrandMetricsDto` Zod schema in contracts.
-      200: rawJsonResponse('Citation metrics returned.', looseObjectSchema),
+      200: jsonResponse('Citation metrics returned.', 'BrandMetricsDto'),
       404: errorResponse('Project not found.'),
     },
   },
