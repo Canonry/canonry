@@ -26,6 +26,9 @@ function OverviewProjectCard({
       params={{ projectId: project.project.id }}
       className="project-row cursor-pointer"
     >
+      <div className="project-row-chart">
+        <Sparkline points={project.trend} tone={toneFromRunStatus(project.lastRun.status)} />
+      </div>
       <div className="project-row-primary">
         <div>
           <p className="project-name">{project.project.name}</p>
@@ -49,9 +52,6 @@ function OverviewProjectCard({
             {project.lastRun.kindLabel} · {toTitleCase(project.lastRun.status)}
           </p>
         </div>
-      </div>
-      <div className="project-row-chart">
-        <Sparkline points={project.trend} tone={toneFromRunStatus(project.lastRun.status)} />
       </div>
       <span className="project-row-link">
         <ChevronRight className="h-4 w-4 text-zinc-500" />
