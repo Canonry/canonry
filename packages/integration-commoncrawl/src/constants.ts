@@ -11,7 +11,16 @@ export const DUCKDB_SPEC = process.env.CANONRY_DUCKDB_SPEC ?? '@duckdb/node-api@
 export const CC_CACHE_DIR = process.env.CANONRY_CC_CACHE_DIR
   ?? path.join(os.homedir(), '.canonry', 'cache', 'commoncrawl')
 
-export const RELEASE_ID_REGEX = /^cc-main-(\d{4})-(jan-feb-mar|apr-may-jun|jul-aug-sep|oct-nov-dec)$/
+const CC_MONTH = '(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)'
+/**
+ * Common Crawl publishes the hyperlink graph as rolling, monthly-stepped,
+ * overlapping 3-month windows (`cc-main-YYYY-<mon>-<mon>-<mon>`), named by the
+ * window's FIRST month's year. This validates the slug SHAPE only — a
+ * well-formed-but-unpublished window (e.g. a cross-year `nov-dec-jan`) 404s at
+ * probe/download time, which is the authoritative existence check. Group 1 is
+ * the year, group 2 is the full `mon-mon-mon` window slug.
+ */
+export const RELEASE_ID_REGEX = new RegExp(`^cc-main-(\\d{4})-(${CC_MONTH}-${CC_MONTH}-${CC_MONTH})$`)
 
 export interface ReleasePaths {
   vertexUrl: string

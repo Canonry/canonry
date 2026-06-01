@@ -36,6 +36,17 @@ export interface SchedulerCallbacks {
    * by the host, not the scheduler. Fire-and-forget.
    */
   onDataRefreshRequested?: (projectName: string) => void
+  /**
+   * Fired when a backlinks-sync schedule triggers. The host re-probes Common
+   * Crawl for the latest hyperlink-graph release and, when a newer rolling
+   * window is published, runs the workspace-level release sync (which
+   * auto-extracts per-project backlinks for projects with `autoExtractBacklinks`).
+   * The Common Crawl sync is workspace-GLOBAL, so the scheduler creates no
+   * per-project run row here — it only fires the trigger. The host owns the
+   * de-dupe gate (skip when the newest release is already synced) and error
+   * logging. Fire-and-forget.
+   */
+  onBacklinksSyncRequested?: (projectName: string) => void
 }
 
 /** Scheduler tasks are keyed by `(projectId, kind)` so a project can run an
@@ -248,6 +259,26 @@ export class Scheduler {
         }).where(eq(schedules.id, currentSchedule.id)).run()
         log.info('data-refresh.triggered', { projectName: project.name })
         this.callbacks.onDataRefreshRequested(project.name)
+        return
+      }
+
+      if (kind === SchedulableRunKinds['backlinks-sync']) {
+        // Backlinks-sync re-probes Common Crawl and runs the workspace-level
+        // release sync when a newer rolling window is published. The sync is
+        // workspace-global (no per-project run row); the host owns the
+        // probe + de-dupe gate + trigger. Skip without side effects if the
+        // host never registered the callback.
+        if (!this.callbacks.onBacklinksSyncRequested) {
+          log.warn('backlinks-sync.no-callback', { scheduleId, projectId, msg: 'host did not register onBacklinksSyncRequested' })
+          return
+        }
+        this.db.update(schedules).set({
+          lastRunAt: now,
+          nextRunAt,
+          updatedAt: now,
+        }).where(eq(schedules.id, currentSchedule.id)).run()
+        log.info('backlinks-sync.triggered', { projectName: project.name })
+        this.callbacks.onBacklinksSyncRequested(project.name)
         return
       }
 

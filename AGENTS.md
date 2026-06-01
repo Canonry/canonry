@@ -77,12 +77,13 @@ canonry report <project>                         # client-facing AEO report → 
 canonry report <project> --output dist/aeo.html
 canonry report <project> --format json           # raw report payload to stdout
 
-# Schedules — one row per (project, kind) where kind ∈ {answer-visibility, traffic-sync, gbp-sync, data-refresh}
+# Schedules — one row per (project, kind) where kind ∈ {answer-visibility, traffic-sync, gbp-sync, data-refresh, backlinks-sync}
 canonry schedule set <project> --preset daily                                                # answer-visibility (default kind)
 canonry schedule set <project> --kind traffic-sync --cron "*/15 * * * *" --source <id>       # traffic-sync (sourceId required)
 canonry schedule set <project> --kind gbp-sync --preset daily                                # gbp-sync (no source; syncs selected locations)
 canonry schedule set <project> --kind data-refresh --preset daily                            # data-refresh (refreshes connected GSC/Bing/GA/GBP; no source)
-canonry schedule show <project> [--kind answer-visibility|traffic-sync|gbp-sync|data-refresh] # default kind is answer-visibility
+canonry schedule set <project> --kind backlinks-sync --preset weekly                         # backlinks-sync (re-probe Common Crawl; sync only when a newer rolling window is published; no source/providers)
+canonry schedule show <project> [--kind answer-visibility|traffic-sync|gbp-sync|data-refresh|backlinks-sync] # default kind is answer-visibility
 canonry schedule enable  <project> [--kind ...]
 canonry schedule disable <project> [--kind ...]
 canonry schedule remove  <project> [--kind ...]                                              # delete the schedule for that kind

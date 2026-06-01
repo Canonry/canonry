@@ -222,7 +222,7 @@ export async function backlinksRoutes(app: FastifyInstance, opts: BacklinksRoute
     if (!release) {
       if (!opts.discoverLatestRelease) {
         throw validationError(
-          'No `release` provided and auto-discovery is unavailable on this deployment. Pass an explicit release id (e.g., cc-main-2026-jan-feb-mar).',
+          'No `release` provided and auto-discovery is unavailable on this deployment. Pass an explicit release id (e.g., cc-main-2026-mar-apr-may).',
         )
       }
       const discovered = await opts.discoverLatestRelease()
@@ -234,7 +234,7 @@ export async function backlinksRoutes(app: FastifyInstance, opts: BacklinksRoute
       release = discovered.release
     }
     if (!isValidReleaseId(release)) {
-      throw validationError('Invalid release id. Expected form: cc-main-YYYY-{jan-feb-mar,apr-may-jun,jul-aug-sep,oct-nov-dec}')
+      throw validationError('Invalid release id. Expected form: cc-main-YYYY-<mon>-<mon>-<mon> (a rolling 3-month window, e.g. cc-main-2026-mar-apr-may).')
     }
 
     if (!opts.getBacklinksStatus || !opts.onReleaseSyncRequested) {
