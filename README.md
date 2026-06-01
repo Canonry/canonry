@@ -8,6 +8,7 @@
 - Watch AI engines crawl and refer traffic via [server-log ingestion](skills/canonry/references/server-side-traffic.md) — Cloud Run, Vercel, and the WordPress Traffic Logger plugin today
 - Diagnose against real traffic with built-in [GSC](docs/google-search-console-setup.md), [GA4](docs/google-analytics-setup.md), and [Bing Webmaster](docs/bing-webmaster-setup.md)
 - Track local AEO via [Google Business Profile](skills/canonry/references/google-business-profile.md) — search-term impressions, performance metrics, and hotel lodging + booking-CTA gaps
+- Discover who links to you with [Common Crawl backlinks](skills/canonry/references/canonry-cli.md#backlinks-common-crawl) — quarterly hyperlink-graph syncs, queried locally with DuckDB
 - Execute fixes via [WordPress](docs/wordpress-setup.md), JSON-LD schema, and indexing submissions
 - Manage many clients declaratively — config-as-code YAML + `cnry apply`
 - Schedule recurring visibility checks, traffic syncs, and Business Profile syncs, with webhook alerts on regressions
