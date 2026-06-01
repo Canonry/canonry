@@ -458,6 +458,21 @@ export const canonryMcpTools = [
     handler: (client, input) => client.getReport(input.project),
   }),
   defineTool({
+    name: 'canonry_analytics_metrics',
+    title: 'Get citation & mention trend',
+    description:
+      'Citation and mention rates over time for a project, bucketed adaptively (daily → monthly by span) and probe-excluded. Returns overall + per-provider window aggregates AND a per-bucket `byProvider` breakdown so you can read how each engine\'s cited/mentioned rate moved run-over-run — the same data the dashboard\'s "Citations & mentions over time" chart plots. Includes trend direction (improving/declining/stable) for both signals and query-set-change annotations. Filter the range with `window` (7d/30d/90d/all).',
+    access: 'read',
+    tier: 'monitoring',
+    inputSchema: z.object({
+      project: projectNameSchema,
+      window: analyticsWindowSchema.optional().describe('Time range: 7d, 30d, 90d, or all (default all).'),
+    }),
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/analytics/metrics'],
+    handler: (client, input) => client.getAnalyticsMetrics(input.project, input.window),
+  }),
+  defineTool({
     name: 'canonry_search',
     title: 'Search project (composite)',
     description: 'Search query snapshots and intelligence insights for the given text. Looks at snapshot answer text, cited domains, raw provider responses, and insight title/query/recommendation/cause. Returns ranked hits with snippets — use it instead of paginating snapshots when you need to find a competitor mention or term.',

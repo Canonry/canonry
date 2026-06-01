@@ -427,6 +427,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
 
 export type { DatabaseClient } from '@ainyc/canonry-db'
 export { queueRunIfProjectIdle } from './run-queue.js'
+export { nextRunFromCron } from './schedule-utils.js'
 export {
   executeDiscovery,
   classifyProbeBucket,

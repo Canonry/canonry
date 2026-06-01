@@ -219,6 +219,52 @@ export type BingUrlInspectionDto = {
     discoveryDate?: string | null;
 };
 
+export type BrandMetricsDto = {
+    window: '7d' | '30d' | '90d' | 'all';
+    buckets: Array<{
+        startDate: string;
+        endDate: string;
+        citationRate: number;
+        cited: number;
+        total: number;
+        queryCount: number;
+        mentionRate: number;
+        mentionedCount: number;
+        byProvider: {
+            [key: string]: {
+                citationRate: number;
+                cited: number;
+                total: number;
+                mentionRate: number;
+                mentionedCount: number;
+            };
+        };
+    }>;
+    overall: {
+        citationRate: number;
+        cited: number;
+        total: number;
+        mentionRate: number;
+        mentionedCount: number;
+    };
+    byProvider: {
+        [key: string]: {
+            citationRate: number;
+            cited: number;
+            total: number;
+            mentionRate: number;
+            mentionedCount: number;
+        };
+    };
+    trend: 'improving' | 'declining' | 'stable';
+    mentionTrend: 'improving' | 'declining' | 'stable';
+    queryChanges: Array<{
+        date: string;
+        delta: number;
+        label: string;
+    }>;
+};
+
 export type CcAvailableRelease = {
     release: string;
     vertexUrl: string;
@@ -1585,10 +1631,12 @@ export type RunDto = {
     createdAt: string;
 };
 
+export type SchedulableRunKind = 'answer-visibility' | 'traffic-sync' | 'gbp-sync' | 'data-refresh' | 'backlinks-sync';
+
 export type ScheduleDto = {
     id: string;
     projectId: string;
-    kind: 'answer-visibility' | 'traffic-sync' | 'gbp-sync' | 'data-refresh';
+    kind: SchedulableRunKind;
     cronExpr: string;
     preset?: string | null;
     timezone: string;
@@ -3266,9 +3314,7 @@ export type GetApiV1ProjectsByNameAnalyticsMetricsResponses = {
     /**
      * Citation metrics returned.
      */
-    200: {
-        [key: string]: unknown;
-    };
+    200: BrandMetricsDto;
 };
 
 export type GetApiV1ProjectsByNameAnalyticsMetricsResponse = GetApiV1ProjectsByNameAnalyticsMetricsResponses[keyof GetApiV1ProjectsByNameAnalyticsMetricsResponses];
@@ -3675,7 +3721,7 @@ export type DeleteApiV1ProjectsByNameScheduleData = {
         /**
          * Schedulable run kind. Defaults to "answer-visibility" for backward compatibility.
          */
-        kind?: 'answer-visibility' | 'traffic-sync' | 'gbp-sync' | 'data-refresh';
+        kind?: SchedulableRunKind;
     };
     url: '/api/v1/projects/{name}/schedule';
 };
@@ -3710,7 +3756,7 @@ export type GetApiV1ProjectsByNameScheduleData = {
         /**
          * Schedulable run kind. Defaults to "answer-visibility" for backward compatibility.
          */
-        kind?: 'answer-visibility' | 'traffic-sync' | 'gbp-sync' | 'data-refresh';
+        kind?: SchedulableRunKind;
     };
     url: '/api/v1/projects/{name}/schedule';
 };
@@ -3735,7 +3781,7 @@ export type GetApiV1ProjectsByNameScheduleResponse = GetApiV1ProjectsByNameSched
 
 export type PutApiV1ProjectsByNameScheduleData = {
     body: {
-        kind?: 'answer-visibility' | 'traffic-sync' | 'gbp-sync' | 'data-refresh';
+        kind?: SchedulableRunKind;
         preset?: string;
         cron?: string;
         timezone?: string;
@@ -3753,7 +3799,7 @@ export type PutApiV1ProjectsByNameScheduleData = {
         /**
          * Schedulable run kind. Defaults to "answer-visibility" for backward compatibility.
          */
-        kind?: 'answer-visibility' | 'traffic-sync' | 'gbp-sync' | 'data-refresh';
+        kind?: SchedulableRunKind;
     };
     url: '/api/v1/projects/{name}/schedule';
 };

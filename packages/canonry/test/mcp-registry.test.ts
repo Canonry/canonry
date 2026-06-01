@@ -21,6 +21,7 @@ const expectedToolNames = [
   'canonry_project_delete_preview',
   'canonry_project_overview',
   'canonry_report',
+  'canonry_analytics_metrics',
   'canonry_search',
   'canonry_doctor',
   'canonry_project_export',
@@ -117,8 +118,8 @@ const expectedToolNames = [
 
 describe('MCP tool registry', () => {
   it('ships the curated v1 surface', () => {
-    expect(CANONRY_MCP_TOOL_COUNT).toBe(97)
-    expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(63)
+    expect(CANONRY_MCP_TOOL_COUNT).toBe(98)
+    expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(64)
     expect(canonryMcpTools.map(tool => tool.name)).toEqual(expectedToolNames)
     const readNames = canonryMcpTools.filter(tool => tool.access === 'read').map(tool => tool.name)
     expect(getCanonryMcpTools('read-only').map(tool => tool.name)).toEqual(readNames)
@@ -154,7 +155,7 @@ describe('MCP tool registry', () => {
     for (const tool of canonryMcpTools) {
       counts.set(tool.tier, (counts.get(tool.tier) ?? 0) + 1)
     }
-    expect(counts.get('monitoring')).toBe(16)
+    expect(counts.get('monitoring')).toBe(17)
     expect(counts.get('setup')).toBe(23)
     expect(counts.get('gsc')).toBe(8)
     expect(counts.get('ga')).toBe(8)
@@ -475,6 +476,7 @@ const handlerCases: HandlerCase[] = [
   { tool: 'canonry_projects_list', input: {}, methods: ['listProjects'] },
   { tool: 'canonry_project_get', input: projectInput, methods: ['getProject'] },
   { tool: 'canonry_project_overview', input: projectInput, methods: ['getProjectOverview'] },
+  { tool: 'canonry_analytics_metrics', input: { project: 'acme', window: '30d' }, methods: ['getAnalyticsMetrics'] },
   { tool: 'canonry_search', input: { project: 'acme', q: 'rival' }, methods: ['searchProject'] },
   { tool: 'canonry_project_export', input: projectInput, methods: ['getExport'] },
   { tool: 'canonry_project_history', input: projectInput, methods: ['getHistory'] },

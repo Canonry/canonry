@@ -656,7 +656,9 @@ export function buildPortfolioProject(data: ProjectData): PortfolioProjectVm {
     insight: total > 0
       ? `${cited} of ${total} queries mentioned across ${providerCount} provider${providerCount === 1 ? '' : 's'}.`
       : 'No runs completed yet.',
-    trend: [],
+    // Cited-rate-over-time series (0–100, oldest→newest), computed server-side
+    // from runHistory — drives the per-project sparkline on the portfolio.
+    trend: visibility.trend ?? [],
     competitorPressureLabel: overview.scores.competitorPressure.value,
   }
 }

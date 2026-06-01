@@ -143,6 +143,24 @@ describe('analytics command', () => {
     expect(parsed).not.toHaveProperty('sources')
   })
 
+  it('metrics JSON passes through the per-bucket provider contract (byProvider + buckets)', async () => {
+    const { showAnalytics } = await import('../src/commands/analytics.js')
+    const logs: string[] = []
+    const origLog = console.log
+    console.log = (...args: unknown[]) => logs.push(args.join(' '))
+    try {
+      await showAnalytics('test-proj', { feature: 'metrics', format: 'json' })
+    } finally {
+      console.log = origLog
+    }
+    const metrics = JSON.parse(logs.join('\n')).metrics as { byProvider: unknown; buckets: unknown[] }
+    // The CLI emits the full BrandMetricsDto, so the per-bucket provider
+    // breakdown the dashboard chart consumes is reachable via `--format json`
+    // (parity). Per-bucket content is asserted in api-routes analytics.test.ts.
+    expect(typeof metrics.byProvider).toBe('object')
+    expect(Array.isArray(metrics.buckets)).toBe(true)
+  })
+
   it('passes window param to metrics endpoint', async () => {
     const { showAnalytics } = await import('../src/commands/analytics.js')
     const logs: string[] = []

@@ -3,7 +3,7 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 
 const _require = createRequire(import.meta.url)
 const { version: PKG_VERSION } = _require('../package.json') as { version: string }
@@ -18,7 +18,7 @@ import { claudeAdapter } from '@ainyc/canonry-provider-claude'
 import { localAdapter } from '@ainyc/canonry-provider-local'
 import { cdpChatgptAdapter } from '@ainyc/canonry-provider-cdp'
 import { perplexityAdapter } from '@ainyc/canonry-provider-perplexity'
-import { authInvalid, validationError, RunKinds, RunStatuses, RunTriggers, type ProviderAdapter } from '@ainyc/canonry-contracts'
+import { authInvalid, validationError, CcReleaseSyncStatuses, RunKinds, RunStatuses, RunTriggers, type ProviderAdapter } from '@ainyc/canonry-contracts'
 import type { CanonryConfig, ProviderConfigEntry } from './config.js'
 import { saveConfigPatch, loadConfig, getConfigPath } from './config.js'
 import { getPlacesConfig } from './places-config.js'
@@ -532,6 +532,43 @@ export async function createServer(opts: {
       // the same in-process client. refreshAllIntegrations isolates each
       // integration's failure with Promise.allSettled and never rejects.
       void refreshAllIntegrations(aeroClient, projectName)
+    },
+    onBacklinksSyncRequested: (projectName) => {
+      // Re-probe Common Crawl for the newest rolling window. The release sync is
+      // workspace-GLOBAL, so we gate on freshness: skip when the latest published
+      // release is already synced READY (avoids re-downloading a ~4 GB/~13 GB
+      // near-identical window every tick). We match on (release, status) directly
+      // rather than the most-recently-updated ready row, so re-syncing an older
+      // release out of band doesn't make us re-trigger an already-synced latest.
+      // Otherwise reuse POST /backlinks/syncs, which owns insert/dedupe (UNIQUE
+      // release + non-terminal check) and the per-project auto-extract fan-out.
+      // Probe directly (not the 5-min cache) so each tick sees fresh results.
+      void (async () => {
+        const probed = await probeLatestRelease().catch((err: unknown) => {
+          app.log.warn({ projectName, err }, 'Scheduled backlinks sync: latest-release probe failed')
+          return null
+        })
+        if (!probed) return
+        const alreadySynced = opts.db
+          .select()
+          .from(ccReleaseSyncsTable)
+          .where(and(
+            eq(ccReleaseSyncsTable.release, probed.release),
+            eq(ccReleaseSyncsTable.status, CcReleaseSyncStatuses.ready),
+          ))
+          .limit(1)
+          .get()
+        if (alreadySynced) {
+          app.log.info({ projectName, release: probed.release }, 'Scheduled backlinks sync: already up to date, skipping')
+          return
+        }
+        aeroClient.backlinksTriggerSync(probed.release).catch((err: unknown) => {
+          app.log.error(
+            { projectName, release: probed.release, err: err instanceof Error ? err.message : String(err) },
+            'Scheduled backlinks sync failed',
+          )
+        })
+      })()
     },
   })
 

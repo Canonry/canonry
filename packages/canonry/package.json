@@ -1,6 +1,6 @@
 {
   "name": "@ainyc/canonry",
-  "version": "4.68.0",
+  "version": "4.69.0",
   "type": "module",
   "description": "Agent-first open-source AEO operating platform - track how answer engines cite your domain",
   "license": "FSL-1.1-ALv2",
@@ -54,6 +54,7 @@
     "@sinclair/typebox": "^0.34.41",
     "better-sqlite3": "^12.6.2",
     "chrome-remote-interface": "^0.33.2",
+    "cron-parser": "^5.5.0",
     "drizzle-orm": "^0.45.2",
     "fastify": "^5.8.5",
     "node-cron": "^4.2.1",

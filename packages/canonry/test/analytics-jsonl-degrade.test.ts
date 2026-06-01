@@ -32,7 +32,7 @@ const metrics: BrandMetricsDto = {
   overall: { cited: 3, total: 10, citationRate: 0.3 },
   trend: 'up',
   byProvider: { openai: { cited: 2, total: 5, citationRate: 0.4 } },
-  buckets: [{ startDate: '2026-05-01T00:00:00.000Z', endDate: '2026-05-08T00:00:00.000Z', cited: 1, total: 5, citationRate: 0.2 }],
+  buckets: [{ startDate: '2026-05-01T00:00:00.000Z', endDate: '2026-05-08T00:00:00.000Z', cited: 1, total: 5, citationRate: 0.2, byProvider: { openai: { cited: 1, total: 5, citationRate: 0.2, mentionRate: 0.2, mentionedCount: 1 } } }],
 } as unknown as BrandMetricsDto
 
 const gaps: GapAnalysisDto = {

@@ -262,6 +262,11 @@ describe('GET /api/v1/projects/:name/overview', () => {
     expect(body.runHistory[0]?.citationRate).toBe(50) // previous run: A cited, B not
     expect(body.runHistory[1]?.citationRate).toBe(100) // latest run: both cited
 
+    // The visibility score carries the cited-rate-over-time series (the
+    // portfolio sparkline + `canonry overview` read it) — same ascending
+    // 0–100 values as runHistory, derived from it.
+    expect(body.scores.visibility.trend).toEqual([50, 100])
+
     expect(body.dateRangeLabel).toBe('All time')
     expect(body.contextLabel).toBe('US / EN')
 
