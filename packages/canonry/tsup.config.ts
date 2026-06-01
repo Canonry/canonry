@@ -29,6 +29,10 @@ export default defineConfig({
     '@google/genai',
     '@anthropic-ai/sdk',
     'node-cron',
+    // cron-parser computes the scheduler's nextRunAt (node-cron's own
+    // getNextRun() is broken for weekday crons). Keep external in lockstep
+    // with the entry in `packages/canonry/package.json`.
+    'cron-parser',
     'yaml',
     'pino-pretty',
     'zod',

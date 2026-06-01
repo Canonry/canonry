@@ -1,5 +1,5 @@
 import { test, expect } from 'vitest'
-import { resolvePreset, validateCron, isValidTimezone } from '../src/schedule-utils.js'
+import { resolvePreset, validateCron, isValidTimezone, nextRunFromCron } from '../src/schedule-utils.js'
 
 // --- resolvePreset ---
 
@@ -68,4 +68,47 @@ test('isValidTimezone rejects invalid timezone strings', () => {
   expect(isValidTimezone('not/a-zone')).toBe(false)
   expect(isValidTimezone('')).toBe(false)
   expect(isValidTimezone('GMT+25')).toBe(false)
+})
+
+// --- nextRunFromCron ---
+// Anchor: 2026-06-01T15:33:00Z is a Monday afternoon.
+
+test('nextRunFromCron resolves a weekday cron to the NEXT matching weekday (node-cron getNextRun regression)', () => {
+  // node-cron@4's getNextRun() returns 2029-01-01 for `0 6 * * 1` here (the
+  // next Jan-1-on-a-Monday). The correct answer is the upcoming Monday 06:00.
+  expect(nextRunFromCron('0 6 * * 1', 'UTC', new Date('2026-06-01T15:33:00Z')))
+    .toBe('2026-06-08T06:00:00.000Z')
+})
+
+test('nextRunFromCron resolves a Sunday cron correctly', () => {
+  // node-cron@4 returns 2034-01-01 for `0 6 * * 0`; the correct answer is the
+  // upcoming Sunday 06:00.
+  expect(nextRunFromCron('0 6 * * 0', 'UTC', new Date('2026-06-01T15:33:00Z')))
+    .toBe('2026-06-07T06:00:00.000Z')
+})
+
+test('nextRunFromCron resolves a daily cron to tomorrow when today has passed', () => {
+  expect(nextRunFromCron('0 6 * * *', 'UTC', new Date('2026-06-01T15:33:00Z')))
+    .toBe('2026-06-02T06:00:00.000Z')
+})
+
+test('nextRunFromCron returns the same-day slot when it is still ahead', () => {
+  // Monday 05:00, cron fires Monday 06:00 — the next run is later today.
+  expect(nextRunFromCron('0 6 * * 1', 'UTC', new Date('2026-06-01T05:00:00Z')))
+    .toBe('2026-06-01T06:00:00.000Z')
+})
+
+test('nextRunFromCron interprets the cron in the supplied timezone', () => {
+  // 06:00 America/New_York (EDT, UTC-4) on 2026-06-02 == 10:00 UTC. From
+  // 11:33 EDT, today's 06:00 ET has passed, so the next run is tomorrow.
+  expect(nextRunFromCron('0 6 * * *', 'America/New_York', new Date('2026-06-01T15:33:00Z')))
+    .toBe('2026-06-02T10:00:00.000Z')
+})
+
+test('nextRunFromCron returns null for an unparseable expression', () => {
+  expect(nextRunFromCron('not a cron', 'UTC', new Date('2026-06-01T15:33:00Z'))).toBeNull()
+})
+
+test('nextRunFromCron returns null for an invalid timezone', () => {
+  expect(nextRunFromCron('0 6 * * *', 'not/a-zone', new Date('2026-06-01T15:33:00Z'))).toBeNull()
 })
