@@ -186,6 +186,7 @@ cnry competitor list <project>
 cnry schedule set <project> --preset daily     # or: weekly, twice-daily, daily@09
 cnry schedule set <project> --cron "0 9 * * *" --timezone America/New_York
 cnry schedule set <project> --kind data-refresh --preset daily   # refresh all connected GSC/Bing/GA/GBP integrations (no --source)
+cnry schedule set <project> --kind backlinks-sync --preset weekly # re-probe Common Crawl; sync only when a newer rolling window is published (no --source/--provider)
 cnry schedule show <project>
 cnry schedule enable <project>
 cnry schedule disable <project>
@@ -416,12 +417,16 @@ cnry gbp summary <project> [--location locations/{n}]
 
 Workspace-level Common Crawl release sync + per-project backlink extraction. Requires DuckDB; install once with `cnry backlinks install`. Releases are downloaded once per workspace and reused across all projects.
 
+Common Crawl publishes the hyperlink graph as **rolling, monthly-stepped, overlapping 3-month windows** named by the window's first month's year: `cc-main-YYYY-<mon>-<mon>-<mon>` (e.g. `cc-main-2026-mar-apr-may`). Omit `--release` to auto-discover the newest published window; the legacy fixed-quarter slugs (`jan-feb-mar`, …) still resolve since they're a subset of the cadence.
+
 ```bash
 cnry backlinks install                         # install bundled DuckDB binary
 cnry backlinks doctor                          # show install + plugin status
 cnry backlinks status                          # latest workspace release sync
 cnry backlinks releases                        # list cached releases on disk
-cnry backlinks sync --release <id>             # download + query a release (workspace-wide)
+cnry backlinks releases latest                 # probe Common Crawl for the newest published rolling window
+cnry backlinks sync                            # auto-discover + download + query the newest release (workspace-wide)
+cnry backlinks sync --release cc-main-2026-mar-apr-may   # pin a specific rolling window
 cnry backlinks sync --release <id> --wait      # block until ready/failed
 cnry backlinks list <project>                  # top linking domains for the project
 cnry backlinks list <project> --limit 100 --release <id>
@@ -431,6 +436,8 @@ cnry backlinks cache prune --release <id>      # delete cached release files fro
 ```
 
 All commands support `--format json`. A release sync has statuses `queued` → `downloading` → `querying` → `ready` / `failed`. Per-project extract runs use the standard run statuses (`queued` → `running` → `completed` / `failed`). Projects with the `autoExtractBacklinks` setting enabled get an extract run enqueued automatically when a release sync transitions to `ready`.
+
+To keep backlinks fresh automatically, schedule a `backlinks-sync` kind (`cnry schedule set <project> --kind backlinks-sync --preset weekly`): each tick re-probes Common Crawl and runs the workspace release sync **only when a newer rolling window is published** (it skips when the newest `ready` sync already covers the latest release, so it never re-downloads a near-identical window).
 
 ## CDP / Browser Provider
 

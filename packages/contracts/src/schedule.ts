@@ -9,8 +9,11 @@ import { providerNameSchema } from './provider.js'
  * - `traffic-sync` — server-side traffic-source pull (Cloud Run today; future adapters slot in here too).
  * - `gbp-sync` — Google Business Profile performance + local-signal pull over the project's selected locations.
  * - `data-refresh` — refresh every connected data integration for the project (GSC, Bing, GA, GBP) in one trigger.
+ * - `backlinks-sync` — re-probe Common Crawl for the latest hyperlink-graph release and, when a newer rolling
+ *   window is published, run the workspace-level release sync (which auto-extracts per-project backlinks for
+ *   projects with `autoExtractBacklinks`). Workspace-global: no `sourceId`, no `providers`.
  */
-export const schedulableRunKindSchema = z.enum(['answer-visibility', 'traffic-sync', 'gbp-sync', 'data-refresh'])
+export const schedulableRunKindSchema = z.enum(['answer-visibility', 'traffic-sync', 'gbp-sync', 'data-refresh', 'backlinks-sync'])
 export type SchedulableRunKind = z.infer<typeof schedulableRunKindSchema>
 export const SchedulableRunKinds = schedulableRunKindSchema.enum
 

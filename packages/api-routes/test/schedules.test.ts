@@ -283,6 +283,56 @@ describe('schedule per-kind invariants', () => {
     expect(body.error.code).toBe('VALIDATION_ERROR')
     expect(body.error.message).toMatch(/sourceId.*traffic-sync/)
   })
+
+  it('accepts a well-formed backlinks-sync schedule (no sourceId, no providers) and round-trips via GET / DELETE', async () => {
+    const putRes = await harness.app.inject({
+      method: 'PUT',
+      url: '/api/v1/projects/site-a/schedule',
+      payload: { kind: 'backlinks-sync', preset: 'weekly' },
+    })
+    expect(putRes.statusCode).toBe(201)
+    const created = JSON.parse(putRes.payload)
+    expect(created.kind).toBe('backlinks-sync')
+    expect(created.sourceId ?? null).toBeNull()
+    expect(created.providers).toEqual([])
+
+    const getRes = await harness.app.inject({
+      method: 'GET',
+      url: '/api/v1/projects/site-a/schedule?kind=backlinks-sync',
+    })
+    expect(getRes.statusCode).toBe(200)
+    expect(JSON.parse(getRes.payload).id).toBe(created.id)
+
+    const delRes = await harness.app.inject({
+      method: 'DELETE',
+      url: '/api/v1/projects/site-a/schedule?kind=backlinks-sync',
+    })
+    expect(delRes.statusCode).toBe(204)
+  })
+
+  it('rejects PUT /schedule with kind=backlinks-sync and a sourceId', async () => {
+    const res = await harness.app.inject({
+      method: 'PUT',
+      url: '/api/v1/projects/site-a/schedule',
+      payload: { kind: 'backlinks-sync', preset: 'weekly', sourceId: harness.trafficSourceId },
+    })
+    expect(res.statusCode).toBe(400)
+    const body = JSON.parse(res.payload)
+    expect(body.error.code).toBe('VALIDATION_ERROR')
+    expect(body.error.message).toMatch(/sourceId.*traffic-sync/)
+  })
+
+  it('rejects PUT /schedule with kind=backlinks-sync and providers set', async () => {
+    const res = await harness.app.inject({
+      method: 'PUT',
+      url: '/api/v1/projects/site-a/schedule',
+      payload: { kind: 'backlinks-sync', preset: 'weekly', providers: ['gemini'] },
+    })
+    expect(res.statusCode).toBe(400)
+    const body = JSON.parse(res.payload)
+    expect(body.error.code).toBe('VALIDATION_ERROR')
+    expect(body.error.message).toMatch(/providers.*not valid.*backlinks-sync/)
+  })
 })
 
 describe('apply preserves traffic-sync schedules', () => {

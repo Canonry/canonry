@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Common Crawl hyperlink-graph backlinks extractor. Downloads the domain-level vertex + edge gzip files that Common Crawl publishes quarterly, runs a multi-target DuckDB query over them, and returns backlink rows ready to persist into SQLite. DuckDB is an **opt-in plugin** installed at runtime into `~/.canonry/plugins/` — it is not a canonry dependency.
+Common Crawl hyperlink-graph backlinks extractor. Downloads the domain-level vertex + edge gzip files that Common Crawl publishes as rolling, monthly-stepped, overlapping 3-month windows, runs a multi-target DuckDB query over them, and returns backlink rows ready to persist into SQLite. DuckDB is an **opt-in plugin** installed at runtime into `~/.canonry/plugins/` — it is not a canonry dependency.
 
 ## Key Files
 
@@ -10,7 +10,7 @@ Common Crawl hyperlink-graph backlinks extractor. Downloads the domain-level ver
 |------|------|
 | `src/constants.ts` | `CC_BASE_URL`, `PLUGIN_DIR`, `DUCKDB_SPEC`, release-slug regex |
 | `src/release-id.ts` | `isValidReleaseId()` validator |
-| `src/release-discovery.ts` | `probeLatestRelease()` — HEAD-probes quarterly slugs |
+| `src/release-discovery.ts` | `probeLatestRelease()` — HEAD-probes rolling monthly-window slugs |
 | `src/reverse-domain.ts` | `reverseDomain()` / `forwardDomain()` — `roots.io` ↔ `io.roots` |
 | `src/downloader.ts` | Streaming download with SHA-256 + sidecar cache + atomic rename |
 | `src/plugin-resolver.ts` | `loadDuckdb()` via `createRequire` against the plugin dir; throws `MISSING_DEPENDENCY` |
@@ -29,9 +29,10 @@ Common Crawl hyperlink-graph backlinks extractor. Downloads the domain-level ver
 
 ### Releases
 
-- Common Crawl publishes ~quarterly: `cc-main-YYYY-{jan-feb-mar,apr-may-jun,jul-aug-sep,oct-nov-dec}`.
-- Files live at `https://data.commoncrawl.org/projects/hyperlinkgraph/<release>/domain/<release>-domain-{vertices,edges}.txt.gz` (verified 2026-04).
-- `probeLatestRelease()` issues HEAD requests working backward from the current quarter to find the newest published release.
+- Common Crawl publishes **rolling, monthly-stepped, overlapping 3-month windows**: `cc-main-YYYY-<mon>-<mon>-<mon>`, e.g. `cc-main-2026-mar-apr-may`. A release is named by its **first month's year** (`cc-main-2025-oct-nov-dec` = Oct/Nov/Dec 2025). The old fixed calendar quarters (`jan-feb-mar`, `apr-may-jun`, …) are still published as a subset of this cadence, so legacy slugs keep resolving.
+- Empirically (verified 2026-06 via HEAD probe): windows whose **first month is Jan–Oct** are published; cross-year windows (first month Nov/Dec, e.g. `nov-dec-jan`) and not-yet-crawled future windows 404. `RELEASE_ID_REGEX` accepts any well-formed `<mon>-<mon>-<mon>` triplet — it gates slug **shape**, not existence; a well-formed-but-unpublished slug 404s at probe/download time.
+- Files live at `https://data.commoncrawl.org/projects/hyperlinkgraph/<release>/domain/<release>-domain-{vertices,edges}.txt.gz`.
+- `probeLatestRelease()` issues HEAD requests working backward **one month at a time** from the current month (the window's first month) to find the newest published release. `probeRecentReleases()` lists the overlapping monthly windows newest-first.
 
 ### Downloads
 
