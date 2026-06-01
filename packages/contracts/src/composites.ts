@@ -157,12 +157,19 @@ export interface AttentionItemDto {
 
 // Per-run point used for sparklines in the overview. One entry per run in
 // the history window (newest first or oldest first — see endpoint docs).
+// Carries both signals per run (see AGENTS.md "Vocabulary"): `cited*` counts
+// queries whose answer cited the domain, `mentioned*` counts queries whose
+// answer text mentioned the brand. They are independent — never derive one
+// from the other — so the portfolio sparkline can track whichever the
+// headline metric uses.
 export interface RunHistoryPointDto {
   runId: string
   createdAt: string
   citedCount: number
   totalCount: number
   citationRate: number
+  mentionedCount: number
+  mentionRate: number
   status: string
 }
 

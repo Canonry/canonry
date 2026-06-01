@@ -1108,7 +1108,7 @@ test('buildProjectCommandCenter emits a single history-only row when no location
   expect(geminiRows).toHaveLength(2)
 })
 
-test('buildPortfolioProject carries the cited-rate trend and mention-count subtitle from the overview', () => {
+test('buildPortfolioProject carries the mention-rate trend, score, and subtitle from the overview', () => {
   const base: ProjectData = {
     project: {
       id: 'proj_portfolio',
@@ -1158,8 +1158,14 @@ test('buildPortfolioProject carries the cited-rate trend and mention-count subti
       providers: [{ provider: 'gemini', cited: 3, total: 4, citedRate: 0.75 }],
       transitions: { since: null, gained: 0, lost: 0, emerging: 0 },
       scores: {
-        // The server populates the visibility score's trend from runHistory.
+        // The server populates each headline score's trend from runHistory.
+        // Mention is the headline metric the portfolio row reads; give it a
+        // distinct trend + progress from visibility to prove the builder reads
+        // mention, not cited.
+        mention: { label: 'Mention Coverage', value: '60', delta: '3 of 4 queries mentioned', tone: 'positive', description: '', tooltip: '', trend: [40, 60, 80], progress: 60 },
         visibility: { label: 'Citation Coverage', value: '75', delta: '3 of 4 queries', tone: 'positive', description: '', tooltip: '', trend: [25, 50, 75], progress: 75 },
+        mentionShare: { label: 'Mention Share', value: 'No data', delta: '', tone: 'neutral', description: '', tooltip: '', trend: [], breakdown: { projectMentionSnapshots: 0, competitorMentionSnapshots: 0, perCompetitor: [], snapshotsWithAnswerText: 0, snapshotsTotal: 0 } },
+        mentionGaps: { label: 'Mention Gaps', value: '0', delta: '', tone: 'positive', description: '', tooltip: '', trend: [] },
         gapQueries: { label: 'Gap Queries', value: '0', delta: '', tone: 'positive', description: '', tooltip: '', trend: [] },
         indexCoverage: { label: 'Index Coverage', value: 'No data', delta: '', tone: 'neutral', description: '', tooltip: '', trend: [] },
         competitorPressure: { label: 'Competitor Pressure', value: 'None', delta: '', tone: 'neutral', description: '', tooltip: '', trend: [] },
@@ -1175,11 +1181,16 @@ test('buildPortfolioProject carries the cited-rate trend and mention-count subti
     },
   }
 
-  expect(buildPortfolioProject(base).trend).toEqual([25, 50, 75])
+  // The headline metric is Mention Coverage — the portfolio row reads the
+  // mention score + mention trend, NOT the cited/visibility ones. Mention's
+  // trend ([40,60,80]) and progress (60) differ from visibility's so this
+  // proves the builder switched signals.
+  expect(buildPortfolioProject(base).trend).toEqual([40, 60, 80])
+  expect(buildPortfolioProject(base).mentionScore).toBe(60)
 
-  // The subtitle ("N of M queries mentioned …") reads the MENTION count
+  // The headline delta + subtitle both read the MENTION count
   // (answerMentioned), never the cited count. Seed mentioned≠cited and prove
-  // the subtitle tracks mentioned while the cited block stays on cited.
+  // both track mentioned (1 of 4) rather than cited (3 of 4).
   const distinctMention = buildPortfolioProject({
     ...base,
     overview: {
@@ -1188,7 +1199,7 @@ test('buildPortfolioProject carries the cited-rate trend and mention-count subti
     },
   })
   expect(distinctMention.insight).toBe('1 of 4 queries mentioned across 1 provider.')
-  expect(distinctMention.visibilityDelta).toBe('3 of 4 queries')
+  expect(distinctMention.mentionDelta).toBe('1 of 4 queries')
 
   // Without an overview (no runs yet) the trend is empty and the sparkline no-ops.
   expect(buildPortfolioProject({ ...base, overview: null }).trend).toEqual([])

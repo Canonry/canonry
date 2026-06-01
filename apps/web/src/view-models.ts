@@ -74,9 +74,11 @@ export interface RunListItemVm extends RunDto {
 
 export interface PortfolioProjectVm {
   project: ProjectDto
-  visibilityScore: number
-  visibilityDelta: string
-  visibilityTone: MetricTone
+  /** Headline metric — Mention Coverage (% of tracked queries whose AI answer
+   *  text mentioned the brand). This is the key portfolio metric, not cited. */
+  mentionScore: number
+  mentionDelta: string
+  mentionTone: MetricTone
   providerCoverage?: string
   lastRun: RunListItemVm
   insight: string
