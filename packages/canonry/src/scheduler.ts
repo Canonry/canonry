@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 import cron from 'node-cron'
 import { and, eq } from 'drizzle-orm'
-import { queueRunIfProjectIdle } from '@ainyc/canonry-api-routes'
+import { queueRunIfProjectIdle, nextRunFromCron } from '@ainyc/canonry-api-routes'
 import type { DatabaseClient } from '@ainyc/canonry-db'
 import { schedules, projects, runs } from '@ainyc/canonry-db'
 import type { ProviderName, LocationContext, SchedulableRunKind } from '@ainyc/canonry-contracts'
@@ -162,7 +162,7 @@ export class Scheduler {
 
     this.tasks.set(taskKey(projectId, kind), task)
     this.db.update(schedules).set({
-      nextRunAt: task.getNextRun()?.toISOString() ?? null,
+      nextRunAt: nextRunFromCron(cronExpr, timezone),
       updatedAt: new Date().toISOString(),
     }).where(eq(schedules.id, scheduleId)).run()
 
@@ -180,8 +180,7 @@ export class Scheduler {
         return
       }
 
-      const task = this.tasks.get(taskKey(projectId, kind))
-      const nextRunAt = task?.getNextRun()?.toISOString() ?? null
+      const nextRunAt = nextRunFromCron(currentSchedule.cronExpr, currentSchedule.timezone)
 
       // Check if project still exists
       const project = this.db.select().from(projects).where(eq(projects.id, projectId)).get()
