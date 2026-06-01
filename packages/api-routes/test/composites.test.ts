@@ -264,10 +264,15 @@ describe('GET /api/v1/projects/:name/overview', () => {
     expect(body.runHistory).toHaveLength(2)
     expect(body.runHistory[0]?.citationRate).toBe(50) // previous run: A cited, B not
     expect(body.runHistory[1]?.citationRate).toBe(100) // latest run: both cited
+    // Mention is tracked per run independently: previous run had A mentioned
+    // (answerMentioned=true), B not → 50%; latest run had both mentioned → 100%.
+    expect(body.runHistory[0]?.mentionRate).toBe(50)
+    expect(body.runHistory[1]?.mentionRate).toBe(100)
 
-    // The visibility score carries the cited-rate-over-time series (the
-    // portfolio sparkline + `canonry overview` read it) — same ascending
+    // Each headline score carries its own over-time series (the portfolio
+    // sparkline + `canonry overview` read mention.trend now) — same ascending
     // 0–100 values as runHistory, derived from it.
+    expect(body.scores.mention.trend).toEqual([50, 100])
     expect(body.scores.visibility.trend).toEqual([50, 100])
 
     expect(body.dateRangeLabel).toBe('All time')

@@ -246,11 +246,13 @@ export async function compositeRoutes(app: FastifyInstance) {
       .slice(0, DEFAULT_RUN_HISTORY_LIMIT)
       .map(r => ({ id: r.id, createdAt: r.createdAt, status: r.status }))
     const runHistory: RunHistoryPointDto[] = buildRunHistory(sparklineRuns, snapshotsByRun)
-    // Surface the cited-rate-over-time series on the visibility score so the
-    // portfolio per-project sparkline (and `canonry overview --format json`)
-    // can render it. buildRunHistory is ascending (oldest→newest, 0–100), the
-    // order/scale the Sparkline expects. The pure buildVisibilityScore has no
-    // run history, so the cross-run trend is assembled here at the composite.
+    // Surface the over-time series on each headline score so the portfolio
+    // per-project sparkline (and `canonry overview --format json`) can render
+    // it. buildRunHistory is ascending (oldest→newest, 0–100), the order/scale
+    // the Sparkline expects. The pure score builders have no run history, so
+    // the cross-run trends are assembled here at the composite — each tracking
+    // its own signal (mention = answer-text, visibility = cited source).
+    scores.mention.trend = runHistory.map(p => p.mentionRate)
     scores.visibility.trend = runHistory.map(p => p.citationRate)
     const suggestedQueries: SuggestedQueriesSummaryDto = buildSuggestedQueriesFromGsc(
       app,
