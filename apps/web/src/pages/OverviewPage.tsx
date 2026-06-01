@@ -7,7 +7,6 @@ import { Sparkline } from '../components/shared/Sparkline.js'
 import { StatusBadge } from '../components/shared/StatusBadge.js'
 import { ToneBadge } from '../components/shared/ToneBadge.js'
 import { toneFromRunStatus } from '../lib/tone-helpers.js'
-import { toTitleCase } from '../lib/format-helpers.js'
 import { buildSystemHealthCards, serviceStatusTooltip } from '../lib/health-helpers.js'
 import { useDashboardOverview as useDashboard } from '../queries/use-dashboard-overview.js'
 import { useHealth } from '../queries/use-health.js'
@@ -48,9 +47,6 @@ function OverviewProjectCard({
         <div className="metric-inline-block">
           <p className="metric-inline-label">Competitor Pressure</p>
           <p className="metric-inline-value">{project.competitorPressureLabel}</p>
-          <p className="metric-inline-delta">
-            {project.lastRun.kindLabel} · {toTitleCase(project.lastRun.status)}
-          </p>
         </div>
       </div>
       <span className="project-row-link">

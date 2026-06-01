@@ -11,6 +11,13 @@ export interface ProjectOverviewQueryCountsDto {
   citedQueries: number
   notCitedQueries: number
   citedRate: number
+  // Mention is a distinct signal from cited (see AGENTS.md "Vocabulary"): a
+  // query is `mentioned` when its brand/domain appears in the AI answer text
+  // (`answerMentioned`) on at least one snapshot — computed independently of
+  // `cited`, never derived from it. Mirrors the cited triplet above.
+  mentionedQueries: number
+  notMentionedQueries: number
+  mentionRate: number
 }
 
 export interface ProjectOverviewProviderEntryDto {

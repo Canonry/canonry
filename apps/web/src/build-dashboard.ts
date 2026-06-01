@@ -643,6 +643,7 @@ export function buildPortfolioProject(data: ProjectData): PortfolioProjectVm {
   // `progress` is the same number as 0–100, so we read that for the score.
   const visibilityScore = visibility.progress ?? 0
   const cited = overview.queryCounts.citedQueries
+  const mentioned = overview.queryCounts.mentionedQueries
   const total = overview.queryCounts.totalQueries
   const providerCount = overview.providers.length
 
@@ -653,8 +654,10 @@ export function buildPortfolioProject(data: ProjectData): PortfolioProjectVm {
     visibilityTone: visibility.tone as MetricTone,
     providerCoverage: visibility.providerCoverage,
     lastRun: runItem,
+    // Subtitle reads the mention signal (answerMentioned), not cited — the
+    // word "mentioned" must be backed by mention data, not the cited count.
     insight: total > 0
-      ? `${cited} of ${total} queries mentioned across ${providerCount} provider${providerCount === 1 ? '' : 's'}.`
+      ? `${mentioned} of ${total} queries mentioned across ${providerCount} provider${providerCount === 1 ? '' : 's'}.`
       : 'No runs completed yet.',
     // Cited-rate-over-time series (0–100, oldest→newest), computed server-side
     // from runHistory — drives the per-project sparkline on the portfolio.

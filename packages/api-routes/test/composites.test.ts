@@ -188,6 +188,9 @@ describe('GET /api/v1/projects/:name/overview', () => {
       citedQueries: 2,
       notCitedQueries: 0,
       citedRate: 1,
+      mentionedQueries: 2,
+      notMentionedQueries: 0,
+      mentionRate: 1,
     })
     expect(body.providers.map(p => p.provider)).toEqual(['gemini', 'openai'])
     expect(body.transitions.since).toBe('2026-04-18T14:10:00.000Z')
@@ -452,9 +455,71 @@ describe('GET /api/v1/projects/:name/overview', () => {
     expect(body.latestRun).toEqual({ totalRuns: 0, run: null })
     expect(body.health).toBeNull()
     expect(body.topInsights).toEqual([])
-    expect(body.queryCounts).toEqual({ totalQueries: 0, citedQueries: 0, notCitedQueries: 0, citedRate: 0 })
+    expect(body.queryCounts).toEqual({ totalQueries: 0, citedQueries: 0, notCitedQueries: 0, citedRate: 0, mentionedQueries: 0, notMentionedQueries: 0, mentionRate: 0 })
     expect(body.providers).toEqual([])
     expect(body.transitions).toEqual({ since: null, gained: 0, lost: 0, emerging: 0 })
+
+    await app.close()
+  })
+
+  // queryCounts.mentionedQueries must read the mention signal (answerMentioned)
+  // independently of cited — never derived from it. Seed queries where the two
+  // signals deliberately diverge and prove the counts track their own field.
+  it('counts mentioned queries from answerMentioned, disjoint from cited', async () => {
+    const { app, db, tmpDir } = buildApp()
+    cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
+
+    const projectId = crypto.randomUUID()
+    const runId = crypto.randomUUID()
+    const qCitedOnly = crypto.randomUUID()
+    const qMentionOnly = crypto.randomUUID()
+    const qBoth = crypto.randomUUID()
+    const qCitedOnly2 = crypto.randomUUID()
+
+    db.insert(projects).values({
+      id: projectId, name: 'split', displayName: 'Split', canonicalDomain: 'split.example',
+      country: 'US', language: 'en', ownedDomains: [], tags: [], providers: [],
+      createdAt: '2026-05-01T00:00:00.000Z', updatedAt: '2026-05-01T00:00:00.000Z',
+    }).run()
+    db.insert(queries).values([
+      { id: qCitedOnly, projectId, query: 'cited not mentioned', createdAt: '2026-05-01T00:00:00.000Z' },
+      { id: qMentionOnly, projectId, query: 'mentioned not cited', createdAt: '2026-05-01T00:00:00.000Z' },
+      { id: qBoth, projectId, query: 'cited and mentioned', createdAt: '2026-05-01T00:00:00.000Z' },
+      { id: qCitedOnly2, projectId, query: 'cited not mentioned two', createdAt: '2026-05-01T00:00:00.000Z' },
+    ]).run()
+    db.insert(runs).values({
+      id: runId, projectId, kind: 'answer-visibility', status: 'completed', trigger: 'manual',
+      createdAt: '2026-05-01T01:00:00.000Z', finishedAt: '2026-05-01T01:01:00.000Z',
+    }).run()
+    const snap = (queryId: string, citationState: string, answerMentioned: boolean) => ({
+      id: crypto.randomUUID(), runId, queryId, provider: 'gemini', citationState, answerMentioned,
+      citedDomains: citationState === 'cited' ? ['split.example'] : [],
+      competitorOverlap: [], recommendedCompetitors: [], answerText: null, createdAt: '2026-05-01T01:00:30.000Z',
+    })
+    db.insert(querySnapshots).values([
+      snap(qCitedOnly, 'cited', false),
+      snap(qMentionOnly, 'not-cited', true),
+      snap(qBoth, 'cited', true),
+      snap(qCitedOnly2, 'cited', false),
+    ]).run()
+
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/api/v1/projects/split/overview' })
+    expect(res.statusCode).toBe(200)
+    const qc = (JSON.parse(res.payload) as ProjectOverviewDto).queryCounts
+
+    expect(qc.totalQueries).toBe(4)
+    // cited = {CitedOnly, Both, CitedOnly2} = 3; mentioned = {MentionOnly, Both} = 2.
+    expect(qc.citedQueries).toBe(3)
+    expect(qc.mentionedQueries).toBe(2)
+    expect(qc.notCitedQueries).toBe(1)
+    expect(qc.notMentionedQueries).toBe(2)
+    expect(qc.citedRate).toBe(0.75)
+    expect(qc.mentionRate).toBe(0.5)
+    // Disjointness proof: the mentioned set INCLUDES a not-cited query and
+    // EXCLUDES a cited-but-not-mentioned query, so mentionedQueries cannot have
+    // been derived from the cited signal (and vice versa).
+    expect(qc.mentionedQueries).not.toBe(qc.citedQueries)
 
     await app.close()
   })
