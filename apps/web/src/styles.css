@@ -517,6 +517,58 @@
     @apply mt-2.5 text-center text-[11px] leading-[1.45] text-zinc-500 w-full;
   }
 
+  /* ── Command center: current-state rail (left) + trend graph (right) ── */
+
+  .command-hero {
+    @apply grid items-start gap-4 mb-4;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  @media (min-width: 1024px) {
+    .command-hero {
+      /* Graph is the centerpiece on the left (wider column); the AEO stat
+         rail sits on the right (narrower column). */
+      grid-template-columns: minmax(0, 1.6fr) minmax(320px, 0.85fr);
+    }
+  }
+
+  .command-hero-rail,
+  .command-hero-chart {
+    @apply min-w-0;
+  }
+
+  /* ── Visibility trend (citations & mentions over time) ── */
+
+  .visibility-trend {
+    @apply h-full rounded-xl border border-zinc-800/60 bg-zinc-900/30 px-5 py-5;
+  }
+
+  .visibility-trend-head {
+    @apply mb-2 flex flex-wrap items-start justify-between gap-3;
+  }
+
+  .visibility-trend-title {
+    @apply flex items-center gap-1.5;
+  }
+
+  .visibility-trend-badges {
+    @apply flex shrink-0 items-center gap-2;
+  }
+
+  /* Dedicated controls toolbar (below the title), so metric / series / window
+     toggles don't crowd the heading. Window group is pushed right via ml-auto. */
+  .visibility-trend-controls {
+    @apply mb-3 flex flex-wrap items-center gap-2;
+  }
+
+  .visibility-trend-chart {
+    @apply h-56 w-full sm:h-64;
+  }
+
+  .visibility-trend-note {
+    @apply mt-2 text-[11px] text-zinc-500;
+  }
+
   /* ── AEO performance hero (paired Mention + Citation) ── */
 
   .aeo-hero {

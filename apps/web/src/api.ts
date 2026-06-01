@@ -1,4 +1,4 @@
-import type { ErrorCode, GroundingSource, ProjectOverviewDto, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto, GscPerformanceDailyDto, IndexingRequestResultDto, MetricsWindow, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry, InsightDto, ProjectReportDto, ReportAudience, CitationVisibilityResponse, BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinkHistoryEntry, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcAvailableRelease, CcCachedRelease, CcReleaseSyncDto, TrafficSourceDto, TrafficSourceDetailDto, TrafficSourceListResponse, TrafficStatusResponse, TrafficEventsResponse, TrafficConnectCloudRunRequest, TrafficConnectWordpressRequest, TrafficConnectVercelRequest, TrafficSyncResponse, TrafficBackfillResponse, DiscoveryRunRequest, DiscoverySessionDto, DiscoverySessionDetailDto, DiscoveryPromotePreview, DiscoveryPromoteRequest, DiscoveryPromoteResult, ProjectDto, QueryDto, CompetitorDto, LocationContext, GoogleConnectionDto, GscUrlInspectionDto, GscDeindexedRowDto, BingUrlInspectionDto, BingCoverageSummaryDto, BingKeywordStatsDto, BingStatusDto, BingConnectResponseDto, BingSetSiteResponseDto, BingSitesResponseDto, GscSearchDataDto, ContentTargetDismissalDto, ContentTargetDismissRequest } from '@ainyc/canonry-contracts'
+import type { ErrorCode, GroundingSource, ProjectOverviewDto, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto, GscPerformanceDailyDto, IndexingRequestResultDto, MetricsWindow, BrandMetricsDto, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry, InsightDto, ProjectReportDto, ReportAudience, CitationVisibilityResponse, BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinkHistoryEntry, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcAvailableRelease, CcCachedRelease, CcReleaseSyncDto, TrafficSourceDto, TrafficSourceDetailDto, TrafficSourceListResponse, TrafficStatusResponse, TrafficEventsResponse, TrafficConnectCloudRunRequest, TrafficConnectWordpressRequest, TrafficConnectVercelRequest, TrafficSyncResponse, TrafficBackfillResponse, DiscoveryRunRequest, DiscoverySessionDto, DiscoverySessionDetailDto, DiscoveryPromotePreview, DiscoveryPromoteRequest, DiscoveryPromoteResult, ProjectDto, QueryDto, CompetitorDto, LocationContext, GoogleConnectionDto, GscUrlInspectionDto, GscDeindexedRowDto, BingUrlInspectionDto, BingCoverageSummaryDto, BingKeywordStatsDto, BingStatusDto, BingConnectResponseDto, BingSetSiteResponseDto, BingSitesResponseDto, GscSearchDataDto, ContentTargetDismissalDto, ContentTargetDismissRequest } from '@ainyc/canonry-contracts'
 import {
   createClient as createHeyClient,
   // Projects + queries + competitors + locations + runs + apply + settings + telemetry
@@ -42,6 +42,8 @@ import {
   postApiV1ProjectsByNameNotificationsByIdTest,
   // CDP
   getApiV1CdpStatus,
+  // Analytics
+  getApiV1ProjectsByNameAnalyticsMetrics,
   // Google connections + GSC + Indexing
   postApiV1ProjectsByNameGoogleConnect,
   getApiV1ProjectsByNameGoogleConnections,
@@ -968,6 +970,21 @@ export function fetchGscPerformance(
   if (params?.offset !== undefined && params.offset > 0) query.offset = String(params.offset)
   return invokeWeb<ApiGscPerformanceRow[]>(() =>
     getApiV1ProjectsByNameGoogleGscPerformance({
+      client: heyClient,
+      path: { name: project },
+      query: query as never,
+    }),
+  )
+}
+
+export function fetchAnalyticsMetrics(
+  project: string,
+  window?: MetricsWindow,
+): Promise<BrandMetricsDto> {
+  const query: Record<string, string> = {}
+  if (window && window !== 'all') query.window = window
+  return invokeWeb<BrandMetricsDto>(() =>
+    getApiV1ProjectsByNameAnalyticsMetrics({
       client: heyClient,
       path: { name: project },
       query: query as never,

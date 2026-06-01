@@ -21,6 +21,7 @@ import { GscSection } from '../components/project/GscSection.js'
 import { GbpSection } from '../components/project/GbpSection.js'
 import { BacklinksSection } from '../components/project/BacklinksSection.js'
 import { CitationVisibilitySection } from '../components/project/CitationVisibilitySection.js'
+import { VisibilityTrendSection } from '../components/project/VisibilityTrendSection.js'
 import { DiscoverySection } from '../components/project/DiscoverySection.js'
 import { ReportPage } from './ReportPage.js'
 import { formatTimestamp, SEARCH_METRIC_SHORT_LABELS, SearchMetric } from '../lib/format-helpers.js'
@@ -1096,7 +1097,7 @@ function MentionShareBreakdown({
 
   return (
     <div className="mention-share-breakdown">
-      <p className="mention-share-breakdown-title">Mention share breakdown</p>
+      <p className="mention-share-breakdown-title">Mention share breakdown · latest run</p>
       <ul className="mention-share-breakdown-rows">
         {rows.map(row => {
           const share = (row.mentions / combinedTotal) * 100
@@ -1118,59 +1119,6 @@ function MentionShareBreakdown({
         })}
       </ul>
     </div>
-  )
-}
-
-/**
- * Compact inline-SVG sparkline for the per-provider breakdown table. Custom
- * SVG is allowed for sparkline-style visualizations per the design system
- * (Recharts is overkill for a 12-point trend at 96px wide). Color is tone-
- * driven from the most recent point so a row reads at a glance.
- */
-const TREND_STROKE_BY_TONE = {
-  positive: 'rgb(52 211 153)', // emerald-400
-  caution: 'rgb(251 191 36)', // amber-400
-  negative: 'rgb(251 113 133)', // rose-400
-  neutral: 'rgb(161 161 170)', // zinc-400
-} as const
-
-function ProviderTrendSparkline({
-  trend,
-  currentScore,
-}: {
-  trend?: number[]
-  currentScore: number
-}) {
-  if (!trend || trend.length < 2) {
-    return <span className="text-[11px] text-zinc-600">—</span>
-  }
-  const w = 96
-  const h = 24
-  const max = 100
-  const stepX = trend.length > 1 ? w / (trend.length - 1) : 0
-  const pts = trend.map((v, i) => `${(i * stepX).toFixed(2)},${(h - (v / max) * h).toFixed(2)}`).join(' ')
-  const stroke = TREND_STROKE_BY_TONE[toneFromScore(currentScore)]
-  const dotX = (trend.length - 1) * stepX
-  const dotY = h - (trend[trend.length - 1]! / max) * h
-  return (
-    <svg
-      width={w}
-      height={h}
-      viewBox={`0 0 ${w} ${h}`}
-      className="overflow-visible"
-      aria-label={`Trend ${trend.join(', ')}`}
-      role="img"
-    >
-      <polyline
-        points={pts}
-        fill="none"
-        stroke={stroke}
-        strokeWidth={1.5}
-        strokeLinejoin="round"
-        strokeLinecap="round"
-      />
-      <circle cx={dotX} cy={dotY} r={2.5} fill={stroke} />
-    </svg>
   )
 }
 
@@ -1969,44 +1917,11 @@ function ProjectPageContent({
 
       {tab === 'overview' ? (
         <>
-          {/* Hero: three comparable AEO numbers (Mention, Cited, Mention Share). */}
-          <section className="aeo-hero">
-            <h2 className="aeo-hero-title">AEO performance</h2>
-            <div className="aeo-hero-rows">
-              {([
-                { key: 'mention', label: 'Mentioned', tooltip: 'Your domain or company name was in the answer returned by the LLM.', summary: model.mentionSummary },
-                { key: 'citation', label: 'Cited', tooltip: 'An LLM used a page on your domain as a source for its answer.', summary: model.visibilitySummary },
-                { key: 'mention-share', label: 'Mention share', tooltip: 'Of all brand mentions in answer text across your tracked queries (you + tracked competitors), the % that were you. Head-to-head AI prominence, not market share.', summary: model.mentionShareSummary },
-              ] as const).map(row => (
-                <div key={row.key} className="aeo-hero-row">
-                  <div className="aeo-hero-row-label">
-                    <span>{row.label}</span>
-                    <InfoTooltip text={row.tooltip} />
-                  </div>
-                  <div className="aeo-hero-row-value">
-                    <span className="text-zinc-50">{row.summary.value}</span>
-                    {isNumericScore(row.summary.value) ? <span className="text-zinc-600">%</span> : null}
-                  </div>
-                  <div className="aeo-hero-row-bar">
-                    <div
-                      className={`metric-card-bar-fill progress-fill-${row.summary.tone}`}
-                      style={{ width: row.summary.progress !== undefined ? `${Math.min(Math.max(row.summary.progress, 0), 100)}%` : '0%' }}
-                    />
-                  </div>
-                  <div className="aeo-hero-row-detail">{row.summary.delta}</div>
-                </div>
-              ))}
-            </div>
-            <MentionShareBreakdown
-              summary={model.mentionShareSummary}
-              projectLabel={model.project.displayName || model.project.name}
-            />
-            {model.providerScores.length > 0 && (
-              <p className="aeo-hero-context">
-                Across {model.providerScores.length} {model.providerScores.length === 1 ? 'provider' : 'providers'}.
-              </p>
-            )}
-          </section>
+          {/* Trend chart — full-width centerpiece. Current Cited/Mentioned
+              rates are the chart's latest points; mention-share + the
+              mention/citation gap metrics live in the Competitive landscape
+              section below. */}
+          <VisibilityTrendSection projectName={model.project.name} />
 
           {/* Movement banner — what changed since last run, with the actual
               gained / lost query strings inline so the operator doesn't have
@@ -2016,59 +1931,110 @@ function ProjectPageContent({
             onJumpToEvidence={() => document.getElementById('evidence-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
           />
 
-          {/* Secondary: at-risk gaps (paired) + technical health */}
-          <section className="metric-grid">
-            <h2 className="sr-only">Coverage gaps and index health</h2>
-            <div className="metric-card">
-              <p className="metric-card-eyebrow">
-                Mention Gaps
-                <InfoTooltip text="Queries where a competitor was mentioned in the answer but your brand wasn't." />
-              </p>
-              <p className="metric-card-big-value">
-                <span className="text-zinc-50">{model.mentionGaps.value}</span>
-                <span className="text-zinc-600"> / {model.queryCounts.total}</span>
-              </p>
-              <div className="metric-card-bar">
-                <div
-                  className={`metric-card-bar-fill progress-fill-${model.mentionGaps.tone}`}
-                  style={{ width: model.mentionGaps.progress !== undefined ? `${Math.min(Math.max(model.mentionGaps.progress, 0), 100)}%` : '0%' }}
-                />
+          {/* Consolidated competitive landscape — mention share + the
+              mention/citation gap metrics, the per-competitor mention-share
+              breakdown, and the competitor table, all below the full-width
+              trend chart. */}
+          <section className="page-section-divider">
+            <div className="section-head section-head-inline">
+              <div>
+                <p className="eyebrow eyebrow-soft">Competitive</p>
+                <h2>Competitive landscape</h2>
               </div>
-              <p className="metric-card-detail">{model.mentionGaps.delta}</p>
+              <div className="flex items-center gap-3">
+                <p className="supporting-copy">{model.competitors.length} tracked</p>
+                <Button type="button" variant="outline" size="sm" onClick={() => setAddingCompetitor(!addingCompetitor)}>
+                  {addingCompetitor ? 'Cancel' : '+ Add competitor'}
+                </Button>
+              </div>
             </div>
-            <div className="metric-card">
-              <p className="metric-card-eyebrow">
-                Citation Gaps
-                <InfoTooltip text="Queries where a competitor was cited as a source but you weren't." />
-              </p>
-              <p className="metric-card-big-value">
-                <span className="text-zinc-50">{model.gapQueries.value}</span>
-                <span className="text-zinc-600"> / {model.queryCounts.total}</span>
-              </p>
-              <div className="metric-card-bar">
-                <div
-                  className={`metric-card-bar-fill progress-fill-${model.gapQueries.tone}`}
-                  style={{ width: model.gapQueries.progress !== undefined ? `${Math.min(Math.max(model.gapQueries.progress, 0), 100)}%` : '0%' }}
-                />
+
+            <section className="metric-grid">
+              <h2 className="sr-only">Mention share and competitive gaps</h2>
+              <div className="metric-card">
+                <p className="metric-card-eyebrow">
+                  Mention share
+                  <InfoTooltip text="Of all brand mentions in answer text across your tracked queries (you + tracked competitors), the % that were you. Head-to-head AI prominence, not market share. Measured from your most recent run." />
+                </p>
+                <p className="metric-card-big-value">
+                  <span className="text-zinc-50">{model.mentionShareSummary.value}</span>
+                  {isNumericScore(model.mentionShareSummary.value) ? <span className="text-zinc-600">%</span> : null}
+                </p>
+                <div className="metric-card-bar">
+                  <div
+                    className={`metric-card-bar-fill progress-fill-${model.mentionShareSummary.tone}`}
+                    style={{ width: model.mentionShareSummary.progress !== undefined ? `${Math.min(Math.max(model.mentionShareSummary.progress, 0), 100)}%` : '0%' }}
+                  />
+                </div>
+                <p className="metric-card-detail">{model.mentionShareSummary.delta}</p>
               </div>
-              <p className="metric-card-detail">{model.gapQueries.delta}</p>
-            </div>
-            <div className="metric-card">
-              <p className="metric-card-eyebrow">
-                Index Coverage
-                <InfoTooltip text="Percentage of your tracked URLs that Google or Bing has indexed." />
-              </p>
-              <p className="metric-card-big-value">
-                <span className="text-zinc-50">{model.indexCoverage.value}</span>
-                <span className="text-zinc-600">%</span>
-              </p>
-              <div className="metric-card-bar">
-                <div
-                  className={`metric-card-bar-fill progress-fill-${model.indexCoverage.tone}`}
-                  style={{ width: `${Number.parseInt(model.indexCoverage.value, 10) || 0}%` }}
-                />
+              <div className="metric-card">
+                <p className="metric-card-eyebrow">
+                  Mention Gaps
+                  <InfoTooltip text="Queries where a competitor was mentioned in the answer but your brand wasn't." />
+                </p>
+                <p className="metric-card-big-value">
+                  <span className="text-zinc-50">{model.mentionGaps.value}</span>
+                  <span className="text-zinc-600"> / {model.queryCounts.total}</span>
+                </p>
+                <div className="metric-card-bar">
+                  <div
+                    className={`metric-card-bar-fill progress-fill-${model.mentionGaps.tone}`}
+                    style={{ width: model.mentionGaps.progress !== undefined ? `${Math.min(Math.max(model.mentionGaps.progress, 0), 100)}%` : '0%' }}
+                  />
+                </div>
+                <p className="metric-card-detail">{model.mentionGaps.delta}</p>
               </div>
-              <p className="metric-card-detail">{model.indexCoverage.delta}</p>
+              <div className="metric-card">
+                <p className="metric-card-eyebrow">
+                  Citation Gaps
+                  <InfoTooltip text="Queries where a competitor was cited as a source but you weren't." />
+                </p>
+                <p className="metric-card-big-value">
+                  <span className="text-zinc-50">{model.gapQueries.value}</span>
+                  <span className="text-zinc-600"> / {model.queryCounts.total}</span>
+                </p>
+                <div className="metric-card-bar">
+                  <div
+                    className={`metric-card-bar-fill progress-fill-${model.gapQueries.tone}`}
+                    style={{ width: model.gapQueries.progress !== undefined ? `${Math.min(Math.max(model.gapQueries.progress, 0), 100)}%` : '0%' }}
+                  />
+                </div>
+                <p className="metric-card-detail">{model.gapQueries.delta}</p>
+              </div>
+            </section>
+
+            <MentionShareBreakdown
+              summary={model.mentionShareSummary}
+              projectLabel={model.project.displayName || model.project.name}
+            />
+
+            {addingCompetitor && (
+              <div className="mt-4 mb-3 flex gap-2 rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
+                <input
+                  className="flex-1 rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+                  type="text"
+                  placeholder="competitor.com"
+                  value={newCompetitorDomain}
+                  onChange={(e) => setNewCompetitorDomain(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { void handleAddCompetitor() } }}
+                />
+                <Button type="button" size="sm" disabled={!newCompetitorDomain.trim() || competitorSaving} onClick={asyncHandler(handleAddCompetitor)}>
+                  {competitorSaving ? 'Adding...' : 'Add'}
+                </Button>
+              </div>
+            )}
+
+            <div className="mt-4">
+              <CompetitorTable
+                competitors={model.competitors}
+                onSelectCompetitor={(domain) => {
+                  setCompetitorFilter(domain)
+                  document.getElementById('evidence-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                }}
+                onRemoveCompetitor={(domain) => { void handleRemoveCompetitor(domain) }}
+                activeFilter={competitorFilter}
+              />
             </div>
           </section>
 
@@ -2183,46 +2149,6 @@ function ProjectPageContent({
             />
           </section>
 
-          {/* Competitor table */}
-          <section className="page-section-divider">
-            <div className="section-head section-head-inline">
-              <div>
-                <p className="eyebrow eyebrow-soft">Competitors</p>
-                <h2>Competitive landscape</h2>
-              </div>
-              <div className="flex items-center gap-3">
-                <p className="supporting-copy">{model.competitors.length} tracked</p>
-                <Button type="button" variant="outline" size="sm" onClick={() => setAddingCompetitor(!addingCompetitor)}>
-                  {addingCompetitor ? 'Cancel' : '+ Add competitor'}
-                </Button>
-              </div>
-            </div>
-            {addingCompetitor && (
-              <div className="mb-3 flex gap-2 rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
-                <input
-                  className="flex-1 rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
-                  type="text"
-                  placeholder="competitor.com"
-                  value={newCompetitorDomain}
-                  onChange={(e) => setNewCompetitorDomain(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') { void handleAddCompetitor() } }}
-                />
-                <Button type="button" size="sm" disabled={!newCompetitorDomain.trim() || competitorSaving} onClick={asyncHandler(handleAddCompetitor)}>
-                  {competitorSaving ? 'Adding...' : 'Add'}
-                </Button>
-              </div>
-            )}
-            <CompetitorTable
-              competitors={model.competitors}
-              onSelectCompetitor={(domain) => {
-                setCompetitorFilter(domain)
-                document.getElementById('evidence-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-              }}
-              onRemoveCompetitor={(domain) => { void handleRemoveCompetitor(domain) }}
-              activeFilter={competitorFilter}
-            />
-          </section>
-
           {/* Deep-dive analytics: Citation Visibility detail + per-provider
               breakdown. Demoted below the action layer because they answer
               "why" rather than "what to do next". */}
@@ -2233,7 +2159,7 @@ function ProjectPageContent({
               <div className="section-head section-head-inline">
                 <div>
                   <p className="eyebrow eyebrow-soft">Model breakdown</p>
-                  <h2>Visibility by model <InfoTooltip text="Per-model citation rate today plus a sparkline of the recent run history. Same query set, different LLMs — gaps between providers point at content / source issues, not the metric." /></h2>
+                  <h2>Visibility by model <InfoTooltip text="Per-model citation rate today. Same query set, different LLMs — gaps between providers point at content / source issues, not the metric. The trend over time is in the chart above (switch it to By provider)." /></h2>
                 </div>
               </div>
               <div className="evidence-table-wrap">
@@ -2242,7 +2168,6 @@ function ProjectPageContent({
                     <tr>
                       <th scope="col">Model</th>
                       <th scope="col">Score</th>
-                      <th scope="col">Trend</th>
                       <th scope="col">Cited queries</th>
                     </tr>
                   </thead>
@@ -2259,9 +2184,6 @@ function ProjectPageContent({
                           <span className={`font-semibold ${METRIC_TONE_TEXT_CLASS[toneFromScore(ps.score)]}`}>
                             {ps.score}%
                           </span>
-                        </td>
-                        <td>
-                          <ProviderTrendSparkline trend={ps.trend} currentScore={ps.score} />
                         </td>
                         <td className="text-zinc-500">{ps.cited} of {ps.total}</td>
                       </tr>

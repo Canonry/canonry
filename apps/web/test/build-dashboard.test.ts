@@ -1,6 +1,6 @@
 import { test, expect } from 'vitest'
 
-import { buildDashboard, buildProjectCommandCenter, type ProjectData } from '../src/build-dashboard.js'
+import { buildDashboard, buildPortfolioProject, buildProjectCommandCenter, type ProjectData } from '../src/build-dashboard.js'
 import type { ApiSettings } from '../src/api.js'
 
 test('buildProjectCommandCenter evidence summary uses canonical mention vocabulary, not legacy "visible"', () => {
@@ -1106,4 +1106,77 @@ test('buildProjectCommandCenter emits a single history-only row when no location
   // Gemini has a snap per location and should still emit two rows.
   const geminiRows = evidence.filter(e => e.provider === 'gemini')
   expect(geminiRows).toHaveLength(2)
+})
+
+test('buildPortfolioProject carries the cited-rate trend from the overview for the sparkline', () => {
+  const base: ProjectData = {
+    project: {
+      id: 'proj_portfolio',
+      name: 'portfolio-demo',
+      displayName: 'Portfolio Demo',
+      canonicalDomain: 'portfolio.example',
+      ownedDomains: [],
+      country: 'US',
+      language: 'en',
+      tags: [],
+      labels: {},
+      providers: ['gemini'],
+      configSource: 'api',
+      configRevision: 1,
+      createdAt: '2026-04-01T00:00:00Z',
+      updatedAt: '2026-04-01T00:00:00Z',
+    },
+    runs: [],
+    queries: [],
+    competitors: [],
+    timeline: [],
+    latestRunDetails: [],
+    previousRunDetails: [],
+    overview: {
+      project: {
+        id: 'proj_portfolio',
+        name: 'portfolio-demo',
+        displayName: 'Portfolio Demo',
+        canonicalDomain: 'portfolio.example',
+        ownedDomains: [],
+        country: 'US',
+        language: 'en',
+        tags: [],
+        labels: {},
+        locations: [],
+        defaultLocation: null,
+        autoExtractBacklinks: false,
+        configSource: 'api',
+        configRevision: 1,
+        createdAt: '2026-04-01T00:00:00Z',
+        updatedAt: '2026-04-01T00:00:00Z',
+      },
+      latestRun: { totalRuns: 0, run: null },
+      health: null,
+      topInsights: [],
+      queryCounts: { totalQueries: 4, citedQueries: 3, notCitedQueries: 1, citedRate: 0.75 },
+      providers: [{ provider: 'gemini', cited: 3, total: 4, citedRate: 0.75 }],
+      transitions: { since: null, gained: 0, lost: 0, emerging: 0 },
+      scores: {
+        // The server populates the visibility score's trend from runHistory.
+        visibility: { label: 'Citation Coverage', value: '75', delta: '3 of 4 queries', tone: 'positive', description: '', tooltip: '', trend: [25, 50, 75], progress: 75 },
+        gapQueries: { label: 'Gap Queries', value: '0', delta: '', tone: 'positive', description: '', tooltip: '', trend: [] },
+        indexCoverage: { label: 'Index Coverage', value: 'No data', delta: '', tone: 'neutral', description: '', tooltip: '', trend: [] },
+        competitorPressure: { label: 'Competitor Pressure', value: 'None', delta: '', tone: 'neutral', description: '', tooltip: '', trend: [] },
+        runStatus: { label: 'Run Status', value: 'None', delta: '', tone: 'neutral', description: '', tooltip: '', trend: [] },
+      },
+      movementSummary: { gained: 0, lost: 0, tone: 'neutral', hasPreviousRun: false },
+      competitors: [],
+      providerScores: [{ provider: 'gemini', model: 'flash', score: 75, cited: 3, total: 4 }],
+      attentionItems: [],
+      runHistory: [],
+      dateRangeLabel: 'All time',
+      contextLabel: 'US / EN',
+    },
+  }
+
+  expect(buildPortfolioProject(base).trend).toEqual([25, 50, 75])
+
+  // Without an overview (no runs yet) the trend is empty and the sparkline no-ops.
+  expect(buildPortfolioProject({ ...base, overview: null }).trend).toEqual([])
 })

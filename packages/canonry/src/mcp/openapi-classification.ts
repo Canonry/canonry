@@ -41,7 +41,7 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'GET /api/v1/history': 'deferred',
   'GET /api/v1/projects/{name}/snapshots': 'included',
   'GET /api/v1/projects/{name}/timeline': 'included',
-  'GET /api/v1/projects/{name}/analytics/metrics': 'deferred',
+  'GET /api/v1/projects/{name}/analytics/metrics': 'included',
   'GET /api/v1/projects/{name}/analytics/gaps': 'deferred',
   'GET /api/v1/projects/{name}/analytics/sources': 'deferred',
   'GET /api/v1/projects/{name}/snapshots/diff': 'included',

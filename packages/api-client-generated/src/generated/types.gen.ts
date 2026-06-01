@@ -197,6 +197,52 @@ export type BingUrlInspectionDto = {
     discoveryDate?: string | null;
 };
 
+export type BrandMetricsDto = {
+    window: '7d' | '30d' | '90d' | 'all';
+    buckets: Array<{
+        startDate: string;
+        endDate: string;
+        citationRate: number;
+        cited: number;
+        total: number;
+        queryCount: number;
+        mentionRate: number;
+        mentionedCount: number;
+        byProvider: {
+            [key: string]: {
+                citationRate: number;
+                cited: number;
+                total: number;
+                mentionRate: number;
+                mentionedCount: number;
+            };
+        };
+    }>;
+    overall: {
+        citationRate: number;
+        cited: number;
+        total: number;
+        mentionRate: number;
+        mentionedCount: number;
+    };
+    byProvider: {
+        [key: string]: {
+            citationRate: number;
+            cited: number;
+            total: number;
+            mentionRate: number;
+            mentionedCount: number;
+        };
+    };
+    trend: 'improving' | 'declining' | 'stable';
+    mentionTrend: 'improving' | 'declining' | 'stable';
+    queryChanges: Array<{
+        date: string;
+        delta: number;
+        label: string;
+    }>;
+};
+
 export type CcAvailableRelease = {
     release: string;
     vertexUrl: string;
@@ -3228,9 +3274,7 @@ export type GetApiV1ProjectsByNameAnalyticsMetricsResponses = {
     /**
      * Citation metrics returned.
      */
-    200: {
-        [key: string]: unknown;
-    };
+    200: BrandMetricsDto;
 };
 
 export type GetApiV1ProjectsByNameAnalyticsMetricsResponse = GetApiV1ProjectsByNameAnalyticsMetricsResponses[keyof GetApiV1ProjectsByNameAnalyticsMetricsResponses];

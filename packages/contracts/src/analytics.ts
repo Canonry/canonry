@@ -1,8 +1,10 @@
 import { z } from 'zod'
 import type { SourceCategory } from './source-categories.js'
 
-export type MetricsWindow = '7d' | '30d' | '90d' | 'all'
-export type TrendDirection = 'improving' | 'declining' | 'stable'
+export const metricsWindowSchema = z.enum(['7d', '30d', '90d', 'all'])
+export type MetricsWindow = z.infer<typeof metricsWindowSchema>
+export const trendDirectionSchema = z.enum(['improving', 'declining', 'stable'])
+export type TrendDirection = z.infer<typeof trendDirectionSchema>
 export type GapCategory = 'cited' | 'gap' | 'uncited'
 
 // Mode toggle for analytics views — `mentioned` = brand appears in the answer
@@ -12,40 +14,51 @@ export const visibilityMetricModeSchema = z.enum(['mentioned', 'cited'])
 export type VisibilityMetricMode = z.infer<typeof visibilityMetricModeSchema>
 export const VisibilityMetricModes = visibilityMetricModeSchema.enum
 
-export interface TimeBucket {
-  startDate: string
-  endDate: string
-  citationRate: number
-  cited: number
-  total: number
-  queryCount: number
-  mentionRate: number
-  mentionedCount: number
-}
+/** Citation + mention rates for one provider (or the overall roll-up) within a window or bucket. */
+export const providerMetricSchema = z.object({
+  citationRate: z.number(),
+  cited: z.number().int(),
+  total: z.number().int(),
+  mentionRate: z.number(),
+  mentionedCount: z.number().int(),
+})
+export type ProviderMetric = z.infer<typeof providerMetricSchema>
 
-export interface QueryChangeEvent {
-  date: string
-  delta: number
-  label: string
-}
+/**
+ * One time bucket of the citation/mention trend. `byProvider` carries the
+ * same metrics computed per provider over the bucket's normalized snapshot
+ * set, so the dashboard can plot a line per provider over time.
+ */
+export const timeBucketSchema = z.object({
+  startDate: z.string(),
+  endDate: z.string(),
+  citationRate: z.number(),
+  cited: z.number().int(),
+  total: z.number().int(),
+  queryCount: z.number().int(),
+  mentionRate: z.number(),
+  mentionedCount: z.number().int(),
+  byProvider: z.record(z.string(), providerMetricSchema),
+})
+export type TimeBucket = z.infer<typeof timeBucketSchema>
 
-export interface ProviderMetric {
-  citationRate: number
-  cited: number
-  total: number
-  mentionRate: number
-  mentionedCount: number
-}
+export const queryChangeEventSchema = z.object({
+  date: z.string(),
+  delta: z.number().int(),
+  label: z.string(),
+})
+export type QueryChangeEvent = z.infer<typeof queryChangeEventSchema>
 
-export interface BrandMetricsDto {
-  window: MetricsWindow
-  buckets: TimeBucket[]
-  overall: ProviderMetric
-  byProvider: Record<string, ProviderMetric>
-  trend: TrendDirection
-  mentionTrend: TrendDirection
-  queryChanges: QueryChangeEvent[]
-}
+export const brandMetricsDtoSchema = z.object({
+  window: metricsWindowSchema,
+  buckets: z.array(timeBucketSchema),
+  overall: providerMetricSchema,
+  byProvider: z.record(z.string(), providerMetricSchema),
+  trend: trendDirectionSchema,
+  mentionTrend: trendDirectionSchema,
+  queryChanges: z.array(queryChangeEventSchema),
+})
+export type BrandMetricsDto = z.infer<typeof brandMetricsDtoSchema>
 
 export interface GapQuery {
   query: string

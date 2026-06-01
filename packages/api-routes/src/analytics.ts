@@ -404,6 +404,7 @@ function bucketSizeForSpan(spanDays: number): number {
 
 interface SnapshotLike {
   queryId: string
+  provider: string
   citationState: string
   resolvedMentioned: boolean
   createdAt: string
@@ -460,6 +461,14 @@ function computeBuckets(
 
       const metric = computeProviderMetric(usable)
       const queryCount = new Set(usable.map(s => s.queryId)).size
+      // Per-provider breakdown over the SAME normalized `usable` set, so the
+      // dashboard can plot a line per provider over time. Reusing
+      // computeProviderMetric inherits the 4dp rounding and probe exclusion,
+      // so a provider line can never drift from the bucket overall.
+      const byProvider: Record<string, ProviderMetric> = {}
+      for (const provider of new Set(usable.map(s => s.provider))) {
+        byProvider[provider] = computeProviderMetric(usable.filter(s => s.provider === provider))
+      }
       buckets.push({
         startDate: startISO,
         endDate: endISO,
@@ -469,6 +478,7 @@ function computeBuckets(
         queryCount,
         mentionRate: metric.mentionRate,
         mentionedCount: metric.mentionedCount,
+        byProvider,
       })
     }
 
