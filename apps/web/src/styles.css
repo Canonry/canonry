@@ -517,56 +517,67 @@
     @apply mt-2.5 text-center text-[11px] leading-[1.45] text-zinc-500 w-full;
   }
 
-  /* ── Command center: current-state rail (left) + trend graph (right) ── */
-
-  .command-hero {
-    @apply grid items-start gap-4 mb-4;
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  @media (min-width: 1024px) {
-    .command-hero {
-      /* Graph is the centerpiece on the left (wider column); the AEO stat
-         rail sits on the right (narrower column). */
-      grid-template-columns: minmax(0, 1.6fr) minmax(320px, 0.85fr);
-    }
-  }
-
-  .command-hero-rail,
-  .command-hero-chart {
-    @apply min-w-0;
-  }
-
   /* ── Visibility trend (citations & mentions over time) ── */
 
   .visibility-trend {
-    @apply h-full rounded-xl border border-zinc-800/60 bg-zinc-900/30 px-5 py-5;
+    @apply rounded-xl border border-zinc-800/60 bg-zinc-900/30 px-5 py-5;
   }
 
   .visibility-trend-head {
-    @apply mb-2 flex flex-wrap items-start justify-between gap-3;
+    @apply mb-3 flex flex-wrap items-start justify-between gap-x-6 gap-y-2;
   }
 
   .visibility-trend-title {
     @apply flex items-center gap-1.5;
   }
 
-  .visibility-trend-badges {
-    @apply flex shrink-0 items-center gap-2;
+  /* Headline readout: latest value of the selected metric + its change. */
+  .visibility-trend-current {
+    @apply flex items-baseline gap-2;
   }
 
-  /* Dedicated controls toolbar (below the title), so metric / series / window
-     toggles don't crowd the heading. Window group is pushed right via ml-auto. */
+  .visibility-trend-current-dot {
+    @apply inline-block h-2 w-2 shrink-0 self-center rounded-full;
+  }
+
+  .visibility-trend-current-label {
+    @apply text-[11px] font-medium uppercase tracking-wide text-zinc-400;
+  }
+
+  .visibility-trend-current-value {
+    @apply text-2xl font-semibold tabular-nums tracking-tight text-zinc-50;
+  }
+
+  .visibility-trend-current-delta {
+    @apply text-xs font-medium tabular-nums;
+  }
+
   .visibility-trend-controls {
     @apply mb-3 flex flex-wrap items-center gap-2;
   }
 
   .visibility-trend-chart {
-    @apply h-56 w-full sm:h-64;
+    @apply h-64 w-full sm:h-72;
   }
 
   .visibility-trend-note {
-    @apply mt-2 text-[11px] text-zinc-500;
+    @apply mt-2 text-[11px] text-zinc-400;
+  }
+
+  /* Segmented control: an inset track with a raised selected chip. Used for the
+     trend chart's metric / series / window toggles. */
+  .segmented {
+    @apply inline-flex items-center gap-0.5 rounded-lg border border-zinc-800 bg-zinc-900/60 p-0.5;
+  }
+
+  .segmented-option {
+    @apply rounded-md px-2.5 py-1.5 text-xs font-medium text-zinc-400 transition-colors;
+    @apply hover:text-zinc-100;
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-500/50;
+  }
+
+  .segmented-option-active {
+    @apply bg-zinc-700/90 text-zinc-50 shadow-sm;
   }
 
   /* ── AEO performance hero (paired Mention + Citation) ── */

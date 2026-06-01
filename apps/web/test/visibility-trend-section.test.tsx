@@ -87,19 +87,20 @@ test('renders header, control toggles, and trend badges from the DTO', async () 
     expect(container.querySelector('.visibility-trend-chart')).toBeTruthy()
   })
 
-  // Metric toggle is Cited / Mentioned (no "Both"); Mentioned is the default.
-  expect(screen.queryByRole('tab', { name: 'Both' })).toBeNull()
-  expect(screen.getByRole('tab', { name: 'Cited' })).toBeTruthy()
-  expect(screen.getByRole('tab', { name: 'Mentioned' }).getAttribute('aria-selected')).toBe('true')
-  expect(screen.getByRole('tab', { name: 'Overall' })).toBeTruthy()
-  expect(screen.getByRole('tab', { name: 'By provider' })).toBeTruthy()
-  expect(screen.getByRole('tab', { name: 'All' })).toBeTruthy()
+  // Segmented controls are toggle buttons (aria-pressed). Metric is Cited /
+  // Mentioned (no "Both"); Mentioned is the default.
+  expect(screen.queryByRole('button', { name: 'Both' })).toBeNull()
+  expect(screen.getByRole('button', { name: 'Cited' })).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Mentioned' }).getAttribute('aria-pressed')).toBe('true')
+  expect(screen.getByRole('button', { name: 'Overall' })).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'By provider' })).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'All' })).toBeTruthy()
 
-  // Switching to By provider selects it (no refetch).
-  const byProvider = screen.getByRole('tab', { name: 'By provider' })
-  expect(byProvider.getAttribute('aria-selected')).toBe('false')
+  // Switching to By provider presses it (no refetch).
+  const byProvider = screen.getByRole('button', { name: 'By provider' })
+  expect(byProvider.getAttribute('aria-pressed')).toBe('false')
   act(() => { fireEvent.click(byProvider) })
-  expect(byProvider.getAttribute('aria-selected')).toBe('true')
+  expect(byProvider.getAttribute('aria-pressed')).toBe('true')
 })
 
 test('shows an empty state when there are no buckets yet', async () => {
