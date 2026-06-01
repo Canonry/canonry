@@ -1320,7 +1320,7 @@
   /* ── Project row (overview) ── */
 
   .project-row {
-    @apply grid gap-3 rounded-xl border border-zinc-800/40 bg-zinc-900/15 px-4 py-3.5 transition hover:border-zinc-700/60 hover:bg-zinc-900/35 lg:grid-cols-[minmax(0,1.5fr)_9rem_9rem_10rem_9rem_auto] lg:items-center no-underline text-inherit;
+    @apply grid gap-3 rounded-xl border border-zinc-800/40 bg-zinc-900/15 px-4 py-3.5 transition hover:border-zinc-700/60 hover:bg-zinc-900/35 lg:grid-cols-[10rem_minmax(0,1.5fr)_9rem_9rem_9rem_auto] lg:items-center no-underline text-inherit;
   }
 
   .project-row-primary {

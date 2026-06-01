@@ -174,7 +174,7 @@ function makeOverview(name: string) {
     latestRun: { run: null, totalRuns: 0 },
     health: null,
     topInsights: [],
-    queryCounts: { totalQueries: 0, citedQueries: 0, notCitedQueries: 0, citedRate: 0 },
+    queryCounts: { totalQueries: 0, citedQueries: 0, notCitedQueries: 0, citedRate: 0, mentionedQueries: 0, notMentionedQueries: 0, mentionRate: 0 },
     providers: [],
     transitions: { since: null, gained: 0, lost: 0, emerging: 0 },
     scores: {

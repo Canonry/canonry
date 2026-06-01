@@ -26,7 +26,7 @@ function makeOverview(overrides: Partial<ProjectOverviewDto> = {}): ProjectOverv
     latestRun: { run: null, totalRuns: 0 },
     health: null,
     topInsights: [],
-    queryCounts: { totalQueries: 0, citedQueries: 0, notCitedQueries: 0, citedRate: 0 },
+    queryCounts: { totalQueries: 0, citedQueries: 0, notCitedQueries: 0, citedRate: 0, mentionedQueries: 0, notMentionedQueries: 0, mentionRate: 0 },
     providers: [],
     transitions: { since: null, gained: 0, lost: 0, emerging: 0 },
     scores: {
@@ -189,5 +189,15 @@ describe('canonry overview — human output', () => {
     expect(output).toContain('Competitor press.')
     expect(output).toContain('Run status')
     expect(output).not.toMatch(/Share of [Vv]oice/)
+  })
+
+  it('renders cited and mentioned query-count lines from their own fields', () => {
+    const overview = makeOverview({
+      queryCounts: { totalQueries: 8, citedQueries: 4, notCitedQueries: 4, citedRate: 0.5, mentionedQueries: 6, notMentionedQueries: 2, mentionRate: 0.75 },
+    })
+    output = captureOutput(() => renderHuman(overview))
+    // Two independent lines — the mentioned line (6/8) must not borrow the cited count (4/8).
+    expect(output).toMatch(/Queries cited:\s+4\/8 \(50\.0%\)/)
+    expect(output).toMatch(/Queries mentioned:\s+6\/8 \(75\.0%\)/)
   })
 })

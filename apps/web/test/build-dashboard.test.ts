@@ -548,7 +548,7 @@ test('buildProjectCommandCenter populates score gauges from the overview DTO whe
       latestRun: { totalRuns: 0, run: null },
       health: null,
       topInsights: [],
-      queryCounts: { totalQueries: 4, citedQueries: 3, notCitedQueries: 1, citedRate: 0.75 },
+      queryCounts: { totalQueries: 4, citedQueries: 3, notCitedQueries: 1, citedRate: 0.75, mentionedQueries: 3, notMentionedQueries: 1, mentionRate: 0.75 },
       providers: [{ provider: 'gemini', cited: 3, total: 4, citedRate: 0.75 }],
       transitions: { since: null, gained: 0, lost: 0, emerging: 0 },
       scores: {
@@ -623,7 +623,7 @@ test('buildProjectCommandCenter surfaces synthesized attention items (e.g. stale
       latestRun: { totalRuns: 0, run: null },
       health: null,
       topInsights: [],
-      queryCounts: { totalQueries: 0, citedQueries: 0, notCitedQueries: 0, citedRate: 0 },
+      queryCounts: { totalQueries: 0, citedQueries: 0, notCitedQueries: 0, citedRate: 0, mentionedQueries: 0, notMentionedQueries: 0, mentionRate: 0 },
       providers: [],
       transitions: { since: null, gained: 0, lost: 0, emerging: 0 },
       scores: {
@@ -1108,7 +1108,7 @@ test('buildProjectCommandCenter emits a single history-only row when no location
   expect(geminiRows).toHaveLength(2)
 })
 
-test('buildPortfolioProject carries the cited-rate trend from the overview for the sparkline', () => {
+test('buildPortfolioProject carries the cited-rate trend and mention-count subtitle from the overview', () => {
   const base: ProjectData = {
     project: {
       id: 'proj_portfolio',
@@ -1154,7 +1154,7 @@ test('buildPortfolioProject carries the cited-rate trend from the overview for t
       latestRun: { totalRuns: 0, run: null },
       health: null,
       topInsights: [],
-      queryCounts: { totalQueries: 4, citedQueries: 3, notCitedQueries: 1, citedRate: 0.75 },
+      queryCounts: { totalQueries: 4, citedQueries: 3, notCitedQueries: 1, citedRate: 0.75, mentionedQueries: 3, notMentionedQueries: 1, mentionRate: 0.75 },
       providers: [{ provider: 'gemini', cited: 3, total: 4, citedRate: 0.75 }],
       transitions: { since: null, gained: 0, lost: 0, emerging: 0 },
       scores: {
@@ -1176,6 +1176,19 @@ test('buildPortfolioProject carries the cited-rate trend from the overview for t
   }
 
   expect(buildPortfolioProject(base).trend).toEqual([25, 50, 75])
+
+  // The subtitle ("N of M queries mentioned …") reads the MENTION count
+  // (answerMentioned), never the cited count. Seed mentioned≠cited and prove
+  // the subtitle tracks mentioned while the cited block stays on cited.
+  const distinctMention = buildPortfolioProject({
+    ...base,
+    overview: {
+      ...base.overview!,
+      queryCounts: { totalQueries: 4, citedQueries: 3, notCitedQueries: 1, citedRate: 0.75, mentionedQueries: 1, notMentionedQueries: 3, mentionRate: 0.25 },
+    },
+  })
+  expect(distinctMention.insight).toBe('1 of 4 queries mentioned across 1 provider.')
+  expect(distinctMention.visibilityDelta).toBe('3 of 4 queries')
 
   // Without an overview (no runs yet) the trend is empty and the sparkline no-ops.
   expect(buildPortfolioProject({ ...base, overview: null }).trend).toEqual([])
