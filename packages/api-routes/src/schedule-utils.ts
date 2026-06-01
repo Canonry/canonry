@@ -4,6 +4,8 @@
  * not shared data shapes.
  */
 
+import { CronExpressionParser } from 'cron-parser'
+
 const DAY_MAP: Record<string, string> = {
   sun: '0', mon: '1', tue: '2', wed: '3', thu: '4', fri: '5', sat: '6',
 }
@@ -103,5 +105,40 @@ export function isValidTimezone(tz: string): boolean {
     return true
   } catch {
     return false
+  }
+}
+
+/**
+ * Compute the next fire time of a 5-field cron expression as an ISO-8601 string.
+ *
+ * This exists because node-cron's own `task.getNextRun()` is broken for
+ * day-of-week-constrained expressions: e.g. `0 6 * * 1` (every Monday at 06:00)
+ * returns the next January 1st that happens to fall on a Monday — years out —
+ * instead of next Monday. A future timestamp corrupts the stored `nextRunAt`
+ * AND silently disables the scheduler's downtime catch-up, because a missed
+ * slot then never reads as "in the past". node-cron's firing matcher is
+ * correct, so the scheduler keeps node-cron for firing and uses cron-parser
+ * here for the displayed / catch-up timestamp.
+ *
+ * @param cronExpr 5-field standard cron expression (e.g. `0 6 * * 1`)
+ * @param timezone IANA timezone the cron fields are interpreted in (e.g. `UTC`)
+ * @param from     compute the next run strictly after this instant (default: now)
+ * @returns ISO-8601 string, or null when the expression or timezone can't be
+ *          parsed (callers fall back to null, preserving the prior `?? null`
+ *          behavior of `getNextRun()?.toISOString() ?? null`).
+ */
+export function nextRunFromCron(
+  cronExpr: string,
+  timezone: string,
+  from: Date = new Date(),
+): string | null {
+  try {
+    const interval = CronExpressionParser.parse(cronExpr, {
+      currentDate: from,
+      tz: timezone,
+    })
+    return interval.next().toDate().toISOString()
+  } catch {
+    return null
   }
 }

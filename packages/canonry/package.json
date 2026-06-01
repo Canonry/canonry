@@ -54,6 +54,7 @@
     "@sinclair/typebox": "^0.34.41",
     "better-sqlite3": "^12.6.2",
     "chrome-remote-interface": "^0.33.2",
+    "cron-parser": "^5.5.0",
     "drizzle-orm": "^0.45.2",
     "fastify": "^5.8.5",
     "node-cron": "^4.2.1",
