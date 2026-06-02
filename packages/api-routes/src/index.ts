@@ -111,6 +111,16 @@ export interface ApiRoutesOptions {
    * api-routes stays LLM-agnostic.
    */
   explainContentRecommendation?: import('./content.js').ExplainContentRecommendationFn
+  /**
+   * Optional LLM-backed brief synthesizer for content recommendations. When
+   * provided, `POST /projects/:name/content/recommendations/:targetRef/brief`
+   * calls it (gated to `ownable` targets, caches the structured result). When
+   * omitted, that route returns 503. Same LLM-agnostic wiring story as
+   * `explainContentRecommendation`.
+   */
+  briefContentRecommendation?: import('./content.js').SynthesizeContentBriefFn
+  /** Current brief prompt version — scopes the brief cache lookup (see ContentRoutesOptions). */
+  briefPromptVersion?: string
   /** Telemetry status/toggle callbacks */
   getTelemetryStatus?: TelemetryRoutesOptions['getTelemetryStatus']
   setTelemetryEnabled?: TelemetryRoutesOptions['setTelemetryEnabled']
@@ -322,7 +332,11 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     await api.register(reportRoutes)
     await api.register(citationRoutes)
     await api.register(compositeRoutes)
-    await api.register(contentRoutes, { explainContentRecommendation: opts.explainContentRecommendation })
+    await api.register(contentRoutes, {
+      explainContentRecommendation: opts.explainContentRecommendation,
+      briefContentRecommendation: opts.briefContentRecommendation,
+      briefPromptVersion: opts.briefPromptVersion,
+    })
     await api.register(settingsRoutes, {
       providerSummary: opts.providerSummary,
       providerAdapters: opts.providerAdapters,
@@ -477,6 +491,9 @@ export type {
   ExplainContentRecommendationFn,
   ExplainContentRecommendationInput,
   ExplainContentRecommendationResult,
+  SynthesizeContentBriefFn,
+  SynthesizeContentBriefInput,
+  SynthesizeContentBriefResult,
 } from './content.js'
 export { buildOpenApiDocument } from './openapi.js'
 export type { OpenApiInfo } from './openapi.js'

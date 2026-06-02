@@ -38,6 +38,8 @@ const expectedToolNames = [
   'canonry_health_history',
   'canonry_citations_visibility',
   'canonry_content_targets',
+  'canonry_content_brief',
+  'canonry_content_map',
   'canonry_content_sources',
   'canonry_content_gaps',
   'canonry_queries_list',
@@ -118,8 +120,8 @@ const expectedToolNames = [
 
 describe('MCP tool registry', () => {
   it('ships the curated v1 surface', () => {
-    expect(CANONRY_MCP_TOOL_COUNT).toBe(98)
-    expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(64)
+    expect(CANONRY_MCP_TOOL_COUNT).toBe(100)
+    expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(65)
     expect(canonryMcpTools.map(tool => tool.name)).toEqual(expectedToolNames)
     const readNames = canonryMcpTools.filter(tool => tool.access === 'read').map(tool => tool.name)
     expect(getCanonryMcpTools('read-only').map(tool => tool.name)).toEqual(readNames)
@@ -155,7 +157,7 @@ describe('MCP tool registry', () => {
     for (const tool of canonryMcpTools) {
       counts.set(tool.tier, (counts.get(tool.tier) ?? 0) + 1)
     }
-    expect(counts.get('monitoring')).toBe(17)
+    expect(counts.get('monitoring')).toBe(19)
     expect(counts.get('setup')).toBe(23)
     expect(counts.get('gsc')).toBe(8)
     expect(counts.get('ga')).toBe(8)
@@ -594,6 +596,8 @@ const handlerCases: HandlerCase[] = [
   { tool: 'canonry_schedule_delete', input: projectInput, methods: ['deleteSchedule'], expectedArgs: [['acme', undefined]] },
   { tool: 'canonry_insight_dismiss', input: { project: 'acme', insightId: 'insight-1' }, methods: ['dismissInsight'] },
   { tool: 'canonry_content_targets', input: { project: 'acme', limit: 5 }, methods: ['getContentTargets'] },
+  { tool: 'canonry_content_brief', input: { project: 'acme', targetRef: 'tgt_1' }, methods: ['synthesizeContentBrief'], expectedArgs: [['acme', 'tgt_1', { provider: undefined, model: undefined, forceRefresh: undefined }]] },
+  { tool: 'canonry_content_map', input: projectInput, methods: ['getDomainClassifications'] },
   { tool: 'canonry_content_sources', input: projectInput, methods: ['getContentSources'] },
   { tool: 'canonry_content_gaps', input: projectInput, methods: ['getContentGaps'] },
   { tool: 'canonry_backlinks_domains', input: { project: 'acme', limit: 50 }, methods: ['backlinksDomains'] },

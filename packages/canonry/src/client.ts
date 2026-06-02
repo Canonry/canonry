@@ -73,6 +73,9 @@ import type {
   ContentTargetsResponseDto,
   ContentSourcesResponseDto,
   ContentGapsResponseDto,
+  DomainClassificationsResponseDto,
+  RecommendationBriefDto,
+  SurfaceClass,
   CompetitorDto,
   KeywordDto,
   QueryDto,
@@ -284,6 +287,9 @@ import {
   getApiV1ProjectsByNameContentTargets,
   getApiV1ProjectsByNameContentSources,
   getApiV1ProjectsByNameContentGaps,
+  getApiV1ProjectsByNameContentDomainClassifications,
+  getApiV1ProjectsByNameContentRecommendationsByTargetRefBrief,
+  postApiV1ProjectsByNameContentRecommendationsByTargetRefBrief,
   getApiV1ProjectsByNameHealthLatest,
   getApiV1ProjectsByNameHealthHistory,
   getApiV1ProjectsByNameCitationsVisibility,
@@ -2049,7 +2055,7 @@ export class ApiClient {
 
   async getContentTargets(
     project: string,
-    opts?: { limit?: number; includeInProgress?: boolean },
+    opts?: { limit?: number; includeInProgress?: boolean; surfaceClass?: SurfaceClass; ownable?: boolean },
   ): Promise<ContentTargetsResponseDto> {
     return this.invoke<ContentTargetsResponseDto>(() =>
       getApiV1ProjectsByNameContentTargets({
@@ -2058,6 +2064,8 @@ export class ApiClient {
         query: {
           limit: opts?.limit,
           'include-in-progress': opts?.includeInProgress ? 'true' : undefined,
+          'surface-class': opts?.surfaceClass,
+          ownable: opts?.ownable ? 'true' : undefined,
         } as never,
       }),
     )
@@ -2072,6 +2080,35 @@ export class ApiClient {
   async getContentGaps(project: string): Promise<ContentGapsResponseDto> {
     return this.invoke<ContentGapsResponseDto>(() =>
       getApiV1ProjectsByNameContentGaps({ client: this.heyClient, path: { name: project } }),
+    )
+  }
+
+  async getDomainClassifications(project: string): Promise<DomainClassificationsResponseDto> {
+    return this.invoke<DomainClassificationsResponseDto>(() =>
+      getApiV1ProjectsByNameContentDomainClassifications({ client: this.heyClient, path: { name: project } }),
+    )
+  }
+
+  async getContentBrief(project: string, targetRef: string): Promise<RecommendationBriefDto> {
+    return this.invoke<RecommendationBriefDto>(() =>
+      getApiV1ProjectsByNameContentRecommendationsByTargetRefBrief({
+        client: this.heyClient,
+        path: { name: project, targetRef },
+      }),
+    )
+  }
+
+  async synthesizeContentBrief(
+    project: string,
+    targetRef: string,
+    opts?: { provider?: string; model?: string; forceRefresh?: boolean },
+  ): Promise<RecommendationBriefDto> {
+    return this.invoke<RecommendationBriefDto>(() =>
+      postApiV1ProjectsByNameContentRecommendationsByTargetRefBrief({
+        client: this.heyClient,
+        path: { name: project, targetRef },
+        body: { provider: opts?.provider, model: opts?.model, forceRefresh: opts?.forceRefresh },
+      }),
     )
   }
 

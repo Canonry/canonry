@@ -34,6 +34,8 @@ import {
   queryDtoSchema,
   querySnapshotDtoSchema,
   recommendationExplanationDtoSchema,
+  recommendationBriefDtoSchema,
+  domainClassificationDtoSchema,
   runDtoSchema,
   scheduleDtoSchema,
   trafficSourceDtoSchema,
@@ -387,6 +389,23 @@ const COVERAGE: Record<string, CoverageEntry> = {
     internal: {
       id: 'Surrogate key; explanations are addressed by (projectId, targetRef, promptVersion).',
       projectId: 'Implied by the route scope (/projects/:name/content/recommendations/:targetRef/analyze).',
+    },
+  },
+  recommendationBriefs: {
+    kind: 'dto',
+    dto: recommendationBriefDtoSchema,
+    internal: {
+      id: 'Surrogate key; briefs are addressed by (projectId, targetRef, promptVersion).',
+      projectId: 'Implied by the route scope (/projects/:name/content/recommendations/:targetRef/brief).',
+    },
+  },
+  domainClassifications: {
+    kind: 'dto',
+    dto: domainClassificationDtoSchema,
+    internal: {
+      id: 'Surrogate key; classifications are addressed by (projectId, domain).',
+      projectId: 'Implied by the route scope (/projects/:name/content/domain-classifications).',
+      sessionId: 'Provenance of the latest classifying discovery session; not part of the public surface.',
     },
   },
   trafficSources: {

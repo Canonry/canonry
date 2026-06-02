@@ -11,18 +11,26 @@ import {
   notFound,
   providerError,
   recommendationExplainRequestSchema,
+  surfaceClassSchema,
+  SurfaceClasses,
   validationError,
+  type ContentBriefDto,
   type ContentGapsResponseDto,
   type ContentSourcesResponseDto,
   type ContentTargetDismissalDto,
   type ContentTargetDismissalsResponseDto,
   type ContentTargetRowDto,
   type ContentTargetsResponseDto,
+  type DomainClassificationsResponseDto,
+  type RecommendationBriefDto,
   type RecommendationExplainRequest,
   type RecommendationExplanationDto,
+  type SurfaceClass,
 } from '@ainyc/canonry-contracts'
 import {
   contentTargetDismissals,
+  domainClassifications,
+  recommendationBriefs,
   recommendationExplanations,
   type DatabaseClient,
 } from '@ainyc/canonry-db'
@@ -67,8 +75,45 @@ export interface ExplainContentRecommendationResult {
   costMillicents: number
 }
 
+/**
+ * Pluggable LLM brief synthesizer for content recommendations. Like the
+ * explainer, the api-routes package stays LLM-agnostic — canonry wires the
+ * implementation. Where the explainer returns prose, the synthesizer returns a
+ * STRUCTURED `ContentBriefDto`. Gated to `ownable` targets server-side, so the
+ * implementation is only ever called for a winnable surface.
+ */
+export interface SynthesizeContentBriefFn {
+  (input: SynthesizeContentBriefInput): Promise<SynthesizeContentBriefResult>
+}
+
+export interface SynthesizeContentBriefInput {
+  projectId: string
+  projectName: string
+  canonicalDomain: string
+  recommendation: ContentTargetRowDto
+  providerOverride?: string
+  modelOverride?: string
+}
+
+export interface SynthesizeContentBriefResult {
+  promptVersion: string
+  provider: string
+  model: string
+  brief: ContentBriefDto
+  costMillicents: number
+}
+
 export interface ContentRoutesOptions {
   explainContentRecommendation?: ExplainContentRecommendationFn
+  briefContentRecommendation?: SynthesizeContentBriefFn
+  /**
+   * Current brief prompt version, used to scope the brief cache lookup. Wired
+   * from canonry's `RECOMMENDATION_BRIEF_PROMPT_VERSION`. When set, the lookup
+   * filters by `(projectId, targetRef, promptVersion)` so a prompt-version bump
+   * invalidates stale briefs forward — unlike the prompt-version-blind
+   * explanation lookup. When omitted, falls back to most-recent.
+   */
+  briefPromptVersion?: string
 }
 
 /**
@@ -110,6 +155,18 @@ function formatExplanationRow(row: typeof recommendationExplanations.$inferSelec
   }
 }
 
+function formatBriefRow(row: typeof recommendationBriefs.$inferSelect): RecommendationBriefDto {
+  return {
+    targetRef: row.targetRef,
+    promptVersion: row.promptVersion,
+    provider: row.provider,
+    model: row.model,
+    brief: row.brief,
+    costMillicents: row.costMillicents,
+    generatedAt: row.generatedAt,
+  }
+}
+
 /**
  * Look up a recommendation by `targetRef` for a project. Recompute from
  * the orchestrator — `targetRef` is a stable hash, so a recommendation
@@ -132,11 +189,12 @@ export async function contentRoutes(app: FastifyInstance, opts: ContentRoutesOpt
   // GET /projects/:name/content/targets — ranked, action-typed opportunity list
   app.get<{
     Params: { name: string }
-    Querystring: { limit?: string; ['include-in-progress']?: string }
+    Querystring: { limit?: string; ['include-in-progress']?: string; ['surface-class']?: string; ownable?: string }
   }>('/projects/:name/content/targets', async (request) => {
     const project = resolveProject(app.db, request.params.name)
     const includeInProgress = request.query['include-in-progress'] === 'true'
     const limit = parseLimitParam(request.query.limit)
+    const surfaceClassFilter = parseSurfaceClassFilter(request.query['surface-class'], request.query.ownable)
 
     const input = loadOrchestratorInput(app.db, project)
     let rows = buildContentTargetRows(input)
@@ -149,6 +207,13 @@ export async function contentRoutes(app: FastifyInstance, opts: ContentRoutesOpt
     if (dismissed.size > 0) {
       rows = rows.filter((r) => !dismissed.has(r.targetRef))
     }
+    if (surfaceClassFilter) {
+      rows = rows.filter((r) => r.surfaceClass === surfaceClassFilter)
+    }
+    // Surface ownable targets ahead of ceded ones. buildContentTargetRows
+    // already returns rows in score-desc order; a STABLE sort keeps that order
+    // within each class, so the net order is ownable-by-score then ceded-by-score.
+    rows = [...rows].sort((a, b) => surfaceClassRank(a.surfaceClass) - surfaceClassRank(b.surfaceClass))
     if (limit !== undefined) {
       rows = rows.slice(0, limit)
     }
@@ -427,6 +492,165 @@ export async function contentRoutes(app: FastifyInstance, opts: ContentRoutesOpt
     if (!row) throw notFound('recommendationExplanation', targetRef)
     return reply.send(formatExplanationRow(row))
   })
+
+  // GET /projects/:name/content/recommendations/:targetRef/brief — return the
+  // cached structured brief (current prompt version) or 404. Cache-only read;
+  // the SPA falls through to the POST flow when this 404s. Reads the dedicated
+  // recommendation_briefs table, so it never collides with explanations.
+  app.get<{
+    Params: { name: string; targetRef: string }
+  }>('/projects/:name/content/recommendations/:targetRef/brief', async (request, reply) => {
+    const project = resolveProject(app.db, request.params.name)
+    const row = lookupCachedBrief(app.db, project.id, request.params.targetRef, opts.briefPromptVersion)
+    if (!row) throw notFound('recommendationBrief', request.params.targetRef)
+    return reply.send(formatBriefRow(row))
+  })
+
+  // POST /projects/:name/content/recommendations/:targetRef/brief — synthesize
+  // (or return cached) a STRUCTURED content brief. Gated to `ownable` targets:
+  // a `ceded` head term is rejected with 400 before any LLM call, so a brief is
+  // never produced for a surface we should not chase. Sibling of the analyze
+  // route (no behavior change to the shipped explain endpoint); 503 when no
+  // synthesizer is wired.
+  app.post<{
+    Params: { name: string; targetRef: string }
+    Body: unknown
+  }>('/projects/:name/content/recommendations/:targetRef/brief', async (request, reply) => {
+    const project = resolveProject(app.db, request.params.name)
+    const synthesizer = opts.briefContentRecommendation
+    if (!synthesizer) {
+      throw providerError(
+        'No AI provider configured for content briefs. Configure a provider via `canonry settings` or set an API key env var (ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, ZAI_API_KEY).',
+      )
+    }
+
+    const parsed = recommendationExplainRequestSchema.safeParse(request.body ?? {})
+    if (!parsed.success) {
+      throw validationError(parsed.error.issues[0]?.message ?? 'Invalid request body.')
+    }
+    const body: RecommendationExplainRequest = parsed.data
+    const { targetRef } = request.params
+
+    const recommendation = findRecommendationByRef(app.db, project, targetRef)
+    if (!recommendation) {
+      throw notFound('contentRecommendation', targetRef)
+    }
+
+    // The winnability gate — never synthesize a brief for a ceded head term.
+    if (recommendation.surfaceClass === SurfaceClasses.ceded) {
+      throw validationError(
+        `Cannot synthesize a brief for "${recommendation.query}": its cited surface is ceded (dominated by aggregators/editorial). This is not a query first-party content can realistically win.`,
+      )
+    }
+
+    if (!body.forceRefresh) {
+      const cached = lookupCachedBrief(app.db, project.id, targetRef, opts.briefPromptVersion)
+      if (cached) return reply.send(formatBriefRow(cached))
+    }
+
+    const result = await synthesizer({
+      projectId: project.id,
+      projectName: project.name,
+      canonicalDomain: project.canonicalDomain,
+      recommendation,
+      providerOverride: body.provider,
+      modelOverride: body.model,
+    })
+
+    const now = new Date().toISOString()
+    app.db
+      .insert(recommendationBriefs)
+      .values({
+        id: crypto.randomUUID(),
+        projectId: project.id,
+        targetRef,
+        promptVersion: result.promptVersion,
+        provider: result.provider,
+        model: result.model,
+        brief: result.brief,
+        costMillicents: result.costMillicents,
+        generatedAt: now,
+      })
+      .onConflictDoUpdate({
+        target: [
+          recommendationBriefs.projectId,
+          recommendationBriefs.targetRef,
+          recommendationBriefs.promptVersion,
+        ],
+        set: {
+          provider: result.provider,
+          model: result.model,
+          brief: result.brief,
+          costMillicents: result.costMillicents,
+          generatedAt: now,
+        },
+      })
+      .run()
+
+    const row = app.db
+      .select()
+      .from(recommendationBriefs)
+      .where(and(
+        eq(recommendationBriefs.projectId, project.id),
+        eq(recommendationBriefs.targetRef, targetRef),
+        eq(recommendationBriefs.promptVersion, result.promptVersion),
+      ))
+      .get()
+    if (!row) throw notFound('recommendationBrief', targetRef)
+    return reply.send(formatBriefRow(row))
+  })
+
+  // GET /projects/:name/content/domain-classifications — the per-domain
+  // cited-surface classifications discovery has produced for the project, the
+  // read surface behind the surfaceClass winnability gate. Powers
+  // `canonry content map`.
+  app.get<{
+    Params: { name: string }
+  }>('/projects/:name/content/domain-classifications', async (request) => {
+    const project = resolveProject(app.db, request.params.name)
+    const rows = app.db
+      .select()
+      .from(domainClassifications)
+      .where(eq(domainClassifications.projectId, project.id))
+      .orderBy(desc(domainClassifications.hits))
+      .all()
+    const response: DomainClassificationsResponseDto = {
+      classifications: rows.map((r) => ({
+        domain: r.domain,
+        competitorType: r.competitorType,
+        hits: r.hits,
+        updatedAt: r.updatedAt,
+      })),
+    }
+    return response
+  })
+}
+
+/**
+ * Cache lookup for a structured brief. Filters by `promptVersion` when the
+ * route was wired with the current brief prompt version (so a version bump
+ * invalidates stale briefs forward); otherwise returns the most recent row.
+ */
+function lookupCachedBrief(
+  db: DatabaseClient,
+  projectId: string,
+  targetRef: string,
+  promptVersion: string | undefined,
+): typeof recommendationBriefs.$inferSelect | undefined {
+  const conditions = [
+    eq(recommendationBriefs.projectId, projectId),
+    eq(recommendationBriefs.targetRef, targetRef),
+  ]
+  if (promptVersion !== undefined) {
+    conditions.push(eq(recommendationBriefs.promptVersion, promptVersion))
+  }
+  return db
+    .select()
+    .from(recommendationBriefs)
+    .where(and(...conditions))
+    .orderBy(desc(recommendationBriefs.generatedAt))
+    .limit(1)
+    .get()
 }
 
 function parseLimitParam(raw: string | undefined): number | undefined {
@@ -436,4 +660,26 @@ function parseLimitParam(raw: string | undefined): number | undefined {
     throw validationError('"limit" must be a non-negative integer')
   }
   return parsed
+}
+
+/**
+ * Resolve the optional surfaceClass filter from the `surface-class` param and
+ * the `ownable` convenience flag. The explicit `surface-class` wins; `ownable`
+ * is shorthand for `surface-class=ownable`. Returns `undefined` for no filter.
+ */
+function parseSurfaceClassFilter(raw: string | undefined, ownable: string | undefined): SurfaceClass | undefined {
+  if (raw !== undefined) {
+    const parsed = surfaceClassSchema.safeParse(raw)
+    if (!parsed.success) {
+      throw validationError('"surface-class" must be "ownable" or "ceded"')
+    }
+    return parsed.data
+  }
+  if (ownable === 'true') return SurfaceClasses.ownable
+  return undefined
+}
+
+/** ownable sorts before ceded. */
+function surfaceClassRank(surfaceClass: SurfaceClass): number {
+  return surfaceClass === SurfaceClasses.ownable ? 0 : 1
 }

@@ -652,7 +652,10 @@ function ClientEvidenceSection({ report }: { report: ProjectReportDto }) {
                 {opportunities.map((o, i) => (
                   <li key={i} className="rounded-lg border border-zinc-800/60 bg-zinc-950/40 px-3 py-2">
                     <p className="font-medium text-zinc-100">{o.query}</p>
-                    <p className="mt-0.5 text-xs text-zinc-400">{contentActionLabel(o.action)}</p>
+                    <p className="mt-0.5 flex items-center gap-2 text-xs text-zinc-400">
+                      {contentActionLabel(o.action)}
+                      {o.surfaceClass === 'ceded' && <ToneBadge tone="caution">Ceded surface</ToneBadge>}
+                    </p>
                   </li>
                 ))}
               </ul>

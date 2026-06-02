@@ -7,6 +7,8 @@ import {
   type CandidateQuery,
   type OrchestratorInput,
 } from '../src/content-targets.js'
+import { DiscoveryCompetitorTypes, SurfaceClasses } from '@ainyc/canonry-contracts'
+import type { DiscoveryCompetitorType } from '@ainyc/canonry-contracts'
 
 function emptyInput(overrides: Partial<OrchestratorInput> = {}): OrchestratorInput {
   return {
@@ -21,6 +23,7 @@ function emptyInput(overrides: Partial<OrchestratorInput> = {}): OrchestratorInp
     latestRunId: 'run_1',
     latestRunTimestamp: '2026-04-26T00:00:00.000Z',
     inProgressActions: new Map(),
+    domainClasses: new Map(),
     ...overrides,
   }
 }
@@ -40,6 +43,7 @@ function emptyCandidate(overrides: Partial<CandidateQuery> = {}): CandidateQuery
     recentMissRate: 0,
     ourGroundingUrls: [],
     competitorGroundingUrls: [],
+    citedSurfaceDomains: [],
     runsOfHistory: 0,
     ...overrides,
   }
@@ -60,6 +64,64 @@ function ownGrounding(uri: string, providers: string[] = ['gemini']): {
     providers,
   }
 }
+
+// ─── buildContentTargetRows: surfaceClass gate ──────────────────────────────
+
+describe('buildContentTargetRows surfaceClass', () => {
+  function domainClasses(entries: [string, DiscoveryCompetitorType][]) {
+    return new Map<string, DiscoveryCompetitorType>(entries)
+  }
+
+  // A candidate that always yields a CREATE row (no page, competitor cited).
+  function gatedCandidate(overrides: Partial<CandidateQuery> = {}): CandidateQuery {
+    return emptyCandidate({
+      query: 'best boutique hotel',
+      competitorDomains: ['x.com'],
+      competitorCitationCount: 8,
+      ...overrides,
+    })
+  }
+
+  it('marks a row ceded when its cited surface is aggregator-dominated', () => {
+    const rows = buildContentTargetRows(
+      emptyInput({
+        candidateQueries: [gatedCandidate({
+          citedSurfaceDomains: [{ domain: 'booking.com', citationCount: 8 }],
+        })],
+        domainClasses: domainClasses([['booking.com', DiscoveryCompetitorTypes['ota-aggregator']]]),
+      }),
+    )
+    expect(rows).toHaveLength(1)
+    expect(rows[0].surfaceClass).toBe(SurfaceClasses.ceded)
+    expect(rows[0].winnability).toBeCloseTo(0)
+  })
+
+  it('marks a direct-competitor surface ownable', () => {
+    const rows = buildContentTargetRows(
+      emptyInput({
+        candidateQueries: [gatedCandidate({
+          citedSurfaceDomains: [{ domain: 'rival.com', citationCount: 8 }],
+        })],
+        domainClasses: domainClasses([['rival.com', DiscoveryCompetitorTypes['direct-competitor']]]),
+      }),
+    )
+    expect(rows[0].surfaceClass).toBe(SurfaceClasses.ownable)
+    expect(rows[0].winnability).toBeCloseTo(1)
+  })
+
+  it('fails open to ownable + null winnability when no discovery classifications exist', () => {
+    const rows = buildContentTargetRows(
+      emptyInput({
+        candidateQueries: [gatedCandidate({
+          citedSurfaceDomains: [{ domain: 'booking.com', citationCount: 8 }],
+        })],
+        domainClasses: new Map(), // discovery never ran
+      }),
+    )
+    expect(rows[0].surfaceClass).toBe(SurfaceClasses.ownable)
+    expect(rows[0].winnability).toBeNull()
+  })
+})
 
 // ─── buildContentTargetRows ─────────────────────────────────────────────────
 
