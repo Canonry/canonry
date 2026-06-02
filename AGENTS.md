@@ -121,7 +121,7 @@ canonry-mcp --eager                                  # register all API tools at
 
 # MCP client install helpers (operate on local client config files)
 canonry mcp install --client claude-desktop          # merges a canonry entry into the config
-canonry mcp install --client cursor --read-only      # scope to the 64 read API tools
+canonry mcp install --client cursor --read-only      # scope to the 65 read API tools
 canonry mcp config  --client codex                   # print snippet for clients without auto-install
 
 # Skills — install canonry's agent playbook into a user's project
@@ -222,7 +222,7 @@ Each check returns `status: ok | warn | fail | skipped`, a stable machine-readab
 For MCP clients such as Claude Desktop, Codex, or custom agent shells that
 prefer a typed tool catalog over shell or HTTP, the package ships a separate
 `canonry-mcp` bin. It is a thin stdio adapter over `createApiClient()` — not
-a parallel surface. v1 exposes 99 curated API tools (65 read, 34 write) — including
+a parallel surface. v1 exposes 101 curated API tools (66 read, 35 write) — including
 the `canonry_project_overview` and `canonry_search` core composites; the
 catalog is split across a small **core tier** (always loaded) and five
 **toolkits** (`monitoring`, `setup`, `gsc`, `ga`, `agent`) that the client

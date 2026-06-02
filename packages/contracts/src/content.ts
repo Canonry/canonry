@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
 import { providerNameSchema } from './provider.js'
+import { DiscoveryCompetitorTypes, discoveryCompetitorTypeSchema, type DiscoveryCompetitorType } from './discovery.js'
 
 // ─── Enums ───────────────────────────────────────────────────────────────────
 
@@ -58,6 +59,97 @@ export const contentActionStateSchema = z.enum([
 export type ContentActionState = z.infer<typeof contentActionStateSchema>
 export const ContentActionStates = contentActionStateSchema.enum
 
+// ─── surfaceClass (winnability gate) ─────────────────────────────────────────
+//
+// Deterministic judgment of whether a query's cited surface is worth pursuing
+// with first-party content. Derived (no LLM) by classifying the domains
+// actually cited for the query through the discovery domain classifier:
+//
+//   - `ceded`   — the cited surface is dominated by aggregators (`ota-aggregator`)
+//                 or editorial media (`editorial-media`). A head term the site
+//                 cannot realistically win with its own content; do not chase it.
+//   - `ownable` — everything else (a direct-competitor surface, our own domain,
+//                 `other`/`unknown`, or no/uncovered citation). Worth a brief.
+//
+// Fail open: when in doubt (no classification coverage), it is `ownable`.
+
+export const surfaceClassSchema = z.enum(['ownable', 'ceded'])
+export type SurfaceClass = z.infer<typeof surfaceClassSchema>
+export const SurfaceClasses = surfaceClassSchema.enum
+
+/** Title-cased label for `SurfaceClass` — never render the raw enum to UI. */
+export function surfaceClassLabel(surfaceClass: SurfaceClass): string {
+  switch (surfaceClass) {
+    case 'ownable': return 'Ownable'
+    case 'ceded': return 'Ceded'
+  }
+}
+
+/**
+ * Citation-weighted share of the cited surface at or above which a query is
+ * `ceded`. Conservative default: a surface is only ceded when aggregators +
+ * editorial media make up a majority (≥60%) of the cited citations. Inclusive
+ * at the boundary.
+ */
+export const CEDED_SURFACE_THRESHOLD = 0.6
+
+/** One cited domain on a query's answer surface and how often it was cited. */
+export interface CitedSurfaceDomain {
+  /** Normalized domain (protocol/www stripped, lowercased). */
+  domain: string
+  citationCount: number
+}
+
+/**
+ * Pure derivation of a content target's `surfaceClass` from the domains cited
+ * for its query and a `(domain → classification)` lookup produced by discovery.
+ *
+ * Weighting is by citation count, not domain count: one aggregator cited 40×
+ * dominates three blogs cited once each. The `ceded` share is the fraction of
+ * total citations attributed to `ota-aggregator` / `editorial-media` domains;
+ * every cited domain (classified or not) counts in the denominator so
+ * unclassified domains dilute toward `ownable` (the safe direction).
+ *
+ * Fails open to `{ ownable, winnability: null }` when there is no cited surface
+ * or none of the cited domains carry a classification — we never hide a target
+ * just because the gate lacks data. `winnability` is `1 - cededShare` (clamped)
+ * when assessed, `null` when failed open.
+ *
+ * Domains must be pre-normalized; this helper does no normalization so it stays
+ * a pure, dependency-free math function.
+ */
+export function deriveSurfaceClass(
+  citedSurfaceDomains: readonly CitedSurfaceDomain[],
+  domainClasses: ReadonlyMap<string, DiscoveryCompetitorType>,
+  threshold: number = CEDED_SURFACE_THRESHOLD,
+): { surfaceClass: SurfaceClass; winnability: number | null } {
+  const hasCoverage = citedSurfaceDomains.some((d) => domainClasses.has(d.domain))
+  if (citedSurfaceDomains.length === 0 || domainClasses.size === 0 || !hasCoverage) {
+    return { surfaceClass: SurfaceClasses.ownable, winnability: null }
+  }
+
+  let total = 0
+  let ceded = 0
+  for (const { domain, citationCount } of citedSurfaceDomains) {
+    total += citationCount
+    const cls = domainClasses.get(domain)
+    if (cls === DiscoveryCompetitorTypes['ota-aggregator'] || cls === DiscoveryCompetitorTypes['editorial-media']) {
+      ceded += citationCount
+    }
+  }
+
+  if (total === 0) {
+    return { surfaceClass: SurfaceClasses.ownable, winnability: null }
+  }
+
+  const cededShare = ceded / total
+  const winnability = Math.min(1, Math.max(0, 1 - cededShare))
+  return {
+    surfaceClass: cededShare >= threshold ? SurfaceClasses.ceded : SurfaceClasses.ownable,
+    winnability,
+  }
+}
+
 // ─── Shared sub-shapes ───────────────────────────────────────────────────────
 
 const ourBestPageSchema = z.object({
@@ -103,6 +195,18 @@ export const contentTargetRowDtoSchema = z.object({
   demandSource: demandSourceSchema,
   actionConfidence: actionConfidenceSchema,
   existingAction: existingActionRefSchema.nullable(),
+  /**
+   * Deterministic winnability gate. `ceded` ⇒ the cited surface is dominated by
+   * aggregators/editorial and not worth chasing; `ownable` ⇒ worth a brief.
+   * Derived (no LLM) from the discovery domain classifier.
+   */
+  surfaceClass: surfaceClassSchema,
+  /**
+   * Citation-weighted complement of the ceded share (`1 - cededShare`), in
+   * `[0, 1]`. `null` when the gate failed open (no classification coverage for
+   * the cited surface) — distinct from a computed `1.0`.
+   */
+  winnability: z.number().min(0).max(1).nullable(),
 })
 
 export type ContentTargetRowDto = z.infer<typeof contentTargetRowDtoSchema>
@@ -196,6 +300,63 @@ export const recommendationExplainRequestSchema = z.object({
 })
 
 export type RecommendationExplainRequest = z.infer<typeof recommendationExplainRequestSchema>
+
+// ─── Content briefs (LLM brief synthesis, gated to ownable targets) ─────────
+//
+// The brief mode of the content explainer. Where the explanation says *why* a
+// target matters in prose, the brief synthesizes the structured plan an
+// operator acts on: the angle, the why-winnable rationale, and the schema
+// hookup. Gated server-side to `ownable` targets — a brief is never generated
+// for a `ceded` head term. Cached independently of explanations in
+// `recommendation_briefs`, keyed (project, target_ref, prompt_version).
+
+export const contentBriefDtoSchema = z.object({
+  /** The query the brief is for (echoed from the recommendation). */
+  targetQuery: z.string(),
+  /** Always `ownable` in practice — the gate rejects `ceded` before synthesis. */
+  surfaceClass: surfaceClassSchema,
+  /** The differentiated content angle to take. */
+  angle: z.string(),
+  /** Why this query is winnable, citing the cited-surface signal. */
+  whyWinnable: z.string(),
+  /** The schema.org type or markup to add or extend. */
+  schemaHookup: z.string(),
+  /** Why the cited surface is controllable (the ownable-vs-ceded reasoning). */
+  controllableSurfaceRationale: z.string(),
+})
+
+export type ContentBriefDto = z.infer<typeof contentBriefDtoSchema>
+
+export const recommendationBriefDtoSchema = z.object({
+  targetRef: z.string(),
+  /** Version of the brief prompt template; bumping invalidates the cache forward. */
+  promptVersion: z.string(),
+  provider: z.string(),
+  model: z.string(),
+  brief: contentBriefDtoSchema,
+  /** Estimated cost in millicents (1/100 of a cent). 0 when unknown. */
+  costMillicents: z.number().int().nonnegative(),
+  generatedAt: z.string(),
+})
+
+export type RecommendationBriefDto = z.infer<typeof recommendationBriefDtoSchema>
+
+// ─── Domain classifications (read surface for the winnability gate) ──────────
+
+export const domainClassificationDtoSchema = z.object({
+  domain: z.string(),
+  competitorType: discoveryCompetitorTypeSchema,
+  hits: z.number().int().nonnegative(),
+  updatedAt: z.string(),
+})
+
+export type DomainClassificationDto = z.infer<typeof domainClassificationDtoSchema>
+
+export const domainClassificationsResponseDtoSchema = z.object({
+  classifications: z.array(domainClassificationDtoSchema),
+})
+
+export type DomainClassificationsResponseDto = z.infer<typeof domainClassificationsResponseDtoSchema>
 
 // ─── ContentSources ──────────────────────────────────────────────────────────
 

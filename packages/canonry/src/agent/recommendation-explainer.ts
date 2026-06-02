@@ -2,8 +2,11 @@ import { complete, type Context } from '@mariozechner/pi-ai'
 import {
   actionConfidenceLabel,
   contentActionLabel,
+  contentBriefDtoSchema,
   providerError,
+  surfaceClassLabel,
   validationError,
+  type ContentBriefDto,
   type ContentTargetRowDto,
   type DemandSource,
 } from '@ainyc/canonry-contracts'
@@ -11,6 +14,9 @@ import type {
   ExplainContentRecommendationFn,
   ExplainContentRecommendationInput,
   ExplainContentRecommendationResult,
+  SynthesizeContentBriefFn,
+  SynthesizeContentBriefInput,
+  SynthesizeContentBriefResult,
 } from '@ainyc/canonry-api-routes'
 import type { CanonryConfig } from '../config.js'
 import {
@@ -208,5 +214,132 @@ export function createRecommendationExplainer(
       responseText: text,
       costMillicents: dollarsToMillicents(resp.usage.cost.total),
     }
+  }
+}
+
+// ─── Brief synthesis (structured, gated to ownable targets) ─────────────────
+
+/**
+ * Prompt version for the BRIEF mode, cached independently of the explain mode
+ * in `recommendation_briefs` keyed `(projectId, targetRef, promptVersion)`.
+ * Bump on any change to `BRIEF_SYSTEM_PROMPT`, `buildBriefPrompt`, or the
+ * structured shape the model is asked to return.
+ */
+export const RECOMMENDATION_BRIEF_PROMPT_VERSION = 'v1'
+
+const BRIEF_SYSTEM_PROMPT = `You are an AEO (Answer Engine Optimization) analyst writing a content brief for a single winnable query. Your audience is the site owner or their agency.
+
+Return ONLY a single JSON object — no prose, no markdown, no code fences — with EXACTLY these keys, each a non-empty string:
+- "angle": the differentiated content angle to take (what makes this piece win, not generic advice).
+- "whyWinnable": why this query is winnable for a first-party page, citing the cited-surface signal from the context (competitors vs aggregators, demand, absence).
+- "schemaHookup": the concrete schema.org type or markup to add or extend (e.g. "FAQPage", "Product + Review", "HowTo").
+- "controllableSurfaceRationale": why this cited surface is controllable rather than ceded to aggregators/editorial.
+
+Do not invent facts beyond the supplied context. Be specific and dense.`
+
+/**
+ * Render the brief context. Reuses the recommendation context block and appends
+ * the surfaceClass + winnability signal so the model can ground "why winnable"
+ * in the deterministic gate. Exported for unit tests.
+ */
+export function buildBriefPrompt(input: {
+  projectName: string
+  canonicalDomain: string
+  recommendation: ContentTargetRowDto
+}): string {
+  const base = buildRecommendationPrompt(input)
+  const r = input.recommendation
+  const winnability = r.winnability === null ? 'unknown (no classification coverage)' : r.winnability.toFixed(2)
+  return [
+    base,
+    `Surface class: ${surfaceClassLabel(r.surfaceClass).toLowerCase()} (the cited surface is ${r.surfaceClass === 'ceded' ? 'dominated by aggregators/editorial' : 'controllable'})`,
+    `Winnability: ${winnability}`,
+  ].join('\n')
+}
+
+/**
+ * Strip accidental markdown fences and parse a model reply into the four
+ * free-form brief fields. The deterministic fields (`targetQuery`,
+ * `surfaceClass`) are injected by the caller from the recommendation — the
+ * model is never trusted to echo them. Returns a validated `ContentBriefDto`
+ * or `null` if the reply is not usable.
+ */
+function parseBrief(text: string, recommendation: ContentTargetRowDto): ContentBriefDto | null {
+  const stripped = text
+    .trim()
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```$/i, '')
+    .trim()
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(stripped)
+  } catch {
+    return null
+  }
+  if (!parsed || typeof parsed !== 'object') return null
+  const p = parsed as Record<string, unknown>
+  const candidate = {
+    // Deterministic — injected from the recommendation, not the model.
+    targetQuery: recommendation.query,
+    surfaceClass: recommendation.surfaceClass,
+    // Creative — taken from the model reply.
+    angle: p.angle,
+    whyWinnable: p.whyWinnable,
+    schemaHookup: p.schemaHookup,
+    controllableSurfaceRationale: p.controllableSurfaceRationale,
+  }
+  const result = contentBriefDtoSchema.safeParse(candidate)
+  return result.success ? result.data : null
+}
+
+/**
+ * Build the `SynthesizeContentBriefFn` injected into the api-routes content
+ * plugin. Reuses the explainer's provider/api-key/capability-tier plumbing
+ * (`analyze` tier). Structured output is obtained provider-agnostically:
+ * prompt for JSON, parse + Zod-validate, retry once with a stricter reminder,
+ * then surface a clean 502 if still unparseable.
+ */
+export function createRecommendationBriefSynthesizer(
+  opts: { config: CanonryConfig },
+): SynthesizeContentBriefFn {
+  return async (input: SynthesizeContentBriefInput): Promise<SynthesizeContentBriefResult> => {
+    const provider = pickExplainProvider(opts.config, input.providerOverride)
+    const model = resolveModelForCapability(provider, 'analyze', input.modelOverride)
+    const apiKey = resolveApiKeyFor(provider, opts.config)
+    const prompt = buildBriefPrompt({
+      projectName: input.projectName,
+      canonicalDomain: input.canonicalDomain,
+      recommendation: input.recommendation,
+    })
+
+    const MAX_ATTEMPTS = 2
+    let totalCostDollars = 0
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+      const userContent = attempt === 0
+        ? prompt
+        : `${prompt}\n\nYour previous reply was not valid JSON. Return ONLY a JSON object with exactly the keys: angle, whyWinnable, schemaHookup, controllableSurfaceRationale. No prose, no markdown fences.`
+      const context: Context = {
+        systemPrompt: BRIEF_SYSTEM_PROMPT,
+        messages: [{ role: 'user', content: userContent, timestamp: Date.now() }],
+      }
+      const resp = await complete(model, context, apiKey ? { apiKey } : {})
+      totalCostDollars += Number.isFinite(resp.usage.cost.total) ? resp.usage.cost.total : 0
+      const parts = resp.content.filter((p): p is { type: 'text'; text: string } => p.type === 'text')
+      const text = parts.map((p) => p.text).join('\n').trim()
+      const brief = parseBrief(text, input.recommendation)
+      if (brief) {
+        return {
+          promptVersion: RECOMMENDATION_BRIEF_PROMPT_VERSION,
+          provider,
+          model: model.id,
+          brief,
+          costMillicents: dollarsToMillicents(totalCostDollars),
+        }
+      }
+    }
+
+    throw providerError(
+      `Provider '${provider}' returned unparseable brief output after ${MAX_ATTEMPTS} attempts.`,
+    )
   }
 }

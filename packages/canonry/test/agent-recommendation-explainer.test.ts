@@ -27,8 +27,11 @@ vi.mock('@mariozechner/pi-ai', async (importOriginal) => {
 
 const {
   RECOMMENDATION_EXPLAIN_PROMPT_VERSION,
+  RECOMMENDATION_BRIEF_PROMPT_VERSION,
   buildRecommendationPrompt,
+  buildBriefPrompt,
   createRecommendationExplainer,
+  createRecommendationBriefSynthesizer,
 } = await import('../src/agent/recommendation-explainer.js')
 
 function makeRecommendation(overrides: Partial<ContentTargetRowDto> = {}): ContentTargetRowDto {
@@ -49,6 +52,8 @@ function makeRecommendation(overrides: Partial<ContentTargetRowDto> = {}): Conte
     demandSource: 'both',
     actionConfidence: 'high',
     existingAction: null,
+    surfaceClass: 'ownable',
+    winnability: 0.8,
     ...overrides,
   }
 }
@@ -390,5 +395,140 @@ describe('createRecommendationExplainer', () => {
     expect(ctx.messages[0].role).toBe('user')
     expect(ctx.messages[0].content).toContain('Project: acme (acme.com)')
     expect(ctx.messages[0].content).toContain('best crm for saas')
+  })
+})
+
+describe('buildBriefPrompt', () => {
+  it('includes the recommendation context plus the surfaceClass + winnability signal', () => {
+    const prompt = buildBriefPrompt({
+      projectName: 'acme',
+      canonicalDomain: 'acme.com',
+      recommendation: makeRecommendation({ surfaceClass: 'ownable', winnability: 0.8 }),
+    })
+    expect(prompt).toContain('Project: acme (acme.com)')
+    expect(prompt).toContain('best crm for saas')
+    expect(prompt).toContain('Surface class: ownable')
+    expect(prompt).toContain('0.8') // winnability surfaced for the model to cite
+  })
+})
+
+describe('createRecommendationBriefSynthesizer', () => {
+  function fakeUsage(costTotal: number) {
+    return {
+      input: 100, output: 50, cacheRead: 0, cacheWrite: 0, totalTokens: 150,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: costTotal },
+    }
+  }
+  function fakeAssistantMessage(text: string, costTotal = 0.0042) {
+    return {
+      role: 'assistant' as const,
+      content: [{ type: 'text' as const, text }],
+      api: 'anthropic-messages' as never,
+      provider: 'anthropic' as never,
+      model: 'claude-sonnet-4-6',
+      usage: fakeUsage(costTotal),
+      stopReason: 'stop' as const,
+      timestamp: Date.now(),
+    }
+  }
+  const validBriefJson = JSON.stringify({
+    targetQuery: 'ignored — overridden from recommendation',
+    surfaceClass: 'ceded', // ignored — overridden from recommendation
+    angle: 'Differentiated first-party CRM comparison with real pricing data',
+    whyWinnable: 'Cited surface is rival vendors, not aggregators, so first-party content can win.',
+    schemaHookup: 'Add FAQPage + Product schema to the comparison page.',
+    controllableSurfaceRationale: 'Direct competitors are cited — the surface is controllable.',
+  })
+
+  it('parses a valid JSON brief and overrides targetQuery + surfaceClass deterministically', async () => {
+    const synth = createRecommendationBriefSynthesizer({ config: { providers: { claude: { apiKey: 'sk' } } } })
+    mockState.completeImpl = async () => fakeAssistantMessage(validBriefJson)
+
+    const result = await synth({
+      projectId: 'p1', projectName: 'acme', canonicalDomain: 'acme.com',
+      recommendation: makeRecommendation({ query: 'best crm for saas', surfaceClass: 'ownable' }),
+    })
+
+    expect(result.promptVersion).toBe(RECOMMENDATION_BRIEF_PROMPT_VERSION)
+    expect(result.provider).toBe('claude')
+    // Deterministic fields come from the recommendation, NOT the model output.
+    expect(result.brief.targetQuery).toBe('best crm for saas')
+    expect(result.brief.surfaceClass).toBe('ownable')
+    expect(result.brief.angle).toContain('Differentiated')
+    expect(result.brief.schemaHookup).toContain('FAQPage')
+    expect(result.costMillicents).toBe(420)
+    expect(mockState.callCount).toBe(1)
+  })
+
+  it('strips ```json fences before parsing', async () => {
+    const synth = createRecommendationBriefSynthesizer({ config: { providers: { claude: { apiKey: 'sk' } } } })
+    mockState.completeImpl = async () => fakeAssistantMessage('```json\n' + validBriefJson + '\n```')
+
+    const result = await synth({
+      projectId: 'p1', projectName: 'acme', canonicalDomain: 'acme.com',
+      recommendation: makeRecommendation(),
+    })
+    expect(result.brief.angle).toContain('Differentiated')
+  })
+
+  it('retries once on invalid JSON, then succeeds, summing cost across both calls', async () => {
+    const synth = createRecommendationBriefSynthesizer({ config: { providers: { claude: { apiKey: 'sk' } } } })
+    let call = 0
+    mockState.completeImpl = async () => {
+      call++
+      return call === 1
+        ? fakeAssistantMessage('sorry, here is the brief: not json', 0.001)
+        : fakeAssistantMessage(validBriefJson, 0.002)
+    }
+
+    const result = await synth({
+      projectId: 'p1', projectName: 'acme', canonicalDomain: 'acme.com',
+      recommendation: makeRecommendation(),
+    })
+    expect(mockState.callCount).toBe(2)
+    expect(result.brief.angle).toContain('Differentiated')
+    expect(result.costMillicents).toBe(300) // (0.001 + 0.002) × 100_000
+  })
+
+  it('throws PROVIDER_ERROR after two unparseable attempts', async () => {
+    const synth = createRecommendationBriefSynthesizer({ config: { providers: { claude: { apiKey: 'sk' } } } })
+    mockState.completeImpl = async () => fakeAssistantMessage('definitely not json')
+
+    await expect(
+      synth({
+        projectId: 'p1', projectName: 'acme', canonicalDomain: 'acme.com',
+        recommendation: makeRecommendation(),
+      }),
+    ).rejects.toMatchObject({ code: 'PROVIDER_ERROR' })
+    expect(mockState.callCount).toBe(2)
+  })
+
+  it('throws PROVIDER_ERROR when no provider is configured (never calls complete)', async () => {
+    const synth = createRecommendationBriefSynthesizer({ config: { providers: {} } })
+    vi.stubEnv('ANTHROPIC_API_KEY', '')
+    vi.stubEnv('OPENAI_API_KEY', '')
+    vi.stubEnv('GEMINI_API_KEY', '')
+    vi.stubEnv('GOOGLE_API_KEY', '')
+    vi.stubEnv('ZAI_API_KEY', '')
+
+    await expect(
+      synth({
+        projectId: 'p1', projectName: 'acme', canonicalDomain: 'acme.com',
+        recommendation: makeRecommendation(),
+      }),
+    ).rejects.toMatchObject({ code: 'PROVIDER_ERROR', statusCode: 502 })
+    expect(mockState.callCount).toBe(0)
+  })
+
+  it('uses the analyze capability tier', async () => {
+    const synth = createRecommendationBriefSynthesizer({ config: { providers: { gemini: { apiKey: 'gm' } } } })
+    mockState.completeImpl = async () => fakeAssistantMessage(validBriefJson)
+    await synth({
+      projectId: 'p1', projectName: 'acme', canonicalDomain: 'acme.com',
+      recommendation: makeRecommendation(),
+    })
+    const callModel = (mockState.lastCall?.model ?? { id: '' }) as { id: string; provider: string }
+    expect(callModel.provider).toBe('google')
+    expect(callModel.id).toMatch(/^gemini-2\.5-flash/)
   })
 })

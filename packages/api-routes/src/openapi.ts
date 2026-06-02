@@ -2871,16 +2871,18 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/content/targets',
     summary: 'Ranked, action-typed content opportunities',
     description:
-      'Returns the canonical opportunity list. Each row is `{query, action, ourBestPage?, winningCompetitor?, score, scoreBreakdown, drivers[], demandSource, actionConfidence, existingAction?}`. Hides rows with in-progress actions by default; pass `?include-in-progress=true` to include them annotated.',
+      'Returns the canonical opportunity list. Each row is `{query, action, ourBestPage?, winningCompetitor?, score, scoreBreakdown, drivers[], demandSource, actionConfidence, existingAction?, surfaceClass, winnability?}`. `surfaceClass` is the deterministic winnability gate (`ownable` worth a brief, `ceded` an aggregator/editorial head term to skip). Ownable rows sort first. Hides rows with in-progress actions by default; pass `?include-in-progress=true` to include them annotated.',
     tags: ['content'],
     parameters: [
       nameParameter,
       { name: 'limit', in: 'query', description: 'Max rows returned.', schema: stringSchema },
       { name: 'include-in-progress', in: 'query', description: 'Include rows with in-flight tracked actions.', schema: stringSchema },
+      { name: 'surface-class', in: 'query', description: 'Filter by winnability: "ownable" or "ceded".', schema: stringSchema },
+      { name: 'ownable', in: 'query', description: 'Convenience alias for surface-class=ownable when "true".', schema: stringSchema },
     ],
     responses: {
       200: jsonResponse('Targets returned.', 'ContentTargetsResponseDto'),
-      400: errorResponse('Invalid limit.'),
+      400: errorResponse('Invalid limit or surface-class.'),
       404: errorResponse('Project not found.'),
     },
   },
@@ -2990,6 +2992,68 @@ const routeCatalog: OpenApiOperation[] = [
       400: errorResponse('Invalid request body or unknown provider.'),
       404: errorResponse('Project not found or targetRef does not match any current recommendation.'),
       503: errorResponse('No AI provider configured for this project.'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/content/recommendations/{targetRef}/brief',
+    summary: 'Get cached structured content brief for a recommendation',
+    description:
+      'Returns the cached structured brief (`{targetQuery, surfaceClass, angle, whyWinnable, schemaHookup, controllableSurfaceRationale}`) for one content recommendation at the current prompt version, or 404 if none exists. Cache-only read from the dedicated recommendation_briefs table — never collides with the prose explanation. Use `POST /brief` to synthesize one.',
+    tags: ['content'],
+    parameters: [
+      nameParameter,
+      { name: 'targetRef', in: 'path', required: true, description: 'Stable hash from ContentTargetRowDto.targetRef.', schema: stringSchema },
+    ],
+    responses: {
+      200: jsonResponse('Cached brief.', 'RecommendationBriefDto'),
+      404: errorResponse('No cached brief for this targetRef yet.'),
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/projects/{name}/content/recommendations/{targetRef}/brief',
+    summary: 'Synthesize (or fetch cached) a structured content brief',
+    description:
+      'Synthesizes a STRUCTURED content brief for one recommendation, reusing the `analyze` capability tier. GATED to `ownable` targets — a `ceded` head term (cited surface dominated by aggregators/editorial) is rejected with 400 before any LLM call. Cached per (project, targetRef, promptVersion) in a dedicated table; repeat calls without `forceRefresh` return the cached row free. Pass `provider`/`model` to override.',
+    tags: ['content'],
+    parameters: [
+      nameParameter,
+      { name: 'targetRef', in: 'path', required: true, description: 'Stable hash from ContentTargetRowDto.targetRef.', schema: stringSchema },
+    ],
+    requestBody: {
+      required: false,
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            properties: {
+              provider: stringSchema,
+              model: stringSchema,
+              forceRefresh: { type: 'boolean' },
+            },
+          },
+        },
+      },
+    },
+    responses: {
+      200: jsonResponse('Brief synthesized or returned from cache.', 'RecommendationBriefDto'),
+      400: errorResponse('Invalid request body, unknown provider, or target is ceded (not winnable).'),
+      404: errorResponse('Project not found or targetRef does not match any current recommendation.'),
+      503: errorResponse('No AI provider configured for this project.'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/content/domain-classifications',
+    summary: 'List per-domain cited-surface classifications',
+    description:
+      'Returns every cited-surface domain classification discovery has produced for the project (`{domain, competitorType, hits, updatedAt}`), ranked by recurrence. This is the read surface behind the surfaceClass winnability gate; running discovery improves coverage.',
+    tags: ['content'],
+    parameters: [nameParameter],
+    responses: {
+      200: jsonResponse('Classifications returned.', 'DomainClassificationsResponseDto'),
+      404: errorResponse('Project not found.'),
     },
   },
   {

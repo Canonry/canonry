@@ -150,6 +150,15 @@ Local-AEO signals. The OAuth connection reuses `google_connections` with `connec
 | **discovery_sessions** | One row per `canonry discover run` invocation. Captures the research artifact for a session: ICP snapshot, seed/dedup/probe phase counts, bucket counts (cited / aspirational / wasted-surface), and `competitor_map` as a JSON array of `{domain, hits}` entries (default `'[]'`). Status flows `queued → seeding → probing → completed` (or `failed`). FK: projectId → projects |
 | **discovery_probes** | One row per (session × candidate query) probe. Stores the query text (free-form — not promoted to `queries` until the operator adopts it), citation_state, cited_domains, bucket classification, and raw provider response. **No `UNIQUE(session_id, query)`** so v2 multi-provider amplification can probe the same query across Gemini + ChatGPT + Claude in one session without a migration. FK: sessionId → discovery_sessions, projectId → projects |
 
+### Content
+
+| Table | Purpose |
+|-------|---------|
+| **content_target_dismissals** | Per-recommendation "mark addressed" records. The report/targets surfaces filter out any `target_ref` present here. Unique: `(projectId, targetRef)`. FK: projectId → projects |
+| **recommendation_explanations** | Cached LLM prose rationale ("Why this?") for a content recommendation. Keyed by prompt version so a template bump invalidates forward. Unique: `(projectId, targetRef, promptVersion)`. FK: projectId → projects |
+| **recommendation_briefs** | Cached LLM **structured** content brief (`brief` JSON column: `{targetQuery, surfaceClass, angle, whyWinnable, schemaHookup, controllableSurfaceRationale}`). Separate table from `recommendation_explanations` so the structured payload and its version-keyed cache never collide with the prompt-version-blind explanation lookup. Gated to `ownable` targets. Unique: `(projectId, targetRef, promptVersion)`. FK: projectId → projects |
+| **domain_classifications** | Durable per-domain cited-surface classification (`competitorType`) accumulated from discovery completions, upserted last-write-wins. Powers the deterministic `surfaceClass` winnability gate on content targets without re-running discovery. Unique: `(projectId, domain)`. FK: projectId → projects |
+
 ## JSON Columns
 
 Several text columns store serialized JSON. Always use `parseJsonColumn()` from `@ainyc/canonry-db`:
@@ -167,8 +176,9 @@ Several text columns store serialized JSON. Always use `parseJsonColumn()` from 
 | `insights.recommendation` | `{ action: string; detail?: string }` |
 | `insights.cause` | `{ category: string; detail?: string }` |
 | `health_snapshots.providerBreakdown` | `Record<string, { total: number; cited: number; rate: number }>` |
-| `discovery_sessions.competitorMap` | `Array<{ domain: string; hits: number }>` |
+| `discovery_sessions.competitorMap` | `Array<{ domain: string; hits: number; competitorType: DiscoveryCompetitorType }>` |
 | `discovery_probes.citedDomains` | `string[]` |
+| `recommendation_briefs.brief` | `ContentBriefDto` (native `mode: 'json'`, not via `parseJsonColumn`) |
 
 ## Conventions
 

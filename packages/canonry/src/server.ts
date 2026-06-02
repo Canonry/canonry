@@ -89,7 +89,7 @@ import { IntelligenceService } from './intelligence-service.js'
 import { RunCoordinator } from './run-coordinator.js'
 import { SessionRegistry } from './agent/session-registry.js'
 import { registerAgentRoutes } from './agent/agent-routes.js'
-import { createRecommendationExplainer } from './agent/recommendation-explainer.js'
+import { createRecommendationExplainer, createRecommendationBriefSynthesizer, RECOMMENDATION_BRIEF_PROMPT_VERSION } from './agent/recommendation-explainer.js'
 import { ApiClient } from './client.js'
 import { SnapshotService } from './snapshot-service.js'
 import { fetchSiteText } from './site-fetch.js'
@@ -1077,6 +1077,9 @@ export async function createServer(opts: {
   // pi-ai + capability-tier wiring. Falls back to a clean 503 when no
   // provider is configured (handled inside the explainer factory).
   const explainContentRecommendation = createRecommendationExplainer({ config: opts.config })
+  // LLM-backed structured BRIEF synthesizer (brief mode). Same plumbing as the
+  // explainer; gated to ownable targets by the route. 503 when no provider.
+  const briefContentRecommendation = createRecommendationBriefSynthesizer({ config: opts.config })
 
   await app.register(apiRoutes, {
     db: opts.db,
@@ -1085,6 +1088,8 @@ export async function createServer(opts: {
     sessionCookieName: SESSION_COOKIE_NAME,
     resolveSessionApiKeyId,
     explainContentRecommendation,
+    briefContentRecommendation,
+    briefPromptVersion: RECOMMENDATION_BRIEF_PROMPT_VERSION,
     // On-disk paths the daemon depends on. The api-routes plugin uses these
     // to fail loud (HTTP 503) when the operator wipes the DB or config out
     // from under a running serve — SQLite holds the inode open across
