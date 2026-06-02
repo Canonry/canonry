@@ -3,6 +3,11 @@ import {
   providerMetricSchema,
   timeBucketSchema,
   brandMetricsDtoSchema,
+  sourceCategoryCountSchema,
+  sourceRankEntrySchema,
+  surfaceClassCountSchema,
+  rankedSourceListSchema,
+  sourceBreakdownDtoSchema,
 } from '../src/analytics.js'
 
 const providerMetric = {
@@ -94,5 +99,94 @@ describe('brandMetricsDtoSchema', () => {
         queryChanges: [],
       }),
     ).toThrow()
+  })
+})
+
+const categoryCount = {
+  category: 'directory' as const,
+  label: 'Directories & review sites',
+  count: 6,
+  percentage: 0.6,
+  topDomains: [{ domain: 'yelp.com', count: 4 }, { domain: 'g2.com', count: 2 }],
+}
+
+const rankEntry = {
+  domain: 'yelp.com',
+  count: 4,
+  percentage: 0.4,
+  category: 'directory' as const,
+  label: 'Yelp',
+  surfaceClass: 'ota-aggregator' as const,
+}
+
+const surfaceClassCount = {
+  surfaceClass: 'ota-aggregator' as const,
+  label: 'Aggregators & marketplaces',
+  count: 6,
+  percentage: 0.6,
+  domainCount: 2,
+}
+
+const rankedList = {
+  totalCitedSlots: 10,
+  domainTotal: 3,
+  entries: [rankEntry],
+  truncatedDomainCount: 2,
+  truncatedCitedSlots: 6,
+  bySurfaceClass: [surfaceClassCount],
+}
+
+describe('sources DTO schemas', () => {
+  it('round-trips a category count', () => {
+    expect(() => sourceCategoryCountSchema.parse(categoryCount)).not.toThrow()
+  })
+
+  it('round-trips a ranked entry carrying its surface class', () => {
+    const parsed = sourceRankEntrySchema.parse(rankEntry)
+    expect(parsed.surfaceClass).toBe('ota-aggregator')
+    expect(parsed.category).toBe('directory')
+  })
+
+  it('rejects a ranked entry with an unknown surface class', () => {
+    expect(() => sourceRankEntrySchema.parse({ ...rankEntry, surfaceClass: 'partner' })).toThrow()
+  })
+
+  it('round-trips a surface-class roll-up', () => {
+    expect(() => surfaceClassCountSchema.parse(surfaceClassCount)).not.toThrow()
+  })
+
+  it('round-trips a ranked source list with long-tail rollup fields', () => {
+    const parsed = rankedSourceListSchema.parse(rankedList)
+    expect(parsed.entries).toHaveLength(1)
+    expect(parsed.truncatedCitedSlots).toBe(6)
+    expect(parsed.bySurfaceClass[0]!.surfaceClass).toBe('ota-aggregator')
+  })
+
+  it('round-trips a full SourceBreakdownDto with ranked + byProvider + limit', () => {
+    const parsed = sourceBreakdownDtoSchema.parse({
+      overall: [categoryCount],
+      byQuery: { 'best crm': [categoryCount] },
+      ranked: rankedList,
+      byProvider: { gemini: rankedList, openai: rankedList },
+      runId: 'run_1',
+      window: 'all',
+      limit: 5,
+    })
+    expect(Object.keys(parsed.byProvider).sort()).toEqual(['gemini', 'openai'])
+    expect(parsed.limit).toBe(5)
+    expect(parsed.ranked.entries[0]!.domain).toBe('yelp.com')
+  })
+
+  it('accepts a null limit (full ranked list)', () => {
+    const parsed = sourceBreakdownDtoSchema.parse({
+      overall: [],
+      byQuery: {},
+      ranked: { totalCitedSlots: 0, domainTotal: 0, entries: [], truncatedDomainCount: 0, truncatedCitedSlots: 0, bySurfaceClass: [] },
+      byProvider: {},
+      runId: '',
+      window: 'all',
+      limit: null,
+    })
+    expect(parsed.limit).toBeNull()
   })
 })

@@ -1,11 +1,12 @@
 import { applyConfigs } from '../commands/apply.js'
 import { showAnalytics } from '../commands/analytics.js'
+import { showSources } from '../commands/sources.js'
 import { showEvidence } from '../commands/evidence.js'
 import { exportProject } from '../commands/export-cmd.js'
 import { showHistory } from '../commands/history.js'
 import { showStatus } from '../commands/status.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
-import { getBoolean, getString, requireProject, stringOption } from '../cli-command-helpers.js'
+import { getBoolean, getString, parseIntegerOption, requireProject, stringOption } from '../cli-command-helpers.js'
 import { usageError } from '../cli-error.js'
 
 export const OPERATOR_CLI_COMMANDS: readonly CliCommandSpec[] = [
@@ -58,6 +59,31 @@ export const OPERATOR_CLI_COMMANDS: readonly CliCommandSpec[] = [
       const project = requireProject(input, 'analytics', 'canonry analytics <project> [--feature metrics|gaps|sources] [--window 7d|30d|90d|all] [--format json]')
       await showAnalytics(project, {
         feature: getString(input.values, 'feature'),
+        window: getString(input.values, 'window'),
+        format: input.format,
+      })
+    },
+  },
+  {
+    path: ['sources'],
+    usage: 'canonry sources <project> [--rank] [--limit N] [--by-provider] [--window 7d|30d|90d|all] [--format json|jsonl]',
+    options: {
+      rank: { type: 'boolean', default: false },
+      'by-provider': { type: 'boolean', default: false },
+      limit: stringOption(),
+      window: stringOption(),
+    },
+    run: async (input) => {
+      const usage = 'canonry sources <project> [--rank] [--limit N] [--by-provider] [--window 7d|30d|90d|all] [--format json|jsonl]'
+      const project = requireProject(input, 'sources', usage)
+      await showSources(project, {
+        rank: getBoolean(input.values, 'rank'),
+        byProvider: getBoolean(input.values, 'by-provider'),
+        limit: parseIntegerOption(input, 'limit', {
+          message: '--limit must be an integer',
+          usage,
+          command: 'sources',
+        }),
         window: getString(input.values, 'window'),
         format: input.format,
       })

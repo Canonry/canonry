@@ -105,6 +105,9 @@ function buildCtx(): Ctx {
     competitorOverlap: [],
     recommendedCompetitors: [],
     answerText: 'real-brand.example.com is the canonical AEO platform.',
+    rawResponse: JSON.stringify({
+      groundingSources: [{ uri: 'https://real-brand.example.com/aeo', title: 'Real brand' }],
+    }),
     createdAt: realCreatedAt,
   }).run()
 
@@ -132,6 +135,9 @@ function buildCtx(): Ctx {
     competitorOverlap: ['competitor.example.com'],
     recommendedCompetitors: [],
     answerText: 'Do you mean an AEO platform in the US? (probe clarifier)',
+    rawResponse: JSON.stringify({
+      groundingSources: [{ uri: 'https://competitor.example.com/x', title: 'Probe competitor' }],
+    }),
     createdAt: probeCreatedAt,
   }).run()
 
@@ -220,6 +226,22 @@ describe('probe runs are excluded from dashboard / analytics aggregates', () => 
     // If the probe leaked, runId would point at the probe whose only grounding
     // source is competitor.example.com, not the brand domain.
     expect(body.runId).toBe(ctx.realRunId)
+  })
+
+  it('analytics/sources ranked + byProvider cuts exclude probe-run domains', async () => {
+    const { body } = await get<{
+      ranked: { entries: Array<{ domain: string }>; totalCitedSlots: number }
+      byProvider: Record<string, { entries: Array<{ domain: string }> }>
+    }>(`/api/v1/projects/probe-excl/analytics/sources`)
+    const rankedDomains = body.ranked.entries.map(e => e.domain)
+    // The real run's grounding source is present; the probe's is not.
+    expect(rankedDomains).toContain('real-brand.example.com')
+    expect(rankedDomains).not.toContain('competitor.example.com')
+    expect(body.ranked.totalCitedSlots).toBe(1)
+    // Both runs used provider openai; the probe's slot must not inflate it.
+    const openaiDomains = body.byProvider.openai?.entries.map(e => e.domain) ?? []
+    expect(openaiDomains).toContain('real-brand.example.com')
+    expect(openaiDomains).not.toContain('competitor.example.com')
   })
 
   it('snapshots list excludes probe snapshots', async () => {

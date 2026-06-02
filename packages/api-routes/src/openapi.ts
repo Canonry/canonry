@@ -949,10 +949,9 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/analytics/sources',
     summary: 'Get source origin analytics',
     tags: ['analytics'],
-    parameters: [nameParameter, analyticsWindowParameter],
+    parameters: [nameParameter, analyticsWindowParameter, limitQueryParameter],
     responses: {
-      // TODO: Add `SourceBreakdownDto` Zod schema in contracts.
-      200: rawJsonResponse('Source breakdown returned.', looseObjectSchema),
+      200: jsonResponse('Source breakdown returned.', 'SourceBreakdownDto'),
       404: errorResponse('Project not found.'),
     },
   },

@@ -1793,6 +1793,78 @@ export type SnapshotReportDto = {
     };
 };
 
+export type SourceBreakdownDto = {
+    overall: Array<{
+        category: 'competitor' | 'directory' | 'social' | 'forum' | 'news' | 'reference' | 'blog' | 'ecommerce' | 'video' | 'academic' | 'other';
+        label: string;
+        count: number;
+        percentage: number;
+        topDomains: Array<{
+            domain: string;
+            count: number;
+        }>;
+    }>;
+    byQuery: {
+        [key: string]: Array<{
+            category: 'competitor' | 'directory' | 'social' | 'forum' | 'news' | 'reference' | 'blog' | 'ecommerce' | 'video' | 'academic' | 'other';
+            label: string;
+            count: number;
+            percentage: number;
+            topDomains: Array<{
+                domain: string;
+                count: number;
+            }>;
+        }>;
+    };
+    ranked: {
+        totalCitedSlots: number;
+        domainTotal: number;
+        entries: Array<{
+            domain: string;
+            count: number;
+            percentage: number;
+            category: 'competitor' | 'directory' | 'social' | 'forum' | 'news' | 'reference' | 'blog' | 'ecommerce' | 'video' | 'academic' | 'other';
+            label: string;
+            surfaceClass: 'own' | 'direct-competitor' | 'ota-aggregator' | 'editorial-media' | 'other';
+        }>;
+        truncatedDomainCount: number;
+        truncatedCitedSlots: number;
+        bySurfaceClass: Array<{
+            surfaceClass: 'own' | 'direct-competitor' | 'ota-aggregator' | 'editorial-media' | 'other';
+            label: string;
+            count: number;
+            percentage: number;
+            domainCount: number;
+        }>;
+    };
+    byProvider: {
+        [key: string]: {
+            totalCitedSlots: number;
+            domainTotal: number;
+            entries: Array<{
+                domain: string;
+                count: number;
+                percentage: number;
+                category: 'competitor' | 'directory' | 'social' | 'forum' | 'news' | 'reference' | 'blog' | 'ecommerce' | 'video' | 'academic' | 'other';
+                label: string;
+                surfaceClass: 'own' | 'direct-competitor' | 'ota-aggregator' | 'editorial-media' | 'other';
+            }>;
+            truncatedDomainCount: number;
+            truncatedCitedSlots: number;
+            bySurfaceClass: Array<{
+                surfaceClass: 'own' | 'direct-competitor' | 'ota-aggregator' | 'editorial-media' | 'other';
+                label: string;
+                count: number;
+                percentage: number;
+                domainCount: number;
+            }>;
+        };
+    };
+    runId: string;
+    window: '7d' | '30d' | '90d' | 'all';
+    limit: number | null;
+};
+
 export type TrafficBackfillResponse = {
     sourceId: string;
     runId: string;
@@ -3369,6 +3441,10 @@ export type GetApiV1ProjectsByNameAnalyticsSourcesData = {
          * Time window for analytics queries.
          */
         window?: '7d' | '30d' | '90d' | 'all';
+        /**
+         * Maximum number of records to return.
+         */
+        limit?: number;
     };
     url: '/api/v1/projects/{name}/analytics/sources';
 };
@@ -3386,9 +3462,7 @@ export type GetApiV1ProjectsByNameAnalyticsSourcesResponses = {
     /**
      * Source breakdown returned.
      */
-    200: {
-        [key: string]: unknown;
-    };
+    200: SourceBreakdownDto;
 };
 
 export type GetApiV1ProjectsByNameAnalyticsSourcesResponse = GetApiV1ProjectsByNameAnalyticsSourcesResponses[keyof GetApiV1ProjectsByNameAnalyticsSourcesResponses];
