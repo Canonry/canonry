@@ -473,6 +473,22 @@ export const canonryMcpTools = [
     handler: (client, input) => client.getAnalyticsMetrics(input.project, input.window),
   }),
   defineTool({
+    name: 'canonry_analytics_sources',
+    title: 'Get cited-source rankings',
+    description:
+      'Where AI engines get the facts they cite for a project. Returns the FULL ranked list of cited domains (not truncated) — each tagged with a category and an actionable surface class (own / direct-competitor / ota-aggregator / editorial-media / other) — plus a surface-class roll-up and a per-provider breakdown (each provider\'s cited-domain mix + total cited slots). Probe-excluded, window-filterable (7d/30d/90d/all). Use `limit` to cap each ranked list to the top N domains (an explicit long-tail rollup preserves the totals). All counts/shares/classification are computed server-side.',
+    access: 'read',
+    tier: 'monitoring',
+    inputSchema: z.object({
+      project: projectNameSchema,
+      window: analyticsWindowSchema.optional().describe('Time range: 7d, 30d, 90d, or all (default all).'),
+      limit: z.number().int().positive().optional().describe('Cap each ranked list to the top N domains. Omit for the full list.'),
+    }),
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/analytics/sources'],
+    handler: (client, input) => client.getAnalyticsSources(input.project, { window: input.window, limit: input.limit }),
+  }),
+  defineTool({
     name: 'canonry_search',
     title: 'Search project (composite)',
     description: 'Search query snapshots and intelligence insights for the given text. Looks at snapshot answer text, cited domains, raw provider responses, and insight title/query/recommendation/cause. Returns ranked hits with snippets — use it instead of paginating snapshots when you need to find a competitor mention or term.',

@@ -29,7 +29,7 @@ export async function showAnalytics(
         break
       }
       case 'sources': {
-        const data = await client.getAnalyticsSources(project, options.window)
+        const data = await client.getAnalyticsSources(project, { window: options.window })
         results.sources = data
         if (!isMachineFormat(options.format)) printSources(data)
         break

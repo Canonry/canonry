@@ -947,12 +947,15 @@ export class ApiClient {
     )
   }
 
-  async getAnalyticsSources(project: string, window?: string): Promise<SourceBreakdownDto> {
+  async getAnalyticsSources(
+    project: string,
+    opts: { window?: string; limit?: number } = {},
+  ): Promise<SourceBreakdownDto> {
     return this.invoke<SourceBreakdownDto>(() =>
       getApiV1ProjectsByNameAnalyticsSources({
         client: this.heyClient,
         path: { name: project },
-        query: { window } as never,
+        query: { window: opts.window, limit: opts.limit } as never,
       }),
     )
   }
