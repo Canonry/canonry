@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useSyncExternalStore } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   getApiV1ProjectsByNameGoogleConnectionsOptions,
@@ -15,6 +15,7 @@ import {
   classifyGbpMetric,
   GBP_CONVERSION_METRICS,
   GBP_REACH_METRICS,
+  RunKinds,
 } from '@ainyc/canonry-contracts'
 
 import { Button } from '../ui/button.js'
@@ -43,8 +44,9 @@ import {
 } from '../shared/ChartPrimitives.js'
 import { fetchInsights, heyClient } from '../../api.js'
 import { addToast } from '../../lib/toast-store.js'
+import { getRunTrackerState, subscribeRunTracker, trackRun } from '../../lib/run-tracker-store.js'
 
-export function GbpSection({ projectName }: { projectName: string }) {
+export function GbpSection({ projectName, projectId }: { projectName: string; projectId: string }) {
   const queryClient = useQueryClient()
   // `null` = all tracked locations (aggregate). A locationName scopes every read
   // to one location. A single tracked location reads 1:1 with no selector.
@@ -92,14 +94,42 @@ export function GbpSection({ projectName }: { projectName: string }) {
     })
   }
 
-  // Errors surface through the global error toast (no skipGlobalErrorToast meta).
+  // GBP sync is an async background run: POST /gbp/sync queues a `gbp-sync` run
+  // and returns immediately. Hand the run to the global RunNotificationObserver
+  // (via trackRun) so it polls to completion, invalidates the GBP queries once
+  // the data is actually refreshed, and emits the completion toast — rather than
+  // invalidating eagerly here (which refetches the same stale data while the run
+  // is still in flight) and re-enabling the button the instant the POST returns.
+  // Errors on the POST itself still surface through the global error toast.
   const syncMutation = useMutation({
     ...postApiV1ProjectsByNameGbpSyncMutation(),
-    onSuccess: () => {
-      addToast('Google Business Profile sync started.', 'positive')
-      invalidateGbp()
+    onSuccess: (data) => {
+      trackRun({
+        id: data.runId,
+        projectId,
+        kind: RunKinds['gbp-sync'],
+        projectLabel: projectName,
+        sourceAction: 'gbp-sync',
+      })
+      addToast({
+        title: 'Business Profile sync started',
+        detail: `${projectName} will refresh when the sync completes.`,
+        tone: 'neutral',
+        dedupeKey: `gbp-sync:${projectName}`,
+        dedupeMode: 'replace',
+      })
     },
   })
+
+  // Keep the Sync button disabled until the queued run reaches a terminal
+  // status. `syncMutation.isPending` only covers the brief POST; the tracked
+  // run (cleared by RunNotificationObserver on completion) covers the
+  // background sync that follows.
+  const trackerState = useSyncExternalStore(subscribeRunTracker, getRunTrackerState, getRunTrackerState)
+  const gbpSyncInFlight = Object.values(trackerState.runs).some(
+    (run) => run.kind === RunKinds['gbp-sync'] && run.projectId === projectId,
+  )
+  const isSyncing = syncMutation.isPending || gbpSyncInFlight
 
   const selectionMutation = useMutation({
     ...putApiV1ProjectsByNameGbpLocationsByLocationNameSelectionMutation(),
@@ -176,10 +206,10 @@ export function GbpSection({ projectName }: { projectName: string }) {
               type="button"
               variant="outline"
               size="sm"
-              disabled={syncMutation.isPending}
+              disabled={isSyncing}
               onClick={() => syncMutation.mutate({ client: heyClient, path: { name: projectName }, body: {} })}
             >
-              {syncMutation.isPending ? 'Syncing…' : 'Sync'}
+              {isSyncing ? 'Syncing…' : 'Sync'}
             </Button>
           </div>
         </div>

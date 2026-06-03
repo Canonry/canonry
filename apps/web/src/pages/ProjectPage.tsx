@@ -2227,7 +2227,7 @@ function ProjectPageContent({
       ) : tab === 'local' ? (
         // Local presence (Google Business Profile + Places). GbpSection
         // self-gates on the connection and renders its own empty state.
-        <GbpSection projectName={model.project.name} />
+        <GbpSection projectName={model.project.name} projectId={model.project.id} />
       ) : (
         <SearchConsoleSection projectName={model.project.name} />
       )}
