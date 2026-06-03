@@ -80,9 +80,16 @@ test('invalidates GA operations for ga-sync runs', () => {
   expect(predicateMatches('getApiV1ProjectsByNameGaStatus')).toBe(true)
 })
 
+test('invalidates GBP operations for gbp-sync runs', () => {
+  invalidateQueriesForRunKind(queryClient, RunKinds['gbp-sync'], 'demo')
+  expect(predicateMatches('getApiV1ProjectsByNameGbpSummary')).toBe(true)
+  expect(predicateMatches('getApiV1ProjectsByNameGbpKeywords')).toBe(true)
+})
+
 test('does not invalidate domain-scoped operations for answer-visibility runs', () => {
   invalidateQueriesForRunKind(queryClient, RunKinds['answer-visibility'], 'demo')
   expect(predicateMatches('getApiV1ProjectsByNameGoogleGscCoverage')).toBe(false)
   expect(predicateMatches('getApiV1ProjectsByNameBingCoverage')).toBe(false)
   expect(predicateMatches('getApiV1ProjectsByNameGaTraffic')).toBe(false)
+  expect(predicateMatches('getApiV1ProjectsByNameGbpSummary')).toBe(false)
 })
