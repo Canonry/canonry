@@ -385,6 +385,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       vercelTrafficCredentialStore: opts.vercelTrafficCredentialStore,
       pullVercelTrafficEvents: opts.pullVercelTrafficEvents,
       onTrafficSynced: opts.onTrafficSynced,
+      onScheduleUpdated: opts.onScheduleUpdated,
       allowLoopbackWebhooks: opts.allowLoopbackWebhooks,
     } satisfies TrafficRoutesOptions)
     // Always mount the backlinks routes so read endpoints (summary, domains,
