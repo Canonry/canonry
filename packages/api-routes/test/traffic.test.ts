@@ -156,6 +156,8 @@ async function buildHarness(
       maxPages: number | undefined
       environment: string | undefined
     }) => VercelTrafficEventsPage
+    /** Wall-clock budget (ms) for the Vercel sync drain. Tests set a tiny/zero value to exercise the deadline path. */
+    vercelSyncDeadlineMs?: number
   } = {},
 ) {
   const trafficSyncedEvents: Array<unknown> = []
@@ -312,6 +314,7 @@ async function buildHarness(
         endpoint: 'https://vercel.com/api/logs/request-logs',
       }
     },
+    vercelSyncDeadlineMs: options.vercelSyncDeadlineMs,
     onTrafficSynced: (event) => { trafficSyncedEvents.push(event) },
     onScheduleUpdated: (action, projectId, kind) => { scheduleUpdates.push({ action, projectId, kind }) },
   })
@@ -1058,6 +1061,83 @@ describe('POST /traffic/sources/:id/sync — Vercel', () => {
       const runRows = h.db.select().from(runs).all()
       expect(runRows.length).toBe(1)
       expect(runRows[0].status).toBe(RunStatuses.failed)
+    } finally {
+      await h.close()
+    }
+  })
+
+  it('fails the run (not eternal running) when the drain budget elapses before any sub-window completes', async () => {
+    // Regression for the production wedge: a dense/slow window made the
+    // synchronous drain run for many minutes, timing out the caller and leaving
+    // the run stuck 'running'. A zero budget trips the deadline before the first
+    // pull, so the drain makes no progress — the route must fail the run rather
+    // than complete an empty window or orphan a 'running' row.
+    const h = await buildHarness([], {
+      vercelSyncDeadlineMs: 0,
+      vercelPullPages: ({ maxPages }) => {
+        if (maxPages === 1) return { events: [], rawEntryCount: 0, skippedEntryCount: 0, hasMore: false, endpoint: '' }
+        // Never reached — the deadline trips before the first sub-window pull.
+        return { events: [], rawEntryCount: 0, skippedEntryCount: 0, hasMore: true, endpoint: '' }
+      },
+    })
+    try {
+      const sourceId = await connectVercel(h)
+      const stale = backdateLastSyncedAt(h.db, sourceId, 60 * 60_000)
+
+      const syncRes = await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`,
+        payload: {},
+      })
+      expect(syncRes.statusCode).toBe(502)
+      expect(JSON.parse(syncRes.payload).error.message).toMatch(/drain budget without completing any sub-window/)
+
+      const sourceRow = h.db.select().from(trafficSources).where(eq(trafficSources.id, sourceId)).get()!
+      expect(sourceRow.status).toBe(TrafficSourceStatuses.error)
+      // Zero progress → the watermark must not advance.
+      expect(sourceRow.lastSyncedAt).toBe(stale)
+
+      const runRows = h.db.select().from(runs).all()
+      expect(runRows.length).toBe(1)
+      expect(runRows[0].status).toBe(RunStatuses.failed)
+    } finally {
+      await h.close()
+    }
+  })
+
+  it('caps a drifted sync window to the last 24h instead of pulling from the stale watermark', async () => {
+    // A watermark that drifted days back (schedule paused/missing) must not make
+    // the drain request a multi-day window. The start is clamped forward to the
+    // cap; the skipped span is surfaced and the watermark still advances to ~now.
+    const observedStarts: number[] = []
+    const h = await buildHarness([], {
+      vercelPullPages: ({ startDate, maxPages }) => {
+        if (maxPages !== 1) observedStarts.push(startDate)
+        return { events: [], rawEntryCount: 0, skippedEntryCount: 0, hasMore: false, endpoint: '' }
+      },
+    })
+    try {
+      const sourceId = await connectVercel(h)
+      backdateLastSyncedAt(h.db, sourceId, 5 * 86_400_000) // 5 days
+      const beforeMs = Date.now()
+
+      const syncRes = await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`,
+        payload: {},
+      })
+      expect(syncRes.statusCode).toBe(200)
+
+      // No real pull reached back past the 24h cap (with a minute of slack).
+      expect(observedStarts.length).toBeGreaterThan(0)
+      const earliestStart = Math.min(...observedStarts)
+      expect(earliestStart).toBeGreaterThanOrEqual(beforeMs - 24 * 60 * 60_000 - 60_000)
+
+      // The capped window drained and committed, advancing past the drift.
+      const sourceRow = h.db.select().from(trafficSources).where(eq(trafficSources.id, sourceId)).get()!
+      expect(new Date(sourceRow.lastSyncedAt!).getTime()).toBeGreaterThanOrEqual(beforeMs)
+      expect(sourceRow.status).toBe(TrafficSourceStatuses.connected)
+      expect(sourceRow.lastError).toBeNull()
     } finally {
       await h.close()
     }
