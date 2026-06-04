@@ -9,6 +9,7 @@ import {
   aiReferralEventsHourly,
   rawEventSamples,
   runs,
+  schedules,
 } from '@ainyc/canonry-db'
 import {
   notFound,
@@ -17,6 +18,7 @@ import {
   RunKinds,
   RunStatuses,
   RunTriggers,
+  SchedulableRunKinds,
   TrafficSourceStatuses,
   TrafficSourceTypes,
   TrafficSourceAuthModes,
@@ -28,6 +30,7 @@ import {
 import type {
   NormalizedTrafficRequest,
   RunStatus,
+  SchedulableRunKind,
   TrafficSourceDto,
   TrafficSourceDetailDto,
   TrafficSourceListResponse,
@@ -205,6 +208,13 @@ export interface TrafficRoutesOptions {
   /** Fire-and-forget hook called after every sync completes (success OR failure). Used by canonry to emit telemetry. */
   onTrafficSynced?: (event: TrafficSyncedEvent) => void
   /**
+   * Register/deregister a project schedule with the live scheduler. Connect
+   * uses this to register the `traffic-sync` schedule it auto-creates, so the
+   * source starts syncing on cadence without an extra operator step. Same
+   * callback the schedule routes fire — wired from `ApiRoutesOptions`.
+   */
+  onScheduleUpdated?: (action: 'upsert' | 'delete', projectId: string, kind: SchedulableRunKind) => void
+  /**
    * Allow WordPress `baseUrl` to resolve to a loopback address. Mirrors
    * `allowLoopbackWebhooks` on the parent `ApiRoutesOptions` — only enabled by
    * the local `canonry serve` so dev users can point at `http://localhost`.
@@ -252,6 +262,11 @@ const MAX_TRACKED_EVENT_IDS = 1_000
 // one-shot operation; a busy site with ~30K events/30d still completes in well
 // under a minute.
 const DEFAULT_BACKFILL_DAYS = 30
+// Cadence for the traffic-sync schedule auto-created on connect. Every 30
+// minutes keeps each sync's window tight (well inside upstream log retention)
+// so the watermark never drifts far enough to wedge a pull. Operators can
+// retune via `canonry schedule set <project> --kind traffic-sync --cron ...`.
+const DEFAULT_TRAFFIC_SYNC_CRON = '*/30 * * * *'
 const MAX_BACKFILL_DAYS = 90
 const BACKFILL_MAX_PAGES = 1_000
 const BACKFILL_SAMPLE_LIMIT = 500
@@ -1002,65 +1017,131 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
     const config: Record<string, unknown> = { projectId, teamId, environment }
     const fallbackName = displayName ?? `Vercel · ${projectId}`
 
-    let sourceRow: typeof trafficSources.$inferSelect
-    if (activeSource) {
-      app.db
-        .update(trafficSources)
-        .set({
-          displayName: fallbackName,
-          status: TrafficSourceStatuses.connected,
-          lastError: null,
-          configJson: config,
-          updatedAt: now,
-        })
-        .where(eq(trafficSources.id, activeSource.id))
-        .run()
-      sourceRow = app.db
-        .select()
-        .from(trafficSources)
-        .where(eq(trafficSources.id, activeSource.id))
-        .get()!
-    } else {
-      const newId = crypto.randomUUID()
-      app.db
-        .insert(trafficSources)
-        .values({
-          id: newId,
-          projectId: project.id,
-          sourceType: TrafficSourceTypes.vercel,
-          displayName: fallbackName,
-          status: TrafficSourceStatuses.connected,
-          // Seed lastSyncedAt to NOW so the first sync uses a tight window.
-          // Leaving this null would make the first sync fall back to
-          // DEFAULT_SYNC_WINDOW_MINUTES (30 days) — which exceeds Vercel's
-          // request-logs retention (~14 days), causing the first sync to
-          // throw a retention error and leaving the source permanently
-          // stuck before it ever drained an event. New users opt into
-          // historical recovery via the explicit `traffic backfill` command;
-          // they do not silently inherit a 30-day pull on connect.
-          lastSyncedAt: now,
-          lastCursor: null,
-          lastError: null,
-          archivedAt: null,
-          configJson: config,
-          createdAt: now,
-          updatedAt: now,
-        })
-        .run()
-      sourceRow = app.db
-        .select()
-        .from(trafficSources)
-        .where(eq(trafficSources.id, newId))
-        .get()!
-    }
+    // Source upsert + the auto-created traffic-sync schedule are one atomic
+    // write — a source must never be left connected without the schedule that
+    // keeps it syncing (that's the trap this fixes).
+    const { sourceRow, scheduleCreated } = app.db.transaction((tx) => {
+      let row: typeof trafficSources.$inferSelect
+      if (activeSource) {
+        tx
+          .update(trafficSources)
+          .set({
+            displayName: fallbackName,
+            status: TrafficSourceStatuses.connected,
+            lastError: null,
+            configJson: config,
+            updatedAt: now,
+          })
+          .where(eq(trafficSources.id, activeSource.id))
+          .run()
+        row = tx
+          .select()
+          .from(trafficSources)
+          .where(eq(trafficSources.id, activeSource.id))
+          .get()!
+      } else {
+        const newId = crypto.randomUUID()
+        tx
+          .insert(trafficSources)
+          .values({
+            id: newId,
+            projectId: project.id,
+            sourceType: TrafficSourceTypes.vercel,
+            displayName: fallbackName,
+            status: TrafficSourceStatuses.connected,
+            // Seed lastSyncedAt to NOW so the first sync uses a tight window.
+            // Leaving this null would make the first sync fall back to
+            // DEFAULT_SYNC_WINDOW_MINUTES (30 days) — which exceeds Vercel's
+            // request-logs retention (~14 days), causing the first sync to
+            // throw a retention error and leaving the source permanently
+            // stuck before it ever drained an event. New users opt into
+            // historical recovery via the explicit `traffic backfill` command;
+            // they do not silently inherit a 30-day pull on connect.
+            lastSyncedAt: now,
+            lastCursor: null,
+            lastError: null,
+            archivedAt: null,
+            configJson: config,
+            createdAt: now,
+            updatedAt: now,
+          })
+          .run()
+        row = tx
+          .select()
+          .from(trafficSources)
+          .where(eq(trafficSources.id, newId))
+          .get()!
+      }
 
-    writeAuditLog(app.db, {
-      projectId: project.id,
-      actor: 'api',
-      action: 'traffic.vercel.connected',
-      entityType: 'traffic_source',
-      entityId: sourceRow.id,
+      // Auto-create the traffic-sync schedule so the source actually keeps
+      // syncing. Seeding lastSyncedAt=NOW above keeps only the FIRST window
+      // tight; the watermark stays tight only if something advances it on
+      // cadence, and nothing does without a schedule. An unscheduled source's
+      // watermark drifts, and the next sync pulls an unbounded window that
+      // wedges — the half of the first-sync trap (#634) that connect left open.
+      // Idempotent: a reconnect, or a project that already has a traffic-sync
+      // schedule, is left untouched.
+      const existingSchedule = tx
+        .select()
+        .from(schedules)
+        .where(
+          and(
+            eq(schedules.projectId, project.id),
+            eq(schedules.kind, SchedulableRunKinds['traffic-sync']),
+          ),
+        )
+        .get()
+      let created = false
+      if (!existingSchedule) {
+        tx
+          .insert(schedules)
+          .values({
+            id: crypto.randomUUID(),
+            projectId: project.id,
+            kind: SchedulableRunKinds['traffic-sync'],
+            cronExpr: DEFAULT_TRAFFIC_SYNC_CRON,
+            preset: null,
+            timezone: 'UTC',
+            enabled: true,
+            providers: [],
+            sourceId: row.id,
+            createdAt: now,
+            updatedAt: now,
+          })
+          .run()
+        created = true
+      }
+
+      writeAuditLog(tx, {
+        projectId: project.id,
+        actor: 'api',
+        action: 'traffic.vercel.connected',
+        entityType: 'traffic_source',
+        entityId: row.id,
+      })
+      if (created) {
+        writeAuditLog(tx, {
+          projectId: project.id,
+          actor: 'api',
+          action: 'schedule.created',
+          entityType: 'schedule',
+          diff: {
+            kind: SchedulableRunKinds['traffic-sync'],
+            cronExpr: DEFAULT_TRAFFIC_SYNC_CRON,
+            sourceId: row.id,
+          },
+        })
+      }
+
+      return { sourceRow: row, scheduleCreated: created }
     })
+
+    // Register the new cron with the live scheduler after the commit, per the
+    // transaction-callback rule. A reconnect (schedule already present) skips
+    // this — its cron is already ticking.
+    if (scheduleCreated) {
+      opts.onScheduleUpdated?.('upsert', project.id, SchedulableRunKinds['traffic-sync'])
+    }
 
     return rowToDto(sourceRow)
   })

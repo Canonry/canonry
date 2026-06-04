@@ -14,6 +14,7 @@ import {
   rawEventSamples,
   runs,
   auditLog,
+  schedules,
 } from '@ainyc/canonry-db'
 import {
   TrafficSourceTypes,
@@ -158,6 +159,7 @@ async function buildHarness(
   } = {},
 ) {
   const trafficSyncedEvents: Array<unknown> = []
+  const scheduleUpdates: Array<{ action: string; projectId: string; kind: string }> = []
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'traffic-routes-test-'))
   const dbPath = path.join(tmpDir, 'test.db')
   const db = createClient(dbPath)
@@ -311,6 +313,7 @@ async function buildHarness(
       }
     },
     onTrafficSynced: (event) => { trafficSyncedEvents.push(event) },
+    onScheduleUpdated: (action, projectId, kind) => { scheduleUpdates.push({ action, projectId, kind }) },
   })
   await app.ready()
 
@@ -337,6 +340,7 @@ async function buildHarness(
     getObservedWindows: () => observedWindows,
     getObservedFirstSync: () => observedFirstSync,
     getTrafficSyncedEvents: () => trafficSyncedEvents,
+    getScheduleUpdates: () => scheduleUpdates,
     getWpProbeInvocations: () => wpProbeInvocations,
     getVercelProbeInvocations: () => vercelProbeInvocations,
     close: async () => {
@@ -703,6 +707,53 @@ describe('POST /traffic/connect/vercel', () => {
     expect(config.teamId).toBe('team_new')
     // Credential record updated in place too.
     expect(h.vercelCredentials.get('test-project')?.projectId).toBe('prj_new')
+  })
+
+  it('auto-creates a traffic-sync schedule bound to the new source', async () => {
+    const res = await h.app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/test-project/traffic/connect/vercel',
+      payload: validBody,
+    })
+    expect(res.statusCode).toBe(200)
+    const sourceId = JSON.parse(res.payload).id as string
+
+    // Without this schedule the watermark never advances and the next sync
+    // pulls an unbounded window — the trap this closes.
+    const schedRows = h.db.select().from(schedules).where(eq(schedules.kind, 'traffic-sync')).all()
+    expect(schedRows).toHaveLength(1)
+    const sched = schedRows[0]!
+    expect(sched.cronExpr).toBe('*/30 * * * *')
+    expect(sched.sourceId).toBe(sourceId)
+    expect(sched.enabled).toBe(true)
+    expect(sched.timezone).toBe('UTC')
+  })
+
+  it('registers the new schedule with the live scheduler via onScheduleUpdated', async () => {
+    await h.app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/test-project/traffic/connect/vercel',
+      payload: validBody,
+    })
+    const trafficUpdate = h.getScheduleUpdates().find((u) => u.kind === 'traffic-sync')
+    expect(trafficUpdate).toBeDefined()
+    expect(trafficUpdate?.action).toBe('upsert')
+  })
+
+  it('does not create or re-register a second schedule on reconnect (idempotent)', async () => {
+    await h.app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/test-project/traffic/connect/vercel',
+      payload: validBody,
+    })
+    await h.app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/test-project/traffic/connect/vercel',
+      payload: { ...validBody, projectId: 'prj_reconnect' },
+    })
+    expect(h.db.select().from(schedules).where(eq(schedules.kind, 'traffic-sync')).all()).toHaveLength(1)
+    // onScheduleUpdated fires only on the first (creating) connect.
+    expect(h.getScheduleUpdates().filter((u) => u.kind === 'traffic-sync')).toHaveLength(1)
   })
 })
 
