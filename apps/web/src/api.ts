@@ -11,6 +11,7 @@ import {
   getApiV1ProjectsByNameQueries,
   putApiV1ProjectsByNameQueries,
   postApiV1ProjectsByNameQueries,
+  deleteApiV1ProjectsByNameQueries,
   postApiV1ProjectsByNameQueriesGenerate,
   postApiV1ProjectsByNameContentDismissals,
   deleteApiV1ProjectsByNameContentDismissalsByTargetRef,
@@ -521,6 +522,18 @@ export function setQueries(projectName: string, queries: string[]): Promise<ApiQ
 export function appendQueries(projectName: string, queries: string[]): Promise<ApiQuery[]> {
   return invokeWeb<ApiQuery[]>(() =>
     postApiV1ProjectsByNameQueries({ client: heyClient, path: { name: projectName }, body: { queries } }),
+  )
+}
+
+/**
+ * Stop tracking specific queries. `DELETE /projects/:name/queries` removes the
+ * named queries by text and returns the remaining set. The server preserves the
+ * deleted queries' text on their historical snapshots, so analytics history is
+ * not lost — only future tracking stops.
+ */
+export function removeQueries(projectName: string, queries: string[]): Promise<ApiQuery[]> {
+  return invokeWeb<ApiQuery[]>(() =>
+    deleteApiV1ProjectsByNameQueries({ client: heyClient, path: { name: projectName }, body: { queries } }),
   )
 }
 

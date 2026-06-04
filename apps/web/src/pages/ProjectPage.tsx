@@ -36,6 +36,7 @@ import {
   fetchTimeline,
   deleteProject as apiDeleteProject,
   appendQueries as apiAppendQueries,
+  removeQueries as apiRemoveQueries,
   fetchCompetitors as apiFetchCompetitors,
   setCompetitors as apiSetCompetitors,
   removeCompetitors as apiRemoveCompetitors,
@@ -1445,9 +1446,10 @@ function ProjectPageContent({
   const gbpConnected = (gbpConnectionQuery.data ?? []).some((c) => c.connectionType === 'gbp')
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleting, setDeleting] = useState(false)
-  const [addingQueries, setAddingQueries] = useState(false)
+  const [managingQueries, setManagingQueries] = useState(false)
   const [newQueryText, setNewQueryText] = useState('')
   const [querySaving, setQuerySaving] = useState(false)
+  const [removingQuery, setRemovingQuery] = useState<string | null>(null)
   const [addingCompetitor, setAddingCompetitor] = useState(false)
   const [newCompetitorDomain, setNewCompetitorDomain] = useState('')
   const [competitorSaving, setCompetitorSaving] = useState(false)
@@ -1483,6 +1485,15 @@ function ProjectPageContent({
   )
   const locationLabelsInEvidence = useMemo(() => new Set(visibilityEvidence.map(e => e.location ?? '')), [visibilityEvidence])
   const hasNullLocationEvidence = locationLabelsInEvidence.has('')
+  // The authoritative tracked-query set — every query the project tracks,
+  // including ones added but not yet run (build-dashboard seeds a "pending"
+  // evidence row for those). This is the same source as the "N queries tracked"
+  // header count, so the manage list and the count never diverge. Sorted for a
+  // stable order in the manage panel.
+  const trackedQueries = useMemo(
+    () => [...new Set(visibilityEvidence.map(e => e.query))].sort((a, b) => a.localeCompare(b)),
+    [visibilityEvidence],
+  )
   const distinctLocationsForCompare = useMemo(() => {
     // "Compare" needs ≥2 locations with selectable data. Prefer evidence-backed
     // locations, but fall back to configured locations so a fresh project that
@@ -1623,9 +1634,26 @@ function ProjectPageContent({
       await apiAppendQueries(projectName, queries)
       void refetch()
       setNewQueryText('')
-      setAddingQueries(false)
     } finally {
       setQuerySaving(false)
+    }
+  }
+
+  async function handleRemoveQuery(query: string) {
+    setRemovingQuery(query)
+    try {
+      await apiRemoveQueries(projectName, [query])
+      void refetch()
+    } catch (err) {
+      addToast({
+        title: 'Could not remove query',
+        detail: err instanceof Error ? err.message : `Failed to remove "${query}"`,
+        tone: 'negative',
+        dedupeKey: 'query:remove',
+        dedupeMode: 'replace',
+      })
+    } finally {
+      setRemovingQuery(null)
     }
   }
 
@@ -2047,23 +2075,44 @@ function ProjectPageContent({
                 <h2>What the LLMs said</h2>
               </div>
               <div className="flex items-center gap-3">
-                <p className="supporting-copy">{new Set(model.visibilityEvidence.map(e => e.query)).size} queries tracked</p>
-                <Button type="button" variant="outline" size="sm" onClick={() => setAddingQueries(!addingQueries)}>
-                  {addingQueries ? 'Cancel' : '+ Add queries'}
+                <p className="supporting-copy">{trackedQueries.length} queries tracked</p>
+                <Button type="button" variant="outline" size="sm" onClick={() => setManagingQueries(!managingQueries)}>
+                  {managingQueries ? 'Done' : 'Manage queries'}
                 </Button>
               </div>
             </div>
-            {addingQueries && (
+            {managingQueries && (
               <div className="mb-3 rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
+                {trackedQueries.length > 0 ? (
+                  <ul className="mb-3 max-h-64 divide-y divide-zinc-800/60 overflow-y-auto rounded border border-zinc-800/60">
+                    {trackedQueries.map((q) => (
+                      <li key={q} className="flex items-center justify-between gap-3 px-3 py-2">
+                        <span className="min-w-0 truncate text-sm text-zinc-200" title={q}>{q}</span>
+                        <button
+                          type="button"
+                          className="shrink-0 rounded px-1.5 py-0.5 text-xs text-zinc-500 transition-colors hover:text-rose-400 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-rose-500 disabled:opacity-50"
+                          aria-label={`Remove query ${q}`}
+                          title={`Stop tracking "${q}"`}
+                          disabled={removingQuery !== null}
+                          onClick={() => { void handleRemoveQuery(q) }}
+                        >
+                          {removingQuery === q ? 'Removing…' : 'Remove'}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="mb-3 text-xs text-zinc-500">No queries tracked yet. Add some below.</p>
+                )}
                 <textarea
                   className="w-full resize-none rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
                   rows={3}
-                  placeholder="Enter queries, one per line"
+                  placeholder="Enter queries to add, one per line"
                   value={newQueryText}
                   onChange={(e) => setNewQueryText(e.target.value)}
                 />
                 <div className="mt-2 flex items-center justify-between">
-                  <p className="text-xs text-zinc-500">{newQueryText.split('\n').filter(k => k.trim()).length} queries</p>
+                  <p className="text-xs text-zinc-500">{newQueryText.split('\n').filter(k => k.trim()).length} to add</p>
                   <Button type="button" size="sm" disabled={!newQueryText.trim() || querySaving} onClick={asyncHandler(handleAddQueries)}>
                     {querySaving ? 'Adding...' : 'Add queries'}
                   </Button>
