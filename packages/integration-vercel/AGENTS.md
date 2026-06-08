@@ -17,7 +17,7 @@ with **no in-app instrumentation** required on the user's Vercel project.
 | File | Role |
 |------|------|
 | `src/client.ts` | `listVercelTrafficEvents` — page-paginated `request-logs` pull, `VercelLogsApiError` |
-| `src/drain.ts` | `drainVercelTrafficEvents` — adaptive time-sub-window drain over a wide window; retention-clamps the start |
+| `src/drain.ts` | `drainVercelTrafficEvents` — adaptive time-sub-window drain over a wide window; retention-clamps the start; optional wall-clock `deadlineMs` stops early with `drainedThroughMs` for resumable partial progress |
 | `src/normalize.ts` | `normalizeVercelLogRow` — converts a raw `request-logs` row into a `NormalizedTrafficRequest` |
 | `src/types.ts` | Adapter option/response shapes (`VercelRequestLogRow`, `ListVercelTrafficEventsOptions`, `VercelTrafficEventsPage`) |
 | `src/index.ts` | Re-exports public API |
@@ -54,6 +54,16 @@ with **no in-app instrumentation** required on the user's Vercel project.
   safe and `lastSyncedAt` keeps moving); the **replace-mode backfill** instead
   fails loud on truncation so it never overwrites a full window with a partial
   sample.
+- **Wall-clock deadline (optional).** `deadlineMs` (with an injectable `now`,
+  defaulting to `Date.now`) bounds a single drain's wall-clock cost: the loop
+  stops before starting a sub-window once the clock passes it, returning
+  `deadlineReached: true` and `drainedThroughMs` at the last fully-drained
+  boundary. An additive incremental caller commits `[startDate, drainedThroughMs]`
+  and advances `lastSyncedAt` there, so a dense or slow window converges over
+  several syncs instead of one unbounded grind — which would time out the
+  synchronous sync route and orphan a `running` run. Left unset, the drain runs
+  to completion or `maxSubWindows` (replace-mode backfill keeps that). One
+  in-flight pull can overrun the deadline, so the bound is approximate.
 - **Retention clamp.** Vercel rejects a window starting before the plan's
   `request-logs` retention with HTTP 400 `ExceedsBillingLimitError`.
   `drainVercelTrafficEvents` detects that, binary-searches the retention

@@ -68,6 +68,20 @@ export interface DrainVercelTrafficEventsOptions {
   /** Hard cap on sub-window pulls before the drain gives up. */
   maxSubWindows: number
   /**
+   * Optional wall-clock deadline (epoch ms). Checked before each sub-window
+   * pull: once `now() >= deadlineMs` the drain stops and returns what it has
+   * drained so far with `deadlineReached: true` and `drainedThroughMs` set to
+   * the last fully-drained instant. An additive incremental-sync caller commits
+   * that partial window and advances `lastSyncedAt` to `drainedThroughMs`, so a
+   * dense or slow window makes forward progress every run instead of grinding
+   * unbounded (timing out the caller and orphaning a 'running' run). Left unset,
+   * the drain runs until the window is fully drained or `maxSubWindows` is hit —
+   * the original behaviour, which replace-mode backfill keeps.
+   */
+  deadlineMs?: number
+  /** Injectable clock for the deadline check; defaults to `Date.now`. Tests override it. */
+  now?: () => number
+  /**
    * Fail immediately if a floor-width slice overflows even `FLOOR_SLICE_MAX_PAGES`
    * instead of sampling-and-advancing past it. Replace-mode callers (backfill)
    * set this: a truncated sample must never overwrite a full window's rollup, and
@@ -104,6 +118,19 @@ export interface DrainVercelTrafficEventsResult {
   truncatedSliceCount: number
   /** Epoch-ms start of each truncated floor slice, for operator logging. */
   truncatedSliceStartsMs: number[]
+  /**
+   * Furthest instant (epoch ms) the drain fully completed. Equals `endDate` on
+   * a normal full drain; on a `deadlineReached` stop it is the last cleanly
+   * drained sub-window boundary, so `[startDate, drainedThroughMs]` is complete
+   * and the caller can safely advance `lastSyncedAt` to it.
+   */
+  drainedThroughMs: number
+  /**
+   * True when the drain stopped early because it reached `deadlineMs` before
+   * fully draining the window. `[drainedThroughMs, endDate]` is still undrained;
+   * the caller resumes from `drainedThroughMs` on the next run.
+   */
+  deadlineReached: boolean
 }
 
 function toMs(value: Date | number): number {
@@ -206,17 +233,25 @@ async function resolveRetainedStart(
  * slice so a replace-mode caller fails fast instead of draining the rest of a
  * window it will reject. Throws also if `maxSubWindows` is reached before the
  * window is fully drained.
+ *
+ * If `deadlineMs` is set, the drain stops before starting a sub-window once the
+ * wall clock reaches it, returning `deadlineReached: true` and `drainedThroughMs`
+ * at the last fully-drained boundary. This bounds a single sync's wall-clock
+ * cost: an additive caller commits the partial window and resumes next run, so a
+ * dense or slow window converges over several syncs instead of one unbounded
+ * grind. (One in-flight pull can overrun the deadline; the bound is approximate.)
  */
 export async function drainVercelTrafficEvents(
   options: DrainVercelTrafficEventsOptions,
 ): Promise<DrainVercelTrafficEventsResult> {
   const startMs = toMs(options.startDate)
   const endMs = toMs(options.endDate)
+  const now = options.now ?? (() => Date.now())
 
   const events: NormalizedTrafficRequest[] = []
   const seenEventIds = new Set<string>()
   if (endMs <= startMs) {
-    return { events, subWindowCount: 0, effectiveStartMs: startMs, retentionClamped: false, truncatedSliceCount: 0, truncatedSliceStartsMs: [] }
+    return { events, subWindowCount: 0, effectiveStartMs: startMs, retentionClamped: false, truncatedSliceCount: 0, truncatedSliceStartsMs: [], drainedThroughMs: startMs, deadlineReached: false }
   }
 
   let cursorMs = startMs
@@ -228,9 +263,18 @@ export async function drainVercelTrafficEvents(
   let floorSpanProbeCountdown = 0
   let floorPageBudgetCountdown = 0
   let truncatedSliceCount = 0
+  let deadlineReached = false
   const truncatedSliceStartsMs: number[] = []
 
   while (cursorMs < endMs) {
+    // Wall-clock budget: stop before starting another sub-window once the
+    // deadline passes. `cursorMs` is the last fully-drained boundary, so the
+    // caller can commit `[startMs, cursorMs]` and resume from there next run
+    // rather than letting one sync grind the whole window unbounded.
+    if (options.deadlineMs !== undefined && now() >= options.deadlineMs) {
+      deadlineReached = true
+      break
+    }
     if (subWindowCount >= options.maxSubWindows) {
       throw new Error(
         `Vercel window not drained within ${options.maxSubWindows} sub-windows — narrow the time range`,
@@ -343,5 +387,5 @@ export async function drainVercelTrafficEvents(
     }
   }
 
-  return { events, subWindowCount, effectiveStartMs, retentionClamped, truncatedSliceCount, truncatedSliceStartsMs }
+  return { events, subWindowCount, effectiveStartMs, retentionClamped, truncatedSliceCount, truncatedSliceStartsMs, drainedThroughMs: cursorMs, deadlineReached }
 }

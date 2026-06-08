@@ -154,6 +154,8 @@ export interface ApiRoutesOptions {
   vercelTrafficCredentialStore?: TrafficRoutesOptions['vercelTrafficCredentialStore']
   /** Override Vercel traffic pull (tests) — see `TrafficRoutesOptions` */
   pullVercelTrafficEvents?: TrafficRoutesOptions['pullVercelTrafficEvents']
+  /** Wall-clock budget (ms) for a Vercel sync's adaptive drain — see `TrafficRoutesOptions` */
+  vercelSyncDeadlineMs?: TrafficRoutesOptions['vercelSyncDeadlineMs']
   /** Fired after every traffic sync (success OR failure). Used by canonry to emit `traffic.synced` telemetry. */
   onTrafficSynced?: TrafficRoutesOptions['onTrafficSynced']
   /** Discovery feature callback — fires after a discovery_sessions row + matching runs row are inserted. */
@@ -384,6 +386,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       pullWordpressTrafficEvents: opts.pullWordpressTrafficEvents,
       vercelTrafficCredentialStore: opts.vercelTrafficCredentialStore,
       pullVercelTrafficEvents: opts.pullVercelTrafficEvents,
+      vercelSyncDeadlineMs: opts.vercelSyncDeadlineMs,
       onTrafficSynced: opts.onTrafficSynced,
       onScheduleUpdated: opts.onScheduleUpdated,
       allowLoopbackWebhooks: opts.allowLoopbackWebhooks,

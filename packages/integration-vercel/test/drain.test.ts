@@ -337,4 +337,57 @@ describe('drainVercelTrafficEvents', () => {
     expect(result.events).toEqual([])
     expect(result.subWindowCount).toBe(0)
   })
+
+  test('reports a full drain through endDate with no deadline set', async () => {
+    const pull = vi.fn(async () => page([makeEvent('a')], false))
+    const result = await drainVercelTrafficEvents({
+      ...baseOptions,
+      pull,
+      startDate: 0,
+      endDate: 4 * HOUR,
+    })
+    expect(result.deadlineReached).toBe(false)
+    expect(result.drainedThroughMs).toBe(4 * HOUR)
+  })
+
+  test('stops before the first pull and makes no progress when the deadline has already passed', async () => {
+    const pull = vi.fn(async () => page([makeEvent('x')], false))
+    const result = await drainVercelTrafficEvents({
+      ...baseOptions,
+      pull,
+      startDate: 0,
+      endDate: 4 * HOUR,
+      deadlineMs: 100,
+      now: () => 1_000, // already past the deadline
+    })
+    expect(result.deadlineReached).toBe(true)
+    expect(result.drainedThroughMs).toBe(0) // == startDate: nothing drained
+    expect(result.events).toEqual([])
+    expect(pull).not.toHaveBeenCalled()
+  })
+
+  test('stops at the deadline after partial progress and reports the boundary it reached', async () => {
+    // Slices wider than an hour overflow and get subdivided; one-hour-or-less
+    // slices drain cleanly. The injected clock advances one tick per sub-window
+    // check, so the deadline trips after several hours have drained but well
+    // before the full 100-hour window is done.
+    const pull = vi.fn(async (o: ListVercelTrafficEventsOptions) => {
+      const span = Number(o.endDate) - Number(o.startDate)
+      if (span > HOUR) return page([], true)
+      return page([makeEvent(`ev-${Number(o.startDate)}`)], false)
+    })
+    let tick = 0
+    const result = await drainVercelTrafficEvents({
+      ...baseOptions,
+      pull,
+      startDate: 0,
+      endDate: 100 * HOUR,
+      deadlineMs: 25,
+      now: () => (tick += 1),
+    })
+    expect(result.deadlineReached).toBe(true)
+    expect(result.drainedThroughMs).toBeGreaterThan(0) // made progress
+    expect(result.drainedThroughMs).toBeLessThan(100 * HOUR) // but did not finish
+    expect(result.events.length).toBeGreaterThan(0)
+  })
 })
