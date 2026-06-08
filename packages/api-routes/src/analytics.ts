@@ -1,9 +1,10 @@
 import { and, eq, desc, inArray } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { filterTrackedSnapshots, groupRunsByCreatedAt, pickGroupRepresentative, querySnapshots, runs, queries, competitors, parseJsonColumn } from '@ainyc/canonry-db'
+import { filterTrackedSnapshots, groupRunsByCreatedAt, pickGroupRepresentative, querySnapshots, runs, queries, competitors, domainClassifications, parseJsonColumn } from '@ainyc/canonry-db'
 import {
   AI_PROVIDER_INFRA_DOMAINS, categorizeSource, categoryLabel, CitationStates,
-  classifySurfaceFromCategory, surfaceClassLabel, effectiveDomains, parseWindow, windowCutoff, validationError,
+  classifySurfaceFromCategory, surfaceClassFromCompetitorType, surfaceClassLabel,
+  effectiveDomains, normalizeProjectDomain, parseWindow, windowCutoff, validationError,
 } from '@ainyc/canonry-contracts'
 import type {
   BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto,
@@ -328,6 +329,21 @@ export async function analyticsRoutes(app: FastifyInstance) {
         .map(r => r.domain),
     }
 
+    // Stored LLM classifications from discovery (`domain_classifications`, #677)
+    // enrich recall for domains the generic allow-list would dump into `other`
+    // (niche OTAs, regional media). Keyed by normalized domain; own/competitor
+    // still win over a stored row (see classifySurfaceFromCategory precedence).
+    // No new LLM calls — this reads what discovery already persisted.
+    const storedSurfaceClasses = new Map<string, SurfaceClass>()
+    for (const row of app.db
+      .select({ domain: domainClassifications.domain, competitorType: domainClassifications.competitorType })
+      .from(domainClassifications)
+      .where(eq(domainClassifications.projectId, project.id))
+      .all()) {
+      const mapped = surfaceClassFromCompetitorType(row.competitorType)
+      if (mapped) storedSurfaceClasses.set(normalizeProjectDomain(row.domain), mapped)
+    }
+
     // All runs in window
     const windowRuns = app.db
       .select()
@@ -383,7 +399,9 @@ export async function analyticsRoutes(app: FastifyInstance) {
 
       for (const source of sources) {
         const { category, label, domain } = categorizeSource(source.uri)
-        const surfaceClass = classifySurfaceFromCategory(domain, category, classifyCtx)
+        const surfaceClass = classifySurfaceFromCategory(
+          domain, category, classifyCtx, storedSurfaceClasses.get(normalizeProjectDomain(domain)),
+        )
 
         // Overall (legacy category breakdown)
         if (!overallCounts.has(category)) overallCounts.set(category, new Map())

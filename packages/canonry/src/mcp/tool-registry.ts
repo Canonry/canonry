@@ -490,7 +490,7 @@ export const canonryMcpTools = [
     name: 'canonry_analytics_sources',
     title: 'Get cited-source rankings',
     description:
-      'Where AI engines get the facts they cite for a project. Returns the FULL ranked list of cited domains (not truncated) — each tagged with a category and an actionable surface class (own / direct-competitor / ota-aggregator / editorial-media / other) — plus a surface-class roll-up and a per-provider breakdown (each provider\'s cited-domain mix + total cited slots). Probe-excluded, window-filterable (7d/30d/90d/all). Use `limit` to cap each ranked list to the top N domains (an explicit long-tail rollup preserves the totals). All counts/shares/classification are computed server-side.',
+      'Where AI engines get the facts they cite for a project. Returns the FULL ranked list of cited domains (not truncated) — each tagged with a category and an actionable surface class (own / direct-competitor / ota-aggregator / editorial-media / other) — plus a surface-class roll-up and a per-provider breakdown (each provider\'s cited-domain mix + total cited slots). The surface class is deterministic (own/competitor from project data, the rest from the source allow-list) and enriched by discovery\'s stored per-domain classifications when present — no new LLM calls. Probe-excluded, window-filterable (7d/30d/90d/all). Use `limit` to cap each ranked list to the top N domains (an explicit long-tail rollup preserves the totals). All counts/shares/classification are computed server-side.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: z.object({

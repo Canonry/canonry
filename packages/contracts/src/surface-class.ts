@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { categorizeSource, type SourceCategory } from './source-categories.js'
 import { normalizeProjectDomain } from './project.js'
+import { DiscoveryCompetitorTypes, type DiscoveryCompetitorType } from './discovery.js'
 
 /**
  * Actionable classification of a cited domain, layered on top of the generic
@@ -49,6 +50,24 @@ export function surfaceClassLabel(surfaceClass: SurfaceClass): string {
 }
 
 /**
+ * Map a discovery {@link DiscoveryCompetitorType} (the LLM-derived class stored
+ * in `domain_classifications`) onto a {@link SurfaceClass}. The two taxonomies
+ * share `direct-competitor` / `ota-aggregator` / `editorial-media` / `other`
+ * verbatim; `unknown` returns `undefined` so the caller falls back to the
+ * deterministic heuristic. (`own` never appears in discovery output — it is
+ * resolved locally from the project's own domains.)
+ */
+export function surfaceClassFromCompetitorType(type: DiscoveryCompetitorType): SurfaceClass | undefined {
+  switch (type) {
+    case DiscoveryCompetitorTypes['direct-competitor']: return SurfaceClasses['direct-competitor']
+    case DiscoveryCompetitorTypes['ota-aggregator']: return SurfaceClasses['ota-aggregator']
+    case DiscoveryCompetitorTypes['editorial-media']: return SurfaceClasses['editorial-media']
+    case DiscoveryCompetitorTypes.other: return SurfaceClasses.other
+    case DiscoveryCompetitorTypes.unknown: return undefined
+  }
+}
+
+/**
  * True when `candidate` (already normalized) equals or is a subdomain of any
  * domain in `domains`. Same exact-or-subdomain rule as
  * `citedDomainBelongsToProject` (packages/intelligence) and `domainMatches`
@@ -81,16 +100,25 @@ export interface SurfaceClassContext {
  * Use this when the caller already ran `categorizeSource` (e.g. an aggregation
  * loop that needs the `domain`/`label` anyway) so the rule scan isn't repeated.
  * {@link classifySurface} is the URI-level convenience wrapper over it.
+ *
+ * `storedClass` is an optional LLM-derived classification (from discovery's
+ * `domain_classifications`, mapped via {@link surfaceClassFromCompetitorType}).
+ * Precedence: own > tracked-competitor > stored LLM class > heuristic category.
+ * Own/competitor stay authoritative (the operator's own + tracked domains beat
+ * any stale stored row); the stored class only enriches recall for domains the
+ * generic allow-list would otherwise dump into `other`.
  */
 export function classifySurfaceFromCategory(
   domain: string,
   category: SourceCategory,
   context: SurfaceClassContext,
+  storedClass?: SurfaceClass,
 ): SurfaceClass {
   const candidate = normalizeProjectDomain(domain)
 
   if (matchesAnyDomain(candidate, context.projectDomains)) return SurfaceClasses.own
   if (matchesAnyDomain(candidate, context.competitorDomains)) return SurfaceClasses['direct-competitor']
+  if (storedClass) return storedClass
 
   switch (category) {
     case 'directory':

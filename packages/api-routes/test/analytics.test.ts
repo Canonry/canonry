@@ -4,7 +4,7 @@ import path from 'node:path'
 import os from 'node:os'
 import crypto from 'node:crypto'
 import Fastify from 'fastify'
-import { createClient, migrate, projects, queries, runs, querySnapshots, competitors } from '@ainyc/canonry-db'
+import { createClient, migrate, projects, queries, runs, querySnapshots, competitors, domainClassifications } from '@ainyc/canonry-db'
 import { apiRoutes } from '../src/index.js'
 
 function buildApp() {
@@ -1055,6 +1055,58 @@ describe('GET /projects/:name/analytics/sources — ranked + byProvider + classi
     expect(body.runId).toBe(realRun) // anchored to the real run, not ''
     expect(body.ranked).toMatchObject({ totalCitedSlots: 0, domainTotal: 0, entries: [], truncatedDomainCount: 0, truncatedCitedSlots: 0, bySurfaceClass: [] })
     expect(body.byProvider).toEqual({}) // gemini produced no usable domains → omitted
+  })
+
+  it('enriches the surface class from discovery domain_classifications (LLM), with own/competitor still authoritative', async () => {
+    const projId = crypto.randomUUID()
+    db.insert(projects).values({
+      id: projId, name: 'enrich-site', displayName: 'Enrich', canonicalDomain: 'enrich.com',
+      ownedDomains: [], country: 'US', language: 'en', tags: [], labels: {},
+      providers: ['gemini'], locations: [], defaultLocation: null,
+      configSource: 'api', configRevision: 1, createdAt: iso, updatedAt: iso,
+    }).run()
+    db.insert(competitors).values({ id: crypto.randomUUID(), projectId: projId, domain: 'erival.com', provenance: 'manual', createdAt: iso }).run()
+    const qId2 = crypto.randomUUID()
+    db.insert(queries).values({ id: qId2, projectId: projId, query: 'q', createdAt: iso }).run()
+    const runId2 = crypto.randomUUID()
+    db.insert(runs).values({
+      id: runId2, projectId: projId, kind: 'answer-visibility', status: 'completed',
+      trigger: 'manual', location: null, startedAt: iso, finishedAt: iso, error: null, createdAt: iso,
+    }).run()
+    db.insert(querySnapshots).values({
+      id: crypto.randomUUID(), runId: runId2, queryId: qId2, provider: 'gemini',
+      model: 'gemini-2.5-flash', citationState: 'cited', answerText: 'x',
+      citedDomains: [], competitorOverlap: [], location: null,
+      rawResponse: JSON.stringify({
+        groundingSources: [
+          { uri: 'https://enrich.com/a', title: 'own' },
+          { uri: 'https://erival.com/b', title: 'competitor' },
+          { uri: 'https://nicheota.io/c', title: 'niche OTA (heuristic would say other)' },
+          { uri: 'https://plainsite.io/d', title: 'unclassified other' },
+        ],
+      }),
+      createdAt: iso,
+    }).run()
+    // Discovery's LLM classified these. Note the deliberately STALE rows for
+    // enrich.com (own) and erival.com (tracked competitor) — local membership
+    // must override them.
+    db.insert(domainClassifications).values([
+      { id: crypto.randomUUID(), projectId: projId, domain: 'nicheota.io', competitorType: 'ota-aggregator', hits: 3, sessionId: null, updatedAt: iso },
+      { id: crypto.randomUUID(), projectId: projId, domain: 'enrich.com', competitorType: 'other', hits: 1, sessionId: null, updatedAt: iso },
+      { id: crypto.randomUUID(), projectId: projId, domain: 'erival.com', competitorType: 'editorial-media', hits: 2, sessionId: null, updatedAt: iso },
+    ]).run()
+
+    const res = await app.inject({ method: 'GET', url: '/api/v1/projects/enrich-site/analytics/sources' })
+    const body = JSON.parse(res.payload)
+    const byDomain: Record<string, { surfaceClass: string }> = {}
+    for (const e of body.ranked.entries) byDomain[e.domain] = e
+    // stored LLM class lifts a domain the heuristic would call 'other'
+    expect(byDomain['nicheota.io']!.surfaceClass).toBe('ota-aggregator')
+    // no stored row → heuristic 'other'
+    expect(byDomain['plainsite.io']!.surfaceClass).toBe('other')
+    // own + tracked-competitor override the (stale) stored rows
+    expect(byDomain['enrich.com']!.surfaceClass).toBe('own')
+    expect(byDomain['erival.com']!.surfaceClass).toBe('direct-competitor')
   })
 
   it('returns an empty-but-valid shape for a project with no runs', async () => {

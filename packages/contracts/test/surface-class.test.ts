@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { classifySurface, classifySurfaceFromCategory, surfaceClassLabel, SurfaceClasses, surfaceClassSchema } from '../src/surface-class.js'
+import { classifySurface, classifySurfaceFromCategory, surfaceClassFromCompetitorType, surfaceClassLabel, SurfaceClasses, surfaceClassSchema } from '../src/surface-class.js'
 import { categorizeSource } from '../src/source-categories.js'
+import { DiscoveryCompetitorTypes } from '../src/discovery.js'
 
 const project = { projectDomains: ['acme.com', 'acme.io'], competitorDomains: ['rival.com', 'yelp.com'] }
 
@@ -117,5 +118,39 @@ describe('classifySurfaceFromCategory', () => {
       const { domain, category } = categorizeSource(uri)
       expect(classifySurfaceFromCategory(domain, category, project)).toBe(classifySurface(uri, project))
     }
+  })
+})
+
+describe('surfaceClassFromCompetitorType', () => {
+  it('maps discovery competitor types onto the surface-class taxonomy', () => {
+    expect(surfaceClassFromCompetitorType(DiscoveryCompetitorTypes['direct-competitor'])).toBe(SurfaceClasses['direct-competitor'])
+    expect(surfaceClassFromCompetitorType(DiscoveryCompetitorTypes['ota-aggregator'])).toBe(SurfaceClasses['ota-aggregator'])
+    expect(surfaceClassFromCompetitorType(DiscoveryCompetitorTypes['editorial-media'])).toBe(SurfaceClasses['editorial-media'])
+    expect(surfaceClassFromCompetitorType(DiscoveryCompetitorTypes.other)).toBe(SurfaceClasses.other)
+  })
+
+  it('returns undefined for unknown so the caller falls back to the heuristic', () => {
+    expect(surfaceClassFromCompetitorType(DiscoveryCompetitorTypes.unknown)).toBeUndefined()
+  })
+})
+
+describe('classifySurfaceFromCategory with a stored (LLM) classification', () => {
+  it('prefers the stored class over the heuristic category map', () => {
+    // categorizeSource('niche-ota.io') → 'other' → heuristic would say 'other';
+    // a discovery LLM run classified it ota-aggregator. Stored wins.
+    expect(classifySurfaceFromCategory('niche-ota.io', 'other', project, SurfaceClasses['ota-aggregator']))
+      .toBe(SurfaceClasses['ota-aggregator'])
+  })
+
+  it('still lets own and tracked-competitor membership win over a stored class', () => {
+    // Even if a stale stored row says otherwise, own/competitor are authoritative.
+    expect(classifySurfaceFromCategory('acme.com', 'other', project, SurfaceClasses['ota-aggregator']))
+      .toBe(SurfaceClasses.own)
+    expect(classifySurfaceFromCategory('rival.com', 'other', project, SurfaceClasses['editorial-media']))
+      .toBe(SurfaceClasses['direct-competitor'])
+  })
+
+  it('falls back to the heuristic when no stored class is supplied', () => {
+    expect(classifySurfaceFromCategory('forbes.com', 'news', project, undefined)).toBe(SurfaceClasses['editorial-media'])
   })
 })
