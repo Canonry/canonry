@@ -544,6 +544,12 @@
     @apply text-[11px] font-medium uppercase tracking-wide text-zinc-400;
   }
 
+  /* "avg" tag shown beside the headline in by-engine mode — the headline is the
+     blended rate across engines, not any single line on the chart. */
+  .visibility-trend-current-qualifier {
+    @apply rounded bg-zinc-800/80 px-1 py-px text-[10px] font-medium uppercase tracking-wide text-zinc-500;
+  }
+
   .visibility-trend-current-value {
     @apply text-2xl font-semibold tabular-nums tracking-tight text-zinc-50;
   }
@@ -562,6 +568,28 @@
 
   .visibility-trend-note {
     @apply mt-2 text-[11px] text-zinc-400;
+  }
+
+  /* Per-engine legend with live values, above the chart. Line-shaped swatches
+     (not dots) so each entry reads as the series it labels. */
+  .trend-legend {
+    @apply mb-2.5 flex flex-wrap items-center gap-x-4 gap-y-1.5;
+  }
+
+  .trend-legend-item {
+    @apply inline-flex items-center gap-1.5;
+  }
+
+  .trend-legend-swatch {
+    @apply h-[3px] w-3.5 shrink-0 rounded-full;
+  }
+
+  .trend-legend-name {
+    @apply text-[11px] font-medium text-zinc-300;
+  }
+
+  .trend-legend-value {
+    @apply text-[11px] font-semibold tabular-nums text-zinc-50;
   }
 
   /* Segmented control: an inset track with a raised selected chip. Used for the

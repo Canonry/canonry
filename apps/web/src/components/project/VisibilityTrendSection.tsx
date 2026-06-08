@@ -6,14 +6,15 @@ import {
   CHART_AXIS_STROKE,
   CHART_AXIS_TICK,
   CHART_GRID_STROKE,
+  CHART_NEUTRAL,
   CHART_SERIES_COLORS,
   CHART_TONE,
   CHART_TOOLTIP_STYLE,
   ComposedChart,
   formatChartDateLabel,
   formatChartDateTick,
-  Legend,
   Line,
+  providerSeriesColor,
   RechartsTooltip,
   ResponsiveContainer,
   XAxis,
@@ -26,6 +27,7 @@ import {
   buildTrendRows,
   CITED_KEY,
   formatQueryChangeCaption,
+  latestSeriesValue,
   MENTIONED_KEY,
   type MetricChoice,
   type TrendSeriesMode,
@@ -38,8 +40,8 @@ const WINDOW_OPTIONS: Array<{ value: MetricsWindow; label: string }> = [
   { value: 'all', label: 'All' },
 ]
 const MODE_OPTIONS: Array<{ value: TrendSeriesMode; label: string }> = [
-  { value: 'overall', label: 'Overall' },
-  { value: 'byProvider', label: 'By provider' },
+  { value: 'byProvider', label: 'By engine' },
+  { value: 'overall', label: 'All engines' },
 ]
 const METRIC_OPTIONS: Array<{ value: MetricChoice; label: string }> = [
   { value: 'mentioned', label: 'Mentioned' },
@@ -48,6 +50,19 @@ const METRIC_OPTIONS: Array<{ value: MetricChoice; label: string }> = [
 
 /** Dark ring drawn around the active (hovered) dot so it reads against the line. */
 const ACTIVE_DOT_RING = '#18181b'
+
+/** Human-friendly engine names for the legend and tooltip (data keys are lowercase). */
+const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
+  claude: 'Claude',
+  openai: 'OpenAI',
+  gemini: 'Gemini',
+  perplexity: 'Perplexity',
+  local: 'Local',
+}
+
+function providerDisplayName(name: string): string {
+  return PROVIDER_DISPLAY_NAMES[name] ?? name.charAt(0).toUpperCase() + name.slice(1)
+}
 
 function round1(n: number): number {
   return Math.round(n * 10) / 10
@@ -60,13 +75,13 @@ function isOverallSeries(key: string): boolean {
 function seriesLabel(key: string): string {
   if (key === CITED_KEY) return 'Cited'
   if (key === MENTIONED_KEY) return 'Mentioned'
-  return key
+  return providerDisplayName(key)
 }
 
 function seriesColor(key: string, index: number): string {
   if (key === CITED_KEY) return CHART_TONE.positive // emerald
-  if (key === MENTIONED_KEY) return CHART_SERIES_COLORS[1] // blue
-  return CHART_SERIES_COLORS[index % CHART_SERIES_COLORS.length]
+  if (key === MENTIONED_KEY) return CHART_SERIES_COLORS[1]! // blue
+  return providerSeriesColor(key, index)
 }
 
 /**
@@ -110,7 +125,10 @@ function Segmented<T extends string>({
 export function VisibilityTrendSection({ projectName }: { projectName: string }) {
   const [window, setWindow] = useState<MetricsWindow>('all')
   const [metric, setMetric] = useState<MetricChoice>('mentioned')
-  const [mode, setMode] = useState<TrendSeriesMode>('overall')
+  // Default to the per-engine breakdown: the blended line hides that engines
+  // disagree wildly (a brand cited heavily by one engine and ignored by
+  // another), which is the first thing an operator needs to see.
+  const [mode, setMode] = useState<TrendSeriesMode>('byProvider')
 
   const metricsQuery = useQuery({
     queryKey: ['analytics-metrics', projectName, window],
@@ -125,9 +143,14 @@ export function VisibilityTrendSection({ projectName }: { projectName: string })
   // Headline readout: the selected metric's latest bucket value plus its change
   // across the visible window. Quantifies "where it sits now, which way it
   // moved" without reusing the removed trend badges.
+  const byProviderMode = mode === 'byProvider'
   const metricField = metric === 'cited' ? 'citationRate' : 'mentionRate'
   const metricLabel = metric === 'cited' ? 'Cited' : 'Mentioned'
-  const metricColor = metric === 'cited' ? CHART_TONE.positive : CHART_SERIES_COLORS[1]
+  const metricColor = metric === 'cited' ? CHART_TONE.positive : CHART_SERIES_COLORS[1]!
+  // In by-engine mode the headline is the blended rate across every engine,
+  // which no single line on the chart matches — neutralize the swatch (so it
+  // doesn't read as one engine's color) and tag it "avg".
+  const headlineDotColor = byProviderMode ? CHART_NEUTRAL.textDim : metricColor
   const buckets = data?.buckets ?? []
   const latestPct = buckets.length > 0 ? round1(buckets[buckets.length - 1]![metricField] * 100) : null
   const firstPct = buckets.length > 0 ? round1(buckets[0]![metricField] * 100) : null
@@ -145,8 +168,9 @@ export function VisibilityTrendSection({ projectName }: { projectName: string })
         </div>
         {latestPct !== null && (
           <div className="visibility-trend-current">
-            <span className="visibility-trend-current-dot" style={{ backgroundColor: metricColor }} aria-hidden="true" />
+            <span className="visibility-trend-current-dot" style={{ backgroundColor: headlineDotColor }} aria-hidden="true" />
             <span className="visibility-trend-current-label">{metricLabel}</span>
+            {byProviderMode && <span className="visibility-trend-current-qualifier">avg</span>}
             <span className="visibility-trend-current-value">{latestPct}%</span>
             {deltaPts !== null && (
               <span
@@ -185,7 +209,7 @@ export function VisibilityTrendSection({ projectName }: { projectName: string })
     } else if (mode === 'byProvider' && series.length === 0) {
       body = (
         <p className="text-sm text-zinc-400">
-          No per-provider breakdown for this data yet. Switch to <span className="text-zinc-200">Overall</span> to see the trend.
+          No per-engine breakdown for this data yet. Switch to <span className="text-zinc-200">All engines</span> to see the trend.
         </p>
       )
     } else {
@@ -195,6 +219,27 @@ export function VisibilityTrendSection({ projectName }: { projectName: string })
       body = (
         <>
           <p className="sr-only">{srSummary}</p>
+          {/* Per-engine key with each line's most recent value, so the engines
+              and where they sit now are readable at a glance — replaces the
+              cramped bottom legend and gives the by-engine view its payoff. */}
+          {mode === 'byProvider' && series.length > 0 && (
+            <ul className="trend-legend" aria-label="Engines">
+              {series.map((key, i) => {
+                const value = latestSeriesValue(rows, key)
+                return (
+                  <li key={key} className="trend-legend-item">
+                    <span
+                      className="trend-legend-swatch"
+                      style={{ backgroundColor: seriesColor(key, i) }}
+                      aria-hidden="true"
+                    />
+                    <span className="trend-legend-name">{seriesLabel(key)}</span>
+                    {value !== null && <span className="trend-legend-value">{value}%</span>}
+                  </li>
+                )
+              })}
+            </ul>
+          )}
           <div className="visibility-trend-chart">
             <ResponsiveContainer width="100%" height="100%">
               <ComposedChart data={rows} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
@@ -222,12 +267,6 @@ export function VisibilityTrendSection({ projectName }: { projectName: string })
                   labelFormatter={formatChartDateLabel}
                   formatter={(value, name) => [value == null ? 'no data' : `${value}%`, seriesLabel(String(name))]}
                 />
-                {mode === 'byProvider' && (
-                  <Legend
-                    wrapperStyle={{ fontSize: 11, color: CHART_AXIS_TICK.fill }}
-                    formatter={(value: string) => seriesLabel(value)}
-                  />
-                )}
                 {series.map((key, i) => (
                   <Line
                     key={key}
@@ -235,7 +274,7 @@ export function VisibilityTrendSection({ projectName }: { projectName: string })
                     dataKey={key}
                     name={key}
                     stroke={seriesColor(key, i)}
-                    strokeWidth={isOverallSeries(key) ? 2.5 : 1.5}
+                    strokeWidth={isOverallSeries(key) ? 2.5 : 2}
                     // A solid marker on every run/bucket point so the readings are visible.
                     dot={{ r: 2.5, fill: seriesColor(key, i), strokeWidth: 0 }}
                     activeDot={{ r: 4, strokeWidth: 2, stroke: ACTIVE_DOT_RING }}
