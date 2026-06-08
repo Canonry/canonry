@@ -2208,7 +2208,7 @@ function ProjectPageContent({
               <div className="section-head section-head-inline">
                 <div>
                   <p className="eyebrow eyebrow-soft">Model breakdown</p>
-                  <h2>Visibility by model <InfoTooltip text="Per-model citation rate today. Same query set, different LLMs — gaps between providers point at content / source issues, not the metric. The trend over time is in the chart above (switch it to By provider)." /></h2>
+                  <h2>Visibility by model <InfoTooltip text="Per-model citation rate today. Same query set, different LLMs — gaps between providers point at content / source issues, not the metric. The trend over time is in the chart above (the By engine view)." /></h2>
                 </div>
               </div>
               <div className="evidence-table-wrap">

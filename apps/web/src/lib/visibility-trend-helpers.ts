@@ -74,6 +74,21 @@ export function buildTrendRows(
   return { rows, series, hasData, singleBucket }
 }
 
+/**
+ * The most recent plotted value for a series — the value at the right end of
+ * its line. A direct read of the rows the chart already draws (skips the
+ * trailing `null`s `connectNulls` bridges over), used to label the per-engine
+ * legend without recomputing any rate. Returns null when the series never
+ * appears.
+ */
+export function latestSeriesValue(rows: TrendRow[], key: string): number | null {
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const v = rows[i]![key]
+    if (typeof v === 'number' && Number.isFinite(v)) return v
+  }
+  return null
+}
+
 /** Map an API trend direction to a design-system tone. */
 export function trendToTone(direction: TrendDirection): MetricTone {
   switch (direction) {

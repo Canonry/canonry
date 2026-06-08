@@ -142,6 +142,30 @@ describe('google.auth.property-access', () => {
     expect(result.status).toBe('fail')
     expect(result.code).toBe('google.auth.principal-forbidden')
   })
+
+  it('returns property-unverified when the property is present but the account is an unverified user', async () => {
+    refreshAccessTokenMock.mockResolvedValue({ access_token: 'tok', expires_in: 3600 })
+    listSitesMock.mockResolvedValue([
+      { siteUrl: 'sc-domain:example.com', permissionLevel: 'siteUnverifiedUser' },
+    ])
+    const result = await check.run(ctx({}))
+    expect(result.status).toBe('fail')
+    expect(result.code).toBe('google.auth.property-unverified')
+    expect(result.details).toMatchObject({
+      selectedProperty: 'sc-domain:example.com',
+      permissionLevel: 'siteUnverifiedUser',
+    })
+  })
+
+  it('returns ok for a usable non-owner permission level (siteRestrictedUser)', async () => {
+    refreshAccessTokenMock.mockResolvedValue({ access_token: 'tok', expires_in: 3600 })
+    listSitesMock.mockResolvedValue([
+      { siteUrl: 'sc-domain:example.com', permissionLevel: 'siteRestrictedUser' },
+    ])
+    const result = await check.run(ctx({}))
+    expect(result.status).toBe('ok')
+    expect(result.code).toBe('google.auth.property-accessible')
+  })
 })
 
 describe('google.auth.redirect-uri', () => {

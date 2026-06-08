@@ -1,7 +1,7 @@
 import React from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, expect, onTestFinished, test, vi } from 'vitest'
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 
 afterEach(cleanup)
 
@@ -68,7 +68,7 @@ function renderSection() {
   )
 }
 
-test('renders header, control toggles, and trend badges from the DTO', async () => {
+test('defaults to the by-engine view with a per-engine legend, and toggles to all-engines', async () => {
   const restore = mockFetch((url) => {
     const path = url.split('?')[0]!
     if (path.endsWith('/projects/test-project/analytics/metrics')) {
@@ -78,29 +78,45 @@ test('renders header, control toggles, and trend badges from the DTO', async () 
   })
   onTestFinished(restore)
 
-  const { container } = renderSection()
+  renderSection()
 
   expect(screen.getByText('Citations & mentions over time')).toBeTruthy()
 
-  // Chart renders once the DTO has loaded — wait on it.
-  await waitFor(() => {
-    expect(container.querySelector('.visibility-trend-chart')).toBeTruthy()
-  })
+  // The legend only renders once the DTO has loaded (and only in by-engine
+  // mode) — wait on it rather than the chart skeleton, which shares the
+  // `.visibility-trend-chart` class.
+  const legend = await screen.findByRole('list', { name: 'Engines' })
 
   // Segmented controls are toggle buttons (aria-pressed). Metric is Cited /
   // Mentioned (no "Both"); Mentioned is the default.
   expect(screen.queryByRole('button', { name: 'Both' })).toBeNull()
   expect(screen.getByRole('button', { name: 'Cited' })).toBeTruthy()
   expect(screen.getByRole('button', { name: 'Mentioned' }).getAttribute('aria-pressed')).toBe('true')
-  expect(screen.getByRole('button', { name: 'Overall' })).toBeTruthy()
-  expect(screen.getByRole('button', { name: 'By provider' })).toBeTruthy()
+
+  // By engine is the default breakdown; All engines is the other mode.
+  const byEngine = screen.getByRole('button', { name: 'By engine' })
+  const allEngines = screen.getByRole('button', { name: 'All engines' })
+  expect(byEngine.getAttribute('aria-pressed')).toBe('true')
+  expect(allEngines.getAttribute('aria-pressed')).toBe('false')
   expect(screen.getByRole('button', { name: 'All' })).toBeTruthy()
 
-  // Switching to By provider presses it (no refetch).
-  const byProvider = screen.getByRole('button', { name: 'By provider' })
-  expect(byProvider.getAttribute('aria-pressed')).toBe('false')
-  act(() => { fireEvent.click(byProvider) })
-  expect(byProvider.getAttribute('aria-pressed')).toBe('true')
+  // The headline is the blended average across engines, tagged "avg".
+  expect(screen.getByText('avg')).toBeTruthy()
+
+  // The legend lists each engine with its latest value (a direct read of the
+  // rightmost plotted point — gemini 50% in both buckets, openai 25% then gone).
+  expect(within(legend).getByText('Gemini')).toBeTruthy()
+  expect(within(legend).getByText('OpenAI')).toBeTruthy()
+  expect(within(legend).getByText('50%')).toBeTruthy()
+  expect(within(legend).getByText('25%')).toBeTruthy()
+
+  // Switching to All engines presses it (no refetch) and drops the per-engine
+  // legend + "avg" tag — the headline now matches the single plotted line.
+  act(() => { fireEvent.click(allEngines) })
+  expect(allEngines.getAttribute('aria-pressed')).toBe('true')
+  expect(byEngine.getAttribute('aria-pressed')).toBe('false')
+  expect(screen.queryByRole('list', { name: 'Engines' })).toBeNull()
+  expect(screen.queryByText('avg')).toBeNull()
 })
 
 test('shows an empty state when there are no buckets yet', async () => {
