@@ -4,6 +4,7 @@ import {
   buildTrendRows,
   trendToTone,
   formatQueryChangeCaption,
+  latestSeriesValue,
   CITED_KEY,
   MENTIONED_KEY,
 } from '../src/lib/visibility-trend-helpers.js'
@@ -122,6 +123,38 @@ describe('buildTrendRows — data flags', () => {
     const res = buildTrendRows(dto([bucket('2026-04-01', { gemini: provider(0.5, 0.5) })]), 'cited', 'overall')
     expect(res.hasData).toBe(true)
     expect(res.singleBucket).toBe(true)
+  })
+})
+
+describe('latestSeriesValue', () => {
+  it('returns the most recent plotted value (right end of the line)', () => {
+    const d = dto([
+      bucket('2026-04-01', { gemini: provider(0.25, 0.1), openai: provider(0.5, 0.4) }),
+      bucket('2026-04-08', { gemini: provider(0.75, 0.5) }),
+    ])
+    const { rows } = buildTrendRows(d, 'cited', 'byProvider')
+    // gemini is in both buckets → its latest cited value is bucket 2 (75).
+    expect(latestSeriesValue(rows, 'gemini')).toBe(75)
+  })
+
+  it('skips trailing nulls so the value matches the visible line end', () => {
+    const d = dto([
+      bucket('2026-04-01', { openai: provider(0.5, 0.4) }),
+      bucket('2026-04-08', { gemini: provider(0.75, 0.5) }),
+    ])
+    const { rows } = buildTrendRows(d, 'cited', 'byProvider')
+    // openai only has data in bucket 1; bucket 2 is null. Latest = 50, not null.
+    expect(latestSeriesValue(rows, 'openai')).toBe(50)
+  })
+
+  it('returns null for a series that never appears', () => {
+    const d = dto([bucket('2026-04-01', { gemini: provider(0.5, 0.5) })])
+    const { rows } = buildTrendRows(d, 'cited', 'byProvider')
+    expect(latestSeriesValue(rows, 'claude')).toBeNull()
+  })
+
+  it('returns null for empty rows', () => {
+    expect(latestSeriesValue([], 'gemini')).toBeNull()
   })
 })
 
