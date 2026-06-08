@@ -356,7 +356,7 @@ describe('content routes', () => {
     })
   })
 
-  describe('GET /projects/:name/content/targets surfaceClass gate', () => {
+  describe('GET /projects/:name/content/targets winnabilityClass gate', () => {
     function classify(projectId: string, domain: string, competitorType: string) {
       db.insert(domainClassifications).values({
         id: crypto.randomUUID(),
@@ -375,7 +375,7 @@ describe('content routes', () => {
       const body = JSON.parse(res.payload)
       expect(body.targets.length).toBeGreaterThan(0)
       for (const t of body.targets) {
-        expect(t.surfaceClass).toBe('ownable')
+        expect(t.winnabilityClass).toBe('ownable')
         expect(t.winnability).toBeNull()
       }
     })
@@ -389,7 +389,7 @@ describe('content routes', () => {
       const res = await app.inject({ method: 'GET', url: '/projects/example/content/targets' })
       const body = JSON.parse(res.payload)
       const q1 = body.targets.find((t: { query: string }) => t.query === 'best crm for saas')
-      expect(q1.surfaceClass).toBe('ceded')
+      expect(q1.winnabilityClass).toBe('ceded')
       expect(q1.winnability).toBeCloseTo(0)
     })
 
@@ -400,13 +400,13 @@ describe('content routes', () => {
 
       const ownableRes = await app.inject({ method: 'GET', url: '/projects/example/content/targets?surface-class=ownable' })
       const ownable = JSON.parse(ownableRes.payload).targets
-      expect(ownable.every((t: { surfaceClass: string }) => t.surfaceClass === 'ownable')).toBe(true)
+      expect(ownable.every((t: { winnabilityClass: string }) => t.winnabilityClass === 'ownable')).toBe(true)
       expect(ownable.find((t: { query: string }) => t.query === 'best crm for saas')).toBeUndefined()
 
       const cededRes = await app.inject({ method: 'GET', url: '/projects/example/content/targets?surface-class=ceded' })
       const ceded = JSON.parse(cededRes.payload).targets
       expect(ceded.length).toBeGreaterThan(0)
-      expect(ceded.every((t: { surfaceClass: string }) => t.surfaceClass === 'ceded')).toBe(true)
+      expect(ceded.every((t: { winnabilityClass: string }) => t.winnabilityClass === 'ceded')).toBe(true)
     })
 
     it('?ownable=true is a convenience alias for surface-class=ownable', async () => {
@@ -415,7 +415,7 @@ describe('content routes', () => {
       classify(projectId, 'competitor-b.com', 'ota-aggregator')
       const res = await app.inject({ method: 'GET', url: '/projects/example/content/targets?ownable=true' })
       const targets = JSON.parse(res.payload).targets
-      expect(targets.every((t: { surfaceClass: string }) => t.surfaceClass === 'ownable')).toBe(true)
+      expect(targets.every((t: { winnabilityClass: string }) => t.winnabilityClass === 'ownable')).toBe(true)
     })
 
     it('orders ownable rows ahead of ceded rows by default', async () => {
@@ -423,9 +423,9 @@ describe('content routes', () => {
       classify(projectId, 'competitor-a.com', 'ota-aggregator')
       classify(projectId, 'competitor-b.com', 'ota-aggregator')
       const res = await app.inject({ method: 'GET', url: '/projects/example/content/targets' })
-      const targets = JSON.parse(res.payload).targets as Array<{ surfaceClass: string }>
-      const firstCeded = targets.findIndex((t) => t.surfaceClass === 'ceded')
-      const lastOwnable = targets.map((t) => t.surfaceClass).lastIndexOf('ownable')
+      const targets = JSON.parse(res.payload).targets as Array<{ winnabilityClass: string }>
+      const firstCeded = targets.findIndex((t) => t.winnabilityClass === 'ceded')
+      const lastOwnable = targets.map((t) => t.winnabilityClass).lastIndexOf('ownable')
       if (firstCeded !== -1 && lastOwnable !== -1) {
         expect(firstCeded).toBeGreaterThan(lastOwnable)
       }
@@ -1362,7 +1362,7 @@ describe('content brief routes', () => {
       model: 'claude-sonnet-4-6',
       brief: {
         targetQuery: input.recommendation.query,
-        surfaceClass: input.recommendation.surfaceClass,
+        winnabilityClass: input.recommendation.winnabilityClass,
         angle: 'Differentiated first-party angle',
         whyWinnable: 'Cited surface is rivals, not aggregators.',
         schemaHookup: 'FAQPage + Product',
@@ -1420,7 +1420,7 @@ describe('content brief routes', () => {
     const body = JSON.parse(res.payload)
     expect(body.targetRef).toBe(targetRef)
     expect(body.brief.angle).toBe('Differentiated first-party angle')
-    expect(body.brief.surfaceClass).toBe('ownable')
+    expect(body.brief.winnabilityClass).toBe('ownable')
     expect(body.brief.schemaHookup).toBe('FAQPage + Product')
     expect(body.costMillicents).toBe(88)
     expect(briefState.callCount).toBe(1)

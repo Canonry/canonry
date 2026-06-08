@@ -127,7 +127,7 @@ export function loadOrchestratorInput(
 
 /**
  * Load every cited-surface domain classification discovery has produced for the
- * project, keyed by normalized domain. Powers the surfaceClass winnability gate
+ * project, keyed by normalized domain. Powers the winnabilityClass winnability gate
  * without re-running discovery. Returns an empty map when discovery has never
  * run — the gate then fails open to `ownable` everywhere.
  */
@@ -488,7 +488,7 @@ function aggregateCandidate(opts: AggregateCandidateOpts): CandidateQuery {
   const ourGroundingTally = new Map<string, GroundingUrlEvidence>()
   // Full cited surface: every non-own cited domain → citation count, NOT
   // filtered to tracked competitors. Aggregators/editorial are usually not
-  // tracked competitors, so the surfaceClass gate must read this, not the
+  // tracked competitors, so the winnabilityClass gate must read this, not the
   // tracked-only `competitorGroundingTally`.
   const citedSurfaceTally = new Map<string, number>()
   let ourCitedInLatestRun = false

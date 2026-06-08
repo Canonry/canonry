@@ -11,8 +11,8 @@ import {
   notFound,
   providerError,
   recommendationExplainRequestSchema,
-  surfaceClassSchema,
-  SurfaceClasses,
+  winnabilityClassSchema,
+  WinnabilityClasses,
   validationError,
   type ContentBriefDto,
   type ContentGapsResponseDto,
@@ -25,7 +25,7 @@ import {
   type RecommendationBriefDto,
   type RecommendationExplainRequest,
   type RecommendationExplanationDto,
-  type SurfaceClass,
+  type WinnabilityClass,
 } from '@ainyc/canonry-contracts'
 import {
   contentTargetDismissals,
@@ -194,7 +194,7 @@ export async function contentRoutes(app: FastifyInstance, opts: ContentRoutesOpt
     const project = resolveProject(app.db, request.params.name)
     const includeInProgress = request.query['include-in-progress'] === 'true'
     const limit = parseLimitParam(request.query.limit)
-    const surfaceClassFilter = parseSurfaceClassFilter(request.query['surface-class'], request.query.ownable)
+    const winnabilityClassFilter = parseWinnabilityClassFilter(request.query['surface-class'], request.query.ownable)
 
     const input = loadOrchestratorInput(app.db, project)
     let rows = buildContentTargetRows(input)
@@ -207,13 +207,13 @@ export async function contentRoutes(app: FastifyInstance, opts: ContentRoutesOpt
     if (dismissed.size > 0) {
       rows = rows.filter((r) => !dismissed.has(r.targetRef))
     }
-    if (surfaceClassFilter) {
-      rows = rows.filter((r) => r.surfaceClass === surfaceClassFilter)
+    if (winnabilityClassFilter) {
+      rows = rows.filter((r) => r.winnabilityClass === winnabilityClassFilter)
     }
     // Surface ownable targets ahead of ceded ones. buildContentTargetRows
     // already returns rows in score-desc order; a STABLE sort keeps that order
     // within each class, so the net order is ownable-by-score then ceded-by-score.
-    rows = [...rows].sort((a, b) => surfaceClassRank(a.surfaceClass) - surfaceClassRank(b.surfaceClass))
+    rows = [...rows].sort((a, b) => winnabilityClassRank(a.winnabilityClass) - winnabilityClassRank(b.winnabilityClass))
     if (limit !== undefined) {
       rows = rows.slice(0, limit)
     }
@@ -537,7 +537,7 @@ export async function contentRoutes(app: FastifyInstance, opts: ContentRoutesOpt
     }
 
     // The winnability gate — never synthesize a brief for a ceded head term.
-    if (recommendation.surfaceClass === SurfaceClasses.ceded) {
+    if (recommendation.winnabilityClass === WinnabilityClasses.ceded) {
       throw validationError(
         `Cannot synthesize a brief for "${recommendation.query}": its cited surface is ceded (dominated by aggregators/editorial). This is not a query first-party content can realistically win.`,
       )
@@ -602,7 +602,7 @@ export async function contentRoutes(app: FastifyInstance, opts: ContentRoutesOpt
 
   // GET /projects/:name/content/domain-classifications — the per-domain
   // cited-surface classifications discovery has produced for the project, the
-  // read surface behind the surfaceClass winnability gate. Powers
+  // read surface behind the winnabilityClass winnability gate. Powers
   // `canonry content map`.
   app.get<{
     Params: { name: string }
@@ -663,23 +663,23 @@ function parseLimitParam(raw: string | undefined): number | undefined {
 }
 
 /**
- * Resolve the optional surfaceClass filter from the `surface-class` param and
+ * Resolve the optional winnabilityClass filter from the `surface-class` param and
  * the `ownable` convenience flag. The explicit `surface-class` wins; `ownable`
  * is shorthand for `surface-class=ownable`. Returns `undefined` for no filter.
  */
-function parseSurfaceClassFilter(raw: string | undefined, ownable: string | undefined): SurfaceClass | undefined {
+function parseWinnabilityClassFilter(raw: string | undefined, ownable: string | undefined): WinnabilityClass | undefined {
   if (raw !== undefined) {
-    const parsed = surfaceClassSchema.safeParse(raw)
+    const parsed = winnabilityClassSchema.safeParse(raw)
     if (!parsed.success) {
       throw validationError('"surface-class" must be "ownable" or "ceded"')
     }
     return parsed.data
   }
-  if (ownable === 'true') return SurfaceClasses.ownable
+  if (ownable === 'true') return WinnabilityClasses.ownable
   return undefined
 }
 
 /** ownable sorts before ceded. */
-function surfaceClassRank(surfaceClass: SurfaceClass): number {
-  return surfaceClass === SurfaceClasses.ownable ? 0 : 1
+function winnabilityClassRank(winnabilityClass: WinnabilityClass): number {
+  return winnabilityClass === WinnabilityClasses.ownable ? 0 : 1
 }

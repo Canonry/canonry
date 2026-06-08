@@ -4,7 +4,7 @@ import {
   contentActionLabel,
   contentBriefDtoSchema,
   providerError,
-  surfaceClassLabel,
+  winnabilityClassLabel,
   validationError,
   type ContentBriefDto,
   type ContentTargetRowDto,
@@ -239,7 +239,7 @@ Do not invent facts beyond the supplied context. Be specific and dense.`
 
 /**
  * Render the brief context. Reuses the recommendation context block and appends
- * the surfaceClass + winnability signal so the model can ground "why winnable"
+ * the winnabilityClass + winnability signal so the model can ground "why winnable"
  * in the deterministic gate. Exported for unit tests.
  */
 export function buildBriefPrompt(input: {
@@ -252,7 +252,7 @@ export function buildBriefPrompt(input: {
   const winnability = r.winnability === null ? 'unknown (no classification coverage)' : r.winnability.toFixed(2)
   return [
     base,
-    `Surface class: ${surfaceClassLabel(r.surfaceClass).toLowerCase()} (the cited surface is ${r.surfaceClass === 'ceded' ? 'dominated by aggregators/editorial' : 'controllable'})`,
+    `Surface class: ${winnabilityClassLabel(r.winnabilityClass).toLowerCase()} (the cited surface is ${r.winnabilityClass === 'ceded' ? 'dominated by aggregators/editorial' : 'controllable'})`,
     `Winnability: ${winnability}`,
   ].join('\n')
 }
@@ -260,7 +260,7 @@ export function buildBriefPrompt(input: {
 /**
  * Strip accidental markdown fences and parse a model reply into the four
  * free-form brief fields. The deterministic fields (`targetQuery`,
- * `surfaceClass`) are injected by the caller from the recommendation — the
+ * `winnabilityClass`) are injected by the caller from the recommendation — the
  * model is never trusted to echo them. Returns a validated `ContentBriefDto`
  * or `null` if the reply is not usable.
  */
@@ -281,7 +281,7 @@ function parseBrief(text: string, recommendation: ContentTargetRowDto): ContentB
   const candidate = {
     // Deterministic — injected from the recommendation, not the model.
     targetQuery: recommendation.query,
-    surfaceClass: recommendation.surfaceClass,
+    winnabilityClass: recommendation.winnabilityClass,
     // Creative — taken from the model reply.
     angle: p.angle,
     whyWinnable: p.whyWinnable,

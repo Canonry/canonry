@@ -1569,7 +1569,7 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
   },
   {
     // Durable per-domain classification of cited surfaces, upserted on each
-    // discovery completion. Powers the content-targets surfaceClass winnability
+    // discovery completion. Powers the content-targets winnabilityClass winnability
     // gate without re-running a discovery probe. Keyed (project_id, domain).
     version: 73,
     name: 'domain-classifications',

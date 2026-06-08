@@ -355,7 +355,7 @@ function richReport(): ProjectReportDto {
         demandSource: 'competitor-evidence',
         actionConfidence: 'high',
         existingAction: null,
-        surfaceClass: 'ownable',
+        winnabilityClass: 'ownable',
         winnability: 0.9,
       },
       {
@@ -376,7 +376,7 @@ function richReport(): ProjectReportDto {
         demandSource: 'gsc',
         actionConfidence: 'medium',
         existingAction: null,
-        surfaceClass: 'ceded',
+        winnabilityClass: 'ceded',
         winnability: 0.1,
       },
     ],
@@ -524,7 +524,7 @@ describe('renderReportHtml', () => {
         demandSource: 'competitor-evidence',
         actionConfidence: 'medium',
         existingAction: null,
-        surfaceClass: 'ownable',
+        winnabilityClass: 'ownable',
         winnability: null,
       },
     ]
@@ -583,7 +583,7 @@ describe('renderReportHtml', () => {
     expect(block).toContain('driver-list')
   })
 
-  test('content opportunities table surfaces the surfaceClass winnability gate', () => {
+  test('content opportunities table surfaces the winnabilityClass winnability gate', () => {
     const html = renderReportHtml(richReport(), { audience: 'agency' })
     const block = html.split('id="content-opportunities"')[1]?.split('</section>')[0] ?? ''
     expect(block).toContain('Winnability')
@@ -857,7 +857,7 @@ describe('renderReportHtml', () => {
         demandSource: 'gsc',
         actionConfidence: 'medium',
         existingAction: null,
-        surfaceClass: 'ownable',
+        winnabilityClass: 'ownable',
         winnability: 1,
       },
       {
@@ -872,7 +872,7 @@ describe('renderReportHtml', () => {
         demandSource: 'gsc',
         actionConfidence: 'low',
         existingAction: null,
-        surfaceClass: 'ownable',
+        winnabilityClass: 'ownable',
         winnability: 1,
       },
     ]

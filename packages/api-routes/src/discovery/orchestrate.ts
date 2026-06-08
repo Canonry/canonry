@@ -339,7 +339,7 @@ export async function executeDiscovery(opts: ExecuteDiscoveryOptions): Promise<E
     .run()
 
   // Mirror the classified competitor map into the durable, per-domain
-  // `domain_classifications` table so the content surfaceClass gate can read a
+  // `domain_classifications` table so the content winnabilityClass gate can read a
   // domain's class without re-running discovery. Upsert keyed (projectId,
   // domain); last write wins. Normalized with the same helper the content data
   // layer uses for cited grounding domains so write-key == read-key.

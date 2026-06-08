@@ -52,7 +52,7 @@ function makeRecommendation(overrides: Partial<ContentTargetRowDto> = {}): Conte
     demandSource: 'both',
     actionConfidence: 'high',
     existingAction: null,
-    surfaceClass: 'ownable',
+    winnabilityClass: 'ownable',
     winnability: 0.8,
     ...overrides,
   }
@@ -399,11 +399,11 @@ describe('createRecommendationExplainer', () => {
 })
 
 describe('buildBriefPrompt', () => {
-  it('includes the recommendation context plus the surfaceClass + winnability signal', () => {
+  it('includes the recommendation context plus the winnabilityClass + winnability signal', () => {
     const prompt = buildBriefPrompt({
       projectName: 'acme',
       canonicalDomain: 'acme.com',
-      recommendation: makeRecommendation({ surfaceClass: 'ownable', winnability: 0.8 }),
+      recommendation: makeRecommendation({ winnabilityClass: 'ownable', winnability: 0.8 }),
     })
     expect(prompt).toContain('Project: acme (acme.com)')
     expect(prompt).toContain('best crm for saas')
@@ -433,27 +433,27 @@ describe('createRecommendationBriefSynthesizer', () => {
   }
   const validBriefJson = JSON.stringify({
     targetQuery: 'ignored — overridden from recommendation',
-    surfaceClass: 'ceded', // ignored — overridden from recommendation
+    winnabilityClass: 'ceded', // ignored — overridden from recommendation
     angle: 'Differentiated first-party CRM comparison with real pricing data',
     whyWinnable: 'Cited surface is rival vendors, not aggregators, so first-party content can win.',
     schemaHookup: 'Add FAQPage + Product schema to the comparison page.',
     controllableSurfaceRationale: 'Direct competitors are cited — the surface is controllable.',
   })
 
-  it('parses a valid JSON brief and overrides targetQuery + surfaceClass deterministically', async () => {
+  it('parses a valid JSON brief and overrides targetQuery + winnabilityClass deterministically', async () => {
     const synth = createRecommendationBriefSynthesizer({ config: { providers: { claude: { apiKey: 'sk' } } } })
     mockState.completeImpl = async () => fakeAssistantMessage(validBriefJson)
 
     const result = await synth({
       projectId: 'p1', projectName: 'acme', canonicalDomain: 'acme.com',
-      recommendation: makeRecommendation({ query: 'best crm for saas', surfaceClass: 'ownable' }),
+      recommendation: makeRecommendation({ query: 'best crm for saas', winnabilityClass: 'ownable' }),
     })
 
     expect(result.promptVersion).toBe(RECOMMENDATION_BRIEF_PROMPT_VERSION)
     expect(result.provider).toBe('claude')
     // Deterministic fields come from the recommendation, NOT the model output.
     expect(result.brief.targetQuery).toBe('best crm for saas')
-    expect(result.brief.surfaceClass).toBe('ownable')
+    expect(result.brief.winnabilityClass).toBe('ownable')
     expect(result.brief.angle).toContain('Differentiated')
     expect(result.brief.schemaHookup).toContain('FAQPage')
     expect(result.costMillicents).toBe(420)

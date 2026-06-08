@@ -654,7 +654,7 @@ function ClientEvidenceSection({ report }: { report: ProjectReportDto }) {
                     <p className="font-medium text-zinc-100">{o.query}</p>
                     <p className="mt-0.5 flex items-center gap-2 text-xs text-zinc-400">
                       {contentActionLabel(o.action)}
-                      {o.surfaceClass === 'ceded' && <ToneBadge tone="caution">Ceded surface</ToneBadge>}
+                      {o.winnabilityClass === 'ceded' && <ToneBadge tone="caution">Ceded surface</ToneBadge>}
                     </p>
                   </li>
                 ))}

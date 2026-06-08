@@ -363,7 +363,7 @@ describe('executeDiscovery', () => {
     expect(new Set(probeRows.map(r => r.bucket))).toEqual(new Set(['cited', 'aspirational', 'wasted-surface']))
 
     // Each recurring cited domain is also upserted into the durable
-    // domain_classifications table so the content surfaceClass gate can read it
+    // domain_classifications table so the content winnabilityClass gate can read it
     // without re-running discovery. Own canonical domains are excluded.
     const classRows = db.select().from(domainClassifications).all()
     expect(

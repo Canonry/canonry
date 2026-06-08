@@ -1,12 +1,12 @@
 import { createApiClient } from '../client.js'
 import { emitJsonl } from '../cli-output.js'
 import { isMachineFormat, CliError } from '../cli-error.js'
-import type { RecommendationBriefDto, SurfaceClass } from '@ainyc/canonry-contracts'
+import type { RecommendationBriefDto, WinnabilityClass } from '@ainyc/canonry-contracts'
 
 interface TargetsOpts {
   limit?: number
   includeInProgress?: boolean
-  surfaceClass?: SurfaceClass
+  winnabilityClass?: WinnabilityClass
   ownable?: boolean
   format?: string
 }
@@ -16,7 +16,7 @@ export async function listContentTargets(project: string, opts: TargetsOpts): Pr
   const response = await client.getContentTargets(project, {
     limit: opts.limit,
     includeInProgress: opts.includeInProgress,
-    surfaceClass: opts.surfaceClass,
+    winnabilityClass: opts.winnabilityClass,
     ownable: opts.ownable,
   })
 
@@ -53,7 +53,7 @@ export async function listContentTargets(project: string, opts: TargetsOpts): Pr
     const action = target.action.toUpperCase().padEnd(11)
     const score = target.score.toFixed(1).padStart(6)
     const conf = target.actionConfidence.padEnd(6)
-    const surface = target.surfaceClass === 'ceded' ? 'CEDED  ' : 'ownable'
+    const surface = target.winnabilityClass === 'ceded' ? 'CEDED  ' : 'ownable'
     console.log(`${action} ${score}  conf=${conf}  [${surface}]  ${target.query}`)
     if (target.ourBestPage) {
       const posLabel =
@@ -165,7 +165,7 @@ export async function generateContentBrief(project: string, targetRef: string, o
 
   const b = response.brief
   console.log(`Brief for: ${b.targetQuery}`)
-  console.log(`Surface:   ${b.surfaceClass}`)
+  console.log(`Surface:   ${b.winnabilityClass}`)
   console.log(`Provider:  ${response.provider} / ${response.model}`)
   console.log('')
   console.log(`Angle:               ${b.angle}`)

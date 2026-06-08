@@ -8,7 +8,7 @@ import {
 import type { CliCommandSpec } from '../cli-dispatch.js'
 import { requireProject, requirePositional, parseIntegerOption } from '../cli-command-helpers.js'
 import { usageError } from '../cli-error.js'
-import { surfaceClassSchema } from '@ainyc/canonry-contracts'
+import { winnabilityClassSchema } from '@ainyc/canonry-contracts'
 
 export const CONTENT_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
@@ -31,19 +31,19 @@ export const CONTENT_CLI_COMMANDS: readonly CliCommandSpec[] = [
         message: '--limit must be a non-negative integer',
       })
       const rawSurfaceClass = input.values['surface-class']
-      let surfaceClass: 'ownable' | 'ceded' | undefined
+      let winnabilityClass: 'ownable' | 'ceded' | undefined
       if (typeof rawSurfaceClass === 'string') {
-        const parsed = surfaceClassSchema.safeParse(rawSurfaceClass)
+        const parsed = winnabilityClassSchema.safeParse(rawSurfaceClass)
         if (!parsed.success) {
           throw usageError('Error: --surface-class must be "ownable" or "ceded"', { message: usage })
         }
-        surfaceClass = parsed.data
+        winnabilityClass = parsed.data
       }
       await listContentTargets(project, {
         limit,
         includeInProgress: input.values['include-in-progress'] === true,
         ownable: input.values.ownable === true,
-        surfaceClass,
+        winnabilityClass,
         format: input.format,
       })
     },

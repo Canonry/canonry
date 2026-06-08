@@ -437,7 +437,7 @@ export type ContentTargetsResponseDto = {
             state: 'proposed' | 'briefed' | 'payload-generated' | 'draft-created' | 'published' | 'validated' | 'dismissed';
             lastUpdated: string;
         } | null;
-        surfaceClass: 'ownable' | 'ceded';
+        winnabilityClass: 'ownable' | 'ceded';
         winnability: number | null;
     }>;
     contextMetrics: {
@@ -479,7 +479,7 @@ export type RecommendationBriefDto = {
     model: string;
     brief: {
         targetQuery: string;
-        surfaceClass: 'ownable' | 'ceded';
+        winnabilityClass: 'ownable' | 'ceded';
         angle: string;
         whyWinnable: string;
         schemaHookup: string;
@@ -1562,7 +1562,7 @@ export type ProjectReportDto = {
             state: 'proposed' | 'briefed' | 'payload-generated' | 'draft-created' | 'published' | 'validated' | 'dismissed';
             lastUpdated: string;
         } | null;
-        surfaceClass: 'ownable' | 'ceded';
+        winnabilityClass: 'ownable' | 'ceded';
         winnability: number | null;
     }>;
     contentGaps: Array<{

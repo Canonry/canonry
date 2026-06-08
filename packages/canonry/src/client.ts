@@ -75,7 +75,7 @@ import type {
   ContentGapsResponseDto,
   DomainClassificationsResponseDto,
   RecommendationBriefDto,
-  SurfaceClass,
+  WinnabilityClass,
   CompetitorDto,
   KeywordDto,
   QueryDto,
@@ -2058,7 +2058,7 @@ export class ApiClient {
 
   async getContentTargets(
     project: string,
-    opts?: { limit?: number; includeInProgress?: boolean; surfaceClass?: SurfaceClass; ownable?: boolean },
+    opts?: { limit?: number; includeInProgress?: boolean; winnabilityClass?: WinnabilityClass; ownable?: boolean },
   ): Promise<ContentTargetsResponseDto> {
     return this.invoke<ContentTargetsResponseDto>(() =>
       getApiV1ProjectsByNameContentTargets({
@@ -2067,7 +2067,7 @@ export class ApiClient {
         query: {
           limit: opts?.limit,
           'include-in-progress': opts?.includeInProgress ? 'true' : undefined,
-          'surface-class': opts?.surfaceClass,
+          'surface-class': opts?.winnabilityClass,
           ownable: opts?.ownable ? 'true' : undefined,
         } as never,
       }),

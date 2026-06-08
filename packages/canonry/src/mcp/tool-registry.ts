@@ -259,8 +259,8 @@ const contentTargetsInputSchema = z.object({
   project: projectNameSchema,
   limit: z.number().int().positive().max(500).optional().describe('Max rows. Defaults to all. Use a small number (3-10) when summarizing for the user.'),
   includeInProgress: z.boolean().optional().describe('Include rows that already have an in-flight tracked action. Default false.'),
-  surfaceClass: z.enum(['ownable', 'ceded']).optional().describe('Filter by winnability: "ownable" (worth a brief) or "ceded" (aggregator/editorial head term to skip).'),
-  ownable: z.boolean().optional().describe('Convenience: when true, return only ownable targets (same as surfaceClass="ownable").'),
+  winnabilityClass: z.enum(['ownable', 'ceded']).optional().describe('Filter by winnability: "ownable" (worth a brief) or "ceded" (aggregator/editorial head term to skip).'),
+  ownable: z.boolean().optional().describe('Convenience: when true, return only ownable targets (same as winnabilityClass="ownable").'),
 })
 
 const contentBriefInputSchema = z.object({
@@ -679,7 +679,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_content_targets',
     title: 'Get content targets',
-    description: 'Ranked, action-typed content opportunities. Each row is `{query, action ∈ create|expand|refresh|add-schema, ourBestPage?, winningCompetitor?, score, scoreBreakdown, drivers[], demandSource, actionConfidence, surfaceClass, winnability?}`. `surfaceClass` is the winnability gate: "ownable" (worth a brief) vs "ceded" (aggregator/editorial head term to skip); ownable rows sort first. Filter with `surfaceClass`/`ownable`. Use this to recommend which post the user should write or refresh next.',
+    description: 'Ranked, action-typed content opportunities. Each row is `{query, action ∈ create|expand|refresh|add-schema, ourBestPage?, winningCompetitor?, score, scoreBreakdown, drivers[], demandSource, actionConfidence, winnabilityClass, winnability?}`. `winnabilityClass` is the winnability gate: "ownable" (worth a brief) vs "ceded" (aggregator/editorial head term to skip); ownable rows sort first. Filter with `winnabilityClass`/`ownable`. Use this to recommend which post the user should write or refresh next.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: contentTargetsInputSchema,
@@ -688,14 +688,14 @@ export const canonryMcpTools = [
     handler: (client, input) => client.getContentTargets(input.project, {
       limit: input.limit,
       includeInProgress: input.includeInProgress,
-      surfaceClass: input.surfaceClass,
+      winnabilityClass: input.winnabilityClass,
       ownable: input.ownable,
     }),
   }),
   defineTool({
     name: 'canonry_content_brief',
     title: 'Synthesize content brief',
-    description: 'Synthesize (or fetch cached) a STRUCTURED content brief for an ownable target: `{targetQuery, surfaceClass, angle, whyWinnable, schemaHookup, controllableSurfaceRationale}`. Gated to ownable targets — a ceded head term is rejected. Costs one analyze-tier LLM call on a cache miss; repeat calls are free. Pass a targetRef from canonry_content_targets.',
+    description: 'Synthesize (or fetch cached) a STRUCTURED content brief for an ownable target: `{targetQuery, winnabilityClass, angle, whyWinnable, schemaHookup, controllableSurfaceRationale}`. Gated to ownable targets — a ceded head term is rejected. Costs one analyze-tier LLM call on a cache miss; repeat calls are free. Pass a targetRef from canonry_content_targets.',
     access: 'write',
     tier: 'monitoring',
     inputSchema: contentBriefInputSchema,
@@ -710,7 +710,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_content_map',
     title: 'Get domain classifications (winnability map)',
-    description: 'The per-domain cited-surface classifications behind the surfaceClass gate: `{domain, competitorType ∈ direct-competitor|ota-aggregator|editorial-media|other|unknown, hits, updatedAt}`, ranked by recurrence. Aggregator/editorial domains are the "ceded" surfaces. Running discovery improves coverage.',
+    description: 'The per-domain cited-surface classifications behind the winnabilityClass gate: `{domain, competitorType ∈ direct-competitor|ota-aggregator|editorial-media|other|unknown, hits, updatedAt}`, ranked by recurrence. Aggregator/editorial domains are the "ceded" surfaces. Running discovery improves coverage.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: contentMapInputSchema,

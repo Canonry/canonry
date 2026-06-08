@@ -7,7 +7,7 @@ import {
   type CandidateQuery,
   type OrchestratorInput,
 } from '../src/content-targets.js'
-import { DiscoveryCompetitorTypes, SurfaceClasses } from '@ainyc/canonry-contracts'
+import { DiscoveryCompetitorTypes, WinnabilityClasses } from '@ainyc/canonry-contracts'
 import type { DiscoveryCompetitorType } from '@ainyc/canonry-contracts'
 
 function emptyInput(overrides: Partial<OrchestratorInput> = {}): OrchestratorInput {
@@ -65,9 +65,9 @@ function ownGrounding(uri: string, providers: string[] = ['gemini']): {
   }
 }
 
-// ─── buildContentTargetRows: surfaceClass gate ──────────────────────────────
+// ─── buildContentTargetRows: winnabilityClass gate ──────────────────────────────
 
-describe('buildContentTargetRows surfaceClass', () => {
+describe('buildContentTargetRows winnabilityClass', () => {
   function domainClasses(entries: [string, DiscoveryCompetitorType][]) {
     return new Map<string, DiscoveryCompetitorType>(entries)
   }
@@ -92,7 +92,7 @@ describe('buildContentTargetRows surfaceClass', () => {
       }),
     )
     expect(rows).toHaveLength(1)
-    expect(rows[0].surfaceClass).toBe(SurfaceClasses.ceded)
+    expect(rows[0].winnabilityClass).toBe(WinnabilityClasses.ceded)
     expect(rows[0].winnability).toBeCloseTo(0)
   })
 
@@ -105,7 +105,7 @@ describe('buildContentTargetRows surfaceClass', () => {
         domainClasses: domainClasses([['rival.com', DiscoveryCompetitorTypes['direct-competitor']]]),
       }),
     )
-    expect(rows[0].surfaceClass).toBe(SurfaceClasses.ownable)
+    expect(rows[0].winnabilityClass).toBe(WinnabilityClasses.ownable)
     expect(rows[0].winnability).toBeCloseTo(1)
   })
 
@@ -118,7 +118,7 @@ describe('buildContentTargetRows surfaceClass', () => {
         domainClasses: new Map(), // discovery never ran
       }),
     )
-    expect(rows[0].surfaceClass).toBe(SurfaceClasses.ownable)
+    expect(rows[0].winnabilityClass).toBe(WinnabilityClasses.ownable)
     expect(rows[0].winnability).toBeNull()
   })
 })

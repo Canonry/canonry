@@ -59,7 +59,7 @@ export const contentActionStateSchema = z.enum([
 export type ContentActionState = z.infer<typeof contentActionStateSchema>
 export const ContentActionStates = contentActionStateSchema.enum
 
-// ─── surfaceClass (winnability gate) ─────────────────────────────────────────
+// ─── winnabilityClass (winnability gate) ─────────────────────────────────────────
 //
 // Deterministic judgment of whether a query's cited surface is worth pursuing
 // with first-party content. Derived (no LLM) by classifying the domains
@@ -73,13 +73,13 @@ export const ContentActionStates = contentActionStateSchema.enum
 //
 // Fail open: when in doubt (no classification coverage), it is `ownable`.
 
-export const surfaceClassSchema = z.enum(['ownable', 'ceded'])
-export type SurfaceClass = z.infer<typeof surfaceClassSchema>
-export const SurfaceClasses = surfaceClassSchema.enum
+export const winnabilityClassSchema = z.enum(['ownable', 'ceded'])
+export type WinnabilityClass = z.infer<typeof winnabilityClassSchema>
+export const WinnabilityClasses = winnabilityClassSchema.enum
 
-/** Title-cased label for `SurfaceClass` — never render the raw enum to UI. */
-export function surfaceClassLabel(surfaceClass: SurfaceClass): string {
-  switch (surfaceClass) {
+/** Title-cased label for `WinnabilityClass` — never render the raw enum to UI. */
+export function winnabilityClassLabel(winnabilityClass: WinnabilityClass): string {
+  switch (winnabilityClass) {
     case 'ownable': return 'Ownable'
     case 'ceded': return 'Ceded'
   }
@@ -101,7 +101,7 @@ export interface CitedSurfaceDomain {
 }
 
 /**
- * Pure derivation of a content target's `surfaceClass` from the domains cited
+ * Pure derivation of a content target's `winnabilityClass` from the domains cited
  * for its query and a `(domain → classification)` lookup produced by discovery.
  *
  * Weighting is by citation count, not domain count: one aggregator cited 40×
@@ -118,14 +118,14 @@ export interface CitedSurfaceDomain {
  * Domains must be pre-normalized; this helper does no normalization so it stays
  * a pure, dependency-free math function.
  */
-export function deriveSurfaceClass(
+export function deriveWinnabilityClass(
   citedSurfaceDomains: readonly CitedSurfaceDomain[],
   domainClasses: ReadonlyMap<string, DiscoveryCompetitorType>,
   threshold: number = CEDED_SURFACE_THRESHOLD,
-): { surfaceClass: SurfaceClass; winnability: number | null } {
+): { winnabilityClass: WinnabilityClass; winnability: number | null } {
   const hasCoverage = citedSurfaceDomains.some((d) => domainClasses.has(d.domain))
   if (citedSurfaceDomains.length === 0 || domainClasses.size === 0 || !hasCoverage) {
-    return { surfaceClass: SurfaceClasses.ownable, winnability: null }
+    return { winnabilityClass: WinnabilityClasses.ownable, winnability: null }
   }
 
   let total = 0
@@ -139,13 +139,13 @@ export function deriveSurfaceClass(
   }
 
   if (total === 0) {
-    return { surfaceClass: SurfaceClasses.ownable, winnability: null }
+    return { winnabilityClass: WinnabilityClasses.ownable, winnability: null }
   }
 
   const cededShare = ceded / total
   const winnability = Math.min(1, Math.max(0, 1 - cededShare))
   return {
-    surfaceClass: cededShare >= threshold ? SurfaceClasses.ceded : SurfaceClasses.ownable,
+    winnabilityClass: cededShare >= threshold ? WinnabilityClasses.ceded : WinnabilityClasses.ownable,
     winnability,
   }
 }
@@ -200,7 +200,7 @@ export const contentTargetRowDtoSchema = z.object({
    * aggregators/editorial and not worth chasing; `ownable` ⇒ worth a brief.
    * Derived (no LLM) from the discovery domain classifier.
    */
-  surfaceClass: surfaceClassSchema,
+  winnabilityClass: winnabilityClassSchema,
   /**
    * Citation-weighted complement of the ceded share (`1 - cededShare`), in
    * `[0, 1]`. `null` when the gate failed open (no classification coverage for
@@ -314,7 +314,7 @@ export const contentBriefDtoSchema = z.object({
   /** The query the brief is for (echoed from the recommendation). */
   targetQuery: z.string(),
   /** Always `ownable` in practice — the gate rejects `ceded` before synthesis. */
-  surfaceClass: surfaceClassSchema,
+  winnabilityClass: winnabilityClassSchema,
   /** The differentiated content angle to take. */
   angle: z.string(),
   /** Why this query is winnable, citing the cited-surface signal. */

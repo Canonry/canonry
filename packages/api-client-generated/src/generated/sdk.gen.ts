@@ -2607,7 +2607,7 @@ export const getApiV1ProjectsByNameCitationsVisibility = <ThrowOnError extends b
 /**
  * Ranked, action-typed content opportunities
  *
- * Returns the canonical opportunity list. Each row is `{query, action, ourBestPage?, winningCompetitor?, score, scoreBreakdown, drivers[], demandSource, actionConfidence, existingAction?, surfaceClass, winnability?}`. `surfaceClass` is the deterministic winnability gate (`ownable` worth a brief, `ceded` an aggregator/editorial head term to skip). Ownable rows sort first. Hides rows with in-progress actions by default; pass `?include-in-progress=true` to include them annotated.
+ * Returns the canonical opportunity list. Each row is `{query, action, ourBestPage?, winningCompetitor?, score, scoreBreakdown, drivers[], demandSource, actionConfidence, existingAction?, winnabilityClass, winnability?}`. `winnabilityClass` is the deterministic winnability gate (`ownable` worth a brief, `ceded` an aggregator/editorial head term to skip). Ownable rows sort first. Hides rows with in-progress actions by default; pass `?include-in-progress=true` to include them annotated.
  */
 export const getApiV1ProjectsByNameContentTargets = <ThrowOnError extends boolean = false>(options: Options<GetApiV1ProjectsByNameContentTargetsData, ThrowOnError>) => {
     return (options.client ?? client).get<GetApiV1ProjectsByNameContentTargetsResponses, GetApiV1ProjectsByNameContentTargetsErrors, ThrowOnError>({
@@ -2723,7 +2723,7 @@ export const postApiV1ProjectsByNameContentRecommendationsByTargetRefAnalyze = <
 /**
  * Get cached structured content brief for a recommendation
  *
- * Returns the cached structured brief (`{targetQuery, surfaceClass, angle, whyWinnable, schemaHookup, controllableSurfaceRationale}`) for one content recommendation at the current prompt version, or 404 if none exists. Cache-only read from the dedicated recommendation_briefs table — never collides with the prose explanation. Use `POST /brief` to synthesize one.
+ * Returns the cached structured brief (`{targetQuery, winnabilityClass, angle, whyWinnable, schemaHookup, controllableSurfaceRationale}`) for one content recommendation at the current prompt version, or 404 if none exists. Cache-only read from the dedicated recommendation_briefs table — never collides with the prose explanation. Use `POST /brief` to synthesize one.
  */
 export const getApiV1ProjectsByNameContentRecommendationsByTargetRefBrief = <ThrowOnError extends boolean = false>(options: Options<GetApiV1ProjectsByNameContentRecommendationsByTargetRefBriefData, ThrowOnError>) => {
     return (options.client ?? client).get<GetApiV1ProjectsByNameContentRecommendationsByTargetRefBriefResponses, GetApiV1ProjectsByNameContentRecommendationsByTargetRefBriefErrors, ThrowOnError>({
@@ -2763,7 +2763,7 @@ export const postApiV1ProjectsByNameContentRecommendationsByTargetRefBrief = <Th
 /**
  * List per-domain cited-surface classifications
  *
- * Returns every cited-surface domain classification discovery has produced for the project (`{domain, competitorType, hits, updatedAt}`), ranked by recurrence. This is the read surface behind the surfaceClass winnability gate; running discovery improves coverage.
+ * Returns every cited-surface domain classification discovery has produced for the project (`{domain, competitorType, hits, updatedAt}`), ranked by recurrence. This is the read surface behind the winnabilityClass winnability gate; running discovery improves coverage.
  */
 export const getApiV1ProjectsByNameContentDomainClassifications = <ThrowOnError extends boolean = false>(options: Options<GetApiV1ProjectsByNameContentDomainClassificationsData, ThrowOnError>) => {
     return (options.client ?? client).get<GetApiV1ProjectsByNameContentDomainClassificationsResponses, GetApiV1ProjectsByNameContentDomainClassificationsErrors, ThrowOnError>({

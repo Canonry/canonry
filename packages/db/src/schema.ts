@@ -798,7 +798,7 @@ export const discoveryProbes = sqliteTable('discovery_probes', {
  * Discovery already types every recurring cited domain (`direct-competitor` /
  * `ota-aggregator` / `editorial-media` / `other` / `unknown`) into a session's
  * `competitor_map`, but that map is keyed to a session, not to a
- * `(project, domain)` lookup. The content-targets surfaceClass gate runs on
+ * `(project, domain)` lookup. The content-targets winnabilityClass gate runs on
  * every report and sweep and cannot run a discovery probe, so it needs a cheap
  * indexed read. This table accumulates the union of every classification ever
  * produced, upserted on each discovery completion (last-write-wins per domain),
