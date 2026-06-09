@@ -151,3 +151,35 @@ export function classifySurface(uri: string, context: SurfaceClassContext): Surf
   const { domain, category } = categorizeSource(uri)
   return classifySurfaceFromCategory(domain, category, context)
 }
+
+/**
+ * Classify a set of already-normalized cited domains into a
+ * `domain → SurfaceClass` map using the SAME full precedence as the rankings
+ * (own > tracked-competitor > stored LLM class > heuristic category). Domains
+ * that resolve to `other` are OMITTED so the map answers "which cited surfaces
+ * do we confidently recognize": an empty map means the surface is entirely
+ * unrecognized (the winnability gate then fails open) rather than a misleading
+ * "all winnable".
+ *
+ * This is the shared input for the winnability gate and the coverage doctor
+ * check: both must see the well-known aggregators/editorial domains the static
+ * allow-list already recognizes, NOT only the subset discovery has re-stored.
+ * `storedClasses` (discovery's `domain_classifications`) only enriches recall
+ * for niche domains the allow-list misses.
+ */
+export function classifyCitedSurface(
+  domains: readonly { domain: string }[],
+  context: SurfaceClassContext,
+  storedClasses?: ReadonlyMap<string, DiscoveryCompetitorType>,
+): Map<string, SurfaceClass> {
+  const out = new Map<string, SurfaceClass>()
+  for (const { domain } of domains) {
+    if (out.has(domain)) continue
+    const stored = storedClasses?.get(domain)
+    const storedClass = stored ? surfaceClassFromCompetitorType(stored) : undefined
+    const { category } = categorizeSource(domain)
+    const cls = classifySurfaceFromCategory(domain, category, context, storedClass)
+    if (cls !== SurfaceClasses.other) out.set(domain, cls)
+  }
+  return out
+}

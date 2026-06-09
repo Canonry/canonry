@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { classifySurface, classifySurfaceFromCategory, surfaceClassFromCompetitorType, surfaceClassLabel, SurfaceClasses, surfaceClassSchema } from '../src/surface-class.js'
+import { classifySurface, classifySurfaceFromCategory, classifyCitedSurface, surfaceClassFromCompetitorType, surfaceClassLabel, SurfaceClasses, surfaceClassSchema } from '../src/surface-class.js'
 import { categorizeSource } from '../src/source-categories.js'
 import { DiscoveryCompetitorTypes } from '../src/discovery.js'
 
@@ -152,5 +152,37 @@ describe('classifySurfaceFromCategory with a stored (LLM) classification', () =>
 
   it('falls back to the heuristic when no stored class is supplied', () => {
     expect(classifySurfaceFromCategory('forbes.com', 'news', project, undefined)).toBe(SurfaceClasses['editorial-media'])
+  })
+})
+
+describe('classifyCitedSurface', () => {
+  it('recognizes a well-known aggregator via the allow-list with no stored class (the gate-coverage fix)', () => {
+    const map = classifyCitedSurface([{ domain: 'booking.com' }], project)
+    expect(map.get('booking.com')).toBe(SurfaceClasses['ota-aggregator'])
+  })
+
+  it('keeps own and tracked competitor authoritative over the heuristic', () => {
+    const map = classifyCitedSurface([{ domain: 'acme.com' }, { domain: 'yelp.com' }], project)
+    // yelp.com is in this project's competitorDomains, so it reads as a competitor
+    // surface here even though the allow-list would call it an aggregator.
+    expect(map.get('acme.com')).toBe(SurfaceClasses.own)
+    expect(map.get('yelp.com')).toBe(SurfaceClasses['direct-competitor'])
+  })
+
+  it('omits domains that resolve to `other` so the map reflects only recognized surfaces', () => {
+    const map = classifyCitedSurface([{ domain: 'midwest-roof-restoration-llc.com' }], project)
+    expect(map.has('midwest-roof-restoration-llc.com')).toBe(false)
+    expect(map.size).toBe(0)
+  })
+
+  it('lets a stored discovery class enrich recall for a domain the allow-list dumps into `other`', () => {
+    const stored = new Map([['niche-regional-listings.com', DiscoveryCompetitorTypes['ota-aggregator']]])
+    const map = classifyCitedSurface([{ domain: 'niche-regional-listings.com' }], project, stored)
+    expect(map.get('niche-regional-listings.com')).toBe(SurfaceClasses['ota-aggregator'])
+  })
+
+  it('dedupes repeated domains', () => {
+    const map = classifyCitedSurface([{ domain: 'booking.com' }, { domain: 'booking.com' }], project)
+    expect(map.size).toBe(1)
   })
 })
