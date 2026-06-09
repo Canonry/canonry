@@ -826,9 +826,30 @@
     @apply border-zinc-100 text-zinc-50;
   }
 
-  /* Settings is demoted to the far right, separated from the content tabs. */
-  .project-subnav-link-trailing {
-    @apply ml-auto;
+  /* Trailing group (overflow "More" + Settings), pushed to the far right. */
+  .project-subnav-trailing {
+    @apply ml-auto flex items-stretch gap-x-1;
+  }
+
+  .project-subnav-more {
+    @apply relative inline-flex items-stretch;
+  }
+
+  .project-subnav-more-trigger {
+    @apply cursor-pointer gap-1 bg-transparent appearance-none;
+  }
+
+  /* Overflow menu surface — floating, so a real shadow is allowed here. */
+  .project-subnav-menu {
+    @apply absolute right-0 top-full z-20 mt-1 flex min-w-[9rem] flex-col gap-0.5 rounded-md border border-zinc-800/80 bg-zinc-900 p-1 shadow-[0_12px_28px_rgba(0,0,0,0.32)];
+  }
+
+  .project-subnav-menu-item {
+    @apply rounded px-3 py-2 text-sm font-medium text-zinc-400 transition-colors hover:bg-zinc-800/60 hover:text-zinc-100 focus-visible:outline-none focus-visible:bg-zinc-800/60 focus-visible:text-zinc-100;
+  }
+
+  .project-subnav-menu-item-active {
+    @apply bg-zinc-800/60 text-zinc-50;
   }
 
   /* ── Overview secondary grid (attention + activity) ── */

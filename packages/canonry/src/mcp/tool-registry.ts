@@ -1648,7 +1648,7 @@ export const canonryMcpTools = [
     name: 'canonry_technical_aeo_score',
     title: 'Get Technical AEO score',
     description:
-      'Get the Technical AEO scorecard for a project: the latest site-audit aggregate 0–100 score + grade, per-factor site-level averages (with pass/partial/fail distribution), cross-cutting issues, prioritized fixes, and the delta vs the previous audit. When `hasData` is false the project has never been audited — call canonry_technical_aeo_run first.',
+      'Get the Technical AEO scorecard for a project: the latest site-audit aggregate 0–100 score, per-factor site-level averages (with pass/partial/fail distribution), cross-cutting issues, prioritized fixes, and the delta vs the previous audit. When `hasData` is false the project has never been audited — call canonry_technical_aeo_run first.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: technicalAeoScoreInputSchema,

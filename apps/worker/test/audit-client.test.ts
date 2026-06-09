@@ -113,5 +113,5 @@ test('runTechnicalAudit delegates to the published audit package', async () => {
   expect(report.metadata.auxiliary.sitemapXml).toBe('ok')
   expect(typeof report.overallScore).toBe('number')
   expect(report.factors.length > 0).toBeTruthy()
-  expect(report.summary).toMatch(/Overall grade/)
+  expect(report.summary).toMatch(/Overall score/)
 })

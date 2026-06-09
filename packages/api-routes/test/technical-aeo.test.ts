@@ -33,8 +33,8 @@ interface Ctx {
 }
 
 const FACTORS_B: SiteAuditFactorSummaryDto[] = [
-  { id: 'structured-data', name: 'Structured Data (JSON-LD)', weight: 12, avgScore: 80, avgGrade: 'B-', status: 'pass', pagesPassing: 2, pagesPartial: 0, pagesFailing: 0 },
-  { id: 'ai-crawler-access', name: 'AI Crawler Access', weight: 4, avgScore: 30, avgGrade: 'F', status: 'fail', pagesPassing: 0, pagesPartial: 0, pagesFailing: 2 },
+  { id: 'structured-data', name: 'Structured Data (JSON-LD)', weight: 12, avgScore: 80, status: 'pass', pagesPassing: 2, pagesPartial: 0, pagesFailing: 0 },
+  { id: 'ai-crawler-access', name: 'AI Crawler Access', weight: 4, avgScore: 30, status: 'fail', pagesPassing: 0, pagesPartial: 0, pagesFailing: 2 },
 ]
 
 function buildCtx(): Ctx {
@@ -90,7 +90,7 @@ function buildCtx(): Ctx {
     sitemapUrl: 'https://example.com/sitemap.xml', auditedAt: tB,
     aggregateScore: 72, aggregateGrade: 'C-', pagesDiscovered: 3, pagesAudited: 2, pagesSkipped: 1, pagesErrored: 1,
     factorAverages: FACTORS_B,
-    crossCuttingIssues: [{ factorId: 'ai-crawler-access', factorName: 'AI Crawler Access', avgScore: 30, avgGrade: 'F', affectedPages: 2, totalPages: 2, topRecommendations: ['Allow GPTBot in robots.txt'] }],
+    crossCuttingIssues: [{ factorId: 'ai-crawler-access', factorName: 'AI Crawler Access', avgScore: 30, affectedPages: 2, totalPages: 2, affectedPct: 100, topRecommendations: ['Allow GPTBot in robots.txt'] }],
     prioritizedFixes: ['AI Crawler Access (avg F, affects 100% of pages): Allow GPTBot in robots.txt'],
     createdAt: tB,
   }).run()
@@ -136,6 +136,9 @@ describe('GET /technical-aeo (score)', () => {
     expect(body.pagesErrored).toBe(1)
     expect(body.factors).toHaveLength(2)
     expect(body.prioritizedFixes).toHaveLength(1)
+    // The server-computed affected-pages share rides through to the API response verbatim.
+    expect(body.crossCuttingIssues).toHaveLength(1)
+    expect(body.crossCuttingIssues[0]!.affectedPct).toBe(100)
   })
 
   it('returns hasData=false for a project that was never audited', async () => {

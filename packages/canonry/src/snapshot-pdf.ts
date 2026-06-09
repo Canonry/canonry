@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from 'pdf-lib'
 import type { SnapshotReportDto } from '@ainyc/canonry-contracts'
+import { factorStatusFromScore } from '@ainyc/canonry-contracts'
 import { formatAuditFactorScore } from './snapshot-format.js'
 
 const PAGE_WIDTH = 612
@@ -249,7 +250,7 @@ function renderCover(pdf: PdfWriter, report: SnapshotReportDto) {
     hour: 'numeric',
     minute: '2-digit',
   }))
-  pdf.keyValue('AEO Audit', `${report.audit.overallScore}/100 (${report.audit.overallGrade})`)
+  pdf.keyValue('AEO Audit', `${report.audit.overallScore}/100`)
   pdf.keyValue('Visibility Gap (Citations + Mentions)', report.summary.visibilityGap)
   pdf.paragraph(report.profile.summary, { size: 11, color: INK, lineHeight: 16 })
   pdf.rule()
@@ -277,7 +278,7 @@ function renderAudit(pdf: PdfWriter, report: SnapshotReportDto) {
     .map(factor => [
       factor.name,
       formatAuditFactorScore(factor),
-      factor.status,
+      factorStatusFromScore(factor.score),
     ])
 
   if (factorRows.length > 0) {

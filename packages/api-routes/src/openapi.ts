@@ -3724,7 +3724,7 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/technical-aeo',
     summary: 'Get the Technical AEO scorecard for a project',
     description:
-      'Returns the latest completed/partial site-audit: aggregate 0–100 score + grade, page counts, the full per-factor scorecard (site-level averages with pass/partial/fail distribution), cross-cutting issues, prioritized fixes, and the delta vs the previous audit. When the project has never been audited, `hasData` is false and the numeric fields are zeroed — render an onboarding state.',
+      'Returns the latest completed/partial site-audit: aggregate 0–100 score, page counts, the full per-factor scorecard (site-level averages with pass/partial/fail distribution), cross-cutting issues, prioritized fixes, and the delta vs the previous audit. When the project has never been audited, `hasData` is false and the numeric fields are zeroed — render an onboarding state.',
     tags: ['technical-aeo'],
     parameters: [nameParameter],
     responses: {

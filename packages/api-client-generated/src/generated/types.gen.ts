@@ -1711,7 +1711,6 @@ export type SiteAuditPagesResponseDto = {
     pages: Array<{
         url: string;
         overallScore: number;
-        overallGrade: string;
         status: 'success' | 'error';
         error?: string | null;
         factors: Array<{
@@ -1719,8 +1718,6 @@ export type SiteAuditPagesResponseDto = {
             name: string;
             weight: number;
             score: number;
-            grade: string;
-            status: 'pass' | 'partial' | 'fail';
         }>;
     }>;
 };
@@ -1738,7 +1735,6 @@ export type SiteAuditScoreDto = {
     sitemapUrl: string | null;
     auditedAt: string | null;
     aggregateScore: number;
-    aggregateGrade: string;
     pagesDiscovered: number;
     pagesAudited: number;
     pagesSkipped: number;
@@ -1752,7 +1748,6 @@ export type SiteAuditScoreDto = {
         name: string;
         weight: number;
         avgScore: number;
-        avgGrade: string;
         status: 'pass' | 'partial' | 'fail';
         pagesPassing: number;
         pagesPartial: number;
@@ -1762,9 +1757,9 @@ export type SiteAuditScoreDto = {
         factorId: string;
         factorName: string;
         avgScore: number;
-        avgGrade: string;
         affectedPages: number;
         totalPages: number;
+        affectedPct: number;
         topRecommendations: Array<string>;
     }>;
     prioritizedFixes: Array<string>;
@@ -1776,7 +1771,6 @@ export type SiteAuditTrendResponseDto = {
         runId: string;
         auditedAt: string;
         aggregateScore: number;
-        aggregateGrade: string;
         pagesAudited: number;
     }>;
 };
@@ -1847,15 +1841,12 @@ export type SnapshotReportDto = {
         finalUrl: string;
         auditedAt: string;
         overallScore: number;
-        overallGrade: string;
         summary: string;
         factors: Array<{
             id: string;
             name: string;
             weight: number;
             score: number;
-            grade: string;
-            status: 'pass' | 'partial' | 'fail';
             findings: Array<{
                 type: string;
                 message: string;

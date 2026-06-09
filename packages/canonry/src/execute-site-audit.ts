@@ -35,23 +35,6 @@ export interface SiteAuditOptions {
 type SitemapPage = SitemapAuditReport['pages'][number]
 type SitemapPageFactor = NonNullable<SitemapPage['factors']>[number]
 
-/** aeo-audit's letter-grade bands (see `@ainyc/aeo-audit` scoring.ts) — replicated for the site-level factor averages canonry computes itself. */
-function scoreToGrade(score: number): string {
-  if (score >= 97) return 'A+'
-  if (score >= 93) return 'A'
-  if (score >= 90) return 'A-'
-  if (score >= 87) return 'B+'
-  if (score >= 83) return 'B'
-  if (score >= 80) return 'B-'
-  if (score >= 77) return 'C+'
-  if (score >= 73) return 'C'
-  if (score >= 70) return 'C-'
-  if (score >= 67) return 'D+'
-  if (score >= 63) return 'D'
-  if (score >= 60) return 'D-'
-  return 'F'
-}
-
 function toHomepageUrl(canonicalDomain: string): string {
   const trimmed = canonicalDomain.trim().replace(/\/+$/, '')
   return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`
@@ -68,8 +51,6 @@ function toPageFactor(factor: SitemapPageFactor): SiteAuditPageFactorDto {
     name: factor.name,
     weight: factor.weight,
     score: factor.score,
-    grade: factor.grade,
-    status: factorStatusFromScore(factor.score),
   }
 }
 
@@ -106,7 +87,6 @@ export function computeFactorAverages(pages: SitemapPage[]): SiteAuditFactorSumm
       name: entry.name,
       weight: entry.weight,
       avgScore,
-      avgGrade: scoreToGrade(avgScore),
       status: factorStatusFromScore(avgScore),
       pagesPassing: entry.pass,
       pagesPartial: entry.partial,
@@ -180,14 +160,25 @@ export async function executeSiteAudit(
         sitemapUrl: report.sitemapUrl,
         auditedAt: report.auditedAt,
         aggregateScore: report.aggregateScore,
-        aggregateGrade: report.aggregateGrade,
         pagesDiscovered: report.pagesDiscovered,
         pagesAudited: report.pagesAudited,
         pagesSkipped: report.pagesSkipped,
         pagesErrored,
         factorAverages,
-        crossCuttingIssues: report.crossCuttingIssues as SiteAuditCrossCuttingIssueDto[],
-        prioritizedFixes: report.prioritizedFixes,
+        // aeo-audit v3 enriches these (topIssues, avgGrade-free); keep only the
+        // fields our DTO exposes so the stored JSON stays lean.
+        crossCuttingIssues: report.crossCuttingIssues.map((issue): SiteAuditCrossCuttingIssueDto => ({
+          factorId: issue.factorId,
+          factorName: issue.factorName,
+          avgScore: issue.avgScore,
+          affectedPages: issue.affectedPages,
+          totalPages: issue.totalPages,
+          affectedPct: issue.totalPages > 0 ? Math.round((issue.affectedPages / issue.totalPages) * 100) : 0,
+          topRecommendations: issue.topRecommendations,
+        })),
+        // v3 prioritizedFixes are structured PrioritizedFix objects; persist the
+        // ready-to-display one-line summary to keep the DTO a string list.
+        prioritizedFixes: report.prioritizedFixes.map((fix) => fix.summary),
         createdAt: finishedAt,
       }).run()
 
@@ -198,7 +189,6 @@ export async function executeSiteAudit(
           runId,
           url: page.url,
           overallScore: page.overallScore,
-          overallGrade: page.overallGrade,
           status: page.status,
           error: page.error ?? null,
           factors: (page.factors ?? []).map(toPageFactor),
@@ -214,7 +204,6 @@ export async function executeSiteAudit(
       projectId,
       status,
       score: report.aggregateScore,
-      grade: report.aggregateGrade,
       audited: report.pagesAudited,
       errored: pagesErrored,
     })

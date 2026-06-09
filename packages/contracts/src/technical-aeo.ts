@@ -46,7 +46,7 @@ export const siteAuditFactorSummarySchema = z.object({
   name: z.string(),
   weight: z.number(),
   avgScore: z.number(),
-  avgGrade: z.string(),
+  /** Canonry's own pass/partial/fail banding of `avgScore` (aeo-audit v3 is gradeless). */
   status: siteAuditFactorStatusSchema,
   pagesPassing: z.number().int().nonnegative(),
   pagesPartial: z.number().int().nonnegative(),
@@ -57,15 +57,17 @@ export type SiteAuditFactorSummaryDto = z.infer<typeof siteAuditFactorSummarySch
 /**
  * A factor that scores poorly across many pages — the "fix this once, lift the
  * whole site" list. Produced by aeo-audit (`affectedPages` = pages scoring
- * < 70 for the factor) and persisted verbatim.
+ * < 70 for the factor); canonry adds `affectedPct` server-side so the dashboard
+ * and CLI render the same share without recomputing it.
  */
 export const siteAuditCrossCuttingIssueSchema = z.object({
   factorId: z.string(),
   factorName: z.string(),
   avgScore: z.number(),
-  avgGrade: z.string(),
   affectedPages: z.number().int().nonnegative(),
   totalPages: z.number().int().nonnegative(),
+  /** `round(affectedPages / totalPages * 100)`, `0` when `totalPages` is `0`. Computed by canonry, not aeo-audit. */
+  affectedPct: z.number().int().nonnegative(),
   topRecommendations: z.array(z.string()).default([]),
 })
 export type SiteAuditCrossCuttingIssueDto = z.infer<typeof siteAuditCrossCuttingIssueSchema>
@@ -87,7 +89,6 @@ export const siteAuditScoreSchema = z.object({
   sitemapUrl: z.string().nullable(),
   auditedAt: z.string().nullable(),
   aggregateScore: z.number(),
-  aggregateGrade: z.string(),
   pagesDiscovered: z.number().int().nonnegative(),
   pagesAudited: z.number().int().nonnegative(),
   pagesSkipped: z.number().int().nonnegative(),
@@ -109,8 +110,6 @@ export const siteAuditPageFactorSchema = z.object({
   name: z.string(),
   weight: z.number(),
   score: z.number(),
-  grade: z.string(),
-  status: siteAuditFactorStatusSchema,
 })
 export type SiteAuditPageFactorDto = z.infer<typeof siteAuditPageFactorSchema>
 
@@ -118,7 +117,6 @@ export type SiteAuditPageFactorDto = z.infer<typeof siteAuditPageFactorSchema>
 export const siteAuditPageSchema = z.object({
   url: z.string(),
   overallScore: z.number(),
-  overallGrade: z.string(),
   status: z.enum(['success', 'error']),
   error: z.string().nullable().optional(),
   factors: z.array(siteAuditPageFactorSchema).default([]),
@@ -140,7 +138,6 @@ export const siteAuditTrendPointSchema = z.object({
   runId: z.string(),
   auditedAt: z.string(),
   aggregateScore: z.number(),
-  aggregateGrade: z.string(),
   pagesAudited: z.number().int().nonnegative(),
 })
 export type SiteAuditTrendPointDto = z.infer<typeof siteAuditTrendPointSchema>

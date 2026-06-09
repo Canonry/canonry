@@ -12,7 +12,7 @@ import { runSitemapAudit } from '@ainyc/aeo-audit'
 import { clampSiteAuditLimit, computeFactorAverages, executeSiteAudit, SITE_AUDIT_DEFAULT_PAGE_LIMIT, SITE_AUDIT_MAX_PAGE_LIMIT } from '../src/execute-site-audit.js'
 
 function scoredFactor(id: string, name: string, weight: number, score: number) {
-  return { id, name, weight, score, grade: 'X', status: 'pass' as const, findings: [], recommendations: [] }
+  return { id, name, weight, score, findings: [], recommendations: [] }
 }
 
 describe('computeFactorAverages', () => {
@@ -136,6 +136,37 @@ describe('executeSiteAudit', () => {
     const runId = seedRun()
     await executeSiteAudit(db, runId, projectId, {})
     expect(db.select().from(runs).where(eq(runs.id, runId)).get()?.status).toBe('completed')
+  })
+
+  it('computes affectedPct on cross-cutting issues from affectedPages / totalPages', async () => {
+    vi.mocked(runSitemapAudit).mockResolvedValue({
+      sitemapUrl: 'https://example.com/sitemap.xml', auditedAt: new Date().toISOString(),
+      pagesDiscovered: 8, pagesAudited: 8, pagesSkipped: 0, aggregateScore: 55, aggregateGrade: 'F',
+      pages: [{ url: 'https://example.com/a', overallScore: 55, overallGrade: 'F', status: 'success', factors: [scoredFactor('sd', 'Structured Data', 12, 55)] }],
+      // aeo-audit reports affectedPages/totalPages; canonry derives the share.
+      crossCuttingIssues: [{ factorId: 'sd', factorName: 'Structured Data', avgScore: 40, affectedPages: 3, totalPages: 8, topRecommendations: ['Add JSON-LD'] }],
+      prioritizedFixes: [],
+    } as never)
+
+    const runId = seedRun()
+    await executeSiteAudit(db, runId, projectId, {})
+    const snap = db.select().from(siteAuditSnapshots).where(eq(siteAuditSnapshots.runId, runId)).get()
+    expect(snap?.crossCuttingIssues[0]?.affectedPct).toBe(38) // round(3 / 8 * 100) = round(37.5)
+  })
+
+  it('clamps affectedPct to 0 when totalPages is 0 (no divide-by-zero)', async () => {
+    vi.mocked(runSitemapAudit).mockResolvedValue({
+      sitemapUrl: 'https://example.com/sitemap.xml', auditedAt: new Date().toISOString(),
+      pagesDiscovered: 1, pagesAudited: 1, pagesSkipped: 0, aggregateScore: 55, aggregateGrade: 'F',
+      pages: [{ url: 'https://example.com/a', overallScore: 55, overallGrade: 'F', status: 'success', factors: [scoredFactor('sd', 'Structured Data', 12, 55)] }],
+      crossCuttingIssues: [{ factorId: 'sd', factorName: 'Structured Data', avgScore: 40, affectedPages: 0, totalPages: 0, topRecommendations: ['Add JSON-LD'] }],
+      prioritizedFixes: [],
+    } as never)
+
+    const runId = seedRun()
+    await executeSiteAudit(db, runId, projectId, {})
+    const snap = db.select().from(siteAuditSnapshots).where(eq(siteAuditSnapshots.runId, runId)).get()
+    expect(snap?.crossCuttingIssues[0]?.affectedPct).toBe(0) // 0/0 guarded → 0, never NaN/Infinity
   })
 
   it('fails the run and writes no snapshot when every page errored', async () => {

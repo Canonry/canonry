@@ -117,7 +117,7 @@ canonry discover promote <project> <session-id> [--bucket cited,aspirational,was
 
 # Technical AEO — site-wide technical audit (powered by the `site-audit` run kind + @ainyc/aeo-audit's runSitemapAudit)
 canonry technical-aeo run <project> [--sitemap-url <url>] [--limit <n>] [--wait] [--format json]   # crawl the sitemap + audit every page; idempotent (returns the in-flight run); default page cap 500, hard max 2000
-canonry technical-aeo score <project> [--format json]                                # latest site score (0–100) + grade + per-factor scorecard + delta vs the previous audit
+canonry technical-aeo score <project> [--format json]                                # latest site score (0–100) + per-factor scorecard + delta vs the previous audit
 canonry technical-aeo pages <project> [--status success|error] [--sort score-asc|score-desc|url] [--limit <n>] [--format json|jsonl]  # per-page breakdown of the latest run (worst-first by default)
 canonry technical-aeo trend <project> [--limit <n>] [--format json|jsonl]            # aggregate-score history across past audits
 # Schedule it: canonry schedule set <project> --kind site-audit --preset weekly

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronRight, Download, Trash2 } from 'lucide-react'
+import { ChevronDown, ChevronRight, Download, Trash2 } from 'lucide-react'
 import { useParams, useNavigate } from '@tanstack/react-router'
 import { Link } from '@tanstack/react-router'
 import { useQueryClient } from '@tanstack/react-query'
@@ -910,8 +910,8 @@ function SearchConsoleSection({
       <Card className="surface-card">
         <div className="section-head section-head-inline">
           <div>
-            <p className="eyebrow eyebrow-soft">Search console</p>
-            <h2>Search Engine Intelligence</h2>
+            <p className="eyebrow eyebrow-soft">Search engines</p>
+            <h2>Coverage &amp; performance</h2>
             <p className="mt-1 max-w-3xl text-sm leading-6 text-zinc-500">
               Scan both engines at a glance, then open the Google or Bing workspace when you need to inspect coverage or take action.
             </p>
@@ -1427,6 +1427,69 @@ export function ProjectPage(props: { tab: ProjectPageTab }) {
   return <ProjectPageContent model={model} refetch={refetch} {...props} />
 }
 
+type ProjectTabItem = { key: ProjectPageTab; label: string; href: string }
+
+/**
+ * Trailing overflow ("More") menu for low-frequency project sections (Report).
+ * A standard disclosure: button toggles a `role="menu"`, closes on outside
+ * pointerdown, Escape, or item selection. Self-contained so its hooks don't
+ * sit below ProjectPageContent's early returns. Lives here (not in its own
+ * file) because it's a one-off for this subnav.
+ */
+function ProjectSubnavMore({ items, activeTab }: { items: ProjectTabItem[]; activeTab: ProjectPageTab }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const onPointerDown = (event: PointerEvent) => {
+      if (ref.current && !ref.current.contains(event.target as Node)) setOpen(false)
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [open])
+
+  if (items.length === 0) return null
+  const hasActive = items.some((item) => item.key === activeTab)
+
+  return (
+    <div className="project-subnav-more" ref={ref}>
+      <button
+        type="button"
+        className={`project-subnav-link project-subnav-more-trigger ${hasActive ? 'project-subnav-link-active' : ''}`}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((prev) => !prev)}
+      >
+        More
+        <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
+      </button>
+      {open ? (
+        <div className="project-subnav-menu" role="menu">
+          {items.map((item) => (
+            <Link
+              key={item.key}
+              to={item.href}
+              role="menuitem"
+              className={`project-subnav-menu-item ${item.key === activeTab ? 'project-subnav-menu-item-active' : ''}`}
+              aria-current={item.key === activeTab ? 'page' : undefined}
+              onClick={() => setOpen(false)}
+            >
+              {item.label}
+            </Link>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 function ProjectPageContent({
   tab,
   model,
@@ -1438,13 +1501,9 @@ function ProjectPageContent({
 }) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  // Gate the "Local Presence" tab on an actual GBP connection (same cached
-  // query GbpSection uses, so this dedupes — no extra fetch). Non-local
-  // projects never see the tab.
-  const gbpConnectionQuery = useQuery(
-    getApiV1ProjectsByNameGoogleConnectionsOptions({ client: heyClient, path: { name: model.project.name } }),
-  )
-  const gbpConnected = (gbpConnectionQuery.data ?? []).some((c) => c.connectionType === 'gbp')
+  // "Local Presence" is always shown — GbpSection renders a setup guide when no
+  // Google Business Profile is connected, so the tab is the entry point to
+  // connecting one rather than being hidden until after connection.
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [managingQueries, setManagingQueries] = useState(false)
@@ -1767,20 +1826,21 @@ function ProjectPageContent({
   const isNumericScore = (value: string) => !Number.isNaN(Number.parseInt(value, 10))
   // Quiet underline tabs (Vercel/Linear lineage), not a pill rack. Section nav
   // is chrome: plain text that recedes, the active tab marked by a Snow
-  // underline on the bar's hairline. Settings is split out and right-aligned
-  // (universal convention). "Local Presence" only appears once GBP is connected.
+  // underline on the bar's hairline. Low-frequency sections (Report) live in a
+  // trailing "More" overflow; Settings is split out at the far right (universal
+  // convention). "Local Presence" only appears once GBP is connected.
   const projectTabBase = `/projects/${model.project.id}`
-  const projectTabItems: Array<{ key: ProjectPageTab; label: string; href: string }> = [
-    { key: 'overview', label: 'Overview', href: projectTabBase },
-    { key: 'report', label: 'Report', href: `${projectTabBase}/report` },
-    ...(gbpConnected
-      ? [{ key: 'local' as const, label: 'Local Presence', href: `${projectTabBase}/local` }]
-      : []),
-    { key: 'search-console', label: 'Search Console', href: `${projectTabBase}/search-console` },
-    { key: 'technical-aeo', label: 'Technical AEO', href: `${projectTabBase}/technical-aeo` },
-    { key: 'backlinks', label: 'Backlinks', href: `${projectTabBase}/backlinks` },
-    { key: 'discovery', label: 'Discovery', href: `${projectTabBase}/discovery` },
+  const projectTabItems: ProjectTabItem[] = [
+    { key: 'overview', label: 'AI Visibility', href: projectTabBase },
+    { key: 'search-console', label: 'Search Engines', href: `${projectTabBase}/search-console` },
     { key: 'activity', label: 'Activity', href: `${projectTabBase}/activity` },
+    { key: 'technical-aeo', label: 'Technical AEO', href: `${projectTabBase}/technical-aeo` },
+    { key: 'local', label: 'Local Presence', href: `${projectTabBase}/local` },
+    { key: 'discovery', label: 'Query Discovery', href: `${projectTabBase}/discovery` },
+    { key: 'backlinks', label: 'Backlinks', href: `${projectTabBase}/backlinks` },
+  ]
+  const projectOverflowTabItems: ProjectTabItem[] = [
+    { key: 'report', label: 'Report', href: `${projectTabBase}/report` },
   ]
   const projectSettingsTab = { key: 'settings' as const, label: 'Settings', href: `${projectTabBase}/settings` }
 
@@ -1948,14 +2008,17 @@ function ProjectPageContent({
             {item.label}
           </Link>
         ))}
-        <Link
-          key={projectSettingsTab.key}
-          to={projectSettingsTab.href}
-          className={`project-subnav-link project-subnav-link-trailing ${tab === 'settings' ? 'project-subnav-link-active' : ''}`}
-          aria-current={tab === 'settings' ? 'page' : undefined}
-        >
-          {projectSettingsTab.label}
-        </Link>
+        <div className="project-subnav-trailing">
+          <ProjectSubnavMore items={projectOverflowTabItems} activeTab={tab} />
+          <Link
+            key={projectSettingsTab.key}
+            to={projectSettingsTab.href}
+            className={`project-subnav-link ${tab === 'settings' ? 'project-subnav-link-active' : ''}`}
+            aria-current={tab === 'settings' ? 'page' : undefined}
+          >
+            {projectSettingsTab.label}
+          </Link>
+        </div>
       </nav>
 
       {tab === 'overview' ? (

@@ -37,7 +37,6 @@ function emptyScore(projectName: string): SiteAuditScoreDto {
     sitemapUrl: null,
     auditedAt: null,
     aggregateScore: 0,
-    aggregateGrade: '',
     pagesDiscovered: 0,
     pagesAudited: 0,
     pagesSkipped: 0,
@@ -99,7 +98,6 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
       sitemapUrl: snap.sitemapUrl,
       auditedAt: snap.auditedAt,
       aggregateScore: snap.aggregateScore,
-      aggregateGrade: snap.aggregateGrade,
       pagesDiscovered: snap.pagesDiscovered,
       pagesAudited: snap.pagesAudited,
       pagesSkipped: snap.pagesSkipped,
@@ -170,7 +168,6 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
     const pages: SiteAuditPageDto[] = rows.map((row) => ({
       url: row.url,
       overallScore: row.overallScore,
-      overallGrade: row.overallGrade,
       status: row.status === 'error' ? 'error' : 'success',
       error: row.error,
       factors: row.factors,
@@ -192,7 +189,6 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
         runId: siteAuditSnapshots.runId,
         auditedAt: siteAuditSnapshots.auditedAt,
         aggregateScore: siteAuditSnapshots.aggregateScore,
-        aggregateGrade: siteAuditSnapshots.aggregateGrade,
         pagesAudited: siteAuditSnapshots.pagesAudited,
       })
       .from(siteAuditSnapshots)

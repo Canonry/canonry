@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type { SnapshotProviderResultDto, SnapshotReportDto } from '@ainyc/canonry-contracts'
+import { factorStatusFromScore } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { isMachineFormat } from '../cli-error.js'
 import { writeSnapshotPdf } from '../snapshot-pdf.js'
@@ -81,7 +82,7 @@ export function formatSnapshotMarkdown(report: SnapshotReportDto): string {
   lines.push('')
   lines.push(`**Domain:** ${report.domain}`)
   lines.push(`**Generated:** ${new Date(report.generatedAt).toLocaleString('en-US', { year: 'numeric', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' })}`)
-  lines.push(`**AEO Audit Score:** ${report.audit.overallScore}/100 (${report.audit.overallGrade})`)
+  lines.push(`**AEO Audit Score:** ${report.audit.overallScore}/100`)
   lines.push('')
 
   lines.push('## Visibility Gap (Citations + Mentions)')
@@ -150,7 +151,7 @@ export function formatSnapshotMarkdown(report: SnapshotReportDto): string {
     lines.push('|--------|-------|--------|--------|')
     const sorted = [...report.audit.factors].sort((a, b) => a.score - b.score)
     for (const factor of sorted) {
-      lines.push(`| ${factor.name} | ${factor.score} | ${factor.weight} | ${factor.status} |`)
+      lines.push(`| ${factor.name} | ${factor.score} | ${factor.weight} | ${factorStatusFromScore(factor.score)} |`)
     }
     lines.push('')
   }
@@ -164,7 +165,7 @@ export function formatSnapshotMarkdown(report: SnapshotReportDto): string {
 export function formatSnapshotText(report: SnapshotReportDto): string {
   const lines: string[] = []
   lines.push(`Snapshot: ${report.companyName} (${report.domain})`)
-  lines.push(`AEO audit: ${report.audit.overallScore}/100 (${report.audit.overallGrade})`)
+  lines.push(`AEO audit: ${report.audit.overallScore}/100`)
   lines.push(report.summary.visibilityGap)
   lines.push('')
 

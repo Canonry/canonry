@@ -174,7 +174,7 @@ Site-wide technical audit (structured data, AI-readable content, AI-crawler acce
 ```bash
 cnry technical-aeo run <project> --wait                 # crawl + audit; --wait polls to terminal. Idempotent: returns the in-flight run if one is active.
 cnry technical-aeo run <project> --sitemap-url <url> --limit 200   # override the sitemap / cap pages (highest <priority> first; default 500, max 2000)
-cnry technical-aeo score <project> [--format json]      # site score + grade + per-factor scorecard (avg + pass/partial/fail per page) + delta vs the previous audit
+cnry technical-aeo score <project> [--format json]      # site score + per-factor scorecard (avg + pass/partial/fail per page) + delta vs the previous audit
 cnry technical-aeo pages <project> [--status error] [--sort score-asc|score-desc|url] [--format json|jsonl]   # per-page breakdown of the latest run (worst-first by default)
 cnry technical-aeo trend <project> [--format json|jsonl] # aggregate-score history across past audits
 cnry schedule set <project> --kind site-audit --preset weekly   # keep it fresh

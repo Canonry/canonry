@@ -25,17 +25,17 @@ export async function technicalAeoScore(project: string, opts: { format?: string
 
   const lines: string[] = []
   const delta = score.deltaScore == null ? '' : ` (${score.deltaScore >= 0 ? '+' : ''}${score.deltaScore} vs prev)`
-  lines.push(`Technical AEO: ${score.aggregateScore}/100 (${score.aggregateGrade})${delta}`)
+  lines.push(`Technical AEO: ${score.aggregateScore}/100${delta}`)
   lines.push(
     `Audited ${score.pagesAudited} page(s) · ${score.pagesSkipped} skipped · ${score.pagesErrored} errored · sitemap ${score.sitemapUrl}`,
   )
   lines.push(`As of ${score.auditedAt}`)
   if (score.factors.length > 0) {
     lines.push('')
-    lines.push(`${'Factor'.padEnd(32)}${'Wt'.padStart(4)}${'Avg'.padStart(6)}${'Grade'.padStart(7)}   Pass/Part/Fail`)
+    lines.push(`${'Factor'.padEnd(32)}${'Wt'.padStart(4)}${'Avg'.padStart(6)}${'Status'.padStart(9)}   Pass/Part/Fail`)
     for (const f of score.factors) {
       lines.push(
-        `${f.name.slice(0, 31).padEnd(32)}${String(f.weight).padStart(4)}${String(f.avgScore).padStart(6)}${f.avgGrade.padStart(7)}   ${f.pagesPassing}/${f.pagesPartial}/${f.pagesFailing}`,
+        `${f.name.slice(0, 31).padEnd(32)}${String(f.weight).padStart(4)}${String(f.avgScore).padStart(6)}${f.status.padStart(9)}   ${f.pagesPassing}/${f.pagesPartial}/${f.pagesFailing}`,
       )
     }
   }
@@ -71,10 +71,10 @@ export async function technicalAeoPages(
   }
   const lines: string[] = []
   lines.push(`${res.pages.length} of ${res.total} page(s) from run ${res.runId}:\n`)
-  lines.push(`${'Score'.padStart(5)}  ${'Grade'.padEnd(5)}  ${'Status'.padEnd(7)}  URL`)
+  lines.push(`${'Score'.padStart(5)}  ${'Status'.padEnd(7)}  URL`)
   for (const p of res.pages) {
     const tail = p.status === 'error' ? `  ${p.error ?? 'error'}` : ''
-    lines.push(`${String(p.overallScore).padStart(5)}  ${p.overallGrade.padEnd(5)}  ${p.status.padEnd(7)}  ${p.url}${tail}`)
+    lines.push(`${String(p.overallScore).padStart(5)}  ${p.status.padEnd(7)}  ${p.url}${tail}`)
   }
   console.log(lines.join('\n'))
 }
@@ -101,9 +101,9 @@ export async function technicalAeoTrend(
     return
   }
   const lines: string[] = []
-  lines.push(`${'Date'.padEnd(26)}  ${'Score'.padStart(5)}  ${'Grade'.padEnd(5)}  Pages`)
+  lines.push(`${'Date'.padEnd(26)}  ${'Score'.padStart(5)}  Pages`)
   for (const p of res.points) {
-    lines.push(`${p.auditedAt.padEnd(26)}  ${String(p.aggregateScore).padStart(5)}  ${p.aggregateGrade.padEnd(5)}  ${p.pagesAudited}`)
+    lines.push(`${p.auditedAt.padEnd(26)}  ${String(p.aggregateScore).padStart(5)}  ${p.pagesAudited}`)
   }
   console.log(lines.join('\n'))
 }

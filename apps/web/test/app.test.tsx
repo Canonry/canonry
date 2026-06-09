@@ -65,9 +65,10 @@ test('project route renders a single command center with visibility sections', a
   const html = await renderApp('/projects/project_citypoint')
 
   expect(html).toMatch(/Citypoint Dental NYC/)
-  expect(html).toMatch(/Overview/)
-  expect(html).toMatch(/Search Console/)
+  expect(html).toMatch(/AI Visibility/)
+  expect(html).toMatch(/Search Engines/)
   expect(html).toMatch(/Technical AEO/)
+  expect(html).toMatch(/Query Discovery/)
   expect(html).toMatch(/Opportunities/)
   expect(html).toMatch(/What the LLMs said/)
   expect(html).toMatch(/Recent execution history/)
@@ -163,10 +164,10 @@ test('project route renders visibility drop insights', async () => {
   expect(html).toMatch(/Sharp citation drop detected/)
 })
 
-test('project search console route renders the Search Engine Intelligence section', async () => {
+test('project search console route renders the Search Engines section', async () => {
   const html = await renderApp('/projects/project_citypoint/search-console')
 
-  expect(html).toMatch(/Search Engine Intelligence/)
+  expect(html).toMatch(/Search engines/)
   expect(html).toMatch(/Google Search Console/)
   expect(html).toMatch(/Bing Webmaster Tools/)
   expect(html).not.toMatch(/Bing \(OpenAI\)/)
