@@ -4,6 +4,7 @@ import {
   CheckScopes,
   CheckStatuses,
   TrafficSourceStatuses,
+  TrafficSourceTypes,
 } from '@ainyc/canonry-contracts'
 import {
   aiReferralEventsHourly,
@@ -365,9 +366,55 @@ const scopesCheck: CheckDefinition = {
   },
 }
 
+/**
+ * The WordPress adapter captures via the Canonry Traffic Logger plugin, which
+ * only logs requests that reach PHP. A full-page cache (LiteSpeed, WP Rocket,
+ * W3TC, WP Super Cache) or CDN serves cached pages before PHP runs, so
+ * cache-served page views (including live AI user-fetches like Claude-User
+ * and ChatGPT-User) are invisible to the plugin, while bot crawls of uncached
+ * endpoints (sitemap, assets, cache misses) still come through. This is
+ * inherent to hook-based capture, not a config error, so it warns whenever a
+ * WordPress source is present; log/edge adapters (cloud-run, vercel) are
+ * unaffected and skip.
+ */
+const cacheBlindSpotCheck: CheckDefinition = {
+  id: 'traffic.source.cache-blindspot',
+  category: CheckCategories.integrations,
+  scope: CheckScopes.project,
+  title: 'WordPress traffic cache blind spot',
+  run: (ctx) => {
+    if (!ctx.project) return skippedNoProject()
+    const wpSources = loadProbes(ctx).filter(
+      (s) => s.sourceType === TrafficSourceTypes.wordpress,
+    )
+    if (wpSources.length === 0) {
+      return {
+        status: CheckStatuses.skipped,
+        code: 'traffic.cache-blindspot.no-wordpress-source',
+        summary:
+          'No WordPress traffic source connected, so the plugin cache blind spot does not apply (log and edge adapters see cache-served requests).',
+      }
+    }
+    return {
+      status: CheckStatuses.warn,
+      code: 'traffic.cache-blindspot.wordpress-plugin',
+      summary:
+        `${wpSources.length} WordPress traffic source(s) capture via the Canonry Traffic Logger plugin, which only logs requests that execute PHP. ` +
+        'A full-page cache (LiteSpeed, WP Rocket, W3 Total Cache, WP Super Cache) or CDN serves cached pages before PHP runs, so cache-served page views, including live AI user-fetches such as Claude-User and ChatGPT-User, are not captured. Bot crawls of uncached endpoints (sitemap, feeds, assets, cache misses) still appear, which can make capture look healthy while real page views go uncounted.',
+      remediation:
+        'Exclude AI user-agents from the page cache so their requests reach PHP: LiteSpeed Cache has "Do Not Cache User Agents" under Cache > Excludes; WP Rocket uses the `rocket_cache_reject_ua` filter; W3 Total Cache and WP Super Cache have a "Rejected User Agents" box. Mirror the rule at any CDN in front. For cache-independent capture, ingest from server or edge access logs (a `cloud-run` or `vercel` source, or an edge worker) instead of the WordPress plugin.',
+      details: {
+        wordpressSourceCount: wpSources.length,
+        wordpressSourceIds: wpSources.map((s) => s.id),
+      },
+    }
+  },
+}
+
 export const TRAFFIC_SOURCE_CHECKS: readonly CheckDefinition[] = [
   sourceConnectedCheck,
   recentDataCheck,
   credentialsCheck,
   scopesCheck,
+  cacheBlindSpotCheck,
 ]

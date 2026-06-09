@@ -19,6 +19,7 @@ const [
   recentDataCheck,
   credentialsCheck,
   scopesCheck,
+  cacheBlindSpotCheck,
 ] = TRAFFIC_SOURCE_CHECKS
 
 interface Harness {
@@ -318,14 +319,55 @@ describe('traffic.source.scopes', () => {
   })
 })
 
+describe('traffic.source.cache-blindspot', () => {
+  it('skips when no WordPress source is connected (cloud-run only)', async () => {
+    insertTrafficSource(h, { sourceType: 'cloud-run' })
+    const r = await cacheBlindSpotCheck.run(ctxFor(h))
+    expect(r.status).toBe('skipped')
+    expect(r.code).toBe('traffic.cache-blindspot.no-wordpress-source')
+  })
+
+  it('skips when there is no traffic source at all', async () => {
+    const r = await cacheBlindSpotCheck.run(ctxFor(h))
+    expect(r.status).toBe('skipped')
+    expect(r.code).toBe('traffic.cache-blindspot.no-wordpress-source')
+  })
+
+  it('warns when a WordPress source is connected — cache-served views can be missed', async () => {
+    insertTrafficSource(h, { sourceType: 'wordpress', displayName: 'WordPress · example.com' })
+    const r = await cacheBlindSpotCheck.run(ctxFor(h))
+    expect(r.status).toBe('warn')
+    expect(r.code).toBe('traffic.cache-blindspot.wordpress-plugin')
+    expect(r.remediation).toMatch(/user.?agent/i)
+    expect((r.details as { wordpressSourceCount: number }).wordpressSourceCount).toBe(1)
+  })
+
+  it('counts multiple WordPress sources and ignores non-wordpress ones', async () => {
+    insertTrafficSource(h, { sourceType: 'wordpress', displayName: 'A' })
+    insertTrafficSource(h, { sourceType: 'wordpress', displayName: 'B' })
+    insertTrafficSource(h, { sourceType: 'cloud-run', displayName: 'GCP' })
+    const r = await cacheBlindSpotCheck.run(ctxFor(h))
+    expect(r.status).toBe('warn')
+    expect((r.details as { wordpressSourceCount: number }).wordpressSourceCount).toBe(2)
+  })
+
+  it('skips with the project-missing code when project context is absent', async () => {
+    const ctx: DoctorContext = { db: h.db, project: null }
+    const r = await cacheBlindSpotCheck.run(ctx)
+    expect(r.status).toBe('skipped')
+    expect(r.code).toBe('traffic.no-project')
+  })
+})
+
 describe('check definitions', () => {
-  it('exports four checks at well-known IDs', () => {
+  it('exports five checks at well-known IDs', () => {
     const ids = TRAFFIC_SOURCE_CHECKS.map((c) => c.id)
     expect(ids).toEqual([
       'traffic.source.connected',
       'traffic.source.recent-data',
       'traffic.source.credentials',
       'traffic.source.scopes',
+      'traffic.source.cache-blindspot',
     ])
   })
 
