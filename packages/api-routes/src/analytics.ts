@@ -1,11 +1,16 @@
 import { and, eq, desc, inArray } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { filterTrackedSnapshots, groupRunsByCreatedAt, pickGroupRepresentative, querySnapshots, runs, queries, parseJsonColumn } from '@ainyc/canonry-db'
-import { AI_PROVIDER_INFRA_DOMAINS, categorizeSource, categoryLabel, CitationStates, parseWindow, windowCutoff } from '@ainyc/canonry-contracts'
+import { filterTrackedSnapshots, groupRunsByCreatedAt, pickGroupRepresentative, querySnapshots, runs, queries, competitors, domainClassifications, parseJsonColumn } from '@ainyc/canonry-db'
+import {
+  AI_PROVIDER_INFRA_DOMAINS, categorizeSource, categoryLabel, CitationStates,
+  classifySurfaceFromCategory, surfaceClassFromCompetitorType, surfaceClassLabel,
+  effectiveDomains, normalizeProjectDomain, parseWindow, windowCutoff, validationError,
+} from '@ainyc/canonry-contracts'
 import type {
   BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto,
   TimeBucket, TrendDirection, GapQuery, GapCategory,
   SourceCategory, SourceCategoryCount, ProviderMetric, QueryChangeEvent,
+  RankedSourceList, SourceRankEntry, SurfaceClass, SurfaceClassCount,
 } from '@ainyc/canonry-contracts'
 import { notProbeRun, resolveProject, resolveSnapshotAnswerMentioned } from './helpers.js'
 
@@ -292,15 +297,52 @@ export async function analyticsRoutes(app: FastifyInstance) {
     return reply.send({ cited, gap, uncited, mentionedQueries, mentionGap, notMentioned, runId: latestRun.id, window } satisfies GapAnalysisDto)
   })
 
-  // GET /projects/:name/analytics/sources — source origin breakdown
+  // GET /projects/:name/analytics/sources — source origin breakdown.
+  // `?limit=N` caps the ranked / per-provider lists to the top N domains
+  // (with an explicit long-tail rollup); omitted = the full ranked list.
   app.get<{
     Params: { name: string }
-    Querystring: { window?: string }
+    Querystring: { window?: string; limit?: string }
   }>('/projects/:name/analytics/sources', async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
 
     const window = parseWindow(request.query.window)
     const cutoff = windowCutoff(window)
+
+    let limit: number | null = null
+    if (request.query.limit !== undefined) {
+      const n = Number(request.query.limit)
+      if (!Number.isInteger(n) || n <= 0) throw validationError('"limit" must be a positive integer')
+      limit = n
+    }
+
+    // Deterministic classification context — own/competitor membership is read
+    // from already-stored project data, so the per-domain surface class costs
+    // no LLM calls (see #675 / surface-class.ts).
+    const classifyCtx = {
+      projectDomains: effectiveDomains(project),
+      competitorDomains: app.db
+        .select({ domain: competitors.domain })
+        .from(competitors)
+        .where(eq(competitors.projectId, project.id))
+        .all()
+        .map(r => r.domain),
+    }
+
+    // Stored LLM classifications from discovery (`domain_classifications`, #677)
+    // enrich recall for domains the generic allow-list would dump into `other`
+    // (niche OTAs, regional media). Keyed by normalized domain; own/competitor
+    // still win over a stored row (see classifySurfaceFromCategory precedence).
+    // No new LLM calls — this reads what discovery already persisted.
+    const storedSurfaceClasses = new Map<string, SurfaceClass>()
+    for (const row of app.db
+      .select({ domain: domainClassifications.domain, competitorType: domainClassifications.competitorType })
+      .from(domainClassifications)
+      .where(eq(domainClassifications.projectId, project.id))
+      .all()) {
+      const mapped = surfaceClassFromCompetitorType(row.competitorType)
+      if (mapped) storedSurfaceClasses.set(normalizeProjectDomain(row.domain), mapped)
+    }
 
     // All runs in window
     const windowRuns = app.db
@@ -313,7 +355,12 @@ export async function analyticsRoutes(app: FastifyInstance) {
       .filter(r => !cutoff || r.createdAt >= cutoff)
 
     if (windowRuns.length === 0) {
-      return reply.send({ overall: [], byQuery: {}, runId: '', window } satisfies SourceBreakdownDto)
+      return reply.send({
+        overall: [], byQuery: {},
+        ranked: buildRankedList(new Map(), limit),
+        byProvider: {},
+        runId: '', window, limit,
+      } satisfies SourceBreakdownDto)
     }
 
     // Pick the deterministic representative of the latest fan-out group as
@@ -329,6 +376,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
       .select({
         queryId: querySnapshots.queryId,
         query: queries.query,
+        provider: querySnapshots.provider,
         rawResponse: querySnapshots.rawResponse,
       })
       .from(querySnapshots)
@@ -336,26 +384,40 @@ export async function analyticsRoutes(app: FastifyInstance) {
       .where(inArray(querySnapshots.runId, windowRunIds))
       .all()
 
-    // Aggregate sources overall and per-query
+    // Aggregate sources overall and per-query (legacy category breakdown), plus
+    // a flat per-domain aggregation overall and per provider (the #675 ranked /
+    // classified / per-provider surface). Probes are already excluded because
+    // windowRunIds derives from the notProbeRun()-filtered run query above.
     const overallCounts = new Map<SourceCategory, Map<string, number>>()
     const byQuery: Record<string, SourceCategoryCount[]> = {}
+    const overallDomains = new Map<string, DomainAgg>()
+    const providerDomains = new Map<string, Map<string, DomainAgg>>()
 
     for (const snap of snapshots) {
       const sources = parseGroundingSources(snap.rawResponse)
       const qCounts = new Map<SourceCategory, Map<string, number>>()
 
       for (const source of sources) {
-        const { category, domain } = categorizeSource(source.uri)
+        const { category, label, domain } = categorizeSource(source.uri)
+        const surfaceClass = classifySurfaceFromCategory(
+          domain, category, classifyCtx, storedSurfaceClasses.get(normalizeProjectDomain(domain)),
+        )
 
-        // Overall
+        // Overall (legacy category breakdown)
         if (!overallCounts.has(category)) overallCounts.set(category, new Map())
         const oDomains = overallCounts.get(category)!
         oDomains.set(domain, (oDomains.get(domain) ?? 0) + 1)
 
-        // Per-query
+        // Per-query (legacy category breakdown)
         if (!qCounts.has(category)) qCounts.set(category, new Map())
         const qDomains = qCounts.get(category)!
         qDomains.set(domain, (qDomains.get(domain) ?? 0) + 1)
+
+        // Flat ranked + classified — overall and per provider
+        bumpDomain(overallDomains, domain, category, label, surfaceClass)
+        let pm = providerDomains.get(snap.provider)
+        if (!pm) { pm = new Map(); providerDomains.set(snap.provider, pm) }
+        bumpDomain(pm, domain, category, label, surfaceClass)
       }
 
       if (sources.length > 0 && snap.query) {
@@ -364,9 +426,22 @@ export async function analyticsRoutes(app: FastifyInstance) {
     }
 
     const overall = buildCategoryCounts(overallCounts)
+    const ranked = buildRankedList(overallDomains, limit)
+    const byProvider: Record<string, RankedSourceList> = {}
+    for (const [provider, domains] of providerDomains) {
+      byProvider[provider] = buildRankedList(domains, limit)
+    }
 
-    return reply.send({ overall, byQuery, runId: latestRunId, window } satisfies SourceBreakdownDto)
+    return reply.send({ overall, byQuery, ranked, byProvider, runId: latestRunId, window, limit } satisfies SourceBreakdownDto)
   })
+}
+
+interface DomainAgg {
+  domain: string
+  count: number
+  category: SourceCategory
+  label: string
+  surfaceClass: SurfaceClass
 }
 
 // --- Helpers ---
@@ -528,6 +603,78 @@ function computeTrend(buckets: TimeBucket[], rateKey: 'citationRate' | 'mentionR
   if (diff > 0.05) return 'improving'
   if (diff < -0.05) return 'declining'
   return 'stable'
+}
+
+function round4(ratio: number): number {
+  return Math.round(ratio * 10000) / 10000
+}
+
+function bumpDomain(
+  map: Map<string, DomainAgg>,
+  domain: string,
+  category: SourceCategory,
+  label: string,
+  surfaceClass: SurfaceClass,
+): void {
+  const existing = map.get(domain)
+  if (existing) existing.count += 1
+  else map.set(domain, { domain, count: 1, category, label, surfaceClass })
+}
+
+/**
+ * Flatten a per-domain aggregation into a ranked, classified list with an
+ * explicit long-tail rollup. Sorted desc by count, ties broken by domain asc
+ * for determinism. The surface-class roll-up always spans the FULL scope, so a
+ * `limit` truncates `entries` but never hides totals:
+ *   entries.length + truncatedDomainCount === domainTotal
+ *   sum(entries.count) + truncatedCitedSlots === totalCitedSlots
+ *   sum(bySurfaceClass.count) === totalCitedSlots
+ */
+function buildRankedList(domains: Map<string, DomainAgg>, limit: number | null): RankedSourceList {
+  const all = [...domains.values()]
+  const totalCitedSlots = all.reduce((sum, d) => sum + d.count, 0)
+  const domainTotal = all.length
+
+  all.sort((a, b) => b.count - a.count || a.domain.localeCompare(b.domain))
+  const shownEntries = limit != null && limit < all.length ? all.slice(0, limit) : all
+
+  const entries: SourceRankEntry[] = shownEntries.map(d => ({
+    domain: d.domain,
+    count: d.count,
+    percentage: totalCitedSlots > 0 ? round4(d.count / totalCitedSlots) : 0,
+    category: d.category,
+    label: d.label,
+    surfaceClass: d.surfaceClass,
+  }))
+
+  const shownSlots = shownEntries.reduce((sum, d) => sum + d.count, 0)
+
+  // Surface-class roll-up over the FULL scope (every domain, not just shown).
+  const classAgg = new Map<SurfaceClass, { count: number; domainCount: number }>()
+  for (const d of all) {
+    const entry = classAgg.get(d.surfaceClass) ?? { count: 0, domainCount: 0 }
+    entry.count += d.count
+    entry.domainCount += 1
+    classAgg.set(d.surfaceClass, entry)
+  }
+  const bySurfaceClass: SurfaceClassCount[] = [...classAgg.entries()]
+    .map(([surfaceClass, v]) => ({
+      surfaceClass,
+      label: surfaceClassLabel(surfaceClass),
+      count: v.count,
+      percentage: totalCitedSlots > 0 ? round4(v.count / totalCitedSlots) : 0,
+      domainCount: v.domainCount,
+    }))
+    .sort((a, b) => b.count - a.count || a.surfaceClass.localeCompare(b.surfaceClass))
+
+  return {
+    totalCitedSlots,
+    domainTotal,
+    entries,
+    truncatedDomainCount: domainTotal - shownEntries.length,
+    truncatedCitedSlots: totalCitedSlots - shownSlots,
+    bySurfaceClass,
+  }
 }
 
 function buildCategoryCounts(counts: Map<SourceCategory, Map<string, number>>): SourceCategoryCount[] {

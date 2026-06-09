@@ -1,15 +1,20 @@
-export type SourceCategory =
-  | 'competitor'
-  | 'directory'
-  | 'social'
-  | 'forum'
-  | 'news'
-  | 'reference'
-  | 'blog'
-  | 'ecommerce'
-  | 'video'
-  | 'academic'
-  | 'other'
+import { z } from 'zod'
+
+export const sourceCategorySchema = z.enum([
+  'competitor',
+  'directory',
+  'social',
+  'forum',
+  'news',
+  'reference',
+  'blog',
+  'ecommerce',
+  'video',
+  'academic',
+  'other',
+])
+export type SourceCategory = z.infer<typeof sourceCategorySchema>
+export const SourceCategories = sourceCategorySchema.enum
 
 export interface SourceCategoryRule {
   pattern: string
@@ -41,6 +46,21 @@ export const SOURCE_CATEGORY_RULES: SourceCategoryRule[] = [
   { pattern: 'producthunt.com', category: 'directory', label: 'Product Hunt' },
   { pattern: 'glassdoor.com', category: 'directory', label: 'Glassdoor' },
   { pattern: 'indeed.com', category: 'directory', label: 'Indeed' },
+  // Major GLOBAL travel / lodging / dining aggregators (OTAs). Included
+  // because — unlike niche per-vertical directories (NRCA, GAF) which are
+  // deliberately omitted — these are top-tier cross-business marketplaces in
+  // the same class as Yelp/Angi, and AEO for hospitality routinely competes
+  // against them. They classify as `ota-aggregator` surfaces (see #675).
+  { pattern: 'tripadvisor.com', category: 'directory', label: 'Tripadvisor' },
+  { pattern: 'booking.com', category: 'directory', label: 'Booking.com' },
+  { pattern: 'expedia.com', category: 'directory', label: 'Expedia' },
+  { pattern: 'hotels.com', category: 'directory', label: 'Hotels.com' },
+  { pattern: 'agoda.com', category: 'directory', label: 'Agoda' },
+  { pattern: 'kayak.com', category: 'directory', label: 'Kayak' },
+  { pattern: 'trivago.com', category: 'directory', label: 'Trivago' },
+  { pattern: 'airbnb.com', category: 'directory', label: 'Airbnb' },
+  { pattern: 'vrbo.com', category: 'directory', label: 'Vrbo' },
+  { pattern: 'opentable.com', category: 'directory', label: 'OpenTable' },
 
   // Forums
   { pattern: 'reddit.com', category: 'forum', label: 'Reddit' },

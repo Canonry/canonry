@@ -59,6 +59,12 @@ describe('categorizeSource', () => {
     expect(result.category).toBe('academic')
   })
 
+  it('categorizes major travel OTAs as directory (placement-target aggregators)', () => {
+    expect(categorizeSource('https://www.tripadvisor.com/Hotel_Review').category).toBe('directory')
+    expect(categorizeSource('https://www.booking.com/hotel/x.html').category).toBe('directory')
+    expect(categorizeSource('expedia.com/h12345').category).toBe('directory')
+  })
+
   it('falls back to other for unknown domains', () => {
     const result = categorizeSource('https://my-random-site.io/page')
     expect(result.category).toBe('other')

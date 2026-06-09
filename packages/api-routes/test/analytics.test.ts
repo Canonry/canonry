@@ -4,7 +4,7 @@ import path from 'node:path'
 import os from 'node:os'
 import crypto from 'node:crypto'
 import Fastify from 'fastify'
-import { createClient, migrate, projects, queries, runs, querySnapshots } from '@ainyc/canonry-db'
+import { createClient, migrate, projects, queries, runs, querySnapshots, competitors, domainClassifications } from '@ainyc/canonry-db'
 import { apiRoutes } from '../src/index.js'
 
 function buildApp() {
@@ -738,5 +738,389 @@ describe('analytics fan-out (#480)', () => {
     const body2 = JSON.parse(res2.payload)
     expect(body1.runId).toBe(body2.runId)
     expect(body1.runId).toBe('ffffffff-ffff-ffff-ffff-fffffffff0a1')
+  })
+})
+
+// #675 — full ranked, per-provider, and classified source rankings. Dedicated
+// suite with a deterministic fixture so the calculation invariants (counts sum
+// to totals, per-provider reconciliation, surface-class roll-up) can be asserted
+// exactly, not just by shape.
+describe('GET /projects/:name/analytics/sources — ranked + byProvider + classification', () => {
+  let app: ReturnType<typeof Fastify>
+  let db: ReturnType<typeof createClient>
+
+  const iso = new Date().toISOString()
+
+  beforeAll(async () => {
+    const ctx = buildApp()
+    app = ctx.app
+    db = ctx.db
+    await app.ready()
+
+    const projectId = crypto.randomUUID()
+    db.insert(projects).values({
+      id: projectId, name: 'rank-site', displayName: 'Rank Site',
+      canonicalDomain: 'acme.com', ownedDomains: ['acme.io'],
+      country: 'US', language: 'en', tags: [], labels: {},
+      providers: ['gemini', 'openai'], locations: [], defaultLocation: null,
+      configSource: 'api', configRevision: 1, createdAt: iso, updatedAt: iso,
+    }).run()
+
+    // Tracked competitor — drives the direct-competitor surface class.
+    db.insert(competitors).values({
+      id: crypto.randomUUID(), projectId, domain: 'rival.com', provenance: 'manual', createdAt: iso,
+    }).run()
+
+    const qId = crypto.randomUUID()
+    db.insert(queries).values({ id: qId, projectId, query: 'best hotels', createdAt: iso }).run()
+
+    const realRunId = crypto.randomUUID()
+    db.insert(runs).values({
+      id: realRunId, projectId, kind: 'answer-visibility', status: 'completed',
+      trigger: 'manual', location: null, startedAt: iso, finishedAt: iso, error: null, createdAt: iso,
+    }).run()
+
+    // gemini: 12 cited slots over 11 distinct domains (acme x2), plus 6 'other'
+    // long-tail domains to prove the old top-5-per-category cap is gone. Two
+    // infra URIs are mixed in and must be filtered out (not counted).
+    db.insert(querySnapshots).values({
+      id: crypto.randomUUID(), runId: realRunId, queryId: qId, provider: 'gemini',
+      model: 'gemini-2.5-flash', citationState: 'cited', answerText: 'acme is great',
+      citedDomains: [], competitorOverlap: [], location: null,
+      rawResponse: JSON.stringify({
+        groundingSources: [
+          { uri: 'https://acme.com/a', title: 'Acme' },
+          { uri: 'https://acme.com/b', title: 'Acme 2' },
+          { uri: 'https://acme.com/c', title: 'Acme 3' },
+          { uri: 'https://rival.com/x', title: 'Rival' },
+          { uri: 'https://www.booking.com/hotel/y', title: 'Booking' },
+          { uri: 'https://www.forbes.com/article', title: 'Forbes' },
+          { uri: 'https://reddit.com/r/travel', title: 'Reddit' },
+          { uri: 'https://g1.io/p', title: 'g1' },
+          { uri: 'https://g2.io/p', title: 'g2' },
+          { uri: 'https://g3.io/p', title: 'g3' },
+          { uri: 'https://g4.io/p', title: 'g4' },
+          { uri: 'https://g5.io/p', title: 'g5' },
+          { uri: 'https://g6.io/p', title: 'g6' },
+          // infra — filtered, never counted:
+          { uri: 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/Z', title: 'proxy' },
+          { uri: 'https://openai.com/research', title: 'infra' },
+        ],
+      }),
+      createdAt: iso,
+    }).run()
+
+    // openai: 4 cited slots over 4 distinct domains. acme + rival overlap with
+    // gemini; expedia + oa1.io are openai-only.
+    db.insert(querySnapshots).values({
+      id: crypto.randomUUID(), runId: realRunId, queryId: qId, provider: 'openai',
+      model: 'gpt-4o', citationState: 'cited', answerText: 'hotels',
+      citedDomains: [], competitorOverlap: [], location: null,
+      rawResponse: JSON.stringify({
+        groundingSources: [
+          { uri: 'https://rival.com/y', title: 'Rival' },
+          { uri: 'https://www.expedia.com/h', title: 'Expedia' },
+          { uri: 'https://acme.io/z', title: 'Acme alias' },
+          { uri: 'https://oa1.io/p', title: 'oa1' },
+        ],
+      }),
+      createdAt: iso,
+    }).run()
+
+    // claude: answered but grounded on nothing usable (empty list). Contributes
+    // zero slots/domains — must be OMITTED from byProvider entirely, not surfaced
+    // as an empty bucket.
+    db.insert(querySnapshots).values({
+      id: crypto.randomUUID(), runId: realRunId, queryId: qId, provider: 'claude',
+      model: 'claude-sonnet', citationState: 'cited', answerText: 'no sources',
+      citedDomains: [], competitorOverlap: [], location: null,
+      rawResponse: JSON.stringify({ groundingSources: [] }),
+      createdAt: iso,
+    }).run()
+  })
+
+  afterAll(async () => {
+    await app.close()
+  })
+
+  // Expected overall (gemini 13 + openai 4 = 17 slots, 14 distinct domains):
+  //   own:               acme.com 3 + acme.io 1 = count 4, domainCount 2
+  //   direct-competitor: rival.com 2,                       domainCount 1
+  //   ota-aggregator:    booking 1 + expedia 1 = count 2,   domainCount 2
+  //   editorial-media:   forbes 1,                          domainCount 1
+  //   other:             reddit + g1..g6 + oa1 = count 8,   domainCount 8
+
+  it('returns the full ranked list (no per-category top-5 cap) sorted desc with ties broken by domain', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/v1/projects/rank-site/analytics/sources' })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.payload)
+
+    expect(body.limit).toBeNull()
+    expect(body.ranked.totalCitedSlots).toBe(17)
+    expect(body.ranked.domainTotal).toBe(14)
+    expect(body.ranked.entries).toHaveLength(14)
+    expect(body.ranked.truncatedDomainCount).toBe(0)
+    expect(body.ranked.truncatedCitedSlots).toBe(0)
+
+    // sum of entry counts reconciles to the total cited slots
+    const sum = body.ranked.entries.reduce((s: number, e: { count: number }) => s + e.count, 0)
+    expect(sum).toBe(17)
+
+    // top two by count, then count-1 ties alphabetically (acme.io is first)
+    expect(body.ranked.entries[0]).toMatchObject({ domain: 'acme.com', count: 3, surfaceClass: 'own' })
+    expect(body.ranked.entries[1]).toMatchObject({ domain: 'rival.com', count: 2, surfaceClass: 'direct-competitor' })
+    expect(body.ranked.entries[2]).toMatchObject({ domain: 'acme.io', count: 1, surfaceClass: 'own' })
+
+    // all 6 long-tail 'other' domains surface (old cap was 5/category)
+    const domains = body.ranked.entries.map((e: { domain: string }) => e.domain)
+    for (const d of ['g1.io', 'g2.io', 'g3.io', 'g4.io', 'g5.io', 'g6.io']) expect(domains).toContain(d)
+  })
+
+  it('tags every ranked domain with category + surface class', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/v1/projects/rank-site/analytics/sources' })
+    const body = JSON.parse(res.payload)
+    const byDomain: Record<string, { surfaceClass: string; category: string }> = {}
+    for (const e of body.ranked.entries) byDomain[e.domain] = e
+    expect(byDomain['acme.io']!.surfaceClass).toBe('own')
+    expect(byDomain['rival.com']!.surfaceClass).toBe('direct-competitor')
+    expect(byDomain['booking.com']).toMatchObject({ surfaceClass: 'ota-aggregator', category: 'directory' })
+    expect(byDomain['expedia.com']!.surfaceClass).toBe('ota-aggregator')
+    expect(byDomain['forbes.com']).toMatchObject({ surfaceClass: 'editorial-media', category: 'news' })
+    expect(byDomain['reddit.com']).toMatchObject({ surfaceClass: 'other', category: 'forum' })
+  })
+
+  it('computes each ranked entry percentage as count / totalCitedSlots (4dp)', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/v1/projects/rank-site/analytics/sources' })
+    const body = JSON.parse(res.payload)
+    const byDomain: Record<string, { count: number; percentage: number }> = {}
+    for (const e of body.ranked.entries) byDomain[e.domain] = e
+    // denominator is totalCitedSlots (17), NOT domainTotal — pins numerator,
+    // denominator, and the round4 rounding in one assertion.
+    expect(byDomain['acme.com']!.percentage).toBe(0.1765) // 3/17 → round4
+    expect(byDomain['rival.com']!.percentage).toBe(0.1176) // 2/17
+    expect(byDomain['forbes.com']!.percentage).toBe(0.0588) // 1/17
+  })
+
+  it('rolls up cited slots by surface class over the FULL scope, summing to the total', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/v1/projects/rank-site/analytics/sources' })
+    const body = JSON.parse(res.payload)
+    const roll: Record<string, { count: number; domainCount: number; percentage: number }> = {}
+    for (const r of body.ranked.bySurfaceClass) roll[r.surfaceClass] = r
+
+    expect(roll['own']).toMatchObject({ count: 4, domainCount: 2 })
+    expect(roll['direct-competitor']).toMatchObject({ count: 2, domainCount: 1 })
+    expect(roll['ota-aggregator']).toMatchObject({ count: 2, domainCount: 2 })
+    expect(roll['editorial-media']).toMatchObject({ count: 1, domainCount: 1 })
+    expect(roll['other']).toMatchObject({ count: 8, domainCount: 8 })
+
+    // exact rollup percentages = class count / totalCitedSlots (17), 4dp
+    expect(roll['own']!.percentage).toBe(0.2353) // 4/17
+    expect(roll['other']!.percentage).toBe(0.4706) // 8/17
+
+    const countSum = body.ranked.bySurfaceClass.reduce((s: number, r: { count: number }) => s + r.count, 0)
+    const domainSum = body.ranked.bySurfaceClass.reduce((s: number, r: { domainCount: number }) => s + r.domainCount, 0)
+    const pctSum = body.ranked.bySurfaceClass.reduce((s: number, r: { percentage: number }) => s + r.percentage, 0)
+    expect(countSum).toBe(17)
+    expect(domainSum).toBe(14)
+    // 4dp per-class rounding can leave the sum a hair off 1 (here 0.9999).
+    expect(pctSum).toBeCloseTo(1, 2)
+  })
+
+  it('excludes AI provider infrastructure domains from the ranked list', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/v1/projects/rank-site/analytics/sources' })
+    const body = JSON.parse(res.payload)
+    const domains = body.ranked.entries.map((e: { domain: string }) => e.domain)
+    expect(domains).not.toContain('vertexaisearch.cloud.google.com')
+    expect(domains).not.toContain('openai.com')
+  })
+
+  it('honors ?limit=N with an explicit long-tail rollup that preserves totals', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/v1/projects/rank-site/analytics/sources?limit=3' })
+    const body = JSON.parse(res.payload)
+
+    expect(body.limit).toBe(3)
+    expect(body.ranked.entries).toHaveLength(3)
+    expect(body.ranked.domainTotal).toBe(14)
+    expect(body.ranked.truncatedDomainCount).toBe(11) // 14 - 3
+    // entries: acme.com(3) + rival.com(2) + acme.io(1) = 6; tail = 17 - 6
+    const shown = body.ranked.entries.reduce((s: number, e: { count: number }) => s + e.count, 0)
+    expect(shown).toBe(6)
+    expect(body.ranked.truncatedCitedSlots).toBe(11)
+    expect(shown + body.ranked.truncatedCitedSlots).toBe(body.ranked.totalCitedSlots)
+
+    // the surface-class rollup still spans the full scope, not just the 3 shown
+    const countSum = body.ranked.bySurfaceClass.reduce((s: number, r: { count: number }) => s + r.count, 0)
+    expect(countSum).toBe(17)
+  })
+
+  it('breaks the ranking down by provider; per-provider counts reconcile to overall', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/v1/projects/rank-site/analytics/sources' })
+    const body = JSON.parse(res.payload)
+
+    expect(Object.keys(body.byProvider).sort()).toEqual(['gemini', 'openai'])
+    expect(body.byProvider.gemini.totalCitedSlots).toBe(13)
+    expect(body.byProvider.gemini.domainTotal).toBe(11)
+    expect(body.byProvider.openai.totalCitedSlots).toBe(4)
+    expect(body.byProvider.openai.domainTotal).toBe(4)
+
+    const find = (entries: Array<{ domain: string; count: number }>, d: string) =>
+      entries.find(e => e.domain === d)?.count ?? 0
+
+    // acme.com cited 3x by gemini; openai cites the acme.io alias instead.
+    expect(find(body.byProvider.gemini.entries, 'acme.com')).toBe(3)
+    expect(find(body.byProvider.openai.entries, 'acme.io')).toBe(1)
+    // rival.com cited once by each provider, twice overall
+    expect(find(body.byProvider.gemini.entries, 'rival.com')).toBe(1)
+    expect(find(body.byProvider.openai.entries, 'rival.com')).toBe(1)
+    expect(find(body.ranked.entries, 'rival.com')).toBe(2)
+
+    // disjointness: a gemini-only domain never leaks into the openai cut
+    expect(find(body.byProvider.openai.entries, 'g1.io')).toBe(0)
+    expect(find(body.byProvider.gemini.entries, 'expedia.com')).toBe(0)
+
+    // each provider's slots reconcile to the sum of its entry counts
+    for (const p of ['gemini', 'openai'] as const) {
+      const sum = body.byProvider[p].entries.reduce((s: number, e: { count: number }) => s + e.count, 0)
+      expect(sum).toBe(body.byProvider[p].totalCitedSlots)
+    }
+    // the two providers' slots sum to the overall total
+    expect(body.byProvider.gemini.totalCitedSlots + body.byProvider.openai.totalCitedSlots).toBe(body.ranked.totalCitedSlots)
+  })
+
+  it('applies the limit to each provider cut too', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/v1/projects/rank-site/analytics/sources?limit=2' })
+    const body = JSON.parse(res.payload)
+    expect(body.byProvider.gemini.entries).toHaveLength(2)
+    expect(body.byProvider.gemini.truncatedDomainCount).toBe(9) // 11 - 2
+    expect(body.byProvider.openai.entries).toHaveLength(2) // openai has exactly 4 distinct
+  })
+
+  it('rejects a non-positive limit', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/v1/projects/rank-site/analytics/sources?limit=0' })
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('omits a provider that produced a snapshot but no grounding sources from byProvider', async () => {
+    // claude answered (a snapshot exists) but grounded on nothing — it must not
+    // appear in byProvider at all (no empty bucket), so the keys stay the two
+    // providers that actually cited sources.
+    const res = await app.inject({ method: 'GET', url: '/api/v1/projects/rank-site/analytics/sources' })
+    const body = JSON.parse(res.payload)
+    expect(Object.keys(body.byProvider).sort()).toEqual(['gemini', 'openai'])
+    expect(body.byProvider.claude).toBeUndefined()
+  })
+
+  it('returns the full list (no truncation, echoed limit) when limit >= domainTotal', async () => {
+    for (const n of [14, 99]) {
+      const res = await app.inject({ method: 'GET', url: `/api/v1/projects/rank-site/analytics/sources?limit=${n}` })
+      const body = JSON.parse(res.payload)
+      expect(body.limit).toBe(n) // echoed, not nulled
+      expect(body.ranked.entries).toHaveLength(14) // all domains, none dropped
+      expect(body.ranked.truncatedDomainCount).toBe(0)
+      expect(body.ranked.truncatedCitedSlots).toBe(0)
+    }
+  })
+
+  it('returns the real runId and an empty ranked list when a run produced only infra grounding', async () => {
+    // Distinct from the no-runs case: this project HAS a completed run, but every
+    // grounding source is filtered as provider infra. The handler skips the
+    // early empty return, exercises the zero-denominator percentage guards, and
+    // must still anchor to the real run id (not '').
+    const projId = crypto.randomUUID()
+    db.insert(projects).values({
+      id: projId, name: 'infra-only', displayName: 'Infra Only', canonicalDomain: 'infra.com',
+      ownedDomains: [], country: 'US', language: 'en', tags: [], labels: {},
+      providers: ['gemini'], locations: [], defaultLocation: null,
+      configSource: 'api', configRevision: 1, createdAt: iso, updatedAt: iso,
+    }).run()
+    const qId2 = crypto.randomUUID()
+    db.insert(queries).values({ id: qId2, projectId: projId, query: 'infra q', createdAt: iso }).run()
+    const realRun = crypto.randomUUID()
+    db.insert(runs).values({
+      id: realRun, projectId: projId, kind: 'answer-visibility', status: 'completed',
+      trigger: 'manual', location: null, startedAt: iso, finishedAt: iso, error: null, createdAt: iso,
+    }).run()
+    db.insert(querySnapshots).values({
+      id: crypto.randomUUID(), runId: realRun, queryId: qId2, provider: 'gemini',
+      model: 'gemini-2.5-flash', citationState: 'not-cited', answerText: 'x',
+      citedDomains: [], competitorOverlap: [], location: null,
+      rawResponse: JSON.stringify({
+        groundingSources: [{ uri: 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/Q', title: 'proxy' }],
+      }),
+      createdAt: iso,
+    }).run()
+
+    const res = await app.inject({ method: 'GET', url: '/api/v1/projects/infra-only/analytics/sources' })
+    const body = JSON.parse(res.payload)
+    expect(body.runId).toBe(realRun) // anchored to the real run, not ''
+    expect(body.ranked).toMatchObject({ totalCitedSlots: 0, domainTotal: 0, entries: [], truncatedDomainCount: 0, truncatedCitedSlots: 0, bySurfaceClass: [] })
+    expect(body.byProvider).toEqual({}) // gemini produced no usable domains → omitted
+  })
+
+  it('enriches the surface class from discovery domain_classifications (LLM), with own/competitor still authoritative', async () => {
+    const projId = crypto.randomUUID()
+    db.insert(projects).values({
+      id: projId, name: 'enrich-site', displayName: 'Enrich', canonicalDomain: 'enrich.com',
+      ownedDomains: [], country: 'US', language: 'en', tags: [], labels: {},
+      providers: ['gemini'], locations: [], defaultLocation: null,
+      configSource: 'api', configRevision: 1, createdAt: iso, updatedAt: iso,
+    }).run()
+    db.insert(competitors).values({ id: crypto.randomUUID(), projectId: projId, domain: 'erival.com', provenance: 'manual', createdAt: iso }).run()
+    const qId2 = crypto.randomUUID()
+    db.insert(queries).values({ id: qId2, projectId: projId, query: 'q', createdAt: iso }).run()
+    const runId2 = crypto.randomUUID()
+    db.insert(runs).values({
+      id: runId2, projectId: projId, kind: 'answer-visibility', status: 'completed',
+      trigger: 'manual', location: null, startedAt: iso, finishedAt: iso, error: null, createdAt: iso,
+    }).run()
+    db.insert(querySnapshots).values({
+      id: crypto.randomUUID(), runId: runId2, queryId: qId2, provider: 'gemini',
+      model: 'gemini-2.5-flash', citationState: 'cited', answerText: 'x',
+      citedDomains: [], competitorOverlap: [], location: null,
+      rawResponse: JSON.stringify({
+        groundingSources: [
+          { uri: 'https://enrich.com/a', title: 'own' },
+          { uri: 'https://erival.com/b', title: 'competitor' },
+          { uri: 'https://nicheota.io/c', title: 'niche OTA (heuristic would say other)' },
+          { uri: 'https://plainsite.io/d', title: 'unclassified other' },
+        ],
+      }),
+      createdAt: iso,
+    }).run()
+    // Discovery's LLM classified these. Note the deliberately STALE rows for
+    // enrich.com (own) and erival.com (tracked competitor) — local membership
+    // must override them.
+    db.insert(domainClassifications).values([
+      { id: crypto.randomUUID(), projectId: projId, domain: 'nicheota.io', competitorType: 'ota-aggregator', hits: 3, sessionId: null, updatedAt: iso },
+      { id: crypto.randomUUID(), projectId: projId, domain: 'enrich.com', competitorType: 'other', hits: 1, sessionId: null, updatedAt: iso },
+      { id: crypto.randomUUID(), projectId: projId, domain: 'erival.com', competitorType: 'editorial-media', hits: 2, sessionId: null, updatedAt: iso },
+    ]).run()
+
+    const res = await app.inject({ method: 'GET', url: '/api/v1/projects/enrich-site/analytics/sources' })
+    const body = JSON.parse(res.payload)
+    const byDomain: Record<string, { surfaceClass: string }> = {}
+    for (const e of body.ranked.entries) byDomain[e.domain] = e
+    // stored LLM class lifts a domain the heuristic would call 'other'
+    expect(byDomain['nicheota.io']!.surfaceClass).toBe('ota-aggregator')
+    // no stored row → heuristic 'other'
+    expect(byDomain['plainsite.io']!.surfaceClass).toBe('other')
+    // own + tracked-competitor override the (stale) stored rows
+    expect(byDomain['enrich.com']!.surfaceClass).toBe('own')
+    expect(byDomain['erival.com']!.surfaceClass).toBe('direct-competitor')
+  })
+
+  it('returns an empty-but-valid shape for a project with no runs', async () => {
+    const emptyId = crypto.randomUUID()
+    db.insert(projects).values({
+      id: emptyId, name: 'empty-rank', displayName: 'Empty', canonicalDomain: 'empty.com',
+      ownedDomains: [], country: 'US', language: 'en', tags: [], labels: {},
+      providers: ['gemini'], locations: [], defaultLocation: null,
+      configSource: 'api', configRevision: 1, createdAt: iso, updatedAt: iso,
+    }).run()
+    const res = await app.inject({ method: 'GET', url: '/api/v1/projects/empty-rank/analytics/sources' })
+    const body = JSON.parse(res.payload)
+    expect(body.ranked).toMatchObject({ totalCitedSlots: 0, domainTotal: 0, entries: [], truncatedDomainCount: 0, truncatedCitedSlots: 0, bySurfaceClass: [] })
+    expect(body.byProvider).toEqual({})
+    expect(body.limit).toBeNull()
   })
 })

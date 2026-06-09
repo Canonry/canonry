@@ -10,6 +10,7 @@ import {
   createClient,
   discoveryProbes,
   discoverySessions,
+  domainClassifications,
   migrate,
   projects,
   queries,
@@ -360,6 +361,62 @@ describe('executeDiscovery', () => {
     expect(probeRows).toHaveLength(4)
     // Every probe row is buckets-tagged.
     expect(new Set(probeRows.map(r => r.bucket))).toEqual(new Set(['cited', 'aspirational', 'wasted-surface']))
+
+    // Each recurring cited domain is also upserted into the durable
+    // domain_classifications table so the content winnabilityClass gate can read it
+    // without re-running discovery. Own canonical domains are excluded.
+    const classRows = db.select().from(domainClassifications).all()
+    expect(
+      classRows
+        .map(r => ({ domain: r.domain, competitorType: r.competitorType, hits: r.hits, sessionId: r.sessionId }))
+        .sort((a, b) => a.domain.localeCompare(b.domain)),
+    ).toEqual([
+      { domain: 'aurora-solar.com', competitorType: 'direct-competitor', hits: 2, sessionId },
+      { domain: 'enerflo.com', competitorType: 'direct-competitor', hits: 1, sessionId },
+      { domain: 'random.com', competitorType: 'other', hits: 1, sessionId },
+    ])
+  })
+
+  it('upserts domain_classifications across sessions (last-write-wins, no duplicates)', async () => {
+    const { db, tmpDir } = buildApp()
+    cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
+
+    const { projectId } = seedProject(db, { icpDescription: 'solar contractors' })
+    const project = {
+      id: projectId,
+      name: 'demand-iq',
+      canonicalDomains: ['demand-iq.com'],
+      competitorDomains: ['aurora-solar.com'],
+    }
+    const now = new Date().toISOString()
+
+    async function runSession(classification: DiscoveryDomainClassification) {
+      const sessionId = crypto.randomUUID()
+      const runId = crypto.randomUUID()
+      db.insert(discoverySessions).values({
+        id: sessionId, projectId, status: 'queued', icpDescription: 'solar contractors', competitorMap: [], createdAt: now,
+      }).run()
+      db.insert(runs).values({
+        id: runId, projectId, kind: 'aeo-discover-probe', status: 'queued', trigger: 'manual', createdAt: now,
+      }).run()
+      await executeDiscovery({
+        db, runId, sessionId, project, icpDescription: 'solar contractors',
+        deps: buildDeps({
+          candidates: ['best solar quoting tool'],
+          probeResults: [{ query: 'best solar quoting tool', citationState: 'not-cited', citedDomains: ['aurora-solar.com'] }],
+          classification,
+        }),
+      })
+      return sessionId
+    }
+
+    await runSession({ 'aurora-solar.com': 'editorial-media' })
+    const secondSession = await runSession({ 'aurora-solar.com': 'direct-competitor' })
+
+    const rows = db.select().from(domainClassifications).all()
+    expect(rows).toHaveLength(1) // unique (project_id, domain) — upsert, not duplicate
+    expect(rows[0].competitorType).toBe('direct-competitor') // last write wins
+    expect(rows[0].sessionId).toBe(secondSession)
   })
 
   it('respects maxProbes cap: candidates beyond the budget are not probed', async () => {

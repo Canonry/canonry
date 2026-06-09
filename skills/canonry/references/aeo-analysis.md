@@ -52,6 +52,13 @@ Shows which source categories AI models cite for your queries. Helps identify:
 - Whether competitors dominate specific categories
 - Content format opportunities (FAQ, how-to, comparison pages)
 
+### Winnability gate + briefs (`canonry content targets|map|brief`)
+Every content target carries a deterministic `winnabilityClass`: **ownable** (worth writing for) or **ceded** (the cited surface is dominated by aggregators/OTAs or editorial media — a head term first-party content cannot realistically win). It is derived (no LLM) from the discovery domain classifier, so **run `canonry discover run` first** to populate it; with no classifications every target fails open to `ownable`. `canonry doctor --project <project> --check content.winnability.coverage` reports whether the cited-surface domains behind the gate have enough discovery coverage.
+- `canonry content targets <project> --ownable` — the winnable shortlist (ownable rows sort first by default).
+- `canonry content map <project>` — the winnability map: which cited surfaces are ceded vs the ranked ownable targets.
+- `canonry content brief <project> <targetRef>` — synthesize a structured brief (angle, why-winnable, schema hookup) for an **ownable** target. Ceded targets are rejected — don't chase them.
+Recommend briefs only for ownable targets; for ceded head terms, advise earning placement on the aggregator/editorial surface instead of writing a competing page.
+
 ## Diagnosing Citation Gaps
 
 ### Step 1: Check indexing first

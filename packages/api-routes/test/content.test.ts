@@ -16,8 +16,12 @@ import {
   gscSearchData,
   gaTrafficSnapshots,
   gaAiReferrals,
+  domainClassifications,
+  recommendationExplanations,
+  recommendationBriefs,
 } from '@ainyc/canonry-db'
 import { AppError } from '@ainyc/canonry-contracts'
+import type { SynthesizeContentBriefFn } from '../src/content.js'
 
 import { contentRoutes } from '../src/content.js'
 
@@ -349,6 +353,96 @@ describe('content routes', () => {
         expect(target.actionConfidence).toMatch(/^(high|medium|low)$/)
         expect(target.targetRef).toBeTruthy()
       }
+    })
+  })
+
+  describe('GET /projects/:name/content/targets winnabilityClass gate', () => {
+    function classify(projectId: string, domain: string, competitorType: string) {
+      db.insert(domainClassifications).values({
+        id: crypto.randomUUID(),
+        projectId,
+        domain,
+        competitorType,
+        hits: 5,
+        sessionId: 'sess_test',
+        updatedAt: new Date().toISOString(),
+      }).run()
+    }
+
+    it('fails open: every row is ownable when discovery has produced no classifications', async () => {
+      seedProject(db)
+      const res = await app.inject({ method: 'GET', url: '/projects/example/content/targets' })
+      const body = JSON.parse(res.payload)
+      expect(body.targets.length).toBeGreaterThan(0)
+      for (const t of body.targets) {
+        expect(t.winnabilityClass).toBe('ownable')
+        expect(t.winnability).toBeNull()
+      }
+    })
+
+    it("marks 'best crm for saas' ceded once its cited surface is classified as aggregators", async () => {
+      const { projectId } = seedProject(db)
+      // Q1's cited surface is competitor-a.com + competitor-b.com.
+      classify(projectId, 'competitor-a.com', 'ota-aggregator')
+      classify(projectId, 'competitor-b.com', 'ota-aggregator')
+
+      const res = await app.inject({ method: 'GET', url: '/projects/example/content/targets' })
+      const body = JSON.parse(res.payload)
+      const q1 = body.targets.find((t: { query: string }) => t.query === 'best crm for saas')
+      expect(q1.winnabilityClass).toBe('ceded')
+      expect(q1.winnability).toBeCloseTo(0)
+    })
+
+    it('?winnability-class=ownable excludes ceded rows; ?winnability-class=ceded returns only ceded', async () => {
+      const { projectId } = seedProject(db)
+      classify(projectId, 'competitor-a.com', 'ota-aggregator')
+      classify(projectId, 'competitor-b.com', 'ota-aggregator')
+
+      const ownableRes = await app.inject({ method: 'GET', url: '/projects/example/content/targets?winnability-class=ownable' })
+      const ownable = JSON.parse(ownableRes.payload).targets
+      expect(ownable.every((t: { winnabilityClass: string }) => t.winnabilityClass === 'ownable')).toBe(true)
+      expect(ownable.find((t: { query: string }) => t.query === 'best crm for saas')).toBeUndefined()
+
+      const cededRes = await app.inject({ method: 'GET', url: '/projects/example/content/targets?winnability-class=ceded' })
+      const ceded = JSON.parse(cededRes.payload).targets
+      expect(ceded.length).toBeGreaterThan(0)
+      expect(ceded.every((t: { winnabilityClass: string }) => t.winnabilityClass === 'ceded')).toBe(true)
+    })
+
+    it('?ownable=true is a convenience alias for winnability-class=ownable', async () => {
+      const { projectId } = seedProject(db)
+      classify(projectId, 'competitor-a.com', 'ota-aggregator')
+      classify(projectId, 'competitor-b.com', 'ota-aggregator')
+      const res = await app.inject({ method: 'GET', url: '/projects/example/content/targets?ownable=true' })
+      const targets = JSON.parse(res.payload).targets
+      expect(targets.every((t: { winnabilityClass: string }) => t.winnabilityClass === 'ownable')).toBe(true)
+    })
+
+    it('orders ownable rows ahead of ceded rows by default', async () => {
+      const { projectId } = seedProject(db)
+      classify(projectId, 'competitor-a.com', 'ota-aggregator')
+      classify(projectId, 'competitor-b.com', 'ota-aggregator')
+      const res = await app.inject({ method: 'GET', url: '/projects/example/content/targets' })
+      const targets = JSON.parse(res.payload).targets as Array<{ winnabilityClass: string }>
+      const firstCeded = targets.findIndex((t) => t.winnabilityClass === 'ceded')
+      const lastOwnable = targets.map((t) => t.winnabilityClass).lastIndexOf('ownable')
+      if (firstCeded !== -1 && lastOwnable !== -1) {
+        expect(firstCeded).toBeGreaterThan(lastOwnable)
+      }
+    })
+
+    it('rejects an invalid winnability-class value with 400', async () => {
+      seedProject(db)
+      const res = await app.inject({ method: 'GET', url: '/projects/example/content/targets?winnability-class=winnable' })
+      expect(res.statusCode).toBe(400)
+      expect(JSON.parse(res.payload).error.message).toContain('winnability-class')
+    })
+
+    it('rejects the legacy surface-class filter instead of silently ignoring it', async () => {
+      seedProject(db)
+      const res = await app.inject({ method: 'GET', url: '/projects/example/content/targets?surface-class=ownable' })
+      expect(res.statusCode).toBe(400)
+      expect(JSON.parse(res.payload).error.message).toContain('winnability-class')
     })
   })
 
@@ -1256,5 +1350,229 @@ describe('content recommendation explanation routes', () => {
       // explainer for read access.
       expect(res.statusCode).toBe(404)
     })
+  })
+})
+
+// ─── Content brief routes (Feature B) ────────────────────────────────────────
+
+describe('content brief routes', () => {
+  let app: ReturnType<typeof buildApp>['app']
+  let db: ReturnType<typeof buildApp>['db']
+  let tmpDir: string
+  let briefState: { callCount: number; throwError: Error | null }
+
+  const stubSynthesizer: SynthesizeContentBriefFn = async (input) => {
+    briefState.callCount++
+    if (briefState.throwError) throw briefState.throwError
+    return {
+      promptVersion: 'v1',
+      provider: 'claude',
+      model: 'claude-sonnet-4-6',
+      brief: {
+        targetQuery: input.recommendation.query,
+        winnabilityClass: input.recommendation.winnabilityClass,
+        angle: 'Differentiated first-party angle',
+        whyWinnable: 'Cited surface is rivals, not aggregators.',
+        schemaHookup: 'FAQPage + Product',
+        controllableSurfaceRationale: 'Direct competitors cited — controllable.',
+      },
+      costMillicents: 88,
+    }
+  }
+
+  beforeEach(async () => {
+    const ctx = buildApp()
+    app = ctx.app
+    db = ctx.db
+    tmpDir = ctx.tmpDir
+    briefState = { callCount: 0, throwError: null }
+    await app.register(contentRoutes, {
+      // Register both so the cache-isolation test can write an explanation too.
+      explainContentRecommendation: async () => ({
+        promptVersion: 'v1', provider: 'claude', model: 'claude-sonnet-4-6',
+        responseText: '- prose explanation', costMillicents: 5,
+      }),
+      briefContentRecommendation: stubSynthesizer,
+      briefPromptVersion: 'v1',
+    })
+    await app.ready()
+  })
+
+  afterEach(async () => {
+    await app.close()
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  function classify(projectId: string, domain: string, competitorType: string) {
+    db.insert(domainClassifications).values({
+      id: crypto.randomUUID(), projectId, domain, competitorType, hits: 5,
+      sessionId: 'sess', updatedAt: new Date().toISOString(),
+    }).run()
+  }
+
+  async function ownableTargetRef(query = 'best crm for saas'): Promise<string> {
+    const res = await app.inject({ method: 'GET', url: '/projects/example/content/targets?winnability-class=ownable' })
+    const targets = JSON.parse(res.payload).targets
+    const target = targets.find((t: { query: string }) => t.query === query) ?? targets[0]
+    expect(target).toBeDefined()
+    return target.targetRef
+  }
+
+  it('synthesizes a structured brief for an ownable target', async () => {
+    seedProject(db)
+    const targetRef = await ownableTargetRef()
+    const res = await app.inject({
+      method: 'POST',
+      url: `/projects/example/content/recommendations/${targetRef}/brief`,
+      headers: { 'content-type': 'application/json' },
+      payload: '{}',
+    })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.payload)
+    expect(body.targetRef).toBe(targetRef)
+    expect(body.brief.angle).toBe('Differentiated first-party angle')
+    expect(body.brief.winnabilityClass).toBe('ownable')
+    expect(body.brief.schemaHookup).toBe('FAQPage + Product')
+    expect(body.costMillicents).toBe(88)
+    expect(briefState.callCount).toBe(1)
+  })
+
+  it('rejects a ceded target with 400 and never calls the synthesizer', async () => {
+    const { projectId } = seedProject(db)
+    classify(projectId, 'competitor-a.com', 'ota-aggregator')
+    classify(projectId, 'competitor-b.com', 'ota-aggregator')
+    const cededRes = await app.inject({ method: 'GET', url: '/projects/example/content/targets?winnability-class=ceded' })
+    const targetRef = JSON.parse(cededRes.payload).targets[0].targetRef
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/projects/example/content/recommendations/${targetRef}/brief`,
+      headers: { 'content-type': 'application/json' },
+      payload: '{}',
+    })
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.payload).error.code).toBe('VALIDATION_ERROR')
+    expect(briefState.callCount).toBe(0)
+  })
+
+  it('returns the cached brief on a second POST without forceRefresh', async () => {
+    seedProject(db)
+    const targetRef = await ownableTargetRef()
+    const url = `/projects/example/content/recommendations/${targetRef}/brief`
+    await app.inject({ method: 'POST', url, headers: { 'content-type': 'application/json' }, payload: '{}' })
+    await app.inject({ method: 'POST', url, headers: { 'content-type': 'application/json' }, payload: '{}' })
+    expect(briefState.callCount).toBe(1) // second call served from cache
+  })
+
+  it('re-synthesizes when forceRefresh is true', async () => {
+    seedProject(db)
+    const targetRef = await ownableTargetRef()
+    const url = `/projects/example/content/recommendations/${targetRef}/brief`
+    await app.inject({ method: 'POST', url, headers: { 'content-type': 'application/json' }, payload: '{}' })
+    await app.inject({ method: 'POST', url, headers: { 'content-type': 'application/json' }, payload: JSON.stringify({ forceRefresh: true }) })
+    expect(briefState.callCount).toBe(2)
+  })
+
+  it('GET brief is a cache-only read: 404 before synthesis, the brief after', async () => {
+    seedProject(db)
+    const targetRef = await ownableTargetRef()
+    const url = `/projects/example/content/recommendations/${targetRef}/brief`
+    const before = await app.inject({ method: 'GET', url })
+    expect(before.statusCode).toBe(404)
+    await app.inject({ method: 'POST', url, headers: { 'content-type': 'application/json' }, payload: '{}' })
+    const after = await app.inject({ method: 'GET', url })
+    expect(after.statusCode).toBe(200)
+    expect(JSON.parse(after.payload).brief.angle).toBe('Differentiated first-party angle')
+  })
+
+  it('GET brief revalidates the current recommendation before returning a cached row', async () => {
+    const { projectId } = seedProject(db)
+    const targetRef = await ownableTargetRef('best crm for saas')
+    const url = `/projects/example/content/recommendations/${targetRef}/brief`
+
+    const first = await app.inject({ method: 'POST', url, headers: { 'content-type': 'application/json' }, payload: '{}' })
+    expect(first.statusCode).toBe(200)
+    classify(projectId, 'competitor-a.com', 'ota-aggregator')
+    classify(projectId, 'competitor-b.com', 'ota-aggregator')
+
+    const after = await app.inject({ method: 'GET', url })
+    expect(after.statusCode).toBe(400)
+    expect(JSON.parse(after.payload).error.code).toBe('VALIDATION_ERROR')
+    expect(briefState.callCount).toBe(1)
+  })
+
+  it('brief and explanation caches are isolated (dedicated tables, no bleed)', async () => {
+    seedProject(db)
+    const targetRef = await ownableTargetRef()
+    // Write a brief and an explanation for the SAME (project, targetRef).
+    await app.inject({ method: 'POST', url: `/projects/example/content/recommendations/${targetRef}/brief`, headers: { 'content-type': 'application/json' }, payload: '{}' })
+    await app.inject({ method: 'POST', url: `/projects/example/content/recommendations/${targetRef}/analyze`, headers: { 'content-type': 'application/json' }, payload: '{}' })
+
+    const briefRes = await app.inject({ method: 'GET', url: `/projects/example/content/recommendations/${targetRef}/brief` })
+    const analysisRes = await app.inject({ method: 'GET', url: `/projects/example/content/recommendations/${targetRef}/analysis` })
+    // GET brief returns the structured brief; GET analysis returns the prose —
+    // never each other.
+    expect(JSON.parse(briefRes.payload).brief).toBeDefined()
+    expect(JSON.parse(briefRes.payload).responseText).toBeUndefined()
+    expect(JSON.parse(analysisRes.payload).responseText).toBe('- prose explanation')
+    expect(JSON.parse(analysisRes.payload).brief).toBeUndefined()
+    // Both rows physically coexist.
+    expect(db.select().from(recommendationBriefs).all()).toHaveLength(1)
+    expect(db.select().from(recommendationExplanations).all()).toHaveLength(1)
+  })
+
+  it('404s when the targetRef matches no current recommendation', async () => {
+    seedProject(db)
+    const res = await app.inject({
+      method: 'POST',
+      url: '/projects/example/content/recommendations/tgt_not_real/brief',
+      headers: { 'content-type': 'application/json' },
+      payload: '{}',
+    })
+    expect(res.statusCode).toBe(404)
+  })
+
+  it('GET 404s when the targetRef matches no current recommendation', async () => {
+    seedProject(db)
+    const res = await app.inject({
+      method: 'GET',
+      url: '/projects/example/content/recommendations/tgt_not_real/brief',
+    })
+    expect(res.statusCode).toBe(404)
+  })
+
+  it('502s when no synthesizer is wired', async () => {
+    const ctx = buildApp()
+    await ctx.app.register(contentRoutes) // no briefContentRecommendation
+    await ctx.app.ready()
+    seedProject(ctx.db)
+    const targetsRes = await ctx.app.inject({ method: 'GET', url: '/projects/example/content/targets' })
+    const targetRef = JSON.parse(targetsRes.payload).targets[0].targetRef
+    const res = await ctx.app.inject({
+      method: 'POST',
+      url: `/projects/example/content/recommendations/${targetRef}/brief`,
+      headers: { 'content-type': 'application/json' },
+      payload: '{}',
+    })
+    expect(res.statusCode).toBe(502)
+    expect(JSON.parse(res.payload).error.code).toBe('PROVIDER_ERROR')
+    await ctx.app.close()
+    fs.rmSync(ctx.tmpDir, { recursive: true, force: true })
+  })
+
+  it('GET domain-classifications returns the project rows ranked by hits', async () => {
+    const { projectId } = seedProject(db)
+    classify(projectId, 'booking.com', 'ota-aggregator')
+    db.insert(domainClassifications).values({
+      id: crypto.randomUUID(), projectId, domain: 'rival.com', competitorType: 'direct-competitor',
+      hits: 99, sessionId: 'sess', updatedAt: new Date().toISOString(),
+    }).run()
+
+    const res = await app.inject({ method: 'GET', url: '/projects/example/content/domain-classifications' })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.payload)
+    expect(body.classifications).toHaveLength(2)
+    expect(body.classifications[0].domain).toBe('rival.com') // highest hits first
+    expect(body.classifications[0].competitorType).toBe('direct-competitor')
   })
 })

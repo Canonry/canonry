@@ -1567,6 +1567,49 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `CREATE INDEX IF NOT EXISTS idx_gbp_place_details_loc ON gbp_place_details(project_id, location_name, synced_at)`,
     ],
   },
+  {
+    // Durable per-domain classification of cited surfaces, upserted on each
+    // discovery completion. Powers the content-targets winnabilityClass winnability
+    // gate without re-running a discovery probe. Keyed (project_id, domain).
+    version: 73,
+    name: 'domain-classifications',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS domain_classifications (
+        id              TEXT PRIMARY KEY,
+        project_id      TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        domain          TEXT NOT NULL,
+        competitor_type TEXT NOT NULL,
+        hits            INTEGER NOT NULL DEFAULT 0,
+        session_id      TEXT,
+        updated_at      TEXT NOT NULL
+      )`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_domain_classifications_project_domain ON domain_classifications(project_id, domain)`,
+      `CREATE INDEX IF NOT EXISTS idx_domain_classifications_project ON domain_classifications(project_id)`,
+    ],
+  },
+  {
+    // Structured LLM content briefs, cached per (project, target_ref,
+    // prompt_version). Separate from recommendation_explanations so the
+    // structured brief payload and its version-keyed cache never collide with
+    // the prompt-version-blind explanation lookup.
+    version: 74,
+    name: 'recommendation-briefs',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS recommendation_briefs (
+        id              TEXT PRIMARY KEY,
+        project_id      TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        target_ref      TEXT NOT NULL,
+        prompt_version  TEXT NOT NULL,
+        provider        TEXT NOT NULL,
+        model           TEXT NOT NULL,
+        brief           TEXT NOT NULL,
+        cost_millicents INTEGER NOT NULL DEFAULT 0,
+        generated_at    TEXT NOT NULL
+      )`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_recommendation_briefs_unique ON recommendation_briefs(project_id, target_ref, prompt_version)`,
+      `CREATE INDEX IF NOT EXISTS idx_recommendation_briefs_project ON recommendation_briefs(project_id)`,
+    ],
+  },
 ]
 
 /**

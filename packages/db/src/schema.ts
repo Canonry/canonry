@@ -1,5 +1,5 @@
 import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
-import type { DiscoveryCompetitorMapEntry, LocationContext, ProviderName } from '@ainyc/canonry-contracts'
+import type { ContentBriefDto, DiscoveryCompetitorMapEntry, DiscoveryCompetitorType, LocationContext, ProviderName } from '@ainyc/canonry-contracts'
 
 export const projects = sqliteTable('projects', {
   id: text('id').primaryKey(),
@@ -793,6 +793,36 @@ export const discoveryProbes = sqliteTable('discovery_probes', {
 ])
 
 /**
+ * Durable, per-domain classification of cited surfaces produced by discovery.
+ *
+ * Discovery already types every recurring cited domain (`direct-competitor` /
+ * `ota-aggregator` / `editorial-media` / `other` / `unknown`) into a session's
+ * `competitor_map`, but that map is keyed to a session, not to a
+ * `(project, domain)` lookup. The content-targets winnabilityClass gate runs on
+ * every report and sweep and cannot run a discovery probe, so it needs a cheap
+ * indexed read. This table accumulates the union of every classification ever
+ * produced, upserted on each discovery completion (last-write-wins per domain),
+ * decoupled from session retention.
+ *
+ * Keyed UNIQUE on `(project_id, domain)`. `domain` is normalized
+ * (`normalizeDomain`). `session_id` records the provenance of the latest write.
+ */
+export const domainClassifications = sqliteTable('domain_classifications', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  domain: text('domain').notNull(),
+  competitorType: text('competitor_type').$type<DiscoveryCompetitorType>().notNull(),
+  /** Recurrence count from the latest classifying session; informational. */
+  hits: integer('hits').notNull().default(0),
+  /** Discovery session that produced the latest classification. */
+  sessionId: text('session_id'),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_domain_classifications_project_domain').on(table.projectId, table.domain),
+  index('idx_domain_classifications_project').on(table.projectId),
+])
+
+/**
  * Per-recommendation dismissal for content-opportunity rows in the report.
  *
  * Recommendations are recomputed on every report load from live GSC/GA
@@ -845,6 +875,37 @@ export const recommendationExplanations = sqliteTable('recommendation_explanatio
     table.promptVersion,
   ),
   index('idx_recommendation_explanations_project').on(table.projectId),
+])
+
+/**
+ * LLM-synthesized content brief for a recommendation. Separate from
+ * `recommendation_explanations` on purpose: the brief carries a STRUCTURED
+ * payload, and the explanation cache lookup is prompt-version-blind (it returns
+ * the newest row for a target regardless of version) — sharing a table would
+ * let brief and explanation rows bleed into each other's reads. The brief
+ * lookup keys on the full `(project, target_ref, prompt_version)` tuple, so the
+ * two modes never collide. Gated to `ownable` targets; a `ceded` target is
+ * rejected before synthesis, so no row is ever written for one.
+ */
+export const recommendationBriefs = sqliteTable('recommendation_briefs', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  targetRef: text('target_ref').notNull(),
+  promptVersion: text('prompt_version').notNull(),
+  provider: text('provider').notNull(),
+  model: text('model').notNull(),
+  /** The structured brief payload (angle, why-winnable, schema hookup, etc.). */
+  brief: text('brief', { mode: 'json' }).$type<ContentBriefDto>().notNull(),
+  /** Estimated cost in millicents (1/100 of a cent) for audit; 0 if unknown. */
+  costMillicents: integer('cost_millicents').notNull().default(0),
+  generatedAt: text('generated_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_recommendation_briefs_unique').on(
+    table.projectId,
+    table.targetRef,
+    table.promptVersion,
+  ),
+  index('idx_recommendation_briefs_project').on(table.projectId),
 ])
 
 /**

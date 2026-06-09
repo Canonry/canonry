@@ -17,7 +17,17 @@ import {
   contentSourcesResponseDtoSchema,
   contentGapRowDtoSchema,
   contentGapsResponseDtoSchema,
+  WinnabilityClasses,
+  winnabilityClassSchema,
+  deriveWinnabilityClass,
+  CEDED_SURFACE_THRESHOLD,
+  contentBriefDtoSchema,
+  recommendationBriefDtoSchema,
+  domainClassificationDtoSchema,
+  domainClassificationsResponseDtoSchema,
 } from '../src/content.js'
+import { DiscoveryCompetitorTypes } from '../src/discovery.js'
+import type { DiscoveryCompetitorType } from '../src/discovery.js'
 
 // ─── Enums ───────────────────────────────────────────────────────────────────
 
@@ -149,6 +159,8 @@ describe('contentTargetRowDtoSchema', () => {
     demandSource: 'competitor-evidence',
     actionConfidence: 'high',
     existingAction: null,
+    winnabilityClass: 'ownable',
+    winnability: 0.8,
   }
 
   it('parses a complete CREATE row with no existing page', () => {
@@ -265,6 +277,8 @@ describe('contentTargetsResponseDtoSchema', () => {
           demandSource: 'competitor-evidence',
           actionConfidence: 'low',
           existingAction: null,
+          winnabilityClass: 'ceded',
+          winnability: 0.1,
         },
         {
           targetRef: 'tgt_2',
@@ -284,6 +298,8 @@ describe('contentTargetsResponseDtoSchema', () => {
           demandSource: 'gsc',
           actionConfidence: 'high',
           existingAction: null,
+          winnabilityClass: 'ownable',
+          winnability: null,
         },
       ],
       contextMetrics: {
@@ -411,5 +427,245 @@ describe('contentGapsResponseDtoSchema', () => {
       latestRunId: 'run_1',
     })
     expect(parsed.gaps).toEqual([])
+  })
+})
+
+// ─── winnabilityClass ────────────────────────────────────────────────────────────
+
+describe('winnabilityClassSchema', () => {
+  it('accepts ownable and ceded', () => {
+    expect(winnabilityClassSchema.parse('ownable')).toBe('ownable')
+    expect(winnabilityClassSchema.parse('ceded')).toBe('ceded')
+  })
+
+  it('rejects unknown values', () => {
+    expect(() => winnabilityClassSchema.parse('winnable')).toThrow()
+    expect(() => winnabilityClassSchema.parse('')).toThrow()
+  })
+
+  it('exposes WinnabilityClasses enum constants', () => {
+    expect(WinnabilityClasses.ownable).toBe('ownable')
+    expect(WinnabilityClasses.ceded).toBe('ceded')
+  })
+
+  it('contentTargetRowDtoSchema requires winnabilityClass and accepts nullable winnability', () => {
+    const base = {
+      targetRef: 't', query: 'q', action: 'create', ourBestPage: null, winningCompetitor: null,
+      score: 1, scoreBreakdown: { demand: 0, competitor: 0, absence: 1, gapSeverity: 1 },
+      drivers: [], demandSource: 'competitor-evidence', actionConfidence: 'low', existingAction: null,
+    }
+    expect(() => contentTargetRowDtoSchema.parse(base)).toThrow() // winnabilityClass missing
+    expect(contentTargetRowDtoSchema.parse({ ...base, winnabilityClass: 'ownable', winnability: null }).winnability).toBeNull()
+    expect(contentTargetRowDtoSchema.parse({ ...base, winnabilityClass: 'ceded', winnability: 0.2 }).winnabilityClass).toBe('ceded')
+    expect(() => contentTargetRowDtoSchema.parse({ ...base, winnabilityClass: 'ownable', winnability: 1.4 })).toThrow()
+  })
+})
+
+describe('deriveWinnabilityClass', () => {
+  const classes = (entries: [string, DiscoveryCompetitorType][]) =>
+    new Map<string, DiscoveryCompetitorType>(entries)
+
+  it('defaults the ceded threshold to 0.6', () => {
+    expect(CEDED_SURFACE_THRESHOLD).toBe(0.6)
+  })
+
+  it('marks an OTA-aggregator-dominated surface ceded', () => {
+    const result = deriveWinnabilityClass(
+      [{ domain: 'booking.com', citationCount: 8 }, { domain: 'expedia.com', citationCount: 2 }],
+      classes([
+        ['booking.com', DiscoveryCompetitorTypes['ota-aggregator']],
+        ['expedia.com', DiscoveryCompetitorTypes['ota-aggregator']],
+      ]),
+    )
+    expect(result.winnabilityClass).toBe(WinnabilityClasses.ceded)
+    expect(result.winnability).toBeCloseTo(0)
+  })
+
+  it('marks an editorial-media-dominated surface ceded', () => {
+    const result = deriveWinnabilityClass(
+      [{ domain: 'timeout.com', citationCount: 5 }, { domain: 'someblog.com', citationCount: 5 }],
+      classes([
+        ['timeout.com', DiscoveryCompetitorTypes['editorial-media']],
+        ['someblog.com', DiscoveryCompetitorTypes['editorial-media']],
+      ]),
+    )
+    expect(result.winnabilityClass).toBe(WinnabilityClasses.ceded)
+  })
+
+  it('marks a direct-competitor-dominated surface ownable (a competitor surface is winnable)', () => {
+    const result = deriveWinnabilityClass(
+      [{ domain: 'rival-a.com', citationCount: 6 }, { domain: 'rival-b.com', citationCount: 4 }],
+      classes([
+        ['rival-a.com', DiscoveryCompetitorTypes['direct-competitor']],
+        ['rival-b.com', DiscoveryCompetitorTypes['direct-competitor']],
+      ]),
+    )
+    expect(result.winnabilityClass).toBe(WinnabilityClasses.ownable)
+    expect(result.winnability).toBeCloseTo(1)
+  })
+
+  it('treats the threshold as inclusive (cededShare === 0.6 is ceded)', () => {
+    const result = deriveWinnabilityClass(
+      [{ domain: 'booking.com', citationCount: 6 }, { domain: 'rival.com', citationCount: 4 }],
+      classes([
+        ['booking.com', DiscoveryCompetitorTypes['ota-aggregator']],
+        ['rival.com', DiscoveryCompetitorTypes['direct-competitor']],
+      ]),
+    )
+    expect(result.winnabilityClass).toBe(WinnabilityClasses.ceded) // 6 / 10 === 0.6
+    expect(result.winnability).toBeCloseTo(0.4)
+  })
+
+  it('stays ownable when ceded share is below the threshold', () => {
+    const result = deriveWinnabilityClass(
+      [{ domain: 'booking.com', citationCount: 5 }, { domain: 'rival.com', citationCount: 5 }],
+      classes([
+        ['booking.com', DiscoveryCompetitorTypes['ota-aggregator']],
+        ['rival.com', DiscoveryCompetitorTypes['direct-competitor']],
+      ]),
+    )
+    expect(result.winnabilityClass).toBe(WinnabilityClasses.ownable) // 0.5 < 0.6
+    expect(result.winnability).toBeCloseTo(0.5)
+  })
+
+  it('weights by citation count, not domain count (one heavily-cited OTA dominates many lightly-cited rivals)', () => {
+    const result = deriveWinnabilityClass(
+      [
+        { domain: 'booking.com', citationCount: 40 },
+        { domain: 'r1.com', citationCount: 1 },
+        { domain: 'r2.com', citationCount: 1 },
+        { domain: 'r3.com', citationCount: 1 },
+        { domain: 'r4.com', citationCount: 1 },
+      ],
+      classes([
+        ['booking.com', DiscoveryCompetitorTypes['ota-aggregator']],
+        ['r1.com', DiscoveryCompetitorTypes['direct-competitor']],
+        ['r2.com', DiscoveryCompetitorTypes['direct-competitor']],
+        ['r3.com', DiscoveryCompetitorTypes['direct-competitor']],
+        ['r4.com', DiscoveryCompetitorTypes['direct-competitor']],
+      ]),
+    )
+    // 40/44 ≈ 0.91 → ceded. By domain count it would be 1/5 = 0.2 → ownable.
+    expect(result.winnabilityClass).toBe(WinnabilityClasses.ceded)
+  })
+
+  it('fails open to ownable + null winnability when there is no cited surface', () => {
+    const result = deriveWinnabilityClass([], classes([['booking.com', DiscoveryCompetitorTypes['ota-aggregator']]]))
+    expect(result.winnabilityClass).toBe(WinnabilityClasses.ownable)
+    expect(result.winnability).toBeNull()
+  })
+
+  it('fails open to ownable + null winnability when the classification map is empty', () => {
+    const result = deriveWinnabilityClass(
+      [{ domain: 'booking.com', citationCount: 10 }],
+      classes([]),
+    )
+    expect(result.winnabilityClass).toBe(WinnabilityClasses.ownable)
+    expect(result.winnability).toBeNull()
+  })
+
+  it('fails open when none of the cited domains have a classification (zero coverage)', () => {
+    const result = deriveWinnabilityClass(
+      [{ domain: 'unrated-a.com', citationCount: 5 }, { domain: 'unrated-b.com', citationCount: 5 }],
+      classes([['booking.com', DiscoveryCompetitorTypes['ota-aggregator']]]),
+    )
+    expect(result.winnabilityClass).toBe(WinnabilityClasses.ownable)
+    expect(result.winnability).toBeNull()
+  })
+
+  it('treats explicit unknown/other classifications as non-ceded but still assessed (computes winnability)', () => {
+    const result = deriveWinnabilityClass(
+      [{ domain: 'gov.example', citationCount: 10 }],
+      classes([['gov.example', DiscoveryCompetitorTypes.unknown]]),
+    )
+    expect(result.winnabilityClass).toBe(WinnabilityClasses.ownable)
+    expect(result.winnability).toBeCloseTo(1) // assessed, not failed-open
+  })
+
+  it('counts unclassified cited domains in the denominator (dilutes toward ownable)', () => {
+    const result = deriveWinnabilityClass(
+      [{ domain: 'booking.com', citationCount: 5 }, { domain: 'unrated.com', citationCount: 5 }],
+      classes([['booking.com', DiscoveryCompetitorTypes['ota-aggregator']]]),
+    )
+    // numerator 5 (booking), denominator 10 (both) → 0.5 < 0.6 → ownable
+    expect(result.winnabilityClass).toBe(WinnabilityClasses.ownable)
+    expect(result.winnability).toBeCloseTo(0.5)
+  })
+})
+
+// ─── Content brief ───────────────────────────────────────────────────────────
+
+describe('contentBriefDtoSchema', () => {
+  const validBrief = {
+    targetQuery: 'best boutique hotel williamsburg',
+    winnabilityClass: 'ownable',
+    angle: 'Local-first guide leaning on first-party amenity detail',
+    whyWinnable: 'Cited surface is rival hotels, not OTAs — first-party content can win.',
+    schemaHookup: 'Add Hotel + FAQPage schema to the property page.',
+    controllableSurfaceRationale: 'Direct competitors are cited; this surface is controllable.',
+  }
+
+  it('parses a complete brief', () => {
+    const parsed = contentBriefDtoSchema.parse(validBrief)
+    expect(parsed.targetQuery).toBe('best boutique hotel williamsburg')
+    expect(parsed.winnabilityClass).toBe('ownable')
+    expect(parsed.schemaHookup).toContain('Hotel')
+  })
+
+  it('requires all six fields', () => {
+    for (const key of ['targetQuery', 'winnabilityClass', 'angle', 'whyWinnable', 'schemaHookup', 'controllableSurfaceRationale']) {
+      const { [key]: _omitted, ...without } = validBrief as Record<string, unknown>
+      expect(() => contentBriefDtoSchema.parse(without)).toThrow()
+    }
+  })
+
+  it('rejects an invalid winnabilityClass', () => {
+    expect(() => contentBriefDtoSchema.parse({ ...validBrief, winnabilityClass: 'winnable' })).toThrow()
+  })
+
+  it('rejects blank string fields', () => {
+    for (const key of ['targetQuery', 'angle', 'whyWinnable', 'schemaHookup', 'controllableSurfaceRationale']) {
+      expect(() => contentBriefDtoSchema.parse({ ...validBrief, [key]: '   ' })).toThrow()
+    }
+  })
+
+  it('recommendationBriefDtoSchema wraps the brief with provider metadata', () => {
+    const parsed = recommendationBriefDtoSchema.parse({
+      targetRef: 'tgt_1',
+      promptVersion: 'v1',
+      provider: 'claude',
+      model: 'claude-sonnet-4-6',
+      brief: validBrief,
+      costMillicents: 120,
+      generatedAt: '2026-06-01T00:00:00.000Z',
+    })
+    expect(parsed.brief.angle).toBe(validBrief.angle)
+    expect(parsed.costMillicents).toBe(120)
+  })
+
+  it('recommendationBriefDtoSchema rejects negative cost', () => {
+    expect(() => recommendationBriefDtoSchema.parse({
+      targetRef: 'tgt_1', promptVersion: 'v1', provider: 'claude', model: 'm',
+      brief: validBrief, costMillicents: -1, generatedAt: '2026-06-01T00:00:00.000Z',
+    })).toThrow()
+  })
+})
+
+describe('domainClassificationsResponseDtoSchema', () => {
+  it('parses a classification row + response wrapper', () => {
+    const row = { domain: 'booking.com', competitorType: 'ota-aggregator', hits: 7, updatedAt: '2026-06-01T00:00:00.000Z' }
+    expect(domainClassificationDtoSchema.parse(row).competitorType).toBe('ota-aggregator')
+    const parsed = domainClassificationsResponseDtoSchema.parse({ classifications: [row] })
+    expect(parsed.classifications).toHaveLength(1)
+  })
+
+  it('rejects an unknown competitorType', () => {
+    expect(() => domainClassificationDtoSchema.parse({
+      domain: 'x.com', competitorType: 'frenemy', hits: 1, updatedAt: '2026-06-01T00:00:00.000Z',
+    })).toThrow()
+  })
+
+  it('parses an empty classifications response', () => {
+    expect(domainClassificationsResponseDtoSchema.parse({ classifications: [] }).classifications).toEqual([])
   })
 })

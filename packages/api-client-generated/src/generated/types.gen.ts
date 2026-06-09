@@ -437,6 +437,8 @@ export type ContentTargetsResponseDto = {
             state: 'proposed' | 'briefed' | 'payload-generated' | 'draft-created' | 'published' | 'validated' | 'dismissed';
             lastUpdated: string;
         } | null;
+        winnabilityClass: 'ownable' | 'ceded';
+        winnability: number | null;
     }>;
     contextMetrics: {
         totalAiReferralSessions: number;
@@ -459,6 +461,32 @@ export type CreatedApiKeyDto = {
     lastUsedAt: string | null;
     revokedAt: string | null;
     key: string;
+};
+
+export type DomainClassificationsResponseDto = {
+    classifications: Array<{
+        domain: string;
+        competitorType: 'direct-competitor' | 'ota-aggregator' | 'editorial-media' | 'other' | 'unknown';
+        hits: number;
+        updatedAt: string;
+    }>;
+};
+
+export type RecommendationBriefDto = {
+    targetRef: string;
+    promptVersion: string;
+    provider: string;
+    model: string;
+    brief: {
+        targetQuery: string;
+        winnabilityClass: 'ownable' | 'ceded';
+        angle: string;
+        whyWinnable: string;
+        schemaHookup: string;
+        controllableSurfaceRationale: string;
+    };
+    costMillicents: number;
+    generatedAt: string;
 };
 
 export type RecommendationExplanationDto = {
@@ -1534,6 +1562,8 @@ export type ProjectReportDto = {
             state: 'proposed' | 'briefed' | 'payload-generated' | 'draft-created' | 'published' | 'validated' | 'dismissed';
             lastUpdated: string;
         } | null;
+        winnabilityClass: 'ownable' | 'ceded';
+        winnability: number | null;
     }>;
     contentGaps: Array<{
         query: string;
@@ -1791,6 +1821,78 @@ export type SnapshotReportDto = {
         whatThisMeans: Array<string>;
         recommendedActions: Array<string>;
     };
+};
+
+export type SourceBreakdownDto = {
+    overall: Array<{
+        category: 'competitor' | 'directory' | 'social' | 'forum' | 'news' | 'reference' | 'blog' | 'ecommerce' | 'video' | 'academic' | 'other';
+        label: string;
+        count: number;
+        percentage: number;
+        topDomains: Array<{
+            domain: string;
+            count: number;
+        }>;
+    }>;
+    byQuery: {
+        [key: string]: Array<{
+            category: 'competitor' | 'directory' | 'social' | 'forum' | 'news' | 'reference' | 'blog' | 'ecommerce' | 'video' | 'academic' | 'other';
+            label: string;
+            count: number;
+            percentage: number;
+            topDomains: Array<{
+                domain: string;
+                count: number;
+            }>;
+        }>;
+    };
+    ranked: {
+        totalCitedSlots: number;
+        domainTotal: number;
+        entries: Array<{
+            domain: string;
+            count: number;
+            percentage: number;
+            category: 'competitor' | 'directory' | 'social' | 'forum' | 'news' | 'reference' | 'blog' | 'ecommerce' | 'video' | 'academic' | 'other';
+            label: string;
+            surfaceClass: 'own' | 'direct-competitor' | 'ota-aggregator' | 'editorial-media' | 'other';
+        }>;
+        truncatedDomainCount: number;
+        truncatedCitedSlots: number;
+        bySurfaceClass: Array<{
+            surfaceClass: 'own' | 'direct-competitor' | 'ota-aggregator' | 'editorial-media' | 'other';
+            label: string;
+            count: number;
+            percentage: number;
+            domainCount: number;
+        }>;
+    };
+    byProvider: {
+        [key: string]: {
+            totalCitedSlots: number;
+            domainTotal: number;
+            entries: Array<{
+                domain: string;
+                count: number;
+                percentage: number;
+                category: 'competitor' | 'directory' | 'social' | 'forum' | 'news' | 'reference' | 'blog' | 'ecommerce' | 'video' | 'academic' | 'other';
+                label: string;
+                surfaceClass: 'own' | 'direct-competitor' | 'ota-aggregator' | 'editorial-media' | 'other';
+            }>;
+            truncatedDomainCount: number;
+            truncatedCitedSlots: number;
+            bySurfaceClass: Array<{
+                surfaceClass: 'own' | 'direct-competitor' | 'ota-aggregator' | 'editorial-media' | 'other';
+                label: string;
+                count: number;
+                percentage: number;
+                domainCount: number;
+            }>;
+        };
+    };
+    runId: string;
+    window: '7d' | '30d' | '90d' | 'all';
+    limit: number | null;
 };
 
 export type TrafficBackfillResponse = {
@@ -3369,6 +3471,10 @@ export type GetApiV1ProjectsByNameAnalyticsSourcesData = {
          * Time window for analytics queries.
          */
         window?: '7d' | '30d' | '90d' | 'all';
+        /**
+         * Maximum number of records to return.
+         */
+        limit?: number;
     };
     url: '/api/v1/projects/{name}/analytics/sources';
 };
@@ -3386,9 +3492,7 @@ export type GetApiV1ProjectsByNameAnalyticsSourcesResponses = {
     /**
      * Source breakdown returned.
      */
-    200: {
-        [key: string]: unknown;
-    };
+    200: SourceBreakdownDto;
 };
 
 export type GetApiV1ProjectsByNameAnalyticsSourcesResponse = GetApiV1ProjectsByNameAnalyticsSourcesResponses[keyof GetApiV1ProjectsByNameAnalyticsSourcesResponses];
@@ -7259,13 +7363,21 @@ export type GetApiV1ProjectsByNameContentTargetsData = {
          * Include rows with in-flight tracked actions.
          */
         'include-in-progress'?: string;
+        /**
+         * Filter by winnability: "ownable" or "ceded".
+         */
+        'winnability-class'?: string;
+        /**
+         * Convenience alias for winnability-class=ownable when "true".
+         */
+        ownable?: string;
     };
     url: '/api/v1/projects/{name}/content/targets';
 };
 
 export type GetApiV1ProjectsByNameContentTargetsErrors = {
     /**
-     * Invalid limit.
+     * Invalid limit or winnability-class.
      */
     400: ErrorEnvelope;
     /**
@@ -7466,6 +7578,116 @@ export type PostApiV1ProjectsByNameContentRecommendationsByTargetRefAnalyzeRespo
 };
 
 export type PostApiV1ProjectsByNameContentRecommendationsByTargetRefAnalyzeResponse = PostApiV1ProjectsByNameContentRecommendationsByTargetRefAnalyzeResponses[keyof PostApiV1ProjectsByNameContentRecommendationsByTargetRefAnalyzeResponses];
+
+export type GetApiV1ProjectsByNameContentRecommendationsByTargetRefBriefData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+        /**
+         * Stable hash from ContentTargetRowDto.targetRef.
+         */
+        targetRef: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/content/recommendations/{targetRef}/brief';
+};
+
+export type GetApiV1ProjectsByNameContentRecommendationsByTargetRefBriefErrors = {
+    /**
+     * No cached brief for this targetRef yet.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameContentRecommendationsByTargetRefBriefError = GetApiV1ProjectsByNameContentRecommendationsByTargetRefBriefErrors[keyof GetApiV1ProjectsByNameContentRecommendationsByTargetRefBriefErrors];
+
+export type GetApiV1ProjectsByNameContentRecommendationsByTargetRefBriefResponses = {
+    /**
+     * Cached brief.
+     */
+    200: RecommendationBriefDto;
+};
+
+export type GetApiV1ProjectsByNameContentRecommendationsByTargetRefBriefResponse = GetApiV1ProjectsByNameContentRecommendationsByTargetRefBriefResponses[keyof GetApiV1ProjectsByNameContentRecommendationsByTargetRefBriefResponses];
+
+export type PostApiV1ProjectsByNameContentRecommendationsByTargetRefBriefData = {
+    body?: {
+        provider?: string;
+        model?: string;
+        forceRefresh?: boolean;
+    };
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+        /**
+         * Stable hash from ContentTargetRowDto.targetRef.
+         */
+        targetRef: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/content/recommendations/{targetRef}/brief';
+};
+
+export type PostApiV1ProjectsByNameContentRecommendationsByTargetRefBriefErrors = {
+    /**
+     * Invalid request body, unknown provider, or target is ceded (not winnable).
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found or targetRef does not match any current recommendation.
+     */
+    404: ErrorEnvelope;
+    /**
+     * No AI provider configured for this project.
+     */
+    503: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameContentRecommendationsByTargetRefBriefError = PostApiV1ProjectsByNameContentRecommendationsByTargetRefBriefErrors[keyof PostApiV1ProjectsByNameContentRecommendationsByTargetRefBriefErrors];
+
+export type PostApiV1ProjectsByNameContentRecommendationsByTargetRefBriefResponses = {
+    /**
+     * Brief synthesized or returned from cache.
+     */
+    200: RecommendationBriefDto;
+};
+
+export type PostApiV1ProjectsByNameContentRecommendationsByTargetRefBriefResponse = PostApiV1ProjectsByNameContentRecommendationsByTargetRefBriefResponses[keyof PostApiV1ProjectsByNameContentRecommendationsByTargetRefBriefResponses];
+
+export type GetApiV1ProjectsByNameContentDomainClassificationsData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/content/domain-classifications';
+};
+
+export type GetApiV1ProjectsByNameContentDomainClassificationsErrors = {
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameContentDomainClassificationsError = GetApiV1ProjectsByNameContentDomainClassificationsErrors[keyof GetApiV1ProjectsByNameContentDomainClassificationsErrors];
+
+export type GetApiV1ProjectsByNameContentDomainClassificationsResponses = {
+    /**
+     * Classifications returned.
+     */
+    200: DomainClassificationsResponseDto;
+};
+
+export type GetApiV1ProjectsByNameContentDomainClassificationsResponse = GetApiV1ProjectsByNameContentDomainClassificationsResponses[keyof GetApiV1ProjectsByNameContentDomainClassificationsResponses];
 
 export type GetApiV1ProjectsByNameContentSourcesData = {
     body?: never;

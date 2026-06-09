@@ -24,7 +24,7 @@ Classify the regression by severity:
 
 For each regression, check causes in order:
 
-1. **Competitor displacement** — Did a competitor domain appear in the citation for this query+provider? Check current run snapshots.
+1. **Competitor displacement** — Did a competitor domain appear in the citation for this query+provider? Check current run snapshots. For the whole picture, `cnry sources <project> --rank` (MCP: `canonry_analytics_sources`) ranks every cited domain and tags each with a surface class (own / direct-competitor / ota-aggregator / editorial-media / other), and `--by-provider` shows which engine grounds on whom — so you can tell a rival you must out-rank from an aggregator/editorial surface you should pitch for placement.
 2. **Indexing loss** — Is the page still indexed? Check Google Search Console integration or HTTP status.
 3. **Content change** — Did the page content change significantly? Compare content hashes if available.
 4. **Provider behavior change** — Did the provider change its response pattern for this query type?

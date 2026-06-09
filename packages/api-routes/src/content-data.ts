@@ -19,6 +19,7 @@ import {
   gscSearchData,
   gaTrafficSnapshots,
   gaAiReferrals,
+  domainClassifications,
 } from '@ainyc/canonry-db'
 import type { DatabaseClient } from '@ainyc/canonry-db'
 import {
@@ -37,6 +38,7 @@ import {
   type GroundingSource,
   type LocationContext,
   type ProviderName,
+  type DiscoveryCompetitorType,
 } from '@ainyc/canonry-contracts'
 import { notProbeRun } from './helpers.js'
 
@@ -104,6 +106,7 @@ export function loadOrchestratorInput(
 
   const gaTrafficByPage = buildGaTrafficByPage(db, projectId)
   const totalAiReferralSessions = sumAiReferralSessions(db, projectId)
+  const domainClasses = loadDomainClasses(db, projectId)
 
   return {
     projectId,
@@ -118,7 +121,23 @@ export function loadOrchestratorInput(
     latestRunId,
     latestRunTimestamp,
     inProgressActions: new Map<string, ExistingActionRef>(),
+    domainClasses,
   }
+}
+
+/**
+ * Load every cited-surface domain classification discovery has produced for the
+ * project, keyed by normalized domain. Powers the winnabilityClass winnability gate
+ * without re-running discovery. Returns an empty map when discovery has never
+ * run — the gate then fails open to `ownable` everywhere.
+ */
+function loadDomainClasses(db: DatabaseClient, projectId: string): Map<string, DiscoveryCompetitorType> {
+  const rows = db
+    .select({ domain: domainClassifications.domain, competitorType: domainClassifications.competitorType })
+    .from(domainClassifications)
+    .where(eq(domainClassifications.projectId, projectId))
+    .all()
+  return new Map(rows.map((r) => [normalizeDomain(r.domain), r.competitorType]))
 }
 
 function buildQueryIntentModifiers(project: ProjectRow, locationFilter: LocationScope): string[] {
@@ -467,6 +486,11 @@ function aggregateCandidate(opts: AggregateCandidateOpts): CandidateQuery {
   const competitorTally = new Map<string, number>()
   const competitorGroundingTally = new Map<string, GroundingUrlEvidence>()
   const ourGroundingTally = new Map<string, GroundingUrlEvidence>()
+  // Full cited surface: every non-own cited domain → citation count, NOT
+  // filtered to tracked competitors. Aggregators/editorial are usually not
+  // tracked competitors, so the winnabilityClass gate must read this, not the
+  // tracked-only `competitorGroundingTally`.
+  const citedSurfaceTally = new Map<string, number>()
   let ourCitedInLatestRun = false
 
   for (const snap of opts.snapshots) {
@@ -487,6 +511,8 @@ function aggregateCandidate(opts: AggregateCandidateOpts): CandidateQuery {
         recordGroundingHit(ourGroundingTally, g, domain, snap.provider)
         continue
       }
+      // Count toward the full cited surface before the tracked-competitor gate.
+      citedSurfaceTally.set(domain, (citedSurfaceTally.get(domain) ?? 0) + 1)
       if (!opts.competitorSet.has(domain)) continue
       recordGroundingHit(competitorGroundingTally, g, domain, snap.provider)
     }
@@ -506,6 +532,7 @@ function aggregateCandidate(opts: AggregateCandidateOpts): CandidateQuery {
     recentMissRate,
     ourGroundingUrls: Array.from(ourGroundingTally.values()),
     competitorGroundingUrls: Array.from(competitorGroundingTally.values()),
+    citedSurfaceDomains: Array.from(citedSurfaceTally.entries()).map(([domain, citationCount]) => ({ domain, citationCount })),
     runsOfHistory: new Set(opts.snapshots.map((s) => s.runId)).size,
   }
 }
@@ -548,6 +575,7 @@ function emptyCandidate(query: string): CandidateQuery {
     recentMissRate: 0,
     ourGroundingUrls: [],
     competitorGroundingUrls: [],
+    citedSurfaceDomains: [],
     runsOfHistory: 0,
   }
 }

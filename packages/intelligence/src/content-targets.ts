@@ -18,8 +18,11 @@ import type {
   ContentTargetRowDto,
   ContentSourceRowDto,
   ContentGapRowDto,
+  CitedSurfaceDomain,
+  DiscoveryCompetitorType,
   ProviderName,
 } from '@ainyc/canonry-contracts'
+import { deriveWinnabilityClass } from '@ainyc/canonry-contracts'
 
 import { classifyContentAction } from './content-classifier.js'
 import { scoreContentTarget } from './content-scorer.js'
@@ -62,6 +65,15 @@ export interface CandidateQuery {
   recentMissRate: number
   ourGroundingUrls: GroundingUrlEvidence[]
   competitorGroundingUrls: GroundingUrlEvidence[]
+  /**
+   * Every non-own domain cited for this query with its citation count —
+   * the FULL cited surface, NOT filtered to tracked competitors. The
+   * winnabilityClass winnability gate reads this so aggregators/editorial that
+   * are not tracked competitors (the common case) still count toward "ceded".
+   * `competitorGroundingUrls` is the tracked-competitor subset and must not be
+   * used for the gate.
+   */
+  citedSurfaceDomains: CitedSurfaceDomain[]
   runsOfHistory: number
 }
 
@@ -100,6 +112,13 @@ export interface OrchestratorInput {
 
   /** PR 1: always empty. PR 3 lights this up from `content_actions`. */
   inProgressActions: Map<string, ExistingActionRef>
+
+  /**
+   * Per-domain cited-surface classifications from discovery, keyed by
+   * normalized domain. Drives the deterministic winnabilityClass gate. Empty map
+   * (no discovery run yet) ⇒ every target fails open to `ownable`.
+   */
+  domainClasses: Map<string, DiscoveryCompetitorType>
 }
 
 // ─── Targets ────────────────────────────────────────────────────────────────
@@ -169,6 +188,8 @@ export function buildContentTargetRows(input: OrchestratorInput): ContentTargetR
         }
       : null
 
+    const { winnabilityClass, winnability } = deriveWinnabilityClass(cq.citedSurfaceDomains, input.domainClasses)
+
     rows.push({
       targetRef,
       query: cq.query,
@@ -181,6 +202,8 @@ export function buildContentTargetRows(input: OrchestratorInput): ContentTargetR
       demandSource: scoring.demandSource,
       actionConfidence,
       existingAction: input.inProgressActions.get(targetRef) ?? null,
+      winnabilityClass,
+      winnability,
     })
   }
 

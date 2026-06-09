@@ -43,7 +43,7 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'GET /api/v1/projects/{name}/timeline': 'included',
   'GET /api/v1/projects/{name}/analytics/metrics': 'included',
   'GET /api/v1/projects/{name}/analytics/gaps': 'deferred',
-  'GET /api/v1/projects/{name}/analytics/sources': 'deferred',
+  'GET /api/v1/projects/{name}/analytics/sources': 'included',
   'GET /api/v1/projects/{name}/snapshots/diff': 'included',
   'GET /api/v1/settings': 'included',
   'PUT /api/v1/settings/providers/{name}': 'deferred',
@@ -160,6 +160,15 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'GET /api/v1/projects/{name}/content/targets': 'included',
   'GET /api/v1/projects/{name}/content/sources': 'included',
   'GET /api/v1/projects/{name}/content/gaps': 'included',
+  // Winnability gate surfaces — the deterministic classification map
+  // (canonry_content_map) and the structured brief synthesizer
+  // (canonry_content_brief). The brief is gated to ownable targets and
+  // analyze-tier-cached, so Aero can act on it headless. The GET brief is a
+  // cache-only read; the POST tool returns the cached brief on a hit, so a
+  // separate read tool would be redundant — deferred like GET analysis.
+  'GET /api/v1/projects/{name}/content/domain-classifications': 'included',
+  'POST /api/v1/projects/{name}/content/recommendations/{targetRef}/brief': 'included',
+  'GET /api/v1/projects/{name}/content/recommendations/{targetRef}/brief': 'deferred',
   // Content-target dismiss endpoints — Aero could use these to record
   // that a recommendation was addressed (similar to insights dismiss),
   // but that's a separate workflow design. Defer the MCP tools until the

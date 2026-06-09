@@ -355,6 +355,8 @@ function richReport(): ProjectReportDto {
         demandSource: 'competitor-evidence',
         actionConfidence: 'high',
         existingAction: null,
+        winnabilityClass: 'ownable',
+        winnability: 0.9,
       },
       {
         targetRef: 'rich:refresh:answer-engine-optimization',
@@ -374,6 +376,8 @@ function richReport(): ProjectReportDto {
         demandSource: 'gsc',
         actionConfidence: 'medium',
         existingAction: null,
+        winnabilityClass: 'ceded',
+        winnability: 0.1,
       },
     ],
     contentGaps: [
@@ -520,6 +524,8 @@ describe('renderReportHtml', () => {
         demandSource: 'competitor-evidence',
         actionConfidence: 'medium',
         existingAction: null,
+        winnabilityClass: 'ownable',
+        winnability: null,
       },
     ]
     const html = renderReportHtml(report, { audience: 'agency' })
@@ -575,6 +581,24 @@ describe('renderReportHtml', () => {
     // Drivers are rendered as a list, not a single comma-joined cell.
     const block = html.split('id="content-opportunities"')[1]?.split('</section>')[0] ?? ''
     expect(block).toContain('driver-list')
+  })
+
+  test('content opportunities table surfaces the winnabilityClass winnability gate', () => {
+    const html = renderReportHtml(richReport(), { audience: 'agency' })
+    const block = html.split('id="content-opportunities"')[1]?.split('</section>')[0] ?? ''
+    expect(block).toContain('Winnability')
+    // The richReport fixture has one ownable + one ceded opportunity.
+    expect(block).toContain('Ownable')
+    expect(block).toContain('Ceded')
+    // Ceded rows carry the caution tone badge.
+    expect(block).toContain('badge tone-caution')
+  })
+
+  test('client opportunity list flags ceded surfaces with a caution badge', () => {
+    const html = renderReportHtml(richReport(), { audience: 'client' })
+    const block = html.split('id="client-evidence-summary"')[1]?.split('</section>')[0] ?? ''
+    // The ceded opportunity ("answer engine optimization") is flagged; ownable is not.
+    expect(block).toContain('Ceded surface')
   })
 
   test('content gaps section renders when contentGaps has entries', () => {
@@ -833,6 +857,8 @@ describe('renderReportHtml', () => {
         demandSource: 'gsc',
         actionConfidence: 'medium',
         existingAction: null,
+        winnabilityClass: 'ownable',
+        winnability: 1,
       },
       {
         targetRef: 'polyurea-michigan',
@@ -846,6 +872,8 @@ describe('renderReportHtml', () => {
         demandSource: 'gsc',
         actionConfidence: 'low',
         existingAction: null,
+        winnabilityClass: 'ownable',
+        winnability: 1,
       },
     ]
 

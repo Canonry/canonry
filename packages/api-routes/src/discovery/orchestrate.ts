@@ -1,7 +1,8 @@
 import crypto from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/canonry-db'
-import { discoveryProbes, discoverySessions } from '@ainyc/canonry-db'
+import { discoveryProbes, discoverySessions, domainClassifications } from '@ainyc/canonry-db'
+import { normalizeDomain } from '../content-data.js'
 import {
   CitationStates,
   DiscoveryBuckets,
@@ -337,12 +338,62 @@ export async function executeDiscovery(opts: ExecuteDiscoveryOptions): Promise<E
     .where(eq(discoverySessions.id, opts.sessionId))
     .run()
 
+  // Mirror the classified competitor map into the durable, per-domain
+  // `domain_classifications` table so the content winnabilityClass gate can read a
+  // domain's class without re-running discovery. Upsert keyed (projectId,
+  // domain); last write wins. Normalized with the same helper the content data
+  // layer uses for cited grounding domains so write-key == read-key.
+  upsertDomainClassifications(opts.db, opts.project.id, opts.sessionId, competitorMap)
+
   return {
     buckets,
     competitorMap,
     seedCountRaw,
     seedCount,
     seedProvider: seedResult.provider,
+  }
+}
+
+/**
+ * Upsert a session's classified competitor map into the durable
+ * `domain_classifications` table, one row per `(projectId, domain)`. Each
+ * domain is normalized so the key matches the content data layer's cited
+ * grounding domains. Last write wins; an `unknown` re-classification can
+ * overwrite a prior type — acceptable since the latest discovery is the most
+ * current view. Best-effort and additive, consistent with the surrounding
+ * non-transactional probe loop.
+ */
+export function upsertDomainClassifications(
+  db: Pick<DatabaseClient, 'insert'>,
+  projectId: string,
+  sessionId: string,
+  competitorMap: DiscoveryCompetitorMapEntry[],
+): void {
+  if (competitorMap.length === 0) return
+  const now = new Date().toISOString()
+  for (const entry of competitorMap) {
+    const domain = normalizeDomain(entry.domain)
+    if (!domain) continue
+    db.insert(domainClassifications)
+      .values({
+        id: crypto.randomUUID(),
+        projectId,
+        domain,
+        competitorType: entry.competitorType,
+        hits: entry.hits,
+        sessionId,
+        updatedAt: now,
+      })
+      .onConflictDoUpdate({
+        target: [domainClassifications.projectId, domainClassifications.domain],
+        set: {
+          competitorType: entry.competitorType,
+          hits: entry.hits,
+          sessionId,
+          updatedAt: now,
+        },
+      })
+      .run()
   }
 }
 

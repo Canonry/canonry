@@ -259,6 +259,20 @@ const contentTargetsInputSchema = z.object({
   project: projectNameSchema,
   limit: z.number().int().positive().max(500).optional().describe('Max rows. Defaults to all. Use a small number (3-10) when summarizing for the user.'),
   includeInProgress: z.boolean().optional().describe('Include rows that already have an in-flight tracked action. Default false.'),
+  winnabilityClass: z.enum(['ownable', 'ceded']).optional().describe('Filter by winnability: "ownable" (worth a brief) or "ceded" (aggregator/editorial head term to skip).'),
+  ownable: z.boolean().optional().describe('Convenience: when true, return only ownable targets (same as winnabilityClass="ownable").'),
+})
+
+const contentBriefInputSchema = z.object({
+  project: projectNameSchema,
+  targetRef: z.string().min(1).describe('Stable target ref from canonry_content_targets. The target must be ownable; ceded targets are rejected.'),
+  provider: z.string().optional().describe('Optional provider override (claude|openai|gemini|zai).'),
+  model: z.string().optional().describe('Optional model override within the chosen provider.'),
+  forceRefresh: z.boolean().optional().describe('Force a fresh synthesis even if a cached brief exists.'),
+})
+
+const contentMapInputSchema = z.object({
+  project: projectNameSchema,
 })
 
 const backlinksDomainsInputSchema = z.object({
@@ -473,6 +487,22 @@ export const canonryMcpTools = [
     handler: (client, input) => client.getAnalyticsMetrics(input.project, input.window),
   }),
   defineTool({
+    name: 'canonry_analytics_sources',
+    title: 'Get cited-source rankings',
+    description:
+      'Where AI engines get the facts they cite for a project. Returns the FULL ranked list of cited domains (not truncated) — each tagged with a category and an actionable surface class (own / direct-competitor / ota-aggregator / editorial-media / other) — plus a surface-class roll-up and a per-provider breakdown (each provider\'s cited-domain mix + total cited slots). The surface class is deterministic (own/competitor from project data, the rest from the source allow-list) and enriched by discovery\'s stored per-domain classifications when present — no new LLM calls. Probe-excluded, window-filterable (7d/30d/90d/all). Use `limit` to cap each ranked list to the top N domains (an explicit long-tail rollup preserves the totals). All counts/shares/classification are computed server-side.',
+    access: 'read',
+    tier: 'monitoring',
+    inputSchema: z.object({
+      project: projectNameSchema,
+      window: analyticsWindowSchema.optional().describe('Time range: 7d, 30d, 90d, or all (default all).'),
+      limit: z.number().int().positive().optional().describe('Cap each ranked list to the top N domains. Omit for the full list.'),
+    }),
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/analytics/sources'],
+    handler: (client, input) => client.getAnalyticsSources(input.project, { window: input.window, limit: input.limit }),
+  }),
+  defineTool({
     name: 'canonry_search',
     title: 'Search project (composite)',
     description: 'Search query snapshots and intelligence insights for the given text. Looks at snapshot answer text, cited domains, raw provider responses, and insight title/query/recommendation/cause. Returns ranked hits with snippets — use it instead of paginating snapshots when you need to find a competitor mention or term.',
@@ -649,7 +679,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_content_targets',
     title: 'Get content targets',
-    description: 'Ranked, action-typed content opportunities. Each row is `{query, action ∈ create|expand|refresh|add-schema, ourBestPage?, winningCompetitor?, score, scoreBreakdown, drivers[], demandSource, actionConfidence}`. Use this to recommend which post the user should write or refresh next.',
+    description: 'Ranked, action-typed content opportunities. Each row is `{query, action ∈ create|expand|refresh|add-schema, ourBestPage?, winningCompetitor?, score, scoreBreakdown, drivers[], demandSource, actionConfidence, winnabilityClass, winnability?}`. `winnabilityClass` is the winnability gate: "ownable" (worth a brief) vs "ceded" (aggregator/editorial head term to skip); ownable rows sort first. Filter with `winnabilityClass`/`ownable`. Use this to recommend which post the user should write or refresh next.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: contentTargetsInputSchema,
@@ -658,7 +688,35 @@ export const canonryMcpTools = [
     handler: (client, input) => client.getContentTargets(input.project, {
       limit: input.limit,
       includeInProgress: input.includeInProgress,
+      winnabilityClass: input.winnabilityClass,
+      ownable: input.ownable,
     }),
+  }),
+  defineTool({
+    name: 'canonry_content_brief',
+    title: 'Synthesize content brief',
+    description: 'Synthesize (or fetch cached) a STRUCTURED content brief for an ownable target: `{targetQuery, winnabilityClass, angle, whyWinnable, schemaHookup, controllableSurfaceRationale}`. Gated to ownable targets — a ceded head term is rejected. Costs one analyze-tier LLM call on a cache miss; repeat calls are free. Pass a targetRef from canonry_content_targets.',
+    access: 'write',
+    tier: 'monitoring',
+    inputSchema: contentBriefInputSchema,
+    annotations: writeAnnotations({ idempotentHint: true }),
+    openApiOperations: ['POST /api/v1/projects/{name}/content/recommendations/{targetRef}/brief'],
+    handler: (client, input) => client.synthesizeContentBrief(input.project, input.targetRef, {
+      provider: input.provider,
+      model: input.model,
+      forceRefresh: input.forceRefresh,
+    }),
+  }),
+  defineTool({
+    name: 'canonry_content_map',
+    title: 'Get domain classifications (winnability map)',
+    description: 'The per-domain cited-surface classifications behind the winnabilityClass gate: `{domain, competitorType ∈ direct-competitor|ota-aggregator|editorial-media|other|unknown, hits, updatedAt}`, ranked by recurrence. Aggregator/editorial domains are the "ceded" surfaces. Running discovery improves coverage.',
+    access: 'read',
+    tier: 'monitoring',
+    inputSchema: contentMapInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/content/domain-classifications'],
+    handler: (client, input) => client.getDomainClassifications(input.project),
   }),
   defineTool({
     name: 'canonry_content_sources',
