@@ -156,8 +156,8 @@ Local-AEO signals. The OAuth connection reuses `google_connections` with `connec
 |-------|---------|
 | **content_target_dismissals** | Per-recommendation "mark addressed" records. The report/targets surfaces filter out any `target_ref` present here. Unique: `(projectId, targetRef)`. FK: projectId → projects |
 | **recommendation_explanations** | Cached LLM prose rationale ("Why this?") for a content recommendation. Keyed by prompt version so a template bump invalidates forward. Unique: `(projectId, targetRef, promptVersion)`. FK: projectId → projects |
-| **recommendation_briefs** | Cached LLM **structured** content brief (`brief` JSON column: `{targetQuery, surfaceClass, angle, whyWinnable, schemaHookup, controllableSurfaceRationale}`). Separate table from `recommendation_explanations` so the structured payload and its version-keyed cache never collide with the prompt-version-blind explanation lookup. Gated to `ownable` targets. Unique: `(projectId, targetRef, promptVersion)`. FK: projectId → projects |
-| **domain_classifications** | Durable per-domain cited-surface classification (`competitorType`) accumulated from discovery completions, upserted last-write-wins. Powers the deterministic `surfaceClass` winnability gate on content targets without re-running discovery. Unique: `(projectId, domain)`. FK: projectId → projects |
+| **recommendation_briefs** | Cached LLM **structured** content brief (`brief` JSON column: `{targetQuery, winnabilityClass, angle, whyWinnable, schemaHookup, controllableSurfaceRationale}`). Separate table from `recommendation_explanations` so the structured payload and its version-keyed cache never collide with the prompt-version-blind explanation lookup. Gated to `ownable` targets. Unique: `(projectId, targetRef, promptVersion)`. FK: projectId → projects |
+| **domain_classifications** | Durable per-domain cited-surface classification (`competitorType`) accumulated from discovery completions, upserted last-write-wins. Powers the deterministic `winnabilityClass` gate on content targets without re-running discovery. Unique: `(projectId, domain)`. FK: projectId → projects |
 
 ## JSON Columns
 

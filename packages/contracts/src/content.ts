@@ -312,17 +312,17 @@ export type RecommendationExplainRequest = z.infer<typeof recommendationExplainR
 
 export const contentBriefDtoSchema = z.object({
   /** The query the brief is for (echoed from the recommendation). */
-  targetQuery: z.string(),
+  targetQuery: z.string().trim().min(1),
   /** Always `ownable` in practice — the gate rejects `ceded` before synthesis. */
   winnabilityClass: winnabilityClassSchema,
   /** The differentiated content angle to take. */
-  angle: z.string(),
+  angle: z.string().trim().min(1),
   /** Why this query is winnable, citing the cited-surface signal. */
-  whyWinnable: z.string(),
+  whyWinnable: z.string().trim().min(1),
   /** The schema.org type or markup to add or extend. */
-  schemaHookup: z.string(),
+  schemaHookup: z.string().trim().min(1),
   /** Why the cited surface is controllable (the ownable-vs-ceded reasoning). */
-  controllableSurfaceRationale: z.string(),
+  controllableSurfaceRationale: z.string().trim().min(1),
 })
 
 export type ContentBriefDto = z.infer<typeof contentBriefDtoSchema>

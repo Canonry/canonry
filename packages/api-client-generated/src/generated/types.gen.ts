@@ -7366,9 +7366,9 @@ export type GetApiV1ProjectsByNameContentTargetsData = {
         /**
          * Filter by winnability: "ownable" or "ceded".
          */
-        'surface-class'?: string;
+        'winnability-class'?: string;
         /**
-         * Convenience alias for surface-class=ownable when "true".
+         * Convenience alias for winnability-class=ownable when "true".
          */
         ownable?: string;
     };
@@ -7377,7 +7377,7 @@ export type GetApiV1ProjectsByNameContentTargetsData = {
 
 export type GetApiV1ProjectsByNameContentTargetsErrors = {
     /**
-     * Invalid limit or surface-class.
+     * Invalid limit or winnability-class.
      */
     400: ErrorEnvelope;
     /**

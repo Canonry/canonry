@@ -2067,7 +2067,7 @@ export class ApiClient {
         query: {
           limit: opts?.limit,
           'include-in-progress': opts?.includeInProgress ? 'true' : undefined,
-          'surface-class': opts?.winnabilityClass,
+          'winnability-class': opts?.winnabilityClass,
           ownable: opts?.ownable ? 'true' : undefined,
         } as never,
       }),

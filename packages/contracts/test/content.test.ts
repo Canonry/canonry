@@ -623,6 +623,12 @@ describe('contentBriefDtoSchema', () => {
     expect(() => contentBriefDtoSchema.parse({ ...validBrief, winnabilityClass: 'winnable' })).toThrow()
   })
 
+  it('rejects blank string fields', () => {
+    for (const key of ['targetQuery', 'angle', 'whyWinnable', 'schemaHookup', 'controllableSurfaceRationale']) {
+      expect(() => contentBriefDtoSchema.parse({ ...validBrief, [key]: '   ' })).toThrow()
+    }
+  })
+
   it('recommendationBriefDtoSchema wraps the brief with provider metadata', () => {
     const parsed = recommendationBriefDtoSchema.parse({
       targetRef: 'tgt_1',

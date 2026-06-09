@@ -21,7 +21,7 @@ Net: the judgment "defend the ownable queries, do not chase the ceded head terms
 
 Two surgical extensions that keep determinism deciding **what** and the LLM deciding only **how to write**:
 
-1. A deterministic `surfaceClass` (ownable vs ceded) on every content target, reusing the discovery classifier. No new LLM calls.
+1. A deterministic `winnabilityClass` (ownable vs ceded) on every content target, reusing the discovery classifier. No new LLM calls.
 2. A `brief` mode on the existing content explainer that synthesizes a structured brief, reusing the same provider plumbing, capability tier, and prompt-version cache, gated to ownable targets.
 
 ## Non-goals
@@ -41,20 +41,20 @@ The classifier result is written into the discovery session `competitor_map` (`p
 
 Recommend 1b. Either way, treat missing or stale classifications as `unknown` (see the Step 2 fail-open rule).
 
-### Step 2: surfaceClass winnability gate on content targets (deterministic, the moat)
+### Step 2: winnabilityClass gate on content targets (deterministic, the moat)
 
 - `packages/intelligence/src/content-targets.ts`: in `buildContentTargetRows`, look up the class of the domains actually cited for each query (from Step 1) and derive:
-  - cited surface dominated by `ota-aggregator` or `editorial-media` gives `surfaceClass: 'ceded'`.
-  - cited surface that is `direct-competitor`, the own domain, `other`, `unknown`, or has no citation gives `surfaceClass: 'ownable'` (fail open: when in doubt, it is worth a brief).
+  - cited surface dominated by `ota-aggregator` or `editorial-media` gives `winnabilityClass: 'ceded'`.
+  - cited surface that is `direct-competitor`, the own domain, `other`, `unknown`, or has no citation gives `winnabilityClass: 'ownable'` (fail open: when in doubt, it is worth a brief).
   - "Dominated" means the combined aggregator and editorial share of the cited domains for that query crosses a documented threshold. Start conservative, for example a majority, and unit-test the boundary.
-- Add `surfaceClass: 'ownable' | 'ceded'` (and optionally a numeric `winnability`) to `ContentTargetRowDto` (`packages/contracts/src/content.ts`).
-- `GET /projects/:name/content/targets` gains an optional `surfaceClass` filter; default ordering surfaces `ownable` first.
+- Add `winnabilityClass: 'ownable' | 'ceded'` (and optionally a numeric `winnability`) to `ContentTargetRowDto` (`packages/contracts/src/content.ts`).
+- `GET /projects/:name/content/targets` gains an optional `winnabilityClass` filter; default ordering surfaces `ownable` first.
 - This is a pure data join over existing inputs. No LLM, no new external calls.
 
 ### Step 3: brief mode on the content explainer (LLM synthesis, reuse plumbing)
 
 - `packages/canonry/src/agent/recommendation-explainer.ts`: add a brief template and a structured-output path beside the existing explainer. Keep the same `complete()` call, `analyze` tier, provider and api-key resolution, and cache-key shape. Add a separate `RECOMMENDATION_BRIEF_PROMPT_VERSION` so the two modes cache independently.
-  - The brief prompt returns structure, not prose: `targetQuery`, `surfaceClass`, `angle`, `whyWinnable` (must cite the gap signal and surfaceClass verbatim from context), `schemaHookup` (the schema.org type or markup to add or extend), and the controllable-surface rationale.
+  - The brief prompt returns structure, not prose: `targetQuery`, `winnabilityClass`, `angle`, `whyWinnable` (must cite the gap signal and winnabilityClass verbatim from context), `schemaHookup` (the schema.org type or markup to add or extend), and the controllable-surface rationale.
 - `packages/api-routes/src/content.ts`: add `mode: 'explain' | 'brief'` to `recommendationExplainRequestSchema` and branch in the route, or add a sibling `POST .../:targetRef/brief`.
   - Enforce the gate server-side: reject `brief` for a `ceded` target with a clear 4xx, so a brief is never generated for a head term we should not chase.
   - Persist the structured brief plus provider, model, and cost, mirroring `recommendation_explanations`. Either add a `mode` discriminator to that table or add `recommendation_briefs`.
@@ -63,7 +63,7 @@ Recommend 1b. Either way, treat missing or stale classifications as `unknown` (s
 
 There is no `cnry content` command group today; targets are API, web, report, and MCP only. Add:
 
-- `cnry content targets <project> [--ownable] [--format json]`: deterministic targets with surfaceClass.
+- `cnry content targets <project> [--ownable] [--format json]`: deterministic targets with winnabilityClass.
 - `cnry content brief <project> [--target <ref>] [--all-ownable] [--format json]`: generate or fetch briefs for ownable targets.
 - `cnry content map <project>`: convenience command that prints ranked ownable targets, each with its brief. The operator-facing one-shot.
 - Register an MCP tool (`packages/canonry/src/mcp/tool-registry.ts`) so agents can call it headless.
@@ -71,7 +71,7 @@ There is no `cnry content` command group today; targets are API, web, report, an
 
 ### Step 5: Tests and docs
 
-- Unit tests for the surfaceClass rule: ownable vs ceded across aggregator-dominated, editorial-dominated, competitor-cited, own-cited, and no-citation queries, plus the threshold boundary.
+- Unit tests for the winnabilityClass rule: ownable vs ceded across aggregator-dominated, editorial-dominated, competitor-cited, own-cited, and no-citation queries, plus the threshold boundary.
 - Contract test for the gated brief route: ceded returns 4xx, ownable returns a cached structured brief.
 - Explainer test: the brief prompt-version cache is isolated from explain mode.
 - Docs: a content section under `docs/` and the CLI reference, noting the determinism-decides-what, LLM-decides-how split.

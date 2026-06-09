@@ -189,12 +189,21 @@ export async function contentRoutes(app: FastifyInstance, opts: ContentRoutesOpt
   // GET /projects/:name/content/targets — ranked, action-typed opportunity list
   app.get<{
     Params: { name: string }
-    Querystring: { limit?: string; ['include-in-progress']?: string; ['surface-class']?: string; ownable?: string }
+    Querystring: {
+      limit?: string
+      ['include-in-progress']?: string
+      ['winnability-class']?: string
+      ['surface-class']?: string
+      ownable?: string
+    }
   }>('/projects/:name/content/targets', async (request) => {
     const project = resolveProject(app.db, request.params.name)
     const includeInProgress = request.query['include-in-progress'] === 'true'
     const limit = parseLimitParam(request.query.limit)
-    const winnabilityClassFilter = parseWinnabilityClassFilter(request.query['surface-class'], request.query.ownable)
+    if (request.query['surface-class'] !== undefined) {
+      throw validationError('"surface-class" was renamed to "winnability-class"')
+    }
+    const winnabilityClassFilter = parseWinnabilityClassFilter(request.query['winnability-class'], request.query.ownable)
 
     const input = loadOrchestratorInput(app.db, project)
     let rows = buildContentTargetRows(input)
@@ -501,7 +510,17 @@ export async function contentRoutes(app: FastifyInstance, opts: ContentRoutesOpt
     Params: { name: string; targetRef: string }
   }>('/projects/:name/content/recommendations/:targetRef/brief', async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
-    const row = lookupCachedBrief(app.db, project.id, request.params.targetRef, opts.briefPromptVersion)
+    const { targetRef } = request.params
+    const recommendation = findRecommendationByRef(app.db, project, targetRef)
+    if (!recommendation) {
+      throw notFound('contentRecommendation', targetRef)
+    }
+    if (recommendation.winnabilityClass === WinnabilityClasses.ceded) {
+      throw validationError(
+        `Cannot return a brief for "${recommendation.query}": its cited surface is now ceded (dominated by aggregators/editorial).`,
+      )
+    }
+    const row = lookupCachedBrief(app.db, project.id, targetRef, opts.briefPromptVersion)
     if (!row) throw notFound('recommendationBrief', request.params.targetRef)
     return reply.send(formatBriefRow(row))
   })
@@ -663,15 +682,16 @@ function parseLimitParam(raw: string | undefined): number | undefined {
 }
 
 /**
- * Resolve the optional winnabilityClass filter from the `surface-class` param and
- * the `ownable` convenience flag. The explicit `surface-class` wins; `ownable`
- * is shorthand for `surface-class=ownable`. Returns `undefined` for no filter.
+ * Resolve the optional winnabilityClass filter from the `winnability-class`
+ * param and the `ownable` convenience flag. The explicit `winnability-class`
+ * wins; `ownable` is shorthand for `winnability-class=ownable`. Returns
+ * `undefined` for no filter.
  */
 function parseWinnabilityClassFilter(raw: string | undefined, ownable: string | undefined): WinnabilityClass | undefined {
   if (raw !== undefined) {
     const parsed = winnabilityClassSchema.safeParse(raw)
     if (!parsed.success) {
-      throw validationError('"surface-class" must be "ownable" or "ceded"')
+      throw validationError('"winnability-class" must be "ownable" or "ceded"')
     }
     return parsed.data
   }

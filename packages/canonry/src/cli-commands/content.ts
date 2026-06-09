@@ -14,28 +14,28 @@ export const CONTENT_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['content', 'targets'],
     usage:
-      'canonry content targets <project> [--limit <n>] [--include-in-progress] [--ownable] [--surface-class <ownable|ceded>] [--format json]',
+      'canonry content targets <project> [--limit <n>] [--include-in-progress] [--ownable] [--winnability-class <ownable|ceded>] [--format json]',
     options: {
       limit: { type: 'string' },
       'include-in-progress': { type: 'boolean' },
       ownable: { type: 'boolean' },
-      'surface-class': { type: 'string' },
+      'winnability-class': { type: 'string' },
     },
     run: async (input) => {
       const usage =
-        'canonry content targets <project> [--limit <n>] [--include-in-progress] [--ownable] [--surface-class <ownable|ceded>] [--format json]'
+        'canonry content targets <project> [--limit <n>] [--include-in-progress] [--ownable] [--winnability-class <ownable|ceded>] [--format json]'
       const project = requireProject(input, 'content targets', usage)
       const limit = parseIntegerOption(input, 'limit', {
         command: 'content targets',
         usage,
         message: '--limit must be a non-negative integer',
       })
-      const rawSurfaceClass = input.values['surface-class']
+      const rawWinnabilityClass = input.values['winnability-class']
       let winnabilityClass: 'ownable' | 'ceded' | undefined
-      if (typeof rawSurfaceClass === 'string') {
-        const parsed = winnabilityClassSchema.safeParse(rawSurfaceClass)
+      if (typeof rawWinnabilityClass === 'string') {
+        const parsed = winnabilityClassSchema.safeParse(rawWinnabilityClass)
         if (!parsed.success) {
-          throw usageError('Error: --surface-class must be "ownable" or "ceded"', { message: usage })
+          throw usageError('Error: --winnability-class must be "ownable" or "ceded"', { message: usage })
         }
         winnabilityClass = parsed.data
       }
