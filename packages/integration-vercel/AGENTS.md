@@ -36,8 +36,15 @@ with **no in-app instrumentation** required on the user's Vercel project.
 - **Adaptive sub-window drain.** Page-number pagination has no resumable
   cursor, so a window denser than the page budget cannot be pulled in one
   pass. `drainVercelTrafficEvents` narrows the window into adaptive time
-  slices: it halves the span on page-budget overflow and generally doubles
+  slices: it **starts at a small `INITIAL_SUB_WINDOW_MS = 5min` span** (not the
+  full window), halves the span on page-budget overflow, and generally doubles
   back up after a clean slice, with `eventId` dedup across slice boundaries.
+  Starting small matters under the wall-clock `deadlineMs`: opening at the full
+  span means the first pulls are whole-window overflow pulls that exhaust the
+  page budget without completing a sub-window, so a dense multi-hour backlog can
+  burn the entire deadline with ZERO cursor progress and wedge permanently
+  (every retry re-hits the same window). A small first span completes fast, the
+  cursor advances, and partial progress is committed and resumed next run.
   The bisection floor is **one second** (`MIN_SUB_WINDOW_MS = 1_000`), small
   enough to drain real-world burst minutes (sites routinely hit 1000+ log
   pages in a single minute) without escalating to the floor-budget re-pull. A

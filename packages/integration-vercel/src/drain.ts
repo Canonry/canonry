@@ -17,6 +17,21 @@ import type { ListVercelTrafficEventsOptions, VercelTrafficEventsPage } from './
 const MIN_SUB_WINDOW_MS = 1_000
 
 /**
+ * The span the drain STARTS each window at (and resets to after a retention
+ * clamp), instead of beginning at the full window width. Starting at the full
+ * span means the first pulls are whole-window overflow pulls that exhaust the
+ * entire `pagesPerSubWindow` budget (50 slow pages) before the span has been
+ * halved down to something drainable, so for a dense multi-hour backlog the
+ * drain can burn its whole wall-clock budget WITHOUT completing a single
+ * sub-window: zero cursor progress, and (because the deadline then commits
+ * nothing) the source wedges permanently as every retry re-hits the same
+ * window. Starting small bounds the first pull to a few pages so it completes
+ * fast and the cursor advances; the span doubles back up on clean drains, so a
+ * sparse window still drains in O(log) pulls.
+ */
+const INITIAL_SUB_WINDOW_MS = 5 * 60_000
+
+/**
  * Page budget for a re-pull of a floor-width slice (`MIN_SUB_WINDOW_MS`). When
  * even the floor slice overflows the caller's normal `pagesPerSubWindow`
  * budget, the drain cannot subdivide time any further, so it re-pulls that one
@@ -255,7 +270,9 @@ export async function drainVercelTrafficEvents(
   }
 
   let cursorMs = startMs
-  let spanMs = endMs - startMs
+  // Start small (not the full window) so the first pull completes and advances
+  // the cursor even on a dense multi-hour backlog. See INITIAL_SUB_WINDOW_MS.
+  let spanMs = Math.min(endMs - startMs, INITIAL_SUB_WINDOW_MS)
   let subWindowCount = 0
   let effectiveStartMs = startMs
   let retentionClamped = false
@@ -307,7 +324,9 @@ export async function drainVercelTrafficEvents(
         retentionClamped = retainedStartMs > cursorMs
         cursorMs = retainedStartMs
         effectiveStartMs = retainedStartMs
-        spanMs = Math.max(endMs - cursorMs, MIN_SUB_WINDOW_MS)
+        // Resume small (not the full remaining window) for the same reason the
+        // initial span is capped: keep the first post-clamp pull drainable.
+        spanMs = Math.max(Math.min(endMs - cursorMs, INITIAL_SUB_WINDOW_MS), MIN_SUB_WINDOW_MS)
         continue
       }
       throw error
