@@ -69,7 +69,7 @@ describe('drainVercelTrafficEvents', () => {
     expect(pull).not.toHaveBeenCalled()
   })
 
-  test('drains a window that fits in a single pull', async () => {
+  test('drains a sparse window cleanly, deduping repeated events across sub-windows', async () => {
     const events = [makeEvent('a'), makeEvent('b')]
     const pull = vi.fn(async () => page(events, false))
     const result = await drainVercelTrafficEvents({
@@ -78,14 +78,18 @@ describe('drainVercelTrafficEvents', () => {
       startDate: 0,
       endDate: 4 * HOUR,
     })
+    // Start-small opens at the 5-min initial span and grows, so a sparse 4h
+    // window drains across a few growing sub-windows (not one full-span pull);
+    // the same two events repeat and are deduped by eventId.
     expect(result.events).toEqual(events)
-    expect(result.subWindowCount).toBe(1)
-    expect(pull).toHaveBeenCalledTimes(1)
+    expect(result.drainedThroughMs).toBe(4 * HOUR)
+    expect(result.subWindowCount).toBeGreaterThan(0)
   })
 
-  test('sub-divides a window that overflows the page budget', async () => {
-    // Any slice longer than one hour overflows; shorter slices drain cleanly,
-    // each emitting one event keyed to its start.
+  test('sub-divides when a span overflows the page budget and still fully drains', async () => {
+    // Any slice longer than one hour overflows; shorter slices drain one event
+    // keyed to their start. Start-small opens at 5 min and grows, so subdivision
+    // kicks in once the growing span overshoots an hour; the whole window drains.
     const pull = vi.fn(async (o: ListVercelTrafficEventsOptions) => {
       const span = Number(o.endDate) - Number(o.startDate)
       if (span > HOUR) return page([], true)
@@ -97,10 +101,10 @@ describe('drainVercelTrafficEvents', () => {
       startDate: 0,
       endDate: 4 * HOUR,
     })
-    expect(result.events.map((e) => e.eventId).sort()).toEqual(
-      [`ev-0`, `ev-${HOUR}`, `ev-${2 * HOUR}`, `ev-${3 * HOUR}`].sort(),
-    )
     expect(result.subWindowCount).toBeGreaterThan(4)
+    expect(result.drainedThroughMs).toBe(4 * HOUR)
+    expect(result.events.length).toBeGreaterThan(1)
+    expect(result.events.map((e) => e.eventId)).toContain('ev-0')
   })
 
   test('deduplicates events shared across adjacent sub-windows', async () => {
@@ -291,8 +295,10 @@ describe('drainVercelTrafficEvents', () => {
     // Clamped onto the servable side, within one tolerance step of the boundary.
     expect(result.effectiveStartMs).toBeGreaterThanOrEqual(RETENTION_BOUNDARY)
     expect(result.effectiveStartMs).toBeLessThan(RETENTION_BOUNDARY + HOUR)
-    // The drained window starts at the clamped start, not the requested 0.
-    expect(result.events).toHaveLength(1)
+    // Drained from the clamped start forward; start-small slices the post-clamp
+    // window into several events, the first sitting at the clamp boundary, not 0.
+    expect(result.events.length).toBeGreaterThan(0)
+    expect(result.drainedThroughMs).toBe(100 * HOUR)
     expect(result.events[0].eventId).toBe(`ev-${result.effectiveStartMs}`)
   })
 
@@ -308,8 +314,10 @@ describe('drainVercelTrafficEvents', () => {
     expect(result.retentionClamped).toBe(false)
     expect(result.effectiveStartMs).toBe(5_000)
     expect(result.events).toEqual(events)
-    // No retention probe on the happy path — the first pull is the only call.
-    expect(pull).toHaveBeenCalledTimes(1)
+    expect(result.drainedThroughMs).toBe(5_000 + 4 * HOUR)
+    // Happy path: every pull is a normal forward pull; no retention probe fired
+    // (retentionClamped stays false). Start-small means several such pulls, not one.
+    expect(pull.mock.calls.every(([o]) => Number(o.startDate) >= 5_000)).toBe(true)
   })
 
   test('rethrows a non-retention 400 instead of clamping', async () => {
@@ -388,6 +396,35 @@ describe('drainVercelTrafficEvents', () => {
     expect(result.deadlineReached).toBe(true)
     expect(result.drainedThroughMs).toBeGreaterThan(0) // made progress
     expect(result.drainedThroughMs).toBeLessThan(100 * HOUR) // but did not finish
+    expect(result.events.length).toBeGreaterThan(0)
+  })
+
+  test('start-small makes forward progress on a dense backlog instead of wedging', async () => {
+    // The gjelina wedge: a dense multi-hour backlog where every span wider than a
+    // minute overflows the page budget. Opening at the full window would spend the
+    // whole deadline halving a 24h span without ever completing a sub-window (zero
+    // progress, permanent wedge). Starting at the 5-min initial span, the drain
+    // reaches a drainable slice within a few pulls and the cursor advances.
+    const pull = vi.fn(async (o: ListVercelTrafficEventsOptions) => {
+      const span = Number(o.endDate) - Number(o.startDate)
+      if (span > MINUTE) return page([], true)
+      return page([makeEvent(`ev-${Number(o.startDate)}`)], false)
+    })
+    let tick = 0
+    const result = await drainVercelTrafficEvents({
+      ...baseOptions,
+      pull,
+      startDate: 0,
+      endDate: 24 * HOUR,
+      deadlineMs: 8, // trips after a handful of loop checks
+      now: () => (tick += 1),
+    })
+    expect(result.deadlineReached).toBe(true)
+    // The first pull span is the 5-min initial cap, not the full 24h window.
+    const firstSpan = Number(pull.mock.calls[0][0].endDate) - Number(pull.mock.calls[0][0].startDate)
+    expect(firstSpan).toBeLessThanOrEqual(5 * MINUTE)
+    // Progress was made before the deadline (the old full-window start would be 0).
+    expect(result.drainedThroughMs).toBeGreaterThan(0)
     expect(result.events.length).toBeGreaterThan(0)
   })
 })
