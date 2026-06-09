@@ -3719,6 +3719,81 @@ const routeCatalog: OpenApiOperation[] = [
       404: errorResponse('Project or session not found.'),
     },
   },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/technical-aeo',
+    summary: 'Get the Technical AEO scorecard for a project',
+    description:
+      'Returns the latest completed/partial site-audit: aggregate 0–100 score + grade, page counts, the full per-factor scorecard (site-level averages with pass/partial/fail distribution), cross-cutting issues, prioritized fixes, and the delta vs the previous audit. When the project has never been audited, `hasData` is false and the numeric fields are zeroed — render an onboarding state.',
+    tags: ['technical-aeo'],
+    parameters: [nameParameter],
+    responses: {
+      200: jsonResponse('Technical AEO scorecard returned.', 'SiteAuditScoreDto'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/technical-aeo/pages',
+    summary: 'List audited pages from the latest site-audit run',
+    description:
+      'Returns the per-page breakdown of the latest completed/partial site-audit run (paginated). Filter to `status=error` to surface unreachable pages; sort `score-asc` (default) to surface the worst-scoring pages first.',
+    tags: ['technical-aeo'],
+    parameters: [
+      nameParameter,
+      { name: 'status', in: 'query', description: 'Filter by page audit status: `success` or `error`.', schema: { type: 'string', enum: ['success', 'error'] } },
+      { name: 'sort', in: 'query', description: 'Sort order: `score-asc` (default), `score-desc`, or `url`.', schema: { type: 'string', enum: ['score-asc', 'score-desc', 'url'] } },
+      limitQueryParameter,
+      offsetQueryParameter,
+    ],
+    responses: {
+      200: jsonResponse('Audited pages returned.', 'SiteAuditPagesResponseDto'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/technical-aeo/trend',
+    summary: 'Get the Technical AEO aggregate-score trend',
+    description: 'Returns historical aggregate scores across completed/partial site-audit runs, oldest-first, for the trend chart.',
+    tags: ['technical-aeo'],
+    parameters: [
+      nameParameter,
+      { name: 'limit', in: 'query', description: 'Max data points returned (most recent runs). Default 30.', schema: integerSchema },
+    ],
+    responses: {
+      200: jsonResponse('Technical AEO trend returned.', 'SiteAuditTrendResponseDto'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/projects/{name}/technical-aeo/runs',
+    summary: 'Trigger a Technical AEO site-audit run',
+    description:
+      'Queues a `site-audit` run that crawls the project sitemap and audits every reachable page. Idempotent: if a site-audit run is already queued/running for the project, returns that run instead of starting a second.',
+    tags: ['technical-aeo'],
+    parameters: [nameParameter],
+    requestBody: {
+      required: false,
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            properties: {
+              sitemapUrl: { ...stringSchema, description: 'Override the sitemap URL. Defaults to https://<canonicalDomain>/sitemap.xml.' },
+              limit: { ...integerSchema, description: 'Cap pages audited (highest sitemap <priority> first). Max 2000.' },
+            },
+          },
+        },
+      },
+    },
+    responses: {
+      200: jsonResponse('Site-audit run queued (or the in-flight run returned).', 'SiteAuditRunResponseDto'),
+      400: errorResponse('Invalid site-audit request.'),
+      404: errorResponse('Project not found.'),
+    },
+  },
 ]
 
 /**

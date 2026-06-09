@@ -149,6 +149,12 @@ export const projectBacklinksRoute = createRoute({
   component: () => <LazyProjectPage tab="backlinks" />,
 })
 
+export const projectTechnicalAeoRoute = createRoute({
+  getParentRoute: () => projectLayoutRoute,
+  path: '/technical-aeo',
+  component: () => <LazyProjectPage tab="technical-aeo" />,
+})
+
 export const projectSettingsRoute = createRoute({
   getParentRoute: () => projectLayoutRoute,
   path: '/settings',
@@ -217,6 +223,7 @@ export const routeTree = rootRoute.addChildren([
     projectReportRoute,
     projectActivityRoute,
     projectBacklinksRoute,
+    projectTechnicalAeoRoute,
     projectSettingsRoute,
   ]),
   runsRoute,

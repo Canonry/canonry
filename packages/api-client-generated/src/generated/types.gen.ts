@@ -1661,7 +1661,7 @@ export type RunDto = {
     createdAt: string;
 };
 
-export type SchedulableRunKind = 'answer-visibility' | 'traffic-sync' | 'gbp-sync' | 'data-refresh' | 'backlinks-sync';
+export type SchedulableRunKind = 'answer-visibility' | 'traffic-sync' | 'gbp-sync' | 'data-refresh' | 'backlinks-sync' | 'site-audit';
 
 export type ScheduleDto = {
     id: string;
@@ -1701,6 +1701,84 @@ export type SettingsDto = {
     bing: {
         configured: boolean;
     };
+};
+
+export type SiteAuditPagesResponseDto = {
+    project: string;
+    runId: string | null;
+    auditedAt: string | null;
+    total: number;
+    pages: Array<{
+        url: string;
+        overallScore: number;
+        overallGrade: string;
+        status: 'success' | 'error';
+        error?: string | null;
+        factors: Array<{
+            id: string;
+            name: string;
+            weight: number;
+            score: number;
+            grade: string;
+            status: 'pass' | 'partial' | 'fail';
+        }>;
+    }>;
+};
+
+export type SiteAuditRunResponseDto = {
+    runId: string;
+    status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';
+};
+
+export type SiteAuditScoreDto = {
+    project: string;
+    hasData: boolean;
+    runId: string | null;
+    runStatus: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';
+    sitemapUrl: string | null;
+    auditedAt: string | null;
+    aggregateScore: number;
+    aggregateGrade: string;
+    pagesDiscovered: number;
+    pagesAudited: number;
+    pagesSkipped: number;
+    pagesErrored: number;
+    deltaScore: number | null;
+    trend: 'up' | 'down' | 'flat';
+    previousScore: number | null;
+    previousAuditedAt: string | null;
+    factors: Array<{
+        id: string;
+        name: string;
+        weight: number;
+        avgScore: number;
+        avgGrade: string;
+        status: 'pass' | 'partial' | 'fail';
+        pagesPassing: number;
+        pagesPartial: number;
+        pagesFailing: number;
+    }>;
+    crossCuttingIssues: Array<{
+        factorId: string;
+        factorName: string;
+        avgScore: number;
+        avgGrade: string;
+        affectedPages: number;
+        totalPages: number;
+        topRecommendations: Array<string>;
+    }>;
+    prioritizedFixes: Array<string>;
+};
+
+export type SiteAuditTrendResponseDto = {
+    project: string;
+    points: Array<{
+        runId: string;
+        auditedAt: string;
+        aggregateScore: number;
+        aggregateGrade: string;
+        pagesAudited: number;
+    }>;
 };
 
 export type SnapshotDiffResponse = {
@@ -8869,6 +8947,161 @@ export type PostApiV1ProjectsByNameDiscoverSessionsByIdPromoteResponses = {
 };
 
 export type PostApiV1ProjectsByNameDiscoverSessionsByIdPromoteResponse = PostApiV1ProjectsByNameDiscoverSessionsByIdPromoteResponses[keyof PostApiV1ProjectsByNameDiscoverSessionsByIdPromoteResponses];
+
+export type GetApiV1ProjectsByNameTechnicalAeoData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/technical-aeo';
+};
+
+export type GetApiV1ProjectsByNameTechnicalAeoErrors = {
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameTechnicalAeoError = GetApiV1ProjectsByNameTechnicalAeoErrors[keyof GetApiV1ProjectsByNameTechnicalAeoErrors];
+
+export type GetApiV1ProjectsByNameTechnicalAeoResponses = {
+    /**
+     * Technical AEO scorecard returned.
+     */
+    200: SiteAuditScoreDto;
+};
+
+export type GetApiV1ProjectsByNameTechnicalAeoResponse = GetApiV1ProjectsByNameTechnicalAeoResponses[keyof GetApiV1ProjectsByNameTechnicalAeoResponses];
+
+export type GetApiV1ProjectsByNameTechnicalAeoPagesData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Filter by page audit status: `success` or `error`.
+         */
+        status?: 'success' | 'error';
+        /**
+         * Sort order: `score-asc` (default), `score-desc`, or `url`.
+         */
+        sort?: 'score-asc' | 'score-desc' | 'url';
+        /**
+         * Maximum number of records to return.
+         */
+        limit?: number;
+        /**
+         * Number of records to skip.
+         */
+        offset?: number;
+    };
+    url: '/api/v1/projects/{name}/technical-aeo/pages';
+};
+
+export type GetApiV1ProjectsByNameTechnicalAeoPagesErrors = {
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameTechnicalAeoPagesError = GetApiV1ProjectsByNameTechnicalAeoPagesErrors[keyof GetApiV1ProjectsByNameTechnicalAeoPagesErrors];
+
+export type GetApiV1ProjectsByNameTechnicalAeoPagesResponses = {
+    /**
+     * Audited pages returned.
+     */
+    200: SiteAuditPagesResponseDto;
+};
+
+export type GetApiV1ProjectsByNameTechnicalAeoPagesResponse = GetApiV1ProjectsByNameTechnicalAeoPagesResponses[keyof GetApiV1ProjectsByNameTechnicalAeoPagesResponses];
+
+export type GetApiV1ProjectsByNameTechnicalAeoTrendData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Max data points returned (most recent runs). Default 30.
+         */
+        limit?: number;
+    };
+    url: '/api/v1/projects/{name}/technical-aeo/trend';
+};
+
+export type GetApiV1ProjectsByNameTechnicalAeoTrendErrors = {
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameTechnicalAeoTrendError = GetApiV1ProjectsByNameTechnicalAeoTrendErrors[keyof GetApiV1ProjectsByNameTechnicalAeoTrendErrors];
+
+export type GetApiV1ProjectsByNameTechnicalAeoTrendResponses = {
+    /**
+     * Technical AEO trend returned.
+     */
+    200: SiteAuditTrendResponseDto;
+};
+
+export type GetApiV1ProjectsByNameTechnicalAeoTrendResponse = GetApiV1ProjectsByNameTechnicalAeoTrendResponses[keyof GetApiV1ProjectsByNameTechnicalAeoTrendResponses];
+
+export type PostApiV1ProjectsByNameTechnicalAeoRunsData = {
+    body?: {
+        /**
+         * Override the sitemap URL. Defaults to https://<canonicalDomain>/sitemap.xml.
+         */
+        sitemapUrl?: string;
+        /**
+         * Cap pages audited (highest sitemap <priority> first). Max 2000.
+         */
+        limit?: number;
+    };
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/technical-aeo/runs';
+};
+
+export type PostApiV1ProjectsByNameTechnicalAeoRunsErrors = {
+    /**
+     * Invalid site-audit request.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameTechnicalAeoRunsError = PostApiV1ProjectsByNameTechnicalAeoRunsErrors[keyof PostApiV1ProjectsByNameTechnicalAeoRunsErrors];
+
+export type PostApiV1ProjectsByNameTechnicalAeoRunsResponses = {
+    /**
+     * Site-audit run queued (or the in-flight run returned).
+     */
+    200: SiteAuditRunResponseDto;
+};
+
+export type PostApiV1ProjectsByNameTechnicalAeoRunsResponse = PostApiV1ProjectsByNameTechnicalAeoRunsResponses[keyof PostApiV1ProjectsByNameTechnicalAeoRunsResponses];
 
 export type DeleteApiV1ProjectsByNameAgentTranscriptData = {
     body?: never;

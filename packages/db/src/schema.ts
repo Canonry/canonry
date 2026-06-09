@@ -1,5 +1,5 @@
 import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
-import type { ContentBriefDto, DiscoveryCompetitorMapEntry, DiscoveryCompetitorType, LocationContext, ProviderName } from '@ainyc/canonry-contracts'
+import type { ContentBriefDto, DiscoveryCompetitorMapEntry, DiscoveryCompetitorType, LocationContext, ProviderName, SiteAuditCrossCuttingIssueDto, SiteAuditFactorSummaryDto, SiteAuditPageFactorDto } from '@ainyc/canonry-contracts'
 
 export const projects = sqliteTable('projects', {
   id: text('id').primaryKey(),
@@ -256,6 +256,54 @@ export const gscCoverageSnapshots = sqliteTable('gsc_coverage_snapshots', {
 }, (table) => [
   index('idx_gsc_coverage_snap_project_date').on(table.projectId, table.date),
   index('idx_gsc_coverage_snap_run').on(table.syncRunId),
+])
+
+/**
+ * Technical AEO — per-run summary of a `site-audit` run. One row per completed
+ * (or partial) site audit; drives the score hero, the per-factor scorecard, and
+ * the aggregate-score trend. JSON columns use native `mode: 'json'`.
+ */
+export const siteAuditSnapshots = sqliteTable('site_audit_snapshots', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  runId: text('run_id').notNull().references(() => runs.id, { onDelete: 'cascade' }),
+  sitemapUrl: text('sitemap_url').notNull(),
+  auditedAt: text('audited_at').notNull(),
+  aggregateScore: integer('aggregate_score').notNull().default(0),
+  aggregateGrade: text('aggregate_grade').notNull().default('F'),
+  pagesDiscovered: integer('pages_discovered').notNull().default(0),
+  pagesAudited: integer('pages_audited').notNull().default(0),
+  pagesSkipped: integer('pages_skipped').notNull().default(0),
+  pagesErrored: integer('pages_errored').notNull().default(0),
+  factorAverages: text('factor_averages', { mode: 'json' }).$type<SiteAuditFactorSummaryDto[]>().notNull().default([]),
+  crossCuttingIssues: text('cross_cutting_issues', { mode: 'json' }).$type<SiteAuditCrossCuttingIssueDto[]>().notNull().default([]),
+  prioritizedFixes: text('prioritized_fixes', { mode: 'json' }).$type<string[]>().notNull().default([]),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  index('idx_site_audit_snap_project_created').on(table.projectId, table.createdAt),
+  index('idx_site_audit_snap_run').on(table.runId),
+])
+
+/**
+ * Technical AEO — per-page breakdown of a `site-audit` run. One row per audited
+ * URL; `status='error'` rows carry an `error` and no factors. Findings /
+ * recommendations are rolled up at the site level (snapshot) rather than stored
+ * per page, so `factors` holds only the per-factor scores.
+ */
+export const siteAuditPages = sqliteTable('site_audit_pages', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  runId: text('run_id').notNull().references(() => runs.id, { onDelete: 'cascade' }),
+  url: text('url').notNull(),
+  overallScore: integer('overall_score').notNull().default(0),
+  overallGrade: text('overall_grade').notNull().default('F'),
+  status: text('status').notNull(),
+  error: text('error'),
+  factors: text('factors', { mode: 'json' }).$type<SiteAuditPageFactorDto[]>().notNull().default([]),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  index('idx_site_audit_pages_run').on(table.runId),
+  index('idx_site_audit_pages_project_score').on(table.projectId, table.overallScore),
 ])
 
 export const bingCoverageSnapshots = sqliteTable('bing_coverage_snapshots', {

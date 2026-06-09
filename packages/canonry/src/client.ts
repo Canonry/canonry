@@ -5,6 +5,10 @@ import type {
   RunDto,
   RunDetailDto,
   LatestProjectRunDto,
+  SiteAuditScoreDto,
+  SiteAuditPagesResponseDto,
+  SiteAuditTrendResponseDto,
+  SiteAuditRunResponseDto,
   SnapshotDiffResponse,
   SnapshotListResponse,
   ScheduleDto,
@@ -258,6 +262,11 @@ import {
   getApiV1ProjectsByNameDiscoverSessionsById,
   getApiV1ProjectsByNameDiscoverSessionsByIdPromote,
   postApiV1ProjectsByNameDiscoverSessionsByIdPromote,
+  // Technical AEO (site-audit)
+  getApiV1ProjectsByNameTechnicalAeo,
+  getApiV1ProjectsByNameTechnicalAeoPages,
+  getApiV1ProjectsByNameTechnicalAeoTrend,
+  postApiV1ProjectsByNameTechnicalAeoRuns,
   // Wordpress
   postApiV1ProjectsByNameWordpressConnect,
   deleteApiV1ProjectsByNameWordpressDisconnect,
@@ -1769,6 +1778,55 @@ export class ApiClient {
         client: this.heyClient,
         path: { name: project, id: sessionId },
         body: body ?? {},
+      }),
+    )
+  }
+
+  // ── Technical AEO (site-audit) ──────────────────────────────────────────
+
+  async getTechnicalAeoScore(project: string): Promise<SiteAuditScoreDto> {
+    return this.invoke<SiteAuditScoreDto>(() =>
+      getApiV1ProjectsByNameTechnicalAeo({ client: this.heyClient, path: { name: project } }),
+    )
+  }
+
+  async getTechnicalAeoPages(
+    project: string,
+    opts?: { status?: 'success' | 'error'; sort?: string; limit?: number; offset?: number },
+  ): Promise<SiteAuditPagesResponseDto> {
+    return this.invoke<SiteAuditPagesResponseDto>(() =>
+      getApiV1ProjectsByNameTechnicalAeoPages({
+        client: this.heyClient,
+        path: { name: project },
+        query: {
+          status: opts?.status,
+          sort: opts?.sort,
+          limit: opts?.limit !== undefined ? String(opts.limit) : undefined,
+          offset: opts?.offset !== undefined ? String(opts.offset) : undefined,
+        } as never,
+      }),
+    )
+  }
+
+  async getTechnicalAeoTrend(project: string, opts?: { limit?: number }): Promise<SiteAuditTrendResponseDto> {
+    return this.invoke<SiteAuditTrendResponseDto>(() =>
+      getApiV1ProjectsByNameTechnicalAeoTrend({
+        client: this.heyClient,
+        path: { name: project },
+        query: { limit: opts?.limit !== undefined ? String(opts.limit) : undefined } as never,
+      }),
+    )
+  }
+
+  async triggerSiteAudit(
+    project: string,
+    body?: { sitemapUrl?: string; limit?: number },
+  ): Promise<SiteAuditRunResponseDto> {
+    return this.invoke<SiteAuditRunResponseDto>(() =>
+      postApiV1ProjectsByNameTechnicalAeoRuns({
+        client: this.heyClient,
+        path: { name: project },
+        body: (body ?? {}) as never,
       }),
     )
   }

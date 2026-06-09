@@ -27,6 +27,7 @@ import { SNAPSHOT_CLI_COMMANDS } from './cli-commands/snapshot.js'
 import { INTELLIGENCE_CLI_COMMANDS } from './cli-commands/intelligence.js'
 import { CONTENT_CLI_COMMANDS } from './cli-commands/content.js'
 import { SYSTEM_CLI_COMMANDS } from './cli-commands/system.js'
+import { TECHNICAL_AEO_CLI_COMMANDS } from './cli-commands/technical-aeo.js'
 import { WORDPRESS_CLI_COMMANDS } from './cli-commands/wordpress.js'
 import { AGENT_CLI_COMMANDS } from './cli-commands/agent.js'
 
@@ -58,6 +59,7 @@ export const REGISTERED_CLI_COMMANDS: readonly CliCommandSpec[] = [
   ...CONTENT_CLI_COMMANDS,
   ...AGENT_CLI_COMMANDS,
   ...DISCOVER_CLI_COMMANDS,
+  ...TECHNICAL_AEO_CLI_COMMANDS,
   ...DOCTOR_CLI_COMMANDS,
   ...GET_CLI_COMMANDS,
   ...MCP_CLI_COMMANDS,

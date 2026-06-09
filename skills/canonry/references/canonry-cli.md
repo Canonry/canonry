@@ -167,6 +167,22 @@ cnry sources <project> --rank --format jsonl    # stream the ranked domains, one
 - The ranked list is **not truncated** by default (the old top-5-per-category cap is gone). Pass `--limit N` to cap each list; the response carries `truncatedDomainCount` / `truncatedCitedSlots` so totals always reconcile.
 - Counts are **cited slots** (grounding citations), so a domain cited 3× in one answer counts 3. Probe runs are excluded.
 
+## Technical AEO (site audit)
+
+Site-wide technical audit (structured data, AI-readable content, AI-crawler access, content depth/freshness/extractability, …) powered by `@ainyc/aeo-audit`'s `runSitemapAudit`. Runs as the `site-audit` run kind — crawls the project's `sitemap.xml` and scores every reachable page, then rolls up into one 0–100 site score. Pure HTTP, no LLM cost; a large site can take minutes, so it runs in the background.
+
+```bash
+cnry technical-aeo run <project> --wait                 # crawl + audit; --wait polls to terminal. Idempotent: returns the in-flight run if one is active.
+cnry technical-aeo run <project> --sitemap-url <url> --limit 200   # override the sitemap / cap pages (highest <priority> first; default 500, max 2000)
+cnry technical-aeo score <project> [--format json]      # site score + grade + per-factor scorecard (avg + pass/partial/fail per page) + delta vs the previous audit
+cnry technical-aeo pages <project> [--status error] [--sort score-asc|score-desc|url] [--format json|jsonl]   # per-page breakdown of the latest run (worst-first by default)
+cnry technical-aeo trend <project> [--format json|jsonl] # aggregate-score history across past audits
+cnry schedule set <project> --kind site-audit --preset weekly   # keep it fresh
+```
+
+- The score is only available after at least one audit runs — `score` returns `hasData: false` until then.
+- Reads reflect the latest **completed/partial** site-audit run; probe runs are excluded.
+
 ## Intelligence
 
 ```bash
@@ -204,6 +220,7 @@ cnry schedule set <project> --preset daily     # or: weekly, twice-daily, daily@
 cnry schedule set <project> --cron "0 9 * * *" --timezone America/New_York
 cnry schedule set <project> --kind data-refresh --preset daily   # refresh all connected GSC/Bing/GA/GBP integrations (no --source)
 cnry schedule set <project> --kind backlinks-sync --preset weekly # re-probe Common Crawl; sync only when a newer rolling window is published (no --source/--provider)
+cnry schedule set <project> --kind site-audit --preset weekly     # Technical AEO: crawl the sitemap + audit every page (no --source/--provider)
 cnry schedule show <project>
 cnry schedule enable <project>
 cnry schedule disable <project>

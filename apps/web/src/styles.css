@@ -811,16 +811,24 @@
     @apply mt-8 border-t border-zinc-800/40 pt-6;
   }
 
+  /* Quiet underline tabs (Vercel/Linear lineage). The bar is chrome: plain
+     text that recedes, the active tab marked by a Snow underline sitting on
+     the bar's hairline. No pills, no group labels, no dividers. */
   .project-subnav {
-    @apply mt-5 mb-4 flex flex-wrap gap-2 border-b border-zinc-800/50 pb-2;
+    @apply mt-5 mb-5 flex flex-wrap items-stretch gap-x-1 border-b border-zinc-800/60;
   }
 
   .project-subnav-link {
-    @apply inline-flex items-center rounded-full border border-zinc-800/80 bg-zinc-900/30 px-3 py-1.5 text-sm font-medium text-zinc-400 transition-colors hover:border-zinc-700 hover:text-zinc-200;
+    @apply relative -mb-px inline-flex items-center border-b-2 border-transparent px-3 py-2.5 text-sm font-medium text-zinc-500 transition-colors hover:text-zinc-200 focus-visible:outline-none focus-visible:text-zinc-100;
   }
 
   .project-subnav-link-active {
-    @apply border-zinc-200 bg-zinc-100 text-zinc-950 hover:border-zinc-200 hover:text-zinc-950;
+    @apply border-zinc-100 text-zinc-50;
+  }
+
+  /* Settings is demoted to the far right, separated from the content tabs. */
+  .project-subnav-link-trailing {
+    @apply ml-auto;
   }
 
   /* ── Overview secondary grid (attention + activity) ── */

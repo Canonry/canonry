@@ -66,7 +66,8 @@ test('project route renders a single command center with visibility sections', a
 
   expect(html).toMatch(/Citypoint Dental NYC/)
   expect(html).toMatch(/Overview/)
-  expect(html).toMatch(/Search Engine Intelligence/)
+  expect(html).toMatch(/Search Console/)
+  expect(html).toMatch(/Technical AEO/)
   expect(html).toMatch(/Opportunities/)
   expect(html).toMatch(/What the LLMs said/)
   expect(html).toMatch(/Recent execution history/)

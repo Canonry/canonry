@@ -12,8 +12,10 @@ import { providerNameSchema } from './provider.js'
  * - `backlinks-sync` — re-probe Common Crawl for the latest hyperlink-graph release and, when a newer rolling
  *   window is published, run the workspace-level release sync (which auto-extracts per-project backlinks for
  *   projects with `autoExtractBacklinks`). Workspace-global: no `sourceId`, no `providers`.
+ * - `site-audit` — Technical AEO: crawl the project's sitemap and audit every reachable page across the
+ *   aeo-audit ranking factors, persisting a site-level score + per-page breakdown. No `sourceId`, no `providers`.
  */
-export const schedulableRunKindSchema = z.enum(['answer-visibility', 'traffic-sync', 'gbp-sync', 'data-refresh', 'backlinks-sync'])
+export const schedulableRunKindSchema = z.enum(['answer-visibility', 'traffic-sync', 'gbp-sync', 'data-refresh', 'backlinks-sync', 'site-audit'])
 export type SchedulableRunKind = z.infer<typeof schedulableRunKindSchema>
 export const SchedulableRunKinds = schedulableRunKindSchema.enum
 

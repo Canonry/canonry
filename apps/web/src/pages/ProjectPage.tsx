@@ -23,6 +23,7 @@ import { BacklinksSection } from '../components/project/BacklinksSection.js'
 import { CitationVisibilitySection } from '../components/project/CitationVisibilitySection.js'
 import { VisibilityTrendSection } from '../components/project/VisibilityTrendSection.js'
 import { DiscoverySection } from '../components/project/DiscoverySection.js'
+import { TechnicalAeoSection } from '../components/project/TechnicalAeoSection.js'
 import { ReportPage } from './ReportPage.js'
 import { formatTimestamp, SEARCH_METRIC_SHORT_LABELS, SearchMetric } from '../lib/format-helpers.js'
 import { METRIC_TONE_TEXT_CLASS, toneFromScore } from '../lib/tone-helpers.js'
@@ -80,7 +81,7 @@ import { useInitialDashboard } from '../contexts/dashboard-context.js'
 import { useDrawer } from '../hooks/use-drawer.js'
 import type { ProjectCommandCenterVm, RunHistoryPoint } from '../view-models.js'
 
-export type ProjectPageTab = 'overview' | 'search-console' | 'local' | 'discovery' | 'report' | 'activity' | 'backlinks' | 'settings'
+export type ProjectPageTab = 'overview' | 'search-console' | 'local' | 'discovery' | 'report' | 'activity' | 'backlinks' | 'technical-aeo' | 'settings'
 
 type SearchConsoleWorkspace = 'google' | 'bing'
 
@@ -1764,18 +1765,24 @@ function ProjectPageContent({
   }
 
   const isNumericScore = (value: string) => !Number.isNaN(Number.parseInt(value, 10))
+  // Quiet underline tabs (Vercel/Linear lineage), not a pill rack. Section nav
+  // is chrome: plain text that recedes, the active tab marked by a Snow
+  // underline on the bar's hairline. Settings is split out and right-aligned
+  // (universal convention). "Local Presence" only appears once GBP is connected.
+  const projectTabBase = `/projects/${model.project.id}`
   const projectTabItems: Array<{ key: ProjectPageTab; label: string; href: string }> = [
-    { key: 'overview', label: 'Overview', href: `/projects/${model.project.id}` },
-    { key: 'search-console', label: 'Search Engine Intelligence', href: `/projects/${model.project.id}/search-console` },
+    { key: 'overview', label: 'Overview', href: projectTabBase },
+    { key: 'report', label: 'Report', href: `${projectTabBase}/report` },
     ...(gbpConnected
-      ? [{ key: 'local' as const, label: 'Local Presence', href: `/projects/${model.project.id}/local` }]
+      ? [{ key: 'local' as const, label: 'Local Presence', href: `${projectTabBase}/local` }]
       : []),
-    { key: 'activity', label: 'Activity', href: `/projects/${model.project.id}/activity` },
-    { key: 'report', label: 'Report', href: `/projects/${model.project.id}/report` },
-    { key: 'backlinks', label: 'Backlinks', href: `/projects/${model.project.id}/backlinks` },
-    { key: 'discovery', label: 'Discovery', href: `/projects/${model.project.id}/discovery` },
-    { key: 'settings', label: 'Settings', href: `/projects/${model.project.id}/settings` },
+    { key: 'search-console', label: 'Search Console', href: `${projectTabBase}/search-console` },
+    { key: 'technical-aeo', label: 'Technical AEO', href: `${projectTabBase}/technical-aeo` },
+    { key: 'backlinks', label: 'Backlinks', href: `${projectTabBase}/backlinks` },
+    { key: 'discovery', label: 'Discovery', href: `${projectTabBase}/discovery` },
+    { key: 'activity', label: 'Activity', href: `${projectTabBase}/activity` },
   ]
+  const projectSettingsTab = { key: 'settings' as const, label: 'Settings', href: `${projectTabBase}/settings` }
 
   return (
     <div className="page-container">
@@ -1941,6 +1948,14 @@ function ProjectPageContent({
             {item.label}
           </Link>
         ))}
+        <Link
+          key={projectSettingsTab.key}
+          to={projectSettingsTab.href}
+          className={`project-subnav-link project-subnav-link-trailing ${tab === 'settings' ? 'project-subnav-link-active' : ''}`}
+          aria-current={tab === 'settings' ? 'page' : undefined}
+        >
+          {projectSettingsTab.label}
+        </Link>
       </nav>
 
       {tab === 'overview' ? (
@@ -2269,6 +2284,8 @@ function ProjectPageContent({
         <ReportPage projectName={model.project.name} />
       ) : tab === 'discovery' ? (
         <DiscoverySection projectName={projectName} />
+      ) : tab === 'technical-aeo' ? (
+        <TechnicalAeoSection projectName={model.project.name} />
       ) : tab === 'activity' ? (
         <ActivitySection projectName={model.project.name} />
       ) : tab === 'backlinks' ? (

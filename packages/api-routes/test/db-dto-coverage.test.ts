@@ -38,6 +38,8 @@ import {
   domainClassificationDtoSchema,
   runDtoSchema,
   scheduleDtoSchema,
+  siteAuditScoreSchema,
+  siteAuditPageSchema,
   trafficSourceDtoSchema,
 } from '@ainyc/canonry-contracts'
 
@@ -144,6 +146,26 @@ const COVERAGE: Record<string, CoverageEntry> = {
     kind: 'dto',
     dto: scheduleDtoSchema,
     internal: {},
+  },
+  siteAuditSnapshots: {
+    kind: 'dto',
+    dto: siteAuditScoreSchema,
+    internal: {
+      id: 'Surrogate key.',
+      projectId: 'Implied by the route scope (/projects/:name/technical-aeo).',
+      factorAverages: 'Exposed as `factors` on the score DTO.',
+      createdAt: 'Row insert timestamp; the audit time is surfaced as auditedAt.',
+    },
+  },
+  siteAuditPages: {
+    kind: 'dto',
+    dto: siteAuditPageSchema,
+    internal: {
+      id: 'Surrogate key.',
+      projectId: 'Implied by the route scope (/projects/:name/technical-aeo/pages).',
+      runId: 'Internal join key — the latest surfaceable run is resolved server-side.',
+      createdAt: 'Row insert timestamp.',
+    },
   },
   notifications: {
     kind: 'dto',
