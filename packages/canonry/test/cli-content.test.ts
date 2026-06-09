@@ -336,6 +336,23 @@ describe('content CLI commands + CLI/API parity', () => {
     expect(response.targets.every((t) => t.winnabilityClass === 'ceded')).toBe(true)
   })
 
+  it('content map warns when cited-surface classifications are missing', async () => {
+    const result = await invokeCli(['content', 'map', 'example'])
+    expect(result.exitCode).toBeUndefined()
+    expect(result.stderr).toContain('Warning: 0 of 1 cited-surface domain')
+    expect(result.stderr).toContain('winnability gate is failing open')
+    expect(result.stderr).toContain('canonry discover run example --wait')
+  })
+
+  it('content map keeps the winnability coverage warning out of JSON output', async () => {
+    const result = await invokeCli(['content', 'map', 'example', '--format', 'json'])
+    expect(result.exitCode).toBeUndefined()
+    expect(result.stderr).not.toContain('winnability gate')
+    const parsed = parseJsonOutput(result.stdout) as { classifications: unknown[]; ownable: unknown[] }
+    expect(parsed.classifications).toBeInstanceOf(Array)
+    expect(parsed.ownable).toBeInstanceOf(Array)
+  })
+
   // ─── Phase M: CLI/API parity ───────────────────────────────────────
 
   it('parity: content targets CLI matches API byte-for-byte', async () => {

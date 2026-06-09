@@ -1,7 +1,9 @@
 import { createApiClient } from '../client.js'
 import { emitJsonl } from '../cli-output.js'
 import { isMachineFormat, CliError } from '../cli-error.js'
-import type { RecommendationBriefDto, WinnabilityClass } from '@ainyc/canonry-contracts'
+import type { CheckResultDto, RecommendationBriefDto, WinnabilityClass } from '@ainyc/canonry-contracts'
+
+const WINNABILITY_COVERAGE_CHECK_ID = 'content.winnability.coverage'
 
 interface TargetsOpts {
   limit?: number
@@ -151,6 +153,7 @@ interface BriefOpts {
 
 export async function generateContentBrief(project: string, targetRef: string, opts: BriefOpts): Promise<void> {
   const client = createApiClient()
+  await warnIfWinnabilityCoverageIsLow(client, project, opts.format)
   const response = await client.synthesizeContentBrief(project, targetRef, {
     provider: opts.provider,
     model: opts.model,
@@ -190,6 +193,7 @@ async function tryGetBrief(
 
 export async function contentMap(project: string, opts: { format?: string }): Promise<void> {
   const client = createApiClient()
+  await warnIfWinnabilityCoverageIsLow(client, project, opts.format)
   // The winnability map: which cited surfaces are ceded, and which queries are
   // ownable. One operator one-shot over the two reads that back the gate.
   const [classifications, targets] = await Promise.all([
@@ -222,9 +226,6 @@ export async function contentMap(project: string, opts: { format?: string }): Pr
     `${classifications.classifications.length} domain(s) classified` +
       ` (${ceded.length} ceded surface${ceded.length === 1 ? '' : 's'}) · ${ownable.length} ownable target(s)`,
   )
-  if (classifications.classifications.length === 0) {
-    console.log('  (no discovery classifications yet — run `canonry discover run` to improve the gate)')
-  }
   console.log('')
   for (const row of ownable) {
     const score = row.score.toFixed(1).padStart(6)
@@ -234,4 +235,30 @@ export async function contentMap(project: string, opts: { format?: string }): Pr
       console.log(`        angle: ${row.brief.angle}`)
     }
   }
+}
+
+function shouldWarn(check: CheckResultDto | undefined): check is CheckResultDto {
+  return check?.status === 'warn' || check?.status === 'fail'
+}
+
+async function warnIfWinnabilityCoverageIsLow(
+  client: ReturnType<typeof createApiClient>,
+  project: string,
+  format: string | undefined,
+): Promise<void> {
+  if (isMachineFormat(format)) return
+
+  let check: CheckResultDto | undefined
+  try {
+    const report = await client.runDoctor({ project, checkIds: [WINNABILITY_COVERAGE_CHECK_ID] })
+    check = report.checks.find((candidate) => candidate.id === WINNABILITY_COVERAGE_CHECK_ID)
+  } catch {
+    // Soft nudge only. Content commands should still work against older servers
+    // or transient doctor failures.
+    return
+  }
+  if (!shouldWarn(check)) return
+
+  const remediation = check.remediation ? ` ${check.remediation}` : ''
+  console.error(`Warning: ${check.summary}${remediation}`)
 }
