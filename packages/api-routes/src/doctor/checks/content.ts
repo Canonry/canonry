@@ -4,6 +4,7 @@ import {
   CheckCategories,
   CheckScopes,
   CheckStatuses,
+  classifyCitedSurface,
 } from '@ainyc/canonry-contracts'
 import { loadOrchestratorInput } from '../../content-data.js'
 import type { CheckDefinition, CheckOutput, DoctorContext } from '../types.js'
@@ -73,24 +74,41 @@ const winnabilityCoverageCheck: CheckDefinition = {
       }
     }
 
-    const coveredDomains = citedDomains.filter((domain) => input.domainClasses.has(domain))
-    const unclassifiedDomains = citedDomains.filter((domain) => !input.domainClasses.has(domain))
+    // Recognize cited domains through the SAME classifier the gate uses
+    // (own > competitor > stored discovery > static allow-list), not just the
+    // discovery-stored subset. Otherwise the check under-reports coverage for
+    // the well-known aggregators/editorial the allow-list already recognizes.
+    const surfaceClasses = classifyCitedSurface(
+      citedDomains.map((domain) => ({ domain })),
+      { projectDomains: [input.ownDomain], competitorDomains: input.competitors },
+      input.domainClasses,
+    )
+    const coveredDomains = citedDomains.filter((domain) => surfaceClasses.has(domain))
+    const unclassifiedDomains = citedDomains.filter((domain) => !surfaceClasses.has(domain))
     const coverage = coveredDomains.length / citedDomains.length
     const details = {
       citedSurfaceDomainCount: citedDomains.length,
-      classifiedDomainCount: input.domainClasses.size,
       coveredDomainCount: coveredDomains.length,
+      classifiedDomainCount: input.domainClasses.size,
       coverage,
       threshold: WINNABILITY_COVERAGE_WARN_THRESHOLD,
       unclassifiedDomains: unclassifiedDomains.slice(0, UNCLASSIFIED_DOMAIN_SAMPLE_LIMIT),
     }
 
+    // Discovery is what classifies the unrecognized tail, but it requires an
+    // ICP. If the project has none, surface that first so the operator doesn't
+    // follow the "run discovery" remediation straight into an ICP error.
+    const hasIcp = Boolean(project.icpDescription && project.icpDescription.trim().length > 0)
+    const discoverRemediation = hasIcp
+      ? `Run \`canonry discover run ${ctx.project.name} --wait\` to classify the unrecognized domains before relying on ownable/ceded content targets.`
+      : `This project has no ICP, which discovery requires. Run \`canonry discover run ${ctx.project.name} --icp "<who the project sells to>" --wait\` (or set \`spec.icpDescription\`) to classify the unrecognized domains.`
+
     if (coveredDomains.length === 0) {
       return {
         status: CheckStatuses.warn,
         code: 'content.winnability.no-classifications',
-        summary: `0 of ${citedDomains.length} cited-surface domain(s) have discovery classifications; the winnability gate is failing open.`,
-        remediation: `Run \`canonry discover run ${ctx.project.name} --wait\` to classify cited domains before trusting ownable/ceded content targets.`,
+        summary: `0 of ${citedDomains.length} cited-surface domain(s) are recognized (own/competitor/aggregator/editorial); the winnability gate is failing open.`,
+        remediation: discoverRemediation,
         details,
       }
     }
@@ -99,8 +117,8 @@ const winnabilityCoverageCheck: CheckDefinition = {
       return {
         status: CheckStatuses.warn,
         code: 'content.winnability.low-coverage',
-        summary: `${coveredDomains.length} of ${citedDomains.length} cited-surface domain(s) classified (${percent(coverage)}%); the winnability gate may miss ceded surfaces.`,
-        remediation: `Run \`canonry discover run ${ctx.project.name} --wait\` to raise classification coverage before relying on ownable/ceded content targets.`,
+        summary: `${coveredDomains.length} of ${citedDomains.length} cited-surface domain(s) recognized (${percent(coverage)}%); the winnability gate may miss ceded surfaces in the unrecognized tail.`,
+        remediation: discoverRemediation,
         details,
       }
     }
@@ -108,7 +126,7 @@ const winnabilityCoverageCheck: CheckDefinition = {
     return {
       status: CheckStatuses.ok,
       code: 'content.winnability.covered',
-      summary: `${coveredDomains.length} of ${citedDomains.length} cited-surface domain(s) classified (${percent(coverage)}%); the winnability gate is active.`,
+      summary: `${coveredDomains.length} of ${citedDomains.length} cited-surface domain(s) recognized (${percent(coverage)}%); the winnability gate is active.`,
       remediation: null,
       details,
     }

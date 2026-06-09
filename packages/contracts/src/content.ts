@@ -1,7 +1,8 @@
 import { z } from 'zod'
 
 import { providerNameSchema } from './provider.js'
-import { DiscoveryCompetitorTypes, discoveryCompetitorTypeSchema, type DiscoveryCompetitorType } from './discovery.js'
+import { discoveryCompetitorTypeSchema } from './discovery.js'
+import { SurfaceClasses, type SurfaceClass } from './surface-class.js'
 
 // ─── Enums ───────────────────────────────────────────────────────────────────
 
@@ -63,7 +64,8 @@ export const ContentActionStates = contentActionStateSchema.enum
 //
 // Deterministic judgment of whether a query's cited surface is worth pursuing
 // with first-party content. Derived (no LLM) by classifying the domains
-// actually cited for the query through the discovery domain classifier:
+// actually cited for the query through the shared surface classifier
+// (own > tracked-competitor > stored discovery class > static allow-list):
 //
 //   - `ceded`   — the cited surface is dominated by aggregators (`ota-aggregator`)
 //                 or editorial media (`editorial-media`). A head term the site
@@ -102,7 +104,10 @@ export interface CitedSurfaceDomain {
 
 /**
  * Pure derivation of a content target's `winnabilityClass` from the domains cited
- * for its query and a `(domain → classification)` lookup produced by discovery.
+ * for its query and a `(domain → SurfaceClass)` lookup (see `classifyCitedSurface`,
+ * which applies own > competitor > stored-discovery > static allow-list, so a
+ * well-known aggregator/editorial surface counts as ceded immediately rather
+ * than waiting for discovery to re-store it).
  *
  * Weighting is by citation count, not domain count: one aggregator cited 40×
  * dominates three blogs cited once each. The `ceded` share is the fraction of
@@ -120,11 +125,11 @@ export interface CitedSurfaceDomain {
  */
 export function deriveWinnabilityClass(
   citedSurfaceDomains: readonly CitedSurfaceDomain[],
-  domainClasses: ReadonlyMap<string, DiscoveryCompetitorType>,
+  surfaceClasses: ReadonlyMap<string, SurfaceClass>,
   threshold: number = CEDED_SURFACE_THRESHOLD,
 ): { winnabilityClass: WinnabilityClass; winnability: number | null } {
-  const hasCoverage = citedSurfaceDomains.some((d) => domainClasses.has(d.domain))
-  if (citedSurfaceDomains.length === 0 || domainClasses.size === 0 || !hasCoverage) {
+  const hasCoverage = citedSurfaceDomains.some((d) => surfaceClasses.has(d.domain))
+  if (citedSurfaceDomains.length === 0 || surfaceClasses.size === 0 || !hasCoverage) {
     return { winnabilityClass: WinnabilityClasses.ownable, winnability: null }
   }
 
@@ -132,8 +137,8 @@ export function deriveWinnabilityClass(
   let ceded = 0
   for (const { domain, citationCount } of citedSurfaceDomains) {
     total += citationCount
-    const cls = domainClasses.get(domain)
-    if (cls === DiscoveryCompetitorTypes['ota-aggregator'] || cls === DiscoveryCompetitorTypes['editorial-media']) {
+    const cls = surfaceClasses.get(domain)
+    if (cls === SurfaceClasses['ota-aggregator'] || cls === SurfaceClasses['editorial-media']) {
       ceded += citationCount
     }
   }

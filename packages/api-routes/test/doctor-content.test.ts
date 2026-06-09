@@ -3,6 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { eq } from 'drizzle-orm'
 import {
   createClient,
   migrate,
@@ -60,10 +61,12 @@ describe('content.winnability.coverage', () => {
     expect(result.details).toMatchObject({ citedSurfaceDomainCount: 0 })
   })
 
-  it('warns when cited-surface domains have no discovery classifications', async () => {
+  it('warns and fails open when no cited-surface domain is recognized', async () => {
+    // Generic vendor domains the static allow-list does not know and discovery
+    // has not classified — nothing is recognized, so the gate fails open.
     seedRunWithGrounding(db, project.id, [
-      { uri: 'https://booking.com/crm-guide', title: 'Booking guide' },
-      { uri: 'https://forbes.com/crm-guide', title: 'Forbes guide' },
+      { uri: 'https://crm-vendor-one.example/guide', title: 'Guide one' },
+      { uri: 'https://crm-vendor-two.example/guide', title: 'Guide two' },
     ])
 
     const result = await check.run(ctx())
@@ -79,11 +82,12 @@ describe('content.winnability.coverage', () => {
   })
 
   it('warns when classification coverage is below the threshold', async () => {
+    // Two unrecognized vendor domains; classify only one, leaving 50% recognized.
     seedRunWithGrounding(db, project.id, [
-      { uri: 'https://booking.com/crm-guide', title: 'Booking guide' },
-      { uri: 'https://forbes.com/crm-guide', title: 'Forbes guide' },
+      { uri: 'https://crm-vendor-one.example/guide', title: 'Guide one' },
+      { uri: 'https://crm-vendor-two.example/guide', title: 'Guide two' },
     ])
-    classify('booking.com', DiscoveryCompetitorTypes['ota-aggregator'])
+    classify('crm-vendor-one.example', DiscoveryCompetitorTypes['ota-aggregator'])
 
     const result = await check.run(ctx())
 
@@ -118,6 +122,20 @@ describe('content.winnability.coverage', () => {
     })
   })
 
+  it('nudges to set an ICP first when the project has none and coverage is low', async () => {
+    db.update(projects).set({ icpDescription: null }).where(eq(projects.id, project.id)).run()
+    seedRunWithGrounding(db, project.id, [
+      { uri: 'https://crm-vendor-one.example/guide', title: 'Guide one' },
+      { uri: 'https://crm-vendor-two.example/guide', title: 'Guide two' },
+    ])
+
+    const result = await check.run(ctx())
+
+    expect(result.status).toBe('warn')
+    expect(result.remediation).toContain('no ICP')
+    expect(result.remediation).toContain('--icp')
+  })
+
   function ctx(): DoctorContext {
     return { db, project }
   }
@@ -144,6 +162,7 @@ function seedProject(db: DatabaseClient): ProjectInfo {
     canonicalDomain: 'example.com',
     country: 'US',
     language: 'en',
+    icpDescription: 'Teams evaluating CRM software',
     createdAt: '2026-06-01T00:00:00.000Z',
     updatedAt: '2026-06-01T00:00:00.000Z',
   }).run()

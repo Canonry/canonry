@@ -22,7 +22,7 @@ import type {
   DiscoveryCompetitorType,
   ProviderName,
 } from '@ainyc/canonry-contracts'
-import { deriveWinnabilityClass } from '@ainyc/canonry-contracts'
+import { deriveWinnabilityClass, classifyCitedSurface } from '@ainyc/canonry-contracts'
 
 import { classifyContentAction } from './content-classifier.js'
 import { scoreContentTarget } from './content-scorer.js'
@@ -188,7 +188,16 @@ export function buildContentTargetRows(input: OrchestratorInput): ContentTargetR
         }
       : null
 
-    const { winnabilityClass, winnability } = deriveWinnabilityClass(cq.citedSurfaceDomains, input.domainClasses)
+    // Classify the cited surface through the full precedence (own > competitor
+    // > stored discovery > static allow-list) so the gate sees well-known
+    // aggregators/editorial the rankings already recognize, not only what
+    // discovery has re-stored. See classifyCitedSurface.
+    const surfaceClasses = classifyCitedSurface(
+      cq.citedSurfaceDomains,
+      { projectDomains: [input.ownDomain], competitorDomains: input.competitors },
+      input.domainClasses,
+    )
+    const { winnabilityClass, winnability } = deriveWinnabilityClass(cq.citedSurfaceDomains, surfaceClasses)
 
     rows.push({
       targetRef,

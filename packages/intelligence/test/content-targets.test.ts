@@ -109,13 +109,33 @@ describe('buildContentTargetRows winnabilityClass', () => {
     expect(rows[0].winnability).toBeCloseTo(1)
   })
 
-  it('fails open to ownable + null winnability when no discovery classifications exist', () => {
+  it('cedes a well-known aggregator surface via the allow-list, with no discovery run', () => {
+    // booking.com is a known OTA in the static allow-list, so the gate must
+    // cede it immediately. Before the gate used the shared classifier it only
+    // read discovery's stored rows, so an empty domainClasses made it fail open
+    // to ownable here — wrongly, since the cited surface is plainly ceded.
     const rows = buildContentTargetRows(
       emptyInput({
         candidateQueries: [gatedCandidate({
           citedSurfaceDomains: [{ domain: 'booking.com', citationCount: 8 }],
         })],
         domainClasses: new Map(), // discovery never ran
+      }),
+    )
+    expect(rows[0].winnabilityClass).toBe(WinnabilityClasses.ceded)
+    expect(rows[0].winnability).toBe(0)
+  })
+
+  it('still fails open to ownable + null when the cited surface is entirely unrecognized', () => {
+    const rows = buildContentTargetRows(
+      emptyInput({
+        candidateQueries: [gatedCandidate({
+          // A generic business domain the allow-list does not recognize and that
+          // discovery has not classified — the gate cannot judge it, so it fails
+          // open rather than hide a possibly-winnable target.
+          citedSurfaceDomains: [{ domain: 'midwest-roof-restoration-llc.com', citationCount: 8 }],
+        })],
+        domainClasses: new Map(),
       }),
     )
     expect(rows[0].winnabilityClass).toBe(WinnabilityClasses.ownable)

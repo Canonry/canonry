@@ -111,6 +111,15 @@ function seedProject(db: ReturnType<typeof createClient>): SeededProject {
     competitorOverlap: ['competitor-a.com', 'competitor-b.com', 'competitor-c.com'],
     rawResponse: JSON.stringify({
       groundingSources: [
+        // Q1's cited surface is dominated by a non-competitor aggregator
+        // (crm-directory.example, 4 of 6 slots) plus two tracked competitors.
+        // So the surface is winnable by default (competitors are ownable), and
+        // a test can cede it by classifying the aggregator — without the
+        // contradiction of labelling a tracked competitor an aggregator.
+        { uri: 'https://crm-directory.example/best-crm', title: 'Best CRM Tools' },
+        { uri: 'https://crm-directory.example/crm-reviews', title: 'CRM Reviews' },
+        { uri: 'https://crm-directory.example/top-crm-2026', title: 'Top CRM 2026' },
+        { uri: 'https://crm-directory.example/crm-comparison', title: 'CRM Comparison' },
         { uri: 'https://competitor-a.com/guides/crm', title: 'CRM Guide' },
         { uri: 'https://competitor-b.com/blog/best-crm', title: 'Best CRM' },
       ],
@@ -369,34 +378,35 @@ describe('content routes', () => {
       }).run()
     }
 
-    it('fails open: every row is ownable when discovery has produced no classifications', async () => {
+    it('keeps every target ownable when no cited surface is an aggregator/editorial', async () => {
       seedProject(db)
       const res = await app.inject({ method: 'GET', url: '/projects/example/content/targets' })
       const body = JSON.parse(res.payload)
       expect(body.targets.length).toBeGreaterThan(0)
+      // Nothing is a ceded surface here: competitor citations resolve to a real
+      // ownable verdict via the shared classifier, and a query with no recognized
+      // cited surface fails open to ownable. Neither path yields `ceded`.
       for (const t of body.targets) {
         expect(t.winnabilityClass).toBe('ownable')
-        expect(t.winnability).toBeNull()
       }
     })
 
     it("marks 'best crm for saas' ceded once its cited surface is classified as aggregators", async () => {
       const { projectId } = seedProject(db)
-      // Q1's cited surface is competitor-a.com + competitor-b.com.
-      classify(projectId, 'competitor-a.com', 'ota-aggregator')
-      classify(projectId, 'competitor-b.com', 'ota-aggregator')
+      // Q1's cited surface is crm-directory.example (4 slots) + two tracked
+      // competitors (1 each). Classifying the aggregator cedes 4 of 6 slots.
+      classify(projectId, 'crm-directory.example', 'ota-aggregator')
 
       const res = await app.inject({ method: 'GET', url: '/projects/example/content/targets' })
       const body = JSON.parse(res.payload)
       const q1 = body.targets.find((t: { query: string }) => t.query === 'best crm for saas')
       expect(q1.winnabilityClass).toBe('ceded')
-      expect(q1.winnability).toBeCloseTo(0)
+      expect(q1.winnability).toBeCloseTo(1 - 4 / 6, 5)
     })
 
     it('?winnability-class=ownable excludes ceded rows; ?winnability-class=ceded returns only ceded', async () => {
       const { projectId } = seedProject(db)
-      classify(projectId, 'competitor-a.com', 'ota-aggregator')
-      classify(projectId, 'competitor-b.com', 'ota-aggregator')
+      classify(projectId, 'crm-directory.example', 'ota-aggregator')
 
       const ownableRes = await app.inject({ method: 'GET', url: '/projects/example/content/targets?winnability-class=ownable' })
       const ownable = JSON.parse(ownableRes.payload).targets
@@ -411,8 +421,7 @@ describe('content routes', () => {
 
     it('?ownable=true is a convenience alias for winnability-class=ownable', async () => {
       const { projectId } = seedProject(db)
-      classify(projectId, 'competitor-a.com', 'ota-aggregator')
-      classify(projectId, 'competitor-b.com', 'ota-aggregator')
+      classify(projectId, 'crm-directory.example', 'ota-aggregator')
       const res = await app.inject({ method: 'GET', url: '/projects/example/content/targets?ownable=true' })
       const targets = JSON.parse(res.payload).targets
       expect(targets.every((t: { winnabilityClass: string }) => t.winnabilityClass === 'ownable')).toBe(true)
@@ -420,8 +429,7 @@ describe('content routes', () => {
 
     it('orders ownable rows ahead of ceded rows by default', async () => {
       const { projectId } = seedProject(db)
-      classify(projectId, 'competitor-a.com', 'ota-aggregator')
-      classify(projectId, 'competitor-b.com', 'ota-aggregator')
+      classify(projectId, 'crm-directory.example', 'ota-aggregator')
       const res = await app.inject({ method: 'GET', url: '/projects/example/content/targets' })
       const targets = JSON.parse(res.payload).targets as Array<{ winnabilityClass: string }>
       const firstCeded = targets.findIndex((t) => t.winnabilityClass === 'ceded')
@@ -1439,8 +1447,7 @@ describe('content brief routes', () => {
 
   it('rejects a ceded target with 400 and never calls the synthesizer', async () => {
     const { projectId } = seedProject(db)
-    classify(projectId, 'competitor-a.com', 'ota-aggregator')
-    classify(projectId, 'competitor-b.com', 'ota-aggregator')
+    classify(projectId, 'crm-directory.example', 'ota-aggregator')
     const cededRes = await app.inject({ method: 'GET', url: '/projects/example/content/targets?winnability-class=ceded' })
     const targetRef = JSON.parse(cededRes.payload).targets[0].targetRef
 
@@ -1492,8 +1499,7 @@ describe('content brief routes', () => {
 
     const first = await app.inject({ method: 'POST', url, headers: { 'content-type': 'application/json' }, payload: '{}' })
     expect(first.statusCode).toBe(200)
-    classify(projectId, 'competitor-a.com', 'ota-aggregator')
-    classify(projectId, 'competitor-b.com', 'ota-aggregator')
+    classify(projectId, 'crm-directory.example', 'ota-aggregator')
 
     const after = await app.inject({ method: 'GET', url })
     expect(after.statusCode).toBe(400)

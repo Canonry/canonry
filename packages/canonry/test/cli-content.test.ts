@@ -42,6 +42,7 @@ function seedProject(db: ReturnType<typeof createClient>): SeededProject {
     canonicalDomain: 'example.com',
     country: 'US',
     language: 'en',
+    icpDescription: 'Teams evaluating CRM software',
     createdAt: now,
     updatedAt: now,
   }).run()
@@ -83,7 +84,9 @@ function seedProject(db: ReturnType<typeof createClient>): SeededProject {
     competitorOverlap: ['competitor-a.com', 'competitor-b.com', 'competitor-c.com'],
     rawResponse: JSON.stringify({
       groundingSources: [
-        { uri: 'https://competitor-a.com/guides/crm', title: 'CRM Guide' },
+        // A generic (non-competitor) cited domain: unrecognized by default so
+        // the coverage warning fires, and cedeable when a test classifies it.
+        { uri: 'https://crm-listings.example/guides/crm', title: 'CRM Guide' },
       ],
     }),
     createdAt: now,
@@ -320,7 +323,7 @@ describe('content CLI commands + CLI/API parity', () => {
   })
 
   it('content targets accepts --winnability-class and filters ceded rows', async () => {
-    classify('competitor-a.com', 'ota-aggregator')
+    classify('crm-listings.example', 'ota-aggregator')
     const result = await invokeCli(['content', 'targets', 'example', '--winnability-class', 'ceded', '--format', 'json'])
     expect(result.exitCode).toBeUndefined()
     const parsed = parseJsonOutput(result.stdout) as { targets: Array<{ query: string; winnabilityClass: string }> }
@@ -330,7 +333,7 @@ describe('content CLI commands + CLI/API parity', () => {
   })
 
   it('API client sends winnability-class when filtering content targets', async () => {
-    classify('competitor-a.com', 'ota-aggregator')
+    classify('crm-listings.example', 'ota-aggregator')
     const response = await client.getContentTargets('example', { winnabilityClass: 'ceded' })
     expect(response.targets.length).toBeGreaterThan(0)
     expect(response.targets.every((t) => t.winnabilityClass === 'ceded')).toBe(true)
