@@ -1,6 +1,6 @@
 import crypto from 'node:crypto'
 import cron from 'node-cron'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, inArray } from 'drizzle-orm'
 import { queueRunIfProjectIdle, nextRunFromCron } from '@ainyc/canonry-api-routes'
 import type { DatabaseClient } from '@ainyc/canonry-db'
 import { schedules, projects, runs } from '@ainyc/canonry-db'
@@ -47,6 +47,15 @@ export interface SchedulerCallbacks {
    * logging. Fire-and-forget.
    */
   onBacklinksSyncRequested?: (projectName: string) => void
+  /**
+   * Fired when a site-audit (Technical AEO) schedule triggers. The scheduler
+   * owns run-row creation (like gbp-sync) so it can hand the host a runId; the
+   * host runs the same worker the manual POST /technical-aeo/runs route uses.
+   * A site-audit needs no `sourceId` / providers. Skipped (without orphaning a
+   * run row) when a site-audit run is already in flight for the project, since
+   * a full-site crawl can run for minutes. Fire-and-forget.
+   */
+  onSiteAuditRequested?: (runId: string, projectId: string) => void
 }
 
 /** Scheduler tasks are keyed by `(projectId, kind)` so a project can run an
@@ -278,6 +287,48 @@ export class Scheduler {
         }).where(eq(schedules.id, currentSchedule.id)).run()
         log.info('backlinks-sync.triggered', { projectName: project.name })
         this.callbacks.onBacklinksSyncRequested(project.name)
+        return
+      }
+
+      if (kind === SchedulableRunKinds['site-audit']) {
+        // Technical AEO: crawl the project sitemap + audit every page. Like
+        // gbp-sync, the scheduler creates the run row and hands the host a
+        // runId. A full-site crawl can run for minutes, so skip (without
+        // orphaning a run row) when one is already queued/running.
+        if (!this.callbacks.onSiteAuditRequested) {
+          log.warn('site-audit.no-callback', { scheduleId, projectId, msg: 'host did not register onSiteAuditRequested' })
+          return
+        }
+        const active = this.db
+          .select({ id: runs.id })
+          .from(runs)
+          .where(and(
+            eq(runs.projectId, projectId),
+            eq(runs.kind, RunKinds['site-audit']),
+            inArray(runs.status, [RunStatuses.queued, RunStatuses.running]),
+          ))
+          .get()
+        if (active) {
+          log.info('site-audit.skipped-active', { projectName: project.name, activeRunId: active.id })
+          this.db.update(schedules).set({ nextRunAt, updatedAt: now }).where(eq(schedules.id, currentSchedule.id)).run()
+          return
+        }
+        const runId = crypto.randomUUID()
+        this.db.insert(runs).values({
+          id: runId,
+          projectId,
+          kind: RunKinds['site-audit'],
+          status: RunStatuses.queued,
+          trigger: RunTriggers.scheduled,
+          createdAt: now,
+        }).run()
+        this.db.update(schedules).set({
+          lastRunAt: now,
+          nextRunAt,
+          updatedAt: now,
+        }).where(eq(schedules.id, currentSchedule.id)).run()
+        log.info('site-audit.triggered', { runId, projectName: project.name })
+        this.callbacks.onSiteAuditRequested(runId, projectId)
         return
       }
 

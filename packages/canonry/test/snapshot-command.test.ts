@@ -28,8 +28,7 @@ const SNAPSHOT_FIXTURE = {
     finalUrl: 'https://acme.example.com',
     auditedAt: '2026-03-29T12:00:00.000Z',
     overallScore: 58,
-    overallGrade: 'D+',
-    summary: 'Overall grade D+ with weak schema completeness.',
+    summary: 'Overall score 58/100 with weak schema completeness.',
     factors: [
       {
         id: 'schema-completeness',
@@ -240,7 +239,7 @@ describe('snapshot command', () => {
     expect(fs.existsSync(mdPath)).toBe(true)
     const content = fs.readFileSync(mdPath, 'utf-8')
     expect(content).toContain('# AI Perception Snapshot: Acme Corp')
-    expect(content).toContain('58/100 (D+)')
+    expect(content).toContain('58/100')
     expect(result.stdout).toContain('Markdown saved:')
   })
 
@@ -270,7 +269,7 @@ describe('snapshot command', () => {
 
   it('formats text output with visibility and competitor details', () => {
     const text = formatSnapshotText(SNAPSHOT_FIXTURE)
-    expect(text).toContain('AEO audit: 58/100 (D+)')
+    expect(text).toContain('AEO audit: 58/100')
     expect(text).toContain('Top competitors AI recommended instead: widgetco.com (1), superwidgets.com (1)')
     expect(text).toContain('OpenAI')
     expect(text).toContain('recommended instead: widgetco.com')
@@ -279,7 +278,7 @@ describe('snapshot command', () => {
   it('formats markdown with all report sections', () => {
     const md = formatSnapshotMarkdown(SNAPSHOT_FIXTURE)
     expect(md).toContain('# AI Perception Snapshot: Acme Corp')
-    expect(md).toContain('**AEO Audit Score:** 58/100 (D+)')
+    expect(md).toContain('**AEO Audit Score:** 58/100')
     expect(md).toContain('## Visibility Gap (Citations + Mentions)')
     expect(md).toContain('Acme Corp was mentioned in 1/2 provider responses')
     expect(md).toContain('## Competitors AI Recommends Instead')

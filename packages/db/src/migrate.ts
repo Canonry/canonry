@@ -1610,6 +1610,47 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `CREATE INDEX IF NOT EXISTS idx_recommendation_briefs_project ON recommendation_briefs(project_id)`,
     ],
   },
+  {
+    // Technical AEO — site-wide audit persistence. `site_audit_snapshots` is the
+    // per-run summary (drives the score + trend); `site_audit_pages` is the
+    // per-page breakdown (drives the drill-down table). Both cascade off runs so
+    // a run delete cleans up its audit data.
+    version: 75,
+    name: 'site-audit-tables',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS site_audit_snapshots (
+        id                   TEXT PRIMARY KEY,
+        project_id           TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        run_id               TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+        sitemap_url          TEXT NOT NULL,
+        audited_at           TEXT NOT NULL,
+        aggregate_score      INTEGER NOT NULL DEFAULT 0,
+        pages_discovered     INTEGER NOT NULL DEFAULT 0,
+        pages_audited        INTEGER NOT NULL DEFAULT 0,
+        pages_skipped        INTEGER NOT NULL DEFAULT 0,
+        pages_errored        INTEGER NOT NULL DEFAULT 0,
+        factor_averages      TEXT NOT NULL DEFAULT '[]',
+        cross_cutting_issues TEXT NOT NULL DEFAULT '[]',
+        prioritized_fixes    TEXT NOT NULL DEFAULT '[]',
+        created_at           TEXT NOT NULL
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_site_audit_snap_project_created ON site_audit_snapshots(project_id, created_at)`,
+      `CREATE INDEX IF NOT EXISTS idx_site_audit_snap_run ON site_audit_snapshots(run_id)`,
+      `CREATE TABLE IF NOT EXISTS site_audit_pages (
+        id            TEXT PRIMARY KEY,
+        project_id    TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        run_id        TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+        url           TEXT NOT NULL,
+        overall_score INTEGER NOT NULL DEFAULT 0,
+        status        TEXT NOT NULL,
+        error         TEXT,
+        factors       TEXT NOT NULL DEFAULT '[]',
+        created_at    TEXT NOT NULL
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_site_audit_pages_run ON site_audit_pages(run_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_site_audit_pages_project_score ON site_audit_pages(project_id, overall_score)`,
+    ],
+  },
 ]
 
 /**

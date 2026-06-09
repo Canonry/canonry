@@ -208,7 +208,6 @@ export class SnapshotService {
         finalUrl: homepageUrl,
         auditedAt: new Date().toISOString(),
         overallScore: 0,
-        overallGrade: 'N/A',
         summary: `Technical audit unavailable: ${message}`,
         factors: [],
       }
@@ -528,7 +527,7 @@ function buildBatchAnalysisPrompt(ctx: {
     `Services: ${ctx.profile.services.join(', ') || 'unknown'}`,
     `Category terms: ${ctx.profile.categoryTerms.join(', ') || 'unknown'}`,
     `Manual competitor hints: ${ctx.manualCompetitors.join(', ') || 'none'}`,
-    `Technical audit: ${ctx.audit.overallScore}/100 (${ctx.audit.overallGrade}) — ${ctx.audit.summary}`,
+    `Technical audit: ${ctx.audit.overallScore}/100 — ${ctx.audit.summary}`,
     '',
     'Responses JSON:',
     JSON.stringify(ctx.responses, null, 2),
@@ -540,7 +539,7 @@ function buildFallbackBatchAssessment(companyName: string, audit: SnapshotAuditD
     assessments: [],
     whatThisMeans: [
       `${companyName} needs category-level visibility, not just branded comprehension.`,
-      `The technical baseline is ${audit.overallScore}/100 (${audit.overallGrade}), so weak site signals may be making AI systems prefer better-structured alternatives.`,
+      `The technical baseline is ${audit.overallScore}/100, so weak site signals may be making AI systems prefer better-structured alternatives.`,
     ],
     recommendedActions: buildFallbackRecommendedActions(audit),
   }
@@ -748,7 +747,6 @@ function mapAuditReport(report: AeoAuditReport): SnapshotAuditDto {
     finalUrl: report.finalUrl,
     auditedAt: report.auditedAt,
     overallScore: report.overallScore,
-    overallGrade: report.overallGrade,
     summary: report.summary,
     factors: report.factors.map(mapAuditFactor),
   }
@@ -760,8 +758,6 @@ function mapAuditFactor(factor: AeoAuditFactor) {
     name: factor.name,
     weight: factor.weight,
     score: factor.score,
-    grade: factor.grade,
-    status: factor.status,
     findings: factor.findings.map(finding => ({
       type: finding.type,
       message: finding.message,

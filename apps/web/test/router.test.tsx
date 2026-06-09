@@ -78,9 +78,9 @@ test('unknown path renders the not-found page', async () => {
 
 // ── Project tab navigation ──
 
-test('/projects/$id/search-console renders the search engine intelligence tab', async () => {
+test('/projects/$id/search-console renders the search engines tab', async () => {
   const { container } = await renderRoute('/projects/project_citypoint/search-console')
-  expect(container.innerHTML).toMatch(/Search Engine Intelligence/)
+  expect(container.innerHTML).toMatch(/Search engines/)
 })
 
 test('/projects/$id/report renders the report tab', async () => {

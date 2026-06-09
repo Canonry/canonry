@@ -88,6 +88,11 @@ export async function scheduleRoutes(app: FastifyInstance, opts: ScheduleRoutesO
       throw validationError('"providers" is not valid for kind "backlinks-sync"')
     }
 
+    // site-audit (Technical AEO) crawls the sitemap — no answer-engine providers.
+    if (kind === SchedulableRunKinds['site-audit'] && providers && providers.length > 0) {
+      throw validationError('"providers" is not valid for kind "site-audit"')
+    }
+
     // Validate provider names against registered adapters
     const validNames = opts.validProviderNames ?? []
     if (validNames.length && providers?.length) {

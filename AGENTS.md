@@ -78,13 +78,14 @@ canonry report <project>                         # client-facing AEO report → 
 canonry report <project> --output dist/aeo.html
 canonry report <project> --format json           # raw report payload to stdout
 
-# Schedules — one row per (project, kind) where kind ∈ {answer-visibility, traffic-sync, gbp-sync, data-refresh, backlinks-sync}
+# Schedules — one row per (project, kind) where kind ∈ {answer-visibility, traffic-sync, gbp-sync, data-refresh, backlinks-sync, site-audit}
 canonry schedule set <project> --preset daily                                                # answer-visibility (default kind)
 canonry schedule set <project> --kind traffic-sync --cron "*/15 * * * *" --source <id>       # traffic-sync (sourceId required)
 canonry schedule set <project> --kind gbp-sync --preset daily                                # gbp-sync (no source; syncs selected locations)
 canonry schedule set <project> --kind data-refresh --preset daily                            # data-refresh (refreshes connected GSC/Bing/GA/GBP; no source)
 canonry schedule set <project> --kind backlinks-sync --preset weekly                         # backlinks-sync (re-probe Common Crawl; sync only when a newer rolling window is published; no source/providers)
-canonry schedule show <project> [--kind answer-visibility|traffic-sync|gbp-sync|data-refresh|backlinks-sync] # default kind is answer-visibility
+canonry schedule set <project> --kind site-audit --preset weekly                             # site-audit / Technical AEO (crawl the sitemap + audit every page; no source/providers)
+canonry schedule show <project> [--kind answer-visibility|traffic-sync|gbp-sync|data-refresh|backlinks-sync|site-audit] # default kind is answer-visibility
 canonry schedule enable  <project> [--kind ...]
 canonry schedule disable <project> [--kind ...]
 canonry schedule remove  <project> [--kind ...]                                              # delete the schedule for that kind
@@ -114,6 +115,13 @@ canonry discover probe <project> <session-id> [--format json]                   
 canonry discover promote preview <project> <session-id> [--format json]             # preview bucketed candidates + recurring suggested competitors of every classified type (read-only)
 canonry discover promote <project> <session-id> [--bucket cited,aspirational,wasted-surface] [--competitor-types direct-competitor,editorial-media] [--no-competitors] [--format json]   # adopt cited + aspirational queries + direct-competitor domains by default
 
+# Technical AEO — site-wide technical audit (powered by the `site-audit` run kind + @ainyc/aeo-audit's runSitemapAudit)
+canonry technical-aeo run <project> [--sitemap-url <url>] [--limit <n>] [--wait] [--format json]   # crawl the sitemap + audit every page; idempotent (returns the in-flight run); default page cap 500, hard max 2000
+canonry technical-aeo score <project> [--format json]                                # latest site score (0–100) + per-factor scorecard + delta vs the previous audit
+canonry technical-aeo pages <project> [--status success|error] [--sort score-asc|score-desc|url] [--limit <n>] [--format json|jsonl]  # per-page breakdown of the latest run (worst-first by default)
+canonry technical-aeo trend <project> [--limit <n>] [--format json|jsonl]            # aggregate-score history across past audits
+# Schedule it: canonry schedule set <project> --kind site-audit --preset weekly
+
 # MCP adapter (separate bin, stdio only)
 canonry-mcp                                          # core tier (~12 tools); load toolkits on demand
 canonry-mcp --read-only                              # core read tier; toolkits load read-only tools only
@@ -121,7 +129,7 @@ canonry-mcp --eager                                  # register all API tools at
 
 # MCP client install helpers (operate on local client config files)
 canonry mcp install --client claude-desktop          # merges a canonry entry into the config
-canonry mcp install --client cursor --read-only      # scope to the 66 read API tools
+canonry mcp install --client cursor --read-only      # scope to the 69 read API tools
 canonry mcp config  --client codex                   # print snippet for clients without auto-install
 
 # Skills — install canonry's agent playbook into a user's project
@@ -223,7 +231,7 @@ Each check returns `status: ok | warn | fail | skipped`, a stable machine-readab
 For MCP clients such as Claude Desktop, Codex, or custom agent shells that
 prefer a typed tool catalog over shell or HTTP, the package ships a separate
 `canonry-mcp` bin. It is a thin stdio adapter over `createApiClient()` — not
-a parallel surface. v1 exposes 101 curated API tools (66 read, 35 write) — including
+a parallel surface. v1 exposes 105 curated API tools (69 read, 36 write) — including
 the `canonry_project_overview` and `canonry_search` core composites; the
 catalog is split across a small **core tier** (always loaded) and five
 **toolkits** (`monitoring`, `setup`, `gsc`, `ga`, `agent`) that the client

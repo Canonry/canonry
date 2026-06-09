@@ -309,10 +309,11 @@ test('shows a connect empty-state when the project has no GBP connection', async
 
   renderGbpSection()
 
-  // The dedicated tab renders an explicit empty state (not nothing) so direct
-  // navigation isn't a blank page. No data endpoints are fetched.
-  await waitFor(() => expect(screen.getByText(/No Google Business Profile is connected/)).toBeTruthy())
-  expect(screen.getByText('Google Business Profile')).toBeTruthy()
+  // The dedicated tab renders a setup guide (not nothing) so direct navigation
+  // isn't a blank page. No data endpoints are fetched.
+  await waitFor(() => expect(screen.getByText('Connect Google Business Profile')).toBeTruthy())
+  expect(screen.getByText(/Four steps from the CLI/)).toBeTruthy()
+  expect(screen.getByText(/canonry gbp connect test-project/)).toBeTruthy()
 })
 
 test('Sync queues a gbp-sync run, stays disabled, and hands off to the run tracker', async () => {

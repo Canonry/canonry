@@ -400,6 +400,29 @@ const discoveryPromoteInputSchema = z.object({
     .optional(),
 })
 
+const technicalAeoScoreInputSchema = z.object({
+  project: projectNameSchema,
+})
+
+const technicalAeoPagesInputSchema = z.object({
+  project: projectNameSchema,
+  status: z.enum(['success', 'error']).optional().describe('Filter to successfully-audited or errored pages.'),
+  sort: z.enum(['score-asc', 'score-desc', 'url']).optional().describe('Sort order. Defaults to score-asc (worst pages first).'),
+  limit: z.number().int().positive().max(500).optional(),
+  offset: z.number().int().nonnegative().optional(),
+})
+
+const technicalAeoTrendInputSchema = z.object({
+  project: projectNameSchema,
+  limit: z.number().int().positive().max(365).optional(),
+})
+
+const technicalAeoRunInputSchema = z.object({
+  project: projectNameSchema,
+  sitemapUrl: z.string().url().optional().describe('Override the sitemap URL. Defaults to https://<canonicalDomain>/sitemap.xml.'),
+  limit: z.number().int().positive().max(2000).optional().describe('Cap pages audited (highest sitemap <priority> first).'),
+})
+
 const AGENT_WEBHOOK_EVENTS = [
   notificationEventSchema.enum['run.completed'],
   notificationEventSchema.enum['insight.critical'],
@@ -1620,6 +1643,61 @@ export const canonryMcpTools = [
     annotations: writeAnnotations({ idempotentHint: true }),
     openApiOperations: ['POST /api/v1/projects/{name}/discover/sessions/{id}/promote'],
     handler: (client, input) => client.promoteDiscovery(input.project, input.sessionId, input.request),
+  }),
+  defineTool({
+    name: 'canonry_technical_aeo_score',
+    title: 'Get Technical AEO score',
+    description:
+      'Get the Technical AEO scorecard for a project: the latest site-audit aggregate 0–100 score, per-factor site-level averages (with pass/partial/fail distribution), cross-cutting issues, prioritized fixes, and the delta vs the previous audit. When `hasData` is false the project has never been audited — call canonry_technical_aeo_run first.',
+    access: 'read',
+    tier: 'monitoring',
+    inputSchema: technicalAeoScoreInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/technical-aeo'],
+    handler: (client, input) => client.getTechnicalAeoScore(input.project),
+  }),
+  defineTool({
+    name: 'canonry_technical_aeo_pages',
+    title: 'List Technical AEO pages',
+    description:
+      'List the per-page breakdown of the latest site-audit run (paginated). Filter status=error to surface unreachable pages, or sort score-asc (default) to surface the worst-scoring pages first. Use after canonry_technical_aeo_score to drill into which pages drag the site score down.',
+    access: 'read',
+    tier: 'monitoring',
+    inputSchema: technicalAeoPagesInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/technical-aeo/pages'],
+    handler: (client, input) => client.getTechnicalAeoPages(input.project, {
+      status: input.status,
+      sort: input.sort,
+      limit: input.limit,
+      offset: input.offset,
+    }),
+  }),
+  defineTool({
+    name: 'canonry_technical_aeo_trend',
+    title: 'Get Technical AEO trend',
+    description: 'Get the aggregate Technical AEO score over time (oldest-first) across past site-audit runs. Use to answer "is our technical AEO improving?".',
+    access: 'read',
+    tier: 'monitoring',
+    inputSchema: technicalAeoTrendInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/technical-aeo/trend'],
+    handler: (client, input) => client.getTechnicalAeoTrend(input.project, input.limit !== undefined ? { limit: input.limit } : undefined),
+  }),
+  defineTool({
+    name: 'canonry_technical_aeo_run',
+    title: 'Run Technical AEO site audit',
+    description:
+      'Trigger a site-audit run: crawl the project sitemap and audit every reachable page across the aeo-audit ranking factors. Returns {runId, status}; the audit runs in the background (a large site can take minutes). Idempotent — if a site-audit is already in flight it returns that run. Poll canonry_run_get with the returned runId, then read canonry_technical_aeo_score.',
+    access: 'write',
+    tier: 'monitoring',
+    inputSchema: technicalAeoRunInputSchema,
+    annotations: writeAnnotations({ idempotentHint: false, openWorldHint: true }),
+    openApiOperations: ['POST /api/v1/projects/{name}/technical-aeo/runs'],
+    handler: (client, input) => client.triggerSiteAudit(input.project, {
+      sitemapUrl: input.sitemapUrl,
+      limit: input.limit,
+    }),
   }),
 ] as const
 

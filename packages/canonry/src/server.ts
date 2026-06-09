@@ -68,6 +68,7 @@ import { maybeRefreshGscCoverage } from './coverage-refresh.js'
 import { executeReleaseSync } from './commoncrawl-sync.js'
 import { executeBacklinkExtract } from './backlink-extract.js'
 import { executeDiscoveryRun } from './discovery-run.js'
+import { executeSiteAudit } from './execute-site-audit.js'
 import { backfillProjectAnswerMentions } from './commands/backfill.js'
 import { getBundledSkillSnapshots } from './commands/skills.js'
 import {
@@ -508,6 +509,22 @@ export async function createServer(opts: {
       })
   }
 
+  // Shared Technical-AEO site-audit worker. Used by BOTH the manual
+  // `POST /technical-aeo/runs` route and the scheduled `site-audit` kind. The
+  // run row is created by the caller; this runs the sitemap crawl + audit and
+  // hands off to the post-run coordinator on completion.
+  const runSiteAudit = (
+    runId: string,
+    projectId: string,
+    auditOpts?: { sitemapUrl?: string; limit?: number },
+  ): void => {
+    executeSiteAudit(opts.db, runId, projectId, auditOpts ?? {})
+      .then(() => runCoordinator.onRunCompleted(runId, projectId))
+      .catch((err: unknown) => {
+        app.log.error({ runId, err }, 'Site audit failed')
+      })
+  }
+
   const scheduler = new Scheduler(opts.db, {
     onRunCreated: (runId, projectId, providers, location) => {
       jobRunner.executeRun(runId, projectId, providers, location).catch((err: unknown) => {
@@ -569,6 +586,11 @@ export async function createServer(opts: {
           )
         })
       })()
+    },
+    onSiteAuditRequested: (runId, projectId) => {
+      // The scheduler already created the site-audit run row; run the same
+      // worker the manual POST /technical-aeo/runs route uses (default limit).
+      runSiteAudit(runId, projectId)
     },
   })
 
@@ -1233,6 +1255,10 @@ export async function createServer(opts: {
         .catch((err: unknown) => {
           app.log.error({ runId: input.runId, err }, 'Discovery run failed')
         })
+    },
+    onSiteAuditRequested: (runId: string, projectId: string, auditOpts?: { sitemapUrl?: string; limit?: number }) => {
+      // The route already created the site-audit run row; run the shared worker.
+      runSiteAudit(runId, projectId, auditOpts)
     },
     onBacklinksPruneCache: (release: string) => {
       try {

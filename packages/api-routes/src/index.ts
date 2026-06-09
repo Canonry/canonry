@@ -56,6 +56,8 @@ import {
 import { doctorRoutes } from './doctor.js'
 import { discoveryRoutes } from './discovery/index.js'
 import type { DiscoveryRoutesOptions } from './discovery/index.js'
+import { technicalAeoRoutes } from './technical-aeo.js'
+import type { TechnicalAeoRoutesOptions } from './technical-aeo.js'
 import { CheckStatuses, TrafficSourceTypes } from '@ainyc/canonry-contracts'
 import type { BundledSkillSnapshot } from '@ainyc/canonry-contracts'
 import type { CheckOutput, TrafficSourceProbe, TrafficSourceValidator } from './doctor/types.js'
@@ -170,6 +172,8 @@ export interface ApiRoutesOptions {
   onTrafficSynced?: TrafficRoutesOptions['onTrafficSynced']
   /** Discovery feature callback — fires after a discovery_sessions row + matching runs row are inserted. */
   onDiscoveryRunRequested?: DiscoveryRoutesOptions['onDiscoveryRunRequested']
+  /** Technical AEO callback — fires after a `site-audit` run row is created. Wire to `executeSiteAudit`. */
+  onSiteAuditRequested?: TechnicalAeoRoutesOptions['onSiteAuditRequested']
   /** Backlinks feature callbacks — see `backlinksRoutes` for details. */
   getBacklinksStatus?: BacklinksRoutesOptions['getBacklinksStatus']
   onInstallBacklinks?: BacklinksRoutesOptions['onInstallBacklinks']
@@ -422,6 +426,9 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     await api.register(discoveryRoutes, {
       onDiscoveryRunRequested: opts.onDiscoveryRunRequested,
     } satisfies DiscoveryRoutesOptions)
+    await api.register(technicalAeoRoutes, {
+      onSiteAuditRequested: opts.onSiteAuditRequested,
+    } satisfies TechnicalAeoRoutesOptions)
     await api.register(doctorRoutes, {
       googleConnectionStore: opts.googleConnectionStore,
       bingConnectionStore: opts.bingConnectionStore,
