@@ -785,7 +785,7 @@ export function ClickThroughActivity({ projectName }: { projectName: string }) {
               <div className="mb-4 flex items-end justify-between gap-3">
                 <div>
                   <p className="eyebrow eyebrow-soft">Detail</p>
-                  <h3 className="text-sm font-semibold text-zinc-100">Known AI referrers — sources detected</h3>
+                  <h3 className="text-sm font-semibold text-zinc-100">Known AI referrers by source</h3>
                 </div>
                 <p className="text-xs text-zinc-500">
                   {traffic.aiReferrals.length > 0 ? `${aiSourceCount} unique sources, ${traffic.aiReferrals.length} rows` : 'No source rows'}
@@ -826,7 +826,7 @@ export function ClickThroughActivity({ projectName }: { projectName: string }) {
               <div className="mb-4 flex items-end justify-between gap-3">
                 <div>
                   <p className="eyebrow eyebrow-soft">Detail</p>
-                  <h3 className="text-sm font-semibold text-zinc-100">Known AI referrers — landing pages</h3>
+                  <h3 className="text-sm font-semibold text-zinc-100">Known AI referrers by landing page</h3>
                 </div>
                 <p className="text-xs text-zinc-500">
                   {sortedAiLandingPages.length > AI_LANDING_PAGE_SIZE
