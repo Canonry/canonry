@@ -45,6 +45,13 @@ with **no in-app instrumentation** required on the user's Vercel project.
   burn the entire deadline with ZERO cursor progress and wedge permanently
   (every retry re-hits the same window). A small first span completes fast, the
   cursor advances, and partial progress is committed and resumed next run.
+  If the head is BOTH dense AND slow, even the small first span can't be narrowed
+  to a drainable floor before the budget elapses — so the **deadline path itself
+  guarantees progress**: on a zero-progress stop it skips past the head by the
+  initial span (recorded in `deadlineSkippedSliceCount` / `deadlineSkippedSliceStartsMs`,
+  surfaced via `warn`) rather than returning a start-equals-end window the route
+  must fail. Start-small reduces how often this fires; the skip makes the wedge
+  impossible regardless of upstream density or latency.
   The bisection floor is **one second** (`MIN_SUB_WINDOW_MS = 1_000`), small
   enough to drain real-world burst minutes (sites routinely hit 1000+ log
   pages in a single minute) without escalating to the floor-budget re-pull. A

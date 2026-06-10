@@ -134,6 +134,18 @@ export interface DrainVercelTrafficEventsResult {
   /** Epoch-ms start of each truncated floor slice, for operator logging. */
   truncatedSliceStartsMs: number[]
   /**
+   * Count of head slices the drain SKIPPED past undrained because the wall-clock
+   * deadline elapsed while it was still narrowing a dense or slow slice at the
+   * window start down to a drainable floor. Distinct from `truncatedSliceCount`
+   * (those slices WERE pulled, just sampled): a deadline-skipped slice was never
+   * drained at all — the drain advanced the cursor past it so the source can
+   * never wedge on an un-narrowable head. Non-zero means that head span was
+   * dropped; the caller should surface it.
+   */
+  deadlineSkippedSliceCount: number
+  /** Epoch-ms start of each deadline-skipped head slice, for operator logging. */
+  deadlineSkippedSliceStartsMs: number[]
+  /**
    * Furthest instant (epoch ms) the drain fully completed. Equals `endDate` on
    * a normal full drain; on a `deadlineReached` stop it is the last cleanly
    * drained sub-window boundary, so `[startDate, drainedThroughMs]` is complete
@@ -255,6 +267,12 @@ async function resolveRetainedStart(
  * cost: an additive caller commits the partial window and resumes next run, so a
  * dense or slow window converges over several syncs instead of one unbounded
  * grind. (One in-flight pull can overrun the deadline; the bound is approximate.)
+ * Crucially, the deadline ALWAYS yields forward progress: if the budget elapsed
+ * while still narrowing the head without completing one sub-window (a dense or
+ * slow slice at the window start), the drain skips past that head span — counted
+ * in `deadlineSkippedSliceCount` — rather than returning a start-equals-end
+ * window the caller must fail. Without this a single un-narrowable head wedges
+ * the source forever, since every retry re-pulls the same start.
  */
 export async function drainVercelTrafficEvents(
   options: DrainVercelTrafficEventsOptions,
@@ -266,7 +284,7 @@ export async function drainVercelTrafficEvents(
   const events: NormalizedTrafficRequest[] = []
   const seenEventIds = new Set<string>()
   if (endMs <= startMs) {
-    return { events, subWindowCount: 0, effectiveStartMs: startMs, retentionClamped: false, truncatedSliceCount: 0, truncatedSliceStartsMs: [], drainedThroughMs: startMs, deadlineReached: false }
+    return { events, subWindowCount: 0, effectiveStartMs: startMs, retentionClamped: false, truncatedSliceCount: 0, truncatedSliceStartsMs: [], deadlineSkippedSliceCount: 0, deadlineSkippedSliceStartsMs: [], drainedThroughMs: startMs, deadlineReached: false }
   }
 
   let cursorMs = startMs
@@ -282,14 +300,33 @@ export async function drainVercelTrafficEvents(
   let truncatedSliceCount = 0
   let deadlineReached = false
   const truncatedSliceStartsMs: number[] = []
+  const deadlineSkippedSliceStartsMs: number[] = []
 
   while (cursorMs < endMs) {
     // Wall-clock budget: stop before starting another sub-window once the
-    // deadline passes. `cursorMs` is the last fully-drained boundary, so the
-    // caller can commit `[startMs, cursorMs]` and resume from there next run
+    // deadline passes. Normally `cursorMs` is the last fully-drained boundary,
+    // so the caller commits `[startMs, cursorMs]` and resumes there next run
     // rather than letting one sync grind the whole window unbounded.
     if (options.deadlineMs !== undefined && now() >= options.deadlineMs) {
       deadlineReached = true
+      // Guarantee forward progress. If the run actually attempted pulls
+      // (`subWindowCount > 0`) but burned its whole budget narrowing the head
+      // without completing a single sub-window — a dense or slow slice at the
+      // window start that could not be reduced to a drainable floor in time —
+      // `cursorMs` is still at the (post-retention-clamp) start. Returning that
+      // wedges the source: the additive caller can't advance `lastSyncedAt`, so
+      // every retry re-hits the same head forever. Skip past the head by the
+      // initial span (the chunk first attempted, now known not to drain in one
+      // pass) so the cursor always advances; the skipped span is dropped
+      // (recorded here, surfaced by the caller — never silent) and the next run
+      // resumes past it. The `subWindowCount > 0` guard matters: if the budget
+      // was already spent before the first pull, nothing has been tried, so
+      // skipping could drop drainable data — leave the cursor put and let the
+      // caller retry with a fresh budget instead.
+      if (cursorMs === effectiveStartMs && subWindowCount > 0 && cursorMs < endMs) {
+        deadlineSkippedSliceStartsMs.push(cursorMs)
+        cursorMs = Math.min(effectiveStartMs + INITIAL_SUB_WINDOW_MS, endMs)
+      }
       break
     }
     if (subWindowCount >= options.maxSubWindows) {
@@ -406,5 +443,5 @@ export async function drainVercelTrafficEvents(
     }
   }
 
-  return { events, subWindowCount, effectiveStartMs, retentionClamped, truncatedSliceCount, truncatedSliceStartsMs, drainedThroughMs: cursorMs, deadlineReached }
+  return { events, subWindowCount, effectiveStartMs, retentionClamped, truncatedSliceCount, truncatedSliceStartsMs, deadlineSkippedSliceCount: deadlineSkippedSliceStartsMs.length, deadlineSkippedSliceStartsMs, drainedThroughMs: cursorMs, deadlineReached }
 }

@@ -1537,6 +1537,22 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
             'Vercel drain truncated dense one-second slice(s); ingested a sample and advanced past them',
           )
         }
+        if (drained.deadlineSkippedSliceCount > 0) {
+          // The drain hit its wall-clock budget while still narrowing a dense or
+          // slow slice at the window head and could not drain a single sub-window.
+          // Rather than freeze the cursor (which wedges the source — every retry
+          // re-hits the same head), it skipped past the head to guarantee forward
+          // progress. The skipped span was dropped undrained; surface it (never
+          // silent). The additive rollup keeps the rest of the window safe.
+          request.log.warn(
+            {
+              sourceId: sourceRow.id,
+              skippedSlices: drained.deadlineSkippedSliceCount,
+              sliceStarts: drained.deadlineSkippedSliceStartsMs.map((ms) => new Date(ms).toISOString()),
+            },
+            'Vercel drain could not narrow a dense/slow head slice within its budget; skipped past it to guarantee progress',
+          )
+        }
         allEvents = drained.events
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e)

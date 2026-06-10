@@ -427,4 +427,33 @@ describe('drainVercelTrafficEvents', () => {
     expect(result.drainedThroughMs).toBeGreaterThan(0)
     expect(result.events.length).toBeGreaterThan(0)
   })
+
+  test('skips past an un-narrowable head slice when the deadline trips mid-narrowing, instead of wedging', async () => {
+    // The gjelina wedge that start-small alone did NOT fix: a head slice that is
+    // both dense AND slow. Every span overflows (hasMore always true), so the
+    // drain only ever halves — it never completes a sub-window — and the budget
+    // elapses while still narrowing, before it can reach the drainable floor.
+    // Returning zero progress (drainedThroughMs == startDate) makes the caller
+    // fail and re-pull the identical head forever: a permanent wedge. Instead the
+    // drain skips past the head so the cursor always advances.
+    const pull = vi.fn(async () => page([], true)) // every span overflows, always
+    let tick = 0
+    const result = await drainVercelTrafficEvents({
+      ...baseOptions,
+      pull,
+      startDate: 0,
+      endDate: 24 * HOUR,
+      deadlineMs: 3, // trips after a couple of halvings, well before the 1s floor
+      now: () => (tick += 1),
+    })
+    expect(result.deadlineReached).toBe(true)
+    // Forward progress is guaranteed: the cursor advanced past the head by the
+    // initial span rather than staying at startDate (which is what wedged it).
+    expect(result.drainedThroughMs).toBe(5 * MINUTE)
+    expect(result.deadlineSkippedSliceCount).toBe(1)
+    expect(result.deadlineSkippedSliceStartsMs).toEqual([0])
+    // The head was skipped undrained, not sampled — distinct from truncation.
+    expect(result.events).toEqual([])
+    expect(result.truncatedSliceCount).toBe(0)
+  })
 })
