@@ -555,6 +555,7 @@ The contract test `packages/api-routes/test/openapi-contract.test.ts` enforces a
 | URL / domain normalization | `packages/contracts/src/url-normalize.ts` |
 | Report action / opportunity dedup | `packages/contracts/src/report-dedup.ts` |
 | Error factories | `packages/contracts/src/errors.ts` |
+| SQL `LIKE` wildcard escaping | `packages/contracts/src/sql-like.ts` (`escapeLikePattern` — caller adds `ESCAPE '\\'`) |
 | Retry / exponential backoff | `packages/contracts/src/retry.ts` (`withRetry`, `backoffDelayMs`, `isRetryableHttpError`) |
 | JSON column parsing (DB-only) | `packages/db` (`parseJsonColumn`) |
 

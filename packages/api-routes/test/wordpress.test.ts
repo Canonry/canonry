@@ -203,6 +203,57 @@ describe('WordPress routes', () => {
     })
   })
 
+  it('rejects a connect URL that resolves to a private / metadata / loopback address (SSRF guard)', async () => {
+    const wordpressModule = await import('@ainyc/canonry-integration-wordpress')
+    const verifySpy = vi.spyOn(wordpressModule, 'verifyWordpressConnection')
+
+    // Literal addresses — no DNS needed, deterministically blocked.
+    const blocked = [
+      'http://169.254.169.254/',   // cloud metadata
+      'http://127.0.0.1/',          // loopback (allowLoopbackWebhooks not set on the test app)
+      'http://10.0.0.5/',           // RFC1918 private
+    ]
+    for (const url of blocked) {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/v1/projects/test-project/wordpress/connect',
+        payload: { url, username: 'admin', appPassword: 'app-pass' },
+      })
+      expect(res.statusCode).toBe(400)
+      expect(res.json().error.code).toBe('VALIDATION_ERROR')
+    }
+
+    // The guard runs BEFORE any credentialed fetch, so the client is never called.
+    expect(verifySpy).not.toHaveBeenCalled()
+    // Non-http(s) schemes are rejected too.
+    const fileRes = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/test-project/wordpress/connect',
+      payload: { url: 'file:///etc/passwd', username: 'admin', appPassword: 'app-pass' },
+    })
+    expect(fileRes.statusCode).toBe(400)
+    expect(connections.has('test-project')).toBe(false)
+  })
+
+  it('rejects a private stagingUrl on connect even when the live URL is public', async () => {
+    const wordpressModule = await import('@ainyc/canonry-integration-wordpress')
+    const verifySpy = vi.spyOn(wordpressModule, 'verifyWordpressConnection')
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/test-project/wordpress/connect',
+      payload: {
+        url: 'https://8.8.8.8/',          // public literal — passes
+        stagingUrl: 'http://169.254.169.254/',
+        username: 'admin',
+        appPassword: 'app-pass',
+      },
+    })
+    expect(res.statusCode).toBe(400)
+    expect(res.json().error.message).toContain('stagingUrl')
+    expect(verifySpy).not.toHaveBeenCalled()
+  })
+
   it('passes the requested environment through page listing routes', async () => {
     const now = new Date().toISOString()
     connections.set('test-project', {

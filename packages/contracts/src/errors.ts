@@ -58,8 +58,8 @@ export function validationError(message: string, details?: Record<string, unknow
   return new AppError('VALIDATION_ERROR', message, 400, details)
 }
 
-export function authRequired(): AppError {
-  return new AppError('AUTH_REQUIRED', 'Authentication required', 401)
+export function authRequired(message = 'Authentication required'): AppError {
+  return new AppError('AUTH_REQUIRED', message, 401)
 }
 
 export function authInvalid(): AppError {

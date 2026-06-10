@@ -25,7 +25,7 @@ function startSitemapServer(routes: Record<string, string | undefined>): Promise
     server.listen(0, () => {
       const addr = server.address()
       const port = typeof addr === 'object' && addr ? addr.port : 0
-      resolve({ server, baseUrl: `http://localhost:${port}` })
+      resolve({ server, baseUrl: `http://127.0.0.1:${port}` })
     })
   })
 }

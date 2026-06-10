@@ -4,7 +4,7 @@ import type { FastifyInstance } from 'fastify'
 import { gscSearchData, gscUrlInspections, gscCoverageSnapshots, gbpLocations, gbpDailyMetrics, gbpKeywordImpressions, gbpKeywordMonthly, gbpPlaceActions, gbpLodgingSnapshots, gbpPlaceDetails, runs, projects, type DatabaseClient } from '@ainyc/canonry-db'
 import {
   validationError, notFound, normalizeProjectDomain, parseWindow, windowCutoff,
-  authRequired, quotaExceeded, providerError,
+  authRequired, quotaExceeded, providerError, escapeLikePattern,
   type GoogleConnectionType,
   gbpDiscoverRequestSchema, gbpLocationSelectionRequestSchema, gbpSyncRequestSchema,
   type GbpLocationDto, type GbpLocationListResponse, type GbpAccountListResponse,
@@ -541,8 +541,11 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     if (startDate) conditions.push(sql`${gscSearchData.date} >= ${startDate}`)
     else if (cutoffDate) conditions.push(sql`${gscSearchData.date} >= ${cutoffDate}`)
     if (endDate) conditions.push(sql`${gscSearchData.date} <= ${endDate}`)
-    if (query) conditions.push(sql`${gscSearchData.query} LIKE ${'%' + query + '%'}`)
-    if (page) conditions.push(sql`${gscSearchData.page} LIKE ${'%' + page + '%'}`)
+    // Escape LIKE wildcards so a literal `%`/`_` in the filter matches itself
+    // instead of acting as a wildcard (a `%` filter would otherwise match every
+    // row — wrong results + a needless full scan). The value is already bound.
+    if (query) conditions.push(sql`${gscSearchData.query} LIKE ${'%' + escapeLikePattern(query) + '%'} ESCAPE '\\'`)
+    if (page) conditions.push(sql`${gscSearchData.page} LIKE ${'%' + escapeLikePattern(page) + '%'} ESCAPE '\\'`)
 
     const limitVal = Math.max(parseInt(limit ?? '500', 10) || 0, 1)
     const offsetVal = Math.max(parseInt(offset ?? '0', 10) || 0, 0)

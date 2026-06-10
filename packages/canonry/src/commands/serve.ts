@@ -63,8 +63,9 @@ export async function serveCommand(format: CliFormat = 'text'): Promise<void> {
     process.stderr.write(`warning: ai-referral-paths backfill skipped: ${msg}\n`)
   }
 
-  // Create and start server
-  const app = await createServer({ config, db })
+  // Create and start server. Pass the bind host so the server can gate the
+  // unauthenticated first-run dashboard password setup when exposed off-box.
+  const app = await createServer({ config, db, host })
 
   // Graceful shutdown on SIGTERM (sent by `canonry stop`) and SIGINT (Ctrl+C)
   // Guard against double-fire: rapid Ctrl+C or concurrent SIGTERM+SIGINT

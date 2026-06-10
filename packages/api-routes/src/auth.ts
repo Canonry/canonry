@@ -62,7 +62,11 @@ const SKIP_PATHS = ['/health']
 function shouldSkipAuth(url: string): boolean {
   if (SKIP_PATHS.includes(url)) return true
   if (url.endsWith('/openapi.json')) return true
-  if (url.includes('/google/callback')) return true
+  // Both OAuth callback routes (`/google/callback` and
+  // `/projects/:name/google/callback`) end with this suffix. `endsWith` (not
+  // `includes`) so a future route that merely contains the substring — e.g.
+  // `/google/callback/anything` — does not silently become unauthenticated.
+  if (url.endsWith('/google/callback')) return true
   if (url.endsWith('/session') || url.endsWith('/session/setup')) return true
   return false
 }

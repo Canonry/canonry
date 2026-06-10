@@ -1,3 +1,4 @@
+import { resolveWebhookTarget } from '@ainyc/canonry-api-routes'
 import { createLogger } from './logger.js'
 
 const log = createLogger('SitemapParser')
@@ -5,29 +6,24 @@ const log = createLogger('SitemapParser')
 const LOC_REGEX = /<loc>([^<]+)<\/loc>/gi
 const SITEMAP_TAG_REGEX = /<sitemap>[\s\S]*?<\/sitemap>/gi
 
-// Block private/link-local IP ranges to prevent SSRF
-const PRIVATE_IP_PATTERNS = [
-  /^169\.254\./,                    // link-local (AWS metadata endpoint etc.)
-  /^10\./,                          // private class A
-  /^172\.(1[6-9]|2\d|3[01])\./,    // private class B
-  /^192\.168\./,                    // private class C
-]
-
-function validateSitemapUrl(url: string): void {
-  let parsed: URL
-  try {
-    parsed = new URL(url)
-  } catch {
-    throw new Error(`Invalid sitemap URL: ${url}`)
-  }
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    throw new Error(`Sitemap URL must use http or https protocol: ${url}`)
-  }
-  const host = parsed.hostname.toLowerCase()
-  for (const pattern of PRIVATE_IP_PATTERNS) {
-    if (pattern.test(host)) {
-      throw new Error(`Sitemap URL points to a private or reserved IP range: ${url}`)
-    }
+/**
+ * Block SSRF before fetching a sitemap (or a nested sitemap-index entry).
+ * Delegates to the shared webhook target validator, which DNS-resolves the
+ * hostname and rejects every resolved IP in a private / loopback / link-local /
+ * CGNAT / cloud-metadata range — strictly stronger than a literal-hostname
+ * regex, which can't catch a public name that resolves to an internal IP, IPv6,
+ * or 127.0.0.0/8.
+ */
+async function validateSitemapUrl(url: string): Promise<void> {
+  // `allowLoopback: true` preserves the prior behavior — the old regex guard
+  // never blocked 127.0.0.0/8, and these GSC/Bing coverage inspections run in
+  // `canonry serve` against the operator's own (config-sourced) sitemap, where
+  // a localhost target is legitimate. The upgrade is everything else the regex
+  // missed: real DNS resolution (a public name resolving to an internal IP),
+  // IPv6, CGNAT, and the 169.254 metadata range stay blocked.
+  const check = await resolveWebhookTarget(url, { allowLoopback: true })
+  if (!check.ok) {
+    throw new Error(`Sitemap URL rejected: ${check.message.replace(/^"url" /, '')} (${url})`)
   }
 }
 
@@ -65,10 +61,12 @@ async function parseSitemapRecursive(
   if (visited.has(url)) return // Skip sitemaps we've already fetched in this run
   visited.add(url)
 
-  validateSitemapUrl(url)
-
   let res: Response
   try {
+    // SSRF guard runs inside the try so a blocked nested-index child is treated
+    // like any other failing child (skipped + warned) while a blocked top-level
+    // URL still bubbles up and fails the run.
+    await validateSitemapUrl(url)
     res = await fetch(url)
   } catch (err) {
     // Top-level failures bubble up so the caller's run is marked failed; child
