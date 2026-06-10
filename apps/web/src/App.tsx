@@ -43,6 +43,7 @@ import { ProviderBadge } from './components/shared/ProviderBadge.js'
 import { StatusBadge } from './components/shared/StatusBadge.js'
 import { Drawer } from './components/layout/Drawer.js'
 import { EvidenceDetailModal } from './components/layout/EvidenceDetailModal.js'
+import { safeExternalUrl } from './lib/safe-url.js'
 import { findEvidenceForModal, findRunById } from './mock-data.js'
 import { useDashboardOverview as useDashboard } from './queries/use-dashboard-overview.js'
 import { useProjectDashboard } from './queries/use-project-dashboard.js'
@@ -786,11 +787,21 @@ export function RootLayout() {
                           {snap.groundingSources.length} grounding source{snap.groundingSources.length !== 1 ? 's' : ''}
                         </summary>
                         <ul className="mt-1 space-y-0.5">
-                          {snap.groundingSources.map((src: { uri: string; title: string }, i: number) => (
-                            <li key={i} className="text-xs text-zinc-500 truncate">
-                              <a href={src.uri} target="_blank" rel="noopener noreferrer" className="hover:text-zinc-300">{src.title || src.uri}</a>
-                            </li>
-                          ))}
+                          {snap.groundingSources.map((src: { uri: string; title: string }, i: number) => {
+                            // Grounding URIs come from LLM output — guard against
+                            // javascript:/data: links before rendering an anchor.
+                            const href = safeExternalUrl(src.uri)
+                            const label = src.title || src.uri
+                            return (
+                              <li key={i} className="text-xs text-zinc-500 truncate">
+                                {href ? (
+                                  <a href={href} target="_blank" rel="noopener noreferrer" className="hover:text-zinc-300">{label}</a>
+                                ) : (
+                                  <span>{label}</span>
+                                )}
+                              </li>
+                            )
+                          })}
                         </ul>
                       </details>
                     )}

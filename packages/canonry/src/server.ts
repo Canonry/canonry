@@ -18,7 +18,7 @@ import { claudeAdapter } from '@ainyc/canonry-provider-claude'
 import { localAdapter } from '@ainyc/canonry-provider-local'
 import { cdpChatgptAdapter } from '@ainyc/canonry-provider-cdp'
 import { perplexityAdapter } from '@ainyc/canonry-provider-perplexity'
-import { authInvalid, validationError, CcReleaseSyncStatuses, RunKinds, RunStatuses, RunTriggers, type ProviderAdapter } from '@ainyc/canonry-contracts'
+import { authInvalid, authRequired, validationError, CcReleaseSyncStatuses, RunKinds, RunStatuses, RunTriggers, type ProviderAdapter } from '@ainyc/canonry-contracts'
 import type { CanonryConfig, ProviderConfigEntry } from './config.js'
 import { saveConfigPatch, loadConfig, getConfigPath } from './config.js'
 import { getPlacesConfig } from './places-config.js'
@@ -314,11 +314,36 @@ export function applyLegacyCredentials(rows: LegacyCredentialRows, config: Canon
   }
 }
 
+/**
+ * Whether `host` is a loopback bind — only the local machine can reach a
+ * server bound here. `undefined` (programmatic/test callers that never bind a
+ * socket) is treated as loopback. `0.0.0.0` / `::` (bind-all) and any specific
+ * LAN/public address are NOT loopback.
+ */
+export function isLoopbackBindHost(host: string | undefined): boolean {
+  if (host == null || host === '') return true
+  const normalized = host.trim().toLowerCase().replace(/^\[|\]$/g, '')
+  if (normalized === 'localhost' || normalized === '::1') return true
+  // IPv4 loopback is the whole 127.0.0.0/8 block.
+  if (/^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(normalized)) return true
+  return false
+}
+
 export async function createServer(opts: {
   config: CanonryConfig
   db: DatabaseClient
   open?: boolean
   logger?: boolean
+  /**
+   * The network interface the server will bind to (from `canonry serve`).
+   * Used to gate the unauthenticated first-run dashboard password setup: on a
+   * loopback bind only local processes can reach `/session/setup`, so claiming
+   * the initial password without the API key is safe. On a non-loopback bind
+   * (`0.0.0.0`, a LAN IP) the setup endpoint additionally requires a valid
+   * bearer key so a remote first-visitor cannot mint a full-access session.
+   * Defaults to loopback when unset (programmatic/test callers).
+   */
+  host?: string
 }): Promise<FastifyInstance> {
   const logger = opts.logger === false
     ? false
@@ -961,6 +986,29 @@ export async function createServer(opts: {
     return true
   }
 
+  // Whether the server is bound to a loopback interface. On loopback only
+  // local processes can connect, so the first-run password bootstrap is safe
+  // to leave unauthenticated. On a non-loopback bind the server is reachable
+  // off-box and the bootstrap must be gated (see `/session/setup`).
+  const boundToLoopback = isLoopbackBindHost(opts.host)
+
+  // Resolve a non-revoked API key from a `Bearer cnry_…` header, if present.
+  // Used to gate the first-run password setup on an exposed server — the
+  // `/session/setup` route is in the auth skip-list, so it must do its own
+  // bearer check rather than rely on `request.apiKey`.
+  const requestHasValidApiKey = (request: FastifyRequest): boolean => {
+    const header = request.headers.authorization
+    if (!header) return false
+    const parts = header.split(' ')
+    if (parts.length !== 2 || parts[0] !== 'Bearer') return false
+    const key = opts.db
+      .select()
+      .from(apiKeys)
+      .where(eq(apiKeys.keyHash, hashApiKey(parts[1]!)))
+      .get()
+    return Boolean(key && !key.revokedAt)
+  }
+
   app.get(apiPrefix + '/session', async (request, reply) => {
     const sessionId = parseCookies(request.headers.cookie)[SESSION_COOKIE_NAME]
     return reply.send({
@@ -973,6 +1021,16 @@ export async function createServer(opts: {
   app.post<{
     Body: { password?: string }
   }>(apiPrefix + '/session/setup', async (request, reply) => {
+    // First-run dashboard password setup mints a session bound to the install's
+    // default `*` API key — full read/write on every project. That is safe on a
+    // loopback bind (only local processes can reach it) but a pre-auth privilege
+    // escalation on a network-reachable server, where any unauthenticated
+    // first-visitor could claim it. When bound off-box, require the bearer key.
+    if (!boundToLoopback && !requestHasValidApiKey(request)) {
+      const err = authRequired('This server is network-reachable; setting the dashboard password requires a valid API key.')
+      return reply.status(err.statusCode).send(err.toJSON())
+    }
+
     if (opts.config.dashboardPasswordHash) {
       const err = validationError('Dashboard password is already configured')
       return reply.status(err.statusCode).send(err.toJSON())

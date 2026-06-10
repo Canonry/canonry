@@ -8,7 +8,7 @@ import { createClient, migrate, apiKeys, auditLog } from '@ainyc/canonry-db'
 import { bootstrapCommand } from '../src/commands/bootstrap.js'
 import { initCommand } from '../src/commands/init.js'
 import { getConfigDir, loadConfig } from '../src/config.js'
-import { createServer } from '../src/server.js'
+import { createServer, isLoopbackBindHost } from '../src/server.js'
 import { ApiClient } from '../src/client.js'
 
 const _require = createRequire(import.meta.url)
@@ -455,6 +455,87 @@ describe('canonry', () => {
         payload: { password: legacyPassword },
       })
       expect(secondLogin.statusCode).toBe(200)
+    } finally {
+      await app.close()
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  it('isLoopbackBindHost classifies bind addresses', () => {
+    // Loopback (only the local machine can reach the listener).
+    expect(isLoopbackBindHost(undefined)).toBe(true)
+    expect(isLoopbackBindHost('')).toBe(true)
+    expect(isLoopbackBindHost('127.0.0.1')).toBe(true)
+    expect(isLoopbackBindHost('127.5.6.7')).toBe(true)
+    expect(isLoopbackBindHost('localhost')).toBe(true)
+    expect(isLoopbackBindHost('::1')).toBe(true)
+    expect(isLoopbackBindHost('[::1]')).toBe(true)
+    // Exposed off-box — bind-all and specific interfaces.
+    expect(isLoopbackBindHost('0.0.0.0')).toBe(false)
+    expect(isLoopbackBindHost('::')).toBe(false)
+    expect(isLoopbackBindHost('192.168.1.10')).toBe(false)
+    expect(isLoopbackBindHost('10.0.0.5')).toBe(false)
+    expect(isLoopbackBindHost('203.0.113.7')).toBe(false)
+  })
+
+  it('first-run /session/setup requires the API key when the server is bound off-box', async () => {
+    // A non-loopback bind means an unauthenticated remote first-visitor could
+    // otherwise claim a full-access `*` session. Setup must demand the bearer key.
+    const tmpDir = path.join(os.tmpdir(), `canonry-setup-gate-${crypto.randomUUID()}`)
+    fs.mkdirSync(tmpDir, { recursive: true })
+    const dbPath = path.join(tmpDir, 'test.db')
+    const db = createClient(dbPath)
+    migrate(db)
+
+    const rawKey = `cnry_${crypto.randomBytes(16).toString('hex')}`
+    const keyHash = crypto.createHash('sha256').update(rawKey).digest('hex')
+    db.insert(apiKeys).values({
+      id: crypto.randomUUID(),
+      name: 'test',
+      keyHash,
+      keyPrefix: rawKey.slice(0, 9),
+      scopes: ['*'],
+      createdAt: new Date().toISOString(),
+    }).run()
+
+    const config = {
+      apiUrl: 'http://localhost:4100',
+      database: dbPath,
+      apiKey: rawKey,
+      geminiApiKey: 'test-key',
+    }
+    // Bind to all interfaces — the exposed configuration.
+    const app = await createServer({ config, db, logger: false, host: '0.0.0.0' })
+
+    try {
+      // Unauthenticated setup is rejected (the pre-auth escalation is closed).
+      const unauth = await app.inject({
+        method: 'POST',
+        url: '/api/v1/session/setup',
+        payload: { password: 'a-strong-password' },
+      })
+      expect(unauth.statusCode).toBe(401)
+      // No password was written.
+      expect((config as { dashboardPasswordHash?: string }).dashboardPasswordHash).toBeFalsy()
+
+      // An invalid bearer key is still rejected.
+      const badKey = await app.inject({
+        method: 'POST',
+        url: '/api/v1/session/setup',
+        headers: { authorization: 'Bearer cnry_not_a_real_key' },
+        payload: { password: 'a-strong-password' },
+      })
+      expect(badKey.statusCode).toBe(401)
+
+      // With the valid bearer key, setup proceeds.
+      const ok = await app.inject({
+        method: 'POST',
+        url: '/api/v1/session/setup',
+        headers: { authorization: `Bearer ${rawKey}` },
+        payload: { password: 'a-strong-password' },
+      })
+      expect(ok.statusCode).toBe(200)
+      expect((config as { dashboardPasswordHash?: string }).dashboardPasswordHash).toBeTruthy()
     } finally {
       await app.close()
       fs.rmSync(tmpDir, { recursive: true, force: true })

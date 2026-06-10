@@ -45,6 +45,7 @@ import {
   type RunDetailDto,
   type RunHistoryPointDto,
   type ScoreSummaryDto,
+  escapeLikePattern,
   validationError,
 } from '@ainyc/canonry-contracts'
 import {
@@ -398,10 +399,6 @@ function clampSearchLimit(raw: string | undefined): number {
   if (parsed < 1) return 1
   if (parsed > SEARCH_HIT_HARD_LIMIT) return SEARCH_HIT_HARD_LIMIT
   return parsed
-}
-
-function escapeLikePattern(value: string): string {
-  return value.replace(/[\\%_]/g, match => `\\${match}`)
 }
 
 // Run summary used inside the overview composite. Snapshots are intentionally

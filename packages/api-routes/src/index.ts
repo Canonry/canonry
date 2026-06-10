@@ -384,6 +384,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     await api.register(wordpressRoutes, {
       wordpressConnectionStore: opts.wordpressConnectionStore,
       routePrefix: opts.routePrefix ?? '/api/v1',
+      allowLoopbackWebhooks: opts.allowLoopbackWebhooks,
     } satisfies WordpressRoutesOptions)
     await api.register(cdpRoutes, {
       getCdpStatus: opts.getCdpStatus,

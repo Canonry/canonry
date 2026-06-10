@@ -510,12 +510,16 @@ function computeBuckets(
   const latest = new Date(projectRuns[projectRuns.length - 1]!.createdAt)
   const buckets: TimeBucket[] = []
 
+  // Snapshot `createdAt` is stored as UTC ISO, so align bucket boundaries to
+  // UTC midnight (not the server's local midnight) — otherwise a near-midnight
+  // snapshot lands in the wrong bucket on any non-UTC server, and the day-step
+  // would shift across DST transitions.
   let start = new Date(earliest)
-  start.setHours(0, 0, 0, 0)
+  start.setUTCHours(0, 0, 0, 0)
 
   while (start <= latest) {
     const end = new Date(start)
-    end.setDate(end.getDate() + bucketDays)
+    end.setUTCDate(end.getUTCDate() + bucketDays)
 
     const startISO = start.toISOString()
     const endISO = end.toISOString()

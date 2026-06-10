@@ -187,6 +187,22 @@ describe('executeSiteAudit', () => {
     expect(db.select().from(siteAuditSnapshots).where(eq(siteAuditSnapshots.runId, runId)).get()).toBeUndefined()
   })
 
+  it('fails the run without crawling when the sitemapUrl resolves to a private / metadata address (SSRF guard)', async () => {
+    const runId = seedRun()
+    // Literal metadata IP — deterministic, no DNS. canonicalDomain ('example.com')
+    // is public so the homepage check passes; the request-body sitemapUrl is the
+    // attacker-controlled vector and must be blocked before any crawl.
+    await expect(
+      executeSiteAudit(db, runId, projectId, { sitemapUrl: 'http://169.254.169.254/sitemap.xml' }),
+    ).rejects.toThrow(/sitemapUrl/)
+
+    // The audit engine is never invoked.
+    expect(vi.mocked(runSitemapAudit)).not.toHaveBeenCalled()
+    const run = db.select().from(runs).where(eq(runs.id, runId)).get()
+    expect(run?.status).toBe('failed')
+    expect(db.select().from(siteAuditSnapshots).where(eq(siteAuditSnapshots.runId, runId)).get()).toBeUndefined()
+  })
+
   it('passes the clamped limit + sitemap override through to runSitemapAudit', async () => {
     vi.mocked(runSitemapAudit).mockResolvedValue({
       sitemapUrl: 'https://example.com/custom.xml', auditedAt: new Date().toISOString(),

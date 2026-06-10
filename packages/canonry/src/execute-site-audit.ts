@@ -11,6 +11,7 @@ import {
   type SiteAuditFactorSummaryDto,
   type SiteAuditPageFactorDto,
 } from '@ainyc/canonry-contracts'
+import { resolveWebhookTarget } from '@ainyc/canonry-api-routes'
 import { createLogger } from './logger.js'
 
 const log = createLogger('SiteAudit')
@@ -38,6 +39,21 @@ type SitemapPageFactor = NonNullable<SitemapPage['factors']>[number]
 function toHomepageUrl(canonicalDomain: string): string {
   const trimmed = canonicalDomain.trim().replace(/\/+$/, '')
   return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`
+}
+
+/**
+ * Reject a site-audit URL that resolves to a private / loopback / link-local /
+ * cloud-metadata address before any HTTP fetch. Throws a plain `Error` (caught
+ * by `executeSiteAudit` and recorded as the run's failure) so an SSRF attempt
+ * surfaces as a failed run rather than a server-side request to an internal
+ * host. Reuses the shared webhook target validator (DNS-resolves + range-checks
+ * every resolved IP).
+ */
+async function assertSiteAuditUrlAllowed(rawUrl: string, field: string): Promise<void> {
+  const check = await resolveWebhookTarget(rawUrl)
+  if (!check.ok) {
+    throw new Error(`${field} ${check.message.replace(/^"url" /, '')}`)
+  }
 }
 
 export function clampSiteAuditLimit(limit: number | undefined): number {
@@ -122,6 +138,16 @@ export async function executeSiteAudit(
     const homepageUrl = toHomepageUrl(project.canonicalDomain)
     const limit = clampSiteAuditLimit(opts.limit)
     log.info('start', { runId, projectId, homepageUrl, sitemapUrl: opts.sitemapUrl ?? null, limit })
+
+    // SSRF guard. `runSitemapAudit` fetches the sitemap URL verbatim with no
+    // host validation of its own (aeo-audit only guards the per-page `<loc>`
+    // fetches, not the initial sitemap/discovery fetch). The request-body
+    // `sitemapUrl` is attacker-controlled, so validate both the homepage origin
+    // (used for sitemap discovery) and any explicit sitemap URL resolve to a
+    // public address before crawling. Canonry never opts into private hosts for
+    // site audits, so loopback is blocked too.
+    await assertSiteAuditUrlAllowed(homepageUrl, 'canonicalDomain')
+    if (opts.sitemapUrl) await assertSiteAuditUrlAllowed(opts.sitemapUrl, 'sitemapUrl')
 
     // Pure HTTP — no LLM / paid API calls. Runs sequentially inside the package.
     const report = await runSitemapAudit(homepageUrl, { sitemapUrl: opts.sitemapUrl, limit })
