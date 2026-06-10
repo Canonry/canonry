@@ -48,7 +48,7 @@ export async function serveCommand(format: CliFormat = 'text'): Promise<void> {
   }
 
   // Same idea for ga_ai_referrals — landing_page_normalized was added in
-  // v46. Without this, the dashboard's "Known AI referrers — landing pages"
+  // v46. Without this, the dashboard's "Known AI referrers by landing page"
   // panel surfaces legacy rows as a synthetic '(not set)' bucket until the
   // user re-syncs.
   try {
