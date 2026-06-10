@@ -218,7 +218,7 @@ test('renders five-channel breakdown with disjoint Organic, Social, Direct, Know
   // The misleading old framing is gone: panel title "Attributable AI visits" must not appear
   expect(screen.queryByText('Attributable AI visits')).toBeNull()
 
-  expect(screen.getByText('Known AI referrers — landing pages')).toBeTruthy()
+  expect(screen.getByText('Known AI referrers by landing page')).toBeTruthy()
   const row = screen.getAllByText('/pricing')
     .map((cell) => cell.closest('tr') as HTMLElement | null)
     .find((candidate): candidate is HTMLElement => Boolean(candidate && within(candidate).queryByText('chatgpt.com')))
