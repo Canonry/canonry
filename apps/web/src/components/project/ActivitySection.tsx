@@ -60,6 +60,7 @@ const SOURCE_COLORS = CHART_SERIES_COLORS
 const SOCIAL_OTHER_COLOR = CHART_NEUTRAL.textDim
 const SOCIAL_TOTAL_COLOR = CHART_NEUTRAL.textFaint
 const SOCIAL_TABLE_DEFAULT_LIMIT = 25
+const AI_LANDING_PAGE_SIZE = 50
 
 type PageSortKey = 'landingPage' | 'sessions' | 'organicSessions' | 'users'
 type ReferralSortKey = 'source' | 'medium' | 'sessions' | 'users'
@@ -188,7 +189,9 @@ export function ActivitySection({ projectName }: { projectName: string }) {
   )
 }
 
-function ClickThroughActivity({ projectName }: { projectName: string }) {
+// Exported for focused testing of the GA4 click-through panel (e.g. landing-page
+// pagination) without standing up a router for the sibling ServerActivityPanel's links.
+export function ClickThroughActivity({ projectName }: { projectName: string }) {
   const queryClient = useQueryClient()
   const [status, setStatus] = useState<ApiGaStatus | null>(null)
   const [traffic, setTraffic] = useState<ApiGaTraffic | null>(null)
@@ -205,6 +208,7 @@ function ClickThroughActivity({ projectName }: { projectName: string }) {
   const [socialSortDir, setSocialSortDir] = useState<SortDir>('desc')
   const [aiLandingSortKey, setAiLandingSortKey] = useState<AiLandingPageSortKey>('sessions')
   const [aiLandingSortDir, setAiLandingSortDir] = useState<SortDir>('desc')
+  const [aiLandingPage, setAiLandingPage] = useState(1)
   const [aiHistory, setAiHistory] = useState<GA4AiReferralHistoryEntry[]>([])
   const [sessionHistory, setSessionHistory] = useState<GA4SessionHistoryEntry[]>([])
   const [socialHistory, setSocialHistory] = useState<GA4SocialReferralHistoryEntry[]>([])
@@ -357,6 +361,7 @@ function ClickThroughActivity({ projectName }: { projectName: string }) {
   }
 
   function handleAiLandingSort(key: AiLandingPageSortKey) {
+    setAiLandingPage(1)
     if (aiLandingSortKey === key) {
       setAiLandingSortDir((d) => (d === 'desc' ? 'asc' : 'desc'))
     } else {
@@ -400,6 +405,15 @@ function ClickThroughActivity({ projectName }: { projectName: string }) {
       return aiLandingSortDir === 'asc' ? (av as number) - (bv as number) : (bv as number) - (av as number)
     })
   }, [traffic?.aiReferralLandingPages, aiLandingSortKey, aiLandingSortDir])
+
+  const aiLandingTotalPages = Math.max(1, Math.ceil(sortedAiLandingPages.length / AI_LANDING_PAGE_SIZE))
+  // Clamp to a valid page so a stale page index (e.g. after a resync shrinks the list) still renders.
+  const aiLandingCurrentPage = Math.min(Math.max(1, aiLandingPage), aiLandingTotalPages)
+  const aiLandingPageStart = (aiLandingCurrentPage - 1) * AI_LANDING_PAGE_SIZE
+  const pagedAiLandingPages = useMemo(
+    () => sortedAiLandingPages.slice(aiLandingPageStart, aiLandingPageStart + AI_LANDING_PAGE_SIZE),
+    [sortedAiLandingPages, aiLandingPageStart],
+  )
 
   const sortedSocialReferrals = useMemo(() => {
     if (!traffic?.socialReferrals) return []
@@ -815,32 +829,62 @@ function ClickThroughActivity({ projectName }: { projectName: string }) {
                   <h3 className="text-sm font-semibold text-zinc-100">Known AI referrers — landing pages</h3>
                 </div>
                 <p className="text-xs text-zinc-500">
-                  {sortedAiLandingPages.length > 0 ? `${sortedAiLandingPages.length} rows` : 'No landing-page rows'}
+                  {sortedAiLandingPages.length > AI_LANDING_PAGE_SIZE
+                    ? `${aiLandingPageStart + 1}–${aiLandingPageStart + pagedAiLandingPages.length} of ${sortedAiLandingPages.length} rows`
+                    : sortedAiLandingPages.length > 0
+                      ? `${sortedAiLandingPages.length} rows`
+                      : 'No landing-page rows'}
                 </p>
               </div>
 
               {sortedAiLandingPages.length > 0 ? (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="text-[10px] uppercase tracking-wider text-zinc-500">
-                        <SortHeader label="Landing Page" sortKey="landingPage" current={aiLandingSortKey} dir={aiLandingSortDir} onSort={handleAiLandingSort} align="left" />
-                        <SortHeader label="Source" sortKey="source" current={aiLandingSortKey} dir={aiLandingSortDir} onSort={handleAiLandingSort} align="left" />
-                        <th className="py-1 font-medium text-left">Attribution</th>
-                        <SortHeader label="Sessions" sortKey="sessions" current={aiLandingSortKey} dir={aiLandingSortDir} onSort={handleAiLandingSort} align="right" />
-                        <SortHeader label="Users" sortKey="users" current={aiLandingSortKey} dir={aiLandingSortDir} onSort={handleAiLandingSort} align="right" />
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {sortedAiLandingPages.map((row) => (
-                        <AiReferralLandingPageRow
-                          key={`${row.landingPage}:${row.source}:${row.medium}:${row.sourceDimension}`}
-                          row={row}
-                        />
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                <>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-[10px] uppercase tracking-wider text-zinc-500">
+                          <SortHeader label="Landing Page" sortKey="landingPage" current={aiLandingSortKey} dir={aiLandingSortDir} onSort={handleAiLandingSort} align="left" />
+                          <SortHeader label="Source" sortKey="source" current={aiLandingSortKey} dir={aiLandingSortDir} onSort={handleAiLandingSort} align="left" />
+                          <th className="py-1 font-medium text-left">Attribution</th>
+                          <SortHeader label="Sessions" sortKey="sessions" current={aiLandingSortKey} dir={aiLandingSortDir} onSort={handleAiLandingSort} align="right" />
+                          <SortHeader label="Users" sortKey="users" current={aiLandingSortKey} dir={aiLandingSortDir} onSort={handleAiLandingSort} align="right" />
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {pagedAiLandingPages.map((row) => (
+                          <AiReferralLandingPageRow
+                            key={`${row.landingPage}:${row.source}:${row.medium}:${row.sourceDimension}`}
+                            row={row}
+                          />
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {aiLandingTotalPages > 1 && (
+                    <div className="mt-3 flex items-center justify-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setAiLandingPage(aiLandingCurrentPage - 1)}
+                        disabled={aiLandingCurrentPage <= 1}
+                        className="text-xs text-zinc-400 hover:text-zinc-200 disabled:opacity-40 disabled:hover:text-zinc-400 px-3 py-1 rounded-full border border-zinc-800 hover:border-zinc-700 disabled:hover:border-zinc-800 transition-colors"
+                      >
+                        Previous
+                      </button>
+                      <span className="text-xs text-zinc-500 tabular-nums">
+                        Page {aiLandingCurrentPage} of {aiLandingTotalPages}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setAiLandingPage(aiLandingCurrentPage + 1)}
+                        disabled={aiLandingCurrentPage >= aiLandingTotalPages}
+                        className="text-xs text-zinc-400 hover:text-zinc-200 disabled:opacity-40 disabled:hover:text-zinc-400 px-3 py-1 rounded-full border border-zinc-800 hover:border-zinc-700 disabled:hover:border-zinc-800 transition-colors"
+                      >
+                        Next
+                      </button>
+                    </div>
+                  )}
+                </>
               ) : (
                 <div className="flex flex-col items-center justify-center py-8 text-center">
                   <p className="text-sm text-zinc-400 mb-2">No AI landing pages detected yet</p>
