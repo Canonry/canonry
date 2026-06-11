@@ -11,6 +11,9 @@ import { CHART_NEUTRAL, CHART_TONE, CHART_SERIES_COLORS } from '../shared/ChartP
 import { formatTimestamp, formatBooleanState, SearchMetric, SEARCH_METRIC_LABELS } from '../../lib/format-helpers.js'
 import { addToast } from '../../lib/toast-store.js'
 import { asyncHandler } from '../../lib/async-handler.js'
+import { extractApiErrorInfo } from '../../lib/extract-error-message.js'
+import { gscActionNeededFromError, type GscActionNeeded } from '../../lib/gsc-remediation.js'
+import { safeExternalUrl } from '../../lib/safe-url.js'
 import {
   fetchSettings,
   googleConnect,
@@ -178,7 +181,27 @@ export function GscSection({
   )
   const [requestingIndexing, setRequestingIndexing] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // First-class remediation for the self-hosted "I used my own OAuth client but
+  // never enabled the Search Console API" 403 — rendered as a one-click banner
+  // instead of a raw error string. Mutually exclusive with `error`.
+  const [actionNeeded, setActionNeeded] = useState<GscActionNeeded | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+
+  // Classify a thrown GSC error: a recognized "Action needed" remediation
+  // (enable-API) renders as the amber banner; everything else is a plain inline
+  // error. Reading `details` works whether the throw was an ApiError (api.ts
+  // wrappers) or the raw envelope the generated SDK throws via fetchQuery.
+  function reportGscError(err: unknown, fallback: string) {
+    const info = extractApiErrorInfo(err)
+    const action = gscActionNeededFromError(info)
+    if (action) {
+      setActionNeeded(action)
+      setError(null)
+    } else {
+      setActionNeeded(null)
+      setError(info.message || fallback)
+    }
+  }
 
   const gscConn = connections.find((c) => c.connectionType === 'gsc')
   const hasHistoricalData = performance.length > 0 || inspections.length > 0 || deindexed.length > 0
@@ -201,9 +224,10 @@ export function GscSection({
       })
       setProperties(sites)
       setSelectedProperty(currentConn.propertyId ?? sites[0]?.siteUrl ?? '')
+      setActionNeeded(null)
     } catch (err) {
       setProperties([])
-      setError(err instanceof Error ? err.message : 'Failed to load Search Console properties')
+      reportGscError(err, 'Failed to load Search Console properties')
     } finally {
       setPropertiesLoading(false)
     }
@@ -612,6 +636,41 @@ export function GscSection({
         </div>
       </div>
 
+      {actionNeeded && (
+        <div className="mb-3 rounded-lg border border-amber-800/40 bg-amber-950/20 px-3 py-2.5 text-sm text-amber-200">
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <p className="font-medium text-amber-100">{actionNeeded.title}</p>
+              <p className="mt-0.5 text-amber-200/90">{actionNeeded.message}</p>
+              {(safeExternalUrl(actionNeeded.enableUrl) || safeExternalUrl(actionNeeded.indexingApiUrl)) && (
+                <div className="mt-2 flex flex-wrap gap-3">
+                  {safeExternalUrl(actionNeeded.enableUrl) && (
+                    <a
+                      href={safeExternalUrl(actionNeeded.enableUrl)!}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-medium text-amber-100 underline decoration-amber-500/50 underline-offset-2 hover:text-amber-50"
+                    >
+                      {'Enable Search Console API ↗'}
+                    </a>
+                  )}
+                  {safeExternalUrl(actionNeeded.indexingApiUrl) && (
+                    <a
+                      href={safeExternalUrl(actionNeeded.indexingApiUrl)!}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-medium text-amber-100 underline decoration-amber-500/50 underline-offset-2 hover:text-amber-50"
+                    >
+                      {'Enable Indexing API ↗'}
+                    </a>
+                  )}
+                </div>
+              )}
+            </div>
+            <button type="button" className="text-amber-400 hover:text-amber-200" onClick={() => setActionNeeded(null)}>×</button>
+          </div>
+        </div>
+      )}
       {error && (
         <div className="mb-3 rounded-lg border border-rose-800/40 bg-rose-950/20 px-3 py-2 text-sm text-rose-300">
           {error}

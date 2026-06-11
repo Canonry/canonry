@@ -66,8 +66,8 @@ export function authInvalid(): AppError {
   return new AppError('AUTH_INVALID', 'Invalid API key', 401)
 }
 
-export function forbidden(message = 'Forbidden'): AppError {
-  return new AppError('FORBIDDEN', message, 403)
+export function forbidden(message = 'Forbidden', details?: Record<string, unknown>): AppError {
+  return new AppError('FORBIDDEN', message, 403, details)
 }
 
 export function quotaExceeded(metric: string): AppError {

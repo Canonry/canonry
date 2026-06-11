@@ -256,12 +256,33 @@ The OAuth callback failed. Common causes:
 - The authorization code expired (they're single-use and expire in minutes)
 - Try connecting again — the code is generated fresh each time
 
-### `Search Console API not enabled`
+### `Search Console API not enabled` — connection succeeds, then every call returns 403
 
-Enable it at:
-```
-https://console.developers.google.com/apis/api/searchconsole.googleapis.com/overview?project=YOUR_PROJECT_ID
-```
+**Symptom:** the OAuth flow completes and the connection is stored, but opening the
+project immediately shows an **"Action needed — Enable the Search Console API"**
+banner (and, in the CLI, a `FORBIDDEN` with the message below). The first live call
+canonry makes — listing your Search Console properties — returns 403.
+
+**Cause:** when you use **your own** Google OAuth client, granting OAuth consent is
+**not** enough — the **Search Console API must also be enabled on that OAuth client's
+Google Cloud project.** OAuth authorizes the *account*; enabling the API authorizes the
+*project* to call it. They are separate steps, and the second is easy to miss.
+
+**Fix:** enable both APIs on the GCP project that owns your OAuth client, wait ~2–5
+minutes for the change to propagate, then retry:
+
+- **Search Console API** — required for all GSC features:
+  ```
+  https://console.developers.google.com/apis/api/searchconsole.googleapis.com/overview?project=YOUR_PROJECT_ID
+  ```
+- **Web Search Indexing API** — required only for the request-indexing feature:
+  ```
+  https://console.developers.google.com/apis/api/indexing.googleapis.com/overview?project=YOUR_PROJECT_ID
+  ```
+
+The dashboard banner deep-links straight to the enable page with your project number
+already filled in. The 403 does **not** log you out — a Google permission error is not
+a canonry session error, so your dashboard session stays valid while you fix it.
 
 ### `Indexing API returned 403`
 

@@ -34,13 +34,17 @@ describe('apiFetch auth expiry', () => {
     expect(handler).toHaveBeenCalledOnce()
   })
 
-  test('calls auth expired handler on 403', async () => {
-    mockFetch(403, { error: 'Forbidden' })
+  test('does NOT call auth expired handler on 403 (forbidden ≠ session expiry)', async () => {
+    // A 403 is never a canonry session expiry — it's a missing scope or, far
+    // more often, an upstream provider 403 proxied through (e.g. Google Search
+    // Console returning 403 for a disabled API). Re-login can't fix it, so the
+    // dashboard must surface it inline, not boot the operator to login.
+    mockFetch(403, { error: { code: 'FORBIDDEN', message: 'Forbidden' } })
     const handler = vi.fn()
     setOnAuthExpired(handler)
 
     await expect(fetchProjects()).rejects.toThrow()
-    expect(handler).toHaveBeenCalledOnce()
+    expect(handler).not.toHaveBeenCalled()
   })
 
   test('does NOT call auth expired handler on 404', async () => {
@@ -128,13 +132,13 @@ describe('api-aero auth expiry', () => {
     expect(handler).toHaveBeenCalledOnce()
   })
 
-  test('fetchAeroTranscript triggers auth expiry on 403', async () => {
-    mockFetch(403, { error: 'Forbidden' })
+  test('fetchAeroTranscript does NOT trigger auth expiry on 403', async () => {
+    mockFetch(403, { error: { code: 'FORBIDDEN', message: 'Forbidden' } })
     const handler = vi.fn()
     setOnAuthExpired(handler)
 
     await expect(fetchAeroTranscript('demo')).rejects.toThrow()
-    expect(handler).toHaveBeenCalledOnce()
+    expect(handler).not.toHaveBeenCalled()
   })
 
   test('fetchAeroTranscript does NOT trigger auth expiry on 404', async () => {

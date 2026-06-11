@@ -4,7 +4,7 @@ import type { FastifyInstance } from 'fastify'
 import { gscSearchData, gscUrlInspections, gscCoverageSnapshots, gbpLocations, gbpDailyMetrics, gbpKeywordImpressions, gbpKeywordMonthly, gbpPlaceActions, gbpLodgingSnapshots, gbpPlaceDetails, runs, projects, type DatabaseClient } from '@ainyc/canonry-db'
 import {
   validationError, notFound, normalizeProjectDomain, parseWindow, windowCutoff,
-  authRequired, quotaExceeded, providerError, escapeLikePattern,
+  authRequired, forbidden, quotaExceeded, providerError, escapeLikePattern, AppError,
   type GoogleConnectionType,
   gbpDiscoverRequestSchema, gbpLocationSelectionRequestSchema, gbpSyncRequestSchema,
   type GbpLocationDto, type GbpLocationListResponse, type GbpAccountListResponse,
@@ -24,6 +24,8 @@ import {
   GSC_SCOPE,
   INDEXING_SCOPE,
   INDEXING_API_DAILY_LIMIT,
+  GoogleApiError,
+  GoogleAuthError,
 } from '@ainyc/canonry-integration-google'
 import { GA4_SCOPE } from '@ainyc/canonry-integration-google-analytics'
 import {
@@ -153,6 +155,128 @@ async function getValidToken(
     connectionId: `${domain}:${connectionType}`,
     propertyId: conn.propertyId ?? null,
   }
+}
+
+/**
+ * When a self-hosted operator uses their own Google OAuth client, the single
+ * most common live-GSC failure is the Search Console API simply not being
+ * enabled on that OAuth client's Google Cloud project. Google returns a 403
+ * whose body names the GCP project number and a deep link to enable it. Detect
+ * that exact shape and lift the project number + enable links into structured
+ * fields so the dashboard can render a one-click "Action needed" remediation
+ * (and the CLI/agents get a machine-readable `reason`). Returns null when the
+ * 403 is some other forbidden (e.g. the account just lacks property access).
+ */
+function parseGscApiDisabled(
+  message: string,
+): { projectNumber: string | null; enableUrl: string; indexingApiUrl: string } | null {
+  if (!/accessNotConfigured|SERVICE_DISABLED|has not been used in project|is disabled/i.test(message)) {
+    return null
+  }
+  // Prefer the project number from Google's own enable URL; fall back to the
+  // "...in project <N>..." prose. Project numbers are bare integers.
+  const projectNumber = message.match(/[?&]project=(\d+)/)?.[1] ?? message.match(/project\s+(\d+)/i)?.[1] ?? null
+  const base = 'https://console.developers.google.com/apis/api'
+  const qs = projectNumber ? `?project=${projectNumber}` : ''
+  return {
+    projectNumber,
+    enableUrl: `${base}/searchconsole.googleapis.com/overview${qs}`,
+    indexingApiUrl: `${base}/indexing.googleapis.com/overview${qs}`,
+  }
+}
+
+/**
+ * Recover the upstream HTTP status from a GoogleAuthError thrown by
+ * refreshAccessToken / exchangeCode. Those set `.statusCode` only for the 429
+ * rate-limit case; every other failure embeds the status in the message
+ * ("Token refresh failed (400): …"). We deliberately do NOT widen `.statusCode`
+ * at the throw site: the global error handler (index.ts) forwards any
+ * non-AppError's `.statusCode` as the HTTP response, so populating it would flip
+ * the UNWRAPPED GBP/GSC endpoints from a 500 to a raw upstream 4xx — and a
+ * leaked 401 would force a dashboard logout, the very bug this path prevents.
+ * Reading it back out here keeps the status confined to the wrapped GSC routes.
+ */
+function googleAuthErrorStatus(err: GoogleAuthError): number | null {
+  if (err.statusCode != null) return err.statusCode
+  const match = err.message.match(/failed \((\d{3})\)/)
+  return match ? Number(match[1]) : null
+}
+
+/**
+ * Map a failure from a LIVE Google Search Console call into a canonry AppError.
+ *
+ * The GSC proxy routes (`/google/properties`, `/google/gsc/sitemaps`, …) are a
+ * gateway: canonry calls Google on the operator's behalf, so a Google failure
+ * is the UPSTREAM's fault, not a canonry-auth failure. The mapping is chosen so
+ * the HTTP status carries the right *actionability* signal to every client:
+ *
+ *   - A config problem that the operator must fix and that a retry will NOT
+ *     resolve (Search Console API not enabled, no property access, revoked
+ *     credentials) → `forbidden` (403, FORBIDDEN). Non-retryable → CLI exit
+ *     code 1 (user error). The dashboard renders these inline; it only forces
+ *     logout on a genuine canonry 401, never on a FORBIDDEN carrying a provider
+ *     message, so a Google permission error no longer boots the operator.
+ *   - A transient upstream failure a retry MIGHT fix (rate limit, 5xx) →
+ *     `quotaExceeded` (429) / `providerError` (502). Retryable → CLI exit 2.
+ *
+ * Crucially this NEVER returns 401: a leaked Google 401 would be
+ * indistinguishable from a canonry session expiry and would log the operator
+ * out. AppErrors raised before the network call (e.g. `notFound` /
+ * `validationError` from `getValidToken`) are genuine canonry-side errors and
+ * pass through unchanged.
+ */
+function gscErrorToAppError(err: unknown, context: string): AppError {
+  if (err instanceof AppError) return err
+
+  if (err instanceof GoogleApiError) {
+    if (err.status === 429) {
+      return quotaExceeded('Google Search Console API (rate limited; retries exhausted)')
+    }
+    if (err.status === 403) {
+      const disabled = parseGscApiDisabled(err.message)
+      if (disabled) {
+        const inProject = disabled.projectNumber ? ` (project ${disabled.projectNumber})` : ''
+        return forbidden(
+          `${context}: the Google Search Console API is not enabled for your Google Cloud project${inProject}. `
+            + `Enable the Search Console API and the Indexing API, wait ~2–5 minutes, then retry: ${disabled.enableUrl}`,
+          { reason: 'gsc-api-disabled', upstreamStatus: 403, ...disabled },
+        )
+      }
+      return forbidden(
+        `${context}: the connected Google account does not have access to a verified Search Console property `
+          + 'for this domain. Connect the account that owns the property.',
+        { reason: 'gsc-no-property-access', upstreamStatus: 403 },
+      )
+    }
+    if (err.status === 401) {
+      return forbidden(
+        `${context}: the Google connection has expired or was revoked. Reconnect Google Search Console.`,
+        { reason: 'gsc-reconnect', upstreamStatus: 401 },
+      )
+    }
+    return providerError(`${context}: ${err.message}`, { upstreamStatus: err.status })
+  }
+
+  if (err instanceof GoogleAuthError) {
+    // Token exchange/refresh failed. A 4xx (typically invalid_grant on a
+    // revoked refresh token) is a non-retryable reconnect signal; a 429 is a
+    // rate limit; anything else is treated as a transient upstream error.
+    const status = googleAuthErrorStatus(err)
+    if (status === 429) return quotaExceeded('Google OAuth token refresh (rate limited)')
+    if (status != null && status >= 400 && status < 500) {
+      return forbidden(
+        `${context}: the stored Google credentials are no longer valid (token refresh failed). `
+          + 'Reconnect Google Search Console.',
+        { reason: 'gsc-reconnect', upstreamStatus: status },
+      )
+    }
+    return providerError(
+      `${context}: ${err.message}. Reconnect Google Search Console if this persists.`,
+      status != null ? { upstreamStatus: status } : undefined,
+    )
+  }
+
+  return providerError(`${context}: ${err instanceof Error ? err.message : String(err)}`)
 }
 
 export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptions) {
@@ -487,9 +611,13 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     const store = requireConnectionStore()
 
     const project = resolveProject(app.db, request.params.name)
-    const { accessToken } = await getValidToken(store, project.canonicalDomain, 'gsc', googleClientId, googleClientSecret)
-    const sites = await listSites(accessToken)
-    return { sites }
+    try {
+      const { accessToken } = await getValidToken(store, project.canonicalDomain, 'gsc', googleClientId, googleClientSecret)
+      const sites = await listSites(accessToken)
+      return { sites }
+    } catch (err) {
+      throw gscErrorToAppError(err, 'Failed to list Search Console properties')
+    }
   })
 
   // POST /projects/:name/google/gsc/sync
@@ -643,12 +771,16 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
       throw validationError('url is required')
     }
 
-    const { accessToken, propertyId } = await getValidToken(store, project.canonicalDomain, 'gsc', googleClientId, googleClientSecret)
-    if (!propertyId) {
-      throw validationError('No GSC property configured for this connection')
+    let result
+    try {
+      const { accessToken, propertyId } = await getValidToken(store, project.canonicalDomain, 'gsc', googleClientId, googleClientSecret)
+      if (!propertyId) {
+        throw validationError('No GSC property configured for this connection')
+      }
+      result = await gscInspectUrl(accessToken, url, propertyId)
+    } catch (err) {
+      throw gscErrorToAppError(err, 'Failed to inspect URL in Search Console')
     }
-
-    const result = await gscInspectUrl(accessToken, url, propertyId)
     const ir = result.inspectionResult
     const idx = ir.indexStatusResult
     const mob = ir.mobileUsabilityResult
@@ -957,13 +1089,17 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     const store = requireConnectionStore()
 
     const project = resolveProject(app.db, request.params.name)
-    const { accessToken, propertyId } = await getValidToken(store, project.canonicalDomain, 'gsc', googleClientId, googleClientSecret)
-    if (!propertyId) {
-      throw validationError('No GSC property configured for this connection. Set one with "canonry google set-property".')
-    }
+    try {
+      const { accessToken, propertyId } = await getValidToken(store, project.canonicalDomain, 'gsc', googleClientId, googleClientSecret)
+      if (!propertyId) {
+        throw validationError('No GSC property configured for this connection. Set one with "canonry google set-property".')
+      }
 
-    const sitemaps = await listSitemaps(accessToken, propertyId)
-    return { sitemaps }
+      const sitemaps = await listSitemaps(accessToken, propertyId)
+      return { sitemaps }
+    } catch (err) {
+      throw gscErrorToAppError(err, 'Failed to list Search Console sitemaps')
+    }
   })
 
   // POST /projects/:name/google/gsc/discover-sitemaps
@@ -985,8 +1121,13 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
       throw validationError('No GSC property configured for this connection')
     }
 
-    const { accessToken } = await getValidToken(store, project.canonicalDomain, 'gsc', googleClientId, googleClientSecret)
-    const sitemaps = await listSitemaps(accessToken, conn.propertyId)
+    let sitemaps
+    try {
+      const { accessToken } = await getValidToken(store, project.canonicalDomain, 'gsc', googleClientId, googleClientSecret)
+      sitemaps = await listSitemaps(accessToken, conn.propertyId)
+    } catch (err) {
+      throw gscErrorToAppError(err, 'Failed to discover Search Console sitemaps')
+    }
 
     if (sitemaps.length === 0) {
       throw validationError('No sitemaps found for this GSC property. Submit a sitemap in Google Search Console first.')

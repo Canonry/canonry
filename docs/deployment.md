@@ -28,7 +28,18 @@ schema feature is **not** on the current roadmap — see root `AGENTS.md`
 canonry serve
 ```
 
-Opens at [http://localhost:4100](http://localhost:4100). No configuration needed.
+Opens at [http://127.0.0.1:4100](http://127.0.0.1:4100). No configuration needed.
+
+> **Use `127.0.0.1`, not `localhost`.** `canonry serve` binds the IPv4 loopback
+> `127.0.0.1` (override with `CANONRY_HOST`). On machines where `localhost`
+> resolves to the IPv6 loopback `::1` first, `http://localhost:4100` returns
+> *connection refused* even though the server is up — browse to
+> `http://127.0.0.1:4100` instead, or set `CANONRY_HOST=::1` to bind IPv6.
+
+> **Dashboard sessions are in-memory.** The dashboard password you set persists
+> in `~/.canonry/config.yaml`, but the logged-in *sessions* live in the server
+> process. Restarting `canonry serve` (or `canonry stop` / a crash) clears them,
+> so you'll be asked to sign in again after a restart. This is expected.
 
 ---
 
