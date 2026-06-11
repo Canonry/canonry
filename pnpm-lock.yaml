@@ -445,6 +445,8 @@ importers:
         specifier: workspace:*
         version: link:../contracts
 
+  packages/integration-openai-ads: {}
+
   packages/integration-traffic:
     dependencies:
       '@ainyc/canonry-contracts':

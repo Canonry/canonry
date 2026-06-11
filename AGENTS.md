@@ -42,6 +42,7 @@ packages/provider-cdp/           Chrome DevTools Protocol adapter
 packages/integration-google/     Google Search Console integration
 packages/integration-google-analytics/  Google Analytics 4 integration
 packages/integration-bing/       Bing Webmaster Tools integration
+packages/integration-openai-ads/  OpenAI Advertiser API (ChatGPT ads) integration
 packages/integration-wordpress/  WordPress integration
 docs/                            Architecture, roadmap, testing, ADRs
 ```
