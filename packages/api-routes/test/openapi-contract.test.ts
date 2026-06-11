@@ -105,9 +105,22 @@ describe('openapi contract', () => {
     // `/cloud/*` are admin-scope routes (Track 3 — Canonry Hosted bridge). They are
     // registered by api-routes but intentionally excluded from the public OpenAPI spec
     // because they are admin-scope only and not part of the public surface.
-    const observedMinusCloud = normalizeObservedRoutes(ctx.observedRoutes).filter(
-      (id) => !id.includes(' /api/v1/cloud/'),
-    )
+    // EXPLICIT allowlist, not a prefix wildcard: a fourth cloud route must be
+    // consciously added here (or documented in OpenAPI) — it cannot silently
+    // escape the every-route-is-documented invariant.
+    const UNDOCUMENTED_CLOUD_OPS = new Set([
+      'post /api/v1/cloud/bootstrap',
+      'post /api/v1/cloud/google/import-tokens',
+      'post /api/v1/cloud/bing/import-key',
+    ])
+    const observed = normalizeObservedRoutes(ctx.observedRoutes)
+    // Subset, not equality: import-tokens / import-key only register when a
+    // connection store is wired, which this harness doesn't do. The invariant
+    // is that NO cloud op outside the allowlist exists.
+    const observedCloud = observed.filter((id) => id.includes(' /api/v1/cloud/'))
+    const unknownCloudOps = observedCloud.filter((id) => !UNDOCUMENTED_CLOUD_OPS.has(id))
+    expect(unknownCloudOps).toEqual([])
+    const observedMinusCloud = observed.filter((id) => !UNDOCUMENTED_CLOUD_OPS.has(id))
     expect(specMinusLocal).toEqual(observedMinusCloud)
   })
 

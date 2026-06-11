@@ -109,7 +109,19 @@ export class RunCoordinator {
     // no Aero wake-up. Skip the entire post-run pipeline. The dashboard +
     // analytics endpoints filter trigger='probe' separately so the snapshots
     // never feed aggregations either.
+    //
+    // Token-cost telemetry is the one exception: probes burn real provider
+    // tokens, and the probe-exclusion rule protects dashboards / analytics /
+    // intelligence / notifications — cost accounting is none of those.
+    // Unmetered probes would undercount hosted billing.
     if (runRow?.trigger === RunTriggers.probe) {
+      if (kind === RunKinds['answer-visibility']) {
+        try {
+          this.persistTokenUsage(runId, projectId)
+        } catch (err) {
+          log.error('token-usage.failed', { runId, error: err instanceof Error ? err.message : String(err) })
+        }
+      }
       log.info('probe.skip-side-effects', { runId, projectId, kind })
       return
     }

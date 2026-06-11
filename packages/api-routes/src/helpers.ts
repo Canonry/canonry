@@ -57,11 +57,14 @@ export function resolveProject(db: DatabaseClient, name: string) {
  *      currently re-reads `process.env` rather than threading config plumbing
  *      because Track 1 hasn't shipped yet and we don't want to race them on
  *      `index.ts` options. Consolidate when Track 1 lands.
- *   2. `X-Admin-Scope: 1` header — gates per-request. The control plane sets
- *      this header on every cloud-bridge call. Anyone else who somehow gets
- *      hold of a valid `cnry_…` key (which already has full instance access
- *      per the deployment-posture rules) will still be rejected without the
- *      header.
+ *   2. `X-Admin-Scope: 1` header — an intent gate, NOT an authz boundary.
+ *      The header value is a public constant, so any holder of a valid
+ *      `cnry_…` key (which already has full instance access per the
+ *      deployment-posture rules) can add it. What it buys: a generic API
+ *      client or script can't hit these routes by accident, and with the
+ *      env flag on, re-pointing the callback + secret via re-bootstrap or
+ *      importing credentials stays an explicit, deliberate act — consistent
+ *      with the single-tenant trust boundary.
  *
  * The two checks together let a sibling control-plane container drive
  * tenant config without the operator having to construct a privileged

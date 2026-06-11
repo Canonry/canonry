@@ -78,6 +78,12 @@ export function buildApp(env: PlatformEnv) {
   const apiPrefix = env.basePath === '/' ? '/api/v1' : `${env.basePath.replace(/\/$/, '')}/api/v1`
   const sessionCookiePath = env.basePath === '/' ? '/' : env.basePath.replace(/\/?$/, '/')
   const sessionCookieSecure = Boolean(env.publicUrl?.startsWith('https://'))
+  if (!env.publicUrl) {
+    // Without CANONRY_PUBLIC_URL the session cookie ships without `Secure`.
+    // Fine for local docker (plain http); on a real HTTPS deployment the
+    // env var must be set or browsers will replay the cookie over http too.
+    app.log.warn('CANONRY_PUBLIC_URL is not set — session cookies will not carry the Secure flag. Set it to the https:// deployment URL in production.')
+  }
   const sessionStore = createSessionStore()
 
   const dashboardPassword: DashboardPasswordStore = {

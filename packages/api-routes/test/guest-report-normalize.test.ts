@@ -31,6 +31,23 @@ describe('normalizeDomain', () => {
     expect(() => normalizeDomain('localhost')).toThrow() // no dot
   })
 
+  it('strips ports, userinfo, and query instead of merging their characters into the host', () => {
+    // The pre-URL-parser implementation character-stripped these into
+    // garbage hosts (acme.com:8080 → acme.com8080) that landed in
+    // projects.canonicalDomain — the domain the real audit driver crawls.
+    expect(normalizeDomain('acme.com:8080')).toBe('acme.com')
+    expect(normalizeDomain('https://user:pass@acme.com/x')).toBe('acme.com')
+    expect(normalizeDomain('acme.com?q=1')).toBe('acme.com')
+  })
+
+  it('punycodes IDN instead of silently dropping non-ASCII', () => {
+    expect(normalizeDomain('münchen.de')).toBe('xn--mnchen-3ya.de')
+  })
+
+  it('drops a trailing dot', () => {
+    expect(normalizeDomain('acme.com.')).toBe('acme.com')
+  })
+
   it('handles a pathological all-slashes input quickly (no ReDoS)', () => {
     // A backtracking regex on this could hang; the linear rewrite returns
     // in well under a frame. We assert both fast completion and the throw.

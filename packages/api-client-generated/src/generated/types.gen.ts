@@ -853,8 +853,11 @@ export type GoogleConnectionDto = {
 };
 
 export type GuestReportClaimResponseDto = {
-    claimed?: true;
-    alreadyClaimed?: true;
+    claimed: true;
+    projectName: string | null;
+    projectId: string;
+} | {
+    alreadyClaimed: true;
     projectName: string | null;
     projectId: string;
 };
@@ -864,6 +867,7 @@ export type GuestReportCreateResponseDto = {
     domain: string;
     status: 'pending' | 'auditing' | 'sweeping' | 'completed' | 'failed';
     expiresAt: string;
+    simulated: boolean;
 };
 
 export type GuestReportDto = {
@@ -875,7 +879,7 @@ export type GuestReportDto = {
     auditPagesCrawled: number;
     auditFindingsCount: number;
     auditTopFindings: Array<{
-        severity: string;
+        severity: 'critical' | 'high' | 'medium' | 'low';
         title: string;
         url: string;
         pointsLost: number;
@@ -902,6 +906,7 @@ export type GuestReportDto = {
     createdAt: string;
     expiresAt: string;
     claimedAt: string | null;
+    simulated: boolean;
 };
 
 export type GscCoverageSnapshotDto = {

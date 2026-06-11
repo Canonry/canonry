@@ -601,10 +601,11 @@ describe('RunCoordinator', () => {
       expect(notifier.onRunCompleted).toHaveBeenCalled()
     })
 
-    it('skips probe-trigger runs (post-run pipeline short-circuit)', async () => {
-      // Probe runs short-circuit the entire post-run pipeline (intelligence,
-      // notifier, token telemetry, aero). Regression: token persistence
-      // must NOT run for probes.
+    it('meters probe-trigger runs but skips the rest of the post-run pipeline', async () => {
+      // Probe runs short-circuit intelligence / notifier / aero — but token
+      // telemetry is the one exception: probes burn real provider tokens,
+      // and the probe-exclusion rule protects dashboards/analytics, not
+      // cost accounting. Unmetered probes would undercount hosted billing.
       const { db } = createTempDb('coord-tokens-probe-')
       const now = new Date().toISOString()
       const projectId = crypto.randomUUID()
@@ -633,7 +634,12 @@ describe('RunCoordinator', () => {
       const coordinator = new RunCoordinator(db, notifier as Notifier, service)
       await coordinator.onRunCompleted(runId, projectId)
 
-      expect(db.select().from(providerTokenUsage).where(eq(providerTokenUsage.runId, runId)).all()).toEqual([])
+      // Metered: the usage row exists with the snapshot's token counts.
+      const usage = db.select().from(providerTokenUsage).where(eq(providerTokenUsage.runId, runId)).all()
+      expect(usage).toHaveLength(1)
+      expect(usage[0]).toMatchObject({ provider: 'claude', inputTokens: 50, outputTokens: 5 })
+      // Pipeline still short-circuited: no notifier dispatch for probes.
+      expect(notifier.onRunCompleted).not.toHaveBeenCalled()
     })
   })
 

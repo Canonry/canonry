@@ -24,37 +24,32 @@ import { and, eq, lt, isNull } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import rateLimit from '@fastify/rate-limit'
 import { guestReports, projects, users } from '@ainyc/canonry-db'
-import { ConfigSources, parseBooleanFlag, validationError, notFound, authRequired } from '@ainyc/canonry-contracts'
+import {
+  ConfigSources,
+  GuestReportStatuses,
+  normalizeUserDomainInput,
+  parseBooleanFlag,
+  validationError,
+  notFound,
+  authRequired,
+  type GuestReportDto,
+  type GuestReportProgressEventDto,
+} from '@ainyc/canonry-contracts'
+import { auditFromRequest, writeAuditLog } from './helpers.js'
 
 const REPORT_TTL_DAYS = 7
 
 /**
- * Status state machine for guest reports.
+ * Status state machine (constants from `guestReportStatusSchema`):
  *
- *   pending → auditing → audit-complete → sweeping → completed
- *                     ↘ failed
+ *   auditing → sweeping → completed
+ *           ↘ failed   ↘ failed
+ *
+ * Rows are born `auditing` (the audit kicks off in the same request).
+ * `pending` exists in the contract enum for a future queued-dispatch
+ * driver but is never written by the in-process flow.
  */
-const STATUSES = {
-  pending: 'pending',
-  auditing: 'auditing',
-  auditDone: 'audit-complete',
-  sweeping: 'sweeping',
-  completed: 'completed',
-  failed: 'failed',
-} as const
-
-export interface GuestReportProgressEvent {
-  at: string
-  type:
-    | 'sitemap-pulled'
-    | 'page-audited'
-    | 'audit-complete'
-    | 'sweep-started'
-    | 'provider-checked'
-    | 'overall-complete'
-    | 'failed'
-  payload: Record<string, unknown>
-}
+export type GuestReportProgressEvent = GuestReportProgressEventDto
 
 /**
  * In-process pub/sub for SSE subscribers. Key: guest report id; value:
@@ -100,23 +95,15 @@ function requireGuestReportsEnabled(path: string): void {
  * "acme.com", "Acme.com" and returns "acme.com". Throws on garbage.
  */
 export function normalizeDomain(raw: string): string {
-  const trimmed = raw.trim().toLowerCase()
-  if (!trimmed) throw validationError('domain is required')
-  // Use linear, non-backtracking string ops instead of regex on the
-  // user-controlled value (CodeQL: polynomial-regex ReDoS on a string of
-  // many '/'). Strip the scheme, then the path/query/fragment, then a
-  // leading `www.`.
-  let host = trimmed
-  const schemeIdx = host.indexOf('://')
-  if (schemeIdx !== -1) host = host.slice(schemeIdx + 3)
-  host = host.split('/', 1)[0]! // drop everything from the first slash on — O(n), no backtracking
-  if (host.startsWith('www.')) host = host.slice(4)
-  // Single linear character-class strip (no quantifier ambiguity → ReDoS-safe).
-  const stripped = host.replace(/[^a-z0-9.-]/g, '')
-  if (!stripped.includes('.') || stripped.length < 4) {
-    throw validationError('Enter a valid domain — e.g. acme.com')
-  }
-  return stripped
+  if (!raw.trim()) throw validationError('domain is required')
+  // WHATWG-URL-based normalization (shared, contracts/url-normalize.ts):
+  // linear parsing, strips port/userinfo/path/query instead of merging
+  // their characters into the host, punycodes IDN. The result lands in
+  // `projects.canonicalDomain`, which the real audit driver will crawl —
+  // a mangled host here means crawling a nonexistent domain.
+  const host = normalizeUserDomainInput(raw)
+  if (!host) throw validationError('Enter a valid domain — e.g. acme.com')
+  return host
 }
 
 export interface GuestReportRoutesOptions {
@@ -350,7 +337,10 @@ function appendProgress(
   } catch {
     // swallow — live event still fires below
   }
-  getBus(guestReportId).emit('event', event)
+  // Emit WITHOUT creating: getBus() would leak one EventEmitter per report
+  // that is never streamed (polling clients, bots) — an unbounded,
+  // anonymously-drivable growth path. Only the SSE route creates buses.
+  liveBus.get(guestReportId)?.emit('event', event)
 }
 
 function isExpiredUnclaimed(row: typeof guestReports.$inferSelect, now = new Date().toISOString()): boolean {
@@ -381,37 +371,16 @@ function getActiveGuestReportOrThrow(
 }
 
 /** Map a guest report row to the SDK shape the SPA consumes. */
-function serializeGuestReport(row: typeof guestReports.$inferSelect): {
-  id: string
-  domain: string
-  projectId: string
-  status: string
-  auditScore: number | null
-  auditPagesCrawled: number
-  auditFindingsCount: number
-  auditTopFindings: Array<{ severity: string; title: string; url: string; pointsLost: number }>
-  overallScore: number | null
-  aiCitedCount: number | null
-  aiQueryCount: number | null
-  aiMentionedCount: number | null
-  topCompetitor: string | null
-  topCompetitorCitedCount: number | null
-  proposedPlan: Array<{ label: string; pointsImpact: number; rationale: string }>
-  progressEvents: GuestReportProgressEvent[]
-  errorMessage: string | null
-  createdAt: string
-  expiresAt: string
-  claimedAt: string | null
-} {
+function serializeGuestReport(row: typeof guestReports.$inferSelect, simulated: boolean): GuestReportDto {
   return {
     id: row.id,
     domain: row.domain,
     projectId: row.projectId,
-    status: row.status,
+    status: row.status as GuestReportDto['status'],
     auditScore: row.auditScore,
     auditPagesCrawled: row.auditPagesCrawled,
     auditFindingsCount: row.auditFindingsCount,
-    auditTopFindings: row.auditTopFindings,
+    auditTopFindings: row.auditTopFindings as GuestReportDto['auditTopFindings'],
     overallScore: row.overallScore,
     aiCitedCount: row.aiCitedCount,
     aiQueryCount: row.aiQueryCount,
@@ -424,10 +393,15 @@ function serializeGuestReport(row: typeof guestReports.$inferSelect): {
     createdAt: row.createdAt,
     expiresAt: row.expiresAt,
     claimedAt: row.claimedAt,
+    simulated,
   }
 }
 
 export async function guestReportRoutes(app: FastifyInstance, opts: GuestReportRoutesOptions = {}) {
+  // Deployment-level: when no real driver is injected, every report this
+  // instance produces is demo-simulator output and must be labeled as such.
+  const simulated = !opts.driver
+
   // Abuse guard for the anonymous /guest/report surface. `@fastify/rate-limit`
   // is scoped to this encapsulated plugin (only guest routes live here), so it
   // never touches the rest of the API. The 60/min default is generous for the
@@ -445,19 +419,17 @@ export async function guestReportRoutes(app: FastifyInstance, opts: GuestReportR
       .from(guestReports)
       .where(and(lt(guestReports.expiresAt, nowIso), isNull(guestReports.claimedAt)))
       .all()
-    const unclaimedProjectIds = stale.map((r) => r.projectId)
     if (stale.length > 0) {
-      app.db
-        .delete(guestReports)
-        .where(and(lt(guestReports.expiresAt, nowIso), isNull(guestReports.claimedAt)))
-        .run()
-    }
-    for (const pid of unclaimedProjectIds) {
-      try {
-        app.db.delete(projects).where(eq(projects.id, pid)).run()
-      } catch {
-        // project may have been claimed + renamed; ignore
-      }
+      // One transaction: deleting the project cascades to its guest_reports
+      // row (ON DELETE CASCADE); the explicit report delete covers rows
+      // whose project was already removed out-of-band. A crash can no
+      // longer strand orphaned guest projects the sweep can't find again.
+      app.db.transaction((tx) => {
+        for (const r of stale) {
+          tx.delete(projects).where(eq(projects.id, r.projectId)).run()
+          tx.delete(guestReports).where(eq(guestReports.id, r.id)).run()
+        }
+      })
     }
   } catch (err) {
     app.log.warn({ err }, 'guest-report: startup cleanup failed')
@@ -497,10 +469,18 @@ export async function guestReportRoutes(app: FastifyInstance, opts: GuestReportR
         id,
         domain,
         projectId,
-        status: STATUSES.auditing,
+        status: GuestReportStatuses.auditing,
         createdAt: now,
         expiresAt,
       }).run()
+      writeAuditLog(tx, auditFromRequest(request, {
+        projectId,
+        actor: 'guest',
+        action: 'guest-report.created',
+        entityType: 'guest_report',
+        entityId: id,
+        diff: { domain },
+      }))
     })
 
     // Kick off the audit/sweep simulator (or the real driver if injected).
@@ -517,7 +497,7 @@ export async function guestReportRoutes(app: FastifyInstance, opts: GuestReportR
           topFindings: Array<{ severity: 'critical' | 'high' | 'medium' | 'low'; title: string; url: string; pointsLost: number }>
         }) => {
           app.db.update(guestReports).set({
-            status: STATUSES.sweeping,
+            status: GuestReportStatuses.sweeping,
             auditScore: data.auditScore,
             auditPagesCrawled: data.pagesCrawled,
             auditFindingsCount: data.findingsCount,
@@ -534,7 +514,7 @@ export async function guestReportRoutes(app: FastifyInstance, opts: GuestReportR
           proposedPlan: Array<{ label: string; pointsImpact: number; rationale: string }>
         }) => {
           app.db.update(guestReports).set({
-            status: STATUSES.completed,
+            status: GuestReportStatuses.completed,
             overallScore: data.overallScore,
             aiCitedCount: data.citedCount,
             aiMentionedCount: data.mentionedCount,
@@ -546,7 +526,7 @@ export async function guestReportRoutes(app: FastifyInstance, opts: GuestReportR
         }
         const onFailed = (message: string) => {
           app.db.update(guestReports).set({
-            status: STATUSES.failed,
+            status: GuestReportStatuses.failed,
             errorMessage: message,
           }).where(eq(guestReports.id, id)).run()
           appendProgress(app.db, id, {
@@ -580,7 +560,7 @@ export async function guestReportRoutes(app: FastifyInstance, opts: GuestReportR
         app.log.error({ err, guestReportId: id }, 'guest-report: driver crashed')
         try {
           app.db.update(guestReports).set({
-            status: STATUSES.failed,
+            status: GuestReportStatuses.failed,
             errorMessage: err instanceof Error ? err.message : String(err),
           }).where(eq(guestReports.id, id)).run()
         } catch {
@@ -589,14 +569,14 @@ export async function guestReportRoutes(app: FastifyInstance, opts: GuestReportR
       }
     })
 
-    return reply.status(201).send({ id, domain, status: STATUSES.auditing, expiresAt })
+    return reply.status(201).send({ id, domain, status: GuestReportStatuses.auditing, expiresAt, simulated })
   })
 
   // GET /api/v1/guest/report/:id — read full state (polling fallback).
   app.get<{ Params: { id: string } }>('/guest/report/:id', async (request) => {
     requireGuestReportsEnabled(request.url.split('?')[0]!)
     const row = getActiveGuestReportOrThrow(app.db, request.params.id)
-    return serializeGuestReport(row)
+    return serializeGuestReport(row, simulated)
   })
 
   // GET /api/v1/guest/report/:id/stream — SSE live progress + replay.
@@ -628,10 +608,10 @@ export async function guestReportRoutes(app: FastifyInstance, opts: GuestReportR
     }
     // Also send a `state` snapshot so the client has the latest computed
     // fields (audit score, etc.) without re-querying.
-    write({ type: 'state', data: serializeGuestReport(row) })
+    write({ type: 'state', data: serializeGuestReport(row, simulated) })
 
     // If the report is already finished, close the stream after replay.
-    if (row.status === STATUSES.completed || row.status === STATUSES.failed) {
+    if (row.status === GuestReportStatuses.completed || row.status === GuestReportStatuses.failed) {
       reply.raw.write('event: done\ndata: {}\n\n')
       reply.raw.end()
       return
@@ -644,7 +624,7 @@ export async function guestReportRoutes(app: FastifyInstance, opts: GuestReportR
       if (event.type === 'overall-complete' || event.type === 'failed') {
         // Send a fresh state snapshot + signal completion.
         const updated = app.db.select().from(guestReports).where(eq(guestReports.id, request.params.id)).get()
-        if (updated) write({ type: 'state', data: serializeGuestReport(updated) })
+        if (updated) write({ type: 'state', data: serializeGuestReport(updated, simulated) })
         write({ type: 'done', data: {} })
       }
     }
@@ -686,17 +666,41 @@ export async function guestReportRoutes(app: FastifyInstance, opts: GuestReportR
     // Look up the user this API key belongs to (created at signup time).
     const userRow = app.db.select().from(users).where(eq(users.apiKeyId, request.apiKey.id)).get()
     const userId = userRow?.id ?? null
+    let won = false
     app.db.transaction((tx) => {
-      tx.update(guestReports).set({
+      // Guarded write — `claimed_at IS NULL` makes the claim
+      // first-writer-wins even if a second claim lands between the read
+      // above and this transaction (structurally unreachable in-process on
+      // better-sqlite3 today, but one inserted await — or a Postgres
+      // future — away from a last-writer-wins claim steal).
+      const result = tx.update(guestReports).set({
         claimedAt,
         claimedByUserId: userId,
-      }).where(eq(guestReports.id, request.params.id)).run()
-      tx.update(projects).set({
-        configSource: ConfigSources.dashboard,
-        updatedAt: claimedAt,
-      }).where(eq(projects.id, row.projectId)).run()
+      }).where(and(eq(guestReports.id, request.params.id), isNull(guestReports.claimedAt))).run()
+      won = result.changes === 1
+      if (won) {
+        tx.update(projects).set({
+          configSource: ConfigSources.dashboard,
+          updatedAt: claimedAt,
+        }).where(eq(projects.id, row.projectId)).run()
+        writeAuditLog(tx, auditFromRequest(request, {
+          projectId: row.projectId,
+          actor: 'api',
+          action: 'guest-report.claimed',
+          entityType: 'guest_report',
+          entityId: row.id,
+          diff: { domain: row.domain, claimedByUserId: userId },
+        }))
+      }
     })
     const project = app.db.select().from(projects).where(eq(projects.id, row.projectId)).get()
+    if (!won) {
+      return reply.send({
+        alreadyClaimed: true,
+        projectName: project?.name ?? null,
+        projectId: row.projectId,
+      })
+    }
     return reply.send({
       claimed: true,
       projectName: project?.name ?? null,
