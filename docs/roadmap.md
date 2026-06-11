@@ -152,6 +152,11 @@ Cloud SaaS AEO tools query from data centers, producing a single decontextualize
 
 ---
 
+## New Lane: Paid Surface (ChatGPT Ads)
+
+### OpenAI Advertiser API Integration
+ChatGPT ads are invisible to answer-visibility sweeps (consumer UI only, never API responses), so OpenAI's Advertiser API is the only window into the paid layer of a surface Canonry already monitors organically. Phased: read-only insights ingestion (`ads-sync`), lifecycle management (pause/resume, budgets, context hints) behind an `ads.write` scope with audit logging, then paid-vs-organic overlap insights (cited-and-paying, uncited-and-unpaid). See [plans/openai-ads-integration.md](../plans/openai-ads-integration.md).
+
 ## Phase 4: Long-Term Initiatives
 
 ### Google AI Overviews Provider
