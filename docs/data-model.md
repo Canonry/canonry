@@ -135,6 +135,16 @@ Local-AEO signals. The OAuth connection reuses `google_connections` with `connec
 |-------|---------|
 | **api_keys** | API authentication. Unique: `keyHash` |
 | **usage_counters** | Rate limiting and usage tracking. Unique: `(scope, period, metric)` |
+| **app_settings** | Generic instance-wide key/value store for deployments without a local config file (`apps/api` on Cloud Run). First user: `dashboard_password_hash` written by the shared session plugin. Keyed on `key` only (single-tenant by design) |
+
+### Hosted (Canonry Hosted v1)
+
+| Table | Purpose |
+|-------|---------|
+| **cloud_metadata** | Singleton row recording that a control plane bootstrapped this tenant (`POST /api/v1/cloud/bootstrap`): tenant/account ids, plan, callback URL, webhook secret, managed Google OAuth client id + redirect. CHECK constraint pins `id='singleton'`. Never written on OSS deployments (routes 404 unless `CANONRY_ENABLE_CLOUD_BOOTSTRAP` is set) |
+| **provider_token_usage** | Per-(run, provider, model) token-cost telemetry extracted from stored raw responses after each answer-visibility run — including probe runs (cost accounting is exempt from the probe-exclusion rule). Consumed by the control plane for billing/cost dashboards; accumulates silently on OSS. FK: runId → runs, projectId → projects (both CASCADE) |
+| **users** | Identity records for Google-OAuth signup (guest-report claim flow). Each user binds to exactly one API key (`api_key_id`, CASCADE); password-auth operators never get a row. Unique: `email`, `google_sub` |
+| **guest_reports** | Anonymous free-first-report rows for the /aero onboarding funnel: scores, findings, progress-event SSE replay buffer, expiry + claim state. `project_id` references the transient guest project (CASCADE); unclaimed rows are reaped after expiry, claimed rows persist. FK: claimed_by_user_id → users (SET NULL) |
 
 ### Agent
 
