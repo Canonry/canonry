@@ -5,16 +5,18 @@ import { describe, it, beforeEach, afterEach, expect, vi } from 'vitest'
 import Fastify from 'fastify'
 import { createClient, migrate, projects } from '@ainyc/canonry-db'
 import { AppError } from '@ainyc/canonry-contracts'
-// `GoogleApiError` is spread through from the real module by the mock below, so
-// this is the same class identity google.ts checks `instanceof` against.
-import { GoogleApiError } from '@ainyc/canonry-integration-google'
+// `GoogleApiError` / `GoogleAuthError` are spread through from the real module
+// by the mock below, so these are the same class identities google.ts checks
+// `instanceof` against.
+import { GoogleApiError, GoogleAuthError } from '@ainyc/canonry-integration-google'
 import { googleRoutes } from '../src/google.js'
 
 // Make the live GSC calls throwable on demand without touching the network.
-// `state.listError` is read inside the hoisted mock factory, so a test can set
-// the next thrown error before injecting a request. `importActual` keeps the
-// real error classes so `instanceof` in google.ts still matches what we throw.
-const state = vi.hoisted(() => ({ listError: null as Error | null }))
+// `state.listError` / `state.refreshError` are read inside the hoisted mock
+// factory, so a test can set the next thrown error before injecting a request.
+// `importActual` keeps the real error classes so `instanceof` in google.ts
+// still matches what we throw.
+const state = vi.hoisted(() => ({ listError: null as Error | null, refreshError: null as Error | null }))
 
 vi.mock('@ainyc/canonry-integration-google', async (importActual) => {
   const actual = await importActual<typeof import('@ainyc/canonry-integration-google')>()
@@ -24,10 +26,16 @@ vi.mock('@ainyc/canonry-integration-google', async (importActual) => {
       if (state.listError) throw state.listError
       return []
     }),
+    // Exercised only when the connection token is expired (see buildApp opts),
+    // which forces getValidToken down the refresh path.
+    refreshAccessToken: vi.fn(async () => {
+      if (state.refreshError) throw state.refreshError
+      return { access_token: 'refreshed-token', expires_in: 3600, token_type: 'Bearer', scope: '' }
+    }),
   }
 })
 
-function buildApp() {
+function buildApp(opts: { tokenExpiresAt?: string } = {}) {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gsc-properties-error-'))
   const db = createClient(path.join(tmpDir, 'test.db'))
   migrate(db)
@@ -52,15 +60,16 @@ function buildApp() {
     updatedAt: now,
   }).run()
 
-  // A connection whose access token is comfortably unexpired, so getValidToken
-  // returns it directly and never hits the (mocked-out) refresh path.
+  // A connection whose access token is comfortably unexpired by default, so
+  // getValidToken returns it directly and never hits the (mocked-out) refresh
+  // path. Pass `tokenExpiresAt` in the past to force the refresh path instead.
   const connection = {
     domain: 'proxter.com',
     connectionType: 'gsc' as const,
     propertyId: 'sc-domain:proxter.com',
     accessToken: 'fresh-access-token',
     refreshToken: 'refresh-token',
-    tokenExpiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+    tokenExpiresAt: opts.tokenExpiresAt ?? new Date(Date.now() + 60 * 60 * 1000).toISOString(),
     scopes: ['https://www.googleapis.com/auth/webmasters.readonly'],
     createdAt: now,
     updatedAt: now,
@@ -100,6 +109,7 @@ describe('GET /projects/:name/google/properties — upstream Google failure mapp
 
   beforeEach(async () => {
     state.listError = null
+    state.refreshError = null
     const built = await buildApp()
     app = built.app
     tmpDir = built.tmpDir
@@ -192,5 +202,59 @@ describe('GET /projects/:name/google/properties — upstream Google failure mapp
       const res = await getProperties()
       expect(res.statusCode).not.toBe(401)
     }
+  })
+})
+
+describe('GET /projects/:name/google/properties — credential refresh failure mapping', () => {
+  let app: Awaited<ReturnType<typeof buildApp>>['app']
+  let tmpDir: string
+
+  beforeEach(async () => {
+    state.listError = null
+    state.refreshError = null
+    // An already-expired token forces getValidToken down the refresh path, so
+    // whatever `state.refreshError` holds is what the route has to map.
+    const built = await buildApp({ tokenExpiresAt: new Date(Date.now() - 60_000).toISOString() })
+    app = built.app
+    tmpDir = built.tmpDir
+    await app.ready()
+  })
+
+  afterEach(async () => {
+    await app.close()
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  async function getProperties() {
+    return app.inject({ method: 'GET', url: '/projects/proxter/google/properties' })
+  }
+
+  // Regression guard: a revoked refresh token comes back as 400 invalid_grant.
+  // refreshAccessToken throws a GoogleAuthError WITHOUT a statusCode for that
+  // case (it only sets one for 429) — exactly as the real module does — so the
+  // mapper must recover 400 from the message and classify it as a non-retryable
+  // reconnect (403 gsc-reconnect) rather than a retryable 502, and never a 401.
+  it('maps a revoked refresh token (GoogleAuthError 400, no statusCode) to 403 FORBIDDEN gsc-reconnect', async () => {
+    state.refreshError = new GoogleAuthError('Token refresh failed (400): invalid_grant')
+    const res = await getProperties()
+    expect(res.statusCode).toBe(403)
+    const body = res.json() as { error: { code: string; message: string; details?: Record<string, unknown> } }
+    expect(body.error.code).toBe('FORBIDDEN')
+    expect(body.error.message).toMatch(/no longer valid/i)
+    expect(body.error.details).toMatchObject({ reason: 'gsc-reconnect', upstreamStatus: 400 })
+  })
+
+  it('maps an OAuth 429 refresh rate-limit to 429 QUOTA_EXCEEDED (retryable)', async () => {
+    state.refreshError = new GoogleAuthError('Google OAuth rate limit exceeded', 429)
+    const res = await getProperties()
+    expect(res.statusCode).toBe(429)
+    expect((res.json() as { error: { code: string } }).error.code).toBe('QUOTA_EXCEEDED')
+  })
+
+  it('maps a transient OAuth 5xx refresh failure (no statusCode) to 502 PROVIDER_ERROR (retryable)', async () => {
+    state.refreshError = new GoogleAuthError('Token refresh failed (503): backend error')
+    const res = await getProperties()
+    expect(res.statusCode).toBe(502)
+    expect((res.json() as { error: { code: string } }).error.code).toBe('PROVIDER_ERROR')
   })
 })

@@ -186,6 +186,23 @@ function parseGscApiDisabled(
 }
 
 /**
+ * Recover the upstream HTTP status from a GoogleAuthError thrown by
+ * refreshAccessToken / exchangeCode. Those set `.statusCode` only for the 429
+ * rate-limit case; every other failure embeds the status in the message
+ * ("Token refresh failed (400): …"). We deliberately do NOT widen `.statusCode`
+ * at the throw site: the global error handler (index.ts) forwards any
+ * non-AppError's `.statusCode` as the HTTP response, so populating it would flip
+ * the UNWRAPPED GBP/GSC endpoints from a 500 to a raw upstream 4xx — and a
+ * leaked 401 would force a dashboard logout, the very bug this path prevents.
+ * Reading it back out here keeps the status confined to the wrapped GSC routes.
+ */
+function googleAuthErrorStatus(err: GoogleAuthError): number | null {
+  if (err.statusCode != null) return err.statusCode
+  const match = err.message.match(/failed \((\d{3})\)/)
+  return match ? Number(match[1]) : null
+}
+
+/**
  * Map a failure from a LIVE Google Search Console call into a canonry AppError.
  *
  * The GSC proxy routes (`/google/properties`, `/google/gsc/sitemaps`, …) are a
@@ -244,7 +261,7 @@ function gscErrorToAppError(err: unknown, context: string): AppError {
     // Token exchange/refresh failed. A 4xx (typically invalid_grant on a
     // revoked refresh token) is a non-retryable reconnect signal; a 429 is a
     // rate limit; anything else is treated as a transient upstream error.
-    const status = err.statusCode
+    const status = googleAuthErrorStatus(err)
     if (status === 429) return quotaExceeded('Google OAuth token refresh (rate limited)')
     if (status != null && status >= 400 && status < 500) {
       return forbidden(
