@@ -62,6 +62,7 @@ import { checkLatestVersionForServer } from './update-check.js'
 import { JobRunner } from './job-runner.js'
 import { executeGscSync } from './gsc-sync.js'
 import { executeGbpSync } from './gbp-sync.js'
+import { executeAdsSync } from './ads-sync.js'
 import { executeInspectSitemap } from './gsc-inspect-sitemap.js'
 import { executeBingInspectSitemap } from './bing-inspect-sitemap.js'
 import { maybeRefreshGscCoverage } from './coverage-refresh.js'
@@ -534,6 +535,18 @@ export async function createServer(opts: {
       })
   }
 
+  // Shared ads-sync worker entry point. Used by the scheduled `ads-sync`
+  // kind today and the manual ads sync route when it lands; the run row is
+  // created by the caller (scheduler / route handler), this only runs the
+  // sync and hands off to the post-run coordinator on completion.
+  const runAdsSync = (runId: string, projectId: string): void => {
+    executeAdsSync(opts.db, runId, projectId, { config: opts.config })
+      .then(() => runCoordinator.onRunCompleted(runId, projectId))
+      .catch((err: unknown) => {
+        app.log.error({ runId, err }, 'Ads sync failed')
+      })
+  }
+
   // Shared Technical-AEO site-audit worker. Used by BOTH the manual
   // `POST /technical-aeo/runs` route and the scheduled `site-audit` kind. The
   // run row is created by the caller; this runs the sitemap crawl + audit and
@@ -568,6 +581,10 @@ export async function createServer(opts: {
       // The scheduler already created the gbp-sync run row; run the same
       // worker the manual route uses (selected-location sync).
       runGbpSync(runId, projectId)
+    },
+    onAdsSyncRequested: (runId, projectId) => {
+      // The scheduler already created the ads-sync run row; run the worker.
+      runAdsSync(runId, projectId)
     },
     onDataRefreshRequested: (projectName) => {
       // Fan out to every connected data integration (GSC, Bing, GA, GBP) via

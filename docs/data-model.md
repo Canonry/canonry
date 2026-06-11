@@ -112,6 +112,16 @@ Local-AEO signals. The OAuth connection reuses `google_connections` with `connec
 | **gbp_lodging_snapshots** | Hotel structured attributes, snapshot-on-change. `populated_group_count = 0` is an AEO gap. |
 | **gbp_place_details** | Places (New) rendered-listing snapshots (amenities, accessibility, editorial summary) for lodging locations, fetched via the Places API key and snapshot-on-changed. `tier` records the field-mask SKU. Cross-referenced against the lodging profile for the `gbp-listing-discrepancy` insight (#648). |
 
+### Integrations — OpenAI Ads (ChatGPT ads)
+
+| Table | Purpose |
+|-------|---------|
+| **ads_connections** | One OpenAI ad-account connection per project (ad accounts are not domain-bound, so this keys on project like `ga_connections`). Metadata + sync state only — the Ads Manager "SDK key" lives in `~/.canonry/config.yaml`. |
+| **ads_campaigns** | Campaign snapshots, range-replaced per project on every `ads-sync`. Budgets are integer micros (`daily_spend_limit_micros` / `lifetime_spend_limit_micros`); `targeting` is the raw upstream JSON (geo includes/excludes). Ids are upstream ids (`cmpn_…`). |
+| **ads_ad_groups** | Ad-group snapshots. `context_hints` (JSON `string[]`) is the targeting primitive — entries are multi-line strings of newline-separated example queries; the paid/organic overlap matcher joins these against tracked queries. Cascades off `ads_campaigns`. |
+| **ads_ads** | Ad snapshots with the `chat_card` creative JSON and review status. Cascades off `ads_ad_groups`. |
+| **ads_insights_daily** | Daily paid-performance rollups, one row per `(level, entity, date)`. `spend_micros` is integer micros — the upstream insights API returns decimal dollars, normalized at ingest. Derived ratios (ctr/cpc) computed at read time. Upserts on conflict so re-syncing an in-progress day replaces. |
+
 ### Server-Side Traffic Ingestion
 
 | Table | Purpose |

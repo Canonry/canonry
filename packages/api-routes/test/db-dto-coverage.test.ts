@@ -204,6 +204,26 @@ const COVERAGE: Record<string, CoverageEntry> = {
       syncRunId: 'Internal join key.',
     },
   },
+  adsConnections: {
+    kind: 'internal-only',
+    reason: 'OpenAI ads connection metadata (sync engine PR). The read surface (status/campaigns/insights DTOs + routes) lands in the stacked ads-surfaces PR, which flips these entries to kind: dto.',
+  },
+  adsCampaigns: {
+    kind: 'internal-only',
+    reason: 'OpenAI ads campaign snapshots (sync engine PR). Exposed via DTOs in the stacked ads-surfaces PR.',
+  },
+  adsAdGroups: {
+    kind: 'internal-only',
+    reason: 'OpenAI ads ad-group snapshots incl. context_hints (sync engine PR). Exposed via DTOs in the stacked ads-surfaces PR.',
+  },
+  adsAds: {
+    kind: 'internal-only',
+    reason: 'OpenAI ads ad snapshots (sync engine PR). Exposed via DTOs in the stacked ads-surfaces PR.',
+  },
+  adsInsightsDaily: {
+    kind: 'internal-only',
+    reason: 'Daily paid-performance rollups in integer micros (sync engine PR). Exposed via insights/summary DTOs in the stacked ads-surfaces PR.',
+  },
   gbpKeywordMonthly: {
     kind: 'internal-only',
     reason: 'Accumulating per-month keyword series; an internal trend-history aggregate consumed by the intelligence engine (month-over-month keyword-drop insights), not exposed as its own DTO. The current snapshot is served by gbpKeywordImpressions.',

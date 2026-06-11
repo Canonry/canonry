@@ -333,6 +333,9 @@ importers:
       '@ainyc/canonry-integration-google-places':
         specifier: workspace:*
         version: link:../integration-google-places
+      '@ainyc/canonry-integration-openai-ads':
+        specifier: workspace:*
+        version: link:../integration-openai-ads
       '@ainyc/canonry-integration-traffic':
         specifier: workspace:*
         version: link:../integration-traffic

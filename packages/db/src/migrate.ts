@@ -1651,6 +1651,89 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `CREATE INDEX IF NOT EXISTS idx_site_audit_pages_project_score ON site_audit_pages(project_id, overall_score)`,
     ],
   },
+  {
+    // OpenAI Advertiser API (ChatGPT ads) — connection metadata, entity
+    // snapshots (campaigns / ad groups / ads), and daily paid-performance
+    // rollups. One connection per project (ad accounts are not domain-bound).
+    // Money columns are integer micros; ads-sync normalizes the insights
+    // API's decimal-dollar spend at ingest. Credentials live in config.yaml.
+    version: 76,
+    name: 'openai-ads-tables',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS ads_connections (
+        id             TEXT PRIMARY KEY,
+        project_id     TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        ad_account_id  TEXT NOT NULL,
+        display_name   TEXT,
+        currency_code  TEXT,
+        timezone       TEXT,
+        status         TEXT,
+        last_synced_at TEXT,
+        created_at     TEXT NOT NULL,
+        updated_at     TEXT NOT NULL
+      )`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_ads_conn_project ON ads_connections(project_id)`,
+      `CREATE TABLE IF NOT EXISTS ads_campaigns (
+        id                          TEXT PRIMARY KEY,
+        project_id                  TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        name                        TEXT NOT NULL,
+        status                      TEXT NOT NULL,
+        bidding_type                TEXT,
+        daily_spend_limit_micros    INTEGER,
+        lifetime_spend_limit_micros INTEGER,
+        targeting                   TEXT,
+        upstream_created_at         INTEGER,
+        upstream_updated_at         INTEGER,
+        sync_run_id                 TEXT REFERENCES runs(id) ON DELETE SET NULL,
+        synced_at                   TEXT NOT NULL
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_ads_campaigns_project ON ads_campaigns(project_id)`,
+      `CREATE TABLE IF NOT EXISTS ads_ad_groups (
+        id                  TEXT PRIMARY KEY,
+        project_id          TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        campaign_id         TEXT NOT NULL REFERENCES ads_campaigns(id) ON DELETE CASCADE,
+        name                TEXT NOT NULL,
+        status              TEXT NOT NULL,
+        billing_event_type  TEXT,
+        max_bid_micros      INTEGER,
+        context_hints       TEXT NOT NULL DEFAULT '[]',
+        upstream_created_at INTEGER,
+        upstream_updated_at INTEGER,
+        sync_run_id         TEXT REFERENCES runs(id) ON DELETE SET NULL,
+        synced_at           TEXT NOT NULL
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_ads_ad_groups_project ON ads_ad_groups(project_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_ads_ad_groups_campaign ON ads_ad_groups(campaign_id)`,
+      `CREATE TABLE IF NOT EXISTS ads_ads (
+        id                  TEXT PRIMARY KEY,
+        project_id          TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        ad_group_id         TEXT NOT NULL REFERENCES ads_ad_groups(id) ON DELETE CASCADE,
+        name                TEXT NOT NULL,
+        status              TEXT NOT NULL,
+        creative            TEXT,
+        review_status       TEXT,
+        upstream_created_at INTEGER,
+        upstream_updated_at INTEGER,
+        sync_run_id         TEXT REFERENCES runs(id) ON DELETE SET NULL,
+        synced_at           TEXT NOT NULL
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_ads_ads_project ON ads_ads(project_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_ads_ads_group ON ads_ads(ad_group_id)`,
+      `CREATE TABLE IF NOT EXISTS ads_insights_daily (
+        id           TEXT PRIMARY KEY,
+        project_id   TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        level        TEXT NOT NULL,
+        entity_id    TEXT NOT NULL,
+        date         TEXT NOT NULL,
+        impressions  INTEGER NOT NULL DEFAULT 0,
+        clicks       INTEGER NOT NULL DEFAULT 0,
+        spend_micros INTEGER NOT NULL DEFAULT 0,
+        sync_run_id  TEXT REFERENCES runs(id) ON DELETE SET NULL
+      )`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS uniq_ads_insights_daily ON ads_insights_daily(project_id, level, entity_id, date)`,
+      `CREATE INDEX IF NOT EXISTS idx_ads_insights_project_date ON ads_insights_daily(project_id, date)`,
+    ],
+  },
 ]
 
 /**
