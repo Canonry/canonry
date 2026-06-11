@@ -24,7 +24,7 @@ import { and, eq, lt, isNull } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import rateLimit from '@fastify/rate-limit'
 import { guestReports, projects, users } from '@ainyc/canonry-db'
-import { validationError, notFound, authRequired } from '@ainyc/canonry-contracts'
+import { ConfigSources, validationError, notFound, authRequired } from '@ainyc/canonry-contracts'
 
 const REPORT_TTL_DAYS = 7
 
@@ -489,7 +489,7 @@ export async function guestReportRoutes(app: FastifyInstance, opts: GuestReportR
         canonicalDomain: domain,
         country: 'US',
         language: 'en',
-        configSource: 'guest',
+        configSource: ConfigSources.guest,
         configRevision: 1,
         createdAt: now,
         updatedAt: now,
@@ -693,7 +693,7 @@ export async function guestReportRoutes(app: FastifyInstance, opts: GuestReportR
         claimedByUserId: userId,
       }).where(eq(guestReports.id, request.params.id)).run()
       tx.update(projects).set({
-        configSource: 'dashboard',
+        configSource: ConfigSources.dashboard,
         updatedAt: claimedAt,
       }).where(eq(projects.id, row.projectId)).run()
     })

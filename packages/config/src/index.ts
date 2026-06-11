@@ -57,6 +57,13 @@ const envSchema = z.object({
   // the session cookie when the URL is HTTPS. Without this, the cookie
   // works fine over HTTP (dev) but is not flagged Secure in production.
   CANONRY_PUBLIC_URL: z.string().optional(),
+  // Number of reverse-proxy hops in front of apps/api whose appended
+  // X-Forwarded-For entries are trusted. Cloud Run / a single load balancer
+  // = 1 (the default): request.ip resolves to the rightmost XFF entry — the
+  // client IP the platform appended — so per-client rate limiting keys
+  // correctly. `trustProxy: true` would take the LEFTMOST entry, which the
+  // client controls (spoofable). Set 0 when clients connect directly.
+  CANONRY_TRUST_PROXY_HOPS: z.coerce.number().int().min(0).default(1),
   // Cloud-mode flag set — see Track 1 of the Canonry Hosted v1 spec.
   // All four default off so OSS deployments are unaffected.
   CANONRY_RUNTIME_MODE: z.string().optional(),
@@ -151,6 +158,15 @@ export interface PlatformEnv {
    * production browsers store and replay it correctly.
    */
   publicUrl?: string
+  /**
+   * Trusted reverse-proxy hop count for `request.ip` resolution (Fastify
+   * `trustProxy`). Defaults to 1 — correct for Cloud Run and any
+   * single-proxy topology. 0 disables proxy trust (direct connections).
+   * Without this, every client behind the proxy shares one rate-limit
+   * bucket: one bot starves the anonymous guest-report budget for
+   * everyone and can lock the operator out of dashboard login.
+   */
+  trustProxyHops: number
   /**
    * Required for cloud deployments that expose Google OAuth routes. Sourced
    * from `GOOGLE_STATE_SECRET`. Undefined when unset — the api-routes plugin
@@ -289,6 +305,7 @@ export function getPlatformEnv(source: NodeJS.ProcessEnv): PlatformEnv {
     bootstrapSecret: parsed.BOOTSTRAP_SECRET,
     apiKey: parsed.CANONRY_API_KEY,
     publicUrl: parsed.CANONRY_PUBLIC_URL?.replace(/\/+$/, ''),
+    trustProxyHops: parsed.CANONRY_TRUST_PROXY_HOPS,
     googleStateSecret: parsed.GOOGLE_STATE_SECRET,
     cloud: readCloudModeFlags(source),
     controlPlaneUrl: parsed.CANONRY_CONTROL_PLANE_URL?.replace(/\/+$/, ''),

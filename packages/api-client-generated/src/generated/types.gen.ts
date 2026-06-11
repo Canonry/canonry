@@ -1172,7 +1172,7 @@ export type ProjectDto = {
     }>;
     defaultLocation?: string | null;
     autoExtractBacklinks: boolean;
-    configSource: 'cli' | 'api' | 'config-file';
+    configSource: 'cli' | 'api' | 'config-file' | 'guest' | 'dashboard';
     configRevision: number;
     createdAt?: string;
     updatedAt?: string;

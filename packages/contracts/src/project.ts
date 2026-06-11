@@ -2,8 +2,11 @@ import { z } from 'zod'
 import { validationError } from './errors.js'
 import { locationContextSchema, providerNameSchema, type LocationContext } from './provider.js'
 
-export const configSourceSchema = z.enum(['cli', 'api', 'config-file'])
+// `guest` = transient project created by the anonymous guest-report funnel;
+// `dashboard` = the project was claimed/created through the web dashboard.
+export const configSourceSchema = z.enum(['cli', 'api', 'config-file', 'guest', 'dashboard'])
 export type ConfigSource = z.infer<typeof configSourceSchema>
+export const ConfigSources = configSourceSchema.enum
 
 export function findDuplicateLocationLabels(locations: readonly Pick<LocationContext, 'label'>[]): string[] {
   const seen = new Set<string>()

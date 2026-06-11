@@ -29,6 +29,14 @@ function hashApiKey(key: string): string {
 export function buildApp(env: PlatformEnv) {
   const app = Fastify({
     logger: true,
+    // Cloud Run sits behind Google's front end, which appends the real
+    // client IP as the rightmost X-Forwarded-For entry. Trusting exactly
+    // that hop count (default 1, CANONRY_TRUST_PROXY_HOPS) makes
+    // `request.ip` the per-client address, so the session + guest-report
+    // rate limiters key per client instead of pooling everyone into the
+    // proxy's single bucket. `trustProxy: true` would be wrong here — it
+    // takes the leftmost XFF entry, which the client controls.
+    trustProxy: env.trustProxyHops > 0 ? env.trustProxyHops : false,
   })
 
   // Connect to database and register shared API routes. Run migrations
