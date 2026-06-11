@@ -500,6 +500,7 @@ function serializeSession(row: typeof discoverySessions.$inferSelect): Discovery
     aspirationalCount: row.aspirationalCount ?? null,
     wastedCount: row.wastedCount ?? null,
     competitorMap: parseCompetitorMap(row.competitorMap),
+    warning: row.warning ?? null,
     error: row.error ?? null,
     startedAt: row.startedAt ?? null,
     finishedAt: row.finishedAt ?? null,

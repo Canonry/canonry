@@ -354,6 +354,7 @@ describe('executeDiscovery', () => {
       { domain: 'random.com', hits: 1, competitorType: 'other' },
     ])
     expect(sessionRow.seedProvider).toBe('gemini-test')
+    expect(sessionRow.warning).toBeNull() // healthy dedup ratio — no collapse warning
     expect(sessionRow.startedAt).not.toBeNull()
     expect(sessionRow.finishedAt).not.toBeNull()
 
@@ -472,6 +473,62 @@ describe('executeDiscovery', () => {
     expect(result.seedCount).toBe(2)
     expect(result.buckets.cited + result.buckets.aspirational + result.buckets['wasted-surface']).toBe(2)
     expect(db.select().from(discoveryProbes).all()).toHaveLength(2)
+    // The budget slice shrank the probed set (2 of 5), but the collapse guard
+    // measures the canonical count BEFORE the slice — no warning.
+    expect(db.select().from(discoverySessions).get()!.warning).toBeNull()
+  })
+
+  it('records a seed-collapse warning when dedup chains the whole seed set into one canonical', async () => {
+    const { db, tmpDir } = buildApp()
+    cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
+
+    const { projectId } = seedProject(db)
+    const sessionId = crypto.randomUUID()
+    const now = new Date().toISOString()
+    db.insert(discoverySessions).values({
+      id: sessionId,
+      projectId,
+      status: 'queued',
+      competitorMap: [],
+      createdAt: now,
+    }).run()
+
+    // Twelve candidates sharing a first letter — the first-char embedding
+    // trick gives every pair cosine 1, so clustering collapses 12 raw seeds
+    // into a single canonical (the homogeneous-vertical failure mode).
+    const candidates = Array.from({ length: 12 }, (_, i) => `roof q${i + 1}`)
+    const deps = buildDeps({
+      candidates,
+      probeResults: [
+        { query: 'roof q1', citationState: 'cited', citedDomains: ['demand-iq.com'] },
+      ],
+    })
+
+    const result = await executeDiscovery({
+      db,
+      runId: crypto.randomUUID(),
+      sessionId,
+      project: {
+        id: projectId,
+        name: 'demand-iq',
+        canonicalDomains: ['demand-iq.com'],
+        competitorDomains: [],
+      },
+      icpDescription: 'collapse test',
+      deps,
+    })
+
+    expect(result.seedCountRaw).toBe(12)
+    expect(result.seedCount).toBe(1)
+
+    // The session still completes, but carries the operator warning with the
+    // exact pre-truncation counts and the threshold that produced them.
+    const sessionRow = db.select().from(discoverySessions).get()!
+    expect(sessionRow.status).toBe('completed')
+    expect(sessionRow.warning).toBe(
+      'Seed dedup collapsed 12 raw candidates into 1 canonical query at threshold 0.95. ' +
+        'Distinct intents were likely merged into one cluster; re-run with a higher --dedup-threshold.',
+    )
   })
 
   it('deduplicates whitespace and case in raw candidates', async () => {
@@ -1138,6 +1195,7 @@ describe('discovery routes', () => {
       aspirationalCount: 0,
       wastedCount: 1,
       competitorMap: [{ domain: 'aurora-solar.com', hits: 1, competitorType: 'unknown' }],
+      warning: 'Seed dedup collapsed 12 raw candidates into 1 canonical query at threshold 0.85.',
       createdAt: new Date().toISOString(),
     }).run()
     db.insert(discoveryProbes).values([
@@ -1177,6 +1235,10 @@ describe('discovery routes', () => {
     expect(detail.competitorMap).toEqual([
       { domain: 'aurora-solar.com', hits: 1, competitorType: 'unknown' },
     ])
+    // The persisted operator warning rides the session DTO.
+    expect(detail.warning).toBe(
+      'Seed dedup collapsed 12 raw candidates into 1 canonical query at threshold 0.85.',
+    )
   })
 
   it('GET /discover/sessions/:id/promote returns bucketed queries + suggested new competitors of every type', async () => {

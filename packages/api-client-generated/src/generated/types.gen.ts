@@ -546,6 +546,7 @@ export type DiscoverySessionDetailDto = {
         hits: number;
         competitorType: 'direct-competitor' | 'ota-aggregator' | 'editorial-media' | 'other' | 'unknown';
     }>;
+    warning?: string | null;
     error?: string | null;
     startedAt?: string | null;
     finishedAt?: string | null;
@@ -580,6 +581,7 @@ export type DiscoverySessionDto = {
         hits: number;
         competitorType: 'direct-competitor' | 'ota-aggregator' | 'editorial-media' | 'other' | 'unknown';
     }>;
+    warning?: string | null;
     error?: string | null;
     startedAt?: string | null;
     finishedAt?: string | null;
@@ -8733,7 +8735,7 @@ export type PostApiV1ProjectsByNameDiscoverRunData = {
          */
         icpDescription?: string;
         /**
-         * Cosine similarity threshold for clustering. Defaults to 0.85.
+         * Cosine similarity threshold for clustering. Defaults to 0.95.
          */
         dedupThreshold?: number;
         /**

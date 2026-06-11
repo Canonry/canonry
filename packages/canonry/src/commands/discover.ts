@@ -352,6 +352,7 @@ function printSessionDetail(session: DiscoverySessionDetailDto): void {
       console.log(`    - ${c.domain} (${c.hits} hits, ${c.competitorType})`)
     }
   }
+  if (session.warning) console.log(`  Warning:       ${session.warning}`)
   if (session.error) console.log(`  Error:         ${session.error}`)
   if (session.startedAt) console.log(`  Started:       ${session.startedAt}`)
   if (session.finishedAt) console.log(`  Finished:      ${session.finishedAt}`)

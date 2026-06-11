@@ -1651,6 +1651,16 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `CREATE INDEX IF NOT EXISTS idx_site_audit_pages_project_score ON site_audit_pages(project_id, overall_score)`,
     ],
   },
+  {
+    // Non-fatal operator warning on a discovery session (e.g. the seed-dedup
+    // degenerate-collapse guard). The session still completes; the warning
+    // flags that its coverage may be misleading.
+    version: 76,
+    name: 'discovery-session-warning',
+    statements: [
+      `ALTER TABLE discovery_sessions ADD COLUMN warning TEXT`,
+    ],
+  },
 ]
 
 /**

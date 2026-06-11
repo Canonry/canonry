@@ -814,6 +814,7 @@ export const discoverySessions = sqliteTable('discovery_sessions', {
   aspirationalCount: integer('aspirational_count'),
   wastedCount: integer('wasted_count'),
   competitorMap: text('competitor_map', { mode: 'json' }).$type<DiscoveryCompetitorMapEntry[]>().notNull().default([]),
+  warning: text('warning'),
   error: text('error'),
   startedAt: text('started_at'),
   finishedAt: text('finished_at'),

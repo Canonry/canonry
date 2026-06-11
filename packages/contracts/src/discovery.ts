@@ -96,6 +96,12 @@ export const discoverySessionDtoSchema = z.object({
   aspirationalCount: z.number().int().nullable().default(null),
   wastedCount: z.number().int().nullable().default(null),
   competitorMap: z.array(discoveryCompetitorMapEntrySchema).default([]),
+  /**
+   * Non-fatal operator warning recorded while the session ran (currently the
+   * seed dedup collapse guard). The session still completes; the warning flags
+   * that its coverage may be misleading.
+   */
+  warning: z.string().nullable().optional(),
   error: z.string().nullable().optional(),
   startedAt: z.string().nullable().optional(),
   finishedAt: z.string().nullable().optional(),
@@ -114,6 +120,62 @@ export type DiscoverySessionDetailDto = z.infer<typeof discoverySessionDetailDto
  * cannot burn through quota before the service-layer guard kicks in.
  */
 export const DISCOVERY_MAX_PROBES_CAP = 500
+
+/**
+ * Default cosine-similarity threshold for seed dedup clustering.
+ *
+ * Calibrated against gemini-embedding-001 (CLUSTERING task, 768 dims), the
+ * embedding model the discovery pipeline uses for seeds. Measured bands:
+ *
+ *   - distinct buyer intents in a homogeneous local-service vertical
+ *     ("emergency repair near me" vs "how much does a replacement cost" vs
+ *     "will insurance cover the damage") score ~0.82-0.91 pairwise;
+ *   - true near-duplicate phrasings of one intent score ~0.987-0.998.
+ *
+ * The threshold must sit in the gap BETWEEN those bands. The previous default
+ * (0.85) sat inside the distinct-intent band, and because `clusterByCosine`
+ * is single-link, one chain of >= 0.85 neighbors merged the entire seed set
+ * into a single canonical query for homogeneous verticals. 0.95 keeps
+ * distinct intents apart while still collapsing genuine rephrasings.
+ */
+export const DISCOVERY_DEFAULT_DEDUP_THRESHOLD = 0.95
+
+/**
+ * Degenerate seed-collapse guard: dedup is expected to trim a seed set, not
+ * vaporize it. When the canonical count falls below this fraction of the raw
+ * candidate count, the clustering almost certainly chained distinct intents
+ * together and the session's coverage is misleading.
+ */
+export const DISCOVERY_SEED_COLLAPSE_RATIO = 0.2
+
+/**
+ * Minimum raw candidate count before the collapse guard applies. Tiny seed
+ * sets can legitimately dedup to one or two canonicals; flagging those would
+ * be noise.
+ */
+export const DISCOVERY_SEED_COLLAPSE_MIN_RAW = 10
+
+/**
+ * Build the operator-facing warning for a degenerate seed-dedup collapse, or
+ * `null` when the dedup outcome is healthy. Callers must pass the canonical
+ * count BEFORE any probe-budget truncation: a deliberately small `maxProbes`
+ * shrinks the probed set without indicating a clustering problem.
+ */
+export function seedCollapseWarning(input: {
+  seedCountRaw: number
+  canonicalCount: number
+  dedupThreshold: number
+}): string | null {
+  const { seedCountRaw, canonicalCount, dedupThreshold } = input
+  if (seedCountRaw < DISCOVERY_SEED_COLLAPSE_MIN_RAW) return null
+  if (canonicalCount / seedCountRaw >= DISCOVERY_SEED_COLLAPSE_RATIO) return null
+  const noun = canonicalCount === 1 ? 'query' : 'queries'
+  return (
+    `Seed dedup collapsed ${seedCountRaw} raw candidates into ${canonicalCount} canonical ${noun} ` +
+    `at threshold ${dedupThreshold}. Distinct intents were likely merged into one cluster; ` +
+    `re-run with a higher --dedup-threshold.`
+  )
+}
 
 export const discoveryRunRequestSchema = z.object({
   icpDescription: z.string().min(1).optional(),
