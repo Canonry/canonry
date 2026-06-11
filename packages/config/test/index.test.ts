@@ -1,6 +1,6 @@
 import { test, expect } from 'vitest'
 
-import { getBootstrapEnv, getPlatformEnv } from '../src/index.js'
+import { getBootstrapEnv, getPlatformEnv, readCloudModeFlags } from '../src/index.js'
 
 test('getPlatformEnv returns defaults when no env vars set', () => {
   const env = getPlatformEnv({})
@@ -103,6 +103,69 @@ test('getBootstrapEnv configures Gemini via Vertex AI env vars', () => {
   expect(env.providers.gemini!.vertexRegion).toBe('us-east1')
   expect(env.providers.gemini!.vertexCredentials).toBe('/path/to/sa.json')
   expect(env.providers.gemini!.model).toBe('gemini-2.5-flash')
+})
+
+test('readCloudModeFlags returns OSS defaults when env is empty', () => {
+  const flags = readCloudModeFlags({})
+
+  expect(flags.runtimeMode).toBe('oss')
+  expect(flags.scheduler).toBe('internal')
+  expect(flags.managedSettings).toBe(false)
+  expect(flags.enableCloudBootstrap).toBe(false)
+})
+
+test('readCloudModeFlags honours CANONRY_RUNTIME_MODE=cloud', () => {
+  expect(readCloudModeFlags({ CANONRY_RUNTIME_MODE: 'cloud' }).runtimeMode).toBe('cloud')
+  expect(readCloudModeFlags({ CANONRY_RUNTIME_MODE: 'CLOUD' }).runtimeMode).toBe('cloud')
+  expect(readCloudModeFlags({ CANONRY_RUNTIME_MODE: 'oss' }).runtimeMode).toBe('oss')
+  expect(readCloudModeFlags({ CANONRY_RUNTIME_MODE: 'something-else' }).runtimeMode).toBe('oss')
+})
+
+test('readCloudModeFlags honours CANONRY_SCHEDULER=external', () => {
+  expect(readCloudModeFlags({ CANONRY_SCHEDULER: 'external' }).scheduler).toBe('external')
+  expect(readCloudModeFlags({ CANONRY_SCHEDULER: 'EXTERNAL' }).scheduler).toBe('external')
+  expect(readCloudModeFlags({ CANONRY_SCHEDULER: 'internal' }).scheduler).toBe('internal')
+  expect(readCloudModeFlags({ CANONRY_SCHEDULER: 'noop' }).scheduler).toBe('internal')
+})
+
+test('readCloudModeFlags parses boolean flags', () => {
+  expect(readCloudModeFlags({ CANONRY_MANAGED_SETTINGS: '1' }).managedSettings).toBe(true)
+  expect(readCloudModeFlags({ CANONRY_MANAGED_SETTINGS: 'true' }).managedSettings).toBe(true)
+  expect(readCloudModeFlags({ CANONRY_MANAGED_SETTINGS: 'YES' }).managedSettings).toBe(true)
+  expect(readCloudModeFlags({ CANONRY_MANAGED_SETTINGS: '0' }).managedSettings).toBe(false)
+  expect(readCloudModeFlags({ CANONRY_MANAGED_SETTINGS: 'false' }).managedSettings).toBe(false)
+  expect(readCloudModeFlags({ CANONRY_MANAGED_SETTINGS: '' }).managedSettings).toBe(false)
+
+  expect(readCloudModeFlags({ CANONRY_ENABLE_CLOUD_BOOTSTRAP: '1' }).enableCloudBootstrap).toBe(true)
+  expect(readCloudModeFlags({ CANONRY_ENABLE_CLOUD_BOOTSTRAP: 'on' }).enableCloudBootstrap).toBe(true)
+  expect(readCloudModeFlags({}).enableCloudBootstrap).toBe(false)
+})
+
+test('getPlatformEnv exposes cloud flags and control plane URL', () => {
+  const env = getPlatformEnv({
+    CANONRY_RUNTIME_MODE: 'cloud',
+    CANONRY_SCHEDULER: 'external',
+    CANONRY_MANAGED_SETTINGS: '1',
+    CANONRY_ENABLE_CLOUD_BOOTSTRAP: '1',
+    CANONRY_CONTROL_PLANE_URL: 'http://canonry-control-plane:8080/',
+  })
+
+  expect(env.cloud.runtimeMode).toBe('cloud')
+  expect(env.cloud.scheduler).toBe('external')
+  expect(env.cloud.managedSettings).toBe(true)
+  expect(env.cloud.enableCloudBootstrap).toBe(true)
+  // Trailing slashes are stripped so callers can append paths cleanly.
+  expect(env.controlPlaneUrl).toBe('http://canonry-control-plane:8080')
+})
+
+test('getPlatformEnv defaults cloud flags to OSS posture', () => {
+  const env = getPlatformEnv({})
+
+  expect(env.cloud.runtimeMode).toBe('oss')
+  expect(env.cloud.scheduler).toBe('internal')
+  expect(env.cloud.managedSettings).toBe(false)
+  expect(env.cloud.enableCloudBootstrap).toBe(false)
+  expect(env.controlPlaneUrl).toBeUndefined()
 })
 
 test('getBootstrapEnv parses hosted Canonry env vars', () => {

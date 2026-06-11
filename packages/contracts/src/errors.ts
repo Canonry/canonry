@@ -62,8 +62,8 @@ export function authRequired(message = 'Authentication required'): AppError {
   return new AppError('AUTH_REQUIRED', message, 401)
 }
 
-export function authInvalid(): AppError {
-  return new AppError('AUTH_INVALID', 'Invalid API key', 401)
+export function authInvalid(message = 'Invalid API key'): AppError {
+  return new AppError('AUTH_INVALID', message, 401)
 }
 
 export function forbidden(message = 'Forbidden'): AppError {

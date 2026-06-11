@@ -20,6 +20,10 @@ function toPerplexityConfig(config: ProviderConfig): PerplexityConfig {
     apiKey: config.apiKey ?? '',
     model: config.model,
     quotaPolicy: config.quotaPolicy,
+    // Perplexity's adapter has always pointed at https://api.perplexity.ai;
+    // honour an explicit override (e.g. the canonry-hosted LLM proxy) if
+    // provided. Defaults to the public Sonar endpoint when omitted.
+    ...(config.baseUrl ? { baseUrl: config.baseUrl } : {}),
   }
 }
 

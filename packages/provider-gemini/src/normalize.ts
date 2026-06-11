@@ -32,8 +32,18 @@ function resolveModel(config: GeminiConfig): string {
 /**
  * Create a GoogleGenAI client — works for both AI Studio (apiKey) and
  * Vertex AI (project + location + optional service account credentials).
+ *
+ * For AI Studio configs we honour `config.baseUrl` by threading it into
+ * `httpOptions.baseUrl` (note camelCase — `@google/genai` differs from the
+ * OpenAI / Anthropic SDKs, which use `baseURL`). Used by Canonry Hosted to
+ * route AI Studio calls through the per-tenant LLM proxy (Track 1).
+ *
+ * Vertex AI configs ignore `baseUrl` — they go through GCP's managed
+ * endpoint which already authenticates via the operator's GCP project.
+ *
+ * Exported so adapter tests can assert the URL is threaded through.
  */
-function createClient(config: GeminiConfig): GoogleGenAI {
+export function createGeminiClient(config: GeminiConfig): GoogleGenAI {
   if (isVertexConfig(config)) {
     return new GoogleGenAI({
       vertexai: true,
@@ -44,8 +54,14 @@ function createClient(config: GeminiConfig): GoogleGenAI {
         : {}),
     })
   }
-  return new GoogleGenAI({ apiKey: config.apiKey })
+  return new GoogleGenAI({
+    apiKey: config.apiKey,
+    ...(config.baseUrl ? { httpOptions: { baseUrl: config.baseUrl } } : {}),
+  })
 }
+
+// Backwards-compatible alias for the internal call sites.
+const createClient = createGeminiClient
 
 export function validateConfig(config: GeminiConfig): GeminiHealthcheckResult {
   // Check for explicitly provided (but empty) Vertex project — user intended Vertex AI

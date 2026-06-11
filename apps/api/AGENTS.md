@@ -17,6 +17,21 @@ Cloud API entry point. A thin Fastify server that imports and mounts `packages/a
 | `src/plugins/` | Cloud-specific Fastify plugins (auth, CORS, etc.) |
 | `src/routes/` | Cloud-only routes (if any) |
 
+## Environment
+
+Beyond the provider keys parsed by `@ainyc/canonry-config` (`getPlatformEnv`):
+
+| Var | Default | Purpose |
+|-----|---------|---------|
+| `CANONRY_API_KEY` | — | Default `cnry_` bearer, seeded into `api_keys` on boot; password sessions bind to it. Also required to pass the `/session/setup` gate (always on here — Cloud Run is network-reachable) |
+| `CANONRY_PUBLIC_URL` | — | Sets `Secure` on session cookies when `https://`. Boot warns when unset |
+| `CANONRY_TRUST_PROXY_HOPS` | `1` | Trusted reverse-proxy hop count → `request.ip` is the rightmost X-Forwarded-For entry, so rate limiting keys per client (not per proxy). 0 = direct connections |
+| `CANONRY_ENABLE_GUEST_REPORTS` | off | Enables the anonymous `/guest/report*` funnel (404s when unset) |
+| `CANONRY_ENABLE_CLOUD_BOOTSTRAP` | off | Enables the `/cloud/*` bridge (404s when unset) |
+| `CANONRY_ALLOW_PRIVATE_WEBHOOKS` | off | Allows webhook targets resolving to private ranges (Docker-internal control-plane callbacks) |
+
+All boolean flags parse through `parseBooleanFlag` (`1/true/yes/on`).
+
 ## Patterns
 
 - This app is intentionally thin. All shared route logic lives in `packages/api-routes`.

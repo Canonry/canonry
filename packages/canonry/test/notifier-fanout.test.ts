@@ -6,6 +6,7 @@ import { describe, it, expect, afterEach } from 'vitest'
 import {
   createClient,
   migrate,
+  notifications,
   projects,
   queries,
   querySnapshots,
@@ -137,6 +138,12 @@ function callCompute(notifier: Notifier, runId: string, projectId: string) {
       query: string; from: string; to: string; provider: string; location: string | null
     }>
   }).computeTransitions(runId, projectId)
+}
+
+function callListEnabledNotifications(notifier: Notifier, projectId: string) {
+  return (notifier as unknown as {
+    listEnabledNotifications: (projectId: string) => Array<{ id: string; projectId: string | null }>
+  }).listEnabledNotifications(projectId)
 }
 
 describe('Notifier multi-location fan-out (#480)', () => {
@@ -277,5 +284,67 @@ describe('Notifier multi-location fan-out (#480)', () => {
     const notifier = new Notifier(db, 'http://localhost:4100')
     const transitions = callCompute(notifier, latestMiId, projectId)
     expect(transitions).toEqual([])
+  })
+
+  it('includes tenant-scoped notification subscribers for cloud bootstrap webhooks', () => {
+    const { db, projectId } = seedFanOutScenario()
+    const otherProjectId = crypto.randomUUID()
+    db.insert(projects).values({
+      id: otherProjectId,
+      name: 'other-project',
+      displayName: 'Other Project',
+      canonicalDomain: 'other.example',
+      country: 'US',
+      language: 'en',
+      ownedDomains: '[]',
+      tags: '[]',
+      providers: '[]',
+      locations: '[]',
+      createdAt: '2026-05-10T00:00:00.000Z',
+      updatedAt: '2026-05-10T00:00:00.000Z',
+    }).run()
+    db.insert(notifications).values([
+      {
+        id: 'notif-project',
+        projectId,
+        channel: 'webhook',
+        config: { url: 'https://example.com/project', events: ['run.completed'] },
+        enabled: true,
+        createdAt: '2026-05-10T00:00:00.000Z',
+        updatedAt: '2026-05-10T00:00:00.000Z',
+      },
+      {
+        id: 'notif-tenant',
+        projectId: null,
+        channel: 'webhook',
+        config: { url: 'https://example.com/tenant', events: ['run.completed'] },
+        enabled: true,
+        createdAt: '2026-05-10T00:00:00.000Z',
+        updatedAt: '2026-05-10T00:00:00.000Z',
+      },
+      {
+        id: 'notif-other-project',
+        projectId: otherProjectId,
+        channel: 'webhook',
+        config: { url: 'https://example.com/other', events: ['run.completed'] },
+        enabled: true,
+        createdAt: '2026-05-10T00:00:00.000Z',
+        updatedAt: '2026-05-10T00:00:00.000Z',
+      },
+      {
+        id: 'notif-disabled-tenant',
+        projectId: null,
+        channel: 'webhook',
+        config: { url: 'https://example.com/disabled', events: ['run.completed'] },
+        enabled: false,
+        createdAt: '2026-05-10T00:00:00.000Z',
+        updatedAt: '2026-05-10T00:00:00.000Z',
+      },
+    ]).run()
+
+    const notifier = new Notifier(db, 'http://localhost:4100')
+    const ids = callListEnabledNotifications(notifier, projectId).map(n => n.id).sort()
+
+    expect(ids).toEqual(['notif-project', 'notif-tenant'])
   })
 })

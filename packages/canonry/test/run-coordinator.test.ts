@@ -4,11 +4,11 @@ import os from 'node:os'
 import path from 'node:path'
 import { describe, it, expect, vi, onTestFinished } from 'vitest'
 import { eq } from 'drizzle-orm'
-import { createClient, discoverySessions, migrate, projects, runs, queries, querySnapshots, healthSnapshots, insights, gbpLocations, gbpLodgingSnapshots } from '@ainyc/canonry-db'
+import { createClient, discoverySessions, migrate, projects, runs, queries, querySnapshots, healthSnapshots, insights, gbpLocations, gbpLodgingSnapshots, providerTokenUsage } from '@ainyc/canonry-db'
 import type { AnalysisResult } from '@ainyc/canonry-intelligence'
 import { Notifier } from '../src/notifier.js'
 import { IntelligenceService } from '../src/intelligence-service.js'
-import { RunCoordinator, type AeroEventContext } from '../src/run-coordinator.js'
+import { RunCoordinator, stableEventId, type AeroEventContext } from '../src/run-coordinator.js'
 
 function createTempDb(prefix: string) {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), prefix))
@@ -437,5 +437,242 @@ describe('RunCoordinator', () => {
     expect(captured!.seedProvider).toBe('gemini-older')
     expect(captured!.buckets).toEqual({ cited: 7, aspirational: 1, 'wasted-surface': 2 })
     expect(captured!.probeCount).toBe(10)
+  })
+
+  describe('token-cost telemetry (Track 1)', () => {
+    // RunCoordinator persists a row into `provider_token_usage` for every
+    // (provider, model) combination present in the run's snapshots that
+    // carries a recognized usage block. Verified by inspecting the table
+    // after onRunCompleted resolves.
+
+    function seedRunWithUsage(
+      db: ReturnType<typeof createClient>,
+      snapshots: Array<{ provider: string; model: string | null; usage: Record<string, unknown> }>,
+    ) {
+      const now = new Date().toISOString()
+      const projectId = crypto.randomUUID()
+      db.insert(projects).values({
+        id: projectId, name: `tok-${projectId.slice(0, 6)}`,
+        displayName: 'Tok', canonicalDomain: 'example.com',
+        country: 'US', language: 'en', createdAt: now, updatedAt: now,
+      }).run()
+      const queryId = crypto.randomUUID()
+      db.insert(queries).values({ id: queryId, projectId, query: 'q', createdAt: now }).run()
+      const runId = crypto.randomUUID()
+      db.insert(runs).values({
+        id: runId, projectId, kind: 'answer-visibility', status: 'completed',
+        trigger: 'manual', createdAt: now, finishedAt: now,
+      }).run()
+      for (const snap of snapshots) {
+        // Mirror the JobRunner storage envelope:
+        // {model, groundingSources, searchQueries, apiResponse: <native>}
+        const rawResponse = JSON.stringify({
+          model: snap.model,
+          groundingSources: [],
+          searchQueries: [],
+          apiResponse: snap.usage,
+        })
+        db.insert(querySnapshots).values({
+          id: crypto.randomUUID(), runId, queryId,
+          provider: snap.provider, model: snap.model,
+          citationState: 'cited', citedDomains: ['example.com'],
+          competitorOverlap: [], rawResponse, createdAt: now,
+        }).run()
+      }
+      return { projectId, runId }
+    }
+
+    it('persists one row per (provider, model) for a fan-out run', async () => {
+      const { db } = createTempDb('coord-tokens-')
+      const { projectId, runId } = seedRunWithUsage(db, [
+        {
+          provider: 'openai',
+          model: 'gpt-5.4',
+          usage: { usage: { input_tokens: 100, output_tokens: 50, input_tokens_details: { cached_tokens: 20 } } },
+        },
+        {
+          provider: 'claude',
+          model: 'claude-sonnet-4-6',
+          usage: { usage: { input_tokens: 200, output_tokens: 75, cache_read_input_tokens: 30 } },
+        },
+        {
+          provider: 'gemini',
+          model: 'gemini-2.5-flash',
+          usage: { usageMetadata: { promptTokenCount: 80, candidatesTokenCount: 25, cachedContentTokenCount: 5 } },
+        },
+      ])
+
+      const notifier = createMockNotifier()
+      const service = new IntelligenceService(db)
+      const coordinator = new RunCoordinator(db, notifier as Notifier, service)
+      await coordinator.onRunCompleted(runId, projectId)
+
+      const rows = db.select().from(providerTokenUsage).where(eq(providerTokenUsage.runId, runId)).all()
+      expect(rows).toHaveLength(3)
+      const byProvider = Object.fromEntries(rows.map((r) => [r.provider, r]))
+      expect(byProvider.openai).toMatchObject({
+        provider: 'openai', model: 'gpt-5.4', inputTokens: 100, outputTokens: 50, cachedInputTokens: 20,
+      })
+      expect(byProvider.claude).toMatchObject({
+        provider: 'claude', model: 'claude-sonnet-4-6', inputTokens: 200, outputTokens: 75, cachedInputTokens: 30,
+      })
+      expect(byProvider.gemini).toMatchObject({
+        provider: 'gemini', model: 'gemini-2.5-flash', inputTokens: 80, outputTokens: 25, cachedInputTokens: 5,
+      })
+    })
+
+    it('aggregates multiple snapshots from the same (provider, model) into one row', async () => {
+      const { db } = createTempDb('coord-tokens-agg-')
+      const { projectId, runId } = seedRunWithUsage(db, [
+        { provider: 'claude', model: 'claude-sonnet-4-6', usage: { usage: { input_tokens: 100, output_tokens: 25 } } },
+        { provider: 'claude', model: 'claude-sonnet-4-6', usage: { usage: { input_tokens: 200, output_tokens: 50 } } },
+        { provider: 'claude', model: 'claude-sonnet-4-6', usage: { usage: { input_tokens: 300, output_tokens: 75, cache_read_input_tokens: 10 } } },
+      ])
+
+      const notifier = createMockNotifier()
+      const service = new IntelligenceService(db)
+      const coordinator = new RunCoordinator(db, notifier as Notifier, service)
+      await coordinator.onRunCompleted(runId, projectId)
+
+      const rows = db.select().from(providerTokenUsage).where(eq(providerTokenUsage.runId, runId)).all()
+      expect(rows).toHaveLength(1)
+      expect(rows[0]).toMatchObject({
+        provider: 'claude',
+        model: 'claude-sonnet-4-6',
+        inputTokens: 600,
+        outputTokens: 150,
+        cachedInputTokens: 10,
+      })
+    })
+
+    it('skips snapshots without a recognized usage block (no zero-counter rows)', async () => {
+      const { db } = createTempDb('coord-tokens-skip-')
+      const { projectId, runId } = seedRunWithUsage(db, [
+        // Browser provider — no documented usage shape, should be skipped.
+        { provider: 'cdp:chatgpt', model: null, usage: {} },
+        // Real provider but no usage block — also skipped.
+        { provider: 'openai', model: 'gpt-5.4', usage: { output: [] } },
+      ])
+
+      const notifier = createMockNotifier()
+      const service = new IntelligenceService(db)
+      const coordinator = new RunCoordinator(db, notifier as Notifier, service)
+      await coordinator.onRunCompleted(runId, projectId)
+
+      expect(db.select().from(providerTokenUsage).where(eq(providerTokenUsage.runId, runId)).all()).toEqual([])
+    })
+
+    it('does NOT block notifier when token persistence fails', async () => {
+      const { db } = createTempDb('coord-tokens-fail-')
+      const { projectId, runId } = seedRunWithUsage(db, [
+        { provider: 'claude', model: 'claude-sonnet-4-6', usage: { usage: { input_tokens: 10, output_tokens: 5 } } },
+      ])
+
+      // Sabotage the snapshot read so persistTokenUsage throws — we wrap
+      // the table reads in try/catch precisely so persistence errors don't
+      // starve downstream subscribers.
+      const notifier = createMockNotifier()
+      const service = new IntelligenceService(db)
+      const dbProxy = new Proxy(db, {
+        get(target, prop, receiver) {
+          if (prop === 'select') {
+            return (...args: unknown[]) => {
+              const builder = Reflect.get(target, prop, receiver).apply(target, args) as {
+                from: (table: unknown) => unknown
+              }
+              return {
+                from(table: unknown) {
+                  // Throw only on the snapshot read inside persistTokenUsage.
+                  // Other selects (run row, project row, baseline detection)
+                  // must still work.
+                  if (table === querySnapshots) {
+                    throw new Error('boom')
+                  }
+                  return builder.from(table)
+                },
+              }
+            }
+          }
+          return Reflect.get(target, prop, receiver)
+        },
+      })
+      const coordinator = new RunCoordinator(dbProxy as typeof db, notifier as Notifier, service)
+      await coordinator.onRunCompleted(runId, projectId)
+      expect(notifier.onRunCompleted).toHaveBeenCalled()
+    })
+
+    it('meters probe-trigger runs but skips the rest of the post-run pipeline', async () => {
+      // Probe runs short-circuit intelligence / notifier / aero — but token
+      // telemetry is the one exception: probes burn real provider tokens,
+      // and the probe-exclusion rule protects dashboards/analytics, not
+      // cost accounting. Unmetered probes would undercount hosted billing.
+      const { db } = createTempDb('coord-tokens-probe-')
+      const now = new Date().toISOString()
+      const projectId = crypto.randomUUID()
+      db.insert(projects).values({
+        id: projectId, name: 'tok-probe', displayName: 'tp',
+        canonicalDomain: 'example.com', country: 'US', language: 'en',
+        createdAt: now, updatedAt: now,
+      }).run()
+      const queryId = crypto.randomUUID()
+      db.insert(queries).values({ id: queryId, projectId, query: 'q', createdAt: now }).run()
+      const runId = crypto.randomUUID()
+      db.insert(runs).values({
+        id: runId, projectId, kind: 'answer-visibility', status: 'completed',
+        trigger: 'probe', createdAt: now, finishedAt: now,
+      }).run()
+      db.insert(querySnapshots).values({
+        id: crypto.randomUUID(), runId, queryId,
+        provider: 'claude', model: 'claude-sonnet-4-6',
+        citationState: 'cited', citedDomains: ['example.com'], competitorOverlap: [],
+        rawResponse: JSON.stringify({ apiResponse: { usage: { input_tokens: 50, output_tokens: 5 } } }),
+        createdAt: now,
+      }).run()
+
+      const notifier = createMockNotifier()
+      const service = new IntelligenceService(db)
+      const coordinator = new RunCoordinator(db, notifier as Notifier, service)
+      await coordinator.onRunCompleted(runId, projectId)
+
+      // Metered: the usage row exists with the snapshot's token counts.
+      const usage = db.select().from(providerTokenUsage).where(eq(providerTokenUsage.runId, runId)).all()
+      expect(usage).toHaveLength(1)
+      expect(usage[0]).toMatchObject({ provider: 'claude', inputTokens: 50, outputTokens: 5 })
+      // Pipeline still short-circuited: no notifier dispatch for probes.
+      expect(notifier.onRunCompleted).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('stableEventId (Track 3 baseline dedup)', () => {
+    // The `(eventType, projectId)` -> UUID derivation is the only line of
+    // defense against the concurrent-run race where two answer-visibility
+    // sweeps both decide they're the "first" baseline. The control plane
+    // dedupes its `event_idempotency` table on `event_id`, so identical
+    // inputs MUST produce identical UUIDs across processes / restarts.
+
+    it('returns the same UUID for the same (eventType, projectId)', () => {
+      const a = stableEventId('baseline.completed', 'proj-xyz')
+      const b = stableEventId('baseline.completed', 'proj-xyz')
+      expect(a).toBe(b)
+    })
+
+    it('returns a different UUID for a different projectId', () => {
+      const a = stableEventId('baseline.completed', 'proj-a')
+      const b = stableEventId('baseline.completed', 'proj-b')
+      expect(a).not.toBe(b)
+    })
+
+    it('returns a different UUID for a different eventType', () => {
+      const a = stableEventId('baseline.completed', 'proj-x')
+      const b = stableEventId('connection.created', 'proj-x')
+      expect(a).not.toBe(b)
+    })
+
+    it('returns a valid RFC 4122 v5 UUID', () => {
+      const id = stableEventId('baseline.completed', 'proj-x')
+      // 8-4-4-4-12 hex with version 5 in the 13th hex char and variant
+      // 10xx (8/9/a/b) in the 17th.
+      expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
+    })
   })
 })

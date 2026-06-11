@@ -143,6 +143,126 @@ export const apiKeys = sqliteTable('api_keys', {
   index('idx_api_keys_prefix').on(table.keyPrefix),
 ])
 
+/**
+ * Users — identity records for the operator(s) of this canonry deployment.
+ *
+ * OSS canonry is single-tenant by deployment posture; one row is the typical
+ * shape (the operator who installed canonry). The table exists so we can
+ * carry Google-OAuth identities alongside the existing password-auth flow:
+ * a user signs up with Google, we create a row + bind an API key to them
+ * via `api_key_id`. Subsequent sign-ins lookup by `google_sub` and re-issue
+ * a session bound to the same key.
+ *
+ * Password-only deployments don't need a `users` row — the existing
+ * `api_keys` + `dashboardPasswordHash` config flow continues to work
+ * untouched. This table only fills in when Google OAuth is used.
+ */
+export const users = sqliteTable('users', {
+  id: text('id').primaryKey(),
+  email: text('email').notNull().unique(),
+  /** Google OIDC `sub` (subject identifier) — stable per-user across sessions.
+   *  Unique so we can find-by-sub on every callback. NULL on rows created by
+   *  some other identity provider in the future. */
+  googleSub: text('google_sub').unique(),
+  displayName: text('display_name'),
+  /** Backing API key — every user is bound to exactly one. The session cookie
+   *  resolves to this key id via the existing session table. */
+  apiKeyId: text('api_key_id').notNull().references(() => apiKeys.id, { onDelete: 'cascade' }),
+  createdAt: text('created_at').notNull(),
+  lastSeenAt: text('last_seen_at'),
+}, (table) => [
+  // google_sub already gets an implicit index from .unique(); the column the
+  // claim route actually filters on is api_key_id (users-by-backing-key).
+  index('idx_users_api_key').on(table.apiKeyId),
+])
+
+/**
+ * Guest reports — the anonymous free-first-report record that powers the
+ * /aero onboarding flow. A visitor drops a domain, this row is created
+ * (no auth), the audit + sweep workers populate it, and an SSE stream
+ * emits progress events as data lands.
+ *
+ * Once the visitor signs up (Google or password), `/claim` transfers the
+ * report into a real `projects` row owned by the new user, stamps
+ * `claimed_at` + `claimed_by_user_id`, and the guest row stops accepting
+ * writes. Unclaimed reports expire after 7 days.
+ *
+ * `project_id` is the internal project the audit runs against — we create
+ * a transient one named `guest-<id>` so we can reuse the existing audit /
+ * sweep pipelines. After claim, the project is renamed (or kept) and
+ * exposed in the user's workspace.
+ */
+export const guestReports = sqliteTable('guest_reports', {
+  id: text('id').primaryKey(),
+  domain: text('domain').notNull(),
+  /** Internal project the audit + sweep ran against. Cascades on project delete
+   *  so cleanup is automatic when a guest project is purged. */
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  status: text('status').notNull().default('pending'),
+  /** AEO Audit Score 0-100 — structural site health from the crawl. NULL while
+   *  the audit is still running. */
+  auditScore: integer('audit_score'),
+  /** Compact JSON of the top audit findings the score reveal renders. */
+  auditTopFindings: text('audit_top_findings', { mode: 'json' }).$type<Array<{
+    severity: 'critical' | 'high' | 'medium' | 'low'
+    title: string
+    url: string
+    pointsLost: number
+  }>>().notNull().default([]),
+  auditPagesCrawled: integer('audit_pages_crawled').notNull().default(0),
+  auditFindingsCount: integer('audit_findings_count').notNull().default(0),
+  /** Overall AEO Score 0-100 — composite of audit + AI visibility + competitor
+   *  gap. NULL until the AI sweep completes. */
+  overallScore: integer('overall_score'),
+  aiCitedCount: integer('ai_cited_count'),
+  aiQueryCount: integer('ai_query_count'),
+  aiMentionedCount: integer('ai_mentioned_count'),
+  topCompetitor: text('top_competitor'),
+  topCompetitorCitedCount: integer('top_competitor_cited_count'),
+  /** SSE progress events captured for replay if the client reconnects. */
+  progressEvents: text('progress_events', { mode: 'json' }).$type<Array<{
+    at: string
+    type: string
+    payload: Record<string, unknown>
+  }>>().notNull().default([]),
+  /** Aero's proposed plan after the full analysis — a small structured array
+   *  the reveal screen renders as "I can close X points by doing Y." */
+  proposedPlan: text('proposed_plan', { mode: 'json' }).$type<Array<{
+    label: string
+    pointsImpact: number
+    rationale: string
+  }>>().notNull().default([]),
+  errorMessage: text('error_message'),
+  createdAt: text('created_at').notNull(),
+  expiresAt: text('expires_at').notNull(),
+  claimedAt: text('claimed_at'),
+  claimedByUserId: text('claimed_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+}, (table) => [
+  index('idx_guest_reports_status').on(table.status),
+  index('idx_guest_reports_expires').on(table.expiresAt),
+  index('idx_guest_reports_claimed').on(table.claimedByUserId),
+  index('idx_guest_reports_project').on(table.projectId),
+])
+
+/**
+ * Generic key/value store for instance-wide configuration.
+ *
+ * Local `canonry serve` already keeps most config in `~/.canonry/config.yaml`,
+ * but the cloud `apps/api` runs on Cloud Run with no writable local config
+ * file. This table fills that gap: the `apps/api` session plugin persists the
+ * dashboard password hash here so it survives container restarts, while the
+ * local daemon keeps using config.yaml as its source of truth.
+ *
+ * Single-tenant by design (no `owner_id`) — matches the broader deployment
+ * posture documented in the root `AGENTS.md`. Each value is opaque to the
+ * runner; callers JSON-encode if they need structure.
+ */
+export const appSettings = sqliteTable('app_settings', {
+  key: text('key').primaryKey(),
+  value: text('value').notNull(),
+  updatedAt: text('updated_at').notNull(),
+})
+
 export const schedules = sqliteTable('schedules', {
   id: text('id').primaryKey(),
   projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
@@ -168,7 +288,15 @@ export const schedules = sqliteTable('schedules', {
 
 export const notifications = sqliteTable('notifications', {
   id: text('id').primaryKey(),
-  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  /**
+   * Project this notification belongs to. NULL means a tenant-scoped
+   * webhook (no specific project). Track 3 (Canonry Hosted) introduced
+   * the NULL form so the control-plane callback registered at bootstrap
+   * — which fires for events across every project on the instance —
+   * doesn't need a sentinel project to satisfy the FK. Legacy rows are
+   * always non-null and keep the cascading delete behavior.
+   */
+  projectId: text('project_id').references(() => projects.id, { onDelete: 'cascade' }),
   channel: text('channel').notNull(),
   config: text('config', { mode: 'json' }).$type<{ url: string; events: string[] }>().notNull(),
   webhookSecret: text('webhook_secret'),
@@ -952,6 +1080,71 @@ export const recommendationBriefs = sqliteTable('recommendation_briefs', {
     table.promptVersion,
   ),
   index('idx_recommendation_briefs_project').on(table.projectId),
+])
+
+/**
+ * Singleton tenant-side row that records the tenant has been bootstrapped
+ * by a control plane. Track 3 (Canonry Hosted). Populated by
+ * `POST /api/v1/cloud/bootstrap` and read nowhere else in the tenant runtime
+ * today — the row's value to the operator is that it lets `canonry doctor`
+ * (and future cloud checks) verify the tenant knows it's hosted and which
+ * managed-OAuth client it's been wired against.
+ *
+ * One row max — `id` is fixed to `'singleton'` via the CHECK constraint in
+ * the migration. Upsert semantics: re-running bootstrap with the same
+ * `tenant_id` is idempotent and refreshes the row.
+ */
+export const cloudMetadata = sqliteTable('cloud_metadata', {
+  id: text('id').primaryKey().default('singleton'),
+  tenantId: text('tenant_id').notNull(),
+  accountId: text('account_id').notNull(),
+  plan: text('plan').notNull(),
+  controlPlaneCallbackUrl: text('control_plane_callback_url').notNull(),
+  webhookSecret: text('webhook_secret').notNull(),
+  managedGoogleClientId: text('managed_google_client_id'),
+  managedGoogleRedirectUrl: text('managed_google_redirect_url'),
+  bootstrappedAt: text('bootstrapped_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+})
+
+/**
+ * Per-(run, provider, model) token-cost telemetry, populated by
+ * `RunCoordinator.onRunCompleted` from the usage block on each query
+ * snapshot's stored raw response. Track 1 (Canonry Hosted).
+ *
+ * Three counters per row:
+ *   - `inputTokens` — prompt-side tokens (Anthropic `usage.input_tokens`,
+ *     OpenAI `usage.prompt_tokens`, Gemini `usageMetadata.promptTokenCount`,
+ *     Perplexity `usage.prompt_tokens`).
+ *   - `outputTokens` — completion-side tokens (Anthropic
+ *     `usage.output_tokens`, OpenAI `usage.completion_tokens`, Gemini
+ *     `usageMetadata.candidatesTokenCount`, Perplexity
+ *     `usage.completion_tokens`).
+ *   - `cachedInputTokens` — input tokens served from prompt cache (Anthropic
+ *     `usage.cache_read_input_tokens`, OpenAI
+ *     `usage.prompt_tokens_details.cached_tokens`, Gemini
+ *     `usageMetadata.cachedContentTokenCount`). Defaults to 0 when the
+ *     provider doesn't return a cache-read field.
+ *
+ * Rows are written best-effort: persistence failures log but never block the
+ * run-completion pipeline. OSS deployments accumulate data silently — the
+ * cloud control plane is the primary consumer (billing + cost dashboards).
+ */
+export const providerTokenUsage = sqliteTable('provider_token_usage', {
+  id: text('id').primaryKey(),
+  runId: text('run_id').notNull().references(() => runs.id, { onDelete: 'cascade' }),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  provider: text('provider').notNull(),
+  model: text('model'),
+  inputTokens: integer('input_tokens').notNull().default(0),
+  outputTokens: integer('output_tokens').notNull().default(0),
+  cachedInputTokens: integer('cached_input_tokens').notNull().default(0),
+  occurredAt: text('occurred_at').notNull(),
+}, (table) => [
+  index('idx_provider_token_usage_run').on(table.runId),
+  index('idx_provider_token_usage_project').on(table.projectId),
+  index('idx_provider_token_usage_provider').on(table.provider),
+  index('idx_provider_token_usage_occurred').on(table.occurredAt),
 ])
 
 /**

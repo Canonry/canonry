@@ -102,7 +102,26 @@ describe('openapi contract', () => {
     const body = res.json() as { paths: Record<string, Record<string, unknown>> }
     const localIds = canonryLocalRouteIds()
     const specMinusLocal = normalizeSpecRoutes(body.paths).filter((entry) => !localIds.has(entry))
-    expect(specMinusLocal).toEqual(normalizeObservedRoutes(ctx.observedRoutes))
+    // `/cloud/*` are admin-scope routes (Track 3 — Canonry Hosted bridge). They are
+    // registered by api-routes but intentionally excluded from the public OpenAPI spec
+    // because they are admin-scope only and not part of the public surface.
+    // EXPLICIT allowlist, not a prefix wildcard: a fourth cloud route must be
+    // consciously added here (or documented in OpenAPI) — it cannot silently
+    // escape the every-route-is-documented invariant.
+    const UNDOCUMENTED_CLOUD_OPS = new Set([
+      'post /api/v1/cloud/bootstrap',
+      'post /api/v1/cloud/google/import-tokens',
+      'post /api/v1/cloud/bing/import-key',
+    ])
+    const observed = normalizeObservedRoutes(ctx.observedRoutes)
+    // Subset, not equality: import-tokens / import-key only register when a
+    // connection store is wired, which this harness doesn't do. The invariant
+    // is that NO cloud op outside the allowlist exists.
+    const observedCloud = observed.filter((id) => id.includes(' /api/v1/cloud/'))
+    const unknownCloudOps = observedCloud.filter((id) => !UNDOCUMENTED_CLOUD_OPS.has(id))
+    expect(unknownCloudOps).toEqual([])
+    const observedMinusCloud = observed.filter((id) => !UNDOCUMENTED_CLOUD_OPS.has(id))
+    expect(specMinusLocal).toEqual(observedMinusCloud)
   })
 
   it('marks public unauthenticated routes with empty security requirements', async () => {

@@ -32,6 +32,6 @@ it('listEvents outputs valid JSON with --format json', () => {
 
   const parsed = JSON.parse(logs.join('\n'))
   expect(Array.isArray(parsed)).toBeTruthy()
-  expect(parsed.length).toBe(6)
+  expect(parsed.length).toBe(12)
   expect(parsed.every((e: { event: string; description: string }) => e.event && e.description)).toBeTruthy()
 })

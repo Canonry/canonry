@@ -9,7 +9,7 @@ const _require = createRequire(import.meta.url)
 const { version: PKG_VERSION } = _require('../package.json') as { version: string }
 import Fastify from 'fastify'
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
-import { apiRoutes } from '@ainyc/canonry-api-routes'
+import { apiRoutes, createSessionStore, sessionRoutes } from '@ainyc/canonry-api-routes'
 import { apiKeys, auditLog, projects, runs, extractLegacyCredentials, dropLegacyCredentialColumns, type DatabaseClient, type LegacyCredentialRows } from '@ainyc/canonry-db'
 import os from 'node:os'
 import { geminiAdapter } from '@ainyc/canonry-provider-gemini'
@@ -18,7 +18,8 @@ import { claudeAdapter } from '@ainyc/canonry-provider-claude'
 import { localAdapter } from '@ainyc/canonry-provider-local'
 import { cdpChatgptAdapter } from '@ainyc/canonry-provider-cdp'
 import { perplexityAdapter } from '@ainyc/canonry-provider-perplexity'
-import { authInvalid, authRequired, validationError, CcReleaseSyncStatuses, RunKinds, RunStatuses, RunTriggers, type ProviderAdapter } from '@ainyc/canonry-contracts'
+import { parseBooleanFlag, CcReleaseSyncStatuses, RunKinds, RunStatuses, RunTriggers, type ProviderAdapter } from '@ainyc/canonry-contracts'
+import { PACKAGE_VERSION } from './package-version.js'
 import type { CanonryConfig, ProviderConfigEntry } from './config.js'
 import { saveConfigPatch, loadConfig, getConfigPath } from './config.js'
 import { getPlacesConfig } from './places-config.js'
@@ -105,12 +106,6 @@ const DEFAULT_QUOTA = {
 }
 
 const SESSION_COOKIE_NAME = 'canonry_session'
-const SESSION_TTL_MS = 12 * 60 * 60 * 1000
-
-interface SessionRecord {
-  apiKeyId: string
-  expiresAt: number
-}
 
 /** All known API adapters — add new providers here */
 const API_ADAPTERS: ProviderAdapter[] = [
@@ -140,125 +135,6 @@ function summarizeProviderConfig(
 
 function hashApiKey(key: string): string {
   return crypto.createHash('sha256').update(key).digest('hex')
-}
-
-// Dashboard password storage uses scrypt (salted, slow KDF) — not plain
-// SHA-256. The bearer-token path above still hashes with SHA-256 because
-// those are 128-bit random `cnry_…` tokens (no brute-force exposure on a
-// 64-hex hash). Dashboard passwords are user-chosen and may be reused from
-// elsewhere, so a leaked `config.yaml` must not be trivially cracked
-// against a wordlist.
-//
-// Stored format: `scrypt$1$<base64-salt>$<base64-hash>`. The version field
-// (`1`) lets future code rotate to a stronger KDF without breaking existing
-// installs. Legacy 64-hex SHA-256 hashes are still accepted at login time
-// (see `verifyDashboardPassword`); when one matches, the caller writes the
-// fresh scrypt-format hash back into the config so the next login no longer
-// needs the legacy fallback.
-const DASHBOARD_SCRYPT_KEYLEN = 64
-const DASHBOARD_SCRYPT_COST = 1 << 15 // N=32768 — ~80ms on a modern laptop
-// Node's default scrypt `maxmem` is 32 MiB which is exactly at the boundary
-// for our chosen N (128 * 32768 * 8 ≈ 32 MiB). Bump to 64 MiB to leave
-// headroom and keep the derivation comfortably within the limit.
-const DASHBOARD_SCRYPT_MAXMEM = 64 * 1024 * 1024
-
-function hashDashboardPassword(password: string): string {
-  const salt = crypto.randomBytes(16)
-  const derived = crypto.scryptSync(password, salt, DASHBOARD_SCRYPT_KEYLEN, {
-    N: DASHBOARD_SCRYPT_COST,
-    maxmem: DASHBOARD_SCRYPT_MAXMEM,
-  })
-  return `scrypt$1$${salt.toString('base64')}$${derived.toString('base64')}`
-}
-
-interface DashboardPasswordVerifyResult {
-  ok: boolean
-  needsRehash: boolean
-}
-
-function verifyDashboardPassword(password: string, storedHash: string): DashboardPasswordVerifyResult {
-  // New format: scrypt with salt.
-  if (storedHash.startsWith('scrypt$1$')) {
-    const parts = storedHash.split('$')
-    if (parts.length !== 4) return { ok: false, needsRehash: false }
-    const saltB64 = parts[2]
-    const hashB64 = parts[3]
-    if (!saltB64 || !hashB64) return { ok: false, needsRehash: false }
-    let salt: Buffer
-    let expected: Buffer
-    try {
-      salt = Buffer.from(saltB64, 'base64')
-      expected = Buffer.from(hashB64, 'base64')
-    } catch {
-      return { ok: false, needsRehash: false }
-    }
-    const derived = crypto.scryptSync(password, salt, expected.length, {
-      N: DASHBOARD_SCRYPT_COST,
-      maxmem: DASHBOARD_SCRYPT_MAXMEM,
-    })
-    if (derived.length !== expected.length) return { ok: false, needsRehash: false }
-    return { ok: crypto.timingSafeEqual(derived, expected), needsRehash: false }
-  }
-
-  // Legacy SHA-256 hex format — accept once for migration, then rehash.
-  if (/^[a-f0-9]{64}$/i.test(storedHash)) {
-    const candidate = Buffer.from(hashApiKey(password), 'hex')
-    const expected = Buffer.from(storedHash, 'hex')
-    if (candidate.length !== expected.length) return { ok: false, needsRehash: false }
-    const ok = crypto.timingSafeEqual(candidate, expected)
-    return { ok, needsRehash: ok }
-  }
-
-  return { ok: false, needsRehash: false }
-}
-
-function parseCookies(header: string | undefined): Record<string, string> {
-  if (!header) return {}
-
-  return header
-    .split(';')
-    .map(part => part.trim())
-    .filter(Boolean)
-    .reduce<Record<string, string>>((cookies, part) => {
-      const eqIdx = part.indexOf('=')
-      if (eqIdx <= 0) return cookies
-      const name = part.slice(0, eqIdx).trim()
-      const value = part.slice(eqIdx + 1).trim()
-      if (!name) return cookies
-      try {
-        cookies[name] = decodeURIComponent(value)
-      } catch {
-        cookies[name] = value
-      }
-      return cookies
-    }, {})
-}
-
-function serializeSessionCookie(opts: {
-  name: string
-  value: string | null
-  path: string
-  secure: boolean
-  ttlMs: number
-}): string {
-  const parts = [
-    `${opts.name}=${opts.value ? encodeURIComponent(opts.value) : ''}`,
-    `Path=${opts.path}`,
-    'HttpOnly',
-    'SameSite=Lax',
-  ]
-
-  if (opts.value) {
-    parts.push(`Max-Age=${Math.floor(opts.ttlMs / 1000)}`)
-  } else {
-    parts.push('Max-Age=0')
-  }
-
-  if (opts.secure) {
-    parts.push('Secure')
-  }
-
-  return parts.join('; ')
 }
 
 /**
@@ -439,7 +315,17 @@ export async function createServer(opts: {
 
   const jobRunner = new JobRunner(opts.db, registry)
   jobRunner.recoverStaleRuns()
-  const notifier = new Notifier(opts.db, serverUrl)
+  // One webhook SSRF policy for both halves of the feature: registration
+  // (api-routes validates URLs with it) and delivery (the Notifier resolves
+  // targets with it). Loopback defaults to allowed for the local installer
+  // (webhook-to-localhost is a legitimate dev workflow); private ranges are
+  // opt-in for the Hosted v1 Docker-internal control-plane callback.
+  const allowLoopbackWebhooks = process.env.CANONRY_ALLOW_LOOPBACK_WEBHOOKS !== '0'
+  const allowPrivateNetworkWebhooks = parseBooleanFlag(process.env.CANONRY_ALLOW_PRIVATE_WEBHOOKS)
+  const notifier = new Notifier(opts.db, serverUrl, {
+    allowLoopback: allowLoopbackWebhooks,
+    allowPrivateNetworks: allowPrivateNetworkWebhooks,
+  })
   const intelligenceService = new IntelligenceService(opts.db)
   // Build the Aero ApiClient from the in-memory server config rather than
   // loadConfig() so tests that set CANONRY_CONFIG_DIR after spawning the
@@ -917,216 +803,49 @@ export async function createServer(opts: {
     }
   }
 
+  // Cookie-backed browser session — extracted to api-routes so apps/api
+  // and `canonry serve` share the implementation. Dashboard password lives
+  // in `~/.canonry/config.yaml`; the store adapter below wires the plugin
+  // to that source-of-truth (apps/api wires a DB-backed adapter instead).
   const sessionCookiePath = basePath ?? '/'
   const sessionCookieSecure = Boolean(
     opts.config.publicUrl?.startsWith('https://')
       || opts.config.apiUrl?.startsWith('https://'),
   )
-  const sessions = new Map<string, SessionRecord>()
+  const sessionStore = createSessionStore()
+  // Arrow-wrap so `this` stays bound when the auth plugin invokes the
+  // resolver detached from the store (eslint @typescript-eslint/unbound-method).
+  const resolveSessionApiKeyId = (sid: string) => sessionStore.resolveSessionApiKeyId(sid)
 
-  const pruneExpiredSessions = () => {
-    const now = Date.now()
-    for (const [sessionId, session] of sessions.entries()) {
-      if (session.expiresAt <= now) {
-        sessions.delete(sessionId)
-      }
-    }
-  }
-
-  const createSession = (apiKeyId: string) => {
-    pruneExpiredSessions()
-    const sessionId = crypto.randomBytes(32).toString('hex')
-    sessions.set(sessionId, {
-      apiKeyId,
-      expiresAt: Date.now() + SESSION_TTL_MS,
+  await app.register(async (scope) => {
+    await sessionRoutes(scope, {
+      db: opts.db,
+      store: sessionStore,
+      cookieName: SESSION_COOKIE_NAME,
+      cookiePath: sessionCookiePath,
+      cookieSecure: sessionCookieSecure,
+      ttlMs: sessionStore.ttlMs,
+      dashboardPassword: {
+        get: () => opts.config.dashboardPasswordHash,
+        set: (hash) => {
+          opts.config.dashboardPasswordHash = hash
+          saveConfigPatch(opts.config)
+        },
+      },
+      getDefaultApiKey: () => {
+        if (!opts.config.apiKey) return undefined
+        return opts.db
+          .select()
+          .from(apiKeys)
+          .where(eq(apiKeys.keyHash, hashApiKey(opts.config.apiKey)))
+          .get()
+      },
+      // On a non-loopback bind (`--host 0.0.0.0`, a LAN IP) the first-run
+      // password setup must demand a valid bearer key so a remote
+      // first-visitor cannot mint a full-access session (#690).
+      setupRequiresApiKey: !isLoopbackBindHost(opts.host),
     })
-    return sessionId
-  }
-
-  const resolveSessionApiKeyId = (sessionId: string) => {
-    pruneExpiredSessions()
-    const session = sessions.get(sessionId)
-    if (!session) return null
-    if (session.expiresAt <= Date.now()) {
-      sessions.delete(sessionId)
-      return null
-    }
-    return session.apiKeyId
-  }
-
-  const clearSession = (sessionId: string | undefined) => {
-    if (sessionId) {
-      sessions.delete(sessionId)
-    }
-  }
-
-  // Resolve the default API key record once — used by password-based sessions
-  // to bind the session to the server's configured key.
-  const getDefaultApiKey = () => {
-    if (!opts.config.apiKey) return undefined
-    return opts.db
-      .select()
-      .from(apiKeys)
-      .where(eq(apiKeys.keyHash, hashApiKey(opts.config.apiKey)))
-      .get()
-  }
-
-  const createPasswordSession = (reply: FastifyReply) => {
-    const key = getDefaultApiKey()
-    if (!key || key.revokedAt) return false
-
-    const sessionId = createSession(key.id)
-    reply.header('set-cookie', serializeSessionCookie({
-      name: SESSION_COOKIE_NAME,
-      value: sessionId,
-      path: sessionCookiePath,
-      secure: sessionCookieSecure,
-      ttlMs: SESSION_TTL_MS,
-    }))
-    return true
-  }
-
-  // Whether the server is bound to a loopback interface. On loopback only
-  // local processes can connect, so the first-run password bootstrap is safe
-  // to leave unauthenticated. On a non-loopback bind the server is reachable
-  // off-box and the bootstrap must be gated (see `/session/setup`).
-  const boundToLoopback = isLoopbackBindHost(opts.host)
-
-  // Resolve a non-revoked API key from a `Bearer cnry_…` header, if present.
-  // Used to gate the first-run password setup on an exposed server — the
-  // `/session/setup` route is in the auth skip-list, so it must do its own
-  // bearer check rather than rely on `request.apiKey`.
-  const requestHasValidApiKey = (request: FastifyRequest): boolean => {
-    const header = request.headers.authorization
-    if (!header) return false
-    const parts = header.split(' ')
-    if (parts.length !== 2 || parts[0] !== 'Bearer') return false
-    const key = opts.db
-      .select()
-      .from(apiKeys)
-      .where(eq(apiKeys.keyHash, hashApiKey(parts[1]!)))
-      .get()
-    return Boolean(key && !key.revokedAt)
-  }
-
-  app.get(apiPrefix + '/session', async (request, reply) => {
-    const sessionId = parseCookies(request.headers.cookie)[SESSION_COOKIE_NAME]
-    return reply.send({
-      authenticated: Boolean(sessionId && resolveSessionApiKeyId(sessionId)),
-      setupRequired: !opts.config.dashboardPasswordHash,
-    })
-  })
-
-  // One-time password setup — only works when no password is configured yet.
-  app.post<{
-    Body: { password?: string }
-  }>(apiPrefix + '/session/setup', async (request, reply) => {
-    // First-run dashboard password setup mints a session bound to the install's
-    // default `*` API key — full read/write on every project. That is safe on a
-    // loopback bind (only local processes can reach it) but a pre-auth privilege
-    // escalation on a network-reachable server, where any unauthenticated
-    // first-visitor could claim it. When bound off-box, require the bearer key.
-    if (!boundToLoopback && !requestHasValidApiKey(request)) {
-      const err = authRequired('This server is network-reachable; setting the dashboard password requires a valid API key.')
-      return reply.status(err.statusCode).send(err.toJSON())
-    }
-
-    if (opts.config.dashboardPasswordHash) {
-      const err = validationError('Dashboard password is already configured')
-      return reply.status(err.statusCode).send(err.toJSON())
-    }
-
-    const password = request.body?.password?.trim()
-    if (!password || password.length < 8) {
-      const err = validationError('Password must be at least 8 characters')
-      return reply.status(err.statusCode).send(err.toJSON())
-    }
-
-    opts.config.dashboardPasswordHash = hashDashboardPassword(password)
-    saveConfigPatch(opts.config)
-
-    if (!createPasswordSession(reply)) {
-      const err = authInvalid()
-      return reply.status(err.statusCode).send(err.toJSON())
-    }
-    return reply.send({ authenticated: true })
-  })
-
-  // Login with dashboard password or API key.
-  app.post<{
-    Body: { password?: string; apiKey?: string }
-  }>(apiPrefix + '/session', async (request, reply) => {
-    const password = request.body?.password?.trim()
-    const apiKey = request.body?.apiKey?.trim()
-
-    if (password) {
-      if (!opts.config.dashboardPasswordHash) {
-        const err = validationError('No dashboard password configured — use /session/setup first')
-        return reply.status(err.statusCode).send(err.toJSON())
-      }
-      const verification = verifyDashboardPassword(password, opts.config.dashboardPasswordHash)
-      if (!verification.ok) {
-        return reply.status(401).send({ error: { code: 'AUTH_INVALID', message: 'Incorrect password' } })
-      }
-      // Transparent migration: a successful login against the legacy
-      // unsalted SHA-256 hash rewrites the config with a fresh scrypt hash
-      // so the next login no longer needs the legacy fallback path.
-      if (verification.needsRehash) {
-        opts.config.dashboardPasswordHash = hashDashboardPassword(password)
-        saveConfigPatch(opts.config)
-      }
-      if (!createPasswordSession(reply)) {
-        return reply.status(401).send({ error: { code: 'AUTH_INVALID', message: 'Server API key not found — re-run canonry init' } })
-      }
-      return reply.send({ authenticated: true })
-    }
-
-    if (apiKey) {
-      const key = opts.db
-        .select()
-        .from(apiKeys)
-        .where(eq(apiKeys.keyHash, hashApiKey(apiKey)))
-        .get()
-
-      if (!key || key.revokedAt) {
-        const err = authInvalid()
-        return reply.status(err.statusCode).send(err.toJSON())
-      }
-
-      opts.db
-        .update(apiKeys)
-        .set({ lastUsedAt: new Date().toISOString() })
-        .where(eq(apiKeys.id, key.id))
-        .run()
-
-      const sessionId = createSession(key.id)
-      reply.header('set-cookie', serializeSessionCookie({
-        name: SESSION_COOKIE_NAME,
-        value: sessionId,
-        path: sessionCookiePath,
-        secure: sessionCookieSecure,
-        ttlMs: SESSION_TTL_MS,
-      }))
-      return reply.send({ authenticated: true })
-    }
-
-    const err = validationError('Either password or apiKey is required')
-    return reply.status(err.statusCode).send(err.toJSON())
-  })
-
-  app.delete(apiPrefix + '/session', async (request, reply) => {
-    const sessionId = parseCookies(request.headers.cookie)[SESSION_COOKIE_NAME]
-    clearSession(sessionId)
-    reply.header('set-cookie', serializeSessionCookie({
-      name: SESSION_COOKIE_NAME,
-      value: null,
-      path: sessionCookiePath,
-      secure: sessionCookieSecure,
-      ttlMs: SESSION_TTL_MS,
-    }))
-    return reply.status(204).send()
-  })
-
+  }, { prefix: apiPrefix })
   const LATEST_RELEASE_TTL_MS = 5 * 60 * 1000
   let latestReleaseCache: { value: import('@ainyc/canonry-contracts').CcAvailableRelease | null; expiresAt: number } | null = null
   const discoverLatestRelease = async (): Promise<import('@ainyc/canonry-contracts').CcAvailableRelease | null> => {
@@ -1204,7 +923,15 @@ export async function createServer(opts: {
     // etc.) is a legitimate workflow. Default to allowing it for the local
     // installer; cloud deployments inherit the secure default of `false` by
     // not passing this option. Override with CANONRY_ALLOW_LOOPBACK_WEBHOOKS=0.
-    allowLoopbackWebhooks: process.env.CANONRY_ALLOW_LOOPBACK_WEBHOOKS !== '0',
+    allowLoopbackWebhooks,
+    // Hosted v1 (spec §1.1) targets a Docker-internal control plane hostname
+    // like `canonry-control-plane:8080` that resolves to a 172.x bridge address.
+    // Operators opt in by setting `CANONRY_ALLOW_PRIVATE_WEBHOOKS=1` in the
+    // tenant container env. OSS deployments leave it unset.
+    allowPrivateNetworkWebhooks,
+    // Reported by POST /cloud/bootstrap so the control plane records what
+    // tenant runtime version it just provisioned.
+    canonryVersion: PACKAGE_VERSION,
     // Local-only Aero agent routes. Registered here so they inherit api-routes'
     // auth plugin — bare `registerAgentRoutes(app, ...)` would skip auth.
     registerAuthenticatedRoutes: async (scope) => {

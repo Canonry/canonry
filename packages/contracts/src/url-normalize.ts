@@ -169,3 +169,35 @@ export function normalizeUrlPath(input: string | null | undefined): string | nul
   if (pairs.length === 0) return pathPart
   return `${pathPart}?${encodeQuery(pairs)}`
 }
+
+/**
+ * Normalize a USER-TYPED domain (e.g. from an onboarding input) to a bare
+ * lowercase hostname, or null when the input can't be a domain.
+ *
+ * Accepts the messy real-world forms — `https://www.acme.com/path`,
+ * `Acme.com`, `acme.com:8080`, `user:pass@acme.com`, `acme.com?q=1`,
+ * `münchen.de` — and returns the crawlable host (`acme.com`,
+ * `xn--mnchen-3ya.de`). Built on WHATWG `URL` parsing (linear, no
+ * backtracking) so port/userinfo/path/query are stripped rather than
+ * merged into the host, and IDN is punycoded instead of mangled.
+ *
+ * Returns null (caller decides the error shape) for empty input, parse
+ * failures, single-label hosts, and hosts shorter than 4 chars.
+ */
+export function normalizeUserDomainInput(raw: string): string | null {
+  const trimmed = raw.trim().toLowerCase()
+  if (!trimmed) return null
+  let host: string
+  try {
+    host = new URL(trimmed.includes('://') ? trimmed : `http://${trimmed}`).hostname
+  } catch {
+    return null
+  }
+  if (host.startsWith('www.')) host = host.slice(4)
+  if (host.endsWith('.')) host = host.slice(0, -1)
+  // URL.hostname is already constrained, but keep a conservative final
+  // gate: bare-ASCII registrable-domain shape with at least one dot.
+  if (!host.includes('.') || host.length < 4) return null
+  if (!/^[a-z0-9.-]+$/.test(host)) return null
+  return host
+}

@@ -68,6 +68,16 @@ function shouldSkipAuth(url: string): boolean {
   // `/google/callback/anything` — does not silently become unauthenticated.
   if (url.endsWith('/google/callback')) return true
   if (url.endsWith('/session') || url.endsWith('/session/setup')) return true
+  // Aero owner-view onboarding: the free first report runs before the
+  // visitor signs up. POST /guest/report, GET /guest/report/:id, and the
+  // SSE stream are anonymous. The /claim endpoint requires auth and is
+  // intentionally NOT in the skip list — the matcher uses non-capturing
+  // groups so /claim falls through to the auth check. Anchored to the
+  // `/api/v1` mount segment (which every base-path prefix ends in) so an
+  // authenticated route that merely ends with the substring — e.g.
+  // `/api/v1/projects/guest/report` for a project named "guest" — never
+  // matches.
+  if (/\/api\/v1\/guest\/report(?:\/[^/]+(?:\/stream)?)?$/.test(url)) return true
   return false
 }
 

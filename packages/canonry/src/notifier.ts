@@ -1,4 +1,4 @@
-import { eq, desc, and, inArray, or } from 'drizzle-orm'
+import { eq, desc, and, inArray, or, isNull } from 'drizzle-orm'
 import { deliverWebhook, redactNotificationUrl, resolveWebhookTarget } from '@ainyc/canonry-api-routes'
 import type { DatabaseClient } from '@ainyc/canonry-db'
 import { auditLog, groupRunsByCreatedAt, notifications, projects, queries, querySnapshots, runs } from '@ainyc/canonry-db'
@@ -9,26 +9,37 @@ import { createLogger } from './logger.js'
 
 const log = createLogger('Notifier')
 
+/**
+ * Delivery-time SSRF policy. Must mirror the registration-time policy the
+ * host passes to api-routes (`allowLoopbackWebhooks` /
+ * `allowPrivateNetworkWebhooks`) — otherwise a webhook that registration
+ * accepted (a localhost test endpoint, or the Hosted v1 Docker-internal
+ * control-plane callback at e.g. `http://canonry-control-plane:8080`)
+ * is silently `webhook.ssrf-blocked` at delivery.
+ */
+export interface NotifierWebhookPolicy {
+  allowLoopback?: boolean
+  allowPrivateNetworks?: boolean
+}
+
 export class Notifier {
   private db: DatabaseClient
   private serverUrl: string
+  private webhookPolicy: NotifierWebhookPolicy
 
-  constructor(db: DatabaseClient, serverUrl: string) {
+  constructor(db: DatabaseClient, serverUrl: string, webhookPolicy: NotifierWebhookPolicy = {}) {
     this.db = db
     this.serverUrl = serverUrl
+    this.webhookPolicy = webhookPolicy
   }
 
   /** Called after a run completes (success, partial, or failed). */
   async onRunCompleted(runId: string, projectId: string): Promise<void> {
     log.info('run.completed', { runId, projectId })
 
-    // Get project notifications
-    const notifs = this.db
-      .select()
-      .from(notifications)
-      .where(eq(notifications.projectId, projectId))
-      .all()
-      .filter(n => n.enabled)
+    // Get project-scoped notifications plus tenant-scoped subscribers
+    // (projectId NULL) registered by cloud bootstrap.
+    const notifs = this.listEnabledNotifications(projectId)
 
     if (notifs.length === 0) {
       log.info('notifications.none-enabled', { projectId })
@@ -112,12 +123,7 @@ export class Notifier {
     if (highInsights.length > 0) insightEvents.push('insight.high')
     if (insightEvents.length === 0) return
 
-    const notifs = this.db
-      .select()
-      .from(notifications)
-      .where(eq(notifications.projectId, projectId))
-      .all()
-      .filter(n => n.enabled)
+    const notifs = this.listEnabledNotifications(projectId)
 
     if (notifs.length === 0) return
 
@@ -154,6 +160,15 @@ export class Notifier {
         await this.sendWebhook(config.url, payload, notif.id, projectId, notif.webhookSecret ?? null)
       }
     }
+  }
+
+  private listEnabledNotifications(projectId: string): Array<typeof notifications.$inferSelect> {
+    return this.db
+      .select()
+      .from(notifications)
+      .where(or(eq(notifications.projectId, projectId), isNull(notifications.projectId)))
+      .all()
+      .filter(n => n.enabled)
   }
 
   private computeTransitions(runId: string, projectId: string): Array<{
@@ -327,7 +342,10 @@ export class Notifier {
 
   private async sendWebhook(url: string, payload: WebhookPayload | InsightWebhookPayload, notificationId: string, projectId: string, webhookSecret: string | null): Promise<void> {
     const targetLabel = redactNotificationUrl(url).urlDisplay
-    const targetCheck = await resolveWebhookTarget(url)
+    const targetCheck = await resolveWebhookTarget(url, {
+      allowLoopback: this.webhookPolicy.allowLoopback,
+      allowPrivateNetworks: this.webhookPolicy.allowPrivateNetworks,
+    })
     if (!targetCheck.ok) {
       log.error('webhook.ssrf-blocked', { url: targetLabel, reason: targetCheck.message })
       this.logDelivery(projectId, notificationId, payload.event, 'failed', `SSRF: ${targetCheck.message}`)

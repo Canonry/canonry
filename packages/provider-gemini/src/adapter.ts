@@ -23,6 +23,7 @@ function toGeminiConfig(config: ProviderConfig): GeminiConfig {
     vertexProject: config.vertexProject,
     vertexRegion: config.vertexRegion,
     vertexCredentials: config.vertexCredentials,
+    ...(config.baseUrl ? { baseUrl: config.baseUrl } : {}),
   }
 }
 

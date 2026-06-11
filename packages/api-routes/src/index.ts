@@ -19,6 +19,7 @@ import { reportRoutes } from './report.js'
 import { citationRoutes } from './citations.js'
 import { compositeRoutes } from './composites.js'
 import { contentRoutes } from './content.js'
+import { guestReportRoutes } from './guest-report.js'
 import { openApiRoutes } from './openapi.js'
 import type { OpenApiInfo } from './openapi.js'
 import { settingsRoutes } from './settings.js'
@@ -56,6 +57,8 @@ import {
 import { doctorRoutes } from './doctor.js'
 import { discoveryRoutes } from './discovery/index.js'
 import type { DiscoveryRoutesOptions } from './discovery/index.js'
+import { cloudRoutes } from './cloud/index.js'
+import type { CloudRoutesOptions } from './cloud/index.js'
 import { technicalAeoRoutes } from './technical-aeo.js'
 import type { TechnicalAeoRoutesOptions } from './technical-aeo.js'
 import { CheckStatuses, TrafficSourceTypes } from '@ainyc/canonry-contracts'
@@ -205,6 +208,13 @@ export interface ApiRoutesOptions {
    */
   allowLoopbackWebhooks?: boolean
   /**
+   * Allow webhook URLs that resolve to private RFC 1918 ranges (10/8, 172.16/12,
+   * 192.168/16) plus CGNAT / link-local / benchmark blocks. Required for the
+   * Hosted v1 single-host deployment where the control-plane callback URL is a
+   * Docker-internal hostname like `canonry-control-plane:8080`.
+   */
+  allowPrivateNetworkWebhooks?: boolean
+  /**
    * On-disk paths the daemon depends on at runtime. When wired, a pre-request
    * hook fails non-doctor / non-health requests with HTTP 503
    * `RUNTIME_STATE_MISSING` if either path has been deleted while the daemon
@@ -219,6 +229,14 @@ export interface ApiRoutesOptions {
    * and the check `skipped`.
    */
   bundledSkills?: BundledSkillSnapshot[]
+  /**
+   * Track 3 (Canonry Hosted) — runtime version reported by
+   * `POST /api/v1/cloud/bootstrap`. The host passes the value from its own
+   * package.json so the bootstrap response is honest about what the control
+   * plane just provisioned. Defaults to `'0.0.0'` when unset; OSS
+   * deployments don't surface the route at all (env-gated).
+   */
+  canonryVersion?: string
 }
 
 export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
@@ -343,6 +361,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       briefContentRecommendation: opts.briefContentRecommendation,
       briefPromptVersion: opts.briefPromptVersion,
     })
+    await api.register(guestReportRoutes)
     await api.register(settingsRoutes, {
       providerSummary: opts.providerSummary,
       providerAdapters: opts.providerAdapters,
@@ -427,6 +446,16 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     await api.register(discoveryRoutes, {
       onDiscoveryRunRequested: opts.onDiscoveryRunRequested,
     } satisfies DiscoveryRoutesOptions)
+    // Track 3 (Canonry Hosted) cloud-bridge routes — always mounted, but
+    // each route returns 404 when `CANONRY_ENABLE_CLOUD_BOOTSTRAP` is unset
+    // (i.e. on every OSS deployment).
+    await api.register(cloudRoutes, {
+      canonryVersion: opts.canonryVersion,
+      allowLoopbackWebhooks: opts.allowLoopbackWebhooks,
+      allowPrivateNetworkWebhooks: opts.allowPrivateNetworkWebhooks,
+      googleConnectionStore: opts.googleConnectionStore,
+      bingConnectionStore: opts.bingConnectionStore,
+    } satisfies CloudRoutesOptions)
     await api.register(technicalAeoRoutes, {
       onSiteAuditRequested: opts.onSiteAuditRequested,
     } satisfies TechnicalAeoRoutesOptions)
@@ -472,6 +501,8 @@ export type {
   OnDiscoveryRunRequested,
 } from './discovery/index.js'
 export { deliverWebhook, resolveWebhookTarget } from './webhooks.js'
+export { emitCloudEvent, emitConnectionEvent } from './cloud/emit-connection-event.js'
+export type { CloudEventProject, EmitCloudEventOptions, EmitConnectionEventOptions } from './cloud/emit-connection-event.js'
 export { redactNotificationDiff, redactNotificationUrl } from './notification-redaction.js'
 export type { SafeWebhookTarget } from './webhooks.js'
 export type { RunRoutesOptions } from './runs.js'
@@ -509,6 +540,18 @@ export type {
 } from './content.js'
 export { buildOpenApiDocument } from './openapi.js'
 export type { OpenApiInfo } from './openapi.js'
+export {
+  sessionRoutes,
+  createSessionStore,
+  hashDashboardPassword,
+  verifyDashboardPassword,
+} from './session.js'
+export type {
+  SessionStore,
+  SessionRoutesOptions,
+  DashboardPasswordStore,
+  CreateSessionStoreOptions,
+} from './session.js'
 
 /**
  * Build the per-source-type validator map consumed by the generic

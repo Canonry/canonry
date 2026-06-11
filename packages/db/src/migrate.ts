@@ -1651,6 +1651,195 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `CREATE INDEX IF NOT EXISTS idx_site_audit_pages_project_score ON site_audit_pages(project_id, overall_score)`,
     ],
   },
+  {
+    version: 76,
+    name: 'cloud-metadata-singleton',
+    // Track 3 (Canonry Hosted) — singleton tenant-side row populated by
+    // `POST /api/v1/cloud/bootstrap`. Purely additive: OSS deployments will
+    // never write this row because the route returns 404 when
+    // `CANONRY_ENABLE_CLOUD_BOOTSTRAP` is unset.
+    //
+    // The CHECK constraint enforces a single-row invariant — every UPSERT
+    // targets `id = 'singleton'`. Idempotent: `CREATE TABLE IF NOT EXISTS`
+    // is safe to re-run.
+    statements: [
+      `CREATE TABLE IF NOT EXISTS cloud_metadata (
+        id                          TEXT PRIMARY KEY DEFAULT 'singleton',
+        tenant_id                   TEXT NOT NULL,
+        account_id                  TEXT NOT NULL,
+        plan                        TEXT NOT NULL,
+        control_plane_callback_url  TEXT NOT NULL,
+        webhook_secret              TEXT NOT NULL,
+        managed_google_client_id    TEXT,
+        managed_google_redirect_url TEXT,
+        bootstrapped_at             TEXT NOT NULL,
+        updated_at                  TEXT NOT NULL,
+        CHECK (id = 'singleton')
+      )`,
+    ],
+  },
+  {
+    version: 77,
+    name: 'provider-token-usage',
+    // Track 1 (Canonry Hosted) — per-(run, provider, model) token-cost
+    // telemetry. Populated by `RunCoordinator.onRunCompleted` from the usage
+    // counters that providers expose on their raw responses:
+    //   • Anthropic: `usage.input_tokens` / `usage.output_tokens` /
+    //                `usage.cache_read_input_tokens`
+    //   • OpenAI:    `usage.prompt_tokens` / `usage.completion_tokens` /
+    //                `usage.prompt_tokens_details.cached_tokens`
+    //   • Gemini:    `usageMetadata.promptTokenCount` /
+    //                `usageMetadata.candidatesTokenCount` /
+    //                `usageMetadata.cachedContentTokenCount`
+    //   • Perplexity: `usage.prompt_tokens` / `usage.completion_tokens`
+    //
+    // Purely additive: rows are only written when the matching usage block is
+    // present on the snapshot's stored raw response, so OSS deployments
+    // silently accumulate token telemetry without any behavior change. The
+    // table is read by the cloud control plane (via webhook + tenant API) for
+    // billing, and by future doctor / agent surfaces for cost diagnostics.
+    statements: [
+      `CREATE TABLE IF NOT EXISTS provider_token_usage (
+        id                  TEXT PRIMARY KEY,
+        run_id              TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+        project_id          TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        provider            TEXT NOT NULL,
+        model               TEXT,
+        input_tokens        INTEGER NOT NULL DEFAULT 0,
+        output_tokens       INTEGER NOT NULL DEFAULT 0,
+        cached_input_tokens INTEGER NOT NULL DEFAULT 0,
+        occurred_at         TEXT NOT NULL
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_provider_token_usage_run ON provider_token_usage(run_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_provider_token_usage_project ON provider_token_usage(project_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_provider_token_usage_provider ON provider_token_usage(provider)`,
+      `CREATE INDEX IF NOT EXISTS idx_provider_token_usage_occurred ON provider_token_usage(occurred_at)`,
+    ],
+  },
+  {
+    version: 78,
+    name: 'notifications-project-id-nullable',
+    // Track 3 (Canonry Hosted): the control-plane webhook subscriber
+    // registered at bootstrap is tenant-scoped, not project-scoped. The
+    // legacy NOT NULL constraint on `notifications.project_id` would force
+    // a sentinel value or block bootstrap entirely (bootstrap runs before
+    // any projects exist). Rebuild the table with the column nullable.
+    //
+    // SQLite doesn't support `ALTER COLUMN ... DROP NOT NULL`, so we use
+    // the canonical table-rebuild pattern (mirrors v53 / v58 / v60).
+    // Idempotent: a re-run drops + recreates the staging table cleanly;
+    // the runner wraps every version in a transaction so a partial
+    // failure rolls back.
+    statements: [
+      // Defense in depth: the column was added by v3, but very old DBs that jump
+      // straight from bootstrap here (e.g. test fixtures) may not have it. The
+      // runner swallows duplicate-column errors so this is safe to re-run.
+      `ALTER TABLE notifications ADD COLUMN webhook_secret TEXT`,
+      `DROP TABLE IF EXISTS notifications_rebuild`,
+      `CREATE TABLE notifications_rebuild (
+         id              TEXT PRIMARY KEY,
+         project_id      TEXT REFERENCES projects(id) ON DELETE CASCADE,
+         channel         TEXT NOT NULL,
+         config          TEXT NOT NULL,
+         webhook_secret  TEXT,
+         enabled         INTEGER NOT NULL DEFAULT 1,
+         created_at      TEXT NOT NULL,
+         updated_at      TEXT NOT NULL
+       )`,
+      `INSERT INTO notifications_rebuild (
+         id, project_id, channel, config, webhook_secret, enabled, created_at, updated_at
+       )
+       SELECT id, project_id, channel, config, webhook_secret, enabled, created_at, updated_at
+       FROM notifications`,
+      `DROP TABLE notifications`,
+      `ALTER TABLE notifications_rebuild RENAME TO notifications`,
+      `CREATE INDEX IF NOT EXISTS idx_notifications_project ON notifications(project_id)`,
+    ],
+  },
+  {
+    version: 79,
+    name: 'users-and-guest-reports',
+    // Aero owner-view onboarding (the /aero flow): two new tables.
+    //
+    // `users` — identity records for Google-OAuth signup. OSS canonry stays
+    //   single-tenant in its deployment posture; this table fills in only
+    //   when someone signs up via Google. Existing password-auth users keep
+    //   working untouched (no `users` row needed for them — the
+    //   `dashboardPasswordHash` + `api_keys` flow is intact).
+    //
+    // `guest_reports` — the anonymous free-first-report record. A visitor
+    //   drops a domain on /aero, we create a row + a transient guest
+    //   project, the audit + sweep workers populate the row, and the
+    //   visitor watches their score reveal. After signup the report is
+    //   claimed into the user's workspace; unclaimed rows expire in 7
+    //   days. The `progress_events` JSON column doubles as an SSE
+    //   replay buffer so a flaky network mid-audit doesn't lose state.
+    statements: [
+      `CREATE TABLE IF NOT EXISTS users (
+        id            TEXT PRIMARY KEY,
+        email         TEXT NOT NULL UNIQUE,
+        google_sub    TEXT UNIQUE,
+        display_name  TEXT,
+        api_key_id    TEXT NOT NULL REFERENCES api_keys(id) ON DELETE CASCADE,
+        created_at    TEXT NOT NULL,
+        last_seen_at  TEXT
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_users_api_key ON users(api_key_id)`,
+
+      `CREATE TABLE IF NOT EXISTS guest_reports (
+        id                          TEXT PRIMARY KEY,
+        domain                      TEXT NOT NULL,
+        project_id                  TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        status                      TEXT NOT NULL DEFAULT 'pending',
+        audit_score                 INTEGER,
+        audit_top_findings          TEXT NOT NULL DEFAULT '[]',
+        audit_pages_crawled         INTEGER NOT NULL DEFAULT 0,
+        audit_findings_count        INTEGER NOT NULL DEFAULT 0,
+        overall_score               INTEGER,
+        ai_cited_count              INTEGER,
+        ai_query_count              INTEGER,
+        ai_mentioned_count          INTEGER,
+        top_competitor              TEXT,
+        top_competitor_cited_count  INTEGER,
+        progress_events             TEXT NOT NULL DEFAULT '[]',
+        proposed_plan               TEXT NOT NULL DEFAULT '[]',
+        error_message               TEXT,
+        created_at                  TEXT NOT NULL,
+        expires_at                  TEXT NOT NULL,
+        claimed_at                  TEXT,
+        claimed_by_user_id          TEXT REFERENCES users(id) ON DELETE SET NULL
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_guest_reports_status ON guest_reports(status)`,
+      `CREATE INDEX IF NOT EXISTS idx_guest_reports_expires ON guest_reports(expires_at)`,
+      `CREATE INDEX IF NOT EXISTS idx_guest_reports_claimed ON guest_reports(claimed_by_user_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_guest_reports_project ON guest_reports(project_id)`,
+    ],
+  },
+  {
+    version: 80,
+    name: 'app-settings-kv',
+    // Generic key/value store for instance-wide configuration that the
+    // local canonry serve keeps in `~/.canonry/config.yaml` but the cloud
+    // `apps/api` (Cloud Run, no local config file) needs a place for.
+    //
+    // First user: the dashboard password hash, persisted under the
+    // `dashboard_password_hash` key by the api-routes session plugin so
+    // the cloud entry can support the same `/session/setup` + login flow
+    // as the local daemon. Future entries should follow the same shape —
+    // one row per setting, value is opaque (JSON or raw string, store
+    // decides).
+    //
+    // Single-tenant by design: the table is keyed only on `key`, NOT
+    // `(owner_id, key)`. Matches the broader deployment posture in
+    // root AGENTS.md ("Deployment Posture") — one instance per team.
+    statements: [
+      `CREATE TABLE IF NOT EXISTS app_settings (
+        key         TEXT PRIMARY KEY,
+        value       TEXT NOT NULL,
+        updated_at  TEXT NOT NULL
+      )`,
+    ],
+  },
 ]
 
 /**

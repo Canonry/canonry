@@ -1,6 +1,11 @@
 import { test, expect } from 'vitest'
 
-import { validateConfig, normalizeResult, reparseStoredResult } from '../src/index.js'
+import {
+  validateConfig,
+  normalizeResult,
+  reparseStoredResult,
+  createGeminiClient,
+} from '../src/index.js'
 import type { GeminiRawResult } from '../src/index.js'
 
 const validConfig = {
@@ -301,4 +306,70 @@ test('normalizeResult prefers reparsed grounding metadata over stale extracted f
   ])
   expect(result.citedDomains).toEqual(['canonry.ai'])
   expect(result.searchQueries).toEqual(['answer visibility software'])
+})
+
+test('createGeminiClient with baseUrl routes API calls through the override host', async () => {
+  // @google/genai uses camelCase `httpOptions.baseUrl` (not `baseURL` like
+  // OpenAI / Anthropic). The SDK keeps it private so we can't read it back
+  // off the instance — instead we mock fetch, fire one request, and assert
+  // the destination URL hit our proxy. Canonry Hosted routes Gemini calls
+  // through the per-tenant LLM proxy this way.
+  const proxyUrl = 'http://localhost:9200/gemini'
+  const observed: string[] = []
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = ((input: string | URL | Request) => {
+    const url = typeof input === 'string'
+      ? input
+      : input instanceof URL ? input.toString() : input.url
+    observed.push(url)
+    // Resolve with a minimal valid response so the SDK doesn't retry.
+    return Promise.resolve(new Response(JSON.stringify({ candidates: [] }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    }))
+  }) as typeof globalThis.fetch
+
+  try {
+    const client = createGeminiClient({
+      apiKey: 'gemini-key',
+      quotaPolicy: validConfig.quotaPolicy,
+      baseUrl: proxyUrl,
+    })
+    await client.models.generateContent({ model: 'gemini-2.5-flash', contents: 'ping' }).catch(() => undefined)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+
+  expect(observed.length).toBeGreaterThan(0)
+  expect(observed[0]).toContain('localhost:9200/gemini')
+})
+
+test('createGeminiClient without baseUrl hits the public Gemini endpoint', async () => {
+  const observed: string[] = []
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = ((input: string | URL | Request) => {
+    const url = typeof input === 'string'
+      ? input
+      : input instanceof URL ? input.toString() : input.url
+    observed.push(url)
+    return Promise.resolve(new Response(JSON.stringify({ candidates: [] }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    }))
+  }) as typeof globalThis.fetch
+
+  try {
+    const client = createGeminiClient({
+      apiKey: 'gemini-key',
+      quotaPolicy: validConfig.quotaPolicy,
+    })
+    await client.models.generateContent({ model: 'gemini-2.5-flash', contents: 'ping' }).catch(() => undefined)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+
+  expect(observed.length).toBeGreaterThan(0)
+  // The Gemini public API lives under generativelanguage.googleapis.com when
+  // not using Vertex AI.
+  expect(observed[0]).toContain('generativelanguage.googleapis.com')
 })

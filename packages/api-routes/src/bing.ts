@@ -4,6 +4,7 @@ import type { FastifyInstance } from 'fastify'
 import { bingUrlInspections, bingCoverageSnapshots, runs } from '@ainyc/canonry-db'
 import { validationError, notFound, RunKinds, RunStatuses, RunTriggers } from '@ainyc/canonry-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
+import { emitConnectionEvent } from './cloud/emit-connection-event.js'
 import {
   getSites,
   getUrlInfo,
@@ -179,6 +180,18 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
       entityId: project.canonicalDomain,
     })
 
+    // Track 3 (Canonry Hosted): emit `connection.created` so the cloud
+    // control plane can surface the new connection.
+    await emitConnectionEvent(app.db, {
+      event: 'connection.created',
+      project: { id: project.id, name: project.name, canonicalDomain: project.canonicalDomain },
+      payload: {
+        connectionType: 'bing',
+        propertyRef: existing?.siteUrl ?? null,
+        scopes: [],
+      },
+    })
+
     return {
       connected: true,
       domain: project.canonicalDomain,
@@ -216,6 +229,19 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
       action: 'bing.disconnected',
       entityType: 'bing_connection',
       entityId: project.canonicalDomain,
+    })
+
+    // Track 3 (Canonry Hosted): emit `connection.revoked` so the cloud
+    // control plane can mark the surface revoked.
+    await emitConnectionEvent(app.db, {
+      event: 'connection.revoked',
+      project: { id: project.id, name: project.name, canonicalDomain: project.canonicalDomain },
+      payload: {
+        connectionType: 'bing',
+        propertyRef: existing.siteUrl ?? null,
+        scopes: [],
+        reason: 'user-disconnected',
+      },
     })
 
     return reply.status(204).send()
