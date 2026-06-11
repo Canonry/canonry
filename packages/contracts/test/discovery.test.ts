@@ -13,6 +13,10 @@ import {
   DiscoverySessionStatuses,
   discoverySessionStatusSchema,
   DISCOVERY_MAX_PROBES_CAP,
+  DISCOVERY_DEFAULT_DEDUP_THRESHOLD,
+  DISCOVERY_SEED_COLLAPSE_MIN_RAW,
+  DISCOVERY_SEED_COLLAPSE_RATIO,
+  seedCollapseWarning,
   discoveryProbeDtoSchema,
   discoverySessionDtoSchema,
   discoverySessionDetailDtoSchema,
@@ -297,4 +301,64 @@ test('discoveryPromoteResultSchema requires promoted + skipped query/competitor 
   expect(result.promoted.queries).toEqual(['q1', 'q2'])
   expect(result.skipped.competitors).toEqual([])
   expect(() => discoveryPromoteResultSchema.parse({ sessionId: 'x', projectId: 'y' })).toThrow()
+})
+
+test('seedCollapseWarning fires on a degenerate collapse with exact counts in the message', () => {
+  const warning = seedCollapseWarning({ seedCountRaw: 30, canonicalCount: 1, dedupThreshold: 0.85 })
+  expect(warning).toBe(
+    'Seed dedup collapsed 30 raw candidates into 1 canonical query at threshold 0.85. ' +
+      'Distinct intents were likely merged into one cluster; re-run with a higher --dedup-threshold.',
+  )
+})
+
+test('seedCollapseWarning pluralizes the canonical count', () => {
+  const warning = seedCollapseWarning({ seedCountRaw: 30, canonicalCount: 5, dedupThreshold: 0.85 })
+  expect(warning).toContain('into 5 canonical queries')
+})
+
+test('seedCollapseWarning ratio boundary: strictly below the floor warns, at the floor does not', () => {
+  expect(DISCOVERY_SEED_COLLAPSE_RATIO).toBe(0.2)
+  // 1/10 = 0.1 < 0.2 — warns
+  expect(seedCollapseWarning({ seedCountRaw: 10, canonicalCount: 1, dedupThreshold: 0.95 })).not.toBeNull()
+  // 2/10 = 0.2, not strictly below the floor — healthy
+  expect(seedCollapseWarning({ seedCountRaw: 10, canonicalCount: 2, dedupThreshold: 0.95 })).toBeNull()
+})
+
+test('seedCollapseWarning ignores seed sets below the minimum raw count', () => {
+  expect(DISCOVERY_SEED_COLLAPSE_MIN_RAW).toBe(10)
+  // 1/9 is well under the ratio, but the set is too small to judge.
+  expect(seedCollapseWarning({ seedCountRaw: 9, canonicalCount: 1, dedupThreshold: 0.95 })).toBeNull()
+  expect(seedCollapseWarning({ seedCountRaw: 0, canonicalCount: 0, dedupThreshold: 0.95 })).toBeNull()
+})
+
+test('seedCollapseWarning stays quiet on a healthy dedup', () => {
+  expect(seedCollapseWarning({ seedCountRaw: 30, canonicalCount: 25, dedupThreshold: 0.95 })).toBeNull()
+  expect(
+    seedCollapseWarning({
+      seedCountRaw: 30,
+      canonicalCount: 30,
+      dedupThreshold: DISCOVERY_DEFAULT_DEDUP_THRESHOLD,
+    }),
+  ).toBeNull()
+})
+
+test('discoverySessionDtoSchema carries the optional warning field', () => {
+  const session = discoverySessionDtoSchema.parse({
+    id: 'sess_warn',
+    projectId: 'proj_1',
+    status: 'completed',
+    competitorMap: [],
+    warning: 'Seed dedup collapsed 30 raw candidates into 1 canonical query at threshold 0.85.',
+    createdAt: '2026-06-11T12:00:00.000Z',
+  })
+  expect(session.warning).toContain('Seed dedup collapsed')
+  // Legacy rows without the column still parse.
+  const legacy = discoverySessionDtoSchema.parse({
+    id: 'sess_legacy',
+    projectId: 'proj_1',
+    status: 'completed',
+    competitorMap: [],
+    createdAt: '2026-06-11T12:00:00.000Z',
+  })
+  expect(legacy.warning).toBeUndefined()
 })

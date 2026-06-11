@@ -3,7 +3,18 @@ import {
   cosineSimilarity,
   clusterByCosine,
   pickClusterRepresentative,
+  DISCOVERY_DEFAULT_DEDUP_THRESHOLD,
 } from '../src/index.js'
+
+/**
+ * Unit vector at `deg` degrees on the unit circle — the pairwise cosine of
+ * two such vectors is exactly cos(Δdeg), so tests can construct seed sets
+ * with a known pairwise-similarity structure.
+ */
+function unitVec(deg: number): number[] {
+  const rad = (deg * Math.PI) / 180
+  return [Math.cos(rad), Math.sin(rad)]
+}
 
 test('cosineSimilarity of a vector with itself is 1', () => {
   expect(cosineSimilarity([1, 0, 0], [1, 0, 0])).toBeCloseTo(1)
@@ -115,6 +126,59 @@ test('clusterByCosine merges two pre-existing clusters when a bridge item connec
   const clusters = clusterByCosine(items, vectors, 0.65)
   expect(clusters).toHaveLength(1)
   expect(clusters[0]).toEqual(['a1', 'a2', 'c1', 'c2', 'b'])
+})
+
+// ---------------------------------------------------------------------------
+// Seed-dedup band tests. Empirically (gemini-embedding-001, CLUSTERING task,
+// 768 dims) distinct buyer intents in a homogeneous local-service vertical
+// score ~0.82-0.91 pairwise while true near-duplicate phrasings score
+// ~0.987-0.998. The default threshold must sit in the gap between those
+// bands or single-link chaining collapses the entire seed set.
+// ---------------------------------------------------------------------------
+
+test('distinct-intent band survives dedup at the default threshold while near-dups merge', () => {
+  // Four "queries": one true near-dup pair (2° apart, cos ≈ 0.9994) plus two
+  // further distinct intents, adjacent pairs 22° apart (cos ≈ 0.927 — inside
+  // the distinct-intent band relative to the old 0.85 default).
+  const items = ['repair-cost', 'cost-of-repair', 'emergency-repair', 'insurance-coverage']
+  const vectors = [unitVec(0), unitVec(2), unitVec(22), unitVec(44)]
+
+  // Pin the pairwise structure so the test is self-evident.
+  expect(cosineSimilarity(vectors[0]!, vectors[1]!)).toBeGreaterThan(0.99) // near-dup pair
+  expect(cosineSimilarity(vectors[0]!, vectors[2]!)).toBeGreaterThan(0.85) // distinct intents,
+  expect(cosineSimilarity(vectors[0]!, vectors[2]!)).toBeLessThan(0.95) //   above the OLD default
+  expect(cosineSimilarity(vectors[2]!, vectors[3]!)).toBeGreaterThan(0.85)
+  expect(cosineSimilarity(vectors[2]!, vectors[3]!)).toBeLessThan(0.95)
+
+  const clusters = clusterByCosine(items, vectors, DISCOVERY_DEFAULT_DEDUP_THRESHOLD)
+  expect(clusters).toEqual([
+    ['repair-cost', 'cost-of-repair'], // only the true near-dups merge
+    ['emergency-repair'],
+    ['insurance-coverage'],
+  ])
+})
+
+test('a threshold inside the distinct-intent band chain-collapses the whole set (the regression the default avoids)', () => {
+  // Same vectors as above at the OLD default (0.85): every adjacent pair
+  // (cos ≈ 0.927) is a single-link bridge, so the entire set merges into one
+  // cluster even though the endpoints are only cos(44°) ≈ 0.72 apart. This is
+  // the degenerate "30 raw seeds → 1 canonical" failure observed on
+  // homogeneous local-service verticals.
+  const items = ['repair-cost', 'cost-of-repair', 'emergency-repair', 'insurance-coverage']
+  const vectors = [unitVec(0), unitVec(2), unitVec(22), unitVec(44)]
+  expect(cosineSimilarity(vectors[0]!, vectors[3]!)).toBeLessThan(0.85) // endpoints dissimilar
+
+  const clusters = clusterByCosine(items, vectors, 0.85)
+  expect(clusters).toHaveLength(1)
+  expect(clusters[0]).toEqual(items)
+})
+
+test('DISCOVERY_DEFAULT_DEDUP_THRESHOLD sits in the gap between the measured bands', () => {
+  // Distinct intents top out ~0.91; true near-dups bottom out ~0.987. A
+  // default below 0.92 re-opens the chain-collapse; above 0.985 it stops
+  // merging genuine rephrasings.
+  expect(DISCOVERY_DEFAULT_DEDUP_THRESHOLD).toBeGreaterThan(0.92)
+  expect(DISCOVERY_DEFAULT_DEDUP_THRESHOLD).toBeLessThan(0.985)
 })
 
 test('pickClusterRepresentative returns the shortest member by default', () => {

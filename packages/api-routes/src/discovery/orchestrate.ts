@@ -5,11 +5,13 @@ import { discoveryProbes, discoverySessions, domainClassifications } from '@ainy
 import { normalizeDomain } from '../content-data.js'
 import {
   CitationStates,
+  DISCOVERY_DEFAULT_DEDUP_THRESHOLD,
   DiscoveryBuckets,
   DiscoveryCompetitorTypes,
   DiscoverySessionStatuses,
   clusterByCosine,
   pickClusterRepresentative,
+  seedCollapseWarning,
   type CitationState,
   type DiscoveryBucket,
   type DiscoveryCompetitorMapEntry,
@@ -17,7 +19,6 @@ import {
   type LocationContext,
 } from '@ainyc/canonry-contracts'
 
-const DEFAULT_DEDUP_THRESHOLD = 0.85
 const DEFAULT_MAX_PROBES = 100
 
 /**
@@ -242,7 +243,7 @@ export async function pickCanonicals(
  *   4. `completed` — write final counts + classified competitor_map to the session
  */
 export async function executeDiscovery(opts: ExecuteDiscoveryOptions): Promise<ExecuteDiscoveryResult> {
-  const dedupThreshold = opts.dedupThreshold ?? DEFAULT_DEDUP_THRESHOLD
+  const dedupThreshold = opts.dedupThreshold ?? DISCOVERY_DEFAULT_DEDUP_THRESHOLD
   const requestedMax = opts.maxProbes ?? DEFAULT_MAX_PROBES
   const maxProbes = Math.min(Math.max(1, requestedMax), ABSOLUTE_MAX_PROBES)
   const startedAt = new Date().toISOString()
@@ -272,6 +273,16 @@ export async function executeDiscovery(opts: ExecuteDiscoveryOptions): Promise<E
     dedupThreshold,
   )
 
+  // Degenerate-collapse guard, measured BEFORE the probe-budget slice so a
+  // deliberately small maxProbes never reads as a clustering failure. The
+  // session still runs to completion; the warning tells the operator its
+  // coverage is suspect.
+  const warning = seedCollapseWarning({
+    seedCountRaw,
+    canonicalCount: canonicals.length,
+    dedupThreshold,
+  })
+
   const probedCanonicals = canonicals.slice(0, maxProbes)
   const seedCount = probedCanonicals.length
 
@@ -282,6 +293,7 @@ export async function executeDiscovery(opts: ExecuteDiscoveryOptions): Promise<E
       seedProvider: seedResult.provider,
       seedCountRaw,
       seedCount,
+      warning,
     })
     .where(eq(discoverySessions.id, opts.sessionId))
     .run()

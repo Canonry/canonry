@@ -33,6 +33,13 @@ export function cosineSimilarity(a: number[], b: number[]): number {
  * "ai quoting" ≈ "home quoting" ≈ "instant home estimate" into one cluster
  * even when the endpoints are below threshold.
  *
+ * The flip side: chaining is safe only when the threshold sits ABOVE the
+ * similarity band of distinct items. Any pair of distinct intents scoring
+ * >= threshold becomes a bridge that merges their entire clusters, so a
+ * threshold inside that band can collapse the whole input set into one
+ * cluster. See `DISCOVERY_DEFAULT_DEDUP_THRESHOLD` (discovery.ts) for how
+ * the discovery pipeline calibrates against this.
+ *
  * Output ordering:
  *   - Cluster order is the position at which each cluster's first member
  *     appeared in `items` (so the cluster containing items[0] comes first).

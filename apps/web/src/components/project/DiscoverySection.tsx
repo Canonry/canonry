@@ -282,6 +282,12 @@ export function DiscoverySection({ projectName }: { projectName: string }) {
                   </div>
                 )}
 
+                {activeSession.warning && (
+                  <div className="rounded-md border border-amber-800/40 bg-amber-950/20 px-3 py-2 text-sm text-amber-300">
+                    {activeSession.warning}
+                  </div>
+                )}
+
                 {activeSession.icpDescription && (
                   <div className="rounded-md border border-zinc-800/60 bg-zinc-900/30 px-3 py-2">
                     <p className="text-[10px] uppercase tracking-wide text-zinc-500">Customer profile</p>
