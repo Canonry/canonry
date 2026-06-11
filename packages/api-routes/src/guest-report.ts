@@ -24,7 +24,7 @@ import { and, eq, lt, isNull } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import rateLimit from '@fastify/rate-limit'
 import { guestReports, projects, users } from '@ainyc/canonry-db'
-import { ConfigSources, validationError, notFound, authRequired } from '@ainyc/canonry-contracts'
+import { ConfigSources, parseBooleanFlag, validationError, notFound, authRequired } from '@ainyc/canonry-contracts'
 
 const REPORT_TTL_DAYS = 7
 
@@ -86,8 +86,7 @@ function shortId(): string {
 }
 
 function guestReportsEnabled(): boolean {
-  const value = process.env.CANONRY_ENABLE_GUEST_REPORTS?.trim().toLowerCase()
-  return value === '1' || value === 'true' || value === 'yes' || value === 'on'
+  return parseBooleanFlag(process.env.CANONRY_ENABLE_GUEST_REPORTS)
 }
 
 function requireGuestReportsEnabled(path: string): void {

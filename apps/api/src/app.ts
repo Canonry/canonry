@@ -3,6 +3,7 @@ import Fastify from 'fastify'
 import { eq } from 'drizzle-orm'
 
 import type { PlatformEnv } from '@ainyc/canonry-config'
+import { parseBooleanFlag } from '@ainyc/canonry-contracts'
 import { createClient, migrate, apiKeys, appSettings } from '@ainyc/canonry-db'
 import {
   apiRoutes,
@@ -139,6 +140,13 @@ export function buildApp(env: PlatformEnv) {
     },
     providerSummary,
     googleStateSecret: env.googleStateSecret,
+    // Reported by POST /cloud/bootstrap so the control plane records what
+    // runtime it provisioned. apps/api versions independently of the
+    // published @ainyc/canonry package.
+    canonryVersion: '0.1.0',
+    // The hosted control-plane callback typically resolves to a private
+    // address (Docker bridge / VPC) — same env opt-in as `canonry serve`.
+    allowPrivateNetworkWebhooks: parseBooleanFlag(process.env.CANONRY_ALLOW_PRIVATE_WEBHOOKS),
   })
 
   registerHealthRoutes(app, env)

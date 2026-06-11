@@ -38,7 +38,11 @@ import {
 
 export interface QuotaClientOptions {
   /**
-   * Base URL of the canonry-cloud control plane (no trailing slash).
+   * Base URL of the canonry-cloud control plane's API mount, INCLUDING the
+   * `/api/v1` prefix, no trailing slash — e.g.
+   * `https://cloud.canonry.ai/api/v1`. canonry-cloud registers the quota
+   * routes at `/api/v1/quota/*` (src/quota/routes.ts), and this client
+   * appends only `/quota/...`, so a bare origin here misses every route.
    * Typically read from `CANONRY_CONTROL_PLANE_URL` at process start.
    * Falls back to throwing on the first call when absent.
    */
@@ -347,6 +351,8 @@ export class QuotaClient {
  * Convenience constructor that reads `CANONRY_CONTROL_PLANE_URL` and
  * `CANONRY_API_KEY` from `process.env`. Same posture as the rest of the
  * runtime — config flows through env vars in cloud deployments.
+ * `CANONRY_CONTROL_PLANE_URL` must include the `/api/v1` mount — see
+ * `QuotaClientOptions.controlPlaneUrl`.
  */
 export function createQuotaClientFromEnv(env: NodeJS.ProcessEnv = process.env): QuotaClient {
   return new QuotaClient({

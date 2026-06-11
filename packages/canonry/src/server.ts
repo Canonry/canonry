@@ -18,7 +18,8 @@ import { claudeAdapter } from '@ainyc/canonry-provider-claude'
 import { localAdapter } from '@ainyc/canonry-provider-local'
 import { cdpChatgptAdapter } from '@ainyc/canonry-provider-cdp'
 import { perplexityAdapter } from '@ainyc/canonry-provider-perplexity'
-import { CcReleaseSyncStatuses, RunKinds, RunStatuses, RunTriggers, type ProviderAdapter } from '@ainyc/canonry-contracts'
+import { parseBooleanFlag, CcReleaseSyncStatuses, RunKinds, RunStatuses, RunTriggers, type ProviderAdapter } from '@ainyc/canonry-contracts'
+import { PACKAGE_VERSION } from './package-version.js'
 import type { CanonryConfig, ProviderConfigEntry } from './config.js'
 import { saveConfigPatch, loadConfig, getConfigPath } from './config.js'
 import { getPlacesConfig } from './places-config.js'
@@ -314,7 +315,17 @@ export async function createServer(opts: {
 
   const jobRunner = new JobRunner(opts.db, registry)
   jobRunner.recoverStaleRuns()
-  const notifier = new Notifier(opts.db, serverUrl)
+  // One webhook SSRF policy for both halves of the feature: registration
+  // (api-routes validates URLs with it) and delivery (the Notifier resolves
+  // targets with it). Loopback defaults to allowed for the local installer
+  // (webhook-to-localhost is a legitimate dev workflow); private ranges are
+  // opt-in for the Hosted v1 Docker-internal control-plane callback.
+  const allowLoopbackWebhooks = process.env.CANONRY_ALLOW_LOOPBACK_WEBHOOKS !== '0'
+  const allowPrivateNetworkWebhooks = parseBooleanFlag(process.env.CANONRY_ALLOW_PRIVATE_WEBHOOKS)
+  const notifier = new Notifier(opts.db, serverUrl, {
+    allowLoopback: allowLoopbackWebhooks,
+    allowPrivateNetworks: allowPrivateNetworkWebhooks,
+  })
   const intelligenceService = new IntelligenceService(opts.db)
   // Build the Aero ApiClient from the in-memory server config rather than
   // loadConfig() so tests that set CANONRY_CONFIG_DIR after spawning the
@@ -912,12 +923,15 @@ export async function createServer(opts: {
     // etc.) is a legitimate workflow. Default to allowing it for the local
     // installer; cloud deployments inherit the secure default of `false` by
     // not passing this option. Override with CANONRY_ALLOW_LOOPBACK_WEBHOOKS=0.
-    allowLoopbackWebhooks: process.env.CANONRY_ALLOW_LOOPBACK_WEBHOOKS !== '0',
+    allowLoopbackWebhooks,
     // Hosted v1 (spec §1.1) targets a Docker-internal control plane hostname
     // like `canonry-control-plane:8080` that resolves to a 172.x bridge address.
     // Operators opt in by setting `CANONRY_ALLOW_PRIVATE_WEBHOOKS=1` in the
     // tenant container env. OSS deployments leave it unset.
-    allowPrivateNetworkWebhooks: process.env.CANONRY_ALLOW_PRIVATE_WEBHOOKS === '1',
+    allowPrivateNetworkWebhooks,
+    // Reported by POST /cloud/bootstrap so the control plane records what
+    // tenant runtime version it just provisioned.
+    canonryVersion: PACKAGE_VERSION,
     // Local-only Aero agent routes. Registered here so they inherit api-routes'
     // auth plugin — bare `registerAgentRoutes(app, ...)` would skip auth.
     registerAuthenticatedRoutes: async (scope) => {

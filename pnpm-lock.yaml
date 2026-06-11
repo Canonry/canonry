@@ -55,6 +55,9 @@ importers:
       '@ainyc/canonry-config':
         specifier: workspace:*
         version: link:../../packages/config
+      '@ainyc/canonry-contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
       '@ainyc/canonry-db':
         specifier: workspace:*
         version: link:../../packages/db

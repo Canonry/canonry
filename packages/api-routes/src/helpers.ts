@@ -4,6 +4,7 @@ import type { DatabaseClient } from '@ainyc/canonry-db'
 import type { FastifyRequest } from 'fastify'
 import { projects, runs, auditLog, usageCounters, parseJsonColumn } from '@ainyc/canonry-db'
 import {
+  parseBooleanFlag,
   extractAnswerMentions,
   effectiveBrandNames,
   effectiveDomains,
@@ -86,16 +87,8 @@ export function requireCloudBootstrap(request: FastifyRequest): void {
   }
 }
 
-/**
- * Accept the same truthy set as `packages/config/src/index.ts`'s
- * `parseBooleanFlag` (`1`, `true`, `yes`, `on`, case-insensitive). Keeping
- * the two helpers in sync avoids a config drift where an operator sees
- * `readCloudModeFlags()` report cloud-enabled while the routes still 404
- * because they only honored the literal `'1'`.
- */
 function cloudBootstrapEnabled(): boolean {
-  const v = process.env.CANONRY_ENABLE_CLOUD_BOOTSTRAP?.trim().toLowerCase()
-  return v === '1' || v === 'true' || v === 'yes' || v === 'on'
+  return parseBooleanFlag(process.env.CANONRY_ENABLE_CLOUD_BOOTSTRAP)
 }
 
 export interface AuditEntry {

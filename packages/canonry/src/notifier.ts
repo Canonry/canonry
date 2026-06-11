@@ -9,13 +9,28 @@ import { createLogger } from './logger.js'
 
 const log = createLogger('Notifier')
 
+/**
+ * Delivery-time SSRF policy. Must mirror the registration-time policy the
+ * host passes to api-routes (`allowLoopbackWebhooks` /
+ * `allowPrivateNetworkWebhooks`) — otherwise a webhook that registration
+ * accepted (a localhost test endpoint, or the Hosted v1 Docker-internal
+ * control-plane callback at e.g. `http://canonry-control-plane:8080`)
+ * is silently `webhook.ssrf-blocked` at delivery.
+ */
+export interface NotifierWebhookPolicy {
+  allowLoopback?: boolean
+  allowPrivateNetworks?: boolean
+}
+
 export class Notifier {
   private db: DatabaseClient
   private serverUrl: string
+  private webhookPolicy: NotifierWebhookPolicy
 
-  constructor(db: DatabaseClient, serverUrl: string) {
+  constructor(db: DatabaseClient, serverUrl: string, webhookPolicy: NotifierWebhookPolicy = {}) {
     this.db = db
     this.serverUrl = serverUrl
+    this.webhookPolicy = webhookPolicy
   }
 
   /** Called after a run completes (success, partial, or failed). */
@@ -327,7 +342,10 @@ export class Notifier {
 
   private async sendWebhook(url: string, payload: WebhookPayload | InsightWebhookPayload, notificationId: string, projectId: string, webhookSecret: string | null): Promise<void> {
     const targetLabel = redactNotificationUrl(url).urlDisplay
-    const targetCheck = await resolveWebhookTarget(url)
+    const targetCheck = await resolveWebhookTarget(url, {
+      allowLoopback: this.webhookPolicy.allowLoopback,
+      allowPrivateNetworks: this.webhookPolicy.allowPrivateNetworks,
+    })
     if (!targetCheck.ok) {
       log.error('webhook.ssrf-blocked', { url: targetLabel, reason: targetCheck.message })
       this.logDelivery(projectId, notificationId, payload.event, 'failed', `SSRF: ${targetCheck.message}`)

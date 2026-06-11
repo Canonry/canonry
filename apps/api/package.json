@@ -13,6 +13,7 @@
   "dependencies": {
     "@ainyc/canonry-api-routes": "workspace:*",
     "@ainyc/canonry-config": "workspace:*",
+    "@ainyc/canonry-contracts": "workspace:*",
     "@ainyc/canonry-db": "workspace:*",
     "drizzle-orm": "^0.45.2",
     "fastify": "^5.8.5",

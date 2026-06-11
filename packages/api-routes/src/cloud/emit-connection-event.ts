@@ -7,7 +7,9 @@ import type {
   CloudWebhookPayload,
   NotificationEvent,
 } from '@ainyc/canonry-contracts'
+import { parseBooleanFlag } from '@ainyc/canonry-contracts'
 import { deliverWebhook, resolveWebhookTarget } from '../webhooks.js'
+import { redactNotificationUrl } from '../notification-redaction.js'
 
 /**
  * Honor the same operator opt-in flag the host sets for the SSRF guard at
@@ -23,8 +25,7 @@ import { deliverWebhook, resolveWebhookTarget } from '../webhooks.js'
  * between cases sees the change.
  */
 function privateWebhooksAllowed(): boolean {
-  const v = process.env.CANONRY_ALLOW_PRIVATE_WEBHOOKS?.trim().toLowerCase()
-  return v === '1' || v === 'true' || v === 'yes' || v === 'on'
+  return parseBooleanFlag(process.env.CANONRY_ALLOW_PRIVATE_WEBHOOKS)
 }
 
 /**
@@ -99,18 +100,21 @@ export async function emitCloudEvent(
   const allowPrivateNetworks = privateWebhooksAllowed()
   for (const subscriber of subscribers) {
     const url = subscriber.url
+    // Webhook URLs routinely embed capability tokens in path or query —
+    // never log them raw (matches the Notifier's redaction).
+    const urlLabel = redactNotificationUrl(url).urlDisplay
     try {
       const target = await resolveWebhookTarget(url, { allowLoopback: true, allowPrivateNetworks })
       if (!target.ok) {
         // SSRF / unreachable target — log to stderr and continue. The
         // bootstrap registration already validated reachability; this
         // path only fails if DNS / firewall changed afterward.
-        console.error(`[cloud-event] resolve failed for ${url}: ${target.message}`)
+        console.error(`[cloud-event] resolve failed for ${urlLabel}: ${target.message}`)
         continue
       }
       await deliverWebhook(target.target, cloudPayload, subscriber.webhookSecret)
     } catch (err) {
-      console.error(`[cloud-event] deliver failed for ${url}:`, err)
+      console.error(`[cloud-event] deliver failed for ${urlLabel}:`, err)
     }
   }
 }

@@ -28,7 +28,12 @@ const localeSchema = z.object({
  */
 const managedOAuthSchema = z.object({
   google_client_id: z.string().min(1),
-  google_client_secret: z.string().min(1),
+  // Deliberately optional AND unused: the tenant runtime never exchanges
+  // tokens itself (the control plane brokers the OAuth dance and pushes
+  // results via import-tokens), so it has no use for the client secret and
+  // does not store it. Don't force the control plane to put a secret on
+  // the wire that the receiving end throws away.
+  google_client_secret: z.string().optional(),
   google_callback_url: z.string().url(),
 })
 
@@ -53,12 +58,19 @@ export type CloudBootstrapResponse = z.infer<typeof cloudBootstrapResponseSchema
 export const cloudImportGoogleTokensRequestSchema = z.object({
   project_slug: z.string().min(1),
   connection_type: z.enum(['gsc', 'ga4']),
-  property_ref: z.string().min(1),
+  // Empty string allowed: canonry-cloud pushes tokens immediately after its
+  // OAuth callback, BEFORE the user has picked a property — it sends
+  // `property_ref: ''` and the tenant fills the property in later. The
+  // route normalizes `''` to a NULL propertyId. (A `.min(1)` here made the
+  // exercised cloud→tenant call 400 and strand tokens silently.)
+  property_ref: z.string(),
   access_token: z.string().min(1),
   refresh_token: z.string().min(1),
   expiry: z.string().min(1),
   scopes: z.array(z.string()).default([]),
-  account_email: z.string().min(1),
+  // Same forward-flow reason as property_ref — the control plane may not
+  // know the account email yet and sends `''`.
+  account_email: z.string(),
 })
 export type CloudImportGoogleTokensRequest = z.infer<typeof cloudImportGoogleTokensRequestSchema>
 

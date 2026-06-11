@@ -1,4 +1,4 @@
-import { providerQuotaPolicySchema, type ProviderQuotaPolicy } from '@ainyc/canonry-contracts'
+import { parseBooleanFlag, providerQuotaPolicySchema, type ProviderQuotaPolicy } from '@ainyc/canonry-contracts'
 import { z } from 'zod'
 
 /**
@@ -189,15 +189,6 @@ export interface PlatformEnv {
   }
 }
 
-/**
- * Parse a raw env value as a boolean cloud-mode flag. Accepts `1`, `true`,
- * `yes`, `on` (case-insensitive) as truthy. Anything else is falsy.
- */
-function parseBooleanFlag(value: string | undefined): boolean {
-  if (!value) return false
-  const v = value.trim().toLowerCase()
-  return v === '1' || v === 'true' || v === 'yes' || v === 'on'
-}
 
 function parseRuntimeMode(value: string | undefined): CanonryRuntimeMode {
   if (!value) return 'oss'

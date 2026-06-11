@@ -119,22 +119,43 @@ export async function cloudBootstrapRoutes(app: FastifyInstance, opts: CloudBoot
       // callback, refresh the events list and webhook secret in place
       // rather than creating a duplicate.
       //
+      // The row is tagged `source: 'cloud-bootstrap'` so a later bootstrap
+      // with a DIFFERENT callback URL (control-plane rotation — a normal
+      // lifecycle event, since bootstrap IS the rotation mechanism) can
+      // retire the stale subscriber. Without that, a decommissioned
+      // endpoint keeps receiving the full signed event stream forever.
+      // Operator-created webhooks are untagged and never touched here.
+      //
       // `projectId: null` indicates a tenant-scoped webhook (the
       // notifications-project-id-nullable migration shipped in the same PR
       // as the bootstrap endpoint).
       const allRows = tx.select().from(notifications).all()
-      const existingSubscriber = allRows.find((row) => {
-        const config = parseJsonColumn<{ url?: string }>(
+      const parseConfig = (row: typeof notifications.$inferSelect) =>
+        parseJsonColumn<{ url?: string; source?: string }>(
           typeof row.config === 'string' ? row.config : JSON.stringify(row.config),
           {},
         )
-        return config.url === callbackUrl
-      })
+      const existingSubscriber = allRows.find((row) => parseConfig(row).url === callbackUrl)
 
+      for (const row of allRows) {
+        const config = parseConfig(row)
+        if (config.source === 'cloud-bootstrap' && config.url !== callbackUrl && row.enabled) {
+          tx.update(notifications)
+            .set({ enabled: false, updatedAt: now })
+            .where(eq(notifications.id, row.id))
+            .run()
+        }
+      }
+
+      const subscriberConfig = {
+        url: callbackUrl,
+        events: CONTROL_PLANE_SUBSCRIBED_EVENTS,
+        source: 'cloud-bootstrap',
+      }
       if (existingSubscriber) {
         tx.update(notifications)
           .set({
-            config: { url: callbackUrl, events: CONTROL_PLANE_SUBSCRIBED_EVENTS },
+            config: subscriberConfig,
             webhookSecret: parsed.data.webhook_secret,
             enabled: true,
             updatedAt: now,
@@ -146,7 +167,7 @@ export async function cloudBootstrapRoutes(app: FastifyInstance, opts: CloudBoot
           id: crypto.randomUUID(),
           projectId: null,
           channel: 'webhook',
-          config: { url: callbackUrl, events: CONTROL_PLANE_SUBSCRIBED_EVENTS },
+          config: subscriberConfig,
           webhookSecret: parsed.data.webhook_secret,
           enabled: true,
           createdAt: now,

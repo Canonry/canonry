@@ -33,6 +33,11 @@ export async function cloudGoogleTokensRoutes(app: FastifyInstance, opts: CloudG
     const project = resolveProject(app.db, parsed.data.project_slug)
     const now = new Date().toISOString()
     const expiresAt = parsed.data.expiry
+    // The control plane sends `''` when the user hasn't picked a property /
+    // shared an account email yet — normalize to NULL so downstream reads
+    // (`propertyId ?? null` chains, doctor checks) see one absent shape.
+    const propertyRef = parsed.data.property_ref || null
+    const accountEmail = parsed.data.account_email || null
 
     const existing = opts.googleConnectionStore.getConnection(
       project.canonicalDomain,
@@ -49,7 +54,7 @@ export async function cloudGoogleTokensRoutes(app: FastifyInstance, opts: CloudG
     opts.googleConnectionStore.upsertConnection({
       domain: project.canonicalDomain,
       connectionType: parsed.data.connection_type,
-      propertyId: parsed.data.property_ref,
+      propertyId: propertyRef,
       accessToken: parsed.data.access_token,
       refreshToken: parsed.data.refresh_token,
       tokenExpiresAt: expiresAt,
@@ -68,8 +73,8 @@ export async function cloudGoogleTokensRoutes(app: FastifyInstance, opts: CloudG
       diff: {
         domain: project.canonicalDomain,
         connectionType: parsed.data.connection_type,
-        propertyRef: parsed.data.property_ref,
-        accountEmail: parsed.data.account_email,
+        propertyRef,
+        accountEmail,
         scopes: parsed.data.scopes,
       },
     })
@@ -83,7 +88,7 @@ export async function cloudGoogleTokensRoutes(app: FastifyInstance, opts: CloudG
       project,
       payload: {
         connectionType: parsed.data.connection_type,
-        propertyRef: parsed.data.property_ref,
+        propertyRef,
         scopes: parsed.data.scopes,
       },
     })
@@ -92,7 +97,7 @@ export async function cloudGoogleTokensRoutes(app: FastifyInstance, opts: CloudG
       imported: true,
       domain: project.canonicalDomain,
       connection_type: parsed.data.connection_type,
-      property_ref: parsed.data.property_ref,
+      property_ref: propertyRef,
     })
   })
 }

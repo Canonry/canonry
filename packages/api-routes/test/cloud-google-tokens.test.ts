@@ -125,6 +125,42 @@ describe('POST /api/v1/cloud/google/import-tokens', () => {
     expect(stored?.scopes).toEqual(VALID_REQUEST.scopes)
   })
 
+  it('accepts the exact payload canonry-cloud sends after its OAuth callback (empty property_ref + account_email)', async () => {
+    // Fixture parity with canonry-cloud `src/oauth/routes.ts` — the control
+    // plane pushes tokens BEFORE the user picks a property, sending
+    // `property_ref: ''` and possibly `account_email: ''`. A `.min(1)` on
+    // either field made this exercised call 400 and strand tokens silently
+    // (the cloud side doesn't check `res.ok`). Empty strings normalize to
+    // NULL in the stored connection.
+    const cloudPayload = {
+      project_slug: 'acme',
+      connection_type: 'gsc' as const,
+      property_ref: '', // tenant fills in after the user picks the property
+      access_token: 'ya29.cloud-access',
+      refresh_token: '1//cloud-refresh',
+      expiry: new Date(Date.now() + 3600 * 1000).toISOString(),
+      scopes: ['https://www.googleapis.com/auth/webmasters.readonly'],
+      account_email: '',
+    }
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/cloud/google/import-tokens',
+      headers: { 'X-Admin-Scope': '1' },
+      payload: cloudPayload,
+    })
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.payload)).toEqual({
+      imported: true,
+      domain: 'acme.com',
+      connection_type: 'gsc',
+      property_ref: null,
+    })
+
+    const stored = store.getConnection('acme.com', 'gsc')
+    expect(stored?.propertyId).toBe(null)
+    expect(stored?.accessToken).toBe('ya29.cloud-access')
+  })
+
   it('rejects request without X-Admin-Scope header with 403', async () => {
     const res = await app.inject({
       method: 'POST',

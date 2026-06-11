@@ -124,6 +124,69 @@ describe('POST /api/v1/cloud/bootstrap', () => {
     expect(subs).toHaveLength(1)
   })
 
+  it('rotating the callback URL retires the stale bootstrap subscriber', async () => {
+    const first = await app.inject({
+      method: 'POST',
+      url: '/api/v1/cloud/bootstrap',
+      headers: { 'X-Admin-Scope': '1' },
+      payload: VALID_REQUEST,
+    })
+    expect(first.statusCode).toBe(200)
+
+    // Bootstrap is the control plane's rotation mechanism — a new callback
+    // URL must not leave the decommissioned endpoint receiving the signed
+    // event stream forever.
+    const rotatedUrl = 'http://127.0.0.1:18082/cloud/events-v2'
+    const second = await app.inject({
+      method: 'POST',
+      url: '/api/v1/cloud/bootstrap',
+      headers: { 'X-Admin-Scope': '1' },
+      payload: { ...VALID_REQUEST, control_plane_callback_url: rotatedUrl, webhook_secret: 'whsec_rotated_rotated_rotated_rot' },
+    })
+    expect(second.statusCode).toBe(200)
+
+    const subs = db.select().from(notifications).all()
+    const byUrl = new Map(subs.map((row) => {
+      const config = parseJsonColumn<{ url?: string; source?: string }>(
+        typeof row.config === 'string' ? row.config : JSON.stringify(row.config),
+        {},
+      )
+      return [config.url, { row, config }] as const
+    }))
+
+    // The old subscriber is disabled, the new one is live with the new secret.
+    expect(byUrl.get(VALID_REQUEST.control_plane_callback_url)?.row.enabled).toBe(false)
+    const rotated = byUrl.get(rotatedUrl)
+    expect(rotated?.row.enabled).toBe(true)
+    expect(rotated?.row.webhookSecret).toBe('whsec_rotated_rotated_rotated_rot')
+    expect(rotated?.config.source).toBe('cloud-bootstrap')
+  })
+
+  it('rotation does not touch operator-created (untagged) webhooks', async () => {
+    // An operator webhook registered outside bootstrap has no source tag —
+    // bootstrap must never disable it, whatever URL it points at.
+    db.insert(notifications).values({
+      id: 'operator-webhook',
+      projectId: null,
+      channel: 'webhook',
+      config: { url: 'http://127.0.0.1:19000/operator', events: ['run.completed'] },
+      enabled: true,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }).run()
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/cloud/bootstrap',
+      headers: { 'X-Admin-Scope': '1' },
+      payload: VALID_REQUEST,
+    })
+    expect(res.statusCode).toBe(200)
+
+    const operatorRow = db.select().from(notifications).where(eq(notifications.id, 'operator-webhook')).get()
+    expect(operatorRow?.enabled).toBe(true)
+  })
+
   it('rejects request without X-Admin-Scope header with 403', async () => {
     const res = await app.inject({
       method: 'POST',
