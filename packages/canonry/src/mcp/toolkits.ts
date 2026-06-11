@@ -1,7 +1,7 @@
-export const CANONRY_MCP_TIERS = ['core', 'monitoring', 'setup', 'gsc', 'ga', 'gbp', 'traffic', 'agent', 'discovery'] as const
+export const CANONRY_MCP_TIERS = ['core', 'monitoring', 'setup', 'gsc', 'ga', 'gbp', 'ads', 'traffic', 'agent', 'discovery'] as const
 export type CanonryMcpTier = typeof CANONRY_MCP_TIERS[number]
 
-export const CANONRY_MCP_TOOLKIT_NAMES = ['monitoring', 'setup', 'gsc', 'ga', 'gbp', 'traffic', 'agent', 'discovery'] as const
+export const CANONRY_MCP_TOOLKIT_NAMES = ['monitoring', 'setup', 'gsc', 'ga', 'gbp', 'ads', 'traffic', 'agent', 'discovery'] as const
 export type CanonryMcpToolkitName = typeof CANONRY_MCP_TOOLKIT_NAMES[number]
 
 export interface CanonryMcpToolkit {
@@ -41,6 +41,12 @@ export const CANONRY_MCP_TOOLKITS: readonly CanonryMcpToolkit[] = [
     title: 'Google Business Profile',
     description: 'Local AEO signals: discover GBP locations under a connected account and toggle which ones sync. Future phases will add reviews, keyword impressions, daily performance metrics, and hotel attributes.',
     whenToLoad: 'Load when the project tracks local search visibility or has connected Google Business Profile.',
+  },
+  {
+    name: 'ads',
+    title: 'OpenAI ads (ChatGPT ads)',
+    description: 'Paid-surface data for the connected OpenAI ad account: connection status, campaign/ad-group snapshots (context hints), daily paid-performance rollups (spend in integer micros), and the composite summary. Trigger ads-sync runs.',
+    whenToLoad: 'Load when the project runs ChatGPT ads and you need paid performance, campaign structure, or to trigger an ads sync.',
   },
   {
     name: 'traffic',

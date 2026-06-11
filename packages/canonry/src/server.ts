@@ -63,6 +63,8 @@ import { JobRunner } from './job-runner.js'
 import { executeGscSync } from './gsc-sync.js'
 import { executeGbpSync } from './gbp-sync.js'
 import { executeAdsSync } from './ads-sync.js'
+import { getOpenAiAdsConnection, upsertOpenAiAdsConnection, removeOpenAiAdsConnection } from './ads-config.js'
+import { getAdAccount } from '@ainyc/canonry-integration-openai-ads'
 import { executeInspectSitemap } from './gsc-inspect-sitemap.js'
 import { executeBingInspectSitemap } from './bing-inspect-sitemap.js'
 import { maybeRefreshGscCoverage } from './coverage-refresh.js'
@@ -561,6 +563,41 @@ export async function createServer(opts: {
       .catch((err: unknown) => {
         app.log.error({ runId, err }, 'Site audit failed')
       })
+  }
+
+  // OpenAI ads credential store — stores Ads Manager SDK keys in ~/.canonry/config.yaml
+  const adsCredentialStore = {
+    getConnection: (projectName: string) => {
+      return getOpenAiAdsConnection(opts.config, projectName)
+    },
+    upsertConnection: (connection: {
+      projectName: string
+      apiKey: string
+      adAccountId?: string | null
+      createdAt: string
+      updatedAt: string
+    }) => {
+      const updated = upsertOpenAiAdsConnection(opts.config, connection)
+      saveConfigPatch(opts.config)
+      return updated
+    },
+    removeConnection: (projectName: string) => {
+      const removed = removeOpenAiAdsConnection(opts.config, projectName)
+      if (removed) saveConfigPatch(opts.config)
+      return removed
+    },
+  }
+
+  // Validates an SDK key by reading its own ad account from the upstream API.
+  const verifyAdsAccount = async (apiKey: string) => {
+    const account = await getAdAccount(apiKey)
+    return {
+      id: account.id,
+      name: account.name,
+      status: account.status,
+      currencyCode: account.currency_code ?? null,
+      timezone: account.timezone ?? null,
+    }
   }
 
   const scheduler = new Scheduler(opts.db, {
@@ -1266,6 +1303,11 @@ export async function createServer(opts: {
     },
     onGbpSyncRequested: (runId: string, projectId: string, syncOpts?: { locationNames?: string[]; daysOfMetrics?: number; monthsOfKeywords?: number }) => {
       runGbpSync(runId, projectId, syncOpts)
+    },
+    adsCredentialStore,
+    verifyAdsAccount,
+    onAdsSyncRequested: (runId: string, projectId: string) => {
+      runAdsSync(runId, projectId)
     },
     getBacklinksStatus: () => ({
       duckdbInstalled: isDuckdbInstalled(),

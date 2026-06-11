@@ -67,6 +67,9 @@ export default tseslint.config(
       'no-restricted-syntax': ['error', {
         selector: "Literal[value=/^(not-vis|visibility run|visibility sweep|visibility report|answer rate|answer-rate|answerRate)$/]",
         message: 'Use canonical AEO vocabulary: "mentioned" / "not-mentioned" for answer-text presence, "cited" / "not-cited" for source-list presence. See AGENTS.md "Vocabulary (Critical)".',
+      }, {
+        selector: "Literal[value=/^(paid mentions|paid citations|ad mentions|ad citations|sponsored mentions|sponsored citations|paid-mention|paid-citation)$/]",
+        message: 'Paid-surface metrics are "paid" / "sponsored" (impressions, clicks, spend) — never combined with "mentioned"/"cited", which mean organic answer-text / source-list presence. See AGENTS.md "Vocabulary (Critical)".',
       }],
     },
   },

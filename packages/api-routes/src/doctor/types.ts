@@ -3,6 +3,7 @@ import type { BundledSkillSnapshot, CheckCategory, CheckResultDto, CheckScope, C
 import type { GoogleConnectionStore } from '../google.js'
 import type { BingConnectionStore } from '../bing.js'
 import type { WordpressConnectionStore } from '../wordpress.js'
+import type { AdsCredentialStore } from '../ads.js'
 import type { Ga4CredentialStore } from '../ga.js'
 import type { ProviderSummaryEntry } from '../settings.js'
 
@@ -44,6 +45,7 @@ export interface DoctorContext {
   bingConnectionStore?: BingConnectionStore
   wordpressConnectionStore?: WordpressConnectionStore
   ga4CredentialStore?: Ga4CredentialStore
+  adsCredentialStore?: AdsCredentialStore
   getGoogleAuthConfig?: () => { clientId?: string; clientSecret?: string }
   /**
    * Resolved Google Places config (key + tier + refresh cadence) for the

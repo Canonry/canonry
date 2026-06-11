@@ -14,6 +14,7 @@ export interface DataRefreshClient {
     project: string,
     body?: { locationNames?: string[]; daysOfMetrics?: number; monthsOfKeywords?: number },
   ): Promise<unknown>
+  triggerAdsSync(project: string): Promise<unknown>
 }
 
 /**
@@ -31,6 +32,7 @@ export async function refreshAllIntegrations(client: DataRefreshClient, projectN
     { name: 'bing', run: () => client.bingInspectSitemap(projectName, {}) },
     { name: 'ga', run: () => client.gaSync(projectName, { days: 30 }) },
     { name: 'gbp', run: () => client.triggerGbpSync(projectName, {}) },
+    { name: 'ads', run: () => client.triggerAdsSync(projectName) },
   ]
 
   const results = await Promise.allSettled(integrations.map((i) => i.run()))

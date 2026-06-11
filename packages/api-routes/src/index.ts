@@ -33,6 +33,8 @@ import type { ScheduleRoutesOptions } from './schedules.js'
 import { notificationRoutes, type NotificationRoutesOptions } from './notifications.js'
 import { googleRoutes } from './google.js'
 import type { GoogleRoutesOptions } from './google.js'
+import { adsRoutes } from './ads.js'
+import type { AdsRoutesOptions } from './ads.js'
 import { bingRoutes } from './bing.js'
 import type { BingRoutesOptions } from './bing.js'
 import { cdpRoutes } from './cdp.js'
@@ -138,6 +140,9 @@ export interface ApiRoutesOptions {
   onGscSyncRequested?: GoogleRoutesOptions['onGscSyncRequested']
   onInspectSitemapRequested?: GoogleRoutesOptions['onInspectSitemapRequested']
   onGbpSyncRequested?: GoogleRoutesOptions['onGbpSyncRequested']
+  adsCredentialStore?: AdsRoutesOptions['adsCredentialStore']
+  verifyAdsAccount?: AdsRoutesOptions['verifyAdsAccount']
+  onAdsSyncRequested?: AdsRoutesOptions['onAdsSyncRequested']
   /** Bing Webmaster Tools connection store */
   bingConnectionStore?: BingRoutesOptions['bingConnectionStore']
   /** Bing settings summary for settings endpoint */
@@ -367,6 +372,11 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       getTelemetryStatus: opts.getTelemetryStatus,
       setTelemetryEnabled: opts.setTelemetryEnabled,
     } satisfies TelemetryRoutesOptions)
+    await api.register(adsRoutes, {
+      adsCredentialStore: opts.adsCredentialStore,
+      verifyAdsAccount: opts.verifyAdsAccount,
+      onAdsSyncRequested: opts.onAdsSyncRequested,
+    } satisfies AdsRoutesOptions)
     await api.register(bingRoutes, {
       bingConnectionStore: opts.bingConnectionStore,
       onInspectSitemapRequested: opts.onBingInspectSitemapRequested,
@@ -435,6 +445,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       bingConnectionStore: opts.bingConnectionStore,
       wordpressConnectionStore: opts.wordpressConnectionStore,
       ga4CredentialStore: opts.ga4CredentialStore,
+      adsCredentialStore: opts.adsCredentialStore,
       getGoogleAuthConfig: opts.getGoogleAuthConfig,
       getPlacesConfig: opts.getPlacesConfig,
       publicUrl: opts.publicUrl,

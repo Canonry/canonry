@@ -8,12 +8,13 @@ function makeClient(overrides: Partial<DataRefreshClient> = {}): DataRefreshClie
     bingInspectSitemap: vi.fn(async () => ({})),
     gaSync: vi.fn(async () => ({})),
     triggerGbpSync: vi.fn(async () => ({ runId: 'r', status: 'running' })),
+    triggerAdsSync: vi.fn(async () => ({ runId: 'a', status: 'queued' })),
     ...overrides,
   }
 }
 
 describe('refreshAllIntegrations', () => {
-  test('fires all four integration syncs for the project', async () => {
+  test('fires all five integration syncs for the project', async () => {
     const client = makeClient()
 
     await refreshAllIntegrations(client, 'proj')
@@ -23,6 +24,7 @@ describe('refreshAllIntegrations', () => {
     expect(client.bingInspectSitemap).toHaveBeenCalledWith('proj', {})
     expect(client.gaSync).toHaveBeenCalledWith('proj', { days: 30 })
     expect(client.triggerGbpSync).toHaveBeenCalledWith('proj', {})
+    expect(client.triggerAdsSync).toHaveBeenCalledWith('proj')
   })
 
   test('one integration failing does not block the others and never throws', async () => {
@@ -34,10 +36,11 @@ describe('refreshAllIntegrations', () => {
 
     await expect(refreshAllIntegrations(client, 'proj')).resolves.toBeUndefined()
 
-    // The remaining three still fired despite Bing rejecting.
+    // The remaining four still fired despite Bing rejecting.
     expect(client.gscSync).toHaveBeenCalledTimes(1)
     expect(client.gaSync).toHaveBeenCalledTimes(1)
     expect(client.triggerGbpSync).toHaveBeenCalledTimes(1)
+    expect(client.triggerAdsSync).toHaveBeenCalledTimes(1)
   })
 
   test('all integrations failing still resolves (fire-and-forget)', async () => {
@@ -49,9 +52,10 @@ describe('refreshAllIntegrations', () => {
       bingInspectSitemap: boom,
       gaSync: boom,
       triggerGbpSync: boom,
+      triggerAdsSync: boom,
     })
 
     await expect(refreshAllIntegrations(client, 'proj')).resolves.toBeUndefined()
-    expect(boom).toHaveBeenCalledTimes(4)
+    expect(boom).toHaveBeenCalledTimes(5)
   })
 })

@@ -465,6 +465,24 @@ cnry gbp summary <project> [--location locations/{n}]
 
 `gbp sync` produces a run with the standard statuses (`completed` / `partial` / `failed`); `partial` means some selected locations synced and others errored (the per-location errors are on the run). Non-lodging locations are skipped cleanly (Google answers the lodging call with HTTP 400, not 404). Reviews are **not** synced — the v4 Reviews API is producer-restricted by Google and unavailable on most projects; the Q&A API was retired (HTTP 501).
 
+## OpenAI ads (ChatGPT ads)
+
+Paid-surface data for the project's connected OpenAI ad account. Ads render only in the ChatGPT consumer UI (never in API answers), so the Advertiser API is the only window into the paid layer. Money is integer micros in all stored/JSON data; insights `ctr`/`cpcMicros` are derived server-side and `null` on zero denominators. Paid metrics are "paid"/"sponsored" — never conflate with organic `cited`/`mentioned`.
+
+```
+cnry ads connect <project> --api-key <sdk-key>   # mint the key in OpenAI Ads Manager; validated upstream, stored in ~/.canonry/config.yaml
+cnry ads status <project>
+cnry ads sync <project>                          # ads-sync run: entity snapshots + daily rollups
+cnry ads campaigns <project> --format jsonl      # snapshots incl. context hints (newline-separated example queries)
+cnry ads insights <project> --level campaign --from 2026-06-01 --format jsonl
+cnry ads summary <project>                       # campaign-level totals only (no double counting)
+cnry ads disconnect <project>
+cnry schedule set <project> --kind ads-sync --preset daily
+```
+
+`ads sync` runs report `completed` / `partial` (some campaigns failed; per-campaign errors on the run) / `failed`. Doctor checks: `ads.auth.connection`, `ads.data.recent-sync` (both skipped when not connected).
+
+
 ## Backlinks (Common Crawl)
 
 Workspace-level Common Crawl release sync + per-project backlink extraction. Requires DuckDB; install once with `cnry backlinks install`. Releases are downloaded once per workspace and reused across all projects.

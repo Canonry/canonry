@@ -3,6 +3,11 @@ import { getTableColumns, getTableName, is, Table } from 'drizzle-orm'
 import type { z } from 'zod'
 import * as dbSchema from '@ainyc/canonry-db'
 import {
+  adsAdDtoSchema,
+  adsAdGroupDtoSchema,
+  adsCampaignDtoSchema,
+  adsConnectionStatusDtoSchema,
+  adsInsightRowDtoSchema,
   backlinkDomainDtoSchema,
   backlinkSummaryDtoSchema,
   bingConnectionDtoSchema,
@@ -205,24 +210,57 @@ const COVERAGE: Record<string, CoverageEntry> = {
     },
   },
   adsConnections: {
-    kind: 'internal-only',
-    reason: 'OpenAI ads connection metadata (sync engine PR). The read surface (status/campaigns/insights DTOs + routes) lands in the stacked ads-surfaces PR, which flips these entries to kind: dto.',
+    kind: 'dto',
+    dto: adsConnectionStatusDtoSchema,
+    internal: {
+      id: 'Surrogate key.',
+      projectId: 'Implied by the route scope.',
+      createdAt: 'Internal bookkeeping.',
+      updatedAt: 'Internal bookkeeping.',
+    },
   },
   adsCampaigns: {
-    kind: 'internal-only',
-    reason: 'OpenAI ads campaign snapshots (sync engine PR). Exposed via DTOs in the stacked ads-surfaces PR.',
+    kind: 'dto',
+    dto: adsCampaignDtoSchema,
+    internal: {
+      projectId: 'Implied by the route scope.',
+      targeting: 'Raw upstream geo-targeting JSON; surfaced with the management PR.',
+      upstreamCreatedAt: 'Upstream bookkeeping epoch; not part of the read DTO.',
+      upstreamUpdatedAt: 'Upstream bookkeeping epoch; not part of the read DTO.',
+      syncRunId: 'Internal join key.',
+      syncedAt: 'Internal bookkeeping.',
+    },
   },
   adsAdGroups: {
-    kind: 'internal-only',
-    reason: 'OpenAI ads ad-group snapshots incl. context_hints (sync engine PR). Exposed via DTOs in the stacked ads-surfaces PR.',
+    kind: 'dto',
+    dto: adsAdGroupDtoSchema,
+    internal: {
+      projectId: 'Implied by the route scope.',
+      upstreamCreatedAt: 'Upstream bookkeeping epoch; not part of the read DTO.',
+      upstreamUpdatedAt: 'Upstream bookkeeping epoch; not part of the read DTO.',
+      syncRunId: 'Internal join key.',
+      syncedAt: 'Internal bookkeeping.',
+    },
   },
   adsAds: {
-    kind: 'internal-only',
-    reason: 'OpenAI ads ad snapshots (sync engine PR). Exposed via DTOs in the stacked ads-surfaces PR.',
+    kind: 'dto',
+    dto: adsAdDtoSchema,
+    internal: {
+      projectId: 'Implied by the route scope.',
+      upstreamCreatedAt: 'Upstream bookkeeping epoch; not part of the read DTO.',
+      upstreamUpdatedAt: 'Upstream bookkeeping epoch; not part of the read DTO.',
+      syncRunId: 'Internal join key.',
+      syncedAt: 'Internal bookkeeping.',
+    },
   },
   adsInsightsDaily: {
-    kind: 'internal-only',
-    reason: 'Daily paid-performance rollups in integer micros (sync engine PR). Exposed via insights/summary DTOs in the stacked ads-surfaces PR.',
+    kind: 'dto',
+    dto: adsInsightRowDtoSchema,
+    internal: {
+      id: 'Surrogate key.',
+      projectId: 'Implied by the route scope.',
+      syncRunId: 'Internal join key.',
+    },
   },
   gbpKeywordMonthly: {
     kind: 'internal-only',

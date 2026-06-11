@@ -15,6 +15,92 @@ export type AgentProvidersResponseDto = {
     defaultProvider: 'claude' | 'openai' | 'gemini' | 'zai';
 };
 
+export type AdsCampaignListResponse = {
+    campaigns: Array<{
+        id: string;
+        name: string;
+        status: string;
+        biddingType?: string | null;
+        dailySpendLimitMicros?: number | null;
+        lifetimeSpendLimitMicros?: number | null;
+        adGroups: Array<{
+            id: string;
+            campaignId: string;
+            name: string;
+            status: string;
+            billingEventType?: string | null;
+            maxBidMicros?: number | null;
+            contextHints: Array<string>;
+            ads: Array<{
+                id: string;
+                adGroupId: string;
+                name: string;
+                status: string;
+                reviewStatus?: string | null;
+                creative?: {
+                    type?: string | null;
+                    title?: string | null;
+                    body?: string | null;
+                    targetUrl?: string | null;
+                } | null;
+            }>;
+        }>;
+    }>;
+};
+
+export type AdsConnectionStatusDto = {
+    connected: boolean;
+    adAccountId?: string | null;
+    displayName?: string | null;
+    currencyCode?: string | null;
+    timezone?: string | null;
+    status?: string | null;
+    lastSyncedAt?: string | null;
+};
+
+export type AdsDisconnectResponse = {
+    disconnected: boolean;
+};
+
+export type AdsInsightsResponse = {
+    rows: Array<{
+        level: 'account' | 'campaign' | 'ad_group' | 'ad';
+        entityId: string;
+        date: string;
+        impressions: number;
+        clicks: number;
+        spendMicros: number;
+        ctr: number | null;
+        cpcMicros: number | null;
+    }>;
+};
+
+export type AdsSummaryDto = {
+    connected: boolean;
+    displayName?: string | null;
+    currencyCode?: string | null;
+    lastSyncedAt?: string | null;
+    campaignCount: number;
+    adGroupCount: number;
+    adCount: number;
+    window: {
+        from: string | null;
+        to: string | null;
+    };
+    totals: {
+        impressions: number;
+        clicks: number;
+        spendMicros: number;
+        ctr: number | null;
+        cpcMicros: number | null;
+    };
+};
+
+export type AdsSyncResponse = {
+    runId: string;
+    status: string;
+};
+
 export type ApiKeyDto = {
     id: string;
     name: string;
@@ -5523,6 +5609,247 @@ export type GetApiV1ProjectsByNameGbpSummaryResponses = {
 };
 
 export type GetApiV1ProjectsByNameGbpSummaryResponse = GetApiV1ProjectsByNameGbpSummaryResponses[keyof GetApiV1ProjectsByNameGbpSummaryResponses];
+
+export type PostApiV1ProjectsByNameAdsConnectData = {
+    body: {
+        apiKey: string;
+    };
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/ads/connect';
+};
+
+export type PostApiV1ProjectsByNameAdsConnectErrors = {
+    /**
+     * Missing/invalid key or credential storage unavailable.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameAdsConnectError = PostApiV1ProjectsByNameAdsConnectErrors[keyof PostApiV1ProjectsByNameAdsConnectErrors];
+
+export type PostApiV1ProjectsByNameAdsConnectResponses = {
+    /**
+     * Connected; key validated against the upstream ad account.
+     */
+    200: AdsConnectionStatusDto;
+};
+
+export type PostApiV1ProjectsByNameAdsConnectResponse = PostApiV1ProjectsByNameAdsConnectResponses[keyof PostApiV1ProjectsByNameAdsConnectResponses];
+
+export type DeleteApiV1ProjectsByNameAdsConnectionData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/ads/connection';
+};
+
+export type DeleteApiV1ProjectsByNameAdsConnectionErrors = {
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type DeleteApiV1ProjectsByNameAdsConnectionError = DeleteApiV1ProjectsByNameAdsConnectionErrors[keyof DeleteApiV1ProjectsByNameAdsConnectionErrors];
+
+export type DeleteApiV1ProjectsByNameAdsConnectionResponses = {
+    /**
+     * Disconnected (idempotent).
+     */
+    200: AdsDisconnectResponse;
+};
+
+export type DeleteApiV1ProjectsByNameAdsConnectionResponse = DeleteApiV1ProjectsByNameAdsConnectionResponses[keyof DeleteApiV1ProjectsByNameAdsConnectionResponses];
+
+export type GetApiV1ProjectsByNameAdsStatusData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/ads/status';
+};
+
+export type GetApiV1ProjectsByNameAdsStatusErrors = {
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAdsStatusError = GetApiV1ProjectsByNameAdsStatusErrors[keyof GetApiV1ProjectsByNameAdsStatusErrors];
+
+export type GetApiV1ProjectsByNameAdsStatusResponses = {
+    /**
+     * Connection status.
+     */
+    200: AdsConnectionStatusDto;
+};
+
+export type GetApiV1ProjectsByNameAdsStatusResponse = GetApiV1ProjectsByNameAdsStatusResponses[keyof GetApiV1ProjectsByNameAdsStatusResponses];
+
+export type PostApiV1ProjectsByNameAdsSyncData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/ads/sync';
+};
+
+export type PostApiV1ProjectsByNameAdsSyncErrors = {
+    /**
+     * No ads connection for this project.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameAdsSyncError = PostApiV1ProjectsByNameAdsSyncErrors[keyof PostApiV1ProjectsByNameAdsSyncErrors];
+
+export type PostApiV1ProjectsByNameAdsSyncResponses = {
+    /**
+     * Sync run queued.
+     */
+    200: AdsSyncResponse;
+};
+
+export type PostApiV1ProjectsByNameAdsSyncResponse = PostApiV1ProjectsByNameAdsSyncResponses[keyof PostApiV1ProjectsByNameAdsSyncResponses];
+
+export type GetApiV1ProjectsByNameAdsCampaignsData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/ads/campaigns';
+};
+
+export type GetApiV1ProjectsByNameAdsCampaignsErrors = {
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAdsCampaignsError = GetApiV1ProjectsByNameAdsCampaignsErrors[keyof GetApiV1ProjectsByNameAdsCampaignsErrors];
+
+export type GetApiV1ProjectsByNameAdsCampaignsResponses = {
+    /**
+     * Campaign snapshots.
+     */
+    200: AdsCampaignListResponse;
+};
+
+export type GetApiV1ProjectsByNameAdsCampaignsResponse = GetApiV1ProjectsByNameAdsCampaignsResponses[keyof GetApiV1ProjectsByNameAdsCampaignsResponses];
+
+export type GetApiV1ProjectsByNameAdsInsightsData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * account | campaign | ad_group | ad
+         */
+        level?: string;
+        /**
+         * Scope to one upstream entity id
+         */
+        entityId?: string;
+        /**
+         * Inclusive start date (YYYY-MM-DD)
+         */
+        from?: string;
+        /**
+         * Inclusive end date (YYYY-MM-DD)
+         */
+        to?: string;
+    };
+    url: '/api/v1/projects/{name}/ads/insights';
+};
+
+export type GetApiV1ProjectsByNameAdsInsightsErrors = {
+    /**
+     * Invalid level filter.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAdsInsightsError = GetApiV1ProjectsByNameAdsInsightsErrors[keyof GetApiV1ProjectsByNameAdsInsightsErrors];
+
+export type GetApiV1ProjectsByNameAdsInsightsResponses = {
+    /**
+     * Daily rollup rows.
+     */
+    200: AdsInsightsResponse;
+};
+
+export type GetApiV1ProjectsByNameAdsInsightsResponse = GetApiV1ProjectsByNameAdsInsightsResponses[keyof GetApiV1ProjectsByNameAdsInsightsResponses];
+
+export type GetApiV1ProjectsByNameAdsSummaryData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/ads/summary';
+};
+
+export type GetApiV1ProjectsByNameAdsSummaryErrors = {
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAdsSummaryError = GetApiV1ProjectsByNameAdsSummaryErrors[keyof GetApiV1ProjectsByNameAdsSummaryErrors];
+
+export type GetApiV1ProjectsByNameAdsSummaryResponses = {
+    /**
+     * Summary returned.
+     */
+    200: AdsSummaryDto;
+};
+
+export type GetApiV1ProjectsByNameAdsSummaryResponse = GetApiV1ProjectsByNameAdsSummaryResponses[keyof GetApiV1ProjectsByNameAdsSummaryResponses];
 
 export type PostApiV1ProjectsByNameBingConnectData = {
     body: {
