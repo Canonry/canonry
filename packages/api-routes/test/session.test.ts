@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import Fastify from 'fastify'
+import { eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createClient, migrate, apiKeys } from '@ainyc/canonry-db'
 import {
@@ -37,7 +38,7 @@ function makeDashboardStore(initial?: string): DashboardPasswordStore & { curren
   }
 }
 
-function makeApp() {
+function makeApp(opts: { setupRequiresApiKey?: boolean } = {}) {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-session-'))
   const db = createClient(path.join(tmpDir, 'test.db'))
   migrate(db)
@@ -68,6 +69,7 @@ function makeApp() {
       ttlMs: store.ttlMs,
       dashboardPassword,
       getDefaultApiKey: () => ({ id: keyId }),
+      setupRequiresApiKey: opts.setupRequiresApiKey,
     })
   }, { prefix: '/api/v1' })
 
@@ -323,6 +325,69 @@ describe('session routes', () => {
     expect(saw429).toBe(true)
     // The guard should trip right after the 10-request window, not let all 15 through.
     expect(attempts).toBeLessThanOrEqual(11)
+  })
+
+  it('setupRequiresApiKey gates first-run setup behind a valid bearer key (#690 port)', async () => {
+    // Network-reachable posture: apps/api always sets this; canonry serve
+    // sets it for non-loopback binds. A remote first-visitor must not be
+    // able to claim the dashboard password and mint a `*` session.
+    const gated = makeApp({ setupRequiresApiKey: true })
+    try {
+      // Unauthenticated setup is rejected and writes nothing.
+      const unauth = await gated.app.inject({
+        method: 'POST',
+        url: '/api/v1/session/setup',
+        payload: { password: 'a-strong-password' },
+      })
+      expect(unauth.statusCode).toBe(401)
+      expect(unauth.json().error.code).toBe('AUTH_REQUIRED')
+      expect(gated.dashboardPassword.current()).toBeUndefined()
+
+      // An invalid bearer key is still rejected.
+      const badKey = await gated.app.inject({
+        method: 'POST',
+        url: '/api/v1/session/setup',
+        headers: { authorization: 'Bearer cnry_not_a_real_key' },
+        payload: { password: 'a-strong-password' },
+      })
+      expect(badKey.statusCode).toBe(401)
+      expect(gated.dashboardPassword.current()).toBeUndefined()
+
+      // With the valid bearer key, setup proceeds and issues a session.
+      const ok = await gated.app.inject({
+        method: 'POST',
+        url: '/api/v1/session/setup',
+        headers: { authorization: `Bearer ${gated.rawKey}` },
+        payload: { password: 'a-strong-password' },
+      })
+      expect(ok.statusCode).toBe(200)
+      expect(ok.headers['set-cookie']).toMatch(/test_session=/)
+      expect(gated.dashboardPassword.current()).toMatch(/^scrypt\$1\$/)
+    } finally {
+      await gated.app.close()
+      fs.rmSync(gated.tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  it('setupRequiresApiKey rejects a bearer key that has been revoked', async () => {
+    const gated = makeApp({ setupRequiresApiKey: true })
+    try {
+      gated.db.update(apiKeys)
+        .set({ revokedAt: new Date().toISOString() })
+        .where(eq(apiKeys.id, gated.keyId))
+        .run()
+      const res = await gated.app.inject({
+        method: 'POST',
+        url: '/api/v1/session/setup',
+        headers: { authorization: `Bearer ${gated.rawKey}` },
+        payload: { password: 'a-strong-password' },
+      })
+      expect(res.statusCode).toBe(401)
+      expect(gated.dashboardPassword.current()).toBeUndefined()
+    } finally {
+      await gated.app.close()
+      fs.rmSync(gated.tmpDir, { recursive: true, force: true })
+    }
   })
 
   it('does not rate-limit a normal login burst under the threshold', async () => {

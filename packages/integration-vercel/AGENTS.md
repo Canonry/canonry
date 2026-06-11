@@ -17,7 +17,7 @@ with **no in-app instrumentation** required on the user's Vercel project.
 | File | Role |
 |------|------|
 | `src/client.ts` | `listVercelTrafficEvents` — page-paginated `request-logs` pull, `VercelLogsApiError` |
-| `src/drain.ts` | `drainVercelTrafficEvents` — adaptive time-sub-window drain over a wide window; retention-clamps the start |
+| `src/drain.ts` | `drainVercelTrafficEvents` — adaptive time-sub-window drain over a wide window; retention-clamps the start; optional wall-clock `deadlineMs` stops early with `drainedThroughMs` for resumable partial progress |
 | `src/normalize.ts` | `normalizeVercelLogRow` — converts a raw `request-logs` row into a `NormalizedTrafficRequest` |
 | `src/types.ts` | Adapter option/response shapes (`VercelRequestLogRow`, `ListVercelTrafficEventsOptions`, `VercelTrafficEventsPage`) |
 | `src/index.ts` | Re-exports public API |
@@ -36,8 +36,22 @@ with **no in-app instrumentation** required on the user's Vercel project.
 - **Adaptive sub-window drain.** Page-number pagination has no resumable
   cursor, so a window denser than the page budget cannot be pulled in one
   pass. `drainVercelTrafficEvents` narrows the window into adaptive time
-  slices: it halves the span on page-budget overflow and generally doubles
+  slices: it **starts at a small `INITIAL_SUB_WINDOW_MS = 5min` span** (not the
+  full window), halves the span on page-budget overflow, and generally doubles
   back up after a clean slice, with `eventId` dedup across slice boundaries.
+  Starting small matters under the wall-clock `deadlineMs`: opening at the full
+  span means the first pulls are whole-window overflow pulls that exhaust the
+  page budget without completing a sub-window, so a dense multi-hour backlog can
+  burn the entire deadline with ZERO cursor progress and wedge permanently
+  (every retry re-hits the same window). A small first span completes fast, the
+  cursor advances, and partial progress is committed and resumed next run.
+  If the head is BOTH dense AND slow, even the small first span can't be narrowed
+  to a drainable floor before the budget elapses — so the **deadline path itself
+  guarantees progress**: on a zero-progress stop it skips past the head by the
+  initial span (recorded in `deadlineSkippedSliceCount` / `deadlineSkippedSliceStartsMs`,
+  surfaced via `warn`) rather than returning a start-equals-end window the route
+  must fail. Start-small reduces how often this fires; the skip makes the wedge
+  impossible regardless of upstream density or latency.
   The bisection floor is **one second** (`MIN_SUB_WINDOW_MS = 1_000`), small
   enough to drain real-world burst minutes (sites routinely hit 1000+ log
   pages in a single minute) without escalating to the floor-budget re-pull. A
@@ -54,6 +68,16 @@ with **no in-app instrumentation** required on the user's Vercel project.
   safe and `lastSyncedAt` keeps moving); the **replace-mode backfill** instead
   fails loud on truncation so it never overwrites a full window with a partial
   sample.
+- **Wall-clock deadline (optional).** `deadlineMs` (with an injectable `now`,
+  defaulting to `Date.now`) bounds a single drain's wall-clock cost: the loop
+  stops before starting a sub-window once the clock passes it, returning
+  `deadlineReached: true` and `drainedThroughMs` at the last fully-drained
+  boundary. An additive incremental caller commits `[startDate, drainedThroughMs]`
+  and advances `lastSyncedAt` there, so a dense or slow window converges over
+  several syncs instead of one unbounded grind — which would time out the
+  synchronous sync route and orphan a `running` run. Left unset, the drain runs
+  to completion or `maxSubWindows` (replace-mode backfill keeps that). One
+  in-flight pull can overrun the deadline, so the bound is approximate.
 - **Retention clamp.** Vercel rejects a window starting before the plan's
   `request-logs` retention with HTTP 400 `ExceedsBillingLimitError`.
   `drainVercelTrafficEvents` detects that, binary-searches the retention

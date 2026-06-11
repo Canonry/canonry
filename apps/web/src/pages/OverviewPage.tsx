@@ -7,7 +7,6 @@ import { Sparkline } from '../components/shared/Sparkline.js'
 import { StatusBadge } from '../components/shared/StatusBadge.js'
 import { ToneBadge } from '../components/shared/ToneBadge.js'
 import { toneFromRunStatus } from '../lib/tone-helpers.js'
-import { toTitleCase } from '../lib/format-helpers.js'
 import { buildSystemHealthCards, serviceStatusTooltip } from '../lib/health-helpers.js'
 import { useDashboardOverview as useDashboard } from '../queries/use-dashboard-overview.js'
 import { useHealth } from '../queries/use-health.js'
@@ -26,6 +25,9 @@ function OverviewProjectCard({
       params={{ projectId: project.project.id }}
       className="project-row cursor-pointer"
     >
+      <div className="project-row-chart">
+        <Sparkline points={project.trend} tone={toneFromRunStatus(project.lastRun.status)} />
+      </div>
       <div className="project-row-primary">
         <div>
           <p className="project-name">{project.project.name}</p>
@@ -35,9 +37,9 @@ function OverviewProjectCard({
       </div>
       <div className="project-row-stat">
         <div className="metric-inline-block">
-          <p className="metric-inline-label">Answer Visibility</p>
-          <p className={`metric-inline-value ${project.visibilityTone === 'caution' ? 'text-amber-400' : ''}`}>{project.visibilityScore}</p>
-          <p className="metric-inline-delta">{project.visibilityDelta}</p>
+          <p className="metric-inline-label">Mentioned</p>
+          <p className={`metric-inline-value ${project.mentionTone === 'caution' ? 'text-amber-400' : ''}`}>{project.mentionScore}</p>
+          <p className="metric-inline-delta">{project.mentionDelta}</p>
           {project.providerCoverage && <p className="text-[10px] font-medium text-amber-400/80">{project.providerCoverage}</p>}
         </div>
       </div>
@@ -45,13 +47,7 @@ function OverviewProjectCard({
         <div className="metric-inline-block">
           <p className="metric-inline-label">Competitor Pressure</p>
           <p className="metric-inline-value">{project.competitorPressureLabel}</p>
-          <p className="metric-inline-delta">
-            {project.lastRun.kindLabel} · {toTitleCase(project.lastRun.status)}
-          </p>
         </div>
-      </div>
-      <div className="project-row-chart">
-        <Sparkline points={project.trend} tone={toneFromRunStatus(project.lastRun.status)} />
       </div>
       <span className="project-row-link">
         <ChevronRight className="h-4 w-4 text-zinc-500" />

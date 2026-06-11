@@ -8,6 +8,7 @@
 - Watch AI engines crawl and refer traffic via [server-log ingestion](skills/canonry/references/server-side-traffic.md) — Cloud Run, Vercel, and the WordPress Traffic Logger plugin today
 - Diagnose against real traffic with built-in [GSC](docs/google-search-console-setup.md), [GA4](docs/google-analytics-setup.md), and [Bing Webmaster](docs/bing-webmaster-setup.md)
 - Track local AEO via [Google Business Profile](skills/canonry/references/google-business-profile.md) — search-term impressions, performance metrics, and hotel lodging + booking-CTA gaps
+- Discover who links to you with [Common Crawl backlinks](skills/canonry/references/canonry-cli.md#backlinks-common-crawl) — follows Common Crawl's rolling monthly hyperlink graph, auto-syncing each new window on a schedule, queried locally with DuckDB
 - Execute fixes via [WordPress](docs/wordpress-setup.md), JSON-LD schema, and indexing submissions
 - Manage many clients declaratively — config-as-code YAML + `cnry apply`
 - Schedule recurring visibility checks, traffic syncs, and Business Profile syncs, with webhook alerts on regressions
@@ -53,7 +54,7 @@ Set up canonry for me. Canonry is an open-source platform that tracks how AI ans
 3. Run `cnry init` in this directory. This scaffolds config and installs the canonry skills into `.claude/skills/canonry/`, `.claude/skills/aero/`, `.codex/skills/canonry/`, and `.codex/skills/aero/`. If the skills aren't there afterwards, run `cnry skills install`.
 4. Read the operator playbook at `.claude/skills/canonry/SKILL.md` and follow it end-to-end: create the project with my domain and queries, wire up the provider key I chose, and trigger the first sweep.
 5. Open my browser to the dashboard so I can see the run results.
-6. Switch to the analyst playbook at `.claude/skills/aero/SKILL.md` and run a baseline AEO audit on my behalf. Read citation evidence with `cnry evidence <project> --format json`, then run `npx @ainyc/aeo-audit "<my-domain>" --sitemap --format json` for a site-readiness score. The `--sitemap` flag audits every page listed in my sitemap instead of just the homepage, so the readiness score reflects the whole site.
+6. Switch to the analyst playbook at `.claude/skills/aero/SKILL.md` and run a baseline AEO audit on my behalf. Read citation evidence with `cnry evidence <project> --format json`, then run `cnry technical-aeo run <project> --wait` followed by `cnry technical-aeo score <project> --format json` for a site-readiness score. This crawls every page in my sitemap (not just the homepage), scores the whole site 0–100, and saves the result so it appears in the dashboard and can be re-audited on a schedule.
 7. Summarize what you found: my mention and citation rates per provider, the top 3 queries I'm not yet cited on, and the highest-impact site issues from the audit. Ask me for permission before taking any further action, such as drafting content, submitting URLs for indexing, editing files, or anything else that changes my site.
 ```
 

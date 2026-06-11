@@ -628,9 +628,9 @@ export function buildPortfolioProject(data: ProjectData): PortfolioProjectVm {
   if (!overview) {
     return {
       project: dto,
-      visibilityScore: 0,
-      visibilityDelta: 'No data',
-      visibilityTone: 'neutral',
+      mentionScore: 0,
+      mentionDelta: 'No data',
+      mentionTone: 'neutral',
       lastRun: runItem,
       insight: 'No runs completed yet.',
       trend: [],
@@ -638,25 +638,32 @@ export function buildPortfolioProject(data: ProjectData): PortfolioProjectVm {
     }
   }
 
-  const visibility = overview.scores.visibility
-  // The visibility gauge's `value` is presentational ("67" or "No data");
+  // Mention Coverage is the headline portfolio metric (did the AI actually say
+  // the brand?), not the cited/source signal. Both ride on the overview; we
+  // read `mention`. The gauge's `value` is presentational ("67"/"No data");
   // `progress` is the same number as 0–100, so we read that for the score.
-  const visibilityScore = visibility.progress ?? 0
-  const cited = overview.queryCounts.citedQueries
+  const mention = overview.scores.mention
+  const mentionScore = mention.progress ?? 0
+  const mentioned = overview.queryCounts.mentionedQueries
   const total = overview.queryCounts.totalQueries
   const providerCount = overview.providers.length
 
   return {
     project: dto,
-    visibilityScore,
-    visibilityDelta: total > 0 ? `${cited} of ${total} queries` : 'No data',
-    visibilityTone: visibility.tone as MetricTone,
-    providerCoverage: visibility.providerCoverage,
+    mentionScore,
+    mentionDelta: total > 0 ? `${mentioned} of ${total} queries` : 'No data',
+    mentionTone: mention.tone as MetricTone,
+    providerCoverage: mention.providerCoverage,
     lastRun: runItem,
+    // Subtitle reads the mention signal (answerMentioned) — the word
+    // "mentioned" must be backed by mention data, not the cited count.
     insight: total > 0
-      ? `${cited} of ${total} queries mentioned across ${providerCount} provider${providerCount === 1 ? '' : 's'}.`
+      ? `${mentioned} of ${total} queries mentioned across ${providerCount} provider${providerCount === 1 ? '' : 's'}.`
       : 'No runs completed yet.',
-    trend: [],
+    // Mention-rate-over-time series (0–100, oldest→newest), computed
+    // server-side from runHistory — drives the per-project sparkline so the
+    // trend tracks the same signal as the headline number.
+    trend: mention.trend ?? [],
     competitorPressureLabel: overview.scores.competitorPressure.value,
   }
 }

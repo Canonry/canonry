@@ -3,7 +3,7 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 
 const _require = createRequire(import.meta.url)
 const { version: PKG_VERSION } = _require('../package.json') as { version: string }
@@ -18,7 +18,7 @@ import { claudeAdapter } from '@ainyc/canonry-provider-claude'
 import { localAdapter } from '@ainyc/canonry-provider-local'
 import { cdpChatgptAdapter } from '@ainyc/canonry-provider-cdp'
 import { perplexityAdapter } from '@ainyc/canonry-provider-perplexity'
-import { RunKinds, RunStatuses, RunTriggers, type ProviderAdapter } from '@ainyc/canonry-contracts'
+import { CcReleaseSyncStatuses, RunKinds, RunStatuses, RunTriggers, type ProviderAdapter } from '@ainyc/canonry-contracts'
 import type { CanonryConfig, ProviderConfigEntry } from './config.js'
 import { saveConfigPatch, loadConfig, getConfigPath } from './config.js'
 import { getPlacesConfig } from './places-config.js'
@@ -68,6 +68,7 @@ import { maybeRefreshGscCoverage } from './coverage-refresh.js'
 import { executeReleaseSync } from './commoncrawl-sync.js'
 import { executeBacklinkExtract } from './backlink-extract.js'
 import { executeDiscoveryRun } from './discovery-run.js'
+import { executeSiteAudit } from './execute-site-audit.js'
 import { backfillProjectAnswerMentions } from './commands/backfill.js'
 import { getBundledSkillSnapshots } from './commands/skills.js'
 import {
@@ -89,7 +90,7 @@ import { IntelligenceService } from './intelligence-service.js'
 import { RunCoordinator } from './run-coordinator.js'
 import { SessionRegistry } from './agent/session-registry.js'
 import { registerAgentRoutes } from './agent/agent-routes.js'
-import { createRecommendationExplainer } from './agent/recommendation-explainer.js'
+import { createRecommendationExplainer, createRecommendationBriefSynthesizer, RECOMMENDATION_BRIEF_PROMPT_VERSION } from './agent/recommendation-explainer.js'
 import { ApiClient } from './client.js'
 import { SnapshotService } from './snapshot-service.js'
 import { fetchSiteText } from './site-fetch.js'
@@ -188,11 +189,36 @@ export function applyLegacyCredentials(rows: LegacyCredentialRows, config: Canon
   }
 }
 
+/**
+ * Whether `host` is a loopback bind — only the local machine can reach a
+ * server bound here. `undefined` (programmatic/test callers that never bind a
+ * socket) is treated as loopback. `0.0.0.0` / `::` (bind-all) and any specific
+ * LAN/public address are NOT loopback.
+ */
+export function isLoopbackBindHost(host: string | undefined): boolean {
+  if (host == null || host === '') return true
+  const normalized = host.trim().toLowerCase().replace(/^\[|\]$/g, '')
+  if (normalized === 'localhost' || normalized === '::1') return true
+  // IPv4 loopback is the whole 127.0.0.0/8 block.
+  if (/^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(normalized)) return true
+  return false
+}
+
 export async function createServer(opts: {
   config: CanonryConfig
   db: DatabaseClient
   open?: boolean
   logger?: boolean
+  /**
+   * The network interface the server will bind to (from `canonry serve`).
+   * Used to gate the unauthenticated first-run dashboard password setup: on a
+   * loopback bind only local processes can reach `/session/setup`, so claiming
+   * the initial password without the API key is safe. On a non-loopback bind
+   * (`0.0.0.0`, a LAN IP) the setup endpoint additionally requires a valid
+   * bearer key so a remote first-visitor cannot mint a full-access session.
+   * Defaults to loopback when unset (programmatic/test callers).
+   */
+  host?: string
 }): Promise<FastifyInstance> {
   const logger = opts.logger === false
     ? false
@@ -383,6 +409,22 @@ export async function createServer(opts: {
       })
   }
 
+  // Shared Technical-AEO site-audit worker. Used by BOTH the manual
+  // `POST /technical-aeo/runs` route and the scheduled `site-audit` kind. The
+  // run row is created by the caller; this runs the sitemap crawl + audit and
+  // hands off to the post-run coordinator on completion.
+  const runSiteAudit = (
+    runId: string,
+    projectId: string,
+    auditOpts?: { sitemapUrl?: string; limit?: number },
+  ): void => {
+    executeSiteAudit(opts.db, runId, projectId, auditOpts ?? {})
+      .then(() => runCoordinator.onRunCompleted(runId, projectId))
+      .catch((err: unknown) => {
+        app.log.error({ runId, err }, 'Site audit failed')
+      })
+  }
+
   const scheduler = new Scheduler(opts.db, {
     onRunCreated: (runId, projectId, providers, location) => {
       jobRunner.executeRun(runId, projectId, providers, location).catch((err: unknown) => {
@@ -407,6 +449,48 @@ export async function createServer(opts: {
       // the same in-process client. refreshAllIntegrations isolates each
       // integration's failure with Promise.allSettled and never rejects.
       void refreshAllIntegrations(aeroClient, projectName)
+    },
+    onBacklinksSyncRequested: (projectName) => {
+      // Re-probe Common Crawl for the newest rolling window. The release sync is
+      // workspace-GLOBAL, so we gate on freshness: skip when the latest published
+      // release is already synced READY (avoids re-downloading a ~4 GB/~13 GB
+      // near-identical window every tick). We match on (release, status) directly
+      // rather than the most-recently-updated ready row, so re-syncing an older
+      // release out of band doesn't make us re-trigger an already-synced latest.
+      // Otherwise reuse POST /backlinks/syncs, which owns insert/dedupe (UNIQUE
+      // release + non-terminal check) and the per-project auto-extract fan-out.
+      // Probe directly (not the 5-min cache) so each tick sees fresh results.
+      void (async () => {
+        const probed = await probeLatestRelease().catch((err: unknown) => {
+          app.log.warn({ projectName, err }, 'Scheduled backlinks sync: latest-release probe failed')
+          return null
+        })
+        if (!probed) return
+        const alreadySynced = opts.db
+          .select()
+          .from(ccReleaseSyncsTable)
+          .where(and(
+            eq(ccReleaseSyncsTable.release, probed.release),
+            eq(ccReleaseSyncsTable.status, CcReleaseSyncStatuses.ready),
+          ))
+          .limit(1)
+          .get()
+        if (alreadySynced) {
+          app.log.info({ projectName, release: probed.release }, 'Scheduled backlinks sync: already up to date, skipping')
+          return
+        }
+        aeroClient.backlinksTriggerSync(probed.release).catch((err: unknown) => {
+          app.log.error(
+            { projectName, release: probed.release, err: err instanceof Error ? err.message : String(err) },
+            'Scheduled backlinks sync failed',
+          )
+        })
+      })()
+    },
+    onSiteAuditRequested: (runId, projectId) => {
+      // The scheduler already created the site-audit run row; run the same
+      // worker the manual POST /technical-aeo/runs route uses (default limit).
+      runSiteAudit(runId, projectId)
     },
   })
 
@@ -745,9 +829,12 @@ export async function createServer(opts: {
           .where(eq(apiKeys.keyHash, hashApiKey(opts.config.apiKey)))
           .get()
       },
+      // On a non-loopback bind (`--host 0.0.0.0`, a LAN IP) the first-run
+      // password setup must demand a valid bearer key so a remote
+      // first-visitor cannot mint a full-access session (#690).
+      setupRequiresApiKey: !isLoopbackBindHost(opts.host),
     })
   }, { prefix: apiPrefix })
-
   const LATEST_RELEASE_TTL_MS = 5 * 60 * 1000
   let latestReleaseCache: { value: import('@ainyc/canonry-contracts').CcAvailableRelease | null; expiresAt: number } | null = null
   const discoverLatestRelease = async (): Promise<import('@ainyc/canonry-contracts').CcAvailableRelease | null> => {
@@ -778,6 +865,9 @@ export async function createServer(opts: {
   // pi-ai + capability-tier wiring. Falls back to a clean 503 when no
   // provider is configured (handled inside the explainer factory).
   const explainContentRecommendation = createRecommendationExplainer({ config: opts.config })
+  // LLM-backed structured BRIEF synthesizer (brief mode). Same plumbing as the
+  // explainer; gated to ownable targets by the route. 503 when no provider.
+  const briefContentRecommendation = createRecommendationBriefSynthesizer({ config: opts.config })
 
   await app.register(apiRoutes, {
     db: opts.db,
@@ -786,6 +876,8 @@ export async function createServer(opts: {
     sessionCookieName: SESSION_COOKIE_NAME,
     resolveSessionApiKeyId,
     explainContentRecommendation,
+    briefContentRecommendation,
+    briefPromptVersion: RECOMMENDATION_BRIEF_PROMPT_VERSION,
     // On-disk paths the daemon depends on. The api-routes plugin uses these
     // to fail loud (HTTP 503) when the operator wipes the DB or config out
     // from under a running serve — SQLite holds the inode open across
@@ -934,6 +1026,10 @@ export async function createServer(opts: {
         .catch((err: unknown) => {
           app.log.error({ runId: input.runId, err }, 'Discovery run failed')
         })
+    },
+    onSiteAuditRequested: (runId: string, projectId: string, auditOpts?: { sitemapUrl?: string; limit?: number }) => {
+      // The route already created the site-audit run row; run the shared worker.
+      runSiteAudit(runId, projectId, auditOpts)
     },
     onBacklinksPruneCache: (release: string) => {
       try {

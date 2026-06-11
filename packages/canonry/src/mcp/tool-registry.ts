@@ -259,6 +259,20 @@ const contentTargetsInputSchema = z.object({
   project: projectNameSchema,
   limit: z.number().int().positive().max(500).optional().describe('Max rows. Defaults to all. Use a small number (3-10) when summarizing for the user.'),
   includeInProgress: z.boolean().optional().describe('Include rows that already have an in-flight tracked action. Default false.'),
+  winnabilityClass: z.enum(['ownable', 'ceded']).optional().describe('Filter by winnability: "ownable" (worth a brief) or "ceded" (aggregator/editorial head term to skip).'),
+  ownable: z.boolean().optional().describe('Convenience: when true, return only ownable targets (same as winnabilityClass="ownable").'),
+})
+
+const contentBriefInputSchema = z.object({
+  project: projectNameSchema,
+  targetRef: z.string().min(1).describe('Stable target ref from canonry_content_targets. The target must be ownable; ceded targets are rejected.'),
+  provider: z.string().optional().describe('Optional provider override (claude|openai|gemini|zai).'),
+  model: z.string().optional().describe('Optional model override within the chosen provider.'),
+  forceRefresh: z.boolean().optional().describe('Force a fresh synthesis even if a cached brief exists.'),
+})
+
+const contentMapInputSchema = z.object({
+  project: projectNameSchema,
 })
 
 const backlinksDomainsInputSchema = z.object({
@@ -386,6 +400,29 @@ const discoveryPromoteInputSchema = z.object({
     .optional(),
 })
 
+const technicalAeoScoreInputSchema = z.object({
+  project: projectNameSchema,
+})
+
+const technicalAeoPagesInputSchema = z.object({
+  project: projectNameSchema,
+  status: z.enum(['success', 'error']).optional().describe('Filter to successfully-audited or errored pages.'),
+  sort: z.enum(['score-asc', 'score-desc', 'url']).optional().describe('Sort order. Defaults to score-asc (worst pages first).'),
+  limit: z.number().int().positive().max(500).optional(),
+  offset: z.number().int().nonnegative().optional(),
+})
+
+const technicalAeoTrendInputSchema = z.object({
+  project: projectNameSchema,
+  limit: z.number().int().positive().max(365).optional(),
+})
+
+const technicalAeoRunInputSchema = z.object({
+  project: projectNameSchema,
+  sitemapUrl: z.string().url().optional().describe('Override the sitemap URL. Defaults to https://<canonicalDomain>/sitemap.xml.'),
+  limit: z.number().int().positive().max(2000).optional().describe('Cap pages audited (highest sitemap <priority> first).'),
+})
+
 const AGENT_WEBHOOK_EVENTS = [
   notificationEventSchema.enum['run.completed'],
   notificationEventSchema.enum['insight.critical'],
@@ -456,6 +493,37 @@ export const canonryMcpTools = [
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/report'],
     handler: (client, input) => client.getReport(input.project),
+  }),
+  defineTool({
+    name: 'canonry_analytics_metrics',
+    title: 'Get citation & mention trend',
+    description:
+      'Citation and mention rates over time for a project, bucketed adaptively (daily → monthly by span) and probe-excluded. Returns overall + per-provider window aggregates AND a per-bucket `byProvider` breakdown so you can read how each engine\'s cited/mentioned rate moved run-over-run — the same data the dashboard\'s "Citations & mentions over time" chart plots. Includes trend direction (improving/declining/stable) for both signals and query-set-change annotations. Filter the range with `window` (7d/30d/90d/all).',
+    access: 'read',
+    tier: 'monitoring',
+    inputSchema: z.object({
+      project: projectNameSchema,
+      window: analyticsWindowSchema.optional().describe('Time range: 7d, 30d, 90d, or all (default all).'),
+    }),
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/analytics/metrics'],
+    handler: (client, input) => client.getAnalyticsMetrics(input.project, input.window),
+  }),
+  defineTool({
+    name: 'canonry_analytics_sources',
+    title: 'Get cited-source rankings',
+    description:
+      'Where AI engines get the facts they cite for a project. Returns the FULL ranked list of cited domains (not truncated) — each tagged with a category and an actionable surface class (own / direct-competitor / ota-aggregator / editorial-media / other) — plus a surface-class roll-up and a per-provider breakdown (each provider\'s cited-domain mix + total cited slots). The surface class is deterministic (own/competitor from project data, the rest from the source allow-list) and enriched by discovery\'s stored per-domain classifications when present — no new LLM calls. Probe-excluded, window-filterable (7d/30d/90d/all). Use `limit` to cap each ranked list to the top N domains (an explicit long-tail rollup preserves the totals). All counts/shares/classification are computed server-side.',
+    access: 'read',
+    tier: 'monitoring',
+    inputSchema: z.object({
+      project: projectNameSchema,
+      window: analyticsWindowSchema.optional().describe('Time range: 7d, 30d, 90d, or all (default all).'),
+      limit: z.number().int().positive().optional().describe('Cap each ranked list to the top N domains. Omit for the full list.'),
+    }),
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/analytics/sources'],
+    handler: (client, input) => client.getAnalyticsSources(input.project, { window: input.window, limit: input.limit }),
   }),
   defineTool({
     name: 'canonry_search',
@@ -634,7 +702,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_content_targets',
     title: 'Get content targets',
-    description: 'Ranked, action-typed content opportunities. Each row is `{query, action ∈ create|expand|refresh|add-schema, ourBestPage?, winningCompetitor?, score, scoreBreakdown, drivers[], demandSource, actionConfidence}`. Use this to recommend which post the user should write or refresh next.',
+    description: 'Ranked, action-typed content opportunities. Each row is `{query, action ∈ create|expand|refresh|add-schema, ourBestPage?, winningCompetitor?, score, scoreBreakdown, drivers[], demandSource, actionConfidence, winnabilityClass, winnability?}`. `winnabilityClass` is the winnability gate: "ownable" (worth a brief) vs "ceded" (aggregator/editorial head term to skip); ownable rows sort first. Filter with `winnabilityClass`/`ownable`. Use this to recommend which post the user should write or refresh next.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: contentTargetsInputSchema,
@@ -643,7 +711,35 @@ export const canonryMcpTools = [
     handler: (client, input) => client.getContentTargets(input.project, {
       limit: input.limit,
       includeInProgress: input.includeInProgress,
+      winnabilityClass: input.winnabilityClass,
+      ownable: input.ownable,
     }),
+  }),
+  defineTool({
+    name: 'canonry_content_brief',
+    title: 'Synthesize content brief',
+    description: 'Synthesize (or fetch cached) a STRUCTURED content brief for an ownable target: `{targetQuery, winnabilityClass, angle, whyWinnable, schemaHookup, controllableSurfaceRationale}`. Gated to ownable targets — a ceded head term is rejected. Costs one analyze-tier LLM call on a cache miss; repeat calls are free. Pass a targetRef from canonry_content_targets.',
+    access: 'write',
+    tier: 'monitoring',
+    inputSchema: contentBriefInputSchema,
+    annotations: writeAnnotations({ idempotentHint: true }),
+    openApiOperations: ['POST /api/v1/projects/{name}/content/recommendations/{targetRef}/brief'],
+    handler: (client, input) => client.synthesizeContentBrief(input.project, input.targetRef, {
+      provider: input.provider,
+      model: input.model,
+      forceRefresh: input.forceRefresh,
+    }),
+  }),
+  defineTool({
+    name: 'canonry_content_map',
+    title: 'Get domain classifications (winnability map)',
+    description: 'The per-domain cited-surface classifications behind the winnabilityClass gate: `{domain, competitorType ∈ direct-competitor|ota-aggregator|editorial-media|other|unknown, hits, updatedAt}`, ranked by recurrence. Aggregator/editorial domains are the "ceded" surfaces. Running discovery improves coverage.',
+    access: 'read',
+    tier: 'monitoring',
+    inputSchema: contentMapInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/content/domain-classifications'],
+    handler: (client, input) => client.getDomainClassifications(input.project),
   }),
   defineTool({
     name: 'canonry_content_sources',
@@ -1547,6 +1643,61 @@ export const canonryMcpTools = [
     annotations: writeAnnotations({ idempotentHint: true }),
     openApiOperations: ['POST /api/v1/projects/{name}/discover/sessions/{id}/promote'],
     handler: (client, input) => client.promoteDiscovery(input.project, input.sessionId, input.request),
+  }),
+  defineTool({
+    name: 'canonry_technical_aeo_score',
+    title: 'Get Technical AEO score',
+    description:
+      'Get the Technical AEO scorecard for a project: the latest site-audit aggregate 0–100 score, per-factor site-level averages (with pass/partial/fail distribution), cross-cutting issues, prioritized fixes, and the delta vs the previous audit. When `hasData` is false the project has never been audited — call canonry_technical_aeo_run first.',
+    access: 'read',
+    tier: 'monitoring',
+    inputSchema: technicalAeoScoreInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/technical-aeo'],
+    handler: (client, input) => client.getTechnicalAeoScore(input.project),
+  }),
+  defineTool({
+    name: 'canonry_technical_aeo_pages',
+    title: 'List Technical AEO pages',
+    description:
+      'List the per-page breakdown of the latest site-audit run (paginated). Filter status=error to surface unreachable pages, or sort score-asc (default) to surface the worst-scoring pages first. Use after canonry_technical_aeo_score to drill into which pages drag the site score down.',
+    access: 'read',
+    tier: 'monitoring',
+    inputSchema: technicalAeoPagesInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/technical-aeo/pages'],
+    handler: (client, input) => client.getTechnicalAeoPages(input.project, {
+      status: input.status,
+      sort: input.sort,
+      limit: input.limit,
+      offset: input.offset,
+    }),
+  }),
+  defineTool({
+    name: 'canonry_technical_aeo_trend',
+    title: 'Get Technical AEO trend',
+    description: 'Get the aggregate Technical AEO score over time (oldest-first) across past site-audit runs. Use to answer "is our technical AEO improving?".',
+    access: 'read',
+    tier: 'monitoring',
+    inputSchema: technicalAeoTrendInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/technical-aeo/trend'],
+    handler: (client, input) => client.getTechnicalAeoTrend(input.project, input.limit !== undefined ? { limit: input.limit } : undefined),
+  }),
+  defineTool({
+    name: 'canonry_technical_aeo_run',
+    title: 'Run Technical AEO site audit',
+    description:
+      'Trigger a site-audit run: crawl the project sitemap and audit every reachable page across the aeo-audit ranking factors. Returns {runId, status}; the audit runs in the background (a large site can take minutes). Idempotent — if a site-audit is already in flight it returns that run. Poll canonry_run_get with the returned runId, then read canonry_technical_aeo_score.',
+    access: 'write',
+    tier: 'monitoring',
+    inputSchema: technicalAeoRunInputSchema,
+    annotations: writeAnnotations({ idempotentHint: false, openWorldHint: true }),
+    openApiOperations: ['POST /api/v1/projects/{name}/technical-aeo/runs'],
+    handler: (client, input) => client.triggerSiteAudit(input.project, {
+      sitemapUrl: input.sitemapUrl,
+      limit: input.limit,
+    }),
   }),
 ] as const
 

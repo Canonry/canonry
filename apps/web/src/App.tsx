@@ -30,6 +30,8 @@ import {
   isTerminalRunStatus,
   removeTrackedBatch,
   removeTrackedRun,
+  selectStaleTrackedRuns,
+  STALE_TRACKED_RUN_MS,
   subscribeRunTracker,
   summarizeBatchStatuses,
 } from './lib/run-tracker-store.js'
@@ -41,6 +43,7 @@ import { ProviderBadge } from './components/shared/ProviderBadge.js'
 import { StatusBadge } from './components/shared/StatusBadge.js'
 import { Drawer } from './components/layout/Drawer.js'
 import { EvidenceDetailModal } from './components/layout/EvidenceDetailModal.js'
+import { safeExternalUrl } from './lib/safe-url.js'
 import { findEvidenceForModal, findRunById } from './mock-data.js'
 import { useDashboardOverview as useDashboard } from './queries/use-dashboard-overview.js'
 import { useProjectDashboard } from './queries/use-project-dashboard.js'
@@ -221,6 +224,40 @@ export function RunNotificationObserver() {
         },
       })
       removeTrackedRun(run.id)
+    }
+
+    // Give up on tracked runs that have aged out of the capped GET /runs window
+    // (see STALE_TRACKED_RUN_MS). Such a run never reappears, so the loop above
+    // never sees it reach a terminal status and its trigger button would wedge
+    // on "Syncing…"/"Running…" forever. Only reconcile once /runs has actually
+    // loaded (`data` defined), so a not-yet-loaded list is never misread as
+    // "absent"; the TTL additionally protects a just-queued run that hasn't hit
+    // the list yet. Refresh the kind's queries with whatever is current, then
+    // drop the tracked run so its button re-enables.
+    if (runsQuery.data !== undefined) {
+      const presentRunIds = new Set(runs.map((r) => r.id))
+      const staleRuns = selectStaleTrackedRuns(
+        Object.values(trackedState.runs),
+        presentRunIds,
+        Date.now(),
+        STALE_TRACKED_RUN_MS,
+      )
+      for (const trackedRun of staleRuns) {
+        const project = projects.find((candidate) => candidate.id === trackedRun.projectId)
+        if (project) {
+          invalidateQueriesForRunKind(queryClient, trackedRun.kind, project.name)
+        }
+        if (trackedRun.sourceAction !== 'run-all') {
+          addToast({
+            title: `${formatTrackedRunKind(trackedRun.kind)} status unavailable`,
+            detail: resolveProjectLabel(trackedRun.projectId, trackedRun.projectLabel, projects),
+            tone: 'neutral',
+            dedupeKey: `run-stale:${trackedRun.runId}`,
+            dedupeMode: 'replace',
+          })
+        }
+        removeTrackedRun(trackedRun.runId)
+      }
     }
 
     for (const batch of Object.values(trackedState.batches)) {
@@ -750,11 +787,21 @@ export function RootLayout() {
                           {snap.groundingSources.length} grounding source{snap.groundingSources.length !== 1 ? 's' : ''}
                         </summary>
                         <ul className="mt-1 space-y-0.5">
-                          {snap.groundingSources.map((src: { uri: string; title: string }, i: number) => (
-                            <li key={i} className="text-xs text-zinc-500 truncate">
-                              <a href={src.uri} target="_blank" rel="noopener noreferrer" className="hover:text-zinc-300">{src.title || src.uri}</a>
-                            </li>
-                          ))}
+                          {snap.groundingSources.map((src: { uri: string; title: string }, i: number) => {
+                            // Grounding URIs come from LLM output — guard against
+                            // javascript:/data: links before rendering an anchor.
+                            const href = safeExternalUrl(src.uri)
+                            const label = src.title || src.uri
+                            return (
+                              <li key={i} className="text-xs text-zinc-500 truncate">
+                                {href ? (
+                                  <a href={href} target="_blank" rel="noopener noreferrer" className="hover:text-zinc-300">{label}</a>
+                                ) : (
+                                  <span>{label}</span>
+                                )}
+                              </li>
+                            )
+                          })}
                         </ul>
                       </details>
                     )}

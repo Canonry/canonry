@@ -46,7 +46,14 @@ export function requireScope(request: FastifyRequest, scope: string): void {
   throw forbidden(`This action requires the "${scope}" scope on your API key.`)
 }
 
-function hashKey(key: string): string {
+/**
+ * Hash a raw `cnry_…` bearer token to the value stored in `api_keys.key_hash`.
+ * Plain SHA-256 is sufficient here because the tokens are 128-bit random, so a
+ * 64-hex digest has no brute-force exposure. Exported so the key-management
+ * routes (`keys.ts`) hash newly minted keys through the exact same function the
+ * auth path verifies against — never duplicate the sha256 inline.
+ */
+export function hashApiKey(key: string): string {
   return crypto.createHash('sha256').update(key).digest('hex')
 }
 
@@ -55,7 +62,11 @@ const SKIP_PATHS = ['/health']
 function shouldSkipAuth(url: string): boolean {
   if (SKIP_PATHS.includes(url)) return true
   if (url.endsWith('/openapi.json')) return true
-  if (url.includes('/google/callback')) return true
+  // Both OAuth callback routes (`/google/callback` and
+  // `/projects/:name/google/callback`) end with this suffix. `endsWith` (not
+  // `includes`) so a future route that merely contains the substring — e.g.
+  // `/google/callback/anything` — does not silently become unauthenticated.
+  if (url.endsWith('/google/callback')) return true
   if (url.endsWith('/session') || url.endsWith('/session/setup')) return true
   // Aero owner-view onboarding: the free first report runs before the
   // visitor signs up. POST /guest/report, GET /guest/report/:id, and the
@@ -108,7 +119,7 @@ export async function authPlugin(app: FastifyInstance, opts: AuthPluginOptions =
       }
 
       const token = parts[1]!
-      const hash = hashKey(token)
+      const hash = hashApiKey(token)
 
       key = app.db
         .select()

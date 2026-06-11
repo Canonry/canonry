@@ -13,6 +13,7 @@ import {
   actionConfidenceLabel,
   CitationStates,
   contentActionLabel,
+  winnabilityClassLabel,
   dedupeReportActions,
   dedupeReportOpportunities,
   deltaPercent,
@@ -2208,9 +2209,11 @@ function renderOpportunities(report: ProjectReportDto): string {
     const drivers = o.drivers.length > 0
       ? `<ul class="driver-list">${o.drivers.map(d => `<li>${escapeHtml(d)}</li>`).join('')}</ul>`
       : '<span class="cell-not-cited">No driver signal yet</span>'
+    const surfaceTone = o.winnabilityClass === 'ceded' ? 'tone-caution' : 'tone-neutral'
     return `<tr>
       <td>${escapeHtml(o.query)}</td>
       <td><span class="badge tone-neutral">${escapeHtml(contentActionLabel(o.action))}</span></td>
+      <td><span class="badge ${surfaceTone}">${escapeHtml(winnabilityClassLabel(o.winnabilityClass))}</span></td>
       <td class="numeric" title="Opportunity score (0–100)">${Math.round(o.score)}</td>
       <td>${drivers}</td>
       <td>${ourPage}</td>
@@ -2224,10 +2227,10 @@ function renderOpportunities(report: ProjectReportDto): string {
       id: 'content-opportunities',
       eyebrow: 'Section 14',
       title: 'Content Opportunities',
-      intro: 'Queries where content work has the clearest path to more AI citations. Opportunity score is 0–100, higher = stronger.',
+      intro: 'Queries where content work has the clearest path to more AI citations. Opportunity score is 0–100, higher = stronger. Winnability flags whether the cited surface is ownable or ceded to aggregators/editorial.',
     },
     `${highlights}<table class="report-table">
-      <thead><tr><th>Query</th><th>Action</th><th class="numeric" title="Opportunity score (0–100)">Score</th><th>Why</th><th>Our page</th><th>Winning competitor</th><th>Confidence</th></tr></thead>
+      <thead><tr><th>Query</th><th>Action</th><th>Winnability</th><th class="numeric" title="Opportunity score (0–100)">Score</th><th>Why</th><th>Our page</th><th>Winning competitor</th><th>Confidence</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>`,
   )
@@ -2506,7 +2509,7 @@ function renderClientEvidenceSummary(report: ProjectReportDto): string {
       <ul class="client-opportunity-list">
         ${opportunities.map(o => `<li>
           <div class="op-query">${escapeHtml(o.query)}</div>
-          <div class="op-action">${escapeHtml(contentActionLabel(o.action))}</div>
+          <div class="op-action">${escapeHtml(contentActionLabel(o.action))}${o.winnabilityClass === 'ceded' ? ' <span class="badge tone-caution">Ceded surface</span>' : ''}</div>
         </li>`).join('')}
       </ul>
     </div>`)

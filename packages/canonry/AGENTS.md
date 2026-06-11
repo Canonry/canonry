@@ -16,6 +16,7 @@ The publishable npm package (`@ainyc/canonry`). Bundles the CLI, local Fastify s
 | `src/commands/` | Command implementations (one file per domain) |
 | `src/commands/competitor.ts` | Competitor commands: `competitor add`, `remove`/`delete`, `list` |
 | `src/commands/query.ts` | Query commands: `query add`, `replace`, `remove`/`delete`, `list`, `import`, `generate` |
+| `src/commands/keys.ts` | API key commands: `key list` (table NAME / PREFIX / SCOPES / CREATED / LAST USED / STATUS; `--format json\|jsonl`), `key create --name <name> [--scope <s> ...]` (prints the plaintext key ONCE with a "will not be shown again" warning; JSON mode includes the key), `key revoke <id>` (confirms revocation). Flag-driven, no prompts; delegates to `ApiClient.listApiKeys` / `createApiKey` / `revokeApiKey`. Registered via `src/cli-commands/keys.ts`. |
 | `src/commands/mcp.ts` | MCP client install helpers: `mcp install`, `mcp config` (writes to client config files only — separate from the `canonry-mcp` stdio bin) |
 | `src/mcp-clients.ts` | Registry of supported MCP clients (Claude Desktop, Cursor, Codex) — config-path resolvers and format hints used by `mcp install`/`mcp config` |
 | `src/commands/skills.ts` | `installSkills` / `listSkills` — reconciles bundled `skills/<name>/` trees into a user's `.claude/skills/<name>/` **additively** (missing files copied without `--force`; upstream-updated files the operator never touched refreshed; genuine local edits preserved and reported as conflicts unless `--force`), writes a `.canonry-skill-manifest.json` recording what canonry last wrote, and creates relative `.codex/skills/<name>` symlinks. `getBundledSkillSnapshots()` exposes the bundled version + per-file hashes for the `agent.skills.current` doctor check. Auto-invoked by `canonry init` when cwd looks like a project. |
@@ -24,14 +25,16 @@ The publishable npm package (`@ainyc/canonry`). Bundles the CLI, local Fastify s
 | `src/client.ts` | `ApiClient` class + `createApiClient()` factory |
 | `src/mcp/` | `canonry-mcp` stdio adapter over `createApiClient()` |
 | `src/mcp/server.ts` | `createCanonryMcpServer` — registers all API tools, then disables non-core tiers unless `--eager` |
-| `src/mcp/tool-registry.ts` | All API tools (97, including `canonry_report` and `canonry_gbp_places`), each tagged with a `tier` (`core` or one of the toolkit names) |
+| `src/mcp/tool-registry.ts` | All API tools (105, including `canonry_analytics_sources`, `canonry_content_brief`, `canonry_content_map`, `canonry_report`, `canonry_analytics_metrics`, `canonry_gbp_places`, and the `canonry_technical_aeo_*` site-audit tools), each tagged with a `tier` (`core` or one of the toolkit names) |
 | `src/mcp/toolkits.ts` | Toolkit catalog (`monitoring`, `setup`, `gsc`, `ga`, `agent`) — name, title, description, when-to-load |
 | `src/mcp/dynamic-catalog.ts` | `DynamicToolCatalog` — drives `canonry_help` and `canonry_load_toolkit` (enables tools, emits `tools/list_changed`) |
 | `src/mcp/cli.ts` | `canonry-mcp` stdio entrypoint — parses `--read-only`, `--eager`, `--scope`, plus `CANONRY_MCP_*` env |
 | `src/server.ts` | Fastify server setup — mounts api-routes, serves SPA, registers providers |
 | `src/job-runner.ts` | In-process job runner for visibility sweeps |
 | `src/provider-registry.ts` | `ProviderRegistry` — manages provider adapters |
-| `src/scheduler.ts` | Cron-based schedule runner (kinds: `answer-visibility`, `traffic-sync`, `data-refresh`; the `onDataRefreshRequested` callback fans out to every connected integration) |
+| `src/scheduler.ts` | Cron-based schedule runner (kinds: `answer-visibility`, `traffic-sync`, `gbp-sync`, `data-refresh`, `backlinks-sync`, `site-audit`; the `onDataRefreshRequested` callback fans out to every connected integration, `onBacklinksSyncRequested` re-probes Common Crawl + syncs the workspace release when a newer rolling window appears, and `onSiteAuditRequested` runs the Technical AEO sitemap crawl — skipped when one is already in flight) |
+| `src/execute-site-audit.ts` | `executeSiteAudit` — Technical AEO worker: runs `@ainyc/aeo-audit`'s `runSitemapAudit` (sitemap crawl + per-page audit, pure HTTP), rolls per-page factor scores up via `computeFactorAverages`, persists a `site_audit_snapshots` summary + `site_audit_pages` rows in one transaction, sets run status (completed / partial / failed). Default page cap 500, hard max 2000 (`clampSiteAuditLimit`). Wired to BOTH the manual `POST /technical-aeo/runs` route and the scheduled `site-audit` kind via the shared `runSiteAudit` in `server.ts`. |
+| `src/commands/technical-aeo.ts` | Technical AEO commands: `technical-aeo run` (trigger; `--wait` polls to terminal), `technical-aeo score` (site scorecard), `technical-aeo pages` (per-page breakdown; `--status`/`--sort`; jsonl), `technical-aeo trend` (score history; jsonl). Delegates to `ApiClient.getTechnicalAeoScore/Pages/Trend` + `triggerSiteAudit`. Registered via `src/cli-commands/technical-aeo.ts`. |
 | `src/data-refresh.ts` | `refreshAllIntegrations` — fires GSC + Bing + GA + GBP syncs for a project via the in-process API client, `Promise.allSettled` for per-integration isolation. Wired to the scheduler's `data-refresh` kind in `server.ts`. |
 | `src/snapshot-service.ts` | Snapshot creation and diff logic |
 | `src/intelligence-service.ts` | Runs analysis after sweeps, persists insights + health snapshots |
@@ -115,6 +118,8 @@ The legacy `request<T>()` raw-fetch wrapper was removed in v4.51; if you find an
 ### MCP adapter
 
 `canonry-mcp` is the only MCP executable. It is allowed only as a stdio adapter over `createApiClient()` and must not import DB modules, API routes, job runners, CLI command dispatch, telemetry, or loggers. It must never write to stdout except MCP protocol frames. Add tools only when the same capability already exists through the public API/CLI, and keep input schemas tied to `packages/contracts` Zod schemas.
+
+MCP parity is the default for every new public API/CLI capability. When adding a command or `ApiClient` method, either add the matching tool in `src/mcp/tool-registry.ts` and update `docs/mcp.md` + MCP tests, or classify the OpenAPI operation as `deferred` / `excluded-protocol` in `src/mcp/openapi-classification.ts` with a short rationale. Security-sensitive credential/token operations may be deferred, but the PR must explain the exception.
 
 ### Command output
 

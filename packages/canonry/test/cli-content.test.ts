@@ -10,6 +10,7 @@ import {
   projects,
   queries as queriesTable,
   competitors,
+  domainClassifications,
   runs,
   querySnapshots,
   gscSearchData,
@@ -24,6 +25,7 @@ import {
   listContentSources,
   listContentGaps,
 } from '../src/commands/content.js'
+import { invokeCli, parseJsonOutput } from './cli-test-utils.js'
 
 interface SeededProject {
   projectId: string
@@ -40,6 +42,7 @@ function seedProject(db: ReturnType<typeof createClient>): SeededProject {
     canonicalDomain: 'example.com',
     country: 'US',
     language: 'en',
+    icpDescription: 'Teams evaluating CRM software',
     createdAt: now,
     updatedAt: now,
   }).run()
@@ -81,7 +84,9 @@ function seedProject(db: ReturnType<typeof createClient>): SeededProject {
     competitorOverlap: ['competitor-a.com', 'competitor-b.com', 'competitor-c.com'],
     rawResponse: JSON.stringify({
       groundingSources: [
-        { uri: 'https://competitor-a.com/guides/crm', title: 'CRM Guide' },
+        // A generic (non-competitor) cited domain: unrecognized by default so
+        // the coverage warning fires, and cedeable when a test classifies it.
+        { uri: 'https://crm-listings.example/guides/crm', title: 'CRM Guide' },
       ],
     }),
     createdAt: now,
@@ -184,6 +189,7 @@ describe('content CLI commands + CLI/API parity', () => {
   let close: () => Promise<void>
   let client: ApiClient
   let db: ReturnType<typeof createClient>
+  let seeded: SeededProject
 
   beforeEach(async () => {
     tmpDir = path.join(os.tmpdir(), `canonry-content-test-${crypto.randomUUID()}`)
@@ -231,7 +237,7 @@ describe('content CLI commands + CLI/API parity', () => {
     close = () => app.close()
     client = new ApiClient(serverUrl, apiKeyPlain)
 
-    seedProject(db)
+    seeded = seedProject(db)
   })
 
   afterEach(async () => {
@@ -251,6 +257,18 @@ describe('content CLI commands + CLI/API parity', () => {
     return fn().finally(() => {
       console.log = orig
     }).then(() => logs.join('\n'))
+  }
+
+  function classify(domain: string, competitorType: string) {
+    db.insert(domainClassifications).values({
+      id: crypto.randomUUID(),
+      projectId: seeded.projectId,
+      domain,
+      competitorType,
+      hits: 5,
+      sessionId: 'sess_cli',
+      updatedAt: new Date().toISOString(),
+    }).run()
   }
 
   // ─── Phase K: CLI behavior ─────────────────────────────────────────
@@ -302,6 +320,40 @@ describe('content CLI commands + CLI/API parity', () => {
       ),
     )
     expect(withFlag.targets).toEqual(without.targets)
+  })
+
+  it('content targets accepts --winnability-class and filters ceded rows', async () => {
+    classify('crm-listings.example', 'ota-aggregator')
+    const result = await invokeCli(['content', 'targets', 'example', '--winnability-class', 'ceded', '--format', 'json'])
+    expect(result.exitCode).toBeUndefined()
+    const parsed = parseJsonOutput(result.stdout) as { targets: Array<{ query: string; winnabilityClass: string }> }
+    expect(parsed.targets.length).toBeGreaterThan(0)
+    expect(parsed.targets.every((t) => t.winnabilityClass === 'ceded')).toBe(true)
+    expect(parsed.targets.some((t) => t.query === 'best crm for saas')).toBe(true)
+  })
+
+  it('API client sends winnability-class when filtering content targets', async () => {
+    classify('crm-listings.example', 'ota-aggregator')
+    const response = await client.getContentTargets('example', { winnabilityClass: 'ceded' })
+    expect(response.targets.length).toBeGreaterThan(0)
+    expect(response.targets.every((t) => t.winnabilityClass === 'ceded')).toBe(true)
+  })
+
+  it('content map warns when cited-surface classifications are missing', async () => {
+    const result = await invokeCli(['content', 'map', 'example'])
+    expect(result.exitCode).toBeUndefined()
+    expect(result.stderr).toContain('Warning: 0 of 1 cited-surface domain')
+    expect(result.stderr).toContain('winnability gate is failing open')
+    expect(result.stderr).toContain('canonry discover run example --wait')
+  })
+
+  it('content map keeps the winnability coverage warning out of JSON output', async () => {
+    const result = await invokeCli(['content', 'map', 'example', '--format', 'json'])
+    expect(result.exitCode).toBeUndefined()
+    expect(result.stderr).not.toContain('winnability gate')
+    const parsed = parseJsonOutput(result.stdout) as { classifications: unknown[]; ownable: unknown[] }
+    expect(parsed.classifications).toBeInstanceOf(Array)
+    expect(parsed.ownable).toBeInstanceOf(Array)
   })
 
   // ─── Phase M: CLI/API parity ───────────────────────────────────────

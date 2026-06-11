@@ -19,6 +19,7 @@
 
 - **Do not deploy `apps/api` as a multi-tenant SaaS.** One Cloud Run service per team. If you need to host multiple teams, deploy multiple isolated Cloud Run services with separate databases and OAuth clients.
 - **Do not hand out `cnry_…` API keys outside the trust boundary you'd give a teammate.** A leaked key reads and writes every project on the instance.
+- **API key management (`canonry key create` / `list` / `revoke`, `POST /keys`, `POST /keys/:id/revoke`) is gated by the `keys.write` scope.** The default `*` key written by `canonry init` satisfies it; narrower delegate keys must declare `keys.write` explicitly. Listing keys is ungated but returns SAFE metadata only (id, name, prefix, scopes, timestamps) — never the stored hash or the plaintext token. The raw `cnry_…` token is returned exactly once, at creation. Revoke sets `revokedAt` (it does not delete the row) and takes effect on the next request; you cannot revoke the key you are currently authenticating with.
 - **If a multi-tenant story becomes a requirement,** the work is substantial — add `owner_id` to every domain table, attach `apiKey.ownerId` to `request` in `authPlugin`, AND-in `eq(table.ownerId, request.apiKey.ownerId)` on every read/write, rekey `google_connections` / `bing_connections` to include `project_id`, and gate `/settings/*` on a real `admin` scope. The trade-off is real — a schema migration that touches ~15 tables and every route file. Plan accordingly.
 
 ## Workspace Map
@@ -77,12 +78,14 @@ canonry report <project>                         # client-facing AEO report → 
 canonry report <project> --output dist/aeo.html
 canonry report <project> --format json           # raw report payload to stdout
 
-# Schedules — one row per (project, kind) where kind ∈ {answer-visibility, traffic-sync, gbp-sync, data-refresh}
+# Schedules — one row per (project, kind) where kind ∈ {answer-visibility, traffic-sync, gbp-sync, data-refresh, backlinks-sync, site-audit}
 canonry schedule set <project> --preset daily                                                # answer-visibility (default kind)
 canonry schedule set <project> --kind traffic-sync --cron "*/15 * * * *" --source <id>       # traffic-sync (sourceId required)
 canonry schedule set <project> --kind gbp-sync --preset daily                                # gbp-sync (no source; syncs selected locations)
 canonry schedule set <project> --kind data-refresh --preset daily                            # data-refresh (refreshes connected GSC/Bing/GA/GBP; no source)
-canonry schedule show <project> [--kind answer-visibility|traffic-sync|gbp-sync|data-refresh] # default kind is answer-visibility
+canonry schedule set <project> --kind backlinks-sync --preset weekly                         # backlinks-sync (re-probe Common Crawl; sync only when a newer rolling window is published; no source/providers)
+canonry schedule set <project> --kind site-audit --preset weekly                             # site-audit / Technical AEO (crawl the sitemap + audit every page; no source/providers)
+canonry schedule show <project> [--kind answer-visibility|traffic-sync|gbp-sync|data-refresh|backlinks-sync|site-audit] # default kind is answer-visibility
 canonry schedule enable  <project> [--kind ...]
 canonry schedule disable <project> [--kind ...]
 canonry schedule remove  <project> [--kind ...]                                              # delete the schedule for that kind
@@ -112,6 +115,13 @@ canonry discover probe <project> <session-id> [--format json]                   
 canonry discover promote preview <project> <session-id> [--format json]             # preview bucketed candidates + recurring suggested competitors of every classified type (read-only)
 canonry discover promote <project> <session-id> [--bucket cited,aspirational,wasted-surface] [--competitor-types direct-competitor,editorial-media] [--no-competitors] [--format json]   # adopt cited + aspirational queries + direct-competitor domains by default
 
+# Technical AEO — site-wide technical audit (powered by the `site-audit` run kind + @ainyc/aeo-audit's runSitemapAudit)
+canonry technical-aeo run <project> [--sitemap-url <url>] [--limit <n>] [--wait] [--format json]   # crawl the sitemap + audit every page; idempotent (returns the in-flight run); default page cap 500, hard max 2000
+canonry technical-aeo score <project> [--format json]                                # latest site score (0–100) + per-factor scorecard + delta vs the previous audit
+canonry technical-aeo pages <project> [--status success|error] [--sort score-asc|score-desc|url] [--limit <n>] [--format json|jsonl]  # per-page breakdown of the latest run (worst-first by default)
+canonry technical-aeo trend <project> [--limit <n>] [--format json|jsonl]            # aggregate-score history across past audits
+# Schedule it: canonry schedule set <project> --kind site-audit --preset weekly
+
 # MCP adapter (separate bin, stdio only)
 canonry-mcp                                          # core tier (~12 tools); load toolkits on demand
 canonry-mcp --read-only                              # core read tier; toolkits load read-only tools only
@@ -119,7 +129,7 @@ canonry-mcp --eager                                  # register all API tools at
 
 # MCP client install helpers (operate on local client config files)
 canonry mcp install --client claude-desktop          # merges a canonry entry into the config
-canonry mcp install --client cursor --read-only      # scope to the 63 read API tools
+canonry mcp install --client cursor --read-only      # scope to the 69 read API tools
 canonry mcp config  --client codex                   # print snippet for clients without auto-install
 
 # Skills — install canonry's agent playbook into a user's project
@@ -127,6 +137,11 @@ canonry skills list                                  # show bundled skills (cano
 canonry skills install                               # write both skills into ./.claude/skills/ + ./.codex/skills/ (default)
 canonry skills install aero --client claude          # install only the analyst skill, no codex symlink
 canonry skills install --dir ~/projects/foo --force  # custom target, overwrite divergent local edits
+
+# API keys — mint / list / revoke (gated by the keys.write scope; the default * key satisfies it)
+canonry key list [--format json|jsonl]                          # safe metadata only (never the hash or plaintext)
+canonry key create --name <name> [--scope <s> ...] [--format json]  # prints the plaintext key ONCE; omit --scope to default to *
+canonry key revoke <id> [--format json]                         # revoke (not delete); takes effect on the next request
 ```
 
 ## Agent Layer
@@ -199,6 +214,7 @@ Each check returns `status: ok | warn | fail | skipped`, a stable machine-readab
 | auth | `traffic.source.scopes` | project | Per-source-type scope validation (skipped where the adapter has no explicit scope check — e.g. WordPress Application Passwords, Vercel API tokens) |
 | integrations | `traffic.source.connected` | project | At least one non-archived server-side traffic source exists for the project |
 | integrations | `traffic.source.recent-data` | project | Connected sources have crawler/AI-referral events in the last 7d (warn) or 30d (fail) |
+| integrations | `content.winnability.coverage` | project | Discovery classification coverage for cited-surface domains behind the content winnability gate; warns when discovery has not classified the domains that make ownable/ceded decisions meaningful |
 | providers | `config.providers` | global | At least one provider key configured |
 | agent | `agent.skills.installed` | global | Both bundled skills (`canonry`, `aero`) are present under `~/.claude/skills/` |
 | agent | `agent.skills.current` | global | Installed `~/.claude/skills/` trees are not behind the bundled build — warns when a newly shipped or upstream-updated file has not been picked up (skips when nothing is installed; local edits are reported but do not count as "behind") |
@@ -215,7 +231,7 @@ Each check returns `status: ok | warn | fail | skipped`, a stable machine-readab
 For MCP clients such as Claude Desktop, Codex, or custom agent shells that
 prefer a typed tool catalog over shell or HTTP, the package ships a separate
 `canonry-mcp` bin. It is a thin stdio adapter over `createApiClient()` — not
-a parallel surface. v1 exposes 97 curated API tools (63 read, 34 write) — including
+a parallel surface. v1 exposes 105 curated API tools (69 read, 36 write) — including
 the `canonry_project_overview` and `canonry_search` core composites; the
 catalog is split across a small **core tier** (always loaded) and five
 **toolkits** (`monitoring`, `setup`, `gsc`, `ga`, `agent`) that the client
@@ -242,6 +258,10 @@ The MCP adapter must follow the boundary rules in `Surface Priority → Agent
 file): no DB, route, job-runner, telemetry, or logger imports; never write
 non-MCP data to stdout. Every new MCP tool must already exist as a public
 API endpoint and CLI command — MCP is not a place to add capabilities.
+MCP parity is the default for every new public API/CLI capability: either add
+the matching tool, or explicitly classify the OpenAPI operation as `deferred`
+or `excluded-protocol` with a short security/protocol/product rationale in
+`openapi-classification.ts`. Do not silently skip MCP.
 
 ### Notification events (shared)
 
@@ -474,6 +494,7 @@ The CLI and API **are** the agent interface. MCP is allowed only as an adapter o
 6. **Stable output contracts.** JSON field names, endpoint paths, and error codes are public API. Renaming a JSON field is a breaking change. Add fields freely; never remove or rename without a version bump.
 7. **UI/CLI parity.** Every piece of data or computed metric visible in the web UI must be retrievable via the API and CLI. If the UI shows it, an agent must be able to `curl` or `canonry ... --format json` it. Derived calculations (percentages, trends, roll-ups) belong in the API response, not in frontend code. See the "UI/CLI parity" section above for the full rules.
 8. **MCP adapter boundary.** `canonry-mcp` may call `createApiClient()` and public client methods only. It must not import DB modules, API routes, job runners, CLI dispatch, telemetry, or loggers, and it must never write non-MCP data to stdout.
+9. **MCP parity by default.** Every new public API endpoint and CLI command must either add an equivalent MCP tool, or classify the OpenAPI operation as `deferred` / `excluded-protocol` with an explicit rationale in `packages/canonry/src/mcp/openapi-classification.ts`. Security-sensitive credential or token operations may be deferred, but the PR must say why.
 
 #### Checklist for any new command or endpoint
 
@@ -481,6 +502,7 @@ The CLI and API **are** the agent interface. MCP is allowed only as an adapter o
 - [ ] `--format json` supported, outputs to stdout
 - [ ] Errors output structured JSON to stderr with a code from `CliError`
 - [ ] Write operations are idempotent (or return conflict details)
+- [ ] Equivalent MCP tool added, or `openapi-classification.ts` has an explicit `deferred` / `excluded-protocol` rationale
 - [ ] Common read patterns achievable in a single API call
 - [ ] Exit code follows 0/1/2 convention
 
@@ -533,6 +555,7 @@ The contract test `packages/api-routes/test/openapi-contract.test.ts` enforces a
 | URL / domain normalization | `packages/contracts/src/url-normalize.ts` |
 | Report action / opportunity dedup | `packages/contracts/src/report-dedup.ts` |
 | Error factories | `packages/contracts/src/errors.ts` |
+| SQL `LIKE` wildcard escaping | `packages/contracts/src/sql-like.ts` (`escapeLikePattern` — caller adds `ESCAPE '\\'`) |
 | Retry / exponential backoff | `packages/contracts/src/retry.ts` (`withRetry`, `backoffDelayMs`, `isRetryableHttpError`) |
 | JSON column parsing (DB-only) | `packages/db` (`parseJsonColumn`) |
 
@@ -847,6 +870,7 @@ The SPA receives `basePath` via an injected config object. Use it for all API fe
 
 - [ ] Server route registered via the plugin's `routePrefix` (not hardcoded `/api/v1`)
 - [ ] CLI command uses `createApiClient()` (not `new ApiClient(loadConfig().apiUrl, ...)`)
+- [ ] MCP parity handled: add the tool, or document a `deferred` / `excluded-protocol` classification rationale
 - [ ] Any redirect URLs or OAuth callback URLs use `publicUrl` or `apiUrl` (which already include basePath)
 - [ ] Frontend fetch calls prepend `window.__CANONRY_CONFIG__.basePath`
 
@@ -902,7 +926,7 @@ This repo uses per-package `AGENTS.md` files for local context. **These must sta
 | Add a new package under `packages/` or `apps/` | Create `AGENTS.md` + `CLAUDE.md` (`@AGENTS.md`) in the new package |
 | Add a new table or column in `packages/db/src/schema.ts` | Update `docs/data-model.md` (ER diagram + table groups) |
 | Add a new API route file in `packages/api-routes/src/` | Update `packages/api-routes/AGENTS.md` key files table |
-| Add a new CLI command | Update `packages/canonry/AGENTS.md` |
+| Add a new CLI command | Update `packages/canonry/AGENTS.md`; add the equivalent MCP tool or document the explicit classification exception |
 | Add or change an MCP tool | Update `packages/canonry/src/mcp/tool-registry.ts` (tag with a `tier`), `openapi-classification.ts`, `docs/mcp.md`, and the `mcp-registry`/`mcp-stdio` tests. The built-in Aero agent picks the new tool up automatically through `agent/mcp-to-agent-tool.ts` — no second registration in `agent/tools.ts`. Add the name to `AERO_EXCLUDED_MCP_TOOLS` only if Aero must not invoke it (e.g. `canonry_agent_clear`). |
 | Add a new doctor check | Add a `CheckDefinition` in `packages/api-routes/src/doctor/checks/<topic>.ts`, register in `doctor/registry.ts`, add tests in `packages/api-routes/test/doctor-*`, document the new check ID in `AGENTS.md`'s "Doctor" section |
 | Add a new MCP toolkit | Add the toolkit name to `packages/canonry/src/mcp/toolkits.ts`, tag the relevant tools with the new tier, and update the toolkit table in `docs/mcp.md` |

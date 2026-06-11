@@ -24,6 +24,7 @@ import { openApiRoutes } from './openapi.js'
 import type { OpenApiInfo } from './openapi.js'
 import { settingsRoutes } from './settings.js'
 import type { SettingsRoutesOptions, ProviderSummaryEntry, ProviderAdapterInfo } from './settings.js'
+import { keysRoutes } from './keys.js'
 import { snapshotRoutes } from './snapshot.js'
 import type { SnapshotRoutesOptions } from './snapshot.js'
 import { telemetryRoutes } from './telemetry.js'
@@ -58,6 +59,8 @@ import { discoveryRoutes } from './discovery/index.js'
 import type { DiscoveryRoutesOptions } from './discovery/index.js'
 import { cloudRoutes } from './cloud/index.js'
 import type { CloudRoutesOptions } from './cloud/index.js'
+import { technicalAeoRoutes } from './technical-aeo.js'
+import type { TechnicalAeoRoutesOptions } from './technical-aeo.js'
 import { CheckStatuses, TrafficSourceTypes } from '@ainyc/canonry-contracts'
 import type { BundledSkillSnapshot } from '@ainyc/canonry-contracts'
 import type { CheckOutput, TrafficSourceProbe, TrafficSourceValidator } from './doctor/types.js'
@@ -113,6 +116,16 @@ export interface ApiRoutesOptions {
    * api-routes stays LLM-agnostic.
    */
   explainContentRecommendation?: import('./content.js').ExplainContentRecommendationFn
+  /**
+   * Optional LLM-backed brief synthesizer for content recommendations. When
+   * provided, `POST /projects/:name/content/recommendations/:targetRef/brief`
+   * calls it (gated to `ownable` targets, caches the structured result). When
+   * omitted, that route returns 503. Same LLM-agnostic wiring story as
+   * `explainContentRecommendation`.
+   */
+  briefContentRecommendation?: import('./content.js').SynthesizeContentBriefFn
+  /** Current brief prompt version — scopes the brief cache lookup (see ContentRoutesOptions). */
+  briefPromptVersion?: string
   /** Telemetry status/toggle callbacks */
   getTelemetryStatus?: TelemetryRoutesOptions['getTelemetryStatus']
   setTelemetryEnabled?: TelemetryRoutesOptions['setTelemetryEnabled']
@@ -156,10 +169,14 @@ export interface ApiRoutesOptions {
   vercelTrafficCredentialStore?: TrafficRoutesOptions['vercelTrafficCredentialStore']
   /** Override Vercel traffic pull (tests) — see `TrafficRoutesOptions` */
   pullVercelTrafficEvents?: TrafficRoutesOptions['pullVercelTrafficEvents']
+  /** Wall-clock budget (ms) for a Vercel sync's adaptive drain — see `TrafficRoutesOptions` */
+  vercelSyncDeadlineMs?: TrafficRoutesOptions['vercelSyncDeadlineMs']
   /** Fired after every traffic sync (success OR failure). Used by canonry to emit `traffic.synced` telemetry. */
   onTrafficSynced?: TrafficRoutesOptions['onTrafficSynced']
   /** Discovery feature callback — fires after a discovery_sessions row + matching runs row are inserted. */
   onDiscoveryRunRequested?: DiscoveryRoutesOptions['onDiscoveryRunRequested']
+  /** Technical AEO callback — fires after a `site-audit` run row is created. Wire to `executeSiteAudit`. */
+  onSiteAuditRequested?: TechnicalAeoRoutesOptions['onSiteAuditRequested']
   /** Backlinks feature callbacks — see `backlinksRoutes` for details. */
   getBacklinksStatus?: BacklinksRoutesOptions['getBacklinksStatus']
   onInstallBacklinks?: BacklinksRoutesOptions['onInstallBacklinks']
@@ -339,7 +356,11 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     await api.register(reportRoutes)
     await api.register(citationRoutes)
     await api.register(compositeRoutes)
-    await api.register(contentRoutes, { explainContentRecommendation: opts.explainContentRecommendation })
+    await api.register(contentRoutes, {
+      explainContentRecommendation: opts.explainContentRecommendation,
+      briefContentRecommendation: opts.briefContentRecommendation,
+      briefPromptVersion: opts.briefPromptVersion,
+    })
     await api.register(guestReportRoutes)
     await api.register(settingsRoutes, {
       providerSummary: opts.providerSummary,
@@ -350,6 +371,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       bing: opts.bingSettingsSummary,
       onBingUpdate: opts.onBingSettingsUpdate,
     } satisfies SettingsRoutesOptions)
+    await api.register(keysRoutes)
     await api.register(snapshotRoutes, {
       onSnapshotRequested: opts.onSnapshotRequested,
     } satisfies SnapshotRoutesOptions)
@@ -381,6 +403,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     await api.register(wordpressRoutes, {
       wordpressConnectionStore: opts.wordpressConnectionStore,
       routePrefix: opts.routePrefix ?? '/api/v1',
+      allowLoopbackWebhooks: opts.allowLoopbackWebhooks,
     } satisfies WordpressRoutesOptions)
     await api.register(cdpRoutes, {
       getCdpStatus: opts.getCdpStatus,
@@ -401,7 +424,9 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       pullWordpressTrafficEvents: opts.pullWordpressTrafficEvents,
       vercelTrafficCredentialStore: opts.vercelTrafficCredentialStore,
       pullVercelTrafficEvents: opts.pullVercelTrafficEvents,
+      vercelSyncDeadlineMs: opts.vercelSyncDeadlineMs,
       onTrafficSynced: opts.onTrafficSynced,
+      onScheduleUpdated: opts.onScheduleUpdated,
       allowLoopbackWebhooks: opts.allowLoopbackWebhooks,
     } satisfies TrafficRoutesOptions)
     // Always mount the backlinks routes so read endpoints (summary, domains,
@@ -431,6 +456,9 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       googleConnectionStore: opts.googleConnectionStore,
       bingConnectionStore: opts.bingConnectionStore,
     } satisfies CloudRoutesOptions)
+    await api.register(technicalAeoRoutes, {
+      onSiteAuditRequested: opts.onSiteAuditRequested,
+    } satisfies TechnicalAeoRoutesOptions)
     await api.register(doctorRoutes, {
       googleConnectionStore: opts.googleConnectionStore,
       bingConnectionStore: opts.bingConnectionStore,
@@ -454,6 +482,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
 
 export type { DatabaseClient } from '@ainyc/canonry-db'
 export { queueRunIfProjectIdle } from './run-queue.js'
+export { nextRunFromCron } from './schedule-utils.js'
 export {
   executeDiscovery,
   classifyProbeBucket,
@@ -505,6 +534,9 @@ export type {
   ExplainContentRecommendationFn,
   ExplainContentRecommendationInput,
   ExplainContentRecommendationResult,
+  SynthesizeContentBriefFn,
+  SynthesizeContentBriefInput,
+  SynthesizeContentBriefResult,
 } from './content.js'
 export { buildOpenApiDocument } from './openapi.js'
 export type { OpenApiInfo } from './openapi.js'

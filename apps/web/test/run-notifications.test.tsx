@@ -480,3 +480,41 @@ test('maps RUN_IN_PROGRESS errors to one caution toast with an extended timer', 
     expect(runInProgressToasts[0]?.detail).toContain('Citypoint Dental NYC already has an active run')
   })
 })
+
+test('clears a tracked sync run that has aged out of the /runs window so its button cannot wedge', async () => {
+  const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    const url = input instanceof Request ? input.url : String(input)
+    // The tracked run has aged out of the capped window: GET /runs no longer returns it.
+    if (url.includes('/api/v1/runs')) return jsonResponse([])
+    if (url.includes('/api/v1/projects')) return jsonResponse([makeProject()])
+    throw new Error(`Unexpected fetch: ${url}`)
+  })
+  vi.stubGlobal('fetch', fetchMock)
+
+  // A gbp-sync run tracked long ago (epoch) — absent from /runs and past the TTL.
+  trackRun({
+    id: 'gbp_run_aged',
+    projectId: 'proj_1',
+    kind: 'gbp-sync',
+    projectLabel: 'Citypoint Dental NYC',
+    sourceAction: 'gbp-sync',
+    lastAnnouncedStatus: 'queued',
+    trackedAt: 0,
+  })
+  expect(getRunTrackerState().runs.gbp_run_aged).toBeTruthy()
+
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } })
+  queryClient.setQueryData(runsCacheKey, [])
+  queryClient.setQueryData(projectsCacheKey, [makeProject()])
+  render(
+    <QueryClientProvider client={queryClient}>
+      <RunNotificationObserver />
+    </QueryClientProvider>,
+  )
+
+  // The observer gives up on the aged-out run instead of tracking it forever: it
+  // drops from the tracker (which re-enables the Sync button) and surfaces a
+  // neutral "status unavailable" toast.
+  await waitFor(() => expect(getRunTrackerState().runs.gbp_run_aged).toBeUndefined())
+  expect(getToasts().some((toast) => toast.title === 'Business Profile sync status unavailable')).toBe(true)
+})

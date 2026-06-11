@@ -41,9 +41,9 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'GET /api/v1/history': 'deferred',
   'GET /api/v1/projects/{name}/snapshots': 'included',
   'GET /api/v1/projects/{name}/timeline': 'included',
-  'GET /api/v1/projects/{name}/analytics/metrics': 'deferred',
+  'GET /api/v1/projects/{name}/analytics/metrics': 'included',
   'GET /api/v1/projects/{name}/analytics/gaps': 'deferred',
-  'GET /api/v1/projects/{name}/analytics/sources': 'deferred',
+  'GET /api/v1/projects/{name}/analytics/sources': 'included',
   'GET /api/v1/projects/{name}/snapshots/diff': 'included',
   'GET /api/v1/settings': 'included',
   'PUT /api/v1/settings/providers/{name}': 'deferred',
@@ -51,6 +51,13 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'POST /api/v1/snapshot': 'deferred',
   'PUT /api/v1/settings/bing': 'deferred',
   'PUT /api/v1/settings/cdp': 'deferred',
+  // API key management — deliberately not surfaced as MCP tools. Minting and
+  // revoking bearer tokens is a privilege-granting / access-cutting operation
+  // (gated by the keys.write scope), in the same sensitive class as the
+  // settings credential mutations above. CLI + API only for now.
+  'GET /api/v1/keys': 'deferred',
+  'POST /api/v1/keys': 'deferred',
+  'POST /api/v1/keys/{id}/revoke': 'deferred',
   'PUT /api/v1/projects/{name}/schedule': 'included',
   'GET /api/v1/projects/{name}/schedule': 'included',
   'DELETE /api/v1/projects/{name}/schedule': 'included',
@@ -153,6 +160,15 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'GET /api/v1/projects/{name}/content/targets': 'included',
   'GET /api/v1/projects/{name}/content/sources': 'included',
   'GET /api/v1/projects/{name}/content/gaps': 'included',
+  // Winnability gate surfaces — the deterministic classification map
+  // (canonry_content_map) and the structured brief synthesizer
+  // (canonry_content_brief). The brief is gated to ownable targets and
+  // analyze-tier-cached, so Aero can act on it headless. The GET brief is a
+  // cache-only read; the POST tool returns the cached brief on a hit, so a
+  // separate read tool would be redundant — deferred like GET analysis.
+  'GET /api/v1/projects/{name}/content/domain-classifications': 'included',
+  'POST /api/v1/projects/{name}/content/recommendations/{targetRef}/brief': 'included',
+  'GET /api/v1/projects/{name}/content/recommendations/{targetRef}/brief': 'deferred',
   // Content-target dismiss endpoints — Aero could use these to record
   // that a recommendation was addressed (similar to insights dismiss),
   // but that's a separate workflow design. Defer the MCP tools until the
@@ -200,6 +216,10 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'GET /api/v1/projects/{name}/discover/sessions/{id}': 'included',
   'GET /api/v1/projects/{name}/discover/sessions/{id}/promote': 'included',
   'POST /api/v1/projects/{name}/discover/sessions/{id}/promote': 'included',
+  'GET /api/v1/projects/{name}/technical-aeo': 'included',
+  'GET /api/v1/projects/{name}/technical-aeo/pages': 'included',
+  'GET /api/v1/projects/{name}/technical-aeo/trend': 'included',
+  'POST /api/v1/projects/{name}/technical-aeo/runs': 'included',
   // /aero owner-view onboarding endpoints — deferred from MCP for now.
   // The flow is browser-driven (anonymous visitor with SSE), not something
   // an MCP-using agent would orchestrate; expose as MCP tools only when an

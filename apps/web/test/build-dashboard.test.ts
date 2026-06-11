@@ -1,6 +1,6 @@
 import { test, expect } from 'vitest'
 
-import { buildDashboard, buildProjectCommandCenter, type ProjectData } from '../src/build-dashboard.js'
+import { buildDashboard, buildPortfolioProject, buildProjectCommandCenter, type ProjectData } from '../src/build-dashboard.js'
 import type { ApiSettings } from '../src/api.js'
 
 test('buildProjectCommandCenter evidence summary uses canonical mention vocabulary, not legacy "visible"', () => {
@@ -548,7 +548,7 @@ test('buildProjectCommandCenter populates score gauges from the overview DTO whe
       latestRun: { totalRuns: 0, run: null },
       health: null,
       topInsights: [],
-      queryCounts: { totalQueries: 4, citedQueries: 3, notCitedQueries: 1, citedRate: 0.75 },
+      queryCounts: { totalQueries: 4, citedQueries: 3, notCitedQueries: 1, citedRate: 0.75, mentionedQueries: 3, notMentionedQueries: 1, mentionRate: 0.75 },
       providers: [{ provider: 'gemini', cited: 3, total: 4, citedRate: 0.75 }],
       transitions: { since: null, gained: 0, lost: 0, emerging: 0 },
       scores: {
@@ -623,7 +623,7 @@ test('buildProjectCommandCenter surfaces synthesized attention items (e.g. stale
       latestRun: { totalRuns: 0, run: null },
       health: null,
       topInsights: [],
-      queryCounts: { totalQueries: 0, citedQueries: 0, notCitedQueries: 0, citedRate: 0 },
+      queryCounts: { totalQueries: 0, citedQueries: 0, notCitedQueries: 0, citedRate: 0, mentionedQueries: 0, notMentionedQueries: 0, mentionRate: 0 },
       providers: [],
       transitions: { since: null, gained: 0, lost: 0, emerging: 0 },
       scores: {
@@ -1106,4 +1106,101 @@ test('buildProjectCommandCenter emits a single history-only row when no location
   // Gemini has a snap per location and should still emit two rows.
   const geminiRows = evidence.filter(e => e.provider === 'gemini')
   expect(geminiRows).toHaveLength(2)
+})
+
+test('buildPortfolioProject carries the mention-rate trend, score, and subtitle from the overview', () => {
+  const base: ProjectData = {
+    project: {
+      id: 'proj_portfolio',
+      name: 'portfolio-demo',
+      displayName: 'Portfolio Demo',
+      canonicalDomain: 'portfolio.example',
+      ownedDomains: [],
+      country: 'US',
+      language: 'en',
+      tags: [],
+      labels: {},
+      providers: ['gemini'],
+      configSource: 'api',
+      configRevision: 1,
+      createdAt: '2026-04-01T00:00:00Z',
+      updatedAt: '2026-04-01T00:00:00Z',
+    },
+    runs: [],
+    queries: [],
+    competitors: [],
+    timeline: [],
+    latestRunDetails: [],
+    previousRunDetails: [],
+    overview: {
+      project: {
+        id: 'proj_portfolio',
+        name: 'portfolio-demo',
+        displayName: 'Portfolio Demo',
+        canonicalDomain: 'portfolio.example',
+        ownedDomains: [],
+        country: 'US',
+        language: 'en',
+        tags: [],
+        labels: {},
+        locations: [],
+        defaultLocation: null,
+        autoExtractBacklinks: false,
+        configSource: 'api',
+        configRevision: 1,
+        createdAt: '2026-04-01T00:00:00Z',
+        updatedAt: '2026-04-01T00:00:00Z',
+      },
+      latestRun: { totalRuns: 0, run: null },
+      health: null,
+      topInsights: [],
+      queryCounts: { totalQueries: 4, citedQueries: 3, notCitedQueries: 1, citedRate: 0.75, mentionedQueries: 3, notMentionedQueries: 1, mentionRate: 0.75 },
+      providers: [{ provider: 'gemini', cited: 3, total: 4, citedRate: 0.75 }],
+      transitions: { since: null, gained: 0, lost: 0, emerging: 0 },
+      scores: {
+        // The server populates each headline score's trend from runHistory.
+        // Mention is the headline metric the portfolio row reads; give it a
+        // distinct trend + progress from visibility to prove the builder reads
+        // mention, not cited.
+        mention: { label: 'Mention Coverage', value: '60', delta: '3 of 4 queries mentioned', tone: 'positive', description: '', tooltip: '', trend: [40, 60, 80], progress: 60 },
+        visibility: { label: 'Citation Coverage', value: '75', delta: '3 of 4 queries', tone: 'positive', description: '', tooltip: '', trend: [25, 50, 75], progress: 75 },
+        mentionShare: { label: 'Mention Share', value: 'No data', delta: '', tone: 'neutral', description: '', tooltip: '', trend: [], breakdown: { projectMentionSnapshots: 0, competitorMentionSnapshots: 0, perCompetitor: [], snapshotsWithAnswerText: 0, snapshotsTotal: 0 } },
+        mentionGaps: { label: 'Mention Gaps', value: '0', delta: '', tone: 'positive', description: '', tooltip: '', trend: [] },
+        gapQueries: { label: 'Gap Queries', value: '0', delta: '', tone: 'positive', description: '', tooltip: '', trend: [] },
+        indexCoverage: { label: 'Index Coverage', value: 'No data', delta: '', tone: 'neutral', description: '', tooltip: '', trend: [] },
+        competitorPressure: { label: 'Competitor Pressure', value: 'None', delta: '', tone: 'neutral', description: '', tooltip: '', trend: [] },
+        runStatus: { label: 'Run Status', value: 'None', delta: '', tone: 'neutral', description: '', tooltip: '', trend: [] },
+      },
+      movementSummary: { gained: 0, lost: 0, tone: 'neutral', hasPreviousRun: false },
+      competitors: [],
+      providerScores: [{ provider: 'gemini', model: 'flash', score: 75, cited: 3, total: 4 }],
+      attentionItems: [],
+      runHistory: [],
+      dateRangeLabel: 'All time',
+      contextLabel: 'US / EN',
+    },
+  }
+
+  // The headline metric is Mention Coverage — the portfolio row reads the
+  // mention score + mention trend, NOT the cited/visibility ones. Mention's
+  // trend ([40,60,80]) and progress (60) differ from visibility's so this
+  // proves the builder switched signals.
+  expect(buildPortfolioProject(base).trend).toEqual([40, 60, 80])
+  expect(buildPortfolioProject(base).mentionScore).toBe(60)
+
+  // The headline delta + subtitle both read the MENTION count
+  // (answerMentioned), never the cited count. Seed mentioned≠cited and prove
+  // both track mentioned (1 of 4) rather than cited (3 of 4).
+  const distinctMention = buildPortfolioProject({
+    ...base,
+    overview: {
+      ...base.overview!,
+      queryCounts: { totalQueries: 4, citedQueries: 3, notCitedQueries: 1, citedRate: 0.75, mentionedQueries: 1, notMentionedQueries: 3, mentionRate: 0.25 },
+    },
+  })
+  expect(distinctMention.insight).toBe('1 of 4 queries mentioned across 1 provider.')
+  expect(distinctMention.mentionDelta).toBe('1 of 4 queries')
+
+  // Without an overview (no runs yet) the trend is empty and the sparkline no-ops.
+  expect(buildPortfolioProject({ ...base, overview: null }).trend).toEqual([])
 })

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronRight, Download, Trash2 } from 'lucide-react'
+import { ChevronDown, ChevronRight, Download, Trash2 } from 'lucide-react'
 import { useParams, useNavigate } from '@tanstack/react-router'
 import { Link } from '@tanstack/react-router'
 import { useQueryClient } from '@tanstack/react-query'
@@ -21,7 +21,9 @@ import { GscSection } from '../components/project/GscSection.js'
 import { GbpSection } from '../components/project/GbpSection.js'
 import { BacklinksSection } from '../components/project/BacklinksSection.js'
 import { CitationVisibilitySection } from '../components/project/CitationVisibilitySection.js'
+import { VisibilityTrendSection } from '../components/project/VisibilityTrendSection.js'
 import { DiscoverySection } from '../components/project/DiscoverySection.js'
+import { TechnicalAeoSection } from '../components/project/TechnicalAeoSection.js'
 import { ReportPage } from './ReportPage.js'
 import { formatTimestamp, SEARCH_METRIC_SHORT_LABELS, SearchMetric } from '../lib/format-helpers.js'
 import { METRIC_TONE_TEXT_CLASS, toneFromScore } from '../lib/tone-helpers.js'
@@ -35,6 +37,7 @@ import {
   fetchTimeline,
   deleteProject as apiDeleteProject,
   appendQueries as apiAppendQueries,
+  removeQueries as apiRemoveQueries,
   fetchCompetitors as apiFetchCompetitors,
   setCompetitors as apiSetCompetitors,
   removeCompetitors as apiRemoveCompetitors,
@@ -78,7 +81,7 @@ import { useInitialDashboard } from '../contexts/dashboard-context.js'
 import { useDrawer } from '../hooks/use-drawer.js'
 import type { ProjectCommandCenterVm, RunHistoryPoint } from '../view-models.js'
 
-export type ProjectPageTab = 'overview' | 'search-console' | 'local' | 'discovery' | 'report' | 'activity' | 'backlinks' | 'settings'
+export type ProjectPageTab = 'overview' | 'search-console' | 'local' | 'discovery' | 'report' | 'activity' | 'backlinks' | 'technical-aeo' | 'settings'
 
 type SearchConsoleWorkspace = 'google' | 'bing'
 
@@ -907,8 +910,8 @@ function SearchConsoleSection({
       <Card className="surface-card">
         <div className="section-head section-head-inline">
           <div>
-            <p className="eyebrow eyebrow-soft">Search console</p>
-            <h2>Search Engine Intelligence</h2>
+            <p className="eyebrow eyebrow-soft">Search engines</p>
+            <h2>Coverage &amp; performance</h2>
             <p className="mt-1 max-w-3xl text-sm leading-6 text-zinc-500">
               Scan both engines at a glance, then open the Google or Bing workspace when you need to inspect coverage or take action.
             </p>
@@ -1096,7 +1099,7 @@ function MentionShareBreakdown({
 
   return (
     <div className="mention-share-breakdown">
-      <p className="mention-share-breakdown-title">Mention share breakdown</p>
+      <p className="mention-share-breakdown-title">Mention share breakdown · latest run</p>
       <ul className="mention-share-breakdown-rows">
         {rows.map(row => {
           const share = (row.mentions / combinedTotal) * 100
@@ -1118,59 +1121,6 @@ function MentionShareBreakdown({
         })}
       </ul>
     </div>
-  )
-}
-
-/**
- * Compact inline-SVG sparkline for the per-provider breakdown table. Custom
- * SVG is allowed for sparkline-style visualizations per the design system
- * (Recharts is overkill for a 12-point trend at 96px wide). Color is tone-
- * driven from the most recent point so a row reads at a glance.
- */
-const TREND_STROKE_BY_TONE = {
-  positive: 'rgb(52 211 153)', // emerald-400
-  caution: 'rgb(251 191 36)', // amber-400
-  negative: 'rgb(251 113 133)', // rose-400
-  neutral: 'rgb(161 161 170)', // zinc-400
-} as const
-
-function ProviderTrendSparkline({
-  trend,
-  currentScore,
-}: {
-  trend?: number[]
-  currentScore: number
-}) {
-  if (!trend || trend.length < 2) {
-    return <span className="text-[11px] text-zinc-600">—</span>
-  }
-  const w = 96
-  const h = 24
-  const max = 100
-  const stepX = trend.length > 1 ? w / (trend.length - 1) : 0
-  const pts = trend.map((v, i) => `${(i * stepX).toFixed(2)},${(h - (v / max) * h).toFixed(2)}`).join(' ')
-  const stroke = TREND_STROKE_BY_TONE[toneFromScore(currentScore)]
-  const dotX = (trend.length - 1) * stepX
-  const dotY = h - (trend[trend.length - 1]! / max) * h
-  return (
-    <svg
-      width={w}
-      height={h}
-      viewBox={`0 0 ${w} ${h}`}
-      className="overflow-visible"
-      aria-label={`Trend ${trend.join(', ')}`}
-      role="img"
-    >
-      <polyline
-        points={pts}
-        fill="none"
-        stroke={stroke}
-        strokeWidth={1.5}
-        strokeLinejoin="round"
-        strokeLinecap="round"
-      />
-      <circle cx={dotX} cy={dotY} r={2.5} fill={stroke} />
-    </svg>
   )
 }
 
@@ -1477,6 +1427,69 @@ export function ProjectPage(props: { tab: ProjectPageTab }) {
   return <ProjectPageContent model={model} refetch={refetch} {...props} />
 }
 
+type ProjectTabItem = { key: ProjectPageTab; label: string; href: string }
+
+/**
+ * Trailing overflow ("More") menu for low-frequency project sections (Report).
+ * A standard disclosure: button toggles a `role="menu"`, closes on outside
+ * pointerdown, Escape, or item selection. Self-contained so its hooks don't
+ * sit below ProjectPageContent's early returns. Lives here (not in its own
+ * file) because it's a one-off for this subnav.
+ */
+function ProjectSubnavMore({ items, activeTab }: { items: ProjectTabItem[]; activeTab: ProjectPageTab }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const onPointerDown = (event: PointerEvent) => {
+      if (ref.current && !ref.current.contains(event.target as Node)) setOpen(false)
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [open])
+
+  if (items.length === 0) return null
+  const hasActive = items.some((item) => item.key === activeTab)
+
+  return (
+    <div className="project-subnav-more" ref={ref}>
+      <button
+        type="button"
+        className={`project-subnav-link project-subnav-more-trigger ${hasActive ? 'project-subnav-link-active' : ''}`}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((prev) => !prev)}
+      >
+        More
+        <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
+      </button>
+      {open ? (
+        <div className="project-subnav-menu" role="menu">
+          {items.map((item) => (
+            <Link
+              key={item.key}
+              to={item.href}
+              role="menuitem"
+              className={`project-subnav-menu-item ${item.key === activeTab ? 'project-subnav-menu-item-active' : ''}`}
+              aria-current={item.key === activeTab ? 'page' : undefined}
+              onClick={() => setOpen(false)}
+            >
+              {item.label}
+            </Link>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 function ProjectPageContent({
   tab,
   model,
@@ -1488,18 +1501,15 @@ function ProjectPageContent({
 }) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  // Gate the "Local Presence" tab on an actual GBP connection (same cached
-  // query GbpSection uses, so this dedupes — no extra fetch). Non-local
-  // projects never see the tab.
-  const gbpConnectionQuery = useQuery(
-    getApiV1ProjectsByNameGoogleConnectionsOptions({ client: heyClient, path: { name: model.project.name } }),
-  )
-  const gbpConnected = (gbpConnectionQuery.data ?? []).some((c) => c.connectionType === 'gbp')
+  // "Local Presence" is always shown — GbpSection renders a setup guide when no
+  // Google Business Profile is connected, so the tab is the entry point to
+  // connecting one rather than being hidden until after connection.
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleting, setDeleting] = useState(false)
-  const [addingQueries, setAddingQueries] = useState(false)
+  const [managingQueries, setManagingQueries] = useState(false)
   const [newQueryText, setNewQueryText] = useState('')
   const [querySaving, setQuerySaving] = useState(false)
+  const [removingQuery, setRemovingQuery] = useState<string | null>(null)
   const [addingCompetitor, setAddingCompetitor] = useState(false)
   const [newCompetitorDomain, setNewCompetitorDomain] = useState('')
   const [competitorSaving, setCompetitorSaving] = useState(false)
@@ -1535,6 +1545,15 @@ function ProjectPageContent({
   )
   const locationLabelsInEvidence = useMemo(() => new Set(visibilityEvidence.map(e => e.location ?? '')), [visibilityEvidence])
   const hasNullLocationEvidence = locationLabelsInEvidence.has('')
+  // The authoritative tracked-query set — every query the project tracks,
+  // including ones added but not yet run (build-dashboard seeds a "pending"
+  // evidence row for those). This is the same source as the "N queries tracked"
+  // header count, so the manage list and the count never diverge. Sorted for a
+  // stable order in the manage panel.
+  const trackedQueries = useMemo(
+    () => [...new Set(visibilityEvidence.map(e => e.query))].sort((a, b) => a.localeCompare(b)),
+    [visibilityEvidence],
+  )
   const distinctLocationsForCompare = useMemo(() => {
     // "Compare" needs ≥2 locations with selectable data. Prefer evidence-backed
     // locations, but fall back to configured locations so a fresh project that
@@ -1675,9 +1694,26 @@ function ProjectPageContent({
       await apiAppendQueries(projectName, queries)
       void refetch()
       setNewQueryText('')
-      setAddingQueries(false)
     } finally {
       setQuerySaving(false)
+    }
+  }
+
+  async function handleRemoveQuery(query: string) {
+    setRemovingQuery(query)
+    try {
+      await apiRemoveQueries(projectName, [query])
+      void refetch()
+    } catch (err) {
+      addToast({
+        title: 'Could not remove query',
+        detail: err instanceof Error ? err.message : `Failed to remove "${query}"`,
+        tone: 'negative',
+        dedupeKey: 'query:remove',
+        dedupeMode: 'replace',
+      })
+    } finally {
+      setRemovingQuery(null)
     }
   }
 
@@ -1788,18 +1824,25 @@ function ProjectPageContent({
   }
 
   const isNumericScore = (value: string) => !Number.isNaN(Number.parseInt(value, 10))
-  const projectTabItems: Array<{ key: ProjectPageTab; label: string; href: string }> = [
-    { key: 'overview', label: 'Overview', href: `/projects/${model.project.id}` },
-    { key: 'search-console', label: 'Search Engine Intelligence', href: `/projects/${model.project.id}/search-console` },
-    ...(gbpConnected
-      ? [{ key: 'local' as const, label: 'Local Presence', href: `/projects/${model.project.id}/local` }]
-      : []),
-    { key: 'activity', label: 'Activity', href: `/projects/${model.project.id}/activity` },
-    { key: 'report', label: 'Report', href: `/projects/${model.project.id}/report` },
-    { key: 'backlinks', label: 'Backlinks', href: `/projects/${model.project.id}/backlinks` },
-    { key: 'discovery', label: 'Discovery', href: `/projects/${model.project.id}/discovery` },
-    { key: 'settings', label: 'Settings', href: `/projects/${model.project.id}/settings` },
+  // Quiet underline tabs (Vercel/Linear lineage), not a pill rack. Section nav
+  // is chrome: plain text that recedes, the active tab marked by a Snow
+  // underline on the bar's hairline. Low-frequency sections (Report) live in a
+  // trailing "More" overflow; Settings is split out at the far right (universal
+  // convention). "Local Presence" only appears once GBP is connected.
+  const projectTabBase = `/projects/${model.project.id}`
+  const projectTabItems: ProjectTabItem[] = [
+    { key: 'overview', label: 'AI Visibility', href: projectTabBase },
+    { key: 'search-console', label: 'Search Engines', href: `${projectTabBase}/search-console` },
+    { key: 'activity', label: 'Activity', href: `${projectTabBase}/activity` },
+    { key: 'technical-aeo', label: 'Technical AEO', href: `${projectTabBase}/technical-aeo` },
+    { key: 'local', label: 'Local Presence', href: `${projectTabBase}/local` },
+    { key: 'discovery', label: 'Query Discovery', href: `${projectTabBase}/discovery` },
+    { key: 'backlinks', label: 'Backlinks', href: `${projectTabBase}/backlinks` },
   ]
+  const projectOverflowTabItems: ProjectTabItem[] = [
+    { key: 'report', label: 'Report', href: `${projectTabBase}/report` },
+  ]
+  const projectSettingsTab = { key: 'settings' as const, label: 'Settings', href: `${projectTabBase}/settings` }
 
   return (
     <div className="page-container">
@@ -1965,48 +2008,26 @@ function ProjectPageContent({
             {item.label}
           </Link>
         ))}
+        <div className="project-subnav-trailing">
+          <ProjectSubnavMore items={projectOverflowTabItems} activeTab={tab} />
+          <Link
+            key={projectSettingsTab.key}
+            to={projectSettingsTab.href}
+            className={`project-subnav-link ${tab === 'settings' ? 'project-subnav-link-active' : ''}`}
+            aria-current={tab === 'settings' ? 'page' : undefined}
+          >
+            {projectSettingsTab.label}
+          </Link>
+        </div>
       </nav>
 
       {tab === 'overview' ? (
         <>
-          {/* Hero: three comparable AEO numbers (Mention, Cited, Mention Share). */}
-          <section className="aeo-hero">
-            <h2 className="aeo-hero-title">AEO performance</h2>
-            <div className="aeo-hero-rows">
-              {([
-                { key: 'mention', label: 'Mentioned', tooltip: 'Your domain or company name was in the answer returned by the LLM.', summary: model.mentionSummary },
-                { key: 'citation', label: 'Cited', tooltip: 'An LLM used a page on your domain as a source for its answer.', summary: model.visibilitySummary },
-                { key: 'mention-share', label: 'Mention share', tooltip: 'Of all brand mentions in answer text across your tracked queries (you + tracked competitors), the % that were you. Head-to-head AI prominence, not market share.', summary: model.mentionShareSummary },
-              ] as const).map(row => (
-                <div key={row.key} className="aeo-hero-row">
-                  <div className="aeo-hero-row-label">
-                    <span>{row.label}</span>
-                    <InfoTooltip text={row.tooltip} />
-                  </div>
-                  <div className="aeo-hero-row-value">
-                    <span className="text-zinc-50">{row.summary.value}</span>
-                    {isNumericScore(row.summary.value) ? <span className="text-zinc-600">%</span> : null}
-                  </div>
-                  <div className="aeo-hero-row-bar">
-                    <div
-                      className={`metric-card-bar-fill progress-fill-${row.summary.tone}`}
-                      style={{ width: row.summary.progress !== undefined ? `${Math.min(Math.max(row.summary.progress, 0), 100)}%` : '0%' }}
-                    />
-                  </div>
-                  <div className="aeo-hero-row-detail">{row.summary.delta}</div>
-                </div>
-              ))}
-            </div>
-            <MentionShareBreakdown
-              summary={model.mentionShareSummary}
-              projectLabel={model.project.displayName || model.project.name}
-            />
-            {model.providerScores.length > 0 && (
-              <p className="aeo-hero-context">
-                Across {model.providerScores.length} {model.providerScores.length === 1 ? 'provider' : 'providers'}.
-              </p>
-            )}
-          </section>
+          {/* Trend chart — full-width centerpiece. Current Cited/Mentioned
+              rates are the chart's latest points; mention-share + the
+              mention/citation gap metrics live in the Competitive landscape
+              section below. */}
+          <VisibilityTrendSection projectName={model.project.name} />
 
           {/* Movement banner — what changed since last run, with the actual
               gained / lost query strings inline so the operator doesn't have
@@ -2016,59 +2037,110 @@ function ProjectPageContent({
             onJumpToEvidence={() => document.getElementById('evidence-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
           />
 
-          {/* Secondary: at-risk gaps (paired) + technical health */}
-          <section className="metric-grid">
-            <h2 className="sr-only">Coverage gaps and index health</h2>
-            <div className="metric-card">
-              <p className="metric-card-eyebrow">
-                Mention Gaps
-                <InfoTooltip text="Queries where a competitor was mentioned in the answer but your brand wasn't." />
-              </p>
-              <p className="metric-card-big-value">
-                <span className="text-zinc-50">{model.mentionGaps.value}</span>
-                <span className="text-zinc-600"> / {model.queryCounts.total}</span>
-              </p>
-              <div className="metric-card-bar">
-                <div
-                  className={`metric-card-bar-fill progress-fill-${model.mentionGaps.tone}`}
-                  style={{ width: model.mentionGaps.progress !== undefined ? `${Math.min(Math.max(model.mentionGaps.progress, 0), 100)}%` : '0%' }}
-                />
+          {/* Consolidated competitive landscape — mention share + the
+              mention/citation gap metrics, the per-competitor mention-share
+              breakdown, and the competitor table, all below the full-width
+              trend chart. */}
+          <section className="page-section-divider">
+            <div className="section-head section-head-inline">
+              <div>
+                <p className="eyebrow eyebrow-soft">Competitive</p>
+                <h2>Competitive landscape</h2>
               </div>
-              <p className="metric-card-detail">{model.mentionGaps.delta}</p>
+              <div className="flex items-center gap-3">
+                <p className="supporting-copy">{model.competitors.length} tracked</p>
+                <Button type="button" variant="outline" size="sm" onClick={() => setAddingCompetitor(!addingCompetitor)}>
+                  {addingCompetitor ? 'Cancel' : '+ Add competitor'}
+                </Button>
+              </div>
             </div>
-            <div className="metric-card">
-              <p className="metric-card-eyebrow">
-                Citation Gaps
-                <InfoTooltip text="Queries where a competitor was cited as a source but you weren't." />
-              </p>
-              <p className="metric-card-big-value">
-                <span className="text-zinc-50">{model.gapQueries.value}</span>
-                <span className="text-zinc-600"> / {model.queryCounts.total}</span>
-              </p>
-              <div className="metric-card-bar">
-                <div
-                  className={`metric-card-bar-fill progress-fill-${model.gapQueries.tone}`}
-                  style={{ width: model.gapQueries.progress !== undefined ? `${Math.min(Math.max(model.gapQueries.progress, 0), 100)}%` : '0%' }}
-                />
+
+            <section className="metric-grid">
+              <h2 className="sr-only">Mention share and competitive gaps</h2>
+              <div className="metric-card">
+                <p className="metric-card-eyebrow">
+                  Mention share
+                  <InfoTooltip text="Of all brand mentions in answer text across your tracked queries (you + tracked competitors), the % that were you. Head-to-head AI prominence, not market share. Measured from your most recent run." />
+                </p>
+                <p className="metric-card-big-value">
+                  <span className="text-zinc-50">{model.mentionShareSummary.value}</span>
+                  {isNumericScore(model.mentionShareSummary.value) ? <span className="text-zinc-600">%</span> : null}
+                </p>
+                <div className="metric-card-bar">
+                  <div
+                    className={`metric-card-bar-fill progress-fill-${model.mentionShareSummary.tone}`}
+                    style={{ width: model.mentionShareSummary.progress !== undefined ? `${Math.min(Math.max(model.mentionShareSummary.progress, 0), 100)}%` : '0%' }}
+                  />
+                </div>
+                <p className="metric-card-detail">{model.mentionShareSummary.delta}</p>
               </div>
-              <p className="metric-card-detail">{model.gapQueries.delta}</p>
-            </div>
-            <div className="metric-card">
-              <p className="metric-card-eyebrow">
-                Index Coverage
-                <InfoTooltip text="Percentage of your tracked URLs that Google or Bing has indexed." />
-              </p>
-              <p className="metric-card-big-value">
-                <span className="text-zinc-50">{model.indexCoverage.value}</span>
-                <span className="text-zinc-600">%</span>
-              </p>
-              <div className="metric-card-bar">
-                <div
-                  className={`metric-card-bar-fill progress-fill-${model.indexCoverage.tone}`}
-                  style={{ width: `${Number.parseInt(model.indexCoverage.value, 10) || 0}%` }}
-                />
+              <div className="metric-card">
+                <p className="metric-card-eyebrow">
+                  Mention Gaps
+                  <InfoTooltip text="Queries where a competitor was mentioned in the answer but your brand wasn't." />
+                </p>
+                <p className="metric-card-big-value">
+                  <span className="text-zinc-50">{model.mentionGaps.value}</span>
+                  <span className="text-zinc-600"> / {model.queryCounts.total}</span>
+                </p>
+                <div className="metric-card-bar">
+                  <div
+                    className={`metric-card-bar-fill progress-fill-${model.mentionGaps.tone}`}
+                    style={{ width: model.mentionGaps.progress !== undefined ? `${Math.min(Math.max(model.mentionGaps.progress, 0), 100)}%` : '0%' }}
+                  />
+                </div>
+                <p className="metric-card-detail">{model.mentionGaps.delta}</p>
               </div>
-              <p className="metric-card-detail">{model.indexCoverage.delta}</p>
+              <div className="metric-card">
+                <p className="metric-card-eyebrow">
+                  Citation Gaps
+                  <InfoTooltip text="Queries where a competitor was cited as a source but you weren't." />
+                </p>
+                <p className="metric-card-big-value">
+                  <span className="text-zinc-50">{model.gapQueries.value}</span>
+                  <span className="text-zinc-600"> / {model.queryCounts.total}</span>
+                </p>
+                <div className="metric-card-bar">
+                  <div
+                    className={`metric-card-bar-fill progress-fill-${model.gapQueries.tone}`}
+                    style={{ width: model.gapQueries.progress !== undefined ? `${Math.min(Math.max(model.gapQueries.progress, 0), 100)}%` : '0%' }}
+                  />
+                </div>
+                <p className="metric-card-detail">{model.gapQueries.delta}</p>
+              </div>
+            </section>
+
+            <MentionShareBreakdown
+              summary={model.mentionShareSummary}
+              projectLabel={model.project.displayName || model.project.name}
+            />
+
+            {addingCompetitor && (
+              <div className="mt-4 mb-3 flex gap-2 rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
+                <input
+                  className="flex-1 rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+                  type="text"
+                  placeholder="competitor.com"
+                  value={newCompetitorDomain}
+                  onChange={(e) => setNewCompetitorDomain(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { void handleAddCompetitor() } }}
+                />
+                <Button type="button" size="sm" disabled={!newCompetitorDomain.trim() || competitorSaving} onClick={asyncHandler(handleAddCompetitor)}>
+                  {competitorSaving ? 'Adding...' : 'Add'}
+                </Button>
+              </div>
+            )}
+
+            <div className="mt-4">
+              <CompetitorTable
+                competitors={model.competitors}
+                onSelectCompetitor={(domain) => {
+                  setCompetitorFilter(domain)
+                  document.getElementById('evidence-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                }}
+                onRemoveCompetitor={(domain) => { void handleRemoveCompetitor(domain) }}
+                activeFilter={competitorFilter}
+              />
             </div>
           </section>
 
@@ -2081,23 +2153,44 @@ function ProjectPageContent({
                 <h2>What the LLMs said</h2>
               </div>
               <div className="flex items-center gap-3">
-                <p className="supporting-copy">{new Set(model.visibilityEvidence.map(e => e.query)).size} queries tracked</p>
-                <Button type="button" variant="outline" size="sm" onClick={() => setAddingQueries(!addingQueries)}>
-                  {addingQueries ? 'Cancel' : '+ Add queries'}
+                <p className="supporting-copy">{trackedQueries.length} queries tracked</p>
+                <Button type="button" variant="outline" size="sm" onClick={() => setManagingQueries(!managingQueries)}>
+                  {managingQueries ? 'Done' : 'Manage queries'}
                 </Button>
               </div>
             </div>
-            {addingQueries && (
+            {managingQueries && (
               <div className="mb-3 rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
+                {trackedQueries.length > 0 ? (
+                  <ul className="mb-3 max-h-64 divide-y divide-zinc-800/60 overflow-y-auto rounded border border-zinc-800/60">
+                    {trackedQueries.map((q) => (
+                      <li key={q} className="flex items-center justify-between gap-3 px-3 py-2">
+                        <span className="min-w-0 truncate text-sm text-zinc-200" title={q}>{q}</span>
+                        <button
+                          type="button"
+                          className="shrink-0 rounded px-1.5 py-0.5 text-xs text-zinc-500 transition-colors hover:text-rose-400 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-rose-500 disabled:opacity-50"
+                          aria-label={`Remove query ${q}`}
+                          title={`Stop tracking "${q}"`}
+                          disabled={removingQuery !== null}
+                          onClick={() => { void handleRemoveQuery(q) }}
+                        >
+                          {removingQuery === q ? 'Removing…' : 'Remove'}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="mb-3 text-xs text-zinc-500">No queries tracked yet. Add some below.</p>
+                )}
                 <textarea
                   className="w-full resize-none rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
                   rows={3}
-                  placeholder="Enter queries, one per line"
+                  placeholder="Enter queries to add, one per line"
                   value={newQueryText}
                   onChange={(e) => setNewQueryText(e.target.value)}
                 />
                 <div className="mt-2 flex items-center justify-between">
-                  <p className="text-xs text-zinc-500">{newQueryText.split('\n').filter(k => k.trim()).length} queries</p>
+                  <p className="text-xs text-zinc-500">{newQueryText.split('\n').filter(k => k.trim()).length} to add</p>
                   <Button type="button" size="sm" disabled={!newQueryText.trim() || querySaving} onClick={asyncHandler(handleAddQueries)}>
                     {querySaving ? 'Adding...' : 'Add queries'}
                   </Button>
@@ -2183,46 +2276,6 @@ function ProjectPageContent({
             />
           </section>
 
-          {/* Competitor table */}
-          <section className="page-section-divider">
-            <div className="section-head section-head-inline">
-              <div>
-                <p className="eyebrow eyebrow-soft">Competitors</p>
-                <h2>Competitive landscape</h2>
-              </div>
-              <div className="flex items-center gap-3">
-                <p className="supporting-copy">{model.competitors.length} tracked</p>
-                <Button type="button" variant="outline" size="sm" onClick={() => setAddingCompetitor(!addingCompetitor)}>
-                  {addingCompetitor ? 'Cancel' : '+ Add competitor'}
-                </Button>
-              </div>
-            </div>
-            {addingCompetitor && (
-              <div className="mb-3 flex gap-2 rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
-                <input
-                  className="flex-1 rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
-                  type="text"
-                  placeholder="competitor.com"
-                  value={newCompetitorDomain}
-                  onChange={(e) => setNewCompetitorDomain(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') { void handleAddCompetitor() } }}
-                />
-                <Button type="button" size="sm" disabled={!newCompetitorDomain.trim() || competitorSaving} onClick={asyncHandler(handleAddCompetitor)}>
-                  {competitorSaving ? 'Adding...' : 'Add'}
-                </Button>
-              </div>
-            )}
-            <CompetitorTable
-              competitors={model.competitors}
-              onSelectCompetitor={(domain) => {
-                setCompetitorFilter(domain)
-                document.getElementById('evidence-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-              }}
-              onRemoveCompetitor={(domain) => { void handleRemoveCompetitor(domain) }}
-              activeFilter={competitorFilter}
-            />
-          </section>
-
           {/* Deep-dive analytics: Citation Visibility detail + per-provider
               breakdown. Demoted below the action layer because they answer
               "why" rather than "what to do next". */}
@@ -2233,7 +2286,7 @@ function ProjectPageContent({
               <div className="section-head section-head-inline">
                 <div>
                   <p className="eyebrow eyebrow-soft">Model breakdown</p>
-                  <h2>Visibility by model <InfoTooltip text="Per-model citation rate today plus a sparkline of the recent run history. Same query set, different LLMs — gaps between providers point at content / source issues, not the metric." /></h2>
+                  <h2>Visibility by model <InfoTooltip text="Per-model citation rate today. Same query set, different LLMs — gaps between providers point at content / source issues, not the metric. The trend over time is in the chart above (the By engine view)." /></h2>
                 </div>
               </div>
               <div className="evidence-table-wrap">
@@ -2242,7 +2295,6 @@ function ProjectPageContent({
                     <tr>
                       <th scope="col">Model</th>
                       <th scope="col">Score</th>
-                      <th scope="col">Trend</th>
                       <th scope="col">Cited queries</th>
                     </tr>
                   </thead>
@@ -2259,9 +2311,6 @@ function ProjectPageContent({
                           <span className={`font-semibold ${METRIC_TONE_TEXT_CLASS[toneFromScore(ps.score)]}`}>
                             {ps.score}%
                           </span>
-                        </td>
-                        <td>
-                          <ProviderTrendSparkline trend={ps.trend} currentScore={ps.score} />
                         </td>
                         <td className="text-zinc-500">{ps.cited} of {ps.total}</td>
                       </tr>
@@ -2298,6 +2347,8 @@ function ProjectPageContent({
         <ReportPage projectName={model.project.name} />
       ) : tab === 'discovery' ? (
         <DiscoverySection projectName={projectName} />
+      ) : tab === 'technical-aeo' ? (
+        <TechnicalAeoSection projectName={model.project.name} />
       ) : tab === 'activity' ? (
         <ActivitySection projectName={model.project.name} />
       ) : tab === 'backlinks' ? (
@@ -2305,7 +2356,7 @@ function ProjectPageContent({
       ) : tab === 'local' ? (
         // Local presence (Google Business Profile + Places). GbpSection
         // self-gates on the connection and renders its own empty state.
-        <GbpSection projectName={model.project.name} />
+        <GbpSection projectName={model.project.name} projectId={model.project.id} />
       ) : (
         <SearchConsoleSection projectName={model.project.name} />
       )}

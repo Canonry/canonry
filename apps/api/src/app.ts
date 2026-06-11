@@ -108,6 +108,12 @@ export function buildApp(env: PlatformEnv) {
           .where(eq(apiKeys.keyHash, hashApiKey(env.apiKey)))
           .get()
       },
+      // Cloud Run is always network-reachable — and deliberately public for
+      // the guest-report funnel — so the first-run password setup must
+      // always demand a valid bearer key. Without this, any first visitor
+      // to a fresh deployment could claim the dashboard password and mint
+      // a full-access `*` session (#690).
+      setupRequiresApiKey: true,
     })
   }, { prefix: apiPrefix })
 

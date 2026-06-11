@@ -18,7 +18,7 @@ function createServer(routes: Record<string, string>): Promise<{ server: http.Se
     server.listen(0, () => {
       const addr = server.address()
       const port = typeof addr === 'object' && addr ? addr.port : 0
-      resolve({ server, baseUrl: `http://localhost:${port}` })
+      resolve({ server, baseUrl: `http://127.0.0.1:${port}` })
     })
   })
 }
@@ -84,7 +84,7 @@ describe('fetchAndParseSitemap', () => {
           const port = typeof addr === 'object' && addr ? addr.port : 0
           const indexXml = `<?xml version="1.0" encoding="UTF-8"?>
 <sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <sitemap><loc>http://localhost:${port}/child-sitemap.xml</loc></sitemap>
+  <sitemap><loc>http://127.0.0.1:${port}/child-sitemap.xml</loc></sitemap>
 </sitemapindex>`
           res.writeHead(200, { 'Content-Type': 'application/xml' })
           res.end(indexXml)
@@ -96,7 +96,7 @@ describe('fetchAndParseSitemap', () => {
       srv.listen(0, () => {
         const addr = srv.address()
         const port = typeof addr === 'object' && addr ? addr.port : 0
-        resolve({ server: srv, baseUrl: `http://localhost:${port}` })
+        resolve({ server: srv, baseUrl: `http://127.0.0.1:${port}` })
       })
     })
     server = s.server
@@ -148,7 +148,7 @@ describe('fetchAndParseSitemap', () => {
       srv.listen(0, () => {
         const addr = srv.address()
         const port = typeof addr === 'object' && addr ? addr.port : 0
-        resolve({ server: srv, baseUrl: `http://localhost:${port}` })
+        resolve({ server: srv, baseUrl: `http://127.0.0.1:${port}` })
       })
     })
     server = s.server
@@ -175,8 +175,8 @@ describe('fetchAndParseSitemap', () => {
           const port = typeof addr === 'object' && addr ? addr.port : 0
           const indexXml = `<?xml version="1.0" encoding="UTF-8"?>
 <sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <sitemap><loc>http://localhost:${port}/child-good.xml</loc></sitemap>
-  <sitemap><loc>http://localhost:${port}/child-missing.xml</loc></sitemap>
+  <sitemap><loc>http://127.0.0.1:${port}/child-good.xml</loc></sitemap>
+  <sitemap><loc>http://127.0.0.1:${port}/child-missing.xml</loc></sitemap>
 </sitemapindex>`
           res.writeHead(200, { 'Content-Type': 'application/xml' })
           res.end(indexXml)
@@ -188,13 +188,55 @@ describe('fetchAndParseSitemap', () => {
       srv.listen(0, () => {
         const addr = srv.address()
         const port = typeof addr === 'object' && addr ? addr.port : 0
-        resolve({ server: srv, baseUrl: `http://localhost:${port}` })
+        resolve({ server: srv, baseUrl: `http://127.0.0.1:${port}` })
       })
     })
     server = s.server
 
     const urls = await fetchAndParseSitemap(`${s.baseUrl}/sitemap.xml`)
     expect(urls).toEqual(['https://example.com/page-from-good-child'])
+  })
+
+  it('rejects sitemap URLs that resolve to private / metadata ranges (SSRF guard)', async () => {
+    // Literal addresses — no DNS, deterministic. Loopback is intentionally
+    // allowed (see validateSitemapUrl), but these non-loopback internal ranges
+    // and the cloud metadata IP must be blocked before any fetch.
+    await expect(() => fetchAndParseSitemap('http://169.254.169.254/sitemap.xml')).rejects.toThrow(/rejected/)
+    await expect(() => fetchAndParseSitemap('http://10.0.0.5/sitemap.xml')).rejects.toThrow(/rejected/)
+    await expect(() => fetchAndParseSitemap('http://192.168.1.1/sitemap.xml')).rejects.toThrow(/rejected/)
+    // Non-http(s) schemes are rejected too.
+    await expect(() => fetchAndParseSitemap('file:///etc/passwd')).rejects.toThrow(/rejected/)
+  })
+
+  it('rejects a nested sitemap-index entry pointing at an internal host', async () => {
+    // The index itself is on an allowed loopback host, but it references a
+    // child sitemap on a blocked private IP — the child fetch must be guarded
+    // too. A blocked child is treated like any other failing child (skipped),
+    // so the run yields only the safe entries.
+    const s = await new Promise<{ server: http.Server; baseUrl: string }>((resolve) => {
+      const srv = http.createServer((req, res) => {
+        if (req.url === '/sitemap.xml') {
+          const indexXml = `<?xml version="1.0" encoding="UTF-8"?>
+<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <sitemap><loc>http://169.254.169.254/child.xml</loc></sitemap>
+</sitemapindex>`
+          res.writeHead(200, { 'Content-Type': 'application/xml' })
+          res.end(indexXml)
+        } else {
+          res.writeHead(404)
+          res.end()
+        }
+      })
+      srv.listen(0, () => {
+        const addr = srv.address()
+        const port = typeof addr === 'object' && addr ? addr.port : 0
+        resolve({ server: srv, baseUrl: `http://127.0.0.1:${port}` })
+      })
+    })
+    server = s.server
+
+    const urls = await fetchAndParseSitemap(`${s.baseUrl}/sitemap.xml`)
+    expect(urls).toEqual([])
   })
 
   it('does not refetch a child sitemap referenced more than once', async () => {
@@ -215,8 +257,8 @@ describe('fetchAndParseSitemap', () => {
           const port = typeof addr === 'object' && addr ? addr.port : 0
           const indexXml = `<?xml version="1.0" encoding="UTF-8"?>
 <sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <sitemap><loc>http://localhost:${port}/child.xml</loc></sitemap>
-  <sitemap><loc>http://localhost:${port}/child.xml</loc></sitemap>
+  <sitemap><loc>http://127.0.0.1:${port}/child.xml</loc></sitemap>
+  <sitemap><loc>http://127.0.0.1:${port}/child.xml</loc></sitemap>
 </sitemapindex>`
           res.writeHead(200, { 'Content-Type': 'application/xml' })
           res.end(indexXml)
@@ -228,7 +270,7 @@ describe('fetchAndParseSitemap', () => {
       srv.listen(0, () => {
         const addr = srv.address()
         const port = typeof addr === 'object' && addr ? addr.port : 0
-        resolve({ server: srv, baseUrl: `http://localhost:${port}` })
+        resolve({ server: srv, baseUrl: `http://127.0.0.1:${port}` })
       })
     })
     server = s.server

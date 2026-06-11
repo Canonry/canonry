@@ -870,7 +870,7 @@ test('_migrations table is created on first migrate', () => {
   expect(tableInfo.length).toBe(1)
 })
 
-test('v68 creates provider_token_usage table with the documented columns', () => {
+test('provider-token-usage migration creates the table with the documented columns', () => {
   const { dbPath, tmpDir } = createTempDb()
   onTestFinished(() => cleanup(tmpDir))
 

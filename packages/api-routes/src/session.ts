@@ -24,11 +24,11 @@
 
 import crypto from 'node:crypto'
 import { eq } from 'drizzle-orm'
-import type { FastifyInstance, FastifyReply } from 'fastify'
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 
 import rateLimit from '@fastify/rate-limit'
 import { apiKeys, type DatabaseClient } from '@ainyc/canonry-db'
-import { authInvalid, validationError } from '@ainyc/canonry-contracts'
+import { authInvalid, authRequired, validationError } from '@ainyc/canonry-contracts'
 
 // ─── Session store ───────────────────────────────────────────────────────────
 
@@ -250,6 +250,18 @@ export interface SessionRoutesOptions {
    * either pin a single key or use the first non-revoked apiKey row.
    */
   getDefaultApiKey: () => { id: string; revokedAt?: string | null } | undefined
+  /**
+   * When true, `POST /session/setup` additionally requires a valid
+   * (non-revoked) `cnry_…` bearer key. First-run password setup mints a
+   * session bound to the install's default `*` API key — full read/write on
+   * every project — which is safe to leave unauthenticated only when the
+   * server is reachable solely from the local machine. Set this for any
+   * network-reachable bind: `canonry serve` derives it from the bind host
+   * (`!isLoopbackBindHost(host)`), and `apps/api` (Cloud Run — always
+   * network-reachable) sets it unconditionally. Defaults to false
+   * (loopback posture). Ported from the pre-extraction fix in #690.
+   */
+  setupRequiresApiKey?: boolean
 }
 
 /**
@@ -265,6 +277,22 @@ export async function sessionRoutes(app: FastifyInstance, opts: SessionRoutesOpt
   // matches the single-tenant deployment posture. The 30/min default covers
   // status + logout; login + setup tighten to 10/min via per-route config.
   await app.register(rateLimit, { global: true, max: 30, timeWindow: '1 minute' })
+
+  // Resolve a non-revoked API key from a `Bearer cnry_…` header, if present.
+  // The /session* routes are in the auth-hook skip list, so the setup gate
+  // must do its own bearer check rather than rely on `request.apiKey`.
+  const requestHasValidApiKey = (request: FastifyRequest): boolean => {
+    const header = request.headers.authorization
+    if (!header) return false
+    const parts = header.split(' ')
+    if (parts.length !== 2 || parts[0] !== 'Bearer') return false
+    const key = opts.db
+      .select()
+      .from(apiKeys)
+      .where(eq(apiKeys.keyHash, hashApiKey(parts[1]!)))
+      .get()
+    return Boolean(key && !key.revokedAt)
+  }
 
   const createPasswordSession = (reply: FastifyReply): boolean => {
     const key = opts.getDefaultApiKey()
@@ -295,6 +323,17 @@ export async function sessionRoutes(app: FastifyInstance, opts: SessionRoutesOpt
   }>('/session/setup', {
     config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
   }, async (request, reply) => {
+    // First-run dashboard password setup mints a session bound to the
+    // install's default `*` API key — full read/write on every project. That
+    // is safe on a loopback bind (only local processes can reach it) but a
+    // pre-auth privilege escalation on a network-reachable server, where any
+    // unauthenticated first-visitor could claim it. When the caller declared
+    // the server network-reachable, require the bearer key. (#690)
+    if (opts.setupRequiresApiKey && !requestHasValidApiKey(request)) {
+      const err = authRequired('This server is network-reachable; setting the dashboard password requires a valid API key.')
+      return reply.status(err.statusCode).send(err.toJSON())
+    }
+
     if (opts.dashboardPassword.get()) {
       throw validationError('Dashboard password is already configured')
     }
@@ -328,7 +367,8 @@ export async function sessionRoutes(app: FastifyInstance, opts: SessionRoutesOpt
       }
       const verification = verifyDashboardPassword(password, stored)
       if (!verification.ok) {
-        return reply.status(401).send({ error: { code: 'AUTH_INVALID', message: 'Incorrect password' } })
+        const err = authInvalid('Incorrect password')
+        return reply.status(err.statusCode).send(err.toJSON())
       }
       // Transparent migration: a successful login against the legacy
       // unsalted SHA-256 hash rewrites the store with a fresh scrypt hash
@@ -337,7 +377,8 @@ export async function sessionRoutes(app: FastifyInstance, opts: SessionRoutesOpt
         await opts.dashboardPassword.set(hashDashboardPassword(password))
       }
       if (!createPasswordSession(reply)) {
-        return reply.status(401).send({ error: { code: 'AUTH_INVALID', message: 'Server API key not found — re-run canonry init' } })
+        const err = authInvalid('Server API key not found — re-run canonry init')
+        return reply.status(err.statusCode).send(err.toJSON())
       }
       return reply.send({ authenticated: true })
     }

@@ -300,6 +300,27 @@ describe('operator CLI contract', () => {
     expect(parsed.error.details.validFeatures).toEqual(['metrics', 'gaps', 'sources'])
   })
 
+  it('prints a JSON usage error for sources with missing project', async () => {
+    const result = await invokeCli(['sources', '--format', 'json'])
+
+    expect(result.exitCode).toBe(1)
+    const parsed = JSON.parse(result.stderr) as {
+      error: { code: string; message: string; details: { command: string } }
+    }
+    expect(parsed.error.code).toBe('CLI_USAGE_ERROR')
+    expect(parsed.error.message).toBe('project name is required')
+    expect(parsed.error.details.command).toBe('sources')
+  })
+
+  it('rejects a non-positive --limit for sources before hitting the API', async () => {
+    const result = await invokeCli(['sources', 'test-proj', '--limit', '0', '--format', 'json'])
+
+    expect(result.exitCode).toBe(1)
+    const parsed = JSON.parse(result.stderr) as { error: { code: string; message: string } }
+    expect(parsed.error.code).toBe('CLI_USAGE_ERROR')
+    expect(parsed.error.message).toMatch(/limit must be a positive integer/)
+  })
+
   it('applies a config file and prints a JSON summary', async () => {
     const applyPath = path.join(tmpDir, 'apply.yaml')
     fs.writeFileSync(applyPath, [

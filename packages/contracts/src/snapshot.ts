@@ -40,8 +40,6 @@ export const snapshotAuditFactorSchema = z.object({
   name: z.string(),
   weight: z.number(),
   score: z.number(),
-  grade: z.string(),
-  status: z.enum(['pass', 'partial', 'fail']),
   findings: z.array(z.object({
     type: z.string(),
     message: z.string(),
@@ -56,7 +54,6 @@ export const snapshotAuditSchema = z.object({
   finalUrl: z.string(),
   auditedAt: z.string(),
   overallScore: z.number(),
-  overallGrade: z.string(),
   summary: z.string(),
   factors: z.array(snapshotAuditFactorSchema).default([]),
 })

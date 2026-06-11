@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   getApiV1ProjectsByNameGoogleConnectionsOptions,
@@ -15,6 +15,7 @@ import {
   classifyGbpMetric,
   GBP_CONVERSION_METRICS,
   GBP_REACH_METRICS,
+  RunKinds,
 } from '@ainyc/canonry-contracts'
 
 import { Button } from '../ui/button.js'
@@ -43,8 +44,9 @@ import {
 } from '../shared/ChartPrimitives.js'
 import { fetchInsights, heyClient } from '../../api.js'
 import { addToast } from '../../lib/toast-store.js'
+import { getRunTrackerState, subscribeRunTracker, trackRun } from '../../lib/run-tracker-store.js'
 
-export function GbpSection({ projectName }: { projectName: string }) {
+export function GbpSection({ projectName, projectId }: { projectName: string; projectId: string }) {
   const queryClient = useQueryClient()
   // `null` = all tracked locations (aggregate). A locationName scopes every read
   // to one location. A single tracked location reads 1:1 with no selector.
@@ -92,14 +94,42 @@ export function GbpSection({ projectName }: { projectName: string }) {
     })
   }
 
-  // Errors surface through the global error toast (no skipGlobalErrorToast meta).
+  // GBP sync is an async background run: POST /gbp/sync queues a `gbp-sync` run
+  // and returns immediately. Hand the run to the global RunNotificationObserver
+  // (via trackRun) so it polls to completion, invalidates the GBP queries once
+  // the data is actually refreshed, and emits the completion toast — rather than
+  // invalidating eagerly here (which refetches the same stale data while the run
+  // is still in flight) and re-enabling the button the instant the POST returns.
+  // Errors on the POST itself still surface through the global error toast.
   const syncMutation = useMutation({
     ...postApiV1ProjectsByNameGbpSyncMutation(),
-    onSuccess: () => {
-      addToast('Google Business Profile sync started.', 'positive')
-      invalidateGbp()
+    onSuccess: (data) => {
+      trackRun({
+        id: data.runId,
+        projectId,
+        kind: RunKinds['gbp-sync'],
+        projectLabel: projectName,
+        sourceAction: 'gbp-sync',
+      })
+      addToast({
+        title: 'Business Profile sync started',
+        detail: `${projectName} will refresh when the sync completes.`,
+        tone: 'neutral',
+        dedupeKey: `gbp-sync:${projectName}`,
+        dedupeMode: 'replace',
+      })
     },
   })
+
+  // Keep the Sync button disabled until the queued run reaches a terminal
+  // status. `syncMutation.isPending` only covers the brief POST; the tracked
+  // run (cleared by RunNotificationObserver on completion) covers the
+  // background sync that follows.
+  const trackerState = useSyncExternalStore(subscribeRunTracker, getRunTrackerState, getRunTrackerState)
+  const gbpSyncInFlight = Object.values(trackerState.runs).some(
+    (run) => run.kind === RunKinds['gbp-sync'] && run.projectId === projectId,
+  )
+  const isSyncing = syncMutation.isPending || gbpSyncInFlight
 
   const selectionMutation = useMutation({
     ...putApiV1ProjectsByNameGbpLocationsByLocationNameSelectionMutation(),
@@ -121,19 +151,58 @@ export function GbpSection({ projectName }: { projectName: string }) {
 
   if (connectionsQuery.isLoading) return null
 
-  // The dedicated "Local Presence" tab can be reached by direct navigation even
-  // without a connection — render an explicit empty state, not a blank page.
+  // The "Local Presence" tab is always reachable; when no Google Business
+  // Profile is connected it renders a setup guide (onboarding state), not a
+  // blank page. GBP setup is OAuth + account + location selection, so the
+  // proven path is the CLI; the guide walks the four steps.
   if (!gbpConnection) {
+    const steps: Array<{ title: string; command: string; note: ReactNode }> = [
+      {
+        title: 'Connect your Google account',
+        command: `canonry gbp connect ${projectName}`,
+        note: 'Opens Google OAuth. Grant Business Profile (business.manage) access.',
+      },
+      {
+        title: 'Choose the account',
+        command: `canonry gbp accounts ${projectName}`,
+        note: 'Pick which Business Profile account this project tracks.',
+      },
+      {
+        title: 'Select locations',
+        command: `canonry gbp locations discover ${projectName}`,
+        note: <>Then adopt the ones to sync: <code className="rounded bg-zinc-900/80 px-1 py-0.5 font-mono text-[11px] text-zinc-400">canonry gbp locations select {projectName} &lt;location&gt;</code></>,
+      },
+      {
+        title: 'Sync, and keep it fresh',
+        command: `canonry gbp sync ${projectName}`,
+        note: <>Schedule it: <code className="rounded bg-zinc-900/80 px-1 py-0.5 font-mono text-[11px] text-zinc-400">canonry schedule set {projectName} --kind gbp-sync --preset daily</code></>,
+      },
+    ]
     return (
       <section className="page-section-divider">
-        <Card className="surface-card compact-card">
+        <Card className="surface-card">
           <p className="eyebrow eyebrow-soft">Local presence</p>
-          <h2>Google Business Profile</h2>
+          <h2>Connect Google Business Profile</h2>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-500">
-            No Google Business Profile is connected for this project. Connect one with{' '}
-            <span className="font-mono text-zinc-400">canonry gbp connect {projectName}</span> to track local
-            performance, search terms, and how your public Maps listing compares to the profile you control.
+            Track local performance, search terms, place-action CTAs, and how your public Maps listing compares to
+            the profile you control. Four steps from the CLI:
           </p>
+          <ol className="mt-5 space-y-4">
+            {steps.map((step, index) => (
+              <li key={step.title} className="grid grid-cols-[1.5rem_1fr] gap-x-3">
+                <span className="mt-0.5 inline-flex h-6 w-6 items-center justify-center rounded-full bg-zinc-800 text-xs font-medium tabular-nums text-zinc-300" aria-hidden="true">
+                  {index + 1}
+                </span>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-zinc-200">{step.title}</p>
+                  <code className="mt-1.5 inline-block w-fit max-w-full overflow-x-auto rounded bg-zinc-900/80 px-2 py-1 font-mono text-xs text-zinc-300">
+                    {step.command}
+                  </code>
+                  <p className="mt-1 text-xs leading-5 text-zinc-500">{step.note}</p>
+                </div>
+              </li>
+            ))}
+          </ol>
         </Card>
       </section>
     )
@@ -176,10 +245,10 @@ export function GbpSection({ projectName }: { projectName: string }) {
               type="button"
               variant="outline"
               size="sm"
-              disabled={syncMutation.isPending}
+              disabled={isSyncing}
               onClick={() => syncMutation.mutate({ client: heyClient, path: { name: projectName }, body: {} })}
             >
-              {syncMutation.isPending ? 'Syncing…' : 'Sync'}
+              {isSyncing ? 'Syncing…' : 'Sync'}
             </Button>
           </div>
         </div>

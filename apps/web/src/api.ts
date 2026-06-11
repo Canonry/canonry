@@ -1,4 +1,4 @@
-import type { ErrorCode, GroundingSource, ProjectOverviewDto, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto, GscPerformanceDailyDto, IndexingRequestResultDto, MetricsWindow, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry, InsightDto, ProjectReportDto, ReportAudience, CitationVisibilityResponse, BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinkHistoryEntry, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcAvailableRelease, CcCachedRelease, CcReleaseSyncDto, TrafficSourceDto, TrafficSourceDetailDto, TrafficSourceListResponse, TrafficStatusResponse, TrafficEventsResponse, TrafficConnectCloudRunRequest, TrafficConnectWordpressRequest, TrafficConnectVercelRequest, TrafficSyncResponse, TrafficBackfillResponse, DiscoveryRunRequest, DiscoverySessionDto, DiscoverySessionDetailDto, DiscoveryPromotePreview, DiscoveryPromoteRequest, DiscoveryPromoteResult, ProjectDto, QueryDto, CompetitorDto, LocationContext, GoogleConnectionDto, GscUrlInspectionDto, GscDeindexedRowDto, BingUrlInspectionDto, BingCoverageSummaryDto, BingKeywordStatsDto, BingStatusDto, BingConnectResponseDto, BingSetSiteResponseDto, BingSitesResponseDto, GscSearchDataDto, ContentTargetDismissalDto, ContentTargetDismissRequest } from '@ainyc/canonry-contracts'
+import type { ErrorCode, GroundingSource, ProjectOverviewDto, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto, GscPerformanceDailyDto, IndexingRequestResultDto, MetricsWindow, BrandMetricsDto, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry, InsightDto, ProjectReportDto, ReportAudience, CitationVisibilityResponse, BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinkHistoryEntry, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcAvailableRelease, CcCachedRelease, CcReleaseSyncDto, TrafficSourceDto, TrafficSourceDetailDto, TrafficSourceListResponse, TrafficStatusResponse, TrafficEventsResponse, TrafficConnectCloudRunRequest, TrafficConnectWordpressRequest, TrafficConnectVercelRequest, TrafficSyncResponse, TrafficBackfillResponse, DiscoveryRunRequest, DiscoverySessionDto, DiscoverySessionDetailDto, DiscoveryPromotePreview, DiscoveryPromoteRequest, DiscoveryPromoteResult, ProjectDto, QueryDto, CompetitorDto, LocationContext, GoogleConnectionDto, GscUrlInspectionDto, GscDeindexedRowDto, BingUrlInspectionDto, BingCoverageSummaryDto, BingKeywordStatsDto, BingStatusDto, BingConnectResponseDto, BingSetSiteResponseDto, BingSitesResponseDto, GscSearchDataDto, ContentTargetDismissalDto, ContentTargetDismissRequest, SiteAuditRunResponseDto } from '@ainyc/canonry-contracts'
 import {
   createClient as createHeyClient,
   // Projects + queries + competitors + locations + runs + apply + settings + telemetry
@@ -11,6 +11,7 @@ import {
   getApiV1ProjectsByNameQueries,
   putApiV1ProjectsByNameQueries,
   postApiV1ProjectsByNameQueries,
+  deleteApiV1ProjectsByNameQueries,
   postApiV1ProjectsByNameQueriesGenerate,
   postApiV1ProjectsByNameContentDismissals,
   deleteApiV1ProjectsByNameContentDismissalsByTargetRef,
@@ -42,6 +43,8 @@ import {
   postApiV1ProjectsByNameNotificationsByIdTest,
   // CDP
   getApiV1CdpStatus,
+  // Analytics
+  getApiV1ProjectsByNameAnalyticsMetrics,
   // Google connections + GSC + Indexing
   postApiV1ProjectsByNameGoogleConnect,
   getApiV1ProjectsByNameGoogleConnections,
@@ -63,6 +66,8 @@ import {
   postApiV1ProjectsByNameGoogleIndexingRequest,
   // Discovery
   postApiV1ProjectsByNameDiscoverRun,
+  // Technical AEO (site-audit)
+  postApiV1ProjectsByNameTechnicalAeoRuns,
   getApiV1ProjectsByNameDiscoverSessions,
   getApiV1ProjectsByNameDiscoverSessionsById,
   getApiV1ProjectsByNameDiscoverSessionsByIdPromote,
@@ -523,6 +528,18 @@ export function appendQueries(projectName: string, queries: string[]): Promise<A
 }
 
 /**
+ * Stop tracking specific queries. `DELETE /projects/:name/queries` removes the
+ * named queries by text and returns the remaining set. The server preserves the
+ * deleted queries' text on their historical snapshots, so analytics history is
+ * not lost — only future tracking stops.
+ */
+export function removeQueries(projectName: string, queries: string[]): Promise<ApiQuery[]> {
+  return invokeWeb<ApiQuery[]>(() =>
+    deleteApiV1ProjectsByNameQueries({ client: heyClient, path: { name: projectName }, body: { queries } }),
+  )
+}
+
+/**
  * Persist a "mark addressed" dismissal for one content recommendation. The
  * backend (`POST /projects/:name/content/dismissals`) idempotently upserts a
  * row keyed by `(projectId, targetRef)`. Returns the stored dismissal so the
@@ -975,6 +992,21 @@ export function fetchGscPerformance(
   )
 }
 
+export function fetchAnalyticsMetrics(
+  project: string,
+  window?: MetricsWindow,
+): Promise<BrandMetricsDto> {
+  const query: Record<string, string> = {}
+  if (window && window !== 'all') query.window = window
+  return invokeWeb<BrandMetricsDto>(() =>
+    getApiV1ProjectsByNameAnalyticsMetrics({
+      client: heyClient,
+      path: { name: project },
+      query: query as never,
+    }),
+  )
+}
+
 export function fetchGscPerformanceDaily(
   project: string,
   params?: { startDate?: string; endDate?: string; window?: MetricsWindow },
@@ -1076,6 +1108,19 @@ export function fetchGscSitemaps(project: string): Promise<{ sitemaps: ApiGscSit
 export function triggerDiscoverSitemaps(project: string): Promise<{ sitemaps: ApiGscSitemap[]; primarySitemapUrl: string; run: ApiRun }> {
   return invokeWeb<{ sitemaps: ApiGscSitemap[]; primarySitemapUrl: string; run: ApiRun }>(() =>
     postApiV1ProjectsByNameGoogleGscDiscoverSitemaps({ client: heyClient, path: { name: project } }),
+  )
+}
+
+export function triggerSiteAudit(
+  project: string,
+  body?: { sitemapUrl?: string; limit?: number },
+): Promise<SiteAuditRunResponseDto> {
+  return invokeWeb<SiteAuditRunResponseDto>(() =>
+    postApiV1ProjectsByNameTechnicalAeoRuns({
+      client: heyClient,
+      path: { name: project },
+      body: (body ?? {}) as never,
+    }),
   )
 }
 

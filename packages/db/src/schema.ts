@@ -1,5 +1,5 @@
 import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
-import type { DiscoveryCompetitorMapEntry, LocationContext, ProviderName } from '@ainyc/canonry-contracts'
+import type { ContentBriefDto, DiscoveryCompetitorMapEntry, DiscoveryCompetitorType, LocationContext, ProviderName, SiteAuditCrossCuttingIssueDto, SiteAuditFactorSummaryDto, SiteAuditPageFactorDto } from '@ainyc/canonry-contracts'
 
 export const projects = sqliteTable('projects', {
   id: text('id').primaryKey(),
@@ -171,7 +171,9 @@ export const users = sqliteTable('users', {
   createdAt: text('created_at').notNull(),
   lastSeenAt: text('last_seen_at'),
 }, (table) => [
-  index('idx_users_google_sub').on(table.googleSub),
+  // google_sub already gets an implicit index from .unique(); the column the
+  // claim route actually filters on is api_key_id (users-by-backing-key).
+  index('idx_users_api_key').on(table.apiKeyId),
 ])
 
 /**
@@ -239,6 +241,7 @@ export const guestReports = sqliteTable('guest_reports', {
   index('idx_guest_reports_status').on(table.status),
   index('idx_guest_reports_expires').on(table.expiresAt),
   index('idx_guest_reports_claimed').on(table.claimedByUserId),
+  index('idx_guest_reports_project').on(table.projectId),
 ])
 
 /**
@@ -381,6 +384,52 @@ export const gscCoverageSnapshots = sqliteTable('gsc_coverage_snapshots', {
 }, (table) => [
   index('idx_gsc_coverage_snap_project_date').on(table.projectId, table.date),
   index('idx_gsc_coverage_snap_run').on(table.syncRunId),
+])
+
+/**
+ * Technical AEO — per-run summary of a `site-audit` run. One row per completed
+ * (or partial) site audit; drives the score hero, the per-factor scorecard, and
+ * the aggregate-score trend. JSON columns use native `mode: 'json'`.
+ */
+export const siteAuditSnapshots = sqliteTable('site_audit_snapshots', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  runId: text('run_id').notNull().references(() => runs.id, { onDelete: 'cascade' }),
+  sitemapUrl: text('sitemap_url').notNull(),
+  auditedAt: text('audited_at').notNull(),
+  aggregateScore: integer('aggregate_score').notNull().default(0),
+  pagesDiscovered: integer('pages_discovered').notNull().default(0),
+  pagesAudited: integer('pages_audited').notNull().default(0),
+  pagesSkipped: integer('pages_skipped').notNull().default(0),
+  pagesErrored: integer('pages_errored').notNull().default(0),
+  factorAverages: text('factor_averages', { mode: 'json' }).$type<SiteAuditFactorSummaryDto[]>().notNull().default([]),
+  crossCuttingIssues: text('cross_cutting_issues', { mode: 'json' }).$type<SiteAuditCrossCuttingIssueDto[]>().notNull().default([]),
+  prioritizedFixes: text('prioritized_fixes', { mode: 'json' }).$type<string[]>().notNull().default([]),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  index('idx_site_audit_snap_project_created').on(table.projectId, table.createdAt),
+  index('idx_site_audit_snap_run').on(table.runId),
+])
+
+/**
+ * Technical AEO — per-page breakdown of a `site-audit` run. One row per audited
+ * URL; `status='error'` rows carry an `error` and no factors. Findings /
+ * recommendations are rolled up at the site level (snapshot) rather than stored
+ * per page, so `factors` holds only the per-factor scores.
+ */
+export const siteAuditPages = sqliteTable('site_audit_pages', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  runId: text('run_id').notNull().references(() => runs.id, { onDelete: 'cascade' }),
+  url: text('url').notNull(),
+  overallScore: integer('overall_score').notNull().default(0),
+  status: text('status').notNull(),
+  error: text('error'),
+  factors: text('factors', { mode: 'json' }).$type<SiteAuditPageFactorDto[]>().notNull().default([]),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  index('idx_site_audit_pages_run').on(table.runId),
+  index('idx_site_audit_pages_project_score').on(table.projectId, table.overallScore),
 ])
 
 export const bingCoverageSnapshots = sqliteTable('bing_coverage_snapshots', {
@@ -918,6 +967,36 @@ export const discoveryProbes = sqliteTable('discovery_probes', {
 ])
 
 /**
+ * Durable, per-domain classification of cited surfaces produced by discovery.
+ *
+ * Discovery already types every recurring cited domain (`direct-competitor` /
+ * `ota-aggregator` / `editorial-media` / `other` / `unknown`) into a session's
+ * `competitor_map`, but that map is keyed to a session, not to a
+ * `(project, domain)` lookup. The content-targets winnabilityClass gate runs on
+ * every report and sweep and cannot run a discovery probe, so it needs a cheap
+ * indexed read. This table accumulates the union of every classification ever
+ * produced, upserted on each discovery completion (last-write-wins per domain),
+ * decoupled from session retention.
+ *
+ * Keyed UNIQUE on `(project_id, domain)`. `domain` is normalized
+ * (`normalizeDomain`). `session_id` records the provenance of the latest write.
+ */
+export const domainClassifications = sqliteTable('domain_classifications', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  domain: text('domain').notNull(),
+  competitorType: text('competitor_type').$type<DiscoveryCompetitorType>().notNull(),
+  /** Recurrence count from the latest classifying session; informational. */
+  hits: integer('hits').notNull().default(0),
+  /** Discovery session that produced the latest classification. */
+  sessionId: text('session_id'),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_domain_classifications_project_domain').on(table.projectId, table.domain),
+  index('idx_domain_classifications_project').on(table.projectId),
+])
+
+/**
  * Per-recommendation dismissal for content-opportunity rows in the report.
  *
  * Recommendations are recomputed on every report load from live GSC/GA
@@ -970,6 +1049,37 @@ export const recommendationExplanations = sqliteTable('recommendation_explanatio
     table.promptVersion,
   ),
   index('idx_recommendation_explanations_project').on(table.projectId),
+])
+
+/**
+ * LLM-synthesized content brief for a recommendation. Separate from
+ * `recommendation_explanations` on purpose: the brief carries a STRUCTURED
+ * payload, and the explanation cache lookup is prompt-version-blind (it returns
+ * the newest row for a target regardless of version) — sharing a table would
+ * let brief and explanation rows bleed into each other's reads. The brief
+ * lookup keys on the full `(project, target_ref, prompt_version)` tuple, so the
+ * two modes never collide. Gated to `ownable` targets; a `ceded` target is
+ * rejected before synthesis, so no row is ever written for one.
+ */
+export const recommendationBriefs = sqliteTable('recommendation_briefs', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  targetRef: text('target_ref').notNull(),
+  promptVersion: text('prompt_version').notNull(),
+  provider: text('provider').notNull(),
+  model: text('model').notNull(),
+  /** The structured brief payload (angle, why-winnable, schema hookup, etc.). */
+  brief: text('brief', { mode: 'json' }).$type<ContentBriefDto>().notNull(),
+  /** Estimated cost in millicents (1/100 of a cent) for audit; 0 if unknown. */
+  costMillicents: integer('cost_millicents').notNull().default(0),
+  generatedAt: text('generated_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_recommendation_briefs_unique').on(
+    table.projectId,
+    table.targetRef,
+    table.promptVersion,
+  ),
+  index('idx_recommendation_briefs_project').on(table.projectId),
 ])
 
 /**

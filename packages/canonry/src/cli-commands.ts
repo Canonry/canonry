@@ -11,6 +11,7 @@ import { GET_CLI_COMMANDS } from './cli-commands/get.js'
 import { TRAFFIC_CLI_COMMANDS } from './cli-commands/traffic.js'
 import { COMPETITOR_CLI_COMMANDS } from './cli-commands/competitor.js'
 import { GOOGLE_CLI_COMMANDS } from './cli-commands/google.js'
+import { KEYS_CLI_COMMANDS } from './cli-commands/keys.js'
 import { KEYWORD_CLI_COMMANDS } from './cli-commands/keyword.js'
 import { QUERY_CLI_COMMANDS } from './cli-commands/query.js'
 import { MCP_CLI_COMMANDS } from './cli-commands/mcp.js'
@@ -26,6 +27,7 @@ import { SNAPSHOT_CLI_COMMANDS } from './cli-commands/snapshot.js'
 import { INTELLIGENCE_CLI_COMMANDS } from './cli-commands/intelligence.js'
 import { CONTENT_CLI_COMMANDS } from './cli-commands/content.js'
 import { SYSTEM_CLI_COMMANDS } from './cli-commands/system.js'
+import { TECHNICAL_AEO_CLI_COMMANDS } from './cli-commands/technical-aeo.js'
 import { WORDPRESS_CLI_COMMANDS } from './cli-commands/wordpress.js'
 import { AGENT_CLI_COMMANDS } from './cli-commands/agent.js'
 
@@ -37,6 +39,7 @@ export const REGISTERED_CLI_COMMANDS: readonly CliCommandSpec[] = [
   ...REPORT_CLI_COMMANDS,
   ...QUERY_CLI_COMMANDS,
   ...KEYWORD_CLI_COMMANDS,
+  ...KEYS_CLI_COMMANDS,
   ...COMPETITOR_CLI_COMMANDS,
   ...SETTINGS_CLI_COMMANDS,
   ...SKILLS_CLI_COMMANDS,
@@ -56,6 +59,7 @@ export const REGISTERED_CLI_COMMANDS: readonly CliCommandSpec[] = [
   ...CONTENT_CLI_COMMANDS,
   ...AGENT_CLI_COMMANDS,
   ...DISCOVER_CLI_COMMANDS,
+  ...TECHNICAL_AEO_CLI_COMMANDS,
   ...DOCTOR_CLI_COMMANDS,
   ...GET_CLI_COMMANDS,
   ...MCP_CLI_COMMANDS,

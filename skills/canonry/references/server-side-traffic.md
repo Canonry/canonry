@@ -66,8 +66,45 @@ sync flow does NOT echo the private key back in any response.
 ## Connecting a WordPress source
 
 The WordPress adapter pulls events from the **Canonry Traffic Logger**
-WordPress plugin, which captures every non-admin GET page-load and
-exposes a paginated REST endpoint protected by an Application Password.
+WordPress plugin, which captures every non-admin GET page-load **that
+reaches PHP** and exposes a paginated REST endpoint protected by an
+Application Password.
+
+> **Cache blind spot.** The plugin is a PHP hook, so it only sees
+> requests that execute WordPress. A full-page cache (LiteSpeed, WP
+> Rocket, W3 Total Cache, WP Super Cache) or CDN serves cached pages
+> before PHP runs, so cache-served page views, including live AI
+> user-fetches (Claude-User, ChatGPT-User), are NOT logged. Bot crawls
+> of uncached endpoints (sitemap, feeds, assets, cache misses) still
+> come through, which can make capture look healthy while real page
+> views go uncounted. Exclude AI user-agents from the cache (and any
+> CDN), or capture from access/edge logs instead. The
+> `traffic.source.cache-blindspot` doctor check warns whenever a
+> WordPress source is connected.
+
+**Which user-agents to exclude from the cache** (one per line in
+LiteSpeed's "Do Not Cache User Agents", WP Rocket's
+`rocket_cache_reject_ua`, or W3TC / WP Super Cache "Rejected User
+Agents"):
+
+```
+Claude-User
+ClaudeBot
+ChatGPT-User
+OAI-SearchBot
+GPTBot
+PerplexityBot
+Perplexity-User
+```
+
+These are the answer-engine fetchers in both live-user-fetch (`*-User`)
+and crawler forms. Do NOT add `Googlebot` or `Bingbot`: caching helps
+search crawlers (page speed is a ranking signal, and cached pages let
+them crawl more per visit, which matters most on crawl-budget-starved
+sites), and their crawl stats are already authoritative in GSC and Bing
+Webmaster Tools. Rule of thumb: bypass cache only for agents you cannot
+measure elsewhere and that gain nothing from being cached. Answer-engine
+fetchers fit both; search crawlers fit neither.
 
 ```bash
 # 1. Install the plugin. Download the latest release zip from the
@@ -223,7 +260,7 @@ MCP `canonry_traffic_status` tool.
 | Project dashboard `/projects/:name/activity` | Live source table + 24h totals + GA4 referrals (combined view) |
 | Top-level `/traffic` route | Cross-project source admin (connect, sync, archive) |
 | `cnry report <project>` (HTML + SPA) | "AI Visibility — Server-Side" section, ranked above Indexing Health |
-| `cnry doctor --project <name>` | `traffic.source.connected`, `recent-data`, `credentials`, `scopes` checks |
+| `cnry doctor --project <name>` | `traffic.source.connected`, `recent-data`, `credentials`, `scopes`, `cache-blindspot` checks |
 | MCP toolkit `traffic` | Tools: `canonry_traffic_status`, `_sources_list`, `_source_get`, `_events`, `_connect_cloud_run`, `_sync` |
 
 ## Doctor signals
@@ -237,6 +274,7 @@ The doctor checks are adapter-agnostic. When they fail or warn:
 | `traffic.source.recent-data` | `traffic.recent-data.stale` | Last sync was >7d ago. Run `cnry traffic sync …` or schedule a recurring sync. |
 | `traffic.source.recent-data` | `traffic.recent-data.empty` | Source connected but no data in 30d. Verify config and credentials with `cnry traffic sources <project>`. |
 | `traffic.source.credentials` | `traffic.credentials.resolve-failed` | Service-account key in `~/.canonry/config.yaml` is invalid or expired. Re-connect. |
+| `traffic.source.cache-blindspot` | `traffic.cache-blindspot.wordpress-plugin` | A WordPress source is connected, so the plugin cannot see cache-served page views. Exclude AI user-agents from the page cache and any CDN, or switch to a log/edge source. Warns only, not a failure. |
 
 ## Scheduling
 
@@ -276,6 +314,21 @@ domains, or PII are surfaced.
 
 ## Limits & caveats
 
+- **The WordPress plugin is blind to cache-served traffic.** The
+  `wordpress` adapter logs only requests that reach PHP. A full-page
+  cache or CDN serves cached pages from the edge, so cache-served page
+  views, including live AI user-fetches (Claude-User, ChatGPT-User),
+  never reach the plugin and go uncounted, even though bot crawls of
+  uncached endpoints (sitemap, assets) still appear. On a cached
+  WordPress site, treat the plugin's page-view counts as a floor, not a
+  total. Either exclude AI user-agents from the cache + CDN, or capture
+  cache-independent via a `cloud-run` / `vercel` / edge-log source. The
+  `traffic.source.cache-blindspot` doctor check surfaces this. Adapter
+  coverage differs: `vercel` ingests edge request-logs so cache hits are
+  captured (it records the `cache` HIT/MISS label), and `cloud-run` logs
+  every request that reaches the service, missing only what a CDN placed
+  in front of Cloud Run serves from its own edge cache. Only the
+  hook-based `wordpress` adapter has the always-present blind spot.
 - **Path-level citation cross-reference is not implemented yet.** The
   citation store is domain-grain (`query_snapshots.cited_domains`). A
   future iteration that lands URL-grain citation evidence will extend

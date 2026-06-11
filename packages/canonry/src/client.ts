@@ -5,6 +5,10 @@ import type {
   RunDto,
   RunDetailDto,
   LatestProjectRunDto,
+  SiteAuditScoreDto,
+  SiteAuditPagesResponseDto,
+  SiteAuditTrendResponseDto,
+  SiteAuditRunResponseDto,
   SnapshotDiffResponse,
   SnapshotListResponse,
   ScheduleDto,
@@ -73,6 +77,9 @@ import type {
   ContentTargetsResponseDto,
   ContentSourcesResponseDto,
   ContentGapsResponseDto,
+  DomainClassificationsResponseDto,
+  RecommendationBriefDto,
+  WinnabilityClass,
   CompetitorDto,
   KeywordDto,
   QueryDto,
@@ -95,6 +102,10 @@ import type {
   DiscoveryPromotePreview,
   DiscoveryPromoteRequest,
   DiscoveryPromoteResult,
+  ApiKeyDto,
+  ApiKeyListDto,
+  CreateApiKeyRequest,
+  CreatedApiKeyDto,
 } from '@ainyc/canonry-contracts'
 import {
   createClient as createHeyClient,
@@ -154,6 +165,10 @@ import {
   postApiV1Snapshot,
   getApiV1Telemetry,
   putApiV1Telemetry,
+  // API key management
+  getApiV1Keys,
+  postApiV1Keys,
+  postApiV1KeysByIdRevoke,
   // Schedules / notifications
   getApiV1ProjectsByNameSchedule,
   putApiV1ProjectsByNameSchedule,
@@ -247,6 +262,11 @@ import {
   getApiV1ProjectsByNameDiscoverSessionsById,
   getApiV1ProjectsByNameDiscoverSessionsByIdPromote,
   postApiV1ProjectsByNameDiscoverSessionsByIdPromote,
+  // Technical AEO (site-audit)
+  getApiV1ProjectsByNameTechnicalAeo,
+  getApiV1ProjectsByNameTechnicalAeoPages,
+  getApiV1ProjectsByNameTechnicalAeoTrend,
+  postApiV1ProjectsByNameTechnicalAeoRuns,
   // Wordpress
   postApiV1ProjectsByNameWordpressConnect,
   deleteApiV1ProjectsByNameWordpressDisconnect,
@@ -276,6 +296,9 @@ import {
   getApiV1ProjectsByNameContentTargets,
   getApiV1ProjectsByNameContentSources,
   getApiV1ProjectsByNameContentGaps,
+  getApiV1ProjectsByNameContentDomainClassifications,
+  getApiV1ProjectsByNameContentRecommendationsByTargetRefBrief,
+  postApiV1ProjectsByNameContentRecommendationsByTargetRefBrief,
   getApiV1ProjectsByNameHealthLatest,
   getApiV1ProjectsByNameHealthHistory,
   getApiV1ProjectsByNameCitationsVisibility,
@@ -939,12 +962,15 @@ export class ApiClient {
     )
   }
 
-  async getAnalyticsSources(project: string, window?: string): Promise<SourceBreakdownDto> {
+  async getAnalyticsSources(
+    project: string,
+    opts: { window?: string; limit?: number } = {},
+  ): Promise<SourceBreakdownDto> {
     return this.invoke<SourceBreakdownDto>(() =>
       getApiV1ProjectsByNameAnalyticsSources({
         client: this.heyClient,
         path: { name: project },
-        query: { window } as never,
+        query: { window: opts.window, limit: opts.limit } as never,
       }),
     )
   }
@@ -953,6 +979,22 @@ export class ApiClient {
 
   async getSettings(): Promise<SettingsDto> {
     return this.invoke<SettingsDto>(() => getApiV1Settings({ client: this.heyClient }))
+  }
+
+  // ── API key management ──────────────────────────────────────────────────
+
+  async listApiKeys(): Promise<ApiKeyListDto> {
+    return this.invoke<ApiKeyListDto>(() => getApiV1Keys({ client: this.heyClient }))
+  }
+
+  async createApiKey(body: CreateApiKeyRequest): Promise<CreatedApiKeyDto> {
+    return this.invoke<CreatedApiKeyDto>(() => postApiV1Keys({ client: this.heyClient, body }))
+  }
+
+  async revokeApiKey(id: string): Promise<ApiKeyDto> {
+    return this.invoke<ApiKeyDto>(() =>
+      postApiV1KeysByIdRevoke({ client: this.heyClient, path: { id } }),
+    )
   }
 
   async updateProvider(
@@ -1740,6 +1782,55 @@ export class ApiClient {
     )
   }
 
+  // ── Technical AEO (site-audit) ──────────────────────────────────────────
+
+  async getTechnicalAeoScore(project: string): Promise<SiteAuditScoreDto> {
+    return this.invoke<SiteAuditScoreDto>(() =>
+      getApiV1ProjectsByNameTechnicalAeo({ client: this.heyClient, path: { name: project } }),
+    )
+  }
+
+  async getTechnicalAeoPages(
+    project: string,
+    opts?: { status?: 'success' | 'error'; sort?: string; limit?: number; offset?: number },
+  ): Promise<SiteAuditPagesResponseDto> {
+    return this.invoke<SiteAuditPagesResponseDto>(() =>
+      getApiV1ProjectsByNameTechnicalAeoPages({
+        client: this.heyClient,
+        path: { name: project },
+        query: {
+          status: opts?.status,
+          sort: opts?.sort,
+          limit: opts?.limit !== undefined ? String(opts.limit) : undefined,
+          offset: opts?.offset !== undefined ? String(opts.offset) : undefined,
+        } as never,
+      }),
+    )
+  }
+
+  async getTechnicalAeoTrend(project: string, opts?: { limit?: number }): Promise<SiteAuditTrendResponseDto> {
+    return this.invoke<SiteAuditTrendResponseDto>(() =>
+      getApiV1ProjectsByNameTechnicalAeoTrend({
+        client: this.heyClient,
+        path: { name: project },
+        query: { limit: opts?.limit !== undefined ? String(opts.limit) : undefined } as never,
+      }),
+    )
+  }
+
+  async triggerSiteAudit(
+    project: string,
+    body?: { sitemapUrl?: string; limit?: number },
+  ): Promise<SiteAuditRunResponseDto> {
+    return this.invoke<SiteAuditRunResponseDto>(() =>
+      postApiV1ProjectsByNameTechnicalAeoRuns({
+        client: this.heyClient,
+        path: { name: project },
+        body: (body ?? {}) as never,
+      }),
+    )
+  }
+
   // ── WordPress ──────────────────────────────────────────────────────────
 
   async wordpressConnect(
@@ -2025,7 +2116,7 @@ export class ApiClient {
 
   async getContentTargets(
     project: string,
-    opts?: { limit?: number; includeInProgress?: boolean },
+    opts?: { limit?: number; includeInProgress?: boolean; winnabilityClass?: WinnabilityClass; ownable?: boolean },
   ): Promise<ContentTargetsResponseDto> {
     return this.invoke<ContentTargetsResponseDto>(() =>
       getApiV1ProjectsByNameContentTargets({
@@ -2034,6 +2125,8 @@ export class ApiClient {
         query: {
           limit: opts?.limit,
           'include-in-progress': opts?.includeInProgress ? 'true' : undefined,
+          'winnability-class': opts?.winnabilityClass,
+          ownable: opts?.ownable ? 'true' : undefined,
         } as never,
       }),
     )
@@ -2048,6 +2141,35 @@ export class ApiClient {
   async getContentGaps(project: string): Promise<ContentGapsResponseDto> {
     return this.invoke<ContentGapsResponseDto>(() =>
       getApiV1ProjectsByNameContentGaps({ client: this.heyClient, path: { name: project } }),
+    )
+  }
+
+  async getDomainClassifications(project: string): Promise<DomainClassificationsResponseDto> {
+    return this.invoke<DomainClassificationsResponseDto>(() =>
+      getApiV1ProjectsByNameContentDomainClassifications({ client: this.heyClient, path: { name: project } }),
+    )
+  }
+
+  async getContentBrief(project: string, targetRef: string): Promise<RecommendationBriefDto> {
+    return this.invoke<RecommendationBriefDto>(() =>
+      getApiV1ProjectsByNameContentRecommendationsByTargetRefBrief({
+        client: this.heyClient,
+        path: { name: project, targetRef },
+      }),
+    )
+  }
+
+  async synthesizeContentBrief(
+    project: string,
+    targetRef: string,
+    opts?: { provider?: string; model?: string; forceRefresh?: boolean },
+  ): Promise<RecommendationBriefDto> {
+    return this.invoke<RecommendationBriefDto>(() =>
+      postApiV1ProjectsByNameContentRecommendationsByTargetRefBrief({
+        client: this.heyClient,
+        path: { name: project, targetRef },
+        body: { provider: opts?.provider, model: opts?.model, forceRefresh: opts?.forceRefresh },
+      }),
     )
   }
 

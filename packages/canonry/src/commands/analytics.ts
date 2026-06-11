@@ -29,7 +29,7 @@ export async function showAnalytics(
         break
       }
       case 'sources': {
-        const data = await client.getAnalyticsSources(project, options.window)
+        const data = await client.getAnalyticsSources(project, { window: options.window })
         results.sources = data
         if (!isMachineFormat(options.format)) printSources(data)
         break
@@ -74,6 +74,23 @@ function printMetrics(data: BrandMetricsDto): void {
       const start = bucket.startDate.slice(0, 10)
       const bar = bucket.total > 0 ? '█'.repeat(Math.round(bucket.citationRate * 20)) : ''
       console.log(`    ${start}  ${pct(bucket.citationRate).padStart(6)}  ${bar}`)
+    }
+  }
+
+  // Per-provider timeline — parity with the dashboard's per-provider trend.
+  // `?? {}` guards legacy/partial rows that predate the per-bucket breakdown.
+  const providersInBuckets = [...new Set(data.buckets.flatMap(b => Object.keys(b.byProvider ?? {})))].sort()
+  if (data.buckets.length > 0 && providersInBuckets.length > 0) {
+    console.log(`\n  By Provider Timeline:`)
+    for (const provider of providersInBuckets) {
+      console.log(`    ${provider}:`)
+      for (const bucket of data.buckets) {
+        const metric = bucket.byProvider?.[provider]
+        if (!metric) continue // provider absent from this bucket
+        const start = bucket.startDate.slice(0, 10)
+        const bar = metric.total > 0 ? '█'.repeat(Math.round(metric.citationRate * 20)) : ''
+        console.log(`      ${start}  ${pct(metric.citationRate).padStart(6)}  ${bar}`)
+      }
     }
   }
 }

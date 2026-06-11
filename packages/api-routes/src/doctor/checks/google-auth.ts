@@ -194,6 +194,21 @@ const propertyAccessCheck: CheckDefinition = {
         },
       }
     }
+    if (match.permissionLevel === 'siteUnverifiedUser') {
+      return {
+        status: CheckStatuses.fail,
+        code: 'google.auth.property-unverified',
+        summary: `Selected property "${conn.propertyId}" is present but unverified (permission: siteUnverifiedUser); Search Console reads will 403.`,
+        remediation:
+          `Re-verify the property in Search Console for the authorizing account ` +
+          `(for a sc-domain property this is a google-site-verification DNS TXT record), ` +
+          `then re-run \`canonry google sync ${ctx.project.name}\`.`,
+        details: {
+          selectedProperty: conn.propertyId,
+          permissionLevel: match.permissionLevel,
+        },
+      }
+    }
     return {
       status: CheckStatuses.ok,
       code: 'google.auth.property-accessible',

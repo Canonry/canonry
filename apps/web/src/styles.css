@@ -517,6 +517,97 @@
     @apply mt-2.5 text-center text-[11px] leading-[1.45] text-zinc-500 w-full;
   }
 
+  /* ── Visibility trend (citations & mentions over time) ── */
+
+  .visibility-trend {
+    @apply rounded-xl border border-zinc-800/60 bg-zinc-900/30 px-5 py-5;
+  }
+
+  .visibility-trend-head {
+    @apply mb-3 flex flex-wrap items-start justify-between gap-x-6 gap-y-2;
+  }
+
+  .visibility-trend-title {
+    @apply flex items-center gap-1.5;
+  }
+
+  /* Headline readout: latest value of the selected metric + its change. */
+  .visibility-trend-current {
+    @apply flex items-baseline gap-2;
+  }
+
+  .visibility-trend-current-dot {
+    @apply inline-block h-2 w-2 shrink-0 self-center rounded-full;
+  }
+
+  .visibility-trend-current-label {
+    @apply text-[11px] font-medium uppercase tracking-wide text-zinc-400;
+  }
+
+  /* "avg" tag shown beside the headline in by-engine mode — the headline is the
+     blended rate across engines, not any single line on the chart. */
+  .visibility-trend-current-qualifier {
+    @apply rounded bg-zinc-800/80 px-1 py-px text-[10px] font-medium uppercase tracking-wide text-zinc-500;
+  }
+
+  .visibility-trend-current-value {
+    @apply text-2xl font-semibold tabular-nums tracking-tight text-zinc-50;
+  }
+
+  .visibility-trend-current-delta {
+    @apply text-xs font-medium tabular-nums;
+  }
+
+  .visibility-trend-controls {
+    @apply mb-3 flex flex-wrap items-center gap-2;
+  }
+
+  .visibility-trend-chart {
+    @apply h-64 w-full sm:h-72;
+  }
+
+  .visibility-trend-note {
+    @apply mt-2 text-[11px] text-zinc-400;
+  }
+
+  /* Per-engine legend with live values, above the chart. Line-shaped swatches
+     (not dots) so each entry reads as the series it labels. */
+  .trend-legend {
+    @apply mb-2.5 flex flex-wrap items-center gap-x-4 gap-y-1.5;
+  }
+
+  .trend-legend-item {
+    @apply inline-flex items-center gap-1.5;
+  }
+
+  .trend-legend-swatch {
+    @apply h-[3px] w-3.5 shrink-0 rounded-full;
+  }
+
+  .trend-legend-name {
+    @apply text-[11px] font-medium text-zinc-300;
+  }
+
+  .trend-legend-value {
+    @apply text-[11px] font-semibold tabular-nums text-zinc-50;
+  }
+
+  /* Segmented control: an inset track with a raised selected chip. Used for the
+     trend chart's metric / series / window toggles. */
+  .segmented {
+    @apply inline-flex items-center gap-0.5 rounded-lg border border-zinc-800 bg-zinc-900/60 p-0.5;
+  }
+
+  .segmented-option {
+    @apply rounded-md px-2.5 py-1.5 text-xs font-medium text-zinc-400 transition-colors;
+    @apply hover:text-zinc-100;
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-500/50;
+  }
+
+  .segmented-option-active {
+    @apply bg-zinc-700/90 text-zinc-50 shadow-sm;
+  }
+
   /* ── AEO performance hero (paired Mention + Citation) ── */
 
   .aeo-hero {
@@ -720,16 +811,45 @@
     @apply mt-8 border-t border-zinc-800/40 pt-6;
   }
 
+  /* Quiet underline tabs (Vercel/Linear lineage). The bar is chrome: plain
+     text that recedes, the active tab marked by a Snow underline sitting on
+     the bar's hairline. No pills, no group labels, no dividers. */
   .project-subnav {
-    @apply mt-5 mb-4 flex flex-wrap gap-2 border-b border-zinc-800/50 pb-2;
+    @apply mt-5 mb-5 flex flex-wrap items-stretch gap-x-1 border-b border-zinc-800/60;
   }
 
   .project-subnav-link {
-    @apply inline-flex items-center rounded-full border border-zinc-800/80 bg-zinc-900/30 px-3 py-1.5 text-sm font-medium text-zinc-400 transition-colors hover:border-zinc-700 hover:text-zinc-200;
+    @apply relative -mb-px inline-flex items-center border-b-2 border-transparent px-3 py-2.5 text-sm font-medium text-zinc-500 transition-colors hover:text-zinc-200 focus-visible:outline-none focus-visible:text-zinc-100;
   }
 
   .project-subnav-link-active {
-    @apply border-zinc-200 bg-zinc-100 text-zinc-950 hover:border-zinc-200 hover:text-zinc-950;
+    @apply border-zinc-100 text-zinc-50;
+  }
+
+  /* Trailing group (overflow "More" + Settings), pushed to the far right. */
+  .project-subnav-trailing {
+    @apply ml-auto flex items-stretch gap-x-1;
+  }
+
+  .project-subnav-more {
+    @apply relative inline-flex items-stretch;
+  }
+
+  .project-subnav-more-trigger {
+    @apply cursor-pointer gap-1 bg-transparent appearance-none;
+  }
+
+  /* Overflow menu surface — floating, so a real shadow is allowed here. */
+  .project-subnav-menu {
+    @apply absolute right-0 top-full z-20 mt-1 flex min-w-[9rem] flex-col gap-0.5 rounded-md border border-zinc-800/80 bg-zinc-900 p-1 shadow-[0_12px_28px_rgba(0,0,0,0.32)];
+  }
+
+  .project-subnav-menu-item {
+    @apply rounded px-3 py-2 text-sm font-medium text-zinc-400 transition-colors hover:bg-zinc-800/60 hover:text-zinc-100 focus-visible:outline-none focus-visible:bg-zinc-800/60 focus-visible:text-zinc-100;
+  }
+
+  .project-subnav-menu-item-active {
+    @apply bg-zinc-800/60 text-zinc-50;
   }
 
   /* ── Overview secondary grid (attention + activity) ── */
@@ -1257,7 +1377,7 @@
   /* ── Project row (overview) ── */
 
   .project-row {
-    @apply grid gap-3 rounded-xl border border-zinc-800/40 bg-zinc-900/15 px-4 py-3.5 transition hover:border-zinc-700/60 hover:bg-zinc-900/35 lg:grid-cols-[minmax(0,1.5fr)_9rem_9rem_10rem_9rem_auto] lg:items-center no-underline text-inherit;
+    @apply grid gap-3 rounded-xl border border-zinc-800/40 bg-zinc-900/15 px-4 py-3.5 transition hover:border-zinc-700/60 hover:bg-zinc-900/35 lg:grid-cols-[10rem_minmax(0,1.5fr)_9rem_9rem_9rem_auto] lg:items-center no-underline text-inherit;
   }
 
   .project-row-primary {

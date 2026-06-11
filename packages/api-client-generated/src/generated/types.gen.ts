@@ -15,6 +15,28 @@ export type AgentProvidersResponseDto = {
     defaultProvider: 'claude' | 'openai' | 'gemini' | 'zai';
 };
 
+export type ApiKeyDto = {
+    id: string;
+    name: string;
+    keyPrefix: string;
+    scopes: Array<string>;
+    createdAt: string;
+    lastUsedAt: string | null;
+    revokedAt: string | null;
+};
+
+export type ApiKeyListDto = {
+    keys: Array<{
+        id: string;
+        name: string;
+        keyPrefix: string;
+        scopes: Array<string>;
+        createdAt: string;
+        lastUsedAt: string | null;
+        revokedAt: string | null;
+    }>;
+};
+
 export type AuditLogEntry = {
     id: string;
     projectId?: string | null;
@@ -197,6 +219,52 @@ export type BingUrlInspectionDto = {
     discoveryDate?: string | null;
 };
 
+export type BrandMetricsDto = {
+    window: '7d' | '30d' | '90d' | 'all';
+    buckets: Array<{
+        startDate: string;
+        endDate: string;
+        citationRate: number;
+        cited: number;
+        total: number;
+        queryCount: number;
+        mentionRate: number;
+        mentionedCount: number;
+        byProvider: {
+            [key: string]: {
+                citationRate: number;
+                cited: number;
+                total: number;
+                mentionRate: number;
+                mentionedCount: number;
+            };
+        };
+    }>;
+    overall: {
+        citationRate: number;
+        cited: number;
+        total: number;
+        mentionRate: number;
+        mentionedCount: number;
+    };
+    byProvider: {
+        [key: string]: {
+            citationRate: number;
+            cited: number;
+            total: number;
+            mentionRate: number;
+            mentionedCount: number;
+        };
+    };
+    trend: 'improving' | 'declining' | 'stable';
+    mentionTrend: 'improving' | 'declining' | 'stable';
+    queryChanges: Array<{
+        date: string;
+        delta: number;
+        label: string;
+    }>;
+};
+
 export type CcAvailableRelease = {
     release: string;
     vertexUrl: string;
@@ -369,12 +437,56 @@ export type ContentTargetsResponseDto = {
             state: 'proposed' | 'briefed' | 'payload-generated' | 'draft-created' | 'published' | 'validated' | 'dismissed';
             lastUpdated: string;
         } | null;
+        winnabilityClass: 'ownable' | 'ceded';
+        winnability: number | null;
     }>;
     contextMetrics: {
         totalAiReferralSessions: number;
         latestRunId: string;
         runTimestamp: string;
     };
+};
+
+export type CreateApiKeyRequest = {
+    name: string;
+    scopes?: Array<string>;
+};
+
+export type CreatedApiKeyDto = {
+    id: string;
+    name: string;
+    keyPrefix: string;
+    scopes: Array<string>;
+    createdAt: string;
+    lastUsedAt: string | null;
+    revokedAt: string | null;
+    key: string;
+};
+
+export type DomainClassificationsResponseDto = {
+    classifications: Array<{
+        domain: string;
+        competitorType: 'direct-competitor' | 'ota-aggregator' | 'editorial-media' | 'other' | 'unknown';
+        hits: number;
+        updatedAt: string;
+    }>;
+};
+
+export type RecommendationBriefDto = {
+    targetRef: string;
+    promptVersion: string;
+    provider: string;
+    model: string;
+    brief: {
+        targetQuery: string;
+        winnabilityClass: 'ownable' | 'ceded';
+        angle: string;
+        whyWinnable: string;
+        schemaHookup: string;
+        controllableSurfaceRationale: string;
+    };
+    costMillicents: number;
+    generatedAt: string;
 };
 
 export type RecommendationExplanationDto = {
@@ -1502,6 +1614,8 @@ export type ProjectReportDto = {
             state: 'proposed' | 'briefed' | 'payload-generated' | 'draft-created' | 'published' | 'validated' | 'dismissed';
             lastUpdated: string;
         } | null;
+        winnabilityClass: 'ownable' | 'ceded';
+        winnability: number | null;
     }>;
     contentGaps: Array<{
         query: string;
@@ -1599,10 +1713,12 @@ export type RunDto = {
     createdAt: string;
 };
 
+export type SchedulableRunKind = 'answer-visibility' | 'traffic-sync' | 'gbp-sync' | 'data-refresh' | 'backlinks-sync' | 'site-audit';
+
 export type ScheduleDto = {
     id: string;
     projectId: string;
-    kind: 'answer-visibility' | 'traffic-sync' | 'gbp-sync' | 'data-refresh';
+    kind: SchedulableRunKind;
     cronExpr: string;
     preset?: string | null;
     timezone: string;
@@ -1637,6 +1753,78 @@ export type SettingsDto = {
     bing: {
         configured: boolean;
     };
+};
+
+export type SiteAuditPagesResponseDto = {
+    project: string;
+    runId: string | null;
+    auditedAt: string | null;
+    total: number;
+    pages: Array<{
+        url: string;
+        overallScore: number;
+        status: 'success' | 'error';
+        error?: string | null;
+        factors: Array<{
+            id: string;
+            name: string;
+            weight: number;
+            score: number;
+        }>;
+    }>;
+};
+
+export type SiteAuditRunResponseDto = {
+    runId: string;
+    status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';
+};
+
+export type SiteAuditScoreDto = {
+    project: string;
+    hasData: boolean;
+    runId: string | null;
+    runStatus: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';
+    sitemapUrl: string | null;
+    auditedAt: string | null;
+    aggregateScore: number;
+    pagesDiscovered: number;
+    pagesAudited: number;
+    pagesSkipped: number;
+    pagesErrored: number;
+    deltaScore: number | null;
+    trend: 'up' | 'down' | 'flat';
+    previousScore: number | null;
+    previousAuditedAt: string | null;
+    factors: Array<{
+        id: string;
+        name: string;
+        weight: number;
+        avgScore: number;
+        status: 'pass' | 'partial' | 'fail';
+        pagesPassing: number;
+        pagesPartial: number;
+        pagesFailing: number;
+    }>;
+    crossCuttingIssues: Array<{
+        factorId: string;
+        factorName: string;
+        avgScore: number;
+        affectedPages: number;
+        totalPages: number;
+        affectedPct: number;
+        topRecommendations: Array<string>;
+    }>;
+    prioritizedFixes: Array<string>;
+};
+
+export type SiteAuditTrendResponseDto = {
+    project: string;
+    points: Array<{
+        runId: string;
+        auditedAt: string;
+        aggregateScore: number;
+        pagesAudited: number;
+    }>;
 };
 
 export type SnapshotDiffResponse = {
@@ -1705,15 +1893,12 @@ export type SnapshotReportDto = {
         finalUrl: string;
         auditedAt: string;
         overallScore: number;
-        overallGrade: string;
         summary: string;
         factors: Array<{
             id: string;
             name: string;
             weight: number;
             score: number;
-            grade: string;
-            status: 'pass' | 'partial' | 'fail';
             findings: Array<{
                 type: string;
                 message: string;
@@ -1757,6 +1942,78 @@ export type SnapshotReportDto = {
         whatThisMeans: Array<string>;
         recommendedActions: Array<string>;
     };
+};
+
+export type SourceBreakdownDto = {
+    overall: Array<{
+        category: 'competitor' | 'directory' | 'social' | 'forum' | 'news' | 'reference' | 'blog' | 'ecommerce' | 'video' | 'academic' | 'other';
+        label: string;
+        count: number;
+        percentage: number;
+        topDomains: Array<{
+            domain: string;
+            count: number;
+        }>;
+    }>;
+    byQuery: {
+        [key: string]: Array<{
+            category: 'competitor' | 'directory' | 'social' | 'forum' | 'news' | 'reference' | 'blog' | 'ecommerce' | 'video' | 'academic' | 'other';
+            label: string;
+            count: number;
+            percentage: number;
+            topDomains: Array<{
+                domain: string;
+                count: number;
+            }>;
+        }>;
+    };
+    ranked: {
+        totalCitedSlots: number;
+        domainTotal: number;
+        entries: Array<{
+            domain: string;
+            count: number;
+            percentage: number;
+            category: 'competitor' | 'directory' | 'social' | 'forum' | 'news' | 'reference' | 'blog' | 'ecommerce' | 'video' | 'academic' | 'other';
+            label: string;
+            surfaceClass: 'own' | 'direct-competitor' | 'ota-aggregator' | 'editorial-media' | 'other';
+        }>;
+        truncatedDomainCount: number;
+        truncatedCitedSlots: number;
+        bySurfaceClass: Array<{
+            surfaceClass: 'own' | 'direct-competitor' | 'ota-aggregator' | 'editorial-media' | 'other';
+            label: string;
+            count: number;
+            percentage: number;
+            domainCount: number;
+        }>;
+    };
+    byProvider: {
+        [key: string]: {
+            totalCitedSlots: number;
+            domainTotal: number;
+            entries: Array<{
+                domain: string;
+                count: number;
+                percentage: number;
+                category: 'competitor' | 'directory' | 'social' | 'forum' | 'news' | 'reference' | 'blog' | 'ecommerce' | 'video' | 'academic' | 'other';
+                label: string;
+                surfaceClass: 'own' | 'direct-competitor' | 'ota-aggregator' | 'editorial-media' | 'other';
+            }>;
+            truncatedDomainCount: number;
+            truncatedCitedSlots: number;
+            bySurfaceClass: Array<{
+                surfaceClass: 'own' | 'direct-competitor' | 'ota-aggregator' | 'editorial-media' | 'other';
+                label: string;
+                count: number;
+                percentage: number;
+                domainCount: number;
+            }>;
+        };
+    };
+    runId: string;
+    window: '7d' | '30d' | '90d' | 'all';
+    limit: number | null;
 };
 
 export type TrafficBackfillResponse = {
@@ -3374,9 +3631,7 @@ export type GetApiV1ProjectsByNameAnalyticsMetricsResponses = {
     /**
      * Citation metrics returned.
      */
-    200: {
-        [key: string]: unknown;
-    };
+    200: BrandMetricsDto;
 };
 
 export type GetApiV1ProjectsByNameAnalyticsMetricsResponse = GetApiV1ProjectsByNameAnalyticsMetricsResponses[keyof GetApiV1ProjectsByNameAnalyticsMetricsResponses];
@@ -3431,6 +3686,10 @@ export type GetApiV1ProjectsByNameAnalyticsSourcesData = {
          * Time window for analytics queries.
          */
         window?: '7d' | '30d' | '90d' | 'all';
+        /**
+         * Maximum number of records to return.
+         */
+        limit?: number;
     };
     url: '/api/v1/projects/{name}/analytics/sources';
 };
@@ -3448,9 +3707,7 @@ export type GetApiV1ProjectsByNameAnalyticsSourcesResponses = {
     /**
      * Source breakdown returned.
      */
-    200: {
-        [key: string]: unknown;
-    };
+    200: SourceBreakdownDto;
 };
 
 export type GetApiV1ProjectsByNameAnalyticsSourcesResponse = GetApiV1ProjectsByNameAnalyticsSourcesResponses[keyof GetApiV1ProjectsByNameAnalyticsSourcesResponses];
@@ -3587,6 +3844,89 @@ export type PutApiV1SettingsGoogleResponses = {
 
 export type PutApiV1SettingsGoogleResponse = PutApiV1SettingsGoogleResponses[keyof PutApiV1SettingsGoogleResponses];
 
+export type GetApiV1KeysData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/keys';
+};
+
+export type GetApiV1KeysResponses = {
+    /**
+     * Keys returned.
+     */
+    200: ApiKeyListDto;
+};
+
+export type GetApiV1KeysResponse = GetApiV1KeysResponses[keyof GetApiV1KeysResponses];
+
+export type PostApiV1KeysData = {
+    body: CreateApiKeyRequest;
+    path?: never;
+    query?: never;
+    url: '/api/v1/keys';
+};
+
+export type PostApiV1KeysErrors = {
+    /**
+     * Invalid request body.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Missing the keys.write scope.
+     */
+    403: ErrorEnvelope;
+};
+
+export type PostApiV1KeysError = PostApiV1KeysErrors[keyof PostApiV1KeysErrors];
+
+export type PostApiV1KeysResponses = {
+    /**
+     * Key created. Includes the one-time plaintext `key`.
+     */
+    200: CreatedApiKeyDto;
+};
+
+export type PostApiV1KeysResponse = PostApiV1KeysResponses[keyof PostApiV1KeysResponses];
+
+export type PostApiV1KeysByIdRevokeData = {
+    body?: never;
+    path: {
+        /**
+         * API key ID.
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/keys/{id}/revoke';
+};
+
+export type PostApiV1KeysByIdRevokeErrors = {
+    /**
+     * Cannot revoke the currently-authenticating key.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Missing the keys.write scope.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Key not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type PostApiV1KeysByIdRevokeError = PostApiV1KeysByIdRevokeErrors[keyof PostApiV1KeysByIdRevokeErrors];
+
+export type PostApiV1KeysByIdRevokeResponses = {
+    /**
+     * Key revoked (or already revoked).
+     */
+    200: ApiKeyDto;
+};
+
+export type PostApiV1KeysByIdRevokeResponse = PostApiV1KeysByIdRevokeResponses[keyof PostApiV1KeysByIdRevokeResponses];
+
 export type PostApiV1SnapshotData = {
     body: {
         companyName: string;
@@ -3700,7 +4040,7 @@ export type DeleteApiV1ProjectsByNameScheduleData = {
         /**
          * Schedulable run kind. Defaults to "answer-visibility" for backward compatibility.
          */
-        kind?: 'answer-visibility' | 'traffic-sync' | 'gbp-sync' | 'data-refresh';
+        kind?: SchedulableRunKind;
     };
     url: '/api/v1/projects/{name}/schedule';
 };
@@ -3735,7 +4075,7 @@ export type GetApiV1ProjectsByNameScheduleData = {
         /**
          * Schedulable run kind. Defaults to "answer-visibility" for backward compatibility.
          */
-        kind?: 'answer-visibility' | 'traffic-sync' | 'gbp-sync' | 'data-refresh';
+        kind?: SchedulableRunKind;
     };
     url: '/api/v1/projects/{name}/schedule';
 };
@@ -3760,7 +4100,7 @@ export type GetApiV1ProjectsByNameScheduleResponse = GetApiV1ProjectsByNameSched
 
 export type PutApiV1ProjectsByNameScheduleData = {
     body: {
-        kind?: 'answer-visibility' | 'traffic-sync' | 'gbp-sync' | 'data-refresh';
+        kind?: SchedulableRunKind;
         preset?: string;
         cron?: string;
         timezone?: string;
@@ -3778,7 +4118,7 @@ export type PutApiV1ProjectsByNameScheduleData = {
         /**
          * Schedulable run kind. Defaults to "answer-visibility" for backward compatibility.
          */
-        kind?: 'answer-visibility' | 'traffic-sync' | 'gbp-sync' | 'data-refresh';
+        kind?: SchedulableRunKind;
     };
     url: '/api/v1/projects/{name}/schedule';
 };
@@ -7238,13 +7578,21 @@ export type GetApiV1ProjectsByNameContentTargetsData = {
          * Include rows with in-flight tracked actions.
          */
         'include-in-progress'?: string;
+        /**
+         * Filter by winnability: "ownable" or "ceded".
+         */
+        'winnability-class'?: string;
+        /**
+         * Convenience alias for winnability-class=ownable when "true".
+         */
+        ownable?: string;
     };
     url: '/api/v1/projects/{name}/content/targets';
 };
 
 export type GetApiV1ProjectsByNameContentTargetsErrors = {
     /**
-     * Invalid limit.
+     * Invalid limit or winnability-class.
      */
     400: ErrorEnvelope;
     /**
@@ -7445,6 +7793,116 @@ export type PostApiV1ProjectsByNameContentRecommendationsByTargetRefAnalyzeRespo
 };
 
 export type PostApiV1ProjectsByNameContentRecommendationsByTargetRefAnalyzeResponse = PostApiV1ProjectsByNameContentRecommendationsByTargetRefAnalyzeResponses[keyof PostApiV1ProjectsByNameContentRecommendationsByTargetRefAnalyzeResponses];
+
+export type GetApiV1ProjectsByNameContentRecommendationsByTargetRefBriefData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+        /**
+         * Stable hash from ContentTargetRowDto.targetRef.
+         */
+        targetRef: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/content/recommendations/{targetRef}/brief';
+};
+
+export type GetApiV1ProjectsByNameContentRecommendationsByTargetRefBriefErrors = {
+    /**
+     * No cached brief for this targetRef yet.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameContentRecommendationsByTargetRefBriefError = GetApiV1ProjectsByNameContentRecommendationsByTargetRefBriefErrors[keyof GetApiV1ProjectsByNameContentRecommendationsByTargetRefBriefErrors];
+
+export type GetApiV1ProjectsByNameContentRecommendationsByTargetRefBriefResponses = {
+    /**
+     * Cached brief.
+     */
+    200: RecommendationBriefDto;
+};
+
+export type GetApiV1ProjectsByNameContentRecommendationsByTargetRefBriefResponse = GetApiV1ProjectsByNameContentRecommendationsByTargetRefBriefResponses[keyof GetApiV1ProjectsByNameContentRecommendationsByTargetRefBriefResponses];
+
+export type PostApiV1ProjectsByNameContentRecommendationsByTargetRefBriefData = {
+    body?: {
+        provider?: string;
+        model?: string;
+        forceRefresh?: boolean;
+    };
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+        /**
+         * Stable hash from ContentTargetRowDto.targetRef.
+         */
+        targetRef: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/content/recommendations/{targetRef}/brief';
+};
+
+export type PostApiV1ProjectsByNameContentRecommendationsByTargetRefBriefErrors = {
+    /**
+     * Invalid request body, unknown provider, or target is ceded (not winnable).
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found or targetRef does not match any current recommendation.
+     */
+    404: ErrorEnvelope;
+    /**
+     * No AI provider configured for this project.
+     */
+    503: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameContentRecommendationsByTargetRefBriefError = PostApiV1ProjectsByNameContentRecommendationsByTargetRefBriefErrors[keyof PostApiV1ProjectsByNameContentRecommendationsByTargetRefBriefErrors];
+
+export type PostApiV1ProjectsByNameContentRecommendationsByTargetRefBriefResponses = {
+    /**
+     * Brief synthesized or returned from cache.
+     */
+    200: RecommendationBriefDto;
+};
+
+export type PostApiV1ProjectsByNameContentRecommendationsByTargetRefBriefResponse = PostApiV1ProjectsByNameContentRecommendationsByTargetRefBriefResponses[keyof PostApiV1ProjectsByNameContentRecommendationsByTargetRefBriefResponses];
+
+export type GetApiV1ProjectsByNameContentDomainClassificationsData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/content/domain-classifications';
+};
+
+export type GetApiV1ProjectsByNameContentDomainClassificationsErrors = {
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameContentDomainClassificationsError = GetApiV1ProjectsByNameContentDomainClassificationsErrors[keyof GetApiV1ProjectsByNameContentDomainClassificationsErrors];
+
+export type GetApiV1ProjectsByNameContentDomainClassificationsResponses = {
+    /**
+     * Classifications returned.
+     */
+    200: DomainClassificationsResponseDto;
+};
+
+export type GetApiV1ProjectsByNameContentDomainClassificationsResponse = GetApiV1ProjectsByNameContentDomainClassificationsResponses[keyof GetApiV1ProjectsByNameContentDomainClassificationsResponses];
 
 export type GetApiV1ProjectsByNameContentSourcesData = {
     body?: never;
@@ -8626,6 +9084,161 @@ export type PostApiV1ProjectsByNameDiscoverSessionsByIdPromoteResponses = {
 };
 
 export type PostApiV1ProjectsByNameDiscoverSessionsByIdPromoteResponse = PostApiV1ProjectsByNameDiscoverSessionsByIdPromoteResponses[keyof PostApiV1ProjectsByNameDiscoverSessionsByIdPromoteResponses];
+
+export type GetApiV1ProjectsByNameTechnicalAeoData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/technical-aeo';
+};
+
+export type GetApiV1ProjectsByNameTechnicalAeoErrors = {
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameTechnicalAeoError = GetApiV1ProjectsByNameTechnicalAeoErrors[keyof GetApiV1ProjectsByNameTechnicalAeoErrors];
+
+export type GetApiV1ProjectsByNameTechnicalAeoResponses = {
+    /**
+     * Technical AEO scorecard returned.
+     */
+    200: SiteAuditScoreDto;
+};
+
+export type GetApiV1ProjectsByNameTechnicalAeoResponse = GetApiV1ProjectsByNameTechnicalAeoResponses[keyof GetApiV1ProjectsByNameTechnicalAeoResponses];
+
+export type GetApiV1ProjectsByNameTechnicalAeoPagesData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Filter by page audit status: `success` or `error`.
+         */
+        status?: 'success' | 'error';
+        /**
+         * Sort order: `score-asc` (default), `score-desc`, or `url`.
+         */
+        sort?: 'score-asc' | 'score-desc' | 'url';
+        /**
+         * Maximum number of records to return.
+         */
+        limit?: number;
+        /**
+         * Number of records to skip.
+         */
+        offset?: number;
+    };
+    url: '/api/v1/projects/{name}/technical-aeo/pages';
+};
+
+export type GetApiV1ProjectsByNameTechnicalAeoPagesErrors = {
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameTechnicalAeoPagesError = GetApiV1ProjectsByNameTechnicalAeoPagesErrors[keyof GetApiV1ProjectsByNameTechnicalAeoPagesErrors];
+
+export type GetApiV1ProjectsByNameTechnicalAeoPagesResponses = {
+    /**
+     * Audited pages returned.
+     */
+    200: SiteAuditPagesResponseDto;
+};
+
+export type GetApiV1ProjectsByNameTechnicalAeoPagesResponse = GetApiV1ProjectsByNameTechnicalAeoPagesResponses[keyof GetApiV1ProjectsByNameTechnicalAeoPagesResponses];
+
+export type GetApiV1ProjectsByNameTechnicalAeoTrendData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Max data points returned (most recent runs). Default 30.
+         */
+        limit?: number;
+    };
+    url: '/api/v1/projects/{name}/technical-aeo/trend';
+};
+
+export type GetApiV1ProjectsByNameTechnicalAeoTrendErrors = {
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameTechnicalAeoTrendError = GetApiV1ProjectsByNameTechnicalAeoTrendErrors[keyof GetApiV1ProjectsByNameTechnicalAeoTrendErrors];
+
+export type GetApiV1ProjectsByNameTechnicalAeoTrendResponses = {
+    /**
+     * Technical AEO trend returned.
+     */
+    200: SiteAuditTrendResponseDto;
+};
+
+export type GetApiV1ProjectsByNameTechnicalAeoTrendResponse = GetApiV1ProjectsByNameTechnicalAeoTrendResponses[keyof GetApiV1ProjectsByNameTechnicalAeoTrendResponses];
+
+export type PostApiV1ProjectsByNameTechnicalAeoRunsData = {
+    body?: {
+        /**
+         * Override the sitemap URL. Defaults to https://<canonicalDomain>/sitemap.xml.
+         */
+        sitemapUrl?: string;
+        /**
+         * Cap pages audited (highest sitemap <priority> first). Max 2000.
+         */
+        limit?: number;
+    };
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/technical-aeo/runs';
+};
+
+export type PostApiV1ProjectsByNameTechnicalAeoRunsErrors = {
+    /**
+     * Invalid site-audit request.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameTechnicalAeoRunsError = PostApiV1ProjectsByNameTechnicalAeoRunsErrors[keyof PostApiV1ProjectsByNameTechnicalAeoRunsErrors];
+
+export type PostApiV1ProjectsByNameTechnicalAeoRunsResponses = {
+    /**
+     * Site-audit run queued (or the in-flight run returned).
+     */
+    200: SiteAuditRunResponseDto;
+};
+
+export type PostApiV1ProjectsByNameTechnicalAeoRunsResponse = PostApiV1ProjectsByNameTechnicalAeoRunsResponses[keyof PostApiV1ProjectsByNameTechnicalAeoRunsResponses];
 
 export type DeleteApiV1ProjectsByNameAgentTranscriptData = {
     body?: never;

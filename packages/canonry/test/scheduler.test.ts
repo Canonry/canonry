@@ -394,3 +394,97 @@ test('data-refresh trigger skips silently when no onDataRefreshRequested callbac
 
   fs.rmSync(tmpDir, { recursive: true, force: true })
 })
+
+test('backlinks-sync trigger fires onBacklinksSyncRequested with the project name and creates no run row', () => {
+  const { db, tmpDir } = createTempDb()
+  const now = new Date().toISOString()
+
+  db.insert(projects).values({
+    id: 'proj_bl',
+    name: 'backlinks-project',
+    displayName: 'Backlinks Project',
+    canonicalDomain: 'example.com',
+    country: 'US',
+    language: 'en',
+    createdAt: now,
+    updatedAt: now,
+  }).run()
+  db.insert(schedules).values({
+    id: 'sched_bl',
+    projectId: 'proj_bl',
+    kind: 'backlinks-sync',
+    cronExpr: '0 4 * * 1',
+    timezone: 'UTC',
+    enabled: true,
+    providers: [],
+    createdAt: now,
+    updatedAt: now,
+  }).run()
+
+  const backlinksCalls: string[] = []
+  const runCalls: string[] = []
+  const refreshCalls: unknown[] = []
+  const scheduler = new Scheduler(db, {
+    onRunCreated: (runId) => runCalls.push(runId),
+    onDataRefreshRequested: () => refreshCalls.push(null),
+    onBacklinksSyncRequested: (projectName) => backlinksCalls.push(projectName),
+  })
+
+  ;(scheduler as unknown as {
+    triggerRun: (scheduleId: string, projectId: string, kind: 'answer-visibility' | 'backlinks-sync') => void
+  }).triggerRun('sched_bl', 'proj_bl', 'backlinks-sync')
+
+  expect(backlinksCalls).toEqual(['backlinks-project'])
+
+  // Workspace-global sync — the scheduler creates NO per-project run row.
+  const runRows = db.select().from(runs).where(eq(runs.projectId, 'proj_bl')).all()
+  expect(runRows).toHaveLength(0)
+
+  // lastRunAt advanced on the schedule row.
+  const sched = db.select().from(schedules).where(eq(schedules.id, 'sched_bl')).get()
+  expect(sched!.lastRunAt).not.toBeNull()
+
+  // Other kinds' callbacks must NOT fire for a backlinks-sync trigger.
+  expect(runCalls).toHaveLength(0)
+  expect(refreshCalls).toHaveLength(0)
+
+  scheduler.stop()
+  fs.rmSync(tmpDir, { recursive: true, force: true })
+})
+
+test('backlinks-sync trigger skips silently when no onBacklinksSyncRequested callback is registered', () => {
+  const { db, tmpDir } = createTempDb()
+  const now = new Date().toISOString()
+
+  db.insert(projects).values({
+    id: 'proj_bl2',
+    name: 'backlinks-no-cb',
+    displayName: 'Backlinks No Callback',
+    canonicalDomain: 'example.com',
+    country: 'US',
+    language: 'en',
+    createdAt: now,
+    updatedAt: now,
+  }).run()
+  db.insert(schedules).values({
+    id: 'sched_bl2',
+    projectId: 'proj_bl2',
+    kind: 'backlinks-sync',
+    cronExpr: '0 4 * * 1',
+    timezone: 'UTC',
+    enabled: true,
+    providers: [],
+    createdAt: now,
+    updatedAt: now,
+  }).run()
+
+  const scheduler = new Scheduler(db, { onRunCreated: () => {} })
+
+  expect(() =>
+    (scheduler as unknown as {
+      triggerRun: (scheduleId: string, projectId: string, kind: 'answer-visibility' | 'backlinks-sync') => void
+    }).triggerRun('sched_bl2', 'proj_bl2', 'backlinks-sync'),
+  ).not.toThrow()
+
+  fs.rmSync(tmpDir, { recursive: true, force: true })
+})

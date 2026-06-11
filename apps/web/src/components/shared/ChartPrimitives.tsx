@@ -77,6 +77,26 @@ export const CHART_SERIES_COLORS = [
 ] as const
 
 /**
+ * Stable per-engine line colors. Aligned with the `ProviderBadge` identity
+ * (gemini = blue, openai = green, claude = amber/orange, perplexity =
+ * teal/cyan, local = violet) and drawn from `CHART_SERIES_COLORS` so a given
+ * engine reads as the SAME color in every chart, badge, and legend across the
+ * dashboard. Unknown engines fall back to the positional palette.
+ */
+export const PROVIDER_SERIES_COLORS: Record<string, string> = {
+  gemini: '#60a5fa', // blue-400
+  openai: '#34d399', // emerald-400
+  claude: '#fb923c', // orange-400
+  perplexity: '#22d3ee', // cyan-400
+  local: '#a78bfa', // violet-400
+}
+
+/** Color for an engine's line/legend swatch — stable map first, palette fallback. */
+export function providerSeriesColor(provider: string, fallbackIndex = 0): string {
+  return PROVIDER_SERIES_COLORS[provider] ?? CHART_SERIES_COLORS[fallbackIndex % CHART_SERIES_COLORS.length]!
+}
+
+/**
  * Neutral color tokens for custom SVG visualizations (non-Recharts).
  * Mirrors the dashboard's zinc neutral ramp so custom charts stay on
  * the documented palette in DESIGN.md.

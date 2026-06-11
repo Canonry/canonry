@@ -1568,7 +1568,91 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
     ],
   },
   {
+    // Durable per-domain classification of cited surfaces, upserted on each
+    // discovery completion. Powers the content-targets winnabilityClass winnability
+    // gate without re-running a discovery probe. Keyed (project_id, domain).
     version: 73,
+    name: 'domain-classifications',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS domain_classifications (
+        id              TEXT PRIMARY KEY,
+        project_id      TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        domain          TEXT NOT NULL,
+        competitor_type TEXT NOT NULL,
+        hits            INTEGER NOT NULL DEFAULT 0,
+        session_id      TEXT,
+        updated_at      TEXT NOT NULL
+      )`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_domain_classifications_project_domain ON domain_classifications(project_id, domain)`,
+      `CREATE INDEX IF NOT EXISTS idx_domain_classifications_project ON domain_classifications(project_id)`,
+    ],
+  },
+  {
+    // Structured LLM content briefs, cached per (project, target_ref,
+    // prompt_version). Separate from recommendation_explanations so the
+    // structured brief payload and its version-keyed cache never collide with
+    // the prompt-version-blind explanation lookup.
+    version: 74,
+    name: 'recommendation-briefs',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS recommendation_briefs (
+        id              TEXT PRIMARY KEY,
+        project_id      TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        target_ref      TEXT NOT NULL,
+        prompt_version  TEXT NOT NULL,
+        provider        TEXT NOT NULL,
+        model           TEXT NOT NULL,
+        brief           TEXT NOT NULL,
+        cost_millicents INTEGER NOT NULL DEFAULT 0,
+        generated_at    TEXT NOT NULL
+      )`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_recommendation_briefs_unique ON recommendation_briefs(project_id, target_ref, prompt_version)`,
+      `CREATE INDEX IF NOT EXISTS idx_recommendation_briefs_project ON recommendation_briefs(project_id)`,
+    ],
+  },
+  {
+    // Technical AEO — site-wide audit persistence. `site_audit_snapshots` is the
+    // per-run summary (drives the score + trend); `site_audit_pages` is the
+    // per-page breakdown (drives the drill-down table). Both cascade off runs so
+    // a run delete cleans up its audit data.
+    version: 75,
+    name: 'site-audit-tables',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS site_audit_snapshots (
+        id                   TEXT PRIMARY KEY,
+        project_id           TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        run_id               TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+        sitemap_url          TEXT NOT NULL,
+        audited_at           TEXT NOT NULL,
+        aggregate_score      INTEGER NOT NULL DEFAULT 0,
+        pages_discovered     INTEGER NOT NULL DEFAULT 0,
+        pages_audited        INTEGER NOT NULL DEFAULT 0,
+        pages_skipped        INTEGER NOT NULL DEFAULT 0,
+        pages_errored        INTEGER NOT NULL DEFAULT 0,
+        factor_averages      TEXT NOT NULL DEFAULT '[]',
+        cross_cutting_issues TEXT NOT NULL DEFAULT '[]',
+        prioritized_fixes    TEXT NOT NULL DEFAULT '[]',
+        created_at           TEXT NOT NULL
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_site_audit_snap_project_created ON site_audit_snapshots(project_id, created_at)`,
+      `CREATE INDEX IF NOT EXISTS idx_site_audit_snap_run ON site_audit_snapshots(run_id)`,
+      `CREATE TABLE IF NOT EXISTS site_audit_pages (
+        id            TEXT PRIMARY KEY,
+        project_id    TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        run_id        TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+        url           TEXT NOT NULL,
+        overall_score INTEGER NOT NULL DEFAULT 0,
+        status        TEXT NOT NULL,
+        error         TEXT,
+        factors       TEXT NOT NULL DEFAULT '[]',
+        created_at    TEXT NOT NULL
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_site_audit_pages_run ON site_audit_pages(run_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_site_audit_pages_project_score ON site_audit_pages(project_id, overall_score)`,
+    ],
+  },
+  {
+    version: 76,
     name: 'cloud-metadata-singleton',
     // Track 3 (Canonry Hosted) — singleton tenant-side row populated by
     // `POST /api/v1/cloud/bootstrap`. Purely additive: OSS deployments will
@@ -1595,7 +1679,7 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
     ],
   },
   {
-    version: 74,
+    version: 77,
     name: 'provider-token-usage',
     // Track 1 (Canonry Hosted) — per-(run, provider, model) token-cost
     // telemetry. Populated by `RunCoordinator.onRunCompleted` from the usage
@@ -1633,7 +1717,7 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
     ],
   },
   {
-    version: 75,
+    version: 78,
     name: 'notifications-project-id-nullable',
     // Track 3 (Canonry Hosted): the control-plane webhook subscriber
     // registered at bootstrap is tenant-scoped, not project-scoped. The
@@ -1673,7 +1757,7 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
     ],
   },
   {
-    version: 76,
+    version: 79,
     name: 'users-and-guest-reports',
     // Aero owner-view onboarding (the /aero flow): two new tables.
     //
@@ -1700,7 +1784,7 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
         created_at    TEXT NOT NULL,
         last_seen_at  TEXT
       )`,
-      `CREATE INDEX IF NOT EXISTS idx_users_google_sub ON users(google_sub)`,
+      `CREATE INDEX IF NOT EXISTS idx_users_api_key ON users(api_key_id)`,
 
       `CREATE TABLE IF NOT EXISTS guest_reports (
         id                          TEXT PRIMARY KEY,
@@ -1728,10 +1812,11 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `CREATE INDEX IF NOT EXISTS idx_guest_reports_status ON guest_reports(status)`,
       `CREATE INDEX IF NOT EXISTS idx_guest_reports_expires ON guest_reports(expires_at)`,
       `CREATE INDEX IF NOT EXISTS idx_guest_reports_claimed ON guest_reports(claimed_by_user_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_guest_reports_project ON guest_reports(project_id)`,
     ],
   },
   {
-    version: 77,
+    version: 80,
     name: 'app-settings-kv',
     // Generic key/value store for instance-wide configuration that the
     // local canonry serve keeps in `~/.canonry/config.yaml` but the cloud

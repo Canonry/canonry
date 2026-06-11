@@ -9,6 +9,7 @@ import {
   aiReferralEventsHourly,
   rawEventSamples,
   runs,
+  schedules,
 } from '@ainyc/canonry-db'
 import {
   notFound,
@@ -17,6 +18,7 @@ import {
   RunKinds,
   RunStatuses,
   RunTriggers,
+  SchedulableRunKinds,
   TrafficSourceStatuses,
   TrafficSourceTypes,
   TrafficSourceAuthModes,
@@ -28,6 +30,7 @@ import {
 import type {
   NormalizedTrafficRequest,
   RunStatus,
+  SchedulableRunKind,
   TrafficSourceDto,
   TrafficSourceDetailDto,
   TrafficSourceListResponse,
@@ -202,8 +205,23 @@ export interface TrafficRoutesOptions {
   defaultWordpressMaxPages?: number
   /** Cap on the number of raw_event_samples written per sync. */
   defaultSampleLimit?: number
+  /**
+   * Wall-clock budget (ms) for a single incremental Vercel sync's adaptive
+   * drain. On hit the drain stops and the route commits the partial window +
+   * advances `lastSyncedAt` to where it reached, so a dense or slow window can't
+   * run unbounded. Defaults to `DEFAULT_VERCEL_SYNC_DEADLINE_MS`; tests pass a
+   * tiny value to exercise the deadline path.
+   */
+  vercelSyncDeadlineMs?: number
   /** Fire-and-forget hook called after every sync completes (success OR failure). Used by canonry to emit telemetry. */
   onTrafficSynced?: (event: TrafficSyncedEvent) => void
+  /**
+   * Register/deregister a project schedule with the live scheduler. Connect
+   * uses this to register the `traffic-sync` schedule it auto-creates, so the
+   * source starts syncing on cadence without an extra operator step. Same
+   * callback the schedule routes fire — wired from `ApiRoutesOptions`.
+   */
+  onScheduleUpdated?: (action: 'upsert' | 'delete', projectId: string, kind: SchedulableRunKind) => void
   /**
    * Allow WordPress `baseUrl` to resolve to a loopback address. Mirrors
    * `allowLoopbackWebhooks` on the parent `ApiRoutesOptions` — only enabled by
@@ -235,6 +253,21 @@ const DEFAULT_VERCEL_MAX_PAGES = 50
 // gives up. This bounds provider calls for pathological windows while still
 // leaving room for bursty minutes to drain through one-second slices.
 const VERCEL_MAX_SUB_WINDOWS = 5_000
+// Cap how far back a single incremental Vercel sync reaches. A watermark that
+// has drifted — the source idled while its schedule was paused or missing —
+// would otherwise request a pull back to DEFAULT_SYNC_WINDOW_MINUTES (30 days)
+// and make the adaptive drain grind through days of sub-windows on one sync.
+// Clamp the start to at most this far before the sync instant; the skipped
+// pre-cap span is surfaced (warn), never silently dropped — a backfill recovers
+// it. The per-sync deadline below bounds the drain even within this window.
+const VERCEL_MAX_SYNC_WINDOW_MS = 24 * 60 * 60_000
+// Wall-clock budget for a single incremental Vercel sync's adaptive drain. The
+// drain checks this before each sub-window pull; on hit it stops and reports how
+// far it got, and the route commits that partial window + advances `lastSyncedAt`
+// to it. Without this bound a dense or slow window runs for many minutes — timing
+// out the caller and leaving an orphaned 'running' run. Override via
+// `vercelSyncDeadlineMs`; a fully-drained window never approaches it.
+const DEFAULT_VERCEL_SYNC_DEADLINE_MS = 4 * 60_000
 // Vercel request-logs uses page-number pagination inside a fixed time window.
 // Backfill large ranges as independent hour chunks so each chunk gets the full
 // adaptive sub-window budget and one dense hour cannot make a multi-day
@@ -252,6 +285,11 @@ const MAX_TRACKED_EVENT_IDS = 1_000
 // one-shot operation; a busy site with ~30K events/30d still completes in well
 // under a minute.
 const DEFAULT_BACKFILL_DAYS = 30
+// Cadence for the traffic-sync schedule auto-created on connect. Every 30
+// minutes keeps each sync's window tight (well inside upstream log retention)
+// so the watermark never drifts far enough to wedge a pull. Operators can
+// retune via `canonry schedule set <project> --kind traffic-sync --cron ...`.
+const DEFAULT_TRAFFIC_SYNC_CRON = '*/30 * * * *'
 const MAX_BACKFILL_DAYS = 90
 const BACKFILL_MAX_PAGES = 1_000
 const BACKFILL_SAMPLE_LIMIT = 500
@@ -657,6 +695,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
     }
   }
   const vercelMaxPages = opts.defaultVercelMaxPages ?? DEFAULT_VERCEL_MAX_PAGES
+  const vercelSyncDeadlineMs = opts.vercelSyncDeadlineMs ?? DEFAULT_VERCEL_SYNC_DEADLINE_MS
   const syncWindowMinutes = opts.defaultSyncWindowMinutes ?? DEFAULT_SYNC_WINDOW_MINUTES
   const pageSize = opts.defaultPageSize ?? DEFAULT_PAGE_SIZE
   const maxPages = opts.defaultMaxPages ?? DEFAULT_MAX_PAGES
@@ -1002,65 +1041,131 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
     const config: Record<string, unknown> = { projectId, teamId, environment }
     const fallbackName = displayName ?? `Vercel · ${projectId}`
 
-    let sourceRow: typeof trafficSources.$inferSelect
-    if (activeSource) {
-      app.db
-        .update(trafficSources)
-        .set({
-          displayName: fallbackName,
-          status: TrafficSourceStatuses.connected,
-          lastError: null,
-          configJson: config,
-          updatedAt: now,
-        })
-        .where(eq(trafficSources.id, activeSource.id))
-        .run()
-      sourceRow = app.db
-        .select()
-        .from(trafficSources)
-        .where(eq(trafficSources.id, activeSource.id))
-        .get()!
-    } else {
-      const newId = crypto.randomUUID()
-      app.db
-        .insert(trafficSources)
-        .values({
-          id: newId,
-          projectId: project.id,
-          sourceType: TrafficSourceTypes.vercel,
-          displayName: fallbackName,
-          status: TrafficSourceStatuses.connected,
-          // Seed lastSyncedAt to NOW so the first sync uses a tight window.
-          // Leaving this null would make the first sync fall back to
-          // DEFAULT_SYNC_WINDOW_MINUTES (30 days) — which exceeds Vercel's
-          // request-logs retention (~14 days), causing the first sync to
-          // throw a retention error and leaving the source permanently
-          // stuck before it ever drained an event. New users opt into
-          // historical recovery via the explicit `traffic backfill` command;
-          // they do not silently inherit a 30-day pull on connect.
-          lastSyncedAt: now,
-          lastCursor: null,
-          lastError: null,
-          archivedAt: null,
-          configJson: config,
-          createdAt: now,
-          updatedAt: now,
-        })
-        .run()
-      sourceRow = app.db
-        .select()
-        .from(trafficSources)
-        .where(eq(trafficSources.id, newId))
-        .get()!
-    }
+    // Source upsert + the auto-created traffic-sync schedule are one atomic
+    // write — a source must never be left connected without the schedule that
+    // keeps it syncing (that's the trap this fixes).
+    const { sourceRow, scheduleCreated } = app.db.transaction((tx) => {
+      let row: typeof trafficSources.$inferSelect
+      if (activeSource) {
+        tx
+          .update(trafficSources)
+          .set({
+            displayName: fallbackName,
+            status: TrafficSourceStatuses.connected,
+            lastError: null,
+            configJson: config,
+            updatedAt: now,
+          })
+          .where(eq(trafficSources.id, activeSource.id))
+          .run()
+        row = tx
+          .select()
+          .from(trafficSources)
+          .where(eq(trafficSources.id, activeSource.id))
+          .get()!
+      } else {
+        const newId = crypto.randomUUID()
+        tx
+          .insert(trafficSources)
+          .values({
+            id: newId,
+            projectId: project.id,
+            sourceType: TrafficSourceTypes.vercel,
+            displayName: fallbackName,
+            status: TrafficSourceStatuses.connected,
+            // Seed lastSyncedAt to NOW so the first sync uses a tight window.
+            // Leaving this null would make the first sync fall back to
+            // DEFAULT_SYNC_WINDOW_MINUTES (30 days) — which exceeds Vercel's
+            // request-logs retention (~14 days), causing the first sync to
+            // throw a retention error and leaving the source permanently
+            // stuck before it ever drained an event. New users opt into
+            // historical recovery via the explicit `traffic backfill` command;
+            // they do not silently inherit a 30-day pull on connect.
+            lastSyncedAt: now,
+            lastCursor: null,
+            lastError: null,
+            archivedAt: null,
+            configJson: config,
+            createdAt: now,
+            updatedAt: now,
+          })
+          .run()
+        row = tx
+          .select()
+          .from(trafficSources)
+          .where(eq(trafficSources.id, newId))
+          .get()!
+      }
 
-    writeAuditLog(app.db, {
-      projectId: project.id,
-      actor: 'api',
-      action: 'traffic.vercel.connected',
-      entityType: 'traffic_source',
-      entityId: sourceRow.id,
+      // Auto-create the traffic-sync schedule so the source actually keeps
+      // syncing. Seeding lastSyncedAt=NOW above keeps only the FIRST window
+      // tight; the watermark stays tight only if something advances it on
+      // cadence, and nothing does without a schedule. An unscheduled source's
+      // watermark drifts, and the next sync pulls an unbounded window that
+      // wedges — the half of the first-sync trap (#634) that connect left open.
+      // Idempotent: a reconnect, or a project that already has a traffic-sync
+      // schedule, is left untouched.
+      const existingSchedule = tx
+        .select()
+        .from(schedules)
+        .where(
+          and(
+            eq(schedules.projectId, project.id),
+            eq(schedules.kind, SchedulableRunKinds['traffic-sync']),
+          ),
+        )
+        .get()
+      let created = false
+      if (!existingSchedule) {
+        tx
+          .insert(schedules)
+          .values({
+            id: crypto.randomUUID(),
+            projectId: project.id,
+            kind: SchedulableRunKinds['traffic-sync'],
+            cronExpr: DEFAULT_TRAFFIC_SYNC_CRON,
+            preset: null,
+            timezone: 'UTC',
+            enabled: true,
+            providers: [],
+            sourceId: row.id,
+            createdAt: now,
+            updatedAt: now,
+          })
+          .run()
+        created = true
+      }
+
+      writeAuditLog(tx, {
+        projectId: project.id,
+        actor: 'api',
+        action: 'traffic.vercel.connected',
+        entityType: 'traffic_source',
+        entityId: row.id,
+      })
+      if (created) {
+        writeAuditLog(tx, {
+          projectId: project.id,
+          actor: 'api',
+          action: 'schedule.created',
+          entityType: 'schedule',
+          diff: {
+            kind: SchedulableRunKinds['traffic-sync'],
+            cronExpr: DEFAULT_TRAFFIC_SYNC_CRON,
+            sourceId: row.id,
+          },
+        })
+      }
+
+      return { sourceRow: row, scheduleCreated: created }
     })
+
+    // Register the new cron with the live scheduler after the commit, per the
+    // transaction-callback rule. A reconnect (schedule already present) skips
+    // this — its cron is already ticking.
+    if (scheduleCreated) {
+      opts.onScheduleUpdated?.('upsert', project.id, SchedulableRunKinds['traffic-sync'])
+    }
 
     return rowToDto(sourceRow)
   })
@@ -1159,6 +1264,10 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
     let allEvents: NormalizedTrafficRequest[]
     let nextCursor: string | undefined
     let auditAction: string
+    // The instant `lastSyncedAt` advances to on success. Defaults to windowEnd
+    // (the pull's upper bound); the Vercel branch lowers it to the partial
+    // boundary when an adaptive drain stops at its deadline mid-window.
+    let effectiveWindowEnd = windowEnd
 
     if (sourceRow.sourceType === TrafficSourceTypes['cloud-run']) {
       auditAction = 'traffic.cloud-run.synced'
@@ -1351,9 +1460,24 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       const lastSyncedMs = sourceRow.lastSyncedAt
         ? new Date(sourceRow.lastSyncedAt).getTime()
         : Number.NEGATIVE_INFINITY
-      windowStart = new Date(
-        Math.min(windowEnd.getTime(), Math.max(requestedStartMs, lastSyncedMs)),
-      )
+      const clampedStartMs = Math.min(windowEnd.getTime(), Math.max(requestedStartMs, lastSyncedMs))
+      // Cap how far back one sync reaches. A watermark that drifted past the cap
+      // (source idle while its schedule was paused/missing) would otherwise make
+      // the adaptive drain grind through days of sub-windows in a single sync.
+      // Skipping the pre-cap span is surfaced, not silent — a backfill recovers it.
+      const cappedStartMs = Math.max(clampedStartMs, windowEnd.getTime() - VERCEL_MAX_SYNC_WINDOW_MS)
+      if (cappedStartMs > clampedStartMs) {
+        request.log.warn(
+          {
+            sourceId: sourceRow.id,
+            requestedStart: new Date(clampedStartMs).toISOString(),
+            cappedStart: new Date(cappedStartMs).toISOString(),
+          },
+          'Vercel sync window exceeded the max single-sync span; clamped the start forward '
+            + '(older traffic skipped — run a backfill to recover it)',
+        )
+      }
+      windowStart = new Date(cappedStartMs)
 
       try {
         const drained = await drainVercelTrafficEvents({
@@ -1366,9 +1490,38 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
           endDate: windowEnd.getTime(),
           pagesPerSubWindow: vercelMaxPages,
           maxSubWindows: VERCEL_MAX_SUB_WINDOWS,
+          // Bound the drain's wall-clock so a dense/slow window can't run for
+          // many minutes. On hit the drain stops and reports how far it got.
+          deadlineMs: syncStartedAtMs + vercelSyncDeadlineMs,
         })
         if (drained.retentionClamped) {
           throw vercelRetentionClampError(windowStart.getTime(), drained.effectiveStartMs)
+        }
+        if (drained.deadlineReached) {
+          if (drained.drainedThroughMs <= windowStart.getTime()) {
+            // No sub-window completed before the budget elapsed — request-logs is
+            // slow or unavailable. Fail (the catch marks the run failed) rather
+            // than committing an empty 'completed' window or orphaning a 'running'
+            // run; the schedule retries next tick.
+            throw new Error(
+              `sync exceeded its ${vercelSyncDeadlineMs}ms drain budget without `
+                + 'completing any sub-window (request-logs slow or unavailable)',
+            )
+          }
+          // Partial progress: commit what drained and advance `lastSyncedAt` only
+          // to there, so the next sync resumes from the boundary instead of
+          // re-pulling. The additive rollup makes a partial window safe.
+          effectiveWindowEnd = new Date(drained.drainedThroughMs)
+          request.log.warn(
+            {
+              sourceId: sourceRow.id,
+              drainedThrough: effectiveWindowEnd.toISOString(),
+              requestedEnd: windowEnd.toISOString(),
+              subWindows: drained.subWindowCount,
+            },
+            'Vercel drain hit its time budget; committing the partial window and advancing to it '
+              + '— next sync resumes from here',
+          )
         }
         if (drained.truncatedSliceCount > 0) {
           // A one-second slice exceeded the page budget and could not be sliced
@@ -1382,6 +1535,22 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
               sliceStarts: drained.truncatedSliceStartsMs.map((ms) => new Date(ms).toISOString()),
             },
             'Vercel drain truncated dense one-second slice(s); ingested a sample and advanced past them',
+          )
+        }
+        if (drained.deadlineSkippedSliceCount > 0) {
+          // The drain hit its wall-clock budget while still narrowing a dense or
+          // slow slice at the window head and could not drain a single sub-window.
+          // Rather than freeze the cursor (which wedges the source — every retry
+          // re-hits the same head), it skipped past the head to guarantee forward
+          // progress. The skipped span was dropped undrained; surface it (never
+          // silent). The additive rollup keeps the rest of the window safe.
+          request.log.warn(
+            {
+              sourceId: sourceRow.id,
+              skippedSlices: drained.deadlineSkippedSliceCount,
+              sliceStarts: drained.deadlineSkippedSliceStartsMs.map((ms) => new Date(ms).toISOString()),
+            },
+            'Vercel drain could not narrow a dense/slow head slice within its budget; skipped past it to guarantee progress',
           )
         }
         allEvents = drained.events
@@ -1621,11 +1790,13 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       // untouched (drizzle omits undefined fields from the SET clause).
       const sourceUpdate: Partial<typeof trafficSources.$inferInsert> = {
         status: TrafficSourceStatuses.connected,
-        // Advance to windowEnd, not finishedAt — events arriving at the
-        // source between windowEnd and finishedAt aren't in this pull's
-        // range. If we stored finishedAt, the next sync's clamp would skip
-        // past them and they'd be lost.
-        lastSyncedAt: windowEnd.toISOString(),
+        // Advance to effectiveWindowEnd, not finishedAt — events arriving at the
+        // source between the window end and finishedAt aren't in this pull's
+        // range. If we stored finishedAt, the next sync's clamp would skip past
+        // them and they'd be lost. effectiveWindowEnd equals windowEnd on a full
+        // sync; for a Vercel drain that stopped at its deadline it is the partial
+        // boundary, so the next sync resumes exactly where this one left off.
+        lastSyncedAt: effectiveWindowEnd.toISOString(),
         lastError: null,
         lastEventIds: nextEventIds,
         updatedAt: finishedAt,
@@ -1696,7 +1867,9 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       aiReferralBucketRows,
       sampleRows,
       windowStart: windowStart.toISOString(),
-      windowEnd: windowEnd.toISOString(),
+      // The window actually synced: equals windowEnd on a full sync, or the
+      // partial boundary when a Vercel drain stopped at its deadline.
+      windowEnd: effectiveWindowEnd.toISOString(),
     }
     return response
   })

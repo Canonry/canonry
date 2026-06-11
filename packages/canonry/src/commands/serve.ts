@@ -48,7 +48,7 @@ export async function serveCommand(format: CliFormat = 'text'): Promise<void> {
   }
 
   // Same idea for ga_ai_referrals — landing_page_normalized was added in
-  // v46. Without this, the dashboard's "Known AI referrers — landing pages"
+  // v46. Without this, the dashboard's "Known AI referrers by landing page"
   // panel surfaces legacy rows as a synthetic '(not set)' bucket until the
   // user re-syncs.
   try {
@@ -63,8 +63,9 @@ export async function serveCommand(format: CliFormat = 'text'): Promise<void> {
     process.stderr.write(`warning: ai-referral-paths backfill skipped: ${msg}\n`)
   }
 
-  // Create and start server
-  const app = await createServer({ config, db })
+  // Create and start server. Pass the bind host so the server can gate the
+  // unauthenticated first-run dashboard password setup when exposed off-box.
+  const app = await createServer({ config, db, host })
 
   // Graceful shutdown on SIGTERM (sent by `canonry stop`) and SIGINT (Ctrl+C)
   // Guard against double-fire: rapid Ctrl+C or concurrent SIGTERM+SIGINT

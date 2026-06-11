@@ -26,6 +26,7 @@ import {
 } from '@ainyc/canonry-integration-wordpress'
 import type { SchemaProfileFile, WordpressConnectionRecord } from '@ainyc/canonry-integration-wordpress'
 import { resolveProject, writeAuditLog } from './helpers.js'
+import { resolveWebhookTarget } from './webhooks.js'
 
 interface IndexingSuccessBody {
   results?: Array<{ status: string }>
@@ -49,6 +50,14 @@ export interface WordpressConnectionStore {
 export interface WordpressRoutesOptions {
   wordpressConnectionStore?: WordpressConnectionStore
   routePrefix?: string
+  /**
+   * Allow WordPress site URLs that resolve to a loopback address. Mirrors
+   * `allowLoopbackWebhooks` on the parent `ApiRoutesOptions` — only enabled on
+   * the local single-operator `canonry serve` so an operator can connect a
+   * localhost WP dev site. Private/link-local/metadata ranges stay blocked
+   * regardless. Off (the cloud default) means loopback is also blocked.
+   */
+  allowLoopbackWebhooks?: boolean
 }
 
 function parseEnvInput(
@@ -87,9 +96,24 @@ async function withWordpressErrorHandling<T>(handler: () => Promise<T>): Promise
 }
 
 export async function wordpressRoutes(app: FastifyInstance, opts: WordpressRoutesOptions) {
+  const allowLoopback = opts.allowLoopbackWebhooks === true
+
   function requireStore(): WordpressConnectionStore {
     if (opts.wordpressConnectionStore) return opts.wordpressConnectionStore
     throw validationError('WordPress connection storage is not configured for this deployment')
+  }
+
+  // Reject a WordPress site URL that resolves to a private / loopback /
+  // link-local / cloud-metadata address before any authenticated REST call is
+  // made to it. The publish client attaches Basic-auth credentials and follows
+  // redirects, so an unguarded URL is a credential-bearing SSRF (e.g.
+  // `http://169.254.169.254/...`). Mirrors the WordPress *traffic* path's
+  // `assertWordpressTargetAllowed` guard in `traffic.ts`.
+  async function assertWordpressUrlAllowed(rawUrl: string, field: string): Promise<void> {
+    const check = await resolveWebhookTarget(rawUrl, { allowLoopback })
+    if (!check.ok) {
+      throw validationError(`${field} ${check.message.replace(/^"url" /, '')}`)
+    }
   }
 
   function requireConnection(store: WordpressConnectionStore, projectName: string): WordpressConnectionRecord {
@@ -124,6 +148,11 @@ export async function wordpressRoutes(app: FastifyInstance, opts: WordpressRoute
       if (defaultEnv === 'staging' && !stagingUrl) {
         throw validationError('defaultEnv "staging" requires stagingUrl')
       }
+
+      // SSRF guard: validate both site URLs resolve to public addresses before
+      // any credentialed REST call is issued to them.
+      await assertWordpressUrlAllowed(url, 'url')
+      if (stagingUrl) await assertWordpressUrlAllowed(stagingUrl, 'stagingUrl')
 
       const now = new Date().toISOString()
       const existing = store.getConnection(project.name)
@@ -540,6 +569,11 @@ export async function wordpressRoutes(app: FastifyInstance, opts: WordpressRoute
     if (defaultEnv === 'staging' && !stagingUrl) {
       throw validationError('defaultEnv "staging" requires stagingUrl')
     }
+
+    // SSRF guard (see /connect): block private/loopback/metadata targets before
+    // the connect step issues any credentialed fetch.
+    await assertWordpressUrlAllowed(url, 'url')
+    if (stagingUrl) await assertWordpressUrlAllowed(stagingUrl, 'stagingUrl')
 
     type StepResult = { name: string; status: 'completed' | 'skipped' | 'failed'; summary?: string; error?: string }
     const steps: StepResult[] = []

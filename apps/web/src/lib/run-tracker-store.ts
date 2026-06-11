@@ -5,6 +5,7 @@ export type TrackedRunSourceAction =
   | 'setup-launch'
   | 'run-all'
   | 'gsc-sync'
+  | 'gbp-sync'
   | 'discover-sitemaps'
   | 'inspect-sitemap'
 
@@ -12,9 +13,13 @@ export interface TrackedRun {
   runId: string
   projectId: string
   projectLabel?: string
-  kind: string
+  kind: ApiRun['kind']
   sourceAction: TrackedRunSourceAction
   lastAnnouncedStatus: string
+  /** Epoch ms when the run was first tracked. Used to give up on a run that has
+   *  aged out of the capped /runs window (see `selectStaleTrackedRuns`).
+   *  Optional: rows persisted before this field existed hydrate without it. */
+  trackedAt?: number
 }
 
 export interface TrackedBatch {
@@ -96,6 +101,8 @@ export function trackRun(run: Pick<ApiRun, 'id' | 'projectId' | 'kind'> & {
   projectLabel?: string
   sourceAction: TrackedRunSourceAction
   lastAnnouncedStatus?: string
+  /** Override the tracked-at stamp (tests); defaults to now. */
+  trackedAt?: number
 }) {
   const snapshot = getRunTrackerState()
   updateState({
@@ -109,6 +116,7 @@ export function trackRun(run: Pick<ApiRun, 'id' | 'projectId' | 'kind'> & {
         kind: run.kind,
         sourceAction: run.sourceAction,
         lastAnnouncedStatus: run.lastAnnouncedStatus ?? 'queued',
+        trackedAt: run.trackedAt ?? Date.now(),
       },
     },
   })
@@ -170,6 +178,36 @@ export const runTrackerStorageKey = STORAGE_KEY
 
 export function isTerminalRunStatus(status: string) {
   return status === 'completed' || status === 'partial' || status === 'failed' || status === 'cancelled'
+}
+
+/**
+ * How long a tracked run may be ABSENT from the GET /runs response before the
+ * observer gives up on it. GET /runs is capped (default 500 rows / a since
+ * window), so a tracked run can age out of that window — cron syncs alone can
+ * fill it in under an hour — after which the observer never sees it reach a
+ * terminal status and its trigger button would wedge on "Syncing…"/"Running…"
+ * forever. Absence is only ever the aged-out case (an in-flight run is still in
+ * the window), so this is purely a backstop; a page reload clears it sooner.
+ */
+export const STALE_TRACKED_RUN_MS = 10 * 60_000
+
+/**
+ * Pure give-up rule: return the tracked runs that have aged out of the /runs
+ * window and should be cleared. A run still PRESENT in `presentRunIds` is
+ * never stale (the observer is still watching it); a run ABSENT for at least
+ * `staleMs` (relative to `now`) has aged out. A run with no `trackedAt` (a row
+ * persisted before this field existed) is treated as infinitely old, so any
+ * pre-existing wedged run is cleared on the next poll.
+ */
+export function selectStaleTrackedRuns(
+  trackedRuns: TrackedRun[],
+  presentRunIds: Set<string>,
+  now: number,
+  staleMs: number,
+): TrackedRun[] {
+  return trackedRuns.filter(
+    (run) => !presentRunIds.has(run.runId) && now - (run.trackedAt ?? 0) >= staleMs,
+  )
 }
 
 export function summarizeBatchStatuses(runIds: string[], runsById: Record<string, ApiRun | undefined>) {

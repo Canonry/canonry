@@ -150,6 +150,39 @@ cnry analytics <project> --feature sources     # source breakdown by category
 cnry analytics <project> --window 7d           # time window: 7d, 30d, 90d, all
 ```
 
+### Cited-source rankings (`cnry sources`)
+
+"Where do AI engines get the facts they cite?" — the full, per-provider, classified ranking of cited domains. Backed by `GET /api/v1/projects/<name>/analytics/sources` and the `canonry_analytics_sources` MCP tool. All counts/shares/classification are computed server-side; the CLI only renders.
+
+```bash
+cnry sources <project>                          # surface-class roll-up (own / direct-competitor / ota-aggregator / editorial-media / other)
+cnry sources <project> --rank                   # full ranked cited-domain list, each tagged with category + surface class
+cnry sources <project> --rank --limit 20        # top 20 domains; an explicit long-tail rollup preserves the totals
+cnry sources <project> --by-provider            # per-provider cited-domain mix + each provider's total cited slots
+cnry sources <project> --window 30d --format json   # window-filterable; --format json emits the SourceBreakdownDto directly
+cnry sources <project> --rank --format jsonl    # stream the ranked domains, one self-contained record per line
+```
+
+- **Surface class** is deterministic (no LLM): `own` = the project's `canonicalDomain`/`ownedDomains`; `direct-competitor` = a tracked competitor; `ota-aggregator` = directories/marketplaces (Yelp, Booking.com, Tripadvisor, Amazon…); `editorial-media` = news/blogs/reference; `other` = everything else. When discovery has run, its stored per-domain classifications (`domain_classifications`) enrich recall for niche OTAs/regional media the static allow-list misses — `own` and tracked competitors always stay authoritative. Running `cnry discover run` improves coverage.
+- The ranked list is **not truncated** by default (the old top-5-per-category cap is gone). Pass `--limit N` to cap each list; the response carries `truncatedDomainCount` / `truncatedCitedSlots` so totals always reconcile.
+- Counts are **cited slots** (grounding citations), so a domain cited 3× in one answer counts 3. Probe runs are excluded.
+
+## Technical AEO (site audit)
+
+Site-wide technical audit (structured data, AI-readable content, AI-crawler access, content depth/freshness/extractability, …) powered by `@ainyc/aeo-audit`'s `runSitemapAudit`. Runs as the `site-audit` run kind — crawls the project's `sitemap.xml` and scores every reachable page, then rolls up into one 0–100 site score. Pure HTTP, no LLM cost; a large site can take minutes, so it runs in the background.
+
+```bash
+cnry technical-aeo run <project> --wait                 # crawl + audit; --wait polls to terminal. Idempotent: returns the in-flight run if one is active.
+cnry technical-aeo run <project> --sitemap-url <url> --limit 200   # override the sitemap / cap pages (highest <priority> first; default 500, max 2000)
+cnry technical-aeo score <project> [--format json]      # site score + per-factor scorecard (avg + pass/partial/fail per page) + delta vs the previous audit
+cnry technical-aeo pages <project> [--status error] [--sort score-asc|score-desc|url] [--format json|jsonl]   # per-page breakdown of the latest run (worst-first by default)
+cnry technical-aeo trend <project> [--format json|jsonl] # aggregate-score history across past audits
+cnry schedule set <project> --kind site-audit --preset weekly   # keep it fresh
+```
+
+- The score is only available after at least one audit runs — `score` returns `hasData: false` until then.
+- Reads reflect the latest **completed/partial** site-audit run; probe runs are excluded.
+
 ## Intelligence
 
 ```bash
@@ -186,6 +219,8 @@ cnry competitor list <project>
 cnry schedule set <project> --preset daily     # or: weekly, twice-daily, daily@09
 cnry schedule set <project> --cron "0 9 * * *" --timezone America/New_York
 cnry schedule set <project> --kind data-refresh --preset daily   # refresh all connected GSC/Bing/GA/GBP integrations (no --source)
+cnry schedule set <project> --kind backlinks-sync --preset weekly # re-probe Common Crawl; sync only when a newer rolling window is published (no --source/--provider)
+cnry schedule set <project> --kind site-audit --preset weekly     # Technical AEO: crawl the sitemap + audit every page (no --source/--provider)
 cnry schedule show <project>
 cnry schedule enable <project>
 cnry schedule disable <project>
@@ -233,6 +268,24 @@ export GEMINI_VERTEX_CREDENTIALS=/path/to/sa.json  # optional, falls back to ADC
 ```
 
 When Vertex AI is configured, no `GEMINI_API_KEY` is required. The provider uses the `@google-cloud/vertexai` SDK with `googleAuthOptions` for credential handling.
+
+## API Keys
+
+Mint, list, and revoke the `cnry_…` bearer tokens stored in the `api_keys` table. Keys are stored as a sha256 hash, never in plaintext.
+
+```bash
+cnry key list                                  # table: NAME / PREFIX / SCOPES / CREATED / LAST USED / STATUS
+cnry key list --format json|jsonl              # jsonl streams one key per line
+cnry key create --name ci-bot                  # mint a full-access key (scopes default to *)
+cnry key create --name reader --scope read     # narrower key; repeat --scope or comma-separate (--scope a,b)
+cnry key create --name ci-bot --format json    # JSON output includes the plaintext key
+cnry key revoke <id>                           # revoke (does not delete); effective on the next request
+```
+
+- **Create returns the plaintext key exactly once.** It is shown with a "Save this now — it will not be shown again." warning (and is included in the JSON under `key`). It cannot be recovered later, so persist it on receipt.
+- **List never exposes the hash or plaintext** — only safe metadata (id, name, prefix, scopes, created / last-used / revoked timestamps).
+- **Mutations are gated by the `keys.write` scope.** The default key from `cnry init` carries `*`, which satisfies it. A narrower key needs `keys.write` to mint or revoke.
+- **Revoke is not delete.** It sets `revokedAt`; the auth layer rejects the key on the next request. Revoking an already-revoked key is a no-op. You cannot revoke the key you are currently authenticating with (use a different key).
 
 ## Google Search Console
 
@@ -416,12 +469,16 @@ cnry gbp summary <project> [--location locations/{n}]
 
 Workspace-level Common Crawl release sync + per-project backlink extraction. Requires DuckDB; install once with `cnry backlinks install`. Releases are downloaded once per workspace and reused across all projects.
 
+Common Crawl publishes the hyperlink graph as **rolling, monthly-stepped, overlapping 3-month windows** named by the window's first month's year: `cc-main-YYYY-<mon>-<mon>-<mon>` (e.g. `cc-main-2026-mar-apr-may`). Omit `--release` to auto-discover the newest published window; the legacy fixed-quarter slugs (`jan-feb-mar`, …) still resolve since they're a subset of the cadence.
+
 ```bash
 cnry backlinks install                         # install bundled DuckDB binary
 cnry backlinks doctor                          # show install + plugin status
 cnry backlinks status                          # latest workspace release sync
 cnry backlinks releases                        # list cached releases on disk
-cnry backlinks sync --release <id>             # download + query a release (workspace-wide)
+cnry backlinks releases latest                 # probe Common Crawl for the newest published rolling window
+cnry backlinks sync                            # auto-discover + download + query the newest release (workspace-wide)
+cnry backlinks sync --release cc-main-2026-mar-apr-may   # pin a specific rolling window
 cnry backlinks sync --release <id> --wait      # block until ready/failed
 cnry backlinks list <project>                  # top linking domains for the project
 cnry backlinks list <project> --limit 100 --release <id>
@@ -431,6 +488,8 @@ cnry backlinks cache prune --release <id>      # delete cached release files fro
 ```
 
 All commands support `--format json`. A release sync has statuses `queued` → `downloading` → `querying` → `ready` / `failed`. Per-project extract runs use the standard run statuses (`queued` → `running` → `completed` / `failed`). Projects with the `autoExtractBacklinks` setting enabled get an extract run enqueued automatically when a release sync transitions to `ready`.
+
+To keep backlinks fresh automatically, schedule a `backlinks-sync` kind (`cnry schedule set <project> --kind backlinks-sync --preset weekly`): each tick re-probes Common Crawl and runs the workspace release sync **only when a newer rolling window is published** (it skips when the newest `ready` sync already covers the latest release, so it never re-downloads a near-identical window).
 
 ## CDP / Browser Provider
 
@@ -530,7 +589,7 @@ Every command takes `--format`:
 - **`json`** — one pretty-printed JSON document (the full envelope). Stable contract.
 - **`jsonl`** — newline-delimited JSON: the command's **primary collection**, one self-contained record per line. The agent-friendly machine format — no envelope key to guess (`.checks` vs `.results` vs `.rows`), no `jq` flattening, greppable line by line.
 
-`jsonl` is supported by every **collection** command — one whose primary output is a list: `insights`, `runs`, `evidence`, `history`, `query/keyword/competitor list`, `notify list/events`, `google` reads (`performance`, `performance-daily`, `inspections`, `coverage-history`, `deindexed`, `status`, `properties`, `list-sitemaps`), `bing` reads (`coverage-history`, `inspections`, `performance`, `sites`), `ga` reads (`ai-referral-history`, `social-referral-history`, `session-history`, `coverage`), `traffic events/sources/status`, `discover list/show`, `content targets/sources/gaps`, `backlinks list/releases`, `project list/locations`, `agent memory list`, `agent providers`, and `doctor`.
+`jsonl` is supported by every **collection** command — one whose primary output is a list: `insights`, `runs`, `evidence`, `history`, `query/keyword/competitor list`, `notify list/events`, `google` reads (`performance`, `performance-daily`, `inspections`, `coverage-history`, `deindexed`, `status`, `properties`, `list-sitemaps`), `bing` reads (`coverage-history`, `inspections`, `performance`, `sites`), `ga` reads (`ai-referral-history`, `social-referral-history`, `session-history`, `coverage`), `traffic events/sources/status`, `discover list/show`, `content targets/sources/gaps/map`, `backlinks list/releases`, `project list/locations`, `key list`, `agent memory list`, `agent providers`, `sources` (streams the ranked cited-domain list), and `doctor`. (`content brief` is an object command — `jsonl` degrades to its JSON document.)
 
 Each `jsonl` line re-injects the envelope context it would otherwise lose, so a line lifted out still self-describes:
 
@@ -549,8 +608,10 @@ Compact reference for the composite / keyed commands agents read most (shapes ca
 | Command | JSON output shape (top-level keys → DTO) | `jsonl` |
 |---|---|---|
 | `cnry doctor [--project p] [--all]` | `{ scope, project, generatedAt, durationMs, summary{total,ok,warn,fail,skipped}, checks[] }` — `DoctorReportDto` @ `contracts/doctor.ts`. `checks[]` = `CheckResultDto{ id, category, scope, title, status(ok\|warn\|fail\|skipped), code, summary, remediation?, details?, durationMs }`. With `--all`: an object keyed by `__global__` + each project name, each value a full report. | ✅ one check / line as `{project, …check}`; still exits non-zero if any `fail` |
-| `cnry analytics <p> [--feature metrics\|gaps\|sources] [--window 7d\|30d\|90d\|all]` | Object **keyed by feature**: `{ metrics?, gaps?, sources? }` (all three present with no `--feature`; one with `--feature X`). `metrics`=`BrandMetricsDto{ window, buckets[], overall, byProvider, trend, mentionTrend, queryChanges[] }`; `gaps`=`GapAnalysisDto{ cited[], gap[], uncited[], mentionedQueries[], mentionGap[], notMentioned[], runId, window }` (each `[]`=`GapQuery`); `sources`=`SourceBreakdownDto{ overall[], byQuery, runId, window }`. @ `contracts/analytics.ts` | → degrades to the `json` document |
+| `cnry analytics <p> [--feature metrics\|gaps\|sources] [--window 7d\|30d\|90d\|all]` | Object **keyed by feature**: `{ metrics?, gaps?, sources? }` (all three present with no `--feature`; one with `--feature X`). `metrics`=`BrandMetricsDto{ window, buckets[], overall, byProvider, trend, mentionTrend, queryChanges[] }`; `gaps`=`GapAnalysisDto{ cited[], gap[], uncited[], mentionedQueries[], mentionGap[], notMentioned[], runId, window }` (each `[]`=`GapQuery`); `sources`=`SourceBreakdownDto` (same shape as `cnry sources`, below). @ `contracts/analytics.ts` | → degrades to the `json` document |
+| `cnry sources <p> [--rank] [--limit N] [--by-provider] [--window …]` | `SourceBreakdownDto{ overall[], byQuery, ranked, byProvider, runId, window, limit }` @ `contracts/analytics.ts`. `ranked`/each `byProvider[name]` = `RankedSourceList{ totalCitedSlots, domainTotal, entries[], truncatedDomainCount, truncatedCitedSlots, bySurfaceClass[] }`; `entries[]`=`SourceRankEntry{ domain, count, percentage, category, label, surfaceClass }`; `bySurfaceClass[]`=`SurfaceClassCount{ surfaceClass, label, count, percentage, domainCount }`. `surfaceClass` ∈ own \| direct-competitor \| ota-aggregator \| editorial-media \| other. | ✅ streams `ranked.entries` one / line as `{project, …entry}` |
 | `cnry google coverage <p>` (index coverage) | `{ summary{total,indexed,notIndexed,deindexed,percentage}, lastInspectedAt, lastSyncedAt, indexed[], notIndexed[], deindexed[], reasonGroups[] }` — `GscCoverageSummaryDto` @ `contracts/google.ts`. `indexed[]`/`notIndexed[]`=`GscUrlInspectionDto`, `deindexed[]`=`GscDeindexedRowDto`. | → degrades to the `json` document. The single-array reads `google inspections` / `coverage-history` / `deindexed` **stream** `jsonl`. |
 | `cnry ga traffic <p> [--window …]` | Object summary — `GA4TrafficSummaryDto` / `GaTrafficResponse` @ `contracts/ga.ts`: `{ totalSessions, totalOrganicSessions, totalDirectSessions, totalUsers, aiSessionsDeduped, aiUsersDeduped, aiSessionsBySession, aiUsersBySession, socialSessions, socialUsers, channelBreakdown{organic,social,direct,ai,other→{sessions,sharePct,sharePctDisplay}}, *SharePct (+ `*Display`), topPages[], aiReferrals[], aiReferralLandingPages[], socialReferrals[], lastSyncedAt, periodStart, periodEnd }`. | → degrades to the `json` document |
 | `cnry ga attribution <p> [--trend]` | Object — a **renamed projection** of `GaTrafficResponse` (⚠️ field names differ from the DTO): `aiSessions`(←`aiSessionsDeduped`), `organicSessions`(←`totalOrganicSessions`), `directSessions`(←`totalDirectSessions`), plus `totalSessions, totalUsers, aiUsers, aiSessionsBySession, aiUsersBySession, socialSessions, socialUsers, {ai,social,organic,direct}SharePct (+ `*Display`), otherSessions, otherSharePct, channelBreakdown, aiReferrals[], aiReferralLandingPages[], socialReferrals[], periodStart, periodEnd`. With `--trend`: drops `periodStart/End`, adds `trend` (`GaAttributionTrendResponse`). Assembled inline in `commands/ga.ts`. | → degrades to the `json` document |
+| `cnry key list` / `key create` / `key revoke <id>` | `list`: `{ keys[] }` — each `ApiKeyDto{ id, name, keyPrefix, scopes[], createdAt, lastUsedAt, revokedAt }` (SAFE metadata, never the hash or plaintext). `create`: `CreatedApiKeyDto` = `ApiKeyDto` **plus a one-time `key`** (the plaintext `cnry_…` token, shown once). `revoke`: the `ApiKeyDto` with `revokedAt` set. @ `contracts/api-keys.ts` | `key list` streams one key / line; `create` / `revoke` degrade to the `json` document |
 | `cnry gbp summary <p> [--location …]` | `{ scope{locationName,locationCount}, performance{totals,recent7d,prior7d,deltaPct} (metric-keyed maps; keys are raw `BUSINESS_*` / `WEBSITE_CLICKS` tokens — label via `formatGbpMetricLabel`), freshness{dataThroughDate,latestStoredDate,pendingDays}, timeseries[], keywords{total,thresholdedCount,thresholdedPct}, placeActions{total,hasReservationCta,hasBookingCta,hasDirectMerchantCta}, lodging{lodgingLocationCount,populatedLodgingCount,emptyLodgingCount} }` — `GbpSummaryDto` @ `contracts/gbp.ts`. `timeseries[]`=`{date,pending,metrics}`. | → degrades to the `json` document |

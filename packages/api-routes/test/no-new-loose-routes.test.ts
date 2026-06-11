@@ -21,7 +21,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
  * same PR with a comment naming the endpoint and a linked issue / TODO. The
  * cap exists so deferring is a deliberate, visible decision, not a default.
  */
-const MAX_LOOSE_RESPONSE_SITES = 41
+const MAX_LOOSE_RESPONSE_SITES = 39
 
 /**
  * Hard cap on the number of `looseObjectSchema` array-wrapped responses
@@ -61,7 +61,7 @@ describe('openapi loose-response cap', () => {
     // jsonResponse removes one; new endpoints must register a schema before
     // adding the route, so this should trend strictly downward.
     const todos = openapi.match(/TODO:\s+Add\s+`\w+Dto`\s+Zod schema/g) ?? []
-    const LOCKED = 24
+    const LOCKED = 22
     expect(
       todos.length,
       `Outstanding "TODO: Add XxxDto Zod schema" placeholders rose above the lock (${LOCKED}). ` +

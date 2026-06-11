@@ -45,6 +45,7 @@ import {
   type RunDetailDto,
   type RunHistoryPointDto,
   type ScoreSummaryDto,
+  escapeLikePattern,
   validationError,
 } from '@ainyc/canonry-contracts'
 import {
@@ -246,6 +247,14 @@ export async function compositeRoutes(app: FastifyInstance) {
       .slice(0, DEFAULT_RUN_HISTORY_LIMIT)
       .map(r => ({ id: r.id, createdAt: r.createdAt, status: r.status }))
     const runHistory: RunHistoryPointDto[] = buildRunHistory(sparklineRuns, snapshotsByRun)
+    // Surface the over-time series on each headline score so the portfolio
+    // per-project sparkline (and `canonry overview --format json`) can render
+    // it. buildRunHistory is ascending (oldest→newest, 0–100), the order/scale
+    // the Sparkline expects. The pure score builders have no run history, so
+    // the cross-run trends are assembled here at the composite — each tracking
+    // its own signal (mention = answer-text, visibility = cited source).
+    scores.mention.trend = runHistory.map(p => p.mentionRate)
+    scores.visibility.trend = runHistory.map(p => p.citationRate)
     const suggestedQueries: SuggestedQueriesSummaryDto = buildSuggestedQueriesFromGsc(
       app,
       project.id,
@@ -392,10 +401,6 @@ function clampSearchLimit(raw: string | undefined): number {
   return parsed
 }
 
-function escapeLikePattern(value: string): string {
-  return value.replace(/[\\%_]/g, match => `\\${match}`)
-}
-
 // Run summary used inside the overview composite. Snapshots are intentionally
 // omitted — agents that want them can call canonry_run_get with the returned id.
 function summarizeRun(run: typeof runs.$inferSelect): RunDetailDto {
@@ -474,17 +479,33 @@ function summarizeFromSnapshots(
   snapshots: readonly OverviewSnapshot[],
 ): { queryCounts: ProjectOverviewQueryCountsDto; providers: ProjectOverviewProviderEntryDto[] } {
   const empty = {
-    queryCounts: { totalQueries: 0, citedQueries: 0, notCitedQueries: 0, citedRate: 0 } as ProjectOverviewQueryCountsDto,
+    queryCounts: {
+      totalQueries: 0,
+      citedQueries: 0,
+      notCitedQueries: 0,
+      citedRate: 0,
+      mentionedQueries: 0,
+      notMentionedQueries: 0,
+      mentionRate: 0,
+    } as ProjectOverviewQueryCountsDto,
     providers: [] as ProjectOverviewProviderEntryDto[],
   }
   if (snapshots.length === 0) return empty
 
+  // Cited and mentioned are tracked per query as independent "any snapshot"
+  // rolls-ups — a query is cited if ANY snapshot is cited, mentioned if ANY
+  // snapshot has answerMentioned===true. Never derive one from the other.
   const perQuery = new Map<string, boolean>()
+  const perQueryMentioned = new Map<string, boolean>()
   const perProvider = new Map<string, { cited: number; total: number }>()
   for (const snap of snapshots) {
     const cited = snap.citationState === CitationStates.cited
     if (!perQuery.has(snap.queryId) || cited) {
       perQuery.set(snap.queryId, cited)
+    }
+    const mentioned = snap.answerMentioned === true
+    if (!perQueryMentioned.has(snap.queryId) || mentioned) {
+      perQueryMentioned.set(snap.queryId, mentioned)
     }
     const bucket = perProvider.get(snap.provider) ?? { cited: 0, total: 0 }
     bucket.total += 1
@@ -500,6 +521,13 @@ function summarizeFromSnapshots(
   const notCitedQueries = totalQueries - citedQueries
   const citedRate = totalQueries === 0 ? 0 : Number((citedQueries / totalQueries).toFixed(4))
 
+  let mentionedQueries = 0
+  for (const wasMentioned of perQueryMentioned.values()) {
+    if (wasMentioned) mentionedQueries += 1
+  }
+  const notMentionedQueries = totalQueries - mentionedQueries
+  const mentionRate = totalQueries === 0 ? 0 : Number((mentionedQueries / totalQueries).toFixed(4))
+
   const providers: ProjectOverviewProviderEntryDto[] = [...perProvider.entries()]
     .map(([provider, { cited, total }]) => ({
       provider,
@@ -510,7 +538,15 @@ function summarizeFromSnapshots(
     .sort((a, b) => a.provider.localeCompare(b.provider))
 
   return {
-    queryCounts: { totalQueries, citedQueries, notCitedQueries, citedRate },
+    queryCounts: {
+      totalQueries,
+      citedQueries,
+      notCitedQueries,
+      citedRate,
+      mentionedQueries,
+      notMentionedQueries,
+      mentionRate,
+    },
     providers,
   }
 }

@@ -138,7 +138,8 @@ export function renderHuman(overview: ProjectOverviewDto): void {
   printScore('Competitor press.', scores.competitorPressure)
   printScore('Run status       ', scores.runStatus)
 
-  console.log(`\n  Queries cited: ${queryCounts.citedQueries}/${queryCounts.totalQueries} (${pct(queryCounts.citedRate)})`)
+  console.log(`\n  Queries cited:     ${queryCounts.citedQueries}/${queryCounts.totalQueries} (${pct(queryCounts.citedRate)})`)
+  console.log(`  Queries mentioned: ${queryCounts.mentionedQueries}/${queryCounts.totalQueries} (${pct(queryCounts.mentionRate)})`)
 
   if (movementSummary.hasPreviousRun) {
     console.log(`  Movement: +${movementSummary.gained} gained, -${movementSummary.lost} lost (${movementSummary.tone})`)

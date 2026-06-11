@@ -119,9 +119,9 @@ export async function cloudBootstrapRoutes(app: FastifyInstance, opts: CloudBoot
       // callback, refresh the events list and webhook secret in place
       // rather than creating a duplicate.
       //
-      // `projectId: null` indicates a tenant-scoped webhook (the migration
-      // that flipped this column nullable shipped in the same PR as the
-      // bootstrap endpoint — see migration v69).
+      // `projectId: null` indicates a tenant-scoped webhook (the
+      // notifications-project-id-nullable migration shipped in the same PR
+      // as the bootstrap endpoint).
       const allRows = tx.select().from(notifications).all()
       const existingSubscriber = allRows.find((row) => {
         const config = parseJsonColumn<{ url?: string }>(

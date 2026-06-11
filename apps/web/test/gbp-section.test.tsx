@@ -1,6 +1,6 @@
 import React from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { afterEach, expect, onTestFinished, test, vi } from 'vitest'
+import { afterEach, beforeEach, expect, onTestFinished, test, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 
 // Recharts needs a sized container (jsdom has none); stub it like the other
@@ -21,16 +21,31 @@ vi.mock('recharts', () => {
   }
 })
 
+import { act } from '@testing-library/react'
+
 import { GbpSection } from '../src/components/project/GbpSection.js'
+import { getRunTrackerState, removeTrackedRun, resetRunTracker } from '../src/lib/run-tracker-store.js'
 import { mockFetch, jsonResponse } from './mock-fetch.js'
 
-afterEach(cleanup)
+// The run tracker is a module-global store backed by sessionStorage; reset it
+// around every test so a queued gbp-sync run from one test never leaks into the
+// button state of the next.
+beforeEach(() => {
+  resetRunTracker()
+  window.sessionStorage.clear()
+})
+
+afterEach(() => {
+  cleanup()
+  resetRunTracker()
+  window.sessionStorage.clear()
+})
 
 function renderGbpSection() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={queryClient}>
-      <GbpSection projectName="test-project" />
+      <GbpSection projectName="test-project" projectId="p1" />
     </QueryClientProvider>,
   )
 }
@@ -294,8 +309,63 @@ test('shows a connect empty-state when the project has no GBP connection', async
 
   renderGbpSection()
 
-  // The dedicated tab renders an explicit empty state (not nothing) so direct
-  // navigation isn't a blank page. No data endpoints are fetched.
-  await waitFor(() => expect(screen.getByText(/No Google Business Profile is connected/)).toBeTruthy())
-  expect(screen.getByText('Google Business Profile')).toBeTruthy()
+  // The dedicated tab renders a setup guide (not nothing) so direct navigation
+  // isn't a blank page. No data endpoints are fetched.
+  await waitFor(() => expect(screen.getByText('Connect Google Business Profile')).toBeTruthy())
+  expect(screen.getByText(/Four steps from the CLI/)).toBeTruthy()
+  expect(screen.getByText(/canonry gbp connect test-project/)).toBeTruthy()
+})
+
+test('Sync queues a gbp-sync run, stays disabled, and hands off to the run tracker', async () => {
+  const restoreFetch = mockFetch((url, init) => {
+    const urlPath = url.split('?')[0]!
+    if (urlPath.endsWith('/projects/test-project/gbp/sync') && init?.method === 'POST') {
+      // POST /gbp/sync queues an async run and returns immediately.
+      return jsonResponse({ runId: 'gbp-run-1', status: 'running' })
+    }
+    if (urlPath.endsWith('/projects/test-project/google/connections')) return jsonResponse([gbpConnection])
+    if (urlPath.endsWith('/projects/test-project/gbp/summary')) return jsonResponse(emptySummary())
+    if (urlPath.endsWith('/projects/test-project/gbp/locations')) {
+      return jsonResponse({ locations: [makeLocation({})], totalDiscovered: 1, totalSelected: 1 })
+    }
+    if (urlPath.endsWith('/projects/test-project/gbp/keywords')) return jsonResponse({ keywords: [], total: 0, thresholdedPct: 0 })
+    if (urlPath.endsWith('/projects/test-project/gbp/places')) return jsonResponse({ places: [], total: 0 })
+    if (urlPath.endsWith('/projects/test-project/insights')) return jsonResponse([])
+    throw new Error(`Unexpected fetch: ${url} ${init?.method ?? ''}`)
+  })
+  onTestFinished(restoreFetch)
+
+  renderGbpSection()
+
+  // The Sync action is enabled once the connection resolves.
+  const syncButton = await screen.findByRole('button', { name: 'Sync' })
+  expect(syncButton.hasAttribute('disabled')).toBe(false)
+
+  fireEvent.click(syncButton)
+
+  // The button stays disabled and reads "Syncing…" while the queued run is in
+  // flight — it does not snap back to "Sync" the instant the POST returns. (The
+  // global RunNotificationObserver, not mounted here, clears the tracked run on
+  // completion, which is what re-enables it in the app.)
+  await waitFor(() => expect(screen.getByRole('button', { name: /Syncing/ })).toBeTruthy())
+  expect(screen.getByRole('button', { name: /Syncing/ }).hasAttribute('disabled')).toBe(true)
+
+  // The async run is handed to the global run tracker (which polls it to
+  // completion and then invalidates the GBP queries) rather than invalidating
+  // eagerly here while the data is still stale.
+  const tracked = Object.values(getRunTrackerState().runs)
+  expect(tracked).toHaveLength(1)
+  expect(tracked[0]).toMatchObject({
+    runId: 'gbp-run-1',
+    projectId: 'p1',
+    kind: 'gbp-sync',
+    sourceAction: 'gbp-sync',
+  })
+
+  // When the run reaches a terminal status the observer drops it from the
+  // tracker (RunNotificationObserver → removeTrackedRun). Simulate that and
+  // assert the Sync button re-enables — i.e. it stays disabled *until the sync
+  // is complete*, not just for the POST.
+  act(() => removeTrackedRun('gbp-run-1'))
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Sync' }).hasAttribute('disabled')).toBe(false))
 })
