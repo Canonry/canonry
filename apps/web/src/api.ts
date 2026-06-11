@@ -137,12 +137,21 @@ export type { GroundingSource }
 export class ApiError extends Error {
   readonly code: ErrorCode | 'UNKNOWN'
   readonly statusCode: number
+  /**
+   * Structured `error.details` from the API envelope, when present. Carries
+   * machine-readable remediation (e.g. a FORBIDDEN from a disabled Google API
+   * ships `{ reason: 'gsc-api-disabled', enableUrl, projectNumber }`) so a
+   * component can render a first-class "Action needed" affordance instead of a
+   * raw message.
+   */
+  readonly details?: Record<string, unknown>
 
-  constructor(message: string, statusCode: number, code?: ErrorCode) {
+  constructor(message: string, statusCode: number, code?: ErrorCode, details?: Record<string, unknown>) {
     super(message)
     this.name = 'ApiError'
     this.code = code ?? 'UNKNOWN'
     this.statusCode = statusCode
+    this.details = details
   }
 }
 
@@ -215,16 +224,16 @@ export function hasExplicitBrowserApiKey(): boolean {
 let _onAuthExpired: (() => void) | null = null
 
 /**
- * Register a handler to call when any API request returns 401 or 403.
- * Pass null to clear. Only one handler is active at a time.
+ * Register a handler to call when an API request returns 401 (session expired
+ * / invalid). Pass null to clear. Only one handler is active at a time.
  */
 export function setOnAuthExpired(handler: (() => void) | null): void {
   _onAuthExpired = handler
 }
 
 /**
- * Trigger the registered auth-expiry handler. Called automatically by
- * apiFetch / invokeWeb on 401/403 responses; also callable from tests.
+ * Trigger the registered auth-expiry handler. Called automatically on 401
+ * responses (never 403 — see the heyClient interceptor); also callable from tests.
  */
 export function handleAuthExpired(): void {
   _onAuthExpired?.()
@@ -253,10 +262,18 @@ export const heyClient = createHeyClient({
 // SDK call). Without this, hooks that bypass `invokeWeb` (e.g. components
 // using `useQuery(getApiV1...Options(...))`) would silently 401 and leave
 // the user staring at a broken dashboard instead of being kicked to login.
-// Skips /session/* routes — a 401 there means "wrong password," not
-// "your session expired."
+//
+// ONLY 401 forces logout. A 401 is the single status canonry's auth layer
+// emits for an invalid/expired session or API key — re-authenticating fixes
+// it. A 403 (FORBIDDEN) never means "your session expired": it's either a
+// missing scope or, more commonly, an upstream provider that forbade a proxied
+// call (e.g. Google Search Console returning 403 because the operator's GCP
+// project hasn't enabled the API). Logging out on those is wrong — re-login
+// changes nothing — and it produced the "connect GSC → instantly booted to
+// login" bug. Those surface to the calling component to render inline instead.
+// Skips /session/* — a 401 there means "wrong password," not "session expired."
 heyClient.interceptors.response.use((res, req) => {
-  if ((res.status === 401 || res.status === 403) && !req.url.includes('/api/v1/session')) {
+  if (res.status === 401 && !req.url.includes('/api/v1/session')) {
     handleAuthExpired()
   }
   return res
@@ -279,7 +296,7 @@ type SdkResult = {
 /**
  * Wrap a generated SDK call with `ApiError` mapping.
  *
- * 401/403 → `handleAuthExpired()` is handled by the `heyClient.interceptors.response`
+ * 401 → `handleAuthExpired()` is handled by the `heyClient.interceptors.response`
  * hook (declared at module top) so generated TanStack Query options get the
  * same redirect-on-expiry behavior. Don't dispatch it here too — that would
  * fire the handler twice for every expired-session request that flows through
@@ -291,23 +308,26 @@ async function invokeWeb<T>(call: () => Promise<SdkResult>): Promise<T> {
     const status = result.response.status
     let message = `API ${status}: ${result.response.statusText}`
     let code: ErrorCode | undefined
+    let details: Record<string, unknown> | undefined
     if (typeof result.error === 'object' && result.error !== null) {
       const inner = (result.error as { error?: unknown }).error
       if (typeof inner === 'string') {
         message = inner
       } else if (inner && typeof inner === 'object') {
-        const obj = inner as { message?: string; code?: string }
+        const obj = inner as { message?: string; code?: string; details?: Record<string, unknown> }
         if (obj.message) message = obj.message
         if (obj.code) code = obj.code as ErrorCode
+        if (obj.details) details = obj.details
       } else {
-        const flat = result.error as { message?: string; code?: string }
+        const flat = result.error as { message?: string; code?: string; details?: Record<string, unknown> }
         if (flat.message) message = flat.message
         if (flat.code) code = flat.code as ErrorCode
+        if (flat.details) details = flat.details
       }
     } else if (typeof result.error === 'string') {
       message = result.error
     }
-    throw new ApiError(message, status, code)
+    throw new ApiError(message, status, code, details)
   }
   if (result.response.status === 204) return undefined as T
   return result.data as T
@@ -335,10 +355,11 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
     const bodyText = await res.text()
     let message = `API ${res.status}: ${res.statusText}`
     let code: ErrorCode | undefined
+    let details: Record<string, unknown> | undefined
     if (bodyText) {
       try {
         const parsed = JSON.parse(bodyText) as {
-          error?: string | { message?: string; code?: string }
+          error?: string | { message?: string; code?: string; details?: Record<string, unknown> }
           message?: string
         }
         if (typeof parsed.error === 'string') {
@@ -346,6 +367,7 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
         } else if (parsed.error?.message) {
           message = parsed.error.message
           code = parsed.error.code as ErrorCode | undefined
+          details = parsed.error.details
         } else if (parsed.message) {
           message = parsed.message
         }
@@ -353,13 +375,14 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
         message = bodyText
       }
     }
-    // Don't trigger auth-expiry on the session endpoints themselves — those
-    // are the login/setup paths, and a 401 there means "wrong password", not
-    // "your session expired."
-    if ((res.status === 401 || res.status === 403) && !path.startsWith('/session')) {
+    // Only 401 forces logout — see the heyClient interceptor above for the full
+    // rationale. A 403 never means "session expired" (re-login can't fix a
+    // missing scope or an upstream provider 403), so it surfaces to the caller.
+    // Skip /session/* — a 401 there means "wrong password", not "session expired".
+    if (res.status === 401 && !path.startsWith('/session')) {
       handleAuthExpired()
     }
-    throw new ApiError(message, res.status, code)
+    throw new ApiError(message, res.status, code, details)
   }
   if (res.status === 204) {
     return undefined as T

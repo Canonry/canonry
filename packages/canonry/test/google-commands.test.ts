@@ -197,7 +197,9 @@ describe('google CLI commands', () => {
 
     const { googleListSitemaps } = await import('../src/commands/google.js')
     try {
-      await expect(() => googleListSitemaps('test-proj', {})).rejects.toThrow('Access token expired or revoked')
+      // A Google 401 is mapped to a non-retryable FORBIDDEN with a reconnect
+      // hint (never a canonry 401, which would falsely read as session expiry).
+      await expect(() => googleListSitemaps('test-proj', {})).rejects.toThrow(/expired or was revoked\. Reconnect Google Search Console/)
     } finally {
       globalThis.fetch = originalFetch
     }
@@ -222,7 +224,7 @@ describe('google CLI commands', () => {
 
     const { googleDiscoverSitemaps } = await import('../src/commands/google.js')
     try {
-      await expect(() => googleDiscoverSitemaps('test-proj', { wait: false })).rejects.toThrow('Access token expired or revoked')
+      await expect(() => googleDiscoverSitemaps('test-proj', { wait: false })).rejects.toThrow(/expired or was revoked\. Reconnect Google Search Console/)
     } finally {
       globalThis.fetch = originalFetch
     }
