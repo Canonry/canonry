@@ -15,10 +15,11 @@ import {
 } from './normalize.js'
 import type { GeminiConfig } from './types.js'
 
-function toGeminiConfig(config: ProviderConfig): GeminiConfig {
+export function toGeminiConfig(config: ProviderConfig): GeminiConfig {
   return {
     apiKey: config.apiKey ?? '',
     model: config.model,
+    baseUrl: config.baseUrl,
     quotaPolicy: config.quotaPolicy,
     vertexProject: config.vertexProject,
     vertexRegion: config.vertexRegion,

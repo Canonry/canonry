@@ -6,6 +6,11 @@ export interface OpenAIConfig {
   apiKey: string
   quotaPolicy: ProviderQuotaPolicy
   model?: string
+  /**
+   * Custom API endpoint (e.g. a proxy in front of the OpenAI API). Maps to the
+   * SDK's `baseURL`. When unset, the SDK uses its default endpoint.
+   */
+  baseUrl?: string
 }
 
 export interface OpenAIHealthcheckResult {

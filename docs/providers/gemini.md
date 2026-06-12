@@ -36,6 +36,10 @@ Extracts analyst-relevant fields from the raw response:
 
 Default: `gemini-2.5-flash`. Configurable via `GeminiConfig.model`.
 
+## Custom Endpoint
+
+Optional. Set `GeminiConfig.baseUrl` — via the `GEMINI_BASE_URL` env var or `providers.gemini.baseUrl` in `~/.canonry/config.yaml` — to route requests through a proxy or gateway in front of the Gemini API. It maps to the SDK's `httpOptions.baseUrl` and applies to both AI Studio (API key) and Vertex AI auth. When unset, the SDK uses its default endpoint.
+
 ## Grounding & Citation Detection
 
 The provider uses Gemini's built-in **Google Search grounding** (`googleSearch` tool). When enabled, Gemini:

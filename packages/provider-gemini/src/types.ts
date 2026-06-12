@@ -6,6 +6,11 @@ export interface GeminiConfig {
   apiKey: string
   quotaPolicy: ProviderQuotaPolicy
   model?: string
+  /**
+   * Custom API endpoint (e.g. a proxy in front of the Gemini API). Maps to the
+   * SDK's `httpOptions.baseUrl`. When unset, the SDK uses its default endpoint.
+   */
+  baseUrl?: string
   /** Vertex AI GCP project ID — when set, uses Vertex AI instead of AI Studio */
   vertexProject?: string
   /** Vertex AI region (default: "us-central1") */
