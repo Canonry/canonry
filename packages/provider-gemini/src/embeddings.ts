@@ -18,6 +18,11 @@ export interface EmbedQueriesOptions {
   apiKey: string
   model?: string
   outputDimensionality?: number
+  /**
+   * Custom API endpoint (e.g. a proxy in front of the Gemini API). Maps to the
+   * SDK's `httpOptions.baseUrl`. When unset, the SDK uses its default endpoint.
+   */
+  baseUrl?: string
   /** Override client — used for tests and Vertex-mode adapters that bypass the default GenAI SDK. */
   client?: EmbedClient
 }
@@ -30,7 +35,7 @@ export async function embedQueries(
   if (!options.apiKey && !options.client) {
     throw new Error('embedQueries: missing apiKey')
   }
-  const client = options.client ?? createGeminiEmbedClient(options.apiKey)
+  const client = options.client ?? createGeminiEmbedClient(options.apiKey, options.baseUrl)
   return client.embedBatch(queries, {
     model: options.model ?? DEFAULT_EMBED_MODEL,
     taskType: CLUSTERING_TASK_TYPE,
@@ -61,8 +66,18 @@ export function extractEmbeddingVectors(
   })
 }
 
-function createGeminiEmbedClient(apiKey: string): EmbedClient {
-  const genai = new GoogleGenAI({ apiKey })
+/**
+ * Construct the embeddings GenAI client, threading an optional `baseUrl` (e.g.
+ * a proxy in front of the Gemini API) into the SDK's `httpOptions.baseUrl`.
+ * Mirrors `createClient` in `normalize.ts` so discovery embeddings honor the
+ * same configured endpoint as tracked-query sweeps.
+ */
+export function createEmbedGenAI(apiKey: string, baseUrl?: string): GoogleGenAI {
+  return new GoogleGenAI({ apiKey, ...(baseUrl ? { httpOptions: { baseUrl } } : {}) })
+}
+
+function createGeminiEmbedClient(apiKey: string, baseUrl?: string): EmbedClient {
+  const genai = createEmbedGenAI(apiKey, baseUrl)
   return {
     async embedBatch(queries, opts) {
       const response = await genai.models.embedContent({

@@ -197,7 +197,7 @@ function buildDefaultDeps(registry: ProviderRegistry): DiscoveryDeps {
     },
     async embed(queries: string[]): Promise<number[][]> {
       if (cfg.apiKey) {
-        return embedQueries(queries, { apiKey: cfg.apiKey })
+        return embedQueries(queries, { apiKey: cfg.apiKey, baseUrl: cfg.baseUrl })
       }
       // Vertex-mode embeddings need a Vertex-aware client; this is outside
       // PR 1's scope. Throw early with a clear remediation so we don't

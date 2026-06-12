@@ -12,6 +12,18 @@ import type {
 
 const DEFAULT_MODEL = 'gpt-5.4'
 
+/**
+ * Construct the OpenAI SDK client, threading a configured `baseUrl` (e.g. a
+ * proxy in front of the API) into the SDK's `baseURL`. When unset, the SDK
+ * falls back to its default endpoint.
+ */
+export function createClient(config: OpenAIConfig): OpenAI {
+  return new OpenAI({
+    apiKey: config.apiKey,
+    ...(config.baseUrl ? { baseURL: config.baseUrl } : {}),
+  })
+}
+
 export function validateConfig(config: OpenAIConfig): OpenAIHealthcheckResult {
   if (!config.apiKey || config.apiKey.length === 0) {
     return { ok: false, provider: 'openai', message: 'missing api key' }
@@ -29,7 +41,7 @@ export async function healthcheck(config: OpenAIConfig): Promise<OpenAIHealthche
   if (!validation.ok) return validation
 
   try {
-    const client = new OpenAI({ apiKey: config.apiKey })
+    const client = createClient(config)
     const response = await withRetry(() =>
       client.responses.create({
         model: config.model ?? DEFAULT_MODEL,
@@ -55,7 +67,7 @@ export async function healthcheck(config: OpenAIConfig): Promise<OpenAIHealthche
 
 export async function executeTrackedQuery(input: OpenAITrackedQueryInput): Promise<OpenAIRawResult> {
   const model = input.config.model ?? DEFAULT_MODEL
-  const client = new OpenAI({ apiKey: input.config.apiKey })
+  const client = createClient(input.config)
 
   const webSearchTool: Record<string, unknown> = { type: 'web_search' }
   if (input.location) {
@@ -285,7 +297,7 @@ function extractDomainFromUri(uri: string): string | null {
 
 export async function generateText(prompt: string, config: OpenAIConfig): Promise<string> {
   const model = config.model ?? DEFAULT_MODEL
-  const client = new OpenAI({ apiKey: config.apiKey })
+  const client = createClient(config)
   const response = await withRetry(() =>
     client.responses.create({
       model,

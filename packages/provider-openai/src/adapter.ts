@@ -15,10 +15,11 @@ import {
 } from './normalize.js'
 import type { OpenAIConfig } from './types.js'
 
-function toOpenAIConfig(config: ProviderConfig): OpenAIConfig {
+export function toOpenAIConfig(config: ProviderConfig): OpenAIConfig {
   return {
     apiKey: config.apiKey ?? '',
     model: config.model,
+    baseUrl: config.baseUrl,
     quotaPolicy: config.quotaPolicy,
   }
 }

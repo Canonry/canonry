@@ -32,8 +32,11 @@ function resolveModel(config: GeminiConfig): string {
 /**
  * Create a GoogleGenAI client — works for both AI Studio (apiKey) and
  * Vertex AI (project + location + optional service account credentials).
+ * A configured `baseUrl` (e.g. a proxy in front of the API) is threaded into
+ * the SDK's `httpOptions.baseUrl` for both auth modes.
  */
-function createClient(config: GeminiConfig): GoogleGenAI {
+export function createClient(config: GeminiConfig): GoogleGenAI {
+  const httpOptions = config.baseUrl ? { httpOptions: { baseUrl: config.baseUrl } } : {}
   if (isVertexConfig(config)) {
     return new GoogleGenAI({
       vertexai: true,
@@ -42,9 +45,10 @@ function createClient(config: GeminiConfig): GoogleGenAI {
       ...(config.vertexCredentials
         ? { googleAuthOptions: { keyFilename: config.vertexCredentials } }
         : {}),
+      ...httpOptions,
     })
   }
-  return new GoogleGenAI({ apiKey: config.apiKey })
+  return new GoogleGenAI({ apiKey: config.apiKey, ...httpOptions })
 }
 
 export function validateConfig(config: GeminiConfig): GeminiHealthcheckResult {

@@ -11,6 +11,7 @@ const envSchema = z.object({
   // Gemini
   GEMINI_API_KEY: z.string().optional(),
   GEMINI_MODEL: z.string().optional(),
+  GEMINI_BASE_URL: z.string().optional(),
   GEMINI_MAX_CONCURRENCY: z.coerce.number().int().positive().default(2),
   GEMINI_MAX_REQUESTS_PER_MINUTE: z.coerce.number().int().positive().default(10),
   GEMINI_MAX_REQUESTS_PER_DAY: z.coerce.number().int().positive().default(1000),
@@ -21,6 +22,7 @@ const envSchema = z.object({
   // OpenAI
   OPENAI_API_KEY: z.string().optional(),
   OPENAI_MODEL: z.string().optional(),
+  OPENAI_BASE_URL: z.string().optional(),
   OPENAI_MAX_CONCURRENCY: z.coerce.number().int().positive().default(2),
   OPENAI_MAX_REQUESTS_PER_MINUTE: z.coerce.number().int().positive().default(10),
   OPENAI_MAX_REQUESTS_PER_DAY: z.coerce.number().int().positive().default(1000),
@@ -45,6 +47,12 @@ const envSchema = z.object({
 export interface ProviderEnvConfig {
   apiKey: string
   model?: string
+  /**
+   * Custom API endpoint (e.g. a proxy in front of the provider API). Sourced
+   * from `GEMINI_BASE_URL` / `OPENAI_BASE_URL`; threaded into the adapter's
+   * SDK client. Undefined when unset — the SDK uses its default endpoint.
+   */
+  baseUrl?: string
   quota: ProviderQuotaPolicy
   vertexProject?: string
   vertexRegion?: string
@@ -101,11 +109,13 @@ const bootstrapEnvSchema = z.object({
   CANONRY_DATABASE_PATH: z.string().optional(),
   GEMINI_API_KEY: z.string().optional(),
   GEMINI_MODEL: z.string().optional(),
+  GEMINI_BASE_URL: z.string().optional(),
   GEMINI_VERTEX_PROJECT: z.string().optional(),
   GEMINI_VERTEX_REGION: z.string().optional(),
   GEMINI_VERTEX_CREDENTIALS: z.string().optional(),
   OPENAI_API_KEY: z.string().optional(),
   OPENAI_MODEL: z.string().optional(),
+  OPENAI_BASE_URL: z.string().optional(),
   ANTHROPIC_API_KEY: z.string().optional(),
   ANTHROPIC_MODEL: z.string().optional(),
   PERPLEXITY_API_KEY: z.string().optional(),
@@ -126,6 +136,7 @@ export function getPlatformEnv(source: NodeJS.ProcessEnv): PlatformEnv {
     providers.gemini = {
       apiKey: parsed.GEMINI_API_KEY ?? '',
       model: parsed.GEMINI_MODEL,
+      baseUrl: parsed.GEMINI_BASE_URL,
       quota: providerQuotaPolicySchema.parse({
         maxConcurrency: parsed.GEMINI_MAX_CONCURRENCY,
         maxRequestsPerMinute: parsed.GEMINI_MAX_REQUESTS_PER_MINUTE,
@@ -141,6 +152,7 @@ export function getPlatformEnv(source: NodeJS.ProcessEnv): PlatformEnv {
     providers.openai = {
       apiKey: parsed.OPENAI_API_KEY,
       model: parsed.OPENAI_MODEL,
+      baseUrl: parsed.OPENAI_BASE_URL,
       quota: providerQuotaPolicySchema.parse({
         maxConcurrency: parsed.OPENAI_MAX_CONCURRENCY,
         maxRequestsPerMinute: parsed.OPENAI_MAX_REQUESTS_PER_MINUTE,
@@ -199,6 +211,7 @@ export function getBootstrapEnv(
     providers.gemini = {
       apiKey: parsed.GEMINI_API_KEY ?? '',
       model: parsed.GEMINI_MODEL || 'gemini-2.5-flash',
+      baseUrl: parsed.GEMINI_BASE_URL,
       quota: providerQuotaPolicySchema.parse({
         maxConcurrency: 2,
         maxRequestsPerMinute: 10,
@@ -214,6 +227,7 @@ export function getBootstrapEnv(
     providers.openai = {
       apiKey: parsed.OPENAI_API_KEY,
       model: parsed.OPENAI_MODEL || 'gpt-5.4',
+      baseUrl: parsed.OPENAI_BASE_URL,
       quota: providerQuotaPolicySchema.parse({
         maxConcurrency: 2,
         maxRequestsPerMinute: 10,

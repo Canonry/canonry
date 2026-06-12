@@ -1008,6 +1008,102 @@ describe('canonry', () => {
     }
   })
 
+  it('settings/providers audits a baseUrl (endpoint) change for an API provider', async () => {
+    const tmpDir = path.join(os.tmpdir(), `canonry-provider-baseurl-${crypto.randomUUID()}`)
+    fs.mkdirSync(tmpDir, { recursive: true })
+
+    vi.stubEnv('CANONRY_CONFIG_DIR', tmpDir)
+
+    const dbPath = path.join(tmpDir, 'test.db')
+    const db = createClient(dbPath)
+    migrate(db)
+
+    const rawKey = `cnry_${crypto.randomBytes(16).toString('hex')}`
+    const keyHash = crypto.createHash('sha256').update(rawKey).digest('hex')
+    db.insert(apiKeys).values({
+      id: crypto.randomUUID(),
+      name: 'test',
+      keyHash,
+      keyPrefix: rawKey.slice(0, 9),
+      scopes: ['*'],
+      createdAt: new Date().toISOString(),
+    }).run()
+
+    const app = await createServer({
+      config: {
+        apiUrl: 'http://localhost:4100',
+        database: dbPath,
+        apiKey: rawKey,
+        providers: {
+          gemini: {
+            apiKey: 'g-key',
+            model: 'gemini-2.5-flash',
+            quota: { maxConcurrency: 2, maxRequestsPerMinute: 10, maxRequestsPerDay: 1000 },
+          },
+        },
+      },
+      db,
+      logger: false,
+    })
+
+    try {
+      const createProjectRes = await app.inject({
+        method: 'PUT',
+        url: '/api/v1/projects/test-project',
+        headers: { authorization: `Bearer ${rawKey}` },
+        payload: {
+          displayName: 'Test Project',
+          canonicalDomain: 'example.com',
+          country: 'US',
+          language: 'en',
+          providers: ['gemini'],
+        },
+      })
+      expect(createProjectRes.statusCode).toBe(201)
+
+      // Repoint ONLY the endpoint (same key, same model). Before the fix this
+      // produced no diff — gemini's baseUrl was dropped from the summary — so a
+      // silent endpoint redirect left no audit trail.
+      const res = await app.inject({
+        method: 'PUT',
+        url: '/api/v1/settings/providers/gemini',
+        headers: { authorization: `Bearer ${rawKey}` },
+        payload: {
+          apiKey: 'g-key',
+          baseUrl: 'https://proxy.example.com',
+        },
+      })
+      expect(res.statusCode).toBe(200)
+
+      const config = loadConfig()
+      expect(config.providers?.gemini?.baseUrl).toBe('https://proxy.example.com')
+
+      const historyRes = await app.inject({
+        method: 'GET',
+        url: '/api/v1/projects/test-project/history',
+        headers: { authorization: `Bearer ${rawKey}` },
+      })
+      expect(historyRes.statusCode).toBe(200)
+      const historyEntries = JSON.parse(historyRes.body) as Array<{
+        action: string
+        entityType: string
+        entityId: string | null
+        diff: { before: { baseUrl: string | null } | null; after: { baseUrl: string | null } }
+      }>
+      const providerHistory = historyEntries.find(
+        entry => entry.action === 'provider.updated' && entry.entityType === 'provider',
+      )
+      // The endpoint repoint MUST be audited.
+      expect(providerHistory).toBeDefined()
+      expect(providerHistory!.entityId).toBe('gemini')
+      expect(providerHistory!.diff.before?.baseUrl ?? null).toBeNull()
+      expect(providerHistory!.diff.after.baseUrl).toBe('https://proxy.example.com')
+    } finally {
+      await app.close()
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
   it('SPA deep-link serves index.html with <base href> so relative assets resolve', async () => {
     const tmpDir = path.join(os.tmpdir(), `canonry-spa-base-${crypto.randomUUID()}`)
     fs.mkdirSync(tmpDir, { recursive: true })

@@ -126,14 +126,16 @@ const adapterMap = Object.fromEntries(
   API_ADAPTERS.map(a => [a.name, a]),
 ) as Record<string, ProviderAdapter>
 
-function summarizeProviderConfig(
-  provider: string,
-  config: ProviderConfigEntry | undefined,
-) {
+function summarizeProviderConfig(config: ProviderConfigEntry | undefined) {
   return {
     configured: Boolean(config?.apiKey || config?.baseUrl),
     model: config?.model ?? null,
-    baseUrl: provider === 'local' ? config?.baseUrl ?? null : null,
+    // baseUrl is surfaced for ALL providers, not just local — gemini/openai now
+    // honor a custom endpoint, so repointing one must show in the settings
+    // summary AND produce an audit diff. Omitting it for API providers would let
+    // an endpoint redirect (a credential-exfiltration vector on a box where the
+    // provider key is the carrier) happen with no audit trail.
+    baseUrl: config?.baseUrl ?? null,
     quota: { ...(config?.quota ?? DEFAULT_QUOTA) },
   }
 }
@@ -1412,7 +1414,7 @@ export async function createServer(opts: {
       // Update config and persist
       if (!opts.config.providers) opts.config.providers = {}
       const existing = opts.config.providers[name]
-      const beforeConfig = summarizeProviderConfig(name, existing)
+      const beforeConfig = summarizeProviderConfig(existing)
       const mergedQuota = incomingQuota
         ? { ...(existing?.quota ?? DEFAULT_QUOTA), ...incomingQuota }
         : existing?.quota
@@ -1459,7 +1461,7 @@ export async function createServer(opts: {
         }
       }
 
-      const afterConfig = summarizeProviderConfig(name, opts.config.providers[name])
+      const afterConfig = summarizeProviderConfig(opts.config.providers[name])
       if (JSON.stringify(beforeConfig) !== JSON.stringify(afterConfig)) {
         const diff = JSON.stringify({
           before: existing ? beforeConfig : null,

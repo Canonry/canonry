@@ -36,6 +36,10 @@ Extracts analyst-relevant fields from the raw response:
 
 Default: `gpt-5.4`. Configurable via `OpenAIConfig.model`.
 
+## Custom Endpoint
+
+Optional. Set `OpenAIConfig.baseUrl` — via the `OPENAI_BASE_URL` env var or `providers.openai.baseUrl` in `~/.canonry/config.yaml` — to route requests through a proxy or gateway in front of the OpenAI API. It maps to the SDK's `baseURL`. When unset, the SDK uses its default endpoint (`https://api.openai.com/v1`).
+
 ## Web Search & Citation Detection
 
 The provider uses OpenAI's **web search** tool (`web_search`, the current GA tool — released 2025-08-26 in the SDK as `web_search_2025_08_26`). When enabled, the Responses API:
