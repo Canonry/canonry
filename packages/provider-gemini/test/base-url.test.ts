@@ -30,6 +30,11 @@ test('createClient leaves httpOptions unset when no baseUrl is configured', () =
   expect(internals(client).httpOptions).toBeUndefined()
 })
 
+test('createClient treats an empty-string baseUrl as unset', () => {
+  const client = createClient({ apiKey: 'k', quotaPolicy, baseUrl: '' })
+  expect(internals(client).httpOptions).toBeUndefined()
+})
+
 test('createClient threads baseUrl into httpOptions for Vertex AI mode', () => {
   const client = createClient({
     apiKey: '',
