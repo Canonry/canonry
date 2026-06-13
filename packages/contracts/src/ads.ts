@@ -84,7 +84,11 @@ export const adsCampaignListResponseSchema = z.object({
 })
 export type AdsCampaignListResponse = z.infer<typeof adsCampaignListResponseSchema>
 
-export const adsInsightLevelSchema = z.enum(['account', 'campaign', 'ad_group', 'ad'])
+// Only campaign and ad_group rollups are produced by the sync. account- and
+// ad-level insights are deferred until the upstream endpoints are exercised
+// against a live account; widen this enum when they land (and start writing
+// those rows) rather than advertising filters that always return empty.
+export const adsInsightLevelSchema = z.enum(['campaign', 'ad_group'])
 export type AdsInsightLevel = z.infer<typeof adsInsightLevelSchema>
 export const AdsInsightLevels = adsInsightLevelSchema.enum
 
@@ -104,6 +108,8 @@ export type AdsInsightRowDto = z.infer<typeof adsInsightRowDtoSchema>
 
 export const adsInsightsResponseSchema = z.object({
   rows: z.array(adsInsightRowDtoSchema),
+  /** Account currency for rendering spend/cpc; null before the first sync. */
+  currencyCode: z.string().nullable().optional(),
 })
 export type AdsInsightsResponse = z.infer<typeof adsInsightsResponseSchema>
 

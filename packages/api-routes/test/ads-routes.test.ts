@@ -100,7 +100,7 @@ function buildApp(overrides: { verifyShouldFail?: boolean } = {}) {
     db.insert(adsAdGroups).values({
       id: 'adgrp_ddd', projectId, campaignId: 'cmpn_bbb', name: 'Deck Project Planning',
       status: 'active', billingEventType: 'click', maxBidMicros: 2_000_000,
-      contextHints: ['how much does a new deck cost\nmeasure my yard'], syncedAt: NOW,
+      contextHints: ['how much does a new deck cost', 'measure my yard'], syncedAt: NOW,
     }).run()
     db.insert(adsAds).values({
       id: 'ad_eee', projectId, adGroupId: 'adgrp_ddd', name: 'HO Deck - Materials',
@@ -222,12 +222,13 @@ describe('ads routes', () => {
     const campaign = body.campaigns[0]!
     expect(campaign.dailySpendLimitMicros).toBe(150_000_000)
     expect(campaign.adGroups.length).toBe(1)
-    expect(campaign.adGroups[0].contextHints).toEqual(['how much does a new deck cost\nmeasure my yard'])
+    expect(campaign.adGroups[0].contextHints).toEqual(['how much does a new deck cost', 'measure my yard'])
     expect(campaign.adGroups[0].ads[0].creative.targetUrl).toBe('https://lp.example/x')
   })
 
   it('GET /ads/insights derives ctr and cpcMicros exactly, with nulls for zero denominators', async () => {
     const projectId = ctx.seedProject()
+    ctx.seedConnection(projectId)
     ctx.seedInsights(projectId)
 
     const res = await ctx.app.inject({ method: 'GET', url: '/projects/acme/ads/insights?level=campaign' })
@@ -244,14 +245,23 @@ describe('ads routes', () => {
     const june08 = body.rows.find((r) => r.date === '2026-06-08')!
     expect(june08.ctr).toBe(0)
     expect(june08.cpcMicros).toBeNull()
+
+    // currency travels with the rollup so the CLI can render the right symbol
+    expect((JSON.parse(res.body) as { currencyCode?: string }).currencyCode).toBe('USD')
   })
 
-  it('GET /ads/insights rejects an invalid level and filters by entity', async () => {
+  it('GET /ads/insights rejects invalid and unsupported levels and filters by entity', async () => {
     const projectId = ctx.seedProject()
     ctx.seedInsights(projectId)
 
     const bad = await ctx.app.inject({ method: 'GET', url: '/projects/acme/ads/insights?level=nonsense' })
     expect(bad.statusCode).toBe(400)
+
+    // account/ad levels are not produced by the sync — rejected, not silently empty
+    for (const level of ['account', 'ad']) {
+      const res = await ctx.app.inject({ method: 'GET', url: `/projects/acme/ads/insights?level=${level}` })
+      expect(res.statusCode).toBe(400)
+    }
 
     const filtered = await ctx.app.inject({
       method: 'GET', url: '/projects/acme/ads/insights?level=ad_group&entityId=adgrp_ddd',

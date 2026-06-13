@@ -59,7 +59,7 @@ export const ADS_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['ads', 'insights'],
-    usage: 'canonry ads insights <project> [--level account|campaign|ad_group|ad] [--entity <id>] [--from YYYY-MM-DD] [--to YYYY-MM-DD] [--format json|jsonl]',
+    usage: 'canonry ads insights <project> [--level campaign|ad_group] [--entity <id>] [--from YYYY-MM-DD] [--to YYYY-MM-DD] [--format json|jsonl]',
     options: {
       level: stringOption(),
       entity: stringOption(),

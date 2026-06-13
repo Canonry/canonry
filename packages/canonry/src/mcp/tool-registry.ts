@@ -213,7 +213,7 @@ const gbpAccountsInputSchema = z.object({
 
 const adsInsightsInputSchema = z.object({
   project: projectNameSchema,
-  level: z.enum(['account', 'campaign', 'ad_group', 'ad']).optional(),
+  level: z.enum(['campaign', 'ad_group']).optional(),
   entityId: z.string().optional(),
   from: z.string().optional(),
   to: z.string().optional(),
@@ -1733,7 +1733,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_ads_insights',
     title: 'Daily paid-performance rollups',
-    description: 'Daily paid-performance rollups per level (account/campaign/ad_group/ad). Spend is integer micros; ctr/cpcMicros are derived server-side (null on zero denominators).',
+    description: 'Daily paid-performance rollups per level (campaign/ad_group). Spend is integer micros; ctr/cpcMicros are derived server-side (null on zero denominators).',
     access: 'read',
     tier: 'ads',
     inputSchema: adsInsightsInputSchema,

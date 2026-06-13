@@ -278,7 +278,7 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
     if (level !== undefined) {
       const result = adsInsightLevelSchema.safeParse(level)
       if (!result.success) {
-        throw validationError('"level" must be one of: account, campaign, ad_group, ad')
+        throw validationError('"level" must be one of: campaign, ad_group')
       }
       parsedLevel = result.data
     }
@@ -305,7 +305,9 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
       cpcMicros: adsCpcMicros(row.spendMicros, row.clicks),
     }))
 
-    const response: AdsInsightsResponse = { rows: dtoRows }
+    const conn = app.db.select().from(adsConnections)
+      .where(eq(adsConnections.projectId, project.id)).get()
+    const response: AdsInsightsResponse = { rows: dtoRows, currencyCode: conn?.currencyCode ?? null }
     return response
   })
 

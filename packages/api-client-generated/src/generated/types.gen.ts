@@ -64,7 +64,7 @@ export type AdsDisconnectResponse = {
 
 export type AdsInsightsResponse = {
     rows: Array<{
-        level: 'account' | 'campaign' | 'ad_group' | 'ad';
+        level: 'campaign' | 'ad_group';
         entityId: string;
         date: string;
         impressions: number;
@@ -73,6 +73,7 @@ export type AdsInsightsResponse = {
         ctr: number | null;
         cpcMicros: number | null;
     }>;
+    currencyCode?: string | null;
 };
 
 export type AdsSummaryDto = {
@@ -5780,7 +5781,7 @@ export type GetApiV1ProjectsByNameAdsInsightsData = {
     };
     query?: {
         /**
-         * account | campaign | ad_group | ad
+         * campaign | ad_group
          */
         level?: string;
         /**

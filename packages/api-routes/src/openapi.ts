@@ -2035,7 +2035,7 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['ads'],
     parameters: [
       nameParameter,
-      { in: 'query', name: 'level', required: false, description: 'account | campaign | ad_group | ad', schema: stringSchema },
+      { in: 'query', name: 'level', required: false, description: 'campaign | ad_group', schema: stringSchema },
       { in: 'query', name: 'entityId', required: false, description: 'Scope to one upstream entity id', schema: stringSchema },
       { in: 'query', name: 'from', required: false, description: 'Inclusive start date (YYYY-MM-DD)', schema: stringSchema },
       { in: 'query', name: 'to', required: false, description: 'Inclusive end date (YYYY-MM-DD)', schema: stringSchema },

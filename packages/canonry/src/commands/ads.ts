@@ -144,11 +144,12 @@ export async function adsInsights(project: string, opts?: {
     console.log('No paid-performance rollups in range. Run "canonry ads sync ' + project + '" first.')
     return
   }
+  const currency = result.currencyCode ?? 'USD'
   console.log('DATE        LEVEL      ENTITY                                 IMPR    CLICKS  SPEND      CPC')
   for (const row of result.rows) {
-    const cpc = row.cpcMicros != null ? formatMicros(row.cpcMicros) : '—'
+    const cpc = row.cpcMicros != null ? formatMicros(row.cpcMicros, currency) : '—'
     console.log(
-      `${row.date}  ${row.level.padEnd(9)}  ${row.entityId.padEnd(36).slice(0, 36)}  ${String(row.impressions).padStart(6)}  ${String(row.clicks).padStart(6)}  ${formatMicros(row.spendMicros).padStart(9)}  ${cpc}`,
+      `${row.date}  ${row.level.padEnd(9)}  ${row.entityId.padEnd(36).slice(0, 36)}  ${String(row.impressions).padStart(6)}  ${String(row.clicks).padStart(6)}  ${formatMicros(row.spendMicros, currency).padStart(9)}  ${cpc}`,
     )
   }
 }
