@@ -211,6 +211,14 @@ const gbpAccountsInputSchema = z.object({
   project: projectNameSchema,
 })
 
+const adsInsightsInputSchema = z.object({
+  project: projectNameSchema,
+  level: z.enum(['campaign', 'ad_group']).optional(),
+  entityId: z.string().optional(),
+  from: z.string().optional(),
+  to: z.string().optional(),
+})
+
 const keywordsInputSchema = z.object({
   project: projectNameSchema,
   request: keywordBatchRequestSchema,
@@ -1698,6 +1706,62 @@ export const canonryMcpTools = [
       sitemapUrl: input.sitemapUrl,
       limit: input.limit,
     }),
+  }),
+  // ----- OpenAI ads (ChatGPT ads) -----
+  defineTool({
+    name: 'canonry_ads_status',
+    title: 'OpenAI ads connection status',
+    description: 'Connection status and last sync time for the project\'s OpenAI ad account (ChatGPT ads).',
+    access: 'read',
+    tier: 'ads',
+    inputSchema: projectInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/ads/status'],
+    handler: (client, input) => client.getAdsStatus(input.project),
+  }),
+  defineTool({
+    name: 'canonry_ads_campaigns',
+    title: 'List synced ad campaigns',
+    description: 'Synced campaign snapshots with nested ad groups (context hints — the targeting primitive) and ads. Paid-surface structure; never conflate with organic cited/mentioned signals.',
+    access: 'read',
+    tier: 'ads',
+    inputSchema: projectInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/ads/campaigns'],
+    handler: (client, input) => client.getAdsCampaigns(input.project),
+  }),
+  defineTool({
+    name: 'canonry_ads_insights',
+    title: 'Daily paid-performance rollups',
+    description: 'Daily paid-performance rollups per level (campaign/ad_group). Spend is integer micros; ctr/cpcMicros are derived server-side (null on zero denominators).',
+    access: 'read',
+    tier: 'ads',
+    inputSchema: adsInsightsInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/ads/insights'],
+    handler: (client, input) => client.getAdsInsights(input.project, compactStringParams(input, ['level', 'entityId', 'from', 'to'])),
+  }),
+  defineTool({
+    name: 'canonry_ads_summary',
+    title: 'Paid-performance summary',
+    description: 'Composite paid summary: campaign/ad-group/ad counts, campaign-level totals (impressions, clicks, spend micros, derived ctr/cpc) and the covered date window.',
+    access: 'read',
+    tier: 'ads',
+    inputSchema: projectInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/ads/summary'],
+    handler: (client, input) => client.getAdsSummary(input.project),
+  }),
+  defineTool({
+    name: 'canonry_ads_sync',
+    title: 'Trigger ads sync',
+    description: 'Trigger an ads-sync run (entity snapshots + daily paid-performance rollups) for the connected OpenAI ad account. Returns the run id; poll canonry_run_get for status.',
+    access: 'write',
+    tier: 'ads',
+    inputSchema: projectInputSchema,
+    annotations: writeAnnotations({ idempotentHint: true }),
+    openApiOperations: ['POST /api/v1/projects/{name}/ads/sync'],
+    handler: (client, input) => client.triggerAdsSync(input.project),
   }),
 ] as const
 

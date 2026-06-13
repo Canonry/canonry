@@ -1115,3 +1115,102 @@ export const gbpPlaceDetails = sqliteTable('gbp_place_details', {
 }, (table) => [
   index('idx_gbp_place_details_loc').on(table.projectId, table.locationName, table.syncedAt),
 ])
+
+// --- OpenAI Advertiser API (ChatGPT ads) ---
+
+// One ads connection per project (ad accounts are not domain-bound, so the
+// connection keys on project — same model as ga_connections). The API key
+// lives in ~/.canonry/config.yaml; this row holds metadata + sync state only.
+export const adsConnections = sqliteTable('ads_connections', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  adAccountId: text('ad_account_id').notNull(),
+  displayName: text('display_name'),
+  currencyCode: text('currency_code'),
+  timezone: text('timezone'),
+  status: text('status'),
+  lastSyncedAt: text('last_synced_at'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_ads_conn_project').on(table.projectId),
+])
+
+// Entity snapshots refreshed on every ads-sync (range-replaced per project) so
+// dashboards and the paid/organic overlap can read campaign structure without
+// live API calls. Ids are the upstream ids (cmpn_… / adgrp_… / ad_…). Money
+// columns are integer micros, mirroring the upstream budget/bid units.
+export const adsCampaigns = sqliteTable('ads_campaigns', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  status: text('status').notNull(),
+  biddingType: text('bidding_type'),
+  dailySpendLimitMicros: integer('daily_spend_limit_micros'),
+  lifetimeSpendLimitMicros: integer('lifetime_spend_limit_micros'),
+  targeting: text('targeting', { mode: 'json' }).$type<unknown>(),
+  upstreamCreatedAt: integer('upstream_created_at'),
+  upstreamUpdatedAt: integer('upstream_updated_at'),
+  syncRunId: text('sync_run_id').references(() => runs.id, { onDelete: 'set null' }),
+  syncedAt: text('synced_at').notNull(),
+}, (table) => [
+  index('idx_ads_campaigns_project').on(table.projectId),
+])
+
+// `contextHints` is the targeting primitive: an array whose entries are
+// multi-line strings of newline-separated example queries (live format).
+// The paid/organic overlap matcher joins these against tracked queries.
+export const adsAdGroups = sqliteTable('ads_ad_groups', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  campaignId: text('campaign_id').notNull().references(() => adsCampaigns.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  status: text('status').notNull(),
+  billingEventType: text('billing_event_type'),
+  maxBidMicros: integer('max_bid_micros'),
+  contextHints: text('context_hints', { mode: 'json' }).$type<string[]>().notNull().default([]),
+  upstreamCreatedAt: integer('upstream_created_at'),
+  upstreamUpdatedAt: integer('upstream_updated_at'),
+  syncRunId: text('sync_run_id').references(() => runs.id, { onDelete: 'set null' }),
+  syncedAt: text('synced_at').notNull(),
+}, (table) => [
+  index('idx_ads_ad_groups_project').on(table.projectId),
+  index('idx_ads_ad_groups_campaign').on(table.campaignId),
+])
+
+export const adsAds = sqliteTable('ads_ads', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  adGroupId: text('ad_group_id').notNull().references(() => adsAdGroups.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  status: text('status').notNull(),
+  creative: text('creative', { mode: 'json' }).$type<unknown>(),
+  reviewStatus: text('review_status'),
+  upstreamCreatedAt: integer('upstream_created_at'),
+  upstreamUpdatedAt: integer('upstream_updated_at'),
+  syncRunId: text('sync_run_id').references(() => runs.id, { onDelete: 'set null' }),
+  syncedAt: text('synced_at').notNull(),
+}, (table) => [
+  index('idx_ads_ads_project').on(table.projectId),
+  index('idx_ads_ads_group').on(table.adGroupId),
+])
+
+// Daily paid-performance rollups, one row per (level, entity, date). Spend is
+// stored as integer micros — the upstream insights API returns DECIMAL DOLLARS
+// for spend/cpc, so ads-sync normalizes via dollarsToMicros at ingest. Derived
+// ratios (ctr, cpc, cpm) are computed at read time, never stored. Upserted on
+// conflict so re-syncing an in-progress day replaces instead of duplicating.
+export const adsInsightsDaily = sqliteTable('ads_insights_daily', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  level: text('level').notNull(),
+  entityId: text('entity_id').notNull(),
+  date: text('date').notNull(),
+  impressions: integer('impressions').notNull().default(0),
+  clicks: integer('clicks').notNull().default(0),
+  spendMicros: integer('spend_micros').notNull().default(0),
+  syncRunId: text('sync_run_id').references(() => runs.id, { onDelete: 'set null' }),
+}, (table) => [
+  uniqueIndex('uniq_ads_insights_daily').on(table.projectId, table.level, table.entityId, table.date),
+  index('idx_ads_insights_project_date').on(table.projectId, table.date),
+])

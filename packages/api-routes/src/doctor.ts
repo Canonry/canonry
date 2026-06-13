@@ -3,6 +3,7 @@ import { ALL_CHECKS } from './doctor/registry.js'
 import { runChecks } from './doctor/runner.js'
 import type { BundledSkillSnapshot } from '@ainyc/canonry-contracts'
 import type { DoctorContext, TrafficSourceValidator } from './doctor/types.js'
+import type { AdsCredentialStore } from './ads.js'
 import type { GoogleConnectionStore } from './google.js'
 import type { BingConnectionStore } from './bing.js'
 import type { WordpressConnectionStore } from './wordpress.js'
@@ -15,6 +16,7 @@ export interface DoctorRoutesOptions {
   bingConnectionStore?: BingConnectionStore
   wordpressConnectionStore?: WordpressConnectionStore
   ga4CredentialStore?: Ga4CredentialStore
+  adsCredentialStore?: AdsCredentialStore
   getGoogleAuthConfig?: () => { clientId?: string; clientSecret?: string }
   /** Resolved Places config for the `gbp.places.api-key` check. See `DoctorContext.getPlacesConfig`. */
   getPlacesConfig?: () => { apiKey?: string; tier: 'atmosphere' | 'pro' | 'off'; refreshIntervalDays: number }
@@ -62,6 +64,7 @@ export async function doctorRoutes(app: FastifyInstance, opts: DoctorRoutesOptio
       bingConnectionStore: opts.bingConnectionStore,
       wordpressConnectionStore: opts.wordpressConnectionStore,
       ga4CredentialStore: opts.ga4CredentialStore,
+      adsCredentialStore: opts.adsCredentialStore,
       getGoogleAuthConfig: opts.getGoogleAuthConfig,
       getPlacesConfig: opts.getPlacesConfig,
       redirectUri,
@@ -92,6 +95,7 @@ export async function doctorRoutes(app: FastifyInstance, opts: DoctorRoutesOptio
       bingConnectionStore: opts.bingConnectionStore,
       wordpressConnectionStore: opts.wordpressConnectionStore,
       ga4CredentialStore: opts.ga4CredentialStore,
+      adsCredentialStore: opts.adsCredentialStore,
       getGoogleAuthConfig: opts.getGoogleAuthConfig,
       getPlacesConfig: opts.getPlacesConfig,
       redirectUri,

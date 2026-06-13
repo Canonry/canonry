@@ -3,6 +3,11 @@ import { getTableColumns, getTableName, is, Table } from 'drizzle-orm'
 import type { z } from 'zod'
 import * as dbSchema from '@ainyc/canonry-db'
 import {
+  adsAdDtoSchema,
+  adsAdGroupDtoSchema,
+  adsCampaignDtoSchema,
+  adsConnectionStatusDtoSchema,
+  adsInsightRowDtoSchema,
   backlinkDomainDtoSchema,
   backlinkSummaryDtoSchema,
   bingConnectionDtoSchema,
@@ -198,6 +203,59 @@ const COVERAGE: Record<string, CoverageEntry> = {
   gbpKeywordImpressions: {
     kind: 'dto',
     dto: gbpKeywordImpressionDtoSchema,
+    internal: {
+      id: 'Surrogate key.',
+      projectId: 'Implied by the route scope.',
+      syncRunId: 'Internal join key.',
+    },
+  },
+  adsConnections: {
+    kind: 'dto',
+    dto: adsConnectionStatusDtoSchema,
+    internal: {
+      id: 'Surrogate key.',
+      projectId: 'Implied by the route scope.',
+      createdAt: 'Internal bookkeeping.',
+      updatedAt: 'Internal bookkeeping.',
+    },
+  },
+  adsCampaigns: {
+    kind: 'dto',
+    dto: adsCampaignDtoSchema,
+    internal: {
+      projectId: 'Implied by the route scope.',
+      targeting: 'Raw upstream geo-targeting JSON; surfaced with the management PR.',
+      upstreamCreatedAt: 'Upstream bookkeeping epoch; not part of the read DTO.',
+      upstreamUpdatedAt: 'Upstream bookkeeping epoch; not part of the read DTO.',
+      syncRunId: 'Internal join key.',
+      syncedAt: 'Internal bookkeeping.',
+    },
+  },
+  adsAdGroups: {
+    kind: 'dto',
+    dto: adsAdGroupDtoSchema,
+    internal: {
+      projectId: 'Implied by the route scope.',
+      upstreamCreatedAt: 'Upstream bookkeeping epoch; not part of the read DTO.',
+      upstreamUpdatedAt: 'Upstream bookkeeping epoch; not part of the read DTO.',
+      syncRunId: 'Internal join key.',
+      syncedAt: 'Internal bookkeeping.',
+    },
+  },
+  adsAds: {
+    kind: 'dto',
+    dto: adsAdDtoSchema,
+    internal: {
+      projectId: 'Implied by the route scope.',
+      upstreamCreatedAt: 'Upstream bookkeeping epoch; not part of the read DTO.',
+      upstreamUpdatedAt: 'Upstream bookkeeping epoch; not part of the read DTO.',
+      syncRunId: 'Internal join key.',
+      syncedAt: 'Internal bookkeeping.',
+    },
+  },
+  adsInsightsDaily: {
+    kind: 'dto',
+    dto: adsInsightRowDtoSchema,
     internal: {
       id: 'Surrogate key.',
       projectId: 'Implied by the route scope.',

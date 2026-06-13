@@ -14,8 +14,10 @@ import { providerNameSchema } from './provider.js'
  *   projects with `autoExtractBacklinks`). Workspace-global: no `sourceId`, no `providers`.
  * - `site-audit` — Technical AEO: crawl the project's sitemap and audit every reachable page across the
  *   aeo-audit ranking factors, persisting a site-level score + per-page breakdown. No `sourceId`, no `providers`.
+ * - `ads-sync` — OpenAI Advertiser API (ChatGPT ads) pull: entity snapshots + daily paid-performance
+ *   rollups for the project's connected ad account. No `sourceId`, no `providers`.
  */
-export const schedulableRunKindSchema = z.enum(['answer-visibility', 'traffic-sync', 'gbp-sync', 'data-refresh', 'backlinks-sync', 'site-audit'])
+export const schedulableRunKindSchema = z.enum(['answer-visibility', 'traffic-sync', 'gbp-sync', 'data-refresh', 'backlinks-sync', 'site-audit', 'ads-sync'])
 export type SchedulableRunKind = z.infer<typeof schedulableRunKindSchema>
 export const SchedulableRunKinds = schedulableRunKindSchema.enum
 

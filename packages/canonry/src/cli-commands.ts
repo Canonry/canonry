@@ -5,6 +5,7 @@ import { BING_CLI_COMMANDS } from './cli-commands/bing.js'
 import { CDP_CLI_COMMANDS } from './cli-commands/cdp.js'
 import { DISCOVER_CLI_COMMANDS } from './cli-commands/discover.js'
 import { DOCTOR_CLI_COMMANDS } from './cli-commands/doctor.js'
+import { ADS_CLI_COMMANDS } from './cli-commands/ads.js'
 import { GA_CLI_COMMANDS } from './cli-commands/ga.js'
 import { GBP_CLI_COMMANDS } from './cli-commands/gbp.js'
 import { GET_CLI_COMMANDS } from './cli-commands/get.js'
@@ -52,6 +53,7 @@ export const REGISTERED_CLI_COMMANDS: readonly CliCommandSpec[] = [
   ...BING_CLI_COMMANDS,
   ...WORDPRESS_CLI_COMMANDS,
   ...CDP_CLI_COMMANDS,
+  ...ADS_CLI_COMMANDS,
   ...GA_CLI_COMMANDS,
   ...GBP_CLI_COMMANDS,
   ...TRAFFIC_CLI_COMMANDS,

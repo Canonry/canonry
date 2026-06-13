@@ -1,6 +1,7 @@
 import { AGENT_CHECKS } from './checks/agent.js'
 import { BING_AUTH_CHECKS } from './checks/bing-auth.js'
 import { CONTENT_CHECKS } from './checks/content.js'
+import { ADS_CHECKS } from './checks/ads.js'
 import { GA_AUTH_CHECKS } from './checks/ga-auth.js'
 import { GBP_AUTH_CHECKS } from './checks/gbp-auth.js'
 import { PLACES_CHECKS } from './checks/places.js'
@@ -21,6 +22,7 @@ export const ALL_CHECKS: readonly CheckDefinition[] = [
   ...BING_AUTH_CHECKS,
   ...WORDPRESS_PUBLISH_CHECKS,
   ...GA_AUTH_CHECKS,
+  ...ADS_CHECKS,
   ...PROVIDERS_CHECKS,
   ...TRAFFIC_SOURCE_CHECKS,
   ...CONTENT_CHECKS,

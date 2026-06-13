@@ -30,6 +30,14 @@ export interface SchedulerCallbacks {
    */
   onGbpSyncRequested?: (runId: string, projectId: string) => void
   /**
+   * Fired when an ads-sync schedule triggers. Like gbp-sync, the scheduler
+   * creates the `ads-sync` run row and hands the host the runId; the host
+   * runs the same worker the manual ads-sync route uses. Ads needs no
+   * `sourceId`: it syncs the project's single connected ad account.
+   * Fire-and-forget: errors are logged by the host, not by the scheduler.
+   */
+  onAdsSyncRequested?: (runId: string, projectId: string) => void
+  /**
    * Fired when a data-refresh schedule triggers. The host refreshes every
    * CONNECTED data integration (GSC, Bing, GA, GBP) for the project. Each
    * integration sync owns its own run row; per-integration errors are logged
@@ -249,6 +257,34 @@ export class Scheduler {
         }).where(eq(schedules.id, currentSchedule.id)).run()
         log.info('gbp-sync.triggered', { runId, projectName: project.name })
         this.callbacks.onGbpSyncRequested(runId, projectId)
+        return
+      }
+
+      if (kind === SchedulableRunKinds['ads-sync']) {
+        // Ads sync pulls the project's connected OpenAI ad account — no
+        // sourceId. The scheduler owns run-row creation (like gbp-sync) so it
+        // can hand the host a runId. Skip without orphaning a run row if the
+        // host never registered the callback.
+        if (!this.callbacks.onAdsSyncRequested) {
+          log.warn('ads-sync.no-callback', { scheduleId, projectId, msg: 'host did not register onAdsSyncRequested' })
+          return
+        }
+        const runId = crypto.randomUUID()
+        this.db.insert(runs).values({
+          id: runId,
+          projectId,
+          kind: RunKinds['ads-sync'],
+          status: RunStatuses.queued,
+          trigger: RunTriggers.scheduled,
+          createdAt: now,
+        }).run()
+        this.db.update(schedules).set({
+          lastRunAt: now,
+          nextRunAt,
+          updatedAt: now,
+        }).where(eq(schedules.id, currentSchedule.id)).run()
+        log.info('ads-sync.triggered', { runId, projectName: project.name })
+        this.callbacks.onAdsSyncRequested(runId, projectId)
         return
       }
 
