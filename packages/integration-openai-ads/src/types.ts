@@ -124,6 +124,13 @@ export interface OpenAiAdsInsightsOptions {
   // 'metadata.readable_time'. Invalid names get a 400 whose message
   // enumerates the valid catalog.
   fields?: string[]
+  // Trailing-window bounds (YYYY-MM-DD, account timezone, inclusive). The
+  // sync re-pulls a window so lagging recent days settle on later runs.
+  // NOTE: the start_date/end_date param names are the documented convention
+  // but were NOT present in the 2026-06-10 capture — confirm against a live
+  // request before relying on them (a wrong param may 400 or be ignored).
+  startDate?: string
+  endDate?: string
 }
 
 interface OpenAiAdsErrorEnvelope {

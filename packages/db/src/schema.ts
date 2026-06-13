@@ -1156,9 +1156,11 @@ export const adsCampaigns = sqliteTable('ads_campaigns', {
   index('idx_ads_campaigns_project').on(table.projectId),
 ])
 
-// `contextHints` is the targeting primitive: an array whose entries are
-// multi-line strings of newline-separated example queries (live format).
-// The paid/organic overlap matcher joins these against tracked queries.
+// `contextHints` is the targeting primitive: example queries, one per array
+// entry. The live API returns them as a single newline-joined string; the
+// ads sync splits on newlines at ingest so each hint is its own entry (and
+// consumers see the real count). The paid/organic overlap matcher joins
+// these against tracked queries.
 export const adsAdGroups = sqliteTable('ads_ad_groups', {
   id: text('id').primaryKey(),
   projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),

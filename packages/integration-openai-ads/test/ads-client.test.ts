@@ -216,6 +216,20 @@ describe('insights', () => {
     expect(calls[0]!.url).toBe(`${OPENAI_ADS_API_BASE}/ad_groups/adgrp_abc/insights?fields[]=ad_group.impressions`)
   })
 
+  it('appends start_date/end_date when a trailing window is requested', async () => {
+    const calls = mockFetchOnce(makeListResponse([FIXTURE_INSIGHT_ROW_FULL]))
+
+    await getCampaignInsights('test-key', 'cmpn_abc', {
+      fields: ['campaign.impressions'],
+      startDate: '2026-05-14',
+      endDate: '2026-06-10',
+    })
+
+    expect(calls[0]!.url).toBe(
+      `${OPENAI_ADS_API_BASE}/campaigns/cmpn_abc/insights?fields[]=campaign.impressions&start_date=2026-05-14&end_date=2026-06-10`,
+    )
+  })
+
   it('surfaces the invalid-fields 400 with its catalog message', async () => {
     mockFetchOnce(FIXTURE_ERROR_BAD_FIELDS, 400)
 

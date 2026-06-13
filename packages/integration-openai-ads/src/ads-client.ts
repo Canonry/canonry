@@ -107,7 +107,13 @@ async function fetchAllPages<T>(apiKey: string, path: string, queryPairs: readon
 }
 
 function insightsPairs(opts?: OpenAiAdsInsightsOptions): string[] {
-  return (opts?.fields ?? []).map((field) => `fields[]=${encodeURIComponent(field)}`)
+  const pairs = (opts?.fields ?? []).map((field) => `fields[]=${encodeURIComponent(field)}`)
+  // Trailing-window bounds. The start_date/end_date param names follow the
+  // documented convention but were not in the 2026-06-10 capture — confirm
+  // against a live request before relying on them (see OpenAiAdsInsightsOptions).
+  if (opts?.startDate) pairs.push(`start_date=${encodeURIComponent(opts.startDate)}`)
+  if (opts?.endDate) pairs.push(`end_date=${encodeURIComponent(opts.endDate)}`)
+  return pairs
 }
 
 export async function getAdAccount(apiKey: string): Promise<OpenAiAdsAccount> {

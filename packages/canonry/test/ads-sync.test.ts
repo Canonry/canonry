@@ -89,12 +89,15 @@ function list(data: unknown[]) {
 }
 
 let originalFetch: typeof globalThis.fetch
+let insightsUrls: string[] = []
 
 beforeEach(() => {
   originalFetch = globalThis.fetch
+  insightsUrls = []
   globalThis.fetch = async (url: string | URL | Request) => {
     const u = String(url)
     const respond = (payload: unknown) => new Response(JSON.stringify(payload), { status: 200 })
+    if (u.includes('/insights')) insightsUrls.push(u)
     if (u.endsWith('/ad_account')) return respond(ACCOUNT)
     if (u.includes('/campaigns/cmpn_bbb/insights')) return respond(list(CAMPAIGN_INSIGHTS))
     if (u.includes('/ad_groups/adgrp_ddd/insights')) return respond(list(AD_GROUP_INSIGHTS))
@@ -125,8 +128,13 @@ describe('executeAdsSync', () => {
 
     const group = db.select().from(adsAdGroups).where(eq(adsAdGroups.id, 'adgrp_ddd')).get()
     expect(group?.campaignId).toBe('cmpn_bbb')
-    expect(group?.contextHints).toEqual(['how much does a new deck cost\nmeasure my yard'])
+    // context_hints' single \n-joined element is split into individual lines.
+    expect(group?.contextHints).toEqual(['how much does a new deck cost', 'measure my yard'])
     expect(group?.maxBidMicros).toBe(2_000_000)
+
+    // Insights are pulled over a trailing date window (lagging days settle).
+    expect(insightsUrls.length).toBeGreaterThan(0)
+    expect(insightsUrls.every((u) => u.includes('start_date=') && u.includes('end_date='))).toBe(true)
 
     const ad = db.select().from(adsAds).where(eq(adsAds.id, 'ad_eee')).get()
     expect(ad?.adGroupId).toBe('adgrp_ddd')

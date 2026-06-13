@@ -26,8 +26,41 @@ const log = createLogger('AdsSync')
 const CAMPAIGN_INSIGHT_FIELDS = ['campaign.impressions', 'campaign.clicks', 'campaign.spend', 'metadata.readable_time']
 const AD_GROUP_INSIGHT_FIELDS = ['ad_group.impressions', 'ad_group.clicks', 'ad_group.spend', 'metadata.readable_time']
 
+// Re-pull a trailing window every run, not just new days. The last 1-2 days
+// under-report (reporting lag) and finalize on a later sync — which is exactly
+// why insights upsert on (project, level, entity, date) rather than append.
+const ADS_INSIGHTS_TRAILING_DAYS = 28
+
 interface AdsSyncOptions {
   config: CanonryConfig
+}
+
+/**
+ * Today as YYYY-MM-DD in the account timezone, so the window aligns with the
+ * `readable_time` day the API keys rows on. Falls back to UTC when the timezone
+ * is absent or not an IANA zone.
+ */
+function todayInTimezone(timezone: string | null | undefined): string {
+  if (timezone) {
+    try {
+      return new Intl.DateTimeFormat('en-CA', {
+        timeZone: timezone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }).format(new Date())
+    } catch {
+      // not an IANA zone — fall through to UTC
+    }
+  }
+  return new Date().toISOString().slice(0, 10)
+}
+
+/** Trailing window of `days` ending (inclusive) on `today` (YYYY-MM-DD). */
+function trailingWindow(today: string, days: number): { startDate: string; endDate: string } {
+  const d = new Date(`${today}T00:00:00Z`)
+  d.setUTCDate(d.getUTCDate() - (days - 1))
+  return { startDate: d.toISOString().slice(0, 10), endDate: today }
 }
 
 interface InsightUpsert {
@@ -100,6 +133,9 @@ export async function executeAdsSync(
     const account = await getAdAccount(apiKey)
     const campaigns = await listCampaigns(apiKey)
 
+    // Trailing insights window in the account timezone (settles lagging days).
+    const insightsWindow = trailingWindow(todayInTimezone(account.timezone), ADS_INSIGHTS_TRAILING_DAYS)
+
     const errors = new Map<string, string>()
     const adGroupsByCampaign = new Map<string, OpenAiAdsAdGroup[]>()
     const adsByGroup = new Map<string, OpenAiAdsAd[]>()
@@ -110,12 +146,12 @@ export async function executeAdsSync(
       try {
         const [adGroups, campaignInsights] = await Promise.all([
           listAdGroups(apiKey, campaign.id),
-          getCampaignInsights(apiKey, campaign.id, { fields: CAMPAIGN_INSIGHT_FIELDS }),
+          getCampaignInsights(apiKey, campaign.id, { fields: CAMPAIGN_INSIGHT_FIELDS, ...insightsWindow }),
         ])
         const groupResults = await Promise.all(adGroups.map(async (group) => ({
           group,
           ads: await listAds(apiKey, group.id),
-          insights: await getAdGroupInsights(apiKey, group.id, { fields: AD_GROUP_INSIGHT_FIELDS }),
+          insights: await getAdGroupInsights(apiKey, group.id, { fields: AD_GROUP_INSIGHT_FIELDS, ...insightsWindow }),
         })))
 
         syncedCampaigns.push(campaign)
@@ -167,7 +203,11 @@ export async function executeAdsSync(
             status: group.status,
             billingEventType: group.bidding_config?.billing_event_type ?? null,
             maxBidMicros: group.bidding_config?.max_bid_micros ?? null,
-            contextHints: group.context_hints,
+            // context_hints arrives as an array whose single element is a
+            // \n-joined block of example queries; split into individual lines
+            // so every consumer (DTO, MCP, overlap matcher) sees the real
+            // hint count, not an array length of 1.
+            contextHints: (group.context_hints ?? []).flatMap((h) => h.split('\n')).map((s) => s.trim()).filter(Boolean),
             upstreamCreatedAt: group.created_at,
             upstreamUpdatedAt: group.updated_at,
             syncRunId: runId,
