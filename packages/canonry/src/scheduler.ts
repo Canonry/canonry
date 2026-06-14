@@ -269,6 +269,24 @@ export class Scheduler {
           log.warn('ads-sync.no-callback', { scheduleId, projectId, msg: 'host did not register onAdsSyncRequested' })
           return
         }
+        // An ads sync paginates every campaign / ad-group / insight against the
+        // live ad account and can run for minutes; skip (without orphaning a
+        // run row) if one is already in flight so an overlapping tick cannot
+        // stack passes — mirrors the site-audit guard below.
+        const activeAdsRun = this.db
+          .select({ id: runs.id })
+          .from(runs)
+          .where(and(
+            eq(runs.projectId, projectId),
+            eq(runs.kind, RunKinds['ads-sync']),
+            inArray(runs.status, [RunStatuses.queued, RunStatuses.running]),
+          ))
+          .get()
+        if (activeAdsRun) {
+          log.info('ads-sync.skipped-active', { projectName: project.name, activeRunId: activeAdsRun.id })
+          this.db.update(schedules).set({ nextRunAt, updatedAt: now }).where(eq(schedules.id, currentSchedule.id)).run()
+          return
+        }
         const runId = crypto.randomUUID()
         this.db.insert(runs).values({
           id: runId,

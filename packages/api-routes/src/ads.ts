@@ -1,6 +1,6 @@
 import crypto from 'node:crypto'
 import type { FastifyInstance } from 'fastify'
-import { eq, and, asc, gte, lte } from 'drizzle-orm'
+import { eq, and, asc, gte, lte, inArray } from 'drizzle-orm'
 import {
   adsConnectRequestSchema,
   adsInsightLevelSchema,
@@ -193,6 +193,23 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
       .where(eq(adsConnections.projectId, project.id)).get()
     if (!row) {
       throw validationError('No ads connection for this project. Run "canonry ads connect" first.')
+    }
+
+    // Idempotent trigger: a sync paginates the whole account and runs for
+    // minutes, so return the in-flight run instead of stacking a second pass
+    // (mirrors POST /technical-aeo/runs).
+    const inFlight = app.db
+      .select({ id: runs.id, status: runs.status })
+      .from(runs)
+      .where(and(
+        eq(runs.projectId, project.id),
+        eq(runs.kind, RunKinds['ads-sync']),
+        inArray(runs.status, [RunStatuses.queued, RunStatuses.running]),
+      ))
+      .get()
+    if (inFlight) {
+      const existing: AdsSyncResponse = { runId: inFlight.id, status: inFlight.status as AdsSyncResponse['status'] }
+      return existing
     }
 
     const runId = crypto.randomUUID()

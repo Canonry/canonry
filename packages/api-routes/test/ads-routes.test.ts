@@ -211,6 +211,26 @@ describe('ads routes', () => {
     expect(ctx.syncRequests).toEqual([{ runId: body.runId, projectId }])
   })
 
+  it('POST /ads/sync is idempotent: a second call while one is in flight returns the existing run', async () => {
+    const projectId = ctx.seedProject()
+    ctx.seedConnection(projectId)
+
+    const first = await ctx.app.inject({ method: 'POST', url: '/projects/acme/ads/sync' })
+    const firstBody = JSON.parse(first.body) as { runId: string; status: string }
+
+    // The first run is still queued/running; a second trigger must not stack.
+    const second = await ctx.app.inject({ method: 'POST', url: '/projects/acme/ads/sync' })
+    expect(second.statusCode).toBe(200)
+    const secondBody = JSON.parse(second.body) as { runId: string; status: string }
+    expect(secondBody.runId).toBe(firstBody.runId)
+
+    const adsRuns = ctx.db.select().from(runs).where(eq(runs.projectId, projectId)).all()
+      .filter((r) => r.kind === 'ads-sync')
+    expect(adsRuns.length).toBe(1)
+    // the host callback fired only for the first trigger
+    expect(ctx.syncRequests).toEqual([{ runId: firstBody.runId, projectId }])
+  })
+
   it('GET /ads/campaigns nests ad groups and ads, mapping creative target_url → targetUrl', async () => {
     const projectId = ctx.seedProject()
     ctx.seedSnapshots(projectId)

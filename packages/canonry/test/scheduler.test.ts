@@ -488,3 +488,105 @@ test('backlinks-sync trigger skips silently when no onBacklinksSyncRequested cal
 
   fs.rmSync(tmpDir, { recursive: true, force: true })
 })
+
+test('ads-sync trigger creates a run row and fires onAdsSyncRequested', () => {
+  const { db, tmpDir } = createTempDb()
+  const now = new Date().toISOString()
+
+  db.insert(projects).values({
+    id: 'proj_ads',
+    name: 'ads-project',
+    displayName: 'Ads Project',
+    canonicalDomain: 'example.com',
+    country: 'US',
+    language: 'en',
+    createdAt: now,
+    updatedAt: now,
+  }).run()
+  db.insert(schedules).values({
+    id: 'sched_ads',
+    projectId: 'proj_ads',
+    kind: 'ads-sync',
+    cronExpr: '0 5 * * *',
+    timezone: 'UTC',
+    enabled: true,
+    providers: [],
+    sourceId: null,
+    createdAt: now,
+    updatedAt: now,
+  }).run()
+
+  const adsCalls: Array<{ runId: string; projectId: string }> = []
+  const scheduler = new Scheduler(db, {
+    onRunCreated: () => {},
+    onAdsSyncRequested: (runId, projectId) => adsCalls.push({ runId, projectId }),
+  })
+
+  ;(scheduler as unknown as {
+    triggerRun: (scheduleId: string, projectId: string, kind: 'ads-sync') => void
+  }).triggerRun('sched_ads', 'proj_ads', 'ads-sync')
+
+  expect(adsCalls).toHaveLength(1)
+  const runRow = db.select().from(runs).where(eq(runs.id, adsCalls[0]!.runId)).get()
+  expect(runRow!.kind).toBe('ads-sync')
+  expect(runRow!.status).toBe('queued')
+
+  scheduler.stop()
+  fs.rmSync(tmpDir, { recursive: true, force: true })
+})
+
+test('ads-sync trigger skips (no new run, no callback) when one is already in flight', () => {
+  const { db, tmpDir } = createTempDb()
+  const now = new Date().toISOString()
+
+  db.insert(projects).values({
+    id: 'proj_ads2',
+    name: 'ads-project-2',
+    displayName: 'Ads Project 2',
+    canonicalDomain: 'example.com',
+    country: 'US',
+    language: 'en',
+    createdAt: now,
+    updatedAt: now,
+  }).run()
+  db.insert(schedules).values({
+    id: 'sched_ads2',
+    projectId: 'proj_ads2',
+    kind: 'ads-sync',
+    cronExpr: '0 5 * * *',
+    timezone: 'UTC',
+    enabled: true,
+    providers: [],
+    sourceId: null,
+    createdAt: now,
+    updatedAt: now,
+  }).run()
+  // A previous ads-sync run is still running.
+  db.insert(runs).values({
+    id: 'run_inflight',
+    projectId: 'proj_ads2',
+    kind: 'ads-sync',
+    status: 'running',
+    trigger: 'scheduled',
+    createdAt: now,
+  }).run()
+
+  const adsCalls: Array<{ runId: string; projectId: string }> = []
+  const scheduler = new Scheduler(db, {
+    onRunCreated: () => {},
+    onAdsSyncRequested: (runId, projectId) => adsCalls.push({ runId, projectId }),
+  })
+
+  ;(scheduler as unknown as {
+    triggerRun: (scheduleId: string, projectId: string, kind: 'ads-sync') => void
+  }).triggerRun('sched_ads2', 'proj_ads2', 'ads-sync')
+
+  // No second pass stacked: callback never fired, still exactly one ads-sync run.
+  expect(adsCalls).toHaveLength(0)
+  const adsRuns = db.select().from(runs).where(eq(runs.projectId, 'proj_ads2')).all()
+    .filter((r) => r.kind === 'ads-sync')
+  expect(adsRuns).toHaveLength(1)
+
+  scheduler.stop()
+  fs.rmSync(tmpDir, { recursive: true, force: true })
+})
