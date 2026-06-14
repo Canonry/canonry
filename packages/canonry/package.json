@@ -1,6 +1,6 @@
 {
   "name": "@ainyc/canonry",
-  "version": "4.77.0",
+  "version": "4.78.0",
   "type": "module",
   "description": "Agent-first open-source AEO operating platform - track how answer engines cite your domain",
   "license": "FSL-1.1-ALv2",
@@ -45,8 +45,8 @@
   },
   "dependencies": {
     "@ainyc/aeo-audit": "3.0.0",
-    "@anthropic-ai/sdk": "^0.78.0",
-    "@fastify/static": "^8.1.0",
+    "@anthropic-ai/sdk": "^0.91.1",
+    "@fastify/static": "^9.1.1",
     "@google/genai": "^1.46.0",
     "@mariozechner/pi-agent-core": "0.67.6",
     "@mariozechner/pi-ai": "0.67.6",
