@@ -18,6 +18,6 @@
   },
   "dependencies": {
     "@ainyc/canonry-contracts": "workspace:*",
-    "@anthropic-ai/sdk": "^0.78.0"
+    "@anthropic-ai/sdk": "^0.91.1"
   }
 }
