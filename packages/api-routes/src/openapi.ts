@@ -1959,6 +1959,106 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'post',
+    path: '/api/v1/projects/{name}/ads/connect',
+    summary: 'Connect an OpenAI ad account (ChatGPT ads) with an Ads Manager SDK key',
+    tags: ['ads'],
+    parameters: [nameParameter],
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            required: ['apiKey'],
+            properties: {
+              apiKey: stringSchema,
+            },
+          },
+        },
+      },
+    },
+    responses: {
+      200: jsonResponse('Connected; key validated against the upstream ad account.', 'AdsConnectionStatusDto'),
+      400: errorResponse('Missing/invalid key or credential storage unavailable.'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
+    method: 'delete',
+    path: '/api/v1/projects/{name}/ads/connection',
+    summary: 'Disconnect the OpenAI ad account (removes the stored credential)',
+    tags: ['ads'],
+    parameters: [nameParameter],
+    responses: {
+      200: jsonResponse('Disconnected (idempotent).', 'AdsDisconnectResponse'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/ads/status',
+    summary: 'OpenAI ads connection status and last sync time',
+    tags: ['ads'],
+    parameters: [nameParameter],
+    responses: {
+      200: jsonResponse('Connection status.', 'AdsConnectionStatusDto'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/projects/{name}/ads/sync',
+    summary: 'Trigger an ads-sync run (entity snapshots + daily paid-performance rollups)',
+    tags: ['ads'],
+    parameters: [nameParameter],
+    responses: {
+      200: jsonResponse('Sync run queued.', 'AdsSyncResponse'),
+      400: errorResponse('No ads connection for this project.'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/ads/campaigns',
+    summary: 'Synced campaign snapshots with nested ad groups (context hints) and ads',
+    tags: ['ads'],
+    parameters: [nameParameter],
+    responses: {
+      200: jsonResponse('Campaign snapshots.', 'AdsCampaignListResponse'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/ads/insights',
+    summary: 'Daily paid-performance rollups (spend in integer micros; ctr/cpc derived server-side)',
+    tags: ['ads'],
+    parameters: [
+      nameParameter,
+      { in: 'query', name: 'level', required: false, description: 'campaign | ad_group', schema: stringSchema },
+      { in: 'query', name: 'entityId', required: false, description: 'Scope to one upstream entity id', schema: stringSchema },
+      { in: 'query', name: 'from', required: false, description: 'Inclusive start date (YYYY-MM-DD)', schema: stringSchema },
+      { in: 'query', name: 'to', required: false, description: 'Inclusive end date (YYYY-MM-DD)', schema: stringSchema },
+    ],
+    responses: {
+      200: jsonResponse('Daily rollup rows.', 'AdsInsightsResponse'),
+      400: errorResponse('Invalid level filter.'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/ads/summary',
+    summary: 'Composite paid-performance summary (campaign-level totals; all derived metrics)',
+    tags: ['ads'],
+    parameters: [nameParameter],
+    responses: {
+      200: jsonResponse('Summary returned.', 'AdsSummaryDto'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
+    method: 'post',
     path: '/api/v1/projects/{name}/bing/connect',
     summary: 'Connect Bing Webmaster Tools',
     tags: ['bing'],

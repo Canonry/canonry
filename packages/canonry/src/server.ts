@@ -62,6 +62,9 @@ import { checkLatestVersionForServer } from './update-check.js'
 import { JobRunner } from './job-runner.js'
 import { executeGscSync } from './gsc-sync.js'
 import { executeGbpSync } from './gbp-sync.js'
+import { executeAdsSync } from './ads-sync.js'
+import { getOpenAiAdsConnection, upsertOpenAiAdsConnection, removeOpenAiAdsConnection } from './ads-config.js'
+import { getAdAccount } from '@ainyc/canonry-integration-openai-ads'
 import { executeInspectSitemap } from './gsc-inspect-sitemap.js'
 import { executeBingInspectSitemap } from './bing-inspect-sitemap.js'
 import { maybeRefreshGscCoverage } from './coverage-refresh.js'
@@ -536,6 +539,18 @@ export async function createServer(opts: {
       })
   }
 
+  // Shared ads-sync worker entry point. Used by the scheduled `ads-sync`
+  // kind today and the manual ads sync route when it lands; the run row is
+  // created by the caller (scheduler / route handler), this only runs the
+  // sync and hands off to the post-run coordinator on completion.
+  const runAdsSync = (runId: string, projectId: string): void => {
+    executeAdsSync(opts.db, runId, projectId, { config: opts.config })
+      .then(() => runCoordinator.onRunCompleted(runId, projectId))
+      .catch((err: unknown) => {
+        app.log.error({ runId, err }, 'Ads sync failed')
+      })
+  }
+
   // Shared Technical-AEO site-audit worker. Used by BOTH the manual
   // `POST /technical-aeo/runs` route and the scheduled `site-audit` kind. The
   // run row is created by the caller; this runs the sitemap crawl + audit and
@@ -550,6 +565,41 @@ export async function createServer(opts: {
       .catch((err: unknown) => {
         app.log.error({ runId, err }, 'Site audit failed')
       })
+  }
+
+  // OpenAI ads credential store — stores Ads Manager SDK keys in ~/.canonry/config.yaml
+  const adsCredentialStore = {
+    getConnection: (projectName: string) => {
+      return getOpenAiAdsConnection(opts.config, projectName)
+    },
+    upsertConnection: (connection: {
+      projectName: string
+      apiKey: string
+      adAccountId?: string | null
+      createdAt: string
+      updatedAt: string
+    }) => {
+      const updated = upsertOpenAiAdsConnection(opts.config, connection)
+      saveConfigPatch(opts.config)
+      return updated
+    },
+    removeConnection: (projectName: string) => {
+      const removed = removeOpenAiAdsConnection(opts.config, projectName)
+      if (removed) saveConfigPatch(opts.config)
+      return removed
+    },
+  }
+
+  // Validates an SDK key by reading its own ad account from the upstream API.
+  const verifyAdsAccount = async (apiKey: string) => {
+    const account = await getAdAccount(apiKey)
+    return {
+      id: account.id,
+      name: account.name,
+      status: account.status,
+      currencyCode: account.currency_code ?? null,
+      timezone: account.timezone ?? null,
+    }
   }
 
   const scheduler = new Scheduler(opts.db, {
@@ -570,6 +620,10 @@ export async function createServer(opts: {
       // The scheduler already created the gbp-sync run row; run the same
       // worker the manual route uses (selected-location sync).
       runGbpSync(runId, projectId)
+    },
+    onAdsSyncRequested: (runId, projectId) => {
+      // The scheduler already created the ads-sync run row; run the worker.
+      runAdsSync(runId, projectId)
     },
     onDataRefreshRequested: (projectName) => {
       // Fan out to every connected data integration (GSC, Bing, GA, GBP) via
@@ -1251,6 +1305,11 @@ export async function createServer(opts: {
     },
     onGbpSyncRequested: (runId: string, projectId: string, syncOpts?: { locationNames?: string[]; daysOfMetrics?: number; monthsOfKeywords?: number }) => {
       runGbpSync(runId, projectId, syncOpts)
+    },
+    adsCredentialStore,
+    verifyAdsAccount,
+    onAdsSyncRequested: (runId: string, projectId: string) => {
+      runAdsSync(runId, projectId)
     },
     getBacklinksStatus: () => ({
       duckdbInstalled: isDuckdbInstalled(),

@@ -109,6 +109,24 @@ export interface CloudRunConfigEntry {
   connections?: CloudRunConnectionConfigEntry[]
 }
 
+/**
+ * Per-project OpenAI Advertiser API (ChatGPT ads) connection. The "SDK key"
+ * is minted in OpenAI Ads Manager and scoped to one ad account; ad accounts
+ * are not domain-bound, so the connection keys on the project name. The
+ * `ads_connections` DB row holds metadata only — the key lives here.
+ */
+export interface OpenAiAdsConnectionConfigEntry {
+  projectName: string
+  apiKey: string
+  adAccountId?: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface OpenAiAdsConfigEntry {
+  connections?: OpenAiAdsConnectionConfigEntry[]
+}
+
 export type WordpressEnv = 'live' | 'staging'
 
 export interface WordpressConnectionConfigEntry {
@@ -210,6 +228,7 @@ export interface CanonryConfig {
   wordpress?: WordpressConfigEntry
   wordpressTraffic?: WordpressTrafficConfigEntry
   vercelTraffic?: VercelTrafficConfigEntry
+  openaiAds?: OpenAiAdsConfigEntry
   // Dashboard password hash (SHA-256 hex) — set during first dashboard visit
   dashboardPasswordHash?: string
   // Telemetry (opt-out: undefined/true = enabled, false = disabled)

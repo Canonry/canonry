@@ -46,6 +46,12 @@ import type {
   GbpAccountListResponse,
   GbpLocationDto,
   GbpLocationListResponse,
+  AdsConnectionStatusDto,
+  AdsDisconnectResponse,
+  AdsSyncResponse,
+  AdsCampaignListResponse,
+  AdsInsightsResponse,
+  AdsSummaryDto,
   GbpSyncResponse,
   GbpDailyMetricListResponse,
   GbpKeywordImpressionListResponse,
@@ -195,6 +201,13 @@ import {
   getApiV1ProjectsByNameGbpLocations,
   putApiV1ProjectsByNameGbpLocationsByLocationNameSelection,
   deleteApiV1ProjectsByNameGbpConnection,
+  postApiV1ProjectsByNameAdsConnect,
+  postApiV1ProjectsByNameAdsSync,
+  deleteApiV1ProjectsByNameAdsConnection,
+  getApiV1ProjectsByNameAdsStatus,
+  getApiV1ProjectsByNameAdsCampaigns,
+  getApiV1ProjectsByNameAdsInsights,
+  getApiV1ProjectsByNameAdsSummary,
   postApiV1ProjectsByNameGbpSync,
   getApiV1ProjectsByNameGbpMetrics,
   getApiV1ProjectsByNameGbpKeywords,
@@ -1234,6 +1247,51 @@ export class ApiClient {
         path: { name: project },
         body: body ?? {},
       }),
+    )
+  }
+
+  async adsConnect(project: string, body: { apiKey: string }): Promise<AdsConnectionStatusDto> {
+    return this.invoke<AdsConnectionStatusDto>(() =>
+      postApiV1ProjectsByNameAdsConnect({ client: this.heyClient, path: { name: project }, body }),
+    )
+  }
+
+  async adsDisconnect(project: string): Promise<AdsDisconnectResponse> {
+    return this.invoke<AdsDisconnectResponse>(() =>
+      deleteApiV1ProjectsByNameAdsConnection({ client: this.heyClient, path: { name: project } }),
+    )
+  }
+
+  async getAdsStatus(project: string): Promise<AdsConnectionStatusDto> {
+    return this.invoke<AdsConnectionStatusDto>(() =>
+      getApiV1ProjectsByNameAdsStatus({ client: this.heyClient, path: { name: project } }),
+    )
+  }
+
+  async triggerAdsSync(project: string): Promise<AdsSyncResponse> {
+    return this.invoke<AdsSyncResponse>(() =>
+      postApiV1ProjectsByNameAdsSync({ client: this.heyClient, path: { name: project } }),
+    )
+  }
+
+  async getAdsCampaigns(project: string): Promise<AdsCampaignListResponse> {
+    return this.invoke<AdsCampaignListResponse>(() =>
+      getApiV1ProjectsByNameAdsCampaigns({ client: this.heyClient, path: { name: project } }),
+    )
+  }
+
+  async getAdsInsights(
+    project: string,
+    query?: { level?: string; entityId?: string; from?: string; to?: string },
+  ): Promise<AdsInsightsResponse> {
+    return this.invoke<AdsInsightsResponse>(() =>
+      getApiV1ProjectsByNameAdsInsights({ client: this.heyClient, path: { name: project }, query }),
+    )
+  }
+
+  async getAdsSummary(project: string): Promise<AdsSummaryDto> {
+    return this.invoke<AdsSummaryDto>(() =>
+      getApiV1ProjectsByNameAdsSummary({ client: this.heyClient, path: { name: project } }),
     )
   }
 

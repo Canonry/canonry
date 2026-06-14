@@ -98,6 +98,16 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'PUT /api/v1/projects/{name}/gbp/locations/{locationName}/selection': 'included',
   'DELETE /api/v1/projects/{name}/gbp/connection': 'included',
   'POST /api/v1/projects/{name}/gbp/sync': 'included',
+  // OpenAI ads: connect carries the raw SDK key (credential-bearing) and
+  // disconnect destroys the stored credential — both stay off the MCP/agent
+  // surface like the settings credential mutations. Reads + sync are tools.
+  'POST /api/v1/projects/{name}/ads/connect': 'deferred',
+  'DELETE /api/v1/projects/{name}/ads/connection': 'deferred',
+  'GET /api/v1/projects/{name}/ads/status': 'included',
+  'POST /api/v1/projects/{name}/ads/sync': 'included',
+  'GET /api/v1/projects/{name}/ads/campaigns': 'included',
+  'GET /api/v1/projects/{name}/ads/insights': 'included',
+  'GET /api/v1/projects/{name}/ads/summary': 'included',
   'GET /api/v1/projects/{name}/gbp/metrics': 'included',
   'GET /api/v1/projects/{name}/gbp/keywords': 'included',
   'GET /api/v1/projects/{name}/gbp/place-actions': 'included',

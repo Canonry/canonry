@@ -42,6 +42,7 @@ packages/provider-cdp/           Chrome DevTools Protocol adapter
 packages/integration-google/     Google Search Console integration
 packages/integration-google-analytics/  Google Analytics 4 integration
 packages/integration-bing/       Bing Webmaster Tools integration
+packages/integration-openai-ads/  OpenAI Advertiser API (ChatGPT ads) integration
 packages/integration-wordpress/  WordPress integration
 docs/                            Architecture, roadmap, testing, ADRs
 ```
@@ -114,6 +115,15 @@ canonry discover show <project> <session-id> [--format json]
 canonry discover probe <project> <session-id> [--format json]                       # alias of show (read-only) until a later PR splits phases
 canonry discover promote preview <project> <session-id> [--format json]             # preview bucketed candidates + recurring suggested competitors of every classified type (read-only)
 canonry discover promote <project> <session-id> [--bucket cited,aspirational,wasted-surface] [--competitor-types direct-competitor,editorial-media] [--no-competitors] [--format json]   # adopt cited + aspirational queries + direct-competitor domains by default
+
+# OpenAI ads (ChatGPT ads) — paid-surface data for the connected ad account
+canonry ads connect <project> --api-key <sdk-key>     # validate + store the Ads Manager SDK key (config.yaml)
+canonry ads status <project>
+canonry ads sync <project>                            # trigger an ads-sync run
+canonry ads campaigns <project> [--format json|jsonl] # snapshots incl. context hints
+canonry ads insights <project> [--level campaign|ad_group] [--entity <id>] [--from <d>] [--to <d>] [--format json|jsonl]
+canonry ads summary <project>                         # campaign-level totals (spend in micros, derived ctr/cpc)
+canonry ads disconnect <project>
 
 # Technical AEO — site-wide technical audit (powered by the `site-audit` run kind + @ainyc/aeo-audit's runSitemapAudit)
 canonry technical-aeo run <project> [--sitemap-url <url>] [--limit <n>] [--wait] [--format json]   # crawl the sitemap + audit every page; idempotent (returns the in-flight run); default page cap 500, hard max 2000
@@ -209,6 +219,8 @@ Each check returns `status: ok | warn | fail | skipped`, a stable machine-readab
 | auth | `gbp.account.access` | project | The tracked GBP account is still listable for the authorized user (maps 0-QPM access-form-pending → warn) |
 | auth | `gbp.places.api-key` | project | Google Places API readiness for the listing cross-reference (#648): warns when GBP is connected but no Places key is set, or when no selected location carries a Maps place id; skipped when Places is disabled (`tier: off`) or GBP isn't connected |
 | integrations | `gbp.data.recent-sync` | project | A selected GBP location synced in the last 7d (warn) or 30d (fail); warns when never synced |
+| auth | `ads.auth.connection` | project | OpenAI ads connection row has a matching SDK key in the local config (skipped when not connected) |
+| integrations | `ads.data.recent-sync` | project | Connected ad account synced in the last 7d (warn) or 30d (fail); warns when never synced (skipped when not connected) |
 | auth | `wordpress.publish.connection` | project | WordPress publishing connection (`integration-wordpress`): the Application Password authenticates and the `wp/v2` REST API responds; skipped when no connection is configured |
 | auth | `traffic.source.credentials` | project | Per-source-type credential validation (Cloud Run service-account access token resolves; WordPress and Vercel probe-call their endpoints) |
 | auth | `traffic.source.scopes` | project | Per-source-type scope validation (skipped where the adapter has no explicit scope check — e.g. WordPress Application Passwords, Vercel API tokens) |
@@ -231,7 +243,7 @@ Each check returns `status: ok | warn | fail | skipped`, a stable machine-readab
 For MCP clients such as Claude Desktop, Codex, or custom agent shells that
 prefer a typed tool catalog over shell or HTTP, the package ships a separate
 `canonry-mcp` bin. It is a thin stdio adapter over `createApiClient()` — not
-a parallel surface. v1 exposes 105 curated API tools (69 read, 36 write) — including
+a parallel surface. v1 exposes 110 curated API tools (73 read, 37 write) — including
 the `canonry_project_overview` and `canonry_search` core composites; the
 catalog is split across a small **core tier** (always loaded) and five
 **toolkits** (`monitoring`, `setup`, `gsc`, `ga`, `agent`) that the client

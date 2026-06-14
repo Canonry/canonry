@@ -121,12 +121,17 @@ const expectedToolNames = [
   'canonry_technical_aeo_pages',
   'canonry_technical_aeo_trend',
   'canonry_technical_aeo_run',
+  'canonry_ads_status',
+  'canonry_ads_campaigns',
+  'canonry_ads_insights',
+  'canonry_ads_summary',
+  'canonry_ads_sync',
 ] as const
 
 describe('MCP tool registry', () => {
   it('ships the curated v1 surface', () => {
-    expect(CANONRY_MCP_TOOL_COUNT).toBe(105)
-    expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(69)
+    expect(CANONRY_MCP_TOOL_COUNT).toBe(110)
+    expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(73)
     expect(canonryMcpTools.map(tool => tool.name)).toEqual(expectedToolNames)
     const readNames = canonryMcpTools.filter(tool => tool.access === 'read').map(tool => tool.name)
     expect(getCanonryMcpTools('read-only').map(tool => tool.name)).toEqual(readNames)
@@ -398,7 +403,7 @@ describe('Dynamic tool catalog', () => {
       'canonry_run_cancel',
       'canonry_agent_webhook_attach',
     ])
-    expect(help.toolkits.map(t => t.name)).toEqual(['monitoring', 'setup', 'gsc', 'ga', 'gbp', 'traffic', 'agent', 'discovery'])
+    expect(help.toolkits.map(t => t.name)).toEqual(['monitoring', 'setup', 'gsc', 'ga', 'gbp', 'ads', 'traffic', 'agent', 'discovery'])
     expect(help.toolkits.every(t => !t.loaded)).toBe(true)
 
     const monitoringFirst = catalog.loadToolkit('monitoring')
@@ -424,7 +429,7 @@ describe('Dynamic tool catalog', () => {
 
     const help = catalog.helpResult()
     expect(help.eager).toBe(true)
-    expect(help.loadedToolkits.sort()).toEqual(['agent', 'discovery', 'ga', 'gbp', 'gsc', 'monitoring', 'setup', 'traffic'])
+    expect(help.loadedToolkits.sort()).toEqual(['ads', 'agent', 'discovery', 'ga', 'gbp', 'gsc', 'monitoring', 'setup', 'traffic'])
     expect(help.toolkits.every(t => t.loaded)).toBe(true)
   })
 

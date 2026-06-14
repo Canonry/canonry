@@ -38,6 +38,7 @@ const NODE_PACKAGES = [
   'integration-google-analytics',
   'integration-google-business-profile',
   'integration-google-places',
+  'integration-openai-ads',
   'integration-traffic',
   'integration-vercel',
   'integration-wordpress',

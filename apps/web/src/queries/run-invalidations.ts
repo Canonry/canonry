@@ -75,6 +75,9 @@ export function invalidateQueriesForRunKind(
     case RunKinds['gbp-sync']:
       invalidateByOpPrefix(queryClient, 'getApiV1ProjectsByNameGbp')
       return
+    case RunKinds['ads-sync']:
+      invalidateByOpPrefix(queryClient, 'getApiV1ProjectsByNameAds')
+      return
     default: {
       const _exhaustive: never = kind
       return _exhaustive
