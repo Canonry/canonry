@@ -301,7 +301,7 @@ export function TrafficSourceDetailPage() {
     try {
       const result = await sync.mutateAsync({ sinceMinutes: 60 })
       setSyncResult(
-        `Pulled ${result.pulledEvents} entries · ${result.crawlerHits} crawler · ${result.aiReferralHits} AI referral · ${result.unknownHits} unknown`,
+        `Pulled ${result.pulledEvents} entries · ${result.crawlerHits} crawler · ${result.aiUserFetchHits} AI user fetch · ${result.aiReferralHits} AI referral · ${result.unknownHits} unknown`,
       )
     } catch (e) {
       setSyncError(extractErrorMessage(e))

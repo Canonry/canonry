@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
 
-import type { TrafficSourceStatus } from '@ainyc/canonry-contracts'
+import type { TrafficEventKind, TrafficSourceStatus } from '@ainyc/canonry-contracts'
 import { TrafficSourceStatuses } from '@ainyc/canonry-contracts'
 import {
   getApiV1ProjectsByNameTrafficEventsOptions,
@@ -39,7 +39,7 @@ export function toneFromTrafficSourceStatus(status: TrafficSourceStatus): Metric
 }
 
 export interface ServerTrafficEventsFilters {
-  kind?: 'all' | 'crawler' | 'ai-referral'
+  kind?: TrafficEventKind | 'all'
   sourceId?: string
   sinceMinutes?: number
   limit?: number
