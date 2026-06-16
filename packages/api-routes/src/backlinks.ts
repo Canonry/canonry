@@ -247,6 +247,7 @@ function buildSourceAvailability(
   projectId: string,
   source: BacklinkSource,
   connected: boolean,
+  excludeCrawlers: boolean,
 ): BacklinkSourceAvailabilityDto {
   const summary = db
     .select()
@@ -255,12 +256,12 @@ function buildSourceAvailability(
     .orderBy(desc(backlinkSummaries.queriedAt))
     .limit(1)
     .get()
-  // Count crawler-filtered linking domains for the latest window rather than
-  // reading the stored (unfiltered) summary total. The dashboard's main view
-  // always excludes crawlers, so the switcher pill and the summary metric card
-  // must report the same number.
-  let totalLinkingDomains = 0
-  if (summary) {
+  // Default to the stored (unfiltered) summary total so this matches what the
+  // summary/domains endpoints return by default. When `excludeCrawlers` is set
+  // (the dashboard always does), recount the latest window without crawler/proxy
+  // hosts so the switcher pill matches the summary metric card.
+  let totalLinkingDomains = summary?.totalLinkingDomains ?? 0
+  if (summary && excludeCrawlers) {
     const filtered = db
       .select({ count: sql<number>`count(*)` })
       .from(backlinkDomains)
@@ -287,6 +288,7 @@ function computeSourceAvailability(
   db: DatabaseClient,
   project: { id: string; canonicalDomain: string; autoExtractBacklinks: boolean },
   bingStore: BingConnectionStore | undefined,
+  excludeCrawlers: boolean,
 ): BacklinkSourcesResponseDto {
   const ccReadySync = db
     .select({ id: ccReleaseSyncs.id })
@@ -298,8 +300,8 @@ function computeSourceAvailability(
   const bingConnected = !!bingStore?.getConnection(project.canonicalDomain)
 
   const sources = [
-    buildSourceAvailability(db, project.id, BacklinkSources.commoncrawl, ccConnected),
-    buildSourceAvailability(db, project.id, BacklinkSources['bing-webmaster'], bingConnected),
+    buildSourceAvailability(db, project.id, BacklinkSources.commoncrawl, ccConnected, excludeCrawlers),
+    buildSourceAvailability(db, project.id, BacklinkSources['bing-webmaster'], bingConnected, excludeCrawlers),
   ]
   return {
     projectId: project.id,
@@ -586,11 +588,15 @@ export async function backlinksRoutes(app: FastifyInstance, opts: BacklinksRoute
 
   // Per-source availability — lets the UI/CLI/agent see which backlink sources
   // are set up (CC-only / Bing-only / both / neither) and degrade gracefully.
-  app.get<{ Params: { name: string } }>(
+  app.get<{
+    Params: { name: string }
+    Querystring: { excludeCrawlers?: string }
+  }>(
     '/projects/:name/backlinks/sources',
     async (request, reply) => {
       const project = resolveProject(app.db, request.params.name)
-      const response = computeSourceAvailability(app.db, project, opts.bingConnectionStore)
+      const excludeCrawlers = parseExcludeCrawlers(request.query.excludeCrawlers)
+      const response = computeSourceAvailability(app.db, project, opts.bingConnectionStore, excludeCrawlers)
       return reply.send(response)
     },
   )

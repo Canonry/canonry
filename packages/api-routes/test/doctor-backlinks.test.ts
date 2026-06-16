@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { ccReleaseSyncs, createClient, migrate, projects } from '@ainyc/canonry-db'
+import { backlinkSummaries, ccReleaseSyncs, createClient, migrate, projects } from '@ainyc/canonry-db'
 import type { DatabaseClient } from '@ainyc/canonry-db'
 import { BACKLINKS_CHECKS } from '../src/doctor/checks/backlinks.js'
 import type { BingConnectionStore } from '../src/bing.js'
@@ -27,6 +27,16 @@ function seedReadySync(db: DatabaseClient): void {
   db.insert(ccReleaseSyncs).values({
     id: crypto.randomUUID(), release: 'cc-main-2026-jan-feb-mar', status: 'ready',
     createdAt: now, updatedAt: now,
+  }).run()
+}
+
+function seedCcSummary(db: DatabaseClient, projectId: string): void {
+  const now = new Date().toISOString()
+  db.insert(backlinkSummaries).values({
+    id: crypto.randomUUID(), projectId, releaseSyncId: null, source: 'commoncrawl',
+    release: 'cc-main-2026-jan-feb-mar', targetDomain: 'roots.io',
+    totalLinkingDomains: 5, totalHosts: 9, top10HostsShare: '1.000000',
+    queriedAt: now, createdAt: now,
   }).run()
 }
 
@@ -83,6 +93,26 @@ describe('backlinks.source.connected', () => {
     expect(result.code).toBe('backlinks.source.connected')
     expect(result.details).toMatchObject({ commoncrawl: true, bingWebmaster: false })
     expect(result.details!.connected).toEqual(['commoncrawl'])
+  })
+
+  it('nudges to extract when Common Crawl is ready but the project has no data', async () => {
+    const project = seedProject(db, true)
+    seedReadySync(db)
+    // Workspace sync is ready, but no per-project extract has run.
+    const result = await check.run(ctx(project))
+    expect(result.status).toBe('ok')
+    expect(result.remediation).toMatch(/canonry backlinks extract roots/)
+    expect(result.details).toMatchObject({ commoncrawlHasData: false })
+  })
+
+  it('drops the extract nudge once the project has Common Crawl data', async () => {
+    const project = seedProject(db, true)
+    seedReadySync(db)
+    seedCcSummary(db, project.id)
+    const result = await check.run(ctx(project))
+    expect(result.status).toBe('ok')
+    expect(result.remediation).toBeNull()
+    expect(result.details).toMatchObject({ commoncrawlHasData: true })
   })
 
   it('stays a warning when autoExtract is on but no ready sync exists', async () => {

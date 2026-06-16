@@ -152,6 +152,10 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
   const [history, setHistory] = useState<BacklinkHistoryEntry[]>([])
   const [latestSync, setLatestSync] = useState<CcReleaseSyncDto | null>(null)
   const [activeRun, setActiveRun] = useState<ApiRun | null>(null)
+  // Which source the active/just-completed run belongs to. Bing syncs reuse the
+  // backlink-extract run kind, so the run row alone can't say — track it here so
+  // the progress banner shows the right (Bing vs Common Crawl) copy.
+  const [syncSource, setSyncSource] = useState<BacklinkSource>('commoncrawl')
   const [justCompletedRun, setJustCompletedRun] = useState<ApiRun | null>(null)
   const [now, setNow] = useState(Date.now())
   const [offset, setOffset] = useState(0)
@@ -167,7 +171,7 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
     setError(null)
     try {
       const [avail, sync, sum, rows, hist, runs] = await Promise.all([
-        fetchBacklinkSources(projectName).catch(() => null),
+        fetchBacklinkSources(projectName, { excludeCrawlers: true }).catch(() => null),
         fetchLatestReleaseSync().catch(() => null),
         fetchBacklinkSummary(projectName, { excludeCrawlers: true, source: selectedSource }).catch(() => null),
         fetchBacklinkDomains(projectName, {
@@ -262,6 +266,7 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
     setError(null)
     try {
       const run = await triggerBacklinkExtract(projectName)
+      setSyncSource('commoncrawl')
       setActiveRun(run)
       lastActiveIdRef.current = run.id
     } catch (err) {
@@ -282,6 +287,7 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
       const run = await triggerBingBacklinkSync(projectName)
       // Bing sync runs reuse the backlink-extract kind, so the existing
       // active-run poller picks them up and refreshes the table on completion.
+      setSyncSource('bing-webmaster')
       setActiveRun(run)
       lastActiveIdRef.current = run.id
     } catch (err) {
@@ -338,18 +344,27 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
             <Loader2 className="h-5 w-5 text-sky-400 animate-spin shrink-0 mt-0.5" aria-hidden />
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
-                <p className="text-sm font-medium text-zinc-100">Extract running</p>
+                <p className="text-sm font-medium text-zinc-100">
+                  {syncSource === 'bing-webmaster' ? 'Bing sync running' : 'Extract running'}
+                </p>
                 <ToneBadge tone="neutral">{activeRun.status}</ToneBadge>
                 <span className="text-xs text-zinc-500 tabular-nums">
                   {formatElapsed(activeRun.startedAt ?? null, activeRun.createdAt)} elapsed · refreshing every 3s
                 </span>
                 <span className="sr-only">now={now}</span>
               </div>
-              <p className="text-xs text-zinc-500 mt-1">
-                Re-querying the cached Common Crawl release for{' '}
-                <span className="text-zinc-300">{projectName}</span>. No re-download — the ~16&nbsp;GB dump already lives at{' '}
-                <code className="text-zinc-400">~/.canonry/cache/commoncrawl/</code>. Typically takes ~5 minutes.
-              </p>
+              {syncSource === 'bing-webmaster' ? (
+                <p className="text-xs text-zinc-500 mt-1">
+                  Pulling inbound links live from Bing Webmaster for{' '}
+                  <span className="text-zinc-300">{projectName}</span>. Time depends on how many pages link to your site.
+                </p>
+              ) : (
+                <p className="text-xs text-zinc-500 mt-1">
+                  Re-querying the cached Common Crawl release for{' '}
+                  <span className="text-zinc-300">{projectName}</span>. No re-download — the ~16&nbsp;GB dump already lives at{' '}
+                  <code className="text-zinc-400">~/.canonry/cache/commoncrawl/</code>. Typically takes ~5 minutes.
+                </p>
+              )}
             </div>
           </div>
         </Card>
@@ -364,14 +379,18 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
             )}
             <div className="flex-1">
               <p className={`text-sm font-medium ${justCompletedRun.status === 'failed' ? 'text-rose-300' : 'text-emerald-300'}`}>
-                {justCompletedRun.status === 'failed'
-                  ? 'Extract failed'
-                  : 'Extract complete'}
+                {syncSource === 'bing-webmaster'
+                  ? (justCompletedRun.status === 'failed' ? 'Bing sync failed' : 'Bing sync complete')
+                  : (justCompletedRun.status === 'failed' ? 'Extract failed' : 'Extract complete')}
               </p>
               {justCompletedRun.error
                 ? <p className="text-xs text-zinc-500 mt-1">{summarizeRunError(justCompletedRun.error)}</p>
                 : justCompletedRun.status !== 'failed'
-                  ? <p className="text-xs text-zinc-500 mt-1">Backlinks refreshed from the cached release.</p>
+                  ? <p className="text-xs text-zinc-500 mt-1">
+                      {syncSource === 'bing-webmaster'
+                        ? 'Inbound links refreshed live from Bing Webmaster.'
+                        : 'Backlinks refreshed from the cached release.'}
+                    </p>
                   : null}
             </div>
           </div>
@@ -472,6 +491,10 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
   function renderBingBody() {
     const bing = sources?.sources.find((s) => s.source === 'bing-webmaster')
     const connected = bing?.connected ?? false
+    // `bing.hasData` is true once any sync has stored a summary; `summary` here is
+    // crawler-filtered, so its count can be 0 even after a successful sync. Tell
+    // those apart so an all-crawler window doesn't show the "run a sync" prompt.
+    const everSynced = bing?.hasData ?? false
     const hasData = summary !== null && summary.totalLinkingDomains > 0
 
     if (!hasData) {
@@ -482,7 +505,21 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
               <Link2 className="h-5 w-5" aria-hidden />
             </div>
             <div className="flex-1">
-              {connected ? (
+              {connected && everSynced ? (
+                <>
+                  <h3 className="text-base font-semibold text-zinc-100">No non-crawler referring domains</h3>
+                  <p className="text-sm text-zinc-500 mt-1">
+                    Bing Webmaster synced for <code className="text-zinc-300">{projectName}</code>, but every inbound
+                    link in the latest window is a crawler/proxy host (hidden by default). Re-sync to check for new links.
+                  </p>
+                  <div className="mt-4">
+                    <Button type="button" variant="outline" size="sm" disabled={bingSyncing || activeRun !== null} onClick={asyncHandler(handleBingSync)}>
+                      <Download className="h-4 w-4 mr-1.5" aria-hidden />
+                      {activeRun ? 'Sync running…' : bingSyncing ? 'Queuing…' : 'Re-sync Bing inbound links'}
+                    </Button>
+                  </div>
+                </>
+              ) : connected ? (
                 <>
                   <h3 className="text-base font-semibold text-zinc-100">No Bing inbound links yet</h3>
                   <p className="text-sm text-zinc-500 mt-1">

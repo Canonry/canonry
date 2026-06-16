@@ -1923,9 +1923,16 @@ export function fetchBacklinkHistory(
   )
 }
 
-export function fetchBacklinkSources(projectName: string): Promise<BacklinkSourcesResponseDto> {
+export function fetchBacklinkSources(
+  projectName: string,
+  opts: { excludeCrawlers?: boolean } = {},
+): Promise<BacklinkSourcesResponseDto> {
   return invokeWeb<BacklinkSourcesResponseDto>(() =>
-    getApiV1ProjectsByNameBacklinksSources({ client: heyClient, path: { name: projectName } }),
+    getApiV1ProjectsByNameBacklinksSources({
+      client: heyClient,
+      path: { name: projectName },
+      query: { excludeCrawlers: opts.excludeCrawlers ? '1' : undefined } as never,
+    }),
   )
 }
 

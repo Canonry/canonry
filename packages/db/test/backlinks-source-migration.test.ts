@@ -165,6 +165,48 @@ test('v78 rebuild backfills source=commoncrawl and preserves pre-v78 Common Craw
   expect(rows[0]!.numHosts).toBe(7)
 })
 
+test('v78 rebuild backfills source=commoncrawl and preserves pre-v78 summary data', () => {
+  const db = freshDb()
+  const { projectId, now } = seedProject(db)
+  const syncId = seedCcSync(db, now)
+
+  // Reconstruct the pre-v78 backlink_summaries shape: NOT NULL release_sync_id, no `source`.
+  db.run(sql`DROP TABLE backlink_summaries`)
+  db.run(sql.raw(`CREATE TABLE backlink_summaries (
+    id                     TEXT PRIMARY KEY,
+    project_id             TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    release_sync_id        TEXT NOT NULL REFERENCES cc_release_syncs(id) ON DELETE CASCADE,
+    release                TEXT NOT NULL,
+    target_domain          TEXT NOT NULL,
+    total_linking_domains  INTEGER NOT NULL,
+    total_hosts            INTEGER NOT NULL,
+    top_10_hosts_share     TEXT NOT NULL,
+    queried_at             TEXT NOT NULL,
+    created_at             TEXT NOT NULL
+  )`))
+  db.run(sql`INSERT INTO backlink_summaries
+      (id, project_id, release_sync_id, release, target_domain, total_linking_domains, total_hosts, top_10_hosts_share, queried_at, created_at)
+    VALUES (${'bs-old'}, ${projectId}, ${syncId}, ${'cc-main-2026-jan-feb-mar'}, ${'example.com'}, ${12}, ${34}, ${'0.750000'}, ${now}, ${now})`)
+
+  // Force v78 to re-run over the reconstructed old shape (domains already has
+  // `source`, so only summaries rebuilds — exercising the summaries INSERT…SELECT).
+  db.run(sql`DELETE FROM _migrations WHERE version >= 78`)
+  expect(() => migrate(db)).not.toThrow()
+
+  const rows = db.select().from(backlinkSummaries).all()
+  expect(rows).toHaveLength(1)
+  const r = rows[0]!
+  expect(r.id).toBe('bs-old')
+  expect(r.source).toBe('commoncrawl') // backfilled
+  expect(r.releaseSyncId).toBe(syncId) // preserved
+  expect(r.release).toBe('cc-main-2026-jan-feb-mar')
+  expect(r.targetDomain).toBe('example.com')
+  expect(r.totalLinkingDomains).toBe(12)
+  expect(r.totalHosts).toBe(34)
+  expect(r.top10HostsShare).toBe('0.750000')
+  expect(r.queriedAt).toBe(now)
+})
+
 test('v78 is idempotent — a re-run with source present leaves bing rows untouched', () => {
   const db = freshDb()
   const { projectId, now } = seedProject(db)

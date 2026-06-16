@@ -1,5 +1,25 @@
 import { describe, it, expect } from 'vitest'
-import { absolutizeProjectUrl, normalizeUrlPath } from '../src/url-normalize.js'
+import { absolutizeProjectUrl, hostOf, normalizeUrlPath } from '../src/url-normalize.js'
+
+describe('hostOf', () => {
+  it('extracts the host from a full URL, www-stripped and lowercased', () => {
+    expect(hostOf('https://www.Example.com/blog/post?x=1')).toBe('example.com')
+    expect(hostOf('http://News.EXAMPLE.org/a')).toBe('news.example.org')
+  })
+
+  it('accepts bare hostnames', () => {
+    expect(hostOf('Example.com')).toBe('example.com')
+    expect(hostOf('www.sub.example.com')).toBe('sub.example.com')
+  })
+
+  it('returns null for empty or unparseable input', () => {
+    expect(hostOf(null)).toBe(null)
+    expect(hostOf(undefined)).toBe(null)
+    expect(hostOf('')).toBe(null)
+    expect(hostOf('   ')).toBe(null)
+    expect(hostOf('not a url')).toBe(null)
+  })
+})
 
 describe('normalizeUrlPath', () => {
   describe('null and empty inputs', () => {

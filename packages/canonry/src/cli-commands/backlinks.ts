@@ -91,12 +91,18 @@ export const BACKLINKS_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['backlinks', 'sources'],
-    usage: 'canonry backlinks sources <project> [--format json|jsonl]',
-    options: {},
+    usage: 'canonry backlinks sources <project> [--exclude-crawlers] [--format json|jsonl]',
+    options: {
+      'exclude-crawlers': { type: 'boolean' },
+    },
     run: async (input) => {
       const project = requireProject(input, 'backlinks sources',
         'canonry backlinks sources <project>')
-      await backlinksSources({ project, format: input.format })
+      await backlinksSources({
+        project,
+        excludeCrawlers: getBoolean(input.values, 'exclude-crawlers'),
+        format: input.format,
+      })
     },
   },
   {

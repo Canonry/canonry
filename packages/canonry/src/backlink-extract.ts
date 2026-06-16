@@ -14,7 +14,7 @@ import {
   loadDuckdb as defaultLoadDuckdb,
   type BacklinkRow,
 } from '@ainyc/canonry-integration-commoncrawl'
-import { BacklinkSources, CcReleaseSyncStatuses, RunStatuses } from '@ainyc/canonry-contracts'
+import { BacklinkSources, CcReleaseSyncStatuses, RunStatuses, computeBacklinkSummaryMetrics } from '@ainyc/canonry-contracts'
 import { createLogger } from './logger.js'
 
 const log = createLogger('BacklinkExtract')
@@ -165,16 +165,5 @@ interface SummaryMetrics {
 }
 
 function computeSummary(rows: BacklinkRow[]): SummaryMetrics {
-  if (rows.length === 0) {
-    return { totalLinkingDomains: 0, totalHosts: 0, top10HostsShare: '0' }
-  }
-  const sorted = [...rows].sort((a, b) => b.numHosts - a.numHosts)
-  const totalHosts = sorted.reduce((acc, r) => acc + r.numHosts, 0)
-  const top10Hosts = sorted.slice(0, 10).reduce((acc, r) => acc + r.numHosts, 0)
-  const share = totalHosts > 0 ? top10Hosts / totalHosts : 0
-  return {
-    totalLinkingDomains: rows.length,
-    totalHosts,
-    top10HostsShare: share.toFixed(6),
-  }
+  return computeBacklinkSummaryMetrics(rows)
 }

@@ -501,6 +501,7 @@ cnry backlinks releases latest                 # probe Common Crawl for the newe
 cnry backlinks sync                            # Common Crawl: auto-discover + download + query the newest release (workspace-wide)
 cnry backlinks sync --release cc-main-2026-mar-apr-may --wait   # pin a window, block until ready/failed
 cnry backlinks sources <project>               # per-source availability (connected / has-data / latest window / freshness)
+cnry backlinks sources <project> --exclude-crawlers   # availability counts drop crawler/proxy hosts (matches the dashboard)
 cnry backlinks bing-sync <project>             # Bing: pull live inbound links for the project (needs Bing connected)
 cnry backlinks bing-sync <project> --wait      # block until the sync run completes
 cnry backlinks list <project>                  # top linking domains (Common Crawl, default)

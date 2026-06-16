@@ -1,11 +1,13 @@
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import {
+  BacklinkSources,
   CcReleaseSyncStatuses,
   CheckCategories,
   CheckScopes,
   CheckStatuses,
+  type BacklinkSource,
 } from '@ainyc/canonry-contracts'
-import { ccReleaseSyncs, projects } from '@ainyc/canonry-db'
+import { backlinkSummaries, ccReleaseSyncs, projects } from '@ainyc/canonry-db'
 import type { CheckDefinition, CheckOutput } from '../types.js'
 
 function skippedNoProject(): CheckOutput {
@@ -43,9 +45,9 @@ export const BACKLINKS_CHECKS: readonly CheckDefinition[] = [
       // Bing is available when a Bing Webmaster connection exists for the domain.
       const bingConnected = !!ctx.bingConnectionStore?.getConnection(ctx.project.canonicalDomain)
 
-      const connected: string[] = []
-      if (ccConnected) connected.push('commoncrawl')
-      if (bingConnected) connected.push('bing-webmaster')
+      const connected: BacklinkSource[] = []
+      if (ccConnected) connected.push(BacklinkSources.commoncrawl)
+      if (bingConnected) connected.push(BacklinkSources['bing-webmaster'])
 
       if (connected.length === 0) {
         return {
@@ -60,12 +62,29 @@ export const BACKLINKS_CHECKS: readonly CheckDefinition[] = [
         }
       }
 
+      // The Common Crawl release sync is workspace-global, so `ccConnected` can be
+      // true while THIS project has never been extracted. Nudge the per-project
+      // extract rather than silently reporting OK with no data behind it.
+      const ccHasData = ccConnected
+        ? !!ctx.db
+            .select({ id: backlinkSummaries.id })
+            .from(backlinkSummaries)
+            .where(and(
+              eq(backlinkSummaries.projectId, ctx.project.id),
+              eq(backlinkSummaries.source, BacklinkSources.commoncrawl),
+            ))
+            .limit(1)
+            .get()
+        : false
+
       return {
         status: CheckStatuses.ok,
         code: 'backlinks.source.connected',
         summary: `${connected.length} backlink source${connected.length === 1 ? '' : 's'} set up: ${connected.join(', ')}.`,
-        remediation: null,
-        details: { commoncrawl: ccConnected, bingWebmaster: bingConnected, connected },
+        remediation: ccConnected && !ccHasData
+          ? `Common Crawl is ready but no backlinks have been extracted for ${ctx.project.name} yet — run \`canonry backlinks extract ${ctx.project.name}\`.`
+          : null,
+        details: { commoncrawl: ccConnected, bingWebmaster: bingConnected, connected, commoncrawlHasData: ccHasData },
       }
     },
   },

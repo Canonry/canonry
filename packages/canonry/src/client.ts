@@ -2332,9 +2332,16 @@ export class ApiClient {
     )
   }
 
-  async backlinksSources(project: string): Promise<BacklinkSourcesResponseDto> {
+  async backlinksSources(
+    project: string,
+    opts: { excludeCrawlers?: boolean } = {},
+  ): Promise<BacklinkSourcesResponseDto> {
     return this.invoke<BacklinkSourcesResponseDto>(() =>
-      getApiV1ProjectsByNameBacklinksSources({ client: this.heyClient, path: { name: project } }),
+      getApiV1ProjectsByNameBacklinksSources({
+        client: this.heyClient,
+        path: { name: project },
+        query: { excludeCrawlers: opts.excludeCrawlers ? '1' : undefined } as never,
+      }),
     )
   }
 

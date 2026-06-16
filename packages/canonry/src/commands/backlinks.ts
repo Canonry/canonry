@@ -278,8 +278,11 @@ export function formatSourceAvailability(res: BacklinkSourcesResponseDto): strin
   return lines.join('\n')
 }
 
-export async function backlinksSources(opts: FormatOptions & { project: string }): Promise<void> {
-  const res = await getClient().backlinksSources(opts.project)
+export async function backlinksSources(opts: FormatOptions & {
+  project: string
+  excludeCrawlers?: boolean
+}): Promise<void> {
+  const res = await getClient().backlinksSources(opts.project, { excludeCrawlers: opts.excludeCrawlers })
   if (opts.format === 'json') {
     printJson(res)
     return

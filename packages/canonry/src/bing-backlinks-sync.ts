@@ -3,7 +3,7 @@ import { and, eq } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/canonry-db'
 import { backlinkDomains, backlinkSummaries, projects, runs } from '@ainyc/canonry-db'
 import { getLinkCounts, getUrlLinks, type BingInboundLink } from '@ainyc/canonry-integration-bing'
-import { BacklinkSources, RunStatuses } from '@ainyc/canonry-contracts'
+import { BacklinkSources, RunStatuses, computeBacklinkSummaryMetrics, hostOf, type BacklinkSummaryMetrics } from '@ainyc/canonry-contracts'
 import { createLogger } from './logger.js'
 
 const log = createLogger('BingBacklinkSync')
@@ -12,6 +12,18 @@ const log = createLogger('BingBacklinkSync')
 // or more Bing API calls (GetUrlLinks paginates), so this bounds the daily
 // request budget for a deeply-linked site.
 const DEFAULT_MAX_PAGES = 200
+
+// How many GetLinkCounts result pages to walk when enumerating the site's
+// linked pages. This is ONE call-chain for the whole site (cheap), so we walk
+// generously — enough that the most-linked-first slice below selects from the
+// full set rather than a truncated, arbitrarily-ordered 20-page prefix.
+const LINK_COUNTS_MAX_PAGES = 50
+
+// How many GetUrlLinks result pages to walk per site page. This runs once PER
+// pulled site page, so it dominates the request budget and stays modest; a page
+// with more inbound links than this covers has its tail (and thus numHosts)
+// truncated — surfaced via the completion log rather than silently.
+const URL_LINKS_MAX_PAGES = 20
 
 /**
  * Bing inbound links have no native window concept, so each sync is stamped
@@ -22,17 +34,6 @@ const DEFAULT_MAX_PAGES = 200
  */
 export function bingReleaseId(date: Date): string {
   return `bing-${date.toISOString().slice(0, 10)}`
-}
-
-function hostOf(value: string): string | null {
-  const trimmed = value.trim()
-  if (!trimmed) return null
-  try {
-    const url = trimmed.includes('://') ? new URL(trimmed) : new URL(`https://${trimmed}`)
-    return url.hostname.replace(/^www\./, '').toLowerCase()
-  } catch {
-    return null
-  }
 }
 
 export interface AggregatedLinkingDomain {
@@ -70,25 +71,11 @@ export function aggregateInboundLinksByDomain(
     .sort((a, b) => b.numHosts - a.numHosts || a.linkingDomain.localeCompare(b.linkingDomain))
 }
 
-export interface BacklinkSummaryMetrics {
-  totalLinkingDomains: number
-  totalHosts: number
-  top10HostsShare: string
-}
+export type { BacklinkSummaryMetrics }
 
+/** Thin wrapper over the shared {@link computeBacklinkSummaryMetrics} — kept for the Bing call site and tests. */
 export function computeBingSummary(rows: AggregatedLinkingDomain[]): BacklinkSummaryMetrics {
-  if (rows.length === 0) {
-    return { totalLinkingDomains: 0, totalHosts: 0, top10HostsShare: '0' }
-  }
-  const sorted = [...rows].sort((a, b) => b.numHosts - a.numHosts)
-  const totalHosts = sorted.reduce((acc, r) => acc + r.numHosts, 0)
-  const top10Hosts = sorted.slice(0, 10).reduce((acc, r) => acc + r.numHosts, 0)
-  const share = totalHosts > 0 ? top10Hosts / totalHosts : 0
-  return {
-    totalLinkingDomains: rows.length,
-    totalHosts,
-    top10HostsShare: share.toFixed(6),
-  }
+  return computeBacklinkSummaryMetrics(rows)
 }
 
 export interface BingBacklinkSyncDeps {
@@ -143,10 +130,22 @@ export async function executeBingBacklinkSync(
       throw new Error(`Bing connection for ${project.canonicalDomain} has no verified site selected`)
     }
 
-    // 1. The site's pages that have inbound links, with per-page counts.
-    const pages = await deps.getLinkCounts(conn.apiKey, siteUrl)
+    // 1. The site's pages that have inbound links, with per-page counts. Walk
+    // enough GetLinkCounts pages that the most-linked-first slice below sees the
+    // full set rather than an arbitrary 20-page prefix.
+    const pages = await deps.getLinkCounts(conn.apiKey, siteUrl, { maxPages: LINK_COUNTS_MAX_PAGES })
     const maxPages = Math.max(1, opts.maxPages ?? DEFAULT_MAX_PAGES)
     const targetPages = [...pages].sort((a, b) => b.Count - a.Count).slice(0, maxPages)
+    if (pages.length > targetPages.length) {
+      // We pulled inbound links for only the top N most-linked pages; the
+      // remainder's links aren't counted. Visible so the cap isn't silent.
+      log.info('bing-sync.pages-capped', {
+        runId,
+        projectId,
+        sitePagesFound: pages.length,
+        sitePagesPulled: targetPages.length,
+      })
+    }
 
     // 2. The actual external linking URLs for each page. A single page's fetch
     // failing (e.g. a transient Bing error on one URL) degrades the run to
@@ -156,7 +155,7 @@ export async function executeBingBacklinkSync(
     let pageFailures = 0
     for (const page of targetPages) {
       try {
-        const links = await deps.getUrlLinks(conn.apiKey, siteUrl, page.Url)
+        const links = await deps.getUrlLinks(conn.apiKey, siteUrl, page.Url, { maxPages: URL_LINKS_MAX_PAGES })
         allLinks.push(...links)
       } catch (err) {
         pageFailures++
@@ -183,58 +182,75 @@ export async function executeBingBacklinkSync(
     const targetDomain = project.canonicalDomain
     const source = BacklinkSources['bing-webmaster']
 
-    db.transaction((tx) => {
-      tx.delete(backlinkDomains).where(and(
-        eq(backlinkDomains.projectId, projectId),
-        eq(backlinkDomains.source, source),
-        eq(backlinkDomains.release, release),
-      )).run()
+    // Don't let a PARTIAL pull clobber an existing same-day snapshot — that
+    // snapshot may be a complete earlier sync. A partial only writes when the
+    // window is still empty; a complete pull is authoritative and always
+    // replaces. (Common Crawl is all-or-nothing per release; this gives Bing the
+    // same no-regress guard for its synthetic per-day window.)
+    const existing = db.select({ id: backlinkSummaries.id }).from(backlinkSummaries)
+      .where(and(
+        eq(backlinkSummaries.projectId, projectId),
+        eq(backlinkSummaries.source, source),
+        eq(backlinkSummaries.release, release),
+      )).get()
+    const preserveExisting = pageFailures > 0 && !!existing
 
-      if (rows.length > 0) {
-        tx.insert(backlinkDomains).values(rows.map((r) => ({
+    if (!preserveExisting) {
+      db.transaction((tx) => {
+        tx.delete(backlinkDomains).where(and(
+          eq(backlinkDomains.projectId, projectId),
+          eq(backlinkDomains.source, source),
+          eq(backlinkDomains.release, release),
+        )).run()
+
+        if (rows.length > 0) {
+          tx.insert(backlinkDomains).values(rows.map((r) => ({
+            id: crypto.randomUUID(),
+            projectId,
+            releaseSyncId: null,
+            source,
+            release,
+            targetDomain,
+            linkingDomain: r.linkingDomain,
+            numHosts: r.numHosts,
+            createdAt: queriedAt,
+          }))).run()
+        }
+
+        tx.insert(backlinkSummaries).values({
           id: crypto.randomUUID(),
           projectId,
           releaseSyncId: null,
           source,
           release,
           targetDomain,
-          linkingDomain: r.linkingDomain,
-          numHosts: r.numHosts,
-          createdAt: queriedAt,
-        }))).run()
-      }
-
-      tx.insert(backlinkSummaries).values({
-        id: crypto.randomUUID(),
-        projectId,
-        releaseSyncId: null,
-        source,
-        release,
-        targetDomain,
-        totalLinkingDomains: summary.totalLinkingDomains,
-        totalHosts: summary.totalHosts,
-        top10HostsShare: summary.top10HostsShare,
-        queriedAt,
-        createdAt: queriedAt,
-      }).onConflictDoUpdate({
-        target: [backlinkSummaries.projectId, backlinkSummaries.source, backlinkSummaries.release],
-        set: {
-          targetDomain,
           totalLinkingDomains: summary.totalLinkingDomains,
           totalHosts: summary.totalHosts,
           top10HostsShare: summary.top10HostsShare,
           queriedAt,
-        },
-      }).run()
-    })
+          createdAt: queriedAt,
+        }).onConflictDoUpdate({
+          target: [backlinkSummaries.projectId, backlinkSummaries.source, backlinkSummaries.release],
+          set: {
+            targetDomain,
+            totalLinkingDomains: summary.totalLinkingDomains,
+            totalHosts: summary.totalHosts,
+            top10HostsShare: summary.top10HostsShare,
+            queriedAt,
+          },
+        }).run()
+      })
+    }
 
     const finishedAt = deps.now().toISOString()
     const status = pageFailures > 0 ? RunStatuses.partial : RunStatuses.completed
-    const error = pageFailures > 0
-      ? `${pageFailures} of ${targetPages.length} inbound-link page fetches failed`
-      : null
+    const error = preserveExisting
+      ? `Kept existing ${release} snapshot; ${pageFailures} of ${targetPages.length} inbound-link page fetches failed`
+      : pageFailures > 0
+        ? `${pageFailures} of ${targetPages.length} inbound-link page fetches failed`
+        : null
     db.update(runs).set({ status, error, finishedAt }).where(eq(runs.id, runId)).run()
-    log.info('bing-sync.completed', { runId, projectId, release, rows: rows.length, status, pageFailures })
+    log.info('bing-sync.completed', { runId, projectId, release, rows: rows.length, status, pageFailures, preserveExisting })
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err)
     const finishedAt = deps.now().toISOString()

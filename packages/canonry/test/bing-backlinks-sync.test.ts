@@ -311,4 +311,64 @@ describe('executeBingBacklinkSync', () => {
     const rows = db.select().from(backlinkDomains).where(eq(backlinkDomains.projectId, projectId)).all()
     expect(rows).toHaveLength(0)
   })
+
+  it('passes explicit page budgets to the Bing client (no silent 20-page cap)', async () => {
+    const db = freshDb()
+    const { projectId, runId } = seedProjectAndRun(db)
+    let linkCountsOpts: { maxPages?: number } | undefined
+    const urlLinksOpts: Array<{ maxPages?: number } | undefined> = []
+
+    await executeBingBacklinkSync(db, runId, projectId, {
+      resolveConnection: () => ({ apiKey: 'k', siteUrl: 'https://roots.io/' }),
+      deps: {
+        now: FIXED_NOW,
+        getLinkCounts: async (_a, _s, opts) => { linkCountsOpts = opts; return [{ Url: 'https://roots.io/p', Count: 1 }] },
+        getUrlLinks: async (_a, _s, _l, opts) => { urlLinksOpts.push(opts); return [{ Url: 'https://x.com/1', AnchorText: 'q' }] },
+      },
+    })
+
+    // Enumerating the site's pages walks well past the 20-page client default so
+    // the most-linked-first slice isn't selecting from a truncated prefix.
+    expect(linkCountsOpts?.maxPages).toBeGreaterThan(20)
+    // Per-page link pulls carry an explicit budget, not the silent fallback.
+    expect(urlLinksOpts[0]?.maxPages).toBeGreaterThanOrEqual(20)
+  })
+
+  it('a partial re-sync does not clobber an existing same-day snapshot', async () => {
+    const db = freshDb()
+    const { projectId, runId } = seedProjectAndRun(db)
+
+    // First sync: complete, two referring domains.
+    await executeBingBacklinkSync(db, runId, projectId, {
+      resolveConnection: () => ({ apiKey: 'k', siteUrl: 'https://roots.io/' }),
+      deps: {
+        now: FIXED_NOW,
+        getLinkCounts: async () => [{ Url: 'https://roots.io/a', Count: 5 }, { Url: 'https://roots.io/b', Count: 4 }],
+        getUrlLinks: async (_a, _s, link) =>
+          link === 'https://roots.io/a'
+            ? [{ Url: 'https://one.com/x', AnchorText: 'q' }]
+            : [{ Url: 'https://two.com/y', AnchorText: 'q' }],
+      },
+    })
+
+    // Second sync, same UTC day: one page fails → partial. Must preserve the
+    // complete snapshot rather than overwrite it with the shrunken result.
+    await executeBingBacklinkSync(db, runId, projectId, {
+      resolveConnection: () => ({ apiKey: 'k', siteUrl: 'https://roots.io/' }),
+      deps: {
+        now: FIXED_NOW,
+        getLinkCounts: async () => [{ Url: 'https://roots.io/a', Count: 5 }, { Url: 'https://roots.io/b', Count: 4 }],
+        getUrlLinks: async (_a, _s, link) => {
+          if (link === 'https://roots.io/b') throw new Error('bing 500')
+          return [{ Url: 'https://one.com/x', AnchorText: 'q' }]
+        },
+      },
+    })
+
+    const run = db.select().from(runs).where(eq(runs.id, runId)).get()
+    expect(run?.status).toBe('partial')
+    expect(run?.error).toMatch(/Kept existing/)
+    const rows = db.select().from(backlinkDomains).where(eq(backlinkDomains.projectId, projectId)).all()
+    expect(rows.map((r) => r.linkingDomain).sort()).toEqual(['one.com', 'two.com'])
+  })
 })

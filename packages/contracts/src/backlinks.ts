@@ -10,6 +10,36 @@ export const backlinkSourceSchema = z.enum(['commoncrawl', 'bing-webmaster'])
 export type BacklinkSource = z.infer<typeof backlinkSourceSchema>
 export const BacklinkSources = backlinkSourceSchema.enum
 
+export interface BacklinkSummaryMetrics {
+  totalLinkingDomains: number
+  totalHosts: number
+  /** Six-decimal fixed string in [0,1], or '0' for an empty set. */
+  top10HostsShare: string
+}
+
+/**
+ * Headline backlink-summary math shared by every extractor (Common Crawl and
+ * Bing): linking-domain count, aggregate host weight, and the concentration
+ * share of the 10 strongest linking domains. Pure — one source of truth so the
+ * Common Crawl and Bing paths can never drift apart.
+ */
+export function computeBacklinkSummaryMetrics(
+  rows: ReadonlyArray<{ numHosts: number }>,
+): BacklinkSummaryMetrics {
+  if (rows.length === 0) {
+    return { totalLinkingDomains: 0, totalHosts: 0, top10HostsShare: '0' }
+  }
+  const sorted = [...rows].sort((a, b) => b.numHosts - a.numHosts)
+  const totalHosts = sorted.reduce((acc, r) => acc + r.numHosts, 0)
+  const top10Hosts = sorted.slice(0, 10).reduce((acc, r) => acc + r.numHosts, 0)
+  const share = totalHosts > 0 ? top10Hosts / totalHosts : 0
+  return {
+    totalLinkingDomains: rows.length,
+    totalHosts,
+    top10HostsShare: share.toFixed(6),
+  }
+}
+
 export const ccReleaseSyncStatusSchema = z.enum(['queued', 'downloading', 'querying', 'ready', 'failed'])
 export type CcReleaseSyncStatus = z.infer<typeof ccReleaseSyncStatusSchema>
 export const CcReleaseSyncStatuses = ccReleaseSyncStatusSchema.enum
@@ -40,8 +70,8 @@ export type CcReleaseSyncDto = z.infer<typeof ccReleaseSyncDtoSchema>
 export const backlinkDomainDtoSchema = z.object({
   linkingDomain: z.string(),
   // For Common Crawl this is the count of distinct hosts within the linking
-  // domain; for Bing Webmaster it is the count of inbound links from that
-  // linking host. Read alongside `source` — the unit differs per source.
+  // domain; for Bing Webmaster it is the count of distinct linking pages (URLs)
+  // from that linking host. Read alongside `source` — the unit differs per source.
   numHosts: z.number().int(),
   source: backlinkSourceSchema,
 })
@@ -104,7 +134,12 @@ export const backlinkSourceAvailabilityDtoSchema = z.object({
   hasData: z.boolean(),
   /** Latest window id with data for this source, null when none. */
   latestRelease: z.string().nullable(),
-  /** Crawler-filtered linking-domain count in the latest window (matches the dashboard's main view). */
+  /**
+   * Linking-domain count in the latest window. Excludes crawler/proxy hosts only
+   * when the request sets `?excludeCrawlers=1` (default off, matching the summary
+   * and domains endpoints); the dashboard passes it so the switcher pill matches
+   * the metric card.
+   */
   totalLinkingDomains: z.number().int(),
   /** Freshness: `queriedAt` of the latest summary for this source, null when none. */
   lastSyncedAt: z.string().nullable(),

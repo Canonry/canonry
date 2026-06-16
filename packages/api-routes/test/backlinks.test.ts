@@ -858,19 +858,24 @@ describe('Backlinks routes', () => {
       await custom.close()
     })
 
-    it('totalLinkingDomains excludes crawler/proxy hosts so the count matches the dashboard view', async () => {
+    it('totalLinkingDomains is raw by default and crawler-filtered with ?excludeCrawlers=1', async () => {
       insertProject(db, 'p1', 'roots', 'roots.io')
-      // google.com is a filtered crawler host; only real.com should count.
+      // google.com + scholar.google.com are filtered crawler hosts; only real.com is editorial.
       seedSourceData(db, {
         projectId: 'p1', source: 'commoncrawl', release: 'cc-main-2026-jan-feb-mar',
         domains: [['google.com', 100], ['scholar.google.com', 50], ['real.com', 5]],
       })
 
-      const res = await app.inject({ method: 'GET', url: '/projects/roots/backlinks/sources' })
-      const cc = (res.json() as BacklinkSourcesResponseDto).sources.find((s) => s.source === 'commoncrawl')!
-      // Stored summary totalLinkingDomains is 3 (unfiltered), but the surfaced
-      // count drops both google hosts → 1, matching the crawler-filtered view.
-      expect(cc.totalLinkingDomains).toBe(1)
+      // Default: unfiltered — matches the stored summary total and the default
+      // behavior of the summary/domains endpoints.
+      const raw = await app.inject({ method: 'GET', url: '/projects/roots/backlinks/sources' })
+      const ccRaw = (raw.json() as BacklinkSourcesResponseDto).sources.find((s) => s.source === 'commoncrawl')!
+      expect(ccRaw.totalLinkingDomains).toBe(3)
+
+      // excludeCrawlers=1: drops both google hosts → 1, what the dashboard shows.
+      const filtered = await app.inject({ method: 'GET', url: '/projects/roots/backlinks/sources?excludeCrawlers=1' })
+      const ccFiltered = (filtered.json() as BacklinkSourcesResponseDto).sources.find((s) => s.source === 'commoncrawl')!
+      expect(ccFiltered.totalLinkingDomains).toBe(1)
     })
   })
 

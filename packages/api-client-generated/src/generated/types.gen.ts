@@ -8664,7 +8664,12 @@ export type GetApiV1ProjectsByNameBacklinksSourcesData = {
          */
         name: string;
     };
-    query?: never;
+    query?: {
+        /**
+         * When "1"/"true", count linking domains excluding crawler/proxy hosts (matches the dashboard). Default off.
+         */
+        excludeCrawlers?: string;
+    };
     url: '/api/v1/projects/{name}/backlinks/sources';
 };
 

@@ -1788,6 +1788,10 @@ function rebuildBacklinkTableWithSource(
   if (columnExists(tx, table, 'source')) return
 
   if (table === 'backlink_domains') {
+    // Drop any temp table left behind by a crashed/aborted prior apply so a
+    // retry rebuilds cleanly instead of failing on a stale CREATE (v53/v58 do
+    // the same — the bare CREATE would wedge the migration every boot).
+    tx.run(sql.raw(`DROP TABLE IF EXISTS backlink_domains_v78`))
     tx.run(sql.raw(`CREATE TABLE backlink_domains_v78 (
       id               TEXT PRIMARY KEY,
       project_id       TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -1816,6 +1820,7 @@ function rebuildBacklinkTableWithSource(
     return
   }
 
+  tx.run(sql.raw(`DROP TABLE IF EXISTS backlink_summaries_v78`))
   tx.run(sql.raw(`CREATE TABLE backlink_summaries_v78 (
     id                     TEXT PRIMARY KEY,
     project_id             TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,

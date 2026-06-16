@@ -3455,7 +3455,10 @@ const routeCatalog: OpenApiOperation[] = [
     description:
       'Returns connection + data availability for every backlink source (commoncrawl, bing-webmaster) so callers can degrade gracefully across CC-only / Bing-only / both / neither.',
     tags: ['backlinks'],
-    parameters: [nameParameter],
+    parameters: [
+      nameParameter,
+      { name: 'excludeCrawlers', in: 'query', description: 'When "1"/"true", count linking domains excluding crawler/proxy hosts (matches the dashboard). Default off.', schema: stringSchema },
+    ],
     responses: {
       200: jsonResponse('Per-source availability returned.', 'BacklinkSourcesResponse'),
       404: errorResponse('Project not found.'),

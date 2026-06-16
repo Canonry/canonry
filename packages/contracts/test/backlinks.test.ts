@@ -8,7 +8,34 @@ import {
   backlinkListResponseSchema,
   backlinkSourceAvailabilityDtoSchema,
   backlinkSourcesResponseSchema,
+  computeBacklinkSummaryMetrics,
 } from '../src/index.js'
+
+describe('computeBacklinkSummaryMetrics', () => {
+  it('returns zeros and "0" share for no rows', () => {
+    expect(computeBacklinkSummaryMetrics([])).toEqual({
+      totalLinkingDomains: 0,
+      totalHosts: 0,
+      top10HostsShare: '0',
+    })
+  })
+
+  it('sums hosts and rounds the top-10 concentration share to six decimals', () => {
+    const m = computeBacklinkSummaryMetrics([{ numHosts: 60 }, { numHosts: 30 }, { numHosts: 10 }])
+    expect(m.totalLinkingDomains).toBe(3)
+    expect(m.totalHosts).toBe(100)
+    expect(m.top10HostsShare).toBe('1.000000') // all 3 within the top 10
+  })
+
+  it('top-10 share excludes the long tail beyond the 10 strongest', () => {
+    const rows = Array.from({ length: 12 }, (_, i) => ({ numHosts: i + 1 }))
+    // numHosts 1..12, total = 78; top 10 strongest = 12+11+…+3 = 75; share = 75/78.
+    const m = computeBacklinkSummaryMetrics(rows)
+    expect(m.totalLinkingDomains).toBe(12)
+    expect(m.totalHosts).toBe(78)
+    expect(Number(m.top10HostsShare)).toBeCloseTo(75 / 78, 6)
+  })
+})
 
 describe('backlink source enum', () => {
   it('exposes the two sources as enum constants', () => {
