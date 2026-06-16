@@ -1,4 +1,4 @@
-import type { ErrorCode, GroundingSource, ProjectOverviewDto, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto, GscPerformanceDailyDto, IndexingRequestResultDto, MetricsWindow, BrandMetricsDto, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry, InsightDto, ProjectReportDto, ReportAudience, CitationVisibilityResponse, BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinkHistoryEntry, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcAvailableRelease, CcCachedRelease, CcReleaseSyncDto, TrafficSourceDto, TrafficSourceDetailDto, TrafficSourceListResponse, TrafficStatusResponse, TrafficEventsResponse, TrafficConnectCloudRunRequest, TrafficConnectWordpressRequest, TrafficConnectVercelRequest, TrafficSyncResponse, TrafficBackfillResponse, DiscoveryRunRequest, DiscoverySessionDto, DiscoverySessionDetailDto, DiscoveryPromotePreview, DiscoveryPromoteRequest, DiscoveryPromoteResult, ProjectDto, QueryDto, CompetitorDto, LocationContext, GoogleConnectionDto, GscUrlInspectionDto, GscDeindexedRowDto, BingUrlInspectionDto, BingCoverageSummaryDto, BingKeywordStatsDto, BingStatusDto, BingConnectResponseDto, BingSetSiteResponseDto, BingSitesResponseDto, GscSearchDataDto, ContentTargetDismissalDto, ContentTargetDismissRequest, SiteAuditRunResponseDto } from '@ainyc/canonry-contracts'
+import type { ErrorCode, GroundingSource, ProjectOverviewDto, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto, GscPerformanceDailyDto, IndexingRequestResultDto, MetricsWindow, BrandMetricsDto, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry, InsightDto, ProjectReportDto, ReportAudience, CitationVisibilityResponse, BacklinkSource, BacklinkSourcesResponseDto, BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinkHistoryEntry, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcAvailableRelease, CcCachedRelease, CcReleaseSyncDto, TrafficSourceDto, TrafficSourceDetailDto, TrafficSourceListResponse, TrafficStatusResponse, TrafficEventsResponse, TrafficConnectCloudRunRequest, TrafficConnectWordpressRequest, TrafficConnectVercelRequest, TrafficSyncResponse, TrafficBackfillResponse, DiscoveryRunRequest, DiscoverySessionDto, DiscoverySessionDetailDto, DiscoveryPromotePreview, DiscoveryPromoteRequest, DiscoveryPromoteResult, ProjectDto, QueryDto, CompetitorDto, LocationContext, GoogleConnectionDto, GscUrlInspectionDto, GscDeindexedRowDto, BingUrlInspectionDto, BingCoverageSummaryDto, BingKeywordStatsDto, BingStatusDto, BingConnectResponseDto, BingSetSiteResponseDto, BingSitesResponseDto, GscSearchDataDto, ContentTargetDismissalDto, ContentTargetDismissRequest, SiteAuditRunResponseDto } from '@ainyc/canonry-contracts'
 import {
   createClient as createHeyClient,
   // Projects + queries + competitors + locations + runs + apply + settings + telemetry
@@ -120,11 +120,13 @@ import {
   getApiV1ProjectsByNameBacklinksSummary,
   getApiV1ProjectsByNameBacklinksDomains,
   getApiV1ProjectsByNameBacklinksHistory,
+  getApiV1ProjectsByNameBacklinksSources,
   postApiV1ProjectsByNameBacklinksExtract,
+  postApiV1ProjectsByNameBacklinksBingSync,
 } from '@ainyc/canonry-api-client'
 import type { RunDto, RunDetailDto } from '@ainyc/canonry-api-client'
 export type { ProjectOverviewDto }
-export type { BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinkHistoryEntry, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcAvailableRelease, CcCachedRelease, CcReleaseSyncDto }
+export type { BacklinkSource, BacklinkSourcesResponseDto, BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinkHistoryEntry, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcAvailableRelease, CcCachedRelease, CcReleaseSyncDto }
 export type { TrafficSourceDto, TrafficSourceDetailDto, TrafficSourceListResponse, TrafficStatusResponse, TrafficEventsResponse, TrafficConnectCloudRunRequest, TrafficConnectWordpressRequest, TrafficConnectVercelRequest, TrafficSyncResponse, TrafficBackfillResponse }
 export type { DiscoveryRunRequest, DiscoverySessionDto, DiscoverySessionDetailDto, DiscoveryPromotePreview, DiscoveryPromoteRequest, DiscoveryPromoteResult }
 
@@ -1874,7 +1876,7 @@ export function pruneCachedRelease(release: string): Promise<{ ok: boolean }> {
 
 export function fetchBacklinkSummary(
   projectName: string,
-  opts: { release?: string; excludeCrawlers?: boolean } = {},
+  opts: { release?: string; excludeCrawlers?: boolean; source?: BacklinkSource } = {},
 ): Promise<BacklinkSummaryDto | null> {
   return invokeWeb<BacklinkSummaryDto | null>(() =>
     getApiV1ProjectsByNameBacklinksSummary({
@@ -1883,6 +1885,7 @@ export function fetchBacklinkSummary(
       query: {
         release: opts.release,
         excludeCrawlers: opts.excludeCrawlers ? '1' : undefined,
+        source: opts.source,
       } as never,
     }),
   )
@@ -1890,7 +1893,7 @@ export function fetchBacklinkSummary(
 
 export function fetchBacklinkDomains(
   projectName: string,
-  opts: { limit?: number; offset?: number; release?: string; excludeCrawlers?: boolean } = {},
+  opts: { limit?: number; offset?: number; release?: string; excludeCrawlers?: boolean; source?: BacklinkSource } = {},
 ): Promise<BacklinkListResponse> {
   return invokeWeb<BacklinkListResponse>(() =>
     getApiV1ProjectsByNameBacklinksDomains({
@@ -1901,14 +1904,28 @@ export function fetchBacklinkDomains(
         offset: opts.offset !== undefined ? String(opts.offset) : undefined,
         release: opts.release,
         excludeCrawlers: opts.excludeCrawlers ? '1' : undefined,
+        source: opts.source,
       } as never,
     }),
   )
 }
 
-export function fetchBacklinkHistory(projectName: string): Promise<BacklinkHistoryEntry[]> {
+export function fetchBacklinkHistory(
+  projectName: string,
+  opts: { source?: BacklinkSource } = {},
+): Promise<BacklinkHistoryEntry[]> {
   return invokeWeb<BacklinkHistoryEntry[]>(() =>
-    getApiV1ProjectsByNameBacklinksHistory({ client: heyClient, path: { name: projectName } }),
+    getApiV1ProjectsByNameBacklinksHistory({
+      client: heyClient,
+      path: { name: projectName },
+      query: { source: opts.source } as never,
+    }),
+  )
+}
+
+export function fetchBacklinkSources(projectName: string): Promise<BacklinkSourcesResponseDto> {
+  return invokeWeb<BacklinkSourcesResponseDto>(() =>
+    getApiV1ProjectsByNameBacklinksSources({ client: heyClient, path: { name: projectName } }),
   )
 }
 
@@ -1919,5 +1936,11 @@ export function triggerBacklinkExtract(projectName: string, release?: string): P
       path: { name: projectName },
       body: { release: release ?? undefined },
     }),
+  )
+}
+
+export function triggerBingBacklinkSync(projectName: string): Promise<ApiRun> {
+  return invokeWeb<ApiRun>(() =>
+    postApiV1ProjectsByNameBacklinksBingSync({ client: heyClient, path: { name: projectName } }),
   )
 }

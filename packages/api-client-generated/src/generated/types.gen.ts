@@ -141,9 +141,11 @@ export type BacklinkHistoryEntry = {
     totalHosts: number;
     top10HostsShare: string;
     queriedAt: string;
+    source: 'commoncrawl' | 'bing-webmaster';
 };
 
 export type BacklinkListResponse = {
+    source: 'commoncrawl' | 'bing-webmaster';
     summary: {
         projectId: string;
         release: string;
@@ -152,6 +154,7 @@ export type BacklinkListResponse = {
         totalHosts: number;
         top10HostsShare: string;
         queriedAt: string;
+        source: 'commoncrawl' | 'bing-webmaster';
         excludedLinkingDomains?: number;
         excludedHosts?: number;
     } | null;
@@ -159,7 +162,23 @@ export type BacklinkListResponse = {
     rows: Array<{
         linkingDomain: string;
         numHosts: number;
+        source: 'commoncrawl' | 'bing-webmaster';
     }>;
+};
+
+export type BacklinkSourcesResponse = {
+    projectId: string;
+    targetDomain: string;
+    sources: Array<{
+        source: 'commoncrawl' | 'bing-webmaster';
+        connected: boolean;
+        hasData: boolean;
+        latestRelease: string | null;
+        totalLinkingDomains: number;
+        lastSyncedAt: string | null;
+    }>;
+    anyConnected: boolean;
+    anyData: boolean;
 };
 
 export type BacklinkSummaryDto = {
@@ -170,6 +189,7 @@ export type BacklinkSummaryDto = {
     totalHosts: number;
     top10HostsShare: string;
     queriedAt: string;
+    source: 'commoncrawl' | 'bing-webmaster';
     excludedLinkingDomains?: number;
     excludedHosts?: number;
 };
@@ -8528,6 +8548,10 @@ export type GetApiV1ProjectsByNameBacklinksSummaryData = {
          * Release id filter.
          */
         release?: string;
+        /**
+         * Backlink source: commoncrawl (default) or bing-webmaster.
+         */
+        source?: string;
     };
     url: '/api/v1/projects/{name}/backlinks/summary';
 };
@@ -8571,6 +8595,10 @@ export type GetApiV1ProjectsByNameBacklinksDomainsData = {
          * Pagination offset.
          */
         offset?: string;
+        /**
+         * Backlink source: commoncrawl (default) or bing-webmaster.
+         */
+        source?: string;
     };
     url: '/api/v1/projects/{name}/backlinks/domains';
 };
@@ -8601,7 +8629,12 @@ export type GetApiV1ProjectsByNameBacklinksHistoryData = {
          */
         name: string;
     };
-    query?: never;
+    query?: {
+        /**
+         * Backlink source: commoncrawl (default) or bing-webmaster.
+         */
+        source?: string;
+    };
     url: '/api/v1/projects/{name}/backlinks/history';
 };
 
@@ -8622,6 +8655,74 @@ export type GetApiV1ProjectsByNameBacklinksHistoryResponses = {
 };
 
 export type GetApiV1ProjectsByNameBacklinksHistoryResponse = GetApiV1ProjectsByNameBacklinksHistoryResponses[keyof GetApiV1ProjectsByNameBacklinksHistoryResponses];
+
+export type GetApiV1ProjectsByNameBacklinksSourcesData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/backlinks/sources';
+};
+
+export type GetApiV1ProjectsByNameBacklinksSourcesErrors = {
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameBacklinksSourcesError = GetApiV1ProjectsByNameBacklinksSourcesErrors[keyof GetApiV1ProjectsByNameBacklinksSourcesErrors];
+
+export type GetApiV1ProjectsByNameBacklinksSourcesResponses = {
+    /**
+     * Per-source availability returned.
+     */
+    200: BacklinkSourcesResponse;
+};
+
+export type GetApiV1ProjectsByNameBacklinksSourcesResponse = GetApiV1ProjectsByNameBacklinksSourcesResponses[keyof GetApiV1ProjectsByNameBacklinksSourcesResponses];
+
+export type PostApiV1ProjectsByNameBacklinksBingSyncData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/backlinks/bing-sync';
+};
+
+export type PostApiV1ProjectsByNameBacklinksBingSyncErrors = {
+    /**
+     * No Bing Webmaster connection for this project.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Bing backlinks sync is not available on this deployment.
+     */
+    422: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameBacklinksBingSyncError = PostApiV1ProjectsByNameBacklinksBingSyncErrors[keyof PostApiV1ProjectsByNameBacklinksBingSyncErrors];
+
+export type PostApiV1ProjectsByNameBacklinksBingSyncResponses = {
+    /**
+     * Bing sync run queued.
+     */
+    201: RunDto;
+};
+
+export type PostApiV1ProjectsByNameBacklinksBingSyncResponse = PostApiV1ProjectsByNameBacklinksBingSyncResponses[keyof PostApiV1ProjectsByNameBacklinksBingSyncResponses];
 
 export type PostApiV1ProjectsByNameTrafficConnectCloudRunData = {
     body: {

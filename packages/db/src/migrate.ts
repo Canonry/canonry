@@ -1744,7 +1744,108 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `CREATE INDEX IF NOT EXISTS idx_ads_insights_project_date ON ads_insights_daily(project_id, date)`,
     ],
   },
+  {
+    // Bing Webmaster inbound links land in the SAME backlink store as Common
+    // Crawl, tagged by a `source` discriminator (commoncrawl | bing-webmaster).
+    // Bing rows have no `cc_release_syncs` row, so `release_sync_id` becomes
+    // nullable and the per-window UNIQUE gains `source`. SQLite can't drop a
+    // NOT NULL or rewrite a UNIQUE in place — canonical table rebuild (the
+    // v58/v60 pattern). Guarded on the `source` column's absence so a replay
+    // over the already-migrated schema is a no-op (the hardcoded
+    // `source='commoncrawl'` backfill must never clobber real bing rows).
+    version: 78,
+    name: 'backlinks-source-discriminator',
+    statements: [],
+    run: (tx) => {
+      addBacklinkSourceDiscriminator(tx)
+    },
+  },
 ]
+
+/**
+ * Rebuilds a backlink table to add the `source` discriminator, make
+ * `release_sync_id` nullable, and widen the per-window UNIQUE to include
+ * `source`. No-op when the table already carries `source` (replay-safe).
+ *
+ * The copy hardcodes `source='commoncrawl'` — every pre-v78 row is a Common
+ * Crawl row — so it must NOT run over an already-migrated table that may hold
+ * real `bing-webmaster` rows. The `columnExists` guard guarantees that.
+ *
+ * Defensive copy guards (mirroring v58/v60): rows whose `project_id` no longer
+ * resolves are dropped (the new column stays NOT NULL); a `release_sync_id`
+ * that dangles (pre-FK era / a write with PRAGMA foreign_keys=OFF) is nulled
+ * rather than failing the now-validated FK.
+ */
+function rebuildBacklinkTableWithSource(
+  tx: MigrationDb,
+  table: 'backlink_domains' | 'backlink_summaries',
+): void {
+  // The backlink tables are created in v41 (not the bootstrap block), so a DB
+  // that recorded a later version without ever running v41 (a synthetic legacy
+  // fixture, or a partial install) may not have them yet. Nothing to rebuild —
+  // a real upgrade always ran v41 first, so the table exists when it matters.
+  if (!tableExists(tx, table)) return
+  if (columnExists(tx, table, 'source')) return
+
+  if (table === 'backlink_domains') {
+    tx.run(sql.raw(`CREATE TABLE backlink_domains_v78 (
+      id               TEXT PRIMARY KEY,
+      project_id       TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      release_sync_id  TEXT REFERENCES cc_release_syncs(id) ON DELETE CASCADE,
+      source           TEXT NOT NULL DEFAULT 'commoncrawl',
+      release          TEXT NOT NULL,
+      target_domain    TEXT NOT NULL,
+      linking_domain   TEXT NOT NULL,
+      num_hosts        INTEGER NOT NULL,
+      created_at       TEXT NOT NULL
+    )`))
+    tx.run(sql.raw(`INSERT INTO backlink_domains_v78
+        (id, project_id, release_sync_id, source, release, target_domain, linking_domain, num_hosts, created_at)
+      SELECT bd.id, bd.project_id,
+             CASE WHEN bd.release_sync_id IN (SELECT id FROM cc_release_syncs) THEN bd.release_sync_id ELSE NULL END,
+             'commoncrawl', bd.release, bd.target_domain, bd.linking_domain, bd.num_hosts, bd.created_at
+      FROM backlink_domains bd
+      WHERE bd.project_id IN (SELECT id FROM projects)`))
+    tx.run(sql.raw(`DROP TABLE backlink_domains`))
+    tx.run(sql.raw(`ALTER TABLE backlink_domains_v78 RENAME TO backlink_domains`))
+    tx.run(sql.raw(`CREATE INDEX IF NOT EXISTS idx_backlink_domains_project ON backlink_domains(project_id)`))
+    tx.run(sql.raw(`CREATE INDEX IF NOT EXISTS idx_backlink_domains_release_sync ON backlink_domains(release_sync_id)`))
+    tx.run(sql.raw(`CREATE INDEX IF NOT EXISTS idx_backlink_domains_project_release ON backlink_domains(project_id, release)`))
+    tx.run(sql.raw(`CREATE INDEX IF NOT EXISTS idx_backlink_domains_hosts ON backlink_domains(num_hosts)`))
+    tx.run(sql.raw(`CREATE UNIQUE INDEX IF NOT EXISTS idx_backlink_domains_unique ON backlink_domains(project_id, source, release, linking_domain)`))
+    return
+  }
+
+  tx.run(sql.raw(`CREATE TABLE backlink_summaries_v78 (
+    id                     TEXT PRIMARY KEY,
+    project_id             TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    release_sync_id        TEXT REFERENCES cc_release_syncs(id) ON DELETE CASCADE,
+    source                 TEXT NOT NULL DEFAULT 'commoncrawl',
+    release                TEXT NOT NULL,
+    target_domain          TEXT NOT NULL,
+    total_linking_domains  INTEGER NOT NULL,
+    total_hosts            INTEGER NOT NULL,
+    top_10_hosts_share     TEXT NOT NULL,
+    queried_at             TEXT NOT NULL,
+    created_at             TEXT NOT NULL
+  )`))
+  tx.run(sql.raw(`INSERT INTO backlink_summaries_v78
+      (id, project_id, release_sync_id, source, release, target_domain, total_linking_domains, total_hosts, top_10_hosts_share, queried_at, created_at)
+    SELECT bs.id, bs.project_id,
+           CASE WHEN bs.release_sync_id IN (SELECT id FROM cc_release_syncs) THEN bs.release_sync_id ELSE NULL END,
+           'commoncrawl', bs.release, bs.target_domain, bs.total_linking_domains, bs.total_hosts, bs.top_10_hosts_share, bs.queried_at, bs.created_at
+    FROM backlink_summaries bs
+    WHERE bs.project_id IN (SELECT id FROM projects)`))
+  tx.run(sql.raw(`DROP TABLE backlink_summaries`))
+  tx.run(sql.raw(`ALTER TABLE backlink_summaries_v78 RENAME TO backlink_summaries`))
+  tx.run(sql.raw(`CREATE UNIQUE INDEX IF NOT EXISTS idx_backlink_summaries_project_release ON backlink_summaries(project_id, source, release)`))
+  tx.run(sql.raw(`CREATE INDEX IF NOT EXISTS idx_backlink_summaries_project ON backlink_summaries(project_id)`))
+}
+
+function addBacklinkSourceDiscriminator(tx: MigrationDb): void {
+  rebuildBacklinkTableWithSource(tx, 'backlink_domains')
+  rebuildBacklinkTableWithSource(tx, 'backlink_summaries')
+}
 
 /**
  * Returns true only when an error (or its cause chain) represents a SQLite

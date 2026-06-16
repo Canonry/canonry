@@ -17,7 +17,7 @@ import {
   queryBacklinks,
   type BacklinkRow,
 } from '@ainyc/canonry-integration-commoncrawl'
-import { CcReleaseSyncStatuses } from '@ainyc/canonry-contracts'
+import { BacklinkSources, CcReleaseSyncStatuses } from '@ainyc/canonry-contracts'
 import { createLogger } from './logger.js'
 
 const log = createLogger('CommonCrawlSync')
@@ -160,6 +160,7 @@ export async function executeReleaseSync(
           id: crypto.randomUUID(),
           projectId: p.id,
           releaseSyncId: syncId,
+          source: BacklinkSources.commoncrawl,
           release,
           targetDomain: p.canonicalDomain,
           totalLinkingDomains: summary.totalLinkingDomains,
@@ -168,7 +169,7 @@ export async function executeReleaseSync(
           queriedAt,
           createdAt: queriedAt,
         }).onConflictDoUpdate({
-          target: [backlinkSummaries.projectId, backlinkSummaries.release],
+          target: [backlinkSummaries.projectId, backlinkSummaries.source, backlinkSummaries.release],
           set: {
             releaseSyncId: syncId,
             targetDomain: p.canonicalDomain,

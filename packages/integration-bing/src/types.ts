@@ -67,6 +67,26 @@ export interface BingCrawlIssue {
   IssueType?: string
 }
 
+/**
+ * One inbound link to a page on the connected site, from Bing's `GetUrlLinks`
+ * `LinkDetails.Details[]`. `Url` is the EXTERNAL linking page; `AnchorText` is
+ * the link text Bing observed. Field names follow Bing's JSON payload exactly.
+ */
+export interface BingInboundLink {
+  Url: string
+  AnchorText?: string
+}
+
+/**
+ * One of the connected site's pages that has inbound links, from Bing's
+ * `GetLinkCounts` `LinkCounts.Links[]`. `Url` is a page ON your site; `Count`
+ * is the number of inbound links Bing attributes to it.
+ */
+export interface BingLinkCount {
+  Url: string
+  Count: number
+}
+
 export interface BingSubmitUrlResponse {
   d?: null
 }

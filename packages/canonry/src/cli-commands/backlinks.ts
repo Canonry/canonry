@@ -1,4 +1,5 @@
 import {
+  backlinksBingSync,
   backlinksCachePrune,
   backlinksDoctor,
   backlinksExtract,
@@ -6,8 +7,10 @@ import {
   backlinksLatestRelease,
   backlinksList,
   backlinksReleases,
+  backlinksSources,
   backlinksStatus,
   backlinksSync,
+  parseSourceFlag,
 } from '../commands/backlinks.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
 import {
@@ -61,15 +64,16 @@ export const BACKLINKS_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['backlinks', 'list'],
-    usage: 'canonry backlinks list <project> [--limit <n>] [--release <id>] [--exclude-crawlers] [--format json]',
+    usage: 'canonry backlinks list <project> [--source commoncrawl|bing-webmaster] [--limit <n>] [--release <id>] [--exclude-crawlers] [--format json|jsonl]',
     options: {
       limit: stringOption(),
       release: stringOption(),
+      source: stringOption(),
       'exclude-crawlers': { type: 'boolean' },
     },
     run: async (input) => {
       const project = requireProject(input, 'backlinks list',
-        'canonry backlinks list <project> [--limit <n>] [--release <id>] [--exclude-crawlers]')
+        'canonry backlinks list <project> [--source commoncrawl|bing-webmaster] [--limit <n>] [--release <id>] [--exclude-crawlers]')
       const limit = parseIntegerOption(input, 'limit', {
         message: '--limit must be an integer',
         usage: 'canonry backlinks list <project> --limit <n>',
@@ -79,7 +83,34 @@ export const BACKLINKS_CLI_COMMANDS: readonly CliCommandSpec[] = [
         project,
         limit,
         release: getString(input.values, 'release'),
+        source: parseSourceFlag(getString(input.values, 'source')),
         excludeCrawlers: getBoolean(input.values, 'exclude-crawlers'),
+        format: input.format,
+      })
+    },
+  },
+  {
+    path: ['backlinks', 'sources'],
+    usage: 'canonry backlinks sources <project> [--format json|jsonl]',
+    options: {},
+    run: async (input) => {
+      const project = requireProject(input, 'backlinks sources',
+        'canonry backlinks sources <project>')
+      await backlinksSources({ project, format: input.format })
+    },
+  },
+  {
+    path: ['backlinks', 'bing-sync'],
+    usage: 'canonry backlinks bing-sync <project> [--wait] [--format json]',
+    options: {
+      wait: { type: 'boolean' },
+    },
+    run: async (input) => {
+      const project = requireProject(input, 'backlinks bing-sync',
+        'canonry backlinks bing-sync <project> [--wait]')
+      await backlinksBingSync({
+        project,
+        wait: getBoolean(input.values, 'wait'),
         format: input.format,
       })
     },

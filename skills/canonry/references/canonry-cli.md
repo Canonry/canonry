@@ -483,29 +483,36 @@ cnry schedule set <project> --kind ads-sync --preset daily
 `ads sync` runs report `completed` / `partial` (some campaigns failed; per-campaign errors on the run) / `failed`. Doctor checks: `ads.auth.connection`, `ads.data.recent-sync` (both skipped when not connected).
 
 
-## Backlinks (Common Crawl)
+## Backlinks (source-aware: Common Crawl + Bing Webmaster)
 
-Workspace-level Common Crawl release sync + per-project backlink extraction. Requires DuckDB; install once with `cnry backlinks install`. Releases are downloaded once per workspace and reused across all projects.
+Backlinks are **source-aware** — every read takes a `--source commoncrawl|bing-webmaster` filter (default `commoncrawl`) and rows are tagged with their source:
 
-Common Crawl publishes the hyperlink graph as **rolling, monthly-stepped, overlapping 3-month windows** named by the window's first month's year: `cc-main-YYYY-<mon>-<mon>-<mon>` (e.g. `cc-main-2026-mar-apr-may`). Omit `--release` to auto-discover the newest published window; the legacy fixed-quarter slugs (`jan-feb-mar`, …) still resolve since they're a subset of the cadence.
+- **Common Crawl** — free public hyperlink graph, ~monthly. Workspace-level release sync + per-project extract. Requires DuckDB (install once with `cnry backlinks install`). Releases download once per workspace and reuse across projects.
+- **Bing Webmaster** — live first-party inbound links from a connected Bing account (`cnry bing connect <project> --api-key <key>`). Per-project; pull with `cnry backlinks bing-sync`.
+
+Common Crawl publishes the hyperlink graph as **rolling, monthly-stepped, overlapping 3-month windows** named by the window's first month's year: `cc-main-YYYY-<mon>-<mon>-<mon>` (e.g. `cc-main-2026-mar-apr-may`). Omit `--release` to auto-discover the newest published window. Bing windows are synthetic per-UTC-day snapshots (`bing-YYYY-MM-DD`).
 
 ```bash
-cnry backlinks install                         # install bundled DuckDB binary
+cnry backlinks install                         # install bundled DuckDB binary (Common Crawl only)
 cnry backlinks doctor                          # show install + plugin status
-cnry backlinks status                          # latest workspace release sync
+cnry backlinks status                          # latest workspace Common Crawl release sync
 cnry backlinks releases                        # list cached releases on disk
 cnry backlinks releases latest                 # probe Common Crawl for the newest published rolling window
-cnry backlinks sync                            # auto-discover + download + query the newest release (workspace-wide)
-cnry backlinks sync --release cc-main-2026-mar-apr-may   # pin a specific rolling window
-cnry backlinks sync --release <id> --wait      # block until ready/failed
-cnry backlinks list <project>                  # top linking domains for the project
+cnry backlinks sync                            # Common Crawl: auto-discover + download + query the newest release (workspace-wide)
+cnry backlinks sync --release cc-main-2026-mar-apr-may --wait   # pin a window, block until ready/failed
+cnry backlinks sources <project>               # per-source availability (connected / has-data / latest window / freshness)
+cnry backlinks bing-sync <project>             # Bing: pull live inbound links for the project (needs Bing connected)
+cnry backlinks bing-sync <project> --wait      # block until the sync run completes
+cnry backlinks list <project>                  # top linking domains (Common Crawl, default)
+cnry backlinks list <project> --source bing-webmaster   # top linking domains from Bing inbound links
 cnry backlinks list <project> --limit 100 --release <id>
-cnry backlinks extract <project>               # re-extract this project against the latest ready release
-cnry backlinks extract <project> --release <id> --wait
+cnry backlinks extract <project> --release <id> --wait  # Common Crawl: re-extract against a ready release
 cnry backlinks cache prune --release <id>      # delete cached release files from disk
 ```
 
-All commands support `--format json`. A release sync has statuses `queued` → `downloading` → `querying` → `ready` / `failed`. Per-project extract runs use the standard run statuses (`queued` → `running` → `completed` / `failed`). Projects with the `autoExtractBacklinks` setting enabled get an extract run enqueued automatically when a release sync transitions to `ready`.
+All commands support `--format json`; collection commands (`list`, `sources`, `releases`) also support `--format jsonl`. A Common Crawl release sync has statuses `queued` → `downloading` → `querying` → `ready` / `failed`. Per-project extract / Bing-sync runs use the standard run statuses (`queued` → `running` → `completed` / `failed`). Projects with `autoExtractBacklinks` enabled get a Common Crawl extract enqueued automatically when a release sync transitions to `ready`; Bing-connected projects with a `backlinks-sync` schedule get a Bing pull each tick.
+
+**`jsonl` output schema:** `backlinks list` streams `rows` (each `{ project, release, targetDomain, linkingDomain, numHosts, source }`); `backlinks sources` streams the per-source availability list (`{ project, targetDomain, source, connected, hasData, latestRelease, totalLinkingDomains, lastSyncedAt }`); `backlinks releases` streams cached-release rows bare.
 
 To keep backlinks fresh automatically, schedule a `backlinks-sync` kind (`cnry schedule set <project> --kind backlinks-sync --preset weekly`): each tick re-probes Common Crawl and runs the workspace release sync **only when a newer rolling window is published** (it skips when the newest `ready` sync already covers the latest release, so it never re-downloads a near-identical window).
 

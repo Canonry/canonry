@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest'
 import {
   formatCachedReleases,
   formatInstallStatus,
+  formatSourceAvailability,
   formatSummaryAndDomains,
   formatSync,
+  parseSourceFlag,
 } from '../src/commands/backlinks.js'
 
 describe('backlinks formatters', () => {
@@ -48,20 +50,36 @@ describe('backlinks formatters', () => {
     expect(out).toContain('Domains:  1200')
   })
 
-  it('renders an empty-summary message when no ready release', () => {
+  it('renders an empty-summary message when no ready release (commoncrawl)', () => {
     const out = formatSummaryAndDomains('roots', {
+      source: 'commoncrawl',
       summary: null,
       total: 0,
       rows: [],
     })
     expect(out).toContain('No ready release')
     expect(out).toContain('roots')
+    expect(out).toContain('Source:  commoncrawl')
+  })
+
+  it('renders a Bing-specific empty hint when the bing source has no data', () => {
+    const out = formatSummaryAndDomains('roots', {
+      source: 'bing-webmaster',
+      summary: null,
+      total: 0,
+      rows: [],
+    })
+    expect(out).toContain('Source:  bing-webmaster')
+    expect(out).toContain('backlinks bing-sync')
+    expect(out).not.toContain('No ready release')
   })
 
   it('renders summary with top domains block when rows present', () => {
     const out = formatSummaryAndDomains('roots', {
+      source: 'commoncrawl',
       summary: {
         projectId: 'p1',
+        source: 'commoncrawl',
         release: 'cc-main-2026-jan-feb-mar',
         targetDomain: 'roots.io',
         totalLinkingDomains: 2,
@@ -71,8 +89,8 @@ describe('backlinks formatters', () => {
       },
       total: 2,
       rows: [
-        { linkingDomain: 'github.com', numHosts: 1000 },
-        { linkingDomain: 'reddit.com', numHosts: 500 },
+        { linkingDomain: 'github.com', numHosts: 1000, source: 'commoncrawl' },
+        { linkingDomain: 'reddit.com', numHosts: 500, source: 'commoncrawl' },
       ],
     })
     expect(out).toContain('cc-main-2026-jan-feb-mar')
@@ -95,5 +113,55 @@ describe('backlinks formatters', () => {
     expect(out).toContain('cc-main-2026-jan-feb-mar')
     expect(out).toContain('ready')
     expect(out).toContain('unknown')
+  })
+})
+
+describe('parseSourceFlag', () => {
+  it('returns undefined when omitted (API defaults to commoncrawl)', () => {
+    expect(parseSourceFlag(undefined)).toBeUndefined()
+  })
+
+  it('passes through the two known sources', () => {
+    expect(parseSourceFlag('commoncrawl')).toBe('commoncrawl')
+    expect(parseSourceFlag('bing-webmaster')).toBe('bing-webmaster')
+  })
+
+  it('throws a usage error on an unknown source', () => {
+    expect(() => parseSourceFlag('ahrefs')).toThrow(/Invalid --source/)
+  })
+})
+
+describe('formatSourceAvailability', () => {
+  it('shows both sources and an onboarding hint when neither is connected', () => {
+    const out = formatSourceAvailability({
+      projectId: 'roots',
+      targetDomain: 'roots.io',
+      anyConnected: false,
+      anyData: false,
+      sources: [
+        { source: 'commoncrawl', connected: false, hasData: false, latestRelease: null, totalLinkingDomains: 0, lastSyncedAt: null },
+        { source: 'bing-webmaster', connected: false, hasData: false, latestRelease: null, totalLinkingDomains: 0, lastSyncedAt: null },
+      ],
+    })
+    expect(out).toContain('commoncrawl')
+    expect(out).toContain('bing-webmaster')
+    expect(out).toContain('No backlink source is set up')
+    expect(out).toContain('canonry bing connect')
+  })
+
+  it('shows connected + data and no onboarding hint when a source is set up', () => {
+    const out = formatSourceAvailability({
+      projectId: 'roots',
+      targetDomain: 'roots.io',
+      anyConnected: true,
+      anyData: true,
+      sources: [
+        { source: 'commoncrawl', connected: true, hasData: true, latestRelease: 'cc-main-2026-jan-feb-mar', totalLinkingDomains: 42, lastSyncedAt: '2026-06-01T00:00:00Z' },
+        { source: 'bing-webmaster', connected: false, hasData: false, latestRelease: null, totalLinkingDomains: 0, lastSyncedAt: null },
+      ],
+    })
+    expect(out).toContain('cc-main-2026-jan-feb-mar')
+    expect(out).toContain('42')
+    expect(out).not.toContain('No backlink source is set up')
   })
 })

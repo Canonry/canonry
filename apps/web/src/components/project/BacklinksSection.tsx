@@ -66,11 +66,13 @@ import { isTerminalRunStatus } from '../../lib/run-tracker-store.js'
 import {
   fetchBacklinkDomains,
   fetchBacklinkHistory,
+  fetchBacklinkSources,
   fetchBacklinkSummary,
   fetchLatestReleaseSync,
   fetchProjectRuns,
   fetchRunDetail,
   triggerBacklinkExtract,
+  triggerBingBacklinkSync,
   ApiError,
 } from '../../api.js'
 import type {
@@ -78,11 +80,25 @@ import type {
   BacklinkDomainDto,
   BacklinkHistoryEntry,
   BacklinkListResponse,
+  BacklinkSource,
+  BacklinkSourcesResponseDto,
   BacklinkSummaryDto,
   CcReleaseSyncDto,
 } from '../../api.js'
 
 const PAGE_SIZE = 50
+
+const SOURCE_LABELS: Record<BacklinkSource, string> = {
+  commoncrawl: 'Common Crawl',
+  'bing-webmaster': 'Bing Webmaster',
+}
+
+// One-line freshness/methodology note per source — Common Crawl is a ~monthly
+// public hyperlink-graph release; Bing is a live first-party inbound-link feed.
+const SOURCE_FRESHNESS: Record<BacklinkSource, string> = {
+  commoncrawl: 'Common Crawl hyperlink graph · refreshes ~monthly when a release sync completes',
+  'bing-webmaster': 'Bing Webmaster Tools · live inbound links from your connected account',
+}
 
 function publicPath(path: string): string {
   if (typeof window === 'undefined') return path
@@ -129,6 +145,8 @@ function formatElapsed(startedAt: string | null, createdAt: string): string {
 }
 
 export function BacklinksSection({ projectName }: { projectName: string }) {
+  const [sources, setSources] = useState<BacklinkSourcesResponseDto | null>(null)
+  const [selectedSource, setSelectedSource] = useState<BacklinkSource>('commoncrawl')
   const [summary, setSummary] = useState<BacklinkSummaryDto | null>(null)
   const [list, setList] = useState<BacklinkListResponse | null>(null)
   const [history, setHistory] = useState<BacklinkHistoryEntry[]>([])
@@ -139,27 +157,32 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
   const [offset, setOffset] = useState(0)
   const [loading, setLoading] = useState(true)
   const [extracting, setExtracting] = useState(false)
+  const [bingSyncing, setBingSyncing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const lastActiveIdRef = useRef<string | null>(null)
+  const userPickedSourceRef = useRef(false)
 
   const loadData = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const [sync, sum, rows, hist, runs] = await Promise.all([
+      const [avail, sync, sum, rows, hist, runs] = await Promise.all([
+        fetchBacklinkSources(projectName).catch(() => null),
         fetchLatestReleaseSync().catch(() => null),
-        fetchBacklinkSummary(projectName, { excludeCrawlers: true }).catch(() => null),
+        fetchBacklinkSummary(projectName, { excludeCrawlers: true, source: selectedSource }).catch(() => null),
         fetchBacklinkDomains(projectName, {
           limit: PAGE_SIZE,
           offset,
           excludeCrawlers: true,
+          source: selectedSource,
         }).catch((err: unknown) => {
           if (err instanceof ApiError && err.code === 'NOT_FOUND') return null
           throw err
         }),
-        fetchBacklinkHistory(projectName).catch(() => [] as BacklinkHistoryEntry[]),
+        fetchBacklinkHistory(projectName, { source: selectedSource }).catch(() => [] as BacklinkHistoryEntry[]),
         fetchProjectRuns(projectName).catch(() => [] as ApiRun[]),
       ])
+      setSources(avail)
       setLatestSync(sync)
       setSummary(sum)
       setList(rows)
@@ -172,9 +195,26 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
     } finally {
       setLoading(false)
     }
-  }, [projectName, offset])
+  }, [projectName, offset, selectedSource])
 
   useEffect(() => { void loadData() }, [loadData])
+
+  // Auto-select a sensible default source once availability loads — prefer a
+  // source that actually has data, else a connected one, else leave it on
+  // Common Crawl. Runs only until the operator picks a source themselves.
+  useEffect(() => {
+    if (!sources || userPickedSourceRef.current) return
+    const withData = sources.sources.find((s) => s.hasData)
+    const connected = sources.sources.find((s) => s.connected)
+    const next = withData?.source ?? connected?.source
+    if (next && next !== selectedSource) setSelectedSource(next)
+  }, [sources, selectedSource])
+
+  function pickSource(source: BacklinkSource) {
+    userPickedSourceRef.current = true
+    setOffset(0)
+    setSelectedSource(source)
+  }
 
   // Poll the active extract run until it reaches a terminal state.
   useEffect(() => {
@@ -235,6 +275,22 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
     }
   }
 
+  async function handleBingSync() {
+    setBingSyncing(true)
+    setError(null)
+    try {
+      const run = await triggerBingBacklinkSync(projectName)
+      // Bing sync runs reuse the backlink-extract kind, so the existing
+      // active-run poller picks them up and refreshes the table on completion.
+      setActiveRun(run)
+      lastActiveIdRef.current = run.id
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to trigger Bing sync')
+    } finally {
+      setBingSyncing(false)
+    }
+  }
+
   const chartData = useMemo(() => {
     return history
       .slice()
@@ -264,7 +320,9 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
           <h2>Referring domains</h2>
           <p className="text-sm text-zinc-500 mt-1 max-w-2xl">
             Domains linking to {' '}
-            <span className="text-zinc-300">{projectName}</span>, extracted from the Common Crawl hyperlink graph. Updates when a release sync completes — no live scraping, no paid API.
+            <span className="text-zinc-300">{projectName}</span>, from whichever source you have set up — the{' '}
+            <span className="text-zinc-300">Common Crawl</span> hyperlink graph (~monthly) and{' '}
+            <span className="text-zinc-300">Bing Webmaster</span> inbound links (live).
           </p>
         </div>
       </div>
@@ -325,14 +383,146 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
   )
 
   function renderBody() {
-    if (loading) {
+    if (loading || !sources) {
       return (
         <Card className="surface-card p-6">
           <p className="text-sm text-zinc-500">Loading backlinks…</p>
         </Card>
       )
     }
+    // Neither source set up → the instructive onboarding state.
+    if (!sources.anyConnected && !sources.anyData) {
+      return renderOnboarding()
+    }
+    return (
+      <>
+        {renderSourceSwitcher(sources)}
+        {selectedSource === 'bing-webmaster' ? renderBingBody() : renderCommonCrawlBody()}
+      </>
+    )
+  }
 
+  function renderSourceSwitcher(avail: BacklinkSourcesResponseDto) {
+    return (
+      <div className="flex items-center gap-2 mb-4 flex-wrap" role="tablist" aria-label="Backlink source">
+        {avail.sources.map((s) => {
+          const active = s.source === selectedSource
+          const dot = s.hasData ? 'bg-emerald-500' : s.connected ? 'bg-amber-500' : 'bg-zinc-600'
+          return (
+            <button
+              key={s.source}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              onClick={() => pickSource(s.source)}
+              className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500 ${
+                active
+                  ? 'border-zinc-500 bg-zinc-800 text-zinc-100'
+                  : 'border-zinc-800 bg-zinc-900/40 text-zinc-400 hover:text-zinc-200'
+              }`}
+            >
+              <span className={`h-1.5 w-1.5 rounded-full ${dot}`} aria-hidden />
+              {SOURCE_LABELS[s.source]}
+              {s.hasData && <span className="text-zinc-500 tabular-nums">{formatNumber(s.totalLinkingDomains)}</span>}
+            </button>
+          )
+        })}
+      </div>
+    )
+  }
+
+  function renderOnboarding() {
+    return (
+      <Card className="surface-card p-6">
+        <div className="flex items-start gap-4">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-zinc-900 text-zinc-400">
+            <Link2 className="h-5 w-5" aria-hidden />
+          </div>
+          <div className="flex-1">
+            <h3 className="text-base font-semibold text-zinc-100">No backlink source set up yet</h3>
+            <p className="text-sm text-zinc-500 mt-1 max-w-2xl">
+              Connect at least one source to see which domains link to{' '}
+              <code className="text-zinc-300">{projectName}</code>:
+            </p>
+            <ul className="mt-3 space-y-2 text-sm text-zinc-400">
+              <li>
+                <span className="text-zinc-200">Common Crawl</span> — free public hyperlink graph, refreshes ~monthly.
+                Enable backlinks and run a workspace release sync.
+              </li>
+              <li>
+                <span className="text-zinc-200">Bing Webmaster</span> — live inbound links from your verified site.
+                Connect a Bing Webmaster account, then sync.
+              </li>
+            </ul>
+            <div className="mt-4 flex items-center gap-3 flex-wrap">
+              <Button asChild type="button" size="sm">
+                <a href={publicPath('/backlinks')}>Set up Common Crawl</a>
+              </Button>
+            </div>
+            <p className="mt-3 text-xs text-zinc-500">
+              Connect Bing with{' '}
+              <code className="text-zinc-400">canonry bing connect {projectName} --api-key &lt;key&gt;</code>.
+            </p>
+          </div>
+        </div>
+      </Card>
+    )
+  }
+
+  function renderBingBody() {
+    const bing = sources?.sources.find((s) => s.source === 'bing-webmaster')
+    const connected = bing?.connected ?? false
+    const hasData = summary !== null && summary.totalLinkingDomains > 0
+
+    if (!hasData) {
+      return (
+        <Card className="surface-card p-6">
+          <div className="flex items-start gap-4">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-zinc-900 text-zinc-400">
+              <Link2 className="h-5 w-5" aria-hidden />
+            </div>
+            <div className="flex-1">
+              {connected ? (
+                <>
+                  <h3 className="text-base font-semibold text-zinc-100">No Bing inbound links yet</h3>
+                  <p className="text-sm text-zinc-500 mt-1">
+                    Bing Webmaster is connected for <code className="text-zinc-300">{projectName}</code> but no inbound
+                    links have been synced yet. Run a sync to pull them live from your account.
+                  </p>
+                  <div className="mt-4">
+                    <Button type="button" size="sm" disabled={bingSyncing || activeRun !== null} onClick={asyncHandler(handleBingSync)}>
+                      <Play className="h-4 w-4 mr-1.5" aria-hidden />
+                      {activeRun ? 'Sync running…' : bingSyncing ? 'Queuing…' : 'Sync Bing inbound links'}
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <h3 className="text-base font-semibold text-zinc-100">Bing Webmaster not connected</h3>
+                  <p className="text-sm text-zinc-500 mt-1">
+                    Connect a Bing Webmaster account for <code className="text-zinc-300">{projectName}</code> to pull
+                    live inbound links, then sync.
+                  </p>
+                  <pre className="mt-3 rounded bg-zinc-900 border border-zinc-800 px-3 py-2 text-xs text-zinc-300 overflow-x-auto">
+                    canonry bing connect {projectName} --api-key &lt;key&gt;
+                  </pre>
+                </>
+              )}
+            </div>
+          </div>
+        </Card>
+      )
+    }
+
+    return renderDataView(
+      <Button type="button" variant="outline" size="sm" disabled={bingSyncing || activeRun !== null} onClick={asyncHandler(handleBingSync)}>
+        <Download className="h-4 w-4 mr-1.5" aria-hidden />
+        {activeRun ? 'Sync running…' : bingSyncing ? 'Queuing…' : 'Re-sync Bing'}
+      </Button>,
+    )
+  }
+
+  function renderCommonCrawlBody() {
     const hasSummary = summary !== null && summary.totalLinkingDomains > 0
     const justFailed = justCompletedRun?.status === 'failed'
     const hasEmptySummary = summary !== null && summary.totalLinkingDomains === 0 && !justFailed
@@ -467,6 +657,37 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
       )
     }
 
+    return renderDataView(
+      <>
+        <Button type="button" variant="outline" size="sm" disabled={extracting || activeRun !== null} onClick={asyncHandler(handleExtract)}>
+          <Download className="h-4 w-4 mr-1.5" aria-hidden />
+          {activeRun ? 'Extract running…' : extracting ? 'Queuing…' : 'Re-run extract'}
+        </Button>
+        <Hint label="What does Re-run extract do?">
+          <span className="block">
+            Re-queries the <span className="text-zinc-200">cached release files</span> at{' '}
+            <code className="text-zinc-300">~/.canonry/cache/commoncrawl/</code> for <span className="text-zinc-200">{projectName}</span>. Replaces existing backlink rows for this project under the current release.
+          </span>
+          <span className="mt-2 block text-zinc-400">
+            <span className="text-zinc-200">No re-download</span> of the ~16 GB dump. Typically <span className="text-zinc-200">~5 min</span>.
+          </span>
+        </Hint>
+        <Button asChild type="button" variant="outline" size="sm">
+          <a href={publicPath('/backlinks')}>Open admin</a>
+        </Button>
+      </>,
+    )
+  }
+
+  // Shared summary + chart + table for whichever source is selected. `summary`,
+  // `list`, and `history` are already source-filtered by loadData; only the
+  // labels/freshness note and the action buttons vary per source.
+  function renderDataView(actions: ReactNode) {
+    if (!summary) return null
+    const isBing = selectedSource === 'bing-webmaster'
+    const countLabel = isBing ? 'Inbound links' : 'Linking hosts'
+    const countNoun = isBing ? 'inbound links' : 'linking hosts'
+    const windowNoun = isBing ? 'window' : 'release'
     return (
       <>
         <div className="gauge-row">
@@ -478,31 +699,33 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
             <p className="metric-card-sub">unique domains linking to {summary.targetDomain}</p>
           </div>
           <div className="metric-card">
-            <p className="metric-card-eyebrow">Total linking hosts</p>
+            <p className="metric-card-eyebrow">Total {countNoun}</p>
             <p className="metric-card-big-value">
               <span className="text-zinc-50">{formatNumber(summary.totalHosts)}</span>
             </p>
-            <p className="metric-card-sub">aggregate host count across referring domains</p>
+            <p className="metric-card-sub">aggregate {countNoun} across referring domains</p>
           </div>
           <div className="metric-card">
             <p className="metric-card-eyebrow">Top-10 concentration</p>
             <p className="metric-card-big-value">
               <span className="text-zinc-50">{formatPct(summary.top10HostsShare)}</span>
             </p>
-            <p className="metric-card-sub">share of hosts from the 10 largest linking domains</p>
+            <p className="metric-card-sub">share of {countNoun} from the 10 largest linking domains</p>
           </div>
         </div>
 
         <p className="text-xs text-zinc-600 mt-2">
-          Release <code className="text-zinc-400">{summary.release}</code> · queried {relativeTime(summary.queriedAt)}
+          <span className="text-zinc-400">{SOURCE_LABELS[selectedSource]}</span> · {windowNoun}{' '}
+          <code className="text-zinc-400">{summary.release}</code> · queried {relativeTime(summary.queriedAt)}
           {hiddenCount > 0 && (
             <> · <span className="text-zinc-500">{hiddenCount} crawler/proxy domain{hiddenCount === 1 ? '' : 's'} hidden</span></>
           )}
         </p>
+        <p className="text-[11px] text-zinc-600 mt-0.5">{SOURCE_FRESHNESS[selectedSource]}</p>
 
         {chartData.length >= 2 && (
           <Card className="surface-card p-4 mt-4">
-            <p className="eyebrow eyebrow-soft">Referring domains over releases</p>
+            <p className="eyebrow eyebrow-soft">Referring domains over time</p>
             <div className="h-40 mt-2">
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={chartData} margin={{ top: 8, right: 12, bottom: 0, left: 12 }}>
@@ -548,7 +771,7 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
               <thead>
                 <tr className="border-b border-zinc-800 text-left text-xs uppercase tracking-wide text-zinc-600">
                   <th className="px-4 py-2 font-medium">Domain</th>
-                  <th className="px-4 py-2 text-right font-medium">Linking hosts</th>
+                  <th className="px-4 py-2 text-right font-medium">{countLabel}</th>
                 </tr>
               </thead>
               <tbody>
@@ -561,8 +784,8 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
                 {pageRows.length === 0 && (
                   <tr><td className="px-4 py-4 text-sm text-zinc-500" colSpan={2}>
                     {hiddenCount > 0 && visibleTotal === 0
-                      ? `Every referring domain in this release was a crawler/proxy host (${hiddenCount} hidden).`
-                      : 'No referring domains in this release.'}
+                      ? `Every referring domain in this ${windowNoun} was a crawler/proxy host (${hiddenCount} hidden).`
+                      : `No referring domains in this ${windowNoun}.`}
                   </td></tr>
                 )}
               </tbody>
@@ -593,22 +816,7 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
         </div>
 
         <div className="mt-4 flex items-center gap-3 flex-wrap">
-          <Button type="button" variant="outline" size="sm" disabled={extracting || activeRun !== null} onClick={asyncHandler(handleExtract)}>
-            <Download className="h-4 w-4 mr-1.5" aria-hidden />
-            {activeRun ? 'Extract running…' : extracting ? 'Queuing…' : 'Re-run extract'}
-          </Button>
-          <Hint label="What does Re-run extract do?">
-            <span className="block">
-              Re-queries the <span className="text-zinc-200">cached release files</span> at{' '}
-              <code className="text-zinc-300">~/.canonry/cache/commoncrawl/</code> for <span className="text-zinc-200">{projectName}</span>. Replaces existing backlink rows for this project under the current release.
-            </span>
-            <span className="mt-2 block text-zinc-400">
-              <span className="text-zinc-200">No re-download</span> of the ~16 GB dump. Typically <span className="text-zinc-200">~5 min</span>.
-            </span>
-          </Hint>
-          <Button asChild type="button" variant="outline" size="sm">
-            <a href={publicPath('/backlinks')}>Open admin</a>
-          </Button>
+          {actions}
         </div>
       </>
     )

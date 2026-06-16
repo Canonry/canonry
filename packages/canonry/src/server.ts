@@ -70,6 +70,7 @@ import { executeBingInspectSitemap } from './bing-inspect-sitemap.js'
 import { maybeRefreshGscCoverage } from './coverage-refresh.js'
 import { executeReleaseSync } from './commoncrawl-sync.js'
 import { executeBacklinkExtract } from './backlink-extract.js'
+import { executeBingBacklinkSync } from './bing-backlinks-sync.js'
 import { executeDiscoveryRun } from './discovery-run.js'
 import { executeSiteAudit } from './execute-site-audit.js'
 import { backfillProjectAnswerMentions } from './commands/backfill.js'
@@ -84,7 +85,7 @@ import {
   pruneCachedRelease,
   readInstalledVersion,
 } from '@ainyc/canonry-integration-commoncrawl'
-import { ccReleaseSyncs as ccReleaseSyncsTable } from '@ainyc/canonry-db'
+import { ccReleaseSyncs as ccReleaseSyncsTable, projects as projectsTable } from '@ainyc/canonry-db'
 import { ProviderRegistry } from './provider-registry.js'
 import { Scheduler } from './scheduler.js'
 import { refreshAllIntegrations } from './data-refresh.js'
@@ -667,6 +668,20 @@ export async function createServer(opts: {
           )
         })
       })()
+
+      // Bing inbound links are per-project and live (not release-gated), so pull
+      // them independently of the workspace Common Crawl probe — but only when
+      // the project actually has a Bing Webmaster connection, to keep CC-only
+      // projects quiet. POST /backlinks/bing-sync owns the run + executor.
+      const project = opts.db.select().from(projectsTable).where(eq(projectsTable.name, projectName)).get()
+      if (project && bingConnectionStore.getConnection(project.canonicalDomain)) {
+        aeroClient.backlinksBingSync(projectName).catch((err: unknown) => {
+          app.log.error(
+            { projectName, err: err instanceof Error ? err.message : String(err) },
+            'Scheduled Bing backlinks sync failed',
+          )
+        })
+      }
     },
     onSiteAuditRequested: (runId, projectId) => {
       // The scheduler already created the site-audit run row; run the same
@@ -1353,6 +1368,13 @@ export async function createServer(opts: {
     onBacklinkExtractRequested: (runId: string, projectId: string, release?: string) => {
       executeBacklinkExtract(opts.db, runId, projectId, { release }).catch((err: unknown) => {
         app.log.error({ runId, err }, 'Backlink extract failed')
+      })
+    },
+    onBingBacklinkSyncRequested: (runId: string, projectId: string) => {
+      executeBingBacklinkSync(opts.db, runId, projectId, {
+        resolveConnection: (domain) => bingConnectionStore.getConnection(domain),
+      }).catch((err: unknown) => {
+        app.log.error({ runId, err }, 'Bing backlink sync failed')
       })
     },
     onDiscoveryRunRequested: (input) => {
