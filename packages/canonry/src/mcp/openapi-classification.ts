@@ -211,8 +211,14 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'GET /api/v1/backlinks/latest-release': 'included',
   'DELETE /api/v1/backlinks/cache/{release}': 'deferred',
   'POST /api/v1/projects/{name}/backlinks/extract': 'deferred',
+  // Per-project Bing inbound-links sync trigger. Deferred like the Common Crawl
+  // sync/extract triggers: a write that kicks a background job and needs
+  // source-specific setup (a connected Bing account). Agents read the result via
+  // canonry_backlinks_domains / canonry_backlinks_sources.
+  'POST /api/v1/projects/{name}/backlinks/bing-sync': 'deferred',
   'GET /api/v1/projects/{name}/backlinks/summary': 'deferred',
   'GET /api/v1/projects/{name}/backlinks/domains': 'included',
+  'GET /api/v1/projects/{name}/backlinks/sources': 'included',
   'GET /api/v1/projects/{name}/backlinks/history': 'deferred',
   'GET /api/v1/projects/{name}/agent/transcript': 'deferred',
   'DELETE /api/v1/projects/{name}/agent/transcript': 'included',

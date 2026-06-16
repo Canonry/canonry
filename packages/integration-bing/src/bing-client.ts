@@ -1,12 +1,26 @@
-import { BING_WMT_API_BASE, BING_SUBMIT_URL_BATCH_LIMIT, BING_SUBMIT_URL_DAILY_LIMIT, BING_REQUEST_TIMEOUT_MS } from './constants.js'
+import { BING_WMT_API_BASE, BING_SUBMIT_URL_BATCH_LIMIT, BING_SUBMIT_URL_DAILY_LIMIT, BING_REQUEST_TIMEOUT_MS, BING_LINKS_MAX_PAGES } from './constants.js'
 import type {
   BingSite,
   BingUrlInfo,
   BingKeywordStats,
   BingCrawlStats,
   BingCrawlIssue,
+  BingInboundLink,
+  BingLinkCount,
 } from './types.js'
 import { BingApiError } from './types.js'
+
+/** Raw `GetLinkCounts` (`LinkCounts`) payload — the array lives under `Links`. */
+interface BingLinkCountsResponse {
+  Links?: BingLinkCount[] | null
+  TotalPages?: number
+}
+
+/** Raw `GetUrlLinks` (`LinkDetails`) payload — the array lives under `Details`. */
+interface BingLinkDetailsResponse {
+  Details?: BingInboundLink[] | null
+  TotalPages?: number
+}
 
 function validateApiKey(apiKey: string): void {
   if (!apiKey || typeof apiKey !== 'string' || apiKey.trim().length === 0) {
@@ -199,4 +213,82 @@ export async function getCrawlIssues(apiKey: string, siteUrl: string): Promise<B
   const encodedSite = encodeURIComponent(siteUrl)
   const data = await bingFetch<BingCrawlIssue[]>(apiKey, `GetCrawlIssues?siteUrl=${encodedSite}`)
   return data ?? []
+}
+
+/**
+ * Lists the connected site's pages that have inbound links, with the inbound
+ * count per page (Bing `GetLinkCounts`). Auto-paginates across `TotalPages`,
+ * bounded by `opts.maxPages` (default {@link BING_LINKS_MAX_PAGES}) so a site
+ * with a deep link graph can't exhaust the Bing daily request budget in one
+ * call. Returns a flat list across all walked pages.
+ */
+export async function getLinkCounts(
+  apiKey: string,
+  siteUrl: string,
+  opts: { maxPages?: number } = {},
+): Promise<BingLinkCount[]> {
+  validateApiKey(apiKey)
+  validateSiteUrl(siteUrl)
+  const encodedSite = encodeURIComponent(siteUrl)
+  const maxPages = Math.max(1, opts.maxPages ?? BING_LINKS_MAX_PAGES)
+
+  // Bing paginates these link endpoints with a 0-INDEXED `page` (first page = 0;
+  // valid pages 0..TotalPages-1), so starting at 0 and looping while
+  // page < totalPages covers every page with no last-page drop. Verified against
+  // the merj reference client (typed `page: NonNegativeInt = 0`) and a recorded
+  // GetLinkCounts response (request `?page=0`) — a live multi-page capture on a
+  // real property is still the gold standard for full-coverage behavior.
+  const out: BingLinkCount[] = []
+  let page = 0
+  let totalPages = 1
+  while (page < totalPages && page < maxPages) {
+    const data = await bingFetch<BingLinkCountsResponse>(apiKey, `GetLinkCounts?siteUrl=${encodedSite}&page=${page}`)
+    for (const link of data?.Links ?? []) {
+      if (link && typeof link.Url === 'string') {
+        out.push({ Url: link.Url, Count: Number(link.Count ?? 0) })
+      }
+    }
+    totalPages = Number(data?.TotalPages ?? 1) || 1
+    page++
+  }
+  return out
+}
+
+/**
+ * Returns the inbound links pointing at a specific page (`link`) on the
+ * connected site (Bing `GetUrlLinks`). Each entry carries the external linking
+ * URL plus its anchor text. Auto-paginates across `TotalPages`, bounded by
+ * `opts.maxPages` (default {@link BING_LINKS_MAX_PAGES}).
+ */
+export async function getUrlLinks(
+  apiKey: string,
+  siteUrl: string,
+  link: string,
+  opts: { maxPages?: number } = {},
+): Promise<BingInboundLink[]> {
+  validateApiKey(apiKey)
+  validateSiteUrl(siteUrl)
+  validateUrl(link)
+  const encodedSite = encodeURIComponent(siteUrl)
+  const encodedLink = encodeURIComponent(link)
+  const maxPages = Math.max(1, opts.maxPages ?? BING_LINKS_MAX_PAGES)
+
+  // GetUrlLinks uses the same 0-indexed `page` as GetLinkCounts (see the note there).
+  const out: BingInboundLink[] = []
+  let page = 0
+  let totalPages = 1
+  while (page < totalPages && page < maxPages) {
+    const data = await bingFetch<BingLinkDetailsResponse>(
+      apiKey,
+      `GetUrlLinks?siteUrl=${encodedSite}&link=${encodedLink}&page=${page}`,
+    )
+    for (const detail of data?.Details ?? []) {
+      if (detail && typeof detail.Url === 'string') {
+        out.push({ Url: detail.Url, AnchorText: detail.AnchorText })
+      }
+    }
+    totalPages = Number(data?.TotalPages ?? 1) || 1
+    page++
+  }
+  return out
 }

@@ -17,6 +17,7 @@ import {
   projectConfigSchema,
   projectUpsertRequestSchema,
   runTriggerRequestSchema,
+  backlinkSourceSchema,
   schedulableRunKindSchema,
   scheduleUpsertRequestSchema,
   trafficConnectCloudRunRequestSchema,
@@ -286,7 +287,12 @@ const contentMapInputSchema = z.object({
 const backlinksDomainsInputSchema = z.object({
   project: projectNameSchema,
   limit: z.number().int().positive().max(200).optional().describe('Max linking-domain rows. Default 50, max 200.'),
-  release: z.string().optional().describe('Common Crawl release id (e.g., cc-main-2026-jan-feb-mar). Omit for the most recent release with data.'),
+  release: z.string().optional().describe('Window id (Common Crawl release e.g. cc-main-2026-jan-feb-mar, or Bing window e.g. bing-2026-06-15). Omit for the most recent window with data.'),
+  source: backlinkSourceSchema.optional().describe('Backlink source: commoncrawl (default) or bing-webmaster.'),
+})
+
+const backlinksSourcesInputSchema = z.object({
+  project: projectNameSchema,
 })
 
 const memoryUpsertInputSchema = z.object({
@@ -830,7 +836,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_backlinks_domains',
     title: 'List backlink domains',
-    description: 'Backlink summary and top linking domains from the most recent ready Common Crawl release for a project. Off-site authority signal that correlates with citation likelihood. Returns null summary when no release sync has completed for this workspace.',
+    description: 'Source-aware backlink summary + top linking domains for a project. `source=commoncrawl` (default) reads the most recent ready Common Crawl release; `source=bing-webmaster` reads the latest live Bing Webmaster inbound-link window. Off-site authority signal that correlates with citation likelihood. Returns null summary when the source has no data yet.',
     access: 'read',
     tier: 'setup',
     inputSchema: backlinksDomainsInputSchema,
@@ -839,7 +845,19 @@ export const canonryMcpTools = [
     handler: (client, input) => client.backlinksDomains(input.project, {
       limit: input.limit ?? 50,
       release: input.release,
+      source: input.source,
     }),
+  }),
+  defineTool({
+    name: 'canonry_backlinks_sources',
+    title: 'Backlink source availability',
+    description: 'Reports which backlink sources are set up for a project (commoncrawl, bing-webmaster): connected, has data, latest window, linking-domain count, and freshness. Use to decide whether to read CC vs Bing or prompt the operator to connect a source.',
+    access: 'read',
+    tier: 'setup',
+    inputSchema: backlinksSourcesInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/backlinks/sources'],
+    handler: (client, input) => client.backlinksSources(input.project),
   }),
   defineTool({
     name: 'canonry_settings_get',

@@ -49,6 +49,7 @@ const expectedToolNames = [
   'canonry_schedule_get',
   'canonry_backlinks_latest_release',
   'canonry_backlinks_domains',
+  'canonry_backlinks_sources',
   'canonry_settings_get',
   'canonry_google_connections_list',
   'canonry_gsc_performance',
@@ -130,8 +131,8 @@ const expectedToolNames = [
 
 describe('MCP tool registry', () => {
   it('ships the curated v1 surface', () => {
-    expect(CANONRY_MCP_TOOL_COUNT).toBe(110)
-    expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(73)
+    expect(CANONRY_MCP_TOOL_COUNT).toBe(111)
+    expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(74)
     expect(canonryMcpTools.map(tool => tool.name)).toEqual(expectedToolNames)
     const readNames = canonryMcpTools.filter(tool => tool.access === 'read').map(tool => tool.name)
     expect(getCanonryMcpTools('read-only').map(tool => tool.name)).toEqual(readNames)
@@ -168,7 +169,7 @@ describe('MCP tool registry', () => {
       counts.set(tool.tier, (counts.get(tool.tier) ?? 0) + 1)
     }
     expect(counts.get('monitoring')).toBe(24)
-    expect(counts.get('setup')).toBe(23)
+    expect(counts.get('setup')).toBe(24)
     expect(counts.get('gsc')).toBe(8)
     expect(counts.get('ga')).toBe(8)
     expect(counts.get('gbp')).toBe(12)
@@ -611,6 +612,7 @@ const handlerCases: HandlerCase[] = [
   { tool: 'canonry_content_sources', input: projectInput, methods: ['getContentSources'] },
   { tool: 'canonry_content_gaps', input: projectInput, methods: ['getContentGaps'] },
   { tool: 'canonry_backlinks_domains', input: { project: 'acme', limit: 50 }, methods: ['backlinksDomains'] },
+  { tool: 'canonry_backlinks_sources', input: { project: 'acme' }, methods: ['backlinksSources'] },
   { tool: 'canonry_memory_list', input: projectInput, methods: ['listAgentMemory'] },
   { tool: 'canonry_memory_set', input: { project: 'acme', key: 'pref', value: 'note' }, methods: ['setAgentMemory'] },
   { tool: 'canonry_memory_forget', input: { project: 'acme', key: 'pref' }, methods: ['forgetAgentMemory'] },

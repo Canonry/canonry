@@ -71,6 +71,8 @@ import type {
   AgentProvidersResponse,
   BacklinkHistoryEntry,
   BacklinkListResponse,
+  BacklinkSource,
+  BacklinkSourcesResponseDto,
   BacklinkSummaryDto,
   BacklinksInstallResultDto,
   BacklinksInstallStatusDto,
@@ -327,9 +329,11 @@ import {
   getApiV1BacklinksReleases,
   deleteApiV1BacklinksCacheByRelease,
   postApiV1ProjectsByNameBacklinksExtract,
+  postApiV1ProjectsByNameBacklinksBingSync,
   getApiV1ProjectsByNameBacklinksSummary,
   getApiV1ProjectsByNameBacklinksDomains,
   getApiV1ProjectsByNameBacklinksHistory,
+  getApiV1ProjectsByNameBacklinksSources,
 } from '@ainyc/canonry-api-client'
 
 export type { BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto, AuditLogEntry, CompetitorDto, KeywordDto, QueryDto }
@@ -2319,9 +2323,31 @@ export class ApiClient {
     )
   }
 
+  async backlinksBingSync(project: string): Promise<RunDto> {
+    return this.invoke<RunDto>(() =>
+      postApiV1ProjectsByNameBacklinksBingSync({
+        client: this.heyClient,
+        path: { name: project },
+      }),
+    )
+  }
+
+  async backlinksSources(
+    project: string,
+    opts: { excludeCrawlers?: boolean } = {},
+  ): Promise<BacklinkSourcesResponseDto> {
+    return this.invoke<BacklinkSourcesResponseDto>(() =>
+      getApiV1ProjectsByNameBacklinksSources({
+        client: this.heyClient,
+        path: { name: project },
+        query: { excludeCrawlers: opts.excludeCrawlers ? '1' : undefined } as never,
+      }),
+    )
+  }
+
   async backlinksSummary(
     project: string,
-    opts: { release?: string; excludeCrawlers?: boolean } = {},
+    opts: { release?: string; excludeCrawlers?: boolean; source?: BacklinkSource } = {},
   ): Promise<BacklinkSummaryDto | null> {
     return this.invoke<BacklinkSummaryDto | null>(() =>
       getApiV1ProjectsByNameBacklinksSummary({
@@ -2330,6 +2356,7 @@ export class ApiClient {
         query: {
           release: opts.release,
           excludeCrawlers: opts.excludeCrawlers ? '1' : undefined,
+          source: opts.source,
         } as never,
       }),
     )
@@ -2337,7 +2364,7 @@ export class ApiClient {
 
   async backlinksDomains(
     project: string,
-    opts: { limit?: number; offset?: number; release?: string; excludeCrawlers?: boolean } = {},
+    opts: { limit?: number; offset?: number; release?: string; excludeCrawlers?: boolean; source?: BacklinkSource } = {},
   ): Promise<BacklinkListResponse> {
     return this.invoke<BacklinkListResponse>(() =>
       getApiV1ProjectsByNameBacklinksDomains({
@@ -2348,14 +2375,19 @@ export class ApiClient {
           offset: opts.offset,
           release: opts.release,
           excludeCrawlers: opts.excludeCrawlers ? '1' : undefined,
+          source: opts.source,
         } as never,
       }),
     )
   }
 
-  async backlinksHistory(project: string): Promise<BacklinkHistoryEntry[]> {
+  async backlinksHistory(project: string, opts: { source?: BacklinkSource } = {}): Promise<BacklinkHistoryEntry[]> {
     return this.invoke<BacklinkHistoryEntry[]>(() =>
-      getApiV1ProjectsByNameBacklinksHistory({ client: this.heyClient, path: { name: project } }),
+      getApiV1ProjectsByNameBacklinksHistory({
+        client: this.heyClient,
+        path: { name: project },
+        query: { source: opts.source } as never,
+      }),
     )
   }
 }

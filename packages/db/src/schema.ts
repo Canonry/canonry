@@ -1,5 +1,5 @@
 import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
-import type { ContentBriefDto, DiscoveryCompetitorMapEntry, DiscoveryCompetitorType, LocationContext, ProviderName, SiteAuditCrossCuttingIssueDto, SiteAuditFactorSummaryDto, SiteAuditPageFactorDto } from '@ainyc/canonry-contracts'
+import type { BacklinkSource, ContentBriefDto, DiscoveryCompetitorMapEntry, DiscoveryCompetitorType, LocationContext, ProviderName, SiteAuditCrossCuttingIssueDto, SiteAuditFactorSummaryDto, SiteAuditPageFactorDto } from '@ainyc/canonry-contracts'
 
 export const projects = sqliteTable('projects', {
   id: text('id').primaryKey(),
@@ -598,7 +598,9 @@ export const ccReleaseSyncs = sqliteTable('cc_release_syncs', {
 export const backlinkDomains = sqliteTable('backlink_domains', {
   id: text('id').primaryKey(),
   projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
-  releaseSyncId: text('release_sync_id').notNull().references(() => ccReleaseSyncs.id, { onDelete: 'cascade' }),
+  // Nullable: Bing Webmaster backlink rows have no Common Crawl release sync.
+  releaseSyncId: text('release_sync_id').references(() => ccReleaseSyncs.id, { onDelete: 'cascade' }),
+  source: text('source').$type<BacklinkSource>().notNull().default('commoncrawl'),
   release: text('release').notNull(),
   targetDomain: text('target_domain').notNull(),
   linkingDomain: text('linking_domain').notNull(),
@@ -609,13 +611,15 @@ export const backlinkDomains = sqliteTable('backlink_domains', {
   index('idx_backlink_domains_release_sync').on(table.releaseSyncId),
   index('idx_backlink_domains_project_release').on(table.projectId, table.release),
   index('idx_backlink_domains_hosts').on(table.numHosts),
-  uniqueIndex('idx_backlink_domains_unique').on(table.projectId, table.release, table.linkingDomain),
+  uniqueIndex('idx_backlink_domains_unique').on(table.projectId, table.source, table.release, table.linkingDomain),
 ])
 
 export const backlinkSummaries = sqliteTable('backlink_summaries', {
   id: text('id').primaryKey(),
   projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
-  releaseSyncId: text('release_sync_id').notNull().references(() => ccReleaseSyncs.id, { onDelete: 'cascade' }),
+  // Nullable: Bing Webmaster summaries have no Common Crawl release sync.
+  releaseSyncId: text('release_sync_id').references(() => ccReleaseSyncs.id, { onDelete: 'cascade' }),
+  source: text('source').$type<BacklinkSource>().notNull().default('commoncrawl'),
   release: text('release').notNull(),
   targetDomain: text('target_domain').notNull(),
   totalLinkingDomains: integer('total_linking_domains').notNull(),
@@ -624,7 +628,7 @@ export const backlinkSummaries = sqliteTable('backlink_summaries', {
   queriedAt: text('queried_at').notNull(),
   createdAt: text('created_at').notNull(),
 }, (table) => [
-  uniqueIndex('idx_backlink_summaries_project_release').on(table.projectId, table.release),
+  uniqueIndex('idx_backlink_summaries_project_release').on(table.projectId, table.source, table.release),
   index('idx_backlink_summaries_project').on(table.projectId),
 ])
 

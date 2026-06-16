@@ -3408,6 +3408,7 @@ const routeCatalog: OpenApiOperation[] = [
     parameters: [
       nameParameter,
       { name: 'release', in: 'query', description: 'Release id filter.', schema: stringSchema },
+      { name: 'source', in: 'query', description: 'Backlink source: commoncrawl (default) or bing-webmaster.', schema: stringSchema },
     ],
     responses: {
       200: rawJsonResponse('Summary returned, or null when no backlinks exist.', {
@@ -3426,6 +3427,7 @@ const routeCatalog: OpenApiOperation[] = [
       { name: 'release', in: 'query', description: 'Release id filter.', schema: stringSchema },
       { name: 'limit', in: 'query', description: 'Max results (1-500).', schema: stringSchema },
       { name: 'offset', in: 'query', description: 'Pagination offset.', schema: stringSchema },
+      { name: 'source', in: 'query', description: 'Backlink source: commoncrawl (default) or bing-webmaster.', schema: stringSchema },
     ],
     responses: {
       200: jsonResponse('Domain list returned.', 'BacklinkListResponse'),
@@ -3437,10 +3439,44 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/backlinks/history',
     summary: 'Get per-release backlink summaries for a project',
     tags: ['backlinks'],
-    parameters: [nameParameter],
+    parameters: [
+      nameParameter,
+      { name: 'source', in: 'query', description: 'Backlink source: commoncrawl (default) or bing-webmaster.', schema: stringSchema },
+    ],
     responses: {
       200: jsonArrayResponse('History returned oldest-first by queriedAt.', 'BacklinkHistoryEntry'),
       404: errorResponse('Project not found.'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/backlinks/sources',
+    summary: 'Report per-source backlink availability for a project',
+    description:
+      'Returns connection + data availability for every backlink source (commoncrawl, bing-webmaster) so callers can degrade gracefully across CC-only / Bing-only / both / neither.',
+    tags: ['backlinks'],
+    parameters: [
+      nameParameter,
+      { name: 'excludeCrawlers', in: 'query', description: 'When "1"/"true", count linking domains excluding crawler/proxy hosts (matches the dashboard). Default off.', schema: stringSchema },
+    ],
+    responses: {
+      200: jsonResponse('Per-source availability returned.', 'BacklinkSourcesResponse'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/projects/{name}/backlinks/bing-sync',
+    summary: 'Sync a project\'s inbound links from Bing Webmaster Tools',
+    description:
+      'Creates a tracking run and pulls inbound links live from the connected Bing Webmaster account, writing source="bing-webmaster" backlink rows. Requires a Bing connection for the project domain.',
+    tags: ['backlinks'],
+    parameters: [nameParameter],
+    responses: {
+      201: jsonResponse('Bing sync run queued.', 'RunDto'),
+      400: errorResponse('No Bing Webmaster connection for this project.'),
+      404: errorResponse('Project not found.'),
+      422: errorResponse('Bing backlinks sync is not available on this deployment.'),
     },
   },
   {

@@ -9,15 +9,20 @@ import {
   type DatabaseClient,
 } from '@ainyc/canonry-db'
 import {
+  BacklinkSources,
   CcReleaseSyncStatuses,
   RunKinds,
   RunStatuses,
   RunTriggers,
+  backlinkSourceSchema,
   missingDependency,
   parseRunError,
   validationError,
   type BacklinkHistoryEntry,
   type BacklinkListResponse,
+  type BacklinkSource,
+  type BacklinkSourceAvailabilityDto,
+  type BacklinkSourcesResponseDto,
   type BacklinkSummaryDto,
   type BacklinksInstallResultDto,
   type BacklinksInstallStatusDto,
@@ -30,6 +35,7 @@ import {
 import { isValidReleaseId } from '@ainyc/canonry-integration-commoncrawl'
 import { resolveProject } from './helpers.js'
 import { backlinkCrawlerExclusionClause } from './backlinks-filter.js'
+import type { BingConnectionStore } from './bing.js'
 
 export interface BacklinksRoutesOptions {
   /**
@@ -45,6 +51,19 @@ export interface BacklinksRoutesOptions {
   onReleaseSyncRequested?: (syncId: string, release: string) => void
   /** Fired after a `runs` row with `kind='backlink-extract'` is created. */
   onBacklinkExtractRequested?: (runId: string, projectId: string, release?: string) => void
+  /**
+   * Resolves the Bing Webmaster connection for a project's canonical domain.
+   * Used to report Bing availability and to gate the per-project Bing inbound-
+   * links sync. Omit in deployments that don't host Bing connections (Bing then
+   * reports as not connected and the surface degrades gracefully).
+   */
+  bingConnectionStore?: BingConnectionStore
+  /**
+   * Fired after a `runs` row is created for a per-project Bing inbound-links
+   * sync. The handler pulls inbound links live from the connected Bing account
+   * and writes `source='bing-webmaster'` backlink rows.
+   */
+  onBingBacklinkSyncRequested?: (runId: string, projectId: string) => void
   /** Fired when the user asks to prune a cached release. */
   onBacklinksPruneCache?: (release: string) => void
   /** Reports cached-release metadata from the filesystem. */
@@ -99,7 +118,19 @@ function mapSummaryRow(row: typeof backlinkSummaries.$inferSelect): BacklinkSumm
     totalHosts: row.totalHosts,
     top10HostsShare: row.top10HostsShare,
     queriedAt: row.queriedAt,
+    source: row.source,
   }
+}
+
+// Default to Common Crawl when the caller omits `?source` so every existing
+// backlinks contract (which predates the discriminator) keeps its behavior.
+function parseSourceParam(value: string | undefined): BacklinkSource {
+  if (value === undefined || value === '') return BacklinkSources.commoncrawl
+  const parsed = backlinkSourceSchema.safeParse(value)
+  if (!parsed.success) {
+    throw validationError(`Invalid source "${value}". Expected one of: ${Object.values(BacklinkSources).join(', ')}.`)
+  }
+  return parsed.data
 }
 
 function mapRunRow(row: typeof runs.$inferSelect): RunDto {
@@ -120,16 +151,19 @@ function mapRunRow(row: typeof runs.$inferSelect): RunDto {
 function latestSummaryForProject(
   db: DatabaseClient,
   projectId: string,
+  source: BacklinkSource,
   release?: string,
 ): typeof backlinkSummaries.$inferSelect | undefined {
-  const condition = release
-    ? and(eq(backlinkSummaries.projectId, projectId), eq(backlinkSummaries.release, release))
-    : eq(backlinkSummaries.projectId, projectId)
+  const conditions = [
+    eq(backlinkSummaries.projectId, projectId),
+    eq(backlinkSummaries.source, source),
+  ]
+  if (release) conditions.push(eq(backlinkSummaries.release, release))
 
   return db
     .select()
     .from(backlinkSummaries)
-    .where(condition)
+    .where(and(...conditions))
     .orderBy(desc(backlinkSummaries.queriedAt))
     .limit(1)
     .get()
@@ -151,6 +185,7 @@ function computeFilteredSummary(
 ): BacklinkSummaryDto {
   const baseDomainCondition = and(
     eq(backlinkDomains.projectId, base.projectId),
+    eq(backlinkDomains.source, base.source),
     eq(backlinkDomains.release, base.release),
   )
   const filteredCondition = and(baseDomainCondition, backlinkCrawlerExclusionClause())
@@ -196,8 +231,84 @@ function computeFilteredSummary(
     totalHosts,
     top10HostsShare: top10Share.toFixed(6),
     queriedAt: base.queriedAt,
+    source: base.source,
     excludedLinkingDomains: Math.max(0, unfilteredLinkingDomains - totalLinkingDomains),
     excludedHosts: Math.max(0, unfilteredHosts - totalHosts),
+  }
+}
+
+// Per-source availability for a project's backlinks surface — drives the
+// onboarding/empty state and the source switcher. Connectivity rules differ:
+// Common Crawl is "available" when auto-extract is on AND a release sync has
+// reached `ready`; Bing is "available" when a Bing Webmaster connection exists
+// for the project's canonical domain.
+function buildSourceAvailability(
+  db: DatabaseClient,
+  projectId: string,
+  source: BacklinkSource,
+  connected: boolean,
+  excludeCrawlers: boolean,
+): BacklinkSourceAvailabilityDto {
+  const summary = db
+    .select()
+    .from(backlinkSummaries)
+    .where(and(eq(backlinkSummaries.projectId, projectId), eq(backlinkSummaries.source, source)))
+    .orderBy(desc(backlinkSummaries.queriedAt))
+    .limit(1)
+    .get()
+  // Default to the stored (unfiltered) summary total so this matches what the
+  // summary/domains endpoints return by default. When `excludeCrawlers` is set
+  // (the dashboard always does), recount the latest window without crawler/proxy
+  // hosts so the switcher pill matches the summary metric card.
+  let totalLinkingDomains = summary?.totalLinkingDomains ?? 0
+  if (summary && excludeCrawlers) {
+    const filtered = db
+      .select({ count: sql<number>`count(*)` })
+      .from(backlinkDomains)
+      .where(and(
+        eq(backlinkDomains.projectId, projectId),
+        eq(backlinkDomains.source, source),
+        eq(backlinkDomains.release, summary.release),
+        backlinkCrawlerExclusionClause(),
+      ))
+      .get()
+    totalLinkingDomains = Number(filtered?.count ?? 0)
+  }
+  return {
+    source,
+    connected,
+    hasData: !!summary,
+    latestRelease: summary?.release ?? null,
+    totalLinkingDomains,
+    lastSyncedAt: summary?.queriedAt ?? null,
+  }
+}
+
+function computeSourceAvailability(
+  db: DatabaseClient,
+  project: { id: string; canonicalDomain: string; autoExtractBacklinks: boolean },
+  bingStore: BingConnectionStore | undefined,
+  excludeCrawlers: boolean,
+): BacklinkSourcesResponseDto {
+  const ccReadySync = db
+    .select({ id: ccReleaseSyncs.id })
+    .from(ccReleaseSyncs)
+    .where(eq(ccReleaseSyncs.status, CcReleaseSyncStatuses.ready))
+    .limit(1)
+    .get()
+  const ccConnected = project.autoExtractBacklinks === true && !!ccReadySync
+  const bingConnected = !!bingStore?.getConnection(project.canonicalDomain)
+
+  const sources = [
+    buildSourceAvailability(db, project.id, BacklinkSources.commoncrawl, ccConnected, excludeCrawlers),
+    buildSourceAvailability(db, project.id, BacklinkSources['bing-webmaster'], bingConnected, excludeCrawlers),
+  ]
+  return {
+    projectId: project.id,
+    targetDomain: project.canonicalDomain,
+    sources,
+    anyConnected: sources.some((s) => s.connected),
+    anyData: sources.some((s) => s.hasData),
   }
 }
 
@@ -375,12 +486,13 @@ export async function backlinksRoutes(app: FastifyInstance, opts: BacklinksRoute
 
   app.get<{
     Params: { name: string }
-    Querystring: { release?: string; excludeCrawlers?: string }
+    Querystring: { release?: string; excludeCrawlers?: string; source?: string }
   }>(
     '/projects/:name/backlinks/summary',
     async (request, reply) => {
       const project = resolveProject(app.db, request.params.name)
-      const row = latestSummaryForProject(app.db, project.id, request.query.release)
+      const source = parseSourceParam(request.query.source)
+      const row = latestSummaryForProject(app.db, project.id, source, request.query.release)
       if (!row) return reply.send(null)
       const excludeCrawlers = parseExcludeCrawlers(request.query.excludeCrawlers)
       return reply.send(excludeCrawlers ? computeFilteredSummary(app.db, row) : mapSummaryRow(row))
@@ -389,15 +501,16 @@ export async function backlinksRoutes(app: FastifyInstance, opts: BacklinksRoute
 
   app.get<{
     Params: { name: string }
-    Querystring: { limit?: string; offset?: string; release?: string; excludeCrawlers?: string }
+    Querystring: { limit?: string; offset?: string; release?: string; excludeCrawlers?: string; source?: string }
   }>('/projects/:name/backlinks/domains', async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
+    const source = parseSourceParam(request.query.source)
 
-    const summaryRow = latestSummaryForProject(app.db, project.id, request.query.release)
+    const summaryRow = latestSummaryForProject(app.db, project.id, source, request.query.release)
     const targetRelease = request.query.release ?? summaryRow?.release
 
     if (!targetRelease) {
-      const response: BacklinkListResponse = { summary: null, total: 0, rows: [] }
+      const response: BacklinkListResponse = { source, summary: null, total: 0, rows: [] }
       return reply.send(response)
     }
 
@@ -407,6 +520,7 @@ export async function backlinksRoutes(app: FastifyInstance, opts: BacklinksRoute
 
     const baseDomainCondition = and(
       eq(backlinkDomains.projectId, project.id),
+      eq(backlinkDomains.source, source),
       eq(backlinkDomains.release, targetRelease),
     )
     const domainCondition = excludeCrawlers
@@ -423,6 +537,7 @@ export async function backlinksRoutes(app: FastifyInstance, opts: BacklinksRoute
       .select({
         linkingDomain: backlinkDomains.linkingDomain,
         numHosts: backlinkDomains.numHosts,
+        source: backlinkDomains.source,
       })
       .from(backlinkDomains)
       .where(domainCondition)
@@ -437,6 +552,7 @@ export async function backlinksRoutes(app: FastifyInstance, opts: BacklinksRoute
     }
 
     const response: BacklinkListResponse = {
+      source,
       summary,
       total: Number(totalRow?.count ?? 0),
       rows,
@@ -444,14 +560,18 @@ export async function backlinksRoutes(app: FastifyInstance, opts: BacklinksRoute
     return reply.send(response)
   })
 
-  app.get<{ Params: { name: string } }>(
+  app.get<{
+    Params: { name: string }
+    Querystring: { source?: string }
+  }>(
     '/projects/:name/backlinks/history',
     async (request, reply) => {
       const project = resolveProject(app.db, request.params.name)
+      const source = parseSourceParam(request.query.source)
       const rows = app.db
         .select()
         .from(backlinkSummaries)
-        .where(eq(backlinkSummaries.projectId, project.id))
+        .where(and(eq(backlinkSummaries.projectId, project.id), eq(backlinkSummaries.source, source)))
         .orderBy(asc(backlinkSummaries.queriedAt))
         .all()
       const response: BacklinkHistoryEntry[] = rows.map((r) => ({
@@ -460,8 +580,61 @@ export async function backlinksRoutes(app: FastifyInstance, opts: BacklinksRoute
         totalHosts: r.totalHosts,
         top10HostsShare: r.top10HostsShare,
         queriedAt: r.queriedAt,
+        source: r.source,
       }))
       return reply.send(response)
+    },
+  )
+
+  // Per-source availability — lets the UI/CLI/agent see which backlink sources
+  // are set up (CC-only / Bing-only / both / neither) and degrade gracefully.
+  app.get<{
+    Params: { name: string }
+    Querystring: { excludeCrawlers?: string }
+  }>(
+    '/projects/:name/backlinks/sources',
+    async (request, reply) => {
+      const project = resolveProject(app.db, request.params.name)
+      const excludeCrawlers = parseExcludeCrawlers(request.query.excludeCrawlers)
+      const response = computeSourceAvailability(app.db, project, opts.bingConnectionStore, excludeCrawlers)
+      return reply.send(response)
+    },
+  )
+
+  // Manual per-project Bing inbound-links sync. Creates a tracking run (reusing
+  // the `backlink-extract` kind — the work is "extract this project's backlinks"
+  // and `source` on the rows is the source of truth) and fires the executor.
+  app.post<{ Params: { name: string } }>(
+    '/projects/:name/backlinks/bing-sync',
+    async (request, reply) => {
+      const project = resolveProject(app.db, request.params.name)
+      if (!opts.onBingBacklinkSyncRequested) {
+        throw missingDependency(
+          'Bing backlinks sync is only available from a local canonry install with Bing Webmaster connected.',
+        )
+      }
+      const conn = opts.bingConnectionStore?.getConnection(project.canonicalDomain)
+      if (!conn) {
+        throw validationError(
+          `No Bing Webmaster connection for "${project.name}". Run \`canonry bing connect ${project.name} --api-key <key>\` first.`,
+        )
+      }
+
+      const now = new Date().toISOString()
+      const runId = crypto.randomUUID()
+      app.db.insert(runs).values({
+        id: runId,
+        projectId: project.id,
+        kind: RunKinds['backlink-extract'],
+        status: RunStatuses.queued,
+        trigger: RunTriggers.manual,
+        createdAt: now,
+      }).run()
+
+      opts.onBingBacklinkSyncRequested(runId, project.id)
+
+      const run = app.db.select().from(runs).where(eq(runs.id, runId)).get()
+      return reply.status(201).send(mapRunRow(run!))
     },
   )
 }

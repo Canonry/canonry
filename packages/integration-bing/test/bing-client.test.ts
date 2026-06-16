@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { getSites, addSite, getUrlInfo, submitUrl, submitUrlBatch, getKeywordStats, getCrawlStats, getCrawlIssues } from '../src/bing-client.js'
+import { getSites, addSite, getUrlInfo, submitUrl, submitUrlBatch, getKeywordStats, getCrawlStats, getCrawlIssues, getLinkCounts, getUrlLinks } from '../src/bing-client.js'
 import { BING_WMT_API_BASE } from '../src/constants.js'
 
 describe('getSites', () => {
@@ -287,5 +287,164 @@ describe('getCrawlIssues', () => {
     const issues = await getCrawlIssues('key', 'https://example.com/')
     expect(issues.length).toBe(1)
     expect(issues[0]!.HttpCode).toBe(404)
+  })
+})
+
+describe('getLinkCounts', () => {
+  let originalFetch: typeof globalThis.fetch
+
+  beforeEach(() => {
+    originalFetch = globalThis.fetch
+  })
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch
+  })
+
+  it('returns parsed link counts (real GetLinkCounts shape: d.Links[].{Url,Count})', async () => {
+    // Fixture mirrors the documented Bing `GetLinkCounts` JSON response —
+    // the array lives under `d.Links` (NOT `d.Details`, which is GetUrlLinks).
+    const mockResponse = {
+      d: {
+        __type: 'LinkCounts:#Microsoft.Bing.Webmaster.Api',
+        Links: [
+          { __type: 'LinkCount:#Microsoft.Bing.Webmaster.Api', Count: 14, Url: 'https://example.com/page1.html' },
+          { __type: 'LinkCount:#Microsoft.Bing.Webmaster.Api', Count: 3, Url: 'https://example.com/page2.html' },
+        ],
+        TotalPages: 1,
+      },
+    }
+
+    let capturedUrl = ''
+    globalThis.fetch = async (url: string | URL | Request) => {
+      capturedUrl = String(url)
+      return new Response(JSON.stringify(mockResponse), { status: 200 })
+    }
+
+    const counts = await getLinkCounts('test-key', 'https://example.com/')
+    expect(capturedUrl).toContain(`${BING_WMT_API_BASE}/GetLinkCounts`)
+    expect(capturedUrl).toContain('siteUrl=')
+    expect(capturedUrl).toContain('page=0')
+    expect(capturedUrl).toContain('apikey=test-key')
+    expect(counts.length).toBe(2)
+    expect(counts[0]!.Url).toBe('https://example.com/page1.html')
+    expect(counts[0]!.Count).toBe(14)
+    expect(counts[1]!.Count).toBe(3)
+  })
+
+  it('auto-paginates across TotalPages and flattens the result', async () => {
+    const pages = [
+      { d: { Links: [{ Url: 'https://example.com/a', Count: 5 }], TotalPages: 3 } },
+      { d: { Links: [{ Url: 'https://example.com/b', Count: 4 }], TotalPages: 3 } },
+      { d: { Links: [{ Url: 'https://example.com/c', Count: 3 }], TotalPages: 3 } },
+    ]
+    const seenPages: string[] = []
+    globalThis.fetch = async (url: string | URL | Request) => {
+      const u = new URL(String(url))
+      const page = u.searchParams.get('page') ?? '0'
+      seenPages.push(page)
+      return new Response(JSON.stringify(pages[Number(page)]), { status: 200 })
+    }
+
+    const counts = await getLinkCounts('key', 'https://example.com/')
+    expect(seenPages).toEqual(['0', '1', '2'])
+    expect(counts.map((c) => c.Url)).toEqual([
+      'https://example.com/a',
+      'https://example.com/b',
+      'https://example.com/c',
+    ])
+  })
+
+  it('respects the maxPages cap', async () => {
+    let calls = 0
+    globalThis.fetch = async (url: string | URL | Request) => {
+      calls++
+      const u = new URL(String(url))
+      const page = Number(u.searchParams.get('page') ?? '0')
+      return new Response(JSON.stringify({ d: { Links: [{ Url: `https://example.com/p${page}`, Count: 1 }], TotalPages: 10 } }), { status: 200 })
+    }
+
+    const counts = await getLinkCounts('key', 'https://example.com/', { maxPages: 2 })
+    expect(calls).toBe(2)
+    expect(counts.length).toBe(2)
+  })
+
+  it('returns empty array when there are no inbound links (d: null)', async () => {
+    globalThis.fetch = async () => new Response(JSON.stringify({ d: null }), { status: 200 })
+    const counts = await getLinkCounts('key', 'https://example.com/')
+    expect(counts).toEqual([])
+  })
+
+  it('throws BingApiError on 401', async () => {
+    globalThis.fetch = async () => new Response('Unauthorized', { status: 401 })
+    await expect(() => getLinkCounts('bad-key', 'https://example.com/')).rejects.toMatchObject({ name: 'BingApiError' })
+  })
+})
+
+describe('getUrlLinks', () => {
+  let originalFetch: typeof globalThis.fetch
+
+  beforeEach(() => {
+    originalFetch = globalThis.fetch
+  })
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch
+  })
+
+  it('returns inbound links (real GetUrlLinks shape: d.Details[].{Url,AnchorText})', async () => {
+    // Fixture mirrors the documented Bing `GetUrlLinks` JSON response — the
+    // array lives under `d.Details` and each entry carries the EXTERNAL
+    // linking Url plus its AnchorText.
+    const mockResponse = {
+      d: {
+        __type: 'LinkDetails:#Microsoft.Bing.Webmaster.Api',
+        Details: [
+          { __type: 'LinkDetail:#Microsoft.Bing.Webmaster.Api', AnchorText: 'great tool', Url: 'https://blog.acme.com/post' },
+          { __type: 'LinkDetail:#Microsoft.Bing.Webmaster.Api', AnchorText: 'see this', Url: 'https://news.example.org/story' },
+        ],
+        TotalPages: 1,
+      },
+    }
+
+    let capturedUrl = ''
+    globalThis.fetch = async (url: string | URL | Request) => {
+      capturedUrl = String(url)
+      return new Response(JSON.stringify(mockResponse), { status: 200 })
+    }
+
+    const links = await getUrlLinks('test-key', 'https://example.com/', 'https://example.com/page1.html')
+    expect(capturedUrl).toContain(`${BING_WMT_API_BASE}/GetUrlLinks`)
+    expect(capturedUrl).toContain('siteUrl=')
+    expect(capturedUrl).toContain('link=')
+    expect(capturedUrl).toContain('page=0')
+    expect(links.length).toBe(2)
+    expect(links[0]!.Url).toBe('https://blog.acme.com/post')
+    expect(links[0]!.AnchorText).toBe('great tool')
+    expect(links[1]!.Url).toBe('https://news.example.org/story')
+  })
+
+  it('auto-paginates across TotalPages', async () => {
+    const pages = [
+      { d: { Details: [{ Url: 'https://a.com/1', AnchorText: 'a' }], TotalPages: 2 } },
+      { d: { Details: [{ Url: 'https://b.com/2', AnchorText: 'b' }], TotalPages: 2 } },
+    ]
+    const seenPages: string[] = []
+    globalThis.fetch = async (url: string | URL | Request) => {
+      const u = new URL(String(url))
+      const page = u.searchParams.get('page') ?? '0'
+      seenPages.push(page)
+      return new Response(JSON.stringify(pages[Number(page)]), { status: 200 })
+    }
+
+    const links = await getUrlLinks('key', 'https://example.com/', 'https://example.com/page1.html')
+    expect(seenPages).toEqual(['0', '1'])
+    expect(links.map((l) => l.Url)).toEqual(['https://a.com/1', 'https://b.com/2'])
+  })
+
+  it('returns empty array when the page has no inbound links (d: null)', async () => {
+    globalThis.fetch = async () => new Response(JSON.stringify({ d: null }), { status: 200 })
+    const links = await getUrlLinks('key', 'https://example.com/', 'https://example.com/page1.html')
+    expect(links).toEqual([])
   })
 })

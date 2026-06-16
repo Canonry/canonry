@@ -1,5 +1,7 @@
 import type {
   BacklinkListResponse,
+  BacklinkSource,
+  BacklinkSourcesResponseDto,
   BacklinkSummaryDto,
   BacklinksInstallResultDto,
   BacklinksInstallStatusDto,
@@ -8,10 +10,25 @@ import type {
   CcReleaseSyncDto,
   RunDto,
 } from '@ainyc/canonry-contracts'
-import { CcReleaseSyncStatuses, RunStatuses, formatRunErrorOneLine } from '@ainyc/canonry-contracts'
+import { BacklinkSources, CcReleaseSyncStatuses, RunStatuses, backlinkSourceSchema, formatRunErrorOneLine } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { emitJsonl } from '../cli-output.js'
-import { isMachineFormat } from '../cli-error.js'
+import { CliError, isMachineFormat } from '../cli-error.js'
+
+// Parses the `--source` flag into a typed BacklinkSource. Returns undefined
+// when omitted (the API then defaults to commoncrawl); throws a usage error on
+// an unknown value so the CLI fails fast rather than round-tripping a 400.
+export function parseSourceFlag(value: string | undefined): BacklinkSource | undefined {
+  if (value === undefined) return undefined
+  const parsed = backlinkSourceSchema.safeParse(value)
+  if (!parsed.success) {
+    throw new CliError({
+      code: 'VALIDATION_ERROR',
+      message: `Invalid --source "${value}". Expected one of: ${Object.values(BacklinkSources).join(', ')}.`,
+    })
+  }
+  return parsed.data
+}
 
 function getClient() {
   return createApiClient()
@@ -55,8 +72,12 @@ export function formatSummaryAndDomains(
 ): string {
   const lines: string[] = []
   lines.push(`Project: ${project}`)
+  lines.push(`Source:  ${response.source}`)
   if (!response.summary) {
-    lines.push('No ready release — run `canonry backlinks sync --release <id>` first.')
+    const hint = response.source === BacklinkSources['bing-webmaster']
+      ? 'No Bing inbound links yet — run `canonry backlinks bing-sync <project>` (Bing must be connected).'
+      : 'No ready release — run `canonry backlinks sync --release <id>` first.'
+    lines.push(hint)
     return lines.join('\n')
   }
   const s = response.summary
@@ -213,27 +234,80 @@ export async function backlinksList(opts: FormatOptions & {
   limit?: number
   release?: string
   excludeCrawlers?: boolean
+  source?: BacklinkSource
 }): Promise<void> {
   const client = getClient()
   const response = await client.backlinksDomains(opts.project, {
     limit: opts.limit ?? 50,
     release: opts.release,
     excludeCrawlers: opts.excludeCrawlers,
+    source: opts.source,
   })
   if (opts.format === 'json') {
     printJson(response)
     return
   } else if (opts.format === 'jsonl') {
-    // Rows are thin (linkingDomain + numHosts), so prepend the envelope context
-    // they'd otherwise lose — project, plus the release + target domain the
-    // summary carries — and spread the row last so its own fields win. When no
-    // ready release exists `rows` is empty, so this emits nothing.
+    // Rows are thin (linkingDomain + numHosts + source), so prepend the envelope
+    // context they'd otherwise lose — project, plus the release + target domain
+    // the summary carries — and spread the row last so its own fields win. When
+    // no data exists for the source `rows` is empty, so this emits nothing.
     const release = response.summary?.release ?? null
     const targetDomain = response.summary?.targetDomain ?? null
     emitJsonl(response.rows.map(row => ({ project: opts.project, release, targetDomain, ...row })))
     return
   }
   console.log(formatSummaryAndDomains(opts.project, response))
+}
+
+export function formatSourceAvailability(res: BacklinkSourcesResponseDto): string {
+  const lines: string[] = []
+  lines.push(`Project: ${res.projectId}   Target: ${res.targetDomain}`)
+  lines.push('')
+  lines.push('Source          Connected  Data   Linking domains  Latest window')
+  for (const s of res.sources) {
+    lines.push(
+      `${s.source.padEnd(15)} ${(s.connected ? 'yes' : 'no').padEnd(10)} ${(s.hasData ? 'yes' : 'no').padEnd(6)} ` +
+      `${String(s.totalLinkingDomains).padStart(15)}  ${s.latestRelease ?? '—'}`,
+    )
+  }
+  if (!res.anyConnected) {
+    lines.push('')
+    lines.push('No backlink source is set up. Enable Common Crawl (`canonry project … autoExtractBacklinks`')
+    lines.push('+ `canonry backlinks sync`) or connect Bing (`canonry bing connect <project> --api-key <key>`).')
+  }
+  return lines.join('\n')
+}
+
+export async function backlinksSources(opts: FormatOptions & {
+  project: string
+  excludeCrawlers?: boolean
+}): Promise<void> {
+  const res = await getClient().backlinksSources(opts.project, { excludeCrawlers: opts.excludeCrawlers })
+  if (opts.format === 'json') {
+    printJson(res)
+    return
+  } else if (opts.format === 'jsonl') {
+    // The agent-facing collection is the per-source availability list; each row
+    // self-identifies by `source`, so stamp only the project + target context.
+    emitJsonl(res.sources.map((s) => ({ project: opts.project, targetDomain: res.targetDomain, ...s })))
+    return
+  }
+  console.log(formatSourceAvailability(res))
+}
+
+export async function backlinksBingSync(opts: FormatOptions & {
+  project: string
+  wait?: boolean
+}): Promise<void> {
+  const client = getClient()
+  const run = await client.backlinksBingSync(opts.project)
+  const final = opts.wait ? await pollRun(run.id, opts.format) : run
+  if (isMachineFormat(opts.format)) {
+    printJson(final)
+    return
+  }
+  if (opts.wait) process.stderr.write('\n')
+  console.log(`Bing sync run ${final.id} (${final.status})${final.error ? ' — ' + formatRunErrorOneLine(final.error) : ''}`)
 }
 
 export async function backlinksReleases(opts: FormatOptions = {}): Promise<void> {

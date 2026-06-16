@@ -14,7 +14,7 @@ import {
   loadDuckdb as defaultLoadDuckdb,
   type BacklinkRow,
 } from '@ainyc/canonry-integration-commoncrawl'
-import { CcReleaseSyncStatuses, RunStatuses } from '@ainyc/canonry-contracts'
+import { BacklinkSources, CcReleaseSyncStatuses, RunStatuses, computeBacklinkSummaryMetrics } from '@ainyc/canonry-contracts'
 import { createLogger } from './logger.js'
 
 const log = createLogger('BacklinkExtract')
@@ -95,7 +95,11 @@ export async function executeBacklinkExtract(
 
     db.transaction((tx) => {
       tx.delete(backlinkDomains).where(
-        and(eq(backlinkDomains.projectId, projectId), eq(backlinkDomains.release, release)),
+        and(
+          eq(backlinkDomains.projectId, projectId),
+          eq(backlinkDomains.source, BacklinkSources.commoncrawl),
+          eq(backlinkDomains.release, release),
+        ),
       ).run()
 
       if (rows.length > 0) {
@@ -103,6 +107,7 @@ export async function executeBacklinkExtract(
           id: crypto.randomUUID(),
           projectId,
           releaseSyncId: syncId,
+          source: BacklinkSources.commoncrawl,
           release,
           targetDomain,
           linkingDomain: r.linkingDomain,
@@ -117,6 +122,7 @@ export async function executeBacklinkExtract(
         id: crypto.randomUUID(),
         projectId,
         releaseSyncId: syncId,
+        source: BacklinkSources.commoncrawl,
         release,
         targetDomain,
         totalLinkingDomains: summary.totalLinkingDomains,
@@ -125,7 +131,7 @@ export async function executeBacklinkExtract(
         queriedAt,
         createdAt: queriedAt,
       }).onConflictDoUpdate({
-        target: [backlinkSummaries.projectId, backlinkSummaries.release],
+        target: [backlinkSummaries.projectId, backlinkSummaries.source, backlinkSummaries.release],
         set: {
           releaseSyncId: syncId,
           targetDomain,
@@ -159,16 +165,5 @@ interface SummaryMetrics {
 }
 
 function computeSummary(rows: BacklinkRow[]): SummaryMetrics {
-  if (rows.length === 0) {
-    return { totalLinkingDomains: 0, totalHosts: 0, top10HostsShare: '0' }
-  }
-  const sorted = [...rows].sort((a, b) => b.numHosts - a.numHosts)
-  const totalHosts = sorted.reduce((acc, r) => acc + r.numHosts, 0)
-  const top10Hosts = sorted.slice(0, 10).reduce((acc, r) => acc + r.numHosts, 0)
-  const share = totalHosts > 0 ? top10Hosts / totalHosts : 0
-  return {
-    totalLinkingDomains: rows.length,
-    totalHosts,
-    top10HostsShare: share.toFixed(6),
-  }
+  return computeBacklinkSummaryMetrics(rows)
 }

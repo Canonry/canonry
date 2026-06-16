@@ -102,6 +102,25 @@ export function absolutizeProjectUrl(
   return `https://${host}/${trimmed}`
 }
 
+/**
+ * Extract the normalized host from a URL or bare hostname: lowercased, with a
+ * leading `www.` stripped and the scheme/path/query discarded. Accepts both
+ * full URLs (`https://www.Example.com/x`) and bare hosts (`Example.com`).
+ * Returns null when the input is empty or can't be parsed as a URL. This is the
+ * canonical host extractor for grouping/deduping by registrable-ish host.
+ */
+export function hostOf(value: string | null | undefined): string | null {
+  if (value == null) return null
+  const trimmed = value.trim()
+  if (!trimmed) return null
+  try {
+    const url = trimmed.includes('://') ? new URL(trimmed) : new URL(`https://${trimmed}`)
+    return url.hostname.replace(/^www\./, '').toLowerCase()
+  } catch {
+    return null
+  }
+}
+
 export function normalizeUrlPath(input: string | null | undefined): string | null {
   if (input == null) return null
   let trimmed = input.trim()
