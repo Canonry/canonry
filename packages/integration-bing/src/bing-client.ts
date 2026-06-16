@@ -232,6 +232,12 @@ export async function getLinkCounts(
   const encodedSite = encodeURIComponent(siteUrl)
   const maxPages = Math.max(1, opts.maxPages ?? BING_LINKS_MAX_PAGES)
 
+  // Bing paginates these link endpoints with a 0-INDEXED `page` (first page = 0;
+  // valid pages 0..TotalPages-1), so starting at 0 and looping while
+  // page < totalPages covers every page with no last-page drop. Verified against
+  // the merj reference client (typed `page: NonNegativeInt = 0`) and a recorded
+  // GetLinkCounts response (request `?page=0`) — a live multi-page capture on a
+  // real property is still the gold standard for full-coverage behavior.
   const out: BingLinkCount[] = []
   let page = 0
   let totalPages = 1
@@ -267,6 +273,7 @@ export async function getUrlLinks(
   const encodedLink = encodeURIComponent(link)
   const maxPages = Math.max(1, opts.maxPages ?? BING_LINKS_MAX_PAGES)
 
+  // GetUrlLinks uses the same 0-indexed `page` as GetLinkCounts (see the note there).
   const out: BingInboundLink[] = []
   let page = 0
   let totalPages = 1
