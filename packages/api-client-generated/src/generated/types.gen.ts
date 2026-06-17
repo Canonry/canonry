@@ -107,6 +107,7 @@ export type ApiKeyDto = {
     name: string;
     keyPrefix: string;
     scopes: Array<string>;
+    readOnly: boolean;
     createdAt: string;
     lastUsedAt: string | null;
     revokedAt: string | null;
@@ -118,6 +119,7 @@ export type ApiKeyListDto = {
         name: string;
         keyPrefix: string;
         scopes: Array<string>;
+        readOnly: boolean;
         createdAt: string;
         lastUsedAt: string | null;
         revokedAt: string | null;
@@ -564,6 +566,7 @@ export type CreatedApiKeyDto = {
     name: string;
     keyPrefix: string;
     scopes: Array<string>;
+    readOnly: boolean;
     createdAt: string;
     lastUsedAt: string | null;
     revokedAt: string | null;
@@ -3851,6 +3854,31 @@ export type PostApiV1KeysResponses = {
 };
 
 export type PostApiV1KeysResponse = PostApiV1KeysResponses[keyof PostApiV1KeysResponses];
+
+export type GetApiV1KeysSelfData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/keys/self';
+};
+
+export type GetApiV1KeysSelfErrors = {
+    /**
+     * No key on the request (auth skipped).
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1KeysSelfError = GetApiV1KeysSelfErrors[keyof GetApiV1KeysSelfErrors];
+
+export type GetApiV1KeysSelfResponses = {
+    /**
+     * Current key returned.
+     */
+    200: ApiKeyDto;
+};
+
+export type GetApiV1KeysSelfResponse = GetApiV1KeysSelfResponses[keyof GetApiV1KeysSelfResponses];
 
 export type PostApiV1KeysByIdRevokeData = {
     body?: never;

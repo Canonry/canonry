@@ -1059,6 +1059,18 @@ const routeCatalog: OpenApiOperation[] = [
     },
   },
   {
+    method: 'get',
+    path: '/api/v1/keys/self',
+    summary: 'Introspect the current API key',
+    description:
+      'Returns SAFE metadata for the key that authenticated this request, including the derived `readOnly` flag. Lets a caller (or the MCP adapter at startup) discover whether its configured key is read-only without listing every key on the instance. Ungated read — a read-only key can call it.',
+    tags: ['keys'],
+    responses: {
+      200: jsonResponse('Current key returned.', 'ApiKeyDto'),
+      404: errorResponse('No key on the request (auth skipped).'),
+    },
+  },
+  {
     method: 'post',
     path: '/api/v1/keys',
     summary: 'Create an API key',

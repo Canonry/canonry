@@ -277,10 +277,14 @@ Mint, list, and revoke the `cnry_…` bearer tokens stored in the `api_keys` tab
 cnry key list                                  # table: NAME / PREFIX / SCOPES / CREATED / LAST USED / STATUS
 cnry key list --format json|jsonl              # jsonl streams one key per line
 cnry key create --name ci-bot                  # mint a full-access key (scopes default to *)
+cnry key create --name reader --read-only      # read-only key: scopes=['read'], denied every write HTTP method
 cnry key create --name reader --scope read     # narrower key; repeat --scope or comma-separate (--scope a,b)
 cnry key create --name ci-bot --format json    # JSON output includes the plaintext key
 cnry key revoke <id>                           # revoke (does not delete); effective on the next request
+cnry key whoami [--format json]                # introspect the CURRENT key (name, scopes, readOnly, status)
 ```
+
+- **`--read-only` keys can read everything but write nothing.** The server denies every mutating method (POST/PUT/PATCH/DELETE) for a read-only key (`403 FORBIDDEN`); GET/HEAD pass. `--read-only` is sugar for `--scope read` and cannot be combined with `--scope`. The key DTO carries a derived `readOnly: boolean`. Point `canonry-mcp` at a read-only key and it auto-restricts to read tools.
 
 - **Create returns the plaintext key exactly once.** It is shown with a "Save this now — it will not be shown again." warning (and is included in the JSON under `key`). It cannot be recovered later, so persist it on receipt.
 - **List never exposes the hash or plaintext** — only safe metadata (id, name, prefix, scopes, created / last-used / revoked timestamps).

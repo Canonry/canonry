@@ -4,12 +4,14 @@ import type { ApiKeyDto, ApiKeyListDto, CreatedApiKeyDto } from '@ainyc/canonry-
 const mockListApiKeys = vi.fn()
 const mockCreateApiKey = vi.fn()
 const mockRevokeApiKey = vi.fn()
+const mockGetApiKeySelf = vi.fn()
 
 vi.mock('../src/client.js', () => ({
   createApiClient: () => ({
     listApiKeys: mockListApiKeys,
     createApiKey: mockCreateApiKey,
     revokeApiKey: mockRevokeApiKey,
+    getApiKeySelf: mockGetApiKeySelf,
   }),
 }))
 
@@ -31,7 +33,7 @@ function captureStdout(): { lines: () => string[]; restore: () => void } {
   return { lines: () => buf.split('\n').filter(Boolean), restore: () => spy.mockRestore() }
 }
 
-const { listApiKeys, createApiKey, revokeApiKey } = await import('../src/commands/keys.js')
+const { listApiKeys, createApiKey, revokeApiKey, showApiKeySelf } = await import('../src/commands/keys.js')
 
 const KEYS: ApiKeyDto[] = [
   {
@@ -39,6 +41,7 @@ const KEYS: ApiKeyDto[] = [
     name: 'default',
     keyPrefix: 'cnry_aaaa',
     scopes: ['*'],
+    readOnly: false,
     createdAt: '2026-05-01T00:00:00.000Z',
     lastUsedAt: '2026-05-30T00:00:00.000Z',
     revokedAt: null,
@@ -48,6 +51,7 @@ const KEYS: ApiKeyDto[] = [
     name: 'ci-bot',
     keyPrefix: 'cnry_bbbb',
     scopes: ['read'],
+    readOnly: true,
     createdAt: '2026-05-02T00:00:00.000Z',
     lastUsedAt: null,
     revokedAt: '2026-05-15T00:00:00.000Z',
@@ -123,6 +127,7 @@ describe('key create', () => {
     name: 'new-key',
     keyPrefix: 'cnry_cccc',
     scopes: ['*'],
+    readOnly: false,
     createdAt: '2026-05-31T00:00:00.000Z',
     lastUsedAt: null,
     revokedAt: null,
@@ -164,6 +169,66 @@ describe('key create', () => {
     }
     expect(JSON.parse(cap.logs.join(''))).toEqual(created)
   })
+
+  it('--read-only mints a key with exactly the read scope', async () => {
+    mockCreateApiKey.mockResolvedValue({ ...created, scopes: ['read'], readOnly: true })
+    const cap = captureLog()
+    try {
+      await createApiKey({ name: 'reader', readOnly: true, format: undefined })
+    } finally {
+      cap.restore()
+    }
+    expect(mockCreateApiKey).toHaveBeenCalledWith({ name: 'reader', scopes: ['read'] })
+  })
+
+  it('--read-only combined with explicit --scope is a usage error', async () => {
+    await expect(
+      createApiKey({ name: 'reader', readOnly: true, scopes: ['keys.write'], format: undefined }),
+    ).rejects.toThrow(/read-only/i)
+    expect(mockCreateApiKey).not.toHaveBeenCalled()
+  })
+})
+
+describe('key whoami', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  const self: ApiKeyDto = {
+    id: 'k2',
+    name: 'ci-bot',
+    keyPrefix: 'cnry_bbbb',
+    scopes: ['read'],
+    readOnly: true,
+    createdAt: '2026-05-02T00:00:00.000Z',
+    lastUsedAt: '2026-06-01T00:00:00.000Z',
+    revokedAt: null,
+  }
+
+  it('renders the current key and its read-only status', async () => {
+    mockGetApiKeySelf.mockResolvedValue(self)
+    const cap = captureLog()
+    try {
+      await showApiKeySelf(undefined)
+    } finally {
+      cap.restore()
+    }
+    const out = cap.logs.join('\n')
+    expect(out).toContain('ci-bot')
+    expect(out).toContain('cnry_bbbb')
+    expect(out).toMatch(/read-only/i)
+    expect(out).not.toContain('keyHash')
+    expect(mockGetApiKeySelf).toHaveBeenCalledTimes(1)
+  })
+
+  it('format=json prints the self DTO', async () => {
+    mockGetApiKeySelf.mockResolvedValue(self)
+    const cap = captureLog()
+    try {
+      await showApiKeySelf('json')
+    } finally {
+      cap.restore()
+    }
+    expect(JSON.parse(cap.logs.join(''))).toEqual(self)
+  })
 })
 
 describe('key revoke', () => {
@@ -174,6 +239,7 @@ describe('key revoke', () => {
     name: 'ci-bot',
     keyPrefix: 'cnry_bbbb',
     scopes: ['read'],
+    readOnly: true,
     createdAt: '2026-05-02T00:00:00.000Z',
     lastUsedAt: null,
     revokedAt: '2026-05-31T00:00:00.000Z',

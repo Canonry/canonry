@@ -163,6 +163,68 @@ test('settings routes refuse keys that lack the settings.write scope', async () 
   }
 })
 
+test('a read-only key is blocked on every write method but passes reads', async () => {
+  // The global read-only gate lives in the auth plugin and keys off the HTTP
+  // method — NOT on per-route `requireScope` calls. Prove it by hitting a write
+  // route that has no `requireScope` of its own (`POST .../runs`, `PUT
+  // /projects/:name`): a `['read']` key must still be forbidden there.
+  const { app, db, tmpDir } = buildApp()
+
+  const readOnlyRaw = `cnry_${crypto.randomBytes(16).toString('hex')}`
+  db.insert(apiKeys).values({
+    id: crypto.randomUUID(),
+    name: 'reader',
+    keyHash: crypto.createHash('sha256').update(readOnlyRaw).digest('hex'),
+    keyPrefix: readOnlyRaw.slice(0, 9),
+    scopes: ['read'],
+    createdAt: new Date().toISOString(),
+  }).run()
+
+  const wildcardRaw = insertApiKey(db)
+  await app.ready()
+
+  try {
+    const readHeaders = { authorization: `Bearer ${readOnlyRaw}` }
+
+    // Reads pass.
+    const list = await app.inject({ method: 'GET', url: '/api/v1/projects', headers: readHeaders })
+    expect(list.statusCode).toBe(200)
+
+    // A wildcard key seeds a project so the write routes below resolve a real
+    // target rather than 404-ing before the gate is exercised.
+    const seed = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/projects/gate-test',
+      headers: { authorization: `Bearer ${wildcardRaw}` },
+      payload: { displayName: 'Gate Test', canonicalDomain: 'example.com', country: 'US', language: 'en' },
+    })
+    expect(seed.statusCode).toBe(201)
+
+    // Writes are forbidden — across a route with no requireScope (runs) AND a
+    // create/update route (PUT project), AND a DELETE.
+    for (const req of [
+      { method: 'POST' as const, url: '/api/v1/projects/gate-test/runs', payload: {} },
+      { method: 'PUT' as const, url: '/api/v1/projects/gate-test', payload: { displayName: 'x', canonicalDomain: 'example.com', country: 'US', language: 'en' } },
+      { method: 'DELETE' as const, url: '/api/v1/projects/gate-test' },
+    ]) {
+      const res = await app.inject({ ...req, headers: readHeaders })
+      expect(res.statusCode).toBe(403)
+      expect(JSON.parse(res.body).error.code).toBe('FORBIDDEN')
+    }
+
+    // The wildcard key is unaffected — it can still write (delete the project).
+    const wildcardDelete = await app.inject({
+      method: 'DELETE',
+      url: '/api/v1/projects/gate-test',
+      headers: { authorization: `Bearer ${wildcardRaw}` },
+    })
+    expect(wildcardDelete.statusCode).toBe(204)
+  } finally {
+    await app.close()
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  }
+})
+
 test('notification APIs and history redact webhook secrets while keeping stored delivery config intact', async () => {
   const { app, db, tmpDir } = buildApp()
   const rawKey = insertApiKey(db)

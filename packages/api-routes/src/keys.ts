@@ -4,6 +4,7 @@ import type { FastifyInstance } from 'fastify'
 import { apiKeys } from '@ainyc/canonry-db'
 import {
   createApiKeyRequestSchema,
+  isReadOnlyKey,
   notFound,
   validationError,
   type ApiKeyDto,
@@ -27,11 +28,13 @@ export const KEYS_WRITE_SCOPE = 'keys.write'
 
 /** Map a raw `api_keys` row to the SAFE public DTO (never exposes `keyHash`). */
 function toApiKeyDto(row: typeof apiKeys.$inferSelect): ApiKeyDto {
+  const scopes = Array.isArray(row.scopes) ? row.scopes : []
   return {
     id: row.id,
     name: row.name,
     keyPrefix: row.keyPrefix,
-    scopes: Array.isArray(row.scopes) ? row.scopes : [],
+    scopes,
+    readOnly: isReadOnlyKey(scopes),
     createdAt: row.createdAt,
     lastUsedAt: row.lastUsedAt ?? null,
     revokedAt: row.revokedAt ?? null,
@@ -47,6 +50,25 @@ export async function keysRoutes(app: FastifyInstance) {
       .orderBy(desc(apiKeys.createdAt))
       .all()
     return { keys: rows.map(toApiKeyDto) }
+  })
+
+  // Introspect the CURRENT key — the one that authenticated this request.
+  // Ungated read (a read-only key can call it; GET passes the read-only gate).
+  // Lets a caller (or the MCP adapter at startup) discover whether its
+  // configured key is read-only without listing every key on the instance.
+  app.get('/keys/self', async (request) => {
+    // `request.apiKey` is attached by authPlugin on every non-skip-path
+    // request. Absent only when auth is skipped (test harness) — surface a
+    // clear 404 rather than a confusing miss.
+    const id = request.apiKey?.id
+    if (!id) {
+      throw notFound('API key', 'self')
+    }
+    const row = app.db.select().from(apiKeys).where(eq(apiKeys.id, id)).get()
+    if (!row) {
+      throw notFound('API key', id)
+    }
+    return toApiKeyDto(row)
   })
 
   // Create a key — requires the keys.write scope. Mints a `cnry_…` token,
@@ -93,6 +115,7 @@ export async function keysRoutes(app: FastifyInstance) {
       name,
       keyPrefix,
       scopes: effectiveScopes,
+      readOnly: isReadOnlyKey(effectiveScopes),
       createdAt: now,
       lastUsedAt: null,
       revokedAt: null,
