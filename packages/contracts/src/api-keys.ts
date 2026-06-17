@@ -12,6 +12,13 @@ export const apiKeyDtoSchema = z.object({
   /** First 9 chars of the raw token (`cnry_` + 4 hex). Safe to display. */
   keyPrefix: z.string(),
   scopes: z.array(z.string()),
+  /**
+   * Server-derived convenience flag: `true` when this key is read-only (carries
+   * the `read` scope and no write-granting scope), in which case the API rejects
+   * every write HTTP method for it. Derived from `scopes` via `isReadOnlyKey`
+   * — surfaces don't recompute it (see the UI/CLI parity rule). Additive field.
+   */
+  readOnly: z.boolean(),
   createdAt: z.string(),
   lastUsedAt: z.string().nullable(),
   revokedAt: z.string().nullable(),

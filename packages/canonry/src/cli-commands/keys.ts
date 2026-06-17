@@ -1,6 +1,7 @@
-import { createApiKey, listApiKeys, revokeApiKey } from '../commands/keys.js'
+import { createApiKey, listApiKeys, revokeApiKey, showApiKeySelf } from '../commands/keys.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
 import {
+  getBoolean,
   getStringArray,
   multiStringOption,
   requirePositional,
@@ -19,15 +20,16 @@ export const KEYS_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['key', 'create'],
-    usage: 'canonry key create --name <name> [--scope <s> ...] [--format json]',
+    usage: 'canonry key create --name <name> [--read-only | --scope <s> ...] [--format json]',
     options: {
       name: stringOption(),
       scope: multiStringOption(),
+      'read-only': { type: 'boolean' },
     },
     run: async (input) => {
       const name = requireStringOption(input, 'name', {
         command: 'key.create',
-        usage: 'canonry key create --name <name> [--scope <s> ...] [--format json]',
+        usage: 'canonry key create --name <name> [--read-only | --scope <s> ...] [--format json]',
         message: '--name is required',
       })
       // Accept repeated flags (--scope read --scope keys.write) and
@@ -37,8 +39,16 @@ export const KEYS_CLI_COMMANDS: readonly CliCommandSpec[] = [
       await createApiKey({
         name,
         scopes: scopes.length > 0 ? scopes : undefined,
+        readOnly: getBoolean(input.values, 'read-only'),
         format: input.format,
       })
+    },
+  },
+  {
+    path: ['key', 'whoami'],
+    usage: 'canonry key whoami [--format json]',
+    run: async (input) => {
+      await showApiKeySelf(input.format)
     },
   },
   {
@@ -55,12 +65,12 @@ export const KEYS_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['key'],
-    usage: 'canonry key <list|create|revoke>',
+    usage: 'canonry key <list|create|revoke|whoami>',
     run: async (input) => {
       unknownSubcommand(input.positionals[0], {
         command: 'key',
-        usage: 'canonry key <list|create|revoke>',
-        available: ['list', 'create', 'revoke'],
+        usage: 'canonry key <list|create|revoke|whoami>',
+        available: ['list', 'create', 'revoke', 'whoami'],
       })
     },
   },

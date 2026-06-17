@@ -137,6 +137,10 @@ Power-user environments (scripts, Aero, telemetry harnesses) that want the flat 
 
 `--read-only` filters out write tools before the catalog is built, so toolkits with no read tools appear as `empty` from `canonry_load_toolkit`. Mixed toolkits load with whatever survives the filter — the `agent` toolkit, for example, drops its writes (`canonry_memory_set`, `canonry_memory_forget`, `canonry_agent_clear`, `canonry_agent_webhook_detach`) and exposes only `canonry_memory_list` under read-only scope.
 
+### Read-only API keys (auto-detection)
+
+A read-only API key (`canonry key create --read-only`, scopes `['read']`) is rejected by the API on every write HTTP method (`403 FORBIDDEN`). To avoid advertising tools that would 403 at call time, `canonry-mcp` probes `GET /keys/self` at startup and, when its configured key is read-only, **auto-restricts the catalog to read tools** — exactly as if `--read-only` had been passed — and prints a one-line notice on stderr. The probe is best-effort: if the API is unreachable or the server predates the endpoint, the adapter keeps the requested scope. A read-only key can only ever narrow the catalog, never widen it; passing `--read-only` explicitly skips the probe.
+
 ## Safety Rules
 
 MCP uses stdio, so any normal stdout write breaks the protocol. Code under `packages/canonry/src/mcp/` must not use `console.log`, `process.stdout.write`, CLI dispatch, telemetry, logger imports, DB imports, route imports, or job-runner imports. Tool handlers call `createApiClient()` only.

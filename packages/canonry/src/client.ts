@@ -175,6 +175,7 @@ import {
   putApiV1Telemetry,
   // API key management
   getApiV1Keys,
+  getApiV1KeysSelf,
   postApiV1Keys,
   postApiV1KeysByIdRevoke,
   // Schedules / notifications
@@ -1002,6 +1003,11 @@ export class ApiClient {
 
   async listApiKeys(): Promise<ApiKeyListDto> {
     return this.invoke<ApiKeyListDto>(() => getApiV1Keys({ client: this.heyClient }))
+  }
+
+  /** Introspect the CURRENT key (the one this client authenticates with). */
+  async getApiKeySelf(): Promise<ApiKeyDto> {
+    return this.invoke<ApiKeyDto>(() => getApiV1KeysSelf({ client: this.heyClient }))
   }
 
   async createApiKey(body: CreateApiKeyRequest): Promise<CreatedApiKeyDto> {

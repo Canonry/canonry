@@ -2,7 +2,14 @@ import crypto from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { apiKeys } from '@ainyc/canonry-db'
-import { authRequired, authInvalid, forbidden } from '@ainyc/canonry-contracts'
+import { authRequired, authInvalid, forbidden, isReadOnlyKey } from '@ainyc/canonry-contracts'
+
+/**
+ * HTTP methods that mutate state. A read-only key is rejected on these; the
+ * safe methods (GET / HEAD / OPTIONS) always pass so reads — and any future
+ * CORS preflight — are never blocked.
+ */
+const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
 
 /**
  * Resolved API key attached to every authenticated request. Used by scope
@@ -155,5 +162,15 @@ export async function authPlugin(app: FastifyInstance, opts: AuthPluginOptions =
     // JSON column; the type assertion mirrors what Drizzle returns.
     const scopes = Array.isArray(key.scopes) ? key.scopes : []
     request.apiKey = { id: key.id, name: key.name, scopes }
+
+    // Global read-only gate. A key that opted into read-only (`['read']`)
+    // cannot perform any write — keyed off the HTTP method, NOT per-route
+    // `requireScope` calls, so a newly added write route is protected
+    // automatically. Safe methods (GET/HEAD/OPTIONS) always pass. This runs
+    // after `shouldSkipAuth` (so public routes stay open) and does not gate
+    // the `last_used_at` write above (infrastructural usage tracking).
+    if (isReadOnlyKey(scopes) && WRITE_METHODS.has(request.method)) {
+      throw forbidden('This API key is read-only and cannot perform write operations.')
+    }
   })
 }

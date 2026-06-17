@@ -176,4 +176,42 @@ describe('API key management routes', () => {
     expect(res.statusCode).toBe(200)
     expect(Array.isArray((res.json() as { keys: unknown[] }).keys)).toBe(true)
   })
+
+  it('exposes a derived readOnly flag — true for a read key, false for wildcard', async () => {
+    const res = await authed('GET', '/api/v1/keys', ROOT_KEY)
+    const keys = (res.json() as { keys: Array<{ name: string; readOnly: boolean }> }).keys
+    expect(keys.find(k => k.name === 'reader')!.readOnly).toBe(true)
+    expect(keys.find(k => k.name === 'root')!.readOnly).toBe(false)
+  })
+
+  it('POST /keys --read-only style scopes mint a key flagged readOnly', async () => {
+    const res = await authed('POST', '/api/v1/keys', ROOT_KEY, { name: 'ro', scopes: ['read'] })
+    expect(res.statusCode).toBe(200)
+    const dto = res.json() as { scopes: string[]; readOnly: boolean }
+    expect(dto.scopes).toEqual(['read'])
+    expect(dto.readOnly).toBe(true)
+  })
+
+  it('GET /keys/self returns the authenticating key with its readOnly flag', async () => {
+    // The read-only key introspects itself — a GET, so the read-only gate
+    // lets it through.
+    const res = await authed('GET', '/api/v1/keys/self', READ_KEY)
+    expect(res.statusCode).toBe(200)
+    const dto = res.json() as { name: string; scopes: string[]; readOnly: boolean; keyPrefix: string }
+    expect(dto.name).toBe('reader')
+    expect(dto.scopes).toEqual(['read'])
+    expect(dto.readOnly).toBe(true)
+    expect(dto.keyPrefix).toBe(READ_KEY.slice(0, 9))
+    // Never leaks key material.
+    expect(res.body).not.toContain('keyHash')
+    expect(dto).not.toHaveProperty('key')
+  })
+
+  it('GET /keys/self for the wildcard key reports readOnly=false', async () => {
+    const res = await authed('GET', '/api/v1/keys/self', ROOT_KEY)
+    expect(res.statusCode).toBe(200)
+    const dto = res.json() as { name: string; readOnly: boolean }
+    expect(dto.name).toBe('root')
+    expect(dto.readOnly).toBe(false)
+  })
 })

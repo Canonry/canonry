@@ -1,4 +1,6 @@
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
+import { isReadOnlyKey } from '@ainyc/canonry-contracts'
+import { createApiClient, type ApiClient } from '../client.js'
 import { createCanonryMcpServer, type CanonryMcpScope } from './server.js'
 
 export const HELP_TEXT = `Usage: canonry-mcp [--read-only | --scope=<all|read-only>] [--eager]
@@ -41,8 +43,46 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     }
     throw error
   }
-  const server = createCanonryMcpServer({ scope: options.scope, eager: options.eager })
+  // Build the client once, auto-detect a read-only key, then reuse the same
+  // client for the server (keeps one client per server instance).
+  const client = createApiClient()
+  const scope = await resolveEffectiveScope(client, options.scope)
+  const server = createCanonryMcpServer({ scope, eager: options.eager, clientFactory: () => client })
   await server.connect(new StdioServerTransport())
+}
+
+/**
+ * Resolve the effective tool scope by combining the requested scope with the
+ * configured key's actual capability.
+ *
+ * A read-only key can only ever NARROW the catalog, never widen it: when the
+ * configured key is read-only we force `read-only` so the adapter never
+ * advertises write tools that the API would 403 at call time. The explicit
+ * `--read-only` flag already means read-only, so we skip the probe there.
+ *
+ * Best-effort: the probe is a live `GET /keys/self`. On any failure — the API
+ * is down, an older server lacks the endpoint, the key is unreadable — we keep
+ * the flag/env scope rather than block startup.
+ */
+export async function resolveEffectiveScope(
+  client: Pick<ApiClient, 'getApiKeySelf'>,
+  flagScope: CanonryMcpScope,
+): Promise<CanonryMcpScope> {
+  if (flagScope === 'read-only') return 'read-only'
+  try {
+    const self = await client.getApiKeySelf()
+    // Compute from `scopes` (the source of truth the server itself derives
+    // `readOnly` from) so detection works even if a response omits the flag.
+    if (isReadOnlyKey(self.scopes)) {
+      process.stderr.write(
+        'canonry-mcp: configured API key is read-only — restricting to read tools.\n',
+      )
+      return 'read-only'
+    }
+  } catch {
+    // Best-effort detection — fall back to the requested scope.
+  }
+  return flagScope
 }
 
 export function parseCliOptions(

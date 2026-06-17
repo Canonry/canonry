@@ -1,7 +1,7 @@
 import { createApiClient } from '../client.js'
 import { emitJsonl } from '../cli-output.js'
-import { isMachineFormat } from '../cli-error.js'
-import { formatIsoDate, type ApiKeyDto, type CreateApiKeyRequest } from '@ainyc/canonry-contracts'
+import { isMachineFormat, CliError } from '../cli-error.js'
+import { READ_ONLY_SCOPE, formatIsoDate, type ApiKeyDto, type CreateApiKeyRequest } from '@ainyc/canonry-contracts'
 
 function getClient() {
   return createApiClient()
@@ -46,11 +46,25 @@ export async function listApiKeys(format?: string): Promise<void> {
 export async function createApiKey(opts: {
   name: string
   scopes?: string[]
+  readOnly?: boolean
   format?: string
 }): Promise<void> {
+  const explicitScopes = opts.scopes && opts.scopes.length > 0 ? opts.scopes : undefined
+
+  // `--read-only` is sugar for `--scope read`; combining it with explicit
+  // scopes is contradictory, so reject rather than silently picking one.
+  if (opts.readOnly && explicitScopes) {
+    throw new CliError({
+      code: 'CLI_USAGE_ERROR',
+      message: '--read-only cannot be combined with --scope',
+      displayMessage: 'Error: --read-only cannot be combined with --scope (it already implies the "read" scope).',
+    })
+  }
+
   const client = getClient()
   const body: CreateApiKeyRequest = { name: opts.name }
-  if (opts.scopes && opts.scopes.length > 0) body.scopes = opts.scopes
+  const scopes = opts.readOnly ? [READ_ONLY_SCOPE] : explicitScopes
+  if (scopes) body.scopes = scopes
 
   const created = await client.createApiKey(body)
 
@@ -62,10 +76,27 @@ export async function createApiKey(opts: {
   }
 
   console.log(`API key "${created.name}" created.\n`)
-  console.log(`  Key:     ${created.key}`)
-  console.log(`  Prefix:  ${created.keyPrefix}`)
-  console.log(`  Scopes:  ${created.scopes.join(', ')}`)
+  console.log(`  Key:       ${created.key}`)
+  console.log(`  Prefix:    ${created.keyPrefix}`)
+  console.log(`  Scopes:    ${created.scopes.join(', ')}`)
+  console.log(`  Read-only: ${created.readOnly ? 'yes' : 'no'}`)
   console.log('\nSave this now — it will not be shown again.')
+}
+
+/** `canonry key whoami` — introspect the key this CLI authenticates with. */
+export async function showApiKeySelf(format?: string): Promise<void> {
+  const client = getClient()
+  const key = await client.getApiKeySelf()
+
+  if (isMachineFormat(format)) {
+    console.log(JSON.stringify(key, null, 2))
+    return
+  }
+
+  console.log(`API key "${key.name}" (${key.keyPrefix})`)
+  console.log(`  Scopes:    ${key.scopes.join(', ')}`)
+  console.log(`  Read-only: ${key.readOnly ? 'yes' : 'no'}`)
+  console.log(`  Status:    ${keyStatus(key)}`)
 }
 
 export async function revokeApiKey(id: string, format?: string): Promise<void> {

@@ -55,7 +55,12 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   // revoking bearer tokens is a privilege-granting / access-cutting operation
   // (gated by the keys.write scope), in the same sensitive class as the
   // settings credential mutations above. CLI + API only for now.
+  // `GET /keys/self` (key introspection) is consumed directly by the MCP
+  // adapter's own startup auto-detection (which restricts the catalog to read
+  // tools when the configured key is read-only) — it is not surfaced as an
+  // agent tool, consistent with the rest of the /keys surface.
   'GET /api/v1/keys': 'deferred',
+  'GET /api/v1/keys/self': 'deferred',
   'POST /api/v1/keys': 'deferred',
   'POST /api/v1/keys/{id}/revoke': 'deferred',
   'PUT /api/v1/projects/{name}/schedule': 'included',
