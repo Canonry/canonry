@@ -92,7 +92,7 @@ describe('discover CLI commands', () => {
 
   function seedSession(opts: {
     status?: string
-    probes?: Array<{ query: string; bucket: string }>
+    probes?: Array<{ query: string; bucket: string; citationState?: string; answerMentioned?: boolean | null }>
     competitorMap?: Array<{ domain: string; hits: number; competitorType?: DiscoveryCompetitorType }>
   }): string {
     const sessionId = crypto.randomUUID()
@@ -118,13 +118,38 @@ describe('discover CLI commands', () => {
         projectId,
         query: p.query,
         bucket: p.bucket,
-        citationState: p.bucket === 'cited' ? 'cited' : 'not-cited',
+        citationState: p.citationState ?? (p.bucket === 'cited' ? 'cited' : 'not-cited'),
         citedDomains: [],
+        ...(p.answerMentioned === undefined ? {} : { answerMentioned: p.answerMentioned }),
         createdAt: now,
       }).run()
     }
     return sessionId
   }
+
+  it('discover show renders both signals as a [citation][mention] cell with a legend', async () => {
+    const sessionId = seedSession({
+      probes: [
+        // cited AND mentioned, cited-not-mentioned, mentioned-not-cited, and a
+        // legacy probe with no mention data (must render the no-data glyph).
+        { query: 'both q', bucket: 'cited', citationState: 'cited', answerMentioned: true },
+        { query: 'cited only q', bucket: 'cited', citationState: 'cited', answerMentioned: false },
+        { query: 'mention only q', bucket: 'aspirational', citationState: 'not-cited', answerMentioned: true },
+        { query: 'legacy q', bucket: 'aspirational', citationState: 'not-cited', answerMentioned: undefined },
+      ],
+    })
+
+    const result = await invokeCli(['discover', 'show', 'demand-iq', sessionId])
+    expect(result.exitCode).toBeUndefined()
+    // legend present so the reader knows which glyph is which
+    expect(result.stdout).toContain('[citation][mention]')
+    const line = (q: string) => result.stdout.split('\n').find((l) => l.includes(q))!
+    expect(line('both q')).toContain('[CM]')
+    expect(line('cited only q')).toContain('[Cm]')
+    expect(line('mention only q')).toContain('[cM]')
+    // legacy (unknown) mention renders the no-data glyph, never 'm'
+    expect(line('legacy q')).toContain('[c–]')
+  })
 
   it('promotes cited + aspirational by default and reports counts', async () => {
     const sessionId = seedSession({

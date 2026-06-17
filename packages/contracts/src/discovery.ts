@@ -78,6 +78,11 @@ export const discoveryProbeDtoSchema = z.object({
   bucket: discoveryBucketSchema.nullable().default(null),
   citationState: citationStateSchema,
   citedDomains: z.array(z.string()).default([]),
+  // Answer-text mention signal, independent of citationState. Tri-state: true
+  // (named in the answer prose), false (probed, not named), null (unknown: a
+  // legacy probe written before the engine computed it). Consumers must treat
+  // null as unknown, never as false.
+  answerMentioned: z.boolean().nullable().default(null),
   createdAt: z.string(),
 })
 export type DiscoveryProbeDto = z.infer<typeof discoveryProbeDtoSchema>

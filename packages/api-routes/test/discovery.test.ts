@@ -205,7 +205,7 @@ describe('buildCompetitorMap', () => {
 describe('executeDiscovery', () => {
   function buildDeps(input: {
     candidates: string[]
-    probeResults: Array<{ query: string; citationState: 'cited' | 'not-cited'; citedDomains: string[] }>
+    probeResults: Array<{ query: string; citationState: 'cited' | 'not-cited'; citedDomains: string[]; answerMentioned?: boolean }>
     classification?: DiscoveryDomainClassification
   }): DiscoveryDeps {
     const probeMap = new Map(input.probeResults.map(r => [r.query, r]))
@@ -227,11 +227,12 @@ describe('executeDiscovery', () => {
       async probe({ query }) {
         const hit = probeMap.get(query)
         if (!hit) {
-          return { citationState: 'not-cited', citedDomains: [], rawResponse: {} }
+          return { citationState: 'not-cited', citedDomains: [], answerMentioned: false, rawResponse: {} }
         }
         return {
           citationState: hit.citationState,
           citedDomains: hit.citedDomains,
+          answerMentioned: hit.answerMentioned ?? false,
           rawResponse: { provider: 'gemini-test', query },
         }
       },
@@ -641,7 +642,7 @@ describe('executeDiscovery', () => {
           return []
         },
         async probe() {
-          return { citationState: 'not-cited', citedDomains: [], rawResponse: {} }
+          return { citationState: 'not-cited', citedDomains: [], answerMentioned: false, rawResponse: {} }
         },
         async classifyDomains() {
           return {}
@@ -737,6 +738,41 @@ describe('discovery routes', () => {
     const runRow = db.select().from(runs).get()!
     expect(runRow.kind).toBe('aeo-discover-probe')
     expect(runRow.status).toBe('queued')
+  })
+
+  it('GET /discover/sessions/:id serializes the tri-state answerMentioned (true / false / null)', async () => {
+    const { app, db, tmpDir } = buildAppWithRoutes([] as never)
+    cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
+    const { projectId } = seedProject(db)
+    const now = new Date().toISOString()
+    const sessionId = crypto.randomUUID()
+    db.insert(discoverySessions).values({
+      id: sessionId, projectId, status: 'completed', competitorMap: [], createdAt: now,
+    }).run()
+    // mentioned, cited-not-mentioned, and a legacy row that never had the column set.
+    db.insert(discoveryProbes).values({
+      id: 'pr_t', sessionId, projectId, query: 'mentioned q',
+      citationState: 'not-cited', answerMentioned: true, createdAt: now,
+    }).run()
+    db.insert(discoveryProbes).values({
+      id: 'pr_f', sessionId, projectId, query: 'cited not mentioned q',
+      citationState: 'cited', citedDomains: ['demand-iq.com'], answerMentioned: false, createdAt: now,
+    }).run()
+    db.insert(discoveryProbes).values({
+      id: 'pr_n', sessionId, projectId, query: 'legacy unknown q',
+      citationState: 'not-cited', createdAt: now,
+    }).run()
+
+    const res = await app.inject({ method: 'GET', url: `/api/v1/projects/demand-iq/discover/sessions/${sessionId}` })
+    expect(res.statusCode).toBe(200)
+    const body = res.json() as { probes: Array<{ query: string; citationState: string; answerMentioned: boolean | null }> }
+    const by = (q: string) => body.probes.find((p) => p.query === q)!
+    // camelCase answerMentioned, independent of citationState
+    expect(by('mentioned q').answerMentioned).toBe(true)
+    expect(by('cited not mentioned q').citationState).toBe('cited')
+    expect(by('cited not mentioned q').answerMentioned).toBe(false)
+    // legacy row: null (unknown), never coerced to false
+    expect(by('legacy unknown q').answerMentioned).toBeNull()
   })
 
   it('POST /discover/run falls back to project.icpDescription when body omits it', async () => {

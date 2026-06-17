@@ -519,6 +519,9 @@ function serializeProbe(row: typeof discoveryProbes.$inferSelect): DiscoveryProb
     bucket: bucketParsed?.success ? bucketParsed.data : null,
     citationState: stateParsed.success ? stateParsed.data : 'not-cited',
     citedDomains: row.citedDomains,
+    // Boolean-mode column already reads back as boolean | null; a legacy row
+    // written before the column is null (unknown), never coerced to false.
+    answerMentioned: row.answerMentioned ?? null,
     createdAt: row.createdAt,
   }
 }

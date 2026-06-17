@@ -32,6 +32,11 @@ const ABSOLUTE_MAX_PROBES = 500
 export interface DiscoveryProjectContext {
   id: string
   name: string
+  /** Brand names (display name + aliases) used for answer-text mention matching,
+   *  built via effectiveBrandNames. Distinct from canonicalDomains (the domain
+   *  signal); both feed determineAnswerMentioned. Optional: a probe dep that does
+   *  not compute mentions can omit it (the real Gemini dep always supplies it). */
+  brandNames?: string[]
   canonicalDomains: string[]
   competitorDomains: string[]
 }
@@ -45,6 +50,11 @@ export interface DiscoverySeedResult {
 export interface DiscoveryProbeResult {
   citationState: CitationState
   citedDomains: string[]
+  /** Answer-text mention signal: whether the answer prose named the project
+   *  (brand or domain). Computed by the probe dep from the answer text via the
+   *  shared determineAnswerMentioned helper. Independent of citationState; the
+   *  dep always has the answer text at probe time, so this is a real boolean. */
+  answerMentioned: boolean
   rawResponse: Record<string, unknown>
 }
 
@@ -318,6 +328,7 @@ export async function executeDiscovery(opts: ExecuteDiscoveryOptions): Promise<E
       query,
       bucket,
       citationState: probe.citationState,
+      answerMentioned: probe.answerMentioned,
       citedDomains: probe.citedDomains,
       rawResponse: JSON.stringify(probe.rawResponse),
       createdAt: new Date().toISOString(),

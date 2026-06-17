@@ -835,6 +835,10 @@ export const discoveryProbes = sqliteTable('discovery_probes', {
   query: text('query').notNull(),
   bucket: text('bucket'),
   citationState: text('citation_state').notNull(),
+  // Answer-text mention signal, independent of citationState. Tri-state: true
+  // (named in the answer prose), false (probed, not named), null (legacy rows
+  // written before this column / never computed). Mirrors querySnapshots.answerMentioned.
+  answerMentioned: integer('answer_mentioned', { mode: 'boolean' }),
   citedDomains: text('cited_domains', { mode: 'json' }).$type<string[]>().notNull().default([]),
   rawResponse: text('raw_response'),
   createdAt: text('created_at').notNull(),

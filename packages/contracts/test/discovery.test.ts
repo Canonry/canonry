@@ -95,7 +95,22 @@ test('discoveryProbeDtoSchema parses a cited probe with cited domains', () => {
   expect(probe.bucket).toBe('cited')
 })
 
-test('discoveryProbeDtoSchema defaults citedDomains to empty array when omitted', () => {
+test('discoveryProbeDtoSchema parses the answer-text mention signal (true and false)', () => {
+  const mentioned = discoveryProbeDtoSchema.parse({
+    id: 'probe_m', sessionId: 'sess_1', projectId: 'proj_1', query: 'q',
+    citationState: 'not-cited', answerMentioned: true, createdAt: '2026-05-11T12:00:00.000Z',
+  })
+  expect(mentioned.answerMentioned).toBe(true)
+  // cited as a source but NOT named in the answer text: the two signals are independent.
+  const citedNotMentioned = discoveryProbeDtoSchema.parse({
+    id: 'probe_c', sessionId: 'sess_1', projectId: 'proj_1', query: 'q',
+    citationState: 'cited', citedDomains: ['client.com'], answerMentioned: false, createdAt: '2026-05-11T12:00:00.000Z',
+  })
+  expect(citedNotMentioned.citationState).toBe('cited')
+  expect(citedNotMentioned.answerMentioned).toBe(false)
+})
+
+test('discoveryProbeDtoSchema defaults citedDomains to empty array and answerMentioned to null when omitted', () => {
   const probe = discoveryProbeDtoSchema.parse({
     id: 'probe_2',
     sessionId: 'sess_1',
@@ -106,6 +121,8 @@ test('discoveryProbeDtoSchema defaults citedDomains to empty array when omitted'
     createdAt: '2026-05-11T12:00:00.000Z',
   })
   expect(probe.citedDomains).toEqual([])
+  // legacy probe with no mention signal: unknown, not false
+  expect(probe.answerMentioned).toBeNull()
 })
 
 test('discoveryProbeDtoSchema allows null bucket (not yet classified)', () => {

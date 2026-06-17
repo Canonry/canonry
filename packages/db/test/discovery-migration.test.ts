@@ -148,6 +148,42 @@ test('v55 creates discovery_probes table without (session_id, query) UNIQUE so v
   expect(db.select().from(discoveryProbes).all()).toHaveLength(2)
 })
 
+test('v79 adds discovery_probes.answer_mentioned column', () => {
+  const { db, tmpDir } = createTempDb()
+  onTestFinished(() => cleanup(tmpDir))
+  expect(columnExists(db, 'discovery_probes', 'answer_mentioned')).toBe(true)
+})
+
+test('discovery_probes.answer_mentioned round-trips the tri-state (true / false / null)', () => {
+  const { db, tmpDir } = createTempDb()
+  onTestFinished(() => cleanup(tmpDir))
+  seedProject(db)
+
+  const now = new Date().toISOString()
+  db.insert(discoverySessions).values({
+    id: 'sess_m', projectId: 'proj_1', status: 'completed', competitorMap: '[]', createdAt: now,
+  }).run()
+  // mentioned, not-mentioned, and unknown (the legacy/never-computed shape).
+  db.insert(discoveryProbes).values({
+    id: 'p_true', sessionId: 'sess_m', projectId: 'proj_1', query: 'mentioned q',
+    citationState: 'not-cited', answerMentioned: true, createdAt: now,
+  }).run()
+  db.insert(discoveryProbes).values({
+    id: 'p_false', sessionId: 'sess_m', projectId: 'proj_1', query: 'cited not mentioned q',
+    citationState: 'cited', answerMentioned: false, createdAt: now,
+  }).run()
+  db.insert(discoveryProbes).values({
+    id: 'p_null', sessionId: 'sess_m', projectId: 'proj_1', query: 'unknown q',
+    citationState: 'not-cited', createdAt: now,
+  }).run()
+
+  const byId = Object.fromEntries(db.select().from(discoveryProbes).all().map((r) => [r.id, r]))
+  expect(byId.p_true.answerMentioned).toBe(true)
+  expect(byId.p_false.answerMentioned).toBe(false)
+  // omitted => null (unknown), never coerced to false
+  expect(byId.p_null.answerMentioned).toBeNull()
+})
+
 test('discovery_sessions cascades on project delete', () => {
   const { db, tmpDir } = createTempDb()
   onTestFinished(() => cleanup(tmpDir))

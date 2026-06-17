@@ -8,7 +8,9 @@ import {
   runs,
 } from '@ainyc/canonry-db'
 import {
+  determineAnswerMentioned,
   DiscoveryCompetitorTypes,
+  effectiveBrandNames,
   effectiveDomains,
   RunStatuses,
   type DiscoveryCompetitorType,
@@ -97,10 +99,17 @@ export async function executeDiscoveryRun(opts: ExecuteDiscoveryRunOptions): Pro
       canonicalDomain: projectRow.canonicalDomain,
       ownedDomains: projectRow.ownedDomains,
     })
+    // Brand identity for answer-text mention matching, same shape the
+    // answer-visibility snapshot writer (job-runner) uses.
+    const brandNames = effectiveBrandNames({
+      displayName: projectRow.displayName,
+      aliases: projectRow.aliases,
+    })
 
     const project: DiscoveryProjectContext = {
       id: projectRow.id,
       name: projectRow.name,
+      brandNames,
       canonicalDomains,
       competitorDomains: projectCompetitors,
     }
@@ -161,7 +170,7 @@ export async function executeDiscoveryRun(opts: ExecuteDiscoveryRunOptions): Pro
  * multiple deps in a composite and surface a label like `"gemini+chatgpt"`
  * in the `DiscoverySeedResult.provider` field.
  */
-function buildDefaultDeps(registry: ProviderRegistry): DiscoveryDeps {
+export function buildDefaultDeps(registry: ProviderRegistry): DiscoveryDeps {
   const gemini = registry.get('gemini')
   if (!gemini) {
     throw new Error('Gemini provider is not configured. Add a Gemini API key (or Vertex project) before running discovery.')
@@ -216,9 +225,18 @@ function buildDefaultDeps(registry: ProviderRegistry): DiscoveryDeps {
       const normalized = adapter.normalizeResult(raw)
       const canonical = new Set(input.project.canonicalDomains.map(d => d.toLowerCase()))
       const isCited = normalized.citedDomains.some(d => canonical.has(d.toLowerCase()))
+      // Mention is the answer-TEXT signal, independent of the citation/source
+      // signal above. Same deterministic helper the answer-visibility snapshot
+      // writer uses, so discovery and sweeps agree on what "mentioned" means.
+      const answerMentioned = determineAnswerMentioned(
+        normalized.answerText,
+        input.project.brandNames ?? [],
+        input.project.canonicalDomains,
+      )
       return {
         citationState: isCited ? 'cited' : 'not-cited',
         citedDomains: normalized.citedDomains,
+        answerMentioned,
         rawResponse: raw.rawResponse as Record<string, unknown>,
       }
     },
