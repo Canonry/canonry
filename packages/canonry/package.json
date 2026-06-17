@@ -44,7 +44,7 @@
     "lint": "eslint src/ test/"
   },
   "dependencies": {
-    "@ainyc/aeo-audit": "3.0.0",
+    "@ainyc/aeo-audit": "4.0.1",
     "@anthropic-ai/sdk": "^0.91.1",
     "@fastify/static": "^9.1.1",
     "@google/genai": "^1.46.0",
