@@ -13,7 +13,7 @@ Aero ships with a built-in durable notes store — the `canonry_memory_set`, `ca
 
 | Scope | Examples | Home |
 |---|---|---|
-| **Project state** | Baselines, historical regressions, citation rates per query/provider, recent insights, sweep history, audit trail | Canonry DB — query via CLI / API / read tools |
+| **Project state** | Baselines (**mention rate + mention share** as the primary KPI, then cited rate), historical regressions, mention + citation rates per query/provider, recent insights, sweep history, audit trail | Canonry DB — query via CLI / API / read tools |
 | **Operator facts** | Personal preferences, non-observable context ("content lead is Sarah", "migrating off Webflow next quarter"), tone/voice preferences the operator confirmed | Aero memory (`canonry_memory_set`) |
 | **Session scratch** | "I just tried X and it failed", intermediate reasoning, turn-local state | Nowhere — let it die with the session |
 

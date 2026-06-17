@@ -5,13 +5,15 @@ description: How to operate the tracked-basket discovery pipeline. Read when an 
 
 # AEO Discovery (Tracked-Basket Expansion)
 
-Discovery turns a free-text ICP description into a deduped basket of representative queries, probes each against Gemini grounding, and classifies the results into three buckets:
+Discovery turns a free-text ICP description into a deduped basket of representative queries, probes each against Gemini grounding, and classifies the results into three buckets. Read each bucket as **mention-or-citation** presence — the brand named in the answer text (`answerMentioned`, the primary signal) OR the domain in the grounding sources (`cited`, the secondary signal) — not citation alone:
 
-- **cited** — the project's canonical (or owned) domain appears in the grounding sources
-- **wasted-surface** — a tracked competitor is cited but the project is not
-- **aspirational** — neither the project nor a tracked competitor is cited (greenfield)
+- **cited** — the project shows up for the query: its brand is mentioned in the answer text, or its canonical/owned domain appears in the grounding sources (mention-or-citation present)
+- **wasted-surface** — a tracked competitor shows up (mentioned or cited) but the project does not
+- **aspirational** — neither the project nor a tracked competitor shows up on either signal (greenfield)
 
-Plus a competitor map: every non-canonical domain that shows up in probe citations, ranked by hit count and classified by type, so the operator can spot recurring competitors that aren't yet on the watchlist.
+Plus a competitor map: every non-canonical domain (and named competitor brand) that shows up across probes, ranked by hit count and classified by type, so the operator can spot recurring competitors that aren't yet on the watchlist. Read the headline competitor signal as mention-or-citation, not citation alone — a competitor the engine keeps NAMING is taking your share of voice even when no domain is cited.
+
+> **Mention data on probes (engine PR #707, merged 2026-06-17).** Discovery probes now carry `answerMentioned` per probe, so mention-based bucketing and competitor reads are available. Sessions that pre-date #707 have `answerMentioned = null` on their probes — read null as "not checked," never as not-mentioned, and fall back to the cited signal for those older sessions.
 
 After probing, one Gemini call classifies every recurring cited domain into a `competitorType`:
 

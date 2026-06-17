@@ -15,10 +15,11 @@ cnry report <project> --output dist/aeo.html   # custom path
 cnry report <project> --format json            # raw payload, useful for narrating in chat
 ```
 
-The HTML is self-contained (inline CSS + SVG charts, no network dependencies) and covers: executive summary, per-query × per-provider citation matrix, competitor landscape, AI citation sources, GSC + GA4 performance, social and AI referrals, indexing health, citations trend, prioritized insights, and recommended next steps. Same payload is available via `GET /api/v1/projects/<name>/report` and the `canonry_report` MCP tool — use `--format json` when you want to summarize specific numbers in a thread instead of attaching the file.
+The HTML is self-contained (inline CSS + SVG charts, no network dependencies) and leads visually with mention coverage (the primary gauge), then covers: executive summary, per-query × per-provider matrix (mention + citation), competitor landscape, AI citation sources, GSC + GA4 performance, social and AI referrals, indexing health, trend, prioritized insights, and recommended next steps. Same payload is available via `GET /api/v1/projects/<name>/report` and the `canonry_report` MCP tool — use `--format json` when you want to summarize specific numbers in a thread instead of attaching the file.
 
 Behaviors worth knowing before narrating numbers from the report:
-- `executiveSummary.citationRate` is **per-query** — `citedQueryCount / totalQueryCount`, where a query counts as cited if any provider in the run cited it. The denominator is total tracked queries (not (query × provider) pairs), so the rate stays comparable when provider count varies between runs. Use `citedQueryCount` / `totalQueryCount` directly when narrating ratios.
+- **Mention is the primary metric; citation is secondary.** Narrate the mention figures first. `executiveSummary.mentionRate` is **per-query** — `mentionedQueryCount / totalQueryCount`, where a query counts as mentioned if any provider's answer text named the brand in the run. The report leads visually with mention coverage, but the machine field backing that headline is not confirmed in the CLI docs — [confirm field name against `cnry report --format json` / `ProjectReportDto`] before quoting it as the headline; `executiveSummary.mentionRate` / `mentionedQueryCount` are the confirmed per-query mention fields.
+- `executiveSummary.citationRate` is the **secondary**, per-query citation signal — `citedQueryCount / totalQueryCount`, where a query counts as cited if any provider in the run cited it. The denominator is total tracked queries (not (query × provider) pairs), so the rate stays comparable when provider count varies between runs. Use `citedQueryCount` / `totalQueryCount` directly when narrating ratios. Mention and citation are independent — never compute one from the other.
 - The same per-query definition powers every `citationsTrend[].citationRate` so trend deltas reflect real movement, not provider-mix variance.
 - `citationsTrend` excludes partial runs. A project with only one completed run shows `trend: "unknown"` — never claim a comparison that isn't there.
 - Project ownership and competitor tagging use subdomain-aware matching: `blog.example.com` counts as the project when `example.com` is the canonical domain or in `ownedDomains`; `blog.rival.com` is tagged `isCompetitor: true` when `rival.com` is tracked.
@@ -32,9 +33,11 @@ The hand-rolled templates below are still the right call when the user wants a f
 # Weekly AEO Report: <project> (<date range>)
 
 ## Summary
-- Cited rate: <X>% (Δ<+/-Y>% from last week)
-- Regressions: <N> new, <N> resolved
-- Gains: <N> new citations
+- Mention rate: <X>% (Δ<+/-Y>% from last week)        ← primary KPI
+- Mention share: <X>% (Δ<+/-Y>% from last week)       ← AI share-of-voice vs competitors
+- Cited rate: <X>% (Δ<+/-Y>% from last week)          ← secondary signal
+- Regressions: <N> new, <N> resolved (lead with lost mentions; note lost citations second)
+- Gains: <N> new mentions / <N> new citations
 - Providers monitored: <N>
 
 ## Key Changes
@@ -72,14 +75,16 @@ The hand-rolled templates below are still the right call when the user wants a f
 ## Metrics
 | Metric | Start of Month | End of Month | Change |
 |--------|---------------|--------------|--------|
-| Overall cited rate | <X>% | <Y>% | <Δ>% |
+| Mention rate (primary) | <X>% | <Y>% | <Δ>% |
+| Mention share (primary) | <X>% | <Y>% | <Δ>% |
+| Cited rate (secondary) | <X>% | <Y>% | <Δ>% |
 | Queries monitored | <N> | <N> | <Δ> |
 | Active regressions | <N> | <N> | <Δ> |
 
 ## Provider Breakdown
-| Provider | Cited Rate | Trend |
-|----------|-----------|-------|
-| <provider> | <X>% | ↑/↓/→ |
+| Provider | Mention Rate | Mention Trend | Cited Rate | Cited Trend |
+|----------|--------------|---------------|-----------|-------------|
+| <provider> | <X>% | ↑/↓/→ | <X>% | ↑/↓/→ |
 
 ## Fixes Deployed
 | Date | Fix | Status | Impact |
