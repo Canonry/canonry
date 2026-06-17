@@ -26,8 +26,66 @@ describe('computeHealth', () => {
     expect(health.overallCitedRate).toBe(0.75)
     expect(health.totalPairs).toBe(4)
     expect(health.citedPairs).toBe(3)
-    expect(health.providerBreakdown.chatgpt).toEqual({ citedRate: 0.5, cited: 1, total: 2 })
-    expect(health.providerBreakdown.gemini).toEqual({ citedRate: 1.0, cited: 2, total: 2 })
+    expect(health.providerBreakdown.chatgpt).toEqual({ citedRate: 0.5, mentionRate: 0, cited: 1, mentioned: 0, total: 2 })
+    expect(health.providerBreakdown.gemini).toEqual({ citedRate: 1.0, mentionRate: 0, cited: 2, mentioned: 0, total: 2 })
+  })
+
+  it('computes mention rate independently of cited rate (numerator/denominator/rounded)', () => {
+    // 4 pairs. Cited and mention are deliberately DIFFERENT sets to prove they
+    // are not derived from one another:
+    //   cited   : k1/chatgpt, k1/gemini, k2/gemini           → 3/4 = 0.75
+    //   mention : k1/chatgpt, k2/chatgpt                      → 2/4 = 0.50
+    const run = makeRun({
+      snapshots: [
+        { query: 'k1', provider: 'chatgpt', cited: true,  answerMentioned: true },
+        { query: 'k1', provider: 'gemini',  cited: true,  answerMentioned: false },
+        { query: 'k2', provider: 'chatgpt', cited: false, answerMentioned: true },
+        { query: 'k2', provider: 'gemini',  cited: true,  answerMentioned: false },
+      ],
+    })
+
+    const health = computeHealth(run)
+
+    // Mention math: numerator 2, denominator 4, rate 0.5 — distinct from cited.
+    expect(health.mentionedPairs).toBe(2)
+    expect(health.totalPairs).toBe(4)
+    expect(health.overallMentionRate).toBe(0.5)
+    expect((health.overallMentionRate * 100).toFixed(1)).toBe('50.0')
+
+    // Cited math is unchanged and independent.
+    expect(health.citedPairs).toBe(3)
+    expect(health.overallCitedRate).toBe(0.75)
+
+    // Per-provider: chatgpt mentioned on both its pairs, cited on one.
+    expect(health.providerBreakdown.chatgpt).toEqual({ citedRate: 0.5, mentionRate: 1.0, cited: 1, mentioned: 2, total: 2 })
+    // gemini cited on both, mentioned on neither.
+    expect(health.providerBreakdown.gemini).toEqual({ citedRate: 1.0, mentionRate: 0, cited: 2, mentioned: 0, total: 2 })
+  })
+
+  it('never counts a null answerMentioned as mentioned (tri-state, null ≠ false)', () => {
+    // 4 pairs: 1 true, 1 false, 1 null, 1 undefined ("not checked").
+    // Only the single `true` counts toward the mention numerator.
+    const run = makeRun({
+      snapshots: [
+        { query: 'k1', provider: 'chatgpt', cited: true,  answerMentioned: true },
+        { query: 'k2', provider: 'chatgpt', cited: true,  answerMentioned: false },
+        { query: 'k3', provider: 'chatgpt', cited: true,  answerMentioned: null },
+        { query: 'k4', provider: 'chatgpt', cited: true }, // answerMentioned undefined
+      ],
+    })
+
+    const health = computeHealth(run)
+
+    // null and undefined contribute to the DENOMINATOR but never the numerator.
+    expect(health.totalPairs).toBe(4)
+    expect(health.mentionedPairs).toBe(1)
+    expect(health.overallMentionRate).toBe(0.25)
+    expect(health.providerBreakdown.chatgpt.mentioned).toBe(1)
+    expect(health.providerBreakdown.chatgpt.mentionRate).toBe(0.25)
+
+    // Cited is unaffected — all four are cited.
+    expect(health.citedPairs).toBe(4)
+    expect(health.overallCitedRate).toBe(1.0)
   })
 
   it('returns 0 rate for empty snapshots', () => {
@@ -76,7 +134,7 @@ describe('computeHealth', () => {
 
     const health = computeHealth(run)
     expect(Object.keys(health.providerBreakdown)).toEqual(['chatgpt'])
-    expect(health.providerBreakdown.chatgpt).toEqual({ citedRate: 0.5, cited: 1, total: 2 })
+    expect(health.providerBreakdown.chatgpt).toEqual({ citedRate: 0.5, mentionRate: 0, cited: 1, mentioned: 0, total: 2 })
   })
 
   it('handles many providers', () => {

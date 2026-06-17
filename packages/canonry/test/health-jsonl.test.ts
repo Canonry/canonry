@@ -30,9 +30,11 @@ const snapshots: HealthSnapshotDto[] = [
     projectId: 'proj-1',
     runId: 'run-1',
     overallCitedRate: 0.42,
+    overallMentionRate: 0.25,
     totalPairs: 12,
     citedPairs: 5,
-    providerBreakdown: { openai: { citedRate: 0.5, cited: 3, total: 6 } },
+    mentionedPairs: 3,
+    providerBreakdown: { openai: { citedRate: 0.5, mentionRate: 0.33, cited: 3, mentioned: 2, total: 6 } },
     createdAt: '2026-04-28T00:00:00.000Z',
     status: 'ready',
   },
@@ -41,9 +43,11 @@ const snapshots: HealthSnapshotDto[] = [
     projectId: 'proj-1',
     runId: 'run-2',
     overallCitedRate: 0.5,
+    overallMentionRate: 0.33,
     totalPairs: 12,
     citedPairs: 6,
-    providerBreakdown: { openai: { citedRate: 0.6, cited: 4, total: 6 } },
+    mentionedPairs: 4,
+    providerBreakdown: { openai: { citedRate: 0.6, mentionRate: 0.5, cited: 4, mentioned: 3, total: 6 } },
     createdAt: '2026-04-29T00:00:00.000Z',
     status: 'ready',
   },
@@ -54,9 +58,11 @@ const health: HealthSnapshotDto = {
   projectId: 'proj-1',
   runId: 'run-2',
   overallCitedRate: 0.5,
+  overallMentionRate: 0.33,
   totalPairs: 12,
   citedPairs: 6,
-  providerBreakdown: { openai: { citedRate: 0.6, cited: 4, total: 6 } },
+  mentionedPairs: 4,
+  providerBreakdown: { openai: { citedRate: 0.6, mentionRate: 0.5, cited: 4, mentioned: 3, total: 6 } },
   createdAt: '2026-04-29T00:00:00.000Z',
   status: 'ready',
 }
@@ -82,8 +88,11 @@ describe('showHealth --format jsonl', () => {
         overallCitedRate: 0.42,
         citedPairs: 5,
         totalPairs: 12,
+        // Mention fields ride alongside cited in the machine output.
+        overallMentionRate: 0.25,
+        mentionedPairs: 3,
       })
-      expect(records[1]).toMatchObject({ project: 'demo', id: 'snap-2', citedPairs: 6 })
+      expect(records[1]).toMatchObject({ project: 'demo', id: 'snap-2', citedPairs: 6, mentionedPairs: 4 })
     })
 
     it('empty history emits nothing on jsonl', async () => {
@@ -136,5 +145,56 @@ describe('showHealth --format jsonl', () => {
       }
       expect(JSON.parse(logs.join(''))).toEqual(health)
     })
+  })
+})
+
+describe('showHealth human render', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('leads with mention rate and shows cited rate alongside it', async () => {
+    mockGetHealth.mockResolvedValue(health)
+    const logs: string[] = []
+    const origLog = console.log
+    console.log = (...args: unknown[]) => logs.push(args.join(' '))
+    try {
+      await showHealth('demo', {})
+    } finally {
+      console.log = origLog
+    }
+    const out = logs.join('\n')
+    // Both signals present, mention first.
+    expect(out).toContain('33.0% mentioned (4/12 pairs)')
+    expect(out).toContain('50.0% cited (6/12 pairs)')
+    const mentionIdx = out.indexOf('mentioned')
+    const citedIdx = out.indexOf('cited')
+    expect(mentionIdx).toBeGreaterThanOrEqual(0)
+    expect(mentionIdx).toBeLessThan(citedIdx) // mention leads
+    // Per-provider line carries both rates too.
+    expect(out).toContain('50.0% mentioned (3/6)')
+    expect(out).toContain('60.0% cited (4/6)')
+  })
+
+  it('--history table renders a Mention Rate column next to Cited Rate', async () => {
+    mockGetHealthHistory.mockResolvedValue(snapshots)
+    const logs: string[] = []
+    const origLog = console.log
+    console.log = (...args: unknown[]) => logs.push(args.join(' '))
+    try {
+      await showHealth('demo', { history: true })
+    } finally {
+      console.log = origLog
+    }
+    const out = logs.join('\n')
+    expect(out).toContain('Mention Rate')
+    expect(out).toContain('Cited Rate')
+    // Header puts mention before cited.
+    const header = logs.find(l => l.includes('Mention Rate')) ?? ''
+    expect(header.indexOf('Mention Rate')).toBeLessThan(header.indexOf('Cited Rate'))
+    // Row carries the mention numerator/denominator (3/12) and cited (5/12).
+    expect(out).toContain('25.0%')
+    expect(out).toContain('3/12')
+    expect(out).toContain('5/12')
   })
 })

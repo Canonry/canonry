@@ -10,8 +10,10 @@ function emptyHealthSnapshot(projectId: string): HealthSnapshotDto {
     projectId,
     runId: null,
     overallCitedRate: 0,
+    overallMentionRate: 0,
     totalPairs: 0,
     citedPairs: 0,
+    mentionedPairs: 0,
     providerBreakdown: {},
     createdAt: '',
     status: 'no-data',
@@ -36,15 +38,40 @@ function mapInsightRow(r: typeof insights.$inferSelect): InsightDto {
   }
 }
 
+/**
+ * Coalesce a persisted providerBreakdown into the current DTO shape. Rows
+ * written before the mention columns existed have entries with no
+ * `mentionRate` / `mentioned` keys — fill them with 0 so the contract field
+ * is always present. Cited fields pass through untouched.
+ */
+function coalesceProviderBreakdown(
+  breakdown: Record<string, { citedRate: number; mentionRate?: number; cited: number; mentioned?: number; total: number }>,
+): HealthSnapshotDto['providerBreakdown'] {
+  const out: HealthSnapshotDto['providerBreakdown'] = {}
+  for (const [provider, entry] of Object.entries(breakdown)) {
+    out[provider] = {
+      citedRate: entry.citedRate,
+      mentionRate: entry.mentionRate ?? 0,
+      cited: entry.cited,
+      mentioned: entry.mentioned ?? 0,
+      total: entry.total,
+    }
+  }
+  return out
+}
+
 function mapHealthRow(r: typeof healthSnapshots.$inferSelect): HealthSnapshotDto {
   return {
     id: r.id,
     projectId: r.projectId,
     runId: r.runId ?? null,
     overallCitedRate: Number(r.overallCitedRate),
+    // Legacy rows (persisted before v80) have NULL mention columns → 0.
+    overallMentionRate: r.overallMentionRate == null ? 0 : Number(r.overallMentionRate),
     totalPairs: r.totalPairs,
     citedPairs: r.citedPairs,
-    providerBreakdown: r.providerBreakdown,
+    mentionedPairs: r.mentionedPairs ?? 0,
+    providerBreakdown: coalesceProviderBreakdown(r.providerBreakdown),
     createdAt: r.createdAt,
     status: 'ready',
   }
@@ -69,28 +96,36 @@ function aggregateHealthSnapshots(
 
   let totalPairs = 0
   let citedPairs = 0
-  const mergedProviders: Record<string, { total: number; cited: number; citedRate: number }> = {}
+  let mentionedPairs = 0
+  const mergedProviders: Record<string, { total: number; cited: number; mentioned: number; citedRate: number; mentionRate: number }> = {}
   let newestCreatedAt = ''
   const runIds: string[] = []
 
   for (const row of rows) {
     totalPairs += row.totalPairs
     citedPairs += row.citedPairs
+    // Legacy rows (pre-v80) have NULL mention columns → contribute 0 to the
+    // numerator. Cited and mention are merged identically but independently.
+    mentionedPairs += row.mentionedPairs ?? 0
     if (row.createdAt > newestCreatedAt) newestCreatedAt = row.createdAt
     if (row.runId) runIds.push(row.runId)
     const providerBreakdown = row.providerBreakdown
     for (const [provider, entry] of Object.entries(providerBreakdown)) {
-      const existing = mergedProviders[provider] ?? { total: 0, cited: 0, citedRate: 0 }
+      const existing = mergedProviders[provider] ?? { total: 0, cited: 0, mentioned: 0, citedRate: 0, mentionRate: 0 }
       existing.total += entry.total
       existing.cited += entry.cited
+      existing.mentioned += entry.mentioned ?? 0
       mergedProviders[provider] = existing
     }
   }
-  // Compute per-provider rates after summing.
+  // Compute per-provider rates after summing. Cited and mention are computed
+  // separately — neither is derived from the other.
   for (const entry of Object.values(mergedProviders)) {
     entry.citedRate = entry.total > 0 ? entry.cited / entry.total : 0
+    entry.mentionRate = entry.total > 0 ? entry.mentioned / entry.total : 0
   }
   const overallCitedRate = totalPairs > 0 ? citedPairs / totalPairs : 0
+  const overallMentionRate = totalPairs > 0 ? mentionedPairs / totalPairs : 0
 
   return {
     // Synthetic id so consumers can tell this is an aggregate; concatenate
@@ -99,8 +134,10 @@ function aggregateHealthSnapshots(
     projectId,
     runId: runIds[0] ?? null,
     overallCitedRate,
+    overallMentionRate,
     totalPairs,
     citedPairs,
+    mentionedPairs,
     providerBreakdown: mergedProviders,
     createdAt: newestCreatedAt,
     status: 'ready',

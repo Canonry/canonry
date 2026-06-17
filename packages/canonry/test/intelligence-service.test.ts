@@ -62,7 +62,7 @@ function seedSnapshot(
   queryId: string,
   provider: string,
   citationState: string,
-  opts?: { citedDomains?: string[]; competitorOverlap?: string[] },
+  opts?: { citedDomains?: string[]; competitorOverlap?: string[]; answerMentioned?: boolean | null },
 ) {
   db.insert(querySnapshots).values({
     id: crypto.randomUUID(),
@@ -71,6 +71,9 @@ function seedSnapshot(
     provider,
     model: 'test-model',
     citationState,
+    // Tri-state mention signal. Default null ("not checked") when the caller
+    // doesn't specify, mirroring legacy snapshots written before the signal.
+    answerMentioned: opts?.answerMentioned ?? null,
     citedDomains: opts?.citedDomains ?? [],
     competitorOverlap: opts?.competitorOverlap ?? [],
     createdAt: new Date().toISOString(),
@@ -104,6 +107,65 @@ describe('IntelligenceService', () => {
         expect(insight.runId).toBe(runId)
         expect(insight.projectId).toBe(projectId)
       }
+    })
+
+    it('threads answerMentioned from query_snapshots → computeHealth → persisted mention columns', () => {
+      const { db } = createTempDb('intel-mention-')
+      const projectId = seedProject(db)
+      const q1 = seedQuery(db, projectId, 'roof repair')
+      const q2 = seedQuery(db, projectId, 'metal roofing')
+      const q3 = seedQuery(db, projectId, 'roof coating')
+      const runId = seedRun(db, projectId, 'completed')
+      // 3 pairs. Mentioned set is DIFFERENT from cited set, proving the two
+      // signals are independent end-to-end:
+      //   cited   : q1, q2           → 2/3
+      //   mention : q1, q3           → 2/3 (but different queries)
+      seedSnapshot(db, runId, q1, 'gemini', 'cited',     { citedDomains: ['example.com'], answerMentioned: true })
+      seedSnapshot(db, runId, q2, 'gemini', 'cited',     { citedDomains: ['example.com'], answerMentioned: false })
+      seedSnapshot(db, runId, q3, 'gemini', 'not-cited', { answerMentioned: true })
+
+      const service = new IntelligenceService(db)
+      const result = service.analyzeAndPersist(runId, projectId)
+
+      expect(result).not.toBeNull()
+      // In-memory health carries the mention math.
+      expect(result!.health.totalPairs).toBe(3)
+      expect(result!.health.citedPairs).toBe(2)
+      expect(result!.health.mentionedPairs).toBe(2)
+      expect(result!.health.overallMentionRate).toBeCloseTo(2 / 3, 5)
+      expect(result!.health.providerBreakdown.gemini.mentioned).toBe(2)
+      expect(result!.health.providerBreakdown.gemini.mentionRate).toBeCloseTo(2 / 3, 5)
+
+      // Round-trip: the persisted health_snapshots row carries the new columns.
+      const saved = db.select().from(healthSnapshots).all()
+      expect(saved).toHaveLength(1)
+      expect(saved[0]!.mentionedPairs).toBe(2)
+      expect(Number(saved[0]!.overallMentionRate)).toBeCloseTo(2 / 3, 5)
+      const providerBreakdown = saved[0]!.providerBreakdown as Record<string, { mentionRate: number; mentioned: number; total: number }>
+      expect(providerBreakdown.gemini.mentioned).toBe(2)
+      expect(providerBreakdown.gemini.total).toBe(3)
+    })
+
+    it('never counts a null answerMentioned (legacy snapshot) as mentioned', () => {
+      const { db } = createTempDb('intel-mention-null-')
+      const projectId = seedProject(db)
+      const q1 = seedQuery(db, projectId, 'q1')
+      const q2 = seedQuery(db, projectId, 'q2')
+      const runId = seedRun(db, projectId, 'completed')
+      // One mentioned, one with null (default — never checked). Mention = 1/2,
+      // not 0/2 nor 2/2; null must not coerce to false in the numerator.
+      seedSnapshot(db, runId, q1, 'gemini', 'cited', { citedDomains: ['example.com'], answerMentioned: true })
+      seedSnapshot(db, runId, q2, 'gemini', 'cited', { citedDomains: ['example.com'] }) // answerMentioned → null
+
+      const service = new IntelligenceService(db)
+      const result = service.analyzeAndPersist(runId, projectId)
+
+      expect(result!.health.totalPairs).toBe(2)
+      expect(result!.health.mentionedPairs).toBe(1)
+      expect(result!.health.overallMentionRate).toBe(0.5)
+
+      const saved = db.select().from(healthSnapshots).all()
+      expect(saved[0]!.mentionedPairs).toBe(1)
     })
 
     it('returns null when run has no snapshots', () => {

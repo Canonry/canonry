@@ -2,6 +2,16 @@ export interface Snapshot {
   query: string
   provider: string
   cited: boolean
+  /**
+   * Did the project's brand/domain appear in the actual LLM answer TEXT
+   * (the prose the model returns)? Independent of `cited` (source-list
+   * presence) — a model can do either, both, or neither. TRI-STATE:
+   * `true` mentioned, `false` not mentioned, `null`/`undefined` "not
+   * checked" (legacy rows written before the signal existed, or providers
+   * that don't emit it). Health counts a pair as mentioned ONLY when this
+   * is exactly `true`; null is never coerced to false.
+   */
+  answerMentioned?: boolean | null
   citationUrl?: string
   position?: number
   snippet?: string
@@ -66,9 +76,18 @@ export interface Gain {
 
 export interface HealthScore {
   overallCitedRate: number
+  /**
+   * Share of (query × provider) pairs where the project was MENTIONED in the
+   * answer text. Independent of `overallCitedRate` — never derived from it.
+   * `mentionedPairs / totalPairs`, or 0 when there are no pairs. Pairs with a
+   * null `answerMentioned` ("not checked") count toward the denominator but
+   * never the numerator.
+   */
+  overallMentionRate: number
   totalPairs: number
   citedPairs: number
-  providerBreakdown: Record<string, { citedRate: number; cited: number; total: number }>
+  mentionedPairs: number
+  providerBreakdown: Record<string, { citedRate: number; mentionRate: number; cited: number; mentioned: number; total: number }>
 }
 
 export interface HealthTrend {

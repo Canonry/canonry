@@ -533,9 +533,17 @@ export const healthSnapshots = sqliteTable('health_snapshots', {
   projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
   runId: text('run_id').references(() => runs.id, { onDelete: 'cascade' }),
   overallCitedRate: text('overall_cited_rate').notNull(),
+  // Answer-text mention rate, independent of citation. Nullable because the
+  // column is added by migration v80 via ALTER TABLE ADD COLUMN — rows
+  // persisted before v80 read back as NULL ("not measured"); readers coalesce
+  // NULL→0. New writes always populate it (see intelligence-service persist).
+  overallMentionRate: text('overall_mention_rate'),
   totalPairs: integer('total_pairs').notNull(),
   citedPairs: integer('cited_pairs').notNull(),
-  providerBreakdown: text('provider_breakdown', { mode: 'json' }).$type<Record<string, { citedRate: number; cited: number; total: number }>>().notNull().default({}),
+  // Count of pairs MENTIONED in the answer text. Nullable for the same
+  // legacy-row reason as overall_mention_rate; coalesced NULL→0 on read.
+  mentionedPairs: integer('mentioned_pairs'),
+  providerBreakdown: text('provider_breakdown', { mode: 'json' }).$type<Record<string, { citedRate: number; mentionRate: number; cited: number; mentioned: number; total: number }>>().notNull().default({}),
   createdAt: text('created_at').notNull(),
 }, (table) => [
   index('idx_health_snapshots_project').on(table.projectId),

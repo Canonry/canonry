@@ -690,8 +690,10 @@ export class IntelligenceService {
         projectId,
         runId,
         overallCitedRate: String(result.health.overallCitedRate),
+        overallMentionRate: String(result.health.overallMentionRate),
         totalPairs: result.health.totalPairs,
         citedPairs: result.health.citedPairs,
+        mentionedPairs: result.health.mentionedPairs,
         providerBreakdown: result.health.providerBreakdown,
         createdAt: now,
       }).run()
@@ -874,6 +876,7 @@ export class IntelligenceService {
         queryText: querySnapshots.queryText,
         provider: querySnapshots.provider,
         citationState: querySnapshots.citationState,
+        answerMentioned: querySnapshots.answerMentioned,
         citedDomains: querySnapshots.citedDomains,
         competitorOverlap: querySnapshots.competitorOverlap,
         snapshotLocation: querySnapshots.location,
@@ -904,6 +907,10 @@ export class IntelligenceService {
         query: resolvedQuery,
         provider: r.provider,
         cited: r.citationState === CitationStates.cited,
+        // Independent answer-text signal. Tri-state passes through untouched
+        // (true / false / null = "not checked"); computeHealth counts only
+        // exact `true`. Never coerce null→false here.
+        answerMentioned: r.answerMentioned,
         // The project's OWN cited domain — never a co-cited competitor that
         // happens to sort first in the full citedDomains set.
         citationUrl: pickProjectCitedDomain(domains, projectDomains),

@@ -43,9 +43,18 @@ export interface HealthSnapshotDto {
   projectId: string
   runId: string | null
   overallCitedRate: number
+  /**
+   * Share of (query × provider) pairs where the project was MENTIONED in the
+   * answer text. Independent of `overallCitedRate` — never derived from it.
+   * Legacy snapshots persisted before the mention columns existed read back
+   * as 0 (the API coalesces NULL→0).
+   */
+  overallMentionRate: number
   totalPairs: number
   citedPairs: number
-  providerBreakdown: Record<string, { citedRate: number; cited: number; total: number }>
+  /** Count of pairs mentioned in the answer text. Legacy rows read back as 0. */
+  mentionedPairs: number
+  providerBreakdown: Record<string, { citedRate: number; mentionRate: number; cited: number; mentioned: number; total: number }>
   createdAt: string
   /**
    * `'ready'` when the snapshot reflects real data; `'no-data'` for the

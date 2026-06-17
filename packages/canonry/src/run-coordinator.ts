@@ -210,8 +210,10 @@ function analysisResultFromInsights(insights: Insight[]): AnalysisResult {
     competitorLosses: [],
     health: {
       overallCitedRate: 0,
+      overallMentionRate: 0,
       totalPairs: 0,
       citedPairs: 0,
+      mentionedPairs: 0,
       providerBreakdown: {},
     },
     insights,

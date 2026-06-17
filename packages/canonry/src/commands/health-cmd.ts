@@ -26,13 +26,17 @@ export async function showHealth(
       return
     }
 
-    console.log('Date                      Cited Rate   Cited/Total')
-    console.log('─'.repeat(55))
+    // Mention leads, cited second — both signals are independent and shown
+    // side by side (never one in place of the other).
+    console.log('Date                      Mention Rate  Mentioned/Total   Cited Rate   Cited/Total')
+    console.log('─'.repeat(86))
     for (const snap of snapshots) {
-      const rate = (snap.overallCitedRate * 100).toFixed(1).padStart(5) + '%'
-      const ratio = `${snap.citedPairs}/${snap.totalPairs}`
+      const mRate = (snap.overallMentionRate * 100).toFixed(1).padStart(5) + '%'
+      const mRatio = `${snap.mentionedPairs}/${snap.totalPairs}`.padEnd(15)
+      const cRate = (snap.overallCitedRate * 100).toFixed(1).padStart(5) + '%'
+      const cRatio = `${snap.citedPairs}/${snap.totalPairs}`
       const date = snap.createdAt.slice(0, 19).padEnd(25)
-      console.log(`${date} ${rate}        ${ratio}`)
+      console.log(`${date} ${mRate}        ${mRatio}   ${cRate}        ${cRatio}`)
     }
     return
   }
@@ -52,15 +56,19 @@ export async function showHealth(
     return
   }
 
-  const rate = (health.overallCitedRate * 100).toFixed(1)
-  console.log(`Health: ${rate}% cited (${health.citedPairs}/${health.totalPairs} pairs)`)
+  // Mention leads, cited second — two independent signals, both surfaced.
+  const mentionRate = (health.overallMentionRate * 100).toFixed(1)
+  const citedRate = (health.overallCitedRate * 100).toFixed(1)
+  console.log(`Health: ${mentionRate}% mentioned (${health.mentionedPairs}/${health.totalPairs} pairs)`)
+  console.log(`        ${citedRate}% cited (${health.citedPairs}/${health.totalPairs} pairs)`)
   console.log('')
 
   if (health.providerBreakdown && Object.keys(health.providerBreakdown).length > 0) {
     console.log('Provider Breakdown:')
     for (const [provider, stats] of Object.entries(health.providerBreakdown)) {
-      const pRate = (stats.citedRate * 100).toFixed(1)
-      console.log(`  ${provider.padEnd(15)} ${pRate}% (${stats.cited}/${stats.total})`)
+      const pMention = (stats.mentionRate * 100).toFixed(1)
+      const pCited = (stats.citedRate * 100).toFixed(1)
+      console.log(`  ${provider.padEnd(15)} ${pMention}% mentioned (${stats.mentioned}/${stats.total})   ${pCited}% cited (${stats.cited}/${stats.total})`)
     }
   }
 }
