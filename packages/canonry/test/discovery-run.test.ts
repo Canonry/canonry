@@ -18,6 +18,7 @@ import type { LocationContext } from '@ainyc/canonry-contracts'
 import { ProviderRegistry } from '../src/provider-registry.js'
 import {
   buildClassificationPrompt,
+  buildDefaultDeps,
   buildLocationConstraint,
   buildSeedPrompt,
   executeDiscoveryRun,
@@ -93,12 +94,12 @@ function buildDeps(opts: { probeBuckets: Array<'cited' | 'wasted' | 'aspirationa
       const idx = query.toLowerCase().charCodeAt(0) - 97
       const bucket = opts.probeBuckets[idx]
       if (bucket === 'cited') {
-        return { citationState: 'cited', citedDomains: ['demand-iq.com'], rawResponse: {} }
+        return { citationState: 'cited', citedDomains: ['demand-iq.com'], answerMentioned: true, rawResponse: {} }
       }
       if (bucket === 'wasted') {
-        return { citationState: 'not-cited', citedDomains: ['aurora-solar.com'], rawResponse: {} }
+        return { citationState: 'not-cited', citedDomains: ['aurora-solar.com'], answerMentioned: false, rawResponse: {} }
       }
-      return { citationState: 'not-cited', citedDomains: ['random.com'], rawResponse: {} }
+      return { citationState: 'not-cited', citedDomains: ['random.com'], answerMentioned: false, rawResponse: {} }
     },
     async classifyDomains({ domains }) {
       const known: Record<string, 'direct-competitor' | 'other'> = {
@@ -249,7 +250,7 @@ describe('executeDiscoveryRun', () => {
         return []
       },
       async probe() {
-        return { citationState: 'not-cited', citedDomains: [], rawResponse: {} }
+        return { citationState: 'not-cited', citedDomains: [], answerMentioned: false, rawResponse: {} }
       },
       async classifyDomains() {
         return {}
@@ -290,7 +291,7 @@ describe('executeDiscoveryRun', () => {
         return []
       },
       async probe() {
-        return { citationState: 'not-cited', citedDomains: [], rawResponse: {} }
+        return { citationState: 'not-cited', citedDomains: [], answerMentioned: false, rawResponse: {} }
       },
       async classifyDomains() {
         return {}
@@ -364,7 +365,7 @@ describe('executeDiscoveryRun', () => {
         return []
       },
       async probe() {
-        return { citationState: 'not-cited', citedDomains: [], rawResponse: {} }
+        return { citationState: 'not-cited', citedDomains: [], answerMentioned: false, rawResponse: {} }
       },
       async classifyDomains() {
         return {}
@@ -637,5 +638,50 @@ describe('buildSeedPrompt', () => {
     const prompt = buildSeedPrompt({ project, icpDescription: 'spray foam installers' })
     const currentYear = new Date().getFullYear()
     expect(prompt).toContain(`"top X ${currentYear}"`)
+  })
+})
+
+describe('buildDefaultDeps probe() computes the mention signal independently of citation', () => {
+  // The real Gemini probe dep. We stub only the provider adapter so the test is
+  // offline and deterministic. The point: answerMentioned (answer text) and
+  // citationState (source list) are derived from DIFFERENT inputs and must not
+  // track each other. This is the exact "cited != mentioned" bug the change fixes.
+  function depsWith(answerText: string, citedDomains: string[]): DiscoveryDeps {
+    const adapter = {
+      name: 'gemini',
+      displayName: 'Gemini',
+      executeTrackedQuery: async () => ({ rawResponse: { answerText }, model: 'gemini-test' }),
+      normalizeResult: () => ({ answerText, citedDomains, searchQueries: [], groundingSources: [] }),
+    }
+    const registry = { get: () => ({ adapter, config: { apiKey: 'test-key' } }) } as unknown as ProviderRegistry
+    return buildDefaultDeps(registry)
+  }
+
+  const project = {
+    id: 'p', name: 'demand-iq', brandNames: ['Demand IQ'],
+    canonicalDomains: ['demand-iq.com'], competitorDomains: [],
+  }
+
+  it('mentioned-not-cited: brand named in the answer, client domain absent from sources', async () => {
+    const deps = depsWith('For solar quoting we recommend Demand IQ, a strong option.', ['aurora-solar.com'])
+    const res = await deps.probe({ project, query: 'best solar quoting tool' })
+    expect(res.answerMentioned).toBe(true)
+    expect(res.citationState).toBe('not-cited')
+  })
+
+  it('cited-not-mentioned: client domain in sources, brand absent from the answer text', async () => {
+    const deps = depsWith('Here are some general tips for choosing a solar installer.', ['demand-iq.com'])
+    const res = await deps.probe({ project, query: 'how to choose a solar installer' })
+    expect(res.answerMentioned).toBe(false)
+    expect(res.citationState).toBe('cited')
+  })
+
+  it('falls back to domain-only matching when no brand names are supplied', async () => {
+    const deps = depsWith('Check out demand-iq.com for quotes.', [])
+    const res = await deps.probe({
+      project: { ...project, brandNames: undefined },
+      query: 'solar quote site',
+    })
+    expect(res.answerMentioned).toBe(true)
   })
 })

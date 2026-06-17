@@ -1,5 +1,6 @@
 import { createApiClient } from '../client.js'
 import type { ApiClient, DiscoveryRunStartResponse } from '../client.js'
+import { CitationStates } from '@ainyc/canonry-contracts'
 import type {
   DiscoveryBucket,
   DiscoveryCompetitorType,
@@ -360,11 +361,16 @@ function printSessionDetail(session: DiscoverySessionDetailDto): void {
 
   if (session.probes && session.probes.length > 0) {
     const sorted = [...session.probes].sort((a, b) => (a.bucket ?? '').localeCompare(b.bucket ?? ''))
-    console.log(`\n  Probes (${session.probes.length}):`)
+    // Render BOTH signals per the vocabulary rule: [citation][mention]. They are
+    // independent, so a single-glyph cell would hide which one the reader sees.
+    console.log(`\n  Probes (${session.probes.length}):  (cell = [citation][mention];  C=cited c=not, M=mentioned m=not, –=no data)`)
     for (const p of sorted) {
       const bucket = (p.bucket ?? '–').padEnd(15)
-      const cit = p.citationState === 'cited' ? 'C' : 'c'
-      console.log(`    [${cit}]  ${bucket}  ${p.query}`)
+      const citationGlyph = p.citationState === CitationStates.cited ? 'C' : 'c'
+      const mentionGlyph = typeof p.answerMentioned === 'boolean'
+        ? (p.answerMentioned ? 'M' : 'm')
+        : '–'
+      console.log(`    [${citationGlyph}${mentionGlyph}]  ${bucket}  ${p.query}`)
     }
   }
 }

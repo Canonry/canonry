@@ -669,6 +669,7 @@ export type DiscoverySessionDetailDto = {
         bucket: 'cited' | 'aspirational' | 'wasted-surface';
         citationState: 'cited' | 'not-cited';
         citedDomains: Array<string>;
+        answerMentioned: boolean | null;
         createdAt: string;
     }>;
 };

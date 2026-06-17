@@ -1760,6 +1760,16 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       addBacklinkSourceDiscriminator(tx)
     },
   },
+  {
+    // Answer-text mention signal on discovery probes (independent of citation).
+    // Nullable: pre-existing rows were written before the column / never had the
+    // mention computed, so they read back as null (unknown) downstream.
+    version: 79,
+    name: 'discovery-probes-answer-mentioned',
+    statements: [
+      `ALTER TABLE discovery_probes ADD COLUMN answer_mentioned INTEGER`,
+    ],
+  },
 ]
 
 /**
