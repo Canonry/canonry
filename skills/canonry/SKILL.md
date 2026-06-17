@@ -131,7 +131,7 @@ Aero also wakes unprompted after every `run.completed` so insights and regressio
 
 - **Never touch live WordPress without explicit approval**
 - **Back up `~/.canonry/config.yaml` before any config edit**
-- **Never fabricate citation data** — if a sweep hasn't run, say so
+- **Never fabricate mention or citation data** — if a sweep hasn't run, say so; never coerce `answerMentioned` null → false (null = "not checked")
 - **Client data stays private** — canonry repo is public; no real domains in issues
 - **Respect API rate limits** — batch operations, avoid tight loops
 

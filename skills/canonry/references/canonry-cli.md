@@ -103,24 +103,35 @@ Use `--probe` whenever you're testing on your own initiative — verifying a fix
 
 `snapshot` does not create a project or write to the DB. It generates category queries, runs providers, and produces a report for prospecting.
 
-## Citation Data
+## Mention + Citation Data
+
+Two independent signals per (query × provider): **mention** (`answerMentioned` — brand named in the answer text; the **primary** read) and **citation** (`cited`/`citedDomains` — domain in the grounding sources; **secondary**). Read mention first. Never compute one from the other; never coerce `answerMentioned` null → false (null = "not checked").
 
 ```bash
-cnry evidence <project>                        # per-query cited/not-cited + mentioned/not-mentioned
+cnry evidence <project>                        # per-query [C/c][M/m] cell + Mentioned: X / Y / Cited: X / Y
 cnry evidence <project> --format json          # JSON output
 cnry history <project>                         # audit trail
 cnry export <project> --include-results        # export as YAML
-cnry backfill answer-visibility                # recompute citationState from stored answers
-cnry backfill answer-visibility --dry-run      # preview which snapshots would change
-cnry backfill answer-mentions                  # recompute answerMentioned from stored answers (honors brandAliases)
+cnry backfill answer-mentions                  # recompute answerMentioned (primary) from stored answers (honors brandAliases)
 cnry backfill answer-mentions --dry-run
+cnry backfill answer-visibility                # recompute citationState (secondary) from stored answers
+cnry backfill answer-visibility --dry-run      # preview which snapshots would change
 cnry backfill insights <project>               # recompute insights for completed runs
 cnry backfill insights <project> --since 2026-04-01 --dry-run
 ```
 
-Output uses a two-glyph cell per (query × provider): `[C/c][M/m]` — uppercase = present, lowercase = absent, `–` = no snapshot. Always print the legend before the table; never collapse the two signals into one cell.
+Output uses a two-glyph cell per (query × provider): `[C/c][M/m]` — uppercase = present, lowercase = absent, `–` = no snapshot. **C/c = cited** (secondary), **M/m = mentioned** (primary). Always print the legend before the table; never collapse the two signals into one cell.
 
-Summary: `Cited: X / Y` and `Mentioned: X / Y` are reported independently — a query can be one, both, or neither.
+```
+Legend: [C/c][M/m]  C=cited c=not-cited  M=mentioned m=not-mentioned  –=no snapshot
+
+[C][M]  acme corp ny       ← mentioned AND cited
+[c][M]  best crm for smb    ← mentioned, not cited (mention win, citation gap)
+[C][m]  crm pricing         ← cited, not mentioned (citation without share of voice)
+[c][m]  free crm tools      ← neither
+```
+
+Summary: `Mentioned: X / Y` (primary) and `Cited: X / Y` (secondary) are reported independently — a query can be one, both, or neither.
 
 ## Reports
 
@@ -144,8 +155,8 @@ Behavior to know when narrating numbers from the report:
 
 ```bash
 cnry analytics <project>                       # default analytics view
-cnry analytics <project> --feature metrics     # citation rate trends
-cnry analytics <project> --feature gaps        # brand gap analysis (cited/gap/uncited)
+cnry analytics <project> --feature metrics     # mention + citation rate trends (BrandMetricsDto: mentionTrend primary, trend secondary)
+cnry analytics <project> --feature gaps        # brand gap analysis — mention buckets (mentionedQueries[]/mentionGap[]/notMentioned[]) primary, cited buckets (cited[]/gap[]/uncited[]) secondary
 cnry analytics <project> --feature sources     # source breakdown by category
 cnry analytics <project> --window 7d           # time window: 7d, 30d, 90d, all
 ```
@@ -190,13 +201,15 @@ cnry insights <project>                        # list active insights (regressio
 cnry insights <project> --dismissed            # include dismissed insights
 cnry insights <project> --format json          # JSON output
 cnry insights dismiss <project> <id>           # dismiss an insight
-cnry health <project>                          # latest citation health snapshot
+cnry health <project>                          # latest citation health snapshot (citation-only — see known gap below)
 cnry health <project> --history                # health trend over time
 cnry health <project> --history --limit 10     # limit history entries
 cnry health <project> --format json            # JSON output
 cnry backfill insights <project>              # backfill insights for all completed runs
 cnry backfill insights <project> --from-run <id> --to-run <id>  # backfill a range
 ```
+
+> **Known gap (mention-first read):** `cnry health` is **citation-only** today — it has no mention dimension. For the primary mention-first read, use `cnry overview` and `cnry get <project> scores.mentionCoverage.value` / `cnry get <project> scores.mentionShare.value` until health is extended.
 
 ## Queries & Competitors
 
@@ -236,6 +249,8 @@ cnry notify test <project> <id>
 Available events: `citation.lost`, `citation.gained`, `run.completed`, `run.failed`, `insight.critical`, `insight.high`
 
 `insight.critical` and `insight.high` fire when the intelligence engine generates critical- or high-severity insights after a sweep completes.
+
+> **No mention events yet.** Notification events cover the citation signal only — there are **no** `mention.lost` / `mention.gained` events today. For mention-first monitoring, read `scores.mentionCoverage` / `scores.mentionShare` via `cnry overview` (or the `insight.*` events, which can be driven by mention-side insights); do not wire automation to mention events that aren't emitted.
 
 ## Provider Settings & Quotas
 

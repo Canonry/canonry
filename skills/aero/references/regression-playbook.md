@@ -1,31 +1,31 @@
 ---
 name: regression-playbook
-description: Detection → triage → diagnosis → response for lost citations. Read when investigating why a query lost its citation.
+description: Detection → triage → diagnosis → response for lost mentions (primary) and lost citations (secondary). Read when investigating why a query lost a mention or a citation.
 ---
 
 # Regression Playbook
 
 ## Detection
 
-A regression is detected when a citation is lost between consecutive completed runs for the same project. Specifically: a query+provider pair that was cited in run N is no longer cited in run N+1.
+A regression is, primarily, a **lost mention**: a query+provider pair whose answer text named the brand (`answerMentioned = true`) in run N no longer does in run N+1. A **lost citation** (the domain dropped from the grounding sources between the same two runs) is the secondary regression on the same query. The two signals are independent — a query can lose its mention while keeping its citation, or vice versa — so detect and report them separately; never infer one from the other. Treat `answerMentioned = null` as "not checked," not as a lost mention.
 
 ## Triage
 
-Classify the regression by severity:
+Classify the regression by severity. Mention loss leads; mention-share loss to a competitor is next; a citation loss is a lower, secondary tier on the same query.
 
 | Severity | Criteria |
 |---|---|
-| **Critical** | Branded term lost on any provider |
-| **High** | Top-performing query lost on primary provider |
-| **Medium** | Non-branded query lost on one provider |
-| **Low** | Query lost that was only marginally cited |
+| **Critical** | Lost a branded-term MENTION on any provider (the engine stopped naming you for your own brand) |
+| **High** | Mention-share loss — a competitor took mention share on a top query where yours fell; or a top-performing query lost its mention on the primary provider |
+| **Medium** | Non-branded query lost its mention on one provider; or a top query lost its CITATION (secondary signal) while the mention held |
+| **Low** | Query lost a mention or citation it only held marginally |
 
 ## Diagnosis
 
 For each regression, check causes in order:
 
-1. **Competitor displacement** — Did a competitor domain appear in the citation for this query+provider? Check current run snapshots. For the whole picture, `cnry sources <project> --rank` (MCP: `canonry_analytics_sources`) ranks every cited domain and tags each with a surface class (own / direct-competitor / ota-aggregator / editorial-media / other), and `--by-provider` shows which engine grounds on whom — so you can tell a rival you must out-rank from an aggregator/editorial surface you should pitch for placement.
-2. **Indexing loss** — Is the page still indexed? Check Google Search Console integration or HTTP status.
+1. **Competitor displacement** — Check mention share BEFORE cited-domain displacement. First: did a competitor brand take the mention share you lost? Compare `scores.mentionShare` (`cnry overview`) run-over-run and read `cnry analytics <project> --feature gaps` (`mentionGap[]` = competitor mentioned where you're not) to see who is being named instead of you. Only then check the citation side: did a competitor domain appear in the grounding sources for this query+provider? Check current run snapshots. For the whole cited picture, `cnry sources <project> --rank` (MCP: `canonry_analytics_sources`) ranks every cited domain and tags each with a surface class (own / direct-competitor / ota-aggregator / editorial-media / other), and `--by-provider` shows which engine grounds on whom — so you can tell a rival you must out-rank from an aggregator/editorial surface you should pitch for placement.
+2. **Indexing loss** — Is the page still indexed? Check Google Search Console integration or HTTP status. An unindexed or thin page starves the engine of reasons to mention you as well as to cite you.
 3. **Content change** — Did the page content change significantly? Compare content hashes if available.
 4. **Provider behavior change** — Did the provider change its response pattern for this query type?
 5. **Unknown** — No clear cause identified. Flag for manual investigation.
