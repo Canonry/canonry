@@ -1770,6 +1770,31 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `ALTER TABLE discovery_probes ADD COLUMN answer_mentioned INTEGER`,
     ],
   },
+  {
+    // Mention-rate columns on the persisted health snapshot, mirroring the
+    // existing cited columns (overall_cited_rate / cited_pairs) for the
+    // independent answer-text mention signal. Nullable: rows written before
+    // this version have no mention math, so they read back as NULL ("not
+    // measured") and readers coalesce NULL→0.
+    //
+    // Guarded `run` rather than bare `statements` (the v66 pattern): the
+    // table-existence check makes this a no-op when `health_snapshots` is
+    // absent — only possible on a legacy fixture whose recorded
+    // `_migrations` version skips v23's `CREATE TABLE` (the bootstrap is
+    // bypassed). The column-existence check keeps a replay idempotent.
+    version: 80,
+    name: 'health-snapshots-mention-rate',
+    statements: [],
+    run: (db) => {
+      if (!tableExists(db, 'health_snapshots')) return
+      if (!columnExists(db, 'health_snapshots', 'overall_mention_rate')) {
+        db.run(sql.raw(`ALTER TABLE health_snapshots ADD COLUMN overall_mention_rate TEXT`))
+      }
+      if (!columnExists(db, 'health_snapshots', 'mentioned_pairs')) {
+        db.run(sql.raw(`ALTER TABLE health_snapshots ADD COLUMN mentioned_pairs INTEGER`))
+      }
+    },
+  },
 ]
 
 /**

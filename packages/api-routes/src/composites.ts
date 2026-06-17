@@ -872,14 +872,28 @@ function mapInsightRow(r: typeof insights.$inferSelect): InsightDto {
 }
 
 function mapHealthRow(r: typeof healthSnapshots.$inferSelect): HealthSnapshotDto {
+  // Coalesce legacy provider entries (written before v80, no mention keys) to 0.
+  const providerBreakdown: HealthSnapshotDto['providerBreakdown'] = {}
+  for (const [provider, entry] of Object.entries(r.providerBreakdown)) {
+    providerBreakdown[provider] = {
+      citedRate: entry.citedRate,
+      mentionRate: entry.mentionRate ?? 0,
+      cited: entry.cited,
+      mentioned: entry.mentioned ?? 0,
+      total: entry.total,
+    }
+  }
   return {
     id: r.id,
     projectId: r.projectId,
     runId: r.runId ?? null,
     overallCitedRate: Number(r.overallCitedRate),
+    // Legacy rows (persisted before v80) have NULL mention columns → 0.
+    overallMentionRate: r.overallMentionRate == null ? 0 : Number(r.overallMentionRate),
     totalPairs: r.totalPairs,
     citedPairs: r.citedPairs,
-    providerBreakdown: r.providerBreakdown,
+    mentionedPairs: r.mentionedPairs ?? 0,
+    providerBreakdown,
     createdAt: r.createdAt,
     status: 'ready',
   }

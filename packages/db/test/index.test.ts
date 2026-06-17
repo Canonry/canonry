@@ -868,3 +868,69 @@ test('_migrations table is created on first migrate', () => {
   const tableInfo = sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='_migrations'").all()
   expect(tableInfo.length).toBe(1)
 })
+
+test('health_snapshots round-trips the v80 mention columns (text rate + integer pairs + json breakdown)', () => {
+  const { db, tmpDir } = createTempDb()
+  onTestFinished(() => cleanup(tmpDir))
+  const now = new Date().toISOString()
+
+  db.insert(projects).values({
+    id: 'proj_health', name: 'health-rt', displayName: 'Health RT',
+    canonicalDomain: 'example.com', country: 'US', language: 'en',
+    createdAt: now, updatedAt: now,
+  }).run()
+
+  db.insert(healthSnapshots).values({
+    id: 'hs_1',
+    projectId: 'proj_health',
+    runId: null,
+    overallCitedRate: '0.5',
+    overallMentionRate: '0.25',
+    totalPairs: 8,
+    citedPairs: 4,
+    mentionedPairs: 2,
+    providerBreakdown: { gemini: { citedRate: 0.5, mentionRate: 0.25, cited: 4, mentioned: 2, total: 8 } },
+    createdAt: now,
+  }).run()
+
+  const [row] = db.select().from(healthSnapshots).where(eq(healthSnapshots.id, 'hs_1')).all()
+  // Cited columns unchanged.
+  expect(row.overallCitedRate).toBe('0.5')
+  expect(row.citedPairs).toBe(4)
+  // Mention columns persisted and typed correctly (text rate, integer pairs).
+  expect(row.overallMentionRate).toBe('0.25')
+  expect(row.mentionedPairs).toBe(2)
+  // JSON breakdown survives the round-trip with both signals.
+  expect(row.providerBreakdown.gemini).toEqual({ citedRate: 0.5, mentionRate: 0.25, cited: 4, mentioned: 2, total: 8 })
+})
+
+test('health_snapshots accepts NULL mention columns (legacy-shaped row) without coercion', () => {
+  const { db, tmpDir } = createTempDb()
+  onTestFinished(() => cleanup(tmpDir))
+  const now = new Date().toISOString()
+
+  db.insert(projects).values({
+    id: 'proj_legacy', name: 'health-legacy', displayName: 'Health Legacy',
+    canonicalDomain: 'example.com', country: 'US', language: 'en',
+    createdAt: now, updatedAt: now,
+  }).run()
+
+  // A row written as if before v80: mention columns omitted → stored NULL.
+  db.insert(healthSnapshots).values({
+    id: 'hs_legacy',
+    projectId: 'proj_legacy',
+    runId: null,
+    overallCitedRate: '0.6',
+    totalPairs: 5,
+    citedPairs: 3,
+    providerBreakdown: {},
+    createdAt: now,
+  }).run()
+
+  const [row] = db.select().from(healthSnapshots).where(eq(healthSnapshots.id, 'hs_legacy')).all()
+  // Mention columns read back as NULL (the DB layer does not coerce — the API
+  // read layer is responsible for NULL→0). Cited columns are intact.
+  expect(row.overallMentionRate).toBeNull()
+  expect(row.mentionedPairs).toBeNull()
+  expect(row.citedPairs).toBe(3)
+})
