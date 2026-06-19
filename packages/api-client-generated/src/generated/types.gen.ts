@@ -2247,7 +2247,7 @@ export type TrafficSyncResponse = {
 
 export type VisibilityStatsDto = {
     project: string;
-    groupBy: 'provider';
+    groupBy?: 'provider';
     window: {
         since: string | null;
         until: string | null;

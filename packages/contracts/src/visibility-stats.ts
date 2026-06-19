@@ -85,8 +85,13 @@ export type VisibilityStatsGroupBy = z.infer<typeof visibilityStatsGroupBySchema
 
 export const visibilityStatsDtoSchema = z.object({
   project: z.string(),
-  /** `'provider'` when a per-provider breakdown was requested, else `null`. */
-  groupBy: visibilityStatsGroupBySchema.nullable(),
+  /**
+   * `'provider'` when a per-provider breakdown was requested; OMITTED otherwise
+   * (absent = no breakdown). Optional rather than nullable so the generated SDK
+   * types it `groupBy?: 'provider'` — hey-api drops `null` on a single-value
+   * nullable enum, which would mistype the no-breakdown (common) case.
+   */
+  groupBy: visibilityStatsGroupBySchema.optional(),
   window: visibilityStatsWindowSchema,
   /** Pooled counts across every tracked query in the window. */
   totals: visibilityStatsCountsSchema,

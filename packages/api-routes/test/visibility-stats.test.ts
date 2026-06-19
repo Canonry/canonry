@@ -177,6 +177,35 @@ describe('computeVisibilityStats (pure)', () => {
     expect(byProvider).toBeUndefined()
     expect(queries[0]!.providers).toBeUndefined()
   })
+
+  it('prefers queryId over queryText when both resolve (fallback ordering)', () => {
+    // queryId points at q1 while the denormalized text matches q2 — id wins.
+    const snapshots = [
+      snap({ queryId: 'q1', queryText: 'how to optimize for AI search', answerMentioned: true }),
+    ]
+    const { queries } = computeVisibilityStats({ queries: Q, snapshots, groupBy: null })
+    expect(queries).toHaveLength(1)
+    expect(queries[0]!.queryId).toBe('q1')
+    expect(queries[0]!.query).toBe('best AEO platform') // q1's text, not the snapshot's stale text
+  })
+
+  it('groupBy=provider with no snapshots returns an empty (defined) breakdown', () => {
+    const { byProvider, queries } = computeVisibilityStats({ queries: Q, snapshots: [], groupBy: 'provider' })
+    expect(byProvider).toEqual([]) // defined-but-empty, not undefined
+    expect(queries).toEqual([])
+  })
+
+  it('rounds rates to 4 decimal places (round4)', () => {
+    // 1 of 3 checked → 0.33333… → 0.3333; 2 of 3 cited → 0.66666… → 0.6667.
+    const snapshots = [
+      snap({ citationState: 'cited', answerMentioned: true }),
+      snap({ citationState: 'cited', answerMentioned: false }),
+      snap({ citationState: 'not-cited', answerMentioned: false }),
+    ]
+    const { totals } = computeVisibilityStats({ queries: Q, snapshots, groupBy: null })
+    expect(totals.mentionRate).toBe(0.3333) // 1/3
+    expect(totals.citedRate).toBe(0.6667) // 2/3
+  })
 })
 
 // ============================================================================
@@ -301,7 +330,7 @@ describe('GET /projects/:name/visibility-stats', () => {
     expect(status).toBe(200)
     expect(body.project).toBe('vis-stats')
     expect(body.window.runCount).toBe(2)
-    expect(body.groupBy).toBeNull()
+    expect(body.groupBy).toBeUndefined() // omitted (not null) when no breakdown requested
     const q = body.queries.find((x) => x.query === 'best AEO platform')!
     expect(q.total).toBe(2)
     expect(q.checked).toBe(2)
@@ -346,6 +375,23 @@ describe('GET /projects/:name/visibility-stats', () => {
     expect(excluded.body.window.runCount).toBe(0)
   })
 
+  it('treats the date-only until bound as the exact end of the UTC day', async () => {
+    // Last representable instant of the day — must be included.
+    seedRun({
+      createdAt: '2026-06-08T23:59:59.999Z',
+      snapshots: [{ queryId: ctx.q1, queryText: 'best AEO platform', provider: 'openai', cited: true, mentioned: true }],
+    })
+    // First instant of the next day — must be excluded.
+    seedRun({
+      createdAt: '2026-06-09T00:00:00.000Z',
+      snapshots: [{ queryId: ctx.q1, queryText: 'best AEO platform', provider: 'openai', cited: false, mentioned: false }],
+    })
+    const { body } = await getStats('?until=2026-06-08')
+    expect(body.window.runCount).toBe(1)
+    expect(body.totals.total).toBe(1)
+    expect(body.totals.cited).toBe(1)
+  })
+
   it('lastRuns selects the most recent N answer-visibility runs', async () => {
     seedRun({ createdAt: iso(9), snapshots: [{ queryId: ctx.q1, queryText: 'best AEO platform', provider: 'openai', cited: true, mentioned: true }] })
     seedRun({ createdAt: iso(6), snapshots: [{ queryId: ctx.q1, queryText: 'best AEO platform', provider: 'openai', cited: true, mentioned: true }] })
@@ -357,6 +403,15 @@ describe('GET /projects/:name/visibility-stats', () => {
     // last 2 runs = iso(6) cited + iso(1) not-cited → 1 of 2 cited
     expect(q.total).toBe(2)
     expect(q.cited).toBe(1)
+  })
+
+  it('lastRuns larger than the available run count returns every run', async () => {
+    seedRun({ createdAt: iso(4), snapshots: [{ queryId: ctx.q1, queryText: 'best AEO platform', provider: 'openai', cited: true, mentioned: true }] })
+    seedRun({ createdAt: iso(2), snapshots: [{ queryId: ctx.q1, queryText: 'best AEO platform', provider: 'openai', cited: false, mentioned: false }] })
+    const { body } = await getStats('?lastRuns=10')
+    expect(body.window.lastRuns).toBe(10)
+    expect(body.window.runCount).toBe(2) // only 2 exist — no overflow
+    expect(body.queries[0]!.total).toBe(2)
   })
 
   it('groupBy=provider returns per-provider counts that sum to pooled (route level)', async () => {
@@ -375,6 +430,13 @@ describe('GET /projects/:name/visibility-stats', () => {
     expect(body.totals.cited).toBe(1)
   })
 
+  it('groupBy=provider with no runs returns groupBy + an empty byProvider', async () => {
+    const { body } = await getStats('?groupBy=provider')
+    expect(body.groupBy).toBe('provider')
+    expect(body.byProvider).toEqual([]) // present-but-empty, not omitted
+    expect(body.queries).toEqual([])
+  })
+
   it('excludes non-answer-visibility runs (e.g. gsc-sync) from the run set', async () => {
     seedRun({ createdAt: iso(2), kind: 'gsc-sync', snapshots: [] })
     const { body } = await getStats()
@@ -387,18 +449,32 @@ describe('GET /projects/:name/visibility-stats', () => {
     expect(body.window.runCount).toBe(0)
   })
 
-  it('rejects combining lastRuns with since/until', async () => {
+  it('rejects combining lastRuns with since/until, with a descriptive message', async () => {
     const { status, body } = await getStats(`?lastRuns=2&since=${encodeURIComponent(iso(5))}`)
     expect(status).toBe(400)
-    expect((body.error as { code: string }).code).toBe('VALIDATION_ERROR')
+    const err = body.error as { code: string; message: string }
+    expect(err.code).toBe('VALIDATION_ERROR')
+    expect(err.message).toMatch(/cannot be combined/i)
   })
 
-  it('rejects an invalid groupBy / since / lastRuns', async () => {
-    expect((await getStats('?groupBy=model')).status).toBe(400)
-    expect((await getStats('?since=not-a-date')).status).toBe(400)
-    expect((await getStats('?lastRuns=0')).status).toBe(400)
-    expect((await getStats('?lastRuns=-3')).status).toBe(400)
-    expect((await getStats('?lastRuns=2.5')).status).toBe(400)
+  it('rejects invalid params with VALIDATION_ERROR + a message naming the offending param', async () => {
+    const cases: Array<{ qs: string; match: RegExp }> = [
+      { qs: '?groupBy=model', match: /groupBy/ },
+      { qs: '?since=not-a-date', match: /since/ },
+      { qs: '?until=not-a-date', match: /until/ },
+      { qs: '?lastRuns=0', match: /lastRuns/ },
+      { qs: '?lastRuns=-3', match: /lastRuns/ },
+      { qs: '?lastRuns=2.5', match: /lastRuns/ },
+      // until strictly before since (iso(2) is newer than iso(5)) → range error
+      { qs: `?since=${encodeURIComponent(iso(2))}&until=${encodeURIComponent(iso(5))}`, match: /on or after/i },
+    ]
+    for (const { qs, match } of cases) {
+      const { status, body } = await getStats(qs)
+      expect(status, qs).toBe(400)
+      const err = body.error as { code: string; message: string }
+      expect(err.code, qs).toBe('VALIDATION_ERROR')
+      expect(err.message, qs).toMatch(match)
+    }
   })
 
   it('404s for an unknown project', async () => {

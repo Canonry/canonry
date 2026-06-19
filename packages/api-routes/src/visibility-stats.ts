@@ -272,7 +272,6 @@ export async function visibilityStatsRoutes(app: FastifyInstance) {
 
     const response: VisibilityStatsDto = {
       project: project.name,
-      groupBy,
       window: {
         since: hasSince ? (sinceRaw as string) : null,
         until: hasUntil ? (untilRaw as string) : null,
@@ -281,7 +280,11 @@ export async function visibilityStatsRoutes(app: FastifyInstance) {
       },
       totals: stats.totals,
       queries: stats.queries,
-      ...(groupBy === 'provider' ? { byProvider: stats.byProvider ?? [] } : {}),
+      // `groupBy` + `byProvider` appear together only when a breakdown was
+      // requested; both are OMITTED otherwise (absent = no breakdown) so the
+      // SDK types `groupBy` as `groupBy?: 'provider'` rather than a misleading
+      // always-present literal.
+      ...(groupBy === 'provider' ? { groupBy, byProvider: stats.byProvider ?? [] } : {}),
     }
     return reply.send(response)
   })

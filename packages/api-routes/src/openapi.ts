@@ -990,7 +990,7 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/visibility-stats',
     summary: 'Get aggregated mention/citation stats per query',
     description:
-      'Per-query mention (answer-text) and citation (source-list) counts with a sample size, pooled across many answer-visibility runs (probe-excluded). Tri-state aware: `checked` counts only snapshots where answerMentioned was recorded (null = not checked is excluded). Lets a consumer compute confidence-aware (e.g. Wilson) proportions without N+1 run fetches. Set groupBy=provider for a per-provider breakdown whose counts sum to the pooled counts.',
+      'Per-query mention (answer-text) and citation (source-list) counts with a sample size, pooled across many answer-visibility runs (probe-excluded). Tri-state aware: `checked` counts only snapshots where answerMentioned was recorded (null = not checked is excluded). Lets a consumer compute confidence-aware (e.g. Wilson) proportions without N+1 run fetches. With no since/until/lastRuns, EVERY completed/partial answer-visibility run is pooled — `window.runCount` reports how many; bound the window with lastRuns or since/until for a recent sample. Set groupBy=provider for a per-provider breakdown whose counts sum to the pooled counts.',
     tags: ['analytics'],
     parameters: [nameParameter, sinceQueryParameter, untilQueryParameter, lastRunsQueryParameter, groupByProviderQueryParameter],
     responses: {
