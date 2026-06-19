@@ -9,6 +9,8 @@ description: Detection → triage → diagnosis → response for lost mentions (
 
 A regression is, primarily, a **lost mention**: a query+provider pair whose answer text named the brand (`answerMentioned = true`) in run N no longer does in run N+1. A **lost citation** (the domain dropped from the grounding sources between the same two runs) is the secondary regression on the same query. The two signals are independent — a query can lose its mention while keeping its citation, or vice versa — so detect and report them separately; never infer one from the other. Treat `answerMentioned = null` as "not checked," not as a lost mention.
 
+**Confirm the drop is real, not sampling noise.** A single run is n=1 per provider — far too small to call a regression. Before escalating, pull `cnry visibility-stats <project> --by-provider` (MCP: `canonry_visibility_stats`) for the affected query: it returns the per-query mention/citation **rate with its sample size** (`checked` = the n for mention, `total` for citation) pooled across recent runs, so you can tell a genuine rate decline from one flaky probe. Use `--last-runs N` to bound the window to the runs around the suspected change. `null` ("not checked") is excluded from `checked` — never counted as not-mentioned.
+
 ## Triage
 
 Classify the regression by severity. Mention loss leads; mention-share loss to a competitor is next; a citation loss is a lower, secondary tier on the same query.

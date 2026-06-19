@@ -2245,6 +2245,59 @@ export type TrafficSyncResponse = {
     windowEnd: string;
 };
 
+export type VisibilityStatsDto = {
+    project: string;
+    groupBy: 'provider';
+    window: {
+        since: string | null;
+        until: string | null;
+        lastRuns: number | null;
+        runCount: number;
+    };
+    totals: {
+        total: number;
+        checked: number;
+        mentioned: number;
+        cited: number;
+        mentionRate: number | null;
+        citedRate: number | null;
+    };
+    byProvider?: Array<{
+        total: number;
+        checked: number;
+        mentioned: number;
+        cited: number;
+        mentionRate: number | null;
+        citedRate: number | null;
+        provider: string;
+        firstObserved: string;
+        lastObserved: string;
+    }>;
+    queries: Array<{
+        total: number;
+        checked: number;
+        mentioned: number;
+        cited: number;
+        mentionRate: number | null;
+        citedRate: number | null;
+        queryId: string | null;
+        query: string;
+        firstObserved: string;
+        lastObserved: string;
+        providers?: Array<{
+            total: number;
+            checked: number;
+            mentioned: number;
+            cited: number;
+            mentionRate: number | null;
+            citedRate: number | null;
+            provider: string;
+            firstObserved: string;
+            lastObserved: string;
+        }>;
+    }>;
+};
+
 export type WordpressAuditPageDto = {
     slug: string;
     title: string;
@@ -3678,6 +3731,57 @@ export type GetApiV1ProjectsByNameAnalyticsSourcesResponses = {
 };
 
 export type GetApiV1ProjectsByNameAnalyticsSourcesResponse = GetApiV1ProjectsByNameAnalyticsSourcesResponses[keyof GetApiV1ProjectsByNameAnalyticsSourcesResponses];
+
+export type GetApiV1ProjectsByNameVisibilityStatsData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Inclusive lower bound on run createdAt (ISO 8601). A date-only value (YYYY-MM-DD) is the start of that UTC day. Mutually exclusive with "lastRuns".
+         */
+        since?: string;
+        /**
+         * Inclusive upper bound on run createdAt (ISO 8601). A date-only value (YYYY-MM-DD) covers the whole UTC day (through 23:59:59.999). Mutually exclusive with "lastRuns".
+         */
+        until?: string;
+        /**
+         * Aggregate only the most recent N answer-visibility runs. Mutually exclusive with "since"/"until".
+         */
+        lastRuns?: number;
+        /**
+         * Set to "provider" to include a per-provider breakdown whose counts sum to the pooled counts.
+         */
+        groupBy?: 'provider';
+    };
+    url: '/api/v1/projects/{name}/visibility-stats';
+};
+
+export type GetApiV1ProjectsByNameVisibilityStatsErrors = {
+    /**
+     * Invalid query parameters.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameVisibilityStatsError = GetApiV1ProjectsByNameVisibilityStatsErrors[keyof GetApiV1ProjectsByNameVisibilityStatsErrors];
+
+export type GetApiV1ProjectsByNameVisibilityStatsResponses = {
+    /**
+     * Aggregated visibility stats returned.
+     */
+    200: VisibilityStatsDto;
+};
+
+export type GetApiV1ProjectsByNameVisibilityStatsResponse = GetApiV1ProjectsByNameVisibilityStatsResponses[keyof GetApiV1ProjectsByNameVisibilityStatsResponses];
 
 export type GetApiV1ProjectsByNameSnapshotsDiffData = {
     body?: never;

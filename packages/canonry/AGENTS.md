@@ -25,7 +25,7 @@ The publishable npm package (`@ainyc/canonry`). Bundles the CLI, local Fastify s
 | `src/client.ts` | `ApiClient` class + `createApiClient()` factory |
 | `src/mcp/` | `canonry-mcp` stdio adapter over `createApiClient()` |
 | `src/mcp/server.ts` | `createCanonryMcpServer` — registers all API tools, then disables non-core tiers unless `--eager` |
-| `src/mcp/tool-registry.ts` | All API tools (111, including `canonry_analytics_sources`, `canonry_content_brief`, `canonry_content_map`, `canonry_report`, `canonry_analytics_metrics`, `canonry_gbp_places`, `canonry_backlinks_sources`, and the `canonry_technical_aeo_*` site-audit tools), each tagged with a `tier` (`core` or one of the toolkit names) |
+| `src/mcp/tool-registry.ts` | All API tools (112, including `canonry_analytics_sources`, `canonry_visibility_stats`, `canonry_content_brief`, `canonry_content_map`, `canonry_report`, `canonry_analytics_metrics`, `canonry_gbp_places`, `canonry_backlinks_sources`, and the `canonry_technical_aeo_*` site-audit tools), each tagged with a `tier` (`core` or one of the toolkit names) |
 | `src/mcp/toolkits.ts` | Toolkit catalog (`monitoring`, `setup`, `gsc`, `ga`, `gbp`, `ads`, `traffic`, `agent`, `discovery`) — name, title, description, when-to-load |
 | `src/mcp/dynamic-catalog.ts` | `DynamicToolCatalog` — drives `canonry_help` and `canonry_load_toolkit` (enables tools, emits `tools/list_changed`) |
 | `src/mcp/cli.ts` | `canonry-mcp` stdio entrypoint — parses `--read-only`, `--eager`, `--scope`, plus `CANONRY_MCP_*` env. `resolveEffectiveScope()` best-effort probes `GET /keys/self` at startup and forces `read-only` when the configured key is read-only (auto-restricts the catalog to read tools; falls back to the flag scope on any probe failure). |
@@ -41,6 +41,7 @@ The publishable npm package (`@ainyc/canonry`). Bundles the CLI, local Fastify s
 | `src/run-coordinator.ts` | Post-run orchestrator — dispatches to intelligence + notifications |
 | `src/commands/insights.ts` | `insights` and `insights dismiss` command implementations |
 | `src/commands/health-cmd.ts` | `health` command implementation |
+| `src/commands/visibility-stats.ts` | `visibility-stats <project>` — aggregated per-query mention/citation rates with sample size (`--since`/`--until`/`--last-runs`/`--by-provider`); collection command → jsonl streams one record per query. Delegates to `ApiClient.getVisibilityStats`. Registered via `src/cli-commands/visibility-stats.ts`. |
 | `src/commands/doctor.ts` | `canonry doctor` — runs the doctor check registry via `ApiClient.runDoctor` |
 | `src/cli-commands/doctor.ts` | CLI spec for `canonry doctor [--project <name>] [--check <id>...]` |
 | `src/commands/backfill.ts` | Historical recomputation for answer visibility fields and insights |
