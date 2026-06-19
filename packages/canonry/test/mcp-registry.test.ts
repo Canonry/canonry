@@ -117,6 +117,7 @@ const expectedToolNames = [
   'canonry_discover_run_start',
   'canonry_discover_sessions_list',
   'canonry_discover_session_get',
+  'canonry_discover_harvest',
   'canonry_discover_promote_preview',
   'canonry_discover_promote',
   'canonry_technical_aeo_score',
@@ -132,8 +133,8 @@ const expectedToolNames = [
 
 describe('MCP tool registry', () => {
   it('ships the curated v1 surface', () => {
-    expect(CANONRY_MCP_TOOL_COUNT).toBe(112)
-    expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(75)
+    expect(CANONRY_MCP_TOOL_COUNT).toBe(113)
+    expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(76)
     expect(canonryMcpTools.map(tool => tool.name)).toEqual(expectedToolNames)
     const readNames = canonryMcpTools.filter(tool => tool.access === 'read').map(tool => tool.name)
     expect(getCanonryMcpTools('read-only').map(tool => tool.name)).toEqual(readNames)
@@ -176,7 +177,7 @@ describe('MCP tool registry', () => {
     expect(counts.get('gbp')).toBe(12)
     expect(counts.get('traffic')).toBe(10)
     expect(counts.get('agent')).toBe(5)
-    expect(counts.get('discovery')).toBe(5)
+    expect(counts.get('discovery')).toBe(6)
   })
 
   it('generates JSON schema from every Zod input schema', () => {
@@ -624,6 +625,7 @@ const handlerCases: HandlerCase[] = [
   { tool: 'canonry_discover_run_start', input: { project: 'acme', request: { icpDescription: 'AEO analyst tool' } }, methods: ['triggerDiscoveryRun'] },
   { tool: 'canonry_discover_sessions_list', input: { project: 'acme', limit: 5 }, methods: ['listDiscoverySessions'] },
   { tool: 'canonry_discover_session_get', input: { project: 'acme', sessionId: 'sess-1' }, methods: ['getDiscoverySession'] },
+  { tool: 'canonry_discover_harvest', input: { project: 'acme', sessionId: 'sess-1' }, methods: ['getDiscoveryHarvest'] },
   { tool: 'canonry_discover_promote_preview', input: { project: 'acme', sessionId: 'sess-1' }, methods: ['previewDiscoveryPromote'] },
   { tool: 'canonry_discover_promote', input: { project: 'acme', sessionId: 'sess-1' }, methods: ['promoteDiscovery'] },
 ]

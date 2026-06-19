@@ -13,7 +13,7 @@ import {
   projects,
   queries,
 } from '@ainyc/canonry-db'
-import type { DiscoveryCompetitorType, DiscoveryPromoteResult } from '@ainyc/canonry-contracts'
+import type { DiscoveryCompetitorType, DiscoveryHarvestDto, DiscoveryPromoteResult } from '@ainyc/canonry-contracts'
 import { createServer } from '../src/server.js'
 import { ApiClient } from '../src/client.js'
 import type { DiscoveryRunStartResponse } from '../src/client.js'
@@ -149,6 +149,60 @@ describe('discover CLI commands', () => {
     expect(line('mention only q')).toContain('[cM]')
     // legacy (unknown) mention renders the no-data glyph, never 'm'
     expect(line('legacy q')).toContain('[c–]')
+  })
+
+  it('discover harvest extracts the Gemini grounding fan-out, gates it, and emits json', async () => {
+    // End-to-end through the real server wiring: server.ts hands each stored
+    // probe's Gemini-shaped raw_response to the real extractSearchQueriesFromRaw.
+    const sessionId = crypto.randomUUID()
+    const now = new Date().toISOString()
+    db.insert(discoverySessions).values({
+      id: sessionId,
+      projectId,
+      status: 'completed',
+      seedProvider: 'gemini',
+      competitorMap: [],
+      createdAt: now,
+    }).run()
+    const geminiRaw = (webSearchQueries: string[]) =>
+      JSON.stringify({ candidates: [{ groundingMetadata: { webSearchQueries } }] })
+    db.insert(discoveryProbes).values([
+      {
+        id: crypto.randomUUID(),
+        sessionId,
+        projectId,
+        query: 'p1',
+        bucket: 'aspirational',
+        citationState: 'not-cited',
+        citedDomains: [],
+        rawResponse: geminiRaw(['best solar installer michigan', 'acme solar phone number']),
+        createdAt: now,
+      },
+      {
+        id: crypto.randomUUID(),
+        sessionId,
+        projectId,
+        query: 'p2',
+        bucket: 'aspirational',
+        citationState: 'not-cited',
+        citedDomains: [],
+        rawResponse: geminiRaw(['best solar installer michigan', 'solar battery storage cost']),
+        createdAt: now,
+      },
+    ]).run()
+
+    const result = await invokeCli([
+      'discover', 'harvest', 'demand-iq', sessionId, '--no-anchor', '--format', 'json',
+    ])
+    expect(result.exitCode).toBeUndefined()
+    const harvest = parseJsonOutput(result.stdout) as DiscoveryHarvestDto
+    expect(harvest.provider).toBe('gemini')
+    // Recurring across both probes ranks first; the navigational lookup is dropped.
+    expect(harvest.candidates).toEqual([
+      { query: 'best solar installer michigan', probeHits: 2 },
+      { query: 'solar battery storage cost', probeHits: 1 },
+    ])
+    expect(harvest.stats.rejected.navigational).toBe(1)
   })
 
   it('promotes cited + aspirational by default and reports counts', async () => {

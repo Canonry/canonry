@@ -178,6 +178,10 @@ export interface ApiRoutesOptions {
   onTrafficSynced?: TrafficRoutesOptions['onTrafficSynced']
   /** Discovery feature callback — fires after a discovery_sessions row + matching runs row are inserted. */
   onDiscoveryRunRequested?: DiscoveryRoutesOptions['onDiscoveryRunRequested']
+  /** Discovery harvest seam — extracts issued search queries (fan-out) from a stored probe payload, provider-shaped. Wire to the provider adapter's extractor. */
+  harvestSearchQueries?: DiscoveryRoutesOptions['harvestSearchQueries']
+  /** Discovery harvest embed seam — embeds query strings for the semantic novelty pass. Wire to the Gemini embedder; unset/rejecting degrades novelty to exact-match. */
+  embedQueries?: DiscoveryRoutesOptions['embedQueries']
   /** Technical AEO callback — fires after a `site-audit` run row is created. Wire to `executeSiteAudit`. */
   onSiteAuditRequested?: TechnicalAeoRoutesOptions['onSiteAuditRequested']
   /** Backlinks feature callbacks — see `backlinksRoutes` for details. */
@@ -441,6 +445,8 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     } satisfies BacklinksRoutesOptions)
     await api.register(discoveryRoutes, {
       onDiscoveryRunRequested: opts.onDiscoveryRunRequested,
+      harvestSearchQueries: opts.harvestSearchQueries,
+      embedQueries: opts.embedQueries,
     } satisfies DiscoveryRoutesOptions)
     await api.register(technicalAeoRoutes, {
       onSiteAuditRequested: opts.onSiteAuditRequested,

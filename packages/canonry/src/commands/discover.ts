@@ -276,6 +276,57 @@ export async function discoverShow(project: string, sessionId: string, opts: { f
   printSessionDetail(session)
 }
 
+export interface DiscoverHarvestOptions {
+  minProbeHits?: number
+  /** Apply the subject anchor (default true). Pass false to disable. */
+  anchor?: boolean
+  format?: string
+}
+
+export async function discoverHarvest(
+  project: string,
+  sessionId: string,
+  opts: DiscoverHarvestOptions,
+): Promise<void> {
+  const client = getClient()
+  const harvest = await client.getDiscoveryHarvest(project, sessionId, {
+    minProbeHits: opts.minProbeHits,
+    anchor: opts.anchor,
+  })
+  if (opts.format === 'json') {
+    console.log(JSON.stringify(harvest, null, 2))
+    return
+  }
+  if (opts.format === 'jsonl') {
+    // Stream the admitted candidates — the primary collection — one per line,
+    // each stamped with project + sessionId so a line lifted out of the
+    // envelope still says which session/provider it came from.
+    const context = { project, sessionId, provider: harvest.provider }
+    emitJsonl(harvest.candidates.map(c => ({ ...context, ...c })))
+    return
+  }
+  const r = harvest.stats.rejected
+  console.log(`Harvested issued search queries — session ${harvest.sessionId} (${harvest.provider})`)
+  console.log(
+    `  ${harvest.stats.admitted} admitted of ${harvest.stats.rawCandidates} raw` +
+      ` · floor=${harvest.minProbeHits} · anchor=${harvest.anchorApplied ? 'on' : 'off'}` +
+      ` · novelty=${harvest.semanticNoveltyApplied ? 'semantic' : 'exact-only'}`,
+  )
+  console.log(
+    `  rejected: ${r.belowFloor} below-floor · ${r.length} length · ${r.navigational} navigational` +
+      ` · ${r.duplicate} already-tracked · ${r.semanticDuplicate} synonym · ${r.offAnchor} off-subject`,
+  )
+  if (harvest.candidates.length === 0) {
+    console.log('  (no candidates — nothing to track from this session)')
+    return
+  }
+  console.log('')
+  console.log('  HITS  QUERY')
+  for (const candidate of harvest.candidates) {
+    console.log(`  ${String(candidate.probeHits).padStart(4)}  ${candidate.query}`)
+  }
+}
+
 export async function discoverPromotePreview(project: string, sessionId: string, opts: { format?: string }): Promise<void> {
   const client = getClient()
   const preview: DiscoveryPromotePreview = await client.previewDiscoveryPromote(project, sessionId)
