@@ -8,6 +8,7 @@ import {
   formatIsoDate,
   formatNumber,
   formatRatio,
+  parseInclusiveEndMs,
 } from '../src/formatting.js'
 
 describe('formatRatio', () => {
@@ -162,5 +163,27 @@ describe('formatDeltaCopy', () => {
   test('windowLabel can be overridden', () => {
     expect(formatDeltaCopy({ current: 200, prior: 100, deltaPct: 100 }, 'hits', 'vs prior 30 days'))
       .toBe('Up 100% vs prior 30 days (100 hits)')
+  })
+})
+
+describe('parseInclusiveEndMs', () => {
+  test('widens a date-only value to the end of that UTC day', () => {
+    // Not midnight — the whole day is inclusive, so the bound is 23:59:59.999Z.
+    expect(parseInclusiveEndMs('2026-06-30')).toBe(Date.parse('2026-06-30T23:59:59.999Z'))
+  })
+
+  test('a run from that afternoon falls within the date-only bound', () => {
+    const bound = parseInclusiveEndMs('2026-06-30')!
+    expect(Date.parse('2026-06-30T15:30:00.000Z') <= bound).toBe(true)
+    // ...and the first instant of the next day does not.
+    expect(Date.parse('2026-07-01T00:00:00.000Z') <= bound).toBe(false)
+  })
+
+  test('keeps the exact instant for a full date-time', () => {
+    expect(parseInclusiveEndMs('2026-06-30T14:00:00.000Z')).toBe(Date.parse('2026-06-30T14:00:00.000Z'))
+  })
+
+  test('returns null for an unparseable value', () => {
+    expect(parseInclusiveEndMs('not-a-date')).toBeNull()
   })
 })

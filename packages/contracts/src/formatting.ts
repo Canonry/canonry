@@ -45,6 +45,24 @@ export function formatDateRange(start: string, end: string): string {
   return formatDate(start || end)
 }
 
+/** Matches a date-only ISO calendar date with no time component, e.g. "2026-06-30". */
+const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/
+
+/**
+ * Parse an ISO 8601 date or date-time into epoch milliseconds for use as an
+ * INCLUSIVE upper bound on full-timestamp values. A date-only string (no time
+ * component, parsed as UTC) is widened to the END of that UTC day
+ * (`23:59:59.999`) so the whole day is included rather than just its midnight
+ * instant; a date-time keeps its exact instant. Returns `null` when the input
+ * cannot be parsed. The inclusive lower bound needs no helper — a date-only
+ * value already parses to the day's start (`00:00:00`).
+ */
+export function parseInclusiveEndMs(iso: string): number | null {
+  const ms = Date.parse(iso)
+  if (Number.isNaN(ms)) return null
+  return DATE_ONLY_PATTERN.test(iso) ? ms + 86_400_000 - 1 : ms
+}
+
 export interface DeltaWindow {
   current: number
   prior: number

@@ -17,6 +17,7 @@ import type {
   BrandMetricsDto,
   GapAnalysisDto,
   SourceBreakdownDto,
+  VisibilityStatsDto,
   LocationContext,
   WordpressAuditIssueDto,
   WordpressAuditPageDto,
@@ -318,6 +319,7 @@ import {
   getApiV1ProjectsByNameHealthLatest,
   getApiV1ProjectsByNameHealthHistory,
   getApiV1ProjectsByNameCitationsVisibility,
+  getApiV1ProjectsByNameVisibilityStats,
   getApiV1Doctor,
   getApiV1ProjectsByNameDoctor,
   // Backlinks
@@ -2276,6 +2278,24 @@ export class ApiClient {
   async getCitationVisibility(project: string): Promise<CitationVisibilityResponse> {
     return this.invoke<CitationVisibilityResponse>(() =>
       getApiV1ProjectsByNameCitationsVisibility({ client: this.heyClient, path: { name: project } }),
+    )
+  }
+
+  async getVisibilityStats(
+    project: string,
+    opts: { since?: string; until?: string; lastRuns?: number; groupBy?: 'provider' } = {},
+  ): Promise<VisibilityStatsDto> {
+    return this.invoke<VisibilityStatsDto>(() =>
+      getApiV1ProjectsByNameVisibilityStats({
+        client: this.heyClient,
+        path: { name: project },
+        query: {
+          since: opts.since,
+          until: opts.until,
+          lastRuns: opts.lastRuns,
+          groupBy: opts.groupBy,
+        } as never,
+      }),
     )
   }
 

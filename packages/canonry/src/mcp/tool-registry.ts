@@ -714,6 +714,30 @@ export const canonryMcpTools = [
     handler: (client, input) => client.getCitationVisibility(input.project),
   }),
   defineTool({
+    name: 'canonry_visibility_stats',
+    title: 'Get aggregated mention/citation stats',
+    description:
+      'Per-query mention (answer-text) and citation (source-list) counts WITH a sample size, pooled across many answer-visibility runs (probe-excluded) — the data to compute a confidence-aware (Wilson) proportion or detect drift without fetching every run. Tri-state aware: `checked` (the n for the mention proportion) counts only snapshots where answerMentioned was recorded; `null` ("not checked") is excluded, never counted as not-mentioned. Returns per-query `total`/`checked`/`mentioned`/`cited` + derived `mentionRate` (mentioned/checked) and `citedRate` (cited/total), `firstObserved`/`lastObserved`, and pooled `totals`. Window with `since`/`until` (ISO) OR `lastRuns` (mutually exclusive); with none set, EVERY completed/partial run is pooled (`window.runCount` says how many) — pass `lastRuns` for a recent sample. Set `groupBy=provider` for a per-provider breakdown whose counts sum to the pooled counts (`groupBy` is omitted from the response otherwise).',
+    access: 'read',
+    tier: 'monitoring',
+    inputSchema: z.object({
+      project: projectNameSchema,
+      since: z.string().optional().describe('Inclusive lower bound on run createdAt (ISO 8601). A date-only value (YYYY-MM-DD) is the start of that UTC day. Mutually exclusive with lastRuns.'),
+      until: z.string().optional().describe('Inclusive upper bound on run createdAt (ISO 8601). A date-only value (YYYY-MM-DD) covers the whole UTC day (through 23:59:59.999). Mutually exclusive with lastRuns.'),
+      lastRuns: z.number().int().positive().optional().describe('Aggregate only the most recent N answer-visibility runs. Mutually exclusive with since/until.'),
+      groupBy: z.enum(['provider']).optional().describe('Set to "provider" for a per-provider breakdown.'),
+    }),
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/visibility-stats'],
+    handler: (client, input) =>
+      client.getVisibilityStats(input.project, {
+        since: input.since,
+        until: input.until,
+        lastRuns: input.lastRuns,
+        groupBy: input.groupBy,
+      }),
+  }),
+  defineTool({
     name: 'canonry_content_targets',
     title: 'Get content targets',
     description: 'Ranked, action-typed content opportunities. Each row is `{query, action ∈ create|expand|refresh|add-schema, ourBestPage?, winningCompetitor?, score, scoreBreakdown, drivers[], demandSource, actionConfidence, winnabilityClass, winnability?}`. `winnabilityClass` is the winnability gate: "ownable" (worth a brief) vs "ceded" (aggregator/editorial head term to skip); ownable rows sort first. Filter with `winnabilityClass`/`ownable`. Use this to recommend which post the user should write or refresh next.',

@@ -227,6 +227,36 @@ const analyticsWindowParameter: OpenApiParameter = {
   schema: { type: 'string', enum: ['7d', '30d', '90d', 'all'] },
 }
 
+const sinceQueryParameter: OpenApiParameter = {
+  name: 'since',
+  in: 'query',
+  description:
+    'Inclusive lower bound on run createdAt (ISO 8601). A date-only value (YYYY-MM-DD) is the start of that UTC day. Mutually exclusive with "lastRuns".',
+  schema: stringSchema,
+}
+
+const untilQueryParameter: OpenApiParameter = {
+  name: 'until',
+  in: 'query',
+  description:
+    'Inclusive upper bound on run createdAt (ISO 8601). A date-only value (YYYY-MM-DD) covers the whole UTC day (through 23:59:59.999). Mutually exclusive with "lastRuns".',
+  schema: stringSchema,
+}
+
+const lastRunsQueryParameter: OpenApiParameter = {
+  name: 'lastRuns',
+  in: 'query',
+  description: 'Aggregate only the most recent N answer-visibility runs. Mutually exclusive with "since"/"until".',
+  schema: integerSchema,
+}
+
+const groupByProviderQueryParameter: OpenApiParameter = {
+  name: 'groupBy',
+  in: 'query',
+  description: 'Set to "provider" to include a per-provider breakdown whose counts sum to the pooled counts.',
+  schema: { type: 'string', enum: ['provider'] },
+}
+
 const wordpressEnvQueryParameter: OpenApiParameter = {
   name: 'env',
   in: 'query',
@@ -952,6 +982,20 @@ const routeCatalog: OpenApiOperation[] = [
     parameters: [nameParameter, analyticsWindowParameter, limitQueryParameter],
     responses: {
       200: jsonResponse('Source breakdown returned.', 'SourceBreakdownDto'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/visibility-stats',
+    summary: 'Get aggregated mention/citation stats per query',
+    description:
+      'Per-query mention (answer-text) and citation (source-list) counts with a sample size, pooled across many answer-visibility runs (probe-excluded). Tri-state aware: `checked` counts only snapshots where answerMentioned was recorded (null = not checked is excluded). Lets a consumer compute confidence-aware (e.g. Wilson) proportions without N+1 run fetches. With no since/until/lastRuns, EVERY completed/partial answer-visibility run is pooled — `window.runCount` reports how many; bound the window with lastRuns or since/until for a recent sample. Set groupBy=provider for a per-provider breakdown whose counts sum to the pooled counts.',
+    tags: ['analytics'],
+    parameters: [nameParameter, sinceQueryParameter, untilQueryParameter, lastRunsQueryParameter, groupByProviderQueryParameter],
+    responses: {
+      200: jsonResponse('Aggregated visibility stats returned.', 'VisibilityStatsDto'),
+      400: errorResponse('Invalid query parameters.'),
       404: errorResponse('Project not found.'),
     },
   },

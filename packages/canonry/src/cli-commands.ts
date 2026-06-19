@@ -29,6 +29,7 @@ import { INTELLIGENCE_CLI_COMMANDS } from './cli-commands/intelligence.js'
 import { CONTENT_CLI_COMMANDS } from './cli-commands/content.js'
 import { SYSTEM_CLI_COMMANDS } from './cli-commands/system.js'
 import { TECHNICAL_AEO_CLI_COMMANDS } from './cli-commands/technical-aeo.js'
+import { VISIBILITY_STATS_CLI_COMMANDS } from './cli-commands/visibility-stats.js'
 import { WORDPRESS_CLI_COMMANDS } from './cli-commands/wordpress.js'
 import { AGENT_CLI_COMMANDS } from './cli-commands/agent.js'
 
@@ -58,6 +59,7 @@ export const REGISTERED_CLI_COMMANDS: readonly CliCommandSpec[] = [
   ...GBP_CLI_COMMANDS,
   ...TRAFFIC_CLI_COMMANDS,
   ...INTELLIGENCE_CLI_COMMANDS,
+  ...VISIBILITY_STATS_CLI_COMMANDS,
   ...CONTENT_CLI_COMMANDS,
   ...AGENT_CLI_COMMANDS,
   ...DISCOVER_CLI_COMMANDS,

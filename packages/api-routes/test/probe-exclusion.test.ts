@@ -206,6 +206,21 @@ describe('probe runs are excluded from dashboard / analytics aggregates', () => 
     expect(body.overall.citationRate).toBe(1)
   })
 
+  it('visibility-stats counts the real run only (probe excluded from the sample)', async () => {
+    const { body } = await get<{
+      window: { runCount: number }
+      totals: { total: number; cited: number; mentioned: number; checked: number }
+    }>(`/api/v1/projects/probe-excl/visibility-stats`)
+    // Real run: 1 cited + mentioned snapshot. Probe (if leaked): 1 not-cited,
+    // not-mentioned snapshot — would drop the sample to 2 and the cited count
+    // to 1 of 2 instead of 1 of 1.
+    expect(body.window.runCount).toBe(1)
+    expect(body.totals.total).toBe(1)
+    expect(body.totals.checked).toBe(1)
+    expect(body.totals.cited).toBe(1)
+    expect(body.totals.mentioned).toBe(1)
+  })
+
   it('analytics/gaps anchors to the real run (cited), not the probe (not-cited)', async () => {
     const { body } = await get<{
       runId: string | null
