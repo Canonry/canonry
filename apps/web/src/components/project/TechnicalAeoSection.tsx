@@ -439,7 +439,7 @@ export function TechnicalAeoSection({ projectName }: { projectName: string }) {
                   <tr>
                     <th className="text-right">Score</th>
                     <th>Status</th>
-                    <th>URL</th>
+                    <th className="w-full">URL</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -451,7 +451,7 @@ export function TechnicalAeoSection({ projectName }: { projectName: string }) {
                           : <span className={scoreTextClass(p.overallScore)}>{p.overallScore}</span>}
                       </td>
                       <td>{p.status === 'error' ? <ToneBadge tone="negative">Error</ToneBadge> : <ToneBadge tone={scoreTone(p.overallScore)}>{statusLabel(p.overallScore)}</ToneBadge>}</td>
-                      <td className="max-w-0">
+                      <td className="w-full max-w-0">
                         <a href={p.url} target="_blank" rel="noreferrer" className="block truncate text-zinc-300 hover:text-zinc-100" title={p.status === 'error' ? p.error ?? p.url : p.url}>
                           {p.url}
                         </a>
