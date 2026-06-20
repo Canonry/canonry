@@ -12,7 +12,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import { apiRoutes } from '@ainyc/canonry-api-routes'
 import { apiKeys, auditLog, projects, runs, extractLegacyCredentials, dropLegacyCredentialColumns, type DatabaseClient, type LegacyCredentialRows } from '@ainyc/canonry-db'
 import os from 'node:os'
-import { geminiAdapter } from '@ainyc/canonry-provider-gemini'
+import { embedQueries as embedGeminiQueries, extractSearchQueriesFromRaw, geminiAdapter } from '@ainyc/canonry-provider-gemini'
 import { openaiAdapter } from '@ainyc/canonry-provider-openai'
 import { claudeAdapter } from '@ainyc/canonry-provider-claude'
 import { localAdapter } from '@ainyc/canonry-provider-local'
@@ -1396,6 +1396,21 @@ export async function createServer(opts: {
         .catch((err: unknown) => {
           app.log.error({ runId: input.runId, err }, 'Discovery run failed')
         })
+    },
+    // Read issued search queries (fan-out) back out of a stored probe payload.
+    // Discovery is Gemini-only today, so the Gemini extractor handles every
+    // probe; the provider arg lets a future multi-provider discovery dispatch.
+    harvestSearchQueries: ({ rawResponse }) => extractSearchQueriesFromRaw(rawResponse),
+    // Embed seam for the harvest's semantic novelty pass — the same Gemini
+    // embedder the discovery seed pipeline uses. Resolved at call time so a
+    // provider key set after boot is picked up; rejects (→ route degrades to
+    // exact-match novelty) when no Gemini key is configured.
+    embedQueries: (queriesToEmbed) => {
+      const cfg = registry.get('gemini')?.config
+      if (!cfg?.apiKey) {
+        return Promise.reject(new Error('Gemini API key not configured; harvest semantic novelty unavailable'))
+      }
+      return embedGeminiQueries(queriesToEmbed, { apiKey: cfg.apiKey, baseUrl: cfg.baseUrl })
     },
     onSiteAuditRequested: (runId: string, projectId: string, auditOpts?: { sitemapUrl?: string; limit?: number }) => {
       // The route already created the site-audit run row; run the shared worker.

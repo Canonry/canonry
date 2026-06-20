@@ -1,6 +1,8 @@
 export {
   discoveryRoutes,
   type DiscoveryRoutesOptions,
+  type EmbedQueries,
+  type HarvestSearchQueries,
   type OnDiscoveryRunRequested,
 } from './routes.js'
 export {

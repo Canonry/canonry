@@ -609,6 +609,32 @@ export type RecommendationExplanationDto = {
     generatedAt: string;
 };
 
+export type DiscoveryHarvestDto = {
+    sessionId: string;
+    projectId: string;
+    provider: string;
+    status: 'queued' | 'seeding' | 'probing' | 'completed' | 'failed';
+    minProbeHits: number;
+    anchorApplied: boolean;
+    semanticNoveltyApplied: boolean;
+    candidates: Array<{
+        query: string;
+        probeHits: number;
+    }>;
+    stats: {
+        rawCandidates: number;
+        admitted: number;
+        rejected: {
+            belowFloor: number;
+            length: number;
+            navigational: number;
+            duplicate: number;
+            offAnchor: number;
+            semanticDuplicate: number;
+        };
+    };
+};
+
 export type DiscoveryPromotePreview = {
     sessionId: string;
     projectId: string;
@@ -9422,6 +9448,49 @@ export type GetApiV1ProjectsByNameDiscoverSessionsByIdResponses = {
 };
 
 export type GetApiV1ProjectsByNameDiscoverSessionsByIdResponse = GetApiV1ProjectsByNameDiscoverSessionsByIdResponses[keyof GetApiV1ProjectsByNameDiscoverSessionsByIdResponses];
+
+export type GetApiV1ProjectsByNameDiscoverSessionsByIdHarvestData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+        /**
+         * Discovery session ID.
+         */
+        id: string;
+    };
+    query?: {
+        /**
+         * Minimum number of distinct probes a candidate must appear in to be admitted (recurrence floor). Default 1.
+         */
+        minProbeHits?: string;
+        /**
+         * Set to "false" to disable the subject-anchor filter. Default applies it (when the subject corpus is rich enough).
+         */
+        anchor?: string;
+    };
+    url: '/api/v1/projects/{name}/discover/sessions/{id}/harvest';
+};
+
+export type GetApiV1ProjectsByNameDiscoverSessionsByIdHarvestErrors = {
+    /**
+     * Project or session not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameDiscoverSessionsByIdHarvestError = GetApiV1ProjectsByNameDiscoverSessionsByIdHarvestErrors[keyof GetApiV1ProjectsByNameDiscoverSessionsByIdHarvestErrors];
+
+export type GetApiV1ProjectsByNameDiscoverSessionsByIdHarvestResponses = {
+    /**
+     * Harvested candidate seeds + gate stats returned.
+     */
+    200: DiscoveryHarvestDto;
+};
+
+export type GetApiV1ProjectsByNameDiscoverSessionsByIdHarvestResponse = GetApiV1ProjectsByNameDiscoverSessionsByIdHarvestResponses[keyof GetApiV1ProjectsByNameDiscoverSessionsByIdHarvestResponses];
 
 export type GetApiV1ProjectsByNameDiscoverSessionsByIdPromoteData = {
     body?: never;

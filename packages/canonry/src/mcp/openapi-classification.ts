@@ -236,6 +236,7 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'POST /api/v1/projects/{name}/discover/run': 'included',
   'GET /api/v1/projects/{name}/discover/sessions': 'included',
   'GET /api/v1/projects/{name}/discover/sessions/{id}': 'included',
+  'GET /api/v1/projects/{name}/discover/sessions/{id}/harvest': 'included',
   'GET /api/v1/projects/{name}/discover/sessions/{id}/promote': 'included',
   'POST /api/v1/projects/{name}/discover/sessions/{id}/promote': 'included',
   'GET /api/v1/projects/{name}/technical-aeo': 'included',

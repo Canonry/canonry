@@ -390,6 +390,21 @@ const discoverySessionIdInputSchema = z.object({
   sessionId: z.string().min(1).describe('Discovery session ID returned by canonry_discover_run_start.'),
 })
 
+const discoveryHarvestInputSchema = z.object({
+  project: projectNameSchema,
+  sessionId: z.string().min(1).describe('Discovery session ID returned by canonry_discover_run_start.'),
+  minProbeHits: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe('Recurrence floor — a candidate must have appeared in at least this many distinct probes to be admitted. Default 1.'),
+  anchor: z
+    .boolean()
+    .optional()
+    .describe('Apply the subject-anchor filter that drops off-topic acronym collisions. Default true; pass false for new-subject discovery on a well-scoped project.'),
+})
+
 const discoveryPromoteInputSchema = z.object({
   project: projectNameSchema,
   sessionId: z.string().min(1).describe('Discovery session ID returned by canonry_discover_run_start.'),
@@ -1671,6 +1686,21 @@ export const canonryMcpTools = [
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/discover/sessions/{id}'],
     handler: (client, input) => client.getDiscoverySession(input.project, input.sessionId),
+  }),
+  defineTool({
+    name: 'canonry_discover_harvest',
+    title: 'Harvest discovery search queries',
+    description:
+      "Read the search queries the answer engine actually issued (Gemini's grounding fan-out) back out of a session's stored probes, gate them for buyer-intent + novelty, and return the survivors as candidate seeds ranked by how many distinct probes issued each one. These are a THIRD signal — issued retrieval queries — distinct from mention (answer text) and cited (source list); they carry no demand of their own. Read-only and derived: nothing is probed, tracked, or promoted. Use it to surface \"queries the model searched for that you aren't tracking yet\"; the operator/agent then decides what to add via canonry_query_add. minProbeHits raises the recurrence floor; anchor=false disables the subject filter. stats carries the raw count and per-reason rejection tally.",
+    access: 'read',
+    tier: 'discovery',
+    inputSchema: discoveryHarvestInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/discover/sessions/{id}/harvest'],
+    handler: (client, input) => client.getDiscoveryHarvest(input.project, input.sessionId, {
+      minProbeHits: input.minProbeHits,
+      anchor: input.anchor,
+    }),
   }),
   defineTool({
     name: 'canonry_discover_promote_preview',

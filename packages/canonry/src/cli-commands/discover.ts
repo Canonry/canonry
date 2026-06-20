@@ -1,4 +1,5 @@
 import {
+  discoverHarvest,
   discoverList,
   discoverProbe,
   discoverPromote,
@@ -256,6 +257,34 @@ export const DISCOVER_CLI_COMMANDS: readonly CliCommandSpec[] = [
         buckets: parseBucketsOption(input.values, usage),
         competitorTypes: parseCompetitorTypesOption(input.values, usage),
         includeCompetitors: !getBoolean(input.values, 'no-competitors'),
+        format: input.format,
+      })
+    },
+  },
+  {
+    path: ['discover', 'harvest'],
+    usage:
+      'canonry discover harvest <project> <session-id> [--min-probe-hits <n>] [--no-anchor] [--format json|jsonl]',
+    options: {
+      'min-probe-hits': stringOption(),
+      'no-anchor': { type: 'boolean', default: false },
+    },
+    run: async (input) => {
+      const usage =
+        'canonry discover harvest <project> <session-id> [--min-probe-hits <n>] [--no-anchor] [--format json|jsonl]'
+      const project = requireProject(input, 'discover.harvest', usage)
+      const sessionId = requirePositional(input, 1, {
+        command: 'discover.harvest',
+        usage,
+        message: 'session ID is required',
+      })
+      await discoverHarvest(project, sessionId, {
+        minProbeHits: parseIntegerOption(input, 'min-probe-hits', {
+          command: 'discover.harvest',
+          usage,
+          message: '--min-probe-hits must be an integer',
+        }),
+        anchor: !getBoolean(input.values, 'no-anchor'),
         format: input.format,
       })
     },

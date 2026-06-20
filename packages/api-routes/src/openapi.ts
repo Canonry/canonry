@@ -3851,6 +3851,24 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'get',
+    path: '/api/v1/projects/{name}/discover/sessions/{id}/harvest',
+    summary: 'Harvest issued search queries (grounding fan-out) from a session',
+    description:
+      "Reads the search queries the answer engine actually issued to answer each probe (Gemini's `groundingMetadata.webSearchQueries` fan-out) back out of the session's stored probe payloads, then runs a mandatory quality gate and returns the survivors as candidate seeds, ranked by how many distinct probes issued each one. The gate drops navigational/phone lookups, over-specific outliers, off-subject acronym collisions, exact already-tracked matches, and — via an embedding cosine pass over the project's tracked queries — semantic duplicates (paraphrases/synonyms an exact match can't see). `semanticNoveltyApplied` reports whether that embedding pass ran (it falls back to exact-match when embeddings are unavailable). These are a THIRD signal — *issued retrieval queries* — distinct from `mention` (answer text) and `cited` (source list); they carry no demand of their own. Read-only and derived: nothing is probed, tracked, or promoted. `minProbeHits` raises the recurrence floor; `anchor=false` disables the subject anchor for new-subject discovery on a well-scoped project. `stats` carries the raw count and a per-reason rejection tally. Issue #713.",
+    tags: ['discovery'],
+    parameters: [
+      nameParameter,
+      { name: 'id', in: 'path', required: true, description: 'Discovery session ID.', schema: stringSchema },
+      { name: 'minProbeHits', in: 'query', required: false, description: 'Minimum number of distinct probes a candidate must appear in to be admitted (recurrence floor). Default 1.', schema: stringSchema },
+      { name: 'anchor', in: 'query', required: false, description: 'Set to "false" to disable the subject-anchor filter. Default applies it (when the subject corpus is rich enough).', schema: stringSchema },
+    ],
+    responses: {
+      200: jsonResponse('Harvested candidate seeds + gate stats returned.', 'DiscoveryHarvestDto'),
+      404: errorResponse('Project or session not found.'),
+    },
+  },
+  {
+    method: 'get',
     path: '/api/v1/projects/{name}/discover/sessions/{id}/promote',
     summary: 'Preview a discovery promotion plan (read-only)',
     description: 'Returns available promotion candidates: queries grouped by bucket, plus recurring suggested competitor domains not already tracked. Read-only — use the POST to actually adopt the default subset or an explicit bucket subset.',

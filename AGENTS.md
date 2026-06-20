@@ -117,6 +117,7 @@ canonry discover run <project> --locations michigan,florida --wait              
 canonry discover list <project> [--limit 20] [--format json]
 canonry discover show <project> <session-id> [--format json]
 canonry discover probe <project> <session-id> [--format json]                       # alias of show (read-only) until a later PR splits phases
+canonry discover harvest <project> <session-id> [--min-probe-hits <n>] [--no-anchor] [--format json|jsonl]   # read the answer engine's issued search-query fan-out (Gemini groundingMetadata.webSearchQueries) back out of the session's stored probes, gate it (drop navigational / over-specific / off-subject / exact-tracked / embedding-cosine synonym dups), and return survivors as candidate seeds ranked by probe recurrence — read-only, nothing is probed/tracked/promoted (issue #713)
 canonry discover promote preview <project> <session-id> [--format json]             # preview bucketed candidates + recurring suggested competitors of every classified type (read-only)
 canonry discover promote <project> <session-id> [--bucket cited,aspirational,wasted-surface] [--competitor-types direct-competitor,editorial-media] [--no-competitors] [--format json]   # adopt cited + aspirational queries + direct-competitor domains by default
 

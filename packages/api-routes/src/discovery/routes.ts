@@ -19,16 +19,22 @@ import {
   RunKinds,
   RunStatuses,
   RunTriggers,
+  aggregateHarvestedQueries,
+  applyHarvestSemanticNovelty,
+  buildHarvestAnchorTerms,
   citationStateSchema,
   discoveryBucketSchema,
   discoveryPromoteRequestSchema,
   discoveryRunRequestSchema,
+  effectiveDomains,
+  gateHarvestedSearchQueries,
   notFound,
   resolveLocations,
   validationError,
   type DiscoveryBucket,
   type DiscoveryCompetitorMapEntry,
   type DiscoveryCompetitorType,
+  type DiscoveryHarvestDto,
   type DiscoveryProbeDto,
   type DiscoveryPromoteResult,
   type DiscoverySessionDetailDto,
@@ -62,8 +68,37 @@ export type OnDiscoveryRunRequested = (input: {
   locations: LocationContext[]
 }) => void
 
+/**
+ * Provider-agnostic seam for reading the issued *search queries* (fan-out) back
+ * out of a stored probe `raw_response`. Discovery persists the full provider
+ * payload on each `discovery_probes` row, but extracting the issued queries from
+ * it is provider-shaped (Gemini `groundingMetadata.webSearchQueries`, OpenAI
+ * `web_search_call.action.queries`, Claude `server_tool_use` input). The
+ * canonry-side wires this to the matching provider adapter's extractor so this
+ * route stays free of any provider import. When unset (e.g. a deployment that
+ * never wired it), the harvest endpoint returns an empty candidate set rather
+ * than failing — there is simply nothing to read back. Issue #713.
+ */
+export type HarvestSearchQueries = (input: {
+  /** The session's seed provider (discovery is Gemini-only today). */
+  provider: string
+  rawResponse: Record<string, unknown>
+}) => string[]
+
+/**
+ * Embed a batch of query strings into vectors for the harvest's semantic
+ * novelty pass. The canonry side wires this to the Gemini embedder (the same
+ * model the discovery seed pipeline uses); a deployment without an embedder may
+ * leave it unset, in which case harvest novelty falls back to exact-match only.
+ * Rejecting (e.g. no API key) is treated the same as unset — the route degrades
+ * gracefully rather than failing the read.
+ */
+export type EmbedQueries = (queries: string[]) => Promise<number[][]>
+
 export interface DiscoveryRoutesOptions {
   onDiscoveryRunRequested?: OnDiscoveryRunRequested
+  harvestSearchQueries?: HarvestSearchQueries
+  embedQueries?: EmbedQueries
 }
 
 /**
@@ -268,6 +303,123 @@ export async function discoveryRoutes(app: FastifyInstance, opts: DiscoveryRoute
         probes: probeRows.map(serializeProbe),
       }
       return reply.send(detail)
+    },
+  )
+
+  // GET /projects/:name/discover/sessions/:id/harvest — read the issued search
+  // queries (Gemini's grounding fan-out) back out of the session's stored probe
+  // payloads, gate them for buyer-intent + novelty, and return the survivors as
+  // candidate seeds for the operator/agent to review. Read-only and derived: it
+  // never probes, tracks, or promotes anything — the harvest is a third signal
+  // (issued retrieval queries), distinct from mention and citation. Issue #713.
+  app.get<{
+    Params: { name: string; id: string }
+    Querystring: { minProbeHits?: string; anchor?: string }
+  }>(
+    '/projects/:name/discover/sessions/:id/harvest',
+    async (request, reply) => {
+      const project = resolveProject(app.db, request.params.name)
+      const session = app.db
+        .select()
+        .from(discoverySessions)
+        .where(eq(discoverySessions.id, request.params.id))
+        .get()
+      if (!session || session.projectId !== project.id) {
+        throw notFound('Discovery session', request.params.id)
+      }
+
+      // minProbeHits: recurrence floor (default 1). anchor: apply the subject
+      // anchor (default true; pass anchor=false to disable for new-subject
+      // discovery on a well-scoped project).
+      const parsedFloor = parseInt(request.query.minProbeHits ?? '', 10)
+      const minProbeHits = Number.isNaN(parsedFloor) || parsedFloor < 1 ? 1 : parsedFloor
+      const applyAnchor = request.query.anchor !== 'false'
+      const provider = session.seedProvider ?? 'gemini'
+
+      const probeRows = app.db
+        .select()
+        .from(discoveryProbes)
+        .where(eq(discoveryProbes.sessionId, session.id))
+        .all()
+
+      const extract = opts.harvestSearchQueries
+      const probesWithQueries = probeRows.map((row) => {
+        if (!extract || !row.rawResponse) return { searchQueries: [] as string[] }
+        try {
+          const raw = JSON.parse(row.rawResponse) as Record<string, unknown>
+          return { searchQueries: extract({ provider, rawResponse: raw }) }
+        } catch {
+          // A malformed/legacy payload contributes no candidates rather than
+          // failing the whole harvest.
+          return { searchQueries: [] as string[] }
+        }
+      })
+
+      const trackedQueries = app.db
+        .select({ query: queries.query })
+        .from(queries)
+        .where(eq(queries.projectId, project.id))
+        .all()
+        .map(r => r.query)
+
+      // Anchor on the labels of every domain the project owns in addition to
+      // ICP + tracked queries: a thin/new project has few tracked terms and a
+      // terse ICP — exactly where the fan-out's off-subject acronym collisions
+      // peak — so the always-present domain labels keep the anchor engaged where
+      // it is needed most. Owned domains (not just the canonical one) matter: an
+      // abstract canonical brand with a descriptive owned domain still yields
+      // real subject terms, which is what keeps the anchor from over-dropping
+      // on-subject candidates (issue #713).
+      const anchorTerms = buildHarvestAnchorTerms(
+        [session.icpDescription ?? '', ...trackedQueries],
+        effectiveDomains(project),
+      )
+
+      const aggregated = aggregateHarvestedQueries(probesWithQueries)
+      let result = gateHarvestedSearchQueries({
+        candidates: aggregated,
+        trackedQueries,
+        anchorTerms,
+        minProbeHits,
+        applyAnchor,
+      })
+
+      // Semantic novelty: drop candidates that are paraphrases/synonyms of a
+      // tracked query (lexical exact-match can't see those). One batch embed of
+      // the survivors + tracked queries, then a cosine comparison reusing the
+      // discovery pipeline's calibrated threshold. Best-effort — if embeddings
+      // are unwired or unavailable (no key), novelty degrades to exact-match.
+      let semanticNoveltyApplied = false
+      if (opts.embedQueries && result.admitted.length > 0 && trackedQueries.length > 0) {
+        try {
+          const candidateTexts = result.admitted.map(c => c.query)
+          const vectors = await opts.embedQueries([...candidateTexts, ...trackedQueries])
+          if (vectors.length === candidateTexts.length + trackedQueries.length) {
+            result = applyHarvestSemanticNovelty({
+              result,
+              candidateVectors: vectors.slice(0, candidateTexts.length),
+              trackedVectors: vectors.slice(candidateTexts.length),
+            })
+            semanticNoveltyApplied = true
+          }
+        } catch {
+          // Embeddings unavailable — keep the lexical result, novelty falls back
+          // to exact-match only. semanticNoveltyApplied stays false.
+        }
+      }
+
+      const harvest: DiscoveryHarvestDto = {
+        sessionId: session.id,
+        projectId: project.id,
+        provider,
+        status: session.status as DiscoverySessionStatus,
+        minProbeHits,
+        anchorApplied: result.anchorApplied,
+        semanticNoveltyApplied,
+        candidates: result.admitted,
+        stats: result.stats,
+      }
+      return reply.send(harvest)
     },
   )
 

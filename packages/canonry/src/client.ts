@@ -108,6 +108,7 @@ import type {
   TrafficBackfillResponse,
   DiscoverySessionDto,
   DiscoverySessionDetailDto,
+  DiscoveryHarvestDto,
   DiscoveryPromotePreview,
   DiscoveryPromoteRequest,
   DiscoveryPromoteResult,
@@ -277,6 +278,7 @@ import {
   postApiV1ProjectsByNameDiscoverRun,
   getApiV1ProjectsByNameDiscoverSessions,
   getApiV1ProjectsByNameDiscoverSessionsById,
+  getApiV1ProjectsByNameDiscoverSessionsByIdHarvest,
   getApiV1ProjectsByNameDiscoverSessionsByIdPromote,
   postApiV1ProjectsByNameDiscoverSessionsByIdPromote,
   // Technical AEO (site-audit)
@@ -1825,6 +1827,24 @@ export class ApiClient {
       getApiV1ProjectsByNameDiscoverSessionsById({
         client: this.heyClient,
         path: { name: project, id: sessionId },
+      }),
+    )
+  }
+
+  async getDiscoveryHarvest(
+    project: string,
+    sessionId: string,
+    opts?: { minProbeHits?: number; anchor?: boolean },
+  ): Promise<DiscoveryHarvestDto> {
+    return this.invoke<DiscoveryHarvestDto>(() =>
+      getApiV1ProjectsByNameDiscoverSessionsByIdHarvest({
+        client: this.heyClient,
+        path: { name: project, id: sessionId },
+        query: {
+          minProbeHits: opts?.minProbeHits !== undefined ? String(opts.minProbeHits) : undefined,
+          // The server treats anchor=false as "disable"; omit otherwise.
+          anchor: opts?.anchor === false ? 'false' : undefined,
+        } as never,
       }),
     )
   }
