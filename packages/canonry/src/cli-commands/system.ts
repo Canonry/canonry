@@ -3,10 +3,10 @@ import { startDaemon, stopDaemon } from '../commands/daemon.js'
 import { initCommand } from '../commands/init.js'
 import { serveCommand } from '../commands/serve.js'
 import { telemetryCommand } from '../commands/telemetry.js'
-import type { CliCommandSpec } from '../cli-dispatch.js'
-import { getBoolean, getString, stringOption, unknownSubcommand } from '../cli-command-helpers.js'
+import type { CliCommandSpec, CliValues } from '../cli-dispatch.js'
+import { getBoolean, getString, getStringArray, multiStringOption, stringOption, unknownSubcommand } from '../cli-command-helpers.js'
 
-export function applyServerEnv(values: Record<string, unknown>): void {
+export function applyServerEnv(values: CliValues): void {
   const port = typeof values.port === 'string' ? values.port : undefined
   const host = typeof values.host === 'string' ? values.host : undefined
   const basePath = typeof values['base-path'] === 'string' ? values['base-path'] : undefined
@@ -14,6 +14,14 @@ export function applyServerEnv(values: Record<string, unknown>): void {
   if (port) process.env.CANONRY_PORT = port
   if (host) process.env.CANONRY_HOST = host
   if (basePath) process.env.CANONRY_BASE_PATH = basePath
+
+  // Embed mode (#716). Each var is guarded on presence so an unset flag never
+  // clobbers an inherited env value (mirrors the basePath handling above).
+  const embedOrigins = getStringArray(values, 'embed-allow-origin')
+  const embedViews = getStringArray(values, 'embed-view')
+  if (getBoolean(values, 'embed')) process.env.CANONRY_EMBED = '1'
+  if (embedOrigins && embedOrigins.length > 0) process.env.CANONRY_EMBED_ORIGINS = embedOrigins.join(',')
+  if (embedViews && embedViews.length > 0) process.env.CANONRY_EMBED_VIEWS = embedViews.join(',')
 }
 
 export const SYSTEM_CLI_COMMANDS: readonly CliCommandSpec[] = [
@@ -71,11 +79,14 @@ export const SYSTEM_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['serve'],
-    usage: 'canonry serve [--port <port>] [--host <host>] [--base-path <path>] [--format json]',
+    usage: 'canonry serve [--port <port>] [--host <host>] [--base-path <path>] [--embed] [--embed-allow-origin <origin>...] [--embed-view <view>...] [--format json]',
     options: {
       port: stringOption(),
       host: stringOption(),
       'base-path': stringOption(),
+      embed: { type: 'boolean', default: false },
+      'embed-allow-origin': multiStringOption(),
+      'embed-view': multiStringOption(),
     },
     allowPositionals: false,
     run: async (input) => {
@@ -85,11 +96,14 @@ export const SYSTEM_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['start'],
-    usage: 'canonry start [--port <port>] [--host <host>] [--base-path <path>] [--format json]',
+    usage: 'canonry start [--port <port>] [--host <host>] [--base-path <path>] [--embed] [--embed-allow-origin <origin>...] [--embed-view <view>...] [--format json]',
     options: {
       port: stringOption(),
       host: stringOption(),
       'base-path': stringOption(),
+      embed: { type: 'boolean', default: false },
+      'embed-allow-origin': multiStringOption(),
+      'embed-view': multiStringOption(),
     },
     allowPositionals: false,
     run: async (input) => {
@@ -97,6 +111,9 @@ export const SYSTEM_CLI_COMMANDS: readonly CliCommandSpec[] = [
         port: getString(input.values, 'port'),
         host: getString(input.values, 'host'),
         basePath: getString(input.values, 'base-path'),
+        embed: getBoolean(input.values, 'embed'),
+        embedAllowOrigins: getStringArray(input.values, 'embed-allow-origin'),
+        embedViews: getStringArray(input.values, 'embed-view'),
         format: input.format,
       })
     },

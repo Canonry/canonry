@@ -65,6 +65,8 @@ pnpm run dev:web
 # CLI
 canonry init
 canonry serve
+canonry serve --embed --embed-allow-origin https://app.example.com [--embed-allow-origin ...] [--embed-view overview]  # opt-in read-only embed mode (#716): chromeless render + Content-Security-Policy: frame-ancestors. Off by default; serve is byte-for-byte unchanged without --embed. Fails CLOSED to frame-ancestors 'none' when no (valid) origins are configured. Env equivalents: CANONRY_EMBED=1, CANONRY_EMBED_ORIGINS=a,b (comma/space), CANONRY_EMBED_VIEWS=overview,project (env overrides config.yaml `embed:`). Cross-origin embeds cannot use the SameSite=Lax session cookie (it is not sent in a cross-site iframe) — v1 supports a same-origin embed (cookie flows) OR a self-hosted build with a read-only VITE_API_KEY (client-visible). Not an /api/v1 op, so no MCP tool (same precedent as --base-path).
+canonry start --embed --embed-allow-origin https://app.example.com   # daemon form; forwards the embed flags to the spawned serve
 canonry project create <name> --domain <domain> --country US --language en
 canonry query add <project> <query>...
 canonry query replace <project> <query>...

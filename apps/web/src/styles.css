@@ -66,6 +66,22 @@
     @apply flex min-h-screen;
   }
 
+  /* Read-only embed mode (#716): chromeless full-bleed render. The single
+     <main> child of the flex row fills the width (no sidebar). The shell
+     exposes two theme hooks — --canonry-embed-bg / --canonry-embed-fg — which
+     default to the dashboard's zinc background + inherited text, so an unthemed
+     embed looks identical to the dashboard. Theming is intentionally limited to
+     the shell background + text: page content uses fixed Tailwind colors. */
+  .app-shell-embed {
+    @apply min-h-screen w-full;
+    background: var(--canonry-embed-bg, #09090b);
+    color: var(--canonry-embed-fg, inherit);
+  }
+
+  .embed-view-unavailable {
+    @apply mx-auto max-w-6xl px-4 py-16 text-center text-sm text-zinc-500;
+  }
+
   .sidebar {
     @apply fixed inset-y-0 left-0 z-30 hidden w-56 flex-col border-r border-zinc-800/60 bg-zinc-950 lg:flex;
   }

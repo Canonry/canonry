@@ -35,7 +35,37 @@ async function waitForReady(host: string, port: string, maxMs = 10000): Promise<
   return false
 }
 
-export async function startDaemon(opts: { port?: string; host?: string; basePath?: string; format?: CliFormat }): Promise<void> {
+export interface ServeForwardOpts {
+  port?: string
+  host?: string
+  basePath?: string
+  /** Embed mode (#716) — chromeless render + frame-ancestors framing. */
+  embed?: boolean
+  embedAllowOrigins?: string[]
+  embedViews?: string[]
+}
+
+/**
+ * Build the CLI flags `start` forwards to the spawned `serve` child. Embed
+ * config rides per-value repeat flags (NOT comma-joined) so each origin/view
+ * round-trips through the child's `multiple: true` parse. Embed flags are only
+ * forwarded when `--embed` is set (don't forward dead config). Pure + exported
+ * for testing.
+ */
+export function buildServeForwardArgs(opts: ServeForwardOpts): string[] {
+  const args: string[] = []
+  if (opts.port) args.push('--port', opts.port)
+  if (opts.host) args.push('--host', opts.host)
+  if (opts.basePath) args.push('--base-path', opts.basePath)
+  if (opts.embed) {
+    args.push('--embed')
+    for (const origin of opts.embedAllowOrigins ?? []) args.push('--embed-allow-origin', origin)
+    for (const view of opts.embedViews ?? []) args.push('--embed-view', view)
+  }
+  return args
+}
+
+export async function startDaemon(opts: ServeForwardOpts & { format?: CliFormat }): Promise<void> {
   const pidPath = getPidPath()
   const format = opts.format ?? 'text'
 
@@ -60,9 +90,7 @@ export async function startDaemon(opts: { port?: string; host?: string; basePath
   // Don't use --import tsx in production (compiled) installs — tsx is a dev dependency
   const inSourceMode = new URL(import.meta.url).pathname.endsWith('.ts')
   const args = inSourceMode ? ['--import', 'tsx', cliPath, 'serve'] : [cliPath, 'serve']
-  if (opts.port) args.push('--port', opts.port)
-  if (opts.host) args.push('--host', opts.host)
-  if (opts.basePath) args.push('--base-path', opts.basePath)
+  args.push(...buildServeForwardArgs(opts))
 
   const child = spawn(process.execPath, args, {
     detached: true,

@@ -8,7 +8,8 @@ Vite SPA (React 19 + TanStack Router/Query + Tailwind CSS 4) for the analytics d
 
 | File | Role |
 |------|------|
-| `src/api.ts` | `apiFetch<T>()` wrapper, `ApiError` class, all API call functions |
+| `src/api.ts` | `apiFetch<T>()` wrapper, `ApiError` class, all API call functions, `getEmbedConfig()` (#716 — reads `window.__CANONRY_CONFIG__.embed`, returns the block when enabled else `null`; `typeof window` guarded for SSR) |
+| `src/embed.ts` | Read-only embed mode (#716) presentational helpers: `embedViewIdForPath(pathname)` (coarse route→view-id map for the allowlist) and `embedThemeStyle(theme)` (allowlisted `--canonry-embed-*` CSS custom properties with per-value strict color-regex sanitization — CSS-injection guard) |
 | `src/router/routes.tsx` | TanStack Router route tree |
 | `src/pages/` | One file per page (ProjectPage is largest at 1,600 LOC) |
 | `src/components/shared/ChartPrimitives.tsx` | Recharts wrapper — chart components and styling constants |
@@ -117,6 +118,10 @@ one:
 ship with a registered Zod schema.
 
 Base path comes from `window.__CANONRY_CONFIG__.basePath`. Never hardcode `/api/v1`.
+
+### Read-only embed mode (#716)
+
+When the server injects `window.__CANONRY_CONFIG__.embed` (via `canonry serve --embed`), `RootLayout` (`src/App.tsx`) takes a chromeless branch — placed AFTER every hook so Rules of Hooks hold on both paths — rendering only `<Outlet/>` inside a minimal `app-shell-embed` shell with NO sidebar / topbar / mobile nav / footer / drawers / `RunNotificationObserver` / `Toaster` / `AeroBarHost`. The optional `embed.views` allowlist gates the route via `embedViewIdForPath` (a non-allowlisted route renders a `embed-view-unavailable` state instead of the page, so surfaces like `/settings` are not reachable inside the iframe — a presentational gate, NOT a security boundary; the API key scope is the real boundary). The optional `embed.theme` is applied through `embedThemeStyle` (sanitized, via the React `style` prop). With embed off, `getEmbedConfig()` returns `null` and the full chrome renders exactly as before.
 
 ### DTO types — generated vs hand-typed
 

@@ -2,7 +2,14 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { applyServerEnv } from '../src/cli-commands/system.js'
 import { resolveServePort } from '../src/commands/serve.js'
 
-const KEYS = ['CANONRY_PORT', 'CANONRY_HOST', 'CANONRY_BASE_PATH'] as const
+const KEYS = [
+  'CANONRY_PORT',
+  'CANONRY_HOST',
+  'CANONRY_BASE_PATH',
+  'CANONRY_EMBED',
+  'CANONRY_EMBED_ORIGINS',
+  'CANONRY_EMBED_VIEWS',
+] as const
 
 describe('applyServerEnv', () => {
   const original: Record<string, string | undefined> = {}
@@ -50,6 +57,39 @@ describe('applyServerEnv', () => {
     applyServerEnv({ host: '127.0.0.1', 'base-path': '/x' })
     expect(process.env.CANONRY_HOST).toBe('127.0.0.1')
     expect(process.env.CANONRY_BASE_PATH).toBe('/x')
+  })
+
+  it('sets CANONRY_EMBED=1 when --embed is passed', () => {
+    applyServerEnv({ embed: true })
+    expect(process.env.CANONRY_EMBED).toBe('1')
+  })
+
+  it('leaves all three embed env vars unset when no embed flags are passed', () => {
+    applyServerEnv({})
+    expect(process.env.CANONRY_EMBED).toBeUndefined()
+    expect(process.env.CANONRY_EMBED_ORIGINS).toBeUndefined()
+    expect(process.env.CANONRY_EMBED_VIEWS).toBeUndefined()
+  })
+
+  it('preserves an inherited CANONRY_EMBED when --embed is not passed', () => {
+    process.env.CANONRY_EMBED = '1'
+    applyServerEnv({})
+    expect(process.env.CANONRY_EMBED).toBe('1')
+  })
+
+  it('joins multiple --embed-allow-origin into a comma-separated CANONRY_EMBED_ORIGINS', () => {
+    applyServerEnv({ embed: true, 'embed-allow-origin': ['https://a.com', 'https://b.com'] })
+    expect(process.env.CANONRY_EMBED_ORIGINS).toBe('https://a.com,https://b.com')
+  })
+
+  it('joins multiple --embed-view into a comma-separated CANONRY_EMBED_VIEWS', () => {
+    applyServerEnv({ embed: true, 'embed-view': ['overview', 'project'] })
+    expect(process.env.CANONRY_EMBED_VIEWS).toBe('overview,project')
+  })
+
+  it('leaves CANONRY_EMBED_ORIGINS unset when the origins array is empty or absent', () => {
+    applyServerEnv({ embed: true, 'embed-allow-origin': [] })
+    expect(process.env.CANONRY_EMBED_ORIGINS).toBeUndefined()
   })
 })
 
