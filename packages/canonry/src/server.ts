@@ -18,8 +18,9 @@ import { claudeAdapter } from '@ainyc/canonry-provider-claude'
 import { localAdapter } from '@ainyc/canonry-provider-local'
 import { cdpChatgptAdapter } from '@ainyc/canonry-provider-cdp'
 import { perplexityAdapter } from '@ainyc/canonry-provider-perplexity'
-import { authInvalid, authRequired, validationError, CcReleaseSyncStatuses, RunKinds, RunStatuses, RunTriggers, type ProviderAdapter } from '@ainyc/canonry-contracts'
+import { authInvalid, authRequired, validationError, buildEmbedClientConfig, frameAncestorsHeaderValue, CcReleaseSyncStatuses, RunKinds, RunStatuses, RunTriggers, type ProviderAdapter } from '@ainyc/canonry-contracts'
 import type { CanonryConfig, ProviderConfigEntry } from './config.js'
+import { resolveEmbedConfig } from './embed.js'
 import { saveConfigPatch, loadConfig, getConfigPath } from './config.js'
 import { getPlacesConfig } from './places-config.js'
 import {
@@ -350,6 +351,13 @@ export async function createServer(opts: {
    * Defaults to loopback when unset (programmatic/test callers).
    */
   host?: string
+  /**
+   * Override for the directory the pre-built SPA is served from. Defaults to
+   * the package's bundled `assets/` (resolved from `import.meta.url`). Exposed
+   * so tests can point at a temp dir containing a fixture `index.html` and
+   * assert the injected config + framing header on the served document.
+   */
+  assetsDir?: string
 }): Promise<FastifyInstance> {
   const logger = opts.logger === false
     ? false
@@ -961,6 +969,13 @@ export async function createServer(opts: {
     : undefined
   const basePath: string | undefined =
     normalizedBasePath === '/' ? undefined : normalizedBasePath
+
+  // Read-only embed mode (#716). Resolve once at boot (env over config.yaml).
+  // When disabled, the injected SPA config stays byte-for-byte unchanged and no
+  // framing header is emitted. When enabled, every SPA document gets a
+  // fail-closed `Content-Security-Policy: frame-ancestors` header.
+  const embed = resolveEmbedConfig(process.env, opts.config)
+  const embedCsp = embed.enabled ? frameAncestorsHeaderValue(embed.allowedOrigins) : undefined
 
   // Register API routes.
   // When a basePath is set, routes are registered at `${basePath}api/v1` so they
@@ -1737,7 +1752,7 @@ export async function createServer(opts: {
 
   // Try to serve static SPA assets
   const dirname = path.dirname(fileURLToPath(import.meta.url))
-  const assetsDir = path.join(dirname, '..', 'assets')
+  const assetsDir = opts.assetsDir ?? path.join(dirname, '..', 'assets')
   if (fs.existsSync(assetsDir)) {
     const indexPath = path.join(assetsDir, 'index.html')
 
@@ -1745,6 +1760,12 @@ export async function createServer(opts: {
     const injectConfig = (html: string): string => {
       const clientConfig: Record<string, unknown> = {}
       if (basePath) clientConfig.basePath = basePath
+      // Embed block is appended LAST and only when enabled, so the default
+      // (non-embed) serve emits byte-for-byte the same `{}` / `{basePath}`.
+      if (embed.enabled) {
+        const embedClient = buildEmbedClientConfig(embed)
+        if (embedClient) clientConfig.embed = embedClient
+      }
 
       const configScript = `<script>window.__CANONRY_CONFIG__=${JSON.stringify(clientConfig)}</script>`
       // Inject <base href> unconditionally so relative asset paths (`./assets/…`)
@@ -1753,6 +1774,18 @@ export async function createServer(opts: {
       // SPA fallback, and receive HTML where the browser expects JS.
       const baseTag = `<base href="${basePath ?? '/'}">`
       return html.replace('<head>', `<head>${baseTag}`).replace('</head>', `${configScript}</head>`)
+    }
+
+    // Single chokepoint for every SPA HTML document (root + deep-link
+    // fallback): identical Cache-Control, the fail-closed embed framing header
+    // when embed is enabled, config injection, and content type. Routing both
+    // send sites through here keeps the framing header from drifting onto only
+    // one of them (a deep-linked embed is served by the notFound fallback, not
+    // serveIndex, so a header on serveIndex alone would leave it framable).
+    const sendSpaDocument = (reply: FastifyReply, html: string) => {
+      reply.header('Cache-Control', 'no-cache, must-revalidate')
+      if (embedCsp) reply.header('Content-Security-Policy', embedCsp)
+      return reply.type('text/html').send(injectConfig(html))
     }
 
     const fastifyStatic = await import('@fastify/static')
@@ -1796,10 +1829,7 @@ export async function createServer(opts: {
     const serveIndex = (_request: FastifyRequest, reply: FastifyReply) => {
       if (fs.existsSync(indexPath)) {
         const html = fs.readFileSync(indexPath, 'utf-8')
-        return reply
-          .header('Cache-Control', 'no-cache, must-revalidate')
-          .type('text/html')
-          .send(injectConfig(html))
+        return sendSpaDocument(reply, html)
       }
       return reply.status(404).send({ error: 'Dashboard not built' })
     }
@@ -1836,13 +1866,12 @@ export async function createServer(opts: {
 
       if (fs.existsSync(indexPath)) {
         const html = fs.readFileSync(indexPath, 'utf-8')
-        // Same no-cache policy as `serveIndex` — SPA deep links hit this
-        // handler and must always pick up the latest index.html that
-        // points at the current hashed bundles.
-        return reply
-          .header('Cache-Control', 'no-cache, must-revalidate')
-          .type('text/html')
-          .send(injectConfig(html))
+        // Same no-cache + embed-framing policy as `serveIndex` — SPA deep
+        // links hit this handler and must always pick up the latest index.html
+        // that points at the current hashed bundles, and (in embed mode) carry
+        // the frame-ancestors header so a deep-linked embed isn't framable by
+        // any origin.
+        return sendSpaDocument(reply, html)
       }
       return reply.status(404).send({ error: 'Not found' })
     })

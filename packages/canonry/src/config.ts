@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import { parse, stringify } from 'yaml'
-import type { ProviderQuotaPolicy } from '@ainyc/canonry-contracts'
+import type { EmbedConfigEntry, ProviderQuotaPolicy } from '@ainyc/canonry-contracts'
 
 export type GoogleConnectionType = 'gsc' | 'ga4' | 'gbp'
 
@@ -246,6 +246,10 @@ export interface CanonryConfig {
   agent?: AgentConfigEntry
   // Google Places API config (supplemental GBP lodging data — #648)
   places?: PlacesConfigEntry
+  // Read-only embed mode (#716) — opt-in chromeless render + frame-ancestors
+  // framing contract. Off/absent keeps the default serve byte-for-byte
+  // unchanged. Resolved (with env overrides) by resolveEmbedConfig in embed.ts.
+  embed?: EmbedConfigEntry
 }
 
 function normalizeGoogleConfig(config: CanonryConfig): void {

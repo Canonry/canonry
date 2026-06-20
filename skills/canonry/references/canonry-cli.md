@@ -11,8 +11,24 @@ cnry start                                     # start daemon
 cnry stop                                      # stop daemon
 cnry serve                                     # foreground mode
 cnry serve --host 0.0.0.0 --port 4100
+cnry serve --embed --embed-allow-origin https://app.example.com   # read-only embed mode (#716)
 cnry --version
 ```
+
+### Read-only embed mode (#716)
+
+Opt-in, OFF by default. Renders the dashboard "chromeless" (no nav/topbar/settings) so it can be iframed read-only, and emits a fail-closed framing contract. With `--embed` absent, served HTML + headers are byte-for-byte unchanged.
+
+```bash
+cnry serve --embed --embed-allow-origin https://app.example.com [--embed-allow-origin https://b.example] [--embed-view overview]
+cnry start --embed --embed-allow-origin https://app.example.com   # daemon form (forwards flags to serve)
+# Env equivalents (env overrides config.yaml `embed:`):
+#   CANONRY_EMBED=1   CANONRY_EMBED_ORIGINS=https://a.com,https://b.com   CANONRY_EMBED_VIEWS=overview,project
+```
+
+- **Framing:** emits `Content-Security-Policy: frame-ancestors <origins>` on the SPA document, **failing CLOSED to `frame-ancestors 'none'`** when no valid origins are configured (so a misconfigured embed is un-framable, not open to everyone). Origins must be bare `scheme://host[:port]` — paths, wildcards (`*.host`), and non-http(s) schemes are rejected. No `X-Frame-Options` is emitted (CSP is the single source of truth).
+- **Read-only is server-enforced:** embed mode adds NO write surface; the read-only API-key gate (403 on POST/PUT/PATCH/DELETE) is unchanged.
+- **Cross-origin auth caveat:** the `SameSite=Lax` session cookie is NOT sent in a cross-site iframe and the shipped bundle has no API key. v1 works for a **same-origin** embed (cookie flows) OR a self-hosted build with a read-only `VITE_API_KEY` baked in (then client-visible). Do not loosen the cookie to `SameSite=None`.
 
 Production managed by PM2:
 ```bash

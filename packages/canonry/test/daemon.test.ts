@@ -4,6 +4,38 @@ import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 
+describe('buildServeForwardArgs', () => {
+  it('forwards --port / --host / --base-path when set', async () => {
+    const { buildServeForwardArgs } = await import('../src/commands/daemon.js')
+    expect(buildServeForwardArgs({ port: '4200', host: '0.0.0.0', basePath: '/c' })).toEqual([
+      '--port', '4200', '--host', '0.0.0.0', '--base-path', '/c',
+    ])
+  })
+
+  it('forwards --embed and a repeated flag per origin / view (NOT comma-joined)', async () => {
+    const { buildServeForwardArgs } = await import('../src/commands/daemon.js')
+    expect(
+      buildServeForwardArgs({
+        embed: true,
+        embedAllowOrigins: ['https://a.com', 'https://b.com'],
+        embedViews: ['overview', 'project'],
+      }),
+    ).toEqual([
+      '--embed',
+      '--embed-allow-origin', 'https://a.com',
+      '--embed-allow-origin', 'https://b.com',
+      '--embed-view', 'overview',
+      '--embed-view', 'project',
+    ])
+  })
+
+  it('omits all embed flags when embed is false/undefined', async () => {
+    const { buildServeForwardArgs } = await import('../src/commands/daemon.js')
+    expect(buildServeForwardArgs({})).toEqual([])
+    expect(buildServeForwardArgs({ embed: false, embedAllowOrigins: ['https://a.com'] })).toEqual([])
+  })
+})
+
 describe('daemon cliPath resolution', () => {
   it('resolves cliPath to the same file as import.meta.url (not a parent directory)', async () => {
     // This mirrors the logic in startDaemon — the bug was using '../cli.js'

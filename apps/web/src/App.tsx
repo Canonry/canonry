@@ -21,7 +21,8 @@ import {
 import { CitationStates, RunKinds, formatRunErrorOneLine, type RunKind } from '@ainyc/canonry-contracts'
 
 import { formatErrorLog } from './lib/format-helpers.js'
-import { heyClient, type ApiProject, type ApiRun } from './api.js'
+import { getEmbedConfig, heyClient, type ApiProject, type ApiRun } from './api.js'
+import { embedThemeStyle, embedViewIdForPath } from './embed.js'
 import { getApiV1ProjectsOptions, getApiV1RunsOptions } from '@ainyc/canonry-api-client/react-query'
 import { serviceStatusTooltip } from './lib/health-helpers.js'
 import { addToast, type ToastTone } from './lib/toast-store.js'
@@ -445,6 +446,34 @@ export function RootLayout() {
     }
     return 'Not found'
   })()
+
+  // Read-only embed mode (#716). Resolved once (the injected config is fixed for
+  // the page lifetime). When set, render chromeless: only the requested view,
+  // with NO sidebar / topbar / mobile nav / footer / drawers / run observer /
+  // toaster / AeroBar. The view allowlist is a presentational gate — a
+  // non-allowlisted route renders an unavailable state instead of the page, so
+  // surfaces like /settings are never reachable inside the iframe. Placed after
+  // every hook above so the Rules of Hooks hold on both render paths.
+  const embed = useMemo(() => getEmbedConfig(), [])
+  if (embed) {
+    const viewAllowed = !embed.views || embed.views.includes(embedViewIdForPath(location.pathname))
+    return (
+      <div className="app-shell app-shell-embed" style={embedThemeStyle(embed.theme)}>
+        <a className="skip-link" href="#content">
+          Skip to content
+        </a>
+        <main id="content" className="page-shell">
+          {viewAllowed ? (
+            <Outlet />
+          ) : (
+            <div className="embed-view-unavailable" role="status">
+              This view is not available in embed mode.
+            </div>
+          )}
+        </main>
+      </div>
+    )
+  }
 
   return (
     <div className={`app-shell ${isFirstRunSetup ? 'app-shell-focus' : ''}`}>
