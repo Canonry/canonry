@@ -500,7 +500,10 @@ export async function trafficStatus(project: string, opts: { format?: string }):
     console.log(`  Status:          ${d.status}`)
     console.log(`  Last synced:     ${d.lastSyncedAt ?? 'never'}`)
     if (d.lastError) console.log(`  Last error:      ${d.lastError}`)
-    console.log(`  24h crawler:     ${d.totals24h.crawlerHits} hits`)
+    console.log(`  24h content:     ${d.totals24h.crawlerContentHits} crawls`)
+    console.log(`  24h infra:       ${d.totals24h.crawlerInfraHits} sitemap/robots/asset fetches`)
+    console.log(`  24h other:       ${d.totals24h.crawlerSegments.other} fetches`)
+    console.log(`  24h crawler:     ${d.totals24h.crawlerHits} hits total`)
     console.log(`  24h AI referral: ${d.totals24h.aiReferralHits} sessions`)
     console.log(`  24h samples:     ${d.totals24h.sampleCount}`)
     if (d.latestRun) {
@@ -524,7 +527,7 @@ function formatEventLine(event: TrafficEventEntry): string {
         event.botId,
         event.verificationStatus,
         String(event.status),
-        event.pathNormalized,
+        `${event.pathNormalized} [${event.pathClass}]`,
         `${event.hits} hits`,
       ].join('  ')
     case TrafficEventKinds['ai-user-fetch']:
@@ -606,7 +609,10 @@ export async function trafficEvents(project: string, opts: {
   }
 
   console.log(`Traffic events for "${project}"  ${result.windowStart}  →  ${result.windowEnd}`)
-  console.log(`  Crawler hits (window):         ${result.totals.crawlerHits}`)
+  console.log(`  Content crawls (window):       ${result.totals.crawlerContentHits}`)
+  console.log(`  Infra fetches (window):        ${result.totals.crawlerInfraHits}  (sitemap ${result.totals.crawlerSegments.sitemap} · robots ${result.totals.crawlerSegments.robots} · asset ${result.totals.crawlerSegments.asset})`)
+  console.log(`  Other fetches (window):        ${result.totals.crawlerSegments.other}`)
+  console.log(`  Crawler hits total (window):   ${result.totals.crawlerHits}`)
   console.log(`  AI user-fetch hits (window):   ${result.totals.aiUserFetchHits}`)
   console.log(`  AI referral sessions (window): ${result.totals.aiReferralHits}`)
   console.log('')

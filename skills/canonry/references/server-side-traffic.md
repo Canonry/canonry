@@ -253,6 +253,25 @@ The `traffic status` composite returns the same per-source detail
 sync-run summary) whether you reach it via the CLI, the API, or the
 MCP `canonry_traffic_status` tool.
 
+**Crawler hits are segmented by path class (#719).** On real sites the raw
+`crawlerHits` total is dominated by infrastructure polling — a bot re-fetching
+`sitemap_index.xml`, `robots.txt`, and static assets — which overstates how
+much of your *content* is being crawled. `traffic status` and `traffic events`
+therefore return, alongside the unchanged `crawlerHits` total:
+
+- `crawlerContentHits` — crawls of actual content/document pages (the signal you
+  usually want: "are bots reading my pages?").
+- `crawlerInfraHits` — sitemap + robots + asset fetches.
+- `crawlerSegments` — the full `{ content, sitemap, robots, asset, other }`
+  breakdown; the five buckets sum to `crawlerHits`, and
+  `content + infra + other == crawlerHits`.
+
+Each crawler row from `traffic events` also carries a `pathClass`
+(`content | sitemap | robots | asset | other`). The dashboard leads with the
+content figure and shows infrastructure polling as a secondary number. The
+classification is read-time only (the pure `classifyTrafficPath` helper) — no
+schema change, the stored rollups are untouched.
+
 ## Where the data shows up
 
 | Surface | What's rendered |

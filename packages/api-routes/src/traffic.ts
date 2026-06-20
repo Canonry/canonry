@@ -26,6 +26,9 @@ import {
   trafficConnectWordpressRequestSchema,
   trafficConnectVercelRequestSchema,
   trafficResetRequestSchema,
+  classifyTrafficPath,
+  segmentCrawlerHits,
+  sumInfraHits,
 } from '@ainyc/canonry-contracts'
 import type {
   NormalizedTrafficRequest,
@@ -2146,8 +2149,17 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
     row: typeof trafficSources.$inferSelect,
     since: string,
   ): TrafficSourceDetailDto {
-    const crawlerTotals = app.db
-      .select({ total: sql<number>`COALESCE(SUM(${crawlerEventsHourly.hits}), 0)` })
+    // Group by path so crawler hits can be segmented into content vs
+    // infrastructure (sitemap/robots/asset) at read time — the classification
+    // lives in `classifyTrafficPath`, never reimplemented in SQL. The number of
+    // distinct normalized paths per source/window is small, so this GROUP BY is
+    // cheap. The per-class buckets sum back to the original `crawlerHits` total,
+    // which is preserved unchanged.
+    const crawlerPathRows = app.db
+      .select({
+        pathNormalized: crawlerEventsHourly.pathNormalized,
+        hits: sql<number>`COALESCE(SUM(${crawlerEventsHourly.hits}), 0)`,
+      })
       .from(crawlerEventsHourly)
       .where(
         and(
@@ -2155,7 +2167,17 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
           gte(crawlerEventsHourly.tsHour, since),
         ),
       )
-      .get()
+      .groupBy(crawlerEventsHourly.pathNormalized)
+      .all()
+    const crawlerSegments = segmentCrawlerHits(
+      crawlerPathRows.map((r) => ({ pathNormalized: r.pathNormalized, hits: Number(r.hits) })),
+    )
+    const crawlerTotal =
+      crawlerSegments.content
+      + crawlerSegments.sitemap
+      + crawlerSegments.robots
+      + crawlerSegments.asset
+      + crawlerSegments.other
 
     const aiUserFetchTotals = app.db
       .select({ total: sql<number>`COALESCE(SUM(${aiUserFetchEventsHourly.hits}), 0)` })
@@ -2207,7 +2229,10 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
     return {
       ...rowToDto(row),
       totals24h: {
-        crawlerHits: Number(crawlerTotals?.total ?? 0),
+        crawlerHits: crawlerTotal,
+        crawlerContentHits: crawlerSegments.content,
+        crawlerInfraHits: sumInfraHits(crawlerSegments),
+        crawlerSegments,
         aiUserFetchHits: Number(aiUserFetchTotals?.total ?? 0),
         aiReferralHits: Number(aiTotals?.total ?? 0),
         sampleCount: Number(sampleTotals?.total ?? 0),
@@ -2396,6 +2421,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
 
     const events: TrafficEventEntry[] = []
     let crawlerTotal = 0
+    let crawlerSegments = { content: 0, sitemap: 0, robots: 0, asset: 0, other: 0 }
     let aiUserFetchTotal = 0
     let aiReferralTotal = 0
 
@@ -2408,12 +2434,27 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       if (sourceIdParam) crawlerFilters.push(eq(crawlerEventsHourly.sourceId, sourceIdParam))
       const crawlerWhere = and(...crawlerFilters)
 
-      const total = app.db
-        .select({ total: sql<number>`COALESCE(SUM(${crawlerEventsHourly.hits}), 0)` })
+      // Segment the FULL window by path class (not just the limit-truncated row
+      // slice below) so the totals reflect every hit. Buckets sum to the
+      // existing `crawlerHits` total, which stays unchanged.
+      const pathTotals = app.db
+        .select({
+          pathNormalized: crawlerEventsHourly.pathNormalized,
+          hits: sql<number>`COALESCE(SUM(${crawlerEventsHourly.hits}), 0)`,
+        })
         .from(crawlerEventsHourly)
         .where(crawlerWhere)
-        .get()
-      crawlerTotal = Number(total?.total ?? 0)
+        .groupBy(crawlerEventsHourly.pathNormalized)
+        .all()
+      crawlerSegments = segmentCrawlerHits(
+        pathTotals.map((r) => ({ pathNormalized: r.pathNormalized, hits: Number(r.hits) })),
+      )
+      crawlerTotal =
+        crawlerSegments.content
+        + crawlerSegments.sitemap
+        + crawlerSegments.robots
+        + crawlerSegments.asset
+        + crawlerSegments.other
 
       const rows = app.db
         .select()
@@ -2431,6 +2472,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
           operator: r.operator,
           verificationStatus: r.verificationStatus,
           pathNormalized: r.pathNormalized,
+          pathClass: classifyTrafficPath(r.pathNormalized),
           status: r.status,
           hits: r.hits,
         })
@@ -2522,6 +2564,9 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       windowEnd: untilIso,
       totals: {
         crawlerHits: crawlerTotal,
+        crawlerContentHits: crawlerSegments.content,
+        crawlerInfraHits: sumInfraHits(crawlerSegments),
+        crawlerSegments,
         aiUserFetchHits: aiUserFetchTotal,
         aiReferralHits: aiReferralTotal,
       },
