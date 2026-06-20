@@ -26,6 +26,7 @@ import {
   discoveryBucketSchema,
   discoveryPromoteRequestSchema,
   discoveryRunRequestSchema,
+  effectiveDomains,
   gateHarvestedSearchQueries,
   notFound,
   resolveLocations,
@@ -361,10 +362,18 @@ export async function discoveryRoutes(app: FastifyInstance, opts: DiscoveryRoute
         .all()
         .map(r => r.query)
 
-      const anchorTerms = buildHarvestAnchorTerms([
-        session.icpDescription ?? '',
-        ...trackedQueries,
-      ])
+      // Anchor on the labels of every domain the project owns in addition to
+      // ICP + tracked queries: a thin/new project has few tracked terms and a
+      // terse ICP — exactly where the fan-out's off-subject acronym collisions
+      // peak — so the always-present domain labels keep the anchor engaged where
+      // it is needed most. Owned domains (not just the canonical one) matter: an
+      // abstract canonical brand with a descriptive owned domain still yields
+      // real subject terms, which is what keeps the anchor from over-dropping
+      // on-subject candidates (issue #713).
+      const anchorTerms = buildHarvestAnchorTerms(
+        [session.icpDescription ?? '', ...trackedQueries],
+        effectiveDomains(project),
+      )
 
       const aggregated = aggregateHarvestedQueries(probesWithQueries)
       let result = gateHarvestedSearchQueries({

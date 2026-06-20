@@ -53,7 +53,12 @@ afterEach(async () => {
 
 function seedProject(
   db: ReturnType<typeof createClient>,
-  opts: { icpDescription?: string; locations?: LocationContext[] } = {},
+  opts: {
+    icpDescription?: string
+    locations?: LocationContext[]
+    canonicalDomain?: string
+    ownedDomains?: string[]
+  } = {},
 ) {
   const projectId = crypto.randomUUID()
   const now = new Date().toISOString()
@@ -61,7 +66,8 @@ function seedProject(
     id: projectId,
     name: 'demand-iq',
     displayName: 'Demand IQ',
-    canonicalDomain: 'demand-iq.com',
+    canonicalDomain: opts.canonicalDomain ?? 'demand-iq.com',
+    ownedDomains: opts.ownedDomains ?? [],
     country: 'US',
     language: 'en',
     icpDescription: opts.icpDescription ?? null,
@@ -1809,6 +1815,10 @@ describe('GET /discover/sessions/:id/harvest', () => {
     db: ReturnType<typeof createClient>,
     projectId: string,
     probes: Array<{ id: string; searchQueries: string[] }>,
+    // Production always stores a session ICP (POST /discover/run requires it), so
+    // default to a descriptive one. Pass null to model a thin/terse-ICP session
+    // and isolate the domain-label anchor.
+    opts: { icpDescription?: string | null } = {},
   ) {
     const sessionId = crypto.randomUUID()
     db.insert(discoverySessions).values({
@@ -1816,6 +1826,8 @@ describe('GET /discover/sessions/:id/harvest', () => {
       projectId,
       status: 'completed',
       seedProvider: 'gemini',
+      icpDescription:
+        opts.icpDescription === undefined ? 'residential solar panel installers' : opts.icpDescription,
       competitorMap: [],
       createdAt: new Date().toISOString(),
     }).run()
@@ -1952,6 +1964,122 @@ describe('GET /discover/sessions/:id/harvest', () => {
     expect(harvest.anchorApplied).toBe(false)
     expect(harvest.candidates).toEqual([{ query: 'cbp global entry interview', probeHits: 1 }])
     expect(harvest.stats.rejected.offAnchor).toBe(0)
+  })
+
+  it('anchors a thin project (no tracked queries, no ICP) on its domain label', async () => {
+    // The acronym-collision noise the anchor exists to drop peaks exactly on
+    // thin/new projects — so the anchor must NOT disable itself there. With no
+    // tracked queries and no session ICP, the project's domain label
+    // ("solar-panel-pros" → solar/panel/pros) alone keeps the corpus above the
+    // anchor floor, so the off-subject collision is still dropped. Issue #713.
+    const { app, db, tmpDir } = buildHarvestApp(fakeExtract)
+    cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
+    const { projectId } = seedProject(db, { canonicalDomain: 'solar-panel-pros.com' })
+    // No session ICP and no tracked queries — the domain label is the ONLY
+    // subject signal, proving it alone keeps the anchor engaged.
+    const sessionId = seedHarvestSession(
+      db,
+      projectId,
+      [{ id: 'p1', searchQueries: ['best solar installer', 'cbp global entry interview'] }],
+      { icpDescription: null },
+    )
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/v1/projects/demand-iq/discover/sessions/${sessionId}/harvest`,
+    })
+    expect(response.statusCode).toBe(200)
+    const harvest = response.json() as DiscoveryHarvestDto
+    // Anchor stays ON purely from the domain label (pre-fix this corpus was
+    // empty → anchor disabled → the collision would have leaked through).
+    expect(harvest.anchorApplied).toBe(true)
+    expect(harvest.candidates).toEqual([{ query: 'best solar installer', probeHits: 1 }])
+    expect(harvest.stats.rejected.offAnchor).toBe(1) // cbp global entry interview
+  })
+
+  it('anchors an abstract-brand project on a descriptive OWNED domain', async () => {
+    // The canonical domain ("demand-iq") is an abstract brand that yields no
+    // subject term, so anchoring on it alone would drop the on-subject solar
+    // candidate. Folding in the owned domain ("solar-leads.com") supplies the
+    // real subject terms, so the anchor admits solar and still drops the
+    // off-subject collision (issue #713 review — fold every owned domain).
+    const { app, db, tmpDir } = buildHarvestApp(fakeExtract)
+    cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
+    const { projectId } = seedProject(db, {
+      canonicalDomain: 'demand-iq.com',
+      ownedDomains: ['solar-leads.com'],
+    })
+    const sessionId = seedHarvestSession(
+      db,
+      projectId,
+      [{ id: 'p1', searchQueries: ['best solar installer', 'cbp global entry interview'] }],
+      { icpDescription: null },
+    )
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/v1/projects/demand-iq/discover/sessions/${sessionId}/harvest`,
+    })
+    expect(response.statusCode).toBe(200)
+    const harvest = response.json() as DiscoveryHarvestDto
+    expect(harvest.anchorApplied).toBe(true)
+    expect(harvest.candidates).toEqual([{ query: 'best solar installer', probeHits: 1 }])
+    expect(harvest.stats.rejected.offAnchor).toBe(1) // cbp global entry interview
+  })
+
+  it('degrades to exact-match novelty when the embedder rejects (no Gemini key)', async () => {
+    // Real server wiring with an embedder that rejects (the no-key path): the
+    // semantic pass is skipped, semanticNoveltyApplied is false, and the lexical
+    // result stands — a synonym that the embed pass would have dropped survives.
+    const rejectingEmbed = () => Promise.reject(new Error('Gemini API key not configured'))
+    const { app, db, tmpDir } = buildHarvestApp(fakeExtract, rejectingEmbed)
+    cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
+    const { projectId } = seedProject(db, { icpDescription: 'residential solar panel installers' })
+    db.insert(queries).values({
+      id: crypto.randomUUID(),
+      projectId,
+      query: 'solar panel cost',
+      provenance: 'cli',
+      createdAt: new Date().toISOString(),
+    }).run()
+    const sessionId = seedHarvestSession(db, projectId, [
+      { id: 'p1', searchQueries: ['solar panel pricing', 'solar battery storage'] },
+    ])
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/v1/projects/demand-iq/discover/sessions/${sessionId}/harvest`,
+    })
+    expect(response.statusCode).toBe(200)
+    const harvest = response.json() as DiscoveryHarvestDto
+    expect(harvest.semanticNoveltyApplied).toBe(false)
+    // 'solar panel pricing' is a synonym of tracked 'solar panel cost' — the embed
+    // pass would drop it, but it rejected, so the lexical result stands.
+    expect(harvest.candidates.map(c => c.query).sort()).toEqual([
+      'solar battery storage',
+      'solar panel pricing',
+    ])
+    expect(harvest.stats.rejected.semanticDuplicate).toBe(0)
+  })
+
+  it('rejects an over-long (>12-word) issued query through the route', async () => {
+    const { app, db, tmpDir } = buildHarvestApp(fakeExtract)
+    cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
+    const { projectId } = seedProject(db, { icpDescription: 'residential solar panel installers' })
+    const longQuery =
+      'best solar installer for a three bedroom home with south facing roof in austin texas today' // 16 words
+    const sessionId = seedHarvestSession(db, projectId, [
+      { id: 'p1', searchQueries: [longQuery, 'best solar installer'] },
+    ])
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/v1/projects/demand-iq/discover/sessions/${sessionId}/harvest`,
+    })
+    expect(response.statusCode).toBe(200)
+    const harvest = response.json() as DiscoveryHarvestDto
+    expect(harvest.candidates).toEqual([{ query: 'best solar installer', probeHits: 1 }])
+    expect(harvest.stats.rejected.length).toBe(1) // the 16-word query
   })
 
   it('returns an empty harvest when no extractor is wired (cloud deployment)', async () => {

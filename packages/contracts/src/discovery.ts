@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { citationStateSchema } from './run.js'
 import { cosineSimilarity } from './embeddings.js'
+import { hostOf } from './url-normalize.js'
 
 export const discoveryBucketSchema = z.enum(['cited', 'aspirational', 'wasted-surface'])
 export type DiscoveryBucket = z.infer<typeof discoveryBucketSchema>
@@ -323,11 +324,17 @@ export const DISCOVERY_HARVEST_MIN_CHARS = 3
  *  harvest exists to surface). */
 export const DISCOVERY_HARVEST_NOVELTY_THRESHOLD = DISCOVERY_DEFAULT_DEDUP_THRESHOLD
 
-/** Min significant anchor terms required before the subject anchor is applied.
- *  Below this the project's subject corpus is too sparse to anchor against (a
- *  thin/new project), so the anchor is skipped rather than dropping nearly
- *  everything — the operator still gets the other gates. */
-export const DISCOVERY_HARVEST_MIN_ANCHOR_TERMS = 3
+/** Min significant subject terms required before the anchor engages. Set to 1:
+ *  the anchor stays ON whenever the corpus (ICP + tracked queries + the labels
+ *  of every owned domain — see `buildHarvestAnchorTerms`) yields ANY subject
+ *  term, and stands down only when there is no subject signal at all.
+ *  Thin/new projects are exactly where the fan-out's off-subject acronym
+ *  collisions peak, so the anchor must not silently skip there and flood the
+ *  operator with noise (issue #713). Trade-off accepted deliberately: with a
+ *  sparse or abstract corpus the lexical OR-anchor (no stemming) can be
+ *  over-aggressive and drop on-subject candidates — `anchor=false` is the recall
+ *  escape, and the response reports `anchorApplied` so the operator knows. */
+export const DISCOVERY_HARVEST_MIN_ANCHOR_TERMS = 1
 
 /** Min length of a CONTIGUOUS run of digits for a harvested query to read as a
  *  phone/number lookup (navigational). A contiguous run — not a total digit
@@ -465,16 +472,41 @@ export function isNavigationalHarvestQuery(query: string): boolean {
 
 /**
  * Build the subject-anchor term set from a project's subject corpus (ICP
- * description + tracked query texts). Brand names/acronyms are intentionally
- * NOT a source: an ambiguous seed acronym is exactly what pulls a model's
- * fan-out off-topic (issue #713 thin-site finding, where a brand acronym
- * collided with a customs program / an enforcement unit / a retail brand), so
- * anchoring on the SUBJECT rather than the NAME is what disambiguates it.
+ * description + tracked query texts) plus the labels of every domain it owns
+ * (`canonicalDomain` + `ownedDomains` — pass `effectiveDomains(project)`).
+ *
+ * Domain labels are folded in because the anchor's whole job is to drop the
+ * off-subject acronym collisions that a model's fan-out produces (issue #713
+ * thin-site finding, where a brand acronym collided with a customs program / an
+ * enforcement unit / a retail brand) — and those collisions peak precisely on
+ * thin/new projects with few tracked queries and a terse ICP. A domain label is
+ * an always-present subject/identity term, so folding it in means even such a
+ * project has a subject term to anchor against — the anchor engages
+ * (`DISCOVERY_HARVEST_MIN_ANCHOR_TERMS`) instead of standing down and flooding
+ * the operator with noise exactly where it is needed most. Owned domains matter
+ * as much as the canonical one: a project whose canonical domain is an abstract
+ * brand (`demand-iq.com`) but which owns a descriptive domain (`solar-leads.com`)
+ * still gets real subject terms, which is what keeps the anchor from over-dropping
+ * on-subject candidates.
+ *
+ * We fold in the registrable LABEL (TLD stripped), NOT the bare brand
+ * acronym: anchoring on a generic seed acronym is what lets the collisions back
+ * in, and the `HARVEST_SIGNIFICANT_TOKEN_MIN` floor already drops short acronyms
+ * (e.g. "aeo" from "aeo.com"). Stripping the public suffix keeps a generic TLD
+ * (".tech"/".info") from leaking in as an anchor term. Free-text brand NAMES are
+ * still intentionally NOT a source for the same acronym-collision reason.
  */
-export function buildHarvestAnchorTerms(corpus: readonly string[]): string[] {
+export function buildHarvestAnchorTerms(corpus: readonly string[], domains: readonly string[] = []): string[] {
   const set = new Set<string>()
   for (const text of corpus) {
     for (const token of significantHarvestTokens(text)) set.add(token)
+  }
+  for (const domain of domains) {
+    const host = hostOf(domain)
+    if (!host) continue
+    // Drop the public suffix so ".com"/".tech"/".info" never become anchor terms.
+    const label = host.replace(/\.[a-z0-9]+$/, '')
+    for (const token of significantHarvestTokens(label)) set.add(token)
   }
   return [...set]
 }

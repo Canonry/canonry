@@ -549,20 +549,89 @@ test('gateHarvestedSearchQueries anchor drops off-subject acronym collisions but
   expect(result.anchorApplied).toBe(true)
 })
 
-test('gateHarvestedSearchQueries skips the anchor when the subject corpus is too sparse', () => {
-  // A thin project: only one significant subject term → anchor cannot run, so
-  // it must not silently drop everything. anchorApplied is false.
-  const result = gateHarvestedSearchQueries({
+test('gateHarvestedSearchQueries engages the anchor with a single subject term, standing down only at zero', () => {
+  // MIN_ANCHOR_TERMS=1: thin/new projects are exactly where the fan-out's
+  // off-subject collisions peak, so the anchor must stay ON whenever there is
+  // ANY subject term — never silently skip where one term could still filter.
+  const oneTerm = gateHarvestedSearchQueries({
+    candidates: [
+      { query: 'solar battery storage', probeHits: 1 },        // on-anchor (solar)
+      { query: 'global entry interview wait', probeHits: 2 },  // off-anchor
+    ],
+    trackedQueries: [],
+    anchorTerms: buildHarvestAnchorTerms(['solar']), // exactly one significant term
+  })
+  expect(oneTerm.anchorApplied).toBe(true)
+  expect(oneTerm.admitted.map(c => c.query)).toEqual(['solar battery storage'])
+  expect(oneTerm.stats.rejected.offAnchor).toBe(1)
+
+  // No subject signal at all → nothing to anchor against → the anchor stands
+  // down and every candidate that passed the other gates is admitted.
+  const noTerms = gateHarvestedSearchQueries({
     candidates: [
       { query: 'global entry interview wait', probeHits: 2 },
       { query: 'tsa precheck renewal', probeHits: 1 },
     ],
     trackedQueries: [],
-    anchorTerms: buildHarvestAnchorTerms(['solar']), // < MIN_ANCHOR_TERMS significant terms
+    anchorTerms: buildHarvestAnchorTerms(['ai', 'the']), // no significant terms
   })
-  expect(result.anchorApplied).toBe(false)
-  expect(result.stats.rejected.offAnchor).toBe(0)
-  expect(result.admitted).toHaveLength(2)
+  expect(noTerms.anchorApplied).toBe(false)
+  expect(noTerms.stats.rejected.offAnchor).toBe(0)
+  expect(noTerms.admitted).toHaveLength(2)
+})
+
+test('buildHarvestAnchorTerms folds in domain labels with the public suffix stripped', () => {
+  // Domain labels are an always-present subject anchor for thin projects. The
+  // TLD is stripped so a generic suffix never becomes an anchor term.
+  expect(buildHarvestAnchorTerms([], ['https://www.solar-panel-pros.com']).sort()).toEqual([
+    'panel', 'pros', 'solar',
+  ])
+  // A 4+ char TLD (.tech) is stripped too — only the label contributes.
+  expect(buildHarvestAnchorTerms([], ['myapp.tech'])).toEqual(['myapp'])
+  // ICP/tracked corpus and the domain label union together.
+  expect(buildHarvestAnchorTerms(['rooftop installers'], ['solarpros.com']).sort()).toEqual([
+    'installers', 'rooftop', 'solarpros',
+  ])
+})
+
+test('buildHarvestAnchorTerms folds in EVERY owned domain, not just the canonical one', () => {
+  // An abstract canonical brand ("demand-iq") yields no subject term, but a
+  // descriptive OWNED domain ("solar-leads.com") does — so folding in every
+  // effectiveDomains() entry is what keeps the anchor from over-dropping
+  // on-subject candidates on an abstract-brand project (issue #713 review).
+  expect(buildHarvestAnchorTerms([], ['demand-iq.com', 'solar-leads.com']).sort()).toEqual([
+    'demand', 'leads', 'solar',
+  ])
+  // Blank / unparseable domain entries are skipped, not thrown on.
+  expect(buildHarvestAnchorTerms(['solar panels'], ['', '   ']).sort()).toEqual(['panels', 'solar'])
+  // No domains at all → corpus terms only.
+  expect(buildHarvestAnchorTerms(['solar panels']).sort()).toEqual(['panels', 'solar'])
+})
+
+test('buildHarvestAnchorTerms drops a short brand-acronym domain (4-char significant floor)', () => {
+  // "aeo.com" → label "aeo" (3 chars) is below the significant-token floor, so
+  // anchoring on the domain can NOT re-admit the off-subject "AEO" collisions
+  // that the anchor exists to drop (issue #713).
+  expect(buildHarvestAnchorTerms([], ['aeo.com'])).toEqual([])
+  expect(buildHarvestAnchorTerms([], ['https://aeo.io'])).toEqual([])
+})
+
+test('gateHarvestedSearchQueries anchors a thin project via the domain label (issue #713)', () => {
+  // No tracked queries and no ICP terms — the domain label is the only subject
+  // signal, and it is enough: the anchor runs and drops the off-subject acronym
+  // collision instead of disabling itself and flooding the operator with noise.
+  const anchorTerms = buildHarvestAnchorTerms([], ['solar-panel-pros.com'])
+  const result = gateHarvestedSearchQueries({
+    candidates: [
+      { query: 'best solar installer', probeHits: 2 },             // on-anchor (solar)
+      { query: 'cbp trusted traveler global entry', probeHits: 5 }, // off-anchor (customs)
+    ],
+    trackedQueries: [],
+    anchorTerms,
+  })
+  expect(result.anchorApplied).toBe(true)
+  expect(result.admitted.map(c => c.query)).toEqual(['best solar installer'])
+  expect(result.stats.rejected.offAnchor).toBe(1)
 })
 
 test('gateHarvestedSearchQueries honors the recurrence floor (minProbeHits)', () => {
