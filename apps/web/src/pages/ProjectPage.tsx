@@ -1110,10 +1110,13 @@ function OverviewBrief({
     <section className="overview-brief" aria-labelledby="overview-brief-title">
       <div className="overview-brief-head">
         <div>
-          <p className="eyebrow eyebrow-soft">Operator brief</p>
+          <p className="eyebrow eyebrow-soft">
+            Operator brief
+            <InfoTooltip text="Each sweep records two independent signals: answer mentions (your brand named in the answer text) and source citations (your domain in the engine's source list). They move separately." />
+          </p>
           <h2 id="overview-brief-title" className="overview-brief-title">{headline}</h2>
           <p className="overview-brief-scope">
-            Tracking {scope}, {locationScope}. Each sweep records answer mentions and source citations separately.
+            Tracking {scope}, {locationScope}.
           </p>
         </div>
         <p className="overview-brief-updated">
@@ -2218,7 +2221,7 @@ function ProjectPageContent({
             onJumpToActions={() => focusOverviewSection('action-queue')}
           />
 
-          <section id="action-queue" className="page-section-divider scroll-mt-24" tabIndex={-1}>
+          <section id="action-queue" className="page-section-divider scroll-mt-24 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-500/60" tabIndex={-1}>
             <div className="section-head section-head-inline">
               <div>
                 <p className="eyebrow eyebrow-soft">Action queue</p>

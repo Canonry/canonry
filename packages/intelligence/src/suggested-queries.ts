@@ -8,6 +8,8 @@
  * impressions/clicks/position in SQL so this helper just ranks and explains.
  */
 
+import { normalizeQueryText } from '@ainyc/canonry-contracts'
+
 export interface SuggestedQueryGscRow {
   query: string
   impressions: number
@@ -57,14 +59,14 @@ export function buildSuggestedQueries(
 
   // Normalize tracked queries once. Match is case-insensitive + trim so
   // operator-entered "Best CRM" doesn't get re-suggested as gsc's "best crm".
-  const trackedSet = new Set(options.trackedQueries.map(normalizeQuery))
+  const trackedSet = new Set(options.trackedQueries.map(normalizeQueryText))
 
   let skippedAlreadyTracked = 0
   const candidates: SuggestedQueryRow[] = []
 
   for (const row of gscRows) {
     if (row.impressions < minImpressions) continue
-    const normalized = normalizeQuery(row.query)
+    const normalized = normalizeQueryText(row.query)
     if (normalized.length === 0) continue
     if (trackedSet.has(normalized)) {
       skippedAlreadyTracked++
@@ -87,10 +89,6 @@ export function buildSuggestedQueries(
     totalCandidates: candidates.length,
     skippedAlreadyTracked,
   }
-}
-
-function normalizeQuery(value: string): string {
-  return value.trim().toLowerCase()
 }
 
 function buildReason(row: SuggestedQueryGscRow): string {

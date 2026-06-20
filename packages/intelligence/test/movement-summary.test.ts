@@ -210,4 +210,54 @@ describe('buildMovementComparison', () => {
       removedQueryCount: 0,
     })
   })
+
+  it('handles an empty current basket (every query removed) without marking it comparable', () => {
+    const result = buildMovementComparison(
+      [],
+      [snap('q1'), snap('q2')],
+      { queryLookup: lookup, previousRunAt: '2026-06-01T00:00:00.000Z' },
+    )
+    expect(result).toEqual({
+      hasPreviousRun: true,
+      comparable: false,
+      querySetChanged: true,
+      previousRunAt: '2026-06-01T00:00:00.000Z',
+      currentQueryCount: 0,
+      previousQueryCount: 2,
+      comparableQueryCount: 0,
+      addedQueryCount: 0,
+      removedQueryCount: 2,
+      addedQueries: [],
+      removedQueries: ['alpha query', 'beta query'],
+    })
+  })
+
+  it('keeps the count when a changed query has no resolvable text (count >= list length)', () => {
+    const result = buildMovementComparison(
+      [snap('q1'), snap('q2'), snap('q9-unknown')],
+      [snap('q1')],
+      { queryLookup: lookup },
+    )
+    // q2 + q9-unknown are both added; only q2 resolves to text.
+    expect(result.addedQueryCount).toBe(2)
+    expect(result.addedQueries).toEqual(['beta query'])
+  })
+
+  it('sorts added and removed query text alphabetically regardless of input order', () => {
+    const sortLookup = new Map([
+      ['keep', 'shared query'],
+      ['add-z', 'zebra'],
+      ['add-m', 'mango'],
+      ['add-a', 'apple'],
+      ['rm-y', 'yak'],
+      ['rm-b', 'bear'],
+    ])
+    const result = buildMovementComparison(
+      [snap('keep'), snap('add-z'), snap('add-m'), snap('add-a')],
+      [snap('keep'), snap('rm-y'), snap('rm-b')],
+      { queryLookup: sortLookup },
+    )
+    expect(result.addedQueries).toEqual(['apple', 'mango', 'zebra'])
+    expect(result.removedQueries).toEqual(['bear', 'yak'])
+  })
 })

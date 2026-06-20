@@ -373,9 +373,13 @@ describe('GET /api/v1/projects/:name/overview', () => {
     expect(res.statusCode).toBe(200)
     const body = JSON.parse(res.payload) as ProjectOverviewDto
 
+    // Validate the whole envelope on the first-run branch (movementComparison
+    // hasPreviousRun:false + previousRunAt:null).
+    expect(() => projectOverviewDtoSchema.parse(body)).not.toThrow()
     expect(body.latestRun.totalRuns).toBe(1)
     expect(body.runHistory).toHaveLength(1)
     expect(body.movementSummary.hasPreviousRun).toBe(false)
+    expect(body.movementComparison).toMatchObject({ hasPreviousRun: false, previousRunAt: null })
     expect(body.transitions.since).toBeNull()
   })
 
@@ -480,6 +484,11 @@ describe('GET /api/v1/projects/:name/overview', () => {
     expect(res.statusCode).toBe(200)
 
     const body = JSON.parse(res.payload) as ProjectOverviewDto
+    // Validate the whole envelope on the no-runs branch (health:null,
+    // latestRun.run:null, empty-path movement/comparison shapes) — the route
+    // does not runtime-validate outgoing payloads, so this is the only guard
+    // against schema drift on the null branches.
+    expect(() => projectOverviewDtoSchema.parse(body)).not.toThrow()
     expect(body.latestRun).toEqual({ totalRuns: 0, run: null })
     expect(body.health).toBeNull()
     expect(body.topInsights).toEqual([])
@@ -690,6 +699,79 @@ describe('GET /api/v1/projects/:name/overview', () => {
       addedQueries: ['newly tracked aeo query'],
       removedQueries: ['removed historical query'],
     })
+
+    await app.close()
+  })
+
+  it('excludes archived (deleted-query) snapshots from latest-run coverage, scores, providers, and run-history trends', async () => {
+    const { app, db, latestRunId, previousRunId } = seedProjectWithRuns()
+    // A long-tracked query that ran in BOTH sweeps and was then deleted: its
+    // snapshots survive with query_id NULL (ON DELETE SET NULL) + query_text,
+    // and no current query matches that text, so they resolve to a synthetic
+    // `archived:` id. The archived query was never cited/mentioned. It must NOT
+    // dilute the live tracked basket's coverage/scores/providers/trends, while
+    // still being visible to the movement builders as a shared cohort member.
+    for (const runId of [previousRunId, latestRunId]) {
+      db.insert(querySnapshots).values({
+        id: crypto.randomUUID(),
+        runId,
+        queryId: null,
+        queryText: 'retired flagship query',
+        provider: 'gemini',
+        citationState: 'not-cited',
+        answerMentioned: false,
+        citedDomains: [],
+        competitorOverlap: [],
+        recommendedCompetitors: [],
+        answerText: null,
+        createdAt: runId === latestRunId ? '2026-04-18T14:20:30.000Z' : '2026-04-18T14:10:30.000Z',
+      }).run()
+    }
+
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/api/v1/projects/demo/overview' })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.payload) as ProjectOverviewDto
+
+    // Coverage reflects ONLY the 2 live tracked queries. Ungated, the archived
+    // not-cited/not-mentioned query would push totalQueries to 3 and drag both
+    // rates to 2/3 ≈ 0.6667.
+    expect(body.queryCounts).toEqual({
+      totalQueries: 2,
+      citedQueries: 2,
+      notCitedQueries: 0,
+      citedRate: 1,
+      mentionedQueries: 2,
+      notMentionedQueries: 0,
+      mentionRate: 1,
+    })
+    expect(body.scores.visibility.value).toBe('100')
+    expect(body.scores.mention.value).toBe('100')
+
+    // Provider rollup excludes the archived gemini snapshot (gemini stays 2/2,
+    // not 2/3).
+    const gemini = body.providers.find(p => p.provider === 'gemini')
+    expect(gemini).toMatchObject({ cited: 2, total: 2 })
+
+    // Newest run-history point is undiluted (100% citation + mention), not 67%.
+    const newest = body.runHistory.at(-1)
+    expect(newest?.citationRate).toBe(100)
+    expect(newest?.mentionRate).toBe(100)
+
+    // The archived query is still a shared cohort member for movement (it sits
+    // in both baskets, so it is comparable, not added/removed) and contributes
+    // no change. Signal movement is unchanged from the clean seed.
+    expect(body.movementComparison).toMatchObject({
+      comparable: true,
+      querySetChanged: false,
+      currentQueryCount: 3,
+      previousQueryCount: 3,
+      comparableQueryCount: 3,
+      addedQueryCount: 0,
+      removedQueryCount: 0,
+    })
+    expect(body.citationMovement).toMatchObject({ gained: 1, lost: 0 })
+    expect(body.transitions.gained).toBe(1)
 
     await app.close()
   })

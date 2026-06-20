@@ -46,6 +46,7 @@ import {
   type RunHistoryPointDto,
   type ScoreSummaryDto,
   escapeLikePattern,
+  normalizeQueryText,
   validationError,
 } from '@ainyc/canonry-contracts'
 import {
@@ -180,11 +181,21 @@ export async function compositeRoutes(app: FastifyInstance) {
     const snapshotsByRun = loadSnapshotsByRunIds(app, [...snapshotRunIds], queryIdByText)
     const latestSnapshots = latestVisRunGroup.flatMap(r => snapshotsByRun.get(r.id) ?? [])
     const previousSnapshots = previousVisRunGroup.flatMap(r => snapshotsByRun.get(r.id) ?? [])
+    // Current-coverage surfaces (queryCounts, scores, provider rollups,
+    // transitions, run-history trends) reflect the LIVE tracked basket only.
+    // Archived (deleted-query) snapshots are kept solely for the movement
+    // builders below, which intersect baskets and report churn as comparison
+    // metadata rather than as signal gains/losses.
+    const trackedLatest = latestSnapshots.filter(s => !s.archived)
+    const trackedPrevious = previousSnapshots.filter(s => !s.archived)
+    const trackedSnapshotsByRun = new Map(
+      [...snapshotsByRun].map(([runId, snaps]) => [runId, snaps.filter(s => !s.archived)]),
+    )
 
-    const { queryCounts, providers } = summarizeFromSnapshots(latestSnapshots)
+    const { queryCounts, providers } = summarizeFromSnapshots(trackedLatest)
     const transitions = summarizeTransitionsFromSnapshots(
-      latestSnapshots,
-      previousSnapshots,
+      trackedLatest,
+      trackedPrevious,
       previousVisibilityRun?.createdAt ?? null,
     )
 
@@ -214,20 +225,20 @@ export async function compositeRoutes(app: FastifyInstance) {
     }))
 
     const scores: ProjectOverviewScoresDto = {
-      mention: buildMentionCoverage(latestSnapshots, { configuredApiProviders }),
-      visibility: buildVisibilityScore(latestSnapshots, { configuredApiProviders }),
+      mention: buildMentionCoverage(trackedLatest, { configuredApiProviders }),
+      visibility: buildVisibilityScore(trackedLatest, { configuredApiProviders }),
       mentionShare: buildMentionShare(
-        latestSnapshots.map(s => ({
+        trackedLatest.map(s => ({
           projectMentioned: s.answerMentioned === true,
           answerText: s.answerText,
         })),
         { competitors: mentionShareCompetitors },
       ),
-      gapQueries: buildGapQueryScore(latestSnapshots),
-      mentionGaps: buildMentionGapScore(latestSnapshots),
+      gapQueries: buildGapQueryScore(trackedLatest),
+      mentionGaps: buildMentionGapScore(trackedLatest),
       indexCoverage: buildIndexCoverageScore(app, project.id),
       competitorPressure: buildCompetitorPressureScore(
-        latestSnapshots,
+        trackedLatest,
         competitorRows.map(c => c.domain),
         competitorRows.length,
       ),
@@ -244,10 +255,10 @@ export async function compositeRoutes(app: FastifyInstance) {
       queryLookup: queryLookup.byId,
       previousRunAt: previousVisibilityRun?.createdAt ?? null,
     })
-    const providerScoresBase = buildProviderScores(latestSnapshots)
+    const providerScoresBase = buildProviderScores(trackedLatest)
     const providerTrends = buildProviderTrends(
       visibilityRuns.slice(0, DEFAULT_RUN_HISTORY_LIMIT).map(r => ({ id: r.id, createdAt: r.createdAt })),
-      snapshotsByRun,
+      trackedSnapshotsByRun,
       DEFAULT_RUN_HISTORY_LIMIT,
     )
     const providerScores: ProjectOverviewProviderScoreDto[] = providerScoresBase.map(score => {
@@ -255,7 +266,7 @@ export async function compositeRoutes(app: FastifyInstance) {
       return trend.length > 1 ? { ...score, trend: trend.map(p => p.rate) } : score
     })
     const overviewCompetitors: ProjectOverviewCompetitorDto[] = buildOverviewCompetitors(
-      latestSnapshots,
+      trackedLatest,
       competitorRows.map(c => ({ id: c.id, domain: c.domain })),
       queryLookup,
     )
@@ -263,7 +274,7 @@ export async function compositeRoutes(app: FastifyInstance) {
     const sparklineRuns = visibilityRuns
       .slice(0, DEFAULT_RUN_HISTORY_LIMIT)
       .map(r => ({ id: r.id, createdAt: r.createdAt, status: r.status }))
-    const runHistory: RunHistoryPointDto[] = buildRunHistory(sparklineRuns, snapshotsByRun)
+    const runHistory: RunHistoryPointDto[] = buildRunHistory(sparklineRuns, trackedSnapshotsByRun)
     // Surface the over-time series on each headline score so the portfolio
     // per-project sparkline (and `canonry overview --format json`) can render
     // it. buildRunHistory is ascending (oldest→newest, 0–100), the order/scale
@@ -446,6 +457,14 @@ function summarizeRun(run: typeof runs.$inferSelect): RunDetailDto {
 interface OverviewSnapshot {
   queryId: string
   queryText: string | null
+  /** True when this row's query is no longer tracked — its `query_id` was
+   *  NULL (ON DELETE SET NULL) and no current query matched its text, so it
+   *  carries a synthetic `archived:<text>` id. Archived rows are kept ONLY so
+   *  the movement builders can report query-basket drift; they MUST be excluded
+   *  from current-coverage rollups, scores, provider counts, and run-history
+   *  trends (otherwise a query deleted after its last sweep would inflate every
+   *  denominator until the next run re-baselines the basket). */
+  archived: boolean
   provider: string
   model: string | null
   citationState: string
@@ -483,18 +502,34 @@ function loadSnapshotsByRunIds(
     .all()
   for (const row of rows) {
     const queryText = row.queryText?.trim() || null
-    const queryId = row.queryId
-      ?? (queryText
-        ? queryIdByText.get(normalizeQueryText(queryText)) ?? `archived:${normalizeQueryText(queryText)}`
-        : null)
-    // Pre-queryText legacy orphans cannot be attributed safely. The repair
-    // command can backfill query_text from audit history before this endpoint
-    // can include them in comparison metadata.
+    // Resolve the query identity. A live FK wins; otherwise fall back to the
+    // currently-tracked query that shares this text (e.g. deleted + re-added
+    // under a new id) — that row is still a tracked query. Only when nothing
+    // matches do we mint a synthetic `archived:` id and flag the row archived.
+    let queryId: string | null
+    let archived = false
+    if (row.queryId) {
+      queryId = row.queryId
+    } else if (queryText) {
+      const tracked = queryIdByText.get(normalizeQueryText(queryText))
+      if (tracked) {
+        queryId = tracked
+      } else {
+        queryId = `archived:${normalizeQueryText(queryText)}`
+        archived = true
+      }
+    } else {
+      // Pre-queryText legacy orphans cannot be attributed safely. The repair
+      // command can backfill query_text from audit history before this endpoint
+      // can include them in comparison metadata.
+      queryId = null
+    }
     if (!queryId) continue
     const list = result.get(row.runId) ?? []
     list.push({
       queryId,
       queryText,
+      archived,
       provider: row.provider,
       model: row.model,
       citationState: row.citationState,
@@ -506,10 +541,6 @@ function loadSnapshotsByRunIds(
     result.set(row.runId, list)
   }
   return result
-}
-
-function normalizeQueryText(value: string): string {
-  return value.trim().toLowerCase()
 }
 
 function summarizeFromSnapshots(

@@ -385,16 +385,17 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       delta: '6 of 9 queries mentioned',
       tone: 'positive',
       description: 'Brand named in answer text for most tracked queries.',
-      trend: [70, 72, 73, 74, 74],
+      trend: [70, 72, 73, 74, 67],
       progress: 67,
     },
     visibilitySummary: {
       label: 'Citation Coverage',
-      value: '61 / 100',
+      value: '61',
       delta: '-8 this week',
       tone: 'caution',
       description: 'Lost citation share on emergency-intent prompts while Invisalign visibility improved.',
       trend: [73, 71, 69, 66, 61],
+      progress: 61,
     },
     mentionShareSummary: {
       label: 'Mention Share',
@@ -422,7 +423,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       tone: 'caution',
       description: 'One tracked query currently cites competitors without citing Citypoint.',
       trend: [],
-      progress: 1 / 9,
+      progress: Math.round((1 / 9) * 100),
     },
     mentionGaps: {
       label: 'Mention Gaps',
@@ -431,7 +432,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       tone: 'caution',
       description: 'Two tracked queries mention competitors but never Citypoint.',
       trend: [],
-      progress: 2 / 9,
+      progress: Math.round((2 / 9) * 100),
     },
     indexCoverage: {
       label: 'Index Coverage',
@@ -595,11 +596,12 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
     },
     visibilitySummary: {
       label: 'Citation Coverage',
-      value: '74 / 100',
+      value: '74',
       delta: '+2 this week',
       tone: 'positive',
       description: 'Branded prompts are stable and informational queries are gradually improving.',
       trend: [68, 70, 71, 73, 74],
+      progress: 74,
     },
     mentionShareSummary: {
       label: 'Mention Share',
@@ -762,11 +764,12 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
     },
     visibilitySummary: {
       label: 'Citation Coverage',
-      value: '58 / 100',
+      value: '58',
       delta: 'Run in progress',
       tone: 'neutral',
       description: 'The current run is measuring whether treatment-location pages improved citation breadth.',
       trend: [52, 54, 55, 57, 58],
+      progress: 58,
     },
     mentionShareSummary: {
       label: 'Mention Share',
@@ -793,7 +796,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       tone: 'caution',
       description: 'Two tracked queries currently cite competitors without citing Northstar.',
       trend: [],
-      progress: 2 / 7,
+      progress: Math.round((2 / 7) * 100),
     },
     mentionGaps: {
       label: 'Mention Gaps',
@@ -802,7 +805,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       tone: 'negative',
       description: 'Three tracked queries mention competitors but never Northstar.',
       trend: [],
-      progress: 3 / 7,
+      progress: Math.round((3 / 7) * 100),
     },
     indexCoverage: {
       label: 'Index Coverage',
@@ -1178,7 +1181,8 @@ export function createDashboardFixture(options: DashboardFixtureOptions = {}): D
     )
 
     if (project) {
-      project.visibilitySummary.value = '49 / 100'
+      project.visibilitySummary.value = '49'
+      project.visibilitySummary.progress = 49
       project.visibilitySummary.delta = '-12 in 48h'
       project.visibilitySummary.tone = 'negative'
       project.visibilitySummary.description = 'A sharper drop than normal; citations slipped across both local and service-intent prompts.'

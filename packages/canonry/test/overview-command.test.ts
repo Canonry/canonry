@@ -239,4 +239,35 @@ describe('canonry overview — human output', () => {
     expect(output).toContain('Citation movement: +1 gained, -0 lost (positive)')
     expect(output).toContain('Mention movement:  +0 gained, -2 lost (negative)')
   })
+
+  it('renders the unchanged-basket branch when the query set held steady', () => {
+    const overview = makeOverview({
+      citationMovement: { gained: 0, lost: 1, tone: 'negative', hasPreviousRun: true },
+      mentionMovement: { gained: 2, lost: 0, tone: 'positive', hasPreviousRun: true },
+      movementComparison: {
+        hasPreviousRun: true,
+        comparable: true,
+        querySetChanged: false,
+        previousRunAt: '2026-05-01T00:00:00.000Z',
+        currentQueryCount: 8,
+        previousQueryCount: 8,
+        comparableQueryCount: 8,
+        addedQueryCount: 0,
+        removedQueryCount: 0,
+        addedQueries: [],
+        removedQueries: [],
+      },
+    })
+    output = captureOutput(() => renderHuman(overview))
+    expect(output).toContain('Query basket:       unchanged; 8 comparable')
+    expect(output).toContain('Citation movement: +0 gained, -1 lost (negative)')
+    expect(output).toContain('Mention movement:  +2 gained, -0 lost (positive)')
+  })
+
+  it('renders the first-sweep hint when there is no previous run', () => {
+    // The default makeOverview() has movementComparison.hasPreviousRun=false.
+    output = captureOutput(() => renderHuman(makeOverview()))
+    expect(output).toContain('Movement: first sweep; no comparison yet')
+    expect(output).not.toContain('Query basket:')
+  })
 })
