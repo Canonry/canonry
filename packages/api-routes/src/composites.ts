@@ -52,7 +52,9 @@ import {
   buildCompetitorPressureScore,
   buildGapQueryScore,
   buildMentionGapScore,
-  buildMovementSummary,
+  buildCitationMovementSummary,
+  buildMentionMovementSummary,
+  buildMovementComparison,
   buildOverviewCompetitors,
   buildProviderScores,
   buildProviderTrends,
@@ -169,7 +171,13 @@ export async function compositeRoutes(app: FastifyInstance) {
     for (const run of latestVisRunGroup) snapshotRunIds.add(run.id)
     for (const run of previousVisRunGroup) snapshotRunIds.add(run.id)
 
-    const snapshotsByRun = loadSnapshotsByRunIds(app, [...snapshotRunIds])
+    const projectQueries = app.db
+      .select({ id: queries.id, query: queries.query })
+      .from(queries)
+      .where(eq(queries.projectId, project.id))
+      .all()
+    const queryIdByText = new Map(projectQueries.map(q => [normalizeQueryText(q.query), q.id]))
+    const snapshotsByRun = loadSnapshotsByRunIds(app, [...snapshotRunIds], queryIdByText)
     const latestSnapshots = latestVisRunGroup.flatMap(r => snapshotsByRun.get(r.id) ?? [])
     const previousSnapshots = previousVisRunGroup.flatMap(r => snapshotsByRun.get(r.id) ?? [])
 
@@ -185,12 +193,14 @@ export async function compositeRoutes(app: FastifyInstance) {
       .from(competitors)
       .where(eq(competitors.projectId, project.id))
       .all()
-    const projectQueries = app.db
-      .select({ id: queries.id, query: queries.query })
-      .from(queries)
-      .where(eq(queries.projectId, project.id))
-      .all()
     const queryLookup = { byId: new Map(projectQueries.map(q => [q.id, q.query])) }
+    for (const snapshots of snapshotsByRun.values()) {
+      for (const snapshot of snapshots) {
+        if (snapshot.queryText && !queryLookup.byId.has(snapshot.queryId)) {
+          queryLookup.byId.set(snapshot.queryId, snapshot.queryText)
+        }
+      }
+    }
 
     const configuredApiProviders = project.providers
       .filter(p => !p.startsWith('cdp:'))
@@ -224,8 +234,15 @@ export async function compositeRoutes(app: FastifyInstance) {
       runStatus: buildRunStatusScore(allRuns),
     }
 
-    const movementSummary = buildMovementSummary(latestSnapshots, previousSnapshots, {
+    const citationMovement = buildCitationMovementSummary(latestSnapshots, previousSnapshots, {
       queryLookup: queryLookup.byId,
+    })
+    const mentionMovement = buildMentionMovementSummary(latestSnapshots, previousSnapshots, {
+      queryLookup: queryLookup.byId,
+    })
+    const movementComparison = buildMovementComparison(latestSnapshots, previousSnapshots, {
+      queryLookup: queryLookup.byId,
+      previousRunAt: previousVisibilityRun?.createdAt ?? null,
     })
     const providerScoresBase = buildProviderScores(latestSnapshots)
     const providerTrends = buildProviderTrends(
@@ -270,7 +287,12 @@ export async function compositeRoutes(app: FastifyInstance) {
       providers,
       transitions,
       scores,
-      movementSummary,
+      // Keep the legacy citation-only field for API compatibility. New
+      // consumers read the explicitly named siblings below.
+      movementSummary: citationMovement,
+      citationMovement,
+      mentionMovement,
+      movementComparison,
       competitors: overviewCompetitors,
       providerScores,
       attentionItems,
@@ -423,6 +445,7 @@ function summarizeRun(run: typeof runs.$inferSelect): RunDetailDto {
 // primitives accept it via structural typing.
 interface OverviewSnapshot {
   queryId: string
+  queryText: string | null
   provider: string
   model: string | null
   citationState: string
@@ -438,15 +461,15 @@ interface OverviewSnapshot {
 function loadSnapshotsByRunIds(
   app: FastifyInstance,
   runIds: readonly string[],
+  queryIdByText: ReadonlyMap<string, string>,
 ): Map<string, OverviewSnapshot[]> {
   const result = new Map<string, OverviewSnapshot[]>()
   if (runIds.length === 0) return result
-  // Drop orphan snapshots (queryId NULL post-v58) — overview-snapshot
-  // rollups key by queryId and can't slot null-keyed rows.
-  const rows = filterTrackedSnapshots(app.db
+  const rows = app.db
     .select({
       runId: querySnapshots.runId,
       queryId: querySnapshots.queryId,
+      queryText: querySnapshots.queryText,
       provider: querySnapshots.provider,
       model: querySnapshots.model,
       citationState: querySnapshots.citationState,
@@ -457,11 +480,21 @@ function loadSnapshotsByRunIds(
     })
     .from(querySnapshots)
     .where(inArray(querySnapshots.runId, [...runIds]))
-    .all())
+    .all()
   for (const row of rows) {
+    const queryText = row.queryText?.trim() || null
+    const queryId = row.queryId
+      ?? (queryText
+        ? queryIdByText.get(normalizeQueryText(queryText)) ?? `archived:${normalizeQueryText(queryText)}`
+        : null)
+    // Pre-queryText legacy orphans cannot be attributed safely. The repair
+    // command can backfill query_text from audit history before this endpoint
+    // can include them in comparison metadata.
+    if (!queryId) continue
     const list = result.get(row.runId) ?? []
     list.push({
-      queryId: row.queryId,
+      queryId,
+      queryText,
       provider: row.provider,
       model: row.model,
       citationState: row.citationState,
@@ -473,6 +506,10 @@ function loadSnapshotsByRunIds(
     result.set(row.runId, list)
   }
   return result
+}
+
+function normalizeQueryText(value: string): string {
+  return value.trim().toLowerCase()
 }
 
 function summarizeFromSnapshots(

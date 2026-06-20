@@ -278,7 +278,7 @@
   }
 
   .main-area {
-    @apply flex min-h-screen flex-1 flex-col lg:pl-56;
+    @apply flex min-h-screen min-w-0 flex-1 flex-col lg:pl-56;
   }
 
   /* First-run focus mode (sidebar hidden) — drop the 224px sidebar gutter
@@ -377,11 +377,11 @@
   /* ── Page content ── */
 
   .page-shell {
-    @apply flex-1 px-4 py-5 md:px-6;
+    @apply min-w-0 flex-1 px-4 py-5 md:px-6;
   }
 
   .page-container {
-    @apply mx-auto max-w-6xl;
+    @apply mx-auto w-full min-w-0 max-w-6xl;
   }
 
   /* ── Page header ── */
@@ -662,6 +662,80 @@
     @apply text-[11px] text-zinc-400 mt-4;
   }
 
+  /* ── Project overview operator brief ── */
+
+  .overview-brief {
+    @apply overflow-hidden rounded-xl border border-zinc-800/60 bg-zinc-900/20;
+  }
+
+  .overview-brief-head {
+    @apply flex flex-col gap-3 px-5 py-5 sm:flex-row sm:items-start sm:justify-between;
+  }
+
+  .overview-brief-title {
+    @apply mt-1 max-w-3xl text-xl font-semibold tracking-[-0.02em] text-zinc-50 sm:text-2xl;
+  }
+
+  .overview-brief-scope {
+    @apply mt-2 max-w-3xl text-[13px] leading-5 text-zinc-400;
+  }
+
+  .overview-brief-updated {
+    @apply shrink-0 text-[11px] tabular-nums text-zinc-500 sm:pt-5;
+  }
+
+  .overview-brief-grid {
+    @apply grid border-t border-zinc-800/50 lg:grid-cols-[1.35fr_0.825fr_0.825fr];
+  }
+
+  .overview-brief-panel {
+    @apply min-w-0 px-5 py-4;
+  }
+
+  .overview-brief-panel + .overview-brief-panel {
+    @apply border-t border-zinc-800/40 lg:border-l lg:border-t-0;
+  }
+
+  .overview-brief-label {
+    @apply mb-3 text-[10px] font-medium uppercase tracking-[0.14em] text-zinc-500;
+  }
+
+  .overview-brief-panel-title {
+    @apply text-sm font-medium leading-5 text-zinc-100;
+  }
+
+  .overview-brief-panel-copy {
+    @apply mt-1.5 text-[12px] leading-[1.5] text-zinc-500;
+  }
+
+  .overview-brief-link {
+    @apply mt-3 inline-flex rounded text-[11px] font-medium text-zinc-300 underline decoration-zinc-700 underline-offset-4 transition-colors hover:text-zinc-50 hover:decoration-zinc-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-500/60;
+  }
+
+  .overview-signal-change-list {
+    @apply space-y-2;
+  }
+
+  .overview-signal-change-row {
+    @apply grid grid-cols-[minmax(0,1fr)_auto_auto] items-baseline gap-3 text-sm font-semibold tabular-nums;
+  }
+
+  .overview-signal-change-label {
+    @apply font-medium text-zinc-200;
+  }
+
+  .overview-brief-note {
+    @apply mt-3 text-[11px] text-amber-400/80;
+  }
+
+  .overview-brief-coverage .aeo-hero-rows {
+    @apply space-y-3;
+  }
+
+  .competitive-summary {
+    @apply px-5 py-4;
+  }
+
   .mention-share-breakdown {
     @apply mt-4 pt-4 border-t border-zinc-800/50;
   }
@@ -809,6 +883,71 @@
 
   .page-section-divider {
     @apply mt-8 border-t border-zinc-800/40 pt-6;
+  }
+
+  /* Progressive disclosure keeps evidence and diagnostics available without
+     turning the default overview scan into a four-page analytics archive. */
+  .overview-disclosure-summary {
+    @apply flex cursor-pointer list-none items-center justify-between gap-4 rounded-md py-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-500/60;
+  }
+
+  .overview-disclosure {
+    @apply min-w-0 max-w-full overflow-hidden;
+  }
+
+  .overview-disclosure-summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .overview-disclosure-title {
+    @apply mt-1 block text-sm font-semibold tracking-[-0.01em] text-zinc-200;
+  }
+
+  .overview-disclosure-meta {
+    @apply flex shrink-0 items-center gap-2 text-[11px] text-zinc-500;
+  }
+
+  .overview-disclosure-icon {
+    @apply text-zinc-500 transition-transform duration-150;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .overview-disclosure-icon {
+      transition: none;
+    }
+  }
+
+  .overview-disclosure[open] .overview-disclosure-icon {
+    @apply rotate-180;
+  }
+
+  .overview-disclosure-body {
+    @apply mt-4 min-w-0 max-w-full;
+  }
+
+  .overview-disclosure-body > .page-section-divider:first-child {
+    @apply mt-0 border-t-0 pt-0;
+  }
+
+  .inline-disclosure {
+    @apply rounded-lg border border-zinc-800/50 bg-zinc-900/15 px-3 py-2.5;
+  }
+
+  .inline-disclosure > summary {
+    @apply cursor-pointer list-none text-[12px] font-medium text-zinc-400 transition-colors hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-500/60;
+  }
+
+  .inline-disclosure > summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .inline-disclosure > summary::after {
+    content: ' +';
+    @apply text-zinc-600;
+  }
+
+  .inline-disclosure[open] > summary::after {
+    content: ' -';
   }
 
   /* Quiet underline tabs (Vercel/Linear lineage). The bar is chrome: plain
@@ -1150,30 +1289,52 @@
     @apply opacity-50 cursor-not-allowed;
   }
 
-  /* ── Opportunities (action-grouped insight cards) ── */
+  /* ── Action queue ── */
 
   .opportunities-grid {
-    @apply grid gap-3 sm:grid-cols-2 lg:grid-cols-3;
+    @apply overflow-hidden rounded-xl border border-zinc-800/60 bg-zinc-900/20 divide-y divide-zinc-800/40;
   }
 
   .opportunity-card {
-    @apply rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-4 flex flex-col gap-2 min-w-0;
+    @apply flex min-w-0 flex-col gap-2 p-4;
   }
 
   .opportunity-card-write {
-    @apply border-l-2 border-l-amber-500/60;
+    @apply bg-amber-950/5;
   }
 
   .opportunity-card-investigate {
-    @apply border-l-2 border-l-rose-500/60;
+    @apply bg-rose-950/10;
   }
 
   .opportunity-card-monitor {
-    @apply border-l-2 border-l-emerald-500/60;
+    @apply bg-emerald-950/5;
   }
 
   .opportunity-card-track {
-    @apply border-l-2 border-l-sky-500/60;
+    @apply bg-sky-950/5;
+  }
+
+  .opportunity-monitor-summary {
+    @apply flex cursor-pointer list-none items-center justify-between gap-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-500/60;
+  }
+
+  .opportunity-monitor-summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .opportunity-monitor-icon {
+    @apply transition-transform duration-150;
+  }
+
+  .opportunity-monitor[open] .opportunity-monitor-icon {
+    @apply rotate-180;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .opportunity-monitor-icon {
+      transition: none;
+    }
   }
 
   .suggested-query-add {
@@ -1201,23 +1362,23 @@
   }
 
   .opportunity-item {
-    @apply rounded-md border border-zinc-800/40 bg-zinc-900/30 px-2.5 py-2 transition-colors hover:bg-zinc-800/40;
+    @apply rounded-md bg-transparent px-2.5 py-2 transition-colors hover:bg-zinc-800/30;
   }
 
   .opportunity-item-positive {
-    @apply border-l-2 border-l-emerald-500/40;
+    @apply bg-emerald-950/10;
   }
 
   .opportunity-item-caution {
-    @apply border-l-2 border-l-amber-500/40;
+    @apply bg-amber-950/10;
   }
 
   .opportunity-item-negative {
-    @apply border-l-2 border-l-rose-500/40;
+    @apply bg-rose-950/15;
   }
 
   .opportunity-item-neutral {
-    @apply border-l-2 border-l-zinc-700;
+    @apply bg-zinc-900/20;
   }
 
   .opportunity-item-detail {

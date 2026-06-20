@@ -1,4 +1,4 @@
-import type { ProjectDto, RunDto, RunStatus, GroundingSource, MentionShareDto, SuggestedQueriesSummaryDto } from '@ainyc/canonry-contracts'
+import type { ProjectDto, RunDto, RunStatus, GroundingSource, MentionShareDto, MovementComparisonDto, SuggestedQueriesSummaryDto } from '@ainyc/canonry-contracts'
 
 export type MetricTone = 'positive' | 'caution' | 'negative' | 'neutral'
 export type HealthState = 'checking' | 'ok' | 'error'
@@ -195,6 +195,8 @@ export interface MovementSummaryVm {
   lostQueries?: string[]
 }
 
+export type MovementComparisonVm = MovementComparisonDto
+
 export interface QueryCountsVm {
   cited: number
   total: number
@@ -218,7 +220,9 @@ export interface ProjectCommandCenterVm {
   providerScores: { provider: string; model: string | null; score: number; cited: number; total: number; trend?: number[] }[]
   competitorPressure: ScoreSummaryVm
   runStatus: ScoreSummaryVm
-  movementSummary: MovementSummaryVm
+  citationMovement: MovementSummaryVm
+  mentionMovement: MovementSummaryVm
+  movementComparison: MovementComparisonVm
   insights: ProjectInsightVm[]
   visibilityEvidence: CitationInsightVm[]
   competitors: CompetitorVm[]

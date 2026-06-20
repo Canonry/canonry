@@ -58,6 +58,21 @@ function makeOverview(overrides: Partial<ProjectOverviewDto> = {}): ProjectOverv
       runStatus: { label: 'Run Status', value: 'Healthy', delta: '', tone: 'positive', description: '', trend: [] },
     },
     movementSummary: { gained: 0, lost: 0, tone: 'neutral', hasPreviousRun: false },
+    citationMovement: { gained: 0, lost: 0, tone: 'neutral', hasPreviousRun: false },
+    mentionMovement: { gained: 0, lost: 0, tone: 'neutral', hasPreviousRun: false },
+    movementComparison: {
+      hasPreviousRun: false,
+      comparable: false,
+      querySetChanged: false,
+      previousRunAt: null,
+      currentQueryCount: 0,
+      previousQueryCount: 0,
+      comparableQueryCount: 0,
+      addedQueryCount: 0,
+      removedQueryCount: 0,
+      addedQueries: [],
+      removedQueries: [],
+    },
     competitors: [],
     providerScores: [],
     attentionItems: [],
@@ -199,5 +214,29 @@ describe('canonry overview — human output', () => {
     // Two independent lines — the mentioned line (6/8) must not borrow the cited count (4/8).
     expect(output).toMatch(/Queries cited:\s+4\/8 \(50\.0%\)/)
     expect(output).toMatch(/Queries mentioned:\s+6\/8 \(75\.0%\)/)
+  })
+
+  it('renders citation and mention movement separately with query-basket comparability', () => {
+    const overview = makeOverview({
+      citationMovement: { gained: 1, lost: 0, tone: 'positive', hasPreviousRun: true },
+      mentionMovement: { gained: 0, lost: 2, tone: 'negative', hasPreviousRun: true },
+      movementComparison: {
+        hasPreviousRun: true,
+        comparable: false,
+        querySetChanged: true,
+        previousRunAt: '2026-05-01T00:00:00.000Z',
+        currentQueryCount: 9,
+        previousQueryCount: 8,
+        comparableQueryCount: 8,
+        addedQueryCount: 1,
+        removedQueryCount: 0,
+        addedQueries: ['new query'],
+        removedQueries: [],
+      },
+    })
+    output = captureOutput(() => renderHuman(overview))
+    expect(output).toContain('Query basket:       changed (+1 added, -0 removed); movement compares 8 shared')
+    expect(output).toContain('Citation movement: +1 gained, -0 lost (positive)')
+    expect(output).toContain('Mention movement:  +0 gained, -2 lost (negative)')
   })
 })

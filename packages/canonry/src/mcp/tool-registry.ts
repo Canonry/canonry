@@ -496,7 +496,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_project_overview',
     title: 'Get project overview (composite)',
-    description: 'One-call summary for "how is project X doing?" — bundles project info, latest run, top undismissed insights, latest health snapshot, query cited rate, per-provider breakdown, gained/lost/emerging vs the previous run, the five score gauges (visibility, gap queries, index coverage, competitor pressure, run status), per-(provider, model) scores, configured competitors with pressure labels, an attention queue of critical/high insights, and a recent-runs sparkline. Filterable by location and time window. Prefer this over fanning out to separate tools.',
+    description: 'One-call summary for "how is project X doing?". Returns independent mention and citation coverage, separate query-level movement for each signal, query-basket comparability with added/removed counts, latest run and health, insights, provider/model breakdowns, competitors, attention items, and recent history. Movement excludes queries not shared by both sweeps. Filterable by location and time window. Prefer this over fanning out to separate tools.',
     access: 'read',
     tier: 'core',
     inputSchema: z.object({

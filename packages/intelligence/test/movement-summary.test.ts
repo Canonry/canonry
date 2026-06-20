@@ -1,109 +1,78 @@
 import { describe, expect, it } from 'vitest'
 import {
+  buildMentionMovementSummary,
+  buildMovementComparison,
   buildMovementSummary,
   type MovementSummarySnapshot,
 } from '../src/movement-summary.js'
 
-function snap(queryId: string, citationState: 'cited' | 'not-cited' | 'pending' = 'cited'): MovementSummarySnapshot {
-  return { queryId, citationState }
+function snap(
+  queryId: string,
+  citationState: 'cited' | 'not-cited' | 'pending' = 'cited',
+  answerMentioned = false,
+): MovementSummarySnapshot {
+  return { queryId, citationState, answerMentioned }
 }
 
 describe('buildMovementSummary', () => {
-  it('returns hasPreviousRun=false when there are no previous snapshots', () => {
+  it('returns hasPreviousRun=false and current cited coverage on the first run', () => {
     const result = buildMovementSummary([snap('q1'), snap('q2')], [])
-    expect(result.hasPreviousRun).toBe(false)
-    expect(result.gained).toBe(2)
-    expect(result.lost).toBe(0)
-    expect(result.tone).toBe('positive')
+    expect(result).toMatchObject({ hasPreviousRun: false, gained: 2, lost: 0, tone: 'positive' })
   })
 
-  it('returns neutral tone when first run has zero cited queries', () => {
+  it('returns neutral tone when the first run has zero cited queries', () => {
     const result = buildMovementSummary([snap('q1', 'not-cited')], [])
-    expect(result.gained).toBe(0)
-    expect(result.lost).toBe(0)
-    expect(result.tone).toBe('neutral')
+    expect(result).toMatchObject({ gained: 0, lost: 0, tone: 'neutral' })
   })
 
-  it('counts gained queries: in latest but not in previous', () => {
-    const latest = [snap('q1'), snap('q2'), snap('q3')]
-    const previous = [snap('q1'), snap('q3')]
+  it('counts gains and losses only within the shared query basket', () => {
+    const latest = [snap('q1'), snap('q2'), snap('q3', 'not-cited')]
+    const previous = [snap('q1'), snap('q2', 'not-cited'), snap('q3')]
     const result = buildMovementSummary(latest, previous)
-    expect(result.gained).toBe(1)
-    expect(result.lost).toBe(0)
-    expect(result.tone).toBe('positive')
+    expect(result).toMatchObject({ gained: 1, lost: 1, tone: 'neutral', hasPreviousRun: true })
   })
 
-  it('counts lost queries: in previous but not in latest', () => {
-    const latest = [snap('q1')]
+  it('returns positive tone when comparable gains exceed losses', () => {
+    const latest = [snap('q1'), snap('q2'), snap('q3'), snap('q4', 'not-cited')]
+    const previous = [snap('q1', 'not-cited'), snap('q2', 'not-cited'), snap('q3', 'not-cited'), snap('q4')]
+    const result = buildMovementSummary(latest, previous)
+    expect(result).toMatchObject({ gained: 3, lost: 1, tone: 'positive' })
+  })
+
+  it('returns negative tone when comparable losses exceed gains', () => {
+    const latest = [snap('q1'), snap('q2', 'not-cited'), snap('q3', 'not-cited')]
     const previous = [snap('q1'), snap('q2'), snap('q3')]
     const result = buildMovementSummary(latest, previous)
-    expect(result.gained).toBe(0)
-    expect(result.lost).toBe(2)
-    expect(result.tone).toBe('negative')
+    expect(result).toMatchObject({ gained: 0, lost: 2, tone: 'negative' })
   })
 
-  it('returns neutral tone when gained equals lost', () => {
-    const latest = [snap('q1'), snap('q3')]
-    const previous = [snap('q1'), snap('q2')]
-    const result = buildMovementSummary(latest, previous)
-    expect(result.gained).toBe(1)
-    expect(result.lost).toBe(1)
-    expect(result.tone).toBe('neutral')
+  it('does not count a newly tracked cited query as a citation gain', () => {
+    const result = buildMovementSummary(
+      [snap('shared'), snap('added')],
+      [snap('shared')],
+    )
+    expect(result).toMatchObject({ gained: 0, lost: 0, tone: 'neutral' })
   })
 
-  it('returns positive tone when gained exceeds lost', () => {
-    const latest = [snap('q1'), snap('q2'), snap('q3')]
-    const previous = [snap('q4')]
-    const result = buildMovementSummary(latest, previous)
-    expect(result.gained).toBe(3)
-    expect(result.lost).toBe(1)
-    expect(result.tone).toBe('positive')
+  it('does not count a removed cited query as a citation loss', () => {
+    const result = buildMovementSummary(
+      [snap('shared')],
+      [snap('shared'), snap('removed')],
+    )
+    expect(result).toMatchObject({ gained: 0, lost: 0, tone: 'neutral' })
   })
 
-  it('treats a query as cited when ANY snapshot for that query is cited', () => {
-    const latest = [
-      snap('q1', 'not-cited'), // gemini didn't cite
-      snap('q1', 'cited'),     // openai did cite
-    ]
-    const result = buildMovementSummary(latest, [])
-    expect(result.gained).toBe(1)
-  })
-
-  it('does not count a query as cited if all snapshots are not-cited', () => {
-    const latest = [
+  it('treats a query as cited when any provider snapshot is cited', () => {
+    const result = buildMovementSummary([
       snap('q1', 'not-cited'),
-      snap('q1', 'not-cited'),
-    ]
-    const result = buildMovementSummary(latest, [])
-    expect(result.gained).toBe(0)
-    expect(result.tone).toBe('neutral')
+      snap('q1', 'cited'),
+    ], [])
+    expect(result.gained).toBe(1)
   })
 
   it('ignores snapshots with empty queryId', () => {
-    const latest = [snap(''), snap('q1')]
-    const result = buildMovementSummary(latest, [])
+    const result = buildMovementSummary([snap(''), snap('q1')], [])
     expect(result.gained).toBe(1)
-  })
-
-  it('counts both gains and losses simultaneously', () => {
-    const latest = [snap('q1'), snap('q2')]
-    const previous = [snap('q1'), snap('q3')]
-    const result = buildMovementSummary(latest, previous)
-    expect(result.gained).toBe(1) // q2 new
-    expect(result.lost).toBe(1)   // q3 dropped
-    expect(result.tone).toBe('neutral')
-    expect(result.hasPreviousRun).toBe(true)
-  })
-
-  it('returns zeros and neutral tone when both runs have no cited queries', () => {
-    const result = buildMovementSummary(
-      [snap('q1', 'not-cited')],
-      [snap('q1', 'not-cited')],
-    )
-    expect(result.gained).toBe(0)
-    expect(result.lost).toBe(0)
-    expect(result.tone).toBe('neutral')
-    expect(result.hasPreviousRun).toBe(true)
   })
 
   describe('with queryLookup option', () => {
@@ -111,36 +80,134 @@ describe('buildMovementSummary', () => {
       ['q1', 'best dentist nyc'],
       ['q2', 'invisalign brooklyn'],
       ['q3', 'emergency dental'],
-      ['q4', 'family dentist queens'],
     ])
 
-    it('returns gainedQueries and lostQueries strings, sorted alphabetically', () => {
-      const latest = [snap('q1'), snap('q2')]
-      const previous = [snap('q1'), snap('q3')]
+    it('returns sorted gained and lost query strings', () => {
+      const latest = [snap('q1'), snap('q2'), snap('q3', 'not-cited')]
+      const previous = [snap('q1'), snap('q2', 'not-cited'), snap('q3')]
       const result = buildMovementSummary(latest, previous, { queryLookup: lookup })
       expect(result.gainedQueries).toEqual(['invisalign brooklyn'])
       expect(result.lostQueries).toEqual(['emergency dental'])
     })
 
-    it('omits the lists entirely when no lookup is passed (backward compat)', () => {
-      const result = buildMovementSummary([snap('q1')], [snap('q2')])
+    it('omits lists when no lookup is passed', () => {
+      const result = buildMovementSummary(
+        [snap('q1'), snap('q2')],
+        [snap('q1', 'not-cited'), snap('q2')],
+      )
       expect(result.gainedQueries).toBeUndefined()
       expect(result.lostQueries).toBeUndefined()
     })
 
-    it('drops query IDs that the lookup does not know about', () => {
-      const latest = [snap('q1'), snap('q9-unknown')]
-      const result = buildMovementSummary(latest, [], { queryLookup: lookup })
-      // gained count still reflects both queries (count is from snapshots, not lookup)
+    it('keeps counts when a query text cannot be resolved', () => {
+      const result = buildMovementSummary(
+        [snap('q1'), snap('q9-unknown')],
+        [snap('q1', 'not-cited'), snap('q9-unknown', 'not-cited')],
+        { queryLookup: lookup },
+      )
       expect(result.gained).toBe(2)
-      // but the text list only includes known ones
       expect(result.gainedQueries).toEqual(['best dentist nyc'])
     })
 
-    it('returns empty arrays (not undefined) when lookup is passed but nothing moved', () => {
+    it('returns empty arrays when nothing moved', () => {
       const result = buildMovementSummary([snap('q1')], [snap('q1')], { queryLookup: lookup })
       expect(result.gainedQueries).toEqual([])
       expect(result.lostQueries).toEqual([])
+    })
+  })
+})
+
+describe('buildMentionMovementSummary', () => {
+  it('computes mention movement independently of citation movement', () => {
+    const latest = [
+      snap('q1', 'cited', false),
+      snap('q2', 'not-cited', true),
+    ]
+    const previous = [
+      snap('q1', 'cited', true),
+      snap('q2', 'not-cited', false),
+    ]
+
+    expect(buildMovementSummary(latest, previous)).toMatchObject({ gained: 0, lost: 0 })
+    expect(buildMentionMovementSummary(latest, previous)).toMatchObject({ gained: 1, lost: 1 })
+  })
+
+  it('treats a query as mentioned when any provider answer mentions it', () => {
+    const result = buildMentionMovementSummary([
+      snap('q1', 'not-cited', false),
+      snap('q1', 'not-cited', true),
+    ], [])
+    expect(result.gained).toBe(1)
+  })
+
+  it('excludes newly added queries from mention gains', () => {
+    const result = buildMentionMovementSummary(
+      [snap('shared', 'not-cited', false), snap('added', 'not-cited', true)],
+      [snap('shared', 'not-cited', false)],
+    )
+    expect(result).toMatchObject({ gained: 0, lost: 0 })
+  })
+})
+
+describe('buildMovementComparison', () => {
+  const lookup = new Map([
+    ['q1', 'alpha query'],
+    ['q2', 'beta query'],
+    ['q3', 'gamma query'],
+  ])
+
+  it('marks identical non-empty baskets comparable', () => {
+    const result = buildMovementComparison(
+      [snap('q1'), snap('q2')],
+      [snap('q1'), snap('q2')],
+      { queryLookup: lookup, previousRunAt: '2026-06-01T00:00:00.000Z' },
+    )
+    expect(result).toEqual({
+      hasPreviousRun: true,
+      comparable: true,
+      querySetChanged: false,
+      previousRunAt: '2026-06-01T00:00:00.000Z',
+      currentQueryCount: 2,
+      previousQueryCount: 2,
+      comparableQueryCount: 2,
+      addedQueryCount: 0,
+      removedQueryCount: 0,
+      addedQueries: [],
+      removedQueries: [],
+    })
+  })
+
+  it('reports added and removed queries without conflating them with movement', () => {
+    const result = buildMovementComparison(
+      [snap('q1'), snap('q2')],
+      [snap('q1'), snap('q3')],
+      { queryLookup: lookup },
+    )
+    expect(result).toMatchObject({
+      hasPreviousRun: true,
+      comparable: false,
+      querySetChanged: true,
+      currentQueryCount: 2,
+      previousQueryCount: 2,
+      comparableQueryCount: 1,
+      addedQueryCount: 1,
+      removedQueryCount: 1,
+      addedQueries: ['beta query'],
+      removedQueries: ['gamma query'],
+    })
+  })
+
+  it('reports no comparison on a first run', () => {
+    const result = buildMovementComparison([snap('q1')], [], { queryLookup: lookup })
+    expect(result).toMatchObject({
+      hasPreviousRun: false,
+      comparable: false,
+      querySetChanged: false,
+      currentQueryCount: 1,
+      previousQueryCount: 0,
+      comparableQueryCount: 0,
+      addedQueryCount: 0,
+      removedQueryCount: 0,
     })
   })
 })

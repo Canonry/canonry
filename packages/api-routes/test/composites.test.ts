@@ -20,7 +20,7 @@ import {
 } from '@ainyc/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import type { ApiRoutesOptions } from '../src/index.js'
-import type { ProjectOverviewDto, ProjectSearchResponseDto } from '@ainyc/canonry-contracts'
+import { projectOverviewDtoSchema, type ProjectOverviewDto, type ProjectSearchResponseDto } from '@ainyc/canonry-contracts'
 
 function buildApp() {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-composites-'))
@@ -210,6 +210,7 @@ describe('GET /api/v1/projects/:name/overview', () => {
     const res = await app.inject({ method: 'GET', url: '/api/v1/projects/demo/overview' })
     expect(res.statusCode).toBe(200)
     const body = JSON.parse(res.payload) as ProjectOverviewDto
+    expect(() => projectOverviewDtoSchema.parse(body)).not.toThrow()
 
     expect(body.scores.visibility.label).toBe('Citation Coverage')
     expect(body.scores.visibility.value).toBe('100')
@@ -246,6 +247,28 @@ describe('GET /api/v1/projects/:name/overview', () => {
       hasPreviousRun: true,
       gainedQueries: ['aeo monitoring'],
       lostQueries: [],
+    })
+    expect(body.citationMovement).toEqual(body.movementSummary)
+    expect(body.mentionMovement).toEqual({
+      gained: 1,
+      lost: 0,
+      tone: 'positive',
+      hasPreviousRun: true,
+      gainedQueries: ['aeo monitoring'],
+      lostQueries: [],
+    })
+    expect(body.movementComparison).toEqual({
+      hasPreviousRun: true,
+      comparable: true,
+      querySetChanged: false,
+      previousRunAt: '2026-04-18T14:10:00.000Z',
+      currentQueryCount: 2,
+      previousQueryCount: 2,
+      comparableQueryCount: 2,
+      addedQueryCount: 0,
+      removedQueryCount: 0,
+      addedQueries: [],
+      removedQueries: [],
     })
 
     expect(body.providerScores).toEqual(
@@ -574,6 +597,13 @@ describe('GET /api/v1/projects/:name/overview', () => {
     expect(body.movementSummary.hasPreviousRun).toBe(true)
     expect(body.movementSummary.gained).toBe(0)
     expect(body.movementSummary.lost).toBe(0)
+    expect(body.citationMovement).toEqual(body.movementSummary)
+    expect(body.mentionMovement).toMatchObject({ gained: 0, lost: 0, hasPreviousRun: true })
+    expect(body.movementComparison).toMatchObject({
+      comparable: true,
+      querySetChanged: false,
+      comparableQueryCount: 1,
+    })
 
     await app.close()
   })
@@ -591,6 +621,75 @@ describe('GET /api/v1/projects/:name/overview', () => {
     expect(body.movementSummary.hasPreviousRun).toBe(false)
     expect(body.movementSummary.gained).toBeGreaterThanOrEqual(0)
     expect(body.movementSummary.lost).toBe(0)
+    expect(body.mentionMovement.hasPreviousRun).toBe(false)
+    expect(body.movementComparison).toMatchObject({
+      hasPreviousRun: false,
+      comparable: false,
+      querySetChanged: false,
+    })
+
+    await app.close()
+  })
+
+  it('reports query-basket additions and removals separately from signal movement', async () => {
+    const { app, db, projectId, latestRunId, previousRunId } = seedProjectWithRuns()
+    const addedQueryId = crypto.randomUUID()
+    db.insert(queries).values({
+      id: addedQueryId,
+      projectId,
+      query: 'newly tracked aeo query',
+      createdAt: '2026-04-18T14:15:00.000Z',
+    }).run()
+    db.insert(querySnapshots).values({
+      id: crypto.randomUUID(),
+      runId: latestRunId,
+      queryId: addedQueryId,
+      provider: 'gemini',
+      citationState: 'cited',
+      answerMentioned: true,
+      citedDomains: ['example.com'],
+      competitorOverlap: [],
+      recommendedCompetitors: [],
+      answerText: 'Example.com appears for a newly tracked query.',
+      createdAt: '2026-04-18T14:20:30.000Z',
+    }).run()
+    // Historical snapshots retain query_text after a tracked query is deleted;
+    // query_id becomes NULL via ON DELETE SET NULL. The overview must still
+    // count this as a removed basket member rather than silently dropping it.
+    db.insert(querySnapshots).values({
+      id: crypto.randomUUID(),
+      runId: previousRunId,
+      queryId: null,
+      queryText: 'removed historical query',
+      provider: 'gemini',
+      citationState: 'cited',
+      answerMentioned: true,
+      citedDomains: ['example.com'],
+      competitorOverlap: [],
+      recommendedCompetitors: [],
+      answerText: 'Historical answer for a removed query.',
+      createdAt: '2026-04-18T14:10:30.000Z',
+    }).run()
+
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/api/v1/projects/demo/overview' })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.payload) as ProjectOverviewDto
+
+    // qB is the only shared-query gain. The newly tracked q3 is not movement.
+    expect(body.citationMovement).toMatchObject({ gained: 1, lost: 0 })
+    expect(body.mentionMovement).toMatchObject({ gained: 1, lost: 0 })
+    expect(body.movementComparison).toMatchObject({
+      comparable: false,
+      querySetChanged: true,
+      currentQueryCount: 3,
+      previousQueryCount: 3,
+      comparableQueryCount: 2,
+      addedQueryCount: 1,
+      removedQueryCount: 1,
+      addedQueries: ['newly tracked aeo query'],
+      removedQueries: ['removed historical query'],
+    })
 
     await app.close()
   })

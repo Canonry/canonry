@@ -1265,6 +1265,336 @@ export type ProjectDto = {
     updatedAt?: string;
 };
 
+export type ProjectOverviewDto = {
+    project: {
+        id: string;
+        name: string;
+        displayName?: string;
+        canonicalDomain: string;
+        ownedDomains: Array<string>;
+        aliases: Array<string>;
+        country: string;
+        language: string;
+        tags: Array<string>;
+        labels: {
+            [key: string]: string;
+        };
+        providers: Array<string>;
+        locations: Array<{
+            label: string;
+            city: string;
+            region: string;
+            country: string;
+            timezone?: string;
+        }>;
+        defaultLocation?: string | null;
+        autoExtractBacklinks: boolean;
+        configSource: 'cli' | 'api' | 'config-file';
+        configRevision: number;
+        createdAt?: string;
+        updatedAt?: string;
+    };
+    latestRun: {
+        totalRuns: number;
+        run: {
+            id: string;
+            projectId: string;
+            kind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync';
+            status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';
+            trigger: 'manual' | 'scheduled' | 'config-apply' | 'backfill' | 'probe';
+            location?: string | null;
+            queries?: Array<string> | null;
+            startedAt?: string | null;
+            finishedAt?: string | null;
+            error?: {
+                message?: string;
+                providers?: {
+                    [key: string]: {
+                        message: string;
+                        raw?: unknown;
+                    };
+                };
+            } | null;
+            createdAt: string;
+            snapshots?: Array<{
+                id: string;
+                runId: string;
+                queryId: string;
+                query?: string;
+                provider: string;
+                citationState: 'cited' | 'not-cited';
+                answerMentioned?: boolean;
+                visibilityState?: 'visible' | 'not-visible';
+                mentionState?: 'mentioned' | 'not-mentioned';
+                transition?: 'new' | 'cited' | 'lost' | 'emerging' | 'not-cited';
+                answerText?: string | null;
+                citedDomains: Array<string>;
+                competitorOverlap: Array<string>;
+                recommendedCompetitors: Array<string>;
+                matchedTerms: Array<string>;
+                groundingSources: Array<{
+                    uri: string;
+                    title: string;
+                }>;
+                searchQueries: Array<string>;
+                model?: string | null;
+                location?: string | null;
+                createdAt: string;
+            }>;
+        } | null;
+    };
+    health: {
+        id: string;
+        projectId: string;
+        runId: string | null;
+        overallCitedRate: number;
+        overallMentionRate: number;
+        totalPairs: number;
+        citedPairs: number;
+        mentionedPairs: number;
+        providerBreakdown: {
+            [key: string]: {
+                citedRate: number;
+                mentionRate: number;
+                cited: number;
+                mentioned: number;
+                total: number;
+            };
+        };
+        createdAt: string;
+        status: 'ready' | 'no-data';
+        reason?: 'no-runs-yet';
+    } | null;
+    topInsights: Array<{
+        id: string;
+        projectId: string;
+        runId: string | null;
+        type: 'regression' | 'gain' | 'opportunity' | 'first-citation' | 'provider-pickup' | 'persistent-gap' | 'competitor-gained' | 'competitor-lost' | 'gbp-lodging-gap' | 'gbp-listing-discrepancy' | 'gbp-cta-gap' | 'gbp-metric-drop' | 'gbp-keyword-drop';
+        severity: 'critical' | 'high' | 'medium' | 'low';
+        title: string;
+        query: string;
+        provider: string;
+        recommendation?: {
+            action: string;
+            target?: string;
+            reason: string;
+        };
+        cause?: {
+            cause: string;
+            competitorDomain?: string;
+            details?: string;
+        };
+        dismissed: boolean;
+        createdAt: string;
+    }>;
+    queryCounts: {
+        totalQueries: number;
+        citedQueries: number;
+        notCitedQueries: number;
+        citedRate: number;
+        mentionedQueries: number;
+        notMentionedQueries: number;
+        mentionRate: number;
+    };
+    providers: Array<{
+        provider: string;
+        citedRate: number;
+        cited: number;
+        total: number;
+    }>;
+    transitions: {
+        since: string | null;
+        gained: number;
+        lost: number;
+        emerging: number;
+    };
+    scores: {
+        mention: {
+            label: string;
+            value: string;
+            delta: string;
+            tone: 'positive' | 'caution' | 'negative' | 'neutral';
+            description: string;
+            tooltip?: string;
+            trend: Array<number>;
+            progress?: number;
+            providerCoverage?: string;
+        };
+        visibility: {
+            label: string;
+            value: string;
+            delta: string;
+            tone: 'positive' | 'caution' | 'negative' | 'neutral';
+            description: string;
+            tooltip?: string;
+            trend: Array<number>;
+            progress?: number;
+            providerCoverage?: string;
+        };
+        mentionShare: {
+            label: string;
+            value: string;
+            delta: string;
+            tone: 'positive' | 'caution' | 'negative' | 'neutral';
+            description: string;
+            tooltip?: string;
+            trend: Array<number>;
+            progress?: number;
+            providerCoverage?: string;
+            breakdown: {
+                projectMentionSnapshots: number;
+                competitorMentionSnapshots: number;
+                perCompetitor: Array<{
+                    domain: string;
+                    mentionSnapshots: number;
+                    shareOfCompetitiveTotal: number;
+                }>;
+                snapshotsWithAnswerText: number;
+                snapshotsTotal: number;
+            };
+        };
+        gapQueries: {
+            label: string;
+            value: string;
+            delta: string;
+            tone: 'positive' | 'caution' | 'negative' | 'neutral';
+            description: string;
+            tooltip?: string;
+            trend: Array<number>;
+            progress?: number;
+            providerCoverage?: string;
+        };
+        mentionGaps: {
+            label: string;
+            value: string;
+            delta: string;
+            tone: 'positive' | 'caution' | 'negative' | 'neutral';
+            description: string;
+            tooltip?: string;
+            trend: Array<number>;
+            progress?: number;
+            providerCoverage?: string;
+        };
+        indexCoverage: {
+            label: string;
+            value: string;
+            delta: string;
+            tone: 'positive' | 'caution' | 'negative' | 'neutral';
+            description: string;
+            tooltip?: string;
+            trend: Array<number>;
+            progress?: number;
+            providerCoverage?: string;
+        };
+        competitorPressure: {
+            label: string;
+            value: string;
+            delta: string;
+            tone: 'positive' | 'caution' | 'negative' | 'neutral';
+            description: string;
+            tooltip?: string;
+            trend: Array<number>;
+            progress?: number;
+            providerCoverage?: string;
+        };
+        runStatus: {
+            label: string;
+            value: string;
+            delta: string;
+            tone: 'positive' | 'caution' | 'negative' | 'neutral';
+            description: string;
+            tooltip?: string;
+            trend: Array<number>;
+            progress?: number;
+            providerCoverage?: string;
+        };
+    };
+    movementSummary: {
+        gained: number;
+        lost: number;
+        tone: 'positive' | 'caution' | 'negative' | 'neutral';
+        hasPreviousRun: boolean;
+        gainedQueries?: Array<string>;
+        lostQueries?: Array<string>;
+    };
+    citationMovement: {
+        gained: number;
+        lost: number;
+        tone: 'positive' | 'caution' | 'negative' | 'neutral';
+        hasPreviousRun: boolean;
+        gainedQueries?: Array<string>;
+        lostQueries?: Array<string>;
+    };
+    mentionMovement: {
+        gained: number;
+        lost: number;
+        tone: 'positive' | 'caution' | 'negative' | 'neutral';
+        hasPreviousRun: boolean;
+        gainedQueries?: Array<string>;
+        lostQueries?: Array<string>;
+    };
+    movementComparison: {
+        hasPreviousRun: boolean;
+        comparable: boolean;
+        querySetChanged: boolean;
+        previousRunAt: string | null;
+        currentQueryCount: number;
+        previousQueryCount: number;
+        comparableQueryCount: number;
+        addedQueryCount: number;
+        removedQueryCount: number;
+        addedQueries: Array<string>;
+        removedQueries: Array<string>;
+    };
+    competitors: Array<{
+        id: string;
+        domain: string;
+        citationCount: number;
+        totalQueries: number;
+        pressureLabel: 'None' | 'Low' | 'Moderate' | 'High';
+        citedQueries: Array<string>;
+    }>;
+    providerScores: Array<{
+        provider: string;
+        model: string | null;
+        score: number;
+        cited: number;
+        total: number;
+        trend?: Array<number>;
+    }>;
+    attentionItems: Array<{
+        id: string;
+        tone: 'positive' | 'caution' | 'negative' | 'neutral';
+        title: string;
+        detail: string;
+        actionLabel: string;
+        href: string;
+    }>;
+    runHistory: Array<{
+        runId: string;
+        createdAt: string;
+        citedCount: number;
+        totalCount: number;
+        citationRate: number;
+        mentionedCount: number;
+        mentionRate: number;
+        status: string;
+    }>;
+    suggestedQueries: {
+        rows: Array<{
+            query: string;
+            impressions: number;
+            clicks: number;
+            avgPosition: number;
+            reason: string;
+        }>;
+        totalCandidates: number;
+        skippedAlreadyTracked: number;
+    };
+    dateRangeLabel: string;
+    contextLabel: string;
+};
+
 export type ProjectReportDto = {
     meta: {
         generatedAt: string;
@@ -8352,9 +8682,7 @@ export type GetApiV1ProjectsByNameOverviewResponses = {
     /**
      * Overview returned.
      */
-    200: {
-        [key: string]: unknown;
-    };
+    200: ProjectOverviewDto;
 };
 
 export type GetApiV1ProjectsByNameOverviewResponse = GetApiV1ProjectsByNameOverviewResponses[keyof GetApiV1ProjectsByNameOverviewResponses];
