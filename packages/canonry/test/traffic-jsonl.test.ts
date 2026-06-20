@@ -46,7 +46,14 @@ const { trafficEvents, trafficSources, trafficStatus } = await import('../src/co
 const eventsResponse: TrafficEventsResponse = {
   windowStart: '2026-05-01T00:00:00.000Z',
   windowEnd: '2026-05-02T00:00:00.000Z',
-  totals: { crawlerHits: 5, aiUserFetchHits: 2, aiReferralHits: 1 },
+  totals: {
+    crawlerHits: 5,
+    crawlerContentHits: 3,
+    crawlerInfraHits: 2,
+    crawlerSegments: { content: 3, sitemap: 2, robots: 0, asset: 0, other: 0 },
+    aiUserFetchHits: 2,
+    aiReferralHits: 1,
+  },
   events: [
     {
       kind: 'crawler',
@@ -56,6 +63,7 @@ const eventsResponse: TrafficEventsResponse = {
       operator: 'OpenAI',
       verificationStatus: 'verified',
       pathNormalized: '/about',
+      pathClass: 'content',
       status: 200,
       hits: 3,
     },
@@ -108,7 +116,15 @@ const statusResponse: TrafficStatusResponse = {
   sources: [
     {
       ...sourceA,
-      totals24h: { crawlerHits: 10, aiUserFetchHits: 4, aiReferralHits: 2, sampleCount: 6 },
+      totals24h: {
+        crawlerHits: 10,
+        crawlerContentHits: 7,
+        crawlerInfraHits: 3,
+        crawlerSegments: { content: 7, sitemap: 2, robots: 1, asset: 0, other: 0 },
+        aiUserFetchHits: 4,
+        aiReferralHits: 2,
+        sampleCount: 6,
+      },
       latestRun: {
         runId: 'run_1',
         status: 'completed',
@@ -119,7 +135,15 @@ const statusResponse: TrafficStatusResponse = {
     },
     {
       ...sourceB,
-      totals24h: { crawlerHits: 0, aiUserFetchHits: 0, aiReferralHits: 0, sampleCount: 0 },
+      totals24h: {
+        crawlerHits: 0,
+        crawlerContentHits: 0,
+        crawlerInfraHits: 0,
+        crawlerSegments: { content: 0, sitemap: 0, robots: 0, asset: 0, other: 0 },
+        aiUserFetchHits: 0,
+        aiReferralHits: 0,
+        sampleCount: 0,
+      },
       latestRun: null,
     },
   ] as unknown as TrafficStatusResponse['sources'],
@@ -144,9 +168,21 @@ describe('traffic jsonl output', () => {
         expect(record.windowStart).toBe('2026-05-01T00:00:00.000Z')
         expect(record.windowEnd).toBe('2026-05-02T00:00:00.000Z')
       }
-      // The record's own discriminant fields win (spread last).
-      expect(records[0]).toMatchObject({ kind: 'crawler', sourceId: 'src_1', botId: 'GPTBot' })
+      // The record's own discriminant fields win (spread last). Crawler rows
+      // carry the per-event path class so an agent can segment from jsonl.
+      expect(records[0]).toMatchObject({ kind: 'crawler', sourceId: 'src_1', botId: 'GPTBot', pathClass: 'content' })
       expect(records[1]).toMatchObject({ kind: 'ai-referral', sourceDomain: 'chatgpt.com' })
+    })
+
+    it('format=text surfaces the content / infra / other crawler split', async () => {
+      mockTrafficListEvents.mockResolvedValue(eventsResponse)
+      const out = await captureLog(() => trafficEvents('demo', {}))
+      expect(out).toContain('Content crawls (window):       3')
+      expect(out).toContain('Infra fetches (window):        2  (sitemap 2 · robots 0 · asset 0)')
+      expect(out).toContain('Other fetches (window):        0')
+      expect(out).toContain('Crawler hits total (window):   5')
+      // per-event path class is rendered next to the path
+      expect(out).toContain('/about [content]')
     })
 
     it('format=jsonl writes nothing for an empty event collection', async () => {
@@ -204,13 +240,27 @@ describe('traffic jsonl output', () => {
       expect(lines).toHaveLength(2)
       const records = lines.map(l => JSON.parse(l))
       expect(records.every(r => r.project === 'demo')).toBe(true)
-      // Per-source totals + latestRun survive into each line.
+      // Per-source totals (incl. the segmented crawler fields) + latestRun survive into each line.
       expect(records[0]).toMatchObject({
         id: 'src_1',
-        totals24h: { crawlerHits: 10 },
+        totals24h: {
+          crawlerHits: 10,
+          crawlerContentHits: 7,
+          crawlerInfraHits: 3,
+          crawlerSegments: { content: 7, sitemap: 2, robots: 1, asset: 0, other: 0 },
+        },
         latestRun: { runId: 'run_1', status: 'completed' },
       })
       expect(records[1]).toMatchObject({ id: 'src_2', latestRun: null })
+    })
+
+    it('format=text leads with content crawls and breaks out infra / other', async () => {
+      mockTrafficStatus.mockResolvedValue(statusResponse)
+      const out = await captureLog(() => trafficStatus('demo', {}))
+      expect(out).toContain('24h content:     7 crawls')
+      expect(out).toContain('24h infra:       3 sitemap/robots/asset fetches')
+      expect(out).toContain('24h other:       0 fetches')
+      expect(out).toContain('24h crawler:     10 hits total')
     })
 
     it('format=jsonl writes nothing when no sources are connected', async () => {

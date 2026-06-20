@@ -2448,6 +2448,15 @@ export type TrafficEventsResponse = {
     windowEnd: string;
     totals: {
         crawlerHits: number;
+        crawlerContentHits: number;
+        crawlerInfraHits: number;
+        crawlerSegments: {
+            content: number;
+            sitemap: number;
+            robots: number;
+            asset: number;
+            other: number;
+        };
         aiUserFetchHits: number;
         aiReferralHits: number;
     };
@@ -2459,6 +2468,7 @@ export type TrafficEventsResponse = {
         operator: string;
         verificationStatus: string;
         pathNormalized: string;
+        pathClass: 'content' | 'sitemap' | 'robots' | 'asset' | 'other';
         status: number;
         hits: number;
     } | {
@@ -2502,6 +2512,15 @@ export type TrafficSourceDetailDto = {
     updatedAt: string;
     totals24h: {
         crawlerHits: number;
+        crawlerContentHits: number;
+        crawlerInfraHits: number;
+        crawlerSegments: {
+            content: number;
+            sitemap: number;
+            robots: number;
+            asset: number;
+            other: number;
+        };
         aiUserFetchHits: number;
         aiReferralHits: number;
         sampleCount: number;
@@ -2569,6 +2588,15 @@ export type TrafficStatusResponse = {
         updatedAt: string;
         totals24h: {
             crawlerHits: number;
+            crawlerContentHits: number;
+            crawlerInfraHits: number;
+            crawlerSegments: {
+                content: number;
+                sitemap: number;
+                robots: number;
+                asset: number;
+                other: number;
+            };
             aiUserFetchHits: number;
             aiReferralHits: number;
             sampleCount: number;

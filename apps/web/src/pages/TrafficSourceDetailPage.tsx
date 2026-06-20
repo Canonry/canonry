@@ -368,13 +368,14 @@ export function TrafficSourceDetailPage() {
 
       <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <ScoreGauge
-          label="24h crawler hits"
-          value={String(detail.totals24h.crawlerHits)}
+          label="24h content crawls"
+          value={String(detail.totals24h.crawlerContentHits)}
           delta={detail.lastSyncedAt ? `last sync ${formatRelative(detail.lastSyncedAt)}` : 'never synced'}
-          tone={detail.totals24h.crawlerHits > 0 ? 'positive' : 'neutral'}
-          description="Bulk machine crawl — GPTBot, OAI-SearchBot, PerplexityBot, Googlebot, etc."
+          tone={detail.totals24h.crawlerContentHits > 0 ? 'positive' : 'neutral'}
+          description={`Pages crawled — ${detail.totals24h.crawlerInfraHits.toLocaleString('en-US')} sitemap/robots/asset fetches excluded.`}
+          tooltip={`Content-page crawls by GPTBot, OAI-SearchBot, PerplexityBot, Googlebot, etc. Infrastructure fetches (sitemap ${detail.totals24h.crawlerSegments.sitemap.toLocaleString('en-US')}, robots ${detail.totals24h.crawlerSegments.robots.toLocaleString('en-US')}, assets ${detail.totals24h.crawlerSegments.asset.toLocaleString('en-US')}) are tracked separately so polling doesn't inflate this number. Total crawler hits: ${detail.totals24h.crawlerHits.toLocaleString('en-US')}.`}
           isNumeric
-          progress={Math.min(100, Math.round((detail.totals24h.crawlerHits / 1000) * 100))}
+          progress={Math.min(100, Math.round((detail.totals24h.crawlerContentHits / 1000) * 100))}
         />
         <ScoreGauge
           label="24h AI user fetches"
@@ -428,7 +429,8 @@ export function TrafficSourceDetailPage() {
             </h2>
             {totals ? (
               <p className="mt-1.5 text-xs text-zinc-500">
-                {totals.crawlerHits.toLocaleString('en-US')} crawler ·{' '}
+                {totals.crawlerContentHits.toLocaleString('en-US')} content crawls ·{' '}
+                {totals.crawlerInfraHits.toLocaleString('en-US')} infra (sitemap/robots/assets) ·{' '}
                 {totals.aiUserFetchHits.toLocaleString('en-US')} AI user fetches ·{' '}
                 {totals.aiReferralHits.toLocaleString('en-US')} AI referral sessions · last {activeWindow.label} · {LOCAL_TZ}
               </p>

@@ -3310,7 +3310,15 @@ describe('GET /traffic/sources/:id', () => {
       expect(res.statusCode).toBe(200)
       const body = JSON.parse(res.payload)
       expect(body.latestRun).toBeNull()
-      expect(body.totals24h).toEqual({ crawlerHits: 0, aiUserFetchHits: 0, aiReferralHits: 0, sampleCount: 0 })
+      expect(body.totals24h).toEqual({
+        crawlerHits: 0,
+        crawlerContentHits: 0,
+        crawlerInfraHits: 0,
+        crawlerSegments: { content: 0, sitemap: 0, robots: 0, asset: 0, other: 0 },
+        aiUserFetchHits: 0,
+        aiReferralHits: 0,
+        sampleCount: 0,
+      })
     } finally { await h.close() }
   })
 
@@ -3745,6 +3753,223 @@ describe('GET /traffic/events', () => {
         url: '/api/v1/projects/no-such/traffic/events',
       })
       expect(res.statusCode).toBe(404)
+    } finally { await h.close() }
+  })
+})
+
+// Read-time crawler-hit segmentation (#719). The headline "crawler hits" total
+// is unchanged, but on real sites it is dominated by sitemap/robots/asset
+// polling, so the read layer now also returns a content-vs-infrastructure split
+// (+ a full per-class breakdown). These tests exercise the split end-to-end
+// through the sync → rollup → read path on both the source-detail and events
+// surfaces.
+describe('crawler-hit content/infra segmentation', () => {
+  // 3 content + 6 sitemap + 4 robots + 1 asset + 1 other = 15 total crawler hits.
+  // Every event is GPTBot (UA-classified crawler) so only the PATH varies the class.
+  async function mixedPathHarness() {
+    const baseTime = new Date(Date.now() - 60 * 60_000)
+    baseTime.setMinutes(0, 0, 0)
+    const fromBase = (mins: number) => new Date(baseTime.getTime() + mins * 60_000).toISOString()
+    const crawl = (p: string, mins: number) =>
+      buildEvent({ userAgent: 'GPTBot/1.0', path: p, status: 200, observedAt: fromBase(mins) })
+
+    const events: NormalizedTrafficRequest[] = [
+      // content (3)
+      crawl('/blog/foo', 1),
+      crawl('/blog/foo', 2),
+      crawl('/', 3),
+      // sitemap (6)
+      crawl('/sitemap_index.xml', 4),
+      crawl('/sitemap_index.xml', 5),
+      crawl('/sitemap_index.xml', 6),
+      crawl('/sitemap_index.xml', 7),
+      crawl('/sitemap_index.xml', 8),
+      crawl('/news-sitemap.xml', 9),
+      // robots (4)
+      crawl('/robots.txt', 10),
+      crawl('/robots.txt', 11),
+      crawl('/robots.txt', 12),
+      crawl('/robots.txt', 13),
+      // asset (1)
+      crawl('/styles/app.css', 14),
+      // other (1)
+      crawl('/report.pdf', 15),
+    ]
+
+    const h = await buildHarness(events)
+    const connectRes = await h.app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/test-project/traffic/connect/cloud-run',
+      payload: { gcpProjectId: 'openclaw-nyc', keyJson: SA_KEY },
+    })
+    const sourceId = JSON.parse(connectRes.payload).id
+    await h.app.inject({
+      method: 'POST',
+      url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`,
+      payload: { sinceMinutes: 120 },
+    })
+    return { h, sourceId }
+  }
+
+  const EXPECTED_SEGMENTS = { content: 3, sitemap: 6, robots: 4, asset: 1, other: 1 }
+
+  it('segments totals24h on GET /traffic/sources/:id and preserves the crawlerHits total', async () => {
+    const { h, sourceId } = await mixedPathHarness()
+    try {
+      const res = await h.app.inject({
+        method: 'GET',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}`,
+      })
+      expect(res.statusCode).toBe(200)
+      const t = JSON.parse(res.payload).totals24h
+      // crawlerHits is UNCHANGED — full count across all classes.
+      expect(t.crawlerHits).toBe(15)
+      expect(t.crawlerSegments).toEqual(EXPECTED_SEGMENTS)
+      expect(t.crawlerContentHits).toBe(3)
+      // infra = sitemap + robots + asset (NOT other).
+      expect(t.crawlerInfraHits).toBe(6 + 4 + 1)
+      // the issue's headline invariant.
+      expect(t.crawlerContentHits + t.crawlerInfraHits + t.crawlerSegments.other).toBe(t.crawlerHits)
+      // and the five buckets sum to the total too.
+      const seg = t.crawlerSegments
+      expect(seg.content + seg.sitemap + seg.robots + seg.asset + seg.other).toBe(t.crawlerHits)
+    } finally { await h.close() }
+  })
+
+  it('segments totals on GET /traffic/events and tags each crawler event with its pathClass', async () => {
+    const { h, sourceId } = await mixedPathHarness()
+    try {
+      const res = await h.app.inject({
+        method: 'GET',
+        url: `/api/v1/projects/test-project/traffic/events?sourceId=${sourceId}&kind=crawler`,
+      })
+      expect(res.statusCode).toBe(200)
+      const body = JSON.parse(res.payload)
+      expect(body.totals.crawlerHits).toBe(15)
+      expect(body.totals.crawlerSegments).toEqual(EXPECTED_SEGMENTS)
+      expect(body.totals.crawlerContentHits).toBe(3)
+      expect(body.totals.crawlerInfraHits).toBe(11)
+      expect(
+        body.totals.crawlerContentHits + body.totals.crawlerInfraHits + body.totals.crawlerSegments.other,
+      ).toBe(body.totals.crawlerHits)
+
+      // Every crawler event carries a pathClass consistent with its path.
+      const byPath = new Map<string, string>()
+      for (const e of body.events) byPath.set(e.pathNormalized, e.pathClass)
+      expect(byPath.get('/blog/foo')).toBe('content')
+      expect(byPath.get('/')).toBe('content')
+      expect(byPath.get('/sitemap_index.xml')).toBe('sitemap')
+      expect(byPath.get('/news-sitemap.xml')).toBe('sitemap')
+      expect(byPath.get('/robots.txt')).toBe('robots')
+      expect(byPath.get('/styles/app.css')).toBe('asset')
+      expect(byPath.get('/report.pdf')).toBe('other')
+    } finally { await h.close() }
+  })
+
+  it('reads 0 content crawls for an all-infrastructure source', async () => {
+    const baseTime = new Date(Date.now() - 60 * 60_000)
+    baseTime.setMinutes(0, 0, 0)
+    const fromBase = (mins: number) => new Date(baseTime.getTime() + mins * 60_000).toISOString()
+    const crawl = (p: string, mins: number) =>
+      buildEvent({ userAgent: 'GPTBot/1.0', path: p, status: 200, observedAt: fromBase(mins) })
+
+    const h = await buildHarness([
+      crawl('/sitemap_index.xml', 1),
+      crawl('/sitemap_index.xml', 2),
+      crawl('/robots.txt', 3),
+      crawl('/assets/main.js', 4),
+    ])
+    try {
+      const connectRes = await h.app.inject({
+        method: 'POST',
+        url: '/api/v1/projects/test-project/traffic/connect/cloud-run',
+        payload: { gcpProjectId: 'openclaw-nyc', keyJson: SA_KEY },
+      })
+      const sourceId = JSON.parse(connectRes.payload).id
+      await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`,
+        payload: { sinceMinutes: 120 },
+      })
+
+      const res = await h.app.inject({
+        method: 'GET',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}`,
+      })
+      const t = JSON.parse(res.payload).totals24h
+      expect(t.crawlerHits).toBe(4)
+      expect(t.crawlerContentHits).toBe(0)
+      expect(t.crawlerInfraHits).toBe(4)
+      expect(t.crawlerSegments).toEqual({ content: 0, sitemap: 2, robots: 1, asset: 1, other: 0 })
+    } finally { await h.close() }
+  })
+
+  it('keeps segmented totals over the FULL window even when limit truncates the event list', async () => {
+    // Segments come from a separate GROUP BY query over the whole window, not the
+    // limit-truncated row slice — limit=1 must trim events but not the totals.
+    const { h, sourceId } = await mixedPathHarness()
+    try {
+      const res = await h.app.inject({
+        method: 'GET',
+        url: `/api/v1/projects/test-project/traffic/events?sourceId=${sourceId}&kind=crawler&limit=1`,
+      })
+      expect(res.statusCode).toBe(200)
+      const body = JSON.parse(res.payload)
+      expect(body.events.length).toBe(1)
+      expect(body.totals.crawlerHits).toBe(15)
+      expect(body.totals.crawlerSegments).toEqual(EXPECTED_SEGMENTS)
+      expect(body.totals.crawlerContentHits).toBe(3)
+      expect(body.totals.crawlerInfraHits).toBe(11)
+      expect(
+        body.totals.crawlerContentHits + body.totals.crawlerInfraHits + body.totals.crawlerSegments.other,
+      ).toBe(body.totals.crawlerHits)
+    } finally { await h.close() }
+  })
+
+  it('segments only the in-window rows for a since/until sub-window', async () => {
+    // content lands in hour A, infrastructure in hour B; a window covering only
+    // hour A must report content-only segments.
+    const hourA = new Date(Date.now() - 3 * 60 * 60_000)
+    hourA.setMinutes(0, 0, 0)
+    const hourB = new Date(hourA.getTime() + 60 * 60_000)
+    const at = (base: Date, mins: number) => new Date(base.getTime() + mins * 60_000).toISOString()
+    const crawl = (p: string, iso: string) =>
+      buildEvent({ userAgent: 'GPTBot/1.0', path: p, status: 200, observedAt: iso })
+
+    const h = await buildHarness([
+      // hour A — content
+      crawl('/blog/foo', at(hourA, 1)),
+      crawl('/', at(hourA, 2)),
+      // hour B — infrastructure
+      crawl('/sitemap_index.xml', at(hourB, 1)),
+      crawl('/robots.txt', at(hourB, 2)),
+    ])
+    try {
+      const connectRes = await h.app.inject({
+        method: 'POST',
+        url: '/api/v1/projects/test-project/traffic/connect/cloud-run',
+        payload: { gcpProjectId: 'openclaw-nyc', keyJson: SA_KEY },
+      })
+      const sourceId = JSON.parse(connectRes.payload).id
+      await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`,
+        payload: { sinceMinutes: 240 },
+      })
+
+      // Window = hour A only (ends 1ms before hour B's top-of-hour bucket).
+      const since = hourA.toISOString()
+      const until = new Date(hourB.getTime() - 1).toISOString()
+      const res = await h.app.inject({
+        method: 'GET',
+        url: `/api/v1/projects/test-project/traffic/events?sourceId=${sourceId}&kind=crawler&since=${encodeURIComponent(since)}&until=${encodeURIComponent(until)}`,
+      })
+      expect(res.statusCode).toBe(200)
+      const body = JSON.parse(res.payload)
+      expect(body.totals.crawlerHits).toBe(2)
+      expect(body.totals.crawlerContentHits).toBe(2)
+      expect(body.totals.crawlerInfraHits).toBe(0)
+      expect(body.totals.crawlerSegments).toEqual({ content: 2, sitemap: 0, robots: 0, asset: 0, other: 0 })
     } finally { await h.close() }
   })
 })

@@ -1,5 +1,30 @@
 import { z } from 'zod'
 import { runStatusSchema } from './run.js'
+import type { TrafficCrawlerSegments, TrafficPathClass } from './traffic-path.js'
+
+/**
+ * Per-class breakdown of crawler hits (content / sitemap / robots / asset /
+ * other). Read-time segmentation of `crawlerHits` so the headline "content was
+ * crawled" number is not inflated by sitemap/robots polling and asset fetches.
+ * The five buckets always sum to the total `crawlerHits`. `satisfies` ties the
+ * schema to the {@link TrafficCrawlerSegments} helper interface so the two
+ * cannot drift.
+ */
+export const trafficCrawlerSegmentsSchema = z.object({
+  content: z.number().int().nonnegative(),
+  sitemap: z.number().int().nonnegative(),
+  robots: z.number().int().nonnegative(),
+  asset: z.number().int().nonnegative(),
+  other: z.number().int().nonnegative(),
+}) satisfies z.ZodType<TrafficCrawlerSegments>
+
+export const trafficPathClassSchema = z.enum([
+  'content',
+  'sitemap',
+  'robots',
+  'asset',
+  'other',
+]) satisfies z.ZodType<TrafficPathClass>
 
 export const trafficSourceTypeSchema = z.enum([
   'cloud-run',
@@ -230,7 +255,18 @@ export const trafficBackfillResponseSchema = z.object({
 export type TrafficBackfillResponse = z.infer<typeof trafficBackfillResponseSchema>
 
 export const trafficSourceTotalsSchema = z.object({
+  /**
+   * Total classified-crawler hits in the window. UNCHANGED contract — still the
+   * full count across every path class. Use `crawlerContentHits` for the
+   * "content was actually crawled" signal.
+   */
   crawlerHits: z.number().int().nonnegative(),
+  /** Crawler hits against content/document paths only (= `crawlerSegments.content`). */
+  crawlerContentHits: z.number().int().nonnegative(),
+  /** Infrastructure crawler hits — sitemap + robots + asset fetches (`crawlerSegments.{sitemap,robots,asset}`). */
+  crawlerInfraHits: z.number().int().nonnegative(),
+  /** Full per-class crawler-hit breakdown; the five buckets sum to `crawlerHits`. */
+  crawlerSegments: trafficCrawlerSegmentsSchema,
   aiUserFetchHits: z.number().int().nonnegative(),
   aiReferralHits: z.number().int().nonnegative(),
   sampleCount: z.number().int().nonnegative(),
@@ -273,6 +309,8 @@ export const trafficCrawlerEventEntrySchema = z.object({
   operator: z.string(),
   verificationStatus: z.string(),
   pathNormalized: z.string(),
+  /** Coarse class of the fetched path — lets the UI split content crawls from sitemap/robots/asset polling. */
+  pathClass: trafficPathClassSchema,
   status: z.number().int(),
   hits: z.number().int().nonnegative(),
 })
@@ -320,7 +358,14 @@ export const trafficEventsResponseSchema = z.object({
   windowStart: z.string(),
   windowEnd: z.string(),
   totals: z.object({
+    /** Total classified-crawler hits across the window. UNCHANGED contract. */
     crawlerHits: z.number().int().nonnegative(),
+    /** Crawler hits against content/document paths only (= `crawlerSegments.content`). */
+    crawlerContentHits: z.number().int().nonnegative(),
+    /** Infrastructure crawler hits — sitemap + robots + asset fetches. */
+    crawlerInfraHits: z.number().int().nonnegative(),
+    /** Full per-class crawler-hit breakdown; the five buckets sum to `crawlerHits`. */
+    crawlerSegments: trafficCrawlerSegmentsSchema,
     aiUserFetchHits: z.number().int().nonnegative(),
     aiReferralHits: z.number().int().nonnegative(),
   }),
