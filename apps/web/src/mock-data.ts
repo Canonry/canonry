@@ -381,20 +381,21 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
     contextLabel: 'US / English / Local-intent monitoring',
     mentionSummary: {
       label: 'Mention Coverage',
-      value: '74',
-      delta: '6 of 8 queries mentioned',
+      value: '67',
+      delta: '6 of 9 queries mentioned',
       tone: 'positive',
       description: 'Brand named in answer text for most tracked queries.',
-      trend: [70, 72, 73, 74, 74],
-      progress: 74,
+      trend: [70, 72, 73, 74, 67],
+      progress: 67,
     },
     visibilitySummary: {
       label: 'Citation Coverage',
-      value: '61 / 100',
+      value: '61',
       delta: '-8 this week',
       tone: 'caution',
       description: 'Lost citation share on emergency-intent prompts while Invisalign visibility improved.',
       trend: [73, 71, 69, 66, 61],
+      progress: 61,
     },
     mentionShareSummary: {
       label: 'Mention Share',
@@ -418,20 +419,20 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
     gapQueries: {
       label: 'Citation Gaps',
       value: '1',
-      delta: '1 of 8 queries at risk',
+      delta: '1 of 9 queries at risk',
       tone: 'caution',
       description: 'One tracked query currently cites competitors without citing Citypoint.',
       trend: [],
-      progress: 0.125,
+      progress: Math.round((1 / 9) * 100),
     },
     mentionGaps: {
       label: 'Mention Gaps',
       value: '2',
-      delta: '2 of 8 queries at risk',
+      delta: '2 of 9 queries at risk',
       tone: 'caution',
       description: 'Two tracked queries mention competitors but never Citypoint.',
       trend: [],
-      progress: 0.25,
+      progress: Math.round((2 / 9) * 100),
     },
     indexCoverage: {
       label: 'Index Coverage',
@@ -447,7 +448,35 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       { provider: 'claude', model: 'claude-sonnet-4-6', score: 44, cited: 4, total: 9 },
     ],
     queryCounts: { cited: 6, total: 9 },
-    movementSummary: { gained: 1, lost: 2, tone: 'negative', hasPreviousRun: true },
+    citationMovement: {
+      gained: 1,
+      lost: 2,
+      tone: 'negative',
+      hasPreviousRun: true,
+      gainedQueries: ['invisalign dentist downtown brooklyn'],
+      lostQueries: ['emergency dentist brooklyn', 'pediatric dentist brooklyn heights'],
+    },
+    mentionMovement: {
+      gained: 0,
+      lost: 1,
+      tone: 'negative',
+      hasPreviousRun: true,
+      gainedQueries: [],
+      lostQueries: ['emergency dentist brooklyn'],
+    },
+    movementComparison: {
+      hasPreviousRun: true,
+      comparable: false,
+      querySetChanged: true,
+      previousRunAt: '2026-03-07T08:05:00.000Z',
+      currentQueryCount: 9,
+      previousQueryCount: 8,
+      comparableQueryCount: 8,
+      addedQueryCount: 1,
+      removedQueryCount: 0,
+      addedQueries: ['dental implants downtown brooklyn'],
+      removedQueries: [],
+    },
     competitorPressure: {
       label: 'Competitor Pressure',
       value: 'High',
@@ -567,11 +596,12 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
     },
     visibilitySummary: {
       label: 'Citation Coverage',
-      value: '74 / 100',
+      value: '74',
       delta: '+2 this week',
       tone: 'positive',
       description: 'Branded prompts are stable and informational queries are gradually improving.',
       trend: [68, 70, 71, 73, 74],
+      progress: 74,
     },
     mentionShareSummary: {
       label: 'Mention Share',
@@ -622,7 +652,21 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       { provider: 'openai', model: 'gpt-5.4', score: 50, cited: 2, total: 4 },
     ],
     queryCounts: { cited: 3, total: 4 },
-    movementSummary: { gained: 1, lost: 0, tone: 'positive', hasPreviousRun: true },
+    citationMovement: { gained: 1, lost: 0, tone: 'positive', hasPreviousRun: true },
+    mentionMovement: { gained: 1, lost: 0, tone: 'positive', hasPreviousRun: true },
+    movementComparison: {
+      hasPreviousRun: true,
+      comparable: true,
+      querySetChanged: false,
+      previousRunAt: '2026-03-07T08:05:00.000Z',
+      currentQueryCount: 4,
+      previousQueryCount: 4,
+      comparableQueryCount: 4,
+      addedQueryCount: 0,
+      removedQueryCount: 0,
+      addedQueries: [],
+      removedQueries: [],
+    },
     competitorPressure: {
       label: 'Competitor Pressure',
       value: 'Moderate',
@@ -720,11 +764,12 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
     },
     visibilitySummary: {
       label: 'Citation Coverage',
-      value: '58 / 100',
+      value: '58',
       delta: 'Run in progress',
       tone: 'neutral',
       description: 'The current run is measuring whether treatment-location pages improved citation breadth.',
       trend: [52, 54, 55, 57, 58],
+      progress: 58,
     },
     mentionShareSummary: {
       label: 'Mention Share',
@@ -751,7 +796,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       tone: 'caution',
       description: 'Two tracked queries currently cite competitors without citing Northstar.',
       trend: [],
-      progress: 2 / 7,
+      progress: Math.round((2 / 7) * 100),
     },
     mentionGaps: {
       label: 'Mention Gaps',
@@ -760,7 +805,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       tone: 'negative',
       description: 'Three tracked queries mention competitors but never Northstar.',
       trend: [],
-      progress: 3 / 7,
+      progress: Math.round((3 / 7) * 100),
     },
     indexCoverage: {
       label: 'Index Coverage',
@@ -774,7 +819,21 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       { provider: 'openai', model: 'gpt-5.4', score: 58, cited: 4, total: 7 },
     ],
     queryCounts: { cited: 4, total: 7 },
-    movementSummary: { gained: 0, lost: 0, tone: 'neutral', hasPreviousRun: false },
+    citationMovement: { gained: 0, lost: 0, tone: 'neutral', hasPreviousRun: false },
+    mentionMovement: { gained: 0, lost: 0, tone: 'neutral', hasPreviousRun: false },
+    movementComparison: {
+      hasPreviousRun: false,
+      comparable: false,
+      querySetChanged: false,
+      previousRunAt: null,
+      currentQueryCount: 7,
+      previousQueryCount: 0,
+      comparableQueryCount: 0,
+      addedQueryCount: 0,
+      removedQueryCount: 0,
+      addedQueries: [],
+      removedQueries: [],
+    },
     competitorPressure: {
       label: 'Competitor Pressure',
       value: 'Moderate',
@@ -1122,7 +1181,8 @@ export function createDashboardFixture(options: DashboardFixtureOptions = {}): D
     )
 
     if (project) {
-      project.visibilitySummary.value = '49 / 100'
+      project.visibilitySummary.value = '49'
+      project.visibilitySummary.progress = 49
       project.visibilitySummary.delta = '-12 in 48h'
       project.visibilitySummary.tone = 'negative'
       project.visibilitySummary.description = 'A sharper drop than normal; citations slipped across both local and service-intent prompts.'

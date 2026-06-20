@@ -573,6 +573,7 @@ The contract test `packages/api-routes/test/openapi-contract.test.ts` enforces a
 |---------|------|
 | Date / number / ratio formatting | `packages/contracts/src/formatting.ts` |
 | URL / domain normalization | `packages/contracts/src/url-normalize.ts` |
+| Tracked-query text normalization | `packages/contracts/src/query-normalize.ts` (`normalizeQueryText` — trim + lowercase for dedup / FK-null text matching) |
 | Report action / opportunity dedup | `packages/contracts/src/report-dedup.ts` |
 | Error factories | `packages/contracts/src/errors.ts` |
 | SQL `LIKE` wildcard escaping | `packages/contracts/src/sql-like.ts` (`escapeLikePattern` — caller adds `ESCAPE '\\'`) |

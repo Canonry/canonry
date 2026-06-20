@@ -55,17 +55,6 @@ export function competitorTone(label: string): MetricTone {
   return 'neutral'
 }
 
-/**
- * Single source of truth for the 0-100 score → tone thresholds. Consumed by the
- * per-model breakdown text color and its trend sparkline so the cutoffs never
- * drift apart.
- */
-export function toneFromScore(score: number): MetricTone {
-  if (score >= 70) return 'positive'
-  if (score >= 40) return 'caution'
-  return 'negative'
-}
-
 /** Maps a metric tone to its Tailwind text-color utility. */
 export const METRIC_TONE_TEXT_CLASS: Record<MetricTone, string> = {
   positive: 'text-emerald-400',

@@ -26,7 +26,7 @@ import { DiscoverySection } from '../components/project/DiscoverySection.js'
 import { TechnicalAeoSection } from '../components/project/TechnicalAeoSection.js'
 import { ReportPage } from './ReportPage.js'
 import { formatTimestamp, SEARCH_METRIC_SHORT_LABELS, SearchMetric } from '../lib/format-helpers.js'
-import { METRIC_TONE_TEXT_CLASS, toneFromScore } from '../lib/tone-helpers.js'
+import { METRIC_TONE_TEXT_CLASS } from '../lib/tone-helpers.js'
 import { addToast } from '../lib/toast-store.js'
 import { asyncHandler } from '../lib/async-handler.js'
 import { ProjectSettingsSection } from '../components/project/ProjectSettingsSection.js'
@@ -994,86 +994,242 @@ function SearchConsoleSection({
   )
 }
 
-function MovementBanner({
-  summary,
-  onJumpToEvidence,
-}: {
-  summary: ProjectCommandCenterVm['movementSummary']
-  onJumpToEvidence: () => void
-}) {
-  if (!summary.hasPreviousRun) {
-    return (
-      <section className="movement-banner">
-        <span className="movement-banner-label">Since last run</span>
-        <span className="text-zinc-500">First run — no comparison yet</span>
-      </section>
-    )
-  }
-  const gained = summary.gained
-  const lost = summary.lost
-  const verdict = gained === 0 && lost === 0
-    ? '· no changes'
-    : gained > lost
-      ? '· improving'
-      : lost > gained
-        ? '· declining'
-        : ''
-
-  return (
-    <section className="movement-banner">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="movement-banner-label">Since last run</span>
-        {gained > 0 ? (
-          <button
-            type="button"
-            className="movement-banner-chip text-emerald-400 font-medium"
-            onClick={onJumpToEvidence}
-            title="Jump to the queries that gained citations"
-          >
-            +{gained} gained
-          </button>
-        ) : (
-          <span className="text-zinc-500">+0 gained</span>
-        )}
-        <span className="text-zinc-700 mx-1">·</span>
-        {lost > 0 ? (
-          <button
-            type="button"
-            className="movement-banner-chip text-rose-400 font-medium"
-            onClick={onJumpToEvidence}
-            title="Jump to the queries that lost citations"
-          >
-            −{lost} lost
-          </button>
-        ) : (
-          <span className="text-zinc-500">−0 lost</span>
-        )}
-        <span className="text-zinc-400 ml-2">{verdict}</span>
-      </div>
-      {(summary.gainedQueries?.length || summary.lostQueries?.length) ? (
-        <div className="movement-banner-detail">
-          {summary.gainedQueries && summary.gainedQueries.length > 0 && (
-            <p>
-              <span className="text-emerald-500/90">Gained:</span>{' '}
-              <span className="text-zinc-300">{formatQueryList(summary.gainedQueries)}</span>
-            </p>
-          )}
-          {summary.lostQueries && summary.lostQueries.length > 0 && (
-            <p>
-              <span className="text-rose-500/90">Lost:</span>{' '}
-              <span className="text-zinc-300">{formatQueryList(summary.lostQueries)}</span>
-            </p>
-          )}
-        </div>
-      ) : null}
-    </section>
-  )
-}
-
 function formatQueryList(queries: string[], max = 4): string {
   if (queries.length <= max) return queries.map(q => `"${q}"`).join(', ')
   const shown = queries.slice(0, max).map(q => `"${q}"`).join(', ')
   return `${shown}, and ${queries.length - max} more`
+}
+
+function OverviewMetricRow({
+  label,
+  summary,
+  displayValue,
+  tooltip,
+}: {
+  label: string
+  summary: ProjectCommandCenterVm['mentionSummary']
+  displayValue?: React.ReactNode
+  tooltip?: string
+}) {
+  const numeric = summary.value.trim() !== '' && Number.isFinite(Number(summary.value))
+  const progress = summary.progress !== undefined
+    ? Math.min(Math.max(summary.progress, 0), 100)
+    : 0
+
+  return (
+    <div className="aeo-hero-row">
+      <p className="aeo-hero-row-label">
+        {label}
+        {(tooltip || summary.tooltip) && <InfoTooltip text={tooltip || summary.tooltip || ''} />}
+      </p>
+      <p className={`aeo-hero-row-value ${METRIC_TONE_TEXT_CLASS[summary.tone]}`}>
+        {displayValue ?? (
+          <>
+            {summary.value}
+            {numeric ? <span className="text-zinc-600">%</span> : null}
+          </>
+        )}
+      </p>
+      <div className="aeo-hero-row-bar" aria-hidden="true">
+        <div
+          className={`metric-card-bar-fill progress-fill-${summary.tone}`}
+          style={{ width: `${progress}%` }}
+        />
+      </div>
+      <p className="aeo-hero-row-detail">{summary.delta}</p>
+    </div>
+  )
+}
+
+function OverviewBrief({
+  model,
+  sweepRunning,
+  onJumpToEvidence,
+  onJumpToActions,
+}: {
+  model: ProjectCommandCenterVm
+  sweepRunning: boolean
+  onJumpToEvidence: () => void
+  onJumpToActions: () => void
+}) {
+  const citationMovement = model.citationMovement
+  const mentionMovement = model.mentionMovement
+  const comparison = model.movementComparison
+  const latestSweep = model.recentRuns.find(run => run.kind === RunKinds['answer-visibility'])
+  const primaryAction = model.insights.find(insight => insight.actionGroup === 'investigate')
+    ?? model.insights.find(insight => insight.actionGroup === 'write')
+    ?? model.insights.at(0)
+  const suggestedQuery = model.suggestedQueries.rows.at(0)
+  const engineCount = new Set(model.providerScores.map(score => score.provider)).size
+  const locationCount = model.project.locations.length
+
+  const movementDirection = (movement: ProjectCommandCenterVm['mentionMovement']) => {
+    if (movement.tone === 'positive') return 'improved'
+    if (movement.tone === 'negative') return 'declined'
+    if (movement.gained > 0 || movement.lost > 0) return 'mixed'
+    return 'steady'
+  }
+  const mentionDirection = movementDirection(mentionMovement)
+  const citationDirection = movementDirection(citationMovement)
+
+  const headline = (() => {
+    if (sweepRunning) return 'A fresh sweep is running now'
+    if (!comparison.hasPreviousRun) return 'Baseline captured. The next sweep will show change.'
+    if (comparison.querySetChanged) return 'Tracking scope changed since the previous sweep'
+    if (mentionDirection === citationDirection) {
+      if (mentionDirection === 'steady') return 'Answer mentions and citation coverage held steady'
+      if (mentionDirection === 'mixed') return 'Answer mention and citation movement was mixed'
+      return `Answer mentions and citation coverage ${mentionDirection}`
+    }
+    const mentionPhrase = mentionDirection === 'mixed'
+      ? 'Answer mention movement was mixed'
+      : mentionDirection === 'steady'
+        ? 'Answer mentions held steady'
+        : `Answer mentions ${mentionDirection}`
+    const citationPhrase = citationDirection === 'mixed'
+      ? 'citation movement was mixed'
+      : citationDirection === 'steady'
+        ? 'citation coverage held steady'
+        : `citation coverage ${citationDirection}`
+    return `${mentionPhrase}; ${citationPhrase}`
+  })()
+
+  const movedQueries = [...new Set([
+    ...(mentionMovement.lostQueries ?? []),
+    ...(citationMovement.lostQueries ?? []),
+    ...(mentionMovement.gainedQueries ?? []),
+    ...(citationMovement.gainedQueries ?? []),
+  ])]
+
+  const scope = `${model.queryCounts.total} ${model.queryCounts.total === 1 ? 'query' : 'queries'} across ${engineCount} ${engineCount === 1 ? 'engine' : 'engines'}`
+  const locationScope = locationCount > 0
+    ? `${locationCount} ${locationCount === 1 ? 'location' : 'locations'}`
+    : 'project-wide'
+
+  return (
+    <section className="overview-brief" aria-labelledby="overview-brief-title">
+      <div className="overview-brief-head">
+        <div>
+          <p className="eyebrow eyebrow-soft">
+            Operator brief
+            <InfoTooltip text="Each sweep records two independent signals: answer mentions (your brand named in the answer text) and source citations (your domain in the engine's source list). They move separately." />
+          </p>
+          <h2 id="overview-brief-title" className="overview-brief-title">{headline}</h2>
+          <p className="overview-brief-scope">
+            Tracking {scope}, {locationScope}.
+          </p>
+        </div>
+        <p className="overview-brief-updated">
+          {latestSweep ? `Latest sweep ${latestSweep.startedAt}` : 'No sweep completed yet'}
+        </p>
+      </div>
+
+      <div className="overview-brief-grid">
+        <div className="overview-brief-panel overview-brief-coverage">
+          <p className="overview-brief-label">Coverage now</p>
+          <div className="aeo-hero-rows">
+            <OverviewMetricRow label="Mentioned" summary={model.mentionSummary} />
+            <OverviewMetricRow label="Cited" summary={model.visibilitySummary} />
+          </div>
+          {model.mentionSummary.providerCoverage && (
+            <p className="overview-brief-note">Partial sweep: {model.mentionSummary.providerCoverage}</p>
+          )}
+        </div>
+
+        <div className="overview-brief-panel">
+          <p className="overview-brief-label">Since previous sweep</p>
+          {!comparison.hasPreviousRun ? (
+            <>
+              <p className="overview-brief-panel-title">No comparison yet</p>
+              <p className="overview-brief-panel-copy">Run another sweep to measure mention and citation movement.</p>
+            </>
+          ) : (
+            <>
+              <div className="overview-signal-change-list">
+                <div className="overview-signal-change-row">
+                  <span className="overview-signal-change-label">Mentioned</span>
+                  <span className="text-emerald-400">+{mentionMovement.gained}</span>
+                  <span className="text-rose-400">-{mentionMovement.lost}</span>
+                </div>
+                <div className="overview-signal-change-row">
+                  <span className="overview-signal-change-label">Cited</span>
+                  <span className="text-emerald-400">+{citationMovement.gained}</span>
+                  <span className="text-rose-400">-{citationMovement.lost}</span>
+                </div>
+              </div>
+              <p className={`overview-brief-panel-copy ${comparison.querySetChanged ? 'text-amber-400/80' : ''}`}>
+                {comparison.querySetChanged
+                  ? `Query basket changed: +${comparison.addedQueryCount} added, -${comparison.removedQueryCount} removed. Movement compares ${comparison.comparableQueryCount} shared queries.`
+                  : `Same ${comparison.comparableQueryCount}-query basket${comparison.previousRunAt ? ` since ${formatTimestamp(comparison.previousRunAt)}` : ''}.`}
+              </p>
+              {movedQueries.length > 0 && (
+                <p className="overview-brief-panel-copy">Affected: {formatQueryList(movedQueries, 2)}</p>
+              )}
+              <button type="button" className="overview-brief-link" onClick={onJumpToEvidence}>
+                Review query evidence
+              </button>
+            </>
+          )}
+        </div>
+
+        <div className="overview-brief-panel">
+          <p className="overview-brief-label">Next action</p>
+          {primaryAction ? (
+            <>
+              <p className="overview-brief-panel-title">{primaryAction.title}</p>
+              {primaryAction.detail && <p className="overview-brief-panel-copy">{primaryAction.detail}</p>}
+              <button type="button" className="overview-brief-link" onClick={onJumpToActions}>
+                Open action queue
+              </button>
+            </>
+          ) : suggestedQuery ? (
+            <>
+              <p className="overview-brief-panel-title">Consider tracking “{suggestedQuery.query}”</p>
+              <p className="overview-brief-panel-copy">{suggestedQuery.reason}</p>
+              <button type="button" className="overview-brief-link" onClick={onJumpToActions}>
+                Review query suggestions
+              </button>
+            </>
+          ) : (
+            <>
+              <p className="overview-brief-panel-title">No outstanding action</p>
+              <p className="overview-brief-panel-copy">Keep monitoring. Canonry will surface regressions and new query opportunities here.</p>
+            </>
+          )}
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function OverviewDisclosure({
+  id,
+  eyebrow,
+  title,
+  meta,
+  children,
+}: {
+  id?: string
+  eyebrow: string
+  title: string
+  meta?: string
+  children: React.ReactNode
+}) {
+  return (
+    <details id={id} className="overview-disclosure page-section-divider scroll-mt-24">
+      <summary className="overview-disclosure-summary">
+        <span>
+          <span className="eyebrow eyebrow-soft">{eyebrow}</span>
+          <span className="overview-disclosure-title">{title}</span>
+        </span>
+        <span className="overview-disclosure-meta">
+          {meta && <span>{meta}</span>}
+          <ChevronDown className="overview-disclosure-icon" size={16} aria-hidden="true" />
+        </span>
+      </summary>
+      <div className="overview-disclosure-body">{children}</div>
+    </details>
+  )
 }
 
 function MentionShareBreakdown({
@@ -1160,7 +1316,7 @@ function InsightSignals({
     )
   }
 
-  const groups: Array<'write' | 'investigate' | 'monitor'> = ['write', 'investigate', 'monitor']
+  const groups: Array<'write' | 'investigate' | 'monitor'> = ['investigate', 'write', 'monitor']
   const grouped = new Map<string, typeof insights>()
   for (const ins of insights) {
     const bucket = grouped.get(ins.actionGroup) ?? []
@@ -1174,15 +1330,9 @@ function InsightSignals({
         const items = grouped.get(group)
         if (!items || items.length === 0) return null
         const meta = ACTION_GROUP_META[group]
-        return (
-          <div key={group} className={`opportunity-card opportunity-card-${group}`}>
-            <div className="opportunity-card-head">
-              <p className="opportunity-card-title">{meta.title}</p>
-              <span className="opportunity-card-count">{items.length}</span>
-            </div>
-            <p className="opportunity-card-subtitle">{meta.subtitle}</p>
-            <div className="opportunity-card-list">
-              {items.map((insight) => {
+        const itemRows = (
+          <div className="opportunity-card-list">
+            {items.map((insight) => {
                 const isExpanded = expandedId === insight.id
                 const hasAffected = insight.affectedPhrases.length > 0
                 return (
@@ -1240,8 +1390,36 @@ function InsightSignals({
                     )}
                   </div>
                 )
-              })}
+            })}
+          </div>
+        )
+
+        if (group === 'monitor') {
+          return (
+            <details key={group} className="opportunity-card opportunity-card-monitor opportunity-monitor">
+              <summary className="opportunity-monitor-summary">
+                <span>
+                  <span className="opportunity-card-title">{meta.title}</span>
+                  <span className="opportunity-card-subtitle mt-1 block">{meta.subtitle}</span>
+                </span>
+                <span className="flex items-center gap-2">
+                  <span className="opportunity-card-count">{items.length}</span>
+                  <ChevronDown className="opportunity-monitor-icon text-zinc-500" size={14} aria-hidden="true" />
+                </span>
+              </summary>
+              {itemRows}
+            </details>
+          )
+        }
+
+        return (
+          <div key={group} className={`opportunity-card opportunity-card-${group}`}>
+            <div className="opportunity-card-head">
+              <p className="opportunity-card-title">{meta.title}</p>
+              <span className="opportunity-card-count">{items.length}</span>
             </div>
+            <p className="opportunity-card-subtitle">{meta.subtitle}</p>
+            {itemRows}
           </div>
         )
       })}
@@ -1823,7 +2001,6 @@ function ProjectPageContent({
     await queryClient.invalidateQueries({ queryKey: getApiV1ProjectsQueryKey({ client: heyClient }) })
   }
 
-  const isNumericScore = (value: string) => !Number.isNaN(Number.parseInt(value, 10))
   // Quiet underline tabs (Vercel/Linear lineage), not a pill rack. Section nav
   // is chrome: plain text that recedes, the active tab marked by a Snow
   // underline on the bar's hairline. Low-frequency sections (Report) live in a
@@ -1831,7 +2008,7 @@ function ProjectPageContent({
   // convention). "Local Presence" only appears once GBP is connected.
   const projectTabBase = `/projects/${model.project.id}`
   const projectTabItems: ProjectTabItem[] = [
-    { key: 'overview', label: 'AI Visibility', href: projectTabBase },
+    { key: 'overview', label: 'Overview', href: projectTabBase },
     { key: 'search-console', label: 'Search Engines', href: `${projectTabBase}/search-console` },
     { key: 'activity', label: 'Activity', href: `${projectTabBase}/activity` },
     { key: 'technical-aeo', label: 'Technical AEO', href: `${projectTabBase}/technical-aeo` },
@@ -1843,6 +2020,20 @@ function ProjectPageContent({
     { key: 'report', label: 'Report', href: `${projectTabBase}/report` },
   ]
   const projectSettingsTab = { key: 'settings' as const, label: 'Settings', href: `${projectTabBase}/settings` }
+
+  function focusOverviewSection(id: string, openDetails = false) {
+    const section = document.getElementById(id)
+    if (!section) return
+    if (openDetails && section instanceof HTMLDetailsElement) section.open = true
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    window.requestAnimationFrame(() => {
+      section.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' })
+      const focusTarget = section instanceof HTMLDetailsElement
+        ? section.querySelector<HTMLElement>('summary')
+        : section
+      focusTarget?.focus({ preventScroll: true })
+    })
+  }
 
   return (
     <div className="page-container">
@@ -2023,29 +2214,36 @@ function ProjectPageContent({
 
       {tab === 'overview' ? (
         <>
-          {/* Trend chart — full-width centerpiece. Current Cited/Mentioned
-              rates are the chart's latest points; mention-share + the
-              mention/citation gap metrics live in the Competitive landscape
-              section below. */}
-          <VisibilityTrendSection projectName={model.project.name} />
-
-          {/* Movement banner — what changed since last run, with the actual
-              gained / lost query strings inline so the operator doesn't have
-              to guess which queries moved. Counter chips jump to evidence. */}
-          <MovementBanner
-            summary={model.movementSummary}
-            onJumpToEvidence={() => document.getElementById('evidence-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+          <OverviewBrief
+            model={model}
+            sweepRunning={hasActiveVisibilitySweep}
+            onJumpToEvidence={() => focusOverviewSection('evidence-section', true)}
+            onJumpToActions={() => focusOverviewSection('action-queue')}
           />
 
-          {/* Consolidated competitive landscape — mention share + the
-              mention/citation gap metrics, the per-competitor mention-share
-              breakdown, and the competitor table, all below the full-width
-              trend chart. */}
+          <section id="action-queue" className="page-section-divider scroll-mt-24 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-500/60" tabIndex={-1}>
+            <div className="section-head section-head-inline">
+              <div>
+                <p className="eyebrow eyebrow-soft">Action queue</p>
+                <h2>What needs your attention</h2>
+              </div>
+            </div>
+            <InsightSignals
+              insights={model.insights}
+              suggestedQueries={model.suggestedQueries}
+              projectName={projectName}
+            />
+          </section>
+
+          <section className="page-section-divider">
+            <VisibilityTrendSection projectName={model.project.name} />
+          </section>
+
           <section className="page-section-divider">
             <div className="section-head section-head-inline">
               <div>
                 <p className="eyebrow eyebrow-soft">Competitive</p>
-                <h2>Competitive landscape</h2>
+                <h2>Where competitors are winning</h2>
               </div>
               <div className="flex items-center gap-3">
                 <p className="supporting-copy">{model.competitors.length} tracked</p>
@@ -2055,65 +2253,32 @@ function ProjectPageContent({
               </div>
             </div>
 
-            <section className="metric-grid">
-              <h2 className="sr-only">Mention share and competitive gaps</h2>
-              <div className="metric-card">
-                <p className="metric-card-eyebrow">
-                  Mention share
-                  <InfoTooltip text="Of all brand mentions in answer text across your tracked queries (you + tracked competitors), the % that were you. Head-to-head AI prominence, not market share. Measured from your most recent run." />
-                </p>
-                <p className="metric-card-big-value">
-                  <span className="text-zinc-50">{model.mentionShareSummary.value}</span>
-                  {isNumericScore(model.mentionShareSummary.value) ? <span className="text-zinc-600">%</span> : null}
-                </p>
-                <div className="metric-card-bar">
-                  <div
-                    className={`metric-card-bar-fill progress-fill-${model.mentionShareSummary.tone}`}
-                    style={{ width: model.mentionShareSummary.progress !== undefined ? `${Math.min(Math.max(model.mentionShareSummary.progress, 0), 100)}%` : '0%' }}
-                  />
-                </div>
-                <p className="metric-card-detail">{model.mentionShareSummary.delta}</p>
+            <div className="aeo-hero competitive-summary">
+              <div className="aeo-hero-rows">
+                <OverviewMetricRow
+                  label="Mention share"
+                  summary={model.mentionShareSummary}
+                  tooltip="Of all brand mentions in answer text across your tracked queries (you + tracked competitors), the percentage that were you. Measured from the latest sweep."
+                />
+                <OverviewMetricRow
+                  label="Mention gaps"
+                  summary={model.mentionGaps}
+                  displayValue={<><span className="text-zinc-50">{model.mentionGaps.value}</span><span className="text-zinc-600"> / {model.queryCounts.total}</span></>}
+                  tooltip="Queries where a competitor was mentioned in the answer but your brand was not."
+                />
+                <OverviewMetricRow
+                  label="Citation gaps"
+                  summary={model.gapQueries}
+                  displayValue={<><span className="text-zinc-50">{model.gapQueries.value}</span><span className="text-zinc-600"> / {model.queryCounts.total}</span></>}
+                  tooltip="Queries where a competitor was cited as a source but you were not."
+                />
               </div>
-              <div className="metric-card">
-                <p className="metric-card-eyebrow">
-                  Mention Gaps
-                  <InfoTooltip text="Queries where a competitor was mentioned in the answer but your brand wasn't." />
-                </p>
-                <p className="metric-card-big-value">
-                  <span className="text-zinc-50">{model.mentionGaps.value}</span>
-                  <span className="text-zinc-600"> / {model.queryCounts.total}</span>
-                </p>
-                <div className="metric-card-bar">
-                  <div
-                    className={`metric-card-bar-fill progress-fill-${model.mentionGaps.tone}`}
-                    style={{ width: model.mentionGaps.progress !== undefined ? `${Math.min(Math.max(model.mentionGaps.progress, 0), 100)}%` : '0%' }}
-                  />
-                </div>
-                <p className="metric-card-detail">{model.mentionGaps.delta}</p>
-              </div>
-              <div className="metric-card">
-                <p className="metric-card-eyebrow">
-                  Citation Gaps
-                  <InfoTooltip text="Queries where a competitor was cited as a source but you weren't." />
-                </p>
-                <p className="metric-card-big-value">
-                  <span className="text-zinc-50">{model.gapQueries.value}</span>
-                  <span className="text-zinc-600"> / {model.queryCounts.total}</span>
-                </p>
-                <div className="metric-card-bar">
-                  <div
-                    className={`metric-card-bar-fill progress-fill-${model.gapQueries.tone}`}
-                    style={{ width: model.gapQueries.progress !== undefined ? `${Math.min(Math.max(model.gapQueries.progress, 0), 100)}%` : '0%' }}
-                  />
-                </div>
-                <p className="metric-card-detail">{model.gapQueries.delta}</p>
-              </div>
-            </section>
 
-            <MentionShareBreakdown
-              summary={model.mentionShareSummary}
-              projectLabel={model.project.displayName || model.project.name}
-            />
+              <MentionShareBreakdown
+                summary={model.mentionShareSummary}
+                projectLabel={model.project.displayName || model.project.name}
+              />
+            </div>
 
             {addingCompetitor && (
               <div className="mt-4 mb-3 flex gap-2 rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
@@ -2131,33 +2296,34 @@ function ProjectPageContent({
               </div>
             )}
 
-            <div className="mt-4">
-              <CompetitorTable
-                competitors={model.competitors}
-                onSelectCompetitor={(domain) => {
-                  setCompetitorFilter(domain)
-                  document.getElementById('evidence-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-                }}
-                onRemoveCompetitor={(domain) => { void handleRemoveCompetitor(domain) }}
-                activeFilter={competitorFilter}
-              />
-            </div>
+            {model.competitors.length > 0 && (
+              <details className="inline-disclosure mt-4">
+                <summary>Review tracked competitors</summary>
+                <div className="mt-3">
+                  <CompetitorTable
+                    competitors={model.competitors}
+                    onSelectCompetitor={(domain) => {
+                      setCompetitorFilter(domain)
+                      focusOverviewSection('evidence-section', true)
+                    }}
+                    onRemoveCompetitor={(domain) => { void handleRemoveCompetitor(domain) }}
+                    activeFilter={competitorFilter}
+                  />
+                </div>
+              </details>
+            )}
           </section>
 
-          {/* Evidence table — the meat. Moved up so operators can scan answers
-              without scrolling past secondary analytics. */}
-          <section id="evidence-section" className="page-section-divider scroll-mt-24">
-            <div className="section-head section-head-inline">
-              <div>
-                <p className="eyebrow eyebrow-soft">Answer evidence</p>
-                <h2>What the LLMs said</h2>
-              </div>
-              <div className="flex items-center gap-3">
-                <p className="supporting-copy">{trackedQueries.length} queries tracked</p>
-                <Button type="button" variant="outline" size="sm" onClick={() => setManagingQueries(!managingQueries)}>
-                  {managingQueries ? 'Done' : 'Manage queries'}
-                </Button>
-              </div>
+          <OverviewDisclosure
+            id="evidence-section"
+            eyebrow="Tracked coverage"
+            title="Query evidence"
+            meta={`${model.queryCounts.total} ${model.queryCounts.total === 1 ? 'query' : 'queries'}`}
+          >
+            <div className="mb-3 flex items-center justify-end">
+              <Button type="button" variant="outline" size="sm" onClick={() => setManagingQueries(!managingQueries)}>
+                {managingQueries ? 'Done' : 'Manage queries'}
+              </Button>
             </div>
             {managingQueries && (
               <div className="mb-3 rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
@@ -2197,7 +2363,7 @@ function ProjectPageContent({
                 </div>
               </div>
             )}
-            {model.project.locations && model.project.locations.length > 0 && (
+            {model.project.locations.length > 0 && (
               <div className="filter-row mb-3" role="toolbar" aria-label="Location filters">
                 <button
                   className={`filter-chip ${locationFilter === undefined ? 'filter-chip-active' : ''}`}
@@ -2258,83 +2424,55 @@ function ProjectPageContent({
               evidence={filteredEvidence}
               compareLocations={compareLocations}
             />
-          </section>
+          </OverviewDisclosure>
 
-          {/* Opportunities (renamed from Insights). Action layer — what to do
-              next, derived from the evidence above. */}
-          <section className="page-section-divider">
-            <div className="section-head section-head-inline">
-              <div>
-                <p className="eyebrow eyebrow-soft">Opportunities</p>
-                <h2>What to act on next</h2>
-              </div>
-            </div>
-            <InsightSignals
-              insights={model.insights}
-              suggestedQueries={model.suggestedQueries}
-              projectName={projectName}
-            />
-          </section>
+          <OverviewDisclosure eyebrow="Analysis" title="Citation and engine diagnostics" meta="Deep dive">
+            <CitationVisibilitySection projectName={model.project.name} />
 
-          {/* Deep-dive analytics: Citation Visibility detail + per-provider
-              breakdown. Demoted below the action layer because they answer
-              "why" rather than "what to do next". */}
-          <CitationVisibilitySection projectName={model.project.name} />
-
-          {model.providerScores.length > 1 && (
-            <section className="page-section-divider">
-              <div className="section-head section-head-inline">
-                <div>
-                  <p className="eyebrow eyebrow-soft">Model breakdown</p>
-                  <h2>Visibility by model <InfoTooltip text="Per-model citation rate today. Same query set, different LLMs — gaps between providers point at content / source issues, not the metric. The trend over time is in the chart above (the By engine view)." /></h2>
+            {model.providerScores.length > 1 && (
+              <section className="page-section-divider">
+                <div className="section-head section-head-inline">
+                  <div>
+                    <p className="eyebrow eyebrow-soft">Model breakdown</p>
+                    <h2>Citation rate by model <InfoTooltip text="Per-model citation rate in the latest sweep. The same query set can perform differently across engines." /></h2>
+                  </div>
                 </div>
-              </div>
-              <div className="evidence-table-wrap">
-                <table className="evidence-table">
-                  <thead>
-                    <tr>
-                      <th scope="col">Model</th>
-                      <th scope="col">Score</th>
-                      <th scope="col">Cited queries</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {model.providerScores.map((ps) => (
-                      <tr key={`${ps.provider}::${ps.model ?? 'unknown'}`}>
-                        <td>
-                          <div className="flex flex-col items-start gap-0.5">
-                            <ProviderBadge provider={ps.provider} />
-                            {ps.model && <span className="text-[11px] font-mono text-zinc-500">{ps.model}</span>}
-                          </div>
-                        </td>
-                        <td>
-                          <span className={`font-semibold ${METRIC_TONE_TEXT_CLASS[toneFromScore(ps.score)]}`}>
-                            {ps.score}%
-                          </span>
-                        </td>
-                        <td className="text-zinc-500">{ps.cited} of {ps.total}</td>
+                <div className="evidence-table-wrap">
+                  <table className="evidence-table">
+                    <thead>
+                      <tr>
+                        <th scope="col">Model</th>
+                        <th scope="col">Citation rate</th>
+                        <th scope="col">Cited queries</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-          )}
+                    </thead>
+                    <tbody>
+                      {model.providerScores.map((ps) => (
+                        <tr key={`${ps.provider}::${ps.model ?? 'unknown'}`}>
+                          <td>
+                            <div className="flex flex-col items-start gap-0.5">
+                              <ProviderBadge provider={ps.provider} />
+                              {ps.model && <span className="text-[11px] font-mono text-zinc-500">{ps.model}</span>}
+                            </div>
+                          </td>
+                          <td><span className="font-semibold text-zinc-200">{ps.score}%</span></td>
+                          <td className="text-zinc-500">{ps.cited} of {ps.total}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            )}
+          </OverviewDisclosure>
 
-          {/* Run timeline */}
-          <section className="page-section-divider">
-            <div className="section-head section-head-inline">
-              <div>
-                <p className="eyebrow eyebrow-soft">Run timeline</p>
-                <h2>Recent execution history</h2>
-              </div>
-            </div>
+          <OverviewDisclosure eyebrow="Run history" title="Recent execution history" meta={`${model.recentRuns.length} recent`}>
             <div className="run-list">
               {model.recentRuns.map((run) => (
                 <RunRow key={run.id} run={run} />
               ))}
             </div>
-          </section>
+          </OverviewDisclosure>
 
         </>
       ) : tab === 'settings' ? (

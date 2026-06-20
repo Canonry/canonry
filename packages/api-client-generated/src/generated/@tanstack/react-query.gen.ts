@@ -3313,7 +3313,7 @@ export const getApiV1ProjectsByNameOverviewQueryKey = (options: Options<GetApiV1
 /**
  * Get a composite overview of project health
  *
- * Bundles project info, latest run, top undismissed insights, the latest health snapshot, query cited rate, per-provider breakdown, and transitions vs. the previous run. Designed for the "how is project X doing?" question so agents can answer in one call.
+ * Bundles project info, latest run, top undismissed insights, health, independent mention and citation coverage, query-basket comparability, and separate mention/citation movement over the shared query cohort. Designed for the "how is project X doing?" question so agents can answer in one call.
  */
 export const getApiV1ProjectsByNameOverviewOptions = (options: Options<GetApiV1ProjectsByNameOverviewData>) => {
     return queryOptions({

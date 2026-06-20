@@ -3243,12 +3243,11 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/overview',
     summary: 'Get a composite overview of project health',
     description:
-      'Bundles project info, latest run, top undismissed insights, the latest health snapshot, query cited rate, per-provider breakdown, and transitions vs. the previous run. Designed for the "how is project X doing?" question so agents can answer in one call.',
+      'Bundles project info, latest run, top undismissed insights, health, independent mention and citation coverage, query-basket comparability, and separate mention/citation movement over the shared query cohort. Designed for the "how is project X doing?" question so agents can answer in one call.',
     tags: ['intelligence'],
     parameters: [nameParameter],
     responses: {
-      // TODO: Add `ProjectOverviewDto` Zod schema in contracts.
-      200: rawJsonResponse('Overview returned.', looseObjectSchema),
+      200: jsonResponse('Overview returned.', 'ProjectOverviewDto'),
       404: errorResponse('Project not found.'),
     },
   },

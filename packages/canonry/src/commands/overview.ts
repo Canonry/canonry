@@ -103,7 +103,9 @@ export function renderHuman(overview: ProjectOverviewDto): void {
     providers,
     transitions,
     scores,
-    movementSummary,
+    citationMovement,
+    mentionMovement,
+    movementComparison,
     competitors,
     providerScores,
     attentionItems,
@@ -141,10 +143,15 @@ export function renderHuman(overview: ProjectOverviewDto): void {
   console.log(`\n  Queries cited:     ${queryCounts.citedQueries}/${queryCounts.totalQueries} (${pct(queryCounts.citedRate)})`)
   console.log(`  Queries mentioned: ${queryCounts.mentionedQueries}/${queryCounts.totalQueries} (${pct(queryCounts.mentionRate)})`)
 
-  if (movementSummary.hasPreviousRun) {
-    console.log(`  Movement: +${movementSummary.gained} gained, -${movementSummary.lost} lost (${movementSummary.tone})`)
-  } else if (movementSummary.gained > 0) {
-    console.log(`  Movement: ${movementSummary.gained} cited in first run`)
+  if (movementComparison.hasPreviousRun) {
+    const comparisonLabel = movementComparison.querySetChanged
+      ? `changed (+${movementComparison.addedQueryCount} added, -${movementComparison.removedQueryCount} removed); movement compares ${movementComparison.comparableQueryCount} shared`
+      : `unchanged; ${movementComparison.comparableQueryCount} comparable`
+    console.log(`  Query basket:       ${comparisonLabel}`)
+    console.log(`  Citation movement: +${citationMovement.gained} gained, -${citationMovement.lost} lost (${citationMovement.tone})`)
+    console.log(`  Mention movement:  +${mentionMovement.gained} gained, -${mentionMovement.lost} lost (${mentionMovement.tone})`)
+  } else {
+    console.log('  Movement: first sweep; no comparison yet')
   }
 
   if (providers.length > 0) {

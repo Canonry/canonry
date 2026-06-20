@@ -61,16 +61,25 @@ test('overview route renders the premium portfolio dashboard', async () => {
   expect(html).toMatch(/src="\.\/favicon\.svg"/)
 })
 
-test('project route renders a single command center with visibility sections', async () => {
+test('project route renders an operator brief with progressive detail', async () => {
   const html = await renderApp('/projects/project_citypoint')
 
   expect(html).toMatch(/Citypoint Dental NYC/)
-  expect(html).toMatch(/AI Visibility/)
+  expect(html).toMatch(/Overview/)
   expect(html).toMatch(/Search Engines/)
   expect(html).toMatch(/Technical AEO/)
   expect(html).toMatch(/Query Discovery/)
-  expect(html).toMatch(/Opportunities/)
-  expect(html).toMatch(/What the LLMs said/)
+  expect(html).toMatch(/Operator brief/)
+  expect(html).toMatch(/Coverage now/)
+  expect(html).toMatch(/Since previous sweep/)
+  expect(html).toMatch(/Mentioned/)
+  expect(html).toMatch(/Cited/)
+  expect(html).toMatch(/Query basket changed: \+1 added, -0 removed/)
+  expect(html).toMatch(/Movement compares 8 shared queries/)
+  expect(html).toMatch(/What needs your attention/)
+  expect(html).toMatch(/<details id="evidence-section"/)
+  expect(html).toMatch(/Query evidence/)
+  expect(html).toMatch(/Citation and engine diagnostics/)
   expect(html).toMatch(/Recent execution history/)
 })
 

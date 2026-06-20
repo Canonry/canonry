@@ -559,6 +559,13 @@ test('buildProjectCommandCenter populates score gauges from the overview DTO whe
         runStatus: { label: 'Run Status', value: 'None', delta: '', tone: 'neutral', description: '', tooltip: '', trend: [] },
       },
       movementSummary: { gained: 0, lost: 0, tone: 'neutral', hasPreviousRun: false },
+      citationMovement: { gained: 0, lost: 0, tone: 'neutral', hasPreviousRun: false },
+      mentionMovement: { gained: 0, lost: 0, tone: 'neutral', hasPreviousRun: false },
+      movementComparison: {
+        hasPreviousRun: false, comparable: false, querySetChanged: false, previousRunAt: null,
+        currentQueryCount: 4, previousQueryCount: 0, comparableQueryCount: 0,
+        addedQueryCount: 0, removedQueryCount: 0, addedQueries: [], removedQueries: [],
+      },
       competitors: [],
       providerScores: [{ provider: 'gemini', model: 'flash', score: 75, cited: 3, total: 4 }],
       attentionItems: [],
@@ -573,6 +580,9 @@ test('buildProjectCommandCenter populates score gauges from the overview DTO whe
   expect(vm.visibilitySummary.tone).toBe('positive')
   expect(vm.queryCounts).toEqual({ cited: 3, total: 4 })
   expect(vm.providerScores).toEqual([{ provider: 'gemini', model: 'flash', score: 75, cited: 3, total: 4 }])
+  expect(vm.citationMovement).toEqual({ gained: 0, lost: 0, tone: 'neutral', hasPreviousRun: false })
+  expect(vm.mentionMovement).toEqual({ gained: 0, lost: 0, tone: 'neutral', hasPreviousRun: false })
+  expect(vm.movementComparison).toMatchObject({ hasPreviousRun: false, comparable: false })
   expect(vm.dateRangeLabel).toBe('All time')
   expect(vm.contextLabel).toBe('US / EN')
 })
@@ -634,6 +644,13 @@ test('buildProjectCommandCenter surfaces synthesized attention items (e.g. stale
         runStatus: { label: 'Run Status', value: 'None', delta: '', tone: 'neutral', description: '', tooltip: '', trend: [] },
       },
       movementSummary: { gained: 0, lost: 0, tone: 'neutral', hasPreviousRun: false },
+      citationMovement: { gained: 0, lost: 0, tone: 'neutral', hasPreviousRun: false },
+      mentionMovement: { gained: 0, lost: 0, tone: 'neutral', hasPreviousRun: false },
+      movementComparison: {
+        hasPreviousRun: false, comparable: false, querySetChanged: false, previousRunAt: null,
+        currentQueryCount: 0, previousQueryCount: 0, comparableQueryCount: 0,
+        addedQueryCount: 0, removedQueryCount: 0, addedQueries: [], removedQueries: [],
+      },
       competitors: [],
       providerScores: [],
       attentionItems: [
@@ -1172,6 +1189,13 @@ test('buildPortfolioProject carries the mention-rate trend, score, and subtitle 
         runStatus: { label: 'Run Status', value: 'None', delta: '', tone: 'neutral', description: '', tooltip: '', trend: [] },
       },
       movementSummary: { gained: 0, lost: 0, tone: 'neutral', hasPreviousRun: false },
+      citationMovement: { gained: 0, lost: 0, tone: 'neutral', hasPreviousRun: false },
+      mentionMovement: { gained: 0, lost: 0, tone: 'neutral', hasPreviousRun: false },
+      movementComparison: {
+        hasPreviousRun: false, comparable: false, querySetChanged: false, previousRunAt: null,
+        currentQueryCount: 4, previousQueryCount: 0, comparableQueryCount: 0,
+        addedQueryCount: 0, removedQueryCount: 0, addedQueries: [], removedQueries: [],
+      },
       competitors: [],
       providerScores: [{ provider: 'gemini', model: 'flash', score: 75, cited: 3, total: 4 }],
       attentionItems: [],
