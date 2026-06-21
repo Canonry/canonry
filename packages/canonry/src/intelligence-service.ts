@@ -285,6 +285,9 @@ export class IntelligenceService {
       keywords: [], // keyword coverage is unused here; the trend uses the monthly series below
       placeActions: placeActionRows.map((r) => ({ placeActionType: r.placeActionType, providerType: r.providerType ?? null })),
       lodging: lodgingRow ? [{ locationName, populatedGroupCount: lodgingRow.populatedGroupCount }] : [],
+      // The analyzer consumes metric/keyword/place-action/lodging signals, not
+      // the profile-completeness scorecard, so it is left empty here.
+      locationProfiles: [],
     })
 
     const trend = this.buildGbpKeywordTrend(projectId, locationName)

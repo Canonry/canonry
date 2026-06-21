@@ -614,6 +614,57 @@ describe('GBP routes (Phase 1)', () => {
       expect(body.performance.totals.WEBSITE_CLICKS).toBe(10)
       expect(body.scope.locationCount).toBe(1)
     })
+
+    it('reports owner-content profile completeness over the selected locations only', async () => {
+      const projectId = ctx.seedProject('hotels', 'hotels.example.com')
+      const now = new Date().toISOString()
+      // Selected location with rich owner content.
+      ctx.db.insert(gbpLocations).values({
+        id: crypto.randomUUID(), projectId, accountName: 'accounts/1', locationName: 'locations/1', displayName: 'AZ Coatings',
+        additionalCategories: ['Insulation contractor', 'Waterproofing service'], description: 'Roof restoration.',
+        serviceArea: { businessType: 'CUSTOMER_LOCATION_ONLY' }, regularHours: { periods: [] }, primaryPhone: '(248) 925-7414', openStatus: 'OPEN',
+        selected: true, createdAt: now, updatedAt: now,
+      }).run()
+      // DESELECTED location, also rich — must NOT count toward completeness.
+      ctx.db.insert(gbpLocations).values({
+        id: crypto.randomUUID(), projectId, accountName: 'accounts/1', locationName: 'locations/2', displayName: 'Other',
+        additionalCategories: ['Event venue'], description: 'Should not count.', primaryPhone: '(000) 000-0000', openStatus: 'CLOSED_PERMANENTLY',
+        selected: false, createdAt: now, updatedAt: now,
+      }).run()
+
+      const res = await ctx.app.inject({ method: 'GET', url: '/projects/hotels/gbp/summary' })
+      expect(res.statusCode).toBe(200)
+      const pc = (res.json() as { profileCompleteness: Record<string, number> }).profileCompleteness
+      expect(pc.locationCount).toBe(1)               // only the selected location
+      expect(pc.withSecondaryCategories).toBe(1)
+      expect(pc.secondaryCategoryTotal).toBe(2)
+      expect(pc.withDescription).toBe(1)
+      expect(pc.withServiceArea).toBe(1)
+      expect(pc.withHours).toBe(1)
+      expect(pc.withPrimaryPhone).toBe(1)
+      expect(pc.permanentlyClosed).toBe(0)           // the deselected permanently-closed one is excluded
+    })
+
+    it('an explicit ?locationName= scopes completeness to that location regardless of selection', async () => {
+      const projectId = ctx.seedProject('hotels', 'hotels.example.com')
+      const now = new Date().toISOString()
+      // A DESELECTED location with owner content — addressable by explicit ?locationName.
+      ctx.db.insert(gbpLocations).values({
+        id: crypto.randomUUID(), projectId, accountName: 'accounts/1', locationName: 'locations/2', displayName: 'Deselected',
+        additionalCategories: ['Event venue'], description: 'Reachable by explicit location.', primaryPhone: '(323) 515-1215', openStatus: 'OPEN',
+        selected: false, createdAt: now, updatedAt: now,
+      }).run()
+
+      const res = await ctx.app.inject({ method: 'GET', url: `/projects/hotels/gbp/summary?locationName=${encodeURIComponent('locations/2')}` })
+      expect(res.statusCode).toBe(200)
+      const pc = (res.json() as { profileCompleteness: Record<string, number> }).profileCompleteness
+      // Explicit location is honored even though it is deselected — matches the
+      // per-location scope the rest of the summary uses.
+      expect(pc.locationCount).toBe(1)
+      expect(pc.withSecondaryCategories).toBe(1)
+      expect(pc.withDescription).toBe(1)
+      expect(pc.withPrimaryPhone).toBe(1)
+    })
   })
 
   describe('GET /gbp/places (#648)', () => {
