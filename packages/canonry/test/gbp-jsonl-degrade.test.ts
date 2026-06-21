@@ -57,6 +57,7 @@ const SUMMARY = {
   keywords: { total: 5, thresholdedPct: 20 },
   placeActions: { total: 2, hasReservationCta: true, hasBookingCta: false, hasDirectMerchantCta: true },
   lodging: { lodgingLocationCount: 1, populatedLodgingCount: 1, emptyLodgingCount: 0 },
+  profileCompleteness: { locationCount: 1, withSecondaryCategories: 1, secondaryCategoryTotal: 2, withDescription: 1, withServiceArea: 0, withHours: 1, withPrimaryPhone: 1, permanentlyClosed: 0, temporarilyClosed: 0 },
   timeseries: [],
 }
 

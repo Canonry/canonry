@@ -1219,7 +1219,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_gbp_summary',
     title: 'Get GBP local-AEO summary',
-    description: 'Composite Google Business Profile summary for a project: performance totals + 7d deltas, keyword thresholded %, place-action CTA presence, and lodging coverage. All derived numbers computed server-side.',
+    description: 'Composite Google Business Profile summary for a project: performance totals + 7d deltas, keyword thresholded %, place-action CTA presence, lodging coverage, and owner-content profile completeness (how many selected locations populate secondary categories / description / service area / hours / phone, plus closed-status counts). All derived numbers computed server-side.',
     access: 'read',
     tier: 'gbp',
     inputSchema: gbpLocationScopedInputSchema,
