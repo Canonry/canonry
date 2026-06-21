@@ -1,14 +1,23 @@
-import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
+import { Fragment, useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   getApiV1ProjectsByNameGoogleConnectionsOptions,
   getApiV1ProjectsByNameGbpSummaryOptions,
   getApiV1ProjectsByNameGbpLocationsOptions,
   getApiV1ProjectsByNameGbpKeywordsOptions,
+  getApiV1ProjectsByNameGbpLodgingOptions,
+  getApiV1ProjectsByNameGbpPlaceActionsOptions,
   getApiV1ProjectsByNameGbpPlacesOptions,
   postApiV1ProjectsByNameGbpSyncMutation,
   putApiV1ProjectsByNameGbpLocationsByLocationNameSelectionMutation,
 } from '@ainyc/canonry-api-client/react-query'
+import type {
+  GbpLocationDto,
+  GbpLodgingListResponse,
+  GbpPlaceActionListResponse,
+  GbpPlaceDetailsListResponse,
+  GbpSummaryDto,
+} from '@ainyc/canonry-api-client'
 
 import {
   formatGbpMetricLabel,
@@ -16,6 +25,7 @@ import {
   GBP_CONVERSION_METRICS,
   GBP_REACH_METRICS,
   RunKinds,
+  type InsightType,
 } from '@ainyc/canonry-contracts'
 
 import { Button } from '../ui/button.js'
@@ -46,11 +56,20 @@ import { fetchInsights, heyClient } from '../../api.js'
 import { addToast } from '../../lib/toast-store.js'
 import { getRunTrackerState, subscribeRunTracker, trackRun } from '../../lib/run-tracker-store.js'
 
+const GBP_ATTENTION_TYPES = new Set<InsightType>([
+  'gbp-listing-discrepancy',
+  'gbp-lodging-gap',
+  'gbp-cta-gap',
+  'gbp-metric-drop',
+  'gbp-keyword-drop',
+])
+
 export function GbpSection({ projectName, projectId }: { projectName: string; projectId: string }) {
   const queryClient = useQueryClient()
   // `null` = all tracked locations (aggregate). A locationName scopes every read
   // to one location. A single tracked location reads 1:1 with no selector.
   const [scopeLocation, setScopeLocation] = useState<string | null>(null)
+  const [expandedLocation, setExpandedLocation] = useState<string | null>(null)
   const [showManage, setShowManage] = useState(false)
 
   const connectionsQuery = useQuery(
@@ -71,6 +90,14 @@ export function GbpSection({ projectName, projectId }: { projectName: string; pr
   })
   const keywordsQuery = useQuery({
     ...getApiV1ProjectsByNameGbpKeywordsOptions({ client: heyClient, path: { name: projectName }, query: scopeQuery }),
+    enabled: connected,
+  })
+  const lodgingQuery = useQuery({
+    ...getApiV1ProjectsByNameGbpLodgingOptions({ client: heyClient, path: { name: projectName }, query: scopeQuery }),
+    enabled: connected,
+  })
+  const placeActionsQuery = useQuery({
+    ...getApiV1ProjectsByNameGbpPlaceActionsOptions({ client: heyClient, path: { name: projectName }, query: scopeQuery }),
     enabled: connected,
   })
   const placesQuery = useQuery({
@@ -149,6 +176,14 @@ export function GbpSection({ projectName, projectId }: { projectName: string; pr
     }
   }, [scopeLocation, locationsQuery.data])
 
+  useEffect(() => {
+    if (!expandedLocation || !locationsQuery.data) return
+    const visibleLocationNames = scopeLocation
+      ? [scopeLocation]
+      : locationsQuery.data.locations.filter((l) => l.selected).map((l) => l.locationName)
+    if (!visibleLocationNames.includes(expandedLocation)) setExpandedLocation(null)
+  }, [expandedLocation, locationsQuery.data, scopeLocation])
+
   if (connectionsQuery.isLoading) return null
 
   // The "Local Presence" tab is always reachable; when no Google Business
@@ -212,20 +247,32 @@ export function GbpSection({ projectName, projectId }: { projectName: string; pr
   const locations = locationsQuery.data?.locations ?? []
   const trackedLocations = locations.filter((l) => l.selected)
   const keywords = keywordsQuery.data?.keywords ?? []
+  const lodging = lodgingQuery.data?.lodging ?? []
+  const placeActions = placeActionsQuery.data?.placeActions ?? []
   const places = placesQuery.data?.places ?? []
   const account = locations.length > 0 ? locations[0].accountName : gbpConnection.domain
 
   const scopeDisplayName = scopeLocation
     ? locations.find((l) => l.locationName === scopeLocation)?.displayName ?? null
     : null
+  const evidenceLocations = scopeLocation
+    ? locations.filter((l) => l.locationName === scopeLocation)
+    : trackedLocations
+  const evidenceLocationNames = new Set(evidenceLocations.map((l) => l.locationName))
+  const evidenceLodging = lodging.filter((l) => evidenceLocationNames.has(l.locationName))
+  const evidencePlaceActions = placeActions.filter((pa) => evidenceLocationNames.has(pa.locationName))
+  const evidencePlaces = places.filter((p) => evidenceLocationNames.has(p.locationName))
+  const keywordLocationNames = new Set(trackedLocations.map((l) => l.locationName))
+  const visibleKeywords = scopeLocation ? keywords : keywords.filter((kw) => keywordLocationNames.has(kw.locationName))
+  const showKeywordLocation = !scopeLocation && trackedLocations.length > 1
 
-  // The owner-vs-public amenity gap is computed server-side by the GBP analyzer
-  // (the `gbp-listing-discrepancy` / `gbp-lodging-gap` insights); we only render
-  // it. Filter to the active scope via the location-labelled title/query.
-  const gapInsights = (insightsQuery.data ?? []).filter((ins) =>
+  // Local-presence attention items are computed server-side by the GBP analyzer;
+  // the dashboard only filters them into this tab and scopes them to the active
+  // location when one is selected.
+  const attentionInsights = (insightsQuery.data ?? []).filter((ins) =>
     !ins.dismissed
-    && (ins.type === 'gbp-listing-discrepancy' || ins.type === 'gbp-lodging-gap')
-    && (!scopeDisplayName || ins.query === scopeLocation || ins.title.startsWith(scopeDisplayName)),
+    && GBP_ATTENTION_TYPES.has(ins.type)
+    && (!scopeDisplayName || ins.query === scopeDisplayName || ins.query === scopeLocation || ins.title.startsWith(scopeDisplayName)),
   )
 
   return (
@@ -279,11 +326,11 @@ export function GbpSection({ projectName, projectId }: { projectName: string; pr
           </p>
         ) : (
           <>
-            {/* Owner-vs-public gap (server-computed insights) — the headline AEO signal. */}
-            {gapInsights.length > 0 && (
+            {attentionInsights.length > 0 && (
               <div className="mb-6 grid gap-2">
-                {gapInsights.map((ins) => (
-                  <div key={ins.id} className="insight-card insight-card-negative rounded-r-lg border border-zinc-800/60 bg-zinc-900/30 p-3 pl-4">
+                <p className="eyebrow eyebrow-soft">Needs attention</p>
+                {attentionInsights.map((ins) => (
+                  <div key={ins.id} className={['insight-card', insightCardToneClass(ins.severity), 'rounded-r-lg border border-zinc-800/60 bg-zinc-900/30 p-3 pl-4'].filter(Boolean).join(' ')}>
                     <p className="flex items-center gap-2 text-sm font-medium text-zinc-200">
                       {ins.title}
                       {ins.recommendation?.reason && <InfoTooltip text={ins.recommendation.reason} />}
@@ -293,7 +340,7 @@ export function GbpSection({ projectName, projectId }: { projectName: string; pr
               </div>
             )}
 
-            {/* Performance — graph-first: a daily conversion trend (the hero) and
+            {/* Performance — graph-first: daily profile-action trend (the hero) and
                 a reach area, with the reporting-lag tail marked pending and
                 all-zero series collapsed to a footnote (#658). */}
             {summary && (
@@ -304,57 +351,21 @@ export function GbpSection({ projectName, projectId }: { projectName: string; pr
               />
             )}
 
-            {/* Owner-configured Place Action CTAs and the raw lodging-completeness
-                count are deliberately not rendered here. Both come only from the
-                owner-set profile and have no public counterpart to cross-reference,
-                so an "Absent" / "empty" tile reads as fact when it is really an
-                unverifiable owner signal (#648). The cross-referenced lodging gap
-                still surfaces above as the gbp-listing-discrepancy insight, and the
-                public Maps listing surfaces below. Operators who want the raw
-                owner-configured data read `cnry gbp place-actions` / `gbp lodging`;
-                the /gbp/summary API still carries both fields. */}
+            {summary?.profileCompleteness && (
+              <GbpProfileCompleteness summary={summary.profileCompleteness} />
+            )}
 
-            {/* Public listing (Places, #648) — amenities Google's public Maps listing
-                advertises, derived server-side. The gap vs the owner profile is the
-                AEO signal surfaced above as an insight. */}
-            {places.length > 0 && (
-              <div className="mb-6">
-                <p className="eyebrow eyebrow-soft mb-2">Public listing · Google Maps</p>
-                <div className="grid gap-2">
-                  {places.map((place) => {
-                    const loc = locations.find((l) => l.locationName === place.locationName)
-                    return (
-                      <div key={place.locationName} className="rounded-lg border border-zinc-800/60 bg-zinc-900/30 px-3 py-3">
-                        <div className="flex items-center justify-between gap-3">
-                          <span className="text-sm text-zinc-300">{loc?.displayName ?? place.locationName}</span>
-                          <span className="text-[11px] text-zinc-600">
-                            {place.amenities.length} amenit{place.amenities.length === 1 ? 'y' : 'ies'} advertised
-                          </span>
-                        </div>
-                        {place.amenities.length > 0 ? (
-                          <div className="mt-2 flex flex-wrap gap-1.5">
-                            {place.amenities.map((a) => (
-                              <span key={a} className="rounded-full border border-zinc-700/60 px-2 py-0.5 text-[11px] text-zinc-400">{a}</span>
-                            ))}
-                          </div>
-                        ) : (
-                          <p className="mt-1 text-sm text-zinc-500">Public listing advertises no structured amenities.</p>
-                        )}
-                        {loc?.mapsUri && (
-                          <a
-                            href={loc.mapsUri}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="mt-2 inline-block text-[11px] text-zinc-500 hover:text-zinc-300"
-                          >
-                            View on Google Maps →
-                          </a>
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
+            {evidenceLocations.length > 0 && (
+              <GbpLocationEvidenceTable
+                locations={evidenceLocations}
+                lodging={evidenceLodging}
+                places={evidencePlaces}
+                placeActions={evidencePlaceActions}
+                expandedLocation={expandedLocation}
+                onToggleExpanded={(locationName) => {
+                  setExpandedLocation((current) => current === locationName ? null : locationName)
+                }}
+              />
             )}
 
             {/* Search keywords table. */}
@@ -367,21 +378,27 @@ export function GbpSection({ projectName, projectId }: { projectName: string; pr
                   </span>
                 )}
               </div>
-              {keywords.length === 0 ? (
+              {visibleKeywords.length === 0 ? (
                 <p className="text-sm text-zinc-500">No keyword impressions stored yet.</p>
               ) : (
                 <table className="data-table w-full text-sm">
                   <thead>
                     <tr>
                       <th className="text-left">Search term</th>
+                      {showKeywordLocation && <th className="text-left">Location</th>}
                       <th className="text-right">Impressions</th>
                       <th className="text-right">Window</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {keywords.slice(0, 25).map((kw) => (
+                    {visibleKeywords.slice(0, 25).map((kw) => (
                       <tr key={`${kw.locationName}:${kw.keyword}`}>
                         <td className="text-zinc-300">{kw.keyword}</td>
+                        {showKeywordLocation && (
+                          <td className="text-zinc-500">
+                            {locations.find((l) => l.locationName === kw.locationName)?.displayName ?? kw.locationName}
+                          </td>
+                        )}
                         <td className="text-right font-mono text-zinc-200">
                           {kw.valueCount !== null
                             ? kw.valueCount.toLocaleString()
@@ -479,7 +496,450 @@ function ScopeChip({ label, active, onClick }: { label: string; active: boolean;
   )
 }
 
-// ----- Performance: graph-first conversion trend + reach (#658) -----
+type GbpLocation = GbpLocationDto
+type GbpLodgingSnapshot = GbpLodgingListResponse['lodging'][number]
+type GbpPlaceAction = GbpPlaceActionListResponse['placeActions'][number]
+type GbpPlaceDetails = GbpPlaceDetailsListResponse['places'][number]
+type ProfileCompletenessSummary = GbpSummaryDto['profileCompleteness']
+
+function GbpProfileCompleteness({ summary }: { summary: ProfileCompletenessSummary }) {
+  if (summary.locationCount === 0) return null
+  const total = summary.locationCount
+  const rows = [
+    {
+      label: 'Description',
+      value: `${summary.withDescription}/${total}`,
+      tone: completionTone(summary.withDescription, total, 'caution'),
+    },
+    {
+      label: 'Hours',
+      value: `${summary.withHours}/${total}`,
+      tone: completionTone(summary.withHours, total, 'caution'),
+    },
+    {
+      label: 'Phone',
+      value: `${summary.withPrimaryPhone}/${total}`,
+      tone: completionTone(summary.withPrimaryPhone, total, 'caution'),
+    },
+    {
+      label: 'Service area',
+      value: `${summary.withServiceArea}/${total}`,
+      tone: completionTone(summary.withServiceArea, total, 'neutral'),
+    },
+    {
+      label: 'Secondary categories',
+      value: `${summary.withSecondaryCategories}/${total}`,
+      detail: `${summary.secondaryCategoryTotal} total`,
+      tone: completionTone(summary.withSecondaryCategories, total, 'caution'),
+    },
+    {
+      label: 'Closed',
+      value: String(summary.permanentlyClosed + summary.temporarilyClosed),
+      detail: summary.permanentlyClosed || summary.temporarilyClosed
+        ? `${summary.permanentlyClosed} permanent, ${summary.temporarilyClosed} temporary`
+        : 'reported open',
+      tone: summary.permanentlyClosed > 0 ? 'negative' : summary.temporarilyClosed > 0 ? 'caution' : 'positive',
+    },
+  ] satisfies Array<{ label: string; value: string; detail?: string; tone: 'positive' | 'caution' | 'negative' | 'neutral' }>
+
+  return (
+    <div className="mb-6 border-y border-zinc-800/60 py-3">
+      <div className="mb-3 flex items-center gap-2">
+        <p className="eyebrow eyebrow-soft">Owner profile · Business Information</p>
+        <InfoTooltip text="Counts selected locations where Google Business Information returned the owner-authored field. A missing value means it was not returned by this API response, not that every Google surface is empty." />
+      </div>
+      <div className="grid gap-x-5 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">
+        {rows.map((row) => (
+          <div key={row.label} className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-3">
+            <span className="text-xs text-zinc-500">{row.label}</span>
+            <span className={`font-mono text-sm tabular-nums ${toneTextClass(row.tone)}`}>{row.value}</span>
+            {row.detail && <span className="col-span-2 text-[11px] text-zinc-600">{row.detail}</span>}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function GbpLocationEvidenceTable({
+  locations,
+  lodging,
+  places,
+  placeActions,
+  expandedLocation,
+  onToggleExpanded,
+}: {
+  locations: GbpLocation[]
+  lodging: GbpLodgingSnapshot[]
+  places: GbpPlaceDetails[]
+  placeActions: GbpPlaceAction[]
+  expandedLocation: string | null
+  onToggleExpanded: (locationName: string) => void
+}) {
+  const lodgingByLocation = new Map(lodging.map((l) => [l.locationName, l]))
+  const placeByLocation = new Map(places.map((p) => [p.locationName, p]))
+  const actionsByLocation = new Map<string, GbpPlaceAction[]>()
+  for (const action of placeActions) {
+    const existing = actionsByLocation.get(action.locationName) ?? []
+    existing.push(action)
+    actionsByLocation.set(action.locationName, existing)
+  }
+
+  return (
+    <div className="mb-6">
+      <div className="section-head section-head-inline mb-2">
+        <div className="flex items-center gap-2">
+          <p className="eyebrow eyebrow-soft">Source evidence</p>
+          <InfoTooltip text="Each column names the Google surface it came from. Missing or empty means that surface did not return a value in the latest Canonry sync, not that every Google product lacks the information." />
+        </div>
+        <span className="text-[11px] text-zinc-600">{locations.length} location{locations.length === 1 ? '' : 's'}</span>
+      </div>
+      <div className="data-table-wrapper">
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th className="min-w-[14rem]">Location</th>
+              <th className="min-w-[15rem]">Owner profile</th>
+              <th className="min-w-[11rem]">Hotel data</th>
+              <th className="min-w-[11rem]">Public Maps</th>
+              <th className="min-w-[10rem]">CTAs</th>
+              <th className="text-right">Detail</th>
+            </tr>
+          </thead>
+          <tbody>
+            {locations.map((loc) => {
+              const locationLodging = lodgingByLocation.get(loc.locationName) ?? null
+              const locationPlace = placeByLocation.get(loc.locationName) ?? null
+              const locationActions = actionsByLocation.get(loc.locationName) ?? []
+              const expanded = expandedLocation === loc.locationName
+              return (
+                <Fragment key={loc.id}>
+                  <tr>
+                    <td>
+                      <div className="min-w-0">
+                        <p className="font-medium text-zinc-200">{loc.displayName}</p>
+                        <p className="mt-1 text-xs text-zinc-600">{loc.primaryCategoryDisplayName ?? 'Primary category not returned'}</p>
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          <ToneBadge tone={loc.selected ? 'positive' : 'neutral'}>
+                            {loc.selected ? 'Tracked' : 'Not tracked'}
+                          </ToneBadge>
+                          {loc.openStatus && loc.openStatus !== 'OPEN' && (
+                            <ToneBadge tone={loc.openStatus === 'CLOSED_PERMANENTLY' ? 'negative' : 'caution'}>
+                              {formatOpenStatus(loc.openStatus)}
+                            </ToneBadge>
+                          )}
+                        </div>
+                      </div>
+                    </td>
+                    <td><OwnerProfileCell location={loc} /></td>
+                    <td><LodgingCell lodging={locationLodging} /></td>
+                    <td><PlacesCell place={locationPlace} mapsUri={loc.mapsUri} /></td>
+                    <td><PlaceActionsCell actions={locationActions} /></td>
+                    <td className="text-right">
+                      <Button type="button" variant="outline" size="sm" onClick={() => onToggleExpanded(loc.locationName)}>
+                        {expanded ? 'Hide' : 'Details'}
+                      </Button>
+                    </td>
+                  </tr>
+                  {expanded && (
+                    <tr className="bg-zinc-950/35 hover:bg-zinc-950/35">
+                      <td colSpan={6} className="px-4 py-4">
+                        <LocationEvidenceDetail
+                          location={loc}
+                          lodging={locationLodging}
+                          place={locationPlace}
+                          placeActions={locationActions}
+                        />
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+export type GbpSourceTone = 'positive' | 'caution' | 'negative' | 'neutral'
+
+export interface GbpSourceState {
+  tone: GbpSourceTone
+  label: string
+  detail: string
+}
+
+export function gbpOwnerProfileFacts(location: GbpLocation): Array<{ label: string; tone: GbpSourceTone; value: string }> {
+  return [
+    { label: 'Description', tone: hasText(location.description) ? 'positive' : 'neutral', value: hasText(location.description) ? 'set' : 'not returned' },
+    { label: 'Hours', tone: location.regularHours ? 'positive' : 'neutral', value: location.regularHours ? 'set' : 'not returned' },
+    { label: 'Phone', tone: hasText(location.primaryPhone) ? 'positive' : 'neutral', value: hasText(location.primaryPhone) ? 'set' : 'not returned' },
+    { label: 'Website', tone: hasText(location.websiteUri) ? 'positive' : 'neutral', value: hasText(location.websiteUri) ? 'set' : 'not returned' },
+    { label: 'Secondary', tone: location.additionalCategories.length > 0 ? 'positive' : 'neutral', value: location.additionalCategories.length > 0 ? String(location.additionalCategories.length) : 'not returned' },
+    { label: 'Service area', tone: location.serviceArea ? 'positive' : 'neutral', value: location.serviceArea ? 'set' : 'not returned' },
+  ]
+}
+
+function OwnerProfileCell({ location }: { location: GbpLocation }) {
+  const facts = gbpOwnerProfileFacts(location)
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {facts.map((fact) => (
+        <ToneBadge key={fact.label} tone={fact.tone}>{fact.label} {fact.value}</ToneBadge>
+      ))}
+    </div>
+  )
+}
+
+function LodgingCell({ lodging }: { lodging: GbpLodgingSnapshot | null }) {
+  return <SourceCell {...gbpLodgingSourceState(lodging)} />
+}
+
+export function gbpLodgingSourceState(lodging: GbpLodgingSnapshot | null): GbpSourceState {
+  if (!lodging) {
+    return { tone: 'neutral', label: 'No Lodging API snapshot', detail: 'Not returned for this scoped location.' }
+  }
+  if (lodging.populatedGroupCount === 0) {
+    return {
+      tone: 'neutral',
+      label: '0 groups returned',
+      detail: 'Lodging API returned no structured groups in the latest sync.',
+    }
+  }
+  return {
+    tone: 'positive',
+    label: `${lodging.populatedGroupCount} group${lodging.populatedGroupCount === 1 ? '' : 's'} returned`,
+    detail: 'Owner lodging attributes.',
+  }
+}
+
+function PlacesCell({ place, mapsUri }: { place: GbpPlaceDetails | null; mapsUri: string | null }) {
+  return <SourceCell {...gbpPlacesSourceState(place, mapsUri)} />
+}
+
+export function gbpPlacesSourceState(place: GbpPlaceDetails | null, mapsUri: string | null): GbpSourceState {
+  if (!place) {
+    return {
+      tone: 'neutral',
+      label: 'Public listing not checked',
+      detail: mapsUri ? 'Maps link available.' : 'No Places snapshot.',
+    }
+  }
+  const amenityCount = place.amenities.length
+  return {
+    tone: amenityCount > 0 ? 'positive' : 'neutral',
+    label: amenityCount > 0
+      ? `${amenityCount} signal${amenityCount === 1 ? '' : 's'} detected`
+      : '0 supported signals detected',
+    detail: `Places tier: ${place.tier}`,
+  }
+}
+
+function PlaceActionsCell({ actions }: { actions: GbpPlaceAction[] }) {
+  return <SourceCell {...gbpPlaceActionsSourceState(actions)} />
+}
+
+export function gbpPlaceActionsSourceState(actions: GbpPlaceAction[]): GbpSourceState {
+  if (actions.length === 0) {
+    return { tone: 'neutral', label: 'No CTAs stored', detail: 'No placeActionLinks returned.' }
+  }
+  const merchantCount = actions.filter((a) => a.providerType === 'MERCHANT').length
+  if (merchantCount === 0) {
+    return {
+      tone: 'neutral',
+      label: `${actions.length} aggregator CTA${actions.length === 1 ? '' : 's'}`,
+      detail: 'No merchant-owned CTA returned.',
+    }
+  }
+  return {
+    tone: 'positive',
+    label: `${merchantCount} merchant CTA${merchantCount === 1 ? '' : 's'}`,
+    detail: `${actions.length} total returned.`,
+  }
+}
+
+function SourceCell({
+  tone,
+  label,
+  detail,
+}: {
+  tone: GbpSourceTone
+  label: string
+  detail: string
+}) {
+  return (
+    <div>
+      <ToneBadge tone={tone}>{label}</ToneBadge>
+      <p className="mt-1.5 text-xs leading-5 text-zinc-600">{detail}</p>
+    </div>
+  )
+}
+
+function LocationEvidenceDetail({
+  location,
+  lodging,
+  place,
+  placeActions,
+}: {
+  location: GbpLocation
+  lodging: GbpLodgingSnapshot | null
+  place: GbpPlaceDetails | null
+  placeActions: GbpPlaceAction[]
+}) {
+  const lodgingGroups = lodging ? populatedLodgingGroups(lodging.attributes) : []
+  return (
+    <div className="grid gap-5 text-xs lg:grid-cols-3">
+      <EvidenceDetailGroup title="Owner profile · Business Information">
+        <EvidenceRow label="Primary category" value={location.primaryCategoryDisplayName ?? 'Not returned'} />
+        <EvidenceRow label="Secondary categories" value={location.additionalCategories.length > 0 ? location.additionalCategories.join(', ') : 'Not returned'} />
+        <EvidenceRow label="Description" value={hasText(location.description) ? location.description : 'Not returned'} />
+        <EvidenceRow label="Hours" value={location.regularHours ? 'Returned by Google' : 'Not returned'} />
+        <EvidenceRow label="Service area" value={location.serviceArea ? 'Returned by Google' : 'Not returned'} />
+        <EvidenceRow label="Phone" value={location.primaryPhone ?? 'Not returned'} />
+        <EvidenceRow label="Website" value={location.websiteUri ?? 'Not returned'} />
+        <EvidenceRow label="Open status" value={formatOpenStatus(location.openStatus)} />
+        <EvidenceRow label="Opening date" value={location.openingDate ?? 'Not returned'} />
+      </EvidenceDetailGroup>
+
+      <EvidenceDetailGroup title="Hotel data · Lodging API">
+        {lodging ? (
+          <>
+            <EvidenceRow label="Last checked" value={formatDateTime(lodging.syncedAt)} />
+            <EvidenceRow label="Groups returned" value={String(lodging.populatedGroupCount)} />
+            <EvidenceRow label="Populated groups" value={lodgingGroups.length > 0 ? lodgingGroups.join(', ') : 'None returned'} />
+          </>
+        ) : (
+          <p className="leading-5 text-zinc-500">No Lodging API snapshot was stored for this location.</p>
+        )}
+      </EvidenceDetailGroup>
+
+      <EvidenceDetailGroup title="Public listing + CTAs">
+        {place ? (
+          <>
+            <EvidenceRow label="Places tier" value={place.tier} />
+            <EvidenceRow label="Last checked" value={formatDateTime(place.syncedAt)} />
+            <EvidenceRow label="Public signals" value={place.amenities.length > 0 ? place.amenities.join(', ') : 'No supported signals detected'} />
+          </>
+        ) : (
+          <p className="leading-5 text-zinc-500">No Places Details snapshot was stored for this location.</p>
+        )}
+        {location.mapsUri && (
+          <a href={location.mapsUri} target="_blank" rel="noopener noreferrer" className="inline-block text-zinc-500 hover:text-zinc-300">
+            View on Google Maps →
+          </a>
+        )}
+        <div className="mt-3 border-t border-zinc-800/60 pt-3">
+          {placeActions.length === 0 ? (
+            <p className="leading-5 text-zinc-500">No placeActionLinks returned.</p>
+          ) : (
+            <div className="grid gap-2">
+              {placeActions.map((action) => (
+                <div key={action.placeActionLinkName} className="grid gap-0.5">
+                  <span className="font-medium text-zinc-300">
+                    {formatToken(action.placeActionType)}
+                    {action.isPreferred ? ' · preferred' : ''}
+                  </span>
+                  <span className="text-zinc-600">
+                    {formatToken(action.providerType)}{action.uri ? ` · ${displayDomain(action.uri)}` : ''}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </EvidenceDetailGroup>
+    </div>
+  )
+}
+
+function EvidenceDetailGroup({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div>
+      <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">{title}</p>
+      <div className="grid gap-2">{children}</div>
+    </div>
+  )
+}
+
+function EvidenceRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="grid grid-cols-[7.25rem_minmax(0,1fr)] gap-3">
+      <span className="text-zinc-600">{label}</span>
+      <span className="min-w-0 break-words text-zinc-400">{value}</span>
+    </div>
+  )
+}
+
+export function completionTone(count: number, total: number, emptyTone: 'caution' | 'neutral'): GbpSourceTone {
+  if (count === total) return 'positive'
+  if (count === 0) return emptyTone
+  return 'caution'
+}
+
+function toneTextClass(tone: GbpSourceTone) {
+  switch (tone) {
+    case 'positive': return 'text-emerald-300'
+    case 'caution': return 'text-amber-300'
+    case 'negative': return 'text-rose-300'
+    case 'neutral': return 'text-zinc-300'
+  }
+}
+
+function insightCardToneClass(severity: string): string {
+  if (severity === 'critical' || severity === 'high') return 'insight-card-negative'
+  if (severity === 'medium') return 'insight-card-caution'
+  return ''
+}
+
+function hasText(value: string | null | undefined): value is string {
+  return typeof value === 'string' && value.trim().length > 0
+}
+
+function formatOpenStatus(status: string | null | undefined): string {
+  if (!status) return 'Not returned'
+  return formatToken(status)
+}
+
+function formatToken(value: string | null | undefined): string {
+  if (!value) return 'Unknown'
+  return value
+    .toLowerCase()
+    .split('_')
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ')
+}
+
+function displayDomain(uri: string): string {
+  try {
+    return new URL(uri).hostname.replace(/^www\./, '')
+  } catch {
+    return uri
+  }
+}
+
+function formatDateTime(value: string): string {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+function populatedLodgingGroups(attributes: Record<string, unknown>): string[] {
+  return Object.entries(attributes)
+    .filter(([key, value]) => key !== 'name' && key !== 'metadata' && isPopulated(value))
+    .map(([key]) => formatToken(key.replace(/([a-z])([A-Z])/g, '$1_$2')))
+}
+
+function isPopulated(value: unknown): boolean {
+  if (value === null || value === undefined) return false
+  if (Array.isArray(value)) return value.length > 0
+  if (typeof value === 'object') return Object.keys(value as object).length > 0
+  return true
+}
+
+// ----- Performance: graph-first profile-action trend + reach (#658) -----
 
 interface GbpTimeseriesDay {
   date: string
@@ -488,8 +948,8 @@ interface GbpTimeseriesDay {
 }
 
 /**
- * Replaces the old wall of equal-weight metric tiles. Leads with the daily
- * conversion trend (the outcome that moves revenue), keeps reach as supporting
+ * Replaces the old wall of equal-weight metric tiles. Leads with daily profile
+ * actions (directions, website clicks, calls), keeps reach as supporting
  * context, marks the reporting-lag tail as pending instead of a false decline,
  * and collapses all-zero series to a one-line footnote.
  */
@@ -503,10 +963,10 @@ function GbpPerformance({
   timeseries: GbpTimeseriesDay[]
 }) {
   const totals = performance.totals
-  const conversionMetrics = GBP_CONVERSION_METRICS.filter((m) => (totals[m] ?? 0) > 0)
+  const profileActionMetrics = GBP_CONVERSION_METRICS.filter((m) => (totals[m] ?? 0) > 0)
   const reachMetrics = GBP_REACH_METRICS.filter((m) => (totals[m] ?? 0) > 0)
   // Active "other" outcomes (bookings, conversations, food) — shown as exact
-  // figures next to the conversion totals only when they actually have volume.
+  // figures next to the profile-action totals only when they actually have volume.
   const otherActive = Object.keys(totals)
     .filter((m) => (totals[m] ?? 0) > 0 && classifyGbpMetric(m) === 'other')
     .sort((a, b) => (totals[b] ?? 0) - (totals[a] ?? 0))
@@ -527,22 +987,22 @@ function GbpPerformance({
     ? `Data through ${formatChartDateLabel(freshness.dataThroughDate)}${freshness.pendingDays > 0 ? ` · ${freshness.pendingDays}d pending` : ''}`
     : null
 
-  const conversionStats = [...conversionMetrics, ...otherActive]
+  const profileActionStats = [...profileActionMetrics, ...otherActive]
 
   return (
     <div className="mb-6 grid gap-6">
       <div>
         <div className="mb-2 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-          <p className="eyebrow eyebrow-soft">Conversions · daily</p>
+          <p className="eyebrow eyebrow-soft">Profile actions · daily</p>
           {freshnessLabel && <span className="text-[11px] text-zinc-500">{freshnessLabel}</span>}
         </div>
-        {!hasSeries || conversionMetrics.length === 0 ? (
-          <p className="text-sm text-zinc-500">No conversion activity yet — run a sync.</p>
+        {!hasSeries || profileActionMetrics.length === 0 ? (
+          <p className="text-sm text-zinc-500">No profile action activity yet — run a sync.</p>
         ) : (
           <>
-            <GbpTrendChart data={chartData} metrics={conversionMetrics} kind="line" firstPending={firstPending} lastDate={lastDate} />
+            <GbpTrendChart data={chartData} metrics={profileActionMetrics} kind="line" firstPending={firstPending} lastDate={lastDate} />
             <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1">
-              {conversionStats.map((m) => (
+              {profileActionStats.map((m) => (
                 <span key={m} className="text-sm text-zinc-400">
                   {formatGbpMetricLabel(m)}{' '}
                   <span className="font-mono text-zinc-100">{(totals[m] ?? 0).toLocaleString()}</span>
