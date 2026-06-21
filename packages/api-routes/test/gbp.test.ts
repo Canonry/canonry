@@ -124,7 +124,16 @@ describe('GBP routes (Phase 1)', () => {
 
   function mockGoogleResponses(opts: {
     accounts?: Array<{ name: string; accountName?: string }>
-    locations?: Array<{ name: string; title?: string; websiteUri?: string; categories?: { primaryCategory?: { displayName?: string } }; metadata?: { placeId?: string; mapsUri?: string } }>
+    locations?: Array<{
+      name: string; title?: string; websiteUri?: string
+      categories?: { primaryCategory?: { displayName?: string }; additionalCategories?: Array<{ displayName?: string }> }
+      profile?: { description?: string }
+      serviceArea?: Record<string, unknown>
+      regularHours?: Record<string, unknown>
+      phoneNumbers?: { primaryPhone?: string }
+      openInfo?: { status?: string; openingDate?: { year?: number; month?: number; day?: number } }
+      metadata?: { placeId?: string; mapsUri?: string }
+    }>
   }) {
     fetchSpy.mockImplementation((url: string) => {
       // Route on the exact hostname, not a substring of the full URL — a
@@ -216,6 +225,46 @@ describe('GBP routes (Phase 1)', () => {
       expect(two.mapsUri).toBeNull()
     })
 
+    it('persists the owner-content profile fields and surfaces them on the DTO', async () => {
+      const projectId = ctx.seedProject('hotels', 'hotels.example.com')
+      ctx.seedGbpConnection('hotels.example.com', 'valid-access-token')
+      mockGoogleResponses({
+        accounts: [{ name: 'accounts/123' }],
+        locations: [{
+          name: 'locations/1', title: 'AZ Coatings',
+          categories: {
+            primaryCategory: { displayName: 'Roofing contractor' },
+            additionalCategories: [{ displayName: 'Insulation contractor' }, { displayName: 'Waterproofing service' }],
+          },
+          profile: { description: 'Commercial roof restoration and protective coatings.' },
+          serviceArea: { businessType: 'CUSTOMER_LOCATION_ONLY' },
+          regularHours: { periods: [{ openDay: 'MONDAY' }] },
+          phoneNumbers: { primaryPhone: '(248) 925-7414' },
+          openInfo: { status: 'OPEN', openingDate: { year: 2021, month: 12, day: 1 } },
+        }],
+      })
+
+      const res = await ctx.app.inject({ method: 'POST', url: '/projects/hotels/gbp/locations/discover', payload: {} })
+      expect(res.statusCode).toBe(200)
+
+      // The DB row carries the structured owner content (JSON columns parsed back).
+      const row = ctx.db.select().from(gbpLocations).where(eq(gbpLocations.projectId, projectId)).all()[0]!
+      expect(row.additionalCategories).toEqual(['Insulation contractor', 'Waterproofing service'])
+      expect(row.description).toBe('Commercial roof restoration and protective coatings.')
+      expect(row.serviceArea).toEqual({ businessType: 'CUSTOMER_LOCATION_ONLY' })
+      expect(row.regularHours).toEqual({ periods: [{ openDay: 'MONDAY' }] })
+      expect(row.primaryPhone).toBe('(248) 925-7414')
+      expect(row.openStatus).toBe('OPEN')
+      expect(row.openingDate).toBe('2021-12-01')
+
+      // And the public location DTO surfaces them.
+      const dto = (res.json() as { locations: Array<Record<string, unknown>> }).locations[0]!
+      expect(dto.additionalCategories).toEqual(['Insulation contractor', 'Waterproofing service'])
+      expect(dto.description).toBe('Commercial roof restoration and protective coatings.')
+      expect(dto.primaryPhone).toBe('(248) 925-7414')
+      expect(dto.openStatus).toBe('OPEN')
+    })
+
     it('refreshes placeId on re-discover when Google later assigns one', async () => {
       const projectId = ctx.seedProject('hotels', 'hotels.example.com')
       ctx.seedGbpConnection('hotels.example.com', 'valid-access-token')
@@ -228,6 +277,70 @@ describe('GBP routes (Phase 1)', () => {
       mockGoogleResponses({ accounts: [{ name: 'accounts/123' }], locations: [{ name: 'locations/1', title: 'Hotel One', metadata: { placeId: 'ChIJlater' } }] })
       await ctx.app.inject({ method: 'POST', url: '/projects/hotels/gbp/locations/discover', payload: {} })
       expect(ctx.db.select().from(gbpLocations).where(eq(gbpLocations.projectId, projectId)).get()!.placeId).toBe('ChIJlater')
+    })
+
+    it('re-discover refreshes owner-content fields and clears ones Google no longer returns', async () => {
+      const projectId = ctx.seedProject('hotels', 'hotels.example.com')
+      ctx.seedGbpConnection('hotels.example.com', 'valid-access-token')
+      // First discover: a location with full owner content.
+      mockGoogleResponses({
+        accounts: [{ name: 'accounts/123' }],
+        locations: [{
+          name: 'locations/1', title: 'AZ Coatings',
+          categories: { primaryCategory: { displayName: 'Roofing contractor' }, additionalCategories: [{ displayName: 'Insulation contractor' }] },
+          profile: { description: 'Original description.' },
+          serviceArea: { businessType: 'CUSTOMER_LOCATION_ONLY' },
+          phoneNumbers: { primaryPhone: '(248) 925-7414' },
+          openInfo: { status: 'OPEN' },
+        }],
+      })
+      await ctx.app.inject({ method: 'POST', url: '/projects/hotels/gbp/locations/discover', payload: {} })
+
+      // Re-discover: description + open state CHANGED; additionalCategories,
+      // serviceArea, and phone REMOVED. Owner content is sync-not-merge (the
+      // last Google response wins), so removed fields must clear, not linger.
+      mockGoogleResponses({
+        accounts: [{ name: 'accounts/123' }],
+        locations: [{
+          name: 'locations/1', title: 'AZ Coatings',
+          categories: { primaryCategory: { displayName: 'Roofing contractor' } },
+          profile: { description: 'Updated description.' },
+          openInfo: { status: 'CLOSED_TEMPORARILY' },
+        }],
+      })
+      await ctx.app.inject({ method: 'POST', url: '/projects/hotels/gbp/locations/discover', payload: {} })
+
+      const row = ctx.db.select().from(gbpLocations).where(eq(gbpLocations.projectId, projectId)).get()!
+      // Changed fields refreshed:
+      expect(row.description).toBe('Updated description.')
+      expect(row.openStatus).toBe('CLOSED_TEMPORARILY')
+      // Removed fields cleared:
+      expect(row.additionalCategories).toEqual([])
+      expect(row.serviceArea).toBeNull()
+      expect(row.primaryPhone).toBeNull()
+    })
+
+    it('surfaces a pre-migration NULL owner-content row through the DTO defaults', async () => {
+      const projectId = ctx.seedProject('hotels', 'hotels.example.com')
+      ctx.seedGbpConnection('hotels.example.com', 'valid-access-token')
+      // A row written before migration v81 — the 7 owner-content columns are NULL.
+      const now = new Date().toISOString()
+      ctx.db.insert(gbpLocations).values({
+        id: 'loc-legacy', projectId, accountName: 'accounts/123', locationName: 'locations/9',
+        displayName: 'Legacy Location', selected: true, createdAt: now, updatedAt: now,
+      }).run()
+
+      const res = await ctx.app.inject({ method: 'GET', url: '/projects/hotels/gbp/locations' })
+      expect(res.statusCode).toBe(200)
+      const dto = (res.json() as { locations: Array<Record<string, unknown>> }).locations.find(l => l.locationName === 'locations/9')!
+      // The non-nullable array contract coalesces a NULL column to []; the rest stay null.
+      expect(dto.additionalCategories).toEqual([])
+      expect(dto.description).toBeNull()
+      expect(dto.serviceArea).toBeNull()
+      expect(dto.regularHours).toBeNull()
+      expect(dto.primaryPhone).toBeNull()
+      expect(dto.openStatus).toBeNull()
+      expect(dto.openingDate).toBeNull()
     })
 
     it('respects selectAllNew=false for newly-discovered locations', async () => {

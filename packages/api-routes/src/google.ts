@@ -34,6 +34,7 @@ import {
   listAccounts as gbpListAccounts,
   listLocations as gbpListLocations,
   formatStorefrontAddress,
+  buildLocationProfileFields,
 } from '@ainyc/canonry-integration-google-business-profile'
 
 /**
@@ -1412,6 +1413,13 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
       websiteUri: row.websiteUri ?? null,
       placeId: row.placeId ?? null,
       mapsUri: row.mapsUri ?? null,
+      additionalCategories: row.additionalCategories ?? [],
+      description: row.description ?? null,
+      serviceArea: row.serviceArea ?? null,
+      regularHours: row.regularHours ?? null,
+      primaryPhone: row.primaryPhone ?? null,
+      openStatus: row.openStatus ?? null,
+      openingDate: row.openingDate ?? null,
       selected: Boolean(row.selected),
       syncedAt: row.syncedAt ?? null,
       createdAt: row.createdAt,
@@ -1550,6 +1558,9 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
           .from(gbpLocations)
           .where(and(eq(gbpLocations.projectId, project.id), eq(gbpLocations.locationName, remote.name)))
           .get()
+        // Owner-content profile fields (categories, description, hours, service
+        // area, phone, open state), derived once and applied to both branches.
+        const profile = buildLocationProfileFields(remote)
         if (existing) {
           tx.update(gbpLocations).set({
             accountName,
@@ -1559,6 +1570,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
             websiteUri: remote.websiteUri ?? null,
             placeId: remote.metadata?.placeId ?? null,
             mapsUri: remote.metadata?.mapsUri ?? null,
+            ...profile,
             updatedAt: now,
           }).where(eq(gbpLocations.id, existing.id)).run()
         } else {
@@ -1573,6 +1585,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
             websiteUri: remote.websiteUri ?? null,
             placeId: remote.metadata?.placeId ?? null,
             mapsUri: remote.metadata?.mapsUri ?? null,
+            ...profile,
             selected: selectAllNew,
             createdAt: now,
             updatedAt: now,

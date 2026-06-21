@@ -861,6 +861,17 @@ export type GbpLocationDto = {
     websiteUri: string | null;
     placeId: string | null;
     mapsUri: string | null;
+    additionalCategories: Array<string>;
+    description: string | null;
+    serviceArea: {
+        [key: string]: unknown;
+    } | null;
+    regularHours: {
+        [key: string]: unknown;
+    } | null;
+    primaryPhone: string | null;
+    openStatus: string | null;
+    openingDate: string | null;
     selected: boolean;
     syncedAt: string | null;
     createdAt: string;
@@ -879,6 +890,17 @@ export type GbpLocationListResponse = {
         websiteUri: string | null;
         placeId: string | null;
         mapsUri: string | null;
+        additionalCategories: Array<string>;
+        description: string | null;
+        serviceArea: {
+            [key: string]: unknown;
+        } | null;
+        regularHours: {
+            [key: string]: unknown;
+        } | null;
+        primaryPhone: string | null;
+        openStatus: string | null;
+        openingDate: string | null;
         selected: boolean;
         syncedAt: string | null;
         createdAt: string;

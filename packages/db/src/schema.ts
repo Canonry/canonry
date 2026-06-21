@@ -1003,6 +1003,16 @@ export const gbpLocations = sqliteTable('gbp_locations', {
   // rendered-listing data. Null when Google has not assigned a Place ID.
   placeId: text('place_id'),
   mapsUri: text('maps_uri'),
+  // Owner-authored profile content from the Business Information v1 Location
+  // resource — the entity-anchor + qualifier signals AI answer engines weight.
+  // `serviceArea` / `regularHours` are stored verbatim (presence + raw shape).
+  additionalCategories: text('additional_categories', { mode: 'json' }).$type<string[]>(),
+  description: text('description'),
+  serviceArea: text('service_area', { mode: 'json' }).$type<Record<string, unknown>>(),
+  regularHours: text('regular_hours', { mode: 'json' }).$type<Record<string, unknown>>(),
+  primaryPhone: text('primary_phone'),
+  openStatus: text('open_status'),
+  openingDate: text('opening_date'),
   selected: integer('selected', { mode: 'boolean' }).notNull().default(true),
   syncedAt: text('synced_at'),
   createdAt: text('created_at').notNull(),

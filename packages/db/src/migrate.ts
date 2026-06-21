@@ -1795,6 +1795,28 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       }
     },
   },
+  {
+    version: 81,
+    name: 'gbp-locations-owner-content',
+    statements: [],
+    run: (db) => {
+      if (!tableExists(db, 'gbp_locations')) return
+      const cols = [
+        'additional_categories',
+        'description',
+        'service_area',
+        'regular_hours',
+        'primary_phone',
+        'open_status',
+        'opening_date',
+      ]
+      for (const col of cols) {
+        if (!columnExists(db, 'gbp_locations', col)) {
+          db.run(sql.raw(`ALTER TABLE gbp_locations ADD COLUMN ${col} TEXT`))
+        }
+      }
+    },
+  },
 ]
 
 /**

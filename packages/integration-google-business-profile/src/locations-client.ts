@@ -5,7 +5,7 @@ import {
   GBP_MAX_PAGES,
 } from './constants.js'
 import { gbpFetchGet } from './http.js'
-import type { GbpFetchOptions, GbpLocation } from './types.js'
+import type { GbpDate, GbpFetchOptions, GbpLocation } from './types.js'
 
 interface ListLocationsResponse {
   locations?: GbpLocation[]
@@ -58,4 +58,57 @@ export function formatStorefrontAddress(loc: GbpLocation): string | null {
     addr.regionCode,
   ].filter((p): p is string => Boolean(p))
   return parts.length ? parts.join(', ') : null
+}
+
+/** The owner-content profile fields persisted onto a `gbp_locations` row. */
+export interface LocationProfileFields {
+  /** Secondary category display names (the primary stays in its own column). */
+  additionalCategories: string[]
+  /** Owner business description (`profile.description`), up to ~750 chars. */
+  description: string | null
+  /** Raw Service Area resource (SAB geo footprint), stored faithfully. */
+  serviceArea: Record<string, unknown> | null
+  /** Raw regular-hours resource, stored faithfully. */
+  regularHours: Record<string, unknown> | null
+  /** Primary phone number (NAP). */
+  primaryPhone: string | null
+  /** openInfo.status — OPEN / CLOSED_PERMANENTLY / CLOSED_TEMPORARILY. */
+  openStatus: string | null
+  /** openInfo.openingDate flattened to the precision Google gave (YYYY[-MM[-DD]]). */
+  openingDate: string | null
+}
+
+/**
+ * Derive the persisted owner-content profile fields from a Location resource.
+ * Centralizes the mapping so the discover insert + update branches stay in sync,
+ * and keeps the extraction unit-testable. `serviceArea` / `regularHours` are
+ * passed through verbatim (we record presence + the raw shape, not a reshape).
+ */
+export function buildLocationProfileFields(loc: GbpLocation): LocationProfileFields {
+  return {
+    additionalCategories: (loc.categories?.additionalCategories ?? [])
+      .map((c) => c.displayName)
+      .filter((n): n is string => Boolean(n)),
+    description: loc.profile?.description ?? null,
+    serviceArea: loc.serviceArea ?? null,
+    regularHours: loc.regularHours ?? null,
+    primaryPhone: loc.phoneNumbers?.primaryPhone ?? null,
+    openStatus: loc.openInfo?.status ?? null,
+    openingDate: formatOpeningDate(loc.openInfo?.openingDate),
+  }
+}
+
+/**
+ * Flatten a Google civil date to a string at the precision actually provided —
+ * year-only, year-month, or full date. Never fabricates a day/month Google
+ * omitted (a year-only opening date stays "2019", not "2019-01-01").
+ */
+function formatOpeningDate(date?: GbpDate): string | null {
+  if (!date?.year) return null
+  let out = String(date.year)
+  if (date.month) {
+    out += `-${String(date.month).padStart(2, '0')}`
+    if (date.day) out += `-${String(date.day).padStart(2, '0')}`
+  }
+  return out
 }
