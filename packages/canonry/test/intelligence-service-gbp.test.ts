@@ -39,10 +39,12 @@ function seed(db: ReturnType<typeof createClient>) {
     country: 'US', language: 'en', createdAt: NOW, updatedAt: NOW,
   }).run()
 
+  // Locations carry a description so the description-missing insight does not
+  // fire by default — the other insight tests assert their own target gaps.
   db.insert(gbpLocations).values([
-    { id: 'la', projectId: 'proj_gbp', accountName: 'accounts/1', locationName: 'locations/A', displayName: 'Gjelina Venice', selected: true, syncedAt: NOW, createdAt: NOW, updatedAt: NOW },
-    { id: 'lb', projectId: 'proj_gbp', accountName: 'accounts/1', locationName: 'locations/B', displayName: 'Gjelina Marina', selected: true, syncedAt: NOW, createdAt: NOW, updatedAt: NOW },
-    { id: 'lc', projectId: 'proj_gbp', accountName: 'accounts/1', locationName: 'locations/C', displayName: 'Gjelina Closed', selected: false, syncedAt: NOW, createdAt: NOW, updatedAt: NOW },
+    { id: 'la', projectId: 'proj_gbp', accountName: 'accounts/1', locationName: 'locations/A', displayName: 'Gjelina Venice', description: 'A real description.', selected: true, syncedAt: NOW, createdAt: NOW, updatedAt: NOW },
+    { id: 'lb', projectId: 'proj_gbp', accountName: 'accounts/1', locationName: 'locations/B', displayName: 'Gjelina Marina', description: 'A real description.', selected: true, syncedAt: NOW, createdAt: NOW, updatedAt: NOW },
+    { id: 'lc', projectId: 'proj_gbp', accountName: 'accounts/1', locationName: 'locations/C', displayName: 'Gjelina Closed', description: 'A real description.', selected: false, syncedAt: NOW, createdAt: NOW, updatedAt: NOW },
   ]).run()
 
   // Daily metrics: A drops 100 → 20 week-over-week (refDate = max date 2026-05-20);
@@ -118,6 +120,26 @@ describe('IntelligenceService.analyzeAndPersistGbp', () => {
 
       // GBP runs never write a health snapshot.
       expect(db.select().from(healthSnapshots).where(eq(healthSnapshots.runId, 'run_gbp')).all()).toHaveLength(0)
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  test('fires gbp-description-missing (low) for a selected location with no description', () => {
+    const { db, tmpDir } = createTempDb()
+    try {
+      seed(db)
+      // Clear location A's description; B keeps one.
+      db.update(gbpLocations).set({ description: null }).where(eq(gbpLocations.locationName, 'locations/A')).run()
+      seedRun(db, 'run_gbp')
+
+      const result = new IntelligenceService(db).analyzeAndPersistGbp('run_gbp', 'proj_gbp')
+      // GBP insights carry the location's displayName in `query` (no locationName field).
+      const aDesc = result.find((i) => i.query === 'Gjelina Venice' && i.type === 'gbp-description-missing')
+      expect(aDesc).toBeDefined()
+      expect(aDesc!.severity).toBe('low')
+      // B (Gjelina Marina) has a description, so no description-missing for it.
+      expect(result.some((i) => i.query === 'Gjelina Marina' && i.type === 'gbp-description-missing')).toBe(false)
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true })
     }

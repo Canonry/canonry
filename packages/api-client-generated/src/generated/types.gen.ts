@@ -1402,7 +1402,7 @@ export type ProjectOverviewDto = {
         id: string;
         projectId: string;
         runId: string | null;
-        type: 'regression' | 'gain' | 'opportunity' | 'first-citation' | 'provider-pickup' | 'persistent-gap' | 'competitor-gained' | 'competitor-lost' | 'gbp-lodging-gap' | 'gbp-listing-discrepancy' | 'gbp-cta-gap' | 'gbp-metric-drop' | 'gbp-keyword-drop';
+        type: 'regression' | 'gain' | 'opportunity' | 'first-citation' | 'provider-pickup' | 'persistent-gap' | 'competitor-gained' | 'competitor-lost' | 'gbp-lodging-gap' | 'gbp-listing-discrepancy' | 'gbp-cta-gap' | 'gbp-description-missing' | 'gbp-metric-drop' | 'gbp-keyword-drop';
         severity: 'critical' | 'high' | 'medium' | 'low';
         title: string;
         query: string;

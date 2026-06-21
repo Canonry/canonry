@@ -317,7 +317,7 @@ describe('RunCoordinator', () => {
     // lodging-gap verify-nudge (an empty Lodging API result is not a confirmed gap).
     db.insert(gbpLocations).values({
       id: 'l1', projectId, accountName: 'accounts/1', locationName: 'locations/1',
-      displayName: 'Loc 1', selected: true, syncedAt: now, createdAt: now, updatedAt: now,
+      displayName: 'Loc 1', description: 'A description.', selected: true, syncedAt: now, createdAt: now, updatedAt: now,
     }).run()
     db.insert(gbpLodgingSnapshots).values({
       id: 'lg1', projectId, locationName: 'locations/1', contentHash: 'h', attributes: {},

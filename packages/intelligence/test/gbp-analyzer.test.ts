@@ -11,6 +11,7 @@ function healthy(overrides: Partial<GbpLocationSignals> = {}): GbpLocationSignal
     metricDeltaPct: { WEBSITE_CLICKS: 0, BUSINESS_DIRECTION_REQUESTS: 0, CALL_CLICKS: 0 },
     lodgingCapable: true,
     lodgingEmpty: false,
+    descriptionMissing: false,
     placesAmenities: [],
     placeActionCount: 2,
     hasDirectMerchantCta: true,
@@ -265,5 +266,23 @@ describe('analyzeGbp', () => {
     // location-scoped insights.
     expect(byLoc('locations/1')).toEqual(['gbp-lodging-gap'])
     expect(byLoc('locations/2')).toEqual(['gbp-cta-gap'])
+  })
+
+  describe('description missing', () => {
+    it('flags a location with no owner description (low severity)', () => {
+      const insights = analyzeGbp([healthy({ descriptionMissing: true })])
+      const d = insights.filter((i) => i.type === 'gbp-description-missing')
+      expect(d).toHaveLength(1)
+      // A reliable, owner-readable completeness nudge — low severity, never a page.
+      expect(d[0]!.severity).toBe('low')
+      expect(d[0]!.provider).toBe('gbp')
+      expect(d[0]!.query).toBe('Test Hotel')
+      expect(d[0]!.recommendation?.action).toMatch(/description/i)
+    })
+
+    it('does not flag a location that already has a description', () => {
+      const insights = analyzeGbp([healthy({ descriptionMissing: false })])
+      expect(insights.some((i) => i.type === 'gbp-description-missing')).toBe(false)
+    })
   })
 })

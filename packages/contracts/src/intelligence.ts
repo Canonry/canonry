@@ -12,6 +12,7 @@ export type InsightType =
   | 'gbp-lodging-gap'
   | 'gbp-listing-discrepancy'
   | 'gbp-cta-gap'
+  | 'gbp-description-missing'
   | 'gbp-metric-drop'
   | 'gbp-keyword-drop'
 

@@ -262,6 +262,14 @@ export class IntelligenceService {
       .orderBy(desc(gbpLodgingSnapshots.syncedAt))
       .limit(1)
       .get()
+    // Owner business description (Business Information v1) — a reliable,
+    // owner-readable completeness signal. Missing when empty/whitespace/null.
+    const ownerRow = this.db
+      .select({ description: gbpLocations.description })
+      .from(gbpLocations)
+      .where(and(eq(gbpLocations.projectId, projectId), eq(gbpLocations.locationName, locationName)))
+      .get()
+    const descriptionMissing = !((ownerRow?.description ?? '').trim())
     // Latest Places (New) snapshot → the amenities the public listing asserts,
     // for the GBP-vs-rendered-listing cross-reference (#648). Empty when Places
     // enrichment is off/unconfigured or the location has no snapshot yet.
@@ -300,6 +308,7 @@ export class IntelligenceService {
       metricDeltaPct: summary.performance.deltaPct,
       lodgingCapable: summary.lodging.lodgingLocationCount > 0,
       lodgingEmpty: summary.lodging.emptyLodgingCount > 0,
+      descriptionMissing,
       placesAmenities,
       placeActionCount: summary.placeActions.total,
       hasDirectMerchantCta: summary.placeActions.hasDirectMerchantCta,
