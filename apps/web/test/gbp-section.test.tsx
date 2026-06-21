@@ -23,7 +23,14 @@ vi.mock('recharts', () => {
 
 import { act } from '@testing-library/react'
 
-import { GbpSection } from '../src/components/project/GbpSection.js'
+import {
+  GbpSection,
+  completionTone,
+  gbpLodgingSourceState,
+  gbpOwnerProfileFacts,
+  gbpPlaceActionsSourceState,
+  gbpPlacesSourceState,
+} from '../src/components/project/GbpSection.js'
 import { getRunTrackerState, removeTrackedRun, resetRunTracker } from '../src/lib/run-tracker-store.js'
 import { mockFetch, jsonResponse } from './mock-fetch.js'
 
@@ -65,6 +72,13 @@ function makeLocation(over: Record<string, unknown>) {
     displayName: 'Gjelina Venice', primaryCategoryDisplayName: 'Hotel',
     storefrontAddress: '1429 Abbot Kinney Blvd', websiteUri: 'https://gjelina.com',
     placeId: 'ChIJ-place-123', mapsUri: 'https://maps.google.com/?cid=123',
+    additionalCategories: ['Boutique hotel'],
+    description: 'A small hotel in Venice.',
+    serviceArea: null,
+    regularHours: { periods: [] },
+    primaryPhone: '+13105550100',
+    openStatus: 'OPEN',
+    openingDate: '2024',
     selected: true, syncedAt: '2026-05-20T00:00:00.000Z',
     createdAt: '2026-05-01T00:00:00.000Z', updatedAt: '2026-05-20T00:00:00.000Z',
     ...over,
@@ -80,8 +94,68 @@ function emptySummary() {
     keywords: { total: 0, thresholdedCount: 0, thresholdedPct: 0 },
     placeActions: { total: 0, hasReservationCta: false, hasBookingCta: false, hasDirectMerchantCta: false },
     lodging: { lodgingLocationCount: 0, populatedLodgingCount: 0, emptyLodgingCount: 0 },
+    profileCompleteness: {
+      locationCount: 1,
+      withSecondaryCategories: 0,
+      secondaryCategoryTotal: 0,
+      withDescription: 0,
+      withServiceArea: 0,
+      withHours: 0,
+      withPrimaryPhone: 0,
+      permanentlyClosed: 0,
+      temporarilyClosed: 0,
+    },
   }
 }
+
+test('GBP source-state helpers keep owner-only API absences neutral', () => {
+  const sparseLocation = makeLocation({
+    additionalCategories: [],
+    description: null,
+    regularHours: null,
+    primaryPhone: null,
+    websiteUri: null,
+    serviceArea: null,
+  })
+  const facts = Object.fromEntries(gbpOwnerProfileFacts(sparseLocation).map((fact) => [fact.label, fact]))
+
+  expect(facts.Description).toMatchObject({ value: 'not returned', tone: 'neutral' })
+  expect(facts.Hours).toMatchObject({ value: 'not returned', tone: 'neutral' })
+  expect(facts.Phone).toMatchObject({ value: 'not returned', tone: 'neutral' })
+  expect(facts.Website).toMatchObject({ value: 'not returned', tone: 'neutral' })
+  expect(facts.Secondary).toMatchObject({ value: 'not returned', tone: 'neutral' })
+  expect(gbpLodgingSourceState({
+    locationName: 'locations/123',
+    populatedGroupCount: 0,
+    syncedAt: '2026-05-20T00:00:00.000Z',
+    attributes: { name: 'locations/123/lodging' },
+  })).toMatchObject({
+    tone: 'neutral',
+    label: '0 groups returned',
+  })
+  expect(gbpPlaceActionsSourceState([{
+    locationName: 'locations/123',
+    placeActionLinkName: 'locations/123/placeActionLinks/1',
+    placeActionType: 'BOOK',
+    uri: 'https://booking.example/gjelina',
+    isPreferred: false,
+    providerType: 'AGGREGATOR',
+  }])).toMatchObject({
+    tone: 'neutral',
+    label: '1 aggregator CTA',
+  })
+  expect(gbpPlacesSourceState(null, 'https://maps.google.com/?cid=123')).toMatchObject({
+    tone: 'neutral',
+    label: 'Public listing not checked',
+  })
+})
+
+test('profile-completeness aggregate tone can still warn when the server count is empty', () => {
+  expect(completionTone(0, 2, 'caution')).toBe('caution')
+  expect(completionTone(0, 2, 'neutral')).toBe('neutral')
+  expect(completionTone(1, 2, 'caution')).toBe('caution')
+  expect(completionTone(2, 2, 'caution')).toBe('positive')
+})
 
 test('renders connected GBP data: scorecard, keywords, and public listing', async () => {
   const restoreFetch = mockFetch((url) => {
@@ -107,6 +181,17 @@ test('renders connected GBP data: scorecard, keywords, and public listing', asyn
         keywords: { total: 1, thresholdedCount: 0, thresholdedPct: 0 },
         placeActions: { total: 1, hasReservationCta: false, hasBookingCta: true, hasDirectMerchantCta: false },
         lodging: { lodgingLocationCount: 1, populatedLodgingCount: 0, emptyLodgingCount: 1 },
+        profileCompleteness: {
+          locationCount: 1,
+          withSecondaryCategories: 1,
+          secondaryCategoryTotal: 1,
+          withDescription: 1,
+          withServiceArea: 0,
+          withHours: 1,
+          withPrimaryPhone: 1,
+          permanentlyClosed: 0,
+          temporarilyClosed: 0,
+        },
       })
     }
     if (urlPath.endsWith('/projects/test-project/gbp/locations')) {
@@ -120,6 +205,30 @@ test('renders connected GBP data: scorecard, keywords, and public listing', asyn
         }],
         total: 1,
         thresholdedPct: 0,
+      })
+    }
+    if (urlPath.endsWith('/projects/test-project/gbp/lodging')) {
+      return jsonResponse({
+        lodging: [{
+          locationName: 'locations/123',
+          populatedGroupCount: 0,
+          syncedAt: '2026-05-20T00:00:00.000Z',
+          attributes: { name: 'locations/123/lodging' },
+        }],
+        total: 1,
+      })
+    }
+    if (urlPath.endsWith('/projects/test-project/gbp/place-actions')) {
+      return jsonResponse({
+        placeActions: [{
+          locationName: 'locations/123',
+          placeActionLinkName: 'locations/123/placeActionLinks/1',
+          placeActionType: 'BOOK',
+          uri: 'https://booking.example/gjelina',
+          isPreferred: false,
+          providerType: 'AGGREGATOR',
+        }],
+        total: 1,
       })
     }
     if (urlPath.endsWith('/projects/test-project/gbp/places')) {
@@ -140,11 +249,12 @@ test('renders connected GBP data: scorecard, keywords, and public listing', asyn
 
   renderGbpSection()
 
-  // Wait on a summary-dependent label (the conversion totals row).
+  // Wait on a summary-dependent label (the profile-action totals row).
   await waitFor(() => expect(screen.getByText('Website clicks')).toBeTruthy())
   expect(screen.getByText('Google Business Profile')).toBeTruthy()
   expect(screen.getByText('Connected')).toBeTruthy()
-  // Graph-first: exact conversion totals render with human labels (no raw BUSINESS_* keys).
+  // Graph-first: exact profile-action totals render with human labels (no raw BUSINESS_* keys).
+  expect(screen.getByText('Profile actions · daily')).toBeTruthy()
   expect(screen.getByText('Direction requests')).toBeTruthy()
   // Honest freshness — the reporting-lag tail is surfaced, never shown as a drop.
   expect(screen.getByText(/Data through/)).toBeTruthy()
@@ -152,19 +262,17 @@ test('renders connected GBP data: scorecard, keywords, and public listing', asyn
   expect(screen.getByText(/Not active:/)).toBeTruthy()
   // Keyword row.
   expect(screen.getByText('venice beach hotel')).toBeTruthy()
-  // Owner-configured CTA + lodging tiles are no longer rendered: they have no
-  // public counterpart to cross-reference, so an "Absent" / "empty" tile would
-  // read as fact when it is just an unverifiable owner signal (#648). Despite
-  // the fixture carrying hasBookingCta + 1 empty lodging profile, no such tile
-  // appears. The cross-referenced gap surfaces as the discrepancy insight; the
-  // raw owner data stays on `cnry gbp place-actions` / `gbp lodging`.
-  expect(screen.queryByText('Lodging profile')).toBeNull()
-  expect(screen.queryByText('Booking CTA')).toBeNull()
-  expect(screen.queryByText('Reservation CTA')).toBeNull()
-  expect(screen.queryByText('1 empty')).toBeNull()
-  // Public listing (Places) amenities render; the location name shows in that card.
-  expect(screen.getByText('Pool')).toBeTruthy()
-  expect(screen.getByText('Free Wi-Fi')).toBeTruthy()
+  // Owner-only surfaces are back in the dashboard, but source-labeled and
+  // neutral when the API simply returned no owner-controlled value.
+  expect(screen.getByText('Owner profile · Business Information')).toBeTruthy()
+  expect(screen.getByText('Source evidence')).toBeTruthy()
+  expect(screen.getByText('0 groups returned')).toBeTruthy()
+  expect(screen.getByText('1 aggregator CTA')).toBeTruthy()
+  expect(screen.getByText('3 signals detected')).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Details' }))
+  // Expanded public-listing details preserve the Places signals without making
+  // them owner-controlled truth.
+  expect(screen.getByText('Pool, Free Wi-Fi, Spa')).toBeTruthy()
   expect(screen.getByText('Gjelina Venice')).toBeTruthy()
   // Single tracked location → no scope selector.
   expect(screen.queryByText('All locations')).toBeNull()
@@ -181,6 +289,8 @@ test('renders the owner-vs-public amenity gap insight (server-computed)', async 
     if (urlPath.endsWith('/projects/test-project/gbp/keywords')) {
       return jsonResponse({ keywords: [], total: 0, thresholdedPct: 0 })
     }
+    if (urlPath.endsWith('/projects/test-project/gbp/lodging')) return jsonResponse({ lodging: [], total: 0 })
+    if (urlPath.endsWith('/projects/test-project/gbp/place-actions')) return jsonResponse({ placeActions: [], total: 0 })
     if (urlPath.endsWith('/projects/test-project/gbp/places')) {
       return jsonResponse({
         places: [{
@@ -232,6 +342,8 @@ test('shows a location scope selector when multiple locations are tracked', asyn
       })
     }
     if (urlPath.endsWith('/projects/test-project/gbp/keywords')) return jsonResponse({ keywords: [], total: 0, thresholdedPct: 0 })
+    if (urlPath.endsWith('/projects/test-project/gbp/lodging')) return jsonResponse({ lodging: [], total: 0 })
+    if (urlPath.endsWith('/projects/test-project/gbp/place-actions')) return jsonResponse({ placeActions: [], total: 0 })
     if (urlPath.endsWith('/projects/test-project/gbp/places')) return jsonResponse({ places: [], total: 0 })
     if (urlPath.endsWith('/projects/test-project/insights')) return jsonResponse([])
     throw new Error(`Unexpected fetch: ${url}`)
@@ -242,8 +354,8 @@ test('shows a location scope selector when multiple locations are tracked', asyn
 
   // Two tracked locations → the scope selector renders with an "All" option + each location.
   await waitFor(() => expect(screen.getByText('All locations')).toBeTruthy())
-  expect(screen.getByText('Gjelina Venice')).toBeTruthy()
-  expect(screen.getByText('AZ Coatings')).toBeTruthy()
+  expect(screen.getByRole('tab', { name: 'Gjelina Venice' })).toBeTruthy()
+  expect(screen.getByRole('tab', { name: 'AZ Coatings' })).toBeTruthy()
 })
 
 test('falls back to the aggregate scope when the scoped location is untracked', async () => {
@@ -273,6 +385,8 @@ test('falls back to the aggregate scope when the scoped location is untracked', 
       return jsonResponse(makeLocation({ id: 'loc-2', locationName: 'locations/456', displayName: 'AZ Coatings', selected: false }))
     }
     if (urlPath.endsWith('/projects/test-project/gbp/keywords')) return jsonResponse({ keywords: [], total: 0, thresholdedPct: 0 })
+    if (urlPath.endsWith('/projects/test-project/gbp/lodging')) return jsonResponse({ lodging: [], total: 0 })
+    if (urlPath.endsWith('/projects/test-project/gbp/place-actions')) return jsonResponse({ placeActions: [], total: 0 })
     if (urlPath.endsWith('/projects/test-project/gbp/places')) return jsonResponse({ places: [], total: 0 })
     if (urlPath.endsWith('/projects/test-project/insights')) return jsonResponse([])
     throw new Error(`Unexpected fetch: ${url} ${init?.method ?? ''}`)
@@ -329,6 +443,8 @@ test('Sync queues a gbp-sync run, stays disabled, and hands off to the run track
       return jsonResponse({ locations: [makeLocation({})], totalDiscovered: 1, totalSelected: 1 })
     }
     if (urlPath.endsWith('/projects/test-project/gbp/keywords')) return jsonResponse({ keywords: [], total: 0, thresholdedPct: 0 })
+    if (urlPath.endsWith('/projects/test-project/gbp/lodging')) return jsonResponse({ lodging: [], total: 0 })
+    if (urlPath.endsWith('/projects/test-project/gbp/place-actions')) return jsonResponse({ placeActions: [], total: 0 })
     if (urlPath.endsWith('/projects/test-project/gbp/places')) return jsonResponse({ places: [], total: 0 })
     if (urlPath.endsWith('/projects/test-project/insights')) return jsonResponse([])
     throw new Error(`Unexpected fetch: ${url} ${init?.method ?? ''}`)
