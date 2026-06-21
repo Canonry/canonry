@@ -41,7 +41,11 @@ describe('listLocations', () => {
     const fields = (url.searchParams.get('readMask') ?? '').split(',')
     // The owner-authored profile content AEO answer engines weight (categories,
     // description, service area, hours, phone, open state) must be requested.
-    expect(fields).toContain('categories.additionalCategories.displayName')
+    // `categories` is requested WHOLE: the locations.list readMask rejects a
+    // nested path into the repeated `additionalCategories` array (400), so the
+    // nested form must never be used.
+    expect(fields).toContain('categories')
+    expect(fields).not.toContain('categories.additionalCategories.displayName')
     expect(fields).toContain('profile.description')
     expect(fields).toContain('serviceArea')
     expect(fields).toContain('regularHours')
