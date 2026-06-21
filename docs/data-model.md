@@ -109,7 +109,7 @@ Local-AEO signals. The OAuth connection reuses `google_connections` with `connec
 | **gbp_keyword_impressions** | Search-keyword impressions over the trailing synced window (one aggregate per keyword; `period_start`/`period_end` are YYYY-MM). Range-replaced each sync. Unique: `(projectId, locationName, periodEnd, keyword)` |
 | **gbp_keyword_monthly** | Per-month keyword impressions series — **accumulates** across syncs (recent complete months upserted, older in-retention months preserved) so intelligence can detect month-over-month keyword drops. Unique: `(projectId, locationName, month, keyword)` |
 | **gbp_place_actions** | Booking / reservation / order CTAs per location (`provider_type` MERCHANT = direct, AGGREGATOR = OTA). Range-replaced each sync. |
-| **gbp_lodging_snapshots** | Hotel structured attributes, snapshot-on-change. `populated_group_count = 0` is an AEO gap. |
+| **gbp_lodging_snapshots** | Hotel structured attributes, snapshot-on-change. `populated_group_count = 0` means the Lodging API returns no structured attributes; common even for complete hotels (the owner-set "Hotel details" amenity panel is a separate surface the API does not expose), so it is a verify signal, not a confirmed gap. |
 | **gbp_place_details** | Places (New) rendered-listing snapshots (amenities, accessibility, editorial summary) for lodging locations, fetched via the Places API key and snapshot-on-changed. `tier` records the field-mask SKU. Cross-referenced against the lodging profile for the `gbp-listing-discrepancy` insight (#648). |
 
 ### Integrations — OpenAI Ads (ChatGPT ads)

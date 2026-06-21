@@ -148,7 +148,7 @@ A single OAuth user often manages **multiple GBP accounts** (a personal account,
 - **`timeseries`** — `[{ date, pending, metrics }]` over the most recent ~30 days, for the trend charts. Each day carries every in-window metric (0 where absent that day) and a `pending` flag marking the reporting-lag tail.
 - **`keywords`** — `{ total, thresholdedCount, thresholdedPct }`. `thresholdedPct` (0–100) is the share of keywords whose exact count Google redacted — your headline data-fidelity number (expect ~89% for a busy hotel, 100% for an SMB).
 - **`placeActions`** — `{ total, hasReservationCta, hasBookingCta, hasDirectMerchantCta }`. `hasDirectMerchantCta` is false when the only booking links are OTA/aggregator (Expedia/Booking) — a recommendation to add a direct CTA.
-- **`lodging`** — `{ lodgingLocationCount, populatedLodgingCount, emptyLodgingCount }`. `emptyLodgingCount` counts lodging-capable locations with zero structured attributes — the AEO gap to surface.
+- **`lodging`** — `{ lodgingLocationCount, populatedLodgingCount, emptyLodgingCount }`. `emptyLodgingCount` counts lodging-capable locations whose Lodging API returns zero structured attributes. That is common even for complete hotels (the owner-set "Hotel details" amenity panel is a separate surface the API does not expose), so it is a verify signal, not a confirmed gap.
 
 ## Scheduling
 
@@ -214,7 +214,7 @@ A property with only aggregator booking links and no direct merchant CTA is a re
 
 ## Places enrichment — the rendered-listing cross-reference (#648)
 
-For lodging locations, canonry pulls the **Places API (New) Place Details** — the amenities Google's *public* listing advertises (breakfast, parking, pet policy, accessibility, editorial summary) — and cross-references them against the owner-configured GBP profile. An empty GBP profile whose public listing shows amenities fires the evidence-backed `gbp-listing-discrepancy` insight naming the exact gaps.
+For lodging locations, canonry pulls the **Places API (New) Place Details** — the amenities Google's *public* listing advertises (breakfast, parking, pet policy, accessibility, editorial summary) — and cross-references them against the owner-configured GBP profile. When the Lodging API returns nothing but the public listing advertises amenities, the `gbp-listing-discrepancy` insight names those amenities so the operator can verify they are set in the "Hotel details" panel (the listing may already be drawing them from there, a surface the Lodging API does not expose).
 
 **Setup** — the Places API uses a plain **API key**, not OAuth (unrelated to `google.clientId`). A billing account (card) is required on the GCP project even within the free tier.
 
@@ -245,7 +245,7 @@ Every GBP number belongs to one of three planes. **Tag each figure by plane befo
 
 ## Important Constraints
 
-- **GBP API returns owner-configured data only** — the API exposes only what the profile owner has set. Google's *rendered* hotel listing synthesizes additional amenities, room pricing, and booking links from Google Hotel Center, OTA feeds (Booking/Expedia/Hotels.com), and Places/user-contributed data — none of which the GBP API returns. So an empty lodging profile does **not** mean the public listing is empty; it means the operator hasn't populated the structured source AI answer engines read. **Canonry pulls the rendered-listing side from the Places API and cross-references it against the GBP profile** (issue #648, shipped) — see "Places enrichment" below.
+- **GBP API returns owner-configured data only** — the API exposes only what the profile owner has set. Google's *rendered* hotel listing synthesizes additional amenities, room pricing, and booking links from Google Hotel Center, OTA feeds (Booking/Expedia/Hotels.com), and Places/user-contributed data — none of which the GBP API returns. So an empty Lodging API result does **not** mean the public listing is empty, and it does **not** prove the owner set no amenities: the owner-facing "Hotel details" amenity panel writes to a separate surface the Lodging API does not return, so it is commonly empty even for complete hotels. Treat it as a "verify the Hotel details panel", not a confirmed gap. **Canonry pulls the rendered-listing side from the Places API and cross-references it against the GBP profile** (issue #648, shipped) — see "Places enrichment" below.
 - **No read-only OAuth scope** — `business.manage` is the only published scope. The consent screen will warn about write access even though canonry's v1 is read-only.
 - **300 QPM shared quota** — across all GBP sub-APIs on one Google Cloud project. Canonry's sync worker caps per-location concurrency at 4 (~28 in-flight calls at peak) to stay well under the cap.
 - **10 edits/min per profile** — hard cap on writes (relevant for Phase 4). Cannot be raised.
