@@ -273,7 +273,7 @@ export async function gbpLodging(
   }
   console.log(`${response.total} lodging profile(s):`)
   for (const l of response.lodging) {
-    const note = l.populatedGroupCount === 0 ? ' — EMPTY (AEO gap: no structured amenities for AI engines to cite)' : ''
+    const note = l.populatedGroupCount === 0 ? ' (none readable via the Lodging API; verify the "Hotel details" panel, often set there but not exposed by the API)' : ''
     console.log(`  ${l.locationName}  ${l.populatedGroupCount} attribute group(s)${note}`)
   }
 }

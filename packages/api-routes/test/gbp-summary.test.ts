@@ -151,7 +151,7 @@ describe('summarizePlaceActions', () => {
 describe('summarizeLodging', () => {
   it('splits lodging locations into populated vs empty', () => {
     const out = summarizeLodging([
-      { locationName: 'locations/1', populatedGroupCount: 0 },  // empty hotel profile (AEO gap)
+      { locationName: 'locations/1', populatedGroupCount: 0 },  // Lodging API returns no structured attributes (verify Hotel details)
       { locationName: 'locations/2', populatedGroupCount: 5 },
     ])
     expect(out).toEqual({ lodgingLocationCount: 2, populatedLodgingCount: 1, emptyLodgingCount: 1 })
