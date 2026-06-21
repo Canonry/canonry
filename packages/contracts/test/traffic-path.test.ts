@@ -97,6 +97,31 @@ describe('classifyTrafficPath', () => {
     expect(classifyTrafficPath('/report.xlsx')).toBe('other')
   })
 
+  it('routes WordPress infrastructure endpoints to other, not content', () => {
+    // XML-RPC and cron carry a .php document extension but are pure polling
+    expect(classifyTrafficPath('/xmlrpc.php')).toBe('other')
+    expect(classifyTrafficPath('/wp-cron.php')).toBe('other')
+    // WP REST API
+    expect(classifyTrafficPath('/wp-json')).toBe('other')
+    expect(classifyTrafficPath('/wp-json/wp/v2/posts')).toBe('other')
+    expect(classifyTrafficPath('/wp-json/wp/v2/pages/:id')).toBe('other')
+    expect(classifyTrafficPath('/wp-json/oembed/1.0/embed')).toBe('other')
+    // RSS / comment feeds: extensionless, at /feed and /<path>/feed[/...]
+    expect(classifyTrafficPath('/feed')).toBe('other')
+    expect(classifyTrafficPath('/feed/')).toBe('other')
+    expect(classifyTrafficPath('/blog/my-post/feed/')).toBe('other')
+    expect(classifyTrafficPath('/comments/feed/')).toBe('other')
+    expect(classifyTrafficPath('/feed/rss2/')).toBe('other')
+  })
+
+  it('does not over-match content slugs that merely contain "feed"', () => {
+    expect(classifyTrafficPath('/news-feed')).toBe('content')
+    expect(classifyTrafficPath('/feeds')).toBe('content')
+    expect(classifyTrafficPath('/feedback')).toBe('content')
+    expect(classifyTrafficPath('/blog/feed-reader-roundup')).toBe('content')
+    expect(classifyTrafficPath('/products/cattle-feed')).toBe('content')
+  })
+
   it('treats empty / missing paths as other (defensive fallback)', () => {
     expect(classifyTrafficPath('')).toBe('other')
     expect(classifyTrafficPath('   ')).toBe('other')
@@ -159,6 +184,21 @@ describe('segmentCrawlerHits', () => {
     expect(seg.content).toBe(0)
     expect(sumInfraHits(seg)).toBe(147)
     expect(seg.content + sumInfraHits(seg) + seg.other).toBe(147)
+  })
+
+  it('routes WordPress feed/api/xmlrpc polling to other, out of content', () => {
+    const seg = segmentCrawlerHits([
+      { pathNormalized: '/', hits: 10 },
+      { pathNormalized: '/blog/post/feed/', hits: 30 },
+      { pathNormalized: '/wp-json/wp/v2/pages/:id', hits: 25 },
+      { pathNormalized: '/xmlrpc.php', hits: 15 },
+      { pathNormalized: '/sitemap_index.xml', hits: 100 },
+    ])
+    expect(seg.content).toBe(10) // only the real page, not the WP infra
+    expect(seg.other).toBe(70) // feed + wp-json + xmlrpc
+    expect(seg.sitemap).toBe(100)
+    const total = 10 + 30 + 25 + 15 + 100
+    expect(seg.content + sumInfraHits(seg) + seg.other).toBe(total)
   })
 
   it('returns an all-zero breakdown for no rows', () => {
