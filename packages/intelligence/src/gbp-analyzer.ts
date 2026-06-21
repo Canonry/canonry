@@ -106,36 +106,41 @@ export function analyzeGbp(signals: GbpLocationSignals[]): GbpInsightDraft[] {
   for (const loc of signals) {
     const base = { locationName: loc.locationName, query: loc.displayName, provider: GBP_INSIGHT_PROVIDER }
 
-    // 1. Lodging profile empty — the GBP API exposes only owner-configured
-    //    attributes, so an empty profile is the operator's blind spot. Google's
-    //    rendered listing may still synthesize amenities from Hotel Center, OTAs,
-    //    and Places/user data, but that synthesized data is NOT what the
-    //    structured profile (the source AI answer engines read) exposes.
+    // 1. canonry can't read structured Lodging attributes for this hotel.
+    //    `getLodging` returns the GBP Lodging resource, which is empty by
+    //    default even for well-managed hotels: the owner-facing "Hotel details"
+    //    amenity panel (breakfast / wifi / parking / pets / accessibility)
+    //    writes to a separate attribute surface the Lodging API does not return.
+    //    So `populatedGroupCount === 0` means "canonry can't confirm structured
+    //    attributes via the API", NOT "the owner set no amenities". These are
+    //    verify-nudges, not confirmed gaps — framed and severitied accordingly.
     if (loc.lodgingCapable && loc.lodgingEmpty) {
       if (loc.placesAmenities.length > 0) {
-        // Evidence-backed (#648 Phase B): the Places API confirms the public
-        // listing shows specific amenities the empty GBP profile exposes none
-        // of. This supersedes the generic lodging-gap with concrete proof.
+        // The Places API independently shows amenities while the Lodging API
+        // returns nothing. Worth a look, but it does NOT prove the owner left
+        // them unset: Places can read amenities the Lodging API can't, so the
+        // likeliest cause is the "Hotel details" panel is filled and simply not
+        // exposed via the Lodging API. Surface it as a verify, not a defect.
         const amenityList = formatAmenityList(loc.placesAmenities)
         drafts.push({
           ...base,
           type: 'gbp-listing-discrepancy',
-          severity: 'high',
-          title: `${loc.displayName}: public listing shows ${loc.placesAmenities.length} amenit${loc.placesAmenities.length === 1 ? 'y' : 'ies'} your GBP profile doesn’t`,
+          severity: 'medium',
+          title: `${loc.displayName}: public listing advertises ${loc.placesAmenities.length} amenit${loc.placesAmenities.length === 1 ? 'y' : 'ies'} canonry can’t confirm via the GBP API`,
           recommendation: {
-            action: 'Populate the hotel’s structured amenity attributes in Google Business Profile to match what its public listing already advertises — the amenity source you directly control',
-            reason: `Google’s rendered listing advertises ${amenityList} (synthesized from Hotel Center / OTAs / Places), but your GBP structured profile has zero populated attributes. The structured attributes are what AI answer engines cite and the only amenity data you control, so the public listing is making promises your profile can’t back.`,
+            action: 'Verify these amenities are set in the Google Business Profile "Hotel details" panel so the structured profile matches what the public listing advertises.',
+            reason: `Google’s rendered listing advertises ${amenityList}, but the GBP Lodging API returns no structured attributes for this location. The Lodging API does not expose the owner-set "Hotel details" amenity panel, so the amenities may already be set there and simply not be readable via the API. Verify in Hotel details: if any are missing, add them, since the structured attributes are the amenity data you directly control and that AI answer engines cite.`,
           },
         })
       } else {
         drafts.push({
           ...base,
           type: 'gbp-lodging-gap',
-          severity: 'high',
-          title: `${loc.displayName}: lodging profile has no structured attributes`,
+          severity: 'low',
+          title: `${loc.displayName}: structured lodging attributes not readable via the GBP API`,
           recommendation: {
-            action: 'Populate the hotel’s structured amenity attributes in Google Business Profile — the amenity source you directly control',
-            reason: 'The GBP API exposes only owner-configured attributes, and this profile has none. Google’s rendered listing may still show amenities it synthesizes from Hotel Center, OTAs, and user data — so the public listing can differ from this profile — but the structured attributes are what AI answer engines cite and the only amenity data you control.',
+            action: 'Verify the hotel amenities in the Google Business Profile "Hotel details" panel. If they are already set there, no change is needed.',
+            reason: 'The GBP Lodging API returns no structured attributes for this location. That resource is commonly empty even for complete hotels, because the owner-set "Hotel details" amenity panel (breakfast, wifi, parking, accessibility, and the like) writes to a separate surface the Lodging API does not expose. Treat this as a verify, not a confirmed gap: confirm the amenities are set in Hotel details, the amenity source you directly control and that AI answer engines cite.',
           },
         })
       }

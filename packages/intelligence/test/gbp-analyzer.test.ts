@@ -31,18 +31,20 @@ describe('analyzeGbp', () => {
   })
 
   describe('lodging gap', () => {
-    it('flags a lodging-capable location with an empty profile (high)', () => {
+    it('flags an unreadable lodging profile as a low-severity verify (not a confirmed gap)', () => {
       const insights = analyzeGbp([healthy({ lodgingCapable: true, lodgingEmpty: true })])
       const lodging = insights.filter((i) => i.type === 'gbp-lodging-gap')
       expect(lodging).toHaveLength(1)
-      expect(lodging[0]!.severity).toBe('high')
+      // An empty Lodging API result does NOT prove the owner set no amenities
+      // (the "Hotel details" panel is a separate surface the API can't read),
+      // so this is a verify-nudge, not a high-severity defect.
+      expect(lodging[0]!.severity).toBe('low')
       expect(lodging[0]!.provider).toBe('gbp')
       expect(lodging[0]!.query).toBe('Test Hotel')
       expect(lodging[0]!.locationName).toBe('locations/1')
-      // Flags the API-vs-rendered-listing discrepancy: the API returns only
-      // owner-configured attributes, so the public listing may differ (#648).
-      expect(lodging[0]!.recommendation?.reason).toMatch(/owner-configured/)
-      expect(lodging[0]!.recommendation?.reason).toMatch(/rendered listing/)
+      // Frames it honestly: verify the "Hotel details" panel, not "you have none".
+      expect(lodging[0]!.recommendation?.reason).toMatch(/Hotel details/)
+      expect(lodging[0]!.recommendation?.reason).toMatch(/not a confirmed gap/)
     })
 
     it('does not flag a populated lodging profile', () => {
@@ -57,14 +59,16 @@ describe('analyzeGbp', () => {
   })
 
   describe('listing discrepancy (#648 Phase B)', () => {
-    it('fires gbp-listing-discrepancy (high) with Places amenities as evidence', () => {
+    it('fires gbp-listing-discrepancy (medium) with Places amenities as evidence', () => {
       const insights = analyzeGbp([healthy({
         lodgingCapable: true, lodgingEmpty: true,
         placesAmenities: ['breakfast', 'parking', 'pet-friendly'],
       })])
       const disc = insights.filter((i) => i.type === 'gbp-listing-discrepancy')
       expect(disc).toHaveLength(1)
-      expect(disc[0]!.severity).toBe('high')
+      // Places evidence makes it worth a look, but the Lodging API still can't
+      // read the "Hotel details" panel, so it's a verify (medium), not a high.
+      expect(disc[0]!.severity).toBe('medium')
       expect(disc[0]!.provider).toBe('gbp')
       // Title carries the count (plural), reason names the specific amenities.
       expect(disc[0]!.title).toContain('3 amenities')

@@ -507,7 +507,9 @@ cnry gbp place-actions <project> [--location locations/{n}]
                                                    # placeActionType, providerType (MERCHANT vs AGGREGATOR), isPreferred, uri
 cnry gbp lodging <project> [--location locations/{n}]
                                                    # latest hotel-attribute snapshot per location (snapshot-on-change):
-                                                   # populatedGroupCount + syncedAt; empty profiles are an AEO gap, not an error
+                                                   # populatedGroupCount + syncedAt; populatedGroupCount=0 means the Lodging
+                                                   # API returns no structured attributes (common even for complete hotels;
+                                                   # verify the "Hotel details" panel), a verify signal, not a confirmed gap
 cnry gbp places <project> [--location locations/{n}]
                                                    # latest Places-API rendered-listing snapshot per location: the
                                                    # server-derived `amenities` the public listing advertises (#648 cross-reference).
@@ -518,7 +520,7 @@ cnry gbp summary <project> [--location locations/{n}]
                                                    # place-action CTA presence flags, lodging completeness counts
 ```
 
-`gbp sync` produces a run with the standard statuses (`completed` / `partial` / `failed`); `partial` means some selected locations synced and others errored (the per-location errors are on the run). Non-lodging locations are skipped cleanly (Google answers the lodging call with HTTP 400, not 404). Reviews are **not** synced — the v4 Reviews API is producer-restricted by Google and unavailable on most projects; the Q&A API was retired (HTTP 501).
+`gbp sync` produces a run with the standard statuses (`completed` / `partial` / `failed`); `partial` means some selected locations synced and others errored (the per-location errors are on the run). Non-lodging locations are skipped cleanly (Google answers the lodging call with HTTP 400, not 404). Reviews are **not** synced — the v4 Reviews API is producer-restricted by Google and unavailable on most projects; the Q&A API was retired (2025-11-03).
 
 ## OpenAI ads (ChatGPT ads)
 

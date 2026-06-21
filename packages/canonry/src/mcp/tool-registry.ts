@@ -1197,7 +1197,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_gbp_lodging',
     title: 'Get GBP lodging attributes',
-    description: 'List the latest Google Business Profile lodging snapshot per location (hotel structured attributes). populatedGroupCount=0 means an empty profile — an AEO gap.',
+    description: 'List the latest Google Business Profile lodging snapshot per location (hotel structured attributes). populatedGroupCount=0 means the Lodging API returned no structured attributes, which is common even for complete hotels because the owner-set "Hotel details" amenity panel is a separate surface the API does not expose. Treat it as a "verify the Hotel details panel", not a confirmed gap.',
     access: 'read',
     tier: 'gbp',
     inputSchema: gbpLocationScopedInputSchema,
