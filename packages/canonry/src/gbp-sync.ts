@@ -308,8 +308,13 @@ export async function executeGbpSync(
               }).run()
             }
 
-            // Lodging: append a new snapshot only when the profile changed
-            // (hotel attributes change rarely — don't store a row per sync).
+            // Lodging: append a new snapshot when the profile changed (hotel
+            // attributes change rarely — don't store a row per sync); otherwise
+            // re-stamp the latest snapshot's `syncedAt` so it records this
+            // fetch. Lodging is re-fetched every sync and has no cadence gate,
+            // so without this touch a stable-but-just-re-verified profile keeps
+            // the first-observed timestamp and reads as stale in `gbp lodging` /
+            // `gbp summary`. Mirrors the Places enrichment touch below.
             if (lodging !== null && lodgingChanged) {
               tx.insert(gbpLodgingSnapshots).values({
                 id: crypto.randomUUID(),
@@ -321,6 +326,11 @@ export async function executeGbpSync(
                 syncedAt: insertNow,
                 syncRunId: runId,
               }).run()
+            } else if (lodging !== null && latestLodging) {
+              tx.update(gbpLodgingSnapshots)
+                .set({ syncedAt: insertNow, syncRunId: runId })
+                .where(eq(gbpLodgingSnapshots.id, latestLodging.id))
+                .run()
             }
 
             // Places: append a new rendered-listing snapshot when the Place
