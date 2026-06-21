@@ -264,7 +264,10 @@ therefore return, alongside the unchanged `crawlerHits` total:
 - `crawlerInfraHits` — sitemap + robots + asset fetches.
 - `crawlerSegments` — the full `{ content, sitemap, robots, asset, other }`
   breakdown; the five buckets sum to `crawlerHits`, and
-  `content + infra + other == crawlerHits`.
+  `content + infra + other == crawlerHits`. `other` captures non-page downloads
+  and feeds (PDF, CSV, RSS) plus WordPress polling endpoints that are not page
+  reads (`/feed`, `/<path>/feed`, `/wp-json/...`, `xmlrpc.php`, `wp-cron.php`), so
+  they stay out of `crawlerContentHits`.
 
 Each crawler row from `traffic events` also carries a `pathClass`
 (`content | sitemap | robots | asset | other`). The dashboard leads with the

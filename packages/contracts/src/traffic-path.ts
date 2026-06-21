@@ -40,6 +40,11 @@ export interface TrafficCrawlerSegments {
 // content read.
 const ROBOTS_BASENAMES = new Set(['robots.txt', 'llms.txt', 'llms-full.txt'])
 
+// Non-page infrastructure endpoints whose basename carries a document-like
+// extension, so the extension check below would otherwise call them `content`.
+// WordPress XML-RPC and cron are the common case.
+const INFRA_BASENAMES = new Set(['xmlrpc.php', 'wp-cron.php'])
+
 // Static-asset extensions. A crawler fetching these is pulling sub-resources,
 // not reading a page. Mirrors the set the issue calls out plus the common
 // remainder (fonts, modern image formats, media, source maps).
@@ -166,6 +171,16 @@ export function classifyTrafficPath(pathNormalized: string | null | undefined): 
   // Any `*.xml` / `*.xml.gz`, or one of the extensionless sitemap conventions.
   if (lower.endsWith('.xml') || lower.endsWith('.xml.gz')) return TrafficPathClasses.sitemap
   if (SITEMAP_BASENAME.test(basename)) return TrafficPathClasses.sitemap
+
+  // Non-page infrastructure endpoints that an extension or extensionless path
+  // would otherwise misclassify as `content`. WordPress is the common case:
+  // XML-RPC / cron (`xmlrpc.php`, `wp-cron.php`), the WP REST API
+  // (`/wp-json/...`), and RSS / comment feeds, which WordPress exposes at `/feed`
+  // and `/<path>/feed[/...]` with no file extension. These are polling and
+  // syndication, not a content crawl, so they go to the residual bucket.
+  if (INFRA_BASENAMES.has(basename)) return TrafficPathClasses.other
+  if (lower === '/wp-json' || lower.startsWith('/wp-json/')) return TrafficPathClasses.other
+  if (lower.endsWith('/feed') || lower.includes('/feed/')) return TrafficPathClasses.other
 
   // Extract the extension from the basename (ignore leading-dot dotfiles, where
   // the dot is at index 0 — those have no extension).
