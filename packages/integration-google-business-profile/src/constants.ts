@@ -46,11 +46,15 @@ export const GBP_LOCATIONS_DEFAULT_READ_MASK = [
   'title',
   'storefrontAddress',
   'websiteUri',
-  'categories.primaryCategory.displayName',
+  // Request `categories` WHOLE, not a nested sub-path. The Business Information
+  // locations.list readMask rejects a nested path into the REPEATED
+  // `additionalCategories` array ("Invalid field mask provided", HTTP 400 —
+  // verified against the live API), so we ask for the full `categories` object
+  // (it carries primaryCategory + additionalCategories displayNames + serviceTypes).
+  'categories',
   // Owner-authored profile content — the entity-anchor and qualifier signals AI
   // answer engines weight most. All ride the same Business Information v1
   // Location resource canonry already reads (no new auth / API enablement).
-  'categories.additionalCategories.displayName',
   'profile.description',
   'serviceArea',
   'regularHours',
