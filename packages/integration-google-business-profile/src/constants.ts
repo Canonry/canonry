@@ -47,6 +47,15 @@ export const GBP_LOCATIONS_DEFAULT_READ_MASK = [
   'storefrontAddress',
   'websiteUri',
   'categories.primaryCategory.displayName',
+  // Owner-authored profile content — the entity-anchor and qualifier signals AI
+  // answer engines weight most. All ride the same Business Information v1
+  // Location resource canonry already reads (no new auth / API enablement).
+  'categories.additionalCategories.displayName',
+  'profile.description',
+  'serviceArea',
+  'regularHours',
+  'phoneNumbers',
+  'openInfo',
   'metadata.placeId',
   'metadata.mapsUri',
 ].join(',')

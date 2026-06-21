@@ -2,7 +2,7 @@
 
 Canonry integrates with the Google Business Profile (GBP) API to surface local AEO signals: search-keyword impressions, daily performance metrics, hotel lodging attributes, and booking/reservation CTAs (plus reviews on the projects where Google has granted v4 access — see the gating section). This data feeds the local-AEO dashboard and the Aero analyst.
 
-> **Q&A is not available.** Google shut down the My Business Q&A API — it returns HTTP 501 `API_UNSUPPORTED`. There is no programmatic way to read or write profile Q&A. Don't plan around it.
+> **Q&A is not available.** Google **retired** the My Business Q&A API (`mybusinessqanda.googleapis.com`) on 2025-11-03, and began winding down the public Q&A section on profiles shortly after. There is no programmatic way to read or write profile Q&A. Don't plan around it.
 
 ## What Canonry Automates
 
@@ -68,7 +68,7 @@ In Cloud Console → APIs & Services → Library, enable:
 | **My Business Lodging API** | **Hotel attributes — required if working with lodging properties** |
 | **My Business Place Actions API** | **Booking / reservation CTAs — required if hotels or restaurants use them** |
 
-**Do NOT enable "My Business Q&A API"** — Google shut it down (HTTP 501 `API_UNSUPPORTED`). It's listed in some older setup docs but no longer functions.
+**Do NOT enable "My Business Q&A API"** — Google **retired** it on 2025-11-03. It's listed in some older setup docs but no longer functions.
 
 ### The legacy "Google My Business API" (v4 — reviews)
 
@@ -284,7 +284,7 @@ Validated against three live businesses of different types (a computer-support s
 | Lodging returns 200 with only `{ "name": ... }` | The lodging profile has no amenities filled in | Not an error — it's an AEO gap to flag to the operator |
 | Place action links empty | No CTAs configured | Set them up in the GBP UI; for many local businesses this is genuinely empty (an AEO gap) |
 | Reviews 403 `SERVICE_DISABLED` while v1 APIs work | Legacy v4 `mybusiness.googleapis.com` not enabled for this account/project | See "The legacy Google My Business API" above — enable via the approval-email shortcut as the approved account; can't be done via library or gcloud |
-| Q&A returns HTTP 501 `API_UNSUPPORTED` | Google shut down the Q&A API | Permanent — Q&A is not available programmatically |
+| Q&A API unreachable | Google retired the Q&A API on 2025-11-03 | Permanent. Q&A is not available programmatically |
 | Keyword impressions mostly `threshold` instead of `value` | Low-volume keywords are privacy-redacted by Google | Expected — even a busy hotel can be ~89% thresholded; tiny businesses are 100%. Surfaced as `thresholdedKeywordPct` in the summary |
 
 ## Related Files in This Skill

@@ -40,6 +40,17 @@ export const gbpLocationDtoSchema = z.object({
   // the location is not on Maps). `placeId` is the join key to the Places API.
   placeId: z.string().nullable(),
   mapsUri: z.string().nullable(),
+  // Owner-authored profile content (Business Information v1 Location resource).
+  // These are the entity-anchor + qualifier signals AI answer engines weight:
+  // secondary categories, the business description, the service area + hours
+  // (stored verbatim as JSON), the primary phone, and the open state.
+  additionalCategories: z.array(z.string()),
+  description: z.string().nullable(),
+  serviceArea: z.record(z.string(), z.unknown()).nullable(),
+  regularHours: z.record(z.string(), z.unknown()).nullable(),
+  primaryPhone: z.string().nullable(),
+  openStatus: z.string().nullable(),
+  openingDate: z.string().nullable(),
   selected: z.boolean(),
   syncedAt: z.string().nullable(),
   createdAt: z.string(),

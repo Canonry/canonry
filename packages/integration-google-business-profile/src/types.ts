@@ -29,6 +29,13 @@ export interface GbpLocationMetadata {
   mapsUri?: string
 }
 
+/** A Google "civil date": any of the components may be omitted (e.g. year-only). */
+export interface GbpDate {
+  year?: number
+  month?: number
+  day?: number
+}
+
 export interface GbpLocation {
   /** "locations/{n}" */
   name: string
@@ -39,6 +46,14 @@ export interface GbpLocation {
     primaryCategory?: { displayName?: string }
     additionalCategories?: { displayName?: string }[]
   }
+  // Owner-authored profile content. `serviceArea` / `regularHours` are stored
+  // faithfully as JSON (we surface presence, not a reshaped schema), so they are
+  // typed as passthrough objects rather than a brittle mirror of Google's shape.
+  profile?: { description?: string }
+  serviceArea?: Record<string, unknown>
+  regularHours?: Record<string, unknown>
+  phoneNumbers?: { primaryPhone?: string; additionalPhones?: string[] }
+  openInfo?: { status?: string; openingDate?: GbpDate }
   metadata?: GbpLocationMetadata
 }
 
