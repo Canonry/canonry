@@ -7,6 +7,7 @@ import {
   computeKeywordCoverage,
   summarizePlaceActions,
   summarizeLodging,
+  summarizeProfileCompleteness,
   buildGbpSummary,
 } from '../src/gbp-summary.js'
 
@@ -279,6 +280,10 @@ describe('buildGbpSummary (composition)', () => {
       ],
       placeActions: [{ placeActionType: 'RESERVATION', providerType: 'MERCHANT' }],
       lodging: [{ locationName: 'locations/1', populatedGroupCount: 0 }],
+      locationProfiles: [
+        { additionalCategories: ['Insulation contractor'], description: 'Roof restoration.', serviceArea: null, regularHours: { periods: [] }, primaryPhone: '(248) 925-7414', openStatus: 'OPEN' },
+        { additionalCategories: [], description: null, serviceArea: null, regularHours: null, primaryPhone: null, openStatus: null },
+      ],
     })
 
     expect(summary.scope).toEqual({ locationName: null, locationCount: 2 })
@@ -299,6 +304,8 @@ describe('buildGbpSummary (composition)', () => {
     expect(summary.keywords).toEqual({ total: 2, thresholdedCount: 1, thresholdedPct: 50 })
     expect(summary.placeActions).toMatchObject({ total: 1, hasReservationCta: true, hasDirectMerchantCta: true })
     expect(summary.lodging).toEqual({ lodgingLocationCount: 1, populatedLodgingCount: 0, emptyLodgingCount: 1 })
+    // Profile completeness is wired through buildGbpSummary (1 of 2 locations populated).
+    expect(summary.profileCompleteness).toMatchObject({ locationCount: 2, withSecondaryCategories: 1, withDescription: 1, withHours: 1, withPrimaryPhone: 1 })
   })
 
   it('does not show a red delta when the recent window is pure reporting-lag zeros', () => {
@@ -314,7 +321,7 @@ describe('buildGbpSummary (composition)', () => {
     daily.push({ metric: 'WEBSITE_CLICKS', date: '2026-05-13', value: 0 })
     const summary = buildGbpSummary({
       locationName: null, locationCount: 1, asOfDate: '2026-05-13',
-      dailyMetrics: daily, keywords: [], placeActions: [], lodging: [],
+      dailyMetrics: daily, keywords: [], placeActions: [], lodging: [], locationProfiles: [],
     })
     // Anchor 05-10: recent (05-03, 05-10] = 7×10 = 70; prior (04-26, 05-03] = 05-01..05-03 = 3×10 = 30.
     expect(summary.performance.deltaPct.WEBSITE_CLICKS).toBeGreaterThanOrEqual(0)
@@ -325,7 +332,7 @@ describe('buildGbpSummary (composition)', () => {
   it('produces an all-zero/empty summary for a freshly-connected project with no data', () => {
     const summary = buildGbpSummary({
       locationName: null, locationCount: 0, asOfDate: '2026-05-15',
-      dailyMetrics: [], keywords: [], placeActions: [], lodging: [],
+      dailyMetrics: [], keywords: [], placeActions: [], lodging: [], locationProfiles: [],
     })
     expect(summary.performance.totals).toEqual({})
     expect(summary.freshness).toEqual({ dataThroughDate: null, latestStoredDate: null, pendingDays: 0 })
@@ -333,5 +340,62 @@ describe('buildGbpSummary (composition)', () => {
     expect(summary.keywords.thresholdedPct).toBe(0)
     expect(summary.placeActions.total).toBe(0)
     expect(summary.lodging.lodgingLocationCount).toBe(0)
+  })
+})
+
+describe('summarizeProfileCompleteness', () => {
+  it('counts which selected locations have each owner-content field populated', () => {
+    const out = summarizeProfileCompleteness([
+      // Fully populated.
+      { additionalCategories: ['Insulation contractor', 'Waterproofing service'], description: 'Roof restoration.', serviceArea: { businessType: 'CUSTOMER_LOCATION_ONLY' }, regularHours: { periods: [] }, primaryPhone: '(248) 925-7414', openStatus: 'OPEN' },
+      // Bare, temporarily closed.
+      { additionalCategories: [], description: null, serviceArea: null, regularHours: null, primaryPhone: null, openStatus: 'CLOSED_TEMPORARILY' },
+      // Partial: one secondary category, EMPTY description string (not counted), hours + phone, permanently closed.
+      { additionalCategories: ['Event venue'], description: '   ', serviceArea: null, regularHours: { periods: [] }, primaryPhone: '(323) 515-1215', openStatus: 'CLOSED_PERMANENTLY' },
+    ])
+    expect(out.locationCount).toBe(3)
+    expect(out.withSecondaryCategories).toBe(2)
+    expect(out.secondaryCategoryTotal).toBe(3)
+    expect(out.withDescription).toBe(1)        // empty/whitespace description does not count
+    expect(out.withServiceArea).toBe(1)
+    expect(out.withHours).toBe(2)
+    expect(out.withPrimaryPhone).toBe(2)
+    expect(out.permanentlyClosed).toBe(1)
+    expect(out.temporarilyClosed).toBe(1)
+  })
+
+  it('returns all-zero counts for no locations', () => {
+    expect(summarizeProfileCompleteness([])).toEqual({
+      locationCount: 0,
+      withSecondaryCategories: 0,
+      secondaryCategoryTotal: 0,
+      withDescription: 0,
+      withServiceArea: 0,
+      withHours: 0,
+      withPrimaryPhone: 0,
+      permanentlyClosed: 0,
+      temporarilyClosed: 0,
+    })
+  })
+
+  it('treats null additionalCategories (legacy/pre-migration rows) as zero, not a crash', () => {
+    const out = summarizeProfileCompleteness([
+      { additionalCategories: null, description: null, serviceArea: null, regularHours: null, primaryPhone: null, openStatus: null },
+    ])
+    expect(out.locationCount).toBe(1)
+    expect(out.withSecondaryCategories).toBe(0)
+    expect(out.secondaryCategoryTotal).toBe(0)
+  })
+
+  it('counts an empty serviceArea/regularHours object as present (presence, not substance)', () => {
+    // These fields are stored verbatim, so completeness is "Google returned a
+    // value" (!= null), NOT a deep-emptiness check. Only text fields require
+    // non-empty content. A future "fix" to deep-inspect emptiness would break this.
+    const out = summarizeProfileCompleteness([
+      { additionalCategories: [], description: 'has text', serviceArea: {}, regularHours: {}, primaryPhone: null, openStatus: null },
+    ])
+    expect(out.withServiceArea).toBe(1)
+    expect(out.withHours).toBe(1)
+    expect(out.withDescription).toBe(1)
   })
 })
