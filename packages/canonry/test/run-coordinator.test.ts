@@ -313,7 +313,8 @@ describe('RunCoordinator', () => {
       id: projectId, name: 'gbp-coord', displayName: 'GBP', canonicalDomain: 'example.com',
       country: 'US', language: 'en', createdAt: now, updatedAt: now,
     }).run()
-    // One selected location with an empty lodging profile → one high lodging-gap insight.
+    // One selected location with an unreadable lodging profile → one low-severity
+    // lodging-gap verify-nudge (an empty Lodging API result is not a confirmed gap).
     db.insert(gbpLocations).values({
       id: 'l1', projectId, accountName: 'accounts/1', locationName: 'locations/1',
       displayName: 'Loc 1', selected: true, syncedAt: now, createdAt: now, updatedAt: now,
@@ -343,22 +344,21 @@ describe('RunCoordinator', () => {
     expect(avSpy).not.toHaveBeenCalled()
     expect(db.select().from(healthSnapshots).all()).toHaveLength(0)
 
-    // The insight was persisted and the notifier fired.
+    // The insight was persisted and the run notifier fired.
     expect(db.select().from(insights).where(eq(insights.runId, runId)).all()).toHaveLength(1)
     expect(notifier.onRunCompleted).toHaveBeenCalledWith(runId, projectId)
-    expect(insightSpy).toHaveBeenCalledTimes(1)
-    expect(insightSpy.mock.calls[0]![0]).toBe(runId)
-    expect(insightSpy.mock.calls[0]![1]).toBe(projectId)
-    expect(insightSpy.mock.calls[0]![2].insights).toMatchObject([
-      { type: 'gbp-lodging-gap', severity: 'high', provider: 'gbp' },
-    ])
+    // The only insight is a low-severity lodging verify-nudge, so the
+    // critical/high insight-notification callback does NOT fire (it gates on
+    // criticalOrHigh > 0). The insight is still persisted and surfaces in Aero's count.
+    expect(insightSpy).not.toHaveBeenCalled()
 
-    // Aero woke with the GBP insight count.
+    // Aero woke with the GBP insight count. The lodging-gap is a low-severity
+    // verify-nudge, so it counts toward insightCount but NOT criticalOrHigh.
     expect(captured).toBeDefined()
     if (!captured || captured.kind === 'aeo-discover-probe') throw new Error('expected a gbp-sync aero context')
     expect(captured.kind).toBe('gbp-sync')
     expect(captured.insightCount).toBe(1)
-    expect(captured.criticalOrHigh).toBe(1)
+    expect(captured.criticalOrHigh).toBe(0)
   })
 
   it('discovery aero context resolves the session by runId, not by "latest non-queued"', async () => {

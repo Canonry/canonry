@@ -103,9 +103,9 @@ describe('IntelligenceService.analyzeAndPersistGbp', () => {
         expect(i.id.startsWith('proj_gbp::gbp::locations/A::')).toBe(true)
       }
 
-      // Severities: lodging high, cta medium, metric -80% high, keyword -70% high.
+      // Severities: lodging low (verify-nudge), cta medium, metric -80% high, keyword -70% high.
       const sev = Object.fromEntries(result.map((i) => [i.type, i.severity]))
-      expect(sev['gbp-lodging-gap']).toBe('high')
+      expect(sev['gbp-lodging-gap']).toBe('low')
       expect(sev['gbp-cta-gap']).toBe('medium')
       expect(sev['gbp-metric-drop']).toBe('high')
       expect(sev['gbp-keyword-drop']).toBe('high')
@@ -144,7 +144,7 @@ describe('IntelligenceService.analyzeAndPersistGbp', () => {
       expect(types).toContain('gbp-listing-discrepancy')
       expect(types).not.toContain('gbp-lodging-gap')
       const disc = result.find((i) => i.type === 'gbp-listing-discrepancy')!
-      expect(disc.severity).toBe('high')
+      expect(disc.severity).toBe('medium')
       expect(disc.query).toBe('Gjelina Venice')
       // The reason names the specific amenities extracted from the Places snapshot.
       expect(disc.recommendation?.reason).toContain('breakfast')
