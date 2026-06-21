@@ -243,6 +243,73 @@ export function summarizeLodging(rows: LodgingInput[]): LodgingSummary {
   }
 }
 
+/** One selected location's owner-content profile fields (from gbp_locations). */
+export interface LocationProfileInput {
+  additionalCategories: string[] | null
+  description: string | null
+  serviceArea: unknown | null
+  regularHours: unknown | null
+  primaryPhone: string | null
+  openStatus: string | null
+}
+
+/**
+ * Completeness scorecard over the owner-authored profile content of the
+ * project's selected locations — the entity-anchor + qualifier signals AI
+ * answer engines weight. Counts how many locations populate each field, so an
+ * operator can see at a glance how representative the tracked profiles are.
+ */
+export interface ProfileCompletenessSummary {
+  locationCount: number
+  /** Locations with at least one secondary category set. */
+  withSecondaryCategories: number
+  /** Total secondary categories across all locations. */
+  secondaryCategoryTotal: number
+  withDescription: number
+  withServiceArea: number
+  withHours: number
+  withPrimaryPhone: number
+  /** Locations Google reports as permanently / temporarily closed. */
+  permanentlyClosed: number
+  temporarilyClosed: number
+}
+
+export function summarizeProfileCompleteness(rows: LocationProfileInput[]): ProfileCompletenessSummary {
+  let withSecondaryCategories = 0
+  let secondaryCategoryTotal = 0
+  let withDescription = 0
+  let withServiceArea = 0
+  let withHours = 0
+  let withPrimaryPhone = 0
+  let permanentlyClosed = 0
+  let temporarilyClosed = 0
+  for (const r of rows) {
+    const secondaryCount = r.additionalCategories?.length ?? 0
+    if (secondaryCount > 0) withSecondaryCategories++
+    secondaryCategoryTotal += secondaryCount
+    if ((r.description ?? '').trim().length > 0) withDescription++
+    // serviceArea / regularHours are stored verbatim, so completeness is presence
+    // (!= null), not substance: Google omits them (→ null) when unset, and we do
+    // not deep-inspect the raw shape. Text fields require a non-empty trimmed value.
+    if (r.serviceArea != null) withServiceArea++
+    if (r.regularHours != null) withHours++
+    if ((r.primaryPhone ?? '').trim().length > 0) withPrimaryPhone++
+    if (r.openStatus === 'CLOSED_PERMANENTLY') permanentlyClosed++
+    if (r.openStatus === 'CLOSED_TEMPORARILY') temporarilyClosed++
+  }
+  return {
+    locationCount: rows.length,
+    withSecondaryCategories,
+    secondaryCategoryTotal,
+    withDescription,
+    withServiceArea,
+    withHours,
+    withPrimaryPhone,
+    permanentlyClosed,
+    temporarilyClosed,
+  }
+}
+
 export interface GbpSummaryInput {
   locationName: string | null
   locationCount: number
@@ -252,6 +319,7 @@ export interface GbpSummaryInput {
   keywords: KeywordInput[]
   placeActions: PlaceActionInput[]
   lodging: LodgingInput[]
+  locationProfiles: LocationProfileInput[]
 }
 
 export interface GbpSummary {
@@ -267,6 +335,7 @@ export interface GbpSummary {
   keywords: KeywordCoverage
   placeActions: PlaceActionSummary
   lodging: LodgingSummary
+  profileCompleteness: ProfileCompletenessSummary
 }
 
 /** Compose every sub-calculation into the summary the API returns. */
@@ -290,5 +359,6 @@ export function buildGbpSummary(input: GbpSummaryInput): GbpSummary {
     keywords: computeKeywordCoverage(input.keywords),
     placeActions: summarizePlaceActions(input.placeActions),
     lodging: summarizeLodging(input.lodging),
+    profileCompleteness: summarizeProfileCompleteness(input.locationProfiles),
   }
 }

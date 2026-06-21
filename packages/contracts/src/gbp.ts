@@ -250,6 +250,19 @@ export const gbpSummaryDtoSchema = z.object({
     populatedLodgingCount: z.number().int().nonnegative(),
     emptyLodgingCount: z.number().int().nonnegative(),
   }),
+  // Owner-content completeness over the in-scope locations: how many populate
+  // each entity-anchor / qualifier field AI answer engines weight.
+  profileCompleteness: z.object({
+    locationCount: z.number().int().nonnegative(),
+    withSecondaryCategories: z.number().int().nonnegative(),
+    secondaryCategoryTotal: z.number().int().nonnegative(),
+    withDescription: z.number().int().nonnegative(),
+    withServiceArea: z.number().int().nonnegative(),
+    withHours: z.number().int().nonnegative(),
+    withPrimaryPhone: z.number().int().nonnegative(),
+    permanentlyClosed: z.number().int().nonnegative(),
+    temporarilyClosed: z.number().int().nonnegative(),
+  }),
 })
 export type GbpSummaryDto = z.infer<typeof gbpSummaryDtoSchema>
 

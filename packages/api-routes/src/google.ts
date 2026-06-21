@@ -1900,7 +1900,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     if (locationNames.length === 0) {
       return buildGbpSummary({
         locationName, locationCount: 0, asOfDate: today,
-        dailyMetrics: [], keywords: [], placeActions: [], lodging: [],
+        dailyMetrics: [], keywords: [], placeActions: [], lodging: [], locationProfiles: [],
       })
     }
 
@@ -1920,6 +1920,16 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
         latestLodgingByLocation.set(row.locationName, { locationName: row.locationName, populatedGroupCount: row.populatedGroupCount })
       }
     }
+    // Owner-content profile completeness over the in-scope locations.
+    const profileRows = app.db.select({
+      additionalCategories: gbpLocations.additionalCategories,
+      description: gbpLocations.description,
+      serviceArea: gbpLocations.serviceArea,
+      regularHours: gbpLocations.regularHours,
+      primaryPhone: gbpLocations.primaryPhone,
+      openStatus: gbpLocations.openStatus,
+    }).from(gbpLocations)
+      .where(and(eq(gbpLocations.projectId, project.id), inArray(gbpLocations.locationName, locationNames))).all()
 
     // Pass the server "today"; buildGbpSummary derives the complete-day anchor
     // from the data (latest non-zero day) so the reporting-lag tail never
@@ -1932,6 +1942,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
       keywords: keywordRows.map((r) => ({ valueCount: r.valueCount ?? null, valueThreshold: r.valueThreshold ?? null })),
       placeActions: placeActionRows.map((r) => ({ placeActionType: r.placeActionType, providerType: r.providerType ?? null })),
       lodging: [...latestLodgingByLocation.values()],
+      locationProfiles: profileRows,
     })
   })
 

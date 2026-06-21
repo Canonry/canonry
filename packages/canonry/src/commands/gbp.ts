@@ -342,4 +342,12 @@ export async function gbpSummary(
     + ` direct-merchant:${s.placeActions.hasDirectMerchantCta ? 'yes' : 'no'}`)
   console.log(`Lodging: ${s.lodging.lodgingLocationCount} profile(s), `
     + `${s.lodging.populatedLodgingCount} populated, ${s.lodging.emptyLodgingCount} empty`)
+  const pc = s.profileCompleteness
+  console.log(`Profile completeness (${pc.locationCount} location(s)): `
+    + `${pc.withSecondaryCategories} w/ secondary categories (${pc.secondaryCategoryTotal} total), `
+    + `${pc.withDescription} w/ description, ${pc.withServiceArea} w/ service area, `
+    + `${pc.withHours} w/ hours, ${pc.withPrimaryPhone} w/ phone`
+    + (pc.permanentlyClosed || pc.temporarilyClosed
+      ? `; closed: ${pc.permanentlyClosed} permanently, ${pc.temporarilyClosed} temporarily`
+      : ''))
 }

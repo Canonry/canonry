@@ -995,6 +995,17 @@ export type GbpSummaryDto = {
         populatedLodgingCount: number;
         emptyLodgingCount: number;
     };
+    profileCompleteness: {
+        locationCount: number;
+        withSecondaryCategories: number;
+        secondaryCategoryTotal: number;
+        withDescription: number;
+        withServiceArea: number;
+        withHours: number;
+        withPrimaryPhone: number;
+        permanentlyClosed: number;
+        temporarilyClosed: number;
+    };
 };
 
 export type GbpSyncResponse = {
