@@ -54,6 +54,12 @@ export interface GbpLocationSignals {
   /** True when the lodging profile has zero populated attribute groups. */
   lodgingEmpty: boolean
   /**
+   * True when the owner has set no business description (`profile.description`).
+   * Reliably owner-readable from the GBP API, so unlike `lodgingEmpty` this is a
+   * real, confirmable completeness gap rather than a verify nudge.
+   */
+  descriptionMissing: boolean
+  /**
    * Amenities Google's *rendered* public listing asserts, derived from the
    * Places API (#648). Empty when Places enrichment is off/unconfigured or the
    * location has no Place Details snapshot. When the GBP profile is empty but
@@ -146,7 +152,24 @@ export function analyzeGbp(signals: GbpLocationSignals[]): GbpInsightDraft[] {
       }
     }
 
-    // 2. No direct-merchant booking CTA — only aggregator/OTA links present.
+    // 2. No business description set. Unlike the lodging gap this is a reliable,
+    //    owner-readable signal (`profile.description` comes straight from the
+    //    Business Information API), so it is a real completeness gap. Low
+    //    severity: a quick, owner-controlled improvement, not a regression.
+    if (loc.descriptionMissing) {
+      drafts.push({
+        ...base,
+        type: 'gbp-description-missing',
+        severity: 'low',
+        title: `${loc.displayName}: no business description set`,
+        recommendation: {
+          action: 'Add a business description (up to 750 characters) in the Google Business Profile.',
+          reason: 'The owner description is the cheapest owner-controlled prose an AI answer engine can lift to describe the business, and it seeds the entity attributes (specialties, service area, differentiators) models draw on. It reads straight from the GBP API, so an empty one is a real, easily-closed gap.',
+        },
+      })
+    }
+
+    // 3. No direct-merchant booking CTA — only aggregator/OTA links present.
     if (loc.placeActionCount > 0 && !loc.hasDirectMerchantCta) {
       drafts.push({
         ...base,

@@ -14,6 +14,7 @@ const TONE_MAP: Record<InsightDto['type'], MetricTone> = {
   'gbp-lodging-gap': 'negative',
   'gbp-listing-discrepancy': 'negative',
   'gbp-cta-gap': 'caution',
+  'gbp-description-missing': 'caution',
   'gbp-metric-drop': 'negative',
   'gbp-keyword-drop': 'negative',
 }
@@ -34,6 +35,7 @@ const ACTION_GROUP_MAP: Record<InsightDto['type'], InsightActionGroup> = {
   'gbp-lodging-gap': 'write',
   'gbp-listing-discrepancy': 'write',
   'gbp-cta-gap': 'write',
+  'gbp-description-missing': 'write',
   'gbp-metric-drop': 'investigate',
   'gbp-keyword-drop': 'investigate',
 }
@@ -51,6 +53,7 @@ const CITATION_STATE_MAP: Record<InsightDto['type'], CitationState> = {
   'gbp-lodging-gap': 'not-cited',
   'gbp-listing-discrepancy': 'not-cited',
   'gbp-cta-gap': 'not-cited',
+  'gbp-description-missing': 'not-cited',
   'gbp-metric-drop': 'lost',
   'gbp-keyword-drop': 'lost',
 }
@@ -67,6 +70,7 @@ const ACTION_LABEL_FALLBACK: Record<InsightDto['type'], string> = {
   'gbp-lodging-gap': 'Lodging gap',
   'gbp-listing-discrepancy': 'Listing gap',
   'gbp-cta-gap': 'Booking CTA',
+  'gbp-description-missing': 'Description gap',
   'gbp-metric-drop': 'Metric drop',
   'gbp-keyword-drop': 'Keyword drop',
 }
