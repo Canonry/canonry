@@ -12,8 +12,10 @@ import {
   gbpKeywordImpressions,
   gbpKeywordMonthly,
   gbpPlaceDetails,
+  gbpLodgingSnapshots,
 } from '@ainyc/canonry-db'
 import { hashPlaceDetails } from '@ainyc/canonry-integration-google-places'
+import { hashLodging, countPopulatedGroups } from '@ainyc/canonry-integration-google-business-profile'
 import { executeGbpSync } from '../src/gbp-sync.js'
 import type { CanonryConfig } from '../src/config.js'
 
@@ -427,6 +429,88 @@ describe('executeGbpSync — Places enrichment (#648)', () => {
       // Metrics/keywords/lodging succeeded → run completes; Places error swallowed.
       expect(db.select().from(runs).where(eq(runs.id, 'run_1')).get()!.status).toBe('completed')
       expect(placeRows(db)).toHaveLength(0)
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('executeGbpSync — lodging snapshot freshness', () => {
+  const LODGING = { name: `${LOCATION}/lodging`, pools: { pool: true } }
+
+  function lodgingRows(db: ReturnType<typeof createClient>) {
+    return db.select().from(gbpLodgingSnapshots).where(eq(gbpLodgingSnapshots.projectId, 'proj_gbp')).all()
+  }
+
+  test('an unchanged lodging re-fetch re-stamps the latest snapshot (no new row, syncedAt advances)', async () => {
+    const { db, tmpDir } = createTempDb()
+    try {
+      seedProject(db)
+      getLodgingMock.mockResolvedValue(LODGING)
+
+      // Existing snapshot 30 days old whose content matches what the fetch
+      // returns, so the sync finds the lodging profile UNCHANGED — the common
+      // steady state (hotel attributes change rarely). Before the touch this
+      // row kept its 30-day-old syncedAt and read as stale.
+      const oldSyncedAt = new Date(Date.now() - 30 * 86_400_000).toISOString()
+      db.insert(gbpLodgingSnapshots).values({
+        id: 'seed_lodging',
+        projectId: 'proj_gbp',
+        locationName: LOCATION,
+        contentHash: hashLodging(LODGING),
+        attributes: LODGING,
+        populatedGroupCount: countPopulatedGroups(LODGING),
+        syncedAt: oldSyncedAt,
+        syncRunId: null,
+      }).run()
+
+      seedRun(db, 'run_1')
+      await executeGbpSync(db, 'run_1', 'proj_gbp', { config: testConfig() })
+
+      const rows = lodgingRows(db)
+      expect(rows).toHaveLength(1)                  // unchanged → no duplicate row
+      expect(rows[0]!.id).toBe('seed_lodging')       // same row, touched in place
+      expect(rows[0]!.syncRunId).toBe('run_1')       // re-stamped by this run
+      // Freshness advanced: the row no longer reads as 30 days stale.
+      expect(new Date(rows[0]!.syncedAt).getTime()).toBeGreaterThan(new Date(oldSyncedAt).getTime())
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  test('changed lodging content appends a new snapshot (snapshot-on-change preserved)', async () => {
+    const { db, tmpDir } = createTempDb()
+    try {
+      seedProject(db)
+
+      getLodgingMock.mockResolvedValue(LODGING)
+      seedRun(db, 'run_1')
+      await executeGbpSync(db, 'run_1', 'proj_gbp', { config: testConfig() })
+      expect(lodgingRows(db)).toHaveLength(1)
+
+      // Different attributes → a new content hash → a new snapshot row, so the
+      // touch must not swallow a genuine change.
+      getLodgingMock.mockResolvedValue({ ...LODGING, services: { roomService: true } })
+      seedRun(db, 'run_2')
+      await executeGbpSync(db, 'run_2', 'proj_gbp', { config: testConfig() })
+      expect(lodgingRows(db)).toHaveLength(2)
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  test('first-ever lodging sync inserts a snapshot (no prior row to touch)', async () => {
+    const { db, tmpDir } = createTempDb()
+    try {
+      seedProject(db)
+      getLodgingMock.mockResolvedValue(LODGING)
+
+      seedRun(db, 'run_1')
+      await executeGbpSync(db, 'run_1', 'proj_gbp', { config: testConfig() })
+
+      const rows = lodgingRows(db)
+      expect(rows).toHaveLength(1)
+      expect(rows[0]!.syncRunId).toBe('run_1')
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true })
     }
