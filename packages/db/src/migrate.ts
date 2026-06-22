@@ -1817,6 +1817,23 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       }
     },
   },
+  {
+    version: 82,
+    name: 'gbp-attributes-snapshots',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS gbp_attributes_snapshots (
+        id               TEXT PRIMARY KEY,
+        project_id       TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        location_name    TEXT NOT NULL,
+        content_hash     TEXT NOT NULL,
+        attributes       TEXT NOT NULL DEFAULT '[]',
+        attribute_count  INTEGER NOT NULL DEFAULT 0,
+        synced_at        TEXT NOT NULL,
+        sync_run_id      TEXT REFERENCES runs(id) ON DELETE SET NULL
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_gbp_attributes_loc ON gbp_attributes_snapshots(project_id, location_name, synced_at)`,
+    ],
+  },
 ]
 
 /**

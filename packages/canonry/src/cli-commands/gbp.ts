@@ -11,6 +11,7 @@ import {
   gbpKeywords,
   gbpPlaceActions,
   gbpLodging,
+  gbpAttributes,
   gbpPlaces,
   gbpSummary,
 } from '../commands/gbp.js'
@@ -184,6 +185,17 @@ export const GBP_CLI_COMMANDS: readonly CliCommandSpec[] = [
     run: async (input) => {
       const project = requireProject(input, 'gbp.lodging', 'canonry gbp lodging <project> [--location <name>] [--format json]')
       await gbpLodging(project, { location: getString(input.values, 'location'), format: input.format })
+    },
+  },
+  {
+    path: ['gbp', 'attributes'],
+    usage: 'canonry gbp attributes <project> [--location <name>] [--format json]',
+    options: {
+      location: stringOption(),
+    },
+    run: async (input) => {
+      const project = requireProject(input, 'gbp.attributes', 'canonry gbp attributes <project> [--location <name>] [--format json]')
+      await gbpAttributes(project, { location: getString(input.values, 'location'), format: input.format })
     },
   },
   {

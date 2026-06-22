@@ -278,6 +278,31 @@ export async function gbpLodging(
   }
 }
 
+export async function gbpAttributes(
+  project: string,
+  opts: { location?: string; format?: string },
+): Promise<void> {
+  const client = getClient()
+  const response = await client.listGbpAttributes(project, { locationName: opts.location })
+  if (isMachineFormat(opts.format)) {
+    console.log(JSON.stringify(response, null, 2))
+    return
+  }
+  if (response.attributes.length === 0) {
+    console.log('No attributes data. Run "canonry gbp sync" to capture owner-set attributes.')
+    return
+  }
+  console.log(`${response.total} location(s) with owner-set attributes:`)
+  for (const a of response.attributes) {
+    console.log(`  ${a.locationName}  ${a.attributeCount} attribute(s)`)
+    for (const attr of a.attributes) {
+      const key = attr.name.replace(/^attributes\//, '')
+      const val = attr.uris.length > 0 ? attr.uris.join(', ') : attr.values.join(', ')
+      console.log(`    ${key}: ${val}`)
+    }
+  }
+}
+
 export async function gbpPlaces(
   project: string,
   opts: { location?: string; format?: string },

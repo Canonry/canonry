@@ -1987,6 +1987,20 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'get',
+    path: '/api/v1/projects/{name}/gbp/attributes',
+    summary: 'List latest Google Business Profile owner-set attribute snapshots per location',
+    tags: ['gbp'],
+    parameters: [
+      nameParameter,
+      { in: 'query', name: 'locationName', required: false, description: 'Filter to one location resource name', schema: stringSchema },
+    ],
+    responses: {
+      200: jsonResponse('Attribute snapshots returned.', 'GbpAttributesListResponse'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
+    method: 'get',
     path: '/api/v1/projects/{name}/gbp/places',
     summary: 'List latest Google Places rendered-listing snapshots per location',
     tags: ['gbp'],

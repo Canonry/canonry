@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 import { eq, and, desc, sql, inArray } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { gscSearchData, gscUrlInspections, gscCoverageSnapshots, gbpLocations, gbpDailyMetrics, gbpKeywordImpressions, gbpKeywordMonthly, gbpPlaceActions, gbpLodgingSnapshots, gbpPlaceDetails, runs, projects, type DatabaseClient } from '@ainyc/canonry-db'
+import { gscSearchData, gscUrlInspections, gscCoverageSnapshots, gbpLocations, gbpDailyMetrics, gbpKeywordImpressions, gbpKeywordMonthly, gbpPlaceActions, gbpLodgingSnapshots, gbpAttributesSnapshots, gbpPlaceDetails, runs, projects, type DatabaseClient } from '@ainyc/canonry-db'
 import {
   validationError, notFound, normalizeProjectDomain, parseWindow, windowCutoff,
   authRequired, forbidden, quotaExceeded, providerError, escapeLikePattern, AppError,
@@ -1843,6 +1843,34 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
       attributes: r.attributes,
     }))
     return { lodging, total: lodging.length }
+  })
+
+  // GET /projects/:name/gbp/attributes — latest owner-set attributes snapshot
+  // per location. Generic across business categories (distinct from the
+  // hotels-only /gbp/lodging and the public-side /gbp/places).
+  app.get<{
+    Params: { name: string }
+    Querystring: { locationName?: string }
+  }>('/projects/:name/gbp/attributes', async (request) => {
+    const project = resolveProject(app.db, request.params.name)
+    const conditions = [eq(gbpAttributesSnapshots.projectId, project.id)]
+    if (request.query.locationName) conditions.push(eq(gbpAttributesSnapshots.locationName, request.query.locationName))
+    const rows = app.db.select().from(gbpAttributesSnapshots)
+      .where(and(...conditions))
+      .orderBy(desc(gbpAttributesSnapshots.syncedAt))
+      .all()
+    // Collapse to the latest snapshot per location.
+    const latestByLocation = new Map<string, typeof rows[number]>()
+    for (const row of rows) {
+      if (!latestByLocation.has(row.locationName)) latestByLocation.set(row.locationName, row)
+    }
+    const attributes = [...latestByLocation.values()].map((r) => ({
+      locationName: r.locationName,
+      attributeCount: r.attributeCount,
+      syncedAt: r.syncedAt,
+      attributes: r.attributes,
+    }))
+    return { attributes, total: attributes.length }
   })
 
   // GET /projects/:name/gbp/places — latest Places (New) rendered-listing

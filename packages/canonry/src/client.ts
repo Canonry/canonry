@@ -58,6 +58,7 @@ import type {
   GbpKeywordImpressionListResponse,
   GbpPlaceActionListResponse,
   GbpLodgingListResponse,
+  GbpAttributesListResponse,
   GbpPlaceDetailsListResponse,
   GbpSummaryDto,
   GscSearchDataDto,
@@ -218,6 +219,7 @@ import {
   getApiV1ProjectsByNameGbpKeywords,
   getApiV1ProjectsByNameGbpPlaceActions,
   getApiV1ProjectsByNameGbpLodging,
+  getApiV1ProjectsByNameGbpAttributes,
   getApiV1ProjectsByNameGbpPlaces,
   getApiV1ProjectsByNameGbpSummary,
   // GSC
@@ -1342,6 +1344,16 @@ export class ApiClient {
   async listGbpLodging(project: string, opts?: { locationName?: string }): Promise<GbpLodgingListResponse> {
     return this.invoke<GbpLodgingListResponse>(() =>
       getApiV1ProjectsByNameGbpLodging({
+        client: this.heyClient,
+        path: { name: project },
+        query: opts?.locationName ? { locationName: opts.locationName } as never : undefined,
+      }),
+    )
+  }
+
+  async listGbpAttributes(project: string, opts?: { locationName?: string }): Promise<GbpAttributesListResponse> {
+    return this.invoke<GbpAttributesListResponse>(() =>
+      getApiV1ProjectsByNameGbpAttributes({
         client: this.heyClient,
         path: { name: project },
         query: opts?.locationName ? { locationName: opts.locationName } as never : undefined,

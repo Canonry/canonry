@@ -1206,6 +1206,17 @@ export const canonryMcpTools = [
     handler: (client, input) => client.listGbpLodging(input.project, compactStringParams(input, ['locationName'])),
   }),
   defineTool({
+    name: 'canonry_gbp_attributes',
+    title: 'Get GBP owner-set attributes',
+    description: 'List the latest Google Business Profile owner-set attribute snapshot per location: the generic amenity / service / accessibility / identity / social-URL tags the owner has set (e.g. has_onsite_services, offers_online_estimates, is_owned_by_women, wheelchair accessibility, url_instagram). Works for every business category, unlike canonry_gbp_lodging (hotels only). Returns only attributes the owner has set, so attributeCount is a real, owner-readable completeness signal (not a verify-nudge).',
+    access: 'read',
+    tier: 'gbp',
+    inputSchema: gbpLocationScopedInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/gbp/attributes'],
+    handler: (client, input) => client.listGbpAttributes(input.project, compactStringParams(input, ['locationName'])),
+  }),
+  defineTool({
     name: 'canonry_gbp_places',
     title: 'Get GBP Places rendered-listing data',
     description: "List the latest Google Places (New) snapshot per location — the amenities Google's public listing advertises (server-derived `amenities`), cross-referenced against the GBP profile to surface listing discrepancies. Empty until a Places API key is configured and a gbp sync runs.",

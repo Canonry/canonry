@@ -29,6 +29,7 @@ import {
   gbpKeywordImpressionDtoSchema,
   gbpPlaceActionDtoSchema,
   gbpLodgingDtoSchema,
+  gbpAttributesDtoSchema,
   gbpPlaceDetailsDtoSchema,
   googleConnectionDtoSchema,
   gscCoverageSnapshotDtoSchema,
@@ -289,6 +290,16 @@ const COVERAGE: Record<string, CoverageEntry> = {
   gbpLodgingSnapshots: {
     kind: 'dto',
     dto: gbpLodgingDtoSchema,
+    internal: {
+      id: 'Surrogate key.',
+      projectId: 'Implied by the route scope.',
+      syncRunId: 'Internal join key.',
+      contentHash: 'Snapshot-on-change dedupe key; internal.',
+    },
+  },
+  gbpAttributesSnapshots: {
+    kind: 'dto',
+    dto: gbpAttributesDtoSchema,
     internal: {
       id: 'Surrogate key.',
       projectId: 'Implied by the route scope.',

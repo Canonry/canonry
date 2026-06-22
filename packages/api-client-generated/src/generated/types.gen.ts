@@ -922,6 +922,21 @@ export type GbpLodgingListResponse = {
     total: number;
 };
 
+export type GbpAttributesListResponse = {
+    attributes: Array<{
+        locationName: string;
+        attributeCount: number;
+        syncedAt: string;
+        attributes: Array<{
+            name: string;
+            valueType: string;
+            values: Array<boolean | string>;
+            uris: Array<string>;
+        }>;
+    }>;
+    total: number;
+};
+
 export type GbpPlaceActionListResponse = {
     placeActions: Array<{
         locationName: string;
@@ -6112,6 +6127,41 @@ export type GetApiV1ProjectsByNameGbpLodgingResponses = {
 };
 
 export type GetApiV1ProjectsByNameGbpLodgingResponse = GetApiV1ProjectsByNameGbpLodgingResponses[keyof GetApiV1ProjectsByNameGbpLodgingResponses];
+
+export type GetApiV1ProjectsByNameGbpAttributesData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Filter to one location resource name
+         */
+        locationName?: string;
+    };
+    url: '/api/v1/projects/{name}/gbp/attributes';
+};
+
+export type GetApiV1ProjectsByNameGbpAttributesErrors = {
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameGbpAttributesError = GetApiV1ProjectsByNameGbpAttributesErrors[keyof GetApiV1ProjectsByNameGbpAttributesErrors];
+
+export type GetApiV1ProjectsByNameGbpAttributesResponses = {
+    /**
+     * Attribute snapshots returned.
+     */
+    200: GbpAttributesListResponse;
+};
+
+export type GetApiV1ProjectsByNameGbpAttributesResponse = GetApiV1ProjectsByNameGbpAttributesResponses[keyof GetApiV1ProjectsByNameGbpAttributesResponses];
 
 export type GetApiV1ProjectsByNameGbpPlacesData = {
     body?: never;
