@@ -8,8 +8,9 @@ import type { GbpFetchOptions } from './types.js'
  * One owner-set Business Profile attribute, normalized to a flat shape. The
  * Business Information API carries an attribute's value in one of three fields
  * depending on `valueType` (`values` for BOOL/ENUM, `uriValues` for URL,
- * `repeatedEnumValue.setValues` for REPEATED_ENUM); we flatten all of them into
- * `values` (scalars) + `uris` (links) so consumers don't branch on the carrier.
+ * `repeatedEnumValue` for REPEATED_ENUM); we flatten them into `values`
+ * (positive scalars/enum values), `unsetValues` (explicit false enum values),
+ * and `uris` (links) so consumers don't branch on the carrier.
  */
 export interface GbpAttribute {
   /** Attribute id, e.g. `attributes/welcomes_lgbtq`. */
@@ -18,6 +19,8 @@ export interface GbpAttribute {
   valueType: string
   /** Scalar values: booleans (BOOL), enum strings (ENUM), or set enum strings (REPEATED_ENUM). */
   values: (boolean | string)[]
+  /** Explicit false values from REPEATED_ENUM attributes. Absent enum values remain unknown. */
+  unsetValues: string[]
   /** URL values (URL attributes), flattened from `uriValues[].uri`. */
   uris: string[]
 }
@@ -69,11 +72,12 @@ function normalizeAttribute(raw: RawAttribute): GbpAttribute {
     if (typeof v === 'boolean' || typeof v === 'string') values.push(v)
   }
   for (const s of raw.repeatedEnumValue?.setValues ?? []) values.push(s)
+  const unsetValues = [...(raw.repeatedEnumValue?.unsetValues ?? [])]
   const uris: string[] = []
   for (const u of raw.uriValues ?? []) {
-    if (u?.uri) uris.push(u.uri)
+    if (u.uri) uris.push(u.uri)
   }
-  return { name: raw.name ?? '', valueType: raw.valueType ?? '', values, uris }
+  return { name: raw.name ?? '', valueType: raw.valueType ?? '', values, unsetValues, uris }
 }
 
 /** Number of owner-set attributes (the API returns only set ones, so this is just the length). */

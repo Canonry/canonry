@@ -1154,7 +1154,7 @@ export const gbpAttributesSnapshots = sqliteTable('gbp_attributes_snapshots', {
   locationName: text('location_name').notNull(),
   contentHash: text('content_hash').notNull(),
   attributes: text('attributes', { mode: 'json' })
-    .$type<{ name: string; valueType: string; values: (boolean | string)[]; uris: string[] }[]>()
+    .$type<{ name: string; valueType: string; values: (boolean | string)[]; unsetValues: string[]; uris: string[] }[]>()
     .notNull()
     .default([]),
   attributeCount: integer('attribute_count').notNull().default(0),

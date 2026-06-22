@@ -180,11 +180,13 @@ export type GbpLodgingListResponse = z.infer<typeof gbpLodgingListResponseSchema
 // amenity / service / accessibility / identity / social-URL tags, captured via
 // the Business Information API. Distinct from lodging (hotels only) and from
 // the Places rendered listing (public-side). `values` carries BOOL/ENUM
-// scalars, `uris` carries URL-attribute links.
+// scalars and REPEATED_ENUM set values, `unsetValues` carries explicit
+// REPEATED_ENUM false values, and `uris` carries URL-attribute links.
 export const gbpAttributeDtoSchema = z.object({
   name: z.string(),
   valueType: z.string(),
   values: z.array(z.union([z.boolean(), z.string()])),
+  unsetValues: z.array(z.string()),
   uris: z.array(z.string()),
 })
 export type GbpAttributeDto = z.infer<typeof gbpAttributeDtoSchema>

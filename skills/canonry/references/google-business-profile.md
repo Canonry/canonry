@@ -190,7 +190,7 @@ The month-over-month keyword signal is powered by the **accumulating** `gbp_keyw
 
 Every `gbp sync` also captures the location's **owner-set attributes** via the Business Information API (`getAttributes`) and stores them snapshot-on-change in `gbp_attributes_snapshots`. Unlike the Lodging API (hotels only) this works for **any** business category: amenity / service / accessibility / identity / social-URL tags such as `has_onsite_services`, `offers_online_estimates`, `is_owned_by_women`, wheelchair accessibility, `url_instagram`, `url_facebook`. The API returns **only the attributes the owner has set**, so `attributeCount` is a reliable, owner-readable completeness signal (not a verify-nudge like the lodging gap).
 
-Read them with `canonry gbp attributes <project> [--location <name>] [--format json]` (API `GET /gbp/attributes`, MCP `canonry_gbp_attributes`). The CLI prints each location's set attributes (`key: value`); `--format json` returns the full normalized records (`{name, valueType, values, uris}`).
+Read them with `canonry gbp attributes <project> [--location <name>] [--format json]` (API `GET /gbp/attributes`, MCP `canonry_gbp_attributes`). The CLI prints each location's set attributes (`key: value`); `--format json` returns the full normalized records (`{name, valueType, values, unsetValues, uris}`).
 
 ## The Dashboard (`GbpSection`)
 
