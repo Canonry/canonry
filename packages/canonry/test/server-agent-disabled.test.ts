@@ -9,6 +9,21 @@ import type { CanonryConfig } from '../src/config.js'
 
 const AGENT_ENV = ['CANONRY_AGENT_DISABLED'] as const
 
+// Every route mounted by registerAgentRoutes. The kill-switch gates all of
+// them through a single guard, so the test asserts the whole surface flips —
+// not just the two probed before. Payloads are intentionally empty: when the
+// agent is enabled, POST /prompt and the memory mutations 400 on validation
+// *before* any LLM turn fires, so the parity loop never spends.
+const AGENT_ROUTES: ReadonlyArray<readonly [string, string, unknown?]> = [
+  ['GET', '/api/v1/projects/acme/agent/transcript'],
+  ['DELETE', '/api/v1/projects/acme/agent/transcript'],
+  ['GET', '/api/v1/projects/acme/agent/providers'],
+  ['POST', '/api/v1/projects/acme/agent/prompt', { prompt: '' }],
+  ['GET', '/api/v1/projects/acme/agent/memory'],
+  ['PUT', '/api/v1/projects/acme/agent/memory', {}],
+  ['DELETE', '/api/v1/projects/acme/agent/memory', {}],
+] as const
+
 interface Built {
   app: Awaited<ReturnType<typeof createServer>>
   apiKey: string
@@ -52,6 +67,16 @@ async function seedProject(app: Built['app'], apiKey: string, name: string): Pro
   expect(res.statusCode).toBe(201)
 }
 
+function inject(app: Built['app'], apiKey: string, route: readonly [string, string, unknown?]) {
+  const [method, url, payload] = route
+  return app.inject({
+    method: method as 'GET' | 'POST' | 'PUT' | 'DELETE',
+    url,
+    headers: { authorization: `Bearer ${apiKey}` },
+    ...(payload !== undefined ? { payload } : {}),
+  })
+}
+
 describe('Aero agent kill-switch', () => {
   const saved: Record<string, string | undefined> = {}
 
@@ -69,58 +94,56 @@ describe('Aero agent kill-switch', () => {
     }
   })
 
-  it('enabled (default): the agent transcript route is served (200 for a real project)', async () => {
+  it('enabled (default): the full agent route surface is served', async () => {
     const { app, apiKey, cleanup } = await buildServer()
     try {
       await seedProject(app, apiKey, 'acme')
-      const res = await app.inject({
+
+      const transcript = await app.inject({
         method: 'GET',
         url: '/api/v1/projects/acme/agent/transcript',
         headers: { authorization: `Bearer ${apiKey}` },
       })
-      expect(res.statusCode).toBe(200)
-      expect(JSON.parse(res.body).messages).toEqual([])
+      expect(transcript.statusCode).toBe(200)
+      expect(JSON.parse(transcript.body).messages).toEqual([])
+
+      // Parity with the disabled case: every gated route is mounted (not 404)
+      // when the agent is on. Empty bodies keep POST /prompt + memory mutations
+      // at a 400 validation error rather than running an agent turn.
+      for (const route of AGENT_ROUTES) {
+        const res = await inject(app, apiKey, route)
+        expect(res.statusCode, `enabled ${route[0]} ${route[1]} should be mounted`).not.toBe(404)
+      }
     } finally {
       await cleanup()
     }
   })
 
-  it('config agent.mode "disabled": agent routes are NOT served (404 for a real project)', async () => {
+  it('config agent.mode "disabled": every agent route is gone (404 for a real project)', async () => {
     const { app, apiKey, cleanup } = await buildServer({ mode: 'disabled' })
     try {
       // The project EXISTS, so a 404 proves the route was never registered
-      // (not a project-not-found 404).
+      // (not a project-not-found 404). All 7 routes ride the single gate.
       await seedProject(app, apiKey, 'acme')
-      const auth = { authorization: `Bearer ${apiKey}` }
-
-      const transcript = await app.inject({ method: 'GET', url: '/api/v1/projects/acme/agent/transcript', headers: auth })
-      expect(transcript.statusCode).toBe(404)
-
-      // The SSE prompt route — the one that spends on Opus — is gone too.
-      const prompt = await app.inject({
-        method: 'POST',
-        url: '/api/v1/projects/acme/agent/prompt',
-        headers: auth,
-        payload: { prompt: 'hi' },
-      })
-      expect(prompt.statusCode).toBe(404)
+      for (const route of AGENT_ROUTES) {
+        const res = await inject(app, apiKey, route)
+        expect(res.statusCode, `disabled ${route[0]} ${route[1]} should 404`).toBe(404)
+      }
     } finally {
       await cleanup()
     }
   })
 
-  it('CANONRY_AGENT_DISABLED=1 overrides config and disables the routes', async () => {
+  it('CANONRY_AGENT_DISABLED=1 overrides config and removes every agent route', async () => {
     process.env.CANONRY_AGENT_DISABLED = '1'
     // config does NOT disable — env must win.
     const { app, apiKey, cleanup } = await buildServer()
     try {
       await seedProject(app, apiKey, 'acme')
-      const res = await app.inject({
-        method: 'GET',
-        url: '/api/v1/projects/acme/agent/transcript',
-        headers: { authorization: `Bearer ${apiKey}` },
-      })
-      expect(res.statusCode).toBe(404)
+      for (const route of AGENT_ROUTES) {
+        const res = await inject(app, apiKey, route)
+        expect(res.statusCode, `env-disabled ${route[0]} ${route[1]} should 404`).toBe(404)
+      }
     } finally {
       await cleanup()
     }

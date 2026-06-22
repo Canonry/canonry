@@ -252,7 +252,9 @@ proactive auto-wake on `run.completed`, the `SessionRegistry`, and the
 interactive agent routes + `canonry agent ask` are all skipped. `server.ts`
 resolves this once at boot via `resolveAgentEnabled(process.env, config)`
 (`src/agent-config.ts`) and guards the three Aero wiring points. Data syncs,
-intelligence, and notifications are unaffected.
+intelligence, and notifications are unaffected. Note it stops only the
+*automatic* per-run agent stream — the on-demand `analyze`-tier recommendation
+`explain` / `brief` routes (Sonnet) still bill on explicit user action.
 
 ### External agents (webhook lifecycle)
 

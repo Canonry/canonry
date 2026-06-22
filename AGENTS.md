@@ -208,7 +208,10 @@ in the environment (env wins; `CANONRY_AGENT_DISABLED=0` forces it back on even
 when config disables). Resolved by `resolveAgentEnabled` in
 `packages/canonry/src/agent-config.ts`. This only affects the agent — data
 syncs, intelligence, and notifications are unchanged. Use it when the proactive
-analysis is unused and you want to stop the per-run agent LLM cost.
+analysis is unused and you want to stop the per-run agent LLM cost. This
+silences only the *automatic* per-run agent stream; the on-demand `analyze`-tier
+calls (the recommendation `explain` / `brief` routes — Sonnet) still bill when a
+user explicitly requests them, since those are not part of the agent loop.
 
 ### External agents (webhook)
 
