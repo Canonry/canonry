@@ -15,11 +15,12 @@ import {
   gbpLodgingSnapshots,
 } from '@ainyc/canonry-db'
 import { hashPlaceDetails } from '@ainyc/canonry-integration-google-places'
-import { hashLodging, countPopulatedGroups } from '@ainyc/canonry-integration-google-business-profile'
+import { hashLodging, countPopulatedGroups, type GbpLocation } from '@ainyc/canonry-integration-google-business-profile'
 import { executeGbpSync } from '../src/gbp-sync.js'
 import type { CanonryConfig } from '../src/config.js'
 
 // --- mock the integration HTTP clients (no network in unit tests) ---
+const listLocationsMock = vi.fn()
 const fetchDailyMetricsMock = vi.fn()
 const listMonthlyKeywordsMock = vi.fn()
 const listPlaceActionLinksMock = vi.fn()
@@ -33,6 +34,7 @@ vi.mock('@ainyc/canonry-integration-google-business-profile', async () => {
   )
   return {
     ...actual,
+    listLocations: (...a: unknown[]) => listLocationsMock(...a),
     fetchDailyMetrics: (...a: unknown[]) => fetchDailyMetricsMock(...a),
     listMonthlyKeywords: (...a: unknown[]) => listMonthlyKeywordsMock(...a),
     listPlaceActionLinks: (...a: unknown[]) => listPlaceActionLinksMock(...a),
@@ -71,7 +73,18 @@ function createTempDb() {
   return { db, tmpDir }
 }
 
-function seedProject(db: ReturnType<typeof createClient>, opts: { placeId?: string } = {}) {
+function listedLocation(opts: { placeId?: string | null; description?: string | null } = {}): GbpLocation {
+  return {
+    name: LOCATION,
+    title: 'Gjelina Venice',
+    profile: opts.description === undefined || opts.description === null
+      ? undefined
+      : { description: opts.description },
+    metadata: opts.placeId ? { placeId: opts.placeId, mapsUri: `https://maps.google.com/?q=${opts.placeId}` } : undefined,
+  }
+}
+
+function seedProject(db: ReturnType<typeof createClient>, opts: { placeId?: string; description?: string | null } = {}) {
   const now = new Date().toISOString()
   db.insert(projects).values({
     id: 'proj_gbp',
@@ -90,10 +103,12 @@ function seedProject(db: ReturnType<typeof createClient>, opts: { placeId?: stri
     locationName: LOCATION,
     displayName: 'Gjelina Venice',
     placeId: opts.placeId ?? null,
+    description: opts.description ?? null,
     selected: true,
     createdAt: now,
     updatedAt: now,
   }).run()
+  listLocationsMock.mockResolvedValue([listedLocation({ placeId: opts.placeId ?? null, description: opts.description ?? null })])
 }
 
 function seedRun(db: ReturnType<typeof createClient>, runId: string) {
@@ -134,6 +149,7 @@ function testConfig(): CanonryConfig {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  listLocationsMock.mockResolvedValue([listedLocation()])
   fetchDailyMetricsMock.mockResolvedValue([])
   listPlaceActionLinksMock.mockResolvedValue([])
   getLodgingMock.mockResolvedValue(null)
@@ -150,6 +166,49 @@ beforeEach(() => {
       return Promise.resolve([{ keyword: 'venice beach hotel', valueCount: 999, valueThreshold: null }])
     },
   )
+})
+
+describe('executeGbpSync — selected location profile refresh', () => {
+  test('refreshes owner profile fields from the Business Information API during sync', async () => {
+    const { db, tmpDir } = createTempDb()
+    try {
+      seedProject(db, { description: null })
+      listLocationsMock.mockResolvedValue([{
+        ...listedLocation({ description: 'Fresh owner description.' }),
+        categories: {
+          primaryCategory: { displayName: 'Restaurant' },
+          additionalCategories: [{ displayName: 'Hotel' }],
+        },
+        storefrontAddress: {
+          addressLines: ['1429 Abbot Kinney Blvd'],
+          locality: 'Venice',
+          administrativeArea: 'CA',
+          postalCode: '90291',
+          regionCode: 'US',
+        },
+        websiteUri: 'https://gjelina.example.com',
+        phoneNumbers: { primaryPhone: '+1 310-555-1212' },
+        openInfo: { status: 'OPEN', openingDate: { year: 2008 } },
+      }])
+      seedRun(db, 'run_1')
+
+      await executeGbpSync(db, 'run_1', 'proj_gbp', { config: testConfig() })
+
+      expect(listLocationsMock).toHaveBeenCalledWith('tok', 'accounts/1')
+      const row = db.select().from(gbpLocations).where(eq(gbpLocations.id, 'loc_1')).get()
+      expect(row!.description).toBe('Fresh owner description.')
+      expect(row!.primaryCategoryDisplayName).toBe('Restaurant')
+      expect(row!.additionalCategories).toEqual(['Hotel'])
+      expect(row!.storefrontAddress).toBe('1429 Abbot Kinney Blvd, Venice, CA, 90291, US')
+      expect(row!.websiteUri).toBe('https://gjelina.example.com')
+      expect(row!.primaryPhone).toBe('+1 310-555-1212')
+      expect(row!.openStatus).toBe('OPEN')
+      expect(row!.openingDate).toBe('2008')
+      expect(row!.syncedAt).toBeTruthy()
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
 })
 
 describe('executeGbpSync — keyword monthly accumulate', () => {
