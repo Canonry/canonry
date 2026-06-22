@@ -185,7 +185,15 @@ export interface VercelTrafficConfigEntry {
 }
 
 export interface AgentConfigEntry {
-  /** Agent mode. Only 'disabled' is valid until the native loop ships. */
+  /**
+   * Agent mode. `'disabled'` turns the built-in Aero agent OFF entirely — the
+   * proactive auto-wake on run completion does not fire, the `SessionRegistry`
+   * is not constructed, and the interactive agent routes (`/projects/:name/
+   * agent/*`) plus the `canonry agent ask` CLI (a thin client of those routes)
+   * are not served. Absent (the default) leaves Aero enabled. Resolved, with
+   * the `CANONRY_AGENT_DISABLED` env override, by `resolveAgentEnabled` in
+   * agent-config.ts.
+   */
   mode?: 'disabled'
 }
 
