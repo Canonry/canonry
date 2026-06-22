@@ -113,10 +113,10 @@ export function analyzeGbp(signals: GbpLocationSignals[]): GbpInsightDraft[] {
     const base = { locationName: loc.locationName, query: loc.displayName, provider: GBP_INSIGHT_PROVIDER }
 
     // 1. canonry can't read structured Lodging attributes for this hotel.
-    //    `getLodging` returns the GBP Lodging resource, which is empty by
-    //    default even for well-managed hotels: the owner-facing "Hotel details"
-    //    amenity panel (breakfast / wifi / parking / pets / accessibility)
-    //    writes to a separate attribute surface the Lodging API does not return.
+    //    `getLodging` returns the GBP Lodging resource, which can be empty even
+    //    for well-managed hotels: in live testing the owner-facing "Hotel
+    //    details" panel had amenities set while the Lodging API returned only
+    //    the resource name.
     //    So `populatedGroupCount === 0` means "canonry can't confirm structured
     //    attributes via the API", NOT "the owner set no amenities". These are
     //    verify-nudges, not confirmed gaps — framed and severitied accordingly.
@@ -124,9 +124,8 @@ export function analyzeGbp(signals: GbpLocationSignals[]): GbpInsightDraft[] {
       if (loc.placesAmenities.length > 0) {
         // The Places API independently shows amenities while the Lodging API
         // returns nothing. Worth a look, but it does NOT prove the owner left
-        // them unset: Places can read amenities the Lodging API can't, so the
-        // likeliest cause is the "Hotel details" panel is filled and simply not
-        // exposed via the Lodging API. Surface it as a verify, not a defect.
+        // them unset: the "Hotel details" panel may be filled while this read
+        // path returns no readable groups. Surface it as a verify, not a defect.
         const amenityList = formatAmenityList(loc.placesAmenities)
         drafts.push({
           ...base,
@@ -135,7 +134,7 @@ export function analyzeGbp(signals: GbpLocationSignals[]): GbpInsightDraft[] {
           title: `${loc.displayName}: public listing advertises ${loc.placesAmenities.length} amenit${loc.placesAmenities.length === 1 ? 'y' : 'ies'} canonry can’t confirm via the GBP API`,
           recommendation: {
             action: 'Verify these amenities are set in the Google Business Profile "Hotel details" panel so the structured profile matches what the public listing advertises.',
-            reason: `Google’s rendered listing advertises ${amenityList}, but the GBP Lodging API returns no structured attributes for this location. The Lodging API does not expose the owner-set "Hotel details" amenity panel, so the amenities may already be set there and simply not be readable via the API. Verify in Hotel details: if any are missing, add them, since the structured attributes are the amenity data you directly control and that AI answer engines cite.`,
+            reason: `Google’s rendered listing advertises ${amenityList}, but the GBP Lodging API returned no readable structured groups for this location. The amenities may already be set in the owner-facing "Hotel details" panel and simply not be visible in this API response. Verify in Hotel details: if any are missing, add them, since those structured attributes are amenity data you directly control.`,
           },
         })
       } else {
@@ -146,7 +145,7 @@ export function analyzeGbp(signals: GbpLocationSignals[]): GbpInsightDraft[] {
           title: `${loc.displayName}: structured lodging attributes not readable via the GBP API`,
           recommendation: {
             action: 'Verify the hotel amenities in the Google Business Profile "Hotel details" panel. If they are already set there, no change is needed.',
-            reason: 'The GBP Lodging API returns no structured attributes for this location. That resource is commonly empty even for complete hotels, because the owner-set "Hotel details" amenity panel (breakfast, wifi, parking, accessibility, and the like) writes to a separate surface the Lodging API does not expose. Treat this as a verify, not a confirmed gap: confirm the amenities are set in Hotel details, the amenity source you directly control and that AI answer engines cite.',
+            reason: 'The GBP Lodging API returned no readable structured groups for this location. That response can be empty even for complete hotels whose owner-facing "Hotel details" panel has amenities set. Treat this as a verify, not a confirmed gap: confirm the amenities are set in Hotel details.',
           },
         })
       }

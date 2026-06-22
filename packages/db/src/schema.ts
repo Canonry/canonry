@@ -1107,7 +1107,9 @@ export const gbpPlaceActions = sqliteTable('gbp_place_actions', {
 // Hotel profiles change rarely, so we only insert a new row when the content
 // hash differs from the latest stored snapshot for the location. `attributes`
 // holds the raw Lodging resource; `populatedGroupCount` is the count of
-// non-empty top-level attribute groups (0 = empty profile = an AEO gap).
+// non-empty top-level groups returned by the API. A zero count means "no
+// readable Lodging API groups" and should be treated as a Hotel details verify
+// signal, not proof the public listing or owner panel has no amenities.
 export const gbpLodgingSnapshots = sqliteTable('gbp_lodging_snapshots', {
   id: text('id').primaryKey(),
   projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),

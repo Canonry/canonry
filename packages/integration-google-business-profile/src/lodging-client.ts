@@ -33,10 +33,9 @@ export async function getLodging(
  * Count non-empty top-level attribute groups in a Lodging resource, excluding
  * the bookkeeping fields `name` and `metadata`. An empty object/array/null is
  * not "populated". Zero means the Lodging API returned no structured
- * attributes, which is common even for complete hotels: the owner-set
- * "Hotel details" amenity panel is a separate surface this API does not
- * expose. So zero is a "verify the Hotel details panel", not proof the hotel
- * has no amenities.
+ * attributes. In live testing this can happen even for complete hotels whose
+ * owner-facing "Hotel details" panel has amenities set, so zero is a "verify
+ * the Hotel details panel" signal, not proof the hotel has no amenities.
  */
 export function countPopulatedGroups(lodging: GbpLodging): number {
   let count = 0

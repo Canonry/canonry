@@ -1197,7 +1197,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_gbp_lodging',
     title: 'Get GBP lodging attributes',
-    description: 'List the latest Google Business Profile lodging snapshot per location (hotel structured attributes). populatedGroupCount=0 means the Lodging API returned no structured attributes, which is common even for complete hotels because the owner-set "Hotel details" amenity panel is a separate surface the API does not expose. Treat it as a "verify the Hotel details panel", not a confirmed gap.',
+    description: 'List the latest Google Business Profile lodging snapshot per location (hotel structured attributes). populatedGroupCount=0 means the Lodging API returned no readable structured groups, which can happen even for complete hotels whose owner-facing "Hotel details" panel has amenities set. Treat it as a "verify the Hotel details panel", not a confirmed gap.',
     access: 'read',
     tier: 'gbp',
     inputSchema: gbpLocationScopedInputSchema,
@@ -1230,7 +1230,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_gbp_summary',
     title: 'Get GBP local-AEO summary',
-    description: 'Composite Google Business Profile summary for a project: performance totals + 7d deltas, keyword thresholded %, place-action CTA presence, lodging coverage, and owner-content profile completeness (how many selected locations populate secondary categories / description / service area / hours / phone, plus closed-status counts). All derived numbers computed server-side.',
+    description: 'Composite Google Business Profile summary for a project: performance totals + 7d deltas, keyword thresholded %, place-action CTA presence, Lodging API readable-group counts, and owner-content profile completeness (how many selected locations populate secondary categories / description / service area / hours / phone, plus closed-status counts). All derived numbers computed server-side.',
     access: 'read',
     tier: 'gbp',
     inputSchema: gbpLocationScopedInputSchema,

@@ -230,7 +230,11 @@ export interface LodgingSummary {
   /** Locations that have a lodging profile at all (lodging-capable). */
   lodgingLocationCount: number
   populatedLodgingCount: number
-  /** Lodging-capable locations with zero structured attributes — an AEO gap. */
+  /**
+   * Lodging-capable locations whose latest Lodging API response had zero
+   * readable structured groups. This is a verify signal, not proof amenities
+   * are absent from the Hotel details panel or public listing.
+   */
   emptyLodgingCount: number
 }
 

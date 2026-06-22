@@ -16,7 +16,7 @@ describe('countPopulatedGroups', () => {
     expect(countPopulatedGroups(lodging)).toBe(3) // pools, connectivity, property
   })
 
-  it('returns 0 for an empty profile (only name) — the real-world hotel case', () => {
+  it('returns 0 when the Lodging API returns only the resource name', () => {
     expect(countPopulatedGroups({ name: 'locations/1/lodging' })).toBe(0)
   })
 

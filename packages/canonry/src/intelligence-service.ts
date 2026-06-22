@@ -172,8 +172,8 @@ export class IntelligenceService {
    *
    * Point-in-time (no previous-run comparison): for each SELECTED location it
    * derives signals from the shared GBP summary math (metric week-over-week,
-   * lodging completeness, place-action CTAs) plus the accumulating keyword
-   * monthly series (month-over-month keyword drop), then runs the pure
+   * Lodging API readable-group state, place-action CTAs) plus the accumulating
+   * keyword monthly series (month-over-month keyword drop), then runs the pure
    * `analyzeGbp` analyzer. Persists insights ONLY — no health snapshot, which is
    * an answer-visibility concept. Idempotent per `runId`; dismissals are
    * preserved across re-analysis of the same run by the stable insight id.

@@ -705,7 +705,7 @@ export function gbpLodgingSourceState(lodging: GbpLodgingSnapshot | null): GbpSo
     return {
       tone: 'neutral',
       label: '0 groups returned',
-      detail: 'Lodging API returned no structured groups in the latest sync.',
+      detail: 'Lodging API returned no readable groups; verify Hotel details.',
     }
   }
   return {
