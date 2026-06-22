@@ -21,6 +21,7 @@ import { perplexityAdapter } from '@ainyc/canonry-provider-perplexity'
 import { authInvalid, authRequired, validationError, buildEmbedClientConfig, frameAncestorsHeaderValue, CcReleaseSyncStatuses, RunKinds, RunStatuses, RunTriggers, type ProviderAdapter } from '@ainyc/canonry-contracts'
 import type { CanonryConfig, ProviderConfigEntry } from './config.js'
 import { resolveEmbedConfig } from './embed.js'
+import { resolveAgentEnabled } from './agent-config.js'
 import { saveConfigPatch, loadConfig, getConfigPath } from './config.js'
 import { getPlacesConfig } from './places-config.js'
 import {
@@ -459,11 +460,20 @@ export async function createServer(opts: {
   // loadConfig() so tests that set CANONRY_CONFIG_DIR after spawning the
   // server don't fail at construction time.
   const aeroClient = new ApiClient(opts.config.apiUrl, opts.config.apiKey, { skipProbe: true })
-  const sessionRegistry = new SessionRegistry({
-    db: opts.db,
-    client: aeroClient,
-    config: opts.config,
-  })
+  // Built-in Aero agent kill-switch. When disabled (config `agent.mode:
+  // 'disabled'` or env CANONRY_AGENT_DISABLED=1) we skip the SessionRegistry,
+  // the proactive wake on run completion, and the interactive agent routes —
+  // the data/intelligence/notification pipeline is unaffected. `aeroClient`
+  // itself stays: the scheduler callbacks below reuse it (data-refresh,
+  // traffic, backlinks), which is unrelated to Aero.
+  const agentEnabled = resolveAgentEnabled(process.env, opts.config)
+  const sessionRegistry = agentEnabled
+    ? new SessionRegistry({
+        db: opts.db,
+        client: aeroClient,
+        config: opts.config,
+      })
+    : undefined
 
   const runCoordinator = new RunCoordinator(
     opts.db,
@@ -471,6 +481,8 @@ export async function createServer(opts: {
     intelligenceService,
     (runId, projectId, result) => notifier.dispatchInsightWebhooks(runId, projectId, result),
     async (ctx) => {
+      // Aero kill-switch: never wake the agent on run completion when disabled.
+      if (!sessionRegistry) return
       const project = opts.db
         .select({ name: projects.name })
         .from(projects)
@@ -1294,6 +1306,8 @@ export async function createServer(opts: {
     // Local-only Aero agent routes. Registered here so they inherit api-routes'
     // auth plugin — bare `registerAgentRoutes(app, ...)` would skip auth.
     registerAuthenticatedRoutes: async (scope) => {
+      // Aero kill-switch: don't serve the interactive agent routes when disabled.
+      if (!sessionRegistry) return
       registerAgentRoutes(scope, { db: opts.db, sessionRegistry })
     },
     getGoogleAuthConfig: () => getGoogleAuthConfig(opts.config),

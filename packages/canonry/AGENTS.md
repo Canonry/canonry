@@ -31,6 +31,7 @@ The publishable npm package (`@ainyc/canonry`). Bundles the CLI, local Fastify s
 | `src/mcp/cli.ts` | `canonry-mcp` stdio entrypoint — parses `--read-only`, `--eager`, `--scope`, plus `CANONRY_MCP_*` env. `resolveEffectiveScope()` best-effort probes `GET /keys/self` at startup and forces `read-only` when the configured key is read-only (auto-restricts the catalog to read tools; falls back to the flag scope on any probe failure). |
 | `src/server.ts` | Fastify server setup — mounts api-routes, serves SPA, registers providers. Read-only embed mode (#716): resolves `resolveEmbedConfig(process.env, config)` at boot; when enabled, `injectConfig` appends an `embed` block to `window.__CANONRY_CONFIG__` and the single `sendSpaDocument` chokepoint (used by `serveIndex` AND the deep-link `setNotFoundHandler` fallback) emits `Content-Security-Policy: frame-ancestors …` (fail-closed to `'none'`). When embed is off, the injected config + headers are byte-for-byte unchanged. `createServer` opts take an optional `assetsDir` override (default = bundled `assets/`) so integration tests can point at a temp `index.html`. |
 | `src/embed.ts` | `resolveEmbedConfig(env, config)` — resolves embed mode (#716) from `CANONRY_EMBED` / `CANONRY_EMBED_ORIGINS` / `CANONRY_EMBED_VIEWS` layered over config.yaml `embed:` (env over config, mirroring basePath). Delegates origin normalization + the `frame-ancestors` value + the client block to the pure helpers in `@ainyc/canonry-contracts` (`normalizeFrameOrigin` / `parseOriginList` / `frameAncestorsHeaderValue` / `buildEmbedClientConfig`). `enabled` is decoupled from origins so `--embed` without origins fails closed; an empty views list collapses to `undefined` (= all views). Serve/start flags: `--embed`, `--embed-allow-origin <origin>…`, `--embed-view <view>…` (in `cli-commands/system.ts` → env via `applyServerEnv`; `start` forwards them through `buildServeForwardArgs` in `commands/daemon.ts`). |
+| `src/agent-config.ts` | `resolveAgentEnabled(env, config)` — the Aero kill-switch. Resolves whether the built-in agent runs from `CANONRY_AGENT_DISABLED` env layered over `agent.mode: 'disabled'` in `config.yaml` (env over config; `=1`/`true` off, `=0`/`false` force on). `server.ts` reads it once at boot and guards the three Aero wiring points: the `SessionRegistry`, the proactive run-completion wake, and the interactive agent routes. Does not touch data syncs / intelligence / notifications. |
 | `src/job-runner.ts` | In-process job runner for visibility sweeps |
 | `src/provider-registry.ts` | `ProviderRegistry` — manages provider adapters |
 | `src/scheduler.ts` | Cron-based schedule runner (kinds: `answer-visibility`, `traffic-sync`, `gbp-sync`, `data-refresh`, `backlinks-sync`, `site-audit`, `ads-sync`; the `onDataRefreshRequested` callback fans out to every connected integration, `onBacklinksSyncRequested` re-probes Common Crawl + syncs the workspace release when a newer rolling window appears, and `onSiteAuditRequested` runs the Technical AEO sitemap crawl — skipped when one is already in flight) |
@@ -241,6 +242,17 @@ the task instructions. Both files ship in `assets/agent-workspace/skills/aero/`.
 The `<memory>` hydrate block is appended at session-build time by
 `SessionRegistry.buildHydratedSystemPrompt` — the DB row keeps the raw
 (unhydrated) prompt so every new session sees the latest notes.
+
+### Disabling Aero
+
+Aero is enabled by default. Set `agent.mode: 'disabled'` in
+`~/.canonry/config.yaml` (or `CANONRY_AGENT_DISABLED=1` in the environment;
+env wins, `=0` forces it back on) to turn the agent OFF entirely — the
+proactive auto-wake on `run.completed`, the `SessionRegistry`, and the
+interactive agent routes + `canonry agent ask` are all skipped. `server.ts`
+resolves this once at boot via `resolveAgentEnabled(process.env, config)`
+(`src/agent-config.ts`) and guards the three Aero wiring points. Data syncs,
+intelligence, and notifications are unaffected.
 
 ### External agents (webhook lifecycle)
 

@@ -198,6 +198,18 @@ Key files:
 - `packages/canonry/src/agent/agent-routes.ts` — Fastify SSE endpoints
 - `apps/web/src/components/shared/AeroBar.tsx` — dashboard UI
 
+### Disabling Aero
+
+Aero is on by default. To turn the built-in agent OFF entirely — no proactive
+auto-wake on run completion, no `SessionRegistry`, and the interactive agent
+routes (`/projects/:name/agent/*`) plus `canonry agent ask` not served — set
+`agent.mode: 'disabled'` in `~/.canonry/config.yaml`, or `CANONRY_AGENT_DISABLED=1`
+in the environment (env wins; `CANONRY_AGENT_DISABLED=0` forces it back on even
+when config disables). Resolved by `resolveAgentEnabled` in
+`packages/canonry/src/agent-config.ts`. This only affects the agent — data
+syncs, intelligence, and notifications are unchanged. Use it when the proactive
+analysis is unused and you want to stop the per-run agent LLM cost.
+
 ### External agents (webhook)
 
 `canonry agent attach <project> --url <webhook-url>` registers a webhook for
