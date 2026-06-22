@@ -66,7 +66,7 @@ function seed(db: ReturnType<typeof createClient>) {
     { id: 'pa2', projectId: 'proj_gbp', locationName: 'locations/B', placeActionLinkName: 'x/2', placeActionType: 'BOOK', uri: 'https://gjelina.com', isPreferred: true, providerType: 'MERCHANT', syncRunId: null },
   ]).run()
 
-  // Lodging: A is empty (AEO gap); B is populated.
+  // Lodging: A returned zero readable groups (verify); B is populated.
   db.insert(gbpLodgingSnapshots).values([
     { id: 'lg1', projectId: 'proj_gbp', locationName: 'locations/A', contentHash: 'h1', attributes: {}, populatedGroupCount: 0, syncedAt: NOW, syncRunId: null },
     { id: 'lg2', projectId: 'proj_gbp', locationName: 'locations/B', contentHash: 'h2', attributes: {}, populatedGroupCount: 4, syncedAt: NOW, syncRunId: null },

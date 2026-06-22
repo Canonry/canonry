@@ -369,8 +369,9 @@ export async function gbpSummary(
     + ` — reservation:${s.placeActions.hasReservationCta ? 'yes' : 'no'}`
     + ` booking:${s.placeActions.hasBookingCta ? 'yes' : 'no'}`
     + ` direct-merchant:${s.placeActions.hasDirectMerchantCta ? 'yes' : 'no'}`)
-  console.log(`Lodging: ${s.lodging.lodgingLocationCount} profile(s), `
-    + `${s.lodging.populatedLodgingCount} populated, ${s.lodging.emptyLodgingCount} empty`)
+  console.log(`Lodging API: ${s.lodging.lodgingLocationCount} profile(s), `
+    + `${s.lodging.populatedLodgingCount} with readable groups, `
+    + `${s.lodging.emptyLodgingCount} with 0 readable groups`)
   const pc = s.profileCompleteness
   console.log(`Profile completeness (${pc.locationCount} location(s)): `
     + `${pc.withSecondaryCategories} w/ secondary categories (${pc.secondaryCategoryTotal} total), `

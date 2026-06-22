@@ -162,7 +162,11 @@ export type GbpPlaceActionListResponse = z.infer<typeof gbpPlaceActionListRespon
 
 export const gbpLodgingDtoSchema = z.object({
   locationName: z.string(),
-  /** Count of non-empty top-level attribute groups (0 = empty profile / AEO gap). */
+  /**
+   * Count of non-empty top-level groups in the Lodging API response.
+   * 0 means the API returned no readable structured groups; it is a
+   * verify-the-Hotel-details-panel signal, not proof the hotel has no amenities.
+   */
   populatedGroupCount: z.number().int().nonnegative(),
   syncedAt: z.string(),
   /** Raw Lodging resource as Google returned it. */

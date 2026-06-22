@@ -150,15 +150,15 @@ describe('summarizePlaceActions', () => {
 })
 
 describe('summarizeLodging', () => {
-  it('splits lodging locations into populated vs empty', () => {
+  it('splits lodging locations into readable vs zero-readable groups', () => {
     const out = summarizeLodging([
-      { locationName: 'locations/1', populatedGroupCount: 0 },  // Lodging API returns no structured attributes (verify Hotel details)
+      { locationName: 'locations/1', populatedGroupCount: 0 },  // Lodging API returned no readable groups (verify Hotel details)
       { locationName: 'locations/2', populatedGroupCount: 5 },
     ])
     expect(out).toEqual({ lodgingLocationCount: 2, populatedLodgingCount: 1, emptyLodgingCount: 1 })
   })
 
-  it('all-empty profiles → emptyLodgingCount equals the location count', () => {
+  it('all zero-readable profiles → emptyLodgingCount equals the location count', () => {
     expect(summarizeLodging([
       { locationName: 'locations/1', populatedGroupCount: 0 },
       { locationName: 'locations/2', populatedGroupCount: 0 },
