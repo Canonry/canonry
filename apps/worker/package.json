@@ -11,7 +11,7 @@
     "lint": "eslint src/ test/"
   },
   "dependencies": {
-    "@ainyc/aeo-audit": "4.0.1",
+    "@ainyc/aeo-audit": "4.1.1",
     "@ainyc/canonry-config": "workspace:*",
     "tsx": "^4.20.5"
   }
