@@ -297,7 +297,11 @@ export async function gbpAttributes(
     console.log(`  ${a.locationName}  ${a.attributeCount} attribute(s)`)
     for (const attr of a.attributes) {
       const key = attr.name.replace(/^attributes\//, '')
-      const val = attr.uris.length > 0 ? attr.uris.join(', ') : attr.values.join(', ')
+      const val = [
+        ...attr.values.map(String),
+        ...attr.unsetValues.map((v) => `unset:${v}`),
+        ...attr.uris,
+      ].join(', ')
       console.log(`    ${key}: ${val}`)
     }
   }

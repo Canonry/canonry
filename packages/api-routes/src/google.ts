@@ -1864,11 +1864,21 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     for (const row of rows) {
       if (!latestByLocation.has(row.locationName)) latestByLocation.set(row.locationName, row)
     }
+    type StoredGbpAttribute = {
+      name: string
+      valueType: string
+      values: (boolean | string)[]
+      unsetValues?: string[]
+      uris: string[]
+    }
     const attributes = [...latestByLocation.values()].map((r) => ({
       locationName: r.locationName,
       attributeCount: r.attributeCount,
       syncedAt: r.syncedAt,
-      attributes: r.attributes,
+      attributes: (r.attributes as StoredGbpAttribute[]).map((attr) => ({
+        ...attr,
+        unsetValues: attr.unsetValues ?? [],
+      })),
     }))
     return { attributes, total: attributes.length }
   })

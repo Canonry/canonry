@@ -582,8 +582,8 @@ describe('executeGbpSync — lodging snapshot freshness', () => {
 
 describe('executeGbpSync — owner-set attributes snapshot', () => {
   const ATTRS = [
-    { name: 'attributes/has_onsite_services', valueType: 'BOOL', values: [true], uris: [] },
-    { name: 'attributes/url_instagram', valueType: 'URL', values: [], uris: ['https://instagram.com/x'] },
+    { name: 'attributes/has_onsite_services', valueType: 'BOOL', values: [true], unsetValues: [], uris: [] },
+    { name: 'attributes/url_instagram', valueType: 'URL', values: [], unsetValues: [], uris: ['https://instagram.com/x'] },
   ]
 
   function attrRows(db: ReturnType<typeof createClient>) {
@@ -648,12 +648,37 @@ describe('executeGbpSync — owner-set attributes snapshot', () => {
       await executeGbpSync(db, 'run_1', 'proj_gbp', { config: testConfig() })
       expect(attrRows(db)).toHaveLength(1)
 
-      getAttributesMock.mockResolvedValue([...ATTRS, { name: 'attributes/is_owned_by_women', valueType: 'BOOL', values: [true], uris: [] }])
+      getAttributesMock.mockResolvedValue([...ATTRS, { name: 'attributes/is_owned_by_women', valueType: 'BOOL', values: [true], unsetValues: [], uris: [] }])
       seedRun(db, 'run_2')
       await executeGbpSync(db, 'run_2', 'proj_gbp', { config: testConfig() })
       const rows = attrRows(db)
       expect(rows).toHaveLength(2)
       expect(Math.max(...rows.map((r) => r.attributeCount))).toBe(3)
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  test('changed REPEATED_ENUM unset values append a new snapshot', async () => {
+    const { db, tmpDir } = createTempDb()
+    try {
+      seedProject(db)
+      getAttributesMock.mockResolvedValue([{ name: 'attributes/payments', valueType: 'REPEATED_ENUM', values: ['cash'], unsetValues: ['check'], uris: [] }])
+      seedRun(db, 'run_1')
+      await executeGbpSync(db, 'run_1', 'proj_gbp', { config: testConfig() })
+      expect(attrRows(db)).toHaveLength(1)
+
+      getAttributesMock.mockResolvedValue([{ name: 'attributes/payments', valueType: 'REPEATED_ENUM', values: ['cash'], unsetValues: ['credit_card'], uris: [] }])
+      seedRun(db, 'run_2')
+      await executeGbpSync(db, 'run_2', 'proj_gbp', { config: testConfig() })
+
+      const rows = attrRows(db)
+      const expectedHashes = [
+        hashAttributes([{ name: 'attributes/payments', valueType: 'REPEATED_ENUM', values: ['cash'], unsetValues: ['check'], uris: [] }]),
+        hashAttributes([{ name: 'attributes/payments', valueType: 'REPEATED_ENUM', values: ['cash'], unsetValues: ['credit_card'], uris: [] }]),
+      ]
+      expect(rows).toHaveLength(2)
+      expect(rows.map((r) => r.contentHash).sort()).toEqual(expectedHashes.sort())
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true })
     }
