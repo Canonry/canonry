@@ -8106,6 +8106,18 @@ export type GetApiV1ProjectsByNameInsightsData = {
          * Filter by run ID.
          */
         runId?: string;
+        /**
+         * Filter by insight type. Exact match, or a trailing `*` for a prefix (e.g. `gbp-*`).
+         */
+        type?: string;
+        /**
+         * Minimum severity (low|medium|high|critical); e.g. `high` returns high + critical.
+         */
+        severity?: string;
+        /**
+         * Cap the number of (newest-first) insights returned.
+         */
+        limit?: string;
     };
     url: '/api/v1/projects/{name}/insights';
 };

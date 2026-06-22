@@ -9,17 +9,23 @@ import { getBoolean, requireProject, requirePositional, getString, parseIntegerO
 export const INTELLIGENCE_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['insights'],
-    usage: 'canonry insights <project> [--dismissed] [--run-id <id>] [--format json]',
+    usage: 'canonry insights <project> [--type <type|prefix*>] [--severity <low|medium|high|critical>] [--limit <n>] [--dismissed] [--run-id <id>] [--format json]',
     options: {
       dismissed: { type: 'boolean' },
       'run-id': { type: 'string' },
+      type: { type: 'string' },
+      severity: { type: 'string' },
+      limit: { type: 'string' },
     },
     run: async (input) => {
-      const usage = 'canonry insights <project> [--dismissed] [--run-id <id>] [--format json]'
+      const usage = 'canonry insights <project> [--type <type|prefix*>] [--severity <low|medium|high|critical>] [--limit <n>] [--dismissed] [--run-id <id>] [--format json]'
       const project = requireProject(input, 'insights', usage)
       const dismissed = input.values.dismissed === true
       const runId = getString(input.values, 'run-id')
-      await listInsights(project, { dismissed, runId, format: input.format })
+      const type = getString(input.values, 'type')
+      const severity = getString(input.values, 'severity')
+      const limit = parseIntegerOption(input, 'limit', { message: 'limit must be an integer', usage, command: 'insights' })
+      await listInsights(project, { dismissed, runId, type, severity, limit, format: input.format })
     },
   },
   {

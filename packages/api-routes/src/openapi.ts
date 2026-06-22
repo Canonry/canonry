@@ -2929,6 +2929,9 @@ const routeCatalog: OpenApiOperation[] = [
       nameParameter,
       { name: 'dismissed', in: 'query', description: 'Include dismissed insights (true/false).', schema: stringSchema },
       { name: 'runId', in: 'query', description: 'Filter by run ID.', schema: stringSchema },
+      { name: 'type', in: 'query', description: 'Filter by insight type. Exact match, or a trailing `*` for a prefix (e.g. `gbp-*`).', schema: stringSchema },
+      { name: 'severity', in: 'query', description: 'Minimum severity (low|medium|high|critical); e.g. `high` returns high + critical.', schema: stringSchema },
+      { name: 'limit', in: 'query', description: 'Cap the number of (newest-first) insights returned.', schema: stringSchema },
     ],
     responses: {
       // TODO: Add `InsightDto` Zod schema in contracts.
