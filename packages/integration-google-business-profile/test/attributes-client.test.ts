@@ -18,8 +18,8 @@ const REAL_GJELINA_RESPONSE = {
 describe('countAttributes', () => {
   it('counts the set attributes (getAttributes returns only set ones)', () => {
     expect(countAttributes([
-      { name: 'attributes/a', valueType: 'BOOL', values: [true], uris: [] },
-      { name: 'attributes/b', valueType: 'URL', values: [], uris: ['https://x'] },
+      { name: 'attributes/a', valueType: 'BOOL', values: [true], unsetValues: [], uris: [] },
+      { name: 'attributes/b', valueType: 'URL', values: [], unsetValues: [], uris: ['https://x'] },
     ])).toBe(2)
     expect(countAttributes([])).toBe(0)
   })
@@ -28,19 +28,25 @@ describe('countAttributes', () => {
 describe('hashAttributes', () => {
   it('is stable across attribute order', () => {
     const a = hashAttributes([
-      { name: 'attributes/a', valueType: 'BOOL', values: [true], uris: [] },
-      { name: 'attributes/b', valueType: 'URL', values: [], uris: ['https://x'] },
+      { name: 'attributes/a', valueType: 'BOOL', values: [true], unsetValues: [], uris: [] },
+      { name: 'attributes/b', valueType: 'URL', values: [], unsetValues: [], uris: ['https://x'] },
     ])
     const b = hashAttributes([
-      { name: 'attributes/b', valueType: 'URL', values: [], uris: ['https://x'] },
-      { name: 'attributes/a', valueType: 'BOOL', values: [true], uris: [] },
+      { name: 'attributes/b', valueType: 'URL', values: [], unsetValues: [], uris: ['https://x'] },
+      { name: 'attributes/a', valueType: 'BOOL', values: [true], unsetValues: [], uris: [] },
     ])
     expect(a).toBe(b)
   })
 
   it('changes when a value changes', () => {
-    const a = hashAttributes([{ name: 'attributes/a', valueType: 'BOOL', values: [true], uris: [] }])
-    const b = hashAttributes([{ name: 'attributes/a', valueType: 'BOOL', values: [false], uris: [] }])
+    const a = hashAttributes([{ name: 'attributes/a', valueType: 'BOOL', values: [true], unsetValues: [], uris: [] }])
+    const b = hashAttributes([{ name: 'attributes/a', valueType: 'BOOL', values: [false], unsetValues: [], uris: [] }])
+    expect(a).not.toBe(b)
+  })
+
+  it('changes when an explicit REPEATED_ENUM unset value changes', () => {
+    const a = hashAttributes([{ name: 'attributes/a', valueType: 'REPEATED_ENUM', values: ['cash'], unsetValues: ['check'], uris: [] }])
+    const b = hashAttributes([{ name: 'attributes/a', valueType: 'REPEATED_ENUM', values: ['cash'], unsetValues: ['credit_card'], uris: [] }])
     expect(a).not.toBe(b)
   })
 })
@@ -59,9 +65,9 @@ describe('getAttributes', () => {
     fetchSpy.mockResolvedValueOnce({ ok: true, status: 200, text: async () => JSON.stringify(REAL_GJELINA_RESPONSE) })
     const out = await getAttributes('tok', 'locations/13162902540120712264')
     expect(out).toEqual([
-      { name: 'attributes/welcomes_lgbtq', valueType: 'BOOL', values: [true], uris: [] },
-      { name: 'attributes/url_text_messaging', valueType: 'URL', values: [], uris: ['sms:+13109362146'] },
-      { name: 'attributes/url_instagram', valueType: 'URL', values: [], uris: ['https://www.instagram.com/gjelinahotel/'] },
+      { name: 'attributes/welcomes_lgbtq', valueType: 'BOOL', values: [true], unsetValues: [], uris: [] },
+      { name: 'attributes/url_text_messaging', valueType: 'URL', values: [], unsetValues: [], uris: ['sms:+13109362146'] },
+      { name: 'attributes/url_instagram', valueType: 'URL', values: [], unsetValues: [], uris: ['https://www.instagram.com/gjelinahotel/'] },
     ])
   })
 
@@ -72,7 +78,7 @@ describe('getAttributes', () => {
     expect(url).toBe('https://mybusinessbusinessinformation.googleapis.com/v1/locations/1/attributes')
   })
 
-  it('flattens REPEATED_ENUM setValues and ENUM values', async () => {
+  it('flattens REPEATED_ENUM set/unset values and ENUM values', async () => {
     fetchSpy.mockResolvedValueOnce({
       ok: true, status: 200,
       text: async () => JSON.stringify({
@@ -85,8 +91,24 @@ describe('getAttributes', () => {
     })
     const out = await getAttributes('tok', 'locations/1')
     expect(out).toEqual([
-      { name: 'attributes/payments', valueType: 'REPEATED_ENUM', values: ['cash', 'credit_card'], uris: [] },
-      { name: 'attributes/service_option', valueType: 'ENUM', values: ['dine_in'], uris: [] },
+      { name: 'attributes/payments', valueType: 'REPEATED_ENUM', values: ['cash', 'credit_card'], unsetValues: ['check'], uris: [] },
+      { name: 'attributes/service_option', valueType: 'ENUM', values: ['dine_in'], unsetValues: [], uris: [] },
+    ])
+  })
+
+  it('preserves REPEATED_ENUM attributes that only carry unsetValues', async () => {
+    fetchSpy.mockResolvedValueOnce({
+      ok: true, status: 200,
+      text: async () => JSON.stringify({
+        name: 'locations/1/attributes',
+        attributes: [
+          { name: 'attributes/payments', valueType: 'REPEATED_ENUM', repeatedEnumValue: { unsetValues: ['check'] } },
+        ],
+      }),
+    })
+    const out = await getAttributes('tok', 'locations/1')
+    expect(out).toEqual([
+      { name: 'attributes/payments', valueType: 'REPEATED_ENUM', values: [], unsetValues: ['check'], uris: [] },
     ])
   })
 

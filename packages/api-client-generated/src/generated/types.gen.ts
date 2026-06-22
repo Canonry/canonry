@@ -931,6 +931,7 @@ export type GbpAttributesListResponse = {
             name: string;
             valueType: string;
             values: Array<boolean | string>;
+            unsetValues: Array<string>;
             uris: Array<string>;
         }>;
     }>;
