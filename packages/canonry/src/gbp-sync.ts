@@ -5,6 +5,9 @@ import { runs, projects, gbpLocations, gbpDailyMetrics, gbpKeywordImpressions, g
 import { buildRunErrorFromMessages, serializeRunError } from '@ainyc/canonry-contracts'
 import { refreshAccessToken } from '@ainyc/canonry-integration-google'
 import {
+  listLocations,
+  formatStorefrontAddress,
+  buildLocationProfileFields,
   fetchDailyMetrics,
   listMonthlyKeywords,
   listPlaceActionLinks,
@@ -42,6 +45,8 @@ const KEYWORD_TREND_MONTHS = 3
 // Drop monthly keyword rows older than this many months so the accumulate
 // table stays bounded.
 const KEYWORD_HISTORY_RETENTION_MONTHS = 18
+
+type GbpLocationRow = typeof gbpLocations.$inferSelect
 
 function daysAgo(n: number): Date {
   const d = new Date()
@@ -123,6 +128,7 @@ export async function executeGbpSync(
     if (locationRows.length === 0) {
       throw new Error('No selected GBP locations to sync. Discover and select locations first.')
     }
+    locationRows = await refreshSelectedLocationProfiles(db, projectId, accessToken, locationRows)
 
     const daysOfMetrics = opts.daysOfMetrics ?? DEFAULT_DAYS_OF_METRICS
     const monthsOfKeywords = opts.monthsOfKeywords ?? DEFAULT_MONTHS_OF_KEYWORDS
@@ -403,4 +409,52 @@ export async function executeGbpSync(
 // records the trailing window via periodStart / periodEnd (both YYYY-MM).
 function monthKey(m: { year: number; month: number }): string {
   return `${m.year}-${String(m.month).padStart(2, '0')}`
+}
+
+async function refreshSelectedLocationProfiles(
+  db: DatabaseClient,
+  projectId: string,
+  accessToken: string,
+  locationRows: GbpLocationRow[],
+): Promise<GbpLocationRow[]> {
+  const byAccount = new Map<string, GbpLocationRow[]>()
+  for (const row of locationRows) {
+    const accountRows = byAccount.get(row.accountName) ?? []
+    accountRows.push(row)
+    byAccount.set(row.accountName, accountRows)
+  }
+
+  const refreshedRows = new Map<string, GbpLocationRow>()
+  for (const [accountName, accountRows] of byAccount.entries()) {
+    const remoteLocations = await listLocations(accessToken, accountName)
+    const remoteByName = new Map(remoteLocations.map((loc) => [loc.name, loc]))
+    const missing = accountRows.filter((row) => !remoteByName.has(row.locationName))
+    if (missing.length > 0) {
+      throw new Error(`Selected GBP location(s) no longer appear under ${accountName}: ${missing.map((row) => row.locationName).join(', ')}. Run "canonry gbp locations discover" to refresh the selection.`)
+    }
+
+    const updatedAt = new Date().toISOString()
+    for (const row of accountRows) {
+      const remote = remoteByName.get(row.locationName)!
+      const profile = buildLocationProfileFields(remote)
+      const update = {
+        accountName,
+        displayName: remote.title ?? row.displayName,
+        primaryCategoryDisplayName: remote.categories?.primaryCategory?.displayName ?? null,
+        storefrontAddress: formatStorefrontAddress(remote),
+        websiteUri: remote.websiteUri ?? null,
+        placeId: remote.metadata?.placeId ?? null,
+        mapsUri: remote.metadata?.mapsUri ?? null,
+        ...profile,
+        updatedAt,
+      }
+      db.update(gbpLocations)
+        .set(update)
+        .where(and(eq(gbpLocations.projectId, projectId), eq(gbpLocations.id, row.id)))
+        .run()
+      refreshedRows.set(row.id, { ...row, ...update })
+    }
+  }
+
+  return locationRows.map((row) => refreshedRows.get(row.id) ?? row)
 }
