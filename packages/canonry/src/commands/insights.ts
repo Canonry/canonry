@@ -4,10 +4,16 @@ import { emitJsonl } from '../cli-output.js'
 
 export async function listInsights(
   project: string,
-  opts: { dismissed?: boolean; runId?: string; format?: string },
+  opts: { dismissed?: boolean; runId?: string; type?: string; severity?: string; limit?: number; format?: string },
 ): Promise<void> {
   const client = createApiClient()
-  const insights = await client.getInsights(project, { dismissed: opts.dismissed, runId: opts.runId })
+  const insights = await client.getInsights(project, {
+    dismissed: opts.dismissed,
+    runId: opts.runId,
+    type: opts.type,
+    severity: opts.severity,
+    limit: opts.limit,
+  })
 
   if (opts.format === 'json') {
     console.log(JSON.stringify(insights, null, 2))

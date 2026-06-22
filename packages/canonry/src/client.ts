@@ -2189,7 +2189,7 @@ export class ApiClient {
 
   // ── Intelligence ────────────────────────────────────────────────────────
 
-  async getInsights(project: string, opts?: { dismissed?: boolean; runId?: string }): Promise<InsightDto[]> {
+  async getInsights(project: string, opts?: { dismissed?: boolean; runId?: string; type?: string; severity?: string; limit?: number }): Promise<InsightDto[]> {
     return this.invoke<InsightDto[]>(() =>
       getApiV1ProjectsByNameInsights({
         client: this.heyClient,
@@ -2197,6 +2197,9 @@ export class ApiClient {
         query: {
           dismissed: opts?.dismissed ? 'true' : undefined,
           runId: opts?.runId,
+          type: opts?.type,
+          severity: opts?.severity,
+          limit: opts?.limit !== undefined ? String(opts.limit) : undefined,
         } as never,
       }),
     )

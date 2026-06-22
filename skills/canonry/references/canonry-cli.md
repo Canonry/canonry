@@ -232,6 +232,10 @@ cnry schedule set <project> --kind site-audit --preset weekly   # keep it fresh
 
 ```bash
 cnry insights <project>                        # list active insights (regressions, gains, opportunities)
+cnry insights <project> --type gbp-*           # filter by insight type; trailing * = prefix (e.g. only GBP insights)
+cnry insights <project> --type gbp-description-missing   # exact type match
+cnry insights <project> --severity high        # minimum severity (high returns high + critical)
+cnry insights <project> --limit 10             # cap to the newest N
 cnry insights <project> --dismissed            # include dismissed insights
 cnry insights <project> --format json          # JSON output
 cnry insights dismiss <project> <id>           # dismiss an insight

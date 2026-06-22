@@ -1,8 +1,21 @@
-import { eq, desc, and, inArray } from 'drizzle-orm'
+import { eq, desc, and, inArray, like } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { groupRunsByCreatedAt, insights, healthSnapshots, runs } from '@ainyc/canonry-db'
-import { notFound, RunKinds, RunStatuses, type InsightDto, type HealthSnapshotDto } from '@ainyc/canonry-contracts'
+import { notFound, validationError, RunKinds, RunStatuses, type InsightDto, type HealthSnapshotDto } from '@ainyc/canonry-contracts'
 import { notProbeRun, resolveProject } from './helpers.js'
+
+// Severity ordering for the insights `severity` filter (a MINIMUM-level gate:
+// `--severity high` returns high + critical). Mirrors InsightDto['severity'].
+const SEVERITY_RANK: Record<InsightDto['severity'], number> = { low: 0, medium: 1, high: 2, critical: 3 }
+
+/** Severities at or above `min`, or throw a validation error for an unknown level. */
+function severitiesAtOrAbove(min: string): InsightDto['severity'][] {
+  const floor = SEVERITY_RANK[min as InsightDto['severity']]
+  if (floor === undefined) {
+    throw validationError(`Invalid severity "${min}". Use one of: low, medium, high, critical.`)
+  }
+  return (Object.keys(SEVERITY_RANK) as InsightDto['severity'][]).filter((s) => SEVERITY_RANK[s] >= floor)
+}
 
 function emptyHealthSnapshot(projectId: string): HealthSnapshotDto {
   return {
@@ -145,16 +158,43 @@ function aggregateHealthSnapshots(
 }
 
 export async function intelligenceRoutes(app: FastifyInstance) {
-  // GET /projects/:name/insights — list insights for a project
+  // GET /projects/:name/insights — list insights for a project.
+  // Filters (all optional, AND-combined): `type` matches an exact insight type
+  // or, with a trailing `*`, a prefix (e.g. `gbp-*`); `severity` is a MINIMUM
+  // level (`high` returns high + critical); `limit` caps the (newest-first)
+  // result. Server-side so an agent gets exactly what it needs in one call.
   app.get<{
     Params: { name: string }
-    Querystring: { dismissed?: string; runId?: string }
+    Querystring: { dismissed?: string; runId?: string; type?: string; severity?: string; limit?: string }
   }>('/projects/:name/insights', async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
 
     const conditions = [eq(insights.projectId, project.id)]
     if (request.query.runId) {
       conditions.push(eq(insights.runId, request.query.runId))
+    }
+    const typeFilter = request.query.type?.trim()
+    if (typeFilter) {
+      // Insight types are a server-controlled enum of safe identifiers (no LIKE
+      // metacharacters), so a raw prefix is sufficient for the `gbp-*` form.
+      conditions.push(
+        typeFilter.endsWith('*')
+          ? like(insights.type, `${typeFilter.slice(0, -1)}%`)
+          : eq(insights.type, typeFilter),
+      )
+    }
+    const severityFilter = request.query.severity?.trim()
+    if (severityFilter) {
+      conditions.push(inArray(insights.severity, severitiesAtOrAbove(severityFilter)))
+    }
+
+    let limit: number | undefined
+    if (request.query.limit !== undefined) {
+      const parsed = Number(request.query.limit)
+      if (!Number.isInteger(parsed) || parsed < 1) {
+        throw validationError(`Invalid limit "${request.query.limit}". Use a positive integer.`)
+      }
+      limit = parsed
     }
 
     const rows = app.db
@@ -166,9 +206,10 @@ export async function intelligenceRoutes(app: FastifyInstance) {
 
     const showDismissed = request.query.dismissed === 'true'
 
-    const result: InsightDto[] = rows
+    let result: InsightDto[] = rows
       .filter(r => showDismissed || !r.dismissed)
       .map(mapInsightRow)
+    if (limit !== undefined) result = result.slice(0, limit)
 
     return reply.send(result)
   })
