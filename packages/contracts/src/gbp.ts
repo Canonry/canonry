@@ -176,6 +176,34 @@ export const gbpLodgingListResponseSchema = z.object({
 })
 export type GbpLodgingListResponse = z.infer<typeof gbpLodgingListResponseSchema>
 
+// Owner-set Business Profile attributes (any business category) — generic
+// amenity / service / accessibility / identity / social-URL tags, captured via
+// the Business Information API. Distinct from lodging (hotels only) and from
+// the Places rendered listing (public-side). `values` carries BOOL/ENUM
+// scalars, `uris` carries URL-attribute links.
+export const gbpAttributeDtoSchema = z.object({
+  name: z.string(),
+  valueType: z.string(),
+  values: z.array(z.union([z.boolean(), z.string()])),
+  uris: z.array(z.string()),
+})
+export type GbpAttributeDto = z.infer<typeof gbpAttributeDtoSchema>
+
+export const gbpAttributesDtoSchema = z.object({
+  locationName: z.string(),
+  /** Count of owner-set attributes (getAttributes returns only set ones). */
+  attributeCount: z.number().int().nonnegative(),
+  syncedAt: z.string(),
+  attributes: z.array(gbpAttributeDtoSchema),
+})
+export type GbpAttributesDto = z.infer<typeof gbpAttributesDtoSchema>
+
+export const gbpAttributesListResponseSchema = z.object({
+  attributes: z.array(gbpAttributesDtoSchema),
+  total: z.number().int().nonnegative(),
+})
+export type GbpAttributesListResponse = z.infer<typeof gbpAttributesListResponseSchema>
+
 // Places (New) rendered-listing snapshot per location (#648). `amenities` is
 // the server-derived cross-reference signal (what the public listing asserts);
 // `place` is the raw Place Details resource for full inspection.

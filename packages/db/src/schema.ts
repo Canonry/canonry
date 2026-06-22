@@ -1142,6 +1142,28 @@ export const gbpPlaceDetails = sqliteTable('gbp_place_details', {
   index('idx_gbp_place_details_loc').on(table.projectId, table.locationName, table.syncedAt),
 ])
 
+// GBP owner-set attributes (Business Information API) — the generic,
+// any-category amenity / service / accessibility / identity / social-URL tags
+// the owner has set on the location. Unlike gbp_lodging_snapshots (hotels only)
+// this works for every business type. getAttributes returns ONLY the set
+// attributes, so `attributeCount` is the count of set attributes. Snapshotted
+// on change (attributes change rarely — same pattern as gbp_lodging_snapshots).
+export const gbpAttributesSnapshots = sqliteTable('gbp_attributes_snapshots', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  locationName: text('location_name').notNull(),
+  contentHash: text('content_hash').notNull(),
+  attributes: text('attributes', { mode: 'json' })
+    .$type<{ name: string; valueType: string; values: (boolean | string)[]; uris: string[] }[]>()
+    .notNull()
+    .default([]),
+  attributeCount: integer('attribute_count').notNull().default(0),
+  syncedAt: text('synced_at').notNull(),
+  syncRunId: text('sync_run_id').references(() => runs.id, { onDelete: 'set null' }),
+}, (table) => [
+  index('idx_gbp_attributes_loc').on(table.projectId, table.locationName, table.syncedAt),
+])
+
 // --- OpenAI Advertiser API (ChatGPT ads) ---
 
 // One ads connection per project (ad accounts are not domain-bound, so the

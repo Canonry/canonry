@@ -13,9 +13,10 @@ import {
   gbpKeywordMonthly,
   gbpPlaceDetails,
   gbpLodgingSnapshots,
+  gbpAttributesSnapshots,
 } from '@ainyc/canonry-db'
 import { hashPlaceDetails } from '@ainyc/canonry-integration-google-places'
-import { hashLodging, countPopulatedGroups, type GbpLocation } from '@ainyc/canonry-integration-google-business-profile'
+import { hashLodging, countPopulatedGroups, hashAttributes, type GbpLocation } from '@ainyc/canonry-integration-google-business-profile'
 import { executeGbpSync } from '../src/gbp-sync.js'
 import type { CanonryConfig } from '../src/config.js'
 
@@ -25,6 +26,7 @@ const fetchDailyMetricsMock = vi.fn()
 const listMonthlyKeywordsMock = vi.fn()
 const listPlaceActionLinksMock = vi.fn()
 const getLodgingMock = vi.fn()
+const getAttributesMock = vi.fn()
 const getPlaceDetailsMock = vi.fn()
 const refreshAccessTokenMock = vi.fn()
 
@@ -39,6 +41,7 @@ vi.mock('@ainyc/canonry-integration-google-business-profile', async () => {
     listMonthlyKeywords: (...a: unknown[]) => listMonthlyKeywordsMock(...a),
     listPlaceActionLinks: (...a: unknown[]) => listPlaceActionLinksMock(...a),
     getLodging: (...a: unknown[]) => getLodgingMock(...a),
+    getAttributes: (...a: unknown[]) => getAttributesMock(...a),
   }
 })
 vi.mock('@ainyc/canonry-integration-google', async () => {
@@ -153,6 +156,7 @@ beforeEach(() => {
   fetchDailyMetricsMock.mockResolvedValue([])
   listPlaceActionLinksMock.mockResolvedValue([])
   getLodgingMock.mockResolvedValue(null)
+  getAttributesMock.mockResolvedValue([])
   getPlaceDetailsMock.mockResolvedValue({ id: 'place_default', servesBreakfast: true, allowsDogs: false })
   // Month-aware: a per-month call (startMonth === endMonth) returns a count
   // derived from the month so the test can assert which month was stored; the
@@ -570,6 +574,86 @@ describe('executeGbpSync — lodging snapshot freshness', () => {
       const rows = lodgingRows(db)
       expect(rows).toHaveLength(1)
       expect(rows[0]!.syncRunId).toBe('run_1')
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('executeGbpSync — owner-set attributes snapshot', () => {
+  const ATTRS = [
+    { name: 'attributes/has_onsite_services', valueType: 'BOOL', values: [true], uris: [] },
+    { name: 'attributes/url_instagram', valueType: 'URL', values: [], uris: ['https://instagram.com/x'] },
+  ]
+
+  function attrRows(db: ReturnType<typeof createClient>) {
+    return db.select().from(gbpAttributesSnapshots).where(eq(gbpAttributesSnapshots.projectId, 'proj_gbp')).all()
+  }
+
+  test('first sync writes a snapshot with the owner attributes + count', async () => {
+    const { db, tmpDir } = createTempDb()
+    try {
+      seedProject(db)
+      getAttributesMock.mockResolvedValue(ATTRS)
+      seedRun(db, 'run_1')
+
+      await executeGbpSync(db, 'run_1', 'proj_gbp', { config: testConfig() })
+
+      const rows = attrRows(db)
+      expect(rows).toHaveLength(1)
+      expect(rows[0]!.attributeCount).toBe(2)
+      expect(rows[0]!.syncRunId).toBe('run_1')
+      expect(rows[0]!.attributes).toEqual(ATTRS)
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  test('unchanged attributes re-stamp the latest row (no duplicate)', async () => {
+    const { db, tmpDir } = createTempDb()
+    try {
+      seedProject(db)
+      getAttributesMock.mockResolvedValue(ATTRS)
+      const oldSyncedAt = new Date(Date.now() - 30 * 86_400_000).toISOString()
+      db.insert(gbpAttributesSnapshots).values({
+        id: 'seed_attrs',
+        projectId: 'proj_gbp',
+        locationName: LOCATION,
+        contentHash: hashAttributes(ATTRS),
+        attributes: ATTRS,
+        attributeCount: 2,
+        syncedAt: oldSyncedAt,
+        syncRunId: null,
+      }).run()
+
+      seedRun(db, 'run_1')
+      await executeGbpSync(db, 'run_1', 'proj_gbp', { config: testConfig() })
+
+      const rows = attrRows(db)
+      expect(rows).toHaveLength(1)
+      expect(rows[0]!.id).toBe('seed_attrs')
+      expect(rows[0]!.syncRunId).toBe('run_1')
+      expect(new Date(rows[0]!.syncedAt).getTime()).toBeGreaterThan(new Date(oldSyncedAt).getTime())
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  test('changed attributes append a new snapshot', async () => {
+    const { db, tmpDir } = createTempDb()
+    try {
+      seedProject(db)
+      getAttributesMock.mockResolvedValue(ATTRS)
+      seedRun(db, 'run_1')
+      await executeGbpSync(db, 'run_1', 'proj_gbp', { config: testConfig() })
+      expect(attrRows(db)).toHaveLength(1)
+
+      getAttributesMock.mockResolvedValue([...ATTRS, { name: 'attributes/is_owned_by_women', valueType: 'BOOL', values: [true], uris: [] }])
+      seedRun(db, 'run_2')
+      await executeGbpSync(db, 'run_2', 'proj_gbp', { config: testConfig() })
+      const rows = attrRows(db)
+      expect(rows).toHaveLength(2)
+      expect(Math.max(...rows.map((r) => r.attributeCount))).toBe(3)
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true })
     }

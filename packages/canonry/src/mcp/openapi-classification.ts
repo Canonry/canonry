@@ -118,6 +118,7 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'GET /api/v1/projects/{name}/gbp/keywords': 'included',
   'GET /api/v1/projects/{name}/gbp/place-actions': 'included',
   'GET /api/v1/projects/{name}/gbp/lodging': 'included',
+  'GET /api/v1/projects/{name}/gbp/attributes': 'included',
   'GET /api/v1/projects/{name}/gbp/places': 'included',
   'GET /api/v1/projects/{name}/gbp/summary': 'included',
   'POST /api/v1/projects/{name}/bing/connect': 'deferred',

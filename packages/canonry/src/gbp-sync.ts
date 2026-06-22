@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 import { eq, and, desc, inArray, lt } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/canonry-db'
-import { runs, projects, gbpLocations, gbpDailyMetrics, gbpKeywordImpressions, gbpKeywordMonthly, gbpPlaceActions, gbpLodgingSnapshots, gbpPlaceDetails } from '@ainyc/canonry-db'
+import { runs, projects, gbpLocations, gbpDailyMetrics, gbpKeywordImpressions, gbpKeywordMonthly, gbpPlaceActions, gbpLodgingSnapshots, gbpPlaceDetails, gbpAttributesSnapshots } from '@ainyc/canonry-db'
 import { buildRunErrorFromMessages, serializeRunError } from '@ainyc/canonry-contracts'
 import { refreshAccessToken } from '@ainyc/canonry-integration-google'
 import {
@@ -14,6 +14,9 @@ import {
   getLodging,
   countPopulatedGroups,
   hashLodging,
+  getAttributes,
+  countAttributes,
+  hashAttributes,
   GBP_DAILY_METRICS,
 } from '@ainyc/canonry-integration-google-business-profile'
 import { getPlaceDetails, hashPlaceDetails } from '@ainyc/canonry-integration-google-places'
@@ -156,7 +159,7 @@ export async function executeGbpSync(
       const batch = locationRows.slice(i, i + LOCATION_CONCURRENCY)
       await Promise.all(batch.map(async (loc) => {
         try {
-          const [metricRows, keywordRows, placeActionRows, lodging, monthlyKeywordResults] = await Promise.all([
+          const [metricRows, keywordRows, placeActionRows, lodging, attributes, monthlyKeywordResults] = await Promise.all([
             fetchDailyMetrics(accessToken, loc.locationName, {
               metrics: GBP_DAILY_METRICS,
               startDate: metricsStart,
@@ -169,6 +172,9 @@ export async function executeGbpSync(
             listPlaceActionLinks(accessToken, loc.locationName),
             // null when the location is not a lodging-category property.
             getLodging(accessToken, loc.locationName),
+            // Owner-set attributes (any business category) — [] when the
+            // location has none or there is no attributes resource (404).
+            getAttributes(accessToken, loc.locationName),
             // Per-month keyword impressions for the accumulating monthly series.
             // One call per complete month (the endpoint aggregates a range into
             // a single figure, so month resolution requires month-sized calls).
@@ -189,6 +195,18 @@ export async function executeGbpSync(
                 .get()
             : undefined
           const lodgingChanged = lodging !== null && latestLodging?.contentHash !== lodgingHash
+
+          // Attributes snapshot-on-change (mirrors lodging). `attributes` is
+          // always an array ([] when the location has none), so unlike lodging
+          // this runs for every location — a zero-attribute snapshot records
+          // "checked, found none", distinct from "never synced".
+          const attributesHash = hashAttributes(attributes)
+          const latestAttributes = db.select().from(gbpAttributesSnapshots)
+            .where(and(eq(gbpAttributesSnapshots.projectId, projectId), eq(gbpAttributesSnapshots.locationName, loc.locationName)))
+            .orderBy(desc(gbpAttributesSnapshots.syncedAt))
+            .limit(1)
+            .get()
+          const attributesChanged = latestAttributes?.contentHash !== attributesHash
 
           // Places (New) enrichment — supplemental rendered-listing data, only
           // for lodging-capable locations that carry a Maps placeId. A refresh
@@ -336,6 +354,27 @@ export async function executeGbpSync(
               tx.update(gbpLodgingSnapshots)
                 .set({ syncedAt: insertNow, syncRunId: runId })
                 .where(eq(gbpLodgingSnapshots.id, latestLodging.id))
+                .run()
+            }
+
+            // Attributes: append a new snapshot when the owner-set attributes
+            // changed; otherwise re-stamp the latest row's `syncedAt` so it
+            // records this fetch (mirrors the lodging touch above).
+            if (attributesChanged) {
+              tx.insert(gbpAttributesSnapshots).values({
+                id: crypto.randomUUID(),
+                projectId,
+                locationName: loc.locationName,
+                contentHash: attributesHash,
+                attributes,
+                attributeCount: countAttributes(attributes),
+                syncedAt: insertNow,
+                syncRunId: runId,
+              }).run()
+            } else if (latestAttributes) {
+              tx.update(gbpAttributesSnapshots)
+                .set({ syncedAt: insertNow, syncRunId: runId })
+                .where(eq(gbpAttributesSnapshots.id, latestAttributes.id))
                 .run()
             }
 
