@@ -858,6 +858,8 @@ describe('GET /api/v1/projects/:name/report', () => {
     expect(body.whatsChanged.citationRate!.current).toBe(25)
     expect(body.whatsChanged.citationRate!.prior).toBe(0)
     expect(body.whatsChanged.citationRate!.deltaAbs).toBe(25)
+    // prior is 0 → percentage undefined → deltaPct null.
+    expect(body.whatsChanged.citationRate!.deltaPct).toBeNull()
     expect(body.whatsChanged.citationRate!.direction).toBe('up')
     expect(body.whatsChanged.citationRate!.window).toBe(2)
     // citedQueryCount: tail avg 0.5, prior avg 0, delta 0.5 — exactly at
@@ -865,6 +867,8 @@ describe('GET /api/v1/projects/:name/report', () => {
     // (a single-query bump is not yet a trend on a 2-query basket).
     expect(body.whatsChanged.citedQueryCount!.current).toBe(0.5)
     expect(body.whatsChanged.citedQueryCount!.prior).toBe(0)
+    // prior 0 → deltaPct null → the smart-% rule renders the raw rounded delta.
+    expect(body.whatsChanged.citedQueryCount!.deltaPct).toBeNull()
     expect(body.whatsChanged.citedQueryCount!.direction).toBe('flat')
     expect(body.whatsChanged.providerMovements.length).toBe(1)
     expect(body.whatsChanged.providerMovements[0]!.provider).toBe('gemini')

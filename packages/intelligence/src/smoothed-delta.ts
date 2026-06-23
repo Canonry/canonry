@@ -14,6 +14,8 @@
  * a value extractor; this helper does the windowing math.
  */
 
+import { deltaPercent } from '@ainyc/canonry-contracts'
+
 export interface SmoothedRunDelta {
   /** Average of the most recent `window` points, rounded to 1 decimal. */
   current: number
@@ -22,6 +24,10 @@ export interface SmoothedRunDelta {
   /** Unrounded `current - prior` average. Caller compares against a
    *  threshold (e.g. 3pp for rates) to decide up/down/flat. */
   deltaAbs: number
+  /** Signed percent change of `current` vs `prior` (rounded averages),
+   *  rounded to a whole number. Null when `prior <= 0`. Renderers route
+   *  count tiles through the "smart %" rule with this. */
+  deltaPct: number | null
   /** How many points went into each side of the average. 1 = point-to-point
    *  (only 2–3 runs in history); higher = real smoothing. Renderers use
    *  this to label "vs prior N checks" vs "since last check". */
@@ -55,10 +61,13 @@ export function smoothedRunDelta<T>(
   const sum = (arr: readonly T[]): number => arr.reduce((s, p) => s + valueFn(p), 0)
   const currentAvg = sum(tail) / tail.length
   const priorAvg = sum(prior) / prior.length
+  const current = roundTo1Decimal(currentAvg)
+  const prior_ = roundTo1Decimal(priorAvg)
   return {
-    current: roundTo1Decimal(currentAvg),
-    prior: roundTo1Decimal(priorAvg),
+    current,
+    prior: prior_,
     deltaAbs: currentAvg - priorAvg,
+    deltaPct: deltaPercent(current, prior_),
     window,
   }
 }

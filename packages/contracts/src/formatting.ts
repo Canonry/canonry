@@ -92,3 +92,58 @@ export function formatDeltaCopy(d: DeltaWindow, suffix: string, windowLabel = 'v
   if (d.deltaPct < 0) return `Down ${Math.abs(d.deltaPct)}% ${windowLabel} (${formatNumber(d.prior)} ${suffix})`
   return `Flat ${windowLabel} (${formatNumber(d.prior)} ${suffix})`
 }
+
+/**
+ * Smart-percent base threshold. When the PRIOR-window value is at least this
+ * large, a delta is expressed as a percentage; below it, a raw rounded delta
+ * is shown instead so a tiny base never produces a misleading percentage
+ * (e.g. "+50%" off a base of 2). Same rule the Discord orchestrator uses.
+ */
+export const MIN_PCT_BASE = 30
+
+/** Round to one decimal place: round1(0.3333) → 0.3, round1(3.3333) → 3.3. */
+function round1(value: number): number {
+  return Math.round(value * 10) / 10
+}
+
+/**
+ * "Smart %" subtitle for an AVERAGE metric (e.g. cited-query count averaged
+ * over a rolling window). When the prior average is a large-enough base
+ * (`prior >= MIN_PCT_BASE`) and a percentage is computable, render the signed
+ * percent — otherwise fall back to a clean rounded raw delta vs the prior
+ * average. `deltaPct` is already signed (negative = down); we only add a '+'
+ * for positive values.
+ *
+ * Pure. Shared by the report SPA and HTML renderer so both surfaces produce
+ * byte-identical copy per the report-parity rule.
+ */
+export function formatAverageDelta(d: { deltaAbs: number; prior: number; deltaPct: number | null }): string {
+  if (d.prior >= MIN_PCT_BASE && d.deltaPct !== null) {
+    const sign = d.deltaPct > 0 ? '+' : ''
+    return `${sign}${d.deltaPct}% vs prior`
+  }
+  const sign = d.deltaAbs > 0 ? '+' : ''
+  return `${sign}${round1(d.deltaAbs)} vs ${round1(d.prior)}`
+}
+
+/**
+ * "Smart %" subtitle for a WINDOW-COUNT metric (e.g. GSC clicks summed over a
+ * trailing window vs the prior window). When the prior total is a large-enough
+ * base and a percentage is computable, render the signed percent followed by
+ * the window label; otherwise render a rounded absolute delta with the count
+ * label (`visits`, `clicks`, …) and the window label.
+ *
+ * Pure. Shared by the report SPA and HTML renderer.
+ */
+export function formatWindowCountDelta(
+  d: { deltaAbs: number; prior: number; deltaPct: number | null },
+  countLabel: string,
+  windowLabel: string,
+): string {
+  if (d.prior >= MIN_PCT_BASE && d.deltaPct !== null) {
+    const sign = d.deltaPct > 0 ? '+' : ''
+    return `${sign}${d.deltaPct}% ${windowLabel}`
+  }
+  const sign = d.deltaAbs > 0 ? '+' : ''
+  return `${sign}${formatNumber(Math.round(d.deltaAbs))} ${countLabel} ${windowLabel}`
+}

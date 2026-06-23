@@ -1738,6 +1738,7 @@ function periodOverPeriodDelta(
     current,
     prior: priorTotal,
     deltaAbs,
+    deltaPct: deltaPercent(current, priorTotal),
     direction: rateDirection(deltaAbs, 0),
   }
 }

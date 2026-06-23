@@ -13,7 +13,19 @@ describe('smoothedRunDelta', () => {
   it('falls back to window=1 (point-to-point) with exactly 2 points', () => {
     // Equivalent to the legacy `latest - prior` delta.
     const result = smoothedRunDelta<Point>([v(50), v(60)], p => p.value)
-    expect(result).toEqual({ current: 60, prior: 50, deltaAbs: 10, window: 1 })
+    // deltaPct = round((60-50)/50 * 100) = 20.
+    expect(result).toEqual({ current: 60, prior: 50, deltaAbs: 10, deltaPct: 20, window: 1 })
+  })
+
+  it('computes deltaPct from the rounded averages; null when prior is zero', () => {
+    // Large enough base → a real percentage off the rounded prior average.
+    const climbing = smoothedRunDelta<Point>([v(40), v(50), v(60), v(70)], p => p.value)
+    // prior = 45, current = 65 → round((65-45)/45 * 100) = round(44.44) = 44.
+    expect(climbing?.deltaPct).toBe(44)
+    // Prior average of 0 → percentage undefined → null.
+    const fromZero = smoothedRunDelta<Point>([v(0), v(0), v(5)], p => p.value)
+    expect(fromZero?.prior).toBe(0)
+    expect(fromZero?.deltaPct).toBeNull()
   })
 
   it('keeps window=1 with 3 points (need 4 to fit window=2 without overlap)', () => {

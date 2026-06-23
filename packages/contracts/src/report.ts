@@ -543,6 +543,13 @@ export const reportRateDeltaSchema = z.object({
   /** Absolute delta (current − prior). Negative = decrease. */
   deltaAbs: z.number(),
   /**
+   * Signed percent change vs `prior`, rounded to a whole number. Null when
+   * `prior <= 0` (percentage undefined). Renderers route count/traffic tiles
+   * through the "smart %" rule — percentage when the prior base is large
+   * enough (`MIN_PCT_BASE`), otherwise a rounded raw delta.
+   */
+  deltaPct: z.number().nullable(),
+  /**
    * Direction tag for tone mapping. Threshold is metric-specific (3pp for
    * rates, 0.5 for counts) so small noise lands as 'flat' rather than
    * flipping up/down each run.

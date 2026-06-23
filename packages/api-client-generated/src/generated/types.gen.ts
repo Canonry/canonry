@@ -1919,6 +1919,7 @@ export type ProjectReportDto = {
             current: number;
             prior: number;
             deltaAbs: number;
+            deltaPct: number | null;
             direction: 'up' | 'down' | 'flat';
             window?: number;
         } | null;
@@ -1926,6 +1927,7 @@ export type ProjectReportDto = {
             current: number;
             prior: number;
             deltaAbs: number;
+            deltaPct: number | null;
             direction: 'up' | 'down' | 'flat';
             window?: number;
         } | null;
@@ -1933,6 +1935,7 @@ export type ProjectReportDto = {
             current: number;
             prior: number;
             deltaAbs: number;
+            deltaPct: number | null;
             direction: 'up' | 'down' | 'flat';
             window?: number;
         } | null;
@@ -1940,6 +1943,7 @@ export type ProjectReportDto = {
             current: number;
             prior: number;
             deltaAbs: number;
+            deltaPct: number | null;
             direction: 'up' | 'down' | 'flat';
             window?: number;
         } | null;
@@ -1947,6 +1951,7 @@ export type ProjectReportDto = {
             current: number;
             prior: number;
             deltaAbs: number;
+            deltaPct: number | null;
             direction: 'up' | 'down' | 'flat';
             window?: number;
         } | null;
