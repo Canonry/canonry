@@ -12,7 +12,9 @@ import {
   dedupeReportActions,
   dedupeReportOpportunities,
   deltaPercent,
+  formatAverageDelta,
   formatDeltaCopy,
+  formatWindowCountDelta,
   reportActionCategoryLabel,
   reportActionTone,
   reportConfidenceLabel,
@@ -702,11 +704,15 @@ function RateDeltaTile({
     )
   }
   const valueSuffix = unit === '%' ? '%' : ''
-  const sign = delta.deltaAbs > 0 ? '+' : ''
   const tone = deltaTone(delta.direction)
   const toneClass = tone === 'positive' ? 'text-emerald-400'
     : tone === 'negative' ? 'text-rose-400'
     : 'text-zinc-100'
+  // unit='%' keeps its percentage-point copy; unit='count' routes through the
+  // shared "smart %" formatter so the SPA and HTML stay byte-identical.
+  const deltaText = unit === '%'
+    ? `${delta.deltaAbs > 0 ? '+' : ''}${delta.deltaAbs.toFixed(1)}% vs ${delta.prior}%`
+    : formatAverageDelta(delta)
   return (
     <div className="rounded-xl border border-zinc-800/60 bg-zinc-900/30 px-4 py-3">
       <p className="eyebrow-soft">{label}</p>
@@ -714,7 +720,7 @@ function RateDeltaTile({
         {delta.current}{valueSuffix} <span className="text-sm font-medium">{deltaArrow(delta.direction)}</span>
       </p>
       <p className="mt-1 text-[11px] text-zinc-500">
-        {sign}{unit === '%' ? delta.deltaAbs.toFixed(1) : delta.deltaAbs}{valueSuffix} vs {delta.prior}{valueSuffix}
+        {deltaText}
       </p>
     </div>
   )
@@ -738,11 +744,13 @@ function TrafficDeltaTile({
       </div>
     )
   }
-  const sign = delta.deltaAbs > 0 ? '+' : ''
   const tone = deltaTone(delta.direction)
   const toneClass = tone === 'positive' ? 'text-emerald-400'
     : tone === 'negative' ? 'text-rose-400'
     : 'text-zinc-100'
+  // Shared "smart %" formatter — same helper the HTML renderer calls, so both
+  // surfaces emit byte-identical copy per the report-parity rule.
+  const deltaText = formatWindowCountDelta(delta, countLabel, `vs prior ${WHATS_CHANGED_PERIOD_DAYS} days`)
   return (
     <div className="rounded-xl border border-zinc-800/60 bg-zinc-900/30 px-4 py-3">
       <p className="eyebrow-soft">{label}</p>
@@ -750,7 +758,7 @@ function TrafficDeltaTile({
         {formatNumber(delta.current)} <span className="text-sm font-medium">{deltaArrow(delta.direction)}</span>
       </p>
       <p className="mt-1 text-[11px] text-zinc-500">
-        {sign}{formatNumber(delta.deltaAbs)} {countLabel} vs prior {WHATS_CHANGED_PERIOD_DAYS} days
+        {deltaText}
       </p>
     </div>
   )

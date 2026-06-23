@@ -750,6 +750,59 @@ describe('renderReportHtml', () => {
     expect(clientHtml).toContain('Up 100% vs prior 7 days (6 sessions)')
   })
 
+  // Locks in the "smart %" rule for the What's-changed count + traffic tiles.
+  // Both surfaces call the SAME shared contracts helpers (formatAverageDelta /
+  // formatWindowCountDelta), so the HTML asserted here is byte-identical to the
+  // SPA subtitle. The gjelina-shaped values: cited-query count averages ~3.3
+  // (small base → rounded raw delta) while GSC clicks total ~382 over the prior
+  // window (large base → percentage).
+  test('whatsChanged count + traffic tiles use the smart-% rule', () => {
+    const report = richReport()
+    report.whatsChanged = {
+      ...report.whatsChanged,
+      enoughHistory: true,
+      // Small base (< MIN_PCT_BASE): rounded raw delta vs prior, never a float,
+      // never a misleading % on a tiny base. Fixes the +0.33333… float bug.
+      citedQueryCount: { current: 3.7, prior: 3.3, deltaAbs: 0.33333333333333304, deltaPct: 10, direction: 'flat', window: 3 },
+      // Large base (>= MIN_PCT_BASE): signed percentage, no "visits" word.
+      gscClicksDelta: { current: 328, prior: 382, deltaAbs: -54, deltaPct: -14, direction: 'down' },
+    }
+
+    const clientHtml = renderReportHtml(report, { audience: 'client' })
+    // Questions answered (cited-query count) → rounded raw delta in the visible
+    // tile subtitle, never the unrounded float. (The raw DTO is still embedded
+    // in the hydration <script>, so we assert the rendered .delta div, not the
+    // whole document.)
+    expect(clientHtml).toContain('Questions AI answered with you')
+    expect(clientHtml).toContain('<div class="delta">+0.3 vs 3.3</div>')
+    // The visible subtitle never shows the unrounded float copy.
+    expect(clientHtml).not.toContain('<div class="delta">+0.33333')
+    // Visitors from Google (GSC clicks) → percentage, not an absolute count.
+    expect(clientHtml).toContain('Visitors from Google')
+    expect(clientHtml).toContain('<div class="delta">-14% vs prior 14 days</div>')
+    expect(clientHtml).not.toContain('-54 visits')
+
+    const agencyHtml = renderReportHtml(report, { audience: 'agency' })
+    expect(agencyHtml).toContain('Cited queries')
+    expect(agencyHtml).toContain('<div class="delta">+0.3 vs 3.3</div>')
+    expect(agencyHtml).toContain('GSC clicks')
+    expect(agencyHtml).toContain('<div class="delta">-14% vs prior 14 days</div>')
+  })
+
+  // Small-base path for the traffic tile too: when the prior window total is
+  // below MIN_PCT_BASE the tile shows a rounded absolute count with the label.
+  test('whatsChanged traffic tile falls back to a rounded count on a small base', () => {
+    const report = richReport()
+    report.whatsChanged = {
+      ...report.whatsChanged,
+      enoughHistory: true,
+      gscClicksDelta: { current: 14, prior: 10, deltaAbs: 4, deltaPct: 40, direction: 'up' },
+    }
+    const clientHtml = renderReportHtml(report, { audience: 'client' })
+    expect(clientHtml).toContain('<div class="delta">+4 visits vs prior 14 days</div>')
+    expect(clientHtml).not.toContain('+40% vs prior 14 days')
+  })
+
   test('client view of empty server-activity uses the friendly heading, not "Section 10"', () => {
     const report = richReport()
     report.serverActivity = {

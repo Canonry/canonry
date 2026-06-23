@@ -18,12 +18,14 @@ import {
   dedupeReportOpportunities,
   deltaPercent,
   deltaTone,
+  formatAverageDelta,
   formatDate,
   formatDateRange,
   formatDeltaCopy,
   formatIsoDate,
   formatNumber,
   formatRatio,
+  formatWindowCountDelta,
   reportActionCategoryLabel,
   reportActionTone,
   reportConfidenceLabel,
@@ -1190,8 +1192,12 @@ function renderRateDeltaTile(
     return `<div class="metric"><div class="label">${escapeHtml(label)}</div><div class="value">—</div><div class="delta">No prior data</div></div>`
   }
   const valueSuffix = unit === '%' ? '%' : ''
-  const deltaSign = delta.deltaAbs > 0 ? '+' : ''
-  const deltaText = `${deltaSign}${delta.deltaAbs.toFixed(unit === '%' ? 1 : 0)}${valueSuffix} vs ${delta.prior}${valueSuffix}`
+  // unit='%' keeps its percentage-point copy; unit='count' routes through the
+  // shared "smart %" formatter (big base → %, small base → rounded raw delta)
+  // so the SPA and HTML stay byte-identical per the report-parity rule.
+  const deltaText = unit === '%'
+    ? `${delta.deltaAbs > 0 ? '+' : ''}${delta.deltaAbs.toFixed(1)}% vs ${delta.prior}%`
+    : formatAverageDelta(delta)
   return `<div class="metric">
     <div class="label">${escapeHtml(label)}</div>
     <div class="value ${deltaToneClass(delta.direction)}">${delta.current}${valueSuffix} <span style="font-size:14px;font-weight:500;">${deltaArrow(delta.direction)}</span></div>
@@ -1207,8 +1213,9 @@ function renderTrafficDeltaTile(
   if (!delta) {
     return `<div class="metric"><div class="label">${escapeHtml(label)}</div><div class="value">—</div><div class="delta">Not enough trend data</div></div>`
   }
-  const deltaSign = delta.deltaAbs > 0 ? '+' : ''
-  const deltaText = `${deltaSign}${formatNumber(delta.deltaAbs)} ${countLabel} vs prior ${WHATS_CHANGED_PERIOD_DAYS} days`
+  // Shared "smart %" formatter: big prior base → signed %, small base →
+  // rounded absolute delta with the count label. Same helper the SPA calls.
+  const deltaText = formatWindowCountDelta(delta, countLabel, `vs prior ${WHATS_CHANGED_PERIOD_DAYS} days`)
   return `<div class="metric">
     <div class="label">${escapeHtml(label)}</div>
     <div class="value ${deltaToneClass(delta.direction)}">${formatNumber(delta.current)} <span style="font-size:14px;font-weight:500;">${deltaArrow(delta.direction)}</span></div>
