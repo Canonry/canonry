@@ -102,12 +102,18 @@ export const FIXTURE_INSIGHT_ROW_DEFAULT: OpenAiAdsInsightRow = {
   start_time: 1781071200,
 }
 
-// With fields[]= requested: clicks/ctr/cpc/spend appear; spend and cpc are
-// DECIMAL DOLLARS (not micros) in production responses.
+// With fields[]= requested: clicks/ctr/cpc/spend/conversions appear; spend and
+// cpc are DECIMAL DOLLARS (not micros) in production responses. `conversions` is
+// the documented campaign.conversions / ad_group.conversions field — present
+// only when the account has conversion tracking configured (this row models a
+// conversion-tracking account, matching FIXTURE_CAMPAIGN's non-empty
+// conversion_event_setting_ids); refresh the count from a live capture when one
+// is available.
 export const FIXTURE_INSIGHT_ROW_FULL: OpenAiAdsInsightRow = {
   id: 'start=1781071200:end=1781157600:entity_id=cmpn_0000000000000000000000000000bbbb',
   campaign_name: 'Homeowners Free Estimate',
   clicks: 23,
+  conversions: 4,
   cpc: 1.71,
   ctr: 0.0132,
   end_time: 1781157600,

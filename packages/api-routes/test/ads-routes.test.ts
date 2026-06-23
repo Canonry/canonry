@@ -88,7 +88,7 @@ function buildApp(overrides: { verifyShouldFail?: boolean } = {}) {
     db.insert(adsConnections).values({
       id: crypto.randomUUID(), projectId, adAccountId: 'adacct_aaa',
       displayName: 'Acme Exteriors, Inc', currencyCode: 'USD', timezone: 'America/Denver',
-      status: 'active', lastSyncedAt: NOW, createdAt: NOW, updatedAt: NOW,
+      status: 'active', conversionTrackingConfigured: true, lastSyncedAt: NOW, createdAt: NOW, updatedAt: NOW,
     }).run()
   }
 
@@ -112,12 +112,12 @@ function buildApp(overrides: { verifyShouldFail?: boolean } = {}) {
 
   function seedInsights(projectId: string) {
     const rows = [
-      { level: 'campaign', entityId: 'cmpn_bbb', date: '2026-06-09', impressions: 3326, clicks: 40, spendMicros: 90_450_000 },
-      { level: 'campaign', entityId: 'cmpn_bbb', date: '2026-06-10', impressions: 1736, clicks: 23, spendMicros: 39_280_000 },
+      { level: 'campaign', entityId: 'cmpn_bbb', date: '2026-06-09', impressions: 3326, clicks: 40, spendMicros: 90_450_000, conversions: 4 },
+      { level: 'campaign', entityId: 'cmpn_bbb', date: '2026-06-10', impressions: 1736, clicks: 23, spendMicros: 39_280_000, conversions: 2 },
       // subdivision of the campaign rows — must NOT be double-counted in summary totals
-      { level: 'ad_group', entityId: 'adgrp_ddd', date: '2026-06-10', impressions: 64, clicks: 1, spendMicros: 570_000 },
+      { level: 'ad_group', entityId: 'adgrp_ddd', date: '2026-06-10', impressions: 64, clicks: 1, spendMicros: 570_000, conversions: 1 },
       // zero-denominator edge: no clicks
-      { level: 'campaign', entityId: 'cmpn_bbb', date: '2026-06-08', impressions: 100, clicks: 0, spendMicros: 0 },
+      { level: 'campaign', entityId: 'cmpn_bbb', date: '2026-06-08', impressions: 100, clicks: 0, spendMicros: 0, conversions: 0 },
     ]
     for (const row of rows) {
       db.insert(adsInsightsDaily).values({ id: crypto.randomUUID(), projectId, syncRunId: null, ...row }).run()
@@ -192,6 +192,8 @@ describe('ads routes', () => {
     const body = JSON.parse(res.body) as Record<string, unknown>
     expect(body.connected).toBe(true)
     expect(body.lastSyncedAt).toBe(NOW)
+    // the seeded connection has conversion tracking configured
+    expect(body.conversionTrackingConfigured).toBe(true)
   })
 
   it('POST /ads/sync requires a connection, creates the run row, and fires the host callback', async () => {
@@ -261,6 +263,7 @@ describe('ads routes', () => {
     // $39.28 / 23 clicks = 1_707_826 micros; 23/1736 ctr
     expect(june10.cpcMicros).toBe(1_707_826)
     expect(june10.ctr).toBeCloseTo(23 / 1736, 8)
+    expect(june10.conversions).toBe(2)
 
     const june08 = body.rows.find((r) => r.date === '2026-06-08')!
     expect(june08.ctr).toBe(0)
@@ -303,7 +306,7 @@ describe('ads routes', () => {
       campaignCount: number
       adGroupCount: number
       adCount: number
-      totals: { impressions: number; clicks: number; spendMicros: number; ctr: number | null; cpcMicros: number | null }
+      totals: { impressions: number; clicks: number; spendMicros: number; conversions: number; ctr: number | null; cpcMicros: number | null }
       window: { from: string | null; to: string | null }
     }
     expect(body.connected).toBe(true)
@@ -315,6 +318,8 @@ describe('ads routes', () => {
     expect(body.totals.impressions).toBe(5162)
     expect(body.totals.clicks).toBe(63)
     expect(body.totals.spendMicros).toBe(129_730_000)
+    // conversions sum campaign rows only: 4+2+0 — the ad_group row's 1 is excluded
+    expect(body.totals.conversions).toBe(6)
     expect(body.totals.ctr).toBeCloseTo(63 / 5162, 8)
     expect(body.totals.cpcMicros).toBe(Math.round(129_730_000 / 63))
     expect(body.window).toEqual({ from: '2026-06-08', to: '2026-06-10' })

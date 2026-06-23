@@ -112,6 +112,9 @@ export interface OpenAiAdsInsightRow {
   impressions?: number
   clicks?: number
   spend?: number
+  /** Conversion count. Only present when requested via fields[] (campaign.conversions /
+   *  ad_group.conversions) and the account has conversion tracking configured. */
+  conversions?: number
   ctr?: number
   cpc?: number
   cpm?: number

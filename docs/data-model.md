@@ -118,11 +118,11 @@ Local-AEO signals. The OAuth connection reuses `google_connections` with `connec
 
 | Table | Purpose |
 |-------|---------|
-| **ads_connections** | One OpenAI ad-account connection per project (ad accounts are not domain-bound, so this keys on project like `ga_connections`). Metadata + sync state only — the Ads Manager "SDK key" lives in `~/.canonry/config.yaml`. |
+| **ads_connections** | One OpenAI ad-account connection per project (ad accounts are not domain-bound, so this keys on project like `ga_connections`). Metadata + sync state only — the Ads Manager "SDK key" lives in `~/.canonry/config.yaml`. `conversion_tracking_configured` is set on each sync from whether any synced campaign carries a `conversion_event_setting_ids` entry (the operator-readiness conversion gate reads it). |
 | **ads_campaigns** | Campaign snapshots, range-replaced per project on every `ads-sync`. Budgets are integer micros (`daily_spend_limit_micros` / `lifetime_spend_limit_micros`); `targeting` is the raw upstream JSON (geo includes/excludes). Ids are upstream ids (`cmpn_…`). |
 | **ads_ad_groups** | Ad-group snapshots. `context_hints` (JSON `string[]`) is the targeting primitive — entries are multi-line strings of newline-separated example queries; the paid/organic overlap matcher joins these against tracked queries. Cascades off `ads_campaigns`. |
 | **ads_ads** | Ad snapshots with the `chat_card` creative JSON and review status. Cascades off `ads_ad_groups`. |
-| **ads_insights_daily** | Daily paid-performance rollups, one row per `(level, entity, date)`. `spend_micros` is integer micros — the upstream insights API returns decimal dollars, normalized at ingest. Derived ratios (ctr/cpc) computed at read time. Upserts on conflict so re-syncing an in-progress day replaces. |
+| **ads_insights_daily** | Daily paid-performance rollups, one row per `(level, entity, date)`. `spend_micros` is integer micros — the upstream insights API returns decimal dollars, normalized at ingest. `conversions` is the integer conversion count (0 when the account has no conversion tracking). Derived ratios (ctr/cpc) computed at read time. Upserts on conflict so re-syncing an in-progress day replaces. |
 
 ### Server-Side Traffic Ingestion
 

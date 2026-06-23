@@ -56,6 +56,7 @@ export type AdsConnectionStatusDto = {
     timezone?: string | null;
     status?: string | null;
     lastSyncedAt?: string | null;
+    conversionTrackingConfigured?: boolean;
 };
 
 export type AdsDisconnectResponse = {
@@ -70,6 +71,7 @@ export type AdsInsightsResponse = {
         impressions: number;
         clicks: number;
         spendMicros: number;
+        conversions: number;
         ctr: number | null;
         cpcMicros: number | null;
     }>;
@@ -92,6 +94,7 @@ export type AdsSummaryDto = {
         impressions: number;
         clicks: number;
         spendMicros: number;
+        conversions: number;
         ctr: number | null;
         cpcMicros: number | null;
     };
