@@ -1834,6 +1834,14 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `CREATE INDEX IF NOT EXISTS idx_gbp_attributes_loc ON gbp_attributes_snapshots(project_id, location_name, synced_at)`,
     ],
   },
+  {
+    version: 83,
+    name: 'ads-insights-conversions',
+    statements: [
+      `ALTER TABLE ads_insights_daily ADD COLUMN conversions INTEGER NOT NULL DEFAULT 0`,
+      `ALTER TABLE ads_connections ADD COLUMN conversion_tracking_configured INTEGER NOT NULL DEFAULT 0`,
+    ],
+  },
 ]
 
 /**

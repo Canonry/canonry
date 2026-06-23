@@ -1180,6 +1180,7 @@ export const adsConnections = sqliteTable('ads_connections', {
   timezone: text('timezone'),
   status: text('status'),
   lastSyncedAt: text('last_synced_at'),
+  conversionTrackingConfigured: integer('conversion_tracking_configured', { mode: 'boolean' }).notNull().default(false),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 }, (table) => [
@@ -1259,6 +1260,7 @@ export const adsInsightsDaily = sqliteTable('ads_insights_daily', {
   impressions: integer('impressions').notNull().default(0),
   clicks: integer('clicks').notNull().default(0),
   spendMicros: integer('spend_micros').notNull().default(0),
+  conversions: integer('conversions').notNull().default(0),
   syncRunId: text('sync_run_id').references(() => runs.id, { onDelete: 'set null' }),
 }, (table) => [
   uniqueIndex('uniq_ads_insights_daily').on(table.projectId, table.level, table.entityId, table.date),

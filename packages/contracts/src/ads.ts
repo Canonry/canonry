@@ -20,6 +20,10 @@ export const adsConnectionStatusDtoSchema = z.object({
   timezone: z.string().nullable().optional(),
   status: z.string().nullable().optional(),
   lastSyncedAt: z.string().nullable().optional(),
+  /** Whether the ad account has OpenAI conversion tracking (pixel or CAPI) configured,
+   *  detected from synced campaigns carrying conversion_event_setting_ids. Optional:
+   *  only present when connected. */
+  conversionTrackingConfigured: z.boolean().optional(),
 })
 export type AdsConnectionStatusDto = z.infer<typeof adsConnectionStatusDtoSchema>
 
@@ -99,6 +103,10 @@ export const adsInsightRowDtoSchema = z.object({
   impressions: z.number().int(),
   clicks: z.number().int(),
   spendMicros: z.number().int(),
+  /** Conversion count for the row. 0 when conversion tracking is not configured.
+   *  Conversion VALUE (for ROAS) is a deliberate follow-up: the upstream value
+   *  field is not yet captured against a live conversion-tracking account. */
+  conversions: z.number().int(),
   /** clicks / impressions; null when impressions is 0. */
   ctr: z.number().nullable(),
   /** spendMicros / clicks, rounded to integer micros; null when clicks is 0. */
@@ -117,6 +125,7 @@ export const adsTotalsDtoSchema = z.object({
   impressions: z.number().int(),
   clicks: z.number().int(),
   spendMicros: z.number().int(),
+  conversions: z.number().int(),
   ctr: z.number().nullable(),
   cpcMicros: z.number().int().nullable(),
 })

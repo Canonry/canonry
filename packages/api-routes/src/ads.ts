@@ -71,6 +71,7 @@ function statusDto(row: ConnectionRow | undefined): AdsConnectionStatusDto {
     timezone: row.timezone,
     status: row.status,
     lastSyncedAt: row.lastSyncedAt,
+    conversionTrackingConfigured: row.conversionTrackingConfigured,
   }
 }
 
@@ -318,6 +319,7 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
       impressions: row.impressions,
       clicks: row.clicks,
       spendMicros: row.spendMicros,
+      conversions: row.conversions,
       ctr: adsCtr(row.clicks, row.impressions),
       cpcMicros: adsCpcMicros(row.spendMicros, row.clicks),
     }))
@@ -352,12 +354,14 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
     let impressions = 0
     let clicks = 0
     let spendMicros = 0
+    let conversions = 0
     let fromDate: string | null = null
     let toDate: string | null = null
     for (const insight of campaignInsights) {
       impressions += insight.impressions
       clicks += insight.clicks
       spendMicros += insight.spendMicros
+      conversions += insight.conversions
       if (fromDate === null || insight.date < fromDate) fromDate = insight.date
       if (toDate === null || insight.date > toDate) toDate = insight.date
     }
@@ -375,6 +379,7 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
         impressions,
         clicks,
         spendMicros,
+        conversions,
         ctr: adsCtr(clicks, impressions),
         cpcMicros: adsCpcMicros(spendMicros, clicks),
       },

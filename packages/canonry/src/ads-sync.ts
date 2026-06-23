@@ -23,8 +23,8 @@ import { createLogger } from './logger.js'
 
 const log = createLogger('AdsSync')
 
-const CAMPAIGN_INSIGHT_FIELDS = ['campaign.impressions', 'campaign.clicks', 'campaign.spend', 'metadata.readable_time']
-const AD_GROUP_INSIGHT_FIELDS = ['ad_group.impressions', 'ad_group.clicks', 'ad_group.spend', 'metadata.readable_time']
+const CAMPAIGN_INSIGHT_FIELDS = ['campaign.impressions', 'campaign.clicks', 'campaign.spend', 'campaign.conversions', 'metadata.readable_time']
+const AD_GROUP_INSIGHT_FIELDS = ['ad_group.impressions', 'ad_group.clicks', 'ad_group.spend', 'ad_group.conversions', 'metadata.readable_time']
 
 interface AdsSyncOptions {
   config: CanonryConfig
@@ -37,6 +37,7 @@ interface InsightUpsert {
   impressions: number
   clicks: number
   spendMicros: number
+  conversions: number
 }
 
 // The insights API returns spend/cpc as DECIMAL DOLLARS while budgets/bids
@@ -55,6 +56,7 @@ function toInsightUpserts(level: InsightUpsert['level'], entityId: string, rows:
       impressions: row.impressions ?? 0,
       clicks: row.clicks ?? 0,
       spendMicros: dollarsToMicros(row.spend ?? 0),
+      conversions: Math.round(row.conversions ?? 0),
     })
   }
   return upserts
@@ -131,6 +133,16 @@ export async function executeAdsSync(
       }
     }
 
+    // Conversion tracking is configured at the campaign level: a campaign
+    // carries one or more conversion_event_setting_ids once the operator wires
+    // up an OpenAI conversion pixel / CAPI event. Detect it from the full
+    // campaign list (the field rides the campaign object regardless of whether
+    // that campaign's insight fetch succeeded), so the account-level flag is
+    // not lost to a single failed per-campaign sync.
+    const conversionTrackingConfigured = campaigns.some(
+      (c) => (c.conversion_event_setting_ids?.length ?? 0) > 0,
+    )
+
     const insertNow = new Date().toISOString()
     db.transaction((tx) => {
       // Range-replace entity snapshots for the project. Deleting campaigns
@@ -204,6 +216,7 @@ export async function executeAdsSync(
             impressions: upsert.impressions,
             clicks: upsert.clicks,
             spendMicros: upsert.spendMicros,
+            conversions: upsert.conversions,
             syncRunId: runId,
           },
         }).run()
@@ -215,6 +228,7 @@ export async function executeAdsSync(
         currencyCode: account.currency_code,
         timezone: account.timezone,
         status: account.status,
+        conversionTrackingConfigured,
         lastSyncedAt: insertNow,
         updatedAt: insertNow,
       }).where(eq(adsConnections.projectId, projectId)).run()

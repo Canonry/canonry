@@ -140,6 +140,9 @@ describe('executeAdsSync', () => {
     expect(campaignDay?.spendMicros).toBe(39_280_000)
     expect(campaignDay?.impressions).toBe(1736)
     expect(campaignDay?.clicks).toBe(23)
+    // No conversions field on the insight rows → defaults to 0 (the API omits
+    // it when the account has no conversion tracking).
+    expect(campaignDay?.conversions).toBe(0)
     const groupDay = insightRows.find((r) => r.level === 'ad_group')
     expect(groupDay?.entityId).toBe('adgrp_ddd')
     expect(groupDay?.spendMicros).toBe(570_000)
@@ -149,6 +152,50 @@ describe('executeAdsSync', () => {
     expect(conn?.currencyCode).toBe('USD')
     expect(conn?.status).toBe('active')
     expect(conn?.lastSyncedAt).toBeTruthy()
+    // CAMPAIGN carries an empty conversion_event_setting_ids → tracking off.
+    expect(conn?.conversionTrackingConfigured).toBe(false)
+  })
+
+  it('captures conversion counts and flags the connection when conversion tracking is configured', async () => {
+    const db = createTempDb()
+    seed(db)
+
+    // A conversion-tracking account: the campaign carries a configured event id
+    // and the insight rows return a conversions metric (fractional attribution
+    // figures round to the integer column).
+    const trackedCampaign = { ...CAMPAIGN, conversion_event_setting_ids: ['cevent_1111'] }
+    const trackedCampaignInsights = [
+      { id: 'r1', start_time: 1, end_time: 2, readable_time: '2026-06-09', impressions: 3326, clicks: 40, spend: 90.45, conversions: 5 },
+      { id: 'r2', start_time: 2, end_time: 3, readable_time: '2026-06-10', impressions: 1736, clicks: 23, spend: 39.28, conversions: 2.6 },
+    ]
+    const trackedGroupInsights = [
+      { id: 'r3', start_time: 2, end_time: 3, readable_time: '2026-06-10', impressions: 64, clicks: 1, spend: 0.57, conversions: 1 },
+    ]
+    globalThis.fetch = async (url: string | URL | Request) => {
+      const u = String(url)
+      const respond = (payload: unknown) => new Response(JSON.stringify(payload), { status: 200 })
+      if (u.endsWith('/ad_account')) return respond(ACCOUNT)
+      if (u.includes('/campaigns/cmpn_bbb/insights')) return respond(list(trackedCampaignInsights))
+      if (u.includes('/ad_groups/adgrp_ddd/insights')) return respond(list(trackedGroupInsights))
+      if (u.includes('/campaigns')) return respond(list([trackedCampaign]))
+      if (u.includes('/ad_groups?campaign_id=cmpn_bbb')) return respond(list([AD_GROUP]))
+      if (u.includes('/ads?ad_group_id=adgrp_ddd')) return respond(list([AD]))
+      throw new Error(`unexpected URL in test: ${u}`)
+    }
+
+    await executeAdsSync(db, 'run_1', 'proj_1', { config: testConfig() })
+
+    const insightRows = db.select().from(adsInsightsDaily).all()
+    const campaignJun9 = insightRows.find((r) => r.level === 'campaign' && r.date === '2026-06-09')
+    expect(campaignJun9?.conversions).toBe(5)
+    const campaignJun10 = insightRows.find((r) => r.level === 'campaign' && r.date === '2026-06-10')
+    // 2.6 attribution figure → rounds to 3 in the integer column.
+    expect(campaignJun10?.conversions).toBe(3)
+    const groupDay = insightRows.find((r) => r.level === 'ad_group')
+    expect(groupDay?.conversions).toBe(1)
+
+    const conn = db.select().from(adsConnections).where(eq(adsConnections.projectId, 'proj_1')).get()
+    expect(conn?.conversionTrackingConfigured).toBe(true)
   })
 
   it('is idempotent: a re-sync replaces snapshots and upserts insights without duplicating', async () => {
