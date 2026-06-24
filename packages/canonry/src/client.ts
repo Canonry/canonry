@@ -97,6 +97,7 @@ import type {
   ProjectSearchResponseDto,
   DoctorReportDto,
   ProjectReportDto,
+  ReportPeriodDays,
   TrafficSourceDto,
   TrafficSourceDetailDto,
   TrafficSourceListResponse,
@@ -780,9 +781,13 @@ export class ApiClient {
     )
   }
 
-  async getReport(project: string): Promise<ProjectReportDto> {
+  async getReport(project: string, opts?: { period?: ReportPeriodDays }): Promise<ProjectReportDto> {
     return this.invoke<ProjectReportDto>(() =>
-      getApiV1ProjectsByNameReport({ client: this.heyClient, path: { name: project } }),
+      getApiV1ProjectsByNameReport({
+        client: this.heyClient,
+        path: { name: project },
+        ...(opts?.period !== undefined && { query: { period: opts.period } }),
+      }),
     )
   }
 

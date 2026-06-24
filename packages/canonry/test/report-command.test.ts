@@ -20,6 +20,7 @@ function makeReport(): ProjectReportDto {
       providerLocationHandling: [],
       periodStart: null,
       periodEnd: null,
+      periodDays: 30,
     },
     executiveSummary: {
       citationRate: 0,
@@ -53,6 +54,7 @@ function makeReport(): ProjectReportDto {
       citedQueryCount: null,
       gscClicksDelta: null,
       aiReferralsDelta: null,
+      comparisonWindowDays: 15,
       providerMovements: [],
       wins: [],
       regressions: [],
@@ -151,6 +153,18 @@ describe('runReportCommand', () => {
     expect(html).toContain('AI Visibility Report')
     expect(html).toContain('id="client-summary"')
     expect(html).not.toContain('id="citation-scorecard"')
+  })
+
+  it('forwards --period to the API client', async () => {
+    getReportMock.mockResolvedValue(makeReport())
+    await runReportCommand('demo', { format: 'json', period: 7 })
+    expect(getReportMock).toHaveBeenCalledWith('demo', { period: 7 })
+  })
+
+  it('omits the period query entirely when no --period is given', async () => {
+    getReportMock.mockResolvedValue(makeReport())
+    await runReportCommand('demo', { format: 'json' })
+    expect(getReportMock).toHaveBeenCalledWith('demo', undefined)
   })
 
   it('--format json prints the raw report JSON to stdout, no file written', async () => {

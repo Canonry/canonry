@@ -1418,9 +1418,10 @@ function parseFilenameFromContentDisposition(header: string | null): string | nu
 // Blob download — keep raw fetch so we can read the binary body + parse
 // the Content-Disposition filename. The generated SDK would JSON-parse the
 // response and discard the binary payload.
-export async function downloadReportHtml(project: string, audience: ReportAudience = 'agency'): Promise<void> {
+export async function downloadReportHtml(project: string, audience: ReportAudience = 'agency', period?: number): Promise<void> {
   const key = getApiKey()
   const params = new URLSearchParams({ audience })
+  if (period !== undefined) params.set('period', String(period))
   const res = await fetch(`${API_BASE}/projects/${encodeURIComponent(project)}/report.html?${params.toString()}`, {
     credentials: 'same-origin',
     headers: key ? { Authorization: `Bearer ${key}` } : {},

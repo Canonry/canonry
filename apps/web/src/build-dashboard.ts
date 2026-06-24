@@ -814,7 +814,7 @@ function buildAttentionItems(projectCenters: ProjectCommandCenterVm[]) {
         title: `${pc.project.displayName || pc.project.name} lost citations`,
         detail: `${lostEvidence.length} quer${lostEvidence.length > 1 ? 'ies' : 'y'} lost citation.`,
         actionLabel: 'Open project',
-        href: `/projects/${pc.project.id}`,
+        href: `/projects/${encodeURIComponent(pc.project.name)}`,
       })
     }
 

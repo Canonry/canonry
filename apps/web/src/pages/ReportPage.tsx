@@ -1,11 +1,12 @@
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { Download } from 'lucide-react'
 import type {
   ProjectReportDto,
   ReportActionPlanItem,
   ReportAudience,
   ReportInsight,
+  ReportPeriodDays,
 } from '@ainyc/canonry-contracts'
 import {
   contentActionLabel,
@@ -15,6 +16,8 @@ import {
   formatAverageDelta,
   formatDeltaCopy,
   formatWindowCountDelta,
+  REPORT_DEFAULT_PERIOD_DAYS,
+  REPORT_PERIOD_OPTIONS,
   reportActionCategoryLabel,
   reportActionTone,
   reportConfidenceLabel,
@@ -71,16 +74,20 @@ function formatLocationLabel(location: NonNullable<ProjectReportDto['meta']['loc
 export function ReportPage({ projectName }: { projectName: string }) {
   const [downloading, setDownloading] = useState(false)
   const [downloadError, setDownloadError] = useState<string | null>(null)
+  const [period, setPeriod] = useState<ReportPeriodDays>(REPORT_DEFAULT_PERIOD_DAYS)
 
-  const reportQuery = useQuery(
-    getApiV1ProjectsByNameReportOptions({ client: heyClient, path: { name: projectName } }),
-  )
+  const reportQuery = useQuery({
+    ...getApiV1ProjectsByNameReportOptions({ client: heyClient, path: { name: projectName }, query: { period } }),
+    // Keep the current report on screen while a new period loads so the
+    // toggle and content don't flash to a full-page skeleton on every switch.
+    placeholderData: keepPreviousData,
+  })
 
   async function handleDownload() {
     setDownloading(true)
     setDownloadError(null)
     try {
-      await downloadReportHtml(projectName, 'client')
+      await downloadReportHtml(projectName, 'client', period)
     } catch (err) {
       const message = err instanceof ApiError ? err.message : err instanceof Error ? err.message : 'Download failed'
       setDownloadError(message)
@@ -114,11 +121,13 @@ export function ReportPage({ projectName }: { projectName: string }) {
             {report.meta.location
               ? ` · Location: ${formatLocationLabel(report.meta.location)}`
               : ' · No location set'}
+            {' · '}Last {report.meta.periodDays} days
             {' · '}Generated {formatDate(report.meta.generatedAt)}
           </p>
           {downloadError && <p className="mt-2 text-xs text-rose-400">{downloadError}</p>}
         </div>
-        <div className="page-header-right">
+        <div className="page-header-right flex flex-col items-end gap-2">
+          <PeriodToggle period={period} onChange={setPeriod} />
           <Button
             variant="secondary"
             size="sm"
@@ -140,12 +149,51 @@ export function ReportPage({ projectName }: { projectName: string }) {
   )
 }
 
+// Time-window selector. Re-fetches the report scoped to the chosen window
+// (the API recomputes every section + comparison for it). Pill/filter-chip
+// styling per the design system.
+function PeriodToggle({
+  period,
+  onChange,
+}: {
+  period: ReportPeriodDays
+  onChange: (p: ReportPeriodDays) => void
+}) {
+  return (
+    <div
+      className="inline-flex items-center gap-0.5 rounded-full border border-zinc-800/60 bg-zinc-900/40 p-0.5"
+      role="group"
+      aria-label="Report time period"
+    >
+      {REPORT_PERIOD_OPTIONS.map((opt) => {
+        const active = opt === period
+        return (
+          <button
+            key={opt}
+            type="button"
+            onClick={() => onChange(opt)}
+            aria-pressed={active}
+            className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+              active ? 'bg-zinc-200 text-zinc-900' : 'text-zinc-400 hover:text-zinc-100'
+            }`}
+          >
+            {opt}d
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
 // Section heading for the server-side AI visibility view. Mirrors the
 // HTML renderer's `serverActivityHeading('client', …)` per the
 // report-parity rule — eyebrow, title, and subtitle must match verbatim.
 const SERVER_ACTIVITY_TITLE = 'AI Visibility — Server-Side'
 const SERVER_ACTIVITY_EYEBROW_CLIENT = 'AI engine attention'
-const SERVER_ACTIVITY_INTRO_HAS_DATA = 'What AI engines actually do in your server logs over the last 7 days — the other half of citations.'
+// Window-aware so the copy honors the selected report period; must match the
+// HTML renderer's `serverActivityHeading` intro verbatim.
+const serverActivityIntroHasData = (periodDays: number): string =>
+  `What AI engines actually do in your server logs over the last ${periodDays} days — the other half of citations.`
 const SERVER_ACTIVITY_INTRO_NO_DATA = 'Live telemetry from your server logs.'
 
 /**
@@ -181,10 +229,12 @@ function ServerActivityClientView({ report }: { report: ProjectReportDto }) {
       sa.verifiedCrawlerHits.prior + sa.unverifiedCrawlerHits.prior,
     ),
   }
-  const crawlerDelta = formatDeltaCopy(crawlerRequests, 'requests')
+  const windowDays = report.meta.periodDays
+  const priorWindowLabel = `vs prior ${windowDays} days`
+  const crawlerDelta = formatDeltaCopy(crawlerRequests, 'requests', priorWindowLabel)
   const crawlerSubtitle = `${formatNumber(sa.verifiedCrawlerHits.current)} verified · ${formatNumber(sa.unverifiedCrawlerHits.current)} unverified${crawlerDelta ? ` · ${crawlerDelta}` : ''}`
-  const userFetchDelta = formatDeltaCopy(sa.aiUserFetchHits, 'requests')
-  const referralDelta = formatDeltaCopy(sa.referralArrivals, 'sessions')
+  const userFetchDelta = formatDeltaCopy(sa.aiUserFetchHits, 'requests', priorWindowLabel)
+  const referralDelta = formatDeltaCopy(sa.referralArrivals, 'sessions', priorWindowLabel)
   // For the client view we cap at the top 5 entries — agencies see the full breakdown in the HTML report.
   const topOperators = sa.byOperator
     .filter(o => o.verifiedHits > 0 || o.unverifiedHits > 0 || o.userFetchHits > 0 || o.referralArrivals > 0)
@@ -195,7 +245,7 @@ function ServerActivityClientView({ report }: { report: ProjectReportDto }) {
       <SectionHeading
         eyebrow={SERVER_ACTIVITY_EYEBROW_CLIENT}
         title={SERVER_ACTIVITY_TITLE}
-        subtitle={SERVER_ACTIVITY_INTRO_HAS_DATA}
+        subtitle={serverActivityIntroHasData(windowDays)}
       />
       <div className="grid gap-3 sm:grid-cols-3">
         <Metric
@@ -222,8 +272,8 @@ function ServerActivityClientView({ report }: { report: ProjectReportDto }) {
               <thead>
                 <tr>
                   <th>AI tool</th>
-                  <th>Bot requests (7d)</th>
-                  <th>User fetches (7d)</th>
+                  <th>Bot requests ({windowDays}d)</th>
+                  <th>User fetches ({windowDays}d)</th>
                   <th>Referral sessions</th>
                 </tr>
               </thead>
@@ -671,8 +721,6 @@ function ClientEvidenceSection({ report }: { report: ProjectReportDto }) {
 
 // ─── Section: What's Changed ───────────────────────────────────────────────
 
-const WHATS_CHANGED_PERIOD_DAYS = 14
-
 function deltaTone(direction: 'up' | 'down' | 'flat'): MetricTone {
   if (direction === 'up') return 'positive'
   if (direction === 'down') return 'negative'
@@ -730,10 +778,12 @@ function TrafficDeltaTile({
   label,
   delta,
   countLabel,
+  comparisonWindowDays,
 }: {
   label: string
   delta: ProjectReportDto['whatsChanged']['gscClicksDelta']
   countLabel: string
+  comparisonWindowDays: number
 }) {
   if (!delta) {
     return (
@@ -750,7 +800,7 @@ function TrafficDeltaTile({
     : 'text-zinc-100'
   // Shared "smart %" formatter — same helper the HTML renderer calls, so both
   // surfaces emit byte-identical copy per the report-parity rule.
-  const deltaText = formatWindowCountDelta(delta, countLabel, `vs prior ${WHATS_CHANGED_PERIOD_DAYS} days`)
+  const deltaText = formatWindowCountDelta(delta, countLabel, `vs prior ${comparisonWindowDays} days`)
   return (
     <div className="rounded-xl border border-zinc-800/60 bg-zinc-900/30 px-4 py-3">
       <p className="eyebrow-soft">{label}</p>
@@ -896,8 +946,8 @@ function WhatsChangedSection({ report, audience }: { report: ProjectReportDto; a
         <RateDeltaTile label={isClient ? 'AI links to your website' : 'Citation rate'} delta={w.citationRate} unit="%" />
         <RateDeltaTile label={isClient ? 'AI mentions your name' : 'Mention rate'} delta={w.mentionRate} unit="%" />
         <RateDeltaTile label={isClient ? 'Questions AI answered with you' : 'Cited queries'} delta={w.citedQueryCount} unit="count" />
-        <TrafficDeltaTile label={isClient ? 'Visitors from Google' : 'GSC clicks'} delta={w.gscClicksDelta} countLabel={isClient ? 'visits' : 'clicks'} />
-        <TrafficDeltaTile label={isClient ? 'Visitors from AI tools' : 'AI referral sessions'} delta={w.aiReferralsDelta} countLabel={isClient ? 'visits' : 'sessions'} />
+        <TrafficDeltaTile label={isClient ? 'Visitors from Google' : 'GSC clicks'} delta={w.gscClicksDelta} countLabel={isClient ? 'visits' : 'clicks'} comparisonWindowDays={w.comparisonWindowDays} />
+        <TrafficDeltaTile label={isClient ? 'Visitors from AI tools' : 'AI referral sessions'} delta={w.aiReferralsDelta} countLabel={isClient ? 'visits' : 'sessions'} comparisonWindowDays={w.comparisonWindowDays} />
       </div>
       <ProviderMovementsTable movements={w.providerMovements} audience={audience} />
       <WinsLossesTable insights={w.wins} heading={isClient ? 'What got better' : 'Wins'} emptyMessage={isClient ? 'No new wins this period.' : 'No new gains in the latest check.'} audience={audience} />

@@ -85,7 +85,7 @@ export function ProjectsPage() {
       setCountry('US')
       setLanguage('en')
       setShowForm(false)
-      void navigate({ to: '/projects/$projectId', params: { projectId: project.id } })
+      void navigate({ to: '/projects/$projectName', params: { projectName: project.name } })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create project')
     } finally {
@@ -210,11 +210,11 @@ export function ProjectsPage() {
               {projects.map((p) => {
                 const latestRun = p.recentRuns[0]
                 return (
-                  <tr key={p.project.id} className="cursor-pointer" onClick={() => { void navigate({ to: '/projects/$projectId', params: { projectId: p.project.id } }) }}>
+                  <tr key={p.project.id} className="cursor-pointer" onClick={() => { void navigate({ to: '/projects/$projectName', params: { projectName: p.project.name } }) }}>
                     <td>
                       <Link
-                        to="/projects/$projectId"
-                        params={{ projectId: p.project.id }}
+                        to="/projects/$projectName"
+                        params={{ projectName: p.project.name }}
                         className="text-zinc-100 font-medium hover:underline"
                         onClick={(e) => e.stopPropagation()}
                       >

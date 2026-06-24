@@ -30,6 +30,8 @@ import {
   deltaPercent,
   effectiveBrandNames,
   getProviderLocationHandling,
+  parseReportPeriodDays,
+  reportComparisonWindowDays,
   validationError,
   type CitationsTrendPoint,
   type CompetitorRow,
@@ -81,16 +83,10 @@ const TOP_CAMPAIGN_LIMIT = 10
 // Keeps a months-old undismissed regression from cluttering today's
 // report while still surfacing alerts that recur within recent history.
 const INSIGHT_LOOKBACK_RUNS = 5
-// Trailing window for GSC and GA report sections. Anchored on the most
-// recent date present in each dataset (not "today") so reports remain
-// usable when a sync hasn't run for a few days; the two sections may end
-// on slightly different dates but always span the same number of days.
-const REPORT_WINDOW_DAYS = 30
-
-// Server-side AI visibility section windows (last-7d headline + 7d prior for delta + 14d trend).
-const SERVER_ACTIVITY_HEADLINE_DAYS = 7
-const SERVER_ACTIVITY_TREND_DAYS = 14
 const SERVER_ACTIVITY_TOP_PATHS_LIMIT = 10
+// GA4 precomputes deduplicated window summaries only for these keys; any other
+// requested window falls back to summing per-page snapshots.
+const GA_WINDOW_SUMMARY_KEYS: Record<number, string> = { 7: '7d', 30: '30d', 90: '90d' }
 
 // Returns the inclusive start-date string (YYYY-MM-DD) for a window of
 // `windowDays` ending on `endDate`. `endDate` must already be YYYY-MM-DD.
@@ -191,18 +187,19 @@ function buildGscSection(
   projectBrandNames: readonly string[],
   canonicalDomain: string,
   trackedQueries: string[],
+  windowDays: number,
 ): ProjectReportDto['gsc'] {
   const allRows = db.select().from(gscSearchData).where(eq(gscSearchData.projectId, projectId)).all()
   if (allRows.length === 0) return null
 
-  // Constrain to the most recent REPORT_WINDOW_DAYS of data so the GSC
-  // section aligns with the GA section. GSC retains up to 16 months, but the
-  // report only ever shows 30 days. Anchor on the latest date in the dataset
-  // rather than "today" — when GSC sync is a few days behind the report
-  // should still cover a full 30-day window of real data.
+  // Constrain to the most recent `windowDays` of data so the GSC section
+  // aligns with the GA section. GSC retains up to 16 months, but the report
+  // only ever shows the selected window. Anchor on the latest date in the
+  // dataset rather than "today" — when GSC sync is a few days behind the
+  // report should still cover a full window of real data.
   let maxDate = ''
   for (const r of allRows) if (r.date > maxDate) maxDate = r.date
-  const startDate = windowStartDate(maxDate, REPORT_WINDOW_DAYS)
+  const startDate = windowStartDate(maxDate, windowDays)
   const rows = allRows.filter(r => r.date >= startDate && r.date <= maxDate)
   if (rows.length === 0) return null
 
@@ -292,21 +289,26 @@ function buildGscSection(
   }
 }
 
-function buildGaSection(db: DatabaseClient, projectId: string): ProjectReportDto['ga'] {
-  // Prefer the dedicated 30-day window summary so totalUsers reflects the
-  // deduplicated count from GA4 (summing per-page snapshots overcounts users
-  // who landed on multiple pages — that's exactly what this table fixes).
-  const windowSummary = db
-    .select()
-    .from(gaTrafficWindowSummaries)
-    .where(
-      and(
-        eq(gaTrafficWindowSummaries.projectId, projectId),
-        eq(gaTrafficWindowSummaries.windowKey, '30d'),
-      ),
-    )
-    .limit(1)
-    .get()
+function buildGaSection(db: DatabaseClient, projectId: string, windowDays: number): ProjectReportDto['ga'] {
+  // Prefer the dedicated window summary whose key matches the requested window
+  // so totalUsers reflects the deduplicated count from GA4 (summing per-page
+  // snapshots overcounts users who landed on multiple pages — that's exactly
+  // what this table fixes). GA4 precomputes 7d/30d/90d only; any other window
+  // (e.g. 14d) has no summary and falls back to the snapshot sums below.
+  const gaWindowKey = GA_WINDOW_SUMMARY_KEYS[windowDays]
+  const windowSummary = gaWindowKey
+    ? db
+        .select()
+        .from(gaTrafficWindowSummaries)
+        .where(
+          and(
+            eq(gaTrafficWindowSummaries.projectId, projectId),
+            eq(gaTrafficWindowSummaries.windowKey, gaWindowKey),
+          ),
+        )
+        .limit(1)
+        .get()
+    : undefined
 
   // Fallback when window summaries haven't been backfilled yet — the older
   // gaTrafficSummaries table still holds aggregate totals.
@@ -329,11 +331,11 @@ function buildGaSection(db: DatabaseClient, projectId: string): ProjectReportDto
   if (!windowSummary && !fallbackSummary && allSnapshotRows.length === 0) return null
 
   // Match the GSC section: filter per-page snapshots to the most recent
-  // REPORT_WINDOW_DAYS so the landing-page table and channel mix describe the
-  // same window the headline totals do.
+  // `windowDays` so the landing-page table and channel mix describe the same
+  // window the headline totals do.
   let snapshotMaxDate = ''
   for (const r of allSnapshotRows) if (r.date > snapshotMaxDate) snapshotMaxDate = r.date
-  const snapshotStartDate = snapshotMaxDate ? windowStartDate(snapshotMaxDate, REPORT_WINDOW_DAYS) : ''
+  const snapshotStartDate = snapshotMaxDate ? windowStartDate(snapshotMaxDate, windowDays) : ''
   const snapshotRows = snapshotStartDate
     ? allSnapshotRows.filter(r => r.date >= snapshotStartDate && r.date <= snapshotMaxDate)
     : allSnapshotRows
@@ -392,9 +394,9 @@ function buildGaSection(db: DatabaseClient, projectId: string): ProjectReportDto
     }
   }
 
-  // Period reflects whichever totals source was used. Window summary is the
-  // authoritative 30d span; otherwise we report the snapshot-derived window
-  // (which is also 30 days), with the legacy summary as a final fallback.
+  // Period reflects whichever totals source was used. The window summary is the
+  // authoritative span for its key; otherwise we report the snapshot-derived
+  // window (the same `windowDays`), with the legacy summary as a final fallback.
   const periodStart = windowSummary?.periodStart
     ?? (snapshotStartDate || fallbackSummary?.periodStart || '')
   const periodEnd = windowSummary?.periodEnd
@@ -576,7 +578,7 @@ function nonSubresourceReferralPathCondition() {
  * operator's published range, while claimed-unverified hits are surfaced
  * separately so a real crawl burst still shows activity.
  */
-function buildServerActivity(db: DatabaseClient, projectId: string): ProjectReportDto['serverActivity'] {
+function buildServerActivity(db: DatabaseClient, projectId: string, windowDays: number): ProjectReportDto['serverActivity'] {
   // 1. Bail if no traffic source is connected at all.
   // Treat archived sources as "not connected" — we don't want to surface
   // historical data for a host migration the user has moved past.
@@ -594,9 +596,11 @@ function buildServerActivity(db: DatabaseClient, projectId: string): ProjectRepo
 
   const now = new Date()
   const headlineEnd = now.toISOString()
-  const headlineStartMs = now.getTime() - SERVER_ACTIVITY_HEADLINE_DAYS * 24 * 60 * 60_000
-  const priorStartMs = headlineStartMs - SERVER_ACTIVITY_HEADLINE_DAYS * 24 * 60 * 60_000
-  const trendStartMs = now.getTime() - SERVER_ACTIVITY_TREND_DAYS * 24 * 60 * 60_000
+  // Uniform window: the headline + daily trend span the selected window, and
+  // the prior comparison covers the equal-length window immediately before it.
+  const headlineStartMs = now.getTime() - windowDays * 24 * 60 * 60_000
+  const priorStartMs = headlineStartMs - windowDays * 24 * 60 * 60_000
+  const trendStartMs = headlineStartMs
 
   const headlineStart = new Date(headlineStartMs).toISOString()
   const priorStart = new Date(priorStartMs).toISOString()
@@ -879,7 +883,7 @@ function buildServerActivity(db: DatabaseClient, projectId: string): ProjectRepo
     distinctProducts: Number(r.products),
   }))
 
-  // 7. Daily trend (last 14d) — bucket tsHour to YYYY-MM-DD via SQLite SUBSTR.
+  // 7. Daily trend (spans the selected window) — bucket tsHour to YYYY-MM-DD via SQLite SUBSTR.
   const crawlerTrendRows = db
     .select({
       date: sql<string>`SUBSTR(${crawlerEventsHourly.tsHour}, 1, 10)`,
@@ -1699,14 +1703,6 @@ function buildAgencyDiagnostics(input: ReportActionPlanInput & {
   }
 }
 
-// 14-day half-window for period-over-period traffic deltas (last 14 days vs
-// the 14 days before that). Anchored on the trend tail so a stale sync still
-// produces meaningful comparisons; below 28 points we return null instead of
-// inventing motion. The choice of 14 (not 7) smooths weekday seasonality
-// without dropping all the way back into the noise floor of single-day swings.
-const WHATS_CHANGED_PERIOD_DAYS = 14
-const WHATS_CHANGED_MIN_TREND_POINTS = WHATS_CHANGED_PERIOD_DAYS * 2
-
 // Real-movement thresholds for the per-run rate deltas. Tighter values
 // (and the point-to-point comparison they replaced) flipped tone arrows
 // on every run because a single query bouncing in/out of cited on a
@@ -1725,12 +1721,19 @@ function rateDirection(delta: number, threshold = 0.5): 'up' | 'down' | 'flat' {
   return 'flat'
 }
 
+// Period-over-period traffic delta: the most recent `halfWindow` days of the
+// trend vs the `halfWindow` days before that. `halfWindow` is the report
+// window split in two, so the comparison always covers the full selected
+// window. Anchored on the trend tail so a stale sync still produces a
+// meaningful comparison; below `halfWindow * 2` points we return null instead
+// of inventing motion on a partial prior window.
 function periodOverPeriodDelta(
   trend: ReadonlyArray<{ date: string; value: number }>,
+  halfWindow: number,
 ): ReportRateDelta | null {
-  if (trend.length < WHATS_CHANGED_MIN_TREND_POINTS) return null
-  const tail = trend.slice(-WHATS_CHANGED_PERIOD_DAYS)
-  const prior = trend.slice(-WHATS_CHANGED_PERIOD_DAYS * 2, -WHATS_CHANGED_PERIOD_DAYS)
+  if (trend.length < halfWindow * 2) return null
+  const tail = trend.slice(-halfWindow)
+  const prior = trend.slice(-halfWindow * 2, -halfWindow)
   const current = tail.reduce((s, p) => s + p.value, 0)
   const priorTotal = prior.reduce((s, p) => s + p.value, 0)
   const deltaAbs = current - priorTotal
@@ -1749,6 +1752,7 @@ function buildWhatsChangedHeadline(
   aiReferrals: ReportRateDelta | null,
   enoughHistory: boolean,
   trendLength: number,
+  comparisonWindowDays: number,
 ): string {
   if (!enoughHistory) {
     return `Building baseline (${trendLength} of ${MIN_TREND_POINTS} checks completed). Trends appear after a few more checks.`
@@ -1767,10 +1771,10 @@ function buildWhatsChangedHeadline(
   }
   if (aiReferrals && aiReferrals.direction !== 'flat') {
     const arrow = aiReferrals.direction === 'up' ? '↑' : '↓'
-    parts.push(`AI referrals ${arrow}${Math.abs(aiReferrals.deltaAbs)} sessions vs prior 14 days`)
+    parts.push(`AI referrals ${arrow}${Math.abs(aiReferrals.deltaAbs)} sessions vs prior ${comparisonWindowDays} days`)
   } else if (gscClicks && gscClicks.direction !== 'flat') {
     const arrow = gscClicks.direction === 'up' ? '↑' : '↓'
-    parts.push(`GSC clicks ${arrow}${Math.abs(gscClicks.deltaAbs)} vs prior 14 days`)
+    parts.push(`GSC clicks ${arrow}${Math.abs(gscClicks.deltaAbs)} vs prior ${comparisonWindowDays} days`)
   }
   return parts.length > 0 ? `${parts.join(' · ')}.` : 'No meaningful movement vs the prior period.'
 }
@@ -1780,8 +1784,9 @@ function buildWhatsChanged(input: {
   gsc: ProjectReportDto['gsc']
   aiReferrals: ProjectReportDto['aiReferrals']
   insights: ReportInsight[]
+  comparisonWindowDays: number
 }): WhatsChangedSection {
-  const { citationsTrend, gsc, aiReferrals, insights: insightList } = input
+  const { citationsTrend, gsc, aiReferrals, insights: insightList, comparisonWindowDays } = input
   const baseline = isTrendBaseline(citationsTrend)
   const latest = citationsTrend.at(-1)
   const prior = citationsTrend.length >= 2 ? citationsTrend.at(-2) : null
@@ -1835,10 +1840,10 @@ function buildWhatsChanged(input: {
   }
 
   const gscClicksDelta = gsc
-    ? periodOverPeriodDelta(gsc.trend.map(t => ({ date: t.date, value: t.clicks })))
+    ? periodOverPeriodDelta(gsc.trend.map(t => ({ date: t.date, value: t.clicks })), comparisonWindowDays)
     : null
   const aiReferralsDelta = aiReferrals
-    ? periodOverPeriodDelta(aiReferrals.trend.map(t => ({ date: t.date, value: t.sessions })))
+    ? periodOverPeriodDelta(aiReferrals.trend.map(t => ({ date: t.date, value: t.sessions })), comparisonWindowDays)
     : null
 
   const wins = insightList
@@ -1854,6 +1859,7 @@ function buildWhatsChanged(input: {
     aiReferralsDelta,
     enoughHistory,
     citationsTrend.length,
+    comparisonWindowDays,
   )
 
   return {
@@ -1864,15 +1870,17 @@ function buildWhatsChanged(input: {
     citedQueryCount,
     gscClicksDelta,
     aiReferralsDelta,
+    comparisonWindowDays,
     providerMovements,
     wins,
     regressions,
   }
 }
 
-function buildProjectReport(db: DatabaseClient, projectName: string): ProjectReportDto {
+function buildProjectReport(db: DatabaseClient, projectName: string, periodDays: number): ProjectReportDto {
   const project = resolveProject(db, projectName)
   const queryLookup = loadQueryLookup(db, project.id)
+  const comparisonWindowDays = reportComparisonWindowDays(periodDays)
 
   const allRuns = db
     .select()
@@ -1939,11 +1947,12 @@ function buildProjectReport(db: DatabaseClient, projectName: string): ProjectRep
     projectBrandNames,
     project.canonicalDomain,
     trackedQueries,
+    periodDays,
   )
-  const gaSection = buildGaSection(db, project.id)
+  const gaSection = buildGaSection(db, project.id, periodDays)
   const socialSection = buildSocialReferrals(db, project.id)
   const aiReferralsSection = buildAiReferrals(db, project.id)
-  const serverActivitySection = buildServerActivity(db, project.id)
+  const serverActivitySection = buildServerActivity(db, project.id, periodDays)
   const indexingHealthSection = buildIndexingHealth(db, project.id)
   const citationsTrend = buildCitationsTrend(db, project.id, queryLookup, latestRunLocation)
   const insightList = buildInsightList(db, project.id, latestRunLocation)
@@ -1975,6 +1984,7 @@ function buildProjectReport(db: DatabaseClient, projectName: string): ProjectRep
     gsc: gscSection,
     aiReferrals: aiReferralsSection,
     insights: insightList,
+    comparisonWindowDays,
   })
 
   // Headline rate is per-query — see buildCitationsTrend for the rationale.
@@ -2133,6 +2143,7 @@ function buildProjectReport(db: DatabaseClient, projectName: string): ProjectRep
       providerLocationHandling,
       periodStart,
       periodEnd,
+      periodDays,
     },
     executiveSummary,
     citationScorecard,
@@ -2174,14 +2185,16 @@ function reportFilenameFor(
 }
 
 export async function reportRoutes(app: FastifyInstance) {
-  app.get<{ Params: { name: string } }>('/projects/:name/report', async (request, reply) => {
-    const dto = buildProjectReport(app.db, request.params.name)
+  app.get<{ Params: { name: string }; Querystring: { period?: string } }>('/projects/:name/report', async (request, reply) => {
+    const periodDays = parseReportPeriodDays(request.query.period)
+    const dto = buildProjectReport(app.db, request.params.name, periodDays)
     return reply.send(dto)
   })
 
-  app.get<{ Params: { name: string }; Querystring: { audience?: string } }>('/projects/:name/report.html', async (request, reply) => {
+  app.get<{ Params: { name: string }; Querystring: { audience?: string; period?: string } }>('/projects/:name/report.html', async (request, reply) => {
     const audience = parseReportAudience(request.query.audience)
-    const dto = buildProjectReport(app.db, request.params.name)
+    const periodDays = parseReportPeriodDays(request.query.period)
+    const dto = buildProjectReport(app.db, request.params.name, periodDays)
     const html = renderReportHtml(dto, { audience })
     const filename = reportFilenameFor(dto.meta.project, dto.meta.generatedAt, audience)
     reply.header('Content-Type', 'text/html; charset=utf-8')

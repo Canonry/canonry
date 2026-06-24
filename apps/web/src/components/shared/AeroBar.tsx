@@ -1235,11 +1235,11 @@ function TypingIndicator() {
  * when we're on a project-scoped route. Keeps the bar hidden on overview /
  * settings / setup pages where there's no project context to ask about.
  *
- * The `/projects/$projectId` route carries the project's UUID, not its
- * name. Aero's server routes (and the whole agent-first API surface) key
- * off the project name, so we resolve UUID → name via the cached project
- * list before rendering. Accepts a name in the URL slot too — harmless
- * fallback if the route ever changes to use slugs.
+ * The `/projects/$projectName` route carries the project's name. Aero's
+ * server routes (and the whole agent-first API surface) key off the name,
+ * so we use the URL segment directly. A UUID is still accepted in the slot
+ * too — a harmless fallback for legacy links that resolves id → name via
+ * the cached project list before rendering.
  */
 export function AeroBarHost() {
   const location = useLocation()
