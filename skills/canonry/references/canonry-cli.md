@@ -153,6 +153,7 @@ Summary: `Mentioned: X / Y` (primary) and `Cited: X / Y` (secondary) are reporte
 
 ```bash
 cnry report <project>                          # write canonry-report-<project>-YYYY-MM-DD.html
+cnry report <project> --period 14              # time window: 7|14|30|90 days (default 30) — scopes GSC/GA/server-activity + period-over-period deltas
 cnry report <project> --output dist/aeo.html   # custom path
 cnry report <project> --format json            # raw report payload to stdout
 ```

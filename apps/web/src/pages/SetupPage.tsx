@@ -96,7 +96,6 @@ export function SetupPage() {
   const [language, setLanguage] = useState('en')
   const [autoExtractBacklinks, setAutoExtractBacklinks] = useState(false)
   const [createdProjectName, setCreatedProjectName] = useState<string | null>(null)
-  const [createdProjectId, setCreatedProjectId] = useState<string | null>(null)
   const [projectError, setProjectError] = useState<string | null>(null)
   const [projectSaving, setProjectSaving] = useState(false)
 
@@ -172,7 +171,6 @@ export function SetupPage() {
         autoExtractBacklinks,
       })
       setCreatedProjectName(slug)
-      setCreatedProjectId(project.id)
       addToast({
         title: 'Project created',
         detail: `${project.displayName || project.name} is ready for setup.`,
@@ -651,7 +649,7 @@ export function SetupPage() {
                 </div>
                 <div className="setup-nav">
                   <span />
-                  <Button type="button" variant="outline" onClick={() => { void navigate({ to: createdProjectId ? `/projects/${createdProjectId}` : '/' }) }}>
+                  <Button type="button" variant="outline" onClick={() => { void navigate({ to: createdProjectName ? `/projects/${encodeURIComponent(createdProjectName)}` : '/' }) }}>
                     Watch on project page
                   </Button>
                 </div>
@@ -661,7 +659,7 @@ export function SetupPage() {
                 <p className="text-rose-400">Sweep failed. Inspect the run on the project page for the provider error and retry from there.</p>
                 <div className="setup-nav">
                   <span />
-                  <Button type="button" onClick={() => { void navigate({ to: createdProjectId ? `/projects/${createdProjectId}` : '/' }) }}>
+                  <Button type="button" onClick={() => { void navigate({ to: createdProjectName ? `/projects/${encodeURIComponent(createdProjectName)}` : '/' }) }}>
                     Open project
                   </Button>
                 </div>
@@ -694,7 +692,7 @@ export function SetupPage() {
                 </p>
                 <div className="setup-nav">
                   <span />
-                  <Button type="button" onClick={() => { void navigate({ to: createdProjectId ? `/projects/${createdProjectId}` : '/' }) }}>
+                  <Button type="button" onClick={() => { void navigate({ to: createdProjectName ? `/projects/${encodeURIComponent(createdProjectName)}` : '/' }) }}>
                     Open project dashboard →
                   </Button>
                 </div>

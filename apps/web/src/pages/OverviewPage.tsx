@@ -21,8 +21,8 @@ function OverviewProjectCard({
 }) {
   return (
     <Link
-      to="/projects/$projectId"
-      params={{ projectId: project.project.id }}
+      to="/projects/$projectName"
+      params={{ projectName: project.project.name }}
       className="project-row cursor-pointer"
     >
       <div className="project-row-chart">

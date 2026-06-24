@@ -1651,7 +1651,8 @@ describe('serverActivity (AI visibility — server-side)', () => {
     // prior window (d-10): 50 verified — 100% increase
     insertCrawler(projectId, sourceId, { tsHour: isoMinusDays(10), hits: 50 })
     await ctx.app.ready()
-    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/delta-pct/report' })
+    // period=7 makes the headline window 7d and the prior comparison the 7d before.
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/delta-pct/report?period=7' })
     const sa = (JSON.parse(res.body) as ProjectReportDto).serverActivity!
     expect(sa.verifiedCrawlerHits.current).toBe(100)
     expect(sa.verifiedCrawlerHits.prior).toBe(50)
@@ -1720,17 +1721,32 @@ describe('serverActivity (AI visibility — server-side)', () => {
     ])
   })
 
-  test('events outside the 14-day trend window are excluded', async () => {
+  test('events outside the trend window are excluded', async () => {
     const projectId = insertProject(ctx.db, 'trend-window')
     const sourceId = insertTrafficSource(projectId)
     insertCrawler(projectId, sourceId, { tsHour: isoMinusDays(2), hits: 7 })
     insertCrawler(projectId, sourceId, { tsHour: isoMinusDays(20), hits: 999 })
     await ctx.app.ready()
-    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/trend-window/report' })
+    // period=14 → the daily trend spans the last 14 days; the d-20 event is outside it.
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/trend-window/report?period=14' })
     const sa = (JSON.parse(res.body) as ProjectReportDto).serverActivity!
     // 999 is older than 14d — must not appear in dailyTrend
     const totalTrendHits = sa.dailyTrend.reduce((acc, d) => acc + d.verifiedCrawlerHits, 0)
     expect(totalTrendHits).toBe(7)
+  })
+
+  test('period widens the server-activity window: events 30d back roll into one window', async () => {
+    const projectId = insertProject(ctx.db, 'period-widens')
+    const sourceId = insertTrafficSource(projectId)
+    // Two events at d-1 and d-10. At period=7 they split (current vs prior);
+    // at period=30 both land in the current window with an empty prior.
+    insertCrawler(projectId, sourceId, { tsHour: isoMinusDays(1), hits: 100 })
+    insertCrawler(projectId, sourceId, { tsHour: isoMinusDays(10), hits: 50 })
+    await ctx.app.ready()
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/period-widens/report?period=30' })
+    const sa = (JSON.parse(res.body) as ProjectReportDto).serverActivity!
+    expect(sa.verifiedCrawlerHits.current).toBe(150)
+    expect(sa.verifiedCrawlerHits.prior).toBe(0)
   })
 })
 
@@ -1783,5 +1799,70 @@ describe('GET /api/v1/projects/:name/report.html', () => {
     const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/bad-audience/report.html?audience=internal' })
     expect(res.statusCode).toBe(400)
     expect(JSON.parse(res.body).error.code).toBe('VALIDATION_ERROR')
+  })
+})
+
+describe('report period (configurable window)', () => {
+  async function getMeta(project: string, query = ''): Promise<ProjectReportDto> {
+    await ctx.app.ready()
+    const res = await ctx.app.inject({ method: 'GET', url: `/api/v1/projects/${project}/report${query}` })
+    expect(res.statusCode).toBe(200)
+    return JSON.parse(res.body) as ProjectReportDto
+  }
+
+  test('defaults to a 30-day window with a 15-day comparison half-window', async () => {
+    insertProject(ctx.db, 'period-default')
+    const body = await getMeta('period-default')
+    expect(body.meta.periodDays).toBe(30)
+    expect(body.whatsChanged.comparisonWindowDays).toBe(15)
+  })
+
+  test('comparisonWindowDays is floor(periodDays / 2) for every option', async () => {
+    insertProject(ctx.db, 'period-half')
+    for (const [period, half] of [[7, 3], [14, 7], [30, 15], [90, 45]] as const) {
+      const body = await getMeta('period-half', `?period=${period}`)
+      expect(body.meta.periodDays).toBe(period)
+      expect(body.whatsChanged.comparisonWindowDays).toBe(half)
+    }
+  })
+
+  test('rejects a period outside the allowed set', async () => {
+    insertProject(ctx.db, 'period-bad')
+    await ctx.app.ready()
+    for (const bad of ['15', '0', '-7', 'abc', '30.5']) {
+      const res = await ctx.app.inject({ method: 'GET', url: `/api/v1/projects/period-bad/report?period=${bad}` })
+      expect(res.statusCode).toBe(400)
+      expect(JSON.parse(res.body).error.code).toBe('VALIDATION_ERROR')
+    }
+  })
+
+  test('GSC headline window scales with the selected period', async () => {
+    const projectId = insertProject(ctx.db, 'period-gsc')
+    const syncRunId = insertRun(ctx.db, projectId, { kind: 'gsc-sync' })
+    const baseRow = {
+      projectId,
+      syncRunId,
+      query: 'period topic',
+      page: 'https://period-gsc.example.com/',
+      ctr: '0.05',
+      position: '5',
+      createdAt: new Date().toISOString(),
+    }
+    // Anchored on the latest date (2026-04-30): 04-28 is within 7 days, 04-10 is not.
+    ctx.db.insert(gscSearchData).values([
+      { id: crypto.randomUUID(), ...baseRow, date: '2026-04-30', clicks: 10, impressions: 100 },
+      { id: crypto.randomUUID(), ...baseRow, date: '2026-04-28', clicks: 5, impressions: 50 },
+      { id: crypto.randomUUID(), ...baseRow, date: '2026-04-10', clicks: 100, impressions: 1000 },
+    ]).run()
+
+    // periodStart reflects the earliest data point inside the window (the
+    // window boundary for period=7 is 04-24, but the earliest row is 04-28).
+    const sevenDay = await getMeta('period-gsc', '?period=7')
+    expect(sevenDay.gsc!.totalClicks).toBe(15) // 04-30 + 04-28 only — 04-10 excluded
+    expect(sevenDay.gsc!.periodStart).toBe('2026-04-28')
+
+    const thirtyDay = await getMeta('period-gsc', '?period=30')
+    expect(thirtyDay.gsc!.totalClicks).toBe(115) // all three rows fall in the 30-day window
+    expect(thirtyDay.gsc!.periodStart).toBe('2026-04-10')
   })
 })

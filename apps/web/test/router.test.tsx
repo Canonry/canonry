@@ -49,9 +49,36 @@ test('/projects renders the projects page', async () => {
   expect(container.querySelector('.page-title')?.textContent).toBe('Projects')
 })
 
-test('/projects/$id renders the project page', async () => {
+test('/projects/$name resolves a project by its name', async () => {
+  const { container } = await renderRoute('/projects/Citypoint%20Dental%20NYC')
+  expect(container.innerHTML).toMatch(/Citypoint Dental NYC/)
+})
+
+test('/projects/$id still resolves a legacy id-based URL', async () => {
   const { container } = await renderRoute('/projects/project_citypoint')
   expect(container.innerHTML).toMatch(/Citypoint Dental NYC/)
+})
+
+test('a legacy UUID project URL redirects to the clean name URL', async () => {
+  const fixture = createDashboardFixture()
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const uuid = '11111111-2222-4333-8444-555555555555'
+  const project = { ...fixture.dashboard.projects[0]!.project, id: uuid, name: 'acme-co' }
+  // Pre-seed the projects cache so the route-level redirect can resolve id → name
+  queryClient.setQueryData(projectsCacheKey, [project])
+  const router = createAppRouter(queryClient, { initialEntries: [`/projects/${uuid}/report`] })
+  await router.load()
+
+  render(
+    <QueryClientProvider client={queryClient}>
+      <DashboardProvider value={{ dashboard: fixture.dashboard, health: fixture.health }}>
+        <RouterProvider router={router} />
+      </DashboardProvider>
+    </QueryClientProvider>,
+  )
+
+  // The UUID-shaped segment is swapped for the name; the /report tab is preserved.
+  expect(router.state.location.pathname).toBe('/projects/acme-co/report')
 })
 
 test('/runs renders the runs page', async () => {

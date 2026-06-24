@@ -3,12 +3,14 @@ import path from 'node:path'
 import { createApiClient } from '../client.js'
 import { renderReportHtml } from '@ainyc/canonry-api-routes'
 import { isMachineFormat, type CliFormat } from '../cli-error.js'
-import type { ReportAudience } from '@ainyc/canonry-contracts'
+import type { ReportAudience, ReportPeriodDays } from '@ainyc/canonry-contracts'
 
 export interface RunReportCommandOptions {
   format?: CliFormat
   /** Render audience for HTML output. JSON always prints the full canonical DTO. */
   audience?: ReportAudience
+  /** Report window in days (7/14/30/90). Omitted → server default (30). */
+  period?: ReportPeriodDays
   /** Override the output path. Default: `<cwd>/canonry-report-<project>-<audience>-<YYYY-MM-DD>.html`. */
   output?: string
 }
@@ -23,7 +25,7 @@ export async function runReportCommand(
   opts: RunReportCommandOptions = {},
 ): Promise<void> {
   const client = createApiClient()
-  const report = await client.getReport(project)
+  const report = await client.getReport(project, opts.period !== undefined ? { period: opts.period } : undefined)
   const audience = opts.audience ?? 'agency'
 
   if (isMachineFormat(opts.format)) {

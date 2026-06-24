@@ -82,6 +82,7 @@ canonry visibility-stats <project> --since 2026-06-01 --until 2026-06-30 --forma
 canonry apply <file...>                          # multi-doc YAML + multiple files
 canonry export <project>
 canonry report <project>                         # client-facing AEO report → canonry-report-<project>-YYYY-MM-DD.html
+canonry report <project> --period 7              # window (7|14|30|90, default 30): scopes GSC/GA/server-activity + the period-over-period deltas
 canonry report <project> --output dist/aeo.html
 canonry report <project> --format json           # raw report payload to stdout
 

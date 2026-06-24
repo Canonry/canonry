@@ -18,6 +18,7 @@ import {
   projectUpsertRequestSchema,
   runTriggerRequestSchema,
   backlinkSourceSchema,
+  reportPeriodSchema,
   schedulableRunKindSchema,
   scheduleUpsertRequestSchema,
   trafficConnectCloudRunRequestSchema,
@@ -515,13 +516,16 @@ export const canonryMcpTools = [
     name: 'canonry_report',
     title: 'Get aggregated AEO report',
     description:
-      'Returns the full canonical AEO report bundle for a project — executive summary, client summary, agency diagnostics, action plan, per-query × per-provider citation matrix, competitor landscape, AI citation sources, GSC/GA4 performance, social and AI referrals, indexing health, citations trend, prioritized insights, and recommended next steps. Same payload `canonry report <project>` consumes to render audience-specific HTML.',
+      'Returns the full canonical AEO report bundle for a project — executive summary, client summary, agency diagnostics, action plan, per-query × per-provider citation matrix, competitor landscape, AI citation sources, GSC/GA4 performance, social and AI referrals, indexing health, citations trend, prioritized insights, and recommended next steps. Same payload `canonry report <project>` consumes to render audience-specific HTML. Pass `period` (7/14/30/90 days, default 30) to scope the GSC/GA4/server-activity sections and the period-over-period comparisons.',
     access: 'read',
     tier: 'monitoring',
-    inputSchema: projectInputSchema,
+    inputSchema: z.object({
+      project: projectNameSchema,
+      period: reportPeriodSchema.optional(),
+    }),
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/report'],
-    handler: (client, input) => client.getReport(input.project),
+    handler: (client, input) => client.getReport(input.project, input.period !== undefined ? { period: input.period } : undefined),
   }),
   defineTool({
     name: 'canonry_analytics_metrics',

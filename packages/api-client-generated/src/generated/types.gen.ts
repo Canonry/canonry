@@ -1672,6 +1672,7 @@ export type ProjectReportDto = {
         }>;
         periodStart: string | null;
         periodEnd: string | null;
+        periodDays: number;
     };
     executiveSummary: {
         citationRate: number;
@@ -1958,6 +1959,7 @@ export type ProjectReportDto = {
             direction: 'up' | 'down' | 'flat';
             window?: number;
         } | null;
+        comparisonWindowDays: number;
         providerMovements: Array<{
             provider: string;
             current: number;
@@ -8230,7 +8232,12 @@ export type GetApiV1ProjectsByNameReportData = {
          */
         name: string;
     };
-    query?: never;
+    query?: {
+        /**
+         * Report window in days — one of 7, 14, 30, 90 (default 30). Scopes the GSC, GA4, and server-side AI activity sections and the period-over-period comparisons to this window.
+         */
+        period?: 7 | 14 | 30 | 90;
+    };
     url: '/api/v1/projects/{name}/report';
 };
 
@@ -8265,6 +8272,10 @@ export type GetApiV1ProjectsByNameReportHtmlData = {
          * HTML report audience mode. Defaults to agency.
          */
         audience?: 'agency' | 'client';
+        /**
+         * Report window in days — one of 7, 14, 30, 90 (default 30). Scopes the GSC, GA4, and server-side AI activity sections and the period-over-period comparisons to this window.
+         */
+        period?: 7 | 14 | 30 | 90;
     };
     url: '/api/v1/projects/{name}/report.html';
 };

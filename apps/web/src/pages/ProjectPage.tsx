@@ -1530,20 +1530,22 @@ function SuggestedQueriesCard({
  * pre-refactor code path.
  */
 export function ProjectPage(props: { tab: ProjectPageTab }) {
-  const { projectId } = useParams({ from: '/projects/$projectId' })
-  // Resolve project name: prefer the SSR/test fixture (synchronous, no
-  // query needed); otherwise hit the shared `/projects` cache that
-  // `useDashboardOverview` populates.
+  const { projectName: routeIdentifier } = useParams({ from: '/projects/$projectName' })
+  // The URL carries the project name (the canonical identifier). Match by name
+  // first; fall back to matching by id so a legacy UUID-shaped URL that wasn't
+  // caught by the route-level redirect (e.g. cold cache, SSR) still resolves.
+  // Prefer the SSR/test fixture (synchronous, no query needed); otherwise hit
+  // the shared `/projects` cache that `useDashboardOverview` populates.
   const contextDashboard = useInitialDashboard()
   const nameFromContext = contextDashboard?.dashboard.projects.find(
-    p => p.project.id === projectId,
+    p => p.project.name === routeIdentifier || p.project.id === routeIdentifier,
   )?.project.name ?? null
   const projectsListQuery = useQuery({
     ...getApiV1ProjectsOptions({ client: heyClient }),
     enabled: !nameFromContext,
   })
   const lookupProjectName = nameFromContext
-    ?? projectsListQuery.data?.find(p => p.id === projectId)?.name
+    ?? projectsListQuery.data?.find(p => p.name === routeIdentifier || p.id === routeIdentifier)?.name
     ?? null
   const {
     commandCenter: model,
@@ -1553,8 +1555,8 @@ export function ProjectPage(props: { tab: ProjectPageTab }) {
   const isLoading = (!nameFromContext && projectsListQuery.isLoading) || dashboardLoading
 
   // Not-found state: both context and the projects-list query resolved
-  // (loading is done), but neither could match the URL's projectId to a
-  // known project name. Render the explicit not-found rather than the
+  // (loading is done), but neither could match the URL's identifier to a
+  // known project. Render the explicit not-found rather than the
   // indefinite skeleton so the user can navigate away.
   const isNotFound = !lookupProjectName
     && !nameFromContext
@@ -1566,7 +1568,7 @@ export function ProjectPage(props: { tab: ProjectPageTab }) {
       <div className="page-container">
         <Card className="surface-card empty-card">
           <h1>Project not found</h1>
-          <p>Could not find a project with ID "{projectId}".</p>
+          <p>Could not find a project named "{routeIdentifier}".</p>
           <Button asChild>
             <Link to="/">Return to overview</Link>
           </Button>
@@ -1807,7 +1809,7 @@ function ProjectPageContent({
   // `if (!model)` branch removed — the wrapper guarantees `model` is set
   // by the time we render `ProjectPageContent`. The wrapper also owns the
   // "project not found" state (when both context and /projects list have
-  // resolved but neither matched the URL's projectId).
+  // resolved but neither matched the URL's identifier).
 
   async function handleTriggerRun() {
     try {
@@ -2006,7 +2008,7 @@ function ProjectPageContent({
   // underline on the bar's hairline. Low-frequency sections (Report) live in a
   // trailing "More" overflow; Settings is split out at the far right (universal
   // convention). "Local Presence" only appears once GBP is connected.
-  const projectTabBase = `/projects/${model.project.id}`
+  const projectTabBase = `/projects/${encodeURIComponent(model.project.name)}`
   const projectTabItems: ProjectTabItem[] = [
     { key: 'overview', label: 'Overview', href: projectTabBase },
     { key: 'search-console', label: 'Search Engines', href: `${projectTabBase}/search-console` },

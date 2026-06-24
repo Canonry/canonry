@@ -14,6 +14,50 @@ import {
   contentSourceRowDtoSchema,
   contentGapRowDtoSchema,
 } from './content.js'
+import { validationError } from './errors.js'
+
+/**
+ * Selectable report time windows, in days. Every time-windowed section of the
+ * report (GSC, GA4, server-side AI activity, the citations trend) scopes to the
+ * chosen window, and the period-over-period comparisons split it in half. The
+ * SPA renders these as a toggle, the CLI exposes `--period`, and the API takes
+ * a `period` query param — all validated against this single source of truth.
+ */
+export const REPORT_PERIOD_OPTIONS = [7, 14, 30, 90] as const
+export type ReportPeriodDays = (typeof REPORT_PERIOD_OPTIONS)[number]
+/** Preserves the historical GSC/GA window so existing reports are unchanged by default. */
+export const REPORT_DEFAULT_PERIOD_DAYS: ReportPeriodDays = 30
+
+/**
+ * Zod schema for a report window — the MCP `canonry_report` tool input. Kept in
+ * lockstep with `REPORT_PERIOD_OPTIONS` by `report.test.ts`.
+ */
+export const reportPeriodSchema = z
+  .union([z.literal(7), z.literal(14), z.literal(30), z.literal(90)])
+  .describe('Report window in days (7, 14, 30, or 90). Defaults to 30 when omitted.')
+
+function isReportPeriodDays(n: number): n is ReportPeriodDays {
+  return (REPORT_PERIOD_OPTIONS as readonly number[]).includes(n)
+}
+
+/**
+ * Parse a raw `period` query/flag value into a valid window. Absent → the
+ * default; present-but-invalid → a `validationError` (serialized as 400 by the
+ * API's global handler, mapped to a CliError exit code by the client).
+ */
+export function parseReportPeriodDays(value: string | number | undefined | null): ReportPeriodDays {
+  if (value === undefined || value === null || value === '') return REPORT_DEFAULT_PERIOD_DAYS
+  const n = typeof value === 'number' ? value : Number(value)
+  if (!Number.isInteger(n) || !isReportPeriodDays(n)) {
+    throw validationError(`"period" must be one of ${REPORT_PERIOD_OPTIONS.join(', ')}`)
+  }
+  return n
+}
+
+/** The period-over-period half-window for a given report window. */
+export function reportComparisonWindowDays(periodDays: number): number {
+  return Math.max(1, Math.floor(periodDays / 2))
+}
 
 const providerLocationTreatmentSchema = z.enum([
   'prompt',
@@ -80,6 +124,13 @@ export const reportMetaSchema = z.object({
   periodStart: z.string().nullable(),
   /** Latest data point referenced by the report (ISO date). */
   periodEnd: z.string().nullable(),
+  /**
+   * The selected report window, in days (one of `REPORT_PERIOD_OPTIONS`).
+   * Every time-windowed section scopes to this many days; renderers read it to
+   * label the window ("Last 30 days", "(30d)"). Defaults to
+   * `REPORT_DEFAULT_PERIOD_DAYS` when no `period` is requested.
+   */
+  periodDays: z.number().int().positive(),
 })
 
 export type ReportMeta = z.infer<typeof reportMetaSchema>
@@ -596,16 +647,25 @@ export const whatsChangedSectionSchema = z.object({
   /** Cited query count delta vs the prior completed run. Null when no prior run. */
   citedQueryCount: reportRateDeltaSchema.nullable(),
   /**
-   * GSC clicks delta — last 14 days of `gsc.trend` vs the 14 days before
-   * that. Null when GSC isn't connected or fewer than 28 trend points exist.
+   * GSC clicks delta — the most recent `comparisonWindowDays` of `gsc.trend`
+   * vs the `comparisonWindowDays` before that. Null when GSC isn't connected
+   * or fewer than `comparisonWindowDays * 2` trend points exist.
    */
   gscClicksDelta: reportRateDeltaSchema.nullable(),
   /**
-   * AI referral sessions delta — last 14 days of `aiReferrals.trend` vs the
-   * 14 days before that. Null when AI referrals aren't tracked or fewer
-   * than 28 trend points exist.
+   * AI referral sessions delta — the most recent `comparisonWindowDays` of
+   * `aiReferrals.trend` vs the `comparisonWindowDays` before that. Null when
+   * AI referrals aren't tracked or fewer than `comparisonWindowDays * 2`
+   * trend points exist.
    */
   aiReferralsDelta: reportRateDeltaSchema.nullable(),
+  /**
+   * The period-over-period half-window in days used for `gscClicksDelta` and
+   * `aiReferralsDelta` — `floor(meta.periodDays / 2)`. Renderers label those
+   * deltas "vs prior {comparisonWindowDays} days" off this single value so the
+   * SPA and HTML stay verbatim-identical.
+   */
+  comparisonWindowDays: z.number().int().positive(),
   /**
    * Per-provider citation rate movements (latest run vs prior run). Empty
    * when no prior run. Sorted by |deltaAbs| desc — providers with the

@@ -566,8 +566,8 @@ export function RootLayout() {
                 return (
                   <Link
                     key={projectVm.project.id}
-                    to="/projects/$projectId"
-                    params={{ projectId: projectVm.project.id }}
+                    to="/projects/$projectName"
+                    params={{ projectName: projectVm.project.name }}
                     className="sidebar-project"
                     activeProps={{ className: 'sidebar-project sidebar-project-active' }}
                   >
@@ -691,8 +691,8 @@ export function RootLayout() {
               {safeDashboard.projects.map((projectVm) => (
                 <Link
                   key={projectVm.project.id}
-                  to="/projects/$projectId"
-                  params={{ projectId: projectVm.project.id }}
+                  to="/projects/$projectName"
+                  params={{ projectName: projectVm.project.name }}
                   className="mobile-nav-link"
                 >
                   {projectVm.project.name}

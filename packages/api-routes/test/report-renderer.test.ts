@@ -18,6 +18,7 @@ function emptyReport(): ProjectReportDto {
       providerLocationHandling: [],
       periodStart: null,
       periodEnd: null,
+      periodDays: 30,
     },
     executiveSummary: {
       citationRate: 0,
@@ -52,6 +53,7 @@ function emptyReport(): ProjectReportDto {
       citedQueryCount: null,
       gscClicksDelta: null,
       aiReferralsDelta: null,
+      comparisonWindowDays: 15,
       providerMovements: [],
       wins: [],
       regressions: [],
@@ -124,6 +126,11 @@ function richReport(): ProjectReportDto {
       ],
       periodStart: '2026-04-01T00:00:00Z',
       periodEnd: '2026-04-30T00:00:00Z',
+      // Deliberately distinct from whatsChanged.comparisonWindowDays below so
+      // these tests prove the server-activity labels read meta.periodDays while
+      // the what's-changed traffic-delta labels read comparisonWindowDays —
+      // independent wiring, not a shared constant.
+      periodDays: 7,
     },
     executiveSummary: {
       citationRate: 65,
@@ -299,6 +306,7 @@ function richReport(): ProjectReportDto {
       citedQueryCount: null,
       gscClicksDelta: null,
       aiReferralsDelta: null,
+      comparisonWindowDays: 14,
       providerMovements: [],
       wins: [],
       regressions: [],

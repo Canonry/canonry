@@ -1209,21 +1209,20 @@ function renderTrafficDeltaTile(
   label: string,
   delta: ProjectReportDto['whatsChanged']['gscClicksDelta'],
   countLabel: string,
+  comparisonWindowDays: number,
 ): string {
   if (!delta) {
     return `<div class="metric"><div class="label">${escapeHtml(label)}</div><div class="value">—</div><div class="delta">Not enough trend data</div></div>`
   }
   // Shared "smart %" formatter: big prior base → signed %, small base →
   // rounded absolute delta with the count label. Same helper the SPA calls.
-  const deltaText = formatWindowCountDelta(delta, countLabel, `vs prior ${WHATS_CHANGED_PERIOD_DAYS} days`)
+  const deltaText = formatWindowCountDelta(delta, countLabel, `vs prior ${comparisonWindowDays} days`)
   return `<div class="metric">
     <div class="label">${escapeHtml(label)}</div>
     <div class="value ${deltaToneClass(delta.direction)}">${formatNumber(delta.current)} <span style="font-size:14px;font-weight:500;">${deltaArrow(delta.direction)}</span></div>
     <div class="delta">${deltaText}</div>
   </div>`
 }
-
-const WHATS_CHANGED_PERIOD_DAYS = 14
 
 function renderProviderMovements(
   movements: ProjectReportDto['whatsChanged']['providerMovements'],
@@ -1303,8 +1302,8 @@ function renderWhatsChanged(report: ProjectReportDto, audience: ReportAudience):
     ${renderRateDeltaTile(isClient ? 'AI links to your website' : 'Citation rate', w.citationRate, '%')}
     ${renderRateDeltaTile(isClient ? 'AI mentions your name' : 'Mention rate', w.mentionRate, '%')}
     ${renderRateDeltaTile(isClient ? 'Questions AI answered with you' : 'Cited queries', w.citedQueryCount, 'count')}
-    ${renderTrafficDeltaTile(isClient ? 'Visitors from Google' : 'GSC clicks', w.gscClicksDelta, isClient ? 'visits' : 'clicks')}
-    ${renderTrafficDeltaTile(isClient ? 'Visitors from AI tools' : 'AI referral sessions', w.aiReferralsDelta, isClient ? 'visits' : 'sessions')}
+    ${renderTrafficDeltaTile(isClient ? 'Visitors from Google' : 'GSC clicks', w.gscClicksDelta, isClient ? 'visits' : 'clicks', w.comparisonWindowDays)}
+    ${renderTrafficDeltaTile(isClient ? 'Visitors from AI tools' : 'AI referral sessions', w.aiReferralsDelta, isClient ? 'visits' : 'sessions', w.comparisonWindowDays)}
   </div>`
   const movements = renderProviderMovements(w.providerMovements, audience)
   const winsHeading = isClient ? 'What got better' : 'Wins'
@@ -1856,7 +1855,7 @@ function renderAiReferrals(report: ProjectReportDto): string {
 // Section heading metadata for "AI Visibility — Server-Side". The SPA and
 // HTML must render the SAME eyebrow/title/intro per audience — see the
 // report-parity rule in `AGENTS.md`.
-function serverActivityHeading(audience: ReportAudience, hasData: boolean): {
+function serverActivityHeading(audience: ReportAudience, hasData: boolean, windowDays: number): {
   id: string
   eyebrow: string
   title: string
@@ -1869,7 +1868,7 @@ function serverActivityHeading(audience: ReportAudience, hasData: boolean): {
     title: 'AI Visibility — Server-Side',
     intro: isClient
       ? hasData
-        ? 'What AI engines actually do in your server logs over the last 7 days — the other half of citations.'
+        ? `What AI engines actually do in your server logs over the last ${windowDays} days — the other half of citations.`
         : 'Live telemetry from your server logs.'
       : 'What AI engines actually do in your server logs — direct evidence, complementary to citations (which measure what they say).',
   }
@@ -1878,6 +1877,11 @@ function serverActivityHeading(audience: ReportAudience, hasData: boolean): {
 function renderServerActivity(report: ProjectReportDto, audience: ReportAudience): string {
   const sa = report.serverActivity
   const isClient = audience === 'client'
+  // The server-activity headline + daily trend span the report window, and the
+  // prior comparison covers the equal-length window before it.
+  const windowDays = report.meta.periodDays
+  const windowLabel = `${windowDays}d`
+  const priorWindowLabel = `vs prior ${windowDays} days`
   // Client view stays silent when no source is connected — surfacing a
   // "connect a Cloud Run source" call-to-action to a client who has no
   // technical access produces noise. Agency view shows the prompt because
@@ -1885,13 +1889,13 @@ function renderServerActivity(report: ProjectReportDto, audience: ReportAudience
   if (!sa) {
     if (isClient) return ''
     return section(
-      serverActivityHeading('agency', false),
+      serverActivityHeading('agency', false, windowDays),
       renderEmpty('Connect a server-side traffic source to surface what AI engines do directly in your server logs — distinct from GA4 click-throughs.'),
     )
   }
   if (!sa.hasData) {
     return section(
-      serverActivityHeading(audience, false),
+      serverActivityHeading(audience, false, windowDays),
       renderEmpty(isClient
         ? 'Your server-side traffic source is connected. Numbers will appear after the next sync.'
         : 'Source connected — collecting your first data. Numbers will appear after the next sync.'),
@@ -1899,7 +1903,7 @@ function renderServerActivity(report: ProjectReportDto, audience: ReportAudience
   }
 
   const formatDelta = (d: { current: number; prior: number; deltaPct: number | null }, suffix: string) => {
-    const copy = formatDeltaCopy(d, suffix)
+    const copy = formatDeltaCopy(d, suffix, priorWindowLabel)
     if (!copy) return ''
     return `<span class="tone-${deltaTone(d.deltaPct)}">${escapeHtml(copy)}</span>`
   }
@@ -1934,7 +1938,7 @@ function renderServerActivity(report: ProjectReportDto, audience: ReportAudience
     </tr>`).join('')
 
     return section(
-      serverActivityHeading('client', true),
+      serverActivityHeading('client', true, windowDays),
       `<div class="metric-grid">
         <div class="metric">
           <div class="label">AI bot requests observed</div>
@@ -1954,7 +1958,7 @@ function renderServerActivity(report: ProjectReportDto, audience: ReportAudience
       </div>
       ${clientOperatorRows ? `<div class="chart-card"><h3>By AI tool</h3>
         <table class="report-table">
-          <thead><tr><th>AI tool</th><th class="numeric">Bot requests (7d)</th><th class="numeric">User fetches (7d)</th><th class="numeric">Referral sessions</th></tr></thead>
+          <thead><tr><th>AI tool</th><th class="numeric">Bot requests (${windowLabel})</th><th class="numeric">User fetches (${windowLabel})</th><th class="numeric">Referral sessions</th></tr></thead>
           <tbody>${clientOperatorRows}</tbody>
         </table>
         <p class="meta">Bot requests are bulk crawl (GPTBot, PerplexityBot, …). User fetches are on-demand reads triggered by real users inside an AI surface (ChatGPT-User, Perplexity-User, …). Verified means the request came from an IP the operator publishes as its own; unverified means the user-agent matched but the IP is not in a published range. User-fetch totals count both, since many genuine user fetches come from outside any published range.</p>
@@ -2004,30 +2008,30 @@ function renderServerActivity(report: ProjectReportDto, audience: ReportAudience
     ? renderLineChart(
         sa.dailyTrend.map(d => ({ x: d.date, y: d.verifiedCrawlerHits, label: d.date.slice(5) })),
         COLORS.series[1]!,
-        'Verified crawler hits over time (last 14 days)',
+        `Verified crawler hits over time (last ${windowDays} days)`,
       )
     : ''
 
   return section(
-    serverActivityHeading('agency', true),
+    serverActivityHeading('agency', true, windowDays),
     `<div class="metric-grid">
       <div class="metric">
-        <div class="label">Verified crawler hits (7d)</div>
+        <div class="label">Verified crawler hits (${windowLabel})</div>
         <div class="value">${formatNumber(sa.verifiedCrawlerHits.current)}</div>
         <div class="subtitle">${formatDelta(sa.verifiedCrawlerHits, 'hits')}</div>
       </div>
       <div class="metric">
-        <div class="label">Unverified crawler hits (7d)</div>
+        <div class="label">Unverified crawler hits (${windowLabel})</div>
         <div class="value">${formatNumber(sa.unverifiedCrawlerHits.current)}</div>
         <div class="subtitle">${formatDelta(sa.unverifiedCrawlerHits, 'hits')}</div>
       </div>
       <div class="metric">
-        <div class="label">AI user-fetch hits (7d)</div>
+        <div class="label">AI user-fetch hits (${windowLabel})</div>
         <div class="value">${formatNumber(sa.aiUserFetchHits.current)}</div>
         <div class="subtitle">${formatDelta(sa.aiUserFetchHits, 'hits')}</div>
       </div>
       <div class="metric">
-        <div class="label">AI-referral sessions (7d)</div>
+        <div class="label">AI-referral sessions (${windowLabel})</div>
         <div class="value">${formatNumber(sa.referralArrivals.current)}</div>
         <div class="subtitle">${formatDelta(sa.referralArrivals, 'sessions')}</div>
       </div>
@@ -2036,12 +2040,12 @@ function renderServerActivity(report: ProjectReportDto, audience: ReportAudience
     ${operatorRows ? `<div class="chart-card"><h3>Per AI operator</h3>
       <p class="meta">Verified means the request's source IP falls inside the operator's published range. Unverified bots claim the user-agent but the IP is not in a published range, so it could be the real bot or an imitator. User fetches are on-demand reads from an AI surface on behalf of a real user (ChatGPT-User, Perplexity-User, …), disjoint from bulk crawl and counted whether or not the IP can be verified.</p>
       <table class="report-table">
-        <thead><tr><th>Operator</th><th class="numeric">Verified hits</th><th class="numeric">Unverified</th><th class="numeric">User fetches</th><th class="numeric">Referral sessions</th><th class="numeric">7d delta</th></tr></thead>
+        <thead><tr><th>Operator</th><th class="numeric">Verified hits</th><th class="numeric">Unverified</th><th class="numeric">User fetches</th><th class="numeric">Referral sessions</th><th class="numeric">${windowLabel} delta</th></tr></thead>
         <tbody>${operatorRows}</tbody>
       </table>
     </div>` : ''}
     ${pathRows ? `<div class="chart-card"><h3>Top crawled paths</h3>
-      <p class="meta">Pages AI bots fetched most often (verified only, last 7d).</p>
+      <p class="meta">Pages AI bots fetched most often (verified only, last ${windowLabel}).</p>
       <table class="report-table">
         <thead><tr><th>Path</th><th class="numeric">Verified hits</th><th class="numeric">Distinct operators</th></tr></thead>
         <tbody>${pathRows}</tbody>
@@ -2644,7 +2648,7 @@ export function renderReportHtml(report: ProjectReportDto, opts: RenderReportHtm
   <header class="header">
     <div class="eyebrow">AI Visibility Report</div>
     <h1>${escapeHtml(report.meta.project.displayName)}</h1>
-    <div class="subtitle">${escapeHtml(report.meta.project.canonicalDomain)} · ${escapeHtml(report.meta.project.country)} / ${escapeHtml(report.meta.project.language.toUpperCase())}${renderHeaderLocationFragment(report.meta.location)} · Generated ${formatDate(report.meta.generatedAt)}</div>
+    <div class="subtitle">${escapeHtml(report.meta.project.canonicalDomain)} · ${escapeHtml(report.meta.project.country)} / ${escapeHtml(report.meta.project.language.toUpperCase())}${renderHeaderLocationFragment(report.meta.location)} · Last ${report.meta.periodDays} days · Generated ${formatDate(report.meta.generatedAt)}</div>
   </header>
   ${sections}
   <footer class="footer">Generated by <a href="https://canonry.ai">canonry</a> · ${escapeHtml(formatIsoDate(report.meta.generatedAt))}</footer>

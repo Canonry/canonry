@@ -227,6 +227,14 @@ const analyticsWindowParameter: OpenApiParameter = {
   schema: { type: 'string', enum: ['7d', '30d', '90d', 'all'] },
 }
 
+const reportPeriodQueryParameter: OpenApiParameter = {
+  name: 'period',
+  in: 'query',
+  description:
+    'Report window in days — one of 7, 14, 30, 90 (default 30). Scopes the GSC, GA4, and server-side AI activity sections and the period-over-period comparisons to this window.',
+  schema: { type: 'integer', enum: [7, 14, 30, 90] },
+}
+
 const sinceQueryParameter: OpenApiParameter = {
   name: 'since',
   in: 'query',
@@ -2976,7 +2984,7 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['report'],
     description:
       'Bundles every section the canonry-report HTML output needs (executive summary, client summary, agency diagnostics, action plan, citation scorecard, competitor landscape — citation + mention landscapes, AI citation sources, GSC, GA4, social/AI referrals, indexing health, citations trend, insights, and recommended next steps) into a single canonical JSON payload. Backs `canonry report <project>` and MCP report reads.',
-    parameters: [nameParameter],
+    parameters: [nameParameter, reportPeriodQueryParameter],
     responses: {
       200: jsonResponse('Report returned.', 'ProjectReportDto'),
       404: errorResponse('Project not found.'),
@@ -2989,7 +2997,7 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['report'],
     description:
       'Server-rendered self-contained HTML version of the project report. Same data as `/projects/{name}/report` (JSON), rendered through the canonry HTML report renderer in agency or client mode. Returns `text/html` with `Content-Disposition: attachment` so browsers download it as `canonry-report-<project>-<audience>-YYYY-MM-DD.html`. Open in a browser and Print → Save as PDF for a PDF copy.',
-    parameters: [nameParameter, reportAudienceQueryParameter],
+    parameters: [nameParameter, reportAudienceQueryParameter, reportPeriodQueryParameter],
     responses: {
       200: { description: 'HTML report returned.', content: { 'text/html': { schema: { type: 'string' } } } },
       404: errorResponse('Project not found.'),

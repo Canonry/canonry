@@ -14,7 +14,7 @@ import { ProjectsPage } from '../pages/ProjectsPage.js'
 import { SetupPage } from '../pages/SetupPage.js'
 import { NotFoundPage } from '../pages/NotFoundPage.js'
 import { heyClient } from '../api.js'
-import { getApiV1ProjectsQueryKey } from '@ainyc/canonry-api-client/react-query'
+import { getApiV1ProjectsQueryKey, getApiV1ProjectsOptions } from '@ainyc/canonry-api-client/react-query'
 
 // `lazyRouteComponent` (not React.lazy) handles route-level code splitting
 // in TanStack Router. The key advantage over `React.lazy` + `Suspense` is
@@ -100,11 +100,50 @@ export const projectsRoute = createRoute({
   component: ProjectsPage,
 })
 
+// Project URLs key off the human-readable project name (a kebab-case slug),
+// not the opaque UUID — `/projects/acme-co/report` instead of
+// `/projects/<uuid>/report`. The API already resolves projects by name, so
+// the name is the canonical identifier across the whole surface.
+const PROJECT_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 // Layout route for project tabs — renders Outlet to pass through to sub-routes
 export const projectLayoutRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: '/projects/$projectId',
+  path: '/projects/$projectName',
   component: () => <Outlet />,
+  // Legacy compatibility: project URLs used to carry the UUID. When an old
+  // UUID-shaped segment arrives (e.g. a stale bookmark), resolve it to the
+  // current name and redirect to the clean URL, preserving the tab sub-path.
+  // Name-shaped segments skip the lookup entirely — zero overhead on the
+  // common path.
+  beforeLoad: async ({ context, params, location }) => {
+    const segment = params.projectName
+    if (!PROJECT_UUID_RE.test(segment)) return
+    // Read the already-loaded projects list synchronously (the sidebar /
+    // overview populate it); only fetch if it's genuinely absent.
+    let projects = context.queryClient.getQueryData(
+      getApiV1ProjectsQueryKey({ client: heyClient }),
+    ) as Array<{ id: string; name: string }> | undefined
+    if (!projects) {
+      try {
+        projects = await context.queryClient.ensureQueryData(getApiV1ProjectsOptions({ client: heyClient }))
+      } catch {
+        // Best-effort: if the list can't be resolved (auth/network), don't
+        // block navigation — ProjectPage resolves the id itself or shows
+        // its not-found state.
+        return
+      }
+    }
+    const match = projects.find((p) => p.id === segment)
+    if (!match) return
+    throw redirect({
+      to: location.pathname.replace(
+        `/projects/${segment}`,
+        `/projects/${encodeURIComponent(match.name)}`,
+      ),
+      replace: true,
+    })
+  },
 })
 
 export const projectOverviewRoute = createRoute({
