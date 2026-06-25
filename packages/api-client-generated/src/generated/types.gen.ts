@@ -1567,6 +1567,16 @@ export type CloudflareWorkerIngestRequest = {
     }>;
 };
 
+export type CloudflareWorkerIngestResponse = {
+    acceptedEvents: number;
+    droppedEvents: number;
+    workerVersionAck: string;
+    crawlerBucketRows: number;
+    aiUserFetchBucketRows: number;
+    aiReferralBucketRows: number;
+    sampleRows: number;
+};
+
 export type TrafficBackfillResponse = {
     sourceId: string;
     runId: string;
@@ -7485,15 +7495,7 @@ export type PostApiV1ProjectsByNameTrafficCloudflareIngestResponses = {
     /**
      * Ingest acknowledged.
      */
-    200: {
-        acceptedEvents?: number;
-        droppedEvents?: number;
-        workerVersionAck?: string;
-        crawlerBucketRows?: number;
-        aiUserFetchBucketRows?: number;
-        aiReferralBucketRows?: number;
-        sampleRows?: number;
-    };
+    200: CloudflareWorkerIngestResponse;
 };
 
 export type PostApiV1ProjectsByNameTrafficCloudflareIngestResponse = PostApiV1ProjectsByNameTrafficCloudflareIngestResponses[keyof PostApiV1ProjectsByNameTrafficCloudflareIngestResponses];
