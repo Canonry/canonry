@@ -149,6 +149,10 @@ export interface ApiRoutesOptions {
   vercelTrafficCredentialStore?: TrafficRoutesOptions['vercelTrafficCredentialStore']
   /** Override Vercel traffic pull (tests) — see `TrafficRoutesOptions` */
   pullVercelTrafficEvents?: TrafficRoutesOptions['pullVercelTrafficEvents']
+  /** Cloudflare Worker traffic credential store — per-source bearer + HMAC secrets in config, not DB */
+  cloudflareTrafficCredentialStore?: TrafficRoutesOptions['cloudflareTrafficCredentialStore']
+  /** Override the canonry ingest URL embedded into generated Worker scripts (tests) */
+  cloudflareTrafficIngestUrl?: TrafficRoutesOptions['cloudflareTrafficIngestUrl']
   /** Fired after every traffic sync (success OR failure). Used by canonry to emit `traffic.synced` telemetry. */
   onTrafficSynced?: TrafficRoutesOptions['onTrafficSynced']
   /** Discovery feature callback — fires after a discovery_sessions row + matching runs row are inserted. */
@@ -370,6 +374,8 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       pullWordpressTrafficEvents: opts.pullWordpressTrafficEvents,
       vercelTrafficCredentialStore: opts.vercelTrafficCredentialStore,
       pullVercelTrafficEvents: opts.pullVercelTrafficEvents,
+      cloudflareTrafficCredentialStore: opts.cloudflareTrafficCredentialStore,
+      cloudflareTrafficIngestUrl: opts.cloudflareTrafficIngestUrl,
       onTrafficSynced: opts.onTrafficSynced,
       allowLoopbackWebhooks: opts.allowLoopbackWebhooks,
     } satisfies TrafficRoutesOptions)

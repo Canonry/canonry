@@ -254,6 +254,24 @@ export const cloudflareWorkerIngestRequestSchema = z.object({
 })
 export type CloudflareWorkerIngestRequest = z.infer<typeof cloudflareWorkerIngestRequestSchema>
 
+/**
+ * Acknowledgement returned by `POST /traffic/cloudflare/ingest`. `acceptedEvents`
+ * is the count that normalized and reached the rollup pipeline; `droppedEvents`
+ * is the count that failed normalization. The `*BucketRows` / `sampleRows`
+ * fields report how many hourly-rollup and sample rows the batch touched —
+ * diagnostic only; the Worker ignores the body.
+ */
+export const cloudflareWorkerIngestResponseSchema = z.object({
+  acceptedEvents: z.number().int(),
+  droppedEvents: z.number().int(),
+  workerVersionAck: z.string(),
+  crawlerBucketRows: z.number().int(),
+  aiUserFetchBucketRows: z.number().int(),
+  aiReferralBucketRows: z.number().int(),
+  sampleRows: z.number().int(),
+})
+export type CloudflareWorkerIngestResponse = z.infer<typeof cloudflareWorkerIngestResponseSchema>
+
 export const trafficSyncResponseSchema = z.object({
   sourceId: z.string(),
   runId: z.string(),

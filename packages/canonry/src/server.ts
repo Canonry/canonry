@@ -51,6 +51,13 @@ import {
   removeVercelTrafficConnection,
 } from './vercel-traffic-config.js'
 import {
+  getCloudflareTrafficConnection,
+  getCloudflareTrafficConnectionBySourceId,
+  upsertCloudflareTrafficConnection,
+  removeCloudflareTrafficConnection,
+} from './cloudflare-traffic-config.js'
+import { buildCloudflareIngestUrlTemplate } from './cloudflare-ingest-url.js'
+import {
   getWordpressConnection,
   patchWordpressConnection,
   removeWordpressConnection,
@@ -668,6 +675,40 @@ export async function createServer(opts: {
     },
   } as const
 
+  // Cloudflare Worker traffic credential store — stores per-source bearer
+  // tokens and HMAC secrets in ~/.canonry/config.yaml under
+  // `cloudflareTraffic.connections`. The DB only carries the sha256 of the
+  // bearer; cleartext secrets never touch the database.
+  const cloudflareTrafficCredentialStore = {
+    getConnection: (projectName: string) => {
+      return getCloudflareTrafficConnection(opts.config, projectName)
+    },
+    getConnectionBySourceId: (sourceId: string) => {
+      return getCloudflareTrafficConnectionBySourceId(opts.config, sourceId)
+    },
+    upsertConnection: (record: {
+      projectName: string
+      sourceId: string
+      bearerToken: string
+      hmacSecret: string
+      workerVersion: string
+      expectedBotListVersion: string
+      zoneId: string | null
+      accountId: string | null
+      createdAt: string
+      updatedAt: string
+    }) => {
+      const updated = upsertCloudflareTrafficConnection(opts.config, record)
+      saveConfigPatch(opts.config)
+      return updated
+    },
+    deleteConnection: (projectName: string) => {
+      const removed = removeCloudflareTrafficConnection(opts.config, projectName)
+      if (removed) saveConfigPatch(opts.config)
+      return removed
+    },
+  } as const
+
   const googleStateSecret = process.env.GOOGLE_STATE_SECRET ?? crypto.randomBytes(32).toString('hex')
 
   const googleConnectionStore = {
@@ -1182,6 +1223,8 @@ export async function createServer(opts: {
     cloudRunCredentialStore,
     wordpressTrafficCredentialStore,
     vercelTrafficCredentialStore,
+    cloudflareTrafficCredentialStore,
+    cloudflareTrafficIngestUrl: buildCloudflareIngestUrlTemplate(opts.config),
     onTrafficSynced: (event) => {
       // Emit anonymous canonry telemetry for every sync (success + fail).
       // Same envelope shape as run.completed (top-level `errorCode` on

@@ -188,6 +188,9 @@ importers:
       '@ainyc/canonry-integration-cloud-run':
         specifier: workspace:*
         version: link:../integration-cloud-run
+      '@ainyc/canonry-integration-cloudflare-worker':
+        specifier: workspace:*
+        version: link:../integration-cloudflare-worker
       '@ainyc/canonry-integration-commoncrawl':
         specifier: workspace:*
         version: link:../integration-commoncrawl
