@@ -86,6 +86,7 @@ import {
   upsertCloudflareTrafficConnection,
   removeCloudflareTrafficConnection,
 } from "./cloudflare-traffic-config.js";
+import { buildCloudflareIngestUrlTemplate } from "./cloudflare-ingest-url.js";
 import {
   getWordpressConnection,
   patchWordpressConnection,
@@ -1819,7 +1820,7 @@ export async function createServer(opts: {
     wordpressTrafficCredentialStore,
     vercelTrafficCredentialStore,
     cloudflareTrafficCredentialStore,
-    cloudflareTrafficIngestUrl: `${(opts.config.publicUrl ?? opts.config.apiUrl).replace(/\/$/, '')}${opts.config.basePath ? opts.config.basePath.replace(/\/$/, '') : ''}/api/v1/projects/{name}/traffic/cloudflare/ingest`,
+    cloudflareTrafficIngestUrl: buildCloudflareIngestUrlTemplate(opts.config),
     onTrafficSynced: (event) => {
       // Emit anonymous canonry telemetry for every sync (success + fail).
       // Same envelope shape as run.completed (top-level `errorCode` on

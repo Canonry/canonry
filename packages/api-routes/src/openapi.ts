@@ -3695,18 +3695,7 @@ const routeCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      200: rawJsonResponse('Ingest acknowledged.', {
-        type: 'object',
-        properties: {
-          acceptedEvents: integerSchema,
-          droppedEvents: integerSchema,
-          workerVersionAck: stringSchema,
-          crawlerBucketRows: integerSchema,
-          aiUserFetchBucketRows: integerSchema,
-          aiReferralBucketRows: integerSchema,
-          sampleRows: integerSchema,
-        },
-      }),
+      200: jsonResponse('Ingest acknowledged.', 'CloudflareWorkerIngestResponse'),
       400: errorResponse('Invalid ingest payload.'),
       401: errorResponse('Authentication failed (bearer, signature, timestamp, or source id mismatch).'),
       404: errorResponse('Project not found.'),
