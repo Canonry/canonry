@@ -195,7 +195,10 @@ consume Canonry through the external-agent webhook.
 
 - **CLI**: `canonry agent ask <project> "<prompt>"` — one-shot turn. Streams
   `AgentEvent` lines to stdout (or JSON with `--format json`). Supports
-  `--provider claude|openai|gemini|zai` and `--model <id>`.
+  `--provider claude|openai|gemini|zai|deepinfra` and `--model <id>`. `zai` and
+  `deepinfra` are agent-only; `deepinfra` is an OpenAI-compatible host outside
+  pi-ai's catalog (`agent/providers.ts` builds a custom `openai-completions`
+  model against `https://api.deepinfra.com/v1/openai`; key from `DEEPINFRA_TOKEN`).
 - **Dashboard**: bottom command bar (`AeroBar`) on every project-scoped
   route. SSE-streamed via `POST /api/v1/projects/:name/agent/prompt`.
 - **Proactive**: `RunCoordinator` enqueues a synthesized `[system]` follow-up

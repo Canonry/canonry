@@ -84,6 +84,8 @@ export interface ApiRoutesOptions {
   onRunCreated?: (runId: string, projectId: string, providers?: string[], location?: import('@ainyc/canonry-contracts').LocationContext | null) => void
   /** Provider configuration summary for settings endpoint */
   providerSummary?: ProviderSummaryEntry[]
+  /** Resolves agent LLM provider key status for the `config.agent-providers` doctor check. See `DoctorContext.getAgentProviderSummary`. */
+  getAgentProviderSummary?: () => import('@ainyc/canonry-contracts').AgentProviderOption[]
   /** Adapter metadata for provider validation */
   providerAdapters?: ProviderAdapterInfo[]
   /** Callback when a provider config is updated via API */
@@ -461,6 +463,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       getPlacesConfig: opts.getPlacesConfig,
       publicUrl: opts.publicUrl,
       providerSummary: opts.providerSummary,
+      getAgentProviderSummary: opts.getAgentProviderSummary,
       trafficSourceValidators: buildTrafficSourceValidators(opts),
       runtimeStatePaths: opts.runtimeStatePaths,
       bundledSkills: opts.bundledSkills,

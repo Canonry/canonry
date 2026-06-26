@@ -264,3 +264,44 @@ describe('config.providers', () => {
     expect(result.status).toBe('skipped')
   })
 })
+
+const agentProvidersCheck = PROVIDERS_CHECKS.find((c) => c.id === 'config.agent-providers')!
+
+function agentEntry(id: string, configured: boolean, keySource: 'config' | 'env' | null = null) {
+  return { id, label: id, defaultModel: 'm', configured, keySource }
+}
+
+describe('config.agent-providers', () => {
+  it('returns ok and reports the configured agent providers (incl. deepinfra)', () => {
+    const result = agentProvidersCheck.run({
+      db: {} as DoctorContext['db'],
+      project: null,
+      getAgentProviderSummary: () => [
+        agentEntry('claude', true, 'env'),
+        agentEntry('deepinfra', true, 'config'),
+        agentEntry('zai', false),
+      ],
+    })
+    expect(result.status).toBe('ok')
+    expect(result.code).toBe('agent-providers.configured')
+    expect(result.summary).toContain('deepinfra')
+    expect(result.details).toMatchObject({ configured: ['claude', 'deepinfra'] })
+  })
+
+  it('warns (not fails) when no agent provider has a key', () => {
+    const result = agentProvidersCheck.run({
+      db: {} as DoctorContext['db'],
+      project: null,
+      getAgentProviderSummary: () => [agentEntry('claude', false), agentEntry('deepinfra', false)],
+    })
+    expect(result.status).toBe('warn')
+    expect(result.code).toBe('agent-providers.none-configured')
+    expect(result.remediation).toMatch(/DEEPINFRA_TOKEN/)
+  })
+
+  it('skips when the agent provider summary is unavailable (e.g. cloud)', () => {
+    const result = agentProvidersCheck.run({ db: {} as DoctorContext['db'], project: null })
+    expect(result.status).toBe('skipped')
+    expect(result.code).toBe('agent-providers.summary-unavailable')
+  })
+})

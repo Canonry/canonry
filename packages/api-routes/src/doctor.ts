@@ -9,6 +9,7 @@ import type { BingConnectionStore } from './bing.js'
 import type { WordpressConnectionStore } from './wordpress.js'
 import type { Ga4CredentialStore } from './ga.js'
 import type { ProviderSummaryEntry } from './settings.js'
+import type { AgentProviderOption } from '@ainyc/canonry-contracts'
 import { resolveProject } from './helpers.js'
 
 export interface DoctorRoutesOptions {
@@ -23,6 +24,8 @@ export interface DoctorRoutesOptions {
   /** Used to derive the redirect URI displayed by the redirect-uri check. */
   publicUrl?: string
   providerSummary?: ProviderSummaryEntry[]
+  /** Resolves agent LLM provider key status for the `config.agent-providers` check. See `DoctorContext.getAgentProviderSummary`. */
+  getAgentProviderSummary?: () => AgentProviderOption[]
   /**
    * Map of `traffic_sources.source_type` → adapter validator. Optional — the
    * generic `traffic.source.credentials` / `traffic.source.scopes` checks
@@ -69,6 +72,7 @@ export async function doctorRoutes(app: FastifyInstance, opts: DoctorRoutesOptio
       getPlacesConfig: opts.getPlacesConfig,
       redirectUri,
       providerSummary: opts.providerSummary,
+      getAgentProviderSummary: opts.getAgentProviderSummary,
       trafficSourceValidators: opts.trafficSourceValidators,
       runtimeStatePaths: opts.runtimeStatePaths,
       bundledSkills: opts.bundledSkills,
@@ -100,6 +104,7 @@ export async function doctorRoutes(app: FastifyInstance, opts: DoctorRoutesOptio
       getPlacesConfig: opts.getPlacesConfig,
       redirectUri,
       providerSummary: opts.providerSummary,
+      getAgentProviderSummary: opts.getAgentProviderSummary,
       trafficSourceValidators: opts.trafficSourceValidators,
       runtimeStatePaths: opts.runtimeStatePaths,
       bundledSkills: opts.bundledSkills,

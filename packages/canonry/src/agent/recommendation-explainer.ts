@@ -20,7 +20,7 @@ import type {
 } from '@ainyc/canonry-api-routes'
 import type { CanonryConfig } from '../config.js'
 import {
-  AGENT_PROVIDERS,
+  agentProviderApiKeyEnvVar,
   agentProvidersByPriority,
   coerceAgentProvider,
   resolveApiKeyFor,
@@ -159,9 +159,7 @@ function pickExplainProvider(
   for (const provider of agentProvidersByPriority()) {
     if (resolveApiKeyFor(provider, config)) return provider
   }
-  const hints = agentProvidersByPriority()
-    .map((p) => `${AGENT_PROVIDERS[p].piAiProvider.toUpperCase()}_API_KEY`)
-    .join(' / ')
+  const hints = agentProvidersByPriority().map(agentProviderApiKeyEnvVar).join(' / ')
   throw providerError(
     `No LLM provider configured. Add an API key in ~/.canonry/config.yaml or set one of: ${hints}.`,
   )

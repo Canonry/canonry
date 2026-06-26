@@ -6,13 +6,13 @@ export type ClientOptions = {
 
 export type AgentProvidersResponseDto = {
     providers: Array<{
-        id: 'claude' | 'openai' | 'gemini' | 'zai';
+        id: 'claude' | 'openai' | 'gemini' | 'zai' | 'deepinfra';
         label: string;
         defaultModel: string;
         configured: boolean;
         keySource: 'config' | 'env';
     }>;
-    defaultProvider: 'claude' | 'openai' | 'gemini' | 'zai';
+    defaultProvider: 'claude' | 'openai' | 'gemini' | 'zai' | 'deepinfra';
 };
 
 export type AdsCampaignListResponse = {

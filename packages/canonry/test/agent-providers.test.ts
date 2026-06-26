@@ -5,6 +5,7 @@ import {
   AGENT_PROVIDERS,
   AgentProviders,
   PROVIDER_MODELS,
+  agentProviderApiKeyEnvVar,
   agentProvidersByPriority,
   buildAgentProvidersResponse,
   coerceAgentProvider,
@@ -34,10 +35,18 @@ describe('agent provider registry', () => {
     }
   })
 
-  it('every registered default model resolves against pi-ai at runtime', () => {
+  it('every registered default model resolves at runtime', () => {
     expect(() => validateAgentProviderRegistry()).not.toThrow()
     for (const provider of listAgentProviders()) {
       const entry = getAgentProvider(provider)
+      if (entry.openaiCompatible) {
+        // Custom OpenAI-compatible host (e.g. DeepInfra) — not in pi-ai's
+        // catalog. Resolve via the builder and assert it points at the host.
+        const model = resolveModelForCapability(provider, LlmCapabilities.agent)
+        expect((model as { id?: string }).id).toBe(entry.defaultModel)
+        expect((model as { baseUrl?: string }).baseUrl).toBe(entry.openaiCompatible.baseUrl)
+        continue
+      }
       const model = getModel(entry.piAiProvider as never, entry.defaultModel as never)
       expect(model, `pi-ai missing ${entry.piAiProvider}/${entry.defaultModel}`).toBeDefined()
     }
@@ -228,11 +237,18 @@ describe('PROVIDER_MODELS capability tiers', () => {
     }
   })
 
-  it('every (provider, capability) pair resolves to a real pi-ai model', () => {
+  it('every (provider, capability) pair resolves to a model', () => {
     for (const provider of listAgentProviders()) {
       for (const capability of LLM_CAPABILITIES) {
         const entry = getAgentProvider(provider)
         const modelId = PROVIDER_MODELS[provider][capability]
+        if (entry.openaiCompatible) {
+          // Custom host: the builder constructs the model from the slug
+          // (no pi-ai catalog entry to look up).
+          const model = resolveModelForCapability(provider, capability)
+          expect((model as { id?: string }).id).toBe(modelId)
+          continue
+        }
         const model = getModel(entry.piAiProvider as never, modelId as never)
         expect(
           model,
@@ -298,5 +314,110 @@ describe('resolveModelForCapability', () => {
     const viaProvider = resolveModelForProvider('claude', overrideId)
     const viaCapability = resolveModelForCapability('claude', LlmCapabilities.agent, overrideId)
     expect((viaProvider as { id?: string }).id).toBe((viaCapability as { id?: string }).id)
+  })
+})
+
+describe('deepinfra (custom OpenAI-compatible host)', () => {
+  // DeepInfra is agent-only, has no pi-ai catalog entry, and resolves models
+  // by constructing a custom openai-completions object pointed at its base URL.
+  type CompletionsModel = {
+    id: string
+    api: string
+    provider: string
+    baseUrl: string
+    reasoning: boolean
+    cost: { input: number; output: number; cacheRead: number; cacheWrite: number }
+    compat?: { supportsDeveloperRole?: boolean; maxTokensField?: string }
+  }
+
+  it('is registered, agent-only, and carries an openaiCompatible host config', () => {
+    expect(listAgentProviders()).toContain('deepinfra')
+    const entry = getAgentProvider('deepinfra')
+    expect(entry.piAiProvider).toBe('deepinfra')
+    expect(entry.openaiCompatible?.baseUrl).toBe('https://api.deepinfra.com/v1/openai')
+    expect(entry.openaiCompatible?.apiKeyEnvVar).toBe('DEEPINFRA_TOKEN')
+  })
+
+  it('agent tier is GLM-5.2; analyze + classify share the cheaper DeepSeek tier', () => {
+    expect(PROVIDER_MODELS.deepinfra[LlmCapabilities.agent]).toBe('zai-org/GLM-5.2')
+    expect(PROVIDER_MODELS.deepinfra[LlmCapabilities.analyze]).toBe('deepseek-ai/DeepSeek-V4-Flash')
+    expect(PROVIDER_MODELS.deepinfra[LlmCapabilities.classify]).toBe('deepseek-ai/DeepSeek-V4-Flash')
+    // defaultModel mirrors the agent tier (covered generically elsewhere too).
+    expect(getAgentProvider('deepinfra').defaultModel).toBe('zai-org/GLM-5.2')
+  })
+
+  it('builds an openai-completions model pointed at DeepInfra for every capability', () => {
+    for (const capability of LLM_CAPABILITIES) {
+      const model = resolveModelForCapability('deepinfra', capability) as unknown as CompletionsModel
+      expect(model.api).toBe('openai-completions')
+      // model.provider is what the agent loop hands back to getApiKey — must
+      // be the canonical id so the deepinfra key resolver fires.
+      expect(model.provider).toBe('deepinfra')
+      expect(model.baseUrl).toBe('https://api.deepinfra.com/v1/openai')
+      expect(model.id).toBe(PROVIDER_MODELS.deepinfra[capability])
+    }
+  })
+
+  it('applies the open-model compat profile (no developer role, max_tokens field)', () => {
+    const model = resolveModelForCapability('deepinfra', LlmCapabilities.agent) as unknown as CompletionsModel
+    expect(model.compat?.supportsDeveloperRole).toBe(false)
+    expect(model.compat?.maxTokensField).toBe('max_tokens')
+  })
+
+  it('applies per-slug known-model metadata and falls back for unknown slugs', () => {
+    // GLM-5.2 is a known model → its published cost/reasoning metadata.
+    const glm = resolveModelForCapability('deepinfra', LlmCapabilities.agent) as unknown as CompletionsModel
+    expect(glm.reasoning).toBe(true)
+    expect(glm.cost.input).toBe(0.95)
+    expect(glm.cost.output).toBe(3.0)
+    // An arbitrary user --model override falls back to defaultModelMeta (cost 0).
+    const custom = resolveModelForCapability(
+      'deepinfra',
+      LlmCapabilities.agent,
+      'meta-llama/Llama-4-Maverick',
+    ) as unknown as CompletionsModel
+    expect(custom.id).toBe('meta-llama/Llama-4-Maverick')
+    expect(custom.cost.input).toBe(0)
+  })
+
+  it('resolves the key from DEEPINFRA_TOKEN env (not DEEPINFRA_API_KEY), config wins', () => {
+    expect(agentProviderApiKeyEnvVar('deepinfra')).toBe('DEEPINFRA_TOKEN')
+    // Catalog providers still derive their var from the pi-ai vendor id.
+    expect(agentProviderApiKeyEnvVar('claude')).toBe('ANTHROPIC_API_KEY')
+
+    const priorToken = process.env.DEEPINFRA_TOKEN
+    const priorApiKey = process.env.DEEPINFRA_API_KEY
+    process.env.DEEPINFRA_TOKEN = 'from-token'
+    process.env.DEEPINFRA_API_KEY = 'wrong-var'
+    try {
+      // The wrong-named var is ignored; DEEPINFRA_TOKEN is read.
+      expect(resolveApiKeySource('deepinfra', {})).toEqual({ key: 'from-token', source: 'env' })
+      // Config still beats env.
+      expect(
+        resolveApiKeySource('deepinfra', { providers: { deepinfra: { apiKey: 'cfg' } } }),
+      ).toEqual({ key: 'cfg', source: 'config' })
+    } finally {
+      if (priorToken === undefined) delete process.env.DEEPINFRA_TOKEN
+      else process.env.DEEPINFRA_TOKEN = priorToken
+      if (priorApiKey === undefined) delete process.env.DEEPINFRA_API_KEY
+      else process.env.DEEPINFRA_API_KEY = priorApiKey
+    }
+  })
+
+  it('surfaces deepinfra in the providers response, configured via DEEPINFRA_TOKEN', () => {
+    const prior = process.env.DEEPINFRA_TOKEN
+    process.env.DEEPINFRA_TOKEN = 'tok'
+    try {
+      const res = buildAgentProvidersResponse({})
+      const di = res.providers.find((p) => p.id === 'deepinfra')
+      expect(di).toBeDefined()
+      expect(di?.label).toBe('DeepInfra (GLM / DeepSeek)')
+      expect(di?.defaultModel).toBe('zai-org/GLM-5.2')
+      expect(di?.configured).toBe(true)
+      expect(di?.keySource).toBe('env')
+    } finally {
+      if (prior === undefined) delete process.env.DEEPINFRA_TOKEN
+      else process.env.DEEPINFRA_TOKEN = prior
+    }
   })
 })
