@@ -65,9 +65,44 @@ export function loadAeroSystemPrompt(pkgDir?: string): string {
   const skillDir = resolveAeroSkillDir(pkgDir)
   const skillBody = fs.readFileSync(path.join(skillDir, 'SKILL.md'), 'utf-8')
   const soulPath = path.join(skillDir, 'soul.md')
-  if (!fs.existsSync(soulPath)) return skillBody
-  const soulBody = fs.readFileSync(soulPath, 'utf-8')
-  return `${soulBody.trimEnd()}\n\n---\n\n${skillBody}`
+  const base = fs.existsSync(soulPath)
+    ? `${fs.readFileSync(soulPath, 'utf-8').trimEnd()}\n\n---\n\n${skillBody}`
+    : skillBody
+  return appendSystemPromptExtras(base)
+}
+
+/**
+ * Generic system-prompt APPEND seam (OSS-D). Appends `AERO_SYSTEM_PROMPT_APPEND`
+ * (inline) and/or the contents of `AERO_SYSTEM_PROMPT_FILE` (a file path) AFTER
+ * the base soul+SKILL prompt, separated by a divider. Empty by default, so a
+ * default install is byte-identical. Generic: carries no product vocabulary.
+ *
+ * Lives inside `loadAeroSystemPrompt` so it covers BOTH the one-shot
+ * `createAeroSession` default path AND the registry (which builds on
+ * `loadAeroSystemPrompt`, then layers the dynamic `<memory>` block AFTER, so the
+ * appended rules frame the task and sit before per-session memory). A
+ * `systemPromptOverride` (tests / explicit full control) deliberately bypasses
+ * this. A missing or unreadable file is skipped, never breaking the agent. The
+ * FILE variant exists so a multi-KB prompt is mounted as a file rather than
+ * crammed into a single `-e` env arg. Exported for tests.
+ */
+export function appendSystemPromptExtras(
+  base: string,
+  env: Record<string, string | undefined> = process.env,
+): string {
+  const inline = env.AERO_SYSTEM_PROMPT_APPEND?.trim()
+  let fileBody = ''
+  const filePath = env.AERO_SYSTEM_PROMPT_FILE?.trim()
+  if (filePath) {
+    try {
+      fileBody = fs.readFileSync(filePath, 'utf-8').trim()
+    } catch {
+      fileBody = ''
+    }
+  }
+  const extras = [inline, fileBody].filter((s): s is string => !!s && s.length > 0)
+  if (extras.length === 0) return base
+  return `${base.trimEnd()}\n\n---\n\n${extras.join('\n\n')}`
 }
 
 function missingProviderMessage(): string {
