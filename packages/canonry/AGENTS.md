@@ -198,7 +198,8 @@ consume Canonry through the external-agent webhook.
   `--provider claude|openai|gemini|zai|deepinfra` and `--model <id>`. `zai` and
   `deepinfra` are agent-only; `deepinfra` is an OpenAI-compatible host outside
   pi-ai's catalog (`agent/providers.ts` builds a custom `openai-completions`
-  model against `https://api.deepinfra.com/v1/openai`; key from `DEEPINFRA_TOKEN`).
+  model against `https://api.deepinfra.com/v1/openai`; key from `DEEPINFRA_TOKEN`,
+  base URL overridable via `DEEPINFRA_BASE_URL` for proxy/LiteLLM-gateway routing).
 - **Dashboard**: bottom command bar (`AeroBar`) on every project-scoped
   route. SSE-streamed via `POST /api/v1/projects/:name/agent/prompt`.
 - **Proactive**: `RunCoordinator` enqueues a synthesized `[system]` follow-up

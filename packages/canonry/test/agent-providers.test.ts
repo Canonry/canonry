@@ -420,4 +420,37 @@ describe('deepinfra (custom OpenAI-compatible host)', () => {
       else process.env.DEEPINFRA_TOKEN = prior
     }
   })
+
+  it("reports DeepInfra's real 1M (fp4) context window for the shipped tiers", () => {
+    // GLM-5.2 and DeepSeek-V4-Flash both serve at 1,048,576 on DeepInfra.
+    for (const capability of LLM_CAPABILITIES) {
+      const model = resolveModelForCapability('deepinfra', capability) as unknown as { contextWindow: number }
+      expect(model.contextWindow).toBe(1_048_576)
+    }
+    // An unknown user --model slug keeps the conservative fallback window.
+    const custom = resolveModelForCapability(
+      'deepinfra',
+      LlmCapabilities.agent,
+      'meta-llama/Llama-4-Maverick',
+    ) as unknown as { contextWindow: number }
+    expect(custom.contextWindow).toBe(131072)
+  })
+
+  it('repoints baseUrl via DEEPINFRA_BASE_URL when set, else uses the constant', () => {
+    const DEFAULT = 'https://api.deepinfra.com/v1/openai'
+    const baseUrlOf = () =>
+      (resolveModelForCapability('deepinfra', LlmCapabilities.agent) as unknown as CompletionsModel).baseUrl
+    const prior = process.env.DEEPINFRA_BASE_URL
+    delete process.env.DEEPINFRA_BASE_URL
+    try {
+      expect(baseUrlOf()).toBe(DEFAULT) // unset → constant
+      process.env.DEEPINFRA_BASE_URL = 'https://proxy.internal/v1/openai'
+      expect(baseUrlOf()).toBe('https://proxy.internal/v1/openai') // set → proxy override
+      process.env.DEEPINFRA_BASE_URL = ''
+      expect(baseUrlOf()).toBe(DEFAULT) // empty string falls back to the constant
+    } finally {
+      if (prior === undefined) delete process.env.DEEPINFRA_BASE_URL
+      else process.env.DEEPINFRA_BASE_URL = prior
+    }
+  })
 })

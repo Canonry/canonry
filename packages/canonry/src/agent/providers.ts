@@ -41,8 +41,11 @@ import {
 /**
  * Per-model metadata used to build a `Model<'openai-completions'>` object
  * for a custom OpenAI-compatible host that isn't in pi-ai's catalog. Costs
- * are USD per 1M tokens (same unit pi-ai's `calculateCost` consumes);
- * `contextWindow` / `maxTokens` feed pi-ai's overflow heuristics only.
+ * are USD per 1M tokens (same unit pi-ai's `calculateCost` consumes).
+ * `contextWindow` / `maxTokens` are descriptive capability metadata — Aero's
+ * compaction fires on a fixed token budget (`COMPACTION_TOKEN_THRESHOLD`) and
+ * pi-agent-core's loop never reads `model.contextWindow`, so the value here
+ * does not gate compaction; keep it accurate for documentation + cost display.
  */
 export interface OpenAiCompatibleModelMeta {
   contextWindow: number
@@ -62,6 +65,13 @@ export interface OpenAiCompatibleModelMeta {
 export interface OpenAiCompatibleHost {
   /** OpenAI-compatible completions base URL, e.g. `https://api.deepinfra.com/v1/openai`. */
   baseUrl: string
+  /**
+   * Optional env var that overrides `baseUrl` at model-construction time. Lets
+   * a proxied deployment (e.g. a LiteLLM gateway that injects the upstream key
+   * out-of-container) repoint the host without a rebuild. Unset / empty env →
+   * the `baseUrl` constant is used, so the default self-hosted path is unchanged.
+   */
+  baseUrlEnvVar?: string
   /** Env var carrying the API key — pi-ai's `getEnvApiKey` has no entry for this host. */
   apiKeyEnvVar: string
   /**
@@ -205,6 +215,7 @@ export const AGENT_PROVIDERS: Record<AgentProviderId, AgentProviderEntry> = {
     autoDetectPriority: 4,
     openaiCompatible: {
       baseUrl: 'https://api.deepinfra.com/v1/openai',
+      baseUrlEnvVar: 'DEEPINFRA_BASE_URL',
       apiKeyEnvVar: 'DEEPINFRA_TOKEN',
       // DeepInfra serves open-weight models (GLM, DeepSeek) behind an
       // OpenAI-compatible vLLM endpoint. pi-ai's `detectCompat` has no rule
@@ -222,22 +233,26 @@ export const AGENT_PROVIDERS: Record<AgentProviderId, AgentProviderEntry> = {
       },
       // Best-effort metadata. Costs are USD/1M tokens (DeepInfra published
       // rates: GLM-5.2 ~$0.95 in / $0.18 cached / $3.00 out; DeepSeek-V4-Flash
-      // ~$0.10 in / $0.20 out). Context/maxTokens only drive pi-ai overflow
-      // heuristics, not the wire limit.
+      // ~$0.10 in / $0.20 out). contextWindow is DeepInfra's 1M (fp4) serving
+      // window for both models; it's descriptive (see OpenAiCompatibleModelMeta),
+      // so it documents the real window rather than gating compaction.
       knownModels: {
         'zai-org/GLM-5.2': {
-          contextWindow: 131072,
+          contextWindow: 1_048_576,
           maxTokens: 98304,
           reasoning: true,
           cost: { input: 0.95, output: 3.0, cacheRead: 0.18, cacheWrite: 0 },
         },
         'deepseek-ai/DeepSeek-V4-Flash': {
-          contextWindow: 131072,
+          contextWindow: 1_048_576,
           maxTokens: 32768,
           reasoning: false,
           cost: { input: 0.1, output: 0.2, cacheRead: 0, cacheWrite: 0 },
         },
       },
+      // Fallback for arbitrary `--model` slugs we don't ship as tiers. cost is
+      // 0, so an unknown slug isn't cost-tracked by pi-ai's `calculateCost`;
+      // contextWindow stays conservative since we can't know the slug's window.
       defaultModelMeta: {
         contextWindow: 131072,
         maxTokens: 32768,
@@ -356,12 +371,16 @@ export function buildOpenAiCompatibleModel(
     throw new Error(`buildOpenAiCompatibleModel called for non-custom provider '${entry.piAiProvider}'`)
   }
   const meta = host.knownModels[id] ?? host.defaultModelMeta
+  // A proxied deployment can repoint the host via `baseUrlEnvVar` (e.g. a
+  // LiteLLM gateway); an unset/empty env var falls back to the configured
+  // constant, so the default self-hosted path is byte-for-byte unchanged.
+  const baseUrl = (host.baseUrlEnvVar ? process.env[host.baseUrlEnvVar] : undefined) || host.baseUrl
   return {
     id,
     name: id,
     api: 'openai-completions',
     provider: entry.piAiProvider,
-    baseUrl: host.baseUrl,
+    baseUrl,
     reasoning: meta.reasoning,
     input: ['text'],
     cost: meta.cost,

@@ -182,7 +182,8 @@ the external-agent webhook path via `canonry agent attach <url>`.
   `AgentEvent`s to stdout. Supports `--provider claude|openai|gemini|zai|deepinfra`
   and `--format json`. `deepinfra` is a Western-hosted OpenAI-compatible host
   (GLM-5.2 / DeepSeek-V4-Flash); its key comes from `DEEPINFRA_TOKEN` or
-  `providers.deepinfra.apiKey`.
+  `providers.deepinfra.apiKey`, and `DEEPINFRA_BASE_URL` repoints the host at a
+  proxy (e.g. a LiteLLM gateway) — unset falls back to `api.deepinfra.com`.
 - **Dashboard:** the bottom command bar on every project-scoped route.
   SSE-streamed. Starter buttons cover the common ops (status, insights,
   last failed run, schedule).
