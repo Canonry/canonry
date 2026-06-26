@@ -48,10 +48,11 @@ function emptyReport(): ProjectReportDto {
     whatsChanged: {
       enoughHistory: false,
       headline: 'Building baseline (0 of 4 checks completed). Trends appear after a few more checks.',
-      citationRate: null,
-      mentionRate: null,
-      citedQueryCount: null,
-      gscClicksDelta: null,
+	      citationRate: null,
+	      mentionRate: null,
+	      citedQueryCount: null,
+	      mentionedQueryCount: null,
+	      gscClicksDelta: null,
       aiReferralsDelta: null,
       comparisonWindowDays: 15,
       providerMovements: [],
@@ -162,10 +163,10 @@ function richReport(): ProjectReportDto {
           { citationState: 'cited', answerMentioned: true, model: 'gpt-4o' },
         ],
       ],
-      providerRates: [
-        { provider: 'gemini', citedCount: 1, totalCount: 2, citationRate: 50 },
-        { provider: 'openai', citedCount: 1, totalCount: 2, citationRate: 50 },
-      ],
+	      providerRates: [
+	        { provider: 'gemini', citedCount: 1, mentionedCount: 1, totalCount: 2, citationRate: 50, mentionRate: 50 },
+	        { provider: 'openai', citedCount: 1, mentionedCount: 1, totalCount: 2, citationRate: 50, mentionRate: 50 },
+	      ],
     },
     competitorLandscape: {
       projectCitationCount: 4,
@@ -295,16 +296,17 @@ function richReport(): ProjectReportDto {
       indexedPct: 80,
     },
     citationsTrend: [
-      { runId: 'r-1', date: '2026-04-01T00:00:00Z', citationRate: 50, citedQueryCount: 2, totalQueryCount: 4, mentionRate: 25, mentionedQueryCount: 1, providerRates: [{ provider: 'gemini', citationRate: 50 }] },
-      { runId: 'r-2', date: '2026-04-15T00:00:00Z', citationRate: 65, citedQueryCount: 3, totalQueryCount: 5, mentionRate: 40, mentionedQueryCount: 2, providerRates: [{ provider: 'gemini', citationRate: 65 }] },
+	      { runId: 'r-1', date: '2026-04-01T00:00:00Z', citationRate: 50, citedQueryCount: 2, totalQueryCount: 4, mentionRate: 25, mentionedQueryCount: 1, providerRates: [{ provider: 'gemini', citationRate: 50, mentionRate: 25 }] },
+	      { runId: 'r-2', date: '2026-04-15T00:00:00Z', citationRate: 65, citedQueryCount: 3, totalQueryCount: 5, mentionRate: 40, mentionedQueryCount: 2, providerRates: [{ provider: 'gemini', citationRate: 65, mentionRate: 40 }] },
     ],
     whatsChanged: {
       enoughHistory: false,
       headline: 'Building baseline (2 of 4 checks completed). Trends appear after a few more checks.',
-      citationRate: null,
-      mentionRate: null,
-      citedQueryCount: null,
-      gscClicksDelta: null,
+	      citationRate: null,
+	      mentionRate: null,
+	      citedQueryCount: null,
+	      mentionedQueryCount: null,
+	      gscClicksDelta: null,
       aiReferralsDelta: null,
       comparisonWindowDays: 14,
       providerMovements: [],
@@ -329,8 +331,8 @@ function richReport(): ProjectReportDto {
     ],
     actionPlan: [clientAction, agencyAction],
     clientSummary: {
-      headline: '3 of 5 tracked queries are cited by AI engines',
-      overview: 'Rich Project is cited on 65% of tracked queries and mentioned on 40%. Citation coverage improved versus the prior comparable sweep.',
+	      headline: '2 of 5 tracked queries mention the brand in AI answers',
+	      overview: 'Rich Project is mentioned on 40% of tracked queries and cited on 65%. There is not enough comparable run history yet to call a mention trend.',
       actionItems: [clientAction],
       confidenceNotes: ['This summary is scoped to the michigan run location.'],
     },
@@ -761,27 +763,28 @@ describe('renderReportHtml', () => {
   // Locks in the "smart %" rule for the What's-changed count + traffic tiles.
   // Both surfaces call the SAME shared contracts helpers (formatAverageDelta /
   // formatWindowCountDelta), so the HTML asserted here is byte-identical to the
-  // SPA subtitle. The gjelina-shaped values: cited-query count averages ~3.3
-  // (small base → rounded raw delta) while GSC clicks total ~382 over the prior
+	  // SPA subtitle. The gjelina-shaped values: mentioned-query count averages ~3.3
+	  // (small base → rounded raw delta) while GSC clicks total ~382 over the prior
   // window (large base → percentage).
   test('whatsChanged count + traffic tiles use the smart-% rule', () => {
     const report = richReport()
     report.whatsChanged = {
       ...report.whatsChanged,
       enoughHistory: true,
-      // Small base (< MIN_PCT_BASE): rounded raw delta vs prior, never a float,
-      // never a misleading % on a tiny base. Fixes the +0.33333… float bug.
-      citedQueryCount: { current: 3.7, prior: 3.3, deltaAbs: 0.33333333333333304, deltaPct: 10, direction: 'flat', window: 3 },
+	      // Small base (< MIN_PCT_BASE): rounded raw delta vs prior, never a float,
+	      // never a misleading % on a tiny base. Fixes the +0.33333… float bug.
+	      citedQueryCount: { current: 3.7, prior: 3.3, deltaAbs: 0.33333333333333304, deltaPct: 10, direction: 'flat', window: 3 },
+	      mentionedQueryCount: { current: 3.7, prior: 3.3, deltaAbs: 0.33333333333333304, deltaPct: 10, direction: 'flat', window: 3 },
       // Large base (>= MIN_PCT_BASE): signed percentage, no "visits" word.
       gscClicksDelta: { current: 328, prior: 382, deltaAbs: -54, deltaPct: -14, direction: 'down' },
     }
 
     const clientHtml = renderReportHtml(report, { audience: 'client' })
-    // Questions answered (cited-query count) → rounded raw delta in the visible
-    // tile subtitle, never the unrounded float. (The raw DTO is still embedded
-    // in the hydration <script>, so we assert the rendered .delta div, not the
-    // whole document.)
-    expect(clientHtml).toContain('Questions AI answered with you')
+	    // Questions mentioned (mentioned-query count) → rounded raw delta in the visible
+	    // tile subtitle, never the unrounded float. (The raw DTO is still embedded
+	    // in the hydration <script>, so we assert the rendered .delta div, not the
+	    // whole document.)
+	    expect(clientHtml).toContain('Questions AI mentioned you in')
     expect(clientHtml).toContain('<div class="delta">+0.3 vs 3.3</div>')
     // The visible subtitle never shows the unrounded float copy.
     expect(clientHtml).not.toContain('<div class="delta">+0.33333')
@@ -1048,7 +1051,7 @@ describe('renderReportHtml', () => {
     expect(visible).toContain('AI mentions your name')
     expect(visible).toContain('AI links to your website')
     expect(visible).toContain('AI tools tested')
-    expect(visible).toContain('How often each AI tool links to your website')
+    expect(visible).toContain('How often each AI tool mentions you')
     // Mentions vs links explainer must exist
     expect(visible).toContain('Mentions and links are different')
     // Customer questions list must render the queries

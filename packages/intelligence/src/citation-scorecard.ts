@@ -34,7 +34,7 @@ export function buildCitationScorecard(
   const matrix: Array<Array<CitationCell | null>> = queryList.map(() =>
     providerList.map(() => null),
   )
-  const providerCounts = new Map<string, { cited: number; total: number }>()
+  const providerCounts = new Map<string, { cited: number; mentioned: number; total: number }>()
 
   for (const snap of snapshots) {
     const q = queryLookup.byId.get(snap.queryId)
@@ -47,20 +47,24 @@ export function buildCitationScorecard(
       answerMentioned: snap.answerMentioned ?? null,
       model: snap.model,
     }
-    const counts = providerCounts.get(snap.provider) ?? { cited: 0, total: 0 }
+    const counts = providerCounts.get(snap.provider) ?? { cited: 0, mentioned: 0, total: 0 }
     counts.total++
     if (snap.citationState === CitationStates.cited) counts.cited++
+    if (snap.answerMentioned === true) counts.mentioned++
     providerCounts.set(snap.provider, counts)
   }
 
   const providerRates = providerList.map(provider => {
-    const counts = providerCounts.get(provider) ?? { cited: 0, total: 0 }
+    const counts = providerCounts.get(provider) ?? { cited: 0, mentioned: 0, total: 0 }
     const citationRate = counts.total > 0 ? Math.round((counts.cited / counts.total) * 100) : 0
+    const mentionRate = counts.total > 0 ? Math.round((counts.mentioned / counts.total) * 100) : 0
     return {
       provider,
       citedCount: counts.cited,
+      mentionedCount: counts.mentioned,
       totalCount: counts.total,
       citationRate,
+      mentionRate,
     }
   })
 

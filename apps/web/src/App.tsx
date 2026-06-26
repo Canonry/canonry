@@ -45,6 +45,7 @@ import { StatusBadge } from './components/shared/StatusBadge.js'
 import { Drawer } from './components/layout/Drawer.js'
 import { EvidenceDetailModal } from './components/layout/EvidenceDetailModal.js'
 import { safeExternalUrl } from './lib/safe-url.js'
+import { resolveProjectNameFromPathname } from './lib/project-route.js'
 import { findEvidenceForModal, findRunById } from './mock-data.js'
 import { useDashboardOverview as useDashboard } from './queries/use-dashboard-overview.js'
 import { useProjectDashboard } from './queries/use-project-dashboard.js'
@@ -408,14 +409,10 @@ export function RootLayout() {
   // Subscribing to `useProjectDashboard` here is free in steady state — its
   // query keys overlap with ProjectPage's, so React Query dedupes the
   // fetches via the shared cache.
-  const projectIdFromRoute = useMemo(() => {
-    const match = location.pathname.match(/^\/projects\/([^/]+)/)
-    return match?.[1] ?? null
-  }, [location.pathname])
-  const currentProjectName = useMemo(() => {
-    if (!projectIdFromRoute || !safeDashboard) return null
-    return safeDashboard.projects.find(p => p.project.id === projectIdFromRoute)?.project.name ?? null
-  }, [projectIdFromRoute, safeDashboard])
+  const currentProjectName = useMemo(
+    () => resolveProjectNameFromPathname(location.pathname, safeDashboard),
+    [location.pathname, safeDashboard],
+  )
   const { commandCenter: currentProjectCommandCenter } = useProjectDashboard(currentProjectName)
 
   const selectedEvidenceContext = useMemo(() => {

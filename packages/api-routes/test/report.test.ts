@@ -208,10 +208,10 @@ describe('GET /api/v1/projects/:name/report', () => {
     const kwB = insertQuery(ctx.db, projectId, 'answer engine optimization')
     const runId = insertRun(ctx.db, projectId, { createdAt: '2026-04-01T00:00:00Z', finishedAt: '2026-04-01T00:01:00Z' })
 
-    insertSnapshot(ctx.db, runId, kwA, { provider: 'gemini', citationState: 'cited' })
-    insertSnapshot(ctx.db, runId, kwA, { provider: 'openai', citationState: 'not-cited' })
-    insertSnapshot(ctx.db, runId, kwB, { provider: 'gemini', citationState: 'not-cited' })
-    insertSnapshot(ctx.db, runId, kwB, { provider: 'openai', citationState: 'cited' })
+    insertSnapshot(ctx.db, runId, kwA, { provider: 'gemini', citationState: 'cited', answerMentioned: false })
+    insertSnapshot(ctx.db, runId, kwA, { provider: 'openai', citationState: 'not-cited', answerMentioned: true })
+    insertSnapshot(ctx.db, runId, kwB, { provider: 'gemini', citationState: 'not-cited', answerMentioned: true })
+    insertSnapshot(ctx.db, runId, kwB, { provider: 'openai', citationState: 'cited', answerMentioned: false })
 
     await ctx.app.ready()
     const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/scorecard/report' })
@@ -227,8 +227,8 @@ describe('GET /api/v1/projects/:name/report', () => {
     const ratesByProvider = Object.fromEntries(
       body.citationScorecard.providerRates.map(r => [r.provider, r]),
     )
-    expect(ratesByProvider.gemini).toMatchObject({ citedCount: 1, totalCount: 2, citationRate: 50 })
-    expect(ratesByProvider.openai).toMatchObject({ citedCount: 1, totalCount: 2, citationRate: 50 })
+    expect(ratesByProvider.gemini).toMatchObject({ citedCount: 1, mentionedCount: 1, totalCount: 2, citationRate: 50, mentionRate: 50 })
+    expect(ratesByProvider.openai).toMatchObject({ citedCount: 1, mentionedCount: 1, totalCount: 2, citationRate: 50, mentionRate: 50 })
 
     // Headline citationRate is per-query: both kwA and kwB are cited by ≥1
     // provider in this run, so 2/2 = 100% — not the per-pair 2/4 = 50%. The
