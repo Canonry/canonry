@@ -6,7 +6,7 @@ import {
   projects,
   type DatabaseClient,
 } from '@ainyc/canonry-db'
-import type { Agent, AgentMessage } from '@mariozechner/pi-agent-core'
+import type { Agent, AgentMessage, AgentTool } from '@mariozechner/pi-agent-core'
 import type { Api, Model } from '@mariozechner/pi-ai'
 import { agentBusy, AgentProviderIds } from '@ainyc/canonry-contracts'
 import { createLogger } from '../logger.js'
@@ -23,6 +23,7 @@ import {
 import { getAgentProvider } from './providers.js'
 import { buildSkillDocTools } from './skill-tools.js'
 import { buildAllTools, buildReadTools } from './tools.js'
+import { loadExternalMcpTools } from './remote-mcp.js'
 import { loadRecentForHydrate } from './memory-store.js'
 import { compactMessages, shouldCompact } from './compaction.js'
 
@@ -107,10 +108,57 @@ export class SessionRegistry {
    * awaits the same promise instead of kicking off a duplicate LLM call.
    */
   private readonly compactions = new Map<string, Promise<void>>()
+  /**
+   * Read-only tools loaded once from the injected remote MCP servers (OSS-A).
+   * The server set is static config, so we connect + adapt a single time and
+   * cache the promise; every session merges the same AgentTool list. Resolves
+   * to `[]` when no servers are configured or all fail to connect (the load is
+   * fail-soft and never throws).
+   */
+  private externalToolsPromise?: Promise<AgentTool[]>
   private readonly opts: SessionRegistryOptions
 
   constructor(opts: SessionRegistryOptions) {
     this.opts = opts
+  }
+
+  /**
+   * Lazily load + cache the injected remote MCP tools. The seam OSS-A exposes:
+   * `loadExternalMcpTools` connects to each configured server over the frozen
+   * bearer-gated Streamable HTTP transport, lists tools, and adapts the
+   * read-only, non-excluded ones into AgentTools. Cached so we connect once per
+   * registry lifetime regardless of how many projects or turns run.
+   */
+  private loadExternalTools(): Promise<AgentTool[]> {
+    if (!this.externalToolsPromise) {
+      this.externalToolsPromise = loadExternalMcpTools(this.opts.config.externalMcpServers).catch(
+        (err) => {
+          log.error('external-mcp.load-failed', {
+            error: err instanceof Error ? err.message : String(err),
+          })
+          return []
+        },
+      )
+    }
+    return this.externalToolsPromise
+  }
+
+  /**
+   * Append the cached external MCP tools to the live agent's tool list, idempotently.
+   * Called after scope/model alignment in `acquireForTurn` (which rebuilds
+   * `state.tools` from the local registry), so the remote read-only tools ride
+   * alongside the local ones for the upcoming turn. No-op when none are configured.
+   */
+  private async mergeExternalTools(agent: Agent): Promise<void> {
+    const external = await this.loadExternalTools()
+    if (external.length === 0) return
+    // `acquireForTurn` aligns scope (which sets state.tools) before calling
+    // this, so the live agent always has its local tool list populated here.
+    const current = agent.state.tools
+    const present = new Set(current.map((t) => t.name))
+    const additions = external.filter((t) => !present.has(t.name))
+    if (additions.length === 0) return
+    agent.state.tools = [...current, ...additions]
   }
 
   /** Read-only access to the config snapshot the registry was built with. */
@@ -291,6 +339,9 @@ export class SessionRegistry {
     if (preferences?.provider || preferences?.modelId) {
       this.alignModel(projectName, agent, preferences)
     }
+    // Merge injected remote MCP read-only tools (OSS-A) AFTER scope alignment,
+    // which rebuilds state.tools from the local registry. Idempotent + fail-soft.
+    await this.mergeExternalTools(agent)
     await this.maybeCompact(projectName, agent)
     return agent
   }

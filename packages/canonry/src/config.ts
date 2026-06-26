@@ -184,6 +184,22 @@ export interface VercelTrafficConfigEntry {
   connections?: VercelTrafficConnectionConfigEntry[]
 }
 
+/**
+ * One injected remote MCP server Aero loads read-only tools from (OSS-A).
+ * Generic shape: `{ url, token, label? }`. The transport is bearer-gated MCP
+ * Streamable HTTP (the contract is frozen in `agent/remote-mcp.ts`). The
+ * server is remote, never co-located in the OSS container; per-tenant
+ * isolation is the token's responsibility, not the container boundary.
+ */
+export interface ExternalMcpServerConfig {
+  /** Streamable HTTP endpoint of the remote MCP server. */
+  url: string
+  /** Bearer token sent as `Authorization: Bearer <token>`. */
+  token: string
+  /** Optional human label used in logs. Defaults to `url`. */
+  label?: string
+}
+
 export interface AgentConfigEntry {
   /**
    * Agent mode. `'disabled'` turns the built-in Aero agent OFF entirely — the
@@ -252,6 +268,10 @@ export interface CanonryConfig {
   lastKnownLatestVersion?: string
   // Agent layer configuration (reserved — native loop TBD)
   agent?: AgentConfigEntry
+  // Injected remote MCP servers Aero loads read-only tools from (OSS-A).
+  // Parsed from config.yaml or the CANONRY_EXTERNAL_MCP env var (JSON array).
+  // Generic capability: no host names or ads logic baked in.
+  externalMcpServers?: ExternalMcpServerConfig[]
   // Google Places API config (supplemental GBP lodging data — #648)
   places?: PlacesConfigEntry
   // Read-only embed mode (#716) — opt-in chromeless render + frame-ancestors
@@ -373,7 +393,47 @@ export function loadConfig(): CanonryConfig {
     }
   }
 
+  // Honor CANONRY_EXTERNAL_MCP, a JSON array of injected remote MCP servers
+  // Aero loads read-only tools from (OSS-A). Env wins over config.yaml so a
+  // container can inject servers without a config file. Malformed JSON or a
+  // non-array value is ignored (logged-free, fail-soft) so a bad env var never
+  // blocks startup.
+  const parsedExternalMcp = parseExternalMcpEnv(process.env.CANONRY_EXTERNAL_MCP)
+  if (parsedExternalMcp) {
+    parsed.externalMcpServers = parsedExternalMcp
+  }
+
   return parsed
+}
+
+/**
+ * Parse the `CANONRY_EXTERNAL_MCP` env var into a validated list of remote MCP
+ * server configs. Accepts a JSON array of `{ url, token, label? }`. Returns
+ * undefined when the value is absent, empty, malformed, or carries no entry
+ * with both a `url` and a `token`, the caller leaves `config.externalMcpServers`
+ * untouched in that case.
+ */
+export function parseExternalMcpEnv(raw: string | undefined): ExternalMcpServerConfig[] | undefined {
+  const trimmed = raw?.trim()
+  if (!trimmed) return undefined
+  let value: unknown
+  try {
+    value = JSON.parse(trimmed)
+  } catch {
+    return undefined
+  }
+  if (!Array.isArray(value)) return undefined
+  const servers: ExternalMcpServerConfig[] = []
+  for (const entry of value) {
+    if (!entry || typeof entry !== 'object') continue
+    const candidate = entry as Record<string, unknown>
+    const url = typeof candidate.url === 'string' ? candidate.url.trim() : ''
+    const token = typeof candidate.token === 'string' ? candidate.token : ''
+    if (!url || !token) continue
+    const label = typeof candidate.label === 'string' ? candidate.label : undefined
+    servers.push({ url, token, ...(label ? { label } : {}) })
+  }
+  return servers.length > 0 ? servers : undefined
 }
 
 /**

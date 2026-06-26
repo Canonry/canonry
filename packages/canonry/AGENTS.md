@@ -76,6 +76,7 @@ The publishable npm package (`@ainyc/canonry`). Bundles the CLI, local Fastify s
 | `src/agent/token-counter.ts` | `estimateMessageTokens` / `estimateTranscriptTokens` — chars/4 heuristic handling user/assistant/toolResult content shapes. Used only to decide when to compact, not to enforce provider limits. |
 | `src/agent/tools.ts` | Thin wrapper around `mcp-to-agent-tool.ts` — `buildReadTools(ctx)` and `buildAllTools(ctx)` delegate to `buildMcpAgentTools(canonryMcpTools, ctx)`. Adding a new tool to `mcp/tool-registry.ts` automatically exposes it to Aero — no separate registration in this file. |
 | `src/agent/mcp-to-agent-tool.ts` | Adapter that converts every `CanonryMcpTool` into a pi-agent-core `AgentTool`. Strips `project` from the LLM-visible schema and injects `ctx.projectName` at call time. `AERO_EXCLUDED_MCP_TOOLS` lists tools that ride the registry but should not reach Aero (e.g. `canonry_agent_clear` — Aero must not erase the operator's transcript). |
+| `src/agent/remote-mcp.ts` | `loadExternalMcpTools(servers, opts)`, the injected remote-MCP load path. For each configured `{ url, token, label? }` it connects to a REMOTE MCP server over the FROZEN transport (bearer-gated MCP Streamable HTTP, `connectStreamableHttp`), `listTools()`, and adapts each tool into an `AgentTool` (mirroring `mcp-to-agent-tool.ts`). Read-only filter: a remote tool is adopted ONLY when `annotations.readOnlyHint === true` AND its name is not in the local `AERO_EXCLUDED_MCP_TOOLS` set. Fail-soft: a server that fails to connect/list is logged and skipped, never throwing the whole load; no servers configured returns `[]`. The transport is the contract a remote MCP server must speak (see "Injected remote-MCP load path" below). |
 | `src/agent/skill-tools.ts` | 2 skill-doc tools (`list_skill_docs`, `read_skill_doc`) — progressive disclosure of bundled reference playbooks. Ride in every scope. |
 | `src/agent/skill-paths.ts` | `resolveAeroSkillDir` — finds the on-disk `skills/aero/` (prod/dev/repo candidate paths) for the prompt loader and skill-doc tools |
 | `src/agent/agent-routes.ts` | Fastify routes — `GET/DELETE transcript` + `POST prompt` (SSE) for the dashboard Aero bar |
@@ -239,6 +240,68 @@ Tool surface has two layers:
   Ride in every scope. `SKILL.md` stays lightweight; detailed playbooks
   (workflows, regression diagnosis, reporting templates, integrations) load
   on-demand via slug.
+- **Injected remote MCP tools** (`src/agent/remote-mcp.ts`), read-only tools
+  loaded from external MCP servers configured via `config.externalMcpServers`
+  (or the `CANONRY_EXTERNAL_MCP` env var, a JSON array of `{ url, token, label? }`).
+  Loaded once per `SessionRegistry` lifetime (cached promise) and merged into
+  each session's tool list in `acquireForTurn`, after local-scope alignment.
+  See "Injected remote-MCP load path" below for the frozen transport + filter.
+
+### Injected remote-MCP load path (OSS-A)
+
+Aero can load tools from a REMOTE, externally-hosted MCP server injected via
+config/env. This is a generic capability, no host names, no domain logic.
+
+- **Frozen transport (the contract a remote MCP server must speak):**
+  **token-gated MCP Streamable HTTP**, `StreamableHTTPClientTransport` from
+  `@modelcontextprotocol/sdk/client/streamableHttp.js`, with the bearer token
+  carried in the transport's request headers (`Authorization: Bearer <token>`).
+  SSE is legacy and is NOT used. The remote server is platform/external code,
+  never co-located in the OSS container; the injected env carries only
+  `{ url, token, label? }` and Aero connects out. Per-tenant isolation is the
+  token's responsibility (scoped server-side), NOT the container boundary.
+- **Read-only filter (always applied):** a remote tool is adopted ONLY when it
+  is read-only, keyed off the MCP `annotations.readOnlyHint === true` flag -
+  AND its name is not in `remote-mcp.ts`'s `AERO_EXCLUDED_MCP_TOOLS`. Write
+  tools and excluded tools never reach Aero.
+- **Resilience:** a server that fails to connect or list its tools is logged
+  and skipped; one bad server never aborts the whole load. No servers
+  configured returns `[]` (default path is byte-identical to today).
+- **Config:** `CanonryConfig.externalMcpServers?: ExternalMcpServerConfig[]`
+  (`config.ts`), parsed from `CANONRY_EXTERNAL_MCP` (env wins over config.yaml)
+  by `parseExternalMcpEnv`. Malformed/non-array/entry-missing-url-or-token
+  values are ignored fail-soft.
+- **Seam:** `loadExternalMcpTools(servers, opts)` is the async load function.
+  `createAeroSession` stays synchronous; the registry awaits the load in its
+  already-async `acquireForTurn` and merges the returned tools into
+  `agent.state.tools`. `opts.connect` is the test injection point (the
+  InMemory transport replaces the production StreamableHTTP transport).
+
+### Generic system-prompt append seam (OSS-D)
+
+`appendSystemPromptExtras(base, env?)` (`session.ts`) appends
+`AERO_SYSTEM_PROMPT_APPEND` (inline) and/or the contents of
+`AERO_SYSTEM_PROMPT_FILE` (a mounted file path) AFTER the base soul+SKILL
+prompt, separated by a divider. Empty by default => byte-identical. Generic, no
+product vocabulary. It lives inside `loadAeroSystemPrompt`, so it covers BOTH
+the one-shot `createAeroSession` default path and the registry (which builds on
+`loadAeroSystemPrompt`, then layers the `<memory>` block AFTER, so the appended
+rules frame the task and precede per-session memory). A `systemPromptOverride`
+(tests / explicit full control) deliberately bypasses it. A missing/unreadable
+file is skipped, never breaking the agent. The FILE variant exists so a multi-KB
+prompt is mounted, not crammed into a single `-e` arg.
+
+### Evidence-safe tool-result truncation (OSS-C)
+
+`truncateToolResult` (`mcp-to-agent-tool.ts`) renders a tool result under the
+20 KB cap WITHOUT cutting a row mid-structure. The previous guard blind-sliced
+the serialized JSON, which could split an array element halfway (invalid JSON)
+and silently drop a cited evidence row mid-object. Now: an object whose largest
+field is an array drops WHOLE trailing rows and stamps `__truncated` +
+`__omittedRows`; a top-level array is wrapped as `{ items, __truncated,
+__omittedRows }`; only a giant scalar with nothing structured to drop falls back
+to a marked string slice. Every retained row stays byte-intact; the programmatic
+`details` envelope is never trimmed, only the model-facing text.
 
 System prompt is composed from `skills/aero/soul.md` (identity/voice/values)
 + `skills/aero/SKILL.md` (task rules). Soul is prepended so identity frames
