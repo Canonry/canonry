@@ -4,15 +4,92 @@ import type { ApiClient } from '../client.js'
 import type { CanonryMcpTool } from '../mcp/tool-registry.js'
 
 const MAX_TOOL_RESULT_CHARS = 20_000
+const TRUNCATION_NOTE = '... (truncated — result too large)'
 
-function truncate(json: string): string {
-  if (json.length <= MAX_TOOL_RESULT_CHARS) return json
-  return json.slice(0, MAX_TOOL_RESULT_CHARS) + '\n... (truncated — result too large)'
+/** Pretty JSON, exactly what the model reads in the tool-result text. */
+function serializeResult(value: unknown): string {
+  return JSON.stringify(value, null, 2)
+}
+
+/** The object key whose array value serializes largest (the one worth trimming). */
+function largestArrayKey(obj: Record<string, unknown>): string | undefined {
+  let best: string | undefined
+  let bestLen = -1
+  for (const [k, v] of Object.entries(obj)) {
+    if (!Array.isArray(v)) continue
+    const len = serializeResult(v).length
+    if (len > bestLen) {
+      bestLen = len
+      best = k
+    }
+  }
+  return best
+}
+
+/** Drop WHOLE trailing rows until `render(kept)` fits the cap (or nothing is left). */
+function trimRowsToFit(rows: readonly unknown[], render: (kept: unknown[]) => string): unknown[] {
+  let kept = rows.slice()
+  while (kept.length > 0 && render(kept).length > MAX_TOOL_RESULT_CHARS) {
+    kept = kept.slice(0, -1)
+  }
+  return kept
+}
+
+/**
+ * Render a tool result as JSON text under the size cap WITHOUT cutting a row
+ * mid-structure. The previous behavior blind-sliced the serialized string,
+ * which could split an array element halfway, hand the model invalid JSON, and
+ * silently drop a cited evidence row mid-object. Structure-aware instead:
+ *  - object whose largest field is an array: drop WHOLE trailing rows from that
+ *    array until it fits, stamping `__truncated` + `__omittedRows` on the object;
+ *  - top-level array: same, wrapped as `{ items, __truncated, __omittedRows }`;
+ *  - any other still-oversized value (a giant scalar / string with nothing
+ *    structured to drop): a marked string slice, the last resort.
+ * Every RETAINED row stays byte-intact and the structured output stays parseable
+ * JSON. Only the model-facing text is trimmed; the programmatic `details`
+ * envelope is never touched.
+ */
+export function truncateToolResult(details: unknown): string {
+  const full = serializeResult(details)
+  if (full.length <= MAX_TOOL_RESULT_CHARS) return full
+
+  // Top-level array: trim whole elements, wrap with the marker (always fits, an
+  // empty `items` is tiny).
+  if (Array.isArray(details)) {
+    const kept = trimRowsToFit(details, (rows) =>
+      serializeResult({ items: rows, __truncated: true, __omittedRows: details.length - rows.length }),
+    )
+    return serializeResult({ items: kept, __truncated: true, __omittedRows: details.length - kept.length })
+  }
+
+  // Object whose largest field is an array (the ads-artifact shape): trim that
+  // array by whole rows, keep every other field intact.
+  if (details && typeof details === 'object') {
+    const obj = details as Record<string, unknown>
+    const arrayKey = largestArrayKey(obj)
+    if (arrayKey) {
+      const rows = obj[arrayKey] as unknown[]
+      const kept = trimRowsToFit(rows, (r) =>
+        serializeResult({ ...obj, [arrayKey]: r, __truncated: true, __omittedRows: rows.length - r.length }),
+      )
+      const out = serializeResult({
+        ...obj,
+        [arrayKey]: kept,
+        __truncated: true,
+        __omittedRows: rows.length - kept.length,
+      })
+      // Falls through to the last resort only when the non-array fields ALONE
+      // already blow the cap (nothing structured left to drop).
+      if (out.length <= MAX_TOOL_RESULT_CHARS) return out
+    }
+  }
+
+  return full.slice(0, MAX_TOOL_RESULT_CHARS) + '\n' + TRUNCATION_NOTE
 }
 
 function textResult<T>(details: T): AgentToolResult<T> {
   return {
-    content: [{ type: 'text', text: truncate(JSON.stringify(details, null, 2)) }],
+    content: [{ type: 'text', text: truncateToolResult(details) }],
     details,
   }
 }
