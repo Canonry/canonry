@@ -6,7 +6,7 @@ import { registerBuiltInApiProviders, type Model } from '@mariozechner/pi-ai'
 import type { ApiClient } from '../client.js'
 import type { CanonryConfig } from '../config.js'
 import {
-  AGENT_PROVIDERS,
+  agentProviderApiKeyEnvVar,
   agentProvidersByPriority,
   getAgentProvider,
   resolveApiKeyFor,
@@ -72,9 +72,7 @@ export function loadAeroSystemPrompt(pkgDir?: string): string {
 
 function missingProviderMessage(): string {
   const configHints = agentProvidersByPriority().join(', ')
-  const envHints = agentProvidersByPriority()
-    .map((p) => `${AGENT_PROVIDERS[p].piAiProvider.toUpperCase()}_API_KEY`)
-    .join(' / ')
+  const envHints = agentProvidersByPriority().map(agentProviderApiKeyEnvVar).join(' / ')
   return (
     `No agent LLM provider configured. Add an API key for one of: ${configHints} in ` +
     `~/.canonry/config.yaml, or export ${envHints}.`

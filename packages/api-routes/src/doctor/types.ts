@@ -1,5 +1,5 @@
 import type { DatabaseClient } from '@ainyc/canonry-db'
-import type { BundledSkillSnapshot, CheckCategory, CheckResultDto, CheckScope, CheckStatus } from '@ainyc/canonry-contracts'
+import type { AgentProviderOption, BundledSkillSnapshot, CheckCategory, CheckResultDto, CheckScope, CheckStatus } from '@ainyc/canonry-contracts'
 import type { GoogleConnectionStore } from '../google.js'
 import type { BingConnectionStore } from '../bing.js'
 import type { WordpressConnectionStore } from '../wordpress.js'
@@ -56,6 +56,14 @@ export interface DoctorContext {
   /** Resolved redirect URI (publicUrl + /api/v1/google/callback) used by the OAuth flow. */
   redirectUri?: string
   providerSummary?: ProviderSummaryEntry[]
+  /**
+   * Resolves which agent LLM providers (claude / openai / gemini / zai /
+   * deepinfra) currently have a usable key, for the `config.agent-providers`
+   * check. A closure (not a snapshot) so it reflects keys added at runtime
+   * via the settings API. Wired by `canonry serve`; cloud deployments that
+   * don't run the built-in agent leave it undefined and the check `skipped`.
+   */
+  getAgentProviderSummary?: () => AgentProviderOption[]
   /**
    * Map of `traffic_sources.source_type` → adapter-specific validator. The
    * generic `traffic.source.credentials` / `traffic.source.scopes` checks

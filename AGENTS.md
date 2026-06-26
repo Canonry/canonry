@@ -179,8 +179,11 @@ the external-agent webhook path via `canonry agent attach <url>`.
 ### Built-in Aero (native loop)
 
 - **CLI:** `canonry agent ask <project> "<prompt>"` — one-shot, streams
-  `AgentEvent`s to stdout. Supports `--provider claude|openai|gemini|zai`
-  and `--format json`.
+  `AgentEvent`s to stdout. Supports `--provider claude|openai|gemini|zai|deepinfra`
+  and `--format json`. `deepinfra` is a Western-hosted OpenAI-compatible host
+  (GLM-5.2 / DeepSeek-V4-Flash); its key comes from `DEEPINFRA_TOKEN` or
+  `providers.deepinfra.apiKey`, and `DEEPINFRA_BASE_URL` repoints the host at a
+  proxy (e.g. a LiteLLM gateway) — unset falls back to `api.deepinfra.com`.
 - **Dashboard:** the bottom command bar on every project-scoped route.
   SSE-streamed. Starter buttons cover the common ops (status, insights,
   last failed run, schedule).
@@ -253,7 +256,8 @@ Each check returns `status: ok | warn | fail | skipped`, a stable machine-readab
 | integrations | `traffic.source.recent-data` | project | Connected sources have crawler/AI-referral events in the last 7d (warn) or 30d (fail) |
 | integrations | `backlinks.source.connected` | project | At least one backlink source is set up — Common Crawl (`autoExtractBacklinks` + a `ready` release sync) OR Bing Webmaster (a connection for the domain); warns when a project has neither |
 | integrations | `content.winnability.coverage` | project | Discovery classification coverage for cited-surface domains behind the content winnability gate; warns when discovery has not classified the domains that make ownable/ceded decisions meaningful |
-| providers | `config.providers` | global | At least one provider key configured |
+| providers | `config.providers` | global | At least one answer-engine provider key configured |
+| providers | `config.agent-providers` | global | At least one agent LLM provider (claude / openai / gemini / zai / deepinfra) has a usable key — warns when none do (the built-in Aero agent can't run); skipped on deployments that don't run the agent |
 | agent | `agent.skills.installed` | global | Both bundled skills (`canonry`, `aero`) are present under `~/.claude/skills/` |
 | agent | `agent.skills.current` | global | Installed `~/.claude/skills/` trees are not behind the bundled build — warns when a newly shipped or upstream-updated file has not been picked up (skips when nothing is installed; local edits are reported but do not count as "behind") |
 

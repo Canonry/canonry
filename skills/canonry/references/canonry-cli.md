@@ -631,6 +631,7 @@ cnry agent ask <project> "<prompt>" --provider anthropic --model claude-opus-4-7
 cnry agent ask <project> "<prompt>" --provider zai      --model glm-5.1
 cnry agent ask <project> "<prompt>" --provider openai
 cnry agent ask <project> "<prompt>" --provider google
+cnry agent ask <project> "<prompt>" --provider deepinfra --model zai-org/GLM-5.2   # Western-hosted GLM/DeepSeek (key: DEEPINFRA_TOKEN)
 
 # Restrict the tool surface. Default is --scope all (full read+write surface).
 # --scope read-only matches the dashboard bar default so pasted "Copy as CLI"
@@ -651,9 +652,12 @@ cnry agent memory forget <project> --key <k>
 ```
 
 **Provider detection order** when `--provider` is omitted: `anthropic` →
-`openai` → `google` → `zai`, whichever has an API key present first
-(from `~/.canonry/config.yaml` providers block, or the matching env var
-`ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GEMINI_API_KEY` / `ZAI_API_KEY`).
+`openai` → `google` → `zai` → `deepinfra`, whichever has an API key present
+first (from `~/.canonry/config.yaml` providers block, or the matching env var
+`ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GEMINI_API_KEY` / `ZAI_API_KEY` /
+`DEEPINFRA_TOKEN`). `deepinfra` (GLM-5.2 / DeepSeek-V4-Flash) is a
+Western-hosted OpenAI-compatible host — useful when the agent / analyze /
+classify tiers must avoid PRC-hosted GLM (`zai`).
 
 Conversations **persist per project** — `cnry agent ask` continues the
 same rolling thread each invocation. Reset with `cnry agent reset <project>`

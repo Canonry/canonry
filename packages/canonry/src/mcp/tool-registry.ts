@@ -276,7 +276,7 @@ const contentTargetsInputSchema = z.object({
 const contentBriefInputSchema = z.object({
   project: projectNameSchema,
   targetRef: z.string().min(1).describe('Stable target ref from canonry_content_targets. The target must be ownable; ceded targets are rejected.'),
-  provider: z.string().optional().describe('Optional provider override (claude|openai|gemini|zai).'),
+  provider: z.string().optional().describe('Optional provider override (claude|openai|gemini|zai|deepinfra).'),
   model: z.string().optional().describe('Optional model override within the chosen provider.'),
   forceRefresh: z.boolean().optional().describe('Force a fresh synthesis even if a cached brief exists.'),
 })

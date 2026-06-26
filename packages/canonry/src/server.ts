@@ -95,6 +95,7 @@ import { Notifier } from './notifier.js'
 import { IntelligenceService } from './intelligence-service.js'
 import { RunCoordinator } from './run-coordinator.js'
 import { SessionRegistry } from './agent/session-registry.js'
+import { buildAgentProvidersResponse } from './agent/providers.js'
 import { registerAgentRoutes } from './agent/agent-routes.js'
 import { createRecommendationExplainer, createRecommendationBriefSynthesizer, RECOMMENDATION_BRIEF_PROMPT_VERSION } from './agent/recommendation-explainer.js'
 import { ApiClient } from './client.js'
@@ -1312,6 +1313,9 @@ export async function createServer(opts: {
     },
     getGoogleAuthConfig: () => getGoogleAuthConfig(opts.config),
     getPlacesConfig: () => getPlacesConfig(opts.config),
+    // Resolved fresh each call so a key added at runtime (settings API) shows
+    // up immediately in the `config.agent-providers` doctor check.
+    getAgentProviderSummary: () => buildAgentProvidersResponse(opts.config).providers,
     googleConnectionStore,
     googleStateSecret,
     publicUrl: opts.config.publicUrl,
