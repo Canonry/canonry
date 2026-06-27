@@ -10,6 +10,7 @@ import {
   formatIsoDate,
   formatNumber,
   formatRatio,
+  formatRelativeTime,
   formatWindowCountDelta,
   parseInclusiveEndMs,
 } from '../src/formatting.js'
@@ -258,5 +259,51 @@ describe('parseInclusiveEndMs', () => {
 
   test('returns null for an unparseable value', () => {
     expect(parseInclusiveEndMs('not-a-date')).toBeNull()
+  })
+})
+
+describe('formatRelativeTime', () => {
+  const now = '2026-06-27T12:00:00.000Z'
+  const ago = (ms: number) => new Date(Date.parse(now) - ms).toISOString()
+
+  test('under a minute reads "just now"', () => {
+    expect(formatRelativeTime(ago(0), now)).toBe('just now')
+    expect(formatRelativeTime(ago(59_000), now)).toBe('just now')
+  })
+
+  test('minutes', () => {
+    expect(formatRelativeTime(ago(60_000), now)).toBe('1m ago')
+    expect(formatRelativeTime(ago(59 * 60_000), now)).toBe('59m ago')
+  })
+
+  test('crosses to hours at 60 minutes', () => {
+    expect(formatRelativeTime(ago(60 * 60_000), now)).toBe('1h ago')
+    expect(formatRelativeTime(ago(23 * 60 * 60_000), now)).toBe('23h ago')
+  })
+
+  test('crosses to days at 24 hours, up to 7 days', () => {
+    expect(formatRelativeTime(ago(24 * 60 * 60_000), now)).toBe('1d ago')
+    expect(formatRelativeTime(ago(7 * 24 * 60 * 60_000), now)).toBe('7d ago')
+  })
+
+  test('beyond 7 days falls back to the absolute calendar date', () => {
+    const old = ago(8 * 24 * 60 * 60_000)
+    expect(formatRelativeTime(old, now)).toBe(formatDate(old))
+  })
+
+  test('future skew (clock drift) clamps to "just now", never a negative interval', () => {
+    const future = new Date(Date.parse(now) + 5 * 60_000).toISOString()
+    expect(formatRelativeTime(future, now)).toBe('just now')
+  })
+
+  test('is deterministic given a fixed nowIso (no wall-clock read)', () => {
+    const ts = ago(90 * 60_000)
+    expect(formatRelativeTime(ts, now)).toBe(formatRelativeTime(ts, now))
+    expect(formatRelativeTime(ts, now)).toBe('1h ago')
+  })
+
+  test('empty and unparseable inputs degrade gracefully', () => {
+    expect(formatRelativeTime('', now)).toBe('—')
+    expect(formatRelativeTime('not-a-date', now)).toBe(formatDate('not-a-date'))
   })
 })

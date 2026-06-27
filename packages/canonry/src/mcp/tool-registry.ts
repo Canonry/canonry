@@ -528,6 +528,18 @@ export const canonryMcpTools = [
     handler: (client, input) => client.getReport(input.project, input.period !== undefined ? { period: input.period } : undefined),
   }),
   defineTool({
+    name: 'canonry_portfolio',
+    title: 'Get portfolio change feed (composite)',
+    description:
+      'One-call cross-project portfolio: a server-ordered "what changed" feed — citation and mention gains/losses over each project\'s comparable query basket, failed sweeps, critical/high insight echoes, stale-visibility, query-set changes, and never-run projects, ranked by recency then severity — plus a timestamped recent-runs log carrying BOTH result signals (mentioned vs cited counts, independent) and a per-project state table. Probe runs excluded. Use it to answer "what changed across all my projects" without fanning out per project. `generatedAt` anchors every relative timestamp.',
+    access: 'read',
+    tier: 'monitoring',
+    inputSchema: emptyInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/portfolio'],
+    handler: (client) => client.getPortfolio(),
+  }),
+  defineTool({
     name: 'canonry_analytics_metrics',
     title: 'Get citation & mention trend',
     description:

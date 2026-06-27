@@ -1,4 +1,10 @@
-import type { ProjectDto } from '@ainyc/canonry-contracts'
+import type {
+  PortfolioChangeDto,
+  PortfolioDto,
+  PortfolioProjectRowDto,
+  PortfolioRunDto,
+  ProjectDto,
+} from '@ainyc/canonry-contracts'
 
 import type {
   CitationInsightVm,
@@ -30,6 +36,9 @@ export interface DashboardFixtureOptions {
 export interface DashboardFixture {
   dashboard: DashboardVm
   health: HealthSnapshot
+  /** Server `GET /api/v1/portfolio` shape the Overview page consumes via
+   *  `usePortfolio`. Seed it into the test QueryClient under `['portfolio']`. */
+  portfolio: PortfolioDto
 }
 
 const projects: ProjectDto[] = [
@@ -1212,7 +1221,173 @@ export function createDashboardFixture(options: DashboardFixtureOptions = {}): D
     }
   }
 
-  return { dashboard, health }
+  return { dashboard, health, portfolio: createPortfolioFixture(options) }
+}
+
+/**
+ * Mock `PortfolioDto` for the Overview page, consistent with the dashboard
+ * fixture's three projects. `emptyPortfolio` returns the zero-project shape so
+ * the onboarding empty state renders.
+ */
+export function createPortfolioFixture(options: DashboardFixtureOptions = {}): PortfolioDto {
+  const generatedAt = '2026-03-09T13:08:00.000Z'
+
+  if (options.emptyPortfolio) {
+    return {
+      generatedAt,
+      lastSweepAt: null,
+      projectCount: 0,
+      comparableProjectCount: 0,
+      firstSweepProjectCount: 0,
+      changeFeed: [],
+      changeFeedTotal: 0,
+      feedEmptyState: {
+        kind: 'awaiting-second-sweep',
+        title: 'No changes to compare yet',
+        detail: 'Visibility movement appears after a second sweep.',
+      },
+      recentRuns: [],
+      projects: [],
+    }
+  }
+
+  const projectRows: PortfolioProjectRowDto[] = [
+    {
+      projectSlug: 'Citypoint Dental NYC',
+      projectName: 'Citypoint Dental NYC',
+      canonicalDomain: 'citypointdental.com',
+      mentionScore: 58,
+      mentionTone: 'caution',
+      mentionedOfTotal: { mentioned: 7, total: 12 },
+      citedOfTotal: { cited: 6, total: 12 },
+      mentionDelta: { gained: 0, lost: 1, comparable: true },
+      citationDelta: { gained: 0, lost: 1, comparable: true },
+      competitorPressureLabel: 'Moderate',
+      mentionTrend: [72, 66, 58],
+      lastRunAt: '2026-03-08T15:00:42.000Z',
+      hasEverRun: true,
+    },
+    {
+      projectSlug: 'Harbor Legal Group',
+      projectName: 'Harbor Legal Group',
+      canonicalDomain: 'harborlegal.com',
+      mentionScore: 81,
+      mentionTone: 'positive',
+      mentionedOfTotal: { mentioned: 11, total: 14 },
+      citedOfTotal: { cited: 10, total: 14 },
+      mentionDelta: { gained: 1, lost: 0, comparable: true },
+      citationDelta: { gained: 1, lost: 0, comparable: true },
+      competitorPressureLabel: 'Low',
+      mentionTrend: [70, 78, 81],
+      lastRunAt: '2026-03-08T14:00:36.000Z',
+      hasEverRun: true,
+    },
+    {
+      projectSlug: 'Northstar Orthopedics',
+      projectName: 'Northstar Orthopedics',
+      canonicalDomain: 'northstarortho.com',
+      mentionScore: 44,
+      mentionTone: 'neutral',
+      mentionedOfTotal: { mentioned: 4, total: 9 },
+      citedOfTotal: { cited: 3, total: 9 },
+      mentionDelta: { gained: 0, lost: 0, comparable: true },
+      citationDelta: { gained: 0, lost: 0, comparable: true },
+      competitorPressureLabel: 'Low',
+      mentionTrend: [40, 42, 44],
+      lastRunAt: '2026-03-08T13:00:30.000Z',
+      hasEverRun: true,
+    },
+  ]
+
+  const recentRuns: PortfolioRunDto[] = [
+    {
+      runId: 'run_citypoint_visibility_20260308',
+      projectName: 'Citypoint Dental NYC',
+      projectSlug: 'Citypoint Dental NYC',
+      kindLabel: 'Answer visibility sweep',
+      status: 'completed',
+      createdAt: '2026-03-08T15:00:00.000Z',
+      startedAt: '2026-03-08T15:00:00.000Z',
+      finishedAt: '2026-03-08T15:00:42.000Z',
+      durationMs: 42_000,
+      mentionedCount: 7,
+      citedCount: 6,
+      totalCount: 12,
+      errorSummary: null,
+    },
+    {
+      runId: 'run_harbor_visibility_20260308',
+      projectName: 'Harbor Legal Group',
+      projectSlug: 'Harbor Legal Group',
+      kindLabel: 'Answer visibility sweep',
+      status: 'completed',
+      createdAt: '2026-03-08T14:00:00.000Z',
+      startedAt: '2026-03-08T14:00:00.000Z',
+      finishedAt: '2026-03-08T14:00:36.000Z',
+      durationMs: 36_000,
+      mentionedCount: 11,
+      citedCount: 10,
+      totalCount: 14,
+      errorSummary: null,
+    },
+    {
+      runId: 'run_northstar_visibility_20260308',
+      projectName: 'Northstar Orthopedics',
+      projectSlug: 'Northstar Orthopedics',
+      kindLabel: 'Answer visibility sweep',
+      status: 'completed',
+      createdAt: '2026-03-08T13:00:00.000Z',
+      startedAt: '2026-03-08T13:00:00.000Z',
+      finishedAt: '2026-03-08T13:00:30.000Z',
+      durationMs: 30_000,
+      mentionedCount: 4,
+      citedCount: 3,
+      totalCount: 9,
+      errorSummary: null,
+    },
+  ]
+
+  const changeFeed: PortfolioChangeDto[] = [
+    {
+      id: 'Citypoint Dental NYC:citation-lost:run_citypoint_visibility_20260308',
+      projectName: 'Citypoint Dental NYC',
+      projectSlug: 'Citypoint Dental NYC',
+      changeType: 'citation-lost',
+      tone: 'negative',
+      title: 'Citypoint Dental NYC lost 1 cited query',
+      detail: '"emergency dentist near me"',
+      occurredAt: '2026-03-08T15:00:42.000Z',
+      href: '/projects/Citypoint%20Dental%20NYC',
+      actionLabel: 'Open project',
+      comparable: true,
+    },
+    {
+      id: 'Harbor Legal Group:mention-gained:run_harbor_visibility_20260308',
+      projectName: 'Harbor Legal Group',
+      projectSlug: 'Harbor Legal Group',
+      changeType: 'mention-gained',
+      tone: 'positive',
+      title: 'Harbor Legal Group now mentioned in 1 more answer',
+      detail: '"personal injury lawyer brooklyn"',
+      occurredAt: '2026-03-08T14:00:36.000Z',
+      href: '/projects/Harbor%20Legal%20Group',
+      actionLabel: 'Open project',
+      comparable: true,
+    },
+  ]
+
+  return {
+    generatedAt,
+    lastSweepAt: '2026-03-08T15:00:42.000Z',
+    projectCount: 3,
+    comparableProjectCount: 3,
+    firstSweepProjectCount: 0,
+    changeFeed,
+    changeFeedTotal: changeFeed.length,
+    feedEmptyState: null,
+    recentRuns,
+    projects: projectRows,
+  }
 }
 
 export function findProjectVm(dashboard: DashboardVm, projectId: string): ProjectCommandCenterVm | undefined {

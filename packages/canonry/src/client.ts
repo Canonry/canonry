@@ -93,6 +93,7 @@ import type {
   CompetitorDto,
   KeywordDto,
   QueryDto,
+  PortfolioDto,
   ProjectOverviewDto,
   ProjectSearchResponseDto,
   DoctorReportDto,
@@ -137,6 +138,7 @@ import {
   deleteApiV1ProjectsByName,
   getApiV1ProjectsByNameDeletePreview,
   getApiV1ProjectsByNameExport,
+  getApiV1Portfolio,
   getApiV1ProjectsByNameOverview,
   getApiV1ProjectsByNameSearch,
   getApiV1ProjectsByNameReport,
@@ -756,6 +758,10 @@ export class ApiClient {
 
   async apply(config: object): Promise<ApplyResultDto> {
     return this.invoke<ApplyResultDto>(() => postApiV1Apply({ client: this.heyClient, body: config as never }))
+  }
+
+  async getPortfolio(): Promise<PortfolioDto> {
+    return this.invoke<PortfolioDto>(() => getApiV1Portfolio({ client: this.heyClient }))
   }
 
   async getProjectOverview(

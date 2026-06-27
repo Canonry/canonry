@@ -22,6 +22,10 @@ async function renderRoute(pathname: string, options: Parameters<typeof createDa
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
+  // Overview reads the server portfolio composite (key ['portfolio']) + live
+  // health (key ['health']); seed both so the route renders real content.
+  queryClient.setQueryData(['portfolio'], fixture.portfolio)
+  queryClient.setQueryData(['health'], fixture.health)
   const router = createAppRouter(queryClient, { initialEntries: [pathname] })
 
   await router.load()
@@ -182,13 +186,15 @@ test('sidebar highlights the active route', async () => {
 // ── Drawer via search params ──
 
 test('?runId= opens the run drawer', async () => {
-  const { container, fixture } = await renderRoute('/?runId=run_citypoint_001')
-  const firstRun = fixture.dashboard.runs[0]
-  if (firstRun) {
-    await waitFor(() => {
-      expect(container.innerHTML).toMatch(firstRun.summary)
-    })
-  }
+  // The drawer resolves the run from the dashboard runs (via context), keyed by
+  // the `runId` search param. It renders through a Radix Sheet that PORTALS to
+  // document.body — so assert against the document, not the render container.
+  const firstRun = createDashboardFixture().dashboard.runs[0]!
+  const { router } = await renderRoute(`/?runId=${firstRun.id}`)
+  expect(router.state.location.search).toMatchObject({ runId: firstRun.id })
+  await waitFor(() => {
+    expect(document.body.innerHTML).toMatch(firstRun.summary)
+  })
 })
 
 // ── Browser back/forward ──

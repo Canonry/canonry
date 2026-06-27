@@ -182,6 +182,27 @@ describe('probe runs are excluded from dashboard / analytics aggregates', () => 
     expect(body.latestRun?.run?.id).toBe(ctx.realRunId)
   })
 
+  it('portfolio composite excludes probes from recentRuns, lastSweepAt, and project state', async () => {
+    const { body } = await get<{
+      lastSweepAt: string | null
+      recentRuns: { runId: string; mentionedCount: number | null; citedCount: number | null }[]
+      projects: {
+        projectSlug: string
+        mentionedOfTotal: { mentioned: number; total: number }
+        citedOfTotal: { cited: number; total: number }
+      }[]
+    }>(`/api/v1/portfolio`)
+    // The probe is newer; an unfiltered query would surface it as the newest
+    // run and drag the cited/mentioned state to 0. Only the real run may show.
+    expect(body.recentRuns.map(r => r.runId)).toEqual([ctx.realRunId])
+    expect(body.recentRuns[0]?.mentionedCount).toBe(1)
+    expect(body.recentRuns[0]?.citedCount).toBe(1)
+    expect(body.lastSweepAt).toBeTruthy()
+    const proj = body.projects.find(p => p.projectSlug === 'probe-excl')!
+    expect(proj.mentionedOfTotal).toEqual({ mentioned: 1, total: 1 })
+    expect(proj.citedOfTotal).toEqual({ cited: 1, total: 1 })
+  })
+
   it('runs/latest returns the real run and totalRuns excludes the probe', async () => {
     // The probe is intentionally newer than the real run, so an unfiltered
     // ORDER BY created_at DESC + LIMIT 1 would surface the probe. This
