@@ -135,11 +135,13 @@ export interface AgentProviderEntry {
  *     model. All three tiers point at flash.
  *   - Zai: glm-5.1 is the agent tier; glm-5.1-flash is the cheap tier
  *     for analyze + classify.
- *   - DeepInfra: GLM-5.2 (Western-hosted open weights) is the agent tier;
- *     DeepSeek-V4-Flash is the cheap tier for analyze + classify. These are
- *     DeepInfra `org/Model` slugs, not pi-ai catalog ids — model resolution
- *     builds a custom openai-completions model (see `buildOpenAiCompatibleModel`).
- *     Serving is quantized (FP8/FP4); validate quality before production use.
+ *   - DeepInfra: GLM-5.2 (Western-hosted, Sonnet-class open weights) on all
+ *     three tiers. At ~$0.95/$3.00 per 1M it undercuts the Claude analyze
+ *     (Sonnet) and classify (Haiku) tiers it replaces, so the cheaper tiers
+ *     take no quality hit. These are DeepInfra `org/Model` slugs, not pi-ai
+ *     catalog ids — model resolution builds a custom openai-completions model
+ *     (see `buildOpenAiCompatibleModel`). Serving is quantized (FP8/FP4);
+ *     validate quality before production use.
  */
 export const PROVIDER_MODELS = {
   [AgentProviderIds.claude]: {
@@ -168,12 +170,13 @@ export const PROVIDER_MODELS = {
     [LlmCapabilities.classify]: 'glm-5-turbo',
   },
   [AgentProviderIds.deepinfra]: {
-    // DeepInfra `org/Model` slugs. GLM-5.2 drives the agent loop; the much
-    // cheaper DeepSeek-V4-Flash fills analyze + classify. Resolved into a
-    // custom openai-completions model, not pi-ai's catalog.
+    // DeepInfra `org/Model` slugs. GLM-5.2 (Sonnet-class) on all three tiers —
+    // it undercuts the Claude tiers it replaces, so the cheaper tiers take no
+    // quality hit. Resolved into a custom openai-completions model, not pi-ai's
+    // catalog.
     [LlmCapabilities.agent]: 'zai-org/GLM-5.2',
-    [LlmCapabilities.analyze]: 'deepseek-ai/DeepSeek-V4-Flash',
-    [LlmCapabilities.classify]: 'deepseek-ai/DeepSeek-V4-Flash',
+    [LlmCapabilities.analyze]: 'zai-org/GLM-5.2',
+    [LlmCapabilities.classify]: 'zai-org/GLM-5.2',
   },
 } as const satisfies Record<AgentProviderId, Record<LlmCapability, string>>
 

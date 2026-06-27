@@ -655,7 +655,7 @@ cnry agent memory forget <project> --key <k>
 `openai` → `google` → `zai` → `deepinfra`, whichever has an API key present
 first (from `~/.canonry/config.yaml` providers block, or the matching env var
 `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GEMINI_API_KEY` / `ZAI_API_KEY` /
-`DEEPINFRA_TOKEN`). `deepinfra` (GLM-5.2 / DeepSeek-V4-Flash) is a
+`DEEPINFRA_TOKEN`). `deepinfra` (GLM-5.2) is a
 Western-hosted OpenAI-compatible host — useful when the agent / analyze /
 classify tiers must avoid PRC-hosted GLM (`zai`).
 
