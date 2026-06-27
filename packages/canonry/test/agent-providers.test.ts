@@ -327,7 +327,7 @@ describe('deepinfra (custom OpenAI-compatible host)', () => {
     baseUrl: string
     reasoning: boolean
     cost: { input: number; output: number; cacheRead: number; cacheWrite: number }
-    compat?: { supportsDeveloperRole?: boolean; maxTokensField?: string }
+    compat?: { supportsDeveloperRole?: boolean; maxTokensField?: string; thinkingFormat?: string }
   }
 
   it('is registered, agent-only, and carries an openaiCompatible host config', () => {
@@ -362,6 +362,19 @@ describe('deepinfra (custom OpenAI-compatible host)', () => {
     const model = resolveModelForCapability('deepinfra', LlmCapabilities.agent) as unknown as CompletionsModel
     expect(model.compat?.supportsDeveloperRole).toBe(false)
     expect(model.compat?.maxTokensField).toBe('max_tokens')
+  })
+
+  it('suppresses thinking on the cheap tiers, not the agent tier', () => {
+    // agent → host default thinking (no thinkingFormat pin).
+    const agent = resolveModelForCapability('deepinfra', LlmCapabilities.agent) as unknown as CompletionsModel
+    expect(agent.compat?.thinkingFormat).toBeUndefined()
+    // analyze + classify → enable_thinking:false via GLM's chat-template switch,
+    // merged onto (not replacing) the base open-model compat profile.
+    for (const cap of [LlmCapabilities.analyze, LlmCapabilities.classify]) {
+      const model = resolveModelForCapability('deepinfra', cap) as unknown as CompletionsModel
+      expect(model.compat?.thinkingFormat).toBe('qwen-chat-template')
+      expect(model.compat?.maxTokensField).toBe('max_tokens')
+    }
   })
 
   it('applies per-slug known-model metadata and falls back for unknown slugs', () => {
