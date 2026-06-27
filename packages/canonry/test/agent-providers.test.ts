@@ -338,10 +338,10 @@ describe('deepinfra (custom OpenAI-compatible host)', () => {
     expect(entry.openaiCompatible?.apiKeyEnvVar).toBe('DEEPINFRA_TOKEN')
   })
 
-  it('agent tier is GLM-5.2; analyze + classify share the cheaper DeepSeek tier', () => {
+  it('runs GLM-5.2 on all three tiers (agent, analyze, classify)', () => {
     expect(PROVIDER_MODELS.deepinfra[LlmCapabilities.agent]).toBe('zai-org/GLM-5.2')
-    expect(PROVIDER_MODELS.deepinfra[LlmCapabilities.analyze]).toBe('deepseek-ai/DeepSeek-V4-Flash')
-    expect(PROVIDER_MODELS.deepinfra[LlmCapabilities.classify]).toBe('deepseek-ai/DeepSeek-V4-Flash')
+    expect(PROVIDER_MODELS.deepinfra[LlmCapabilities.analyze]).toBe('zai-org/GLM-5.2')
+    expect(PROVIDER_MODELS.deepinfra[LlmCapabilities.classify]).toBe('zai-org/GLM-5.2')
     // defaultModel mirrors the agent tier (covered generically elsewhere too).
     expect(getAgentProvider('deepinfra').defaultModel).toBe('zai-org/GLM-5.2')
   })
@@ -422,7 +422,7 @@ describe('deepinfra (custom OpenAI-compatible host)', () => {
   })
 
   it("reports DeepInfra's real 1M (fp4) context window for the shipped tiers", () => {
-    // GLM-5.2 and DeepSeek-V4-Flash both serve at 1,048,576 on DeepInfra.
+    // All three tiers run GLM-5.2, which serves at 1,048,576 (fp4) on DeepInfra.
     for (const capability of LLM_CAPABILITIES) {
       const model = resolveModelForCapability('deepinfra', capability) as unknown as { contextWindow: number }
       expect(model.contextWindow).toBe(1_048_576)
