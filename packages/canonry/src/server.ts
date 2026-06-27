@@ -11,6 +11,7 @@ const { version: PKG_VERSION } = _require("../package.json") as {
 };
 import Fastify from "fastify";
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
+import type { SetHeadersResponse } from "@fastify/static";
 import { apiRoutes } from "@ainyc/canonry-api-routes";
 import {
   apiKeys,
@@ -2132,14 +2133,14 @@ export async function createServer(opts: {
       // Without this, the browser hits the server for every JS chunk on
       // every page load, defeating most of the dashboard's first-paint
       // budget.
-      setHeaders: (reply: FastifyReply, filePath: string) => {
+      setHeaders: (res: SetHeadersResponse, path: string) => {
         // index.html serving is handled separately below; this static
         // middleware doesn't actually serve it (index:false), but guard
         // anyway in case fastify-static falls back through here.
-        if (filePath.endsWith(".html")) {
-          reply.header("Cache-Control", "no-cache, must-revalidate");
+        if (path.endsWith(".html")) {
+          res.setHeader("Cache-Control", "no-cache, must-revalidate");
         } else {
-          reply.header("Cache-Control", "public, max-age=31536000, immutable");
+          res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
         }
       },
     });
