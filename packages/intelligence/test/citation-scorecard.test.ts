@@ -42,7 +42,7 @@ describe('buildCitationScorecard', () => {
       model: 'gemini-2.5-flash',
     })
     expect(result.providerRates).toEqual([
-      { provider: 'gemini', citedCount: 1, totalCount: 1, citationRate: 100 },
+      { provider: 'gemini', citedCount: 1, mentionedCount: 0, totalCount: 1, citationRate: 100, mentionRate: 0 },
     ])
   })
 
@@ -53,7 +53,7 @@ describe('buildCitationScorecard', () => {
     )
     expect(result.matrix[0]![0]?.citationState).toBe('not-cited')
     expect(result.providerRates).toEqual([
-      { provider: 'gemini', citedCount: 0, totalCount: 1, citationRate: 0 },
+      { provider: 'gemini', citedCount: 0, mentionedCount: 0, totalCount: 1, citationRate: 0, mentionRate: 0 },
     ])
   })
 
@@ -118,7 +118,23 @@ describe('buildCitationScorecard', () => {
       lookup([['q1', 'a'], ['q2', 'b'], ['q3', 'c']]),
     )
     expect(result.providerRates).toEqual([
-      { provider: 'gemini', citedCount: 2, totalCount: 3, citationRate: 67 },
+      { provider: 'gemini', citedCount: 2, mentionedCount: 0, totalCount: 3, citationRate: 67, mentionRate: 0 },
+    ])
+  })
+
+  it('tracks provider mention rate independently from citation rate', () => {
+    const snapshots = [
+      snap({ queryId: 'q1', citationState: 'cited', answerMentioned: false }),
+      snap({ queryId: 'q2', citationState: 'not-cited', answerMentioned: true }),
+      snap({ queryId: 'q3', citationState: 'not-cited', answerMentioned: false }),
+    ]
+    const result = buildCitationScorecard(
+      snapshots,
+      lookup([['q1', 'a'], ['q2', 'b'], ['q3', 'c']]),
+    )
+
+    expect(result.providerRates).toEqual([
+      { provider: 'gemini', citedCount: 1, mentionedCount: 1, totalCount: 3, citationRate: 33, mentionRate: 33 },
     ])
   })
 
@@ -133,8 +149,10 @@ describe('buildCitationScorecard', () => {
     expect(result.providerRates[0]).toEqual({
       provider: 'gemini',
       citedCount: 1,
+      mentionedCount: 0,
       totalCount: 2,
       citationRate: 50,
+      mentionRate: 0,
     })
   })
 

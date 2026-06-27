@@ -1715,8 +1715,10 @@ export type ProjectReportDto = {
         providerRates: Array<{
             provider: string;
             citedCount: number;
+            mentionedCount: number;
             totalCount: number;
             citationRate: number;
+            mentionRate: number;
         }>;
     };
     competitorLandscape: {
@@ -1914,6 +1916,7 @@ export type ProjectReportDto = {
         providerRates: Array<{
             provider: string;
             citationRate: number;
+            mentionRate: number;
         }>;
     }>;
     whatsChanged: {
@@ -1936,6 +1939,14 @@ export type ProjectReportDto = {
             window?: number;
         } | null;
         citedQueryCount: {
+            current: number;
+            prior: number;
+            deltaAbs: number;
+            deltaPct: number | null;
+            direction: 'up' | 'down' | 'flat';
+            window?: number;
+        } | null;
+        mentionedQueryCount: {
             current: number;
             prior: number;
             deltaAbs: number;

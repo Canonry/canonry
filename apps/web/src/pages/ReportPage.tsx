@@ -336,11 +336,11 @@ function ClientSummarySection({ report }: { report: ProjectReportDto }) {
   const exec = report.executiveSummary
   const sc = report.citationScorecard
   const totalQ = exec.totalQueryCount
-  const heroNumber = totalQ > 0 ? `${exec.citationRate}%` : '—'
+  const heroNumber = totalQ > 0 ? `${exec.mentionRate}%` : '—'
   const heroSentence = totalQ > 0
-    ? `When customers asked AI ${totalQ} ${totalQ === 1 ? 'question' : 'questions'} about your industry, AI linked to your website in ${exec.citedQueryCount} of ${totalQ === 1 ? 'them' : 'those answers'}.`
+    ? `When customers asked AI ${totalQ} ${totalQ === 1 ? 'question' : 'questions'} about your industry, AI mentioned you in ${exec.mentionedQueryCount} of ${totalQ === 1 ? 'them' : 'those answers'}.`
     : 'No AI check has been run yet. Run a check to see how AI tools answer customer questions about your business.'
-  const trend = clientTrendCopy(report.whatsChanged.citationRate)
+  const trend = clientTrendCopy(report.whatsChanged.mentionRate)
   const providerSubtitle = sc.providers.length > 0
     ? sc.providers.map(providerDisplayName).join(', ')
     : `${formatNumber(exec.queryCount)} ${exec.queryCount === 1 ? 'question' : 'questions'} tested`
@@ -400,17 +400,17 @@ function ClientSummarySection({ report }: { report: ProjectReportDto }) {
 
       {sc.providerRates.length > 0 && (
         <div className="mt-5 rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-5">
-          <p className="text-sm font-semibold text-zinc-100">How often each AI tool links to your website</p>
-          <p className="mt-1 text-xs text-zinc-500">Higher is better. Each bar shows the share of customer questions where the AI cited your site.</p>
+          <p className="text-sm font-semibold text-zinc-100">How often each AI tool mentions you</p>
+          <p className="mt-1 text-xs text-zinc-500">Higher is better. Each bar shows the share of customer questions where the AI named you in the answer.</p>
           <div className="mt-4 space-y-3">
             {sc.providerRates.map(r => (
               <div key={r.provider} className="grid grid-cols-[120px_1fr_120px] items-center gap-3">
                 <span className="text-sm text-zinc-300">{providerDisplayName(r.provider)}</span>
                 <div className="h-3 overflow-hidden rounded-full bg-zinc-800/80">
-                  <div className="h-full rounded-full bg-emerald-500/70" style={{ width: `${Math.max(r.citationRate, 1.5)}%` }} />
+                  <div className="h-full rounded-full bg-emerald-500/70" style={{ width: `${Math.max(r.mentionRate, 1.5)}%` }} />
                 </div>
                 <span className="text-right text-sm font-semibold text-zinc-100">
-                  {r.citationRate}% <span className="font-normal text-zinc-500">({r.citedCount}/{r.totalCount})</span>
+                  {r.mentionRate}% <span className="font-normal text-zinc-500">({r.mentionedCount}/{r.totalCount})</span>
                 </span>
               </div>
             ))}
@@ -943,9 +943,9 @@ function WhatsChangedSection({ report, audience }: { report: ProjectReportDto; a
     <section className="page-section-divider">
       {heading}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-        <RateDeltaTile label={isClient ? 'AI links to your website' : 'Citation rate'} delta={w.citationRate} unit="%" />
-        <RateDeltaTile label={isClient ? 'AI mentions your name' : 'Mention rate'} delta={w.mentionRate} unit="%" />
-        <RateDeltaTile label={isClient ? 'Questions AI answered with you' : 'Cited queries'} delta={w.citedQueryCount} unit="count" />
+        <RateDeltaTile label={isClient ? 'AI mentions your name' : 'Citation rate'} delta={isClient ? w.mentionRate : w.citationRate} unit="%" />
+        <RateDeltaTile label={isClient ? 'AI links to your website' : 'Mention rate'} delta={isClient ? w.citationRate : w.mentionRate} unit="%" />
+        <RateDeltaTile label={isClient ? 'Questions AI mentioned you in' : 'Cited queries'} delta={isClient ? w.mentionedQueryCount : w.citedQueryCount} unit="count" />
         <TrafficDeltaTile label={isClient ? 'Visitors from Google' : 'GSC clicks'} delta={w.gscClicksDelta} countLabel={isClient ? 'visits' : 'clicks'} comparisonWindowDays={w.comparisonWindowDays} />
         <TrafficDeltaTile label={isClient ? 'Visitors from AI tools' : 'AI referral sessions'} delta={w.aiReferralsDelta} countLabel={isClient ? 'visits' : 'sessions'} comparisonWindowDays={w.comparisonWindowDays} />
       </div>

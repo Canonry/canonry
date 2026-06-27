@@ -205,12 +205,15 @@ export const citationScorecardSchema = z.object({
   /** matrix[queryIndex][providerIndex] — null when no snapshot exists for the pair. */
   matrix: z.array(z.array(citationCellSchema.nullable())),
 
-  /** Per-provider citation rate (0..100). */
+  /** Per-provider citation + mention rates (0..100). */
   providerRates: z.array(z.object({
     provider: z.string(),
     citedCount: z.number(),
+    /** Number of snapshots for this provider where the answer text mentioned the project. */
+    mentionedCount: z.number(),
     totalCount: z.number(),
     citationRate: z.number(),
+    mentionRate: z.number(),
   })),
 })
 
@@ -541,7 +544,11 @@ export const citationsTrendPointSchema = z.object({
    * within that provider (`cited / scanned`), so it remains comparable
    * between providers in the same run.
    */
-  providerRates: z.array(z.object({ provider: z.string(), citationRate: z.number() })),
+  providerRates: z.array(z.object({
+    provider: z.string(),
+    citationRate: z.number(),
+    mentionRate: z.number(),
+  })),
 })
 
 export type CitationsTrendPoint = z.infer<typeof citationsTrendPointSchema>
@@ -646,6 +653,8 @@ export const whatsChangedSectionSchema = z.object({
   mentionRate: reportRateDeltaSchema.nullable(),
   /** Cited query count delta vs the prior completed run. Null when no prior run. */
   citedQueryCount: reportRateDeltaSchema.nullable(),
+  /** Mentioned query count delta vs the prior completed run. Null when no prior run. */
+  mentionedQueryCount: reportRateDeltaSchema.nullable(),
   /**
    * GSC clicks delta — the most recent `comparisonWindowDays` of `gsc.trend`
    * vs the `comparisonWindowDays` before that. Null when GSC isn't connected

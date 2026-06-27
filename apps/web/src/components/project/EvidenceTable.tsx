@@ -10,8 +10,15 @@ import { useDrawer } from '../../hooks/use-drawer.js'
 import { highlightTermsInText, type HighlightTermGroup } from '../../lib/highlight.js'
 import type { CitationInsightVm, CitationState, RunHistoryPoint } from '../../view-models.js'
 
-type CoverageMode = 'citations' | 'mentions'
+export type CoverageMode = 'citations' | 'mentions'
 type Density = 'compact' | 'detailed'
+type SignalTone = 'positive' | 'negative' | 'neutral' | 'pending'
+
+export interface EvidenceSignalSummary {
+  key: CoverageMode
+  label: string
+  tone: SignalTone
+}
 
 const ANSWER_PREVIEW_MAX = 320
 
@@ -71,12 +78,89 @@ function describeChange(history: RunHistoryPoint[], mode: CoverageMode): string 
 }
 
 function projectItemsForMode(items: CitationInsightVm[], mode: CoverageMode): CitationInsightVm[] {
-  if (mode === 'citations') return items
-  return items.map(item => ({
+  return items.map(item => projectItemForMode(item, mode))
+}
+
+function projectItemForMode(item: CitationInsightVm, mode: CoverageMode): CitationInsightVm {
+  if (mode === 'citations') return item
+  return {
     ...item,
     citationState: deriveStateForMode(item, mode),
     runHistory: item.runHistory.map(h => ({ ...h, citationState: deriveStateForMode(h, mode) })),
+  }
+}
+
+function historyForMode(history: RunHistoryPoint[], mode: CoverageMode): RunHistoryPoint[] {
+  if (mode === 'citations') return history
+  return history.map(point => ({
+    ...point,
+    citationState: deriveStateForMode(point, mode),
   }))
+}
+
+function summarizeProjectedSignalHistory(projected: RunHistoryPoint[], mode: CoverageMode): EvidenceSignalSummary {
+  const subject = mode === 'mentions' ? 'mention' : 'citation'
+  const subjectCap = mode === 'mentions' ? 'Mention' : 'Citation'
+  if (projected.length === 0) {
+    return { key: mode, label: `${subjectCap} pending`, tone: 'pending' }
+  }
+
+  const latest = projected[projected.length - 1]!.citationState
+  const previous = projected.length >= 2 ? projected[projected.length - 2]!.citationState : null
+  const isPresent = latest === 'cited' || latest === 'emerging'
+  const wasPresent = previous === 'cited' || previous === 'emerging'
+
+  if (latest === 'lost' || (previous !== null && wasPresent && !isPresent)) {
+    return { key: mode, label: `Lost ${subject}`, tone: 'negative' }
+  }
+  if (latest === 'emerging' || (previous !== null && !wasPresent && isPresent)) {
+    return { key: mode, label: `New ${subject}`, tone: 'positive' }
+  }
+  if (previous === null && isPresent) {
+    return { key: mode, label: `First ${subject}`, tone: 'positive' }
+  }
+  if (isPresent) {
+    return { key: mode, label: mode === 'mentions' ? 'Still mentioned' : 'Still cited', tone: 'neutral' }
+  }
+  return { key: mode, label: `No ${subject}`, tone: 'neutral' }
+}
+
+export function summarizeSignalHistory(history: RunHistoryPoint[], mode: CoverageMode): EvidenceSignalSummary {
+  return summarizeProjectedSignalHistory(historyForMode(history, mode), mode)
+}
+
+export function summarizeSignalsForItems(items: CitationInsightVm[]): EvidenceSignalSummary[] {
+  const mentionHistory = mergeProviderHistories(projectItemsForMode(items, 'mentions'))
+  const citationHistory = mergeProviderHistories(items)
+  return [
+    summarizeProjectedSignalHistory(mentionHistory, 'mentions'),
+    summarizeProjectedSignalHistory(citationHistory, 'citations'),
+  ]
+}
+
+function SignalBadge({ signal }: { signal: EvidenceSignalSummary }) {
+  const toneClass = signal.tone === 'positive'
+    ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-300'
+    : signal.tone === 'negative'
+      ? 'border-rose-500/25 bg-rose-500/10 text-rose-300'
+      : signal.tone === 'pending'
+        ? 'border-amber-500/20 bg-amber-500/10 text-amber-300'
+        : 'border-zinc-700/60 bg-zinc-900/70 text-zinc-400'
+  return (
+    <span className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium leading-none ${toneClass}`}>
+      {signal.label}
+    </span>
+  )
+}
+
+function SignalStrip({ items }: { items: CitationInsightVm[] }) {
+  return (
+    <div className="mt-1 flex flex-wrap gap-1" aria-label="Latest run mention and citation signals">
+      {summarizeSignalsForItems(items).map(signal => (
+        <SignalBadge key={signal.key} signal={signal} />
+      ))}
+    </div>
+  )
 }
 
 export function EvidenceTable({
@@ -94,15 +178,21 @@ export function EvidenceTable({
   const [density, setDensity] = useState<Density>(defaultDensity)
 
   const groups = useMemo(() => {
-    const projected = projectItemsForMode(evidence, mode)
-    type Group = { key: string; phrase: string; location: string | null; items: CitationInsightVm[] }
+    type Group = {
+      key: string
+      phrase: string
+      location: string | null
+      items: CitationInsightVm[]
+      rawItems: CitationInsightVm[]
+    }
     const map = new Map<string, Group>()
-    for (const item of projected) {
-      const phrase = item.query
-      const location = compareLocations ? (item.location ?? null) : null
+    for (const rawItem of evidence) {
+      const phrase = rawItem.query
+      const location = compareLocations ? (rawItem.location ?? null) : null
       const key = compareLocations ? JSON.stringify([phrase, location]) : phrase
-      const existing = map.get(key) ?? { key, phrase, location, items: [] }
-      existing.items.push(item)
+      const existing = map.get(key) ?? { key, phrase, location, items: [], rawItems: [] }
+      existing.items.push(projectItemForMode(rawItem, mode))
+      existing.rawItems.push(rawItem)
       map.set(key, existing)
     }
     return [...map.values()]
@@ -221,12 +311,12 @@ export function EvidenceTable({
               <th scope="col">Query</th>
               <th scope="col">Status</th>
               <th scope="col">{historyHeader}</th>
-              <th scope="col">Change</th>
+              <th scope="col">Latest run</th>
               <th />
             </tr>
           </thead>
           <tbody>
-            {groups.map(({ key: groupKey, phrase, location, items }) => {
+            {groups.map(({ key: groupKey, phrase, location, items, rawItems }) => {
               const isExpanded = expandedRows.has(groupKey)
               const states = items.map(i => i.citationState)
               const aggState: CitationState =
@@ -290,11 +380,12 @@ export function EvidenceTable({
                       <CitationTimeline history={mergedHistory} />
                     </td>
                     <td className="evidence-change-cell">
-                      {aggChangeLabel}
+                      <div>{aggChangeLabel}</div>
+                      <SignalStrip items={rawItems} />
                     </td>
                     <td />
                   </tr>
-                  {isExpanded && items.map(item => (
+                  {isExpanded && items.map((item, index) => (
                     <Fragment key={item.id}>
                       <tr className="bg-zinc-900/30">
                         <td />
@@ -311,7 +402,8 @@ export function EvidenceTable({
                           <CitationTimeline history={item.runHistory} />
                         </td>
                         <td className="evidence-change-cell">
-                          {describeChange(item.runHistory, mode)}
+                          <div>{describeChange(item.runHistory, mode)}</div>
+                          <SignalStrip items={[rawItems[index] ?? item]} />
                         </td>
                         <td>
                           <Button

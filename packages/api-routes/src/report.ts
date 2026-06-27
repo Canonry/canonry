@@ -1068,15 +1068,16 @@ function buildCitationsTrend(
     const citedQueryIds = new Set<string>()
     const mentionedQueryIds = new Set<string>()
     let considered = 0
-    const providerCounts = new Map<string, { cited: number; total: number }>()
+    const providerCounts = new Map<string, { cited: number; mentioned: number; total: number }>()
     for (const snap of snaps) {
       if (!queryLookup.byId.has(snap.queryId)) continue
       considered++
       if (snap.citationState === CitationStates.cited) citedQueryIds.add(snap.queryId)
       if (snap.answerMentioned) mentionedQueryIds.add(snap.queryId)
-      const counts = providerCounts.get(snap.provider) ?? { cited: 0, total: 0 }
+      const counts = providerCounts.get(snap.provider) ?? { cited: 0, mentioned: 0, total: 0 }
       counts.total++
       if (snap.citationState === CitationStates.cited) counts.cited++
+      if (snap.answerMentioned === true) counts.mentioned++
       providerCounts.set(snap.provider, counts)
     }
     if (considered === 0) continue
@@ -1092,6 +1093,7 @@ function buildCitationsTrend(
       .map(([provider, counts]) => ({
         provider,
         citationRate: counts.total > 0 ? Math.round((counts.cited / counts.total) * 100) : 0,
+        mentionRate: counts.total > 0 ? Math.round((counts.mentioned / counts.total) * 100) : 0,
       }))
       .sort((a, b) => a.provider.localeCompare(b.provider))
 
@@ -1583,13 +1585,11 @@ function buildReportActionPlan(input: ReportActionPlanInput): ReportActionPlanIt
   return actions.sort((a, b) => a.priority - b.priority).slice(0, 10)
 }
 
-function trendSentence(trend: ProjectReportDto['executiveSummary']['trend']): string {
-  switch (trend) {
-    case 'up': return 'Citation coverage improved versus the prior comparable check.'
-    case 'down': return 'Citation coverage declined versus the prior comparable check.'
-    case 'flat': return 'Citation coverage is flat versus the prior comparable check.'
-    case 'unknown': return 'There is not enough comparable run history yet to call a trend.'
-  }
+function mentionTrendSentence(delta: ReportRateDelta | null): string {
+  if (!delta) return 'There is not enough comparable run history yet to call a mention trend.'
+  if (delta.direction === 'up') return 'Mention coverage improved versus the prior comparable checks.'
+  if (delta.direction === 'down') return 'Mention coverage declined versus the prior comparable checks.'
+  return 'Mention coverage is flat versus the prior comparable checks.'
 }
 
 function buildClientSummary(
@@ -1598,6 +1598,7 @@ function buildClientSummary(
     reportLocation: ProjectReportDto['meta']['location']
     executiveSummary: ProjectReportDto['executiveSummary']
     citationsTrend: ProjectReportDto['citationsTrend']
+    whatsChanged: ProjectReportDto['whatsChanged']
     gsc: ProjectReportDto['gsc']
     actionPlan: ProjectReportDto['actionPlan']
   },
@@ -1605,10 +1606,10 @@ function buildClientSummary(
   const s = reportLike.executiveSummary
   const queryNoun = s.totalQueryCount === 1 ? 'query' : 'queries'
   const headline = s.totalQueryCount > 0
-    ? `${s.citedQueryCount} of ${s.totalQueryCount} tracked ${queryNoun} are cited by AI engines`
+    ? `${s.mentionedQueryCount} of ${s.totalQueryCount} tracked ${queryNoun} mention the brand in AI answers`
     : 'No tracked queries have completed a check yet'
   const overview = s.totalQueryCount > 0
-    ? `${reportLike.canonicalDomain} is cited on ${s.citationRate}% of tracked queries and mentioned on ${s.mentionRate}% of tracked queries. ${trendSentence(s.trend)}`
+    ? `${reportLike.canonicalDomain} is mentioned on ${s.mentionRate}% of tracked queries and cited on ${s.citationRate}% of tracked queries. ${mentionTrendSentence(reportLike.whatsChanged.mentionRate)}`
     : 'At least one completed check is needed before this can summarize how the brand appears in AI answers.'
 
   const confidenceNotes: string[] = []
@@ -1821,6 +1822,14 @@ function buildWhatsChanged(input: {
       }
     : null
 
+  const mentionedQueryCountSmoothed = smoothedRunDelta(citationsTrend, p => p.mentionedQueryCount)
+  const mentionedQueryCount: ReportRateDelta | null = enoughHistory && mentionedQueryCountSmoothed
+    ? {
+        ...mentionedQueryCountSmoothed,
+        direction: rateDirection(mentionedQueryCountSmoothed.deltaAbs, COUNT_REAL_MOVEMENT_THRESHOLD),
+      }
+    : null
+
   const providerMovements: ReportProviderMovement[] = []
   if (enoughHistory) {
     const priorByProvider = new Map(prior!.providerRates.map(p => [p.provider, p.citationRate]))
@@ -1868,6 +1877,7 @@ function buildWhatsChanged(input: {
     citationRate,
     mentionRate,
     citedQueryCount,
+    mentionedQueryCount,
     gscClicksDelta,
     aiReferralsDelta,
     comparisonWindowDays,
@@ -2111,6 +2121,7 @@ function buildProjectReport(db: DatabaseClient, projectName: string, periodDays:
     reportLocation,
     executiveSummary,
     citationsTrend,
+    whatsChanged,
     gsc: gscSection,
     actionPlan,
   })

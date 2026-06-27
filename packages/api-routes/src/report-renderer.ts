@@ -1299,9 +1299,9 @@ function renderWhatsChanged(report: ProjectReportDto, audience: ReportAudience):
     )
   }
   const rateTiles = `<div class="metric-grid">
-    ${renderRateDeltaTile(isClient ? 'AI links to your website' : 'Citation rate', w.citationRate, '%')}
-    ${renderRateDeltaTile(isClient ? 'AI mentions your name' : 'Mention rate', w.mentionRate, '%')}
-    ${renderRateDeltaTile(isClient ? 'Questions AI answered with you' : 'Cited queries', w.citedQueryCount, 'count')}
+    ${renderRateDeltaTile(isClient ? 'AI mentions your name' : 'Citation rate', isClient ? w.mentionRate : w.citationRate, '%')}
+    ${renderRateDeltaTile(isClient ? 'AI links to your website' : 'Mention rate', isClient ? w.citationRate : w.mentionRate, '%')}
+    ${renderRateDeltaTile(isClient ? 'Questions AI mentioned you in' : 'Cited queries', isClient ? w.mentionedQueryCount : w.citedQueryCount, 'count')}
     ${renderTrafficDeltaTile(isClient ? 'Visitors from Google' : 'GSC clicks', w.gscClicksDelta, isClient ? 'visits' : 'clicks', w.comparisonWindowDays)}
     ${renderTrafficDeltaTile(isClient ? 'Visitors from AI tools' : 'AI referral sessions', w.aiReferralsDelta, isClient ? 'visits' : 'sessions', w.comparisonWindowDays)}
   </div>`
@@ -2372,11 +2372,11 @@ function renderClientSummary(report: ProjectReportDto): string {
   const s = report.executiveSummary
   const sc = report.citationScorecard
   const totalQ = s.totalQueryCount
-  const heroNumber = totalQ > 0 ? `${s.citationRate}%` : '—'
+  const heroNumber = totalQ > 0 ? `${s.mentionRate}%` : '—'
   const heroSentence = totalQ > 0
-    ? `When customers asked AI ${totalQ} ${pluralize(totalQ, 'question')} about your industry, AI linked to your website in ${s.citedQueryCount} of ${totalQ === 1 ? 'them' : 'those answers'}.`
+    ? `When customers asked AI ${totalQ} ${pluralize(totalQ, 'question')} about your industry, AI mentioned you in ${s.mentionedQueryCount} of ${totalQ === 1 ? 'them' : 'those answers'}.`
     : 'No AI check has been run yet. Run a check to see how AI tools answer customer questions about your business.'
-  const trend = clientTrendCopy(report.whatsChanged.citationRate)
+  const trend = clientTrendCopy(report.whatsChanged.mentionRate)
   const heroTrend = trend
     ? `<p class="client-hero-trend tone-${trend.tone}"><span style="margin-right:6px;">${trend.arrow}</span>${escapeHtml(trend.text)}</p>`
     : ''
@@ -2428,15 +2428,15 @@ function renderClientSummary(report: ProjectReportDto): string {
 
   const providerBars = sc.providerRates.length > 0
     ? `<div class="client-card">
-        <h3>How often each AI tool links to your website</h3>
-        <p class="card-subtitle">Higher is better. Each bar shows the share of customer questions where the AI cited your site.</p>
+        <h3>How often each AI tool mentions you</h3>
+        <p class="card-subtitle">Higher is better. Each bar shows the share of customer questions where the AI named you in the answer.</p>
         <div class="client-bar-list">
           ${sc.providerRates.map(r => {
-            const pct = Math.max(r.citationRate, 1.5)
+            const pct = Math.max(r.mentionRate, 1.5)
             return `<div class="client-bar-row">
               <span class="bar-label">${escapeHtml(providerDisplayName(r.provider))}</span>
               <div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div>
-              <span class="bar-value">${r.citationRate}% <span class="bar-value-sub">(${r.citedCount}/${r.totalCount})</span></span>
+              <span class="bar-value">${r.mentionRate}% <span class="bar-value-sub">(${r.mentionedCount}/${r.totalCount})</span></span>
             </div>`
           }).join('')}
         </div>
