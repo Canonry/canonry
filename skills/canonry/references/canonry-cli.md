@@ -195,6 +195,18 @@ cnry sources <project> --rank --format jsonl    # stream the ranked domains, one
 - The ranked list is **not truncated** by default (the old top-5-per-category cap is gone). Pass `--limit N` to cap each list; the response carries `truncatedDomainCount` / `truncatedCitedSlots` so totals always reconcile.
 - Counts are **cited slots** (grounding citations), so a domain cited 3× in one answer counts 3. Probe runs are excluded.
 
+### Portfolio change feed (`cnry portfolio`)
+
+The cross-project daily check in ONE call: a server-ordered "what changed" feed (citation/mention gains and losses over each project's comparable basket, failed sweeps, critical/high insight echoes, stale-visibility, query-set changes, never-run projects — recency then severity), a timestamped recent-runs log carrying BOTH result signals (mentioned vs cited counts, independent), and a per-project state table. Backed by `GET /api/v1/portfolio` and the `canonry_portfolio` MCP tool. Probe runs excluded. `generatedAt` anchors every relative timestamp; movement is computed only over the shared query basket (cohort churn surfaces as a separate `query-set-changed` row, never a gain/loss).
+
+```bash
+cnry portfolio                 # human: freshness line + CHANGES + RECENT RUNS + PROJECTS blocks
+cnry portfolio --format json   # the full PortfolioDto (identical to GET /api/v1/portfolio)
+cnry portfolio --format jsonl  # stream one PortfolioChangeDto per line (the change feed)
+```
+
+It replaces fanning out `cnry overview --all` + diffing yourself — ask "what moved across my projects since the last sweep" and read the feed.
+
 ### Aggregated visibility stats (`cnry visibility-stats`)
 
 Per-query mention (answer-text) and citation (source-list) **counts with a sample size**, pooled across many answer-visibility runs — the data to compute a confidence-aware proportion (e.g. Wilson) or detect drift without fetching every run. Backed by `GET /api/v1/projects/<name>/visibility-stats` and the `canonry_visibility_stats` MCP tool. Probe runs and non-`answer-visibility` runs are excluded; only completed/partial runs count.

@@ -3265,6 +3265,18 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'get',
+    path: '/api/v1/portfolio',
+    summary: 'Cross-project portfolio: what changed, recent runs, project state',
+    description:
+      'One call for the dashboard Portfolio page and `canonry portfolio`. Returns a server-ordered "what changed" feed (citation/mention gains and losses over each project\'s comparable basket, failed sweeps, critical/high insight echoes, stale-visibility, query-set changes, and never-run projects — recency then severity), a timestamped recent-runs log with independent mention and cited result counts, and a per-project state table. Probe runs are excluded. `generatedAt` is the freshness anchor for every relative timestamp.',
+    tags: ['intelligence'],
+    parameters: [],
+    responses: {
+      200: jsonResponse('Portfolio overview returned.', 'PortfolioDto'),
+    },
+  },
+  {
+    method: 'get',
     path: '/api/v1/projects/{name}/overview',
     summary: 'Get a composite overview of project health',
     description:

@@ -674,86 +674,13 @@ test('buildProjectCommandCenter surfaces synthesized attention items (e.g. stale
   expect(stale.actionLabel).toBe('Stale')
 })
 
-test('portfolio "All projects stable" attention item is non-navigable (no dead link)', () => {
-  // Regression: the stable placeholder used to carry href:'/' + actionLabel
-  // 'View portfolio'. On the overview page (which IS '/'), the whole card was
-  // a <Link to="/"> that navigated to the page you were already on — a button
-  // that did nothing. A non-actionable positive status must omit href so the
-  // renderer shows a static row, not a dead link.
-  const stableProject: ProjectData = {
-    project: {
-      id: 'proj_stable',
-      name: 'stable-co',
-      displayName: 'Stable Co',
-      canonicalDomain: 'stable.example',
-      ownedDomains: [],
-      country: 'US',
-      language: 'en',
-      tags: [],
-      labels: {},
-      providers: ['gemini'],
-      configSource: 'api',
-      configRevision: 1,
-      createdAt: '2026-05-10T00:00:00Z',
-      updatedAt: '2026-05-13T00:00:00Z',
-    },
-    // A completed run (not running/queued) and no lost-citation evidence →
-    // nothing needs attention → the stable placeholder is emitted.
-    runs: [{ id: 'run_ok', projectId: 'proj_stable', kind: 'answer-visibility', status: 'completed', trigger: 'manual', startedAt: '2026-05-13T00:00:00Z', finishedAt: '2026-05-13T00:00:10Z', error: null, createdAt: '2026-05-13T00:00:00Z' }],
-    queries: [],
-    competitors: [],
-    timeline: [],
-    latestRunDetails: [],
-    previousRunDetails: [],
-  }
-
-  const items = buildDashboard([stableProject], null).portfolioOverview.attentionItems
-  const stable = items.find(i => i.id === 'attention_stable')
-  expect(stable).toBeDefined()
-  expect(stable!.title).toBe('All projects stable')
-  expect(stable!.tone).toBe('positive')
-  // The bug fix: no href and no action label → rendered as a static row.
-  expect(stable!.href).toBeUndefined()
-  expect(stable!.actionLabel).toBeUndefined()
-})
-
-test('portfolio active-runs attention item stays navigable', () => {
-  // Symmetry guard: making href optional for the stable case must not strip
-  // the real destination off actionable items. An in-progress run still links
-  // to /runs.
-  const activeProject: ProjectData = {
-    project: {
-      id: 'proj_active',
-      name: 'active-co',
-      displayName: 'Active Co',
-      canonicalDomain: 'active.example',
-      ownedDomains: [],
-      country: 'US',
-      language: 'en',
-      tags: [],
-      labels: {},
-      providers: ['gemini'],
-      configSource: 'api',
-      configRevision: 1,
-      createdAt: '2026-05-10T00:00:00Z',
-      updatedAt: '2026-05-13T00:00:00Z',
-    },
-    runs: [{ id: 'run_live', projectId: 'proj_active', kind: 'answer-visibility', status: 'running', trigger: 'manual', startedAt: '2026-05-13T00:00:00Z', finishedAt: null, error: null, createdAt: '2026-05-13T00:00:00Z' }],
-    queries: [],
-    competitors: [],
-    timeline: [],
-    latestRunDetails: [],
-    previousRunDetails: [],
-  }
-
-  const items = buildDashboard([activeProject], null).portfolioOverview.attentionItems
-  const active = items.find(i => i.id === 'attention_proj_active_active')
-  expect(active).toBeDefined()
-  expect(active!.href).toBe('/runs')
-  expect(active!.actionLabel).toBe('View runs')
-  // The stable placeholder must NOT appear when something needs attention.
-  expect(items.find(i => i.id === 'attention_stable')).toBeUndefined()
-})
+// The portfolio "what changed" feed moved server-side (GET /api/v1/portfolio →
+// buildPortfolioChangeFeed) — the old client-side `buildAttentionItems`
+// derivation (and its "All projects stable" / active-run placeholders) was
+// deleted because it read an always-empty evidence array on the slim overview
+// hook. Feed semantics are now covered by
+// packages/intelligence/test/portfolio-change-feed.test.ts and the endpoint
+// test in packages/api-routes/test/portfolio.test.ts.
 
 test('buildProjectCommandCenter emits one evidence row per location when a multi-location sweep fans out', () => {
   // Regression test for issue #477. Two same-timestamp runs (one per location)

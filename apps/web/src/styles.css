@@ -1453,6 +1453,124 @@
     @apply mt-2 text-sm leading-6 text-zinc-400;
   }
 
+  /* ── Portfolio (Overview page) ── */
+
+  .portfolio-freshness {
+    @apply font-mono text-[11px] text-zinc-600;
+  }
+
+  .change-feed-list {
+    @apply grid gap-2;
+  }
+
+  .change-feed-row {
+    @apply flex items-start gap-3 rounded-lg border border-zinc-800/40 bg-zinc-900/20 px-3.5 py-2.5 text-inherit no-underline transition hover:border-zinc-700 hover:bg-zinc-900/50;
+  }
+
+  .change-feed-row-negative { @apply border-l-2 border-l-rose-500/60; }
+  .change-feed-row-caution { @apply border-l-2 border-l-amber-500/60; }
+  .change-feed-row-positive { @apply border-l-2 border-l-emerald-500/60; }
+  .change-feed-row-neutral { @apply border-l-2 border-l-zinc-600/60; }
+
+  .change-feed-glyph {
+    @apply mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full text-[11px] font-bold;
+  }
+  .change-feed-glyph-negative { @apply bg-rose-500/10 text-rose-400; }
+  .change-feed-glyph-caution { @apply bg-amber-500/10 text-amber-400; }
+  .change-feed-glyph-positive { @apply bg-emerald-500/10 text-emerald-400; }
+  .change-feed-glyph-neutral { @apply bg-zinc-700/30 text-zinc-400; }
+
+  .change-feed-body {
+    @apply min-w-0 flex-1;
+  }
+  .change-feed-title {
+    @apply text-[13px] font-medium text-zinc-200;
+  }
+  .change-feed-detail {
+    @apply mt-0.5 truncate text-[12px] leading-5 text-zinc-500;
+  }
+  .change-feed-time {
+    @apply shrink-0 pt-0.5 font-mono text-[11px] text-zinc-600;
+  }
+
+  .change-feed-empty {
+    @apply rounded-lg border border-zinc-800/40 bg-zinc-900/20 px-3.5 py-3 text-[13px] text-zinc-400;
+  }
+  .change-feed-empty-detail {
+    @apply mt-0.5 text-[12px] text-zinc-600;
+  }
+  .change-feed-more {
+    @apply pt-1 text-[11px] text-zinc-600;
+  }
+
+  /* Portfolio data tables (recent runs + project state) reuse the evidence look. */
+  .portfolio-table-wrap {
+    @apply overflow-x-auto rounded-xl border border-zinc-800/60;
+  }
+  .portfolio-table {
+    @apply w-full text-sm;
+  }
+  .portfolio-table thead {
+    @apply border-b border-zinc-800/60 bg-zinc-900/50;
+  }
+  .portfolio-table th {
+    @apply px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500;
+  }
+  .portfolio-table tbody tr {
+    @apply border-b border-zinc-800/30 transition hover:bg-zinc-900/30;
+  }
+  .portfolio-table tbody tr:last-child {
+    @apply border-b-0;
+  }
+  .portfolio-table td {
+    @apply px-4 py-3 align-middle text-zinc-300;
+  }
+  .portfolio-row-button {
+    @apply w-full cursor-pointer text-left;
+  }
+  .portfolio-result {
+    @apply font-mono text-[12px] text-zinc-300;
+  }
+  .portfolio-result-error {
+    @apply font-mono text-[12px] text-rose-400;
+  }
+  .portfolio-when {
+    @apply font-mono text-[12px] text-zinc-500;
+  }
+  .portfolio-project-name {
+    @apply font-medium text-zinc-100;
+  }
+  .portfolio-project-domain {
+    @apply text-[12px] text-zinc-500;
+  }
+  .portfolio-score {
+    @apply font-mono text-base font-semibold text-zinc-100;
+  }
+  .portfolio-caption {
+    @apply font-mono text-[11px] text-zinc-500;
+  }
+  .portfolio-delta-positive { @apply font-mono text-[12px] text-emerald-400; }
+  .portfolio-delta-negative { @apply font-mono text-[12px] text-rose-400; }
+  .portfolio-delta-neutral { @apply font-mono text-[12px] text-zinc-500; }
+  .portfolio-legend {
+    @apply mb-2 text-[11px] text-zinc-600;
+  }
+
+  /* Collapsed system-health strip */
+  .health-strip {
+    @apply flex flex-wrap items-center gap-2;
+  }
+  .health-pill {
+    @apply inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium;
+  }
+  .health-pill-positive { @apply border-emerald-500/30 text-emerald-400; }
+  .health-pill-caution { @apply border-amber-500/30 text-amber-400; }
+  .health-pill-negative { @apply border-rose-500/30 text-rose-400; }
+  .health-pill-neutral { @apply border-zinc-700 text-zinc-400; }
+  .health-pill-dot {
+    @apply h-1.5 w-1.5 rounded-full bg-current;
+  }
+
   /* ── Evidence table ── */
 
   .evidence-table-wrap {

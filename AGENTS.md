@@ -76,6 +76,7 @@ canonry run <project>
 canonry run <project> --provider gemini          # single-provider run
 canonry run <project> --probe --provider openai --query "..."  # operator/agent test run — writes a snapshot for inspection but is EXCLUDED from dashboard, analytics, intelligence, and notifications
 canonry status <project>
+canonry portfolio                                                     # cross-project "what changed" feed + timestamped recent runs + per-project state (one call; the daily check). --format json|jsonl
 canonry visibility-stats <project>                                    # per-query mention/citation rates with sample size, pooled across runs
 canonry visibility-stats <project> --last-runs 10 --by-provider       # last N runs, per-provider breakdown (counts sum to pooled)
 canonry visibility-stats <project> --since 2026-06-01 --until 2026-06-30 --format jsonl  # date window; one record per query
@@ -273,7 +274,7 @@ Each check returns `status: ok | warn | fail | skipped`, a stable machine-readab
 For MCP clients such as Claude Desktop, Codex, or custom agent shells that
 prefer a typed tool catalog over shell or HTTP, the package ships a separate
 `canonry-mcp` bin. It is a thin stdio adapter over `createApiClient()` — not
-a parallel surface. v1 exposes 114 curated API tools (77 read, 37 write) — including
+a parallel surface. v1 exposes 115 curated API tools (78 read, 37 write) — including
 the `canonry_project_overview` and `canonry_search` core composites; the
 catalog is split across a small **core tier** (always loaded) and five
 **toolkits** (`monitoring`, `setup`, `gsc`, `ga`, `agent`) that the client

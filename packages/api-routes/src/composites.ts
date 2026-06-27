@@ -1,4 +1,4 @@
-import { eq, and, desc, sql, like, or, inArray } from 'drizzle-orm'
+import { eq, and, asc, desc, sql, like, or, inArray } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import {
   bingCoverageSnapshots,
@@ -19,16 +19,21 @@ import {
 import {
   brandLabelFromDomain,
   CitationStates,
+  formatRunErrorOneLine,
   parseRunError,
   RunKinds,
   RunStatuses,
   type AttentionItemDto,
   type CitationState,
   type RunKind,
+  type RunStatus,
   type HealthSnapshotDto,
   type InsightDto,
   type LatestProjectRunDto,
   type MetricTone,
+  type PortfolioDto,
+  type PortfolioProjectRowDto,
+  type PortfolioRunDto,
   type ProjectDto,
   type ProjectOverviewCompetitorDto,
   type ProjectOverviewDto,
@@ -62,15 +67,18 @@ import {
   buildRunHistory,
   buildMentionCoverage,
   buildMentionShare,
+  buildPortfolioChangeFeed,
   buildSuggestedQueries,
   buildVisibilityScore,
   DEFAULT_RUN_HISTORY_LIMIT,
   providerKey,
+  type PortfolioChangeFeedProjectInput,
   type SuggestedQueryGscRow,
 } from '@ainyc/canonry-intelligence'
 import { notProbeRun, resolveProject } from './helpers.js'
 
 const TOP_INSIGHT_LIMIT = 5
+const PORTFOLIO_RECENT_RUNS_LIMIT = 8
 const SEARCH_HIT_HARD_LIMIT = 50
 const SEARCH_SNIPPET_RADIUS = 80
 
@@ -102,9 +110,28 @@ export async function compositeRoutes(app: FastifyInstance) {
     Querystring: { location?: string; since?: string }
   }>('/projects/:name/overview', async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
-
     const filterLocation = (request.query.location ?? '').trim() || null
     const sinceIso = parseSinceFilter(request.query.since)
+    return reply.send(computeProjectOverview(project, { filterLocation, sinceIso }))
+  })
+
+  // GET /projects/portfolio — cross-project "what changed" feed + timestamped
+  // recent runs + per-project state. One call backs the dashboard Portfolio
+  // page and `canonry portfolio`; it loops the same per-project overview
+  // assembly so movement, attention, and scores share a single source of truth.
+  app.get('/portfolio', async (_request, reply) => {
+    return reply.send(buildPortfolioOverview())
+  })
+
+  // Per-project overview assembly. Nested so it closes over `app`; shared by
+  // GET /projects/:name/overview above and the /portfolio loop below so the
+  // two surfaces compute movement/attention/scores identically.
+  function computeProjectOverview(
+    project: typeof projects.$inferSelect,
+    opts: { filterLocation?: string | null; sinceIso?: string | null } = {},
+  ): ProjectOverviewDto {
+    const filterLocation = opts.filterLocation ?? null
+    const sinceIso = opts.sinceIso ?? null
 
     // Load all runs once. We need the absolute-latest for `latestRun.run`
     // (any kind), the latest answer-visibility run for snapshot-driven
@@ -312,8 +339,159 @@ export async function compositeRoutes(app: FastifyInstance) {
       dateRangeLabel: 'All time',
       contextLabel: `${project.country} / ${project.language.toUpperCase()}`,
     }
-    return reply.send(result)
-  })
+    return result
+  }
+
+  // Cross-project portfolio composite. Loops `computeProjectOverview` over
+  // every project so the change feed, recent-runs log, and project-state table
+  // are all driven by the same per-project movement/attention/score data.
+  function buildPortfolioOverview(): PortfolioDto {
+    const generatedAt = new Date().toISOString()
+    const projectRows = app.db.select().from(projects).orderBy(asc(projects.name)).all()
+
+    // One grouped count for the "{N} queries tracked" never-run copy.
+    const trackedCountRows = app.db
+      .select({ projectId: queries.projectId, total: sql<number>`COUNT(*)` })
+      .from(queries)
+      .groupBy(queries.projectId)
+      .all()
+    const trackedCountByProject = new Map(trackedCountRows.map(r => [r.projectId, Number(r.total)]))
+
+    // Honest freshness anchor: the most recent COMPLETED/partial sweep across
+    // the instance (probe-excluded), finishedAt preferred over createdAt.
+    const lastSweepRow = app.db
+      .select({ createdAt: runs.createdAt, finishedAt: runs.finishedAt })
+      .from(runs)
+      .where(and(
+        eq(runs.kind, RunKinds['answer-visibility']),
+        notProbeRun(),
+        inArray(runs.status, [RunStatuses.completed, RunStatuses.partial]),
+      ))
+      .orderBy(desc(runs.createdAt), desc(runs.id))
+      .limit(1)
+      .get()
+    const lastSweepAt = lastSweepRow ? (lastSweepRow.finishedAt ?? lastSweepRow.createdAt) : null
+
+    const feedInputs: PortfolioChangeFeedProjectInput[] = []
+    const projectRowDtos: PortfolioProjectRowDto[] = []
+    // Per-run result counts (both signals) are computed by buildRunHistory
+    // inside each overview; collect them so recentRuns can join by runId
+    // without recomputing.
+    const runHistoryById = new Map<string, RunHistoryPointDto>()
+
+    for (const projectRow of projectRows) {
+      const overview = computeProjectOverview(projectRow)
+      for (const point of overview.runHistory) runHistoryById.set(point.runId, point)
+
+      const latestVisRunRow = app.db
+        .select()
+        .from(runs)
+        .where(and(
+          eq(runs.projectId, projectRow.id),
+          eq(runs.kind, RunKinds['answer-visibility']),
+          notProbeRun(),
+        ))
+        .orderBy(desc(runs.createdAt), desc(runs.id))
+        .limit(1)
+        .get()
+
+      const projectName = projectRow.displayName || projectRow.name
+      feedInputs.push({
+        projectName,
+        projectSlug: projectRow.name,
+        citationMovement: overview.citationMovement,
+        mentionMovement: overview.mentionMovement,
+        movementComparison: overview.movementComparison,
+        attentionItems: overview.attentionItems,
+        latestRun: latestVisRunRow
+          ? {
+              runId: latestVisRunRow.id,
+              status: latestVisRunRow.status as RunStatus,
+              occurredAt: latestVisRunRow.finishedAt ?? latestVisRunRow.createdAt,
+              error: parseRunError(latestVisRunRow.error),
+            }
+          : null,
+        trackedQueryCount: trackedCountByProject.get(projectRow.id) ?? 0,
+        projectCreatedAt: projectRow.createdAt,
+      })
+
+      const mention = overview.scores.mention
+      projectRowDtos.push({
+        projectSlug: projectRow.name,
+        projectName,
+        canonicalDomain: projectRow.canonicalDomain,
+        mentionScore: mention.progress ?? 0,
+        mentionTone: mention.tone,
+        mentionedOfTotal: { mentioned: overview.queryCounts.mentionedQueries, total: overview.queryCounts.totalQueries },
+        citedOfTotal: { cited: overview.queryCounts.citedQueries, total: overview.queryCounts.totalQueries },
+        mentionDelta: {
+          gained: overview.mentionMovement.gained,
+          lost: overview.mentionMovement.lost,
+          comparable: overview.movementComparison.comparable,
+        },
+        citationDelta: {
+          gained: overview.citationMovement.gained,
+          lost: overview.citationMovement.lost,
+          comparable: overview.movementComparison.comparable,
+        },
+        competitorPressureLabel: overview.scores.competitorPressure.value,
+        mentionTrend: mention.trend,
+        lastRunAt: latestVisRunRow ? (latestVisRunRow.finishedAt ?? latestVisRunRow.createdAt) : null,
+        hasEverRun: latestVisRunRow != null,
+      })
+    }
+
+    const feed = buildPortfolioChangeFeed(feedInputs, generatedAt)
+
+    const projectById = new Map(projectRows.map(p => [p.id, p]))
+    const recentRunRows = app.db
+      .select()
+      .from(runs)
+      .where(and(eq(runs.kind, RunKinds['answer-visibility']), notProbeRun()))
+      .orderBy(desc(runs.createdAt), desc(runs.id))
+      .limit(PORTFOLIO_RECENT_RUNS_LIMIT)
+      .all()
+    const recentRuns: PortfolioRunDto[] = []
+    for (const run of recentRunRows) {
+      const projectRow = projectById.get(run.projectId)
+      if (!projectRow) continue
+      const point = runHistoryById.get(run.id)
+      // Counts only exist for runs that produced snapshots — queued/running
+      // have no countable outcome (null); failed shows the error instead.
+      const countable = run.status === RunStatuses.completed || run.status === RunStatuses.partial
+      const error = parseRunError(run.error)
+      recentRuns.push({
+        runId: run.id,
+        projectName: projectRow.displayName || projectRow.name,
+        projectSlug: projectRow.name,
+        kindLabel: 'Answer visibility sweep',
+        status: run.status as RunStatus,
+        createdAt: run.createdAt,
+        startedAt: run.startedAt ?? null,
+        finishedAt: run.finishedAt ?? null,
+        durationMs: run.startedAt && run.finishedAt
+          ? new Date(run.finishedAt).getTime() - new Date(run.startedAt).getTime()
+          : null,
+        mentionedCount: countable && point ? point.mentionedCount : null,
+        citedCount: countable && point ? point.citedCount : null,
+        totalCount: countable && point ? point.totalCount : null,
+        errorSummary: error ? formatRunErrorOneLine(error) : null,
+      })
+    }
+
+    return {
+      generatedAt,
+      lastSweepAt,
+      projectCount: projectRows.length,
+      comparableProjectCount: feed.comparableProjectCount,
+      firstSweepProjectCount: feed.firstSweepProjectCount,
+      changeFeed: feed.changeFeed,
+      changeFeedTotal: feed.changeFeedTotal,
+      feedEmptyState: feed.feedEmptyState,
+      recentRuns,
+      projects: projectRowDtos,
+    }
+  }
 
   // GET /projects/:name/search?q=... — composite search across query
   // snapshots and intelligence insights so agents can answer "find anything
