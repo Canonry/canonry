@@ -347,7 +347,11 @@ export function resolveModelForCapability(
   // Custom OpenAI-compatible host (e.g. DeepInfra): the slug isn't in pi-ai's
   // catalog, so construct the model object directly against the host base URL.
   if (entry.openaiCompatible) {
-    return buildOpenAiCompatibleModel(entry, id) as Model<never>
+    // The single-shot cheap tiers (analyze/classify) don't need the model's
+    // reasoning trace; suppress it so they don't burn thinking tokens. The
+    // agent tier keeps the host's default thinking for its multi-step loop.
+    const suppressThinking = capability !== LlmCapabilities.agent
+    return buildOpenAiCompatibleModel(entry, id, suppressThinking) as Model<never>
   }
   const model = getModel(entry.piAiProvider as never, id as never) as Model<never> | undefined
   if (!model) {
@@ -368,6 +372,7 @@ export function resolveModelForCapability(
 export function buildOpenAiCompatibleModel(
   entry: AgentProviderEntry,
   id: string,
+  suppressThinking = false,
 ): Model<'openai-completions'> {
   const host = entry.openaiCompatible
   if (!host) {
@@ -378,6 +383,15 @@ export function buildOpenAiCompatibleModel(
   // LiteLLM gateway); an unset/empty env var falls back to the configured
   // constant, so the default self-hosted path is byte-for-byte unchanged.
   const baseUrl = (host.baseUrlEnvVar ? process.env[host.baseUrlEnvVar] : undefined) || host.baseUrl
+  // When the caller wants thinking off (the cheap single-shot tiers), pin GLM's
+  // chat-template thinking switch. With `thinkingFormat: 'qwen-chat-template'`
+  // and no request-time reasoning effort (the explain/classify callers pass
+  // none), pi-ai emits `chat_template_kwargs: { enable_thinking: false }` on
+  // DeepInfra's vLLM route. That branch requires `reasoning: true`, which the
+  // GLM tier sets — so the trace is suppressed at the request, not the model.
+  const compat: OpenAICompletionsCompat | undefined = suppressThinking
+    ? { ...host.compat, thinkingFormat: 'qwen-chat-template' }
+    : host.compat
   return {
     id,
     name: id,
@@ -389,7 +403,7 @@ export function buildOpenAiCompatibleModel(
     cost: meta.cost,
     contextWindow: meta.contextWindow,
     maxTokens: meta.maxTokens,
-    ...(host.compat ? { compat: host.compat } : {}),
+    ...(compat ? { compat } : {}),
   }
 }
 
