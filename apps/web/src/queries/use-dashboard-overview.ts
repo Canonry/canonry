@@ -37,12 +37,12 @@ import { useInitialDashboard } from '../contexts/dashboard-context.js'
  *   - `useDashboard`         → 1 + 1 + 1 + (9 × 5)  = 48 requests on cold load
  *   - `useDashboardOverview` → 1 + 1 + 1 + (1 × 5)  =  8 requests on cold load
  *
- * The Overview/Portfolio page no longer consumes this hook's
- * `portfolioOverview` change-feed fields — it reads the server-computed
- * `GET /api/v1/portfolio` via `usePortfolio` instead (the old client-side
- * `buildAttentionItems` derivation read an always-empty evidence array here
- * and was removed). This hook still powers the sidebar, runs, setup, and
- * settings surfaces from `dashboard.projects` / `dashboard.settings`.
+ * Side effect: client-side attention items derived from `visibilityEvidence`
+ * (lost-citation alerts) won't fire on the overview because evidence is
+ * empty. Server-side `overview.attentionItems` (the canonical source per
+ * AGENTS.md "no UI-only calculations") continues to surface every real
+ * signal. The duplicated client derivation in `buildAttentionItems` is
+ * tracked for removal in a follow-up.
  */
 export function useDashboardOverview(initialDashboard?: DashboardVm | null) {
   const contextDashboard = useInitialDashboard()

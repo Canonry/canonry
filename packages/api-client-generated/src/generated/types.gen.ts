@@ -1288,77 +1288,6 @@ export type NotificationDto = {
     updatedAt: string;
 };
 
-export type PortfolioDto = {
-    generatedAt: string;
-    lastSweepAt: string | null;
-    projectCount: number;
-    comparableProjectCount: number;
-    firstSweepProjectCount: number;
-    changeFeed: Array<{
-        id: string;
-        projectName: string;
-        projectSlug: string;
-        changeType: 'citation-gained' | 'citation-lost' | 'mention-gained' | 'mention-lost' | 'run-failed' | 'insight-critical' | 'insight-high' | 'stale-visibility' | 'query-set-changed' | 'project-never-run';
-        tone: 'positive' | 'caution' | 'negative' | 'neutral';
-        title: string;
-        detail: string;
-        occurredAt: string;
-        href: string | null;
-        actionLabel: string | null;
-        comparable: boolean;
-    }>;
-    changeFeedTotal: number;
-    feedEmptyState: {
-        kind: 'all-clear' | 'awaiting-second-sweep';
-        title: string;
-        detail: string;
-    } | null;
-    recentRuns: Array<{
-        runId: string;
-        projectName: string;
-        projectSlug: string;
-        kindLabel: string;
-        status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';
-        createdAt: string;
-        startedAt: string | null;
-        finishedAt: string | null;
-        durationMs: number | null;
-        mentionedCount: number | null;
-        citedCount: number | null;
-        totalCount: number | null;
-        errorSummary: string | null;
-    }>;
-    projects: Array<{
-        projectSlug: string;
-        projectName: string;
-        canonicalDomain: string;
-        mentionScore: number;
-        mentionTone: 'positive' | 'caution' | 'negative' | 'neutral';
-        mentionedOfTotal: {
-            mentioned: number;
-            total: number;
-        };
-        citedOfTotal: {
-            cited: number;
-            total: number;
-        };
-        mentionDelta: {
-            gained: number;
-            lost: number;
-            comparable: boolean;
-        };
-        citationDelta: {
-            gained: number;
-            lost: number;
-            comparable: boolean;
-        };
-        competitorPressureLabel: string;
-        mentionTrend: Array<number>;
-        lastRunAt: string | null;
-        hasEverRun: boolean;
-    }>;
-};
-
 export type ProjectDto = {
     id: string;
     name: string;
@@ -8881,22 +8810,6 @@ export type GetApiV1ProjectsByNameContentGapsResponses = {
 };
 
 export type GetApiV1ProjectsByNameContentGapsResponse = GetApiV1ProjectsByNameContentGapsResponses[keyof GetApiV1ProjectsByNameContentGapsResponses];
-
-export type GetApiV1PortfolioData = {
-    body?: never;
-    path?: never;
-    query?: never;
-    url: '/api/v1/portfolio';
-};
-
-export type GetApiV1PortfolioResponses = {
-    /**
-     * Portfolio overview returned.
-     */
-    200: PortfolioDto;
-};
-
-export type GetApiV1PortfolioResponse = GetApiV1PortfolioResponses[keyof GetApiV1PortfolioResponses];
 
 export type GetApiV1ProjectsByNameOverviewData = {
     body?: never;
