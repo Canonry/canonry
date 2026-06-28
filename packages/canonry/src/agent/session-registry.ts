@@ -210,6 +210,9 @@ export class SessionRegistry {
         systemPromptOverride: this.buildHydratedSystemPrompt(projectId, row.systemPrompt),
         initialMessages: persistedMessages,
         toolScope: preferences?.toolScope,
+        db: this.opts.db,
+        projectId,
+        agentSessionId: row.id,
       })
       this.scopes.set(projectName, preferences?.toolScope ?? 'all')
       this.projectIds.set(projectName, projectId)
@@ -226,6 +229,7 @@ export class SessionRegistry {
 
     const { provider, modelId } = resolveSessionProviderAndModel(this.opts.config, preferences)
     const systemPrompt = loadAeroSystemPrompt()
+    const sessionId = crypto.randomUUID()
 
     const agent = createAeroSession({
       projectName,
@@ -237,11 +241,15 @@ export class SessionRegistry {
       // notes if they were seeded via CLI/API before the first prompt.
       systemPromptOverride: this.buildHydratedSystemPrompt(projectId, systemPrompt),
       toolScope: preferences?.toolScope,
+      db: this.opts.db,
+      projectId,
+      agentSessionId: sessionId,
     })
     this.scopes.set(projectName, preferences?.toolScope ?? 'all')
     this.projectIds.set(projectName, projectId)
 
     this.insertRow({
+      id: sessionId,
       projectId,
       // Persist the raw (unhydrated) prompt so the DB remains canonical —
       // the `<memory>` block is rebuilt from the notes table on every load.
@@ -646,6 +654,7 @@ export class SessionRegistry {
   }
 
   private insertRow(params: {
+    id?: string
     projectId: string
     systemPrompt: string
     provider?: SupportedAgentProvider
@@ -658,7 +667,7 @@ export class SessionRegistry {
     this.opts.db
       .insert(agentSessions)
       .values({
-        id: crypto.randomUUID(),
+        id: params.id ?? crypto.randomUUID(),
         projectId: params.projectId,
         systemPrompt: params.systemPrompt,
         modelProvider: params.provider ?? params.modelProvider ?? AgentProviderIds.claude,

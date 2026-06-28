@@ -8,6 +8,7 @@ import {
   migrate,
   projects,
   agentSessions,
+  llmUsageEvents,
   parseJsonColumn,
   type DatabaseClient,
 } from '@ainyc/canonry-db'
@@ -134,6 +135,58 @@ describe('SessionRegistry', () => {
     const row = db.select().from(agentSessions).where(eq(agentSessions.projectId, projectId)).get()
     const persisted = parseJsonColumn<AgentMessage[]>(row!.messages, [])
     expect(persisted).toHaveLength(inMemoryCount)
+  })
+
+  it('records per-turn LLM usage tied to the durable Aero session', async () => {
+    const projectId = insertProject(db, 'demo')
+    const registry = new SessionRegistry({ db, client: stubClient(), config: stubConfig() })
+    const agent = registry.getOrCreate('demo')
+    const row = db.select().from(agentSessions).where(eq(agentSessions.projectId, projectId)).get()
+    expect(row).toBeDefined()
+
+    agent.state.model = faux.getModel()
+    faux.setResponses([fauxAssistantMessage('Usage recorded.')])
+
+    await agent.prompt('Status update please')
+    await agent.waitForIdle()
+
+    const usageRows = db.select().from(llmUsageEvents).where(eq(llmUsageEvents.projectId, projectId)).all()
+    expect(usageRows).toHaveLength(1)
+    expect(usageRows[0]).toMatchObject({
+      projectId,
+      agentSessionId: row!.id,
+      feature: 'aero.turn',
+      provider: 'faux',
+      model: 'faux-model',
+      promptFamily: 'aero',
+      promptVersion: 'aero-system-v1',
+    })
+    expect(usageRows[0].inputTokens).toBeGreaterThan(0)
+    expect(usageRows[0].outputTokens).toBeGreaterThan(0)
+    expect(usageRows[0].cacheWriteTokens).toBeGreaterThan(0)
+    expect(usageRows[0].metadata).toMatchObject({
+      projectName: 'demo',
+      toolCount: AERO_ALL_TOOL_COUNT,
+    })
+  })
+
+  it('records LLM usage with the current hot-session tool count after scope alignment', async () => {
+    const projectId = insertProject(db, 'demo')
+    const registry = new SessionRegistry({ db, client: stubClient(), config: stubConfig() })
+    const agent = await registry.acquireForTurn('demo', { toolScope: 'read-only' })
+
+    agent.state.model = faux.getModel()
+    faux.setResponses([fauxAssistantMessage('Read-only usage recorded.')])
+
+    await agent.prompt('Status update please')
+    await agent.waitForIdle()
+
+    const usageRows = db.select().from(llmUsageEvents).where(eq(llmUsageEvents.projectId, projectId)).all()
+    expect(usageRows).toHaveLength(1)
+    expect(usageRows[0].metadata).toMatchObject({
+      projectName: 'demo',
+      toolCount: AERO_READ_TOOL_COUNT,
+    })
   })
 
   it('hydrates an evicted session from the DB and surfaces persisted queue as pending', () => {

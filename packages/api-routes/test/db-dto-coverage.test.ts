@@ -524,6 +524,10 @@ const COVERAGE: Record<string, CoverageEntry> = {
     kind: 'internal-only',
     reason: 'Internal rate-limit / quota counters; never exposed.',
   },
+  llmUsageEvents: {
+    kind: 'internal-only',
+    reason: 'Internal LLM token/cache/cost ledger for prompt-cache tuning; not exposed as a public DTO.',
+  },
   agentSessions: {
     kind: 'internal-only',
     reason: 'Aero session state (transcript + queue). Exposed via the agent transcript composite, not as a direct row DTO.',
