@@ -25,6 +25,7 @@ import {
   recordLlmUsageEvent,
 } from './llm-usage.js'
 import { splitAeroAnthropicSystemCachePayload } from './prompt-cache.js'
+import { createAeroToolUsageHooks } from './tool-usage.js'
 
 export type { SupportedAgentProvider } from './providers.js'
 export { AgentProviders, listAgentProviders, coerceAgentProvider } from './providers.js'
@@ -171,6 +172,14 @@ export function createAeroSession(opts: AeroSessionOptions): Agent {
   const stateTools = toolScope === 'read-only' ? buildReadTools(toolCtx) : buildAllTools(toolCtx)
   const defaultTools = [...stateTools, ...buildSkillDocTools()]
   const tools = opts.tools ?? defaultTools
+  const toolUsageHooks = opts.db
+    ? createAeroToolUsageHooks({
+        db: opts.db,
+        projectId: opts.projectId,
+        agentSessionId: opts.agentSessionId,
+        metadata: { projectName: opts.projectName },
+      })
+    : {}
 
   const agent = new Agent({
     initialState: {
@@ -182,6 +191,7 @@ export function createAeroSession(opts: AeroSessionOptions): Agent {
     streamFn: opts.streamFn,
     sessionId: buildAeroProviderSessionId(opts),
     onPayload: splitAeroAnthropicSystemCachePayload,
+    ...toolUsageHooks,
     getApiKey: buildApiKeyResolver(opts.config),
   })
 

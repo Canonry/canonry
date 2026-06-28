@@ -1872,6 +1872,33 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `CREATE INDEX IF NOT EXISTS idx_llm_usage_run_created ON llm_usage_events(run_id, created_at)`,
     ],
   },
+  {
+    version: 85,
+    name: 'agent-tool-events',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS agent_tool_events (
+        id                    TEXT PRIMARY KEY,
+        project_id            TEXT REFERENCES projects(id) ON DELETE CASCADE,
+        agent_session_id      TEXT REFERENCES agent_sessions(id) ON DELETE SET NULL,
+        tool_call_id          TEXT NOT NULL,
+        tool_name             TEXT NOT NULL,
+        assistant_response_id TEXT,
+        provider              TEXT,
+        model                 TEXT,
+        status                TEXT NOT NULL,
+        duration_ms           INTEGER NOT NULL DEFAULT 0,
+        args_bytes            INTEGER NOT NULL DEFAULT 0,
+        result_text_chars     INTEGER NOT NULL DEFAULT 0,
+        result_bytes          INTEGER NOT NULL DEFAULT 0,
+        metadata              TEXT,
+        created_at            TEXT NOT NULL
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_agent_tool_events_project_created ON agent_tool_events(project_id, created_at)`,
+      `CREATE INDEX IF NOT EXISTS idx_agent_tool_events_session_created ON agent_tool_events(agent_session_id, created_at)`,
+      `CREATE INDEX IF NOT EXISTS idx_agent_tool_events_tool_created ON agent_tool_events(tool_name, created_at)`,
+      `CREATE INDEX IF NOT EXISTS idx_agent_tool_events_status_created ON agent_tool_events(status, created_at)`,
+    ],
+  },
 ]
 
 /**
