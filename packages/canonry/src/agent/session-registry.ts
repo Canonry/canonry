@@ -22,7 +22,13 @@ import {
 } from './session.js'
 import { getAgentProvider } from './providers.js'
 import { buildSkillDocTools } from './skill-tools.js'
-import { buildAllTools, buildReadTools } from './tools.js'
+import {
+  AeroToolProfiles,
+  buildAeroStateTools,
+  type AeroToolProfile,
+  AeroToolScopes,
+  type AeroToolScope,
+} from './tools.js'
 import { loadExternalMcpTools } from './remote-mcp.js'
 import { loadRecentForHydrate } from './memory-store.js'
 import { compactMessages, shouldCompact } from './compaction.js'
@@ -39,7 +45,9 @@ export interface SessionPreferences {
   provider?: SupportedAgentProvider
   modelId?: string
   /** Pass 'read-only' to build a session that exposes only read tools. Default 'all'. */
-  toolScope?: 'all' | 'read-only'
+  toolScope?: AeroToolScope
+  /** Optional profile that narrows tools for a workflow. Default 'default'. */
+  toolProfile?: AeroToolProfile
 }
 
 interface AgentSessionRow {
@@ -99,7 +107,9 @@ export class SessionRegistry {
   private readonly live = new Map<string, Agent>()
   private readonly pending = new Map<string, AgentMessage[]>()
   /** Last tool scope used on the live Agent for a project. Read in getOrCreate to know when to swap. */
-  private readonly scopes = new Map<string, 'all' | 'read-only'>()
+  private readonly scopes = new Map<string, AeroToolScope>()
+  /** Last profile used on the live Agent for a project. Paired with scopes when rebuilding tools. */
+  private readonly profiles = new Map<string, AeroToolProfile>()
   /** Cached resolved project id per project name, used so alignScope can rebuild tool context without a DB roundtrip. */
   private readonly projectIds = new Map<string, string>()
   /**
@@ -210,11 +220,13 @@ export class SessionRegistry {
         systemPromptOverride: this.buildHydratedSystemPrompt(projectId, row.systemPrompt),
         initialMessages: persistedMessages,
         toolScope: preferences?.toolScope,
+        toolProfile: preferences?.toolProfile,
         db: this.opts.db,
         projectId,
         agentSessionId: row.id,
       })
-      this.scopes.set(projectName, preferences?.toolScope ?? 'all')
+      this.scopes.set(projectName, preferences?.toolScope ?? AeroToolScopes.all)
+      this.profiles.set(projectName, preferences?.toolProfile ?? AeroToolProfiles.default)
       this.projectIds.set(projectName, projectId)
 
       if (queued.length > 0) {
@@ -241,11 +253,13 @@ export class SessionRegistry {
       // notes if they were seeded via CLI/API before the first prompt.
       systemPromptOverride: this.buildHydratedSystemPrompt(projectId, systemPrompt),
       toolScope: preferences?.toolScope,
+      toolProfile: preferences?.toolProfile,
       db: this.opts.db,
       projectId,
       agentSessionId: sessionId,
     })
-    this.scopes.set(projectName, preferences?.toolScope ?? 'all')
+    this.scopes.set(projectName, preferences?.toolScope ?? AeroToolScopes.all)
+    this.profiles.set(projectName, preferences?.toolProfile ?? AeroToolProfiles.default)
     this.projectIds.set(projectName, projectId)
 
     this.insertRow({
@@ -329,8 +343,9 @@ export class SessionRegistry {
    * Busy-check runs FIRST, before any state mutation — if two requests race
    * on the same project, one gets the 409 and the other's in-flight turn is
    * untouched. Only after confirming idle do we:
-   *   - align `state.tools` to the requested scope (CLI full vs dashboard
-   *     read-only share the same cached Agent; each request re-scopes it).
+   *   - align `state.tools` to the requested scope/profile (CLI full vs
+   *     dashboard read-only share the same cached Agent; each request
+   *     re-scopes it).
    *   - align `state.model` when the caller passes `provider` or `modelId`,
    *     honoring `--provider` / `--model` on hot sessions (not just on
    *     fresh/hydrated construction).
@@ -343,7 +358,10 @@ export class SessionRegistry {
     if (agent.state.isStreaming) {
       throw agentBusy(projectName)
     }
-    this.alignScope(projectName, agent, preferences?.toolScope ?? 'all')
+    this.alignToolSurface(projectName, agent, {
+      scope: preferences?.toolScope ?? AeroToolScopes.all,
+      profile: preferences?.toolProfile ?? AeroToolProfiles.default,
+    })
     if (preferences?.provider || preferences?.modelId) {
       this.alignModel(projectName, agent, preferences)
     }
@@ -414,16 +432,25 @@ export class SessionRegistry {
     }
   }
 
-  private alignScope(projectName: string, agent: Agent, wantScope: 'all' | 'read-only'): void {
-    if (this.scopes.get(projectName) === wantScope) return
+  private alignToolSurface(
+    projectName: string,
+    agent: Agent,
+    want: { scope: AeroToolScope; profile: AeroToolProfile },
+  ): void {
+    if (
+      this.scopes.get(projectName) === want.scope &&
+      this.profiles.get(projectName) === want.profile
+    ) {
+      return
+    }
     const projectId = this.projectIds.get(projectName) ?? this.resolveProjectId(projectName)
     this.projectIds.set(projectName, projectId)
     const toolCtx = { client: this.opts.client, projectName }
     // Mirror createAeroSession: skill-doc tools ride in every scope.
-    const stateTools =
-      wantScope === 'read-only' ? buildReadTools(toolCtx) : buildAllTools(toolCtx)
+    const stateTools = buildAeroStateTools(toolCtx, want)
     agent.state.tools = [...stateTools, ...buildSkillDocTools()]
-    this.scopes.set(projectName, wantScope)
+    this.scopes.set(projectName, want.scope)
+    this.profiles.set(projectName, want.profile)
   }
 
   private alignModel(
@@ -516,11 +543,12 @@ export class SessionRegistry {
         // escalate a read-only dashboard session to the full write surface.
         // Default to 'read-only' when no scope has been set yet, since drains
         // are system-triggered and should fail closed.
-        const scope = this.scopes.get(projectName) ?? 'read-only'
+        const scope = this.scopes.get(projectName) ?? AeroToolScopes.readOnly
+        const profile = this.profiles.get(projectName) ?? AeroToolProfiles.default
         // acquireForTurn does the busy check in the registry — if the agent
         // is mid-stream we leave pending alone and let `agent_end` drain
         // hook pick it up. Pi's AppError surfaces as `AGENT_BUSY`.
-        agent = await this.acquireForTurn(projectName, { toolScope: scope })
+        agent = await this.acquireForTurn(projectName, { toolScope: scope, toolProfile: profile })
       } catch (err) {
         if ((err as { code?: string }).code === 'AGENT_BUSY') return
         throw err
@@ -557,6 +585,7 @@ export class SessionRegistry {
     this.live.delete(projectName)
     this.pending.delete(projectName)
     this.scopes.delete(projectName)
+    this.profiles.delete(projectName)
     this.projectIds.delete(projectName)
   }
 

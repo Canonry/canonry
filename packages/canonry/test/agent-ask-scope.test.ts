@@ -4,6 +4,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { agentAsk } from '../src/commands/agent-ask.js'
+import { AeroToolProfiles, AeroToolScopes, type AeroToolProfile, type AeroToolScope } from '../src/agent/tools.js'
 
 /**
  * The dashboard AeroBar can run in `read-only` mode; the CLI defaults to
@@ -42,7 +43,7 @@ describe('agent ask scope parity', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true })
   })
 
-  async function captureScope(askScope: 'all' | 'read-only' | undefined): Promise<string> {
+  async function captureBody(opts: { scope?: AeroToolScope; profile?: AeroToolProfile }): Promise<string> {
     let captured = ''
     globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
@@ -57,22 +58,32 @@ describe('agent ask scope parity', () => {
       return new Response('not found', { status: 404 })
     }) as typeof globalThis.fetch
 
-    await agentAsk({ project: 'demo', prompt: 'hi', scope: askScope })
+    await agentAsk({ project: 'demo', prompt: 'hi', scope: opts.scope, profile: opts.profile })
     return captured
   }
 
   it('omitted scope defaults to "all" so CLI turns keep write capability', async () => {
-    const body = await captureScope(undefined)
-    expect(JSON.parse(body)).toMatchObject({ scope: 'all' })
+    const body = await captureBody({})
+    expect(JSON.parse(body)).toMatchObject({ scope: AeroToolScopes.all })
   })
 
   it('--scope read-only is forwarded to the server', async () => {
-    const body = await captureScope('read-only')
-    expect(JSON.parse(body)).toMatchObject({ scope: 'read-only' })
+    const body = await captureBody({ scope: AeroToolScopes.readOnly })
+    expect(JSON.parse(body)).toMatchObject({ scope: AeroToolScopes.readOnly })
   })
 
   it('--scope all is forwarded to the server', async () => {
-    const body = await captureScope('all')
-    expect(JSON.parse(body)).toMatchObject({ scope: 'all' })
+    const body = await captureBody({ scope: AeroToolScopes.all })
+    expect(JSON.parse(body)).toMatchObject({ scope: AeroToolScopes.all })
+  })
+
+  it('--profile ads-operator is forwarded to the server', async () => {
+    const body = await captureBody({ profile: AeroToolProfiles.adsOperator })
+    expect(JSON.parse(body)).toMatchObject({ scope: AeroToolScopes.all, profile: AeroToolProfiles.adsOperator })
+  })
+
+  it('omitted profile stays omitted so the server default remains authoritative', async () => {
+    const body = await captureBody({})
+    expect(JSON.parse(body)).not.toHaveProperty('profile')
   })
 })

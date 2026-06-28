@@ -1,7 +1,12 @@
 import { Type, type TSchema } from '@sinclair/typebox'
 import type { AgentTool, AgentToolResult } from '@mariozechner/pi-agent-core'
 import type { ApiClient } from '../client.js'
-import type { CanonryMcpTool } from '../mcp/tool-registry.js'
+import {
+  CanonryMcpToolNames,
+  type CanonryMcpRegistryTool,
+  type CanonryMcpTool,
+  type CanonryMcpToolName,
+} from '../mcp/tool-registry.js'
 
 const MAX_TOOL_RESULT_CHARS = 20_000
 const TRUNCATION_NOTE = '... (truncated — result too large)'
@@ -179,13 +184,15 @@ export function mcpToAgentTool(
  * exposed to the built-in Aero agent. Aero clearing its own conversation is
  * a foot-gun (it would erase the user's context mid-turn).
  */
-export const AERO_EXCLUDED_MCP_TOOLS: ReadonlySet<string> = new Set([
-  'canonry_agent_clear',
+export const AERO_EXCLUDED_MCP_TOOLS: ReadonlySet<CanonryMcpToolName> = new Set([
+  CanonryMcpToolNames.canonry_agent_clear,
 ])
 
 export interface BuildMcpAgentToolsOptions {
   /** Filter to read-only tools when true. */
   readOnly?: boolean
+  /** Optional allow-list for profile-specific tool surfaces. */
+  includeNames?: ReadonlySet<CanonryMcpToolName>
 }
 
 /**
@@ -195,12 +202,13 @@ export interface BuildMcpAgentToolsOptions {
  * registration is required.
  */
 export function buildMcpAgentTools(
-  registry: readonly CanonryMcpTool[],
+  registry: readonly CanonryMcpRegistryTool[],
   ctx: AgentMcpAdapterContext,
   opts: BuildMcpAgentToolsOptions = {},
 ): AgentTool[] {
   return registry
     .filter((tool) => !AERO_EXCLUDED_MCP_TOOLS.has(tool.name))
+    .filter((tool) => (opts.includeNames ? opts.includeNames.has(tool.name) : true))
     .filter((tool) => (opts.readOnly ? tool.access === 'read' : true))
     .map((tool) => mcpToAgentTool(tool, ctx))
 }
