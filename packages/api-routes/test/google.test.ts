@@ -1558,4 +1558,53 @@ describe('googleRoutes: GET /projects/:name/google/gsc/performance/daily', () =>
     ])
     expect(body.totals).toEqual({ clicks: 20, impressions: 1350, ctr: 20 / 1350, days: 2 })
   })
+
+  it('uses daily totals per date without dropping dimensioned fallback dates from the same window', async () => {
+    const now = '2026-01-01T00:00:00.000Z'
+    context.db.insert(gscDailyTotals).values({
+      id: crypto.randomUUID(),
+      projectId,
+      date: '2026-01-06',
+      clicks: 31,
+      impressions: 900,
+      position: '6',
+      createdAt: now,
+    }).run()
+
+    const res = await context.app.inject({
+      method: 'GET',
+      url: '/projects/perf/google/gsc/performance/daily',
+    })
+    expect(res.statusCode).toBe(200)
+    const body = res.json() as { totals: { clicks: number; impressions: number; ctr: number; days: number }; daily: Array<{ date: string; clicks: number; impressions: number; ctr: number }> }
+
+    expect(body.daily).toEqual([
+      { date: '2026-01-05', clicks: 10, impressions: 350, ctr: 10 / 350 },
+      { date: '2026-01-06', clicks: 31, impressions: 900, ctr: 31 / 900 },
+    ])
+    expect(body.totals).toEqual({ clicks: 41, impressions: 1250, ctr: 41 / 1250, days: 2 })
+  })
+
+  it('can return date-only daily totals when no dimensioned rows exist for the window', async () => {
+    const now = '2026-01-01T00:00:00.000Z'
+    context.db.insert(gscDailyTotals).values({
+      id: crypto.randomUUID(),
+      projectId,
+      date: '2026-02-01',
+      clicks: 12,
+      impressions: 500,
+      position: '9',
+      createdAt: now,
+    }).run()
+
+    const res = await context.app.inject({
+      method: 'GET',
+      url: '/projects/perf/google/gsc/performance/daily?startDate=2026-02-01&endDate=2026-02-01',
+    })
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual({
+      totals: { clicks: 12, impressions: 500, ctr: 12 / 500, days: 1 },
+      daily: [{ date: '2026-02-01', clicks: 12, impressions: 500, ctr: 12 / 500 }],
+    })
+  })
 })

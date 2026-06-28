@@ -65,7 +65,7 @@ import {
   smoothedRunDelta,
 } from '@ainyc/canonry-intelligence'
 import { loadDismissedTargetRefs } from './content.js'
-import { readGscDailyTotals } from './gsc-totals.js'
+import { mergeGscDailyTotalsWithFallback, readGscDailyTotals } from './gsc-totals.js'
 import { notProbeRun, resolveProject } from './helpers.js'
 import { renderReportHtml } from './report-renderer.js'
 import {
@@ -191,7 +191,7 @@ function buildGscSection(
   windowDays: number,
 ): ProjectReportDto['gsc'] {
   const allRows = db.select().from(gscSearchData).where(eq(gscSearchData.projectId, projectId)).all()
-  if (allRows.length === 0) return null
+  const allDailyTotals = readGscDailyTotals(db, projectId, '', '9999-12-31')
 
   // Constrain to the most recent `windowDays` of data so the GSC section
   // aligns with the GA section. GSC retains up to 16 months, but the report
@@ -200,16 +200,21 @@ function buildGscSection(
   // report should still cover a full window of real data.
   let maxDate = ''
   for (const r of allRows) if (r.date > maxDate) maxDate = r.date
+  for (const r of allDailyTotals) if (r.date > maxDate) maxDate = r.date
+  if (!maxDate) return null
+
   const startDate = windowStartDate(maxDate, windowDays)
   const rows = allRows.filter(r => r.date >= startDate && r.date <= maxDate)
-  if (rows.length === 0) return null
+  const dailyTotals = allDailyTotals.filter(r => r.date >= startDate && r.date <= maxDate)
+  if (rows.length === 0 && dailyTotals.length === 0) return null
 
   // Per-query / per-page aggregation stays on the dimensioned rows — these
-  // breakdowns are correct from `gsc_search_data`. Only the grand TOTALS and
-  // the daily trend move to the property-level table below.
+  // breakdowns are correct from `gsc_search_data`. The grand totals and daily
+  // trend prefer property-level rows per date, falling back to dimensioned rows
+  // for dates not yet covered by the new table.
   let dimensionedClicks = 0
   const queryAgg = new Map<string, { clicks: number; impressions: number; weightedPositionSum: number }>()
-  const dimensionedTrendAgg = new Map<string, { clicks: number; impressions: number }>()
+  const dimensionedTrendAgg = new Map<string, { clicks: number; impressions: number; weightedPositionSum: number }>()
 
   for (const r of rows) {
     dimensionedClicks += r.clicks
@@ -219,38 +224,32 @@ function buildGscSection(
     q.weightedPositionSum += safeNum(r.position) * r.impressions
     queryAgg.set(r.query, q)
 
-    const t = dimensionedTrendAgg.get(r.date) ?? { clicks: 0, impressions: 0 }
+    const t = dimensionedTrendAgg.get(r.date) ?? { clicks: 0, impressions: 0, weightedPositionSum: 0 }
     t.clicks += r.clicks
     t.impressions += r.impressions
+    t.weightedPositionSum += safeNum(r.position) * r.impressions
     dimensionedTrendAgg.set(r.date, t)
   }
 
-  // Property-level totals + daily trend. Prefer the un-dimensioned daily-totals
-  // table (matches Google's property total — summing the dimensioned rows
-  // over-counts impressions and under-counts clicks). Fall back to the
-  // dimensioned sums when the project has not re-synced (no daily-totals rows).
-  const dailyTotals = readGscDailyTotals(db, projectId, startDate, maxDate)
+  const dailySeries = mergeGscDailyTotalsWithFallback(
+    dailyTotals,
+    [...dimensionedTrendAgg.entries()].map(([date, agg]) => ({
+      date,
+      clicks: agg.clicks,
+      impressions: agg.impressions,
+      position: agg.impressions > 0 ? agg.weightedPositionSum / agg.impressions : 0,
+    })),
+  )
+
   let totalClicks = 0
   let totalImpressions = 0
   let weightedPositionSum = 0
-  let trend: { date: string; clicks: number; impressions: number }[]
-  if (dailyTotals.length > 0) {
-    for (const d of dailyTotals) {
-      totalClicks += d.clicks
-      totalImpressions += d.impressions
-      weightedPositionSum += d.position * d.impressions
-    }
-    trend = dailyTotals.map(d => ({ date: d.date, clicks: d.clicks, impressions: d.impressions }))
-  } else {
-    for (const r of rows) {
-      totalClicks += r.clicks
-      totalImpressions += r.impressions
-      weightedPositionSum += safeNum(r.position) * r.impressions
-    }
-    trend = [...dimensionedTrendAgg.entries()]
-      .map(([date, agg]) => ({ date, clicks: agg.clicks, impressions: agg.impressions }))
-      .sort((a, b) => a.date.localeCompare(b.date))
+  for (const d of dailySeries) {
+    totalClicks += d.clicks
+    totalImpressions += d.impressions
+    weightedPositionSum += d.position * d.impressions
   }
+  const trend = dailySeries.map(d => ({ date: d.date, clicks: d.clicks, impressions: d.impressions }))
 
   const ctr = totalImpressions > 0 ? totalClicks / totalImpressions : 0
   const avgPosition = totalImpressions > 0 ? weightedPositionSum / totalImpressions : 0

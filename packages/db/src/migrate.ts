@@ -1905,7 +1905,7 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
     statements: [
       `CREATE TABLE IF NOT EXISTS gsc_daily_totals (
         id           TEXT PRIMARY KEY,
-        project_id   TEXT NOT NULL,
+        project_id   TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
         date         TEXT NOT NULL,
         clicks       INTEGER NOT NULL,
         impressions  INTEGER NOT NULL,

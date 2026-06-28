@@ -12,7 +12,7 @@ import {
 } from '@ainyc/canonry-contracts'
 import { extractPlaceAmenities, type PlaceDetails } from '@ainyc/canonry-integration-google-places'
 import { buildGbpSummary } from './gbp-summary.js'
-import { readGscDailyTotals } from './gsc-totals.js'
+import { mergeGscDailyTotalsWithFallback, readGscDailyTotals } from './gsc-totals.js'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import {
   getAuthUrl,
@@ -721,47 +721,45 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     const { startDate, endDate } = request.query
     const cutoffDate = !startDate ? windowCutoff(parseWindow(request.query.window))?.slice(0, 10) ?? null : null
 
-    // Prefer the property-level daily totals (match Google's property total —
-    // summing the dimensioned rows over-counts impressions and under-counts
-    // clicks). Fall back to summing `gsc_search_data` by date when the project
-    // has no daily-totals rows in the window (not yet re-synced).
+    // Prefer the property-level daily totals on dates where they exist (match
+    // Google's property total). Fall back to summing `gsc_search_data` for
+    // missing dates so upgraded installs do not shorten longer/custom windows
+    // after their first post-migration sync.
     const windowStart = startDate ?? cutoffDate ?? ''
     const windowEnd = endDate ?? '9999-12-31'
     const dailyTotals = readGscDailyTotals(app.db, project.id, windowStart, windowEnd)
 
-    let daily: { date: string; clicks: number; impressions: number; ctr: number }[]
-    if (dailyTotals.length > 0) {
-      daily = dailyTotals.map((d) => ({
-        date: d.date,
-        clicks: d.clicks,
-        impressions: d.impressions,
-        ctr: d.impressions > 0 ? d.clicks / d.impressions : 0,
-      }))
-    } else {
-      const conditions = [eq(gscSearchData.projectId, project.id)]
-      if (startDate) conditions.push(sql`${gscSearchData.date} >= ${startDate}`)
-      else if (cutoffDate) conditions.push(sql`${gscSearchData.date} >= ${cutoffDate}`)
-      if (endDate) conditions.push(sql`${gscSearchData.date} <= ${endDate}`)
+    const conditions = [eq(gscSearchData.projectId, project.id)]
+    if (startDate) conditions.push(sql`${gscSearchData.date} >= ${startDate}`)
+    else if (cutoffDate) conditions.push(sql`${gscSearchData.date} >= ${cutoffDate}`)
+    if (endDate) conditions.push(sql`${gscSearchData.date} <= ${endDate}`)
 
-      const rows = app.db
-        .select({
-          date: gscSearchData.date,
-          clicks: sql<number>`COALESCE(SUM(${gscSearchData.clicks}), 0)`,
-          impressions: sql<number>`COALESCE(SUM(${gscSearchData.impressions}), 0)`,
-        })
-        .from(gscSearchData)
-        .where(and(...conditions))
-        .groupBy(gscSearchData.date)
-        .orderBy(gscSearchData.date)
-        .all()
+    const dimensionedRows = app.db
+      .select({
+        date: gscSearchData.date,
+        clicks: sql<number>`COALESCE(SUM(${gscSearchData.clicks}), 0)`,
+        impressions: sql<number>`COALESCE(SUM(${gscSearchData.impressions}), 0)`,
+      })
+      .from(gscSearchData)
+      .where(and(...conditions))
+      .groupBy(gscSearchData.date)
+      .orderBy(gscSearchData.date)
+      .all()
 
-      daily = rows.map((r) => ({
+    const daily = mergeGscDailyTotalsWithFallback(
+      dailyTotals,
+      dimensionedRows.map((r) => ({
         date: r.date,
         clicks: r.clicks,
         impressions: r.impressions,
-        ctr: r.impressions > 0 ? r.clicks / r.impressions : 0,
-      }))
-    }
+        position: 0,
+      })),
+    ).map((d) => ({
+      date: d.date,
+      clicks: d.clicks,
+      impressions: d.impressions,
+      ctr: d.impressions > 0 ? d.clicks / d.impressions : 0,
+    }))
     const totalClicks = daily.reduce((sum, d) => sum + d.clicks, 0)
     const totalImpressions = daily.reduce((sum, d) => sum + d.impressions, 0)
     return {

@@ -611,6 +611,71 @@ describe('GET /api/v1/projects/:name/report', () => {
     expect(body.executiveSummary.gsc).toMatchObject({ clicks: 720, impressions: 46_325 })
   })
 
+  test('GSC headline totals merge daily totals with dimensioned fallback dates when coverage is partial', async () => {
+    const projectId = insertProject(ctx.db, 'gsc-partial-totals')
+    const syncRunId = insertRun(ctx.db, projectId, { kind: 'gsc-sync' })
+
+    ctx.db.insert(gscSearchData).values([
+      {
+        id: crypto.randomUUID(), projectId, syncRunId,
+        date: '2026-04-01', query: 'gsc-partial-totals brand',
+        page: 'https://gsc-partial-totals.example.com/a',
+        clicks: 400, impressions: 25_000, ctr: '0.016', position: '4',
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: crypto.randomUUID(), projectId, syncRunId,
+        date: '2026-04-30', query: 'industrial coatings',
+        page: 'https://gsc-partial-totals.example.com/b',
+        clicks: 320, impressions: 21_325, ctr: '0.015', position: '6',
+        createdAt: new Date().toISOString(),
+      },
+    ]).run()
+    ctx.db.insert(gscDailyTotals).values({
+      id: crypto.randomUUID(), projectId,
+      date: '2026-04-30', clicks: 482, impressions: 20_000, position: '6',
+      createdAt: new Date().toISOString(),
+    }).run()
+
+    await ctx.app.ready()
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/gsc-partial-totals/report' })
+    const body = JSON.parse(res.body) as ProjectReportDto
+
+    expect(body.gsc).not.toBeNull()
+    expect(body.gsc!.periodStart).toBe('2026-04-01')
+    expect(body.gsc!.periodEnd).toBe('2026-04-30')
+    expect(body.gsc!.totalClicks).toBe(882)
+    expect(body.gsc!.totalImpressions).toBe(45_000)
+    expect(body.gsc!.trend).toEqual([
+      { date: '2026-04-01', clicks: 400, impressions: 25_000 },
+      { date: '2026-04-30', clicks: 482, impressions: 20_000 },
+    ])
+  })
+
+  test('GSC report can render property totals even when query/page rows are all anonymized away', async () => {
+    const projectId = insertProject(ctx.db, 'gsc-date-only')
+
+    ctx.db.insert(gscDailyTotals).values({
+      id: crypto.randomUUID(), projectId,
+      date: '2026-04-30', clicks: 12, impressions: 500, position: '9',
+      createdAt: new Date().toISOString(),
+    }).run()
+
+    await ctx.app.ready()
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/gsc-date-only/report' })
+    const body = JSON.parse(res.body) as ProjectReportDto
+
+    expect(body.gsc).not.toBeNull()
+    expect(body.gsc!.periodStart).toBe('2026-04-30')
+    expect(body.gsc!.periodEnd).toBe('2026-04-30')
+    expect(body.gsc!.totalClicks).toBe(12)
+    expect(body.gsc!.totalImpressions).toBe(500)
+    expect(body.gsc!.avgPosition).toBe(9)
+    expect(body.gsc!.topQueries).toEqual([])
+    expect(body.gsc!.categoryBreakdown).toEqual([])
+    expect(body.executiveSummary.gsc).toMatchObject({ clicks: 12, impressions: 500 })
+  })
+
   test('GSC section trims to the most recent 30 days when older history is present', async () => {
     // GSC retains up to 16 months. The report only ever shows 30 days so it
     // stays aligned with the GA window. Older rows must be excluded from the

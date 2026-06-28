@@ -15,10 +15,8 @@ export interface GscDailyTotal {
  *
  * These rows come from the un-dimensioned (`dimensions: ['date']`) GSC sync and
  * are the CORRECT source for the headline clicks / impressions / CTR / position
- * and the daily trend — summing the dimensioned `gsc_search_data` rows does not
- * equal Google's property total. Returns an empty array when the project has no
- * daily-totals rows in the window (callers fall back to the dimensioned sum for
- * back-compat with projects that have not re-synced).
+ * and the daily trend on dates where they exist — summing the dimensioned
+ * `gsc_search_data` rows does not equal Google's property total.
  */
 export function readGscDailyTotals(
   db: DatabaseClient,
@@ -53,4 +51,14 @@ export function readGscDailyTotals(
       position: Number.isFinite(position) ? position : 0,
     }
   })
+}
+
+export function mergeGscDailyTotalsWithFallback(
+  propertyTotals: readonly GscDailyTotal[],
+  dimensionedFallback: readonly GscDailyTotal[],
+): GscDailyTotal[] {
+  const byDate = new Map<string, GscDailyTotal>()
+  for (const row of dimensionedFallback) byDate.set(row.date, row)
+  for (const row of propertyTotals) byDate.set(row.date, row)
+  return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date))
 }

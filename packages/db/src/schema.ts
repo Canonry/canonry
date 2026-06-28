@@ -230,7 +230,7 @@ export const gscSearchData = sqliteTable('gsc_search_data', {
 // the GSC UI. Per-query / per-page breakdowns still read `gsc_search_data`.
 export const gscDailyTotals = sqliteTable('gsc_daily_totals', {
   id: text('id').primaryKey(),
-  projectId: text('project_id').notNull(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
   date: text('date').notNull(),
   clicks: integer('clicks').notNull(),
   impressions: integer('impressions').notNull(),
