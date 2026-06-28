@@ -8,17 +8,20 @@ import {
   migrate,
   projects,
   agentSessions,
+  agentToolEvents,
   llmUsageEvents,
   parseJsonColumn,
   type DatabaseClient,
 } from '@ainyc/canonry-db'
 import {
   fauxAssistantMessage,
+  fauxToolCall,
   registerFauxProvider,
   type FauxProviderRegistration,
 } from '@mariozechner/pi-ai'
 import { eq } from 'drizzle-orm'
-import type { AgentMessage } from '@mariozechner/pi-agent-core'
+import { Type } from '@sinclair/typebox'
+import type { AgentMessage, AgentTool } from '@mariozechner/pi-agent-core'
 import { MemorySources } from '@ainyc/canonry-contracts'
 import { SessionRegistry } from '../src/agent/session-registry.js'
 import { canonryMcpTools } from '../src/mcp/tool-registry.js'
@@ -186,6 +189,62 @@ describe('SessionRegistry', () => {
     expect(usageRows[0].metadata).toMatchObject({
       projectName: 'demo',
       toolCount: AERO_READ_TOOL_COUNT,
+    })
+  })
+
+  it('records per-tool telemetry tied to the durable Aero session', async () => {
+    const projectId = insertProject(db, 'demo')
+    const registry = new SessionRegistry({ db, client: stubClient(), config: stubConfig() })
+    const agent = registry.getOrCreate('demo')
+    const row = db.select().from(agentSessions).where(eq(agentSessions.projectId, projectId)).get()
+    expect(row).toBeDefined()
+
+    const tool: AgentTool = {
+      name: 'canonry_test_status',
+      label: 'Test status',
+      description: 'Returns a compact test status payload.',
+      parameters: Type.Object({ section: Type.String() }),
+      execute: async (_toolCallId, params) => {
+        const section = (params as { section: string }).section
+        return {
+          content: [{ type: 'text', text: `section=${section}; status=ok` }],
+          details: { ok: true, section, rows: [{ id: 'r1', value: 42 }] },
+        }
+      },
+    }
+
+    agent.state.model = faux.getModel()
+    agent.state.tools = [tool]
+    faux.setResponses([
+      fauxAssistantMessage(
+        fauxToolCall('canonry_test_status', { section: 'ads' }, { id: 'tool-call-1' }),
+        { stopReason: 'toolUse', responseId: 'resp-tool-1' },
+      ),
+      fauxAssistantMessage('Tool complete.'),
+    ])
+
+    await agent.prompt('Check the ads status.')
+    await agent.waitForIdle()
+
+    const toolRows = db.select().from(agentToolEvents).where(eq(agentToolEvents.projectId, projectId)).all()
+    expect(toolRows).toHaveLength(1)
+    expect(toolRows[0]).toMatchObject({
+      projectId,
+      agentSessionId: row!.id,
+      toolCallId: 'tool-call-1',
+      toolName: 'canonry_test_status',
+      assistantResponseId: 'resp-tool-1',
+      provider: 'faux',
+      model: 'faux-model',
+      status: 'success',
+    })
+    expect(toolRows[0].durationMs).toBeGreaterThanOrEqual(0)
+    expect(toolRows[0].argsBytes).toBeGreaterThan(0)
+    expect(toolRows[0].resultTextChars).toBeGreaterThan(0)
+    expect(toolRows[0].resultBytes).toBeGreaterThan(0)
+    expect(toolRows[0].metadata).toMatchObject({
+      projectName: 'demo',
+      toolCount: 1,
     })
   })
 

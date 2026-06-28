@@ -694,6 +694,34 @@ export const llmUsageEvents = sqliteTable('llm_usage_events', {
   index('idx_llm_usage_run_created').on(table.runId, table.createdAt),
 ])
 
+/**
+ * Append-only internal tool-call ledger for long-running Aero sessions. It
+ * lets operators see tool fan-out, failures, latency, and result size without
+ * replaying the transcript or scraping SSE events.
+ */
+export const agentToolEvents = sqliteTable('agent_tool_events', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').references(() => projects.id, { onDelete: 'cascade' }),
+  agentSessionId: text('agent_session_id').references(() => agentSessions.id, { onDelete: 'set null' }),
+  toolCallId: text('tool_call_id').notNull(),
+  toolName: text('tool_name').notNull(),
+  assistantResponseId: text('assistant_response_id'),
+  provider: text('provider'),
+  model: text('model'),
+  status: text('status').notNull(),
+  durationMs: integer('duration_ms').notNull().default(0),
+  argsBytes: integer('args_bytes').notNull().default(0),
+  resultTextChars: integer('result_text_chars').notNull().default(0),
+  resultBytes: integer('result_bytes').notNull().default(0),
+  metadata: text('metadata', { mode: 'json' }).$type<Record<string, unknown>>(),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  index('idx_agent_tool_events_project_created').on(table.projectId, table.createdAt),
+  index('idx_agent_tool_events_session_created').on(table.agentSessionId, table.createdAt),
+  index('idx_agent_tool_events_tool_created').on(table.toolName, table.createdAt),
+  index('idx_agent_tool_events_status_created').on(table.status, table.createdAt),
+])
+
 // --- Server-side traffic ingestion ---
 // Per-source connection metadata. Credentials live in ~/.canonry/config.yaml,
 // not here. `archived_at` retains the row after a host migration so historical
