@@ -317,6 +317,58 @@ describe('resolveModelForCapability', () => {
   })
 })
 
+describe('resolveModelForCapability: gemini proxy base URL override', () => {
+  const PRIOR = process.env.GEMINI_BASE_URL
+  function withGeminiBaseUrl<T>(value: string | undefined, fn: () => T): T {
+    if (value === undefined) delete process.env.GEMINI_BASE_URL
+    else process.env.GEMINI_BASE_URL = value
+    try {
+      return fn()
+    } finally {
+      if (PRIOR === undefined) delete process.env.GEMINI_BASE_URL
+      else process.env.GEMINI_BASE_URL = PRIOR
+    }
+  }
+  const baseUrlOf = (m: unknown) => (m as { baseUrl?: string }).baseUrl
+  const geminiAgentId = PROVIDER_MODELS.gemini[LlmCapabilities.agent]
+
+  it('repoints the gemini agent model at GEMINI_BASE_URL and appends /v1beta', () => {
+    withGeminiBaseUrl('http://172.17.0.1:4610/gemini', () => {
+      const model = resolveModelForCapability('gemini', LlmCapabilities.agent)
+      expect(baseUrlOf(model)).toBe('http://172.17.0.1:4610/gemini/v1beta')
+    })
+  })
+
+  it('does not double-append /v1beta and trims a trailing slash', () => {
+    withGeminiBaseUrl('http://host/gemini/v1beta/', () => {
+      expect(baseUrlOf(resolveModelForCapability('gemini', LlmCapabilities.agent))).toBe('http://host/gemini/v1beta')
+    })
+  })
+
+  it('never mutates the shared pi-ai registry Model (clones, not in place)', () => {
+    const before = baseUrlOf(getModel('google' as never, geminiAgentId as never))
+    withGeminiBaseUrl('http://172.17.0.1:4610/gemini', () => {
+      resolveModelForCapability('gemini', LlmCapabilities.agent)
+    })
+    const after = baseUrlOf(getModel('google' as never, geminiAgentId as never))
+    expect(after).toBe(before)
+    expect(after ?? '').not.toContain('172.17.0.1')
+  })
+
+  it('leaves the default Google host untouched when GEMINI_BASE_URL is unset', () => {
+    withGeminiBaseUrl(undefined, () => {
+      const fromRegistry = baseUrlOf(getModel('google' as never, geminiAgentId as never))
+      expect(baseUrlOf(resolveModelForCapability('gemini', LlmCapabilities.agent))).toBe(fromRegistry)
+    })
+  })
+
+  it('does not redirect other native providers (openai) when only GEMINI_BASE_URL is set', () => {
+    withGeminiBaseUrl('http://172.17.0.1:4610/gemini', () => {
+      expect(baseUrlOf(resolveModelForCapability('openai', LlmCapabilities.agent)) ?? '').not.toContain('172.17.0.1')
+    })
+  })
+})
+
 describe('deepinfra (custom OpenAI-compatible host)', () => {
   // DeepInfra is agent-only, has no pi-ai catalog entry, and resolves models
   // by constructing a custom openai-completions object pointed at its base URL.
