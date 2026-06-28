@@ -3,6 +3,7 @@ import path from 'node:path'
 import { Agent } from '@mariozechner/pi-agent-core'
 import type { AgentOptions, AgentTool } from '@mariozechner/pi-agent-core'
 import { registerBuiltInApiProviders, type Model } from '@mariozechner/pi-ai'
+import type { DatabaseClient } from '@ainyc/canonry-db'
 import type { ApiClient } from '../client.js'
 import type { CanonryConfig } from '../config.js'
 import {
@@ -17,6 +18,13 @@ import {
 import { resolveAeroSkillDir } from './skill-paths.js'
 import { buildSkillDocTools } from './skill-tools.js'
 import { buildAllTools, buildReadTools } from './tools.js'
+import {
+  AERO_PROMPT_FAMILY,
+  AERO_PROMPT_VERSION,
+  AeroLlmUsageFeatures,
+  recordLlmUsageEvent,
+} from './llm-usage.js'
+import { splitAeroAnthropicSystemCachePayload } from './prompt-cache.js'
 
 export type { SupportedAgentProvider } from './providers.js'
 export { AgentProviders, listAgentProviders, coerceAgentProvider } from './providers.js'
@@ -52,6 +60,10 @@ export interface AeroSessionOptions {
   toolScope?: 'all' | 'read-only'
   /** Seed initial transcript. Used by the registry when rehydrating a persisted session. */
   initialMessages?: import('@mariozechner/pi-agent-core').AgentMessage[]
+  /** Optional telemetry context. When present, assistant turn usage is appended to llm_usage_events. */
+  db?: DatabaseClient
+  projectId?: string
+  agentSessionId?: string
 }
 
 export { resolveAeroSkillDir } from './skill-paths.js'
@@ -137,6 +149,10 @@ export function buildApiKeyResolver(
   return (piAiProvider: string) => resolveApiKeyFor(piAiProvider, config)
 }
 
+function buildAeroProviderSessionId(opts: AeroSessionOptions): string {
+  return `canonry:aero:${opts.agentSessionId ?? opts.projectId ?? opts.projectName}`
+}
+
 export function createAeroSession(opts: AeroSessionOptions): Agent {
   const systemPrompt = opts.systemPromptOverride ?? loadAeroSystemPrompt()
 
@@ -156,7 +172,7 @@ export function createAeroSession(opts: AeroSessionOptions): Agent {
   const defaultTools = [...stateTools, ...buildSkillDocTools()]
   const tools = opts.tools ?? defaultTools
 
-  return new Agent({
+  const agent = new Agent({
     initialState: {
       systemPrompt,
       model,
@@ -164,8 +180,30 @@ export function createAeroSession(opts: AeroSessionOptions): Agent {
       ...(opts.initialMessages ? { messages: opts.initialMessages } : {}),
     },
     streamFn: opts.streamFn,
+    sessionId: buildAeroProviderSessionId(opts),
+    onPayload: splitAeroAnthropicSystemCachePayload,
     getApiKey: buildApiKeyResolver(opts.config),
   })
+
+  const telemetryDb = opts.db
+  if (telemetryDb) {
+    agent.subscribe((event) => {
+      if (event.type !== 'turn_end') return
+      if (event.message.role !== 'assistant') return
+      recordLlmUsageEvent({
+        db: telemetryDb,
+        projectId: opts.projectId,
+        agentSessionId: opts.agentSessionId,
+        feature: AeroLlmUsageFeatures.turn,
+        promptFamily: AERO_PROMPT_FAMILY,
+        promptVersion: AERO_PROMPT_VERSION,
+        message: event.message,
+        metadata: { projectName: opts.projectName, toolCount: agent.state.tools.length },
+      })
+    })
+  }
+
+  return agent
 }
 
 /** Exposed so the registry can persist the chosen provider/model without re-running detection. */

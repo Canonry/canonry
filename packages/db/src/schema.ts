@@ -663,6 +663,37 @@ export const agentMemory = sqliteTable('agent_memory', {
   index('idx_agent_memory_project_updated').on(table.projectId, table.updatedAt),
 ])
 
+/**
+ * Append-only internal LLM usage ledger. `usage_counters` is intentionally
+ * aggregate-only; prompt-cache tuning needs per-call token and cache component
+ * rows grouped by feature/provider/model/session.
+ */
+export const llmUsageEvents = sqliteTable('llm_usage_events', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').references(() => projects.id, { onDelete: 'cascade' }),
+  runId: text('run_id').references(() => runs.id, { onDelete: 'set null' }),
+  agentSessionId: text('agent_session_id').references(() => agentSessions.id, { onDelete: 'set null' }),
+  feature: text('feature').notNull(),
+  provider: text('provider').notNull(),
+  model: text('model').notNull(),
+  responseId: text('response_id'),
+  inputTokens: integer('input_tokens').notNull().default(0),
+  outputTokens: integer('output_tokens').notNull().default(0),
+  cacheReadTokens: integer('cache_read_tokens').notNull().default(0),
+  cacheWriteTokens: integer('cache_write_tokens').notNull().default(0),
+  totalTokens: integer('total_tokens').notNull().default(0),
+  costMillicents: integer('cost_millicents').notNull().default(0),
+  promptFamily: text('prompt_family'),
+  promptVersion: text('prompt_version'),
+  metadata: text('metadata', { mode: 'json' }).$type<Record<string, unknown>>(),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  index('idx_llm_usage_project_created').on(table.projectId, table.createdAt),
+  index('idx_llm_usage_feature_created').on(table.feature, table.createdAt),
+  index('idx_llm_usage_session_created').on(table.agentSessionId, table.createdAt),
+  index('idx_llm_usage_run_created').on(table.runId, table.createdAt),
+])
+
 // --- Server-side traffic ingestion ---
 // Per-source connection metadata. Credentials live in ~/.canonry/config.yaml,
 // not here. `archived_at` retains the row after a host migration so historical

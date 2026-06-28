@@ -1842,6 +1842,36 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `ALTER TABLE ads_connections ADD COLUMN conversion_tracking_configured INTEGER NOT NULL DEFAULT 0`,
     ],
   },
+  {
+    version: 84,
+    name: 'llm-usage-events',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS llm_usage_events (
+        id                  TEXT PRIMARY KEY,
+        project_id          TEXT REFERENCES projects(id) ON DELETE CASCADE,
+        run_id              TEXT REFERENCES runs(id) ON DELETE SET NULL,
+        agent_session_id    TEXT REFERENCES agent_sessions(id) ON DELETE SET NULL,
+        feature             TEXT NOT NULL,
+        provider            TEXT NOT NULL,
+        model               TEXT NOT NULL,
+        response_id         TEXT,
+        input_tokens        INTEGER NOT NULL DEFAULT 0,
+        output_tokens       INTEGER NOT NULL DEFAULT 0,
+        cache_read_tokens   INTEGER NOT NULL DEFAULT 0,
+        cache_write_tokens  INTEGER NOT NULL DEFAULT 0,
+        total_tokens        INTEGER NOT NULL DEFAULT 0,
+        cost_millicents     INTEGER NOT NULL DEFAULT 0,
+        prompt_family       TEXT,
+        prompt_version      TEXT,
+        metadata            TEXT,
+        created_at          TEXT NOT NULL
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_llm_usage_project_created ON llm_usage_events(project_id, created_at)`,
+      `CREATE INDEX IF NOT EXISTS idx_llm_usage_feature_created ON llm_usage_events(feature, created_at)`,
+      `CREATE INDEX IF NOT EXISTS idx_llm_usage_session_created ON llm_usage_events(agent_session_id, created_at)`,
+      `CREATE INDEX IF NOT EXISTS idx_llm_usage_run_created ON llm_usage_events(run_id, created_at)`,
+    ],
+  },
 ]
 
 /**
