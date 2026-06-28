@@ -70,11 +70,11 @@ function renderSection() {
   )
 }
 
-function renderMentionShareSection(competitorCount = 1) {
+function renderMentionShareSection(competitorDomains: readonly string[] = ['competitor.com']) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={queryClient}>
-      <MentionShareTrendSection projectName="test-project" competitorCount={competitorCount} />
+      <MentionShareTrendSection projectName="test-project" competitorDomains={competitorDomains} />
     </QueryClientProvider>,
   )
 }
@@ -174,9 +174,43 @@ test('prompts for competitors before rendering mention-share history', async () 
   })
   onTestFinished(restore)
 
-  renderMentionShareSection(0)
+  renderMentionShareSection([])
 
   await waitFor(() => {
     expect(screen.getByText(/Add tracked competitors/)).toBeTruthy()
+  })
+})
+
+test('refetches mention-share metrics when the competitor frame changes', async () => {
+  const requests: string[] = []
+  const restore = mockFetch((url) => {
+    const path = url.split('?')[0]!
+    if (path.endsWith('/projects/test-project/analytics/metrics')) {
+      requests.push(url)
+      return jsonResponse(metricsDto(TWO_BUCKETS))
+    }
+    throw new Error(`Unexpected fetch: ${url}`)
+  })
+  onTestFinished(restore)
+
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const view = render(
+    <QueryClientProvider client={queryClient}>
+      <MentionShareTrendSection projectName="test-project" competitorDomains={['competitor.com']} />
+    </QueryClientProvider>,
+  )
+
+  await waitFor(() => {
+    expect(requests).toHaveLength(1)
+  })
+
+  view.rerender(
+    <QueryClientProvider client={queryClient}>
+      <MentionShareTrendSection projectName="test-project" competitorDomains={['competitor.com', 'new-rival.com']} />
+    </QueryClientProvider>,
+  )
+
+  await waitFor(() => {
+    expect(requests).toHaveLength(2)
   })
 })

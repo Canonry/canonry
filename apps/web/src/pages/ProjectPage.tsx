@@ -1681,6 +1681,7 @@ function ProjectPageContent({
 }) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const competitorDomains = useMemo(() => model.competitors.map(c => c.domain), [model.competitors])
   // "Local Presence" is always shown — GbpSection renders a setup guide when no
   // Google Business Profile is connected, so the tab is the entry point to
   // connecting one rather than being hidden until after connection.
@@ -2219,11 +2220,11 @@ function ProjectPageContent({
       {tab === 'overview' ? (
         <>
           <section className="page-section-divider">
-            <VisibilityTrendSection projectName={model.project.name} />
+            <VisibilityTrendSection projectName={model.project.name} competitorDomains={competitorDomains} />
           </section>
 
           <section className="page-section-divider">
-            <MentionShareTrendSection projectName={model.project.name} competitorCount={model.competitors.length} />
+            <MentionShareTrendSection projectName={model.project.name} competitorDomains={competitorDomains} />
           </section>
 
           <OverviewBrief

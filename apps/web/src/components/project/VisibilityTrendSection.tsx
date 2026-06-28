@@ -95,6 +95,14 @@ function firstSeriesValue(rows: Array<Record<string, string | number | null>>, k
   return null
 }
 
+function competitorFrameKey(competitorDomains: readonly string[]): string {
+  return competitorDomains
+    .map(domain => domain.trim().toLowerCase())
+    .filter(Boolean)
+    .sort()
+    .join('\n')
+}
+
 /**
  * Single-select segmented control. A group of toggle buttons (`role="group"` +
  * `aria-pressed`), not a tab pattern: these switch the chart's series in place,
@@ -133,16 +141,23 @@ function Segmented<T extends string>({
   )
 }
 
-export function VisibilityTrendSection({ projectName }: { projectName: string }) {
+export function VisibilityTrendSection({
+  projectName,
+  competitorDomains = [],
+}: {
+  projectName: string
+  competitorDomains?: readonly string[]
+}) {
   const [window, setWindow] = useState<MetricsWindow>('all')
   const [metric, setMetric] = useState<MetricChoice>('mentioned')
   // Default to the per-engine breakdown: the blended line hides that engines
   // disagree wildly (a brand cited heavily by one engine and ignored by
   // another), which is the first thing an operator needs to see.
   const [mode, setMode] = useState<TrendSeriesMode>('byProvider')
+  const metricsFrameKey = useMemo(() => competitorFrameKey(competitorDomains), [competitorDomains])
 
   const metricsQuery = useQuery({
-    queryKey: ['analytics-metrics', projectName, window],
+    queryKey: ['analytics-metrics', projectName, window, metricsFrameKey],
     queryFn: () => fetchAnalyticsMetrics(projectName, window),
     staleTime: STATIC_VISIBILITY_STALE_MS,
   })
@@ -315,15 +330,17 @@ export function VisibilityTrendSection({ projectName }: { projectName: string })
 
 export function MentionShareTrendSection({
   projectName,
-  competitorCount,
+  competitorDomains,
 }: {
   projectName: string
-  competitorCount: number
+  competitorDomains: readonly string[]
 }) {
   const [window, setWindow] = useState<MetricsWindow>('all')
+  const metricsFrameKey = useMemo(() => competitorFrameKey(competitorDomains), [competitorDomains])
+  const competitorCount = competitorDomains.length
 
   const metricsQuery = useQuery({
-    queryKey: ['analytics-metrics', projectName, window],
+    queryKey: ['analytics-metrics', projectName, window, metricsFrameKey],
     queryFn: () => fetchAnalyticsMetrics(projectName, window),
     staleTime: STATIC_VISIBILITY_STALE_MS,
   })
