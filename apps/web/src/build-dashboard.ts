@@ -725,20 +725,22 @@ export function buildDashboard(projectDataList: ProjectData[], apiSettings?: Api
   return {
     portfolioOverview: {
       projects: portfolioProjects,
-      // The portfolio's change feed, recent-runs log, and freshness now come
-      // from the server-computed `GET /api/v1/portfolio` (see `usePortfolio`),
-      // not from this slim-hook aggregation — the old client-side
-      // `buildAttentionItems` derivation read an always-empty evidence array on
-      // this surface and fell through to a hardcoded "All projects stable" row.
-      // These fields are retained only so `PortfolioOverviewVm` and the mock
-      // fixtures keep their shape; the Overview page no longer reads them.
-      attentionItems: [],
+      attentionItems: hasProjects
+        ? buildAttentionItems(projectCenters)
+        : [{
+            id: 'attention_setup',
+            tone: 'neutral',
+            title: 'No projects yet',
+            detail: 'Create your first project using the setup wizard, CLI, or API.',
+            actionLabel: 'Open setup',
+            href: '/setup',
+          }],
       recentRuns: allRuns.slice(0, 5),
       systemHealth: [
         { id: 'api', label: 'API', tone: 'positive', detail: 'Connected', meta: 'Real-time data' },
         { id: 'provider', label: 'Gemini', tone: 'positive', detail: 'Configured', meta: 'Provider active' },
       ],
-      lastUpdatedAt: '',
+      lastUpdatedAt: new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }),
       ...(!hasProjects ? {
         emptyState: {
           title: 'No projects yet',
@@ -800,3 +802,46 @@ export function buildDashboard(projectDataList: ProjectData[], apiSettings?: Api
   }
 }
 
+function buildAttentionItems(projectCenters: ProjectCommandCenterVm[]) {
+  const items: DashboardVm['portfolioOverview']['attentionItems'] = []
+
+  for (const pc of projectCenters) {
+    const lostEvidence = pc.visibilityEvidence.filter(e => e.citationState === 'lost')
+    if (lostEvidence.length > 0) {
+      items.push({
+        id: `attention_${pc.project.id}_lost`,
+        tone: 'negative',
+        title: `${pc.project.displayName || pc.project.name} lost citations`,
+        detail: `${lostEvidence.length} quer${lostEvidence.length > 1 ? 'ies' : 'y'} lost citation.`,
+        actionLabel: 'Open project',
+        href: `/projects/${encodeURIComponent(pc.project.name)}`,
+      })
+    }
+
+    const activeRuns = pc.recentRuns.filter(r => r.status === RunStatuses.running || r.status === RunStatuses.queued)
+    if (activeRuns.length > 0) {
+      items.push({
+        id: `attention_${pc.project.id}_active`,
+        tone: 'neutral',
+        title: `${pc.project.displayName || pc.project.name} has active runs`,
+        detail: `${activeRuns.length} run${activeRuns.length > 1 ? 's' : ''} in progress.`,
+        actionLabel: 'View runs',
+        href: '/runs',
+      })
+    }
+  }
+
+  if (items.length === 0) {
+    // Non-actionable positive status: nothing to navigate to (the portfolio
+    // is this very page). Omit href/actionLabel so the renderer shows a
+    // static "all clear" row rather than a link that goes nowhere.
+    items.push({
+      id: 'attention_stable',
+      tone: 'positive',
+      title: 'All projects stable',
+      detail: 'No citation losses or active runs to flag.',
+    })
+  }
+
+  return items
+}

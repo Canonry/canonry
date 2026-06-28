@@ -37,11 +37,6 @@ async function renderApp(
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
-  // The Overview page reads the server portfolio composite via `usePortfolio`
-  // (key ['portfolio']) and live health (key ['health']) — seed both so the
-  // static render produces the real page, not the loading skeleton.
-  queryClient.setQueryData(['portfolio'], fixture.portfolio)
-  queryClient.setQueryData(['health'], fixture.health)
 
   const router = createAppRouter(queryClient, { initialEntries: [pathname] })
   await router.load()
@@ -60,8 +55,7 @@ test('overview route renders the premium portfolio dashboard', async () => {
 
   expect(html).toMatch(/Portfolio/)
   expect(html).toMatch(/Visibility and execution state/)
-  // The server-computed change feed replaces the old client attention list.
-  expect(html).toMatch(/What changed/)
+  expect(html).toMatch(/Infrastructure/)
   expect(html).toMatch(/Citypoint Dental NYC/)
   expect(html).toMatch(/Harbor Legal Group/)
   expect(html).toMatch(/src="\.\/favicon\.svg"/)
@@ -145,11 +139,8 @@ test('default overview covers multiple projects and recent runs', async () => {
   const html = await renderApp('/')
 
   expect(html).toMatch(/Northstar Orthopedics/)
-  // Recent-runs execution log (eyebrow "Recent runs" + title "Activity") with
-  // both result signals, and the project state table.
-  expect(html).toMatch(/Activity/)
-  expect(html).toMatch(/M 7\/12 · C 6\/12/)
-  expect(html).toMatch(/Current state/)
+  expect(html).toMatch(/One follow-up run is queued/)
+  expect(html).toMatch(/System health/)
 })
 
 test('setup route renders step indicator with all step labels', async () => {

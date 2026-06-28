@@ -1,7 +1,6 @@
 import { listInsights, dismissInsight } from '../commands/insights.js'
 import { showHealth } from '../commands/health-cmd.js'
 import { showAllOverviews, showOverview } from '../commands/overview.js'
-import { showPortfolio } from '../commands/portfolio.js'
 import { searchProject } from '../commands/search.js'
 import { showCitationVisibility } from '../commands/citations.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
@@ -79,14 +78,6 @@ export const INTELLIGENCE_CLI_COMMANDS: readonly CliCommandSpec[] = [
       }
       const project = requireProject(input, 'overview', usage)
       await showOverview(project, { format: input.format, location, since })
-    },
-  },
-  {
-    path: ['portfolio'],
-    usage: 'canonry portfolio [--format json|jsonl]',
-    options: {},
-    run: async (input) => {
-      await showPortfolio({ format: input.format })
     },
   },
   {

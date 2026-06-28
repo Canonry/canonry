@@ -45,33 +45,6 @@ export function formatDateRange(start: string, end: string): string {
   return formatDate(start || end)
 }
 
-/**
- * Human "time ago" label for an ISO timestamp, anchored to an explicit
- * `nowIso` (never the wall clock) so it is pure, deterministic, and testable —
- * the same `nowIso` drives every relative label on a surface so "just now"
- * does not silently age between rows or between renders.
- *
- * Thresholds: < 60s → "just now"; < 60m → "Nm ago"; < 24h → "Nh ago";
- * ≤ 7d → "Nd ago"; beyond 7d → the absolute calendar date via `formatDate`.
- * A future `fromIso` (clock skew) clamps to "just now" rather than rendering a
- * negative interval. Unparseable input falls back to `formatDate(fromIso)`.
- */
-export function formatRelativeTime(fromIso: string, nowIso: string): string {
-  if (!fromIso) return '—'
-  const from = Date.parse(fromIso)
-  const now = Date.parse(nowIso)
-  if (Number.isNaN(from) || Number.isNaN(now)) return formatDate(fromIso)
-  const diffMs = now - from
-  if (diffMs < 60_000) return 'just now' // includes future skew (diffMs < 0)
-  const minutes = Math.floor(diffMs / 60_000)
-  if (minutes < 60) return `${minutes}m ago`
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours}h ago`
-  const days = Math.floor(hours / 24)
-  if (days <= 7) return `${days}d ago`
-  return formatDate(fromIso)
-}
-
 /** Matches a date-only ISO calendar date with no time component, e.g. "2026-06-30". */
 const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/
 
