@@ -2,7 +2,7 @@ import { and, eq, desc, inArray } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { filterTrackedSnapshots, groupRunsByCreatedAt, pickGroupRepresentative, querySnapshots, runs, queries, competitors, domainClassifications, parseJsonColumn } from '@ainyc/canonry-db'
 import {
-  AI_PROVIDER_INFRA_DOMAINS, categorizeSource, categoryLabel, CitationStates,
+  AI_PROVIDER_INFRA_DOMAINS, brandLabelFromDomain, categorizeSource, categoryLabel, CitationStates,
   classifySurfaceFromCategory, surfaceClassFromCompetitorType, surfaceClassLabel,
   effectiveDomains, normalizeProjectDomain, parseWindow, windowCutoff, validationError,
 } from '@ainyc/canonry-contracts'
@@ -12,6 +12,7 @@ import type {
   SourceCategory, SourceCategoryCount, ProviderMetric, QueryChangeEvent,
   RankedSourceList, SourceRankEntry, SurfaceClass, SurfaceClassCount,
 } from '@ainyc/canonry-contracts'
+import { buildMentionShare } from '@ainyc/canonry-intelligence'
 import { notProbeRun, resolveProject, resolveSnapshotAnswerMentioned } from './helpers.js'
 
 export async function analyticsRoutes(app: FastifyInstance) {
@@ -77,6 +78,15 @@ export async function analyticsRoutes(app: FastifyInstance) {
       .where(eq(queries.projectId, project.id))
       .all()
     const queryCreatedAt = new Map(projectQueries.map(q => [q.id, q.createdAt]))
+    const mentionShareCompetitors = app.db
+      .select({ domain: competitors.domain })
+      .from(competitors)
+      .where(eq(competitors.projectId, project.id))
+      .all()
+      .map(c => ({
+        domain: c.domain,
+        brandTokens: [brandLabelFromDomain(c.domain)].filter(t => t.length >= 3),
+      }))
 
     // Overall metrics
     const overall = computeProviderMetric(allSnapshots)
@@ -93,7 +103,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
     const latest = new Date(projectRuns[projectRuns.length - 1]!.createdAt)
     const spanDays = Math.max(1, Math.ceil((latest.getTime() - earliest.getTime()) / 86_400_000))
     const bucketSize = bucketSizeForSpan(spanDays)
-    const buckets = computeBuckets(allSnapshots, projectRuns, bucketSize, queryCreatedAt)
+    const buckets = computeBuckets(allSnapshots, projectRuns, bucketSize, queryCreatedAt, mentionShareCompetitors)
 
     // Trends
     const trend = computeTrend(buckets, 'citationRate')
@@ -482,7 +492,13 @@ interface SnapshotLike {
   provider: string
   citationState: string
   resolvedMentioned: boolean
+  answerText: string | null
   createdAt: string
+}
+
+interface MentionShareCompetitorInput {
+  domain: string
+  brandTokens: string[]
 }
 
 function computeProviderMetric(snapshots: SnapshotLike[]): ProviderMetric {
@@ -503,6 +519,7 @@ function computeBuckets(
   projectRuns: Array<{ createdAt: string }>,
   bucketDays: number,
   queryCreatedAt?: Map<string, string>,
+  mentionShareCompetitors: MentionShareCompetitorInput[] = [],
 ): TimeBucket[] {
   if (projectRuns.length === 0) return []
 
@@ -557,6 +574,7 @@ function computeBuckets(
         queryCount,
         mentionRate: metric.mentionRate,
         mentionedCount: metric.mentionedCount,
+        mentionShare: computeMentionShareBucketMetric(usable, mentionShareCompetitors),
         byProvider,
       })
     }
@@ -565,6 +583,31 @@ function computeBuckets(
   }
 
   return buckets
+}
+
+function computeMentionShareBucketMetric(
+  snapshots: SnapshotLike[],
+  mentionShareCompetitors: MentionShareCompetitorInput[],
+): TimeBucket['mentionShare'] {
+  if (mentionShareCompetitors.length === 0) {
+    return { rate: null, projectMentionSnapshots: 0, competitorMentionSnapshots: 0 }
+  }
+
+  const result = buildMentionShare(
+    snapshots.map(s => ({
+      projectMentioned: s.resolvedMentioned,
+      answerText: s.answerText,
+    })),
+    { competitors: mentionShareCompetitors },
+  )
+  const projectMentionSnapshots = result.breakdown.projectMentionSnapshots
+  const competitorMentionSnapshots = result.breakdown.competitorMentionSnapshots
+  const denominator = projectMentionSnapshots + competitorMentionSnapshots
+  return {
+    rate: denominator > 0 ? round4(projectMentionSnapshots / denominator) : null,
+    projectMentionSnapshots,
+    competitorMentionSnapshots,
+  }
 }
 
 function computeQueryChanges(

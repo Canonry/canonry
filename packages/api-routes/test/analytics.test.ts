@@ -53,6 +53,13 @@ describe('analytics routes', () => {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     }).run()
+    db.insert(competitors).values({
+      id: crypto.randomUUID(),
+      projectId,
+      domain: 'competitor.com',
+      provenance: 'manual',
+      createdAt: new Date().toISOString(),
+    }).run()
 
     // Seed: queries
     const q1Id = crypto.randomUUID()
@@ -212,6 +219,23 @@ describe('analytics routes', () => {
         expect(bucket.mentionRate).toBeGreaterThanOrEqual(0)
         expect(typeof bucket.mentionedCount).toBe('number')
       }
+    })
+
+    it('returns mention-share metrics for each bucket from answer-text brand mentions', async () => {
+      const res = await app.inject({ method: 'GET', url: '/api/v1/projects/test-site/analytics/metrics' })
+      expect(res.statusCode).toBe(200)
+      const body = JSON.parse(res.payload)
+      expect(body.buckets.length).toBeGreaterThan(0)
+
+      const latest = body.buckets[body.buckets.length - 1]
+      // The fixture cites competitor.com in sources, but the answer prose only
+      // names Example.com. Mention share must follow answer-text mentions, not
+      // citation overlap.
+      expect(latest.mentionShare).toMatchObject({
+        rate: 1,
+        projectMentionSnapshots: 1,
+        competitorMentionSnapshots: 0,
+      })
     })
 
     it('supports window parameter', async () => {

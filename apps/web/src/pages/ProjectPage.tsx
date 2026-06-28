@@ -21,7 +21,7 @@ import { GscSection } from '../components/project/GscSection.js'
 import { GbpSection } from '../components/project/GbpSection.js'
 import { BacklinksSection } from '../components/project/BacklinksSection.js'
 import { CitationVisibilitySection } from '../components/project/CitationVisibilitySection.js'
-import { VisibilityTrendSection } from '../components/project/VisibilityTrendSection.js'
+import { MentionShareTrendSection, VisibilityTrendSection } from '../components/project/VisibilityTrendSection.js'
 import { DiscoverySection } from '../components/project/DiscoverySection.js'
 import { TechnicalAeoSection } from '../components/project/TechnicalAeoSection.js'
 import { ReportPage } from './ReportPage.js'
@@ -1681,6 +1681,7 @@ function ProjectPageContent({
 }) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const competitorDomains = useMemo(() => model.competitors.map(c => c.domain), [model.competitors])
   // "Local Presence" is always shown — GbpSection renders a setup guide when no
   // Google Business Profile is connected, so the tab is the entry point to
   // connecting one rather than being hidden until after connection.
@@ -1906,6 +1907,7 @@ function ProjectPageContent({
       const existingDomains = existing.map(c => c.domain)
       const merged = [...new Set([...existingDomains, domain])]
       await apiSetCompetitors(projectName, merged)
+      await queryClient.invalidateQueries({ queryKey: ['analytics-metrics', projectName] })
       void refetch()
       setNewCompetitorDomain('')
       setAddingCompetitor(false)
@@ -1917,6 +1919,7 @@ function ProjectPageContent({
   async function handleRemoveCompetitor(domain: string) {
     try {
       await apiRemoveCompetitors(projectName, [domain])
+      await queryClient.invalidateQueries({ queryKey: ['analytics-metrics', projectName] })
       void refetch()
     } catch (err) {
       addToast({
@@ -2216,30 +2219,20 @@ function ProjectPageContent({
 
       {tab === 'overview' ? (
         <>
+          <section className="page-section-divider">
+            <VisibilityTrendSection projectName={model.project.name} competitorDomains={competitorDomains} />
+          </section>
+
+          <section className="page-section-divider">
+            <MentionShareTrendSection projectName={model.project.name} competitorDomains={competitorDomains} />
+          </section>
+
           <OverviewBrief
             model={model}
             sweepRunning={hasActiveVisibilitySweep}
             onJumpToEvidence={() => focusOverviewSection('evidence-section', true)}
             onJumpToActions={() => focusOverviewSection('action-queue')}
           />
-
-          <section id="action-queue" className="page-section-divider scroll-mt-24 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-500/60" tabIndex={-1}>
-            <div className="section-head section-head-inline">
-              <div>
-                <p className="eyebrow eyebrow-soft">Action queue</p>
-                <h2>What needs your attention</h2>
-              </div>
-            </div>
-            <InsightSignals
-              insights={model.insights}
-              suggestedQueries={model.suggestedQueries}
-              projectName={projectName}
-            />
-          </section>
-
-          <section className="page-section-divider">
-            <VisibilityTrendSection projectName={model.project.name} />
-          </section>
 
           <section className="page-section-divider">
             <div className="section-head section-head-inline">
@@ -2475,6 +2468,20 @@ function ProjectPageContent({
               ))}
             </div>
           </OverviewDisclosure>
+
+          <section id="action-queue" className="page-section-divider scroll-mt-24 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-500/60" tabIndex={-1}>
+            <div className="section-head section-head-inline">
+              <div>
+                <p className="eyebrow eyebrow-soft">Action queue</p>
+                <h2>What needs your attention</h2>
+              </div>
+            </div>
+            <InsightSignals
+              insights={model.insights}
+              suggestedQueries={model.suggestedQueries}
+              projectName={projectName}
+            />
+          </section>
 
         </>
       ) : tab === 'settings' ? (

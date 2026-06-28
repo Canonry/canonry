@@ -27,7 +27,7 @@ vi.mock('recharts', () => {
   }
 })
 
-import { VisibilityTrendSection } from '../src/components/project/VisibilityTrendSection.js'
+import { MentionShareTrendSection, VisibilityTrendSection } from '../src/components/project/VisibilityTrendSection.js'
 import { mockFetch, jsonResponse } from './mock-fetch.js'
 
 function provider(citationRate: number, mentionRate: number) {
@@ -50,11 +50,13 @@ const TWO_BUCKETS = [
   {
     startDate: '2026-04-01', endDate: '2026-04-08',
     citationRate: 0.25, cited: 1, total: 4, queryCount: 4, mentionRate: 0.5, mentionedCount: 2,
+    mentionShare: { rate: 0.25, projectMentionSnapshots: 1, competitorMentionSnapshots: 3 },
     byProvider: { gemini: provider(0.25, 0.5), openai: provider(0.5, 0.25) },
   },
   {
     startDate: '2026-04-08', endDate: '2026-04-15',
     citationRate: 0.75, cited: 3, total: 4, queryCount: 4, mentionRate: 0.5, mentionedCount: 2,
+    mentionShare: { rate: 0.75, projectMentionSnapshots: 3, competitorMentionSnapshots: 1 },
     byProvider: { gemini: provider(0.75, 0.5) },
   },
 ]
@@ -64,6 +66,15 @@ function renderSection() {
   return render(
     <QueryClientProvider client={queryClient}>
       <VisibilityTrendSection projectName="test-project" />
+    </QueryClientProvider>,
+  )
+}
+
+function renderMentionShareSection(competitorDomains: readonly string[] = ['competitor.com']) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <MentionShareTrendSection projectName="test-project" competitorDomains={competitorDomains} />
     </QueryClientProvider>,
   )
 }
@@ -133,5 +144,73 @@ test('shows an empty state when there are no buckets yet', async () => {
 
   await waitFor(() => {
     expect(screen.getByText(/Run a sweep to start tracking/)).toBeTruthy()
+  })
+})
+
+test('renders mention-share trend from bucket metrics', async () => {
+  const restore = mockFetch((url) => {
+    const path = url.split('?')[0]!
+    if (path.endsWith('/projects/test-project/analytics/metrics')) {
+      return jsonResponse(metricsDto(TWO_BUCKETS))
+    }
+    throw new Error(`Unexpected fetch: ${url}`)
+  })
+  onTestFinished(restore)
+
+  renderMentionShareSection()
+
+  expect(await screen.findByText('Mention share over time')).toBeTruthy()
+  expect(await screen.findByText('75%')).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'All' })).toBeTruthy()
+})
+
+test('prompts for competitors before rendering mention-share history', async () => {
+  const restore = mockFetch((url) => {
+    const path = url.split('?')[0]!
+    if (path.endsWith('/projects/test-project/analytics/metrics')) {
+      return jsonResponse(metricsDto(TWO_BUCKETS))
+    }
+    throw new Error(`Unexpected fetch: ${url}`)
+  })
+  onTestFinished(restore)
+
+  renderMentionShareSection([])
+
+  await waitFor(() => {
+    expect(screen.getByText(/Add tracked competitors/)).toBeTruthy()
+  })
+})
+
+test('refetches mention-share metrics when the competitor frame changes', async () => {
+  const requests: string[] = []
+  const restore = mockFetch((url) => {
+    const path = url.split('?')[0]!
+    if (path.endsWith('/projects/test-project/analytics/metrics')) {
+      requests.push(url)
+      return jsonResponse(metricsDto(TWO_BUCKETS))
+    }
+    throw new Error(`Unexpected fetch: ${url}`)
+  })
+  onTestFinished(restore)
+
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const view = render(
+    <QueryClientProvider client={queryClient}>
+      <MentionShareTrendSection projectName="test-project" competitorDomains={['competitor.com']} />
+    </QueryClientProvider>,
+  )
+
+  await waitFor(() => {
+    expect(requests).toHaveLength(1)
+  })
+
+  view.rerender(
+    <QueryClientProvider client={queryClient}>
+      <MentionShareTrendSection projectName="test-project" competitorDomains={['competitor.com', 'new-rival.com']} />
+    </QueryClientProvider>,
+  )
+
+  await waitFor(() => {
+    expect(requests).toHaveLength(2)
   })
 })

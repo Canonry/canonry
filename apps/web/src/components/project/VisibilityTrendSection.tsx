@@ -24,10 +24,12 @@ import { InfoTooltip } from '../shared/InfoTooltip.js'
 import { fetchAnalyticsMetrics } from '../../api.js'
 import { STATIC_VISIBILITY_STALE_MS } from '../../queries/query-client.js'
 import {
+  buildMentionShareTrendRows,
   buildTrendRows,
   CITED_KEY,
   formatQueryChangeCaption,
   latestSeriesValue,
+  MENTION_SHARE_KEY,
   MENTIONED_KEY,
   type MetricChoice,
   type TrendSeriesMode,
@@ -81,7 +83,24 @@ function seriesLabel(key: string): string {
 function seriesColor(key: string, index: number): string {
   if (key === CITED_KEY) return CHART_TONE.positive // emerald
   if (key === MENTIONED_KEY) return CHART_SERIES_COLORS[1]! // blue
+  if (key === MENTION_SHARE_KEY) return CHART_TONE.positive
   return providerSeriesColor(key, index)
+}
+
+function firstSeriesValue(rows: Array<Record<string, string | number | null>>, key: string): number | null {
+  for (const row of rows) {
+    const value = row[key]
+    if (typeof value === 'number' && Number.isFinite(value)) return value
+  }
+  return null
+}
+
+function competitorFrameKey(competitorDomains: readonly string[]): string {
+  return competitorDomains
+    .map(domain => domain.trim().toLowerCase())
+    .filter(Boolean)
+    .sort()
+    .join('\n')
 }
 
 /**
@@ -122,16 +141,23 @@ function Segmented<T extends string>({
   )
 }
 
-export function VisibilityTrendSection({ projectName }: { projectName: string }) {
+export function VisibilityTrendSection({
+  projectName,
+  competitorDomains = [],
+}: {
+  projectName: string
+  competitorDomains?: readonly string[]
+}) {
   const [window, setWindow] = useState<MetricsWindow>('all')
   const [metric, setMetric] = useState<MetricChoice>('mentioned')
   // Default to the per-engine breakdown: the blended line hides that engines
   // disagree wildly (a brand cited heavily by one engine and ignored by
   // another), which is the first thing an operator needs to see.
   const [mode, setMode] = useState<TrendSeriesMode>('byProvider')
+  const metricsFrameKey = useMemo(() => competitorFrameKey(competitorDomains), [competitorDomains])
 
   const metricsQuery = useQuery({
-    queryKey: ['analytics-metrics', projectName, window],
+    queryKey: ['analytics-metrics', projectName, window, metricsFrameKey],
     queryFn: () => fetchAnalyticsMetrics(projectName, window),
     staleTime: STATIC_VISIBILITY_STALE_MS,
   })
@@ -296,6 +322,143 @@ export function VisibilityTrendSection({ projectName }: { projectName: string })
 
   return (
     <section className="visibility-trend">
+      {header}
+      {body}
+    </section>
+  )
+}
+
+export function MentionShareTrendSection({
+  projectName,
+  competitorDomains,
+}: {
+  projectName: string
+  competitorDomains: readonly string[]
+}) {
+  const [window, setWindow] = useState<MetricsWindow>('all')
+  const metricsFrameKey = useMemo(() => competitorFrameKey(competitorDomains), [competitorDomains])
+  const competitorCount = competitorDomains.length
+
+  const metricsQuery = useQuery({
+    queryKey: ['analytics-metrics', projectName, window, metricsFrameKey],
+    queryFn: () => fetchAnalyticsMetrics(projectName, window),
+    staleTime: STATIC_VISIBILITY_STALE_MS,
+  })
+  const data = metricsQuery.data ?? null
+  const error = metricsQuery.error
+  const trend = useMemo(() => (data ? buildMentionShareTrendRows(data) : null), [data])
+  const latestPct = trend ? latestSeriesValue(trend.rows, MENTION_SHARE_KEY) : null
+  const firstPct = trend ? firstSeriesValue(trend.rows, MENTION_SHARE_KEY) : null
+  const deltaPts = latestPct !== null && firstPct !== null && latestPct !== firstPct
+    ? round1(latestPct - firstPct)
+    : latestPct !== null && firstPct !== null
+      ? 0
+      : null
+
+  const header = (
+    <>
+      <div className="visibility-trend-head">
+        <div className="space-y-1">
+          <p className="eyebrow eyebrow-soft">Competitive trend</p>
+          <h2 className="visibility-trend-title">
+            Mention share over time
+            <InfoTooltip text="Of all answer-text brand mentions in each sweep bucket (you plus tracked competitors), the share that were you. Buckets with no brand mentions are not plotted." />
+          </h2>
+        </div>
+        {latestPct !== null && (
+          <div className="visibility-trend-current">
+            <span className="visibility-trend-current-dot" style={{ backgroundColor: CHART_TONE.positive }} aria-hidden="true" />
+            <span className="visibility-trend-current-label">Mention share</span>
+            <span className="visibility-trend-current-value">{latestPct}%</span>
+            {deltaPts !== null && (
+              <span
+                className={`visibility-trend-current-delta ${
+                  deltaPts > 0 ? 'text-emerald-400' : deltaPts < 0 ? 'text-rose-400' : 'text-zinc-500'
+                }`}
+              >
+                {deltaPts > 0 ? '+' : ''}{deltaPts.toFixed(1)} pts
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+      <div className="visibility-trend-controls">
+        <Segmented options={WINDOW_OPTIONS} value={window} onChange={setWindow} ariaLabel="Time window" className="sm:ml-auto" />
+      </div>
+    </>
+  )
+
+  let body: React.ReactNode
+  if (error) {
+    body = <p className="text-sm text-rose-400">{error instanceof Error ? error.message : String(error)}</p>
+  } else if (metricsQuery.isLoading && !data) {
+    body = <div className="visibility-trend-chart animate-pulse rounded-lg bg-zinc-900/40" aria-hidden="true" />
+  } else if (competitorCount === 0) {
+    body = <p className="text-sm text-zinc-400">Add tracked competitors to measure mention share over time.</p>
+  } else if (!data || !trend) {
+    body = null
+  } else if (!trend.hasData) {
+    body = <p className="text-sm text-zinc-400">No answer-text brand mentions for you or tracked competitors in this window yet.</p>
+  } else {
+    const caption = formatQueryChangeCaption(data.queryChanges)
+    const { rows, singleBucket } = trend
+    const srSummary = `Mention share across ${rows.length} ${rows.length === 1 ? 'sweep bucket' : 'sweep buckets'}. Latest ${latestPct}%${
+      deltaPts !== null ? `, ${deltaPts >= 0 ? 'up' : 'down'} ${Math.abs(deltaPts).toFixed(1)} points over the period` : ''
+    }.`
+    body = (
+      <>
+        <p className="sr-only">{srSummary}</p>
+        <div className="visibility-trend-chart">
+          <ResponsiveContainer width="100%" height="100%">
+            <ComposedChart data={rows} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+              <CartesianGrid stroke={CHART_GRID_STROKE} vertical={false} />
+              <XAxis
+                dataKey="date"
+                tick={CHART_AXIS_TICK}
+                tickLine={false}
+                axisLine={{ stroke: CHART_AXIS_STROKE }}
+                tickFormatter={formatChartDateTick}
+                minTickGap={24}
+              />
+              <YAxis
+                domain={[0, 100]}
+                ticks={[0, 25, 50, 75, 100]}
+                tickFormatter={(v: number) => `${v}%`}
+                tick={CHART_AXIS_TICK}
+                tickLine={false}
+                axisLine={false}
+                width={40}
+              />
+              <RechartsTooltip
+                {...CHART_TOOLTIP_STYLE}
+                cursor={{ stroke: CHART_AXIS_STROKE, strokeWidth: 1 }}
+                labelFormatter={formatChartDateLabel}
+                formatter={(value) => [value == null ? 'no data' : `${value}%`, 'Mention share']}
+              />
+              <Line
+                type="monotone"
+                dataKey={MENTION_SHARE_KEY}
+                name={MENTION_SHARE_KEY}
+                stroke={CHART_TONE.positive}
+                strokeWidth={2.5}
+                dot={{ r: 2.5, fill: CHART_TONE.positive, strokeWidth: 0 }}
+                activeDot={{ r: 4, strokeWidth: 2, stroke: ACTIVE_DOT_RING }}
+                connectNulls
+                isAnimationActive={false}
+              />
+            </ComposedChart>
+          </ResponsiveContainer>
+        </div>
+        {singleBucket && (
+          <p className="visibility-trend-note">Only one competitive mention-share point so far. The trend line fills in after another sweep with brand mentions.</p>
+        )}
+        {caption && <p className="visibility-trend-note">{caption}</p>}
+      </>
+    )
+  }
+
+  return (
+    <section className="visibility-trend mention-share-trend">
       {header}
       {body}
     </section>

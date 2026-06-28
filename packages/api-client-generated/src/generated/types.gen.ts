@@ -342,6 +342,11 @@ export type BrandMetricsDto = {
         queryCount: number;
         mentionRate: number;
         mentionedCount: number;
+        mentionShare: {
+            rate: number | null;
+            projectMentionSnapshots: number;
+            competitorMentionSnapshots: number;
+        };
         byProvider: {
             [key: string]: {
                 citationRate: number;
