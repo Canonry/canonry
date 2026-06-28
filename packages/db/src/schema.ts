@@ -221,6 +221,28 @@ export const gscSearchData = sqliteTable('gsc_search_data', {
   index('idx_gsc_search_run').on(table.syncRunId),
 ])
 
+// Property-level daily totals (no query/page/country/device dimensions). The
+// dimensioned `gsc_search_data` rows above OVER-count impressions (the `page`
+// dimension fans one SERP into N rows) and UNDER-count clicks (the `query`
+// dimension drops Google's anonymized rare queries), so summing them does not
+// equal Google's property total. This table stores the un-dimensioned daily
+// figure (`dimensions: ['date']`) so the headline totals + daily trend match
+// the GSC UI. Per-query / per-page breakdowns still read `gsc_search_data`.
+export const gscDailyTotals = sqliteTable('gsc_daily_totals', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull(),
+  date: text('date').notNull(),
+  clicks: integer('clicks').notNull(),
+  impressions: integer('impressions').notNull(),
+  // Stored as a string like `gscSearchData.position` (parsed to a number on
+  // read). CTR is derived (clicks / impressions) and intentionally not stored.
+  position: text('position').notNull(),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_gsc_daily_totals_project_date').on(table.projectId, table.date),
+  index('idx_gsc_daily_totals_project').on(table.projectId),
+])
+
 export const gscUrlInspections = sqliteTable('gsc_url_inspections', {
   id: text('id').primaryKey(),
   projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),

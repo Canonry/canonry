@@ -12,6 +12,7 @@ import {
 } from '@ainyc/canonry-contracts'
 import { extractPlaceAmenities, type PlaceDetails } from '@ainyc/canonry-integration-google-places'
 import { buildGbpSummary } from './gbp-summary.js'
+import { readGscDailyTotals } from './gsc-totals.js'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import {
   getAuthUrl,
@@ -706,8 +707,10 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
   })
 
   // GET /projects/:name/google/gsc/performance/daily
-  // Returns one row per date with clicks + impressions summed across every
-  // (query, page, country, device) tuple in the window, plus window totals.
+  // Returns one row per date with the property-level clicks + impressions for
+  // the window, plus window totals. Sourced from the un-dimensioned daily-totals
+  // table (matches Google's property total); falls back to summing the
+  // dimensioned `gsc_search_data` rows by date for projects not yet re-synced.
   // The chart and headline metrics in the dashboard render from this — never
   // recomputed from the paged /performance rows, which only cover one page.
   app.get<{
@@ -718,29 +721,47 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     const { startDate, endDate } = request.query
     const cutoffDate = !startDate ? windowCutoff(parseWindow(request.query.window))?.slice(0, 10) ?? null : null
 
-    const conditions = [eq(gscSearchData.projectId, project.id)]
-    if (startDate) conditions.push(sql`${gscSearchData.date} >= ${startDate}`)
-    else if (cutoffDate) conditions.push(sql`${gscSearchData.date} >= ${cutoffDate}`)
-    if (endDate) conditions.push(sql`${gscSearchData.date} <= ${endDate}`)
+    // Prefer the property-level daily totals (match Google's property total —
+    // summing the dimensioned rows over-counts impressions and under-counts
+    // clicks). Fall back to summing `gsc_search_data` by date when the project
+    // has no daily-totals rows in the window (not yet re-synced).
+    const windowStart = startDate ?? cutoffDate ?? ''
+    const windowEnd = endDate ?? '9999-12-31'
+    const dailyTotals = readGscDailyTotals(app.db, project.id, windowStart, windowEnd)
 
-    const rows = app.db
-      .select({
-        date: gscSearchData.date,
-        clicks: sql<number>`COALESCE(SUM(${gscSearchData.clicks}), 0)`,
-        impressions: sql<number>`COALESCE(SUM(${gscSearchData.impressions}), 0)`,
-      })
-      .from(gscSearchData)
-      .where(and(...conditions))
-      .groupBy(gscSearchData.date)
-      .orderBy(gscSearchData.date)
-      .all()
+    let daily: { date: string; clicks: number; impressions: number; ctr: number }[]
+    if (dailyTotals.length > 0) {
+      daily = dailyTotals.map((d) => ({
+        date: d.date,
+        clicks: d.clicks,
+        impressions: d.impressions,
+        ctr: d.impressions > 0 ? d.clicks / d.impressions : 0,
+      }))
+    } else {
+      const conditions = [eq(gscSearchData.projectId, project.id)]
+      if (startDate) conditions.push(sql`${gscSearchData.date} >= ${startDate}`)
+      else if (cutoffDate) conditions.push(sql`${gscSearchData.date} >= ${cutoffDate}`)
+      if (endDate) conditions.push(sql`${gscSearchData.date} <= ${endDate}`)
 
-    const daily = rows.map((r) => ({
-      date: r.date,
-      clicks: r.clicks,
-      impressions: r.impressions,
-      ctr: r.impressions > 0 ? r.clicks / r.impressions : 0,
-    }))
+      const rows = app.db
+        .select({
+          date: gscSearchData.date,
+          clicks: sql<number>`COALESCE(SUM(${gscSearchData.clicks}), 0)`,
+          impressions: sql<number>`COALESCE(SUM(${gscSearchData.impressions}), 0)`,
+        })
+        .from(gscSearchData)
+        .where(and(...conditions))
+        .groupBy(gscSearchData.date)
+        .orderBy(gscSearchData.date)
+        .all()
+
+      daily = rows.map((r) => ({
+        date: r.date,
+        clicks: r.clicks,
+        impressions: r.impressions,
+        ctr: r.impressions > 0 ? r.clicks / r.impressions : 0,
+      }))
+    }
     const totalClicks = daily.reduce((sum, d) => sum + d.clicks, 0)
     const totalImpressions = daily.reduce((sum, d) => sum + d.impressions, 0)
     return {

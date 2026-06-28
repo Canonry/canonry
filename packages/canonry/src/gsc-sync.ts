@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 import { eq, and, sql } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/canonry-db'
-import { runs, projects, gscSearchData, gscUrlInspections, gscCoverageSnapshots } from '@ainyc/canonry-db'
+import { runs, projects, gscSearchData, gscDailyTotals, gscUrlInspections, gscCoverageSnapshots } from '@ainyc/canonry-db'
 import {
   fetchSearchAnalytics,
   inspectUrl,
@@ -131,6 +131,45 @@ export async function executeGscSync(
         }).run()
       }
     }
+
+    // Property-level daily totals (no query/page dimensions). Summing the
+    // dimensioned rows above does NOT equal Google's property total: the `page`
+    // dimension over-counts impressions and the dropped anonymized rare queries
+    // under-count clicks. Fetch the un-dimensioned daily figure so the headline
+    // totals + daily trend match the GSC UI. Shares the main fetch's try block —
+    // a failure fails the sync, which is acceptable because the dimensioned data
+    // is already persisted and a re-sync recovers the totals.
+    const totalRows = await fetchSearchAnalytics(accessToken, propertyId, {
+      startDate,
+      endDate,
+      dimensions: ['date'],
+    })
+
+    db.delete(gscDailyTotals)
+      .where(
+        and(
+          eq(gscDailyTotals.projectId, projectId),
+          sql`${gscDailyTotals.date} >= ${startDate}`,
+          sql`${gscDailyTotals.date} <= ${endDate}`,
+        )
+      )
+      .run()
+
+    const dailyTotalsNow = new Date().toISOString()
+    for (const row of totalRows) {
+      const [date] = row.keys
+      db.insert(gscDailyTotals).values({
+        id: crypto.randomUUID(),
+        projectId,
+        date: date ?? '',
+        clicks: row.clicks,
+        impressions: row.impressions,
+        position: String(row.position),
+        createdAt: dailyTotalsNow,
+      }).run()
+    }
+
+    log.info('daily-totals.complete', { runId, projectId, rowCount: totalRows.length })
 
     // URL inspections — inspect top pages from the fetched data
     // Aggregate clicks per page, take top N

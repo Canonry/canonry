@@ -65,6 +65,7 @@ import {
   smoothedRunDelta,
 } from '@ainyc/canonry-intelligence'
 import { loadDismissedTargetRefs } from './content.js'
+import { readGscDailyTotals } from './gsc-totals.js'
 import { notProbeRun, resolveProject } from './helpers.js'
 import { renderReportHtml } from './report-renderer.js'
 import {
@@ -203,26 +204,52 @@ function buildGscSection(
   const rows = allRows.filter(r => r.date >= startDate && r.date <= maxDate)
   if (rows.length === 0) return null
 
-  let totalClicks = 0
-  let totalImpressions = 0
-  let weightedPositionSum = 0
+  // Per-query / per-page aggregation stays on the dimensioned rows — these
+  // breakdowns are correct from `gsc_search_data`. Only the grand TOTALS and
+  // the daily trend move to the property-level table below.
+  let dimensionedClicks = 0
   const queryAgg = new Map<string, { clicks: number; impressions: number; weightedPositionSum: number }>()
-  const trendAgg = new Map<string, { clicks: number; impressions: number }>()
+  const dimensionedTrendAgg = new Map<string, { clicks: number; impressions: number }>()
 
   for (const r of rows) {
-    totalClicks += r.clicks
-    totalImpressions += r.impressions
-    weightedPositionSum += safeNum(r.position) * r.impressions
+    dimensionedClicks += r.clicks
     const q = queryAgg.get(r.query) ?? { clicks: 0, impressions: 0, weightedPositionSum: 0 }
     q.clicks += r.clicks
     q.impressions += r.impressions
     q.weightedPositionSum += safeNum(r.position) * r.impressions
     queryAgg.set(r.query, q)
 
-    const t = trendAgg.get(r.date) ?? { clicks: 0, impressions: 0 }
+    const t = dimensionedTrendAgg.get(r.date) ?? { clicks: 0, impressions: 0 }
     t.clicks += r.clicks
     t.impressions += r.impressions
-    trendAgg.set(r.date, t)
+    dimensionedTrendAgg.set(r.date, t)
+  }
+
+  // Property-level totals + daily trend. Prefer the un-dimensioned daily-totals
+  // table (matches Google's property total — summing the dimensioned rows
+  // over-counts impressions and under-counts clicks). Fall back to the
+  // dimensioned sums when the project has not re-synced (no daily-totals rows).
+  const dailyTotals = readGscDailyTotals(db, projectId, startDate, maxDate)
+  let totalClicks = 0
+  let totalImpressions = 0
+  let weightedPositionSum = 0
+  let trend: { date: string; clicks: number; impressions: number }[]
+  if (dailyTotals.length > 0) {
+    for (const d of dailyTotals) {
+      totalClicks += d.clicks
+      totalImpressions += d.impressions
+      weightedPositionSum += d.position * d.impressions
+    }
+    trend = dailyTotals.map(d => ({ date: d.date, clicks: d.clicks, impressions: d.impressions }))
+  } else {
+    for (const r of rows) {
+      totalClicks += r.clicks
+      totalImpressions += r.impressions
+      weightedPositionSum += safeNum(r.position) * r.impressions
+    }
+    trend = [...dimensionedTrendAgg.entries()]
+      .map(([date, agg]) => ({ date, clicks: agg.clicks, impressions: agg.impressions }))
+      .sort((a, b) => a.date.localeCompare(b.date))
   }
 
   const ctr = totalImpressions > 0 ? totalClicks / totalImpressions : 0
@@ -248,16 +275,16 @@ function buildGscSection(
     bucket.impressions += agg.impressions
     categoryAgg.set(cat, bucket)
   }
+  // Share is computed against the dimensioned click sum (the same source the
+  // per-category clicks come from) so the category shares stay internally
+  // consistent — the property total above is a different denominator.
   const categoryBreakdown = [...categoryAgg.entries()].map(([category, agg]) => ({
     category,
     clicks: agg.clicks,
     impressions: agg.impressions,
-    sharePct: totalClicks > 0 ? Math.round((agg.clicks / totalClicks) * 100) : 0,
+    sharePct: dimensionedClicks > 0 ? Math.round((agg.clicks / dimensionedClicks) * 100) : 0,
   })).sort((a, b) => b.clicks - a.clicks)
 
-  const trend = [...trendAgg.entries()]
-    .map(([date, agg]) => ({ date, clicks: agg.clicks, impressions: agg.impressions }))
-    .sort((a, b) => a.date.localeCompare(b.date))
   const periodStart = trend[0]?.date ?? ''
   const periodEnd = trend.at(-1)?.date ?? ''
 
