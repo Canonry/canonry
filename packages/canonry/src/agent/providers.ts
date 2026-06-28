@@ -360,6 +360,25 @@ export function resolveModelForCapability(
         `Verify PROVIDER_MODELS[${provider}][${capability}] against the installed @mariozechner/pi-ai catalog.`,
     )
   }
+  // Proxied deployments run the agent with a per-tenant LiteLLM virtual key and
+  // provider-native passthrough base URLs (the same GEMINI_BASE_URL the answer
+  // sweep already uses). pi-ai's native google vendor sends the key as the
+  // `x-goog-api-key` header, which a LiteLLM `/gemini` passthrough swaps for the
+  // real platform key — but only the agent's request must traverse the proxy,
+  // and the native model carries the host's default baseUrl, so the call goes
+  // direct to Google with the (invalid) virtual key. Repoint it via the env var.
+  // Two care points: pi-ai reads baseUrl off the SHARED singleton registry Model,
+  // so clone before overriding; and pi-ai's google client blanks the API version
+  // when a custom baseUrl is set, then appends `/models/{id}:...`, so the override
+  // must already carry `/v1beta`. Gemini only: OPENAI_BASE_URL etc. are also set
+  // in a proxied container (for the sweep) and would wrongly redirect those native
+  // agents. An unset GEMINI_BASE_URL leaves the default Google host untouched, so
+  // non-proxied installs are byte-for-byte unchanged.
+  if (provider === AgentProviderIds.gemini && process.env.GEMINI_BASE_URL) {
+    const base = process.env.GEMINI_BASE_URL.replace(/\/+$/, '')
+    const baseUrl = base.endsWith('/v1beta') ? base : `${base}/v1beta`
+    return { ...model, baseUrl }
+  }
   return model
 }
 
