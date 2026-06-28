@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
+  mentionShareBucketMetricSchema,
   providerMetricSchema,
   timeBucketSchema,
   brandMetricsDtoSchema,
@@ -27,6 +28,7 @@ const bucket = {
   queryCount: 2,
   mentionRate: 0.75,
   mentionedCount: 3,
+  mentionShare: { rate: 0.6, projectMentionSnapshots: 3, competitorMentionSnapshots: 2 },
   byProvider: {
     gemini: providerMetric,
     openai: { citationRate: 0.5, cited: 1, total: 2, mentionRate: 0.5, mentionedCount: 1 },
@@ -41,6 +43,21 @@ describe('providerMetricSchema', () => {
   it('rejects a missing field', () => {
     const { mentionRate: _mentionRate, ...partial } = providerMetric
     expect(() => providerMetricSchema.parse(partial)).toThrow()
+  })
+})
+
+describe('mentionShareBucketMetricSchema', () => {
+  it('round-trips a bucket-level mention share metric', () => {
+    expect(() => mentionShareBucketMetricSchema.parse(bucket.mentionShare)).not.toThrow()
+  })
+
+  it('allows null rate when no competitive brand mentions exist', () => {
+    const parsed = mentionShareBucketMetricSchema.parse({
+      rate: null,
+      projectMentionSnapshots: 0,
+      competitorMentionSnapshots: 0,
+    })
+    expect(parsed.rate).toBeNull()
   })
 })
 

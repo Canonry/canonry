@@ -25,6 +25,15 @@ export const providerMetricSchema = z.object({
 })
 export type ProviderMetric = z.infer<typeof providerMetricSchema>
 
+/** Mention-share metric for one time bucket. Null rate means the competitive
+ *  frame had no brand mentions in that bucket, so the share is undefined. */
+export const mentionShareBucketMetricSchema = z.object({
+  rate: z.number().nullable(),
+  projectMentionSnapshots: z.number().int().nonnegative(),
+  competitorMentionSnapshots: z.number().int().nonnegative(),
+})
+export type MentionShareBucketMetric = z.infer<typeof mentionShareBucketMetricSchema>
+
 /**
  * One time bucket of the citation/mention trend. `byProvider` carries the
  * same metrics computed per provider over the bucket's normalized snapshot
@@ -39,6 +48,7 @@ export const timeBucketSchema = z.object({
   queryCount: z.number().int(),
   mentionRate: z.number(),
   mentionedCount: z.number().int(),
+  mentionShare: mentionShareBucketMetricSchema,
   byProvider: z.record(z.string(), providerMetricSchema),
 })
 export type TimeBucket = z.infer<typeof timeBucketSchema>

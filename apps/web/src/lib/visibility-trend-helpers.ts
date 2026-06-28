@@ -12,6 +12,7 @@ import type { MetricTone } from '../view-models.js'
 /** Series keys for the two overall lines (overall mode plots both at once). */
 export const CITED_KEY = '__cited__'
 export const MENTIONED_KEY = '__mentioned__'
+export const MENTION_SHARE_KEY = '__mentionShare__'
 
 export type TrendSeriesMode = 'overall' | 'byProvider'
 
@@ -72,6 +73,25 @@ export function buildTrendRows(
     return row
   })
   return { rows, series, hasData, singleBucket }
+}
+
+export function buildMentionShareTrendRows(dto: BrandMetricsDto): TrendData {
+  const rows: TrendRow[] = dto.buckets.map(b => {
+    const mentionShare = (b as { mentionShare?: BrandMetricsDto['buckets'][number]['mentionShare'] }).mentionShare
+    return {
+      date: b.startDate,
+      [MENTION_SHARE_KEY]: mentionShare?.rate == null ? null : toPercent(mentionShare.rate),
+    }
+  })
+  const plottedValues = rows
+    .map(row => row[MENTION_SHARE_KEY])
+    .filter((v): v is number => typeof v === 'number' && Number.isFinite(v))
+  return {
+    rows,
+    series: [MENTION_SHARE_KEY],
+    hasData: plottedValues.length > 0,
+    singleBucket: plottedValues.length === 1,
+  }
 }
 
 /**

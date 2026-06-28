@@ -1,11 +1,13 @@
 import { describe, it, expect } from 'vitest'
 import type { BrandMetricsDto } from '@ainyc/canonry-contracts'
 import {
+  buildMentionShareTrendRows,
   buildTrendRows,
   trendToTone,
   formatQueryChangeCaption,
   latestSeriesValue,
   CITED_KEY,
+  MENTION_SHARE_KEY,
   MENTIONED_KEY,
 } from '../src/lib/visibility-trend-helpers.js'
 
@@ -23,6 +25,7 @@ function bucket(date: string, byProvider: BrandMetricsDto['buckets'][number]['by
     queryCount: 4,
     mentionRate: rates.mentionRate,
     mentionedCount: 1,
+    mentionShare: { rate: 0.6, projectMentionSnapshots: 3, competitorMentionSnapshots: 2 },
     byProvider,
   }
 }
@@ -122,6 +125,32 @@ describe('buildTrendRows — data flags', () => {
   it('flags a single bucket', () => {
     const res = buildTrendRows(dto([bucket('2026-04-01', { gemini: provider(0.5, 0.5) })]), 'cited', 'overall')
     expect(res.hasData).toBe(true)
+    expect(res.singleBucket).toBe(true)
+  })
+})
+
+describe('buildMentionShareTrendRows', () => {
+  it('plots bucket mention share as percentages', () => {
+    const d = dto([
+      { ...bucket('2026-04-01', { gemini: provider(0.25, 0.1) }), mentionShare: { rate: 0.25, projectMentionSnapshots: 1, competitorMentionSnapshots: 3 } },
+      { ...bucket('2026-04-08', { gemini: provider(0.5, 0.4) }), mentionShare: { rate: 0.75, projectMentionSnapshots: 3, competitorMentionSnapshots: 1 } },
+    ])
+
+    const res = buildMentionShareTrendRows(d)
+    expect(res.series).toEqual([MENTION_SHARE_KEY])
+    expect(res.rows.map(r => r[MENTION_SHARE_KEY])).toEqual([25, 75])
+    expect(res.hasData).toBe(true)
+  })
+
+  it('emits null when a bucket has no competitive brand mentions', () => {
+    const d = dto([
+      { ...bucket('2026-04-01', { gemini: provider(0.25, 0.1) }), mentionShare: { rate: null, projectMentionSnapshots: 0, competitorMentionSnapshots: 0 } },
+      { ...bucket('2026-04-08', { gemini: provider(0.5, 0.4) }), mentionShare: { rate: 0.5, projectMentionSnapshots: 1, competitorMentionSnapshots: 1 } },
+    ])
+
+    const res = buildMentionShareTrendRows(d)
+    expect(res.rows[0]![MENTION_SHARE_KEY]).toBeNull()
+    expect(res.rows[1]![MENTION_SHARE_KEY]).toBe(50)
     expect(res.singleBucket).toBe(true)
   })
 })
