@@ -17,7 +17,7 @@
   "types": "./src/index.ts",
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "vitest run",
+    "test": "vitest run --config ../../vitest.package.config.ts",
     "lint": "eslint src/ test/ codegen.ts",
     "gen": "tsx codegen.ts",
     "gen:check": "tsx codegen.ts && git diff --exit-code -- src/generated"

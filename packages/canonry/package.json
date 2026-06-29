@@ -40,7 +40,7 @@
     "build:web": "tsx build-web.ts",
     "prepublishOnly": "cp ../../README.md ./README.md && pnpm run build",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "vitest run",
+    "test": "vitest run --config ../../vitest.package.config.ts",
     "lint": "eslint src/ test/"
   },
   "dependencies": {

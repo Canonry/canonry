@@ -100,6 +100,10 @@ export async function serveCommand(format: CliFormat = 'text'): Promise<void> {
       }, null, 2))
     } else {
       console.log(`\nCanonry server running at ${url}`)
+      console.log(`Open ${url}/setup to finish onboarding and run your first visibility check.`)
+      if (host === '0.0.0.0') {
+        console.log('First-run dashboard password setup is unauthenticated only on loopback; complete setup from this machine first or use a bearer cnry_... key.')
+      }
       console.log('Press Ctrl+C to stop.\n')
       const nudge = getMissingUserSkillsNudge(process.env.HOME)
       if (nudge) process.stderr.write(`${nudge.message}\n`)

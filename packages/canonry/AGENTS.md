@@ -346,7 +346,7 @@ webhook subscribing to `run.completed`, `insight.critical`, `insight.high`,
 
 Anonymous fire-and-forget telemetry, opt-out via `canonry telemetry disable`,
 `CANONRY_TELEMETRY_DISABLED=1`, `DO_NOT_TRACK=1`, or any truthy `CI` env var.
-All events POST to `https://ainyc.ai/api/telemetry` with the following
+All events POST to `https://canonry.ai/api/telemetry` with the following
 top-level envelope:
 
 ```jsonc

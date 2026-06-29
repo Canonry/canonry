@@ -32,6 +32,8 @@ The CLI installs as `cnry` (short form) and `canonry` — the two are interchang
 
 Open [http://localhost:4100/setup](http://localhost:4100/setup). A guided wizard walks you through provider keys, project setup, queries, and your first visibility check.
 
+If you serve Canonry on `0.0.0.0` or a LAN address, complete first-run dashboard password setup from loopback first, or authenticate with a `cnry_...` bearer key. The unauthenticated setup path is loopback-only by design.
+
 Prefer the terminal?
 
 ```bash
@@ -64,7 +66,8 @@ One-click copy at [canonry.ai](https://canonry.ai).
 
 | Problem | Fix |
 |---------|-----|
-| No provider key configured | Grab a free [Gemini key](https://aistudio.google.com/apikey), set `GEMINI_API_KEY`, restart `cnry serve`. |
+| No provider key configured | Open `/setup`, or grab a free [Gemini key](https://aistudio.google.com/apikey), set `GEMINI_API_KEY`, and restart `cnry serve`. |
+| Why did my first audit fail? | Run `cnry doctor`, then reopen `/setup`; it checks provider keys and setup blockers before the first sweep. |
 | No results after a run | Visibility checks are async — check the Runs tab or use `cnry run <project> --wait`. |
 | Not sure what queries to test | Setup wizard auto-generates them; expand the basket later with `cnry discover run <project> --icp "..."` — see the [discovery methodology](skills/aero/references/aeo-discovery.md). |
 | `npm install` fails on `node-gyp` | Install build tools for `better-sqlite3` ([guide](https://github.com/WiseLibs/better-sqlite3/blob/master/docs/troubleshooting.md)). |

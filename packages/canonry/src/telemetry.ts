@@ -1,12 +1,13 @@
 import crypto from 'node:crypto'
 import os from 'node:os'
+import { isGhostTelemetryEvent } from '@ainyc/canonry-contracts'
 import { loadConfig, saveConfigPatch, configExists, loadConfigRaw } from './config.js'
 
 import { createRequire } from 'node:module'
 const _require = createRequire(import.meta.url)
 const { version: VERSION } = _require('../package.json') as { version: string }
 
-const TELEMETRY_ENDPOINT = 'https://ainyc.ai/api/telemetry'
+const TELEMETRY_ENDPOINT = 'https://canonry.ai/api/telemetry'
 const TIMEOUT_MS = 3_000
 
 const ANON_ID_ENV_VAR = 'CANONRY_ANONYMOUS_ID'
@@ -71,6 +72,13 @@ export interface TrackEventOptions {
   sourceContext?: string
   /** Stable error classifier (see `RUN_ERROR_CODES` etc. in callers). */
   errorCode?: string
+}
+
+export function shouldDropTelemetryEvent(
+  event: string,
+  properties?: TelemetryProperties,
+): boolean {
+  return isGhostTelemetryEvent(event, properties)
 }
 
 // ── Per-process state ──────────────────────────────────────────────────
@@ -228,7 +236,7 @@ export function showFirstRunNotice(): void {
   process.stderr.write(
     '\nCanonry collects anonymous telemetry to prioritize features.\n' +
     'Disable any time: canonry telemetry disable\n' +
-    'Learn more: https://ainyc.ai/telemetry\n\n',
+    'Learn more: https://canonry.ai/telemetry\n\n',
   )
 }
 
@@ -277,6 +285,7 @@ export function trackEvent(
   options?: TrackEventOptions,
 ): void {
   if (!isTelemetryEnabled()) return
+  if (shouldDropTelemetryEvent(event, properties)) return
 
   const anonymousId = getOrCreateAnonymousId()
   if (!anonymousId) return

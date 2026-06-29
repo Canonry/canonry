@@ -135,12 +135,14 @@ export async function listWordpressTrafficEvents(
       )
     }
 
-    const body = (await response.json()) as WordpressTrafficEventsResponseBody
+    // `response.json()` is untrusted wire data; `Partial` keeps the cast honest
+    // so a malformed page (missing `events`) degrades to empty instead of throwing.
+    const body = (await response.json()) as Partial<WordpressTrafficEventsResponseBody>
     const entries = body.events ?? []
     rawEntryCount += entries.length
 
     for (const entry of entries) {
-      const normalized = normalizeWordpressTrafficEvent(entry)
+      const normalized = normalizeWordpressTrafficEvent(entry, body.site)
       if (normalized) {
         events.push(normalized)
       } else {

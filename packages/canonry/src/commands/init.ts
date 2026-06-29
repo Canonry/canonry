@@ -78,6 +78,7 @@ const DEFAULT_AGENT_MODELS: Record<string, string> = {
 
 export async function initCommand(opts?: InitOptions): Promise<ResolvedAgentLLM | undefined> {
   const format = opts?.format ?? 'text'
+  const primaryNextStep = 'canonry serve'
 
   if (!isMachineFormat(format)) {
     console.log('Initializing canonry...\n')
@@ -332,6 +333,7 @@ export async function initCommand(opts?: InitOptions): Promise<ResolvedAgentLLM 
       skillsTip,
       mcp: mcpSummary,
       mcpTip,
+      primaryNextStep,
       nextSteps,
     }, null, 2))
   } else {
@@ -385,6 +387,7 @@ export async function initCommand(opts?: InitOptions): Promise<ResolvedAgentLLM 
   // we generate the anonymousId and fire any telemetry events.
   if (!isMachineFormat(format)) {
     showFirstRunNotice()
+    console.log('\nNext: canonry serve to open the dashboard, or canonry settings provider gemini --api-key <key> to configure Gemini.')
     console.log('\nNext steps:')
     for (const line of nextSteps) {
       console.log(`  ${line}`)
@@ -425,6 +428,7 @@ function buildNextSteps(): string[] {
     '',
     '   The wizard walks through project → queries → competitors → first sweep',
     '   in 5 guided steps and shows your first results inline.',
+    '   For remote/exposed hosts, complete dashboard password setup from loopback first.',
     '',
     'Prefer the terminal? The same flow as CLI commands:',
     '',

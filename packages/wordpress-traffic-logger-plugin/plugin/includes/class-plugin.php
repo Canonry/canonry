@@ -33,6 +33,7 @@ final class Plugin {
     public const RETENTION_DEFAULT = 90;
     public const RETENTION_MIN = 7;
     public const RETENTION_MAX = 365;
+    public const ANONYMOUS_ID_OPTION = 'canonry_traffic_logger_anonymous_id';
 
     // When true, the site is behind a CDN/reverse proxy and forwarded
     // headers (CF-Connecting-IP, X-Forwarded-For, ...) are consulted to
@@ -49,6 +50,7 @@ final class Plugin {
     public static function activate(): void {
         self::runSchemaMigration();
         update_option(self::SCHEMA_VERSION_OPTION, self::SCHEMA_VERSION);
+        self::anonymousId();
 
         // Schedule daily prune only if not already scheduled (re-activation
         // should be idempotent and not push the next-fire timestamp forward).
@@ -143,6 +145,7 @@ final class Plugin {
         delete_option(self::SCHEMA_VERSION_OPTION);
         delete_option(self::RETENTION_OPTION);
         delete_option(self::TRUST_PROXY_OPTION);
+        delete_option(self::ANONYMOUS_ID_OPTION);
         delete_option(self::LEGACY_SALT_OPTION);
 
         if (function_exists('wp_clear_scheduled_hook')) {
@@ -157,6 +160,56 @@ final class Plugin {
      */
     public static function trustProxy(): bool {
         return (string) get_option(self::TRUST_PROXY_OPTION, '') === '1';
+    }
+
+    /**
+     * Stable anonymous site identity for Canonry telemetry joins.
+     *
+     * The source material is a one-way hash of WordPress installation facts,
+     * including the WP salt when available. It is stored once and reused so
+     * telemetry remains stable across plugin upgrades without exposing the
+     * site URL, filesystem path, table prefix, or salts.
+     */
+    public static function anonymousId(): string {
+        $existing = (string) get_option(self::ANONYMOUS_ID_OPTION, '');
+        if (self::isUuid($existing)) {
+            return strtolower($existing);
+        }
+
+        $id = self::uuidFromHash(self::installationHash());
+        if (function_exists('add_option')) {
+            add_option(self::ANONYMOUS_ID_OPTION, $id, '', 'no');
+        } else {
+            update_option(self::ANONYMOUS_ID_OPTION, $id);
+        }
+        return $id;
+    }
+
+    private static function isUuid(string $value): bool {
+        return preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $value) === 1;
+    }
+
+    private static function installationHash(): string {
+        global $wpdb;
+        $siteUrl = function_exists('home_url') ? (string) home_url() : '';
+        $prefix = is_object($wpdb) && isset($wpdb->prefix) ? (string) $wpdb->prefix : '';
+        $path = defined('ABSPATH') ? (string) ABSPATH : '';
+        $salt = function_exists('wp_salt') ? (string) wp_salt('auth') : '';
+        return hash('sha256', 'canonry-wp-install|' . $siteUrl . '|' . $prefix . '|' . $path . '|' . $salt);
+    }
+
+    private static function uuidFromHash(string $hex): string {
+        $hex = strtolower(preg_replace('/[^0-9a-f]/i', '', $hex) ?? '');
+        if (strlen($hex) < 32) {
+            $hex = hash('sha256', $hex);
+        }
+        $a = substr($hex, 0, 8);
+        $b = substr($hex, 8, 4);
+        $c = '5' . substr($hex, 13, 3);
+        $variant = dechex((hexdec(substr($hex, 16, 2)) & 0x3f) | 0x80);
+        $d = str_pad($variant, 2, '0', STR_PAD_LEFT) . substr($hex, 18, 2);
+        $e = substr($hex, 20, 12);
+        return "{$a}-{$b}-{$c}-{$d}-{$e}";
     }
 
     /**

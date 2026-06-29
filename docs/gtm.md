@@ -14,7 +14,7 @@ That reframes the GTM feature set: the question isn't "what can Aero do?" It's *
 
 - **Target users:** solo AEO analysts, SEO consultants, in-house SEO at SaaS companies.
 - **Target agents (first-class skill install support):** Claude Code, Codex, Hermes, OpenClaw. Generic fallback for anything else.
-- **Marketing domain:** `canonry.ai`. Backend telemetry stays on `ainyc.ai`.
+- **Marketing + telemetry domain:** `canonry.ai` (marketing site and the `/api/telemetry` collector).
 
 ---
 
@@ -346,7 +346,7 @@ Shipped agent guidance is stale enough that an agent following it hits dead ends
 
 ### 7. Marketing surface
 
-Only a GitHub README today. `ainyc.ai` is referenced but there's no landing, no docs site. **GTM marketing site lives at `canonry.ai`** (separate from `ainyc.ai` which remains the telemetry/backend domain).
+Only a GitHub README today. `canonry.ai` is referenced but there's no landing, no docs site. **GTM marketing site lives at `canonry.ai`**, which also serves the telemetry collector (`/api/telemetry`).
 
 - Landing page at `canonry.ai`: positioning, one-line install, categorical comparison vs incumbent paid AEO observability tools and SEO-suite AEO add-ons (no per-vendor name-and-shame).
 - **"How to use canonry with Claude Code, Codex, Hermes, OpenClaw"** — dedicated pages per agent. This is the distribution story.
@@ -356,7 +356,7 @@ Only a GitHub README today. `ainyc.ai` is referenced but there's no landing, no 
 
 ### 8. Onboarding analytics
 
-Telemetry exists (`https://ainyc.ai/api/telemetry` — backend stays on ainyc.ai; marketing moves to canonry.ai), no funnel dashboard. Without it you'll iterate blind.
+Telemetry exists (`https://canonry.ai/api/telemetry`), no funnel dashboard. Without it you'll iterate blind.
 
 - Instrument: `init_started`, `init_provider_added`, `init_completed`, `first_project_created`, `first_run_completed`, `first_insight_viewed`, `skill_installed`, `agent_external_used_cli` (detect via CLI invocation heuristics / env var).
 - Build the dashboard before launch.

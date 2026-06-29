@@ -94,6 +94,26 @@ describe('normalizeWordpressTrafficEvent', () => {
     expect(event?.providerResource.labels).toEqual({})
   })
 
+  it('carries the stable WordPress anonymous id as a provider resource label', () => {
+    const event = normalizeWordpressTrafficEvent({
+      id: 1,
+      observed_at: '2026-05-11T12:00:00.000Z',
+      method: 'GET',
+      host: 'example.com',
+      path: '/about',
+      query_string: null,
+      status: 200,
+      user_agent: 'Mozilla/5.0',
+      remote_ip: null,
+      referer: null,
+    }, { anonymous_id: '11111111-2222-5333-8444-555555555555' })
+
+    expect(event?.providerResource.labels).toEqual({
+      host: 'example.com',
+      anonymousId: '11111111-2222-5333-8444-555555555555',
+    })
+  })
+
   it('trims empty strings to null so blanks do not survive into the rollup', () => {
     const event = normalizeWordpressTrafficEvent({
       id: 1,

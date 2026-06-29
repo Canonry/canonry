@@ -181,6 +181,7 @@ final class Rest {
             'site'        => [
                 'url'             => function_exists('home_url') ? home_url() : null,
                 'plugin_version'  => '1.0.0',
+                'anonymous_id'    => Plugin::anonymousId(),
             ],
         ], 200);
     }

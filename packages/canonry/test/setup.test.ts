@@ -14,7 +14,7 @@ describe('test setup hardening', () => {
 
   it('blocks fetch to the canonry telemetry endpoint with a clear error', async () => {
     await expect(
-      globalThis.fetch('https://ainyc.ai/api/telemetry', {
+      globalThis.fetch('https://canonry.ai/api/telemetry', {
         method: 'POST',
         body: JSON.stringify({ event: 'leak' }),
       }),
