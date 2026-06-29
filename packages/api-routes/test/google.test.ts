@@ -4,7 +4,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import Fastify from 'fastify'
-import { createClient, migrate, projects, runs, gscCoverageSnapshots, gscUrlInspections, gscSearchData } from '@ainyc/canonry-db'
+import { createClient, migrate, projects, runs, gscCoverageSnapshots, gscUrlInspections, gscSearchData, gscDailyTotals } from '@ainyc/canonry-db'
 import { AppError } from '@ainyc/canonry-contracts'
 import { googleRoutes } from '../src/google.js'
 
@@ -1515,5 +1515,96 @@ describe('googleRoutes: GET /projects/:name/google/gsc/performance/daily', () =>
       url: '/projects/nope/google/gsc/performance/daily',
     })
     expect(res.statusCode).toBe(404)
+  })
+
+  it('sources the daily series from gsc_daily_totals (property total), not the summed dimensioned rows', async () => {
+    // The seeded gsc_search_data sums to 20 clicks / 1350 impressions. Seed
+    // property-level daily totals for the same two dates with DIFFERENT figures
+    // and assert the endpoint returns those, proving it reads gsc_daily_totals.
+    const now = '2026-01-01T00:00:00.000Z'
+    context.db.insert(gscDailyTotals).values([
+      { id: crypto.randomUUID(), projectId, date: '2026-01-05', clicks: 25, impressions: 300, position: '4', createdAt: now },
+      { id: crypto.randomUUID(), projectId, date: '2026-01-06', clicks: 31, impressions: 900, position: '6', createdAt: now },
+    ]).run()
+
+    const res = await context.app.inject({
+      method: 'GET',
+      url: '/projects/perf/google/gsc/performance/daily',
+    })
+    expect(res.statusCode).toBe(200)
+    const body = res.json() as { totals: { clicks: number; impressions: number; ctr: number; days: number }; daily: Array<{ date: string; clicks: number; impressions: number; ctr: number }> }
+
+    // Property totals — NOT the dimensioned sum (20 / 1350).
+    expect(body.daily).toEqual([
+      { date: '2026-01-05', clicks: 25, impressions: 300, ctr: 25 / 300 },
+      { date: '2026-01-06', clicks: 31, impressions: 900, ctr: 31 / 900 },
+    ])
+    expect(body.totals).toEqual({ clicks: 56, impressions: 1200, ctr: 56 / 1200, days: 2 })
+  })
+
+  it('falls back to summing gsc_search_data by date when no gsc_daily_totals rows exist in the window', async () => {
+    // No gsc_daily_totals seeded (only the dimensioned gsc_search_data from
+    // beforeEach), so the endpoint falls back to the per-date dimensioned sum.
+    const res = await context.app.inject({
+      method: 'GET',
+      url: '/projects/perf/google/gsc/performance/daily',
+    })
+    expect(res.statusCode).toBe(200)
+    const body = res.json() as { totals: { clicks: number; impressions: number; ctr: number; days: number }; daily: Array<{ date: string; clicks: number; impressions: number; ctr: number }> }
+
+    expect(body.daily).toEqual([
+      { date: '2026-01-05', clicks: 10, impressions: 350, ctr: 10 / 350 },
+      { date: '2026-01-06', clicks: 10, impressions: 1000, ctr: 0.01 },
+    ])
+    expect(body.totals).toEqual({ clicks: 20, impressions: 1350, ctr: 20 / 1350, days: 2 })
+  })
+
+  it('uses daily totals per date without dropping dimensioned fallback dates from the same window', async () => {
+    const now = '2026-01-01T00:00:00.000Z'
+    context.db.insert(gscDailyTotals).values({
+      id: crypto.randomUUID(),
+      projectId,
+      date: '2026-01-06',
+      clicks: 31,
+      impressions: 900,
+      position: '6',
+      createdAt: now,
+    }).run()
+
+    const res = await context.app.inject({
+      method: 'GET',
+      url: '/projects/perf/google/gsc/performance/daily',
+    })
+    expect(res.statusCode).toBe(200)
+    const body = res.json() as { totals: { clicks: number; impressions: number; ctr: number; days: number }; daily: Array<{ date: string; clicks: number; impressions: number; ctr: number }> }
+
+    expect(body.daily).toEqual([
+      { date: '2026-01-05', clicks: 10, impressions: 350, ctr: 10 / 350 },
+      { date: '2026-01-06', clicks: 31, impressions: 900, ctr: 31 / 900 },
+    ])
+    expect(body.totals).toEqual({ clicks: 41, impressions: 1250, ctr: 41 / 1250, days: 2 })
+  })
+
+  it('can return date-only daily totals when no dimensioned rows exist for the window', async () => {
+    const now = '2026-01-01T00:00:00.000Z'
+    context.db.insert(gscDailyTotals).values({
+      id: crypto.randomUUID(),
+      projectId,
+      date: '2026-02-01',
+      clicks: 12,
+      impressions: 500,
+      position: '9',
+      createdAt: now,
+    }).run()
+
+    const res = await context.app.inject({
+      method: 'GET',
+      url: '/projects/perf/google/gsc/performance/daily?startDate=2026-02-01&endDate=2026-02-01',
+    })
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual({
+      totals: { clicks: 12, impressions: 500, ctr: 12 / 500, days: 1 },
+      daily: [{ date: '2026-02-01', clicks: 12, impressions: 500, ctr: 12 / 500 }],
+    })
   })
 })

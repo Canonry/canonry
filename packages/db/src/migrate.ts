@@ -1899,6 +1899,23 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `CREATE INDEX IF NOT EXISTS idx_agent_tool_events_status_created ON agent_tool_events(status, created_at)`,
     ],
   },
+  {
+    version: 86,
+    name: 'gsc-daily-totals',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS gsc_daily_totals (
+        id           TEXT PRIMARY KEY,
+        project_id   TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        date         TEXT NOT NULL,
+        clicks       INTEGER NOT NULL,
+        impressions  INTEGER NOT NULL,
+        position     TEXT NOT NULL,
+        created_at   TEXT NOT NULL
+      )`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_gsc_daily_totals_project_date ON gsc_daily_totals(project_id, date)`,
+      `CREATE INDEX IF NOT EXISTS idx_gsc_daily_totals_project ON gsc_daily_totals(project_id)`,
+    ],
+  },
 ]
 
 /**

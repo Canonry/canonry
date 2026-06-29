@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { test, expect } from 'vitest'
 import Fastify from 'fastify'
-import { createClient, migrate } from '@ainyc/canonry-db'
+import { createClient, gscDailyTotals, migrate } from '@ainyc/canonry-db'
 import { apiRoutes } from '../src/index.js'
 
 function buildApp(opts?: { onProjectDeleted?: (projectId: string) => void }) {
@@ -15,7 +15,7 @@ function buildApp(opts?: { onProjectDeleted?: (projectId: string) => void }) {
   const app = Fastify()
   app.register(apiRoutes, { db, skipAuth: true, onProjectDeleted: opts?.onProjectDeleted })
 
-  return { app, tmpDir }
+  return { app, db, tmpDir }
 }
 
 test('project export includes schedule and notifications for round-tripping', async () => {
@@ -113,6 +113,46 @@ test('project delete invokes onProjectDeleted callback', async () => {
 
     expect(deleteRes.statusCode).toBe(204)
     expect(deletedProjectIds).toEqual([created.id])
+  } finally {
+    await app.close()
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  }
+})
+
+test('project delete cascades gsc daily totals', async () => {
+  const { app, db, tmpDir } = buildApp()
+  await app.ready()
+
+  try {
+    const createRes = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/projects/to-delete-gsc-totals',
+      payload: {
+        displayName: 'Delete GSC Totals',
+        canonicalDomain: 'example.com',
+        country: 'US',
+        language: 'en',
+      },
+    })
+    const created = JSON.parse(createRes.body) as { id: string }
+
+    db.insert(gscDailyTotals).values({
+      id: 'gsc-total-delete-test',
+      projectId: created.id,
+      date: '2026-04-30',
+      clicks: 12,
+      impressions: 500,
+      position: '9',
+      createdAt: new Date().toISOString(),
+    }).run()
+
+    const deleteRes = await app.inject({
+      method: 'DELETE',
+      url: '/api/v1/projects/to-delete-gsc-totals',
+    })
+
+    expect(deleteRes.statusCode).toBe(204)
+    expect(db.select().from(gscDailyTotals).all()).toEqual([])
   } finally {
     await app.close()
     fs.rmSync(tmpDir, { recursive: true, force: true })

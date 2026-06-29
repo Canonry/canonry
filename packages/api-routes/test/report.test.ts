@@ -14,6 +14,7 @@ import {
   querySnapshots,
   insights,
   gscSearchData,
+  gscDailyTotals,
   gscCoverageSnapshots,
   gaTrafficSnapshots,
   gaTrafficSummaries,
@@ -494,6 +495,185 @@ describe('GET /api/v1/projects/:name/report', () => {
       periodStart: '2026-04-01',
       periodEnd: '2026-04-30',
     })
+  })
+
+  test('GSC headline totals come from gsc_daily_totals (property total), not the summed dimensioned rows', async () => {
+    // The dimensioned `gsc_search_data` rows sum to 46,325 impressions / 720
+    // clicks (the page dimension over-counts impressions, dropped anonymized
+    // rare queries under-count clicks). The property total from GSC's UI is
+    // 37,100 / 982. When daily-totals rows are present, the headline must use
+    // them — NOT the summed dimensioned values.
+    const projectId = insertProject(ctx.db, 'gsc-property-total')
+    const syncRunId = insertRun(ctx.db, projectId, { kind: 'gsc-sync' })
+
+    // Dimensioned rows: two queries across two dates summing to 46,325 / 720.
+    ctx.db.insert(gscSearchData).values([
+      {
+        id: crypto.randomUUID(), projectId, syncRunId,
+        date: '2026-04-01', query: 'gsc-property-total brand',
+        page: 'https://gsc-property-total.example.com/a',
+        clicks: 400, impressions: 25_000, ctr: '0.016', position: '4',
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: crypto.randomUUID(), projectId, syncRunId,
+        date: '2026-04-30', query: 'industrial coatings',
+        page: 'https://gsc-property-total.example.com/b',
+        clicks: 320, impressions: 21_325, ctr: '0.015', position: '6',
+        createdAt: new Date().toISOString(),
+      },
+    ]).run()
+
+    // Property-level daily totals for the SAME window: 37,100 / 982.
+    ctx.db.insert(gscDailyTotals).values([
+      {
+        id: crypto.randomUUID(), projectId,
+        date: '2026-04-01', clicks: 500, impressions: 17_100, position: '4',
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: crypto.randomUUID(), projectId,
+        date: '2026-04-30', clicks: 482, impressions: 20_000, position: '6',
+        createdAt: new Date().toISOString(),
+      },
+    ]).run()
+
+    await ctx.app.ready()
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/gsc-property-total/report' })
+    const body = JSON.parse(res.body) as ProjectReportDto
+
+    expect(body.gsc).not.toBeNull()
+    // Property total — NOT the dimensioned sum (46325 / 720).
+    expect(body.gsc!.totalImpressions).toBe(37_100)
+    expect(body.gsc!.totalClicks).toBe(982)
+    // CTR derived from the property totals.
+    expect(body.gsc!.ctr).toBeCloseTo(982 / 37_100, 10)
+    // Impression-weighted avg position from the daily rows:
+    // (4*17100 + 6*20000) / 37100.
+    expect(body.gsc!.avgPosition).toBeCloseTo((4 * 17_100 + 6 * 20_000) / 37_100, 10)
+    // Trend built from the daily totals.
+    expect(body.gsc!.trend).toEqual([
+      { date: '2026-04-01', clicks: 500, impressions: 17_100 },
+      { date: '2026-04-30', clicks: 482, impressions: 20_000 },
+    ])
+    // topQueries still come from gsc_search_data (the per-query breakdown).
+    expect(body.gsc!.topQueries.map(q => q.query).sort()).toEqual([
+      'gsc-property-total brand',
+      'industrial coatings',
+    ])
+    // executiveSummary mirrors the corrected property totals.
+    expect(body.executiveSummary.gsc).toMatchObject({ clicks: 982, impressions: 37_100 })
+  })
+
+  test('GSC headline totals fall back to the summed dimensioned rows when no gsc_daily_totals exist', async () => {
+    // Back-compat: a project that has not re-synced has no daily-totals rows,
+    // so the headline falls back to summing gsc_search_data (46,325 / 720).
+    const projectId = insertProject(ctx.db, 'gsc-fallback')
+    const syncRunId = insertRun(ctx.db, projectId, { kind: 'gsc-sync' })
+
+    ctx.db.insert(gscSearchData).values([
+      {
+        id: crypto.randomUUID(), projectId, syncRunId,
+        date: '2026-04-01', query: 'gsc-fallback brand',
+        page: 'https://gsc-fallback.example.com/a',
+        clicks: 400, impressions: 25_000, ctr: '0.016', position: '4',
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: crypto.randomUUID(), projectId, syncRunId,
+        date: '2026-04-30', query: 'industrial coatings',
+        page: 'https://gsc-fallback.example.com/b',
+        clicks: 320, impressions: 21_325, ctr: '0.015', position: '6',
+        createdAt: new Date().toISOString(),
+      },
+    ]).run()
+    // No gscDailyTotals rows seeded.
+
+    await ctx.app.ready()
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/gsc-fallback/report' })
+    const body = JSON.parse(res.body) as ProjectReportDto
+
+    expect(body.gsc).not.toBeNull()
+    // Dimensioned sum (fallback): 46,325 impressions / 720 clicks.
+    expect(body.gsc!.totalImpressions).toBe(46_325)
+    expect(body.gsc!.totalClicks).toBe(720)
+    expect(body.gsc!.ctr).toBeCloseTo(720 / 46_325, 10)
+    // Trend falls back to the per-date dimensioned sum.
+    expect(body.gsc!.trend).toEqual([
+      { date: '2026-04-01', clicks: 400, impressions: 25_000 },
+      { date: '2026-04-30', clicks: 320, impressions: 21_325 },
+    ])
+    // topQueries still come from gsc_search_data.
+    expect(body.gsc!.topQueries.map(q => q.query).sort()).toEqual([
+      'gsc-fallback brand',
+      'industrial coatings',
+    ])
+    expect(body.executiveSummary.gsc).toMatchObject({ clicks: 720, impressions: 46_325 })
+  })
+
+  test('GSC headline totals merge daily totals with dimensioned fallback dates when coverage is partial', async () => {
+    const projectId = insertProject(ctx.db, 'gsc-partial-totals')
+    const syncRunId = insertRun(ctx.db, projectId, { kind: 'gsc-sync' })
+
+    ctx.db.insert(gscSearchData).values([
+      {
+        id: crypto.randomUUID(), projectId, syncRunId,
+        date: '2026-04-01', query: 'gsc-partial-totals brand',
+        page: 'https://gsc-partial-totals.example.com/a',
+        clicks: 400, impressions: 25_000, ctr: '0.016', position: '4',
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: crypto.randomUUID(), projectId, syncRunId,
+        date: '2026-04-30', query: 'industrial coatings',
+        page: 'https://gsc-partial-totals.example.com/b',
+        clicks: 320, impressions: 21_325, ctr: '0.015', position: '6',
+        createdAt: new Date().toISOString(),
+      },
+    ]).run()
+    ctx.db.insert(gscDailyTotals).values({
+      id: crypto.randomUUID(), projectId,
+      date: '2026-04-30', clicks: 482, impressions: 20_000, position: '6',
+      createdAt: new Date().toISOString(),
+    }).run()
+
+    await ctx.app.ready()
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/gsc-partial-totals/report' })
+    const body = JSON.parse(res.body) as ProjectReportDto
+
+    expect(body.gsc).not.toBeNull()
+    expect(body.gsc!.periodStart).toBe('2026-04-01')
+    expect(body.gsc!.periodEnd).toBe('2026-04-30')
+    expect(body.gsc!.totalClicks).toBe(882)
+    expect(body.gsc!.totalImpressions).toBe(45_000)
+    expect(body.gsc!.trend).toEqual([
+      { date: '2026-04-01', clicks: 400, impressions: 25_000 },
+      { date: '2026-04-30', clicks: 482, impressions: 20_000 },
+    ])
+  })
+
+  test('GSC report can render property totals even when query/page rows are all anonymized away', async () => {
+    const projectId = insertProject(ctx.db, 'gsc-date-only')
+
+    ctx.db.insert(gscDailyTotals).values({
+      id: crypto.randomUUID(), projectId,
+      date: '2026-04-30', clicks: 12, impressions: 500, position: '9',
+      createdAt: new Date().toISOString(),
+    }).run()
+
+    await ctx.app.ready()
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/gsc-date-only/report' })
+    const body = JSON.parse(res.body) as ProjectReportDto
+
+    expect(body.gsc).not.toBeNull()
+    expect(body.gsc!.periodStart).toBe('2026-04-30')
+    expect(body.gsc!.periodEnd).toBe('2026-04-30')
+    expect(body.gsc!.totalClicks).toBe(12)
+    expect(body.gsc!.totalImpressions).toBe(500)
+    expect(body.gsc!.avgPosition).toBe(9)
+    expect(body.gsc!.topQueries).toEqual([])
+    expect(body.gsc!.categoryBreakdown).toEqual([])
+    expect(body.executiveSummary.gsc).toMatchObject({ clicks: 12, impressions: 500 })
   })
 
   test('GSC section trims to the most recent 30 days when older history is present', async () => {

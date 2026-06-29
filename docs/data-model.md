@@ -36,6 +36,7 @@ erDiagram
   projects ||--o{ gbp_place_details : has
 
   projects ||--o{ gsc_search_data : has
+  projects ||--o{ gsc_daily_totals : has
   projects ||--o{ gsc_url_inspections : has
   projects ||--o{ gsc_coverage_snapshots : has
 
@@ -76,7 +77,8 @@ erDiagram
 | Table | Purpose |
 |-------|---------|
 | **google_connections** | OAuth credentials, domain-scoped. Unique: `(domain, connectionType)` |
-| **gsc_search_data** | GSC search analytics data synced per run |
+| **gsc_search_data** | GSC search analytics data synced per run (query × page × country × device × date) |
+| **gsc_daily_totals** | GSC property-level daily totals (no query/page dimensions). Headline clicks/impressions/CTR/position + daily trend source. Unique: `(project_id, date)` |
 | **gsc_url_inspections** | URL inspection results from GSC |
 | **gsc_coverage_snapshots** | Index coverage snapshots from GSC |
 
