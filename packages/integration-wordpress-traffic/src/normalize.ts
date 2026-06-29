@@ -23,6 +23,7 @@ export function normalizeWordpressTrafficEvent(
   if (!event.observed_at) return null
   if (typeof event.id !== 'number' || !Number.isFinite(event.id)) return null
 
+  if (!event.path) return null
   const path = event.path.trim()
   if (!path) return null
   const queryString = trimOrNull(event.query_string)

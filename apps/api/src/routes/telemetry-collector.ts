@@ -1,6 +1,5 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify'
-
-const TEST_LOCATIONS = new Set(['nyc', 'lax', 'chi'])
+import { isGhostTelemetryEvent } from '@ainyc/canonry-contracts'
 
 export interface TelemetryCollectorEvent {
   anonymousId?: unknown
@@ -21,17 +20,6 @@ function asTelemetryCollectorEvent(value: unknown): TelemetryCollectorEvent {
   return value as TelemetryCollectorEvent
 }
 
-export function isGhostTelemetryEvent(event: TelemetryCollectorEvent): boolean {
-  if (event.event !== 'run.completed' && event.event !== 'run.aborted') return false
-  const properties = event.properties
-  if (!properties) return false
-  if (properties.providerCount !== 0) return false
-  const location = typeof properties.location === 'string'
-    ? properties.location.trim().toLowerCase()
-    : ''
-  return TEST_LOCATIONS.has(location)
-}
-
 export function registerTelemetryCollectorRoutes(
   app: FastifyInstance,
   opts: TelemetryCollectorOptions = {},
@@ -39,7 +27,7 @@ export function registerTelemetryCollectorRoutes(
   app.post<{ Body: unknown }>('/api/telemetry', async (request, reply) => {
     const event = asTelemetryCollectorEvent(request.body)
 
-    if (isGhostTelemetryEvent(event)) {
+    if (isGhostTelemetryEvent(event.event, event.properties)) {
       if (opts.writeTelemetryTest) {
         await opts.writeTelemetryTest(event, request)
       } else {

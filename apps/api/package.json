@@ -13,6 +13,7 @@
   "dependencies": {
     "@ainyc/canonry-api-routes": "workspace:*",
     "@ainyc/canonry-config": "workspace:*",
+    "@ainyc/canonry-contracts": "workspace:*",
     "@ainyc/canonry-db": "workspace:*",
     "fastify": "^5.8.5",
     "tsx": "^4.20.5"

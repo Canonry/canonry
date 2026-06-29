@@ -1,30 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
 import Fastify from 'fastify'
-import {
-  isGhostTelemetryEvent,
-  registerTelemetryCollectorRoutes,
-} from '../src/routes/telemetry-collector.js'
+import { registerTelemetryCollectorRoutes } from '../src/routes/telemetry-collector.js'
 
+// Ghost-event classification itself is covered in
+// packages/contracts/test/telemetry.test.ts (isGhostTelemetryEvent); these
+// tests verify the route wires that predicate to the test-traffic sink.
 describe('telemetry collector', () => {
-  it('classifies no-provider nyc/lax/chi run telemetry as test traffic', () => {
-    expect(isGhostTelemetryEvent({
-      event: 'run.aborted',
-      properties: { location: 'nyc', providerCount: 0 },
-    })).toBe(true)
-    expect(isGhostTelemetryEvent({
-      event: 'run.completed',
-      properties: { location: ' LAX ', providerCount: 0 },
-    })).toBe(true)
-    expect(isGhostTelemetryEvent({
-      event: 'run.completed',
-      properties: { location: 'chi', providerCount: 1 },
-    })).toBe(false)
-    expect(isGhostTelemetryEvent({
-      event: 'cli.init',
-      properties: { location: 'nyc', providerCount: 0 },
-    })).toBe(false)
-  })
-
   it('routes ghost events to the internal telemetry_test sink', async () => {
     const app = Fastify()
     const writeTelemetryTest = vi.fn()

@@ -1,5 +1,6 @@
 import crypto from 'node:crypto'
 import os from 'node:os'
+import { isGhostTelemetryEvent } from '@ainyc/canonry-contracts'
 import { loadConfig, saveConfigPatch, configExists, loadConfigRaw } from './config.js'
 
 import { createRequire } from 'node:module'
@@ -8,7 +9,6 @@ const { version: VERSION } = _require('../package.json') as { version: string }
 
 const TELEMETRY_ENDPOINT = 'https://canonry.ai/api/telemetry'
 const TIMEOUT_MS = 3_000
-const TEST_LOCATIONS = new Set(['nyc', 'lax', 'chi'])
 
 const ANON_ID_ENV_VAR = 'CANONRY_ANONYMOUS_ID'
 const ANON_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -78,13 +78,7 @@ export function shouldDropTelemetryEvent(
   event: string,
   properties?: TelemetryProperties,
 ): boolean {
-  if (event !== 'run.completed' && event !== 'run.aborted') return false
-  if (!properties) return false
-  if (properties.providerCount !== 0) return false
-  const location = typeof properties.location === 'string'
-    ? properties.location.trim().toLowerCase()
-    : ''
-  return TEST_LOCATIONS.has(location)
+  return isGhostTelemetryEvent(event, properties)
 }
 
 // ── Per-process state ──────────────────────────────────────────────────

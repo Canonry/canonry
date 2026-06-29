@@ -600,6 +600,7 @@ The contract test `packages/api-routes/test/openapi-contract.test.ts` enforces a
 | Error factories | `packages/contracts/src/errors.ts` |
 | SQL `LIKE` wildcard escaping | `packages/contracts/src/sql-like.ts` (`escapeLikePattern` — caller adds `ESCAPE '\\'`) |
 | Retry / exponential backoff | `packages/contracts/src/retry.ts` (`withRetry`, `backoffDelayMs`, `isRetryableHttpError`) |
+| Telemetry funnel classification | `packages/contracts/src/telemetry.ts` (`isGhostTelemetryEvent` — shared by the CLI client drop + the cloud collector backstop) |
 | JSON column parsing (DB-only) | `packages/db` (`parseJsonColumn`) |
 
 Add new utility files to `packages/contracts/src/` and re-export them from `index.ts`. Keep modules small and focused — a `formatting.ts` for formatters, a separate file for the next category. One file per concern.
