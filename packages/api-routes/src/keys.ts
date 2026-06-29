@@ -4,6 +4,7 @@ import type { FastifyInstance } from 'fastify'
 import { apiKeys, projects } from '@ainyc/canonry-db'
 import {
   createApiKeyRequestSchema,
+  forbidden,
   isReadOnlyKey,
   notFound,
   validationError,
@@ -82,6 +83,14 @@ export async function keysRoutes(app: FastifyInstance) {
       throw validationError('Invalid API key request', { issues: parsed.error.issues })
     }
     const { name, scopes, projectId } = parsed.data
+
+    // A project-scoped key may only mint keys for ITS OWN project — minting an
+    // unscoped key (projectId omitted) or a sibling-scoped one would let a
+    // scoped key escalate out of its own boundary.
+    const requesterProjectId = request.apiKey?.projectId
+    if (requesterProjectId && projectId !== requesterProjectId) {
+      throw forbidden('A project-scoped key can only mint keys scoped to its own project.')
+    }
 
     // A project-scoped key must reference a real project — validate before
     // minting so a typo cannot create an orphan key that 403s every request.

@@ -20,11 +20,17 @@ export async function historyRoutes(app: FastifyInstance) {
     return reply.send(rows.map(formatAuditEntry))
   })
 
-  // GET /history — global audit log
-  app.get('/history', async (_request, reply) => {
+  // GET /history — audit log. Full-instance keys see every project's entries;
+  // a project-scoped key sees ONLY its own project's audit log. This global
+  // list is not under the /projects/:name auth gate, so filter explicitly
+  // (NULL-project instance-level entries are intentionally hidden from a
+  // scoped key).
+  app.get('/history', async (request, reply) => {
+    const scopedProjectId = request.apiKey?.projectId
     const rows = app.db
       .select()
       .from(auditLog)
+      .where(scopedProjectId ? eq(auditLog.projectId, scopedProjectId) : undefined)
       .orderBy(desc(auditLog.createdAt))
       .all()
 

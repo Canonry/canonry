@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import Fastify from 'fastify'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { createClient, migrate, apiKeys, projects, runs, type DatabaseClient } from '@ainyc/canonry-db'
+import { createClient, migrate, apiKeys, auditLog, projects, runs, type DatabaseClient } from '@ainyc/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import { hashApiKey } from '../src/auth.js'
 
@@ -23,7 +23,9 @@ let app: ReturnType<typeof Fastify>
 const NOW = new Date().toISOString()
 const ROOT_KEY = 'cnry_roottoken' // wildcard, full instance
 const SCOPED_KEY = 'cnry_scopedtoken' // read-only, scoped to project A
+const SCOPED_WRITE_KEY = 'cnry_scopedwrite' // full scopes, scoped to project A (exercises the write paths)
 let projectAId: string
+let projectBId: string
 let runAId: string
 let runBId: string
 
@@ -51,16 +53,26 @@ function seedRun(projectId: string): string {
   return id
 }
 
+function seedAudit(projectId: string, action: string): void {
+  db.insert(auditLog).values({
+    id: crypto.randomUUID(), projectId, actor: 'api', action,
+    entityType: 'project', entityId: projectId, diff: null, createdAt: NOW,
+  }).run()
+}
+
 beforeEach(async () => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'key-scope-test-'))
   db = createClient(path.join(tmpDir, 'test.db'))
   migrate(db)
   projectAId = seedProject('project-a')
-  seedProject('project-b')
+  projectBId = seedProject('project-b')
   runAId = seedRun(projectAId)
-  runBId = seedRun(db.select({ id: projects.id }).from(projects).all().find(p => p.id !== projectAId)!.id)
+  runBId = seedRun(projectBId)
+  seedAudit(projectAId, 'project.applied')
+  seedAudit(projectBId, 'project.applied')
   seedKey('root', ROOT_KEY, ['*'])
   seedKey('scoped', SCOPED_KEY, ['read', 'embed'], projectAId)
+  seedKey('scoped-write', SCOPED_WRITE_KEY, ['*'], projectAId)
 
   app = Fastify()
   app.register(apiRoutes, { db })
@@ -129,5 +141,67 @@ describe('project-scoped API keys', () => {
   it('GET /keys/self surfaces the scoped projectId', async () => {
     const res = await authed('GET', '/api/v1/keys/self', SCOPED_KEY)
     expect((res.json() as { projectId: string | null }).projectId).toBe(projectAId)
+  })
+
+  // --- global aggregation endpoints (NOT under the /projects/:name URL gate) ---
+
+  it('GET /runs returns ONLY the scoped project\'s runs', async () => {
+    const res = await authed('GET', '/api/v1/runs', SCOPED_KEY)
+    expect(res.statusCode).toBe(200)
+    const pids = new Set((res.json() as Array<{ projectId: string }>).map(r => r.projectId))
+    expect(pids).toEqual(new Set([projectAId]))
+  })
+
+  it('GET /runs returns ALL projects\' runs for a full-instance key', async () => {
+    const res = await authed('GET', '/api/v1/runs', ROOT_KEY)
+    const pids = new Set((res.json() as Array<{ projectId: string }>).map(r => r.projectId))
+    expect(pids).toEqual(new Set([projectAId, projectBId]))
+  })
+
+  it('GET /history returns ONLY the scoped project\'s audit log', async () => {
+    const res = await authed('GET', '/api/v1/history', SCOPED_KEY)
+    expect(res.statusCode).toBe(200)
+    const pids = new Set((res.json() as Array<{ projectId: string }>).map(r => r.projectId))
+    expect(pids).toEqual(new Set([projectAId]))
+  })
+
+  it('GET /history returns ALL audit entries for a full-instance key', async () => {
+    const res = await authed('GET', '/api/v1/history', ROOT_KEY)
+    const pids = new Set((res.json() as Array<{ projectId: string }>).map(r => r.projectId))
+    expect(pids).toEqual(new Set([projectAId, projectBId]))
+  })
+
+  it('POST /runs (batch) triggers ONLY the scoped project for a scoped write key', async () => {
+    const res = await authed('POST', '/api/v1/runs', SCOPED_WRITE_KEY, { kind: 'answer-visibility' })
+    expect(res.statusCode).toBe(207)
+    const pids = new Set((res.json() as Array<{ projectId: string }>).map(r => r.projectId))
+    expect(pids).toEqual(new Set([projectAId]))
+  })
+
+  it('POST /apply is FORBIDDEN for a scoped key applying a SIBLING project', async () => {
+    const res = await authed('POST', '/api/v1/apply', SCOPED_WRITE_KEY, {
+      apiVersion: 'canonry/v1', kind: 'Project', metadata: { name: 'project-b' },
+      spec: { displayName: 'B', canonicalDomain: 'project-b.example', country: 'US', language: 'en' },
+    })
+    expect(res.statusCode).toBe(403)
+  })
+
+  it('POST /apply ALLOWS a scoped key applying its OWN project', async () => {
+    const res = await authed('POST', '/api/v1/apply', SCOPED_WRITE_KEY, {
+      apiVersion: 'canonry/v1', kind: 'Project', metadata: { name: 'project-a' },
+      spec: { displayName: 'A', canonicalDomain: 'project-a.example', country: 'US', language: 'en' },
+    })
+    expect(res.statusCode).toBe(200)
+  })
+
+  it('POST /keys is FORBIDDEN when a scoped key mints an UNSCOPED key (no escalation)', async () => {
+    const res = await authed('POST', '/api/v1/keys', SCOPED_WRITE_KEY, { name: 'escalate', scopes: ['*'] })
+    expect(res.statusCode).toBe(403)
+  })
+
+  it('POST /keys ALLOWS a scoped key minting a key for its OWN project', async () => {
+    const res = await authed('POST', '/api/v1/keys', SCOPED_WRITE_KEY, { name: 'ok', scopes: ['read'], projectId: projectAId })
+    expect(res.statusCode).toBe(200)
+    expect((res.json() as { projectId: string }).projectId).toBe(projectAId)
   })
 })
