@@ -1,5 +1,5 @@
 import { agentAttach, agentDetach } from '../commands/agent.js'
-import { agentAsk, type AgentAskScope } from '../commands/agent-ask.js'
+import { agentAsk, type AgentAskProfile, type AgentAskScope } from '../commands/agent-ask.js'
 import { agentProviders } from '../commands/agent-providers.js'
 import { agentTranscript, agentTranscriptReset } from '../commands/agent-transcript.js'
 import {
@@ -8,6 +8,7 @@ import {
   agentMemorySet,
 } from '../commands/agent-memory.js'
 import { coerceAgentProvider, listAgentProviders } from '../agent/session.js'
+import { AERO_TOOL_PROFILES, isAeroToolProfile } from '../agent/tools.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
 import { getString, requireProject, requireStringOption, stringOption } from '../cli-command-helpers.js'
 import { usageError } from '../cli-error.js'
@@ -17,14 +18,15 @@ const AGENT_ASK_SCOPES: readonly AgentAskScope[] = ['all', 'read-only']
 export const AGENT_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['agent', 'ask'],
-    usage: `canonry agent ask <project> "<prompt>" [--provider ${listAgentProviders().join('|')}] [--model <id>] [--scope all|read-only] [--format json]`,
+    usage: `canonry agent ask <project> "<prompt>" [--provider ${listAgentProviders().join('|')}] [--model <id>] [--scope all|read-only] [--profile default|ads-operator] [--format json]`,
     options: {
       provider: stringOption(),
       model: stringOption(),
       scope: stringOption(),
+      profile: stringOption(),
     },
     run: async (input) => {
-      const usage = `canonry agent ask <project> "<prompt>" [--provider ${listAgentProviders().join('|')}] [--model <id>] [--scope all|read-only] [--format json]`
+      const usage = `canonry agent ask <project> "<prompt>" [--provider ${listAgentProviders().join('|')}] [--model <id>] [--scope all|read-only] [--profile default|ads-operator] [--format json]`
       const project = requireProject(input, 'agent.ask', usage)
       const prompt = input.positionals.slice(1).join(' ').trim()
       if (!prompt) {
@@ -60,12 +62,25 @@ export const AGENT_CLI_COMMANDS: readonly CliCommandSpec[] = [
           },
         })
       }
+      const profileInput = getString(input.values, 'profile')
+      if (profileInput && !isAeroToolProfile(profileInput)) {
+        throw usageError(`Error: --profile must be one of: ${AERO_TOOL_PROFILES.join(', ')}\nUsage: ${usage}`, {
+          message: `--profile must be one of: ${AERO_TOOL_PROFILES.join(', ')}`,
+          details: {
+            command: 'agent.ask',
+            usage,
+            profile: profileInput,
+            validProfiles: AERO_TOOL_PROFILES,
+          },
+        })
+      }
       await agentAsk({
         project,
         prompt,
         provider: coerceAgentProvider(providerInput),
         modelId: getString(input.values, 'model'),
         scope: scopeInput as AgentAskScope | undefined,
+        profile: profileInput as AgentAskProfile | undefined,
         format: input.format,
       })
     },

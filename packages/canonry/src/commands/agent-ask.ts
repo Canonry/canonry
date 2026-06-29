@@ -8,6 +8,7 @@ import {
 } from '../cli-error.js'
 import { createApiClient } from '../client.js'
 import type { SupportedAgentProvider } from '../agent/session.js'
+import type { AeroToolProfile } from '../agent/tools.js'
 
 /**
  * Coerce the raw format flag while preserving `jsonl`. `agent ask` streams an
@@ -22,6 +23,7 @@ function toFormat(raw?: string): CliFormat {
 }
 
 export type AgentAskScope = 'all' | 'read-only'
+export type AgentAskProfile = AeroToolProfile
 
 export interface AgentAskOptions {
   project: string
@@ -29,6 +31,7 @@ export interface AgentAskOptions {
   provider?: SupportedAgentProvider
   modelId?: string
   scope?: AgentAskScope
+  profile?: AgentAskProfile
   format?: string
 }
 
@@ -66,6 +69,7 @@ export async function agentAsk(opts: AgentAskOptions): Promise<void> {
         provider: opts.provider,
         modelId: opts.modelId,
         scope: opts.scope ?? 'all',
+        ...(opts.profile ? { profile: opts.profile } : {}),
       },
       controller.signal,
     )

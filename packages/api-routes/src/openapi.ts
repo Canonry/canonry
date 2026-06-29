@@ -4167,7 +4167,7 @@ export const canonryLocalRouteCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/agent/prompt',
     summary: 'Send a prompt to Aero and stream events back as SSE',
     description:
-      'Posts a prompt into the project\'s Aero session and streams `AgentEvent` frames as `text/event-stream`. Each frame is `data: <JSON>\\n\\n`. The server brackets the stream with `{"type":"stream_open"}` and `{"type":"stream_close"}` control frames; `{"type":"error","message":"..."}` surfaces in-stream failures without collapsing the stream. Returns 409 `AGENT_BUSY` if another turn is already in flight for this project. Body field `scope` accepts "all" | "read-only"; omitted defaults to "read-only" (safe dashboard surface). The CLI passes "all" to keep write tools available.',
+      'Posts a prompt into the project\'s Aero session and streams `AgentEvent` frames as `text/event-stream`. Each frame is `data: <JSON>\\n\\n`. The server brackets the stream with `{"type":"stream_open"}` and `{"type":"stream_close"}` control frames; `{"type":"error","message":"..."}` surfaces in-stream failures without collapsing the stream. Returns 409 `AGENT_BUSY` if another turn is already in flight for this project. Body field `scope` accepts "all" | "read-only"; omitted defaults to "read-only" (safe dashboard surface). Body field `profile` accepts "default" | "ads-operator"; omitted keeps the default full Canonry operator surface. The CLI passes "all" to keep write tools available.',
     tags: ['agent'],
     parameters: [nameParameter],
     requestBody: {
@@ -4192,6 +4192,11 @@ export const canonryLocalRouteCatalog: OpenApiOperation[] = [
                 type: 'string',
                 enum: ['all', 'read-only'],
                 description: 'Tool surface scope. Default "read-only". Set "all" to enable write tools.',
+              },
+              profile: {
+                type: 'string',
+                enum: ['default', 'ads-operator'],
+                description: 'Tool profile. Default "default". Set "ads-operator" to use the narrower ads SaaS operator surface plus the ads context tool.',
               },
             },
           },

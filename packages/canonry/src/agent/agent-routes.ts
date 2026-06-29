@@ -18,6 +18,13 @@ import {
 import type { AgentEvent, AgentMessage } from '@mariozechner/pi-agent-core'
 import type { SessionRegistry } from './session-registry.js'
 import type { SupportedAgentProvider } from './session.js'
+import {
+  AeroToolProfiles,
+  AeroToolScopes,
+  isAeroToolProfile,
+  type AeroToolProfile,
+  type AeroToolScope,
+} from './tools.js'
 import { buildAgentProvidersResponse } from './providers.js'
 import {
   COMPACTION_KEY_PREFIX,
@@ -25,6 +32,14 @@ import {
   listMemoryEntries,
   upsertMemoryEntry,
 } from './memory-store.js'
+
+type AgentPromptBody = Partial<{
+  prompt: string
+  provider?: SupportedAgentProvider
+  modelId?: string
+  scope?: AeroToolScope
+  profile?: AeroToolProfile
+}>
 
 export interface AgentRoutesOptions {
   db: DatabaseClient
@@ -102,15 +117,11 @@ export function registerAgentRoutes(app: FastifyInstance, opts: AgentRoutesOptio
 
   app.post<{
     Params: { name: string }
-    Body: {
-      prompt: string
-      provider?: SupportedAgentProvider
-      modelId?: string
-      scope?: 'all' | 'read-only'
-    }
+    Body: AgentPromptBody
   }>('/projects/:name/agent/prompt', async (request, reply) => {
     const project = resolveProject(opts.db, request.params.name)
-    const promptText = (request.body?.prompt ?? '').trim()
+    const body = request.body as unknown as AgentPromptBody | undefined
+    const promptText = (body?.prompt ?? '').trim()
     if (!promptText) throw validationError('"prompt" is required')
 
     // Tool-scope policy:
@@ -120,16 +131,20 @@ export function registerAgentRoutes(app: FastifyInstance, opts: AgentRoutesOptio
     //     full tool surface the operator invoked the command with.
     // Any authenticated caller can pass `scope` — the gate is about blast
     // radius for interactive UI, not authorization.
-    const requestedScope = request.body?.scope === 'all' ? 'all' : 'read-only'
+    const requestedScope = body?.scope === AeroToolScopes.all ? AeroToolScopes.all : AeroToolScopes.readOnly
+    const requestedProfile = isAeroToolProfile(body?.profile)
+      ? body.profile
+      : AeroToolProfiles.default
 
     // acquireForTurn serializes per project: the busy check runs BEFORE any
     // scope / model mutation, so a second request against a busy Agent
     // throws `AGENT_BUSY` (409) without swapping out the in-flight turn's
     // tools or model. Safe to call concurrently from CLI + dashboard.
     const agent = await opts.sessionRegistry.acquireForTurn(project.name, {
-      provider: request.body?.provider,
-      modelId: request.body?.modelId,
+      provider: body?.provider,
+      modelId: body?.modelId,
       toolScope: requestedScope,
+      toolProfile: requestedProfile,
     })
 
     reply.raw.writeHead(200, {

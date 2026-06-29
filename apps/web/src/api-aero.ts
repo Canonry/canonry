@@ -127,6 +127,7 @@ export async function resetAeroTranscript(project: string): Promise<void> {
 }
 
 export type AeroToolScope = 'read-only' | 'all'
+export type AeroToolProfile = 'default' | 'ads-operator'
 
 export interface PromptAeroArgs {
   project: string
@@ -140,6 +141,8 @@ export interface PromptAeroArgs {
    * tools like run_sweep and dismiss_insight; `all` enables the full set.
    */
   scope?: AeroToolScope
+  /** Optional narrower tool profile for specialized workflows. */
+  profile?: AeroToolProfile
   signal?: AbortSignal
   onEvent: (event: AeroEvent) => void
 }
@@ -156,6 +159,7 @@ export async function promptAero({
   provider,
   modelId,
   scope,
+  profile,
   signal,
   onEvent,
 }: PromptAeroArgs): Promise<void> {
@@ -163,6 +167,7 @@ export async function promptAero({
   if (provider) body.provider = provider
   if (modelId) body.modelId = modelId
   if (scope) body.scope = scope
+  if (profile) body.profile = profile
   const res = await fetch(`${API_BASE}/projects/${encodeURIComponent(project)}/agent/prompt`, {
     method: 'POST',
     credentials: 'include',

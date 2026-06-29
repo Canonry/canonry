@@ -44,8 +44,11 @@ import type { CanonryMcpTier } from './toolkits.js'
 
 export type McpToolAccess = 'read' | 'write'
 
-export interface CanonryMcpTool<TSchema extends z.ZodTypeAny = z.ZodTypeAny> {
-  name: string
+export interface CanonryMcpTool<
+  TSchema extends z.ZodTypeAny = z.ZodTypeAny,
+  TName extends string = string,
+> {
+  name: TName
   title: string
   description: string
   access: McpToolAccess
@@ -69,9 +72,9 @@ const writeAnnotations = (opts: { idempotentHint: boolean; destructiveHint?: boo
   ...(opts.openWorldHint ? { openWorldHint: opts.openWorldHint } : {}),
 })
 
-function defineTool<TSchema extends z.ZodTypeAny>(
-  tool: Omit<CanonryMcpTool<TSchema>, 'inputJsonSchema'>,
-): CanonryMcpTool<TSchema> {
+function defineTool<TSchema extends z.ZodTypeAny, TName extends string>(
+  tool: Omit<CanonryMcpTool<TSchema, TName>, 'inputJsonSchema'>,
+): CanonryMcpTool<TSchema, TName> {
   return {
     ...tool,
     inputJsonSchema: toJsonSchema(tool.inputSchema, tool.name),
@@ -1855,3 +1858,8 @@ export const canonryMcpTools = [
 export const CANONRY_MCP_TOOL_COUNT = canonryMcpTools.length
 export const CANONRY_MCP_READ_TOOL_COUNT = canonryMcpTools.filter(tool => tool.access === 'read').length
 export const CANONRY_MCP_CORE_TOOL_COUNT = canonryMcpTools.filter(tool => tool.tier === 'core').length
+export type CanonryMcpRegistryTool = typeof canonryMcpTools[number]
+export type CanonryMcpToolName = CanonryMcpRegistryTool['name']
+export const CanonryMcpToolNames = Object.freeze(
+  Object.fromEntries(canonryMcpTools.map((tool) => [tool.name, tool.name])),
+) as { readonly [K in CanonryMcpToolName]: K }

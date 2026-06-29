@@ -84,6 +84,8 @@ Some write tools compose existing API calls rather than using a native atomic en
 
 `canonry_project_upsert` and `canonry_apply_config` use PUT semantics — fields omitted from the request are reset to their defaults. Pass the full intended project shape. `canonry_apply_config` accepts one project document per call; loop on the client side for multi-project configs.
 
+The built-in Aero agent consumes the same MCP-derived local tool registry, then may apply an agent profile. The `ads-operator` profile is intentionally narrower than the full MCP catalog and adds one Aero-only context-packing helper, `canonry_ads_operator_context`, that bundles existing public reads for long-session efficiency. It is not an MCP tool because it introduces no new public capability; agents that need the same data outside Aero should call the existing project overview, ads, doctor, and memory tools directly.
+
 ## Progressive Tool Discovery
 
 The full 80-tool API catalog costs roughly 17k tokens of definitions every session. Most sessions touch a handful of tools, so `canonry-mcp` defaults to a small **core tier** (~10 tools, ~3k tokens) and registers the rest on demand via `notifications/tools/list_changed`.

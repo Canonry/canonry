@@ -17,7 +17,13 @@ import {
 } from './providers.js'
 import { resolveAeroSkillDir } from './skill-paths.js'
 import { buildSkillDocTools } from './skill-tools.js'
-import { buildAllTools, buildReadTools } from './tools.js'
+import {
+  AeroToolProfiles,
+  AeroToolScopes,
+  buildAeroStateTools,
+  type AeroToolProfile,
+  type AeroToolScope,
+} from './tools.js'
 import {
   AERO_PROMPT_FAMILY,
   AERO_PROMPT_VERSION,
@@ -58,7 +64,9 @@ export interface AeroSessionOptions {
    * exposes only the read tools — used by the dashboard bar where we don't
    * yet have a confirmation UX for destructive/additive actions.
    */
-  toolScope?: 'all' | 'read-only'
+  toolScope?: AeroToolScope
+  /** Optional profile that narrows the tool surface for specific operator workflows. */
+  toolProfile?: AeroToolProfile
   /** Seed initial transcript. Used by the registry when rehydrating a persisted session. */
   initialMessages?: import('@mariozechner/pi-agent-core').AgentMessage[]
   /** Optional telemetry context. When present, assistant turn usage is appended to llm_usage_events. */
@@ -162,14 +170,15 @@ export function createAeroSession(opts: AeroSessionOptions): Agent {
 
   const model = resolveAeroModel(provider, opts.modelId)
 
-  const toolScope = opts.toolScope ?? 'all'
+  const toolScope = opts.toolScope ?? AeroToolScopes.all
+  const toolProfile = opts.toolProfile ?? AeroToolProfiles.default
   const toolCtx = {
     client: opts.client,
     projectName: opts.projectName,
   }
   // Skill-doc tools ride in both scopes — they're pure reads of bundled
   // assets, no project state involved.
-  const stateTools = toolScope === 'read-only' ? buildReadTools(toolCtx) : buildAllTools(toolCtx)
+  const stateTools = buildAeroStateTools(toolCtx, { scope: toolScope, profile: toolProfile })
   const defaultTools = [...stateTools, ...buildSkillDocTools()]
   const tools = opts.tools ?? defaultTools
   const toolUsageHooks = opts.db

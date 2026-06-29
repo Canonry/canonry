@@ -240,11 +240,23 @@ Tool surface has two layers:
   Ride in every scope. `SKILL.md` stays lightweight; detailed playbooks
   (workflows, regression diagnosis, reporting templates, integrations) load
   on-demand via slug.
+- **Aero tool profiles** (`src/agent/tools.ts`) — the default profile exposes
+  the full local MCP-derived tool surface for the requested scope. The
+  `ads-operator` profile narrows local state tools to an explicit typed
+  allow-list for ads operations and prepends `canonry_ads_operator_context`, an
+  Aero-only context-packing helper that composes existing project overview,
+  ads, doctor, and memory reads through `ApiClient`. It does not expose a new
+  capability outside Aero; promote it to API/CLI/MCP only if operators need
+  that exact bundle as a public contract rather than as a long-session prompt
+  optimization.
 - **Injected remote MCP tools** (`src/agent/remote-mcp.ts`), read-only tools
   loaded from external MCP servers configured via `config.externalMcpServers`
   (or the `CANONRY_EXTERNAL_MCP` env var, a JSON array of `{ url, token, label? }`).
   Loaded once per `SessionRegistry` lifetime (cached promise) and merged into
-  each session's tool list in `acquireForTurn`, after local-scope alignment.
+  each session's tool list in `acquireForTurn`, after local-scope/profile
+  alignment. This is intentional: profile narrowing applies to the local
+  Canonry tools, while injected remote tools are separately accepted only when
+  their MCP annotations mark them read-only.
   See "Injected remote-MCP load path" below for the frozen transport + filter.
 
 ### Injected remote-MCP load path (OSS-A)

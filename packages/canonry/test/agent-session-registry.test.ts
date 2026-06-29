@@ -24,8 +24,14 @@ import { Type } from '@sinclair/typebox'
 import type { AgentMessage, AgentTool } from '@mariozechner/pi-agent-core'
 import { MemorySources } from '@ainyc/canonry-contracts'
 import { SessionRegistry } from '../src/agent/session-registry.js'
-import { canonryMcpTools } from '../src/mcp/tool-registry.js'
+import { CanonryMcpToolNames, canonryMcpTools } from '../src/mcp/tool-registry.js'
 import { AERO_EXCLUDED_MCP_TOOLS } from '../src/agent/mcp-to-agent-tool.js'
+import {
+  AERO_ADS_OPERATOR_CONTEXT_TOOL_NAME,
+  AERO_ADS_OPERATOR_MCP_TOOL_NAMES,
+  AeroToolProfiles,
+  AeroToolScopes,
+} from '../src/agent/tools.js'
 import type { ApiClient } from '../src/client.js'
 import type { CanonryConfig } from '../src/config.js'
 
@@ -39,6 +45,21 @@ const AERO_READ_TOOL_COUNT =
   SKILL_DOC_TOOL_COUNT
 const AERO_ALL_TOOL_COUNT =
   canonryMcpTools.filter((t) => !AERO_EXCLUDED_MCP_TOOLS.has(t.name)).length + SKILL_DOC_TOOL_COUNT
+const AERO_ADS_OPERATOR_READ_TOOL_COUNT =
+  canonryMcpTools.filter(
+    (t) =>
+      t.access === 'read' &&
+      AERO_ADS_OPERATOR_MCP_TOOL_NAMES.has(t.name) &&
+      !AERO_EXCLUDED_MCP_TOOLS.has(t.name),
+  ).length +
+  1 +
+  SKILL_DOC_TOOL_COUNT
+const AERO_ADS_OPERATOR_ALL_TOOL_COUNT =
+  canonryMcpTools.filter(
+    (t) => AERO_ADS_OPERATOR_MCP_TOOL_NAMES.has(t.name) && !AERO_EXCLUDED_MCP_TOOLS.has(t.name),
+  ).length +
+  1 +
+  SKILL_DOC_TOOL_COUNT
 
 function stubClient(): ApiClient {
   return {} as unknown as ApiClient
@@ -176,7 +197,7 @@ describe('SessionRegistry', () => {
   it('records LLM usage with the current hot-session tool count after scope alignment', async () => {
     const projectId = insertProject(db, 'demo')
     const registry = new SessionRegistry({ db, client: stubClient(), config: stubConfig() })
-    const agent = await registry.acquireForTurn('demo', { toolScope: 'read-only' })
+    const agent = await registry.acquireForTurn('demo', { toolScope: AeroToolScopes.readOnly })
 
     agent.state.model = faux.getModel()
     faux.setResponses([fauxAssistantMessage('Read-only usage recorded.')])
@@ -428,7 +449,7 @@ describe('SessionRegistry', () => {
     // session would leak into the next prompt after the reset.
     insertProject(db, 'demo')
     const registry = new SessionRegistry({ db, client: stubClient(), config: stubConfig() })
-    registry.getOrCreate('demo', { toolScope: 'read-only' })
+    registry.getOrCreate('demo', { toolScope: AeroToolScopes.readOnly })
 
     registry.queueFollowUp('demo', {
       role: 'user',
@@ -439,7 +460,7 @@ describe('SessionRegistry', () => {
     expect(registry.isLive('demo')).toBe(true)
     expect(
       (registry as unknown as { scopes: Map<string, string> }).scopes.get('demo'),
-    ).toBe('read-only')
+    ).toBe(AeroToolScopes.readOnly)
 
     registry.reset('demo')
 
@@ -491,7 +512,7 @@ describe('SessionRegistry', () => {
     // a system-triggered proactive drain.
     insertProject(db, 'demo')
     const registry = new SessionRegistry({ db, client: stubClient(), config: stubConfig() })
-    const agent = registry.getOrCreate('demo', { toolScope: 'read-only' })
+    const agent = registry.getOrCreate('demo', { toolScope: AeroToolScopes.readOnly })
     agent.state.model = faux.getModel()
     faux.setResponses([fauxAssistantMessage('Acknowledged.')])
 
@@ -506,6 +527,34 @@ describe('SessionRegistry', () => {
     await registry.drainNow('demo')
 
     expect(agent.state.tools.length).toBe(AERO_READ_TOOL_COUNT)
+  })
+
+  it('drainNow preserves an ads-operator profile and does not widen back to the default profile', async () => {
+    insertProject(db, 'demo')
+    const registry = new SessionRegistry({ db, client: stubClient(), config: stubConfig() })
+    const agent = registry.getOrCreate('demo', {
+      toolScope: AeroToolScopes.readOnly,
+      toolProfile: AeroToolProfiles.adsOperator,
+    })
+    agent.state.model = faux.getModel()
+    faux.setResponses([fauxAssistantMessage('Acknowledged.')])
+
+    expect(agent.state.tools.map((t) => t.name)).toContain(AERO_ADS_OPERATOR_CONTEXT_TOOL_NAME)
+    expect(agent.state.tools.length).toBe(AERO_ADS_OPERATOR_READ_TOOL_COUNT)
+
+    registry.queueFollowUp('demo', {
+      role: 'user',
+      content: '[system] run.completed',
+      timestamp: Date.now(),
+    } as unknown as AgentMessage)
+
+    await registry.drainNow('demo')
+
+    const names = agent.state.tools.map((t) => t.name)
+    expect(names).toContain(AERO_ADS_OPERATOR_CONTEXT_TOOL_NAME)
+    expect(names).toContain(CanonryMcpToolNames.canonry_ads_summary)
+    expect(names).not.toContain(CanonryMcpToolNames.canonry_ads_sync)
+    expect(agent.state.tools.length).toBe(AERO_ADS_OPERATOR_READ_TOOL_COUNT)
   })
 
   it('drainNow defaults to read-only when no session scope is set yet', async () => {
@@ -636,7 +685,7 @@ describe('SessionRegistry', () => {
 
     let caught: unknown
     try {
-      await registry.acquireForTurn('demo', { toolScope: 'read-only' })
+      await registry.acquireForTurn('demo', { toolScope: AeroToolScopes.readOnly })
     } catch (err) {
       caught = err
     }
@@ -653,9 +702,38 @@ describe('SessionRegistry', () => {
     const agent = registry.getOrCreate('demo')
     expect(agent.state.tools.length).toBe(AERO_ALL_TOOL_COUNT)
 
-    await registry.acquireForTurn('demo', { toolScope: 'read-only' })
+    await registry.acquireForTurn('demo', { toolScope: AeroToolScopes.readOnly })
 
     expect(agent.state.tools.length).toBe(AERO_READ_TOOL_COUNT)
+  })
+
+  it('acquireForTurn aligns tool profile on cached agents when idle', async () => {
+    insertProject(db, 'demo')
+    const registry = new SessionRegistry({ db, client: stubClient(), config: stubConfig() })
+    const agent = registry.getOrCreate('demo')
+    expect(agent.state.tools.length).toBe(AERO_ALL_TOOL_COUNT)
+
+    await registry.acquireForTurn('demo', {
+      toolScope: AeroToolScopes.readOnly,
+      toolProfile: AeroToolProfiles.adsOperator,
+    })
+
+    const readOnlyNames = agent.state.tools.map((t) => t.name)
+    expect(readOnlyNames).toContain(AERO_ADS_OPERATOR_CONTEXT_TOOL_NAME)
+    expect(readOnlyNames).toContain(CanonryMcpToolNames.canonry_ads_summary)
+    expect(readOnlyNames).not.toContain(CanonryMcpToolNames.canonry_ads_sync)
+    expect(agent.state.tools.length).toBe(AERO_ADS_OPERATOR_READ_TOOL_COUNT)
+
+    await registry.acquireForTurn('demo', {
+      toolScope: AeroToolScopes.all,
+      toolProfile: AeroToolProfiles.adsOperator,
+    })
+
+    const fullNames = agent.state.tools.map((t) => t.name)
+    expect(fullNames).toContain(AERO_ADS_OPERATOR_CONTEXT_TOOL_NAME)
+    expect(fullNames).toContain(CanonryMcpToolNames.canonry_ads_sync)
+    expect(fullNames).not.toContain(CanonryMcpToolNames.canonry_schedule_set)
+    expect(agent.state.tools.length).toBe(AERO_ADS_OPERATOR_ALL_TOOL_COUNT)
   })
 
   it('acquireForTurn swaps model on cached agents when preferences change', async () => {
