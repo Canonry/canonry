@@ -764,6 +764,16 @@ export const trafficSources = sqliteTable('traffic_sources', {
   lastEventIds: text('last_event_ids', { mode: 'json' }).$type<string[]>(),
   archivedAt: text('archived_at'),
   configJson: text('config_json', { mode: 'json' }).$type<Record<string, unknown>>().notNull().default({}),
+  // sha256 hex of the per-source bearer token issued at connect time. Only
+  // populated for push-receive source types (currently `cloudflare`); pull
+  // adapters leave this NULL. The cleartext bearer + HMAC secret never live
+  // in the DB — they go to `~/.canonry/config.yaml` under the per-type
+  // connections block.
+  ingestTokenHash: text('ingest_token_hash'),
+  // Semver reported by the most recent forwarded event. Drives the
+  // `cloudflare.worker.version-stale` doctor check. NULL until the first
+  // event arrives or for source types that don't forward versioned events.
+  lastWorkerVersion: text('last_worker_version'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 }, (table) => [

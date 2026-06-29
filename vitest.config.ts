@@ -33,6 +33,7 @@ const NODE_PACKAGES = [
   'db',
   'integration-bing',
   'integration-cloud-run',
+  'integration-cloudflare-worker',
   'integration-commoncrawl',
   'integration-google',
   'integration-google-analytics',
