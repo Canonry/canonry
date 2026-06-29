@@ -15,7 +15,7 @@ import {
   rawEventSamples,
   auditLog,
 } from '@ainyc/canonry-db'
-import { TrafficSourceTypes } from '@ainyc/canonry-contracts'
+import { TrafficSourceStatuses, TrafficSourceTypes } from '@ainyc/canonry-contracts'
 import { apiRoutes } from '../src/index.js'
 import type {
   CloudflareTrafficCredentialRecord,
@@ -316,6 +316,34 @@ describe('POST /traffic/cloudflare/ingest', () => {
     expect(res.statusCode).toBe(401)
   })
 
+  it('rejects when the DB ingest token hash no longer matches the presented bearer', async () => {
+    h.db
+      .update(trafficSources)
+      .set({ ingestTokenHash: '0'.repeat(64) })
+      .where(eq(trafficSources.id, sourceId))
+      .run()
+
+    const res = await ingest({
+      body: { schemaVersion: 1, workerVersion: '1.0.0', events: [buildIngestEvent()] },
+    })
+    expect(res.statusCode).toBe(401)
+    expect(h.db.select().from(crawlerEventsHourly).all()).toHaveLength(0)
+  })
+
+  it('rejects ingest for archived source rows', async () => {
+    h.db
+      .update(trafficSources)
+      .set({ status: TrafficSourceStatuses.archived, archivedAt: new Date().toISOString() })
+      .where(eq(trafficSources.id, sourceId))
+      .run()
+
+    const res = await ingest({
+      body: { schemaVersion: 1, workerVersion: '1.0.0', events: [buildIngestEvent()] },
+    })
+    expect(res.statusCode).toBe(401)
+    expect(h.db.select().from(crawlerEventsHourly).all()).toHaveLength(0)
+  })
+
   it('rejects a tampered body with 401', async () => {
     const tamperedBody = { schemaVersion: 1, workerVersion: '1.0.0', events: [buildIngestEvent()] }
     const ts = Math.floor(Date.now() / 1000)
@@ -414,6 +442,40 @@ describe('POST /traffic/cloudflare/ingest', () => {
     })
     const samples = h.db.select().from(rawEventSamples).all()
     expect(samples.length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('dedupes replayed Cloudflare event ids across ingest requests', async () => {
+    const event = buildIngestEvent({ eventId: 'ray-replay' })
+    const first = await ingest({
+      body: { schemaVersion: 1, workerVersion: '1.0.0', events: [event] },
+    })
+    expect(first.statusCode).toBe(200)
+    expect(JSON.parse(first.payload)).toMatchObject({ acceptedEvents: 1, droppedEvents: 0 })
+
+    const second = await ingest({
+      body: { schemaVersion: 1, workerVersion: '1.0.0', events: [event] },
+    })
+    expect(second.statusCode).toBe(200)
+    expect(JSON.parse(second.payload)).toMatchObject({ acceptedEvents: 0, droppedEvents: 1 })
+
+    const [crawlerRow] = h.db.select().from(crawlerEventsHourly).all()
+    expect(crawlerRow?.hits).toBe(1)
+  })
+
+  it('dedupes duplicate Cloudflare event ids inside one batch', async () => {
+    const event = buildIngestEvent({ eventId: 'ray-batch-dup' })
+    const res = await ingest({
+      body: {
+        schemaVersion: 1,
+        workerVersion: '1.0.0',
+        events: [event, { ...event }],
+      },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.payload)).toMatchObject({ acceptedEvents: 1, droppedEvents: 1 })
+
+    const [crawlerRow] = h.db.select().from(crawlerEventsHourly).all()
+    expect(crawlerRow?.hits).toBe(1)
   })
 
   it('drops events that fail normalization but counts them in droppedEvents', async () => {

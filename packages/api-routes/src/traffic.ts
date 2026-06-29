@@ -348,6 +348,38 @@ const BACKFILL_SAMPLE_LIMIT = 500
 // deployments still running an older revision so the operator
 // regenerates and redeploys.
 const CLOUDFLARE_WORKER_VERSION = '1.0.0'
+const SHA256_HEX_PATTERN = /^[0-9a-f]{64}$/i
+
+function sha256Hex(value: string): string {
+  return crypto.createHash('sha256').update(value).digest('hex')
+}
+
+function timingSafeEqualHex(a: string | null | undefined, b: string | null | undefined): boolean {
+  if (!a || !b) return false
+  if (!SHA256_HEX_PATTERN.test(a) || !SHA256_HEX_PATTERN.test(b)) return false
+  const left = Buffer.from(a, 'hex')
+  const right = Buffer.from(b, 'hex')
+  return left.length === right.length && crypto.timingSafeEqual(left, right)
+}
+
+function nextEventIdRing(
+  newEvents: NormalizedTrafficRequest[],
+  previousIds: readonly string[],
+): string[] {
+  const newSorted = newEvents
+    .slice()
+    .sort((a, b) => (a.observedAt < b.observedAt ? 1 : a.observedAt > b.observedAt ? -1 : 0))
+    .map(e => e.eventId)
+  const merged: string[] = []
+  const seen = new Set<string>()
+  for (const id of [...newSorted, ...previousIds]) {
+    if (seen.has(id)) continue
+    seen.add(id)
+    merged.push(id)
+    if (merged.length >= MAX_TRACKED_EVENT_IDS) break
+  }
+  return merged
+}
 
 function parseSourceConfig(row: typeof trafficSources.$inferSelect): Record<string, unknown> {
   return row.configJson
@@ -1273,7 +1305,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
     const sourceId = activeSource?.id ?? crypto.randomUUID()
     const bearerToken = `cnry_cfw_${crypto.randomBytes(32).toString('hex')}`
     const hmacSecret = crypto.randomBytes(32).toString('hex')
-    const ingestTokenHash = crypto.createHash('sha256').update(bearerToken).digest('hex')
+    const ingestTokenHash = sha256Hex(bearerToken)
 
     const workerVersion = CLOUDFLARE_WORKER_VERSION
     const workerScript = generateWorkerScript({
@@ -1295,67 +1327,82 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
     }
     const fallbackName = displayName ?? `Cloudflare · ${zoneId ?? sourceId.slice(0, 8)}`
 
-    let sourceRow: typeof trafficSources.$inferSelect
-    if (activeSource) {
-      app.db
-        .update(trafficSources)
-        .set({
-          displayName: fallbackName,
-          status: TrafficSourceStatuses.connected,
-          lastError: null,
-          configJson: config,
-          ingestTokenHash,
-          updatedAt: now,
-        })
-        .where(eq(trafficSources.id, activeSource.id))
-        .run()
-      sourceRow = app.db
-        .select()
-        .from(trafficSources)
-        .where(eq(trafficSources.id, activeSource.id))
-        .get()!
-    } else {
-      app.db
-        .insert(trafficSources)
-        .values({
-          id: sourceId,
-          projectId: project.id,
-          sourceType: TrafficSourceTypes.cloudflare,
-          displayName: fallbackName,
-          status: TrafficSourceStatuses.connected,
-          // Seed `lastSyncedAt` to NOW so the `traffic.source.recent-data`
-          // doctor check has a non-null baseline. Ingest doesn't advance
-          // it (push model — every event already carries its own timestamp);
-          // the field exists for the receiver's "last activity" UI.
-          lastSyncedAt: now,
-          lastCursor: null,
-          lastError: null,
-          archivedAt: null,
-          configJson: config,
-          ingestTokenHash,
-          createdAt: now,
-          updatedAt: now,
-        })
-        .run()
-      sourceRow = app.db
-        .select()
-        .from(trafficSources)
-        .where(eq(trafficSources.id, sourceId))
-        .get()!
-    }
-
+    const previousCredential = credentialStore.getConnection(project.name)
     credentialStore.upsertConnection({
       projectName: project.name,
-      sourceId: sourceRow.id,
+      sourceId,
       bearerToken,
       hmacSecret,
       workerVersion,
       expectedBotListVersion: DEFAULT_BOT_LIST.version,
       zoneId: zoneId ?? null,
       accountId: accountId ?? null,
-      createdAt: activeSource ? sourceRow.createdAt : now,
+      createdAt: previousCredential?.createdAt ?? activeSource?.createdAt ?? now,
       updatedAt: now,
     })
+
+    let sourceRow: typeof trafficSources.$inferSelect
+    try {
+      if (activeSource) {
+        app.db
+          .update(trafficSources)
+          .set({
+            displayName: fallbackName,
+            status: TrafficSourceStatuses.connected,
+            lastError: null,
+            configJson: config,
+            ingestTokenHash,
+            updatedAt: now,
+          })
+          .where(eq(trafficSources.id, activeSource.id))
+          .run()
+        sourceRow = app.db
+          .select()
+          .from(trafficSources)
+          .where(eq(trafficSources.id, activeSource.id))
+          .get()!
+      } else {
+        app.db
+          .insert(trafficSources)
+          .values({
+            id: sourceId,
+            projectId: project.id,
+            sourceType: TrafficSourceTypes.cloudflare,
+            displayName: fallbackName,
+            status: TrafficSourceStatuses.connected,
+            // Seed `lastSyncedAt` to NOW so the `traffic.source.recent-data`
+            // doctor check has a non-null baseline. Ingest doesn't advance
+            // it (push model — every event already carries its own timestamp);
+            // the field exists for the receiver's "last activity" UI.
+            lastSyncedAt: now,
+            lastCursor: null,
+            lastError: null,
+            archivedAt: null,
+            configJson: config,
+            ingestTokenHash,
+            createdAt: now,
+            updatedAt: now,
+          })
+          .run()
+        sourceRow = app.db
+          .select()
+          .from(trafficSources)
+          .where(eq(trafficSources.id, sourceId))
+          .get()!
+      }
+    } catch (err) {
+      try {
+        if (previousCredential) {
+          credentialStore.upsertConnection(previousCredential)
+        } else {
+          credentialStore.deleteConnection(project.name)
+        }
+      } catch {
+        // Preserve the original DB failure; rollback failure only affects the
+        // operator's next reconnect attempt.
+      }
+      throw err
+    }
 
     writeAuditLog(app.db, {
       projectId: project.id,
@@ -1428,10 +1475,8 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       throw authRequired()
     }
 
-    // Constant-time bearer comparison.
-    const presentedHash = crypto.createHash('sha256').update(bearerToken).digest()
-    const expectedHash = crypto.createHash('sha256').update(credential.bearerToken).digest()
-    if (presentedHash.length !== expectedHash.length || !crypto.timingSafeEqual(presentedHash, expectedHash)) {
+    const presentedHash = sha256Hex(bearerToken)
+    if (!timingSafeEqualHex(presentedHash, sha256Hex(credential.bearerToken))) {
       throw authRequired()
     }
 
@@ -1469,7 +1514,13 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       .from(trafficSources)
       .where(eq(trafficSources.id, sourceId))
       .get()
-    if (!sourceRow || sourceRow.projectId !== project.id) {
+    if (
+      !sourceRow
+      || sourceRow.projectId !== project.id
+      || sourceRow.sourceType !== TrafficSourceTypes.cloudflare
+      || sourceRow.status === TrafficSourceStatuses.archived
+      || !timingSafeEqualHex(presentedHash, sourceRow.ingestTokenHash)
+    ) {
       throw authRequired()
     }
 
@@ -1487,11 +1538,40 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
     let aiReferralBucketRows = 0
     let sampleRows = 0
 
-    if (normalized.length > 0) {
-      const report = buildTrafficProbeReport(normalized, { sampleLimit: DEFAULT_SAMPLE_LIMIT })
-      const finishedAt = new Date().toISOString()
+    let acceptedEvents = 0
+    const finishedAt = new Date().toISOString()
 
-      app.db.transaction((tx) => {
+    app.db.transaction((tx) => {
+      const latestRow = tx
+        .select()
+        .from(trafficSources)
+        .where(eq(trafficSources.id, sourceRow.id))
+        .get()
+      if (
+        !latestRow
+        || latestRow.projectId !== project.id
+        || latestRow.sourceType !== TrafficSourceTypes.cloudflare
+        || latestRow.status === TrafficSourceStatuses.archived
+        || !timingSafeEqualHex(presentedHash, latestRow.ingestTokenHash)
+      ) {
+        throw authRequired()
+      }
+
+      const seenEventIds = new Set(latestRow.lastEventIds ?? [])
+      const dedupedEvents: NormalizedTrafficRequest[] = []
+      for (const event of normalized) {
+        if (seenEventIds.has(event.eventId)) {
+          droppedEvents += 1
+          continue
+        }
+        seenEventIds.add(event.eventId)
+        dedupedEvents.push(event)
+      }
+      acceptedEvents = dedupedEvents.length
+      const nextEventIds = nextEventIdRing(dedupedEvents, latestRow.lastEventIds ?? [])
+
+      if (dedupedEvents.length > 0) {
+        const report = buildTrafficProbeReport(dedupedEvents, { sampleLimit: DEFAULT_SAMPLE_LIMIT })
         for (const bucket of report.crawlerEventsHourly) {
           const status = bucket.status ?? 0
           tx
@@ -1653,28 +1733,29 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
             lastWorkerVersion: workerVersion,
             lastSyncedAt: finishedAt,
             lastError: null,
+            lastEventIds: nextEventIds,
             updatedAt: finishedAt,
           })
           .where(eq(trafficSources.id, sourceRow.id))
           .run()
-      })
-    } else {
-      // Even with 0 normalized events, refresh `last_worker_version` so the
-      // staleness check stays accurate.
-      const finishedAt = new Date().toISOString()
-      app.db
-        .update(trafficSources)
-        .set({
-          lastWorkerVersion: workerVersion,
-          lastSyncedAt: finishedAt,
-          updatedAt: finishedAt,
-        })
-        .where(eq(trafficSources.id, sourceRow.id))
-        .run()
-    }
+      } else {
+        // Even with 0 accepted events, refresh `last_worker_version` so the
+        // staleness check stays accurate.
+        tx
+          .update(trafficSources)
+          .set({
+            lastWorkerVersion: workerVersion,
+            lastSyncedAt: finishedAt,
+            lastEventIds: nextEventIds,
+            updatedAt: finishedAt,
+          })
+          .where(eq(trafficSources.id, sourceRow.id))
+          .run()
+      }
+    })
 
     return reply.status(200).send({
-      acceptedEvents: normalized.length,
+      acceptedEvents,
       droppedEvents,
       workerVersionAck: workerVersion,
       crawlerBucketRows,

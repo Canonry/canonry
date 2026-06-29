@@ -66,7 +66,7 @@ export function hashApiKey(key: string): string {
 
 const SKIP_PATHS = ['/health']
 
-function shouldSkipAuth(url: string): boolean {
+export function shouldSkipAuth(url: string): boolean {
   if (SKIP_PATHS.includes(url)) return true
   if (url.endsWith('/openapi.json')) return true
   // Both OAuth callback routes (`/google/callback` and
@@ -78,7 +78,7 @@ function shouldSkipAuth(url: string): boolean {
   // Cloudflare Worker ingest carries its own per-source bearer + HMAC
   // (verified inside the route handler). A canonry `cnry_*` key isn't
   // available to the Worker — that would defeat the per-source isolation.
-  if (url.includes('/traffic/cloudflare/ingest')) return true
+  if (url.endsWith('/traffic/cloudflare/ingest')) return true
   return false
 }
 
