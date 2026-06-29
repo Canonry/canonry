@@ -2508,6 +2508,40 @@ export type SourceBreakdownDto = {
     limit: number | null;
 };
 
+export type CloudflareWorkerIngestRequest = {
+    schemaVersion: 1;
+    workerVersion: string;
+    events: Array<{
+        eventId: string;
+        observedAt: string;
+        method: string | null;
+        host: string | null;
+        path: string;
+        queryString: string | null;
+        status: number | null;
+        userAgent: string | null;
+        remoteIp: string | null;
+        referer: string | null;
+        cf: {
+            verifiedBot: boolean | null;
+            botScore: number | null;
+            country: string | null;
+            asn: number | null;
+            asOrganization: string | null;
+        } | null;
+    }>;
+};
+
+export type CloudflareWorkerIngestResponse = {
+    acceptedEvents: number;
+    droppedEvents: number;
+    workerVersionAck: string;
+    crawlerBucketRows: number;
+    aiUserFetchBucketRows: number;
+    aiReferralBucketRows: number;
+    sampleRows: number;
+};
+
 export type TrafficBackfillResponse = {
     sourceId: string;
     runId: string;
@@ -2516,6 +2550,20 @@ export type TrafficBackfillResponse = {
     windowEnd: string;
     daysRequested: number;
     daysApplied: number;
+};
+
+export type TrafficConnectCloudflareRequest = {
+    displayName?: string;
+    zoneId?: string;
+    accountId?: string;
+};
+
+export type TrafficConnectCloudflareResponse = {
+    sourceId: string;
+    workerScript: string;
+    wranglerToml: string;
+    workerVersion: string;
+    instructions: string;
 };
 
 export type TrafficEventsResponse = {
@@ -9525,6 +9573,78 @@ export type PostApiV1ProjectsByNameTrafficConnectVercelResponses = {
 };
 
 export type PostApiV1ProjectsByNameTrafficConnectVercelResponse = PostApiV1ProjectsByNameTrafficConnectVercelResponses[keyof PostApiV1ProjectsByNameTrafficConnectVercelResponses];
+
+export type PostApiV1ProjectsByNameTrafficConnectCloudflareData = {
+    body?: TrafficConnectCloudflareRequest;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/traffic/connect/cloudflare';
+};
+
+export type PostApiV1ProjectsByNameTrafficConnectCloudflareErrors = {
+    /**
+     * Invalid Cloudflare connection request or credential storage not configured.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameTrafficConnectCloudflareError = PostApiV1ProjectsByNameTrafficConnectCloudflareErrors[keyof PostApiV1ProjectsByNameTrafficConnectCloudflareErrors];
+
+export type PostApiV1ProjectsByNameTrafficConnectCloudflareResponses = {
+    /**
+     * Connect response with generated Worker script.
+     */
+    200: TrafficConnectCloudflareResponse;
+};
+
+export type PostApiV1ProjectsByNameTrafficConnectCloudflareResponse = PostApiV1ProjectsByNameTrafficConnectCloudflareResponses[keyof PostApiV1ProjectsByNameTrafficConnectCloudflareResponses];
+
+export type PostApiV1ProjectsByNameTrafficCloudflareIngestData = {
+    body: CloudflareWorkerIngestRequest;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/traffic/cloudflare/ingest';
+};
+
+export type PostApiV1ProjectsByNameTrafficCloudflareIngestErrors = {
+    /**
+     * Invalid ingest payload.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Authentication failed (bearer, signature, timestamp, or source id mismatch).
+     */
+    401: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameTrafficCloudflareIngestError = PostApiV1ProjectsByNameTrafficCloudflareIngestErrors[keyof PostApiV1ProjectsByNameTrafficCloudflareIngestErrors];
+
+export type PostApiV1ProjectsByNameTrafficCloudflareIngestResponses = {
+    /**
+     * Ingest acknowledged.
+     */
+    200: CloudflareWorkerIngestResponse;
+};
+
+export type PostApiV1ProjectsByNameTrafficCloudflareIngestResponse = PostApiV1ProjectsByNameTrafficCloudflareIngestResponses[keyof PostApiV1ProjectsByNameTrafficCloudflareIngestResponses];
 
 export type PostApiV1ProjectsByNameTrafficSourcesByIdSyncData = {
     body?: {

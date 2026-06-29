@@ -159,11 +159,11 @@ function pickCf(cf) {
   }
 }
 
-function buildEvent(request) {
+function buildEvent(request, observedAt) {
   const url = new URL(request.url)
   return {
     eventId: request.headers.get('cf-ray') || crypto.randomUUID(),
-    observedAt: new Date().toISOString(),
+    observedAt: observedAt,
     method: request.method || null,
     host: url.hostname || null,
     path: url.pathname || '/',
@@ -176,9 +176,9 @@ function buildEvent(request) {
   }
 }
 
-async function forward(event, request, status) {
+async function forward(request, status, observedAt) {
   try {
-    const payload = buildEvent(request)
+    const payload = buildEvent(request, observedAt)
     payload.status = typeof status === 'number' ? status : payload.status
     const body = JSON.stringify({
       schemaVersion: 1,
@@ -208,17 +208,18 @@ async function forward(event, request, status) {
 
 addEventListener('fetch', (event) => {
   const request = event.request
+  const observedAt = new Date().toISOString()
   const shouldLog = shouldForward(request)
   const responsePromise = fetch(request)
   event.respondWith(
     responsePromise.then((response) => {
       if (shouldLog) {
-        event.waitUntil(forward(event, request, response.status))
+        event.waitUntil(forward(request, response.status, observedAt))
       }
       return response
     }).catch((err) => {
       if (shouldLog) {
-        event.waitUntil(forward(event, request, null))
+        event.waitUntil(forward(request, null, observedAt))
       }
       throw err
     }),

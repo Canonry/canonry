@@ -27,6 +27,22 @@ import type { CheckDefinition, CheckOutput, DoctorContext, TrafficSourceProbe } 
 const RECENT_DATA_WARN_DAYS = 7
 const RECENT_DATA_FAIL_DAYS = 30
 
+function recentDataRemediation(sources: TrafficSourceProbe[], lastSyncedAt: string | null): string {
+  const sourceTypes = new Set(sources.map((s) => s.sourceType))
+  const hasCloudflare = sourceTypes.has(TrafficSourceTypes.cloudflare)
+  const hasPullSource = [...sourceTypes].some((type) => type !== TrafficSourceTypes.cloudflare)
+
+  if (hasCloudflare && !hasPullSource) {
+    return 'Confirm the Cloudflare Worker is deployed on the zone route and forwarding to canonry; reconnect Cloudflare to regenerate the Worker if needed.'
+  }
+  if (hasCloudflare && hasPullSource) {
+    return 'Run `canonry traffic sync <project>` for pull-based sources, and confirm the Cloudflare Worker is deployed on the zone route and forwarding to canonry.'
+  }
+  return lastSyncedAt
+    ? `Last sync: ${lastSyncedAt}. Run \`canonry traffic sync <project>\` to refresh, or check the source connection.`
+    : 'Run `canonry traffic sync <project>` to pull recent events.'
+}
+
 function skippedNoProject(): CheckOutput {
   return {
     status: CheckStatuses.skipped,
@@ -187,14 +203,15 @@ const recentDataCheck: CheckDefinition = {
         .get()?.total ?? 0,
     )
     const lastSyncedAt = sources.map((s) => s.lastSyncedAt).filter(Boolean).sort().at(-1) ?? null
-    if (olderCrawlers > 0 || olderReferrals > 0 || lastSyncedAt) {
+    const hasOlderData = olderCrawlers > 0 || olderReferrals > 0
+    if (hasOlderData || lastSyncedAt) {
       return {
         status: CheckStatuses.warn,
         code: 'traffic.recent-data.stale',
-        summary: `No crawler hits or AI-referral sessions in the last ${RECENT_DATA_WARN_DAYS} days, though older data exists.`,
-        remediation: lastSyncedAt
-          ? `Last sync: ${lastSyncedAt}. Run \`canonry traffic sync <project>\` to refresh, or check the source connection.`
-          : 'Run `canonry traffic sync <project>` to pull recent events.',
+        summary: hasOlderData
+          ? `No crawler hits or AI-referral sessions in the last ${RECENT_DATA_WARN_DAYS} days, though older data exists.`
+          : `No crawler hits or AI-referral sessions in the last ${RECENT_DATA_WARN_DAYS} days.`,
+        remediation: recentDataRemediation(sources, lastSyncedAt),
         details: { lastSyncedAt, sourceCount: sources.length },
       }
     }

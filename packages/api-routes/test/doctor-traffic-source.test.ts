@@ -219,6 +219,19 @@ describe('traffic.source.recent-data', () => {
     expect(r.status).toBe('fail')
     expect(r.code).toBe('traffic.recent-data.empty')
   })
+
+  it('warns with Cloudflare-specific remediation when a push source has no data yet', async () => {
+    insertTrafficSource(h, {
+      sourceType: 'cloudflare',
+      displayName: 'Cloudflare',
+      lastSyncedAt: new Date().toISOString(),
+    })
+    const r = await recentDataCheck.run(ctxFor(h))
+    expect(r.status).toBe('warn')
+    expect(r.code).toBe('traffic.recent-data.stale')
+    expect(r.remediation).toContain('Cloudflare Worker')
+    expect(r.remediation).not.toContain('traffic sync')
+  })
 })
 
 describe('traffic.source.credentials', () => {
