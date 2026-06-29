@@ -2,6 +2,7 @@ import { createApiKey, listApiKeys, revokeApiKey, showApiKeySelf } from '../comm
 import type { CliCommandSpec } from '../cli-dispatch.js'
 import {
   getBoolean,
+  getString,
   getStringArray,
   multiStringOption,
   requirePositional,
@@ -20,16 +21,17 @@ export const KEYS_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['key', 'create'],
-    usage: 'canonry key create --name <name> [--read-only | --scope <s> ...] [--format json]',
+    usage: 'canonry key create --name <name> [--read-only | --scope <s> ...] [--project <name>] [--format json]',
     options: {
       name: stringOption(),
       scope: multiStringOption(),
       'read-only': { type: 'boolean' },
+      project: stringOption(),
     },
     run: async (input) => {
       const name = requireStringOption(input, 'name', {
         command: 'key.create',
-        usage: 'canonry key create --name <name> [--read-only | --scope <s> ...] [--format json]',
+        usage: 'canonry key create --name <name> [--read-only | --scope <s> ...] [--project <name>] [--format json]',
         message: '--name is required',
       })
       // Accept repeated flags (--scope read --scope keys.write) and
@@ -40,6 +42,7 @@ export const KEYS_CLI_COMMANDS: readonly CliCommandSpec[] = [
         name,
         scopes: scopes.length > 0 ? scopes : undefined,
         readOnly: getBoolean(input.values, 'read-only'),
+        project: getString(input.values, 'project'),
         format: input.format,
       })
     },

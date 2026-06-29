@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
-import { apiKeys } from '@ainyc/canonry-db'
+import { apiKeys, projects } from '@ainyc/canonry-db'
 import { authRequired, authInvalid, forbidden, isReadOnlyKey } from '@ainyc/canonry-contracts'
 
 /**
@@ -19,6 +19,12 @@ export interface AuthedApiKey {
   id: string
   name: string
   scopes: string[]
+  /**
+   * When set, the key is scoped to this single project id. The `authPlugin`
+   * project gate + `assertProjectScope` enforce it. Absent/null = the
+   * historical full-instance access.
+   */
+  projectId?: string | null
 }
 
 declare module 'fastify' {
@@ -51,6 +57,21 @@ export function requireScope(request: FastifyRequest, scope: string): void {
   if (!key) return
   if (key.scopes.includes('*') || key.scopes.includes(scope)) return
   throw forbidden(`This action requires the "${scope}" scope on your API key.`)
+}
+
+/**
+ * Enforce a project-scoped key against a project id resolved from an ENTITY
+ * (a run, snapshot, …) rather than the URL. The `authPlugin` project gate
+ * already covers every `/projects/<name>` route; call this in the handful of
+ * routes that address an entity by id (e.g. `/runs/:id`, `/screenshots/:id`)
+ * AFTER loading the entity, passing the entity's `projectId`. A full-instance
+ * key (no `projectId`) or an unauthenticated request passes.
+ */
+export function assertProjectScope(request: FastifyRequest, projectId: string): void {
+  const scoped = request.apiKey?.projectId
+  if (scoped && scoped !== projectId) {
+    throw forbidden('This API key is scoped to a different project.')
+  }
 }
 
 /**
@@ -161,7 +182,7 @@ export async function authPlugin(app: FastifyInstance, opts: AuthPluginOptions =
     // inspect it without re-querying. `key.scopes` is a string[] from the
     // JSON column; the type assertion mirrors what Drizzle returns.
     const scopes = Array.isArray(key.scopes) ? key.scopes : []
-    request.apiKey = { id: key.id, name: key.name, scopes }
+    request.apiKey = { id: key.id, name: key.name, scopes, projectId: key.projectId ?? null }
 
     // Global read-only gate. A key that opted into read-only (`['read']`)
     // cannot perform any write — keyed off the HTTP method, NOT per-route
@@ -171,6 +192,28 @@ export async function authPlugin(app: FastifyInstance, opts: AuthPluginOptions =
     // the `last_used_at` write above (infrastructural usage tracking).
     if (isReadOnlyKey(scopes) && WRITE_METHODS.has(request.method)) {
       throw forbidden('This API key is read-only and cannot perform write operations.')
+    }
+
+    // Project-scope gate. A key bound to a single project (`project_id` set) may
+    // only touch THAT project. The project name is the first `/projects/<name>`
+    // path segment (the project-scoped routes are all mounted there); resolve it
+    // and 403 on a mismatch. NULL project_id — every historical key — skips this
+    // and keeps full-instance access. Routes that address an entity by id (e.g.
+    // `/runs/:id`) are not in the URL; they call `assertProjectScope()` after
+    // loading the entity's project.
+    if (key.projectId) {
+      const match = url.match(/\/projects\/([^/?#]+)/)
+      if (match) {
+        const projectName = decodeURIComponent(match[1]!)
+        const scoped = app.db
+          .select({ id: projects.id })
+          .from(projects)
+          .where(eq(projects.name, projectName))
+          .get()
+        if (scoped && scoped.id !== key.projectId) {
+          throw forbidden('This API key is scoped to a different project.')
+        }
+      }
     }
   })
 }

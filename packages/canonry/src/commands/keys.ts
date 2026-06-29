@@ -47,6 +47,7 @@ export async function createApiKey(opts: {
   name: string
   scopes?: string[]
   readOnly?: boolean
+  project?: string
   format?: string
 }): Promise<void> {
   const explicitScopes = opts.scopes && opts.scopes.length > 0 ? opts.scopes : undefined
@@ -66,6 +67,14 @@ export async function createApiKey(opts: {
   const scopes = opts.readOnly ? [READ_ONLY_SCOPE] : explicitScopes
   if (scopes) body.scopes = scopes
 
+  // `--project <name>` scopes the key to a single project. The API binds by
+  // project id, so resolve the name first (a clear 404 beats minting a key
+  // against a typo'd project).
+  if (opts.project) {
+    const proj = await client.getProject(opts.project)
+    body.projectId = proj.id
+  }
+
   const created = await client.createApiKey(body)
 
   if (isMachineFormat(opts.format)) {
@@ -80,6 +89,7 @@ export async function createApiKey(opts: {
   console.log(`  Prefix:    ${created.keyPrefix}`)
   console.log(`  Scopes:    ${created.scopes.join(', ')}`)
   console.log(`  Read-only: ${created.readOnly ? 'yes' : 'no'}`)
+  console.log(`  Project:   ${opts.project ?? '(full instance)'}`)
   console.log('\nSave this now — it will not be shown again.')
 }
 

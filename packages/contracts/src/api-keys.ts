@@ -13,6 +13,11 @@ export const apiKeyDtoSchema = z.object({
   keyPrefix: z.string(),
   scopes: z.array(z.string()),
   /**
+   * The project this key is scoped to, or `null` for a full-instance key. A
+   * scoped key may only read/write its own project (enforced server-side).
+   */
+  projectId: z.string().nullable(),
+  /**
    * Server-derived convenience flag: `true` when this key is read-only (carries
    * the `read` scope and no write-granting scope), in which case the API rejects
    * every write HTTP method for it. Derived from `scopes` via `isReadOnlyKey`
@@ -42,6 +47,12 @@ export const createApiKeyRequestSchema = z.object({
    * non-empty list — an empty array would mint a key that can do nothing.
    */
   scopes: z.array(z.string()).min(1).optional(),
+  /**
+   * Bind the new key to a SINGLE project (by project id). Omit for a
+   * full-instance key (the default). A scoped key may only read/write that
+   * project; the server validates the id exists at creation time.
+   */
+  projectId: z.string().optional(),
 })
 
 export type CreateApiKeyRequest = z.infer<typeof createApiKeyRequestSchema>

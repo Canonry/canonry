@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 import { desc, eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { apiKeys } from '@ainyc/canonry-db'
+import { apiKeys, projects } from '@ainyc/canonry-db'
 import {
   createApiKeyRequestSchema,
   isReadOnlyKey,
@@ -34,6 +34,7 @@ function toApiKeyDto(row: typeof apiKeys.$inferSelect): ApiKeyDto {
     name: row.name,
     keyPrefix: row.keyPrefix,
     scopes,
+    projectId: row.projectId ?? null,
     readOnly: isReadOnlyKey(scopes),
     createdAt: row.createdAt,
     lastUsedAt: row.lastUsedAt ?? null,
@@ -80,7 +81,16 @@ export async function keysRoutes(app: FastifyInstance) {
     if (!parsed.success) {
       throw validationError('Invalid API key request', { issues: parsed.error.issues })
     }
-    const { name, scopes } = parsed.data
+    const { name, scopes, projectId } = parsed.data
+
+    // A project-scoped key must reference a real project — validate before
+    // minting so a typo cannot create an orphan key that 403s every request.
+    if (projectId) {
+      const proj = app.db.select({ id: projects.id }).from(projects).where(eq(projects.id, projectId)).get()
+      if (!proj) {
+        throw notFound('Project', projectId)
+      }
+    }
 
     const raw = `cnry_${crypto.randomBytes(16).toString('hex')}`
     const keyHash = hashApiKey(raw)
@@ -96,6 +106,7 @@ export async function keysRoutes(app: FastifyInstance) {
         keyHash,
         keyPrefix,
         scopes: effectiveScopes,
+        projectId: projectId ?? null,
         createdAt: now,
       }).run()
       // Audit the creation. Never log the plaintext or the hash — only the
@@ -106,7 +117,7 @@ export async function keysRoutes(app: FastifyInstance) {
         action: 'api-key.created',
         entityType: 'api-key',
         entityId: id,
-        diff: { name, keyPrefix, scopes: effectiveScopes },
+        diff: { name, keyPrefix, scopes: effectiveScopes, projectId: projectId ?? null },
       }))
     })
 
@@ -115,6 +126,7 @@ export async function keysRoutes(app: FastifyInstance) {
       name,
       keyPrefix,
       scopes: effectiveScopes,
+      projectId: projectId ?? null,
       readOnly: isReadOnlyKey(effectiveScopes),
       createdAt: now,
       lastUsedAt: null,

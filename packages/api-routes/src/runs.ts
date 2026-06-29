@@ -16,6 +16,7 @@ import {
   serializeRunError,
 } from '@ainyc/canonry-contracts'
 import { notProbeRun, resolveProject, resolveSnapshotAnswerMentioned, resolveSnapshotMentionState, resolveSnapshotVisibilityState, resolveSnapshotMatchedTerms, writeAuditLog } from './helpers.js'
+import { assertProjectScope } from './auth.js'
 import { gte } from 'drizzle-orm'
 import { queueRunIfProjectIdle } from './run-queue.js'
 
@@ -396,6 +397,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
   app.post<{ Params: { id: string } }>('/runs/:id/cancel', async (request, reply) => {
     const run = app.db.select().from(runs).where(eq(runs.id, request.params.id)).get()
     if (!run) throw notFound('Run', request.params.id)
+    assertProjectScope(request, run.projectId)
 
     const terminalStatuses = new Set(['completed', 'partial', 'failed', 'cancelled'])
     if (terminalStatuses.has(run.status)) throw runNotCancellable(run.id, run.status)
@@ -423,6 +425,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
   app.get<{ Params: { id: string } }>('/runs/:id', async (request, reply) => {
     const run = app.db.select().from(runs).where(eq(runs.id, request.params.id)).get()
     if (!run) throw notFound('Run', request.params.id)
+    assertProjectScope(request, run.projectId)
     return reply.send(loadRunDetail(app, run))
   })
 }
