@@ -765,6 +765,7 @@ describe('canonry', () => {
       // These are the three steps that determine whether init translates into
       // a successful first sweep — too many users today bounce after init
       // because the next move isn't obvious.
+      expect(output).toMatch(/Next: canonry serve/)
       expect(output).toMatch(/canonry project create/)
       expect(output).toMatch(/canonry query add/)
       expect(output).toMatch(/canonry run /)
@@ -795,8 +796,9 @@ describe('canonry', () => {
       // Last logged line is the JSON payload.
       const jsonLine = logs.find(l => l.trim().startsWith('{'))
       expect(jsonLine).toBeTruthy()
-      const payload = JSON.parse(jsonLine!) as { initialized: boolean; nextSteps?: string[] }
+      const payload = JSON.parse(jsonLine!) as { initialized: boolean; primaryNextStep?: string; nextSteps?: string[] }
       expect(payload.initialized).toBe(true)
+      expect(payload.primaryNextStep).toBe('canonry serve')
       expect(Array.isArray(payload.nextSteps)).toBe(true)
       expect(payload.nextSteps!.some(s => s.includes('canonry project create'))).toBe(true)
       expect(payload.nextSteps!.some(s => s.includes('canonry run'))).toBe(true)

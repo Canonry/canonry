@@ -18,17 +18,22 @@ function buildEventId(event: WordpressTrafficEventPayload): string {
 
 export function normalizeWordpressTrafficEvent(
   event: WordpressTrafficEventPayload,
+  site?: { anonymous_id?: string },
 ): NormalizedTrafficRequest | null {
   if (!event.observed_at) return null
   if (typeof event.id !== 'number' || !Number.isFinite(event.id)) return null
 
-  const path = event.path?.trim()
+  const path = event.path.trim()
   if (!path) return null
   const queryString = trimOrNull(event.query_string)
   const host = trimOrNull(event.host)
   const requestUrl = host
     ? `https://${host}${path}${queryString ? `?${queryString}` : ''}`
     : `${path}${queryString ? `?${queryString}` : ''}`
+
+  const labels: Record<string, string> = {}
+  if (host) labels.host = host
+  if (site?.anonymous_id) labels.anonymousId = site.anonymous_id
 
   return {
     sourceType: TrafficSourceTypes.wordpress,
@@ -50,7 +55,7 @@ export function normalizeWordpressTrafficEvent(
     responseSizeBytes: null,
     providerResource: {
       type: 'wordpress_site',
-      labels: host ? { host } : {},
+      labels,
     },
     providerLabels: {},
   }

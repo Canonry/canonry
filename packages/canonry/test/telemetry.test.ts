@@ -308,7 +308,7 @@ describe('telemetry', () => {
         const output = Buffer.concat(chunks).toString()
         expect(output.includes('anonymous telemetry')).toBeTruthy()
         expect(output.includes('canonry telemetry disable')).toBeTruthy()
-        expect(output.includes('ainyc.ai/telemetry')).toBeTruthy()
+        expect(output.includes('canonry.ai/telemetry')).toBeTruthy()
       } finally {
         process.stderr.write = originalWrite
       }
@@ -318,6 +318,32 @@ describe('telemetry', () => {
   // ── trackEvent ──────────────────────────────────────────────────────
 
   describe('trackEvent', () => {
+    it('drops known no-provider test-location run telemetry before fetch', async () => {
+      const { shouldDropTelemetryEvent, trackEvent } = await import('../src/telemetry.js')
+      const { saveConfig } = await import('../src/config.js')
+      saveConfig(makeConfig({ anonymousId: crypto.randomUUID() }))
+
+      expect(shouldDropTelemetryEvent('run.aborted', { location: 'nyc', providerCount: 0 })).toBe(true)
+      expect(shouldDropTelemetryEvent('run.completed', { location: ' LAX ', providerCount: 0 })).toBe(true)
+      expect(shouldDropTelemetryEvent('run.completed', { location: 'chi', providerCount: 1 })).toBe(false)
+      expect(shouldDropTelemetryEvent('cli.init', { location: 'nyc', providerCount: 0 })).toBe(false)
+
+      const originalFetch = globalThis.fetch
+      let fetchCalled = false
+      globalThis.fetch = async () => {
+        fetchCalled = true
+        return new Response()
+      }
+
+      try {
+        trackEvent('run.aborted', { location: 'chi', providerCount: 0 })
+        await new Promise(resolve => setTimeout(resolve, 10))
+        expect(fetchCalled, 'ghost test telemetry should be dropped before fetch').toBe(false)
+      } finally {
+        globalThis.fetch = originalFetch
+      }
+    })
+
     it('is a no-op when telemetry is disabled via env var', async () => {
       process.env.CANONRY_TELEMETRY_DISABLED = '1'
       const { trackEvent } = await import('../src/telemetry.js')
@@ -428,7 +454,7 @@ describe('telemetry', () => {
       try {
         trackEvent('test.event')
         await new Promise(resolve => setTimeout(resolve, 10))
-        expect(capturedUrl).toBe('https://ainyc.ai/api/telemetry')
+        expect(capturedUrl).toBe('https://canonry.ai/api/telemetry')
       } finally {
         globalThis.fetch = originalFetch
       }

@@ -117,7 +117,7 @@ if (!function_exists('update_option')) {
 }
 
 if (!function_exists('add_option')) {
-    function add_option(string $key, $value): bool {
+    function add_option(string $key, $value, $deprecated = '', $autoload = 'yes'): bool {
         if (array_key_exists($key, $GLOBALS['__wp_options'])) return false;
         $GLOBALS['__wp_options'][$key] = $value;
         return true;
@@ -190,6 +190,18 @@ if (!function_exists('current_time')) {
 if (!function_exists('wp_generate_password')) {
     function wp_generate_password(int $length = 12, bool $special_chars = true): string {
         return bin2hex(random_bytes((int) ceil($length / 2)));
+    }
+}
+
+if (!function_exists('home_url')) {
+    function home_url(string $path = ''): string {
+        return rtrim((string) ($GLOBALS['__wp_home_url'] ?? 'https://example.com'), '/') . $path;
+    }
+}
+
+if (!function_exists('wp_salt')) {
+    function wp_salt(string $scheme = 'auth'): string {
+        return 'test-wp-salt-' . $scheme;
     }
 }
 
@@ -572,6 +584,7 @@ function wpshim_reset(): void {
     $GLOBALS['__wp_settings_sections'] = [];
     $GLOBALS['__wp_settings_fields'] = [];
     $GLOBALS['__wp_current_user_can'] = false;
+    $GLOBALS['__wp_home_url'] = 'https://example.com';
     $GLOBALS['wpdb'] = new WpdbMock();
 }
 

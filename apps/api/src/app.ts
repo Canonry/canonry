@@ -5,6 +5,7 @@ import { createClient } from '@ainyc/canonry-db'
 import { apiRoutes } from '@ainyc/canonry-api-routes'
 
 import { registerHealthRoutes } from './routes/health.js'
+import { registerTelemetryCollectorRoutes } from './routes/telemetry-collector.js'
 
 export function buildApp(env: PlatformEnv) {
   const app = Fastify({
@@ -33,6 +34,7 @@ export function buildApp(env: PlatformEnv) {
     googleStateSecret: env.googleStateSecret,
   })
 
+  registerTelemetryCollectorRoutes(app)
   registerHealthRoutes(app, env)
 
   return app

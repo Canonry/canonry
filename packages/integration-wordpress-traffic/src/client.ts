@@ -136,11 +136,11 @@ export async function listWordpressTrafficEvents(
     }
 
     const body = (await response.json()) as WordpressTrafficEventsResponseBody
-    const entries = body.events ?? []
+    const entries = body.events
     rawEntryCount += entries.length
 
     for (const entry of entries) {
-      const normalized = normalizeWordpressTrafficEvent(entry)
+      const normalized = normalizeWordpressTrafficEvent(entry, body.site)
       if (normalized) {
         events.push(normalized)
       } else {

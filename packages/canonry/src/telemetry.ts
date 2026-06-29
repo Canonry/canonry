@@ -6,8 +6,9 @@ import { createRequire } from 'node:module'
 const _require = createRequire(import.meta.url)
 const { version: VERSION } = _require('../package.json') as { version: string }
 
-const TELEMETRY_ENDPOINT = 'https://ainyc.ai/api/telemetry'
+const TELEMETRY_ENDPOINT = 'https://canonry.ai/api/telemetry'
 const TIMEOUT_MS = 3_000
+const TEST_LOCATIONS = new Set(['nyc', 'lax', 'chi'])
 
 const ANON_ID_ENV_VAR = 'CANONRY_ANONYMOUS_ID'
 const ANON_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -71,6 +72,19 @@ export interface TrackEventOptions {
   sourceContext?: string
   /** Stable error classifier (see `RUN_ERROR_CODES` etc. in callers). */
   errorCode?: string
+}
+
+export function shouldDropTelemetryEvent(
+  event: string,
+  properties?: TelemetryProperties,
+): boolean {
+  if (event !== 'run.completed' && event !== 'run.aborted') return false
+  if (!properties) return false
+  if (properties.providerCount !== 0) return false
+  const location = typeof properties.location === 'string'
+    ? properties.location.trim().toLowerCase()
+    : ''
+  return TEST_LOCATIONS.has(location)
 }
 
 // ── Per-process state ──────────────────────────────────────────────────
@@ -228,7 +242,7 @@ export function showFirstRunNotice(): void {
   process.stderr.write(
     '\nCanonry collects anonymous telemetry to prioritize features.\n' +
     'Disable any time: canonry telemetry disable\n' +
-    'Learn more: https://ainyc.ai/telemetry\n\n',
+    'Learn more: https://canonry.ai/telemetry\n\n',
   )
 }
 
@@ -277,6 +291,7 @@ export function trackEvent(
   options?: TrackEventOptions,
 ): void {
   if (!isTelemetryEnabled()) return
+  if (shouldDropTelemetryEvent(event, properties)) return
 
   const anonymousId = getOrCreateAnonymousId()
   if (!anonymousId) return

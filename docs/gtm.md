@@ -356,7 +356,7 @@ Only a GitHub README today. `ainyc.ai` is referenced but there's no landing, no 
 
 ### 8. Onboarding analytics
 
-Telemetry exists (`https://ainyc.ai/api/telemetry` — backend stays on ainyc.ai; marketing moves to canonry.ai), no funnel dashboard. Without it you'll iterate blind.
+Telemetry exists (`https://canonry.ai/api/telemetry`), no funnel dashboard. Without it you'll iterate blind.
 
 - Instrument: `init_started`, `init_provider_added`, `init_completed`, `first_project_created`, `first_run_completed`, `first_insight_viewed`, `skill_installed`, `agent_external_used_cli` (detect via CLI invocation heuristics / env var).
 - Build the dashboard before launch.

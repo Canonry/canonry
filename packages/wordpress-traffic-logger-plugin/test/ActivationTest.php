@@ -25,6 +25,27 @@ final class ActivationTest extends TestCase {
         $this->assertTrue(true);
     }
 
+    public function test_activation_records_stable_anonymous_id(): void {
+        \Canonry\TrafficLogger\Plugin::activate();
+
+        $id = get_option(\Canonry\TrafficLogger\Plugin::ANONYMOUS_ID_OPTION, null);
+
+        $this->assertMatchesRegex(
+            '/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/',
+            (string) $id
+        );
+        $this->assertSame($id, \Canonry\TrafficLogger\Plugin::anonymousId());
+    }
+
+    public function test_anonymous_id_is_reused_after_install_fingerprint_changes(): void {
+        \Canonry\TrafficLogger\Plugin::activate();
+        $id = get_option(\Canonry\TrafficLogger\Plugin::ANONYMOUS_ID_OPTION, null);
+
+        $GLOBALS['__wp_home_url'] = 'https://renamed.example.com';
+
+        $this->assertSame($id, \Canonry\TrafficLogger\Plugin::anonymousId());
+    }
+
     public function test_activation_updates_schema_version_on_reactivation(): void {
         // An older install carries a stale schema version; re-activation must
         // bring it current (update_option, not a one-shot add_option).

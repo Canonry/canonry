@@ -45,6 +45,7 @@ export interface WordpressTrafficEventsResponseBody {
   /** Optional site metadata for diagnostics; not required for normalization. */
   site?: {
     url?: string
+    anonymous_id?: string
     wordpress_version?: string
     plugin_version?: string
   }

@@ -1,8 +1,9 @@
 /**
  * Shared vitest setup — runs once per worker before any test imports.
  *
- * Wired into every package's `vitest.config.ts` via:
- *   setupFiles: ['../../test-setup/vitest-defaults.ts']
+ * Wired into the root workspace config and every package's `test` script via
+ * `vitest.package.config.ts`. Package-local Vitest configs must include the
+ * same setup file when they bypass the shared package config.
  *
  * Hardens the test environment against accidental side effects:
  *   1. Disables canonry telemetry. Even packages that don't import the
@@ -23,6 +24,8 @@ process.env.CANONRY_TELEMETRY_DISABLED = '1'
 const TELEMETRY_HOSTS = new Set([
   'ainyc.ai',
   'www.ainyc.ai',
+  'canonry.ai',
+  'www.canonry.ai',
 ])
 
 const realFetch = globalThis.fetch

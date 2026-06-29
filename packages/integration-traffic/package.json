@@ -13,7 +13,7 @@
   "types": "./src/index.ts",
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "vitest run",
+    "test": "vitest run --config ../../vitest.package.config.ts",
     "lint": "eslint src/ test/",
     "refresh-ip-ranges": "tsx scripts/refresh-ip-ranges.ts"
   },

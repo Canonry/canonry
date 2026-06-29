@@ -187,6 +187,7 @@ describe('serve jsonl degrade', () => {
     const { serveCommand } = await import('../src/commands/serve.js')
     const logs = await withLog(() => serveCommand('text'))
     expect(logs.join('\n')).toContain('Canonry server running at')
+    expect(logs.join('\n')).toContain('/setup')
     expect(logs.some(l => l.trim().startsWith('{'))).toBe(false)
   })
 })

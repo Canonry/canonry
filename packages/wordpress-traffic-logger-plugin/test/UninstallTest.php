@@ -22,6 +22,7 @@ final class UninstallTest extends TestCase {
         // install would have left behind, so we can witness every one go.
         update_option('canonry_traffic_logger_retention_days', 30);
         update_option('canonry_traffic_logger_trust_proxy', '1');
+        update_option('canonry_traffic_logger_anonymous_id', '11111111-2222-5333-8444-555555555555');
         update_option('canonry_traffic_logger_ip_salt', 'legacy-salt-value');
 
         // Seed a row so we can witness the table drop.
@@ -44,6 +45,7 @@ final class UninstallTest extends TestCase {
         $this->assertSame(false, get_option('canonry_traffic_logger_schema_version', false));
         $this->assertSame(false, get_option('canonry_traffic_logger_retention_days', false));
         $this->assertSame(false, get_option('canonry_traffic_logger_trust_proxy', false));
+        $this->assertSame(false, get_option('canonry_traffic_logger_anonymous_id', false));
         $this->assertSame(false, get_option('canonry_traffic_logger_ip_salt', false));
     }
 }
