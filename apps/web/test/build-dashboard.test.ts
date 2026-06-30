@@ -1181,7 +1181,7 @@ test('buildPortfolioProject carries the mention-rate trend, score, and subtitle 
         // mention, not cited.
         mention: { label: 'Mention Coverage', value: '60', delta: '3 of 4 queries mentioned', tone: 'positive', description: '', tooltip: '', trend: [40, 60, 80], progress: 60 },
         visibility: { label: 'Citation Coverage', value: '75', delta: '3 of 4 queries', tone: 'positive', description: '', tooltip: '', trend: [25, 50, 75], progress: 75 },
-        mentionShare: { label: 'Mention Share', value: 'No data', delta: '', tone: 'neutral', description: '', tooltip: '', trend: [], breakdown: { projectMentionSnapshots: 0, competitorMentionSnapshots: 0, perCompetitor: [], snapshotsWithAnswerText: 0, snapshotsTotal: 0 } },
+        mentionShare: { label: 'Mention Share', value: 'No data', delta: '', tone: 'neutral', description: '', tooltip: '', trend: [], breakdown: { projectMentionSnapshots: 0, competitorMentionSnapshots: 0, projectOnlyObservations: 0, sharedObservations: 0, competitorOnlyObservations: 0, unmentionedObservations: 0, perCompetitor: [], snapshotsWithAnswerText: 0, snapshotsTotal: 0 } },
         mentionGaps: { label: 'Mention Gaps', value: '0', delta: '', tone: 'positive', description: '', tooltip: '', trend: [] },
         gapQueries: { label: 'Gap Queries', value: '0', delta: '', tone: 'positive', description: '', tooltip: '', trend: [] },
         indexCoverage: { label: 'Index Coverage', value: 'No data', delta: '', tone: 'neutral', description: '', tooltip: '', trend: [] },

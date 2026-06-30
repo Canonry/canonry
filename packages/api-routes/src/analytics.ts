@@ -648,6 +648,10 @@ function computeMentionShareObservationMetric(
     brandMentionEvents: denominator,
     answerObservations: result.breakdown.snapshotsWithAnswerText,
     totalObservations: result.breakdown.snapshotsTotal,
+    projectOnlyObservations: result.breakdown.projectOnlyObservations,
+    sharedObservations: result.breakdown.sharedObservations,
+    competitorOnlyObservations: result.breakdown.competitorOnlyObservations,
+    unmentionedObservations: result.breakdown.unmentionedObservations,
   }
 }
 
@@ -661,6 +665,10 @@ function emptyMentionShareObservationMetric(snapshots: SnapshotLike[]): MentionS
     brandMentionEvents: 0,
     answerObservations: snapshots.filter(s => (s.answerText ?? '').length > 0).length,
     totalObservations: snapshots.length,
+    projectOnlyObservations: 0,
+    sharedObservations: 0,
+    competitorOnlyObservations: 0,
+    unmentionedObservations: snapshots.filter(s => (s.answerText ?? '').length > 0).length,
   }
 }
 

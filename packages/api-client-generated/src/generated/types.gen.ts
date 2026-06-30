@@ -351,6 +351,10 @@ export type BrandMetricsDto = {
             brandMentionEvents: number;
             answerObservations: number;
             totalObservations: number;
+            projectOnlyObservations: number;
+            sharedObservations: number;
+            competitorOnlyObservations: number;
+            unmentionedObservations: number;
             byProvider: {
                 [key: string]: {
                     rate: number | null;
@@ -361,6 +365,10 @@ export type BrandMetricsDto = {
                     brandMentionEvents: number;
                     answerObservations: number;
                     totalObservations: number;
+                    projectOnlyObservations: number;
+                    sharedObservations: number;
+                    competitorOnlyObservations: number;
+                    unmentionedObservations: number;
                 };
             };
             byLocation: {
@@ -373,6 +381,10 @@ export type BrandMetricsDto = {
                     brandMentionEvents: number;
                     answerObservations: number;
                     totalObservations: number;
+                    projectOnlyObservations: number;
+                    sharedObservations: number;
+                    competitorOnlyObservations: number;
+                    unmentionedObservations: number;
                 };
             };
         };
@@ -1530,6 +1542,10 @@ export type ProjectOverviewDto = {
             breakdown: {
                 projectMentionSnapshots: number;
                 competitorMentionSnapshots: number;
+                projectOnlyObservations: number;
+                sharedObservations: number;
+                competitorOnlyObservations: number;
+                unmentionedObservations: number;
                 perCompetitor: Array<{
                     domain: string;
                     mentionSnapshots: number;

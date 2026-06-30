@@ -612,6 +612,10 @@
     @apply text-[11px] font-semibold tabular-nums text-zinc-50;
   }
 
+  .trend-legend-sample {
+    @apply text-[11px] text-zinc-500;
+  }
+
   /* Segmented control: an inset track with a raised selected chip. Used for the
      trend chart's metric / series / window toggles. */
   .segmented {

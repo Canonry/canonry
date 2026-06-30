@@ -2219,27 +2219,6 @@ function ProjectPageContent({
 
       {tab === 'overview' ? (
         <>
-          <OverviewBrief
-            model={model}
-            sweepRunning={hasActiveVisibilitySweep}
-            onJumpToEvidence={() => focusOverviewSection('evidence-section', true)}
-            onJumpToActions={() => focusOverviewSection('action-queue')}
-          />
-
-          <section id="action-queue" className="page-section-divider scroll-mt-24 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-500/60" tabIndex={-1}>
-            <div className="section-head section-head-inline">
-              <div>
-                <p className="eyebrow eyebrow-soft">Action queue</p>
-                <h2>What needs your attention</h2>
-              </div>
-            </div>
-            <InsightSignals
-              insights={model.insights}
-              suggestedQueries={model.suggestedQueries}
-              projectName={projectName}
-            />
-          </section>
-
           <section className="page-section-divider">
             <VisibilityTrendSection projectName={model.project.name} competitorDomains={competitorDomains} />
           </section>
@@ -2247,6 +2226,13 @@ function ProjectPageContent({
           <section className="page-section-divider">
             <MentionShareTrendSection projectName={model.project.name} competitorDomains={competitorDomains} />
           </section>
+
+          <OverviewBrief
+            model={model}
+            sweepRunning={hasActiveVisibilitySweep}
+            onJumpToEvidence={() => focusOverviewSection('evidence-section', true)}
+            onJumpToActions={() => focusOverviewSection('action-queue')}
+          />
 
           <section className="page-section-divider">
             <div className="section-head section-head-inline">
@@ -2482,6 +2468,20 @@ function ProjectPageContent({
               ))}
             </div>
           </OverviewDisclosure>
+
+          <section id="action-queue" className="page-section-divider scroll-mt-24 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-500/60" tabIndex={-1}>
+            <div className="section-head section-head-inline">
+              <div>
+                <p className="eyebrow eyebrow-soft">Action queue</p>
+                <h2>What needs your attention</h2>
+              </div>
+            </div>
+            <InsightSignals
+              insights={model.insights}
+              suggestedQueries={model.suggestedQueries}
+              projectName={projectName}
+            />
+          </section>
 
         </>
       ) : tab === 'settings' ? (

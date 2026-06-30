@@ -43,6 +43,11 @@ export const mentionShareObservationMetricSchema = z.object({
   brandMentionEvents: z.number().int().nonnegative(),
   answerObservations: z.number().int().nonnegative(),
   totalObservations: z.number().int().nonnegative(),
+  /** Disjoint answer-observation buckets; these sum to `answerObservations`. */
+  projectOnlyObservations: z.number().int().nonnegative(),
+  sharedObservations: z.number().int().nonnegative(),
+  competitorOnlyObservations: z.number().int().nonnegative(),
+  unmentionedObservations: z.number().int().nonnegative(),
 })
 
 /** Mention-share metric for one time bucket, including provider/location

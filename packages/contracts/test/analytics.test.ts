@@ -29,6 +29,10 @@ const mentionShareObservationMetric = {
   brandMentionEvents: 5,
   answerObservations: 4,
   totalObservations: 4,
+  projectOnlyObservations: 2,
+  sharedObservations: 1,
+  competitorOnlyObservations: 1,
+  unmentionedObservations: 0,
 }
 
 const bucket = {
@@ -77,6 +81,10 @@ describe('mentionShareBucketMetricSchema', () => {
       brandMentionEvents: 0,
       answerObservations: 2,
       totalObservations: 2,
+      projectOnlyObservations: 0,
+      sharedObservations: 0,
+      competitorOnlyObservations: 0,
+      unmentionedObservations: 2,
       byProvider: {},
       byLocation: {},
     })

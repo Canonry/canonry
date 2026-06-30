@@ -14,6 +14,17 @@ export const CITED_KEY = '__cited__'
 export const MENTIONED_KEY = '__mentioned__'
 export const MENTION_SHARE_KEY = '__mentionShare__'
 export const MENTION_SHARE_META_KEY = '__mentionShareMeta__'
+export const MENTION_SHARE_SERIES_META_PREFIX = '__mentionShareSeriesMeta__'
+export const MENTION_DISTRIBUTION_PROJECT_ONLY_KEY = '__mentionDistributionProjectOnly__'
+export const MENTION_DISTRIBUTION_SHARED_KEY = '__mentionDistributionShared__'
+export const MENTION_DISTRIBUTION_COMPETITOR_ONLY_KEY = '__mentionDistributionCompetitorOnly__'
+export const MENTION_DISTRIBUTION_UNMENTIONED_KEY = '__mentionDistributionUnmentioned__'
+export const MENTION_DISTRIBUTION_KEYS = [
+  MENTION_DISTRIBUTION_PROJECT_ONLY_KEY,
+  MENTION_DISTRIBUTION_SHARED_KEY,
+  MENTION_DISTRIBUTION_COMPETITOR_ONLY_KEY,
+  MENTION_DISTRIBUTION_UNMENTIONED_KEY,
+] as const
 
 export type TrendSeriesMode = 'overall' | 'byProvider'
 export type MentionShareSeriesMode = 'overall' | 'byProvider' | 'byLocation'
@@ -30,6 +41,21 @@ export interface MentionShareTrendMeta {
   projectMentionEvents: number
   brandMentionEvents: number
   answerObservations: number
+  projectOnlyObservations: number
+  sharedObservations: number
+  competitorOnlyObservations: number
+  unmentionedObservations: number
+}
+
+interface MentionShareMetricInput {
+  projectMentionEvents: number
+  competitorMentionEvents?: number
+  brandMentionEvents: number
+  answerObservations: number
+  projectOnlyObservations?: number
+  sharedObservations?: number
+  competitorOnlyObservations?: number
+  unmentionedObservations?: number
 }
 
 type TrendBucket = BrandMetricsDto['buckets'][number]
@@ -47,6 +73,39 @@ export interface TrendData {
 /** Presentation-only: 0-1 rate → 0-100 axis value, one decimal. */
 function toPercent(rate: number): number {
   return Math.round(rate * 1000) / 10
+}
+
+export function mentionShareSeriesMetaKey(seriesKey: string): string {
+  return `${MENTION_SHARE_SERIES_META_PREFIX}${seriesKey}`
+}
+
+function mentionShareMeta(metric: MentionShareMetricInput): MentionShareTrendMeta {
+  const projectOnlyObservations = metric.projectOnlyObservations ?? metric.projectMentionEvents
+  const sharedObservations = metric.sharedObservations ?? 0
+  const competitorOnlyObservations = metric.competitorOnlyObservations ?? metric.competitorMentionEvents ?? 0
+  const unmentionedObservations = metric.unmentionedObservations
+    ?? Math.max(metric.answerObservations - projectOnlyObservations - sharedObservations - competitorOnlyObservations, 0)
+  return {
+    projectMentionEvents: metric.projectMentionEvents,
+    brandMentionEvents: metric.brandMentionEvents,
+    answerObservations: metric.answerObservations,
+    projectOnlyObservations,
+    sharedObservations,
+    competitorOnlyObservations,
+    unmentionedObservations,
+  }
+}
+
+function mentionDistributionPercent(metric: MentionShareTrendMeta, key: typeof MENTION_DISTRIBUTION_KEYS[number]): number | null {
+  if (metric.answerObservations === 0) return null
+  const count = key === MENTION_DISTRIBUTION_PROJECT_ONLY_KEY
+    ? metric.projectOnlyObservations
+    : key === MENTION_DISTRIBUTION_SHARED_KEY
+      ? metric.sharedObservations
+      : key === MENTION_DISTRIBUTION_COMPETITOR_ONLY_KEY
+        ? metric.competitorOnlyObservations
+        : metric.unmentionedObservations
+  return toPercent(count / metric.answerObservations)
 }
 
 export function buildTrendRows(
@@ -93,22 +152,20 @@ export function buildMentionShareTrendRows(
 ): TrendData {
   const buckets = dto.buckets as LegacyTrendBucket[]
   const series = mode === 'overall'
-    ? [MENTION_SHARE_KEY]
+    ? [...MENTION_DISTRIBUTION_KEYS]
     : [...new Set(buckets.flatMap(b => Object.keys(b.mentionShare?.[mode] ?? {})))].sort()
   const rows: TrendRow[] = buckets.map(b => {
     const mentionShare = b.mentionShare
+    const meta = mentionShare === undefined ? null : mentionShareMeta(mentionShare)
     const row: TrendRow = {
       date: b.startDate,
-      [MENTION_SHARE_META_KEY]: mentionShare === undefined
-        ? null
-        : {
-            projectMentionEvents: mentionShare.projectMentionEvents,
-            brandMentionEvents: mentionShare.brandMentionEvents,
-            answerObservations: mentionShare.answerObservations,
-          },
+      [MENTION_SHARE_META_KEY]: meta,
     }
     if (mode === 'overall') {
       row[MENTION_SHARE_KEY] = mentionShare?.rate == null ? null : toPercent(mentionShare.rate)
+      for (const key of MENTION_DISTRIBUTION_KEYS) {
+        row[key] = meta === null ? null : mentionDistributionPercent(meta, key)
+      }
     } else {
       const scopedMetrics = mentionShare?.[mode] ?? {}
       for (const key of series) {
@@ -118,6 +175,7 @@ export function buildMentionShareTrendRows(
         }
         const metric = scopedMetrics[key]
         row[key] = metric.rate === null ? null : toPercent(metric.rate)
+        row[mentionShareSeriesMetaKey(key)] = mentionShareMeta(metric)
       }
     }
     return row

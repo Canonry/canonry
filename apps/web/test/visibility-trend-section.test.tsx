@@ -42,6 +42,7 @@ function mentionShareObservation(
   answerObservations = 4,
   totalObservations = answerObservations,
 ) {
+  const brandObservationTotal = projectMentionEvents + competitorMentionEvents
   return {
     rate,
     projectMentionEvents,
@@ -51,6 +52,10 @@ function mentionShareObservation(
     brandMentionEvents: projectMentionEvents + competitorMentionEvents,
     answerObservations,
     totalObservations,
+    projectOnlyObservations: projectMentionEvents,
+    sharedObservations: 0,
+    competitorOnlyObservations: competitorMentionEvents,
+    unmentionedObservations: Math.max(answerObservations - brandObservationTotal, 0),
   }
 }
 
@@ -205,16 +210,27 @@ test('renders mention-share trend from bucket metrics', async () => {
 
   renderMentionShareSection()
 
-  expect(await screen.findByText('Mention share over time')).toBeTruthy()
+  expect(await screen.findByText('Mention distribution over time')).toBeTruthy()
   await waitFor(() => {
     expect(screen.getAllByText('75%').length).toBeGreaterThan(0)
   })
-  expect(screen.getByText('3 / 4 brand mention events')).toBeTruthy()
-  expect(screen.getByText('4 answer observations')).toBeTruthy()
-  expect(screen.getByRole('button', { name: 'By engine' }).getAttribute('aria-pressed')).toBe('true')
+  expect(screen.getByText('Latest sample')).toBeTruthy()
+  expect(screen.getByText('answer observations')).toBeTruthy()
+  expect(screen.getByText('3 / 4 brand events were you')).toBeTruthy()
+  expect(screen.getByText('3 project-only, 0 shared, 1 competitor-only, 0 neither')).toBeTruthy()
+  expect(screen.getByText('75% derived share')).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Outcome mix' }).getAttribute('aria-pressed')).toBe('true')
+  const outcomes = screen.getByRole('list', { name: 'Observation outcomes' })
+  expect(within(outcomes).getByText('Project only')).toBeTruthy()
+  expect(within(outcomes).getByText('Competitor only')).toBeTruthy()
+  expect(within(outcomes).getByText('Neither')).toBeTruthy()
+  expect(within(outcomes).getByText('3 obs')).toBeTruthy()
+
+  act(() => { fireEvent.click(screen.getByRole('button', { name: 'By engine' })) })
   const engines = screen.getByRole('list', { name: 'Engines' })
   expect(within(engines).getByText('Gemini')).toBeTruthy()
   expect(within(engines).getByText('OpenAI')).toBeTruthy()
+  expect(within(engines).getByText('3 / 4 events, 4 obs')).toBeTruthy()
 
   act(() => { fireEvent.click(screen.getByRole('button', { name: 'By location' })) })
   const locations = await screen.findByRole('list', { name: 'Locations' })
@@ -246,11 +262,10 @@ test('keeps mention-share headline counts aligned to the latest plotted bucket',
   renderMentionShareSection()
 
   await waitFor(() => {
-    expect(screen.getAllByText('25%').length).toBeGreaterThan(0)
+    expect(screen.getByText('No brand mention events in sample')).toBeTruthy()
   })
-  expect(screen.getByText('1 / 4 brand mention events')).toBeTruthy()
-  expect(screen.getByText('4 answer observations')).toBeTruthy()
-  expect(screen.queryByText('8 answer observations')).toBeNull()
+  expect(screen.getByText('0 project-only, 0 shared, 0 competitor-only, 8 neither')).toBeTruthy()
+  expect(screen.queryByText('25% derived share')).toBeNull()
 })
 
 test('prompts for competitors before rendering mention-share history', async () => {

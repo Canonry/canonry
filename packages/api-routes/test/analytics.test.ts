@@ -16,6 +16,10 @@ interface MentionShareObservationLike {
   brandMentionEvents: number
   answerObservations: number
   totalObservations: number
+  projectOnlyObservations: number
+  sharedObservations: number
+  competitorOnlyObservations: number
+  unmentionedObservations: number
 }
 
 interface MentionShareBucketLike extends MentionShareObservationLike {
@@ -37,9 +41,22 @@ function expectMentionSharePartitionSums(
     'brandMentionEvents',
     'answerObservations',
     'totalObservations',
+    'projectOnlyObservations',
+    'sharedObservations',
+    'competitorOnlyObservations',
+    'unmentionedObservations',
   ] as const) {
     expect(slices.reduce((sum, slice) => sum + slice[key], 0)).toBe(mentionShare[key])
   }
+}
+
+function expectMentionShareOutcomeDistribution(mentionShare: MentionShareObservationLike) {
+  expect(
+    mentionShare.projectOnlyObservations
+      + mentionShare.sharedObservations
+      + mentionShare.competitorOnlyObservations
+      + mentionShare.unmentionedObservations,
+  ).toBe(mentionShare.answerObservations)
 }
 
 function buildApp() {
@@ -275,6 +292,10 @@ describe('analytics routes', () => {
         brandMentionEvents: 1,
         answerObservations: 4,
         totalObservations: 4,
+        projectOnlyObservations: 1,
+        sharedObservations: 0,
+        competitorOnlyObservations: 0,
+        unmentionedObservations: 3,
         byProvider: {
           gemini: {
             rate: 1,
@@ -285,6 +306,10 @@ describe('analytics routes', () => {
             brandMentionEvents: 1,
             answerObservations: 3,
             totalObservations: 3,
+            projectOnlyObservations: 1,
+            sharedObservations: 0,
+            competitorOnlyObservations: 0,
+            unmentionedObservations: 2,
           },
           openai: {
             rate: null,
@@ -295,6 +320,10 @@ describe('analytics routes', () => {
             brandMentionEvents: 0,
             answerObservations: 1,
             totalObservations: 1,
+            projectOnlyObservations: 0,
+            sharedObservations: 0,
+            competitorOnlyObservations: 0,
+            unmentionedObservations: 1,
           },
         },
         byLocation: {
@@ -307,6 +336,10 @@ describe('analytics routes', () => {
             brandMentionEvents: 1,
             answerObservations: 4,
             totalObservations: 4,
+            projectOnlyObservations: 1,
+            sharedObservations: 0,
+            competitorOnlyObservations: 0,
+            unmentionedObservations: 3,
           },
         },
       })
@@ -379,6 +412,10 @@ describe('analytics routes', () => {
         brandMentionEvents: 3,
         answerObservations: 3,
         totalObservations: 3,
+        projectOnlyObservations: 1,
+        sharedObservations: 0,
+        competitorOnlyObservations: 2,
+        unmentionedObservations: 0,
         byProvider: {
           gemini: {
             rate: 0.3333,
@@ -389,6 +426,10 @@ describe('analytics routes', () => {
             brandMentionEvents: 3,
             answerObservations: 3,
             totalObservations: 3,
+            projectOnlyObservations: 1,
+            sharedObservations: 0,
+            competitorOnlyObservations: 2,
+            unmentionedObservations: 0,
           },
         },
         byLocation: {
@@ -401,6 +442,10 @@ describe('analytics routes', () => {
             brandMentionEvents: 1,
             answerObservations: 1,
             totalObservations: 1,
+            projectOnlyObservations: 1,
+            sharedObservations: 0,
+            competitorOnlyObservations: 0,
+            unmentionedObservations: 0,
           },
           michigan: {
             rate: 0,
@@ -411,6 +456,10 @@ describe('analytics routes', () => {
             brandMentionEvents: 1,
             answerObservations: 1,
             totalObservations: 1,
+            projectOnlyObservations: 0,
+            sharedObservations: 0,
+            competitorOnlyObservations: 1,
+            unmentionedObservations: 0,
           },
           [MentionShareNoLocationBucket]: {
             rate: 0,
@@ -421,10 +470,15 @@ describe('analytics routes', () => {
             brandMentionEvents: 1,
             answerObservations: 1,
             totalObservations: 1,
+            projectOnlyObservations: 0,
+            sharedObservations: 0,
+            competitorOnlyObservations: 1,
+            unmentionedObservations: 0,
           },
         },
       })
       expect(latest.mentionShare.byLocation.unscoped).toBeUndefined()
+      expectMentionShareOutcomeDistribution(latest.mentionShare)
       expectMentionSharePartitionSums(latest.mentionShare, 'byProvider')
       expectMentionSharePartitionSums(latest.mentionShare, 'byLocation')
     })
@@ -485,6 +539,7 @@ describe('analytics routes', () => {
         const mentionShare = bucket.mentionShare as MentionShareBucketLike
         expect(mentionShare.projectMentionSnapshots).toBe(mentionShare.projectMentionEvents)
         expect(mentionShare.competitorMentionSnapshots).toBe(mentionShare.competitorMentionEvents)
+        expectMentionShareOutcomeDistribution(mentionShare)
         expectMentionSharePartitionSums(mentionShare, 'byProvider')
         expectMentionSharePartitionSums(mentionShare, 'byLocation')
       }
