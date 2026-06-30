@@ -1,7 +1,7 @@
 import { and, eq, desc, inArray } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { auditLog, querySnapshots, runs, queries, parseJsonColumn } from '@ainyc/canonry-db'
-import { CitationStates, validationError } from '@ainyc/canonry-contracts'
+import { CitationStates, notFound, validationError } from '@ainyc/canonry-contracts'
 import { notProbeRun, resolveProject, resolveSnapshotAnswerMentioned, resolveSnapshotMentionState, resolveSnapshotVisibilityState } from './helpers.js'
 import { redactNotificationDiff } from './notification-redaction.js'
 
@@ -20,11 +20,17 @@ export async function historyRoutes(app: FastifyInstance) {
     return reply.send(rows.map(formatAuditEntry))
   })
 
-  // GET /history — global audit log
-  app.get('/history', async (_request, reply) => {
+  // GET /history — audit log. Full-instance keys see every project's entries;
+  // a project-scoped key sees ONLY its own project's audit log. This global
+  // list is not under the /projects/:name auth gate, so filter explicitly
+  // (NULL-project instance-level entries are intentionally hidden from a
+  // scoped key).
+  app.get('/history', async (request, reply) => {
+    const scopedProjectId = request.apiKey?.projectId
     const rows = app.db
       .select()
       .from(auditLog)
+      .where(scopedProjectId ? eq(auditLog.projectId, scopedProjectId) : undefined)
       .orderBy(desc(auditLog.createdAt))
       .all()
 
@@ -316,6 +322,20 @@ export async function historyRoutes(app: FastifyInstance) {
     const { run1, run2 } = request.query
     if (!run1 || !run2) {
       throw validationError('Both run1 and run2 query params are required')
+    }
+
+    const requestedRunIds = [...new Set([run1, run2])]
+    const runRows = app.db
+      .select({ id: runs.id, projectId: runs.projectId })
+      .from(runs)
+      .where(inArray(runs.id, requestedRunIds))
+      .all()
+    const runsById = new Map(runRows.map(row => [row.id, row]))
+    for (const runId of requestedRunIds) {
+      const run = runsById.get(runId)
+      if (!run || run.projectId !== project.id) {
+        throw notFound('Run', runId)
+      }
     }
 
     // Get snapshots for both runs

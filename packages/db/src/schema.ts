@@ -136,11 +136,20 @@ export const apiKeys = sqliteTable('api_keys', {
   keyHash: text('key_hash').notNull().unique(),
   keyPrefix: text('key_prefix').notNull(),
   scopes: text('scopes', { mode: 'json' }).$type<string[]>().notNull().default(['*']),
+  /**
+   * When set, the key is scoped to a SINGLE project: every project-scoped read
+   * or write is gated to this project id (enforced centrally in `auth.ts`).
+   * NULL keeps full-instance access — the historical default for every key
+   * `canonry init` / `canonry key create` writes. Cascade-deletes with the
+   * project so a stale scoped key never outlives its project.
+   */
+  projectId: text('project_id').references(() => projects.id, { onDelete: 'cascade' }),
   createdAt: text('created_at').notNull(),
   lastUsedAt: text('last_used_at'),
   revokedAt: text('revoked_at'),
 }, (table) => [
   index('idx_api_keys_prefix').on(table.keyPrefix),
+  index('idx_api_keys_project').on(table.projectId),
 ])
 
 export const schedules = sqliteTable('schedules', {

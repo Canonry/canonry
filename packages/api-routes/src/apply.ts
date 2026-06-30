@@ -2,7 +2,7 @@ import crypto from 'node:crypto'
 import { and, eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { projects, queries, competitors, schedules, notifications } from '@ainyc/canonry-db'
-import { normalizeProjectAliases, normalizeProjectDomain, projectConfigSchema, registrableDomain, resolveConfigSpecQueries, SchedulableRunKinds, validationError } from '@ainyc/canonry-contracts'
+import { forbidden, normalizeProjectAliases, normalizeProjectDomain, projectConfigSchema, registrableDomain, resolveConfigSpecQueries, SchedulableRunKinds, validationError } from '@ainyc/canonry-contracts'
 import { writeAuditLog } from './helpers.js'
 import { resolvePreset, validateCron, isValidTimezone } from './schedule-utils.js'
 import { resolveWebhookTarget } from './webhooks.js'
@@ -94,6 +94,18 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
     const now = new Date().toISOString()
     const name = config.metadata.name
     const configQueries = resolveConfigSpecQueries(config.spec)
+
+    // A project-scoped key may only apply to ITS OWN project — never create a
+    // new project or overwrite a sibling. The target must already exist and
+    // resolve to the key's project (this global route is not under the
+    // /projects/:name auth gate).
+    const scopedProjectId = request.apiKey?.projectId
+    if (scopedProjectId) {
+      const target = app.db.select({ id: projects.id }).from(projects).where(eq(projects.name, name)).get()
+      if (!target || target.id !== scopedProjectId) {
+        throw forbidden('This API key is scoped to a single project and cannot apply this config.')
+      }
+    }
 
     // All validation done — wrap all writes in a single transaction
     let projectId: string

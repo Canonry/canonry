@@ -1,9 +1,10 @@
 import crypto from 'node:crypto'
 import { desc, eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { apiKeys } from '@ainyc/canonry-db'
+import { apiKeys, projects } from '@ainyc/canonry-db'
 import {
   createApiKeyRequestSchema,
+  forbidden,
   isReadOnlyKey,
   notFound,
   validationError,
@@ -34,6 +35,7 @@ function toApiKeyDto(row: typeof apiKeys.$inferSelect): ApiKeyDto {
     name: row.name,
     keyPrefix: row.keyPrefix,
     scopes,
+    projectId: row.projectId ?? null,
     readOnly: isReadOnlyKey(scopes),
     createdAt: row.createdAt,
     lastUsedAt: row.lastUsedAt ?? null,
@@ -42,13 +44,23 @@ function toApiKeyDto(row: typeof apiKeys.$inferSelect): ApiKeyDto {
 }
 
 export async function keysRoutes(app: FastifyInstance) {
-  // List all keys — ungated (any valid bearer). Returns SAFE metadata only.
-  app.get('/keys', async () => {
-    const rows = app.db
-      .select()
-      .from(apiKeys)
-      .orderBy(desc(apiKeys.createdAt))
-      .all()
+  // List keys — ungated (any valid bearer). Returns SAFE metadata only. A
+  // project-scoped key sees only keys scoped to that same project, never
+  // full-instance or sibling-project keys.
+  app.get('/keys', async (request) => {
+    const scopedProjectId = request.apiKey?.projectId
+    const rows = scopedProjectId
+      ? app.db
+        .select()
+        .from(apiKeys)
+        .where(eq(apiKeys.projectId, scopedProjectId))
+        .orderBy(desc(apiKeys.createdAt))
+        .all()
+      : app.db
+        .select()
+        .from(apiKeys)
+        .orderBy(desc(apiKeys.createdAt))
+        .all()
     return { keys: rows.map(toApiKeyDto) }
   })
 
@@ -80,7 +92,24 @@ export async function keysRoutes(app: FastifyInstance) {
     if (!parsed.success) {
       throw validationError('Invalid API key request', { issues: parsed.error.issues })
     }
-    const { name, scopes } = parsed.data
+    const { name, scopes, projectId } = parsed.data
+
+    // A project-scoped key may only mint keys for ITS OWN project — minting an
+    // unscoped key (projectId omitted) or a sibling-scoped one would let a
+    // scoped key escalate out of its own boundary.
+    const requesterProjectId = request.apiKey?.projectId
+    if (requesterProjectId && projectId !== requesterProjectId) {
+      throw forbidden('A project-scoped key can only mint keys scoped to its own project.')
+    }
+
+    // A project-scoped key must reference a real project — validate before
+    // minting so a typo cannot create an orphan key that 403s every request.
+    if (projectId) {
+      const proj = app.db.select({ id: projects.id }).from(projects).where(eq(projects.id, projectId)).get()
+      if (!proj) {
+        throw notFound('Project', projectId)
+      }
+    }
 
     const raw = `cnry_${crypto.randomBytes(16).toString('hex')}`
     const keyHash = hashApiKey(raw)
@@ -96,6 +125,7 @@ export async function keysRoutes(app: FastifyInstance) {
         keyHash,
         keyPrefix,
         scopes: effectiveScopes,
+        projectId: projectId ?? null,
         createdAt: now,
       }).run()
       // Audit the creation. Never log the plaintext or the hash — only the
@@ -106,7 +136,7 @@ export async function keysRoutes(app: FastifyInstance) {
         action: 'api-key.created',
         entityType: 'api-key',
         entityId: id,
-        diff: { name, keyPrefix, scopes: effectiveScopes },
+        diff: { name, keyPrefix, scopes: effectiveScopes, projectId: projectId ?? null },
       }))
     })
 
@@ -115,6 +145,7 @@ export async function keysRoutes(app: FastifyInstance) {
       name,
       keyPrefix,
       scopes: effectiveScopes,
+      projectId: projectId ?? null,
       readOnly: isReadOnlyKey(effectiveScopes),
       createdAt: now,
       lastUsedAt: null,
@@ -141,6 +172,11 @@ export async function keysRoutes(app: FastifyInstance) {
     // different key.
     if (request.apiKey?.id === id) {
       throw validationError('Cannot revoke the API key you are currently authenticating with')
+    }
+
+    const requesterProjectId = request.apiKey?.projectId
+    if (requesterProjectId && row.projectId !== requesterProjectId) {
+      throw forbidden('A project-scoped key can only revoke keys scoped to its own project.')
     }
 
     // Idempotent: already revoked → return as-is, no second audit entry.

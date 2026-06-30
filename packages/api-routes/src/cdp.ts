@@ -6,7 +6,7 @@ import { eq, and } from 'drizzle-orm'
 import { filterTrackedSnapshots, querySnapshots, runs, queries } from '@ainyc/canonry-db'
 import { CitationStates, notFound, notImplemented, validationError, type GroundingSource } from '@ainyc/canonry-contracts'
 import { resolveProject } from './helpers.js'
-import { requireScope } from './auth.js'
+import { assertProjectScope, requireScope } from './auth.js'
 import { SETTINGS_WRITE_SCOPE } from './settings.js'
 
 export interface CDPRoutesOptions {
@@ -42,8 +42,9 @@ export async function cdpRoutes(app: FastifyInstance, opts: CDPRoutesOptions) {
     const { snapshotId } = request.params
 
     const snapshot = app.db
-      .select({ screenshotPath: querySnapshots.screenshotPath })
+      .select({ screenshotPath: querySnapshots.screenshotPath, projectId: runs.projectId })
       .from(querySnapshots)
+      .innerJoin(runs, eq(querySnapshots.runId, runs.id))
       .where(eq(querySnapshots.id, snapshotId))
       .get()
 
@@ -51,6 +52,8 @@ export async function cdpRoutes(app: FastifyInstance, opts: CDPRoutesOptions) {
       const err = notFound('Screenshot', snapshotId)
       return reply.code(err.statusCode).send(err.toJSON())
     }
+    // A project-scoped key may only read its own project's screenshots.
+    assertProjectScope(request, snapshot.projectId)
 
     const base = path.resolve(getScreenshotDir())
     const fullPath = path.resolve(path.join(base, snapshot.screenshotPath))
