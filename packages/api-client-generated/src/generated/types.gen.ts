@@ -110,6 +110,7 @@ export type ApiKeyDto = {
     name: string;
     keyPrefix: string;
     scopes: Array<string>;
+    projectId: string | null;
     readOnly: boolean;
     createdAt: string;
     lastUsedAt: string | null;
@@ -122,6 +123,7 @@ export type ApiKeyListDto = {
         name: string;
         keyPrefix: string;
         scopes: Array<string>;
+        projectId: string | null;
         readOnly: boolean;
         createdAt: string;
         lastUsedAt: string | null;
@@ -567,6 +569,7 @@ export type ContentTargetsResponseDto = {
 export type CreateApiKeyRequest = {
     name: string;
     scopes?: Array<string>;
+    projectId?: string;
 };
 
 export type CreatedApiKeyDto = {
@@ -574,6 +577,7 @@ export type CreatedApiKeyDto = {
     name: string;
     keyPrefix: string;
     scopes: Array<string>;
+    projectId: string | null;
     readOnly: boolean;
     createdAt: string;
     lastUsedAt: string | null;

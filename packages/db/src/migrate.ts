@@ -1916,6 +1916,17 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `CREATE INDEX IF NOT EXISTS idx_gsc_daily_totals_project ON gsc_daily_totals(project_id)`,
     ],
   },
+  {
+    version: 87,
+    name: 'api-key-project-scope',
+    statements: [
+      // Opt-in single-project scoping for API keys. NULL = full-instance access
+      // (the historical default), so this is a no-op for every existing key.
+      // ALTER ADD COLUMN is idempotent (the runner swallows duplicate-column on retry).
+      `ALTER TABLE api_keys ADD COLUMN project_id TEXT REFERENCES projects(id) ON DELETE CASCADE`,
+      `CREATE INDEX IF NOT EXISTS idx_api_keys_project ON api_keys(project_id)`,
+    ],
+  },
 ]
 
 /**

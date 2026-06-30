@@ -175,9 +175,13 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
     return reply.status(201).send(formatProject(created))
   })
 
-  // GET /projects — list all
-  app.get('/projects', async (_request, reply) => {
-    const rows = app.db.select().from(projects).all()
+  // GET /projects — list all. A project-scoped key sees ONLY its own project,
+  // so the embedded dashboard's project switcher can never enumerate siblings.
+  app.get('/projects', async (request, reply) => {
+    const scoped = request.apiKey?.projectId
+    const rows = scoped
+      ? app.db.select().from(projects).where(eq(projects.id, scoped)).all()
+      : app.db.select().from(projects).all()
     return reply.send(rows.map(formatProject))
   })
 

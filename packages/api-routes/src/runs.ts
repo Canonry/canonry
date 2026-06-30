@@ -16,6 +16,7 @@ import {
   serializeRunError,
 } from '@ainyc/canonry-contracts'
 import { notProbeRun, resolveProject, resolveSnapshotAnswerMentioned, resolveSnapshotMentionState, resolveSnapshotVisibilityState, resolveSnapshotMatchedTerms, writeAuditLog } from './helpers.js'
+import { assertProjectScope } from './auth.js'
 import { gte } from 'drizzle-orm'
 import { queueRunIfProjectIdle } from './run-queue.js'
 
@@ -301,6 +302,10 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
     const filters = [gte(runs.createdAt, since)]
     if (!includeProbe) filters.push(notProbeRun())
     if (kind) filters.push(eq(runs.kind, kind))
+    // A project-scoped key sees ONLY its own project's runs (this global list
+    // is not under the /projects/:name auth gate, so filter explicitly).
+    const scopedProjectId = request.apiKey?.projectId
+    if (scopedProjectId) filters.push(eq(runs.projectId, scopedProjectId))
 
     const rows = app.db
       .select()
@@ -316,7 +321,12 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
   app.post<{
     Body: { kind?: string; providers?: string[] }
   }>('/runs', async (request, reply) => {
-    const allProjects = app.db.select().from(projects).all()
+    // A project-scoped key may only trigger runs for ITS project — restrict the
+    // batch to that project so it can never queue runs for a sibling.
+    const scopedProjectId = request.apiKey?.projectId
+    const allProjects = (scopedProjectId
+      ? app.db.select().from(projects).where(eq(projects.id, scopedProjectId))
+      : app.db.select().from(projects)).all()
     if (allProjects.length === 0) {
       return reply.status(207).send([])
     }
@@ -396,6 +406,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
   app.post<{ Params: { id: string } }>('/runs/:id/cancel', async (request, reply) => {
     const run = app.db.select().from(runs).where(eq(runs.id, request.params.id)).get()
     if (!run) throw notFound('Run', request.params.id)
+    assertProjectScope(request, run.projectId)
 
     const terminalStatuses = new Set(['completed', 'partial', 'failed', 'cancelled'])
     if (terminalStatuses.has(run.status)) throw runNotCancellable(run.id, run.status)
@@ -423,6 +434,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
   app.get<{ Params: { id: string } }>('/runs/:id', async (request, reply) => {
     const run = app.db.select().from(runs).where(eq(runs.id, request.params.id)).get()
     if (!run) throw notFound('Run', request.params.id)
+    assertProjectScope(request, run.projectId)
     return reply.send(loadRunDetail(app, run))
   })
 }
