@@ -164,3 +164,40 @@ export function buildEmbedClientConfig(resolved: ResolvedEmbedConfig): EmbedClie
   if (resolved.theme && Object.keys(resolved.theme).length > 0) client.theme = resolved.theme
   return client
 }
+
+/**
+ * Lowercase + de-dupe id tokens (view ids or project-tab keys), preserving
+ * first-seen order; an empty result becomes `undefined` (= "all", never an
+ * allowlist of nothing). Shared by the server's boot config resolution and the
+ * per-request embed override below.
+ */
+export function normalizeIdTokens(raw: string[]): string[] | undefined {
+  if (raw.length === 0) return undefined
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const token of raw) {
+    const id = token.toLowerCase()
+    if (seen.has(id)) continue
+    seen.add(id)
+    out.push(id)
+  }
+  return out.length > 0 ? out : undefined
+}
+
+/**
+ * The client-config block for ONE request: the boot-resolved embed settings, but
+ * with `projectTabs` replaced by a per-request override when present. The Embed
+ * v2 platform `/e` proxy sets that override (an `X-Canonry-Embed-Tabs` header it
+ * controls per dashboard); the end client cannot reach the loopback engine to set
+ * it. An absent / empty override keeps the boot-wide `projectTabs`. Presentational
+ * only, NOT a security boundary: the API key scope governs data access.
+ */
+export function embedClientConfigForRequest(
+  resolved: ResolvedEmbedConfig,
+  projectTabsOverride: string | string[] | undefined,
+): EmbedClientConfig | undefined {
+  const base = buildEmbedClientConfig(resolved)
+  if (!base) return undefined
+  const override = normalizeIdTokens(splitList(projectTabsOverride))
+  return override ? { ...base, projectTabs: override } : base
+}

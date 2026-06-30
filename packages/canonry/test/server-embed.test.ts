@@ -10,7 +10,12 @@ import type { CanonryConfig } from '../src/config.js'
 const FIXTURE_HTML =
   '<!doctype html><html><head><title>canonry</title></head><body><div id="root"></div></body></html>'
 
-const EMBED_ENV = ['CANONRY_EMBED', 'CANONRY_EMBED_ORIGINS', 'CANONRY_EMBED_VIEWS'] as const
+const EMBED_ENV = [
+  'CANONRY_EMBED',
+  'CANONRY_EMBED_ORIGINS',
+  'CANONRY_EMBED_VIEWS',
+  'CANONRY_EMBED_PROJECT_TABS',
+] as const
 
 interface Built {
   app: Awaited<ReturnType<typeof createServer>>
@@ -194,6 +199,53 @@ describe('server embed mode (#716)', () => {
     try {
       const res = await app.inject({ method: 'GET', url: '/' })
       expect(res.body).toContain('"views":["overview"]')
+    } finally {
+      await cleanup()
+    }
+  })
+
+  it('ON: a per-request X-Canonry-Embed-Tabs header overrides projectTabs (root + deep-link)', async () => {
+    const { app, cleanup } = await buildServer({
+      enabled: true,
+      allowOrigins: ['https://host.example'],
+      projectTabs: ['overview', 'technical-aeo', 'report'],
+    })
+    try {
+      // No header => the boot-wide projectTabs.
+      const boot = await app.inject({ method: 'GET', url: '/' })
+      expect(boot.body).toContain('"projectTabs":["overview","technical-aeo","report"]')
+
+      // Header => THIS request's projectTabs, normalized; the boot value is replaced.
+      const scoped = await app.inject({
+        method: 'GET',
+        url: '/',
+        headers: { 'x-canonry-embed-tabs': 'Overview, technical-aeo' },
+      })
+      expect(scoped.body).toContain('"projectTabs":["overview","technical-aeo"]')
+      expect(scoped.body).not.toContain('"report"')
+
+      // The deep-link fallback (the embedded route) honors the header too.
+      const deep = await app.inject({
+        method: 'GET',
+        url: '/projects/acme',
+        headers: { 'x-canonry-embed-tabs': 'overview' },
+      })
+      expect(deep.body).toContain('"projectTabs":["overview"]')
+    } finally {
+      await cleanup()
+    }
+  })
+
+  it('OFF: the X-Canonry-Embed-Tabs header is ignored (no embed block, byte-for-byte default)', async () => {
+    const { app, cleanup } = await buildServer()
+    try {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/',
+        headers: { 'x-canonry-embed-tabs': 'overview' },
+      })
+      expect(res.body).toContain('<script>window.__CANONRY_CONFIG__={}</script>')
+      expect(res.body).not.toContain('embed')
     } finally {
       await cleanup()
     }

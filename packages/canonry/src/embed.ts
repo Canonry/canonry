@@ -1,5 +1,5 @@
 import type { ResolvedEmbedConfig } from '@ainyc/canonry-contracts'
-import { parseOriginList, splitList } from '@ainyc/canonry-contracts'
+import { normalizeIdTokens, parseOriginList, splitList } from '@ainyc/canonry-contracts'
 import type { CanonryConfig } from './config.js'
 
 /**
@@ -42,13 +42,13 @@ export function resolveEmbedConfig(env: NodeJS.ProcessEnv, config: CanonryConfig
 
   const rawViews =
     env.CANONRY_EMBED_VIEWS !== undefined ? splitList(env.CANONRY_EMBED_VIEWS) : splitList(embed?.views)
-  const views = normalizeIdList(rawViews)
+  const views = normalizeIdTokens(rawViews)
 
   const rawProjectTabs =
     env.CANONRY_EMBED_PROJECT_TABS !== undefined
       ? splitList(env.CANONRY_EMBED_PROJECT_TABS)
       : splitList(embed?.projectTabs)
-  const projectTabs = normalizeIdList(rawProjectTabs)
+  const projectTabs = normalizeIdTokens(rawProjectTabs)
 
   return {
     enabled,
@@ -57,19 +57,4 @@ export function resolveEmbedConfig(env: NodeJS.ProcessEnv, config: CanonryConfig
     ...(projectTabs ? { projectTabs } : {}),
     ...(embed?.theme ? { theme: embed.theme } : {}),
   }
-}
-
-/** Lowercase + de-dupe id tokens (view ids or project-tab keys); an empty result
- *  becomes `undefined` (= "all", never an allowlist of nothing). */
-function normalizeIdList(raw: string[]): string[] | undefined {
-  if (raw.length === 0) return undefined
-  const seen = new Set<string>()
-  const out: string[] = []
-  for (const token of raw) {
-    const id = token.toLowerCase()
-    if (seen.has(id)) continue
-    seen.add(id)
-    out.push(id)
-  }
-  return out.length > 0 ? out : undefined
 }

@@ -4,6 +4,8 @@ import {
   parseOriginList,
   frameAncestorsHeaderValue,
   buildEmbedClientConfig,
+  embedClientConfigForRequest,
+  normalizeIdTokens,
   type ResolvedEmbedConfig,
 } from '../src/embed.js'
 
@@ -121,5 +123,67 @@ describe('buildEmbedClientConfig', () => {
 
   it('omits projectTabs when the allowlist is empty (= all tabs)', () => {
     expect(buildEmbedClientConfig({ enabled: true, allowedOrigins: [], projectTabs: [] })).toEqual({ enabled: true })
+  })
+})
+
+describe('normalizeIdTokens', () => {
+  it('lowercases + de-dupes, preserving first-seen order', () => {
+    expect(normalizeIdTokens(['Overview', 'TECHNICAL-AEO', 'overview', 'report'])).toEqual([
+      'overview',
+      'technical-aeo',
+      'report',
+    ])
+  })
+
+  it('returns undefined for an empty list (= all, never an empty allowlist)', () => {
+    expect(normalizeIdTokens([])).toBeUndefined()
+  })
+})
+
+describe('embedClientConfigForRequest', () => {
+  const enabled: ResolvedEmbedConfig = {
+    enabled: true,
+    allowedOrigins: ['https://a.com'],
+    projectTabs: ['overview', 'technical-aeo', 'report'],
+  }
+
+  it('returns undefined when embed is disabled (the header is ignored)', () => {
+    expect(embedClientConfigForRequest({ enabled: false, allowedOrigins: [] }, 'overview')).toBeUndefined()
+  })
+
+  it('keeps the boot-wide projectTabs when no override header is present', () => {
+    expect(embedClientConfigForRequest(enabled, undefined)).toEqual({
+      enabled: true,
+      projectTabs: ['overview', 'technical-aeo', 'report'],
+    })
+  })
+
+  it('REPLACES projectTabs with the per-request override (CSV string), normalized', () => {
+    expect(embedClientConfigForRequest(enabled, 'Overview, technical-aeo')).toEqual({
+      enabled: true,
+      projectTabs: ['overview', 'technical-aeo'],
+    })
+  })
+
+  it('accepts the override as a string[] (Fastify multi-value header)', () => {
+    expect(embedClientConfigForRequest(enabled, ['overview', 'local'])).toEqual({
+      enabled: true,
+      projectTabs: ['overview', 'local'],
+    })
+  })
+
+  it('an empty / whitespace override falls back to the boot-wide projectTabs', () => {
+    expect(embedClientConfigForRequest(enabled, '   ')).toEqual({
+      enabled: true,
+      projectTabs: ['overview', 'technical-aeo', 'report'],
+    })
+  })
+
+  it('can override even when the boot config had no projectTabs', () => {
+    const noTabs: ResolvedEmbedConfig = { enabled: true, allowedOrigins: [] }
+    expect(embedClientConfigForRequest(noTabs, 'overview,technical-aeo')).toEqual({
+      enabled: true,
+      projectTabs: ['overview', 'technical-aeo'],
+    })
   })
 })
