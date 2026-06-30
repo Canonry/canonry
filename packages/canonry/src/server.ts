@@ -39,6 +39,7 @@ import {
   authRequired,
   validationError,
   embedClientConfigForRequest,
+  serializeForInlineScript,
   frameAncestorsHeaderValue,
   CcReleaseSyncStatuses,
   RunKinds,
@@ -2098,7 +2099,11 @@ export async function createServer(opts: {
         if (embedClient) clientConfig.embed = embedClient;
       }
 
-      const configScript = `<script>window.__CANONRY_CONFIG__=${JSON.stringify(clientConfig)}</script>`;
+      // serializeForInlineScript (NOT bare JSON.stringify): escapes < > & and the
+      // JS line separators so a value containing </script> can never break out of
+      // this inline script. The per-request projectTabs override is the first
+      // request-derived value to reach here, so this is a hard requirement.
+      const configScript = `<script>window.__CANONRY_CONFIG__=${serializeForInlineScript(clientConfig)}</script>`;
       // Inject <base href> unconditionally so relative asset paths (`./assets/…`)
       // resolve against the mount point instead of the current URL. Without this,
       // deep-links like `/projects/ainyc` request `/projects/assets/…js`, hit the

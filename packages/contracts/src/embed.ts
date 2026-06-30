@@ -201,3 +201,23 @@ export function embedClientConfigForRequest(
   const override = normalizeIdTokens(splitList(projectTabsOverride))
   return override ? { ...base, projectTabs: override } : base
 }
+
+/**
+ * JSON-serialize a value for SAFE embedding inside an inline `<script>` element
+ * (used for `window.__CANONRY_CONFIG__`). `JSON.stringify` escapes `"` but NOT
+ * `<` / `>` / `&`, so a value containing `</script>` would terminate the script
+ * element early (the classic JSON-in-HTML-script XSS). This escapes those plus
+ * the JS line separators (U+2028 / U+2029) to their equivalent `\uXXXX` JSON
+ * escapes: the output parses to the identical value but can never break out of
+ * the `<script>`. Defense in depth — the embed projectTabs override is the first
+ * request-derived value to reach this script, and the engine cannot assume the
+ * fronting proxy strips a client-tainted header.
+ */
+export function serializeForInlineScript(value: unknown): string {
+  return JSON.stringify(value)
+    .replace(/</g, '\\u003c')
+    .replace(/>/g, '\\u003e')
+    .replace(/&/g, '\\u0026')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029')
+}

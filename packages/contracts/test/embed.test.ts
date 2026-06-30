@@ -6,6 +6,7 @@ import {
   buildEmbedClientConfig,
   embedClientConfigForRequest,
   normalizeIdTokens,
+  serializeForInlineScript,
   type ResolvedEmbedConfig,
 } from '../src/embed.js'
 
@@ -185,5 +186,28 @@ describe('embedClientConfigForRequest', () => {
       enabled: true,
       projectTabs: ['overview', 'technical-aeo'],
     })
+  })
+})
+
+describe('serializeForInlineScript', () => {
+  it('escapes < > & so a </script> in a value cannot break out of the inline script', () => {
+    const out = serializeForInlineScript({ embed: { projectTabs: ['</script><img src=x onerror=alert(1)>'] } })
+    expect(out).not.toContain('</script>')
+    expect(out).not.toContain('<img')
+    expect(out).toContain('\\u003c/script\\u003e')
+    // still valid JSON that parses back to the original value
+    expect(JSON.parse(out)).toEqual({ embed: { projectTabs: ['</script><img src=x onerror=alert(1)>'] } })
+  })
+
+  it('escapes the JS line separators U+2028 / U+2029', () => {
+    const out = serializeForInlineScript({ a: '\u2028\u2029' })
+    expect(out).toContain('\\u2028')
+    expect(out).toContain('\\u2029')
+    expect(JSON.parse(out)).toEqual({ a: '\u2028\u2029' })
+  })
+
+  it('leaves ordinary config byte-identical to JSON.stringify (no < > & present)', () => {
+    const cfg = { basePath: '/canonry', embed: { enabled: true, projectTabs: ['overview', 'technical-aeo'] } }
+    expect(serializeForInlineScript(cfg)).toBe(JSON.stringify(cfg))
   })
 })

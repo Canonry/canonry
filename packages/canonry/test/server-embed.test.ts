@@ -251,6 +251,22 @@ describe('server embed mode (#716)', () => {
     }
   })
 
+  it('ON: a </script> payload in X-Canonry-Embed-Tabs is escaped, never breaking out of the inline script (XSS)', async () => {
+    const { app, cleanup } = await buildServer({ enabled: true, allowOrigins: ['https://host.example'] })
+    try {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/',
+        headers: { 'x-canonry-embed-tabs': '</script><img src=x onerror=alert(1)>' },
+      })
+      // The breakout sequence must NOT appear literally; it ships as \\u003c escapes.
+      expect(res.body).not.toContain('</script><img')
+      expect(res.body).toContain('\\u003c/script\\u003e\\u003cimg')
+    } finally {
+      await cleanup()
+    }
+  })
+
   it('ON but index.html missing: 404 without throwing', async () => {
     const { app, cleanup } = await buildServer({ enabled: true }, false)
     try {
