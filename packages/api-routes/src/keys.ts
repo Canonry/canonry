@@ -44,13 +44,23 @@ function toApiKeyDto(row: typeof apiKeys.$inferSelect): ApiKeyDto {
 }
 
 export async function keysRoutes(app: FastifyInstance) {
-  // List all keys — ungated (any valid bearer). Returns SAFE metadata only.
-  app.get('/keys', async () => {
-    const rows = app.db
-      .select()
-      .from(apiKeys)
-      .orderBy(desc(apiKeys.createdAt))
-      .all()
+  // List keys — ungated (any valid bearer). Returns SAFE metadata only. A
+  // project-scoped key sees only keys scoped to that same project, never
+  // full-instance or sibling-project keys.
+  app.get('/keys', async (request) => {
+    const scopedProjectId = request.apiKey?.projectId
+    const rows = scopedProjectId
+      ? app.db
+        .select()
+        .from(apiKeys)
+        .where(eq(apiKeys.projectId, scopedProjectId))
+        .orderBy(desc(apiKeys.createdAt))
+        .all()
+      : app.db
+        .select()
+        .from(apiKeys)
+        .orderBy(desc(apiKeys.createdAt))
+        .all()
     return { keys: rows.map(toApiKeyDto) }
   })
 
@@ -162,6 +172,11 @@ export async function keysRoutes(app: FastifyInstance) {
     // different key.
     if (request.apiKey?.id === id) {
       throw validationError('Cannot revoke the API key you are currently authenticating with')
+    }
+
+    const requesterProjectId = request.apiKey?.projectId
+    if (requesterProjectId && row.projectId !== requesterProjectId) {
+      throw forbidden('A project-scoped key can only revoke keys scoped to its own project.')
     }
 
     // Idempotent: already revoked → return as-is, no second audit entry.

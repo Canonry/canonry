@@ -4,7 +4,8 @@ import os from 'node:os'
 import path from 'node:path'
 import Fastify from 'fastify'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { createClient, migrate, apiKeys, auditLog, projects, runs, type DatabaseClient } from '@ainyc/canonry-db'
+import { createClient, migrate, apiKeys, auditLog, projects, queries, querySnapshots, runs, type DatabaseClient } from '@ainyc/canonry-db'
+import { CitationStates } from '@ainyc/canonry-contracts'
 import { apiRoutes } from '../src/index.js'
 import { hashApiKey } from '../src/auth.js'
 
@@ -24,16 +25,22 @@ const NOW = new Date().toISOString()
 const ROOT_KEY = 'cnry_roottoken' // wildcard, full instance
 const SCOPED_KEY = 'cnry_scopedtoken' // read-only, scoped to project A
 const SCOPED_WRITE_KEY = 'cnry_scopedwrite' // full scopes, scoped to project A (exercises the write paths)
+const SCOPED_B_KEY = 'cnry_scopedbtoken' // read-only, scoped to project B
 let projectAId: string
 let projectBId: string
 let runAId: string
 let runBId: string
+let rootKeyId: string
+let scopedKeyId: string
+let scopedBKeyId: string
 
-function seedKey(name: string, raw: string, scopes: string[], projectId?: string): void {
+function seedKey(name: string, raw: string, scopes: string[], projectId?: string): string {
+  const id = crypto.randomUUID()
   db.insert(apiKeys).values({
-    id: crypto.randomUUID(), name, keyHash: hashApiKey(raw), keyPrefix: raw.slice(0, 9),
+    id, name, keyHash: hashApiKey(raw), keyPrefix: raw.slice(0, 9),
     scopes, projectId: projectId ?? null, createdAt: NOW,
   }).run()
+  return id
 }
 
 function seedProject(name: string): string {
@@ -53,6 +60,28 @@ function seedRun(projectId: string): string {
   return id
 }
 
+function seedQuery(projectId: string, query: string): string {
+  const id = crypto.randomUUID()
+  db.insert(queries).values({
+    id, projectId, query, createdAt: NOW,
+  }).run()
+  return id
+}
+
+function seedSnapshot(runId: string, queryId: string, answerText: string): void {
+  db.insert(querySnapshots).values({
+    id: crypto.randomUUID(),
+    runId,
+    queryId,
+    queryText: 'example query',
+    provider: 'gemini',
+    citationState: CitationStates.cited,
+    answerMentioned: true,
+    answerText,
+    createdAt: NOW,
+  }).run()
+}
+
 function seedAudit(projectId: string, action: string): void {
   db.insert(auditLog).values({
     id: crypto.randomUUID(), projectId, actor: 'api', action,
@@ -68,11 +97,14 @@ beforeEach(async () => {
   projectBId = seedProject('project-b')
   runAId = seedRun(projectAId)
   runBId = seedRun(projectBId)
+  seedSnapshot(runAId, seedQuery(projectAId, 'best project a'), 'project-a private answer')
+  seedSnapshot(runBId, seedQuery(projectBId, 'best project b'), 'project-b private answer')
   seedAudit(projectAId, 'project.applied')
   seedAudit(projectBId, 'project.applied')
-  seedKey('root', ROOT_KEY, ['*'])
-  seedKey('scoped', SCOPED_KEY, ['read', 'embed'], projectAId)
+  rootKeyId = seedKey('root', ROOT_KEY, ['*'])
+  scopedKeyId = seedKey('scoped', SCOPED_KEY, ['read', 'embed'], projectAId)
   seedKey('scoped-write', SCOPED_WRITE_KEY, ['*'], projectAId)
+  scopedBKeyId = seedKey('scoped-b', SCOPED_B_KEY, ['read'], projectBId)
 
   app = Fastify()
   app.register(apiRoutes, { db })
@@ -99,6 +131,12 @@ describe('project-scoped API keys', () => {
     expect((res.json() as { error: { code: string } }).error.code).toBe('FORBIDDEN')
   })
 
+  it('a scoped key gets the SAME denial for an unknown project name (no name probing)', async () => {
+    const res = await authed('GET', '/api/v1/projects/not-a-real-project', SCOPED_KEY)
+    expect(res.statusCode).toBe(403)
+    expect((res.json() as { error: { code: string } }).error.code).toBe('FORBIDDEN')
+  })
+
   it('GET /projects returns ONLY the scoped project for a scoped key', async () => {
     const res = await authed('GET', '/api/v1/projects', SCOPED_KEY)
     expect(res.statusCode).toBe(200)
@@ -118,13 +156,29 @@ describe('project-scoped API keys', () => {
     expect((await authed('GET', `/api/v1/runs/${runAId}`, SCOPED_KEY)).statusCode).toBe(200)
   })
 
+  it('a scoped key cannot smuggle a sibling run into project snapshot diff', async () => {
+    const res = await authed('GET', `/api/v1/projects/project-a/snapshots/diff?run1=${runAId}&run2=${runBId}`, SCOPED_KEY)
+    expect(res.statusCode).toBe(404)
+  })
+
+  it('a scoped key CAN diff runs from its own project', async () => {
+    const res = await authed('GET', `/api/v1/projects/project-a/snapshots/diff?run1=${runAId}&run2=${runAId}`, SCOPED_KEY)
+    expect(res.statusCode).toBe(200)
+    expect(JSON.stringify(res.json())).not.toContain('project-b private answer')
+  })
+
   it('a full-instance key reads any project + any run (unchanged)', async () => {
     expect((await authed('GET', '/api/v1/projects/project-b', ROOT_KEY)).statusCode).toBe(200)
     expect((await authed('GET', `/api/v1/runs/${runBId}`, ROOT_KEY)).statusCode).toBe(200)
   })
 
-  it('the project gate does NOT over-restrict non-project routes (GET /keys works for a scoped key)', async () => {
-    expect((await authed('GET', '/api/v1/keys', SCOPED_KEY)).statusCode).toBe(200)
+  it('GET /keys returns ONLY same-project scoped keys for a scoped key', async () => {
+    const res = await authed('GET', '/api/v1/keys', SCOPED_KEY)
+    expect(res.statusCode).toBe(200)
+    const keys = (res.json() as { keys: Array<{ id: string; projectId: string | null }> }).keys
+    expect(new Set(keys.map(key => key.projectId))).toEqual(new Set([projectAId]))
+    expect(keys.map(key => key.id)).not.toContain(rootKeyId)
+    expect(keys.map(key => key.id)).not.toContain(scopedBKeyId)
   })
 
   it('POST /keys with a valid projectId mints a scoped key', async () => {
@@ -197,6 +251,22 @@ describe('project-scoped API keys', () => {
   it('POST /keys is FORBIDDEN when a scoped key mints an UNSCOPED key (no escalation)', async () => {
     const res = await authed('POST', '/api/v1/keys', SCOPED_WRITE_KEY, { name: 'escalate', scopes: ['*'] })
     expect(res.statusCode).toBe(403)
+  })
+
+  it('POST /keys/:id/revoke is FORBIDDEN when a scoped key targets a full-instance key', async () => {
+    const res = await authed('POST', `/api/v1/keys/${rootKeyId}/revoke`, SCOPED_WRITE_KEY)
+    expect(res.statusCode).toBe(403)
+  })
+
+  it('POST /keys/:id/revoke is FORBIDDEN when a scoped key targets a sibling project key', async () => {
+    const res = await authed('POST', `/api/v1/keys/${scopedBKeyId}/revoke`, SCOPED_WRITE_KEY)
+    expect(res.statusCode).toBe(403)
+  })
+
+  it('POST /keys/:id/revoke ALLOWS a scoped key revoking another key from its OWN project', async () => {
+    const res = await authed('POST', `/api/v1/keys/${scopedKeyId}/revoke`, SCOPED_WRITE_KEY)
+    expect(res.statusCode).toBe(200)
+    expect((res.json() as { revokedAt: string | null }).revokedAt).not.toBeNull()
   })
 
   it('POST /keys ALLOWS a scoped key minting a key for its OWN project', async () => {

@@ -1,7 +1,7 @@
 import { and, eq, desc, inArray } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { auditLog, querySnapshots, runs, queries, parseJsonColumn } from '@ainyc/canonry-db'
-import { CitationStates, validationError } from '@ainyc/canonry-contracts'
+import { CitationStates, notFound, validationError } from '@ainyc/canonry-contracts'
 import { notProbeRun, resolveProject, resolveSnapshotAnswerMentioned, resolveSnapshotMentionState, resolveSnapshotVisibilityState } from './helpers.js'
 import { redactNotificationDiff } from './notification-redaction.js'
 
@@ -322,6 +322,20 @@ export async function historyRoutes(app: FastifyInstance) {
     const { run1, run2 } = request.query
     if (!run1 || !run2) {
       throw validationError('Both run1 and run2 query params are required')
+    }
+
+    const requestedRunIds = [...new Set([run1, run2])]
+    const runRows = app.db
+      .select({ id: runs.id, projectId: runs.projectId })
+      .from(runs)
+      .where(inArray(runs.id, requestedRunIds))
+      .all()
+    const runsById = new Map(runRows.map(row => [row.id, row]))
+    for (const runId of requestedRunIds) {
+      const run = runsById.get(runId)
+      if (!run || run.projectId !== project.id) {
+        throw notFound('Run', runId)
+      }
     }
 
     // Get snapshots for both runs

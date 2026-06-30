@@ -210,7 +210,7 @@ export async function authPlugin(app: FastifyInstance, opts: AuthPluginOptions =
           .from(projects)
           .where(eq(projects.name, projectName))
           .get()
-        if (scoped && scoped.id !== key.projectId) {
+        if (!scoped || scoped.id !== key.projectId) {
           throw forbidden('This API key is scoped to a different project.')
         }
       }
