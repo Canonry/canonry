@@ -102,14 +102,24 @@ describe('buildEmbedClientConfig', () => {
     })
   })
 
-  it('carries views and theme but NEVER the server-only allowedOrigins', () => {
+  it('carries views, projectTabs and theme but NEVER the server-only allowedOrigins', () => {
     const out = buildEmbedClientConfig({
       enabled: true,
       allowedOrigins: ['https://a.com'],
       views: ['overview'],
+      projectTabs: ['overview', 'technical-aeo'],
       theme: { accent: '#fff' },
     })
-    expect(out).toEqual({ enabled: true, views: ['overview'], theme: { accent: '#fff' } })
+    expect(out).toEqual({
+      enabled: true,
+      views: ['overview'],
+      projectTabs: ['overview', 'technical-aeo'],
+      theme: { accent: '#fff' },
+    })
     expect(out).not.toHaveProperty('allowedOrigins')
+  })
+
+  it('omits projectTabs when the allowlist is empty (= all tabs)', () => {
+    expect(buildEmbedClientConfig({ enabled: true, allowedOrigins: [], projectTabs: [] })).toEqual({ enabled: true })
   })
 })

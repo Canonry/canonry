@@ -27,6 +27,30 @@ export function embedViewIdForPath(pathname: string): string {
 }
 
 /**
+ * Whether a project-page tab key is visible under an embed `projectTabs`
+ * allowlist. An absent allowlist (non-embed, or embed without the option) means
+ * every tab is visible. Finer-grained than `embedViewIdForPath`, which collapses
+ * the whole project page to one `project` id and so cannot hide a single tab.
+ * Presentational only, NOT a security boundary (the project-scoped API key
+ * governs data access).
+ */
+export function isEmbedProjectTabAllowed(tab: string, allow: readonly string[] | undefined): boolean {
+  return !allow || allow.includes(tab)
+}
+
+/**
+ * The project tab to actually render under an embed `projectTabs` allowlist: the
+ * requested tab when allowed, otherwise `overview` (or the first allowed tab when
+ * even overview is hidden). With no allowlist the requested tab is unchanged. So a
+ * direct-URL hit on a hidden tab falls back to a visible board, never an empty page.
+ */
+export function resolveEmbedProjectTab<T extends string>(requested: T, allow: readonly string[] | undefined): T {
+  if (isEmbedProjectTabAllowed(requested, allow)) return requested
+  if (!allow || allow.length === 0) return requested
+  return (allow.includes('overview') ? 'overview' : allow[0]) as T
+}
+
+/**
  * Embed theme keys → namespaced CSS custom properties consumed by the embed
  * shell (`.app-shell-embed` in styles.css). Limited to the shell background +
  * text on purpose: the dashboard's content uses fixed Tailwind colors, so a

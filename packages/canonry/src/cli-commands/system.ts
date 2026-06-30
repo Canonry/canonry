@@ -19,9 +19,12 @@ export function applyServerEnv(values: CliValues): void {
   // clobbers an inherited env value (mirrors the basePath handling above).
   const embedOrigins = getStringArray(values, 'embed-allow-origin')
   const embedViews = getStringArray(values, 'embed-view')
+  const embedProjectTabs = getStringArray(values, 'embed-project-tab')
   if (getBoolean(values, 'embed')) process.env.CANONRY_EMBED = '1'
   if (embedOrigins && embedOrigins.length > 0) process.env.CANONRY_EMBED_ORIGINS = embedOrigins.join(',')
   if (embedViews && embedViews.length > 0) process.env.CANONRY_EMBED_VIEWS = embedViews.join(',')
+  if (embedProjectTabs && embedProjectTabs.length > 0)
+    process.env.CANONRY_EMBED_PROJECT_TABS = embedProjectTabs.join(',')
 }
 
 export const SYSTEM_CLI_COMMANDS: readonly CliCommandSpec[] = [
@@ -79,7 +82,7 @@ export const SYSTEM_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['serve'],
-    usage: 'canonry serve [--port <port>] [--host <host>] [--base-path <path>] [--embed] [--embed-allow-origin <origin>...] [--embed-view <view>...] [--format json]',
+    usage: 'canonry serve [--port <port>] [--host <host>] [--base-path <path>] [--embed] [--embed-allow-origin <origin>...] [--embed-view <view>...] [--embed-project-tab <tab>...] [--format json]',
     options: {
       port: stringOption(),
       host: stringOption(),
@@ -87,6 +90,7 @@ export const SYSTEM_CLI_COMMANDS: readonly CliCommandSpec[] = [
       embed: { type: 'boolean', default: false },
       'embed-allow-origin': multiStringOption(),
       'embed-view': multiStringOption(),
+      'embed-project-tab': multiStringOption(),
     },
     allowPositionals: false,
     run: async (input) => {
@@ -96,7 +100,7 @@ export const SYSTEM_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['start'],
-    usage: 'canonry start [--port <port>] [--host <host>] [--base-path <path>] [--embed] [--embed-allow-origin <origin>...] [--embed-view <view>...] [--format json]',
+    usage: 'canonry start [--port <port>] [--host <host>] [--base-path <path>] [--embed] [--embed-allow-origin <origin>...] [--embed-view <view>...] [--embed-project-tab <tab>...] [--format json]',
     options: {
       port: stringOption(),
       host: stringOption(),
@@ -104,6 +108,7 @@ export const SYSTEM_CLI_COMMANDS: readonly CliCommandSpec[] = [
       embed: { type: 'boolean', default: false },
       'embed-allow-origin': multiStringOption(),
       'embed-view': multiStringOption(),
+      'embed-project-tab': multiStringOption(),
     },
     allowPositionals: false,
     run: async (input) => {
@@ -114,6 +119,7 @@ export const SYSTEM_CLI_COMMANDS: readonly CliCommandSpec[] = [
         embed: getBoolean(input.values, 'embed'),
         embedAllowOrigins: getStringArray(input.values, 'embed-allow-origin'),
         embedViews: getStringArray(input.values, 'embed-view'),
+        embedProjectTabs: getStringArray(input.values, 'embed-project-tab'),
         format: input.format,
       })
     },

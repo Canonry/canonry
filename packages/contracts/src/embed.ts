@@ -26,6 +26,15 @@ export interface EmbedConfigEntry {
   allowOrigins?: string[]
   /** Optional allowlist of view ids the embed may render (omit = all views). */
   views?: string[]
+  /**
+   * Optional allowlist of PROJECT TAB keys the embedded project page may render
+   * (`overview`, `technical-aeo`, `search-console`, `activity`, `backlinks`, ...).
+   * Finer-grained than `views` (which only gates whole top-level routes): the
+   * project page collapses to one `project` view, so this is the only lever that
+   * can hide individual operator tabs from the embedded client dashboard. Omit =
+   * all tabs.
+   */
+  projectTabs?: string[]
   /** Optional CSS custom-property overrides for the host page (sanitized client-side). */
   theme?: Record<string, string>
 }
@@ -37,6 +46,8 @@ export interface ResolvedEmbedConfig {
   allowedOrigins: string[]
   /** Normalized view allowlist; `undefined` means "all views" (never `[]`). */
   views?: string[]
+  /** Normalized project-tab allowlist; `undefined` means "all tabs" (never `[]`). */
+  projectTabs?: string[]
   theme?: Record<string, string>
 }
 
@@ -48,6 +59,8 @@ export interface ResolvedEmbedConfig {
 export interface EmbedClientConfig {
   enabled: true
   views?: string[]
+  /** Project-tab allowlist; `undefined` means "all tabs". */
+  projectTabs?: string[]
   theme?: Record<string, string>
 }
 
@@ -147,6 +160,7 @@ export function buildEmbedClientConfig(resolved: ResolvedEmbedConfig): EmbedClie
   if (!resolved.enabled) return undefined
   const client: EmbedClientConfig = { enabled: true }
   if (resolved.views && resolved.views.length > 0) client.views = resolved.views
+  if (resolved.projectTabs && resolved.projectTabs.length > 0) client.projectTabs = resolved.projectTabs
   if (resolved.theme && Object.keys(resolved.theme).length > 0) client.theme = resolved.theme
   return client
 }

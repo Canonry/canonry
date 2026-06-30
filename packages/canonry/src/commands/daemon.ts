@@ -43,6 +43,7 @@ export interface ServeForwardOpts {
   embed?: boolean
   embedAllowOrigins?: string[]
   embedViews?: string[]
+  embedProjectTabs?: string[]
 }
 
 /**
@@ -61,6 +62,7 @@ export function buildServeForwardArgs(opts: ServeForwardOpts): string[] {
     args.push('--embed')
     for (const origin of opts.embedAllowOrigins ?? []) args.push('--embed-allow-origin', origin)
     for (const view of opts.embedViews ?? []) args.push('--embed-view', view)
+    for (const projectTab of opts.embedProjectTabs ?? []) args.push('--embed-project-tab', projectTab)
   }
   return args
 }
