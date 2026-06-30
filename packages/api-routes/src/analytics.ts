@@ -59,6 +59,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
         citationState: querySnapshots.citationState,
         answerMentioned: querySnapshots.answerMentioned,
         answerText: querySnapshots.answerText,
+        location: querySnapshots.location,
         createdAt: querySnapshots.createdAt,
       })
       .from(querySnapshots)
@@ -493,6 +494,7 @@ interface SnapshotLike {
   citationState: string
   resolvedMentioned: boolean
   answerText: string | null
+  location: string | null
   createdAt: string
 }
 
@@ -590,9 +592,42 @@ function computeMentionShareBucketMetric(
   mentionShareCompetitors: MentionShareCompetitorInput[],
 ): TimeBucket['mentionShare'] {
   if (mentionShareCompetitors.length === 0) {
-    return { rate: null, projectMentionSnapshots: 0, competitorMentionSnapshots: 0 }
+    return {
+      ...emptyMentionShareObservationMetric(snapshots),
+      byProvider: {},
+      byLocation: {},
+    }
   }
 
+  const byProvider: TimeBucket['mentionShare']['byProvider'] = {}
+  for (const provider of new Set(snapshots.map(s => s.provider))) {
+    byProvider[provider] = computeMentionShareObservationMetric(
+      snapshots.filter(s => s.provider === provider),
+      mentionShareCompetitors,
+    )
+  }
+
+  const byLocation: TimeBucket['mentionShare']['byLocation'] = {}
+  for (const location of new Set(snapshots.map(s => locationBucketKey(s.location)))) {
+    byLocation[location] = computeMentionShareObservationMetric(
+      snapshots.filter(s => locationBucketKey(s.location) === location),
+      mentionShareCompetitors,
+    )
+  }
+
+  return {
+    ...computeMentionShareObservationMetric(snapshots, mentionShareCompetitors),
+    byProvider,
+    byLocation,
+  }
+}
+
+type MentionShareObservationMetric = Omit<TimeBucket['mentionShare'], 'byProvider' | 'byLocation'>
+
+function computeMentionShareObservationMetric(
+  snapshots: SnapshotLike[],
+  mentionShareCompetitors: MentionShareCompetitorInput[],
+): MentionShareObservationMetric {
   const result = buildMentionShare(
     snapshots.map(s => ({
       projectMentioned: s.resolvedMentioned,
@@ -600,14 +635,32 @@ function computeMentionShareBucketMetric(
     })),
     { competitors: mentionShareCompetitors },
   )
-  const projectMentionSnapshots = result.breakdown.projectMentionSnapshots
-  const competitorMentionSnapshots = result.breakdown.competitorMentionSnapshots
-  const denominator = projectMentionSnapshots + competitorMentionSnapshots
+  const projectMentionEvents = result.breakdown.projectMentionSnapshots
+  const competitorMentionEvents = result.breakdown.competitorMentionSnapshots
+  const denominator = projectMentionEvents + competitorMentionEvents
   return {
-    rate: denominator > 0 ? round4(projectMentionSnapshots / denominator) : null,
-    projectMentionSnapshots,
-    competitorMentionSnapshots,
+    rate: denominator > 0 ? round4(projectMentionEvents / denominator) : null,
+    projectMentionEvents,
+    competitorMentionEvents,
+    brandMentionEvents: denominator,
+    answerObservations: result.breakdown.snapshotsWithAnswerText,
+    totalObservations: result.breakdown.snapshotsTotal,
   }
+}
+
+function emptyMentionShareObservationMetric(snapshots: SnapshotLike[]): MentionShareObservationMetric {
+  return {
+    rate: null,
+    projectMentionEvents: 0,
+    competitorMentionEvents: 0,
+    brandMentionEvents: 0,
+    answerObservations: snapshots.filter(s => (s.answerText ?? '').length > 0).length,
+    totalObservations: snapshots.length,
+  }
+}
+
+function locationBucketKey(location: string | null): string {
+  return location && location.trim().length > 0 ? location : 'unscoped'
 }
 
 function computeQueryChanges(

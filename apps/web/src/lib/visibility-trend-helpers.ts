@@ -13,16 +13,31 @@ import type { MetricTone } from '../view-models.js'
 export const CITED_KEY = '__cited__'
 export const MENTIONED_KEY = '__mentioned__'
 export const MENTION_SHARE_KEY = '__mentionShare__'
+export const MENTION_SHARE_META_KEY = '__mentionShareMeta__'
 
 export type TrendSeriesMode = 'overall' | 'byProvider'
+export type MentionShareSeriesMode = 'overall' | 'byProvider' | 'byLocation'
 
 /** Which metric line to plot. */
 export type MetricChoice = 'cited' | 'mentioned'
 
 export interface TrendRow {
   date: string
-  [series: string]: number | string | null
+  [series: string]: number | string | null | MentionShareTrendMeta
 }
+
+export interface MentionShareTrendMeta {
+  projectMentionEvents: number
+  competitorMentionEvents: number
+  brandMentionEvents: number
+  answerObservations: number
+  totalObservations: number
+  byProvider: BrandMetricsDto['buckets'][number]['mentionShare']['byProvider']
+  byLocation: BrandMetricsDto['buckets'][number]['mentionShare']['byLocation']
+}
+
+type TrendBucket = BrandMetricsDto['buckets'][number]
+type LegacyTrendBucket = Omit<TrendBucket, 'byProvider' | 'mentionShare'> & Partial<Pick<TrendBucket, 'byProvider' | 'mentionShare'>>
 
 export interface TrendData {
   rows: TrendRow[]
@@ -61,8 +76,9 @@ export function buildTrendRows(
   // `?? {}` guards buckets from an older backend (≤4.67.0) that predates the
   // per-bucket breakdown and omits `byProvider` entirely — degrade to no
   // provider lines instead of throwing on `Object.keys(undefined)`.
-  const series = [...new Set(dto.buckets.flatMap(b => Object.keys(b.byProvider ?? {})))].sort()
-  const rows: TrendRow[] = dto.buckets.map(b => {
+  const buckets = dto.buckets as LegacyTrendBucket[]
+  const series = [...new Set(buckets.flatMap(b => Object.keys(b.byProvider ?? {})))].sort()
+  const rows: TrendRow[] = buckets.map(b => {
     const row: TrendRow = { date: b.startDate }
     for (const provider of series) {
       const metricRow = b.byProvider?.[provider]
@@ -75,22 +91,53 @@ export function buildTrendRows(
   return { rows, series, hasData, singleBucket }
 }
 
-export function buildMentionShareTrendRows(dto: BrandMetricsDto): TrendData {
-  const rows: TrendRow[] = dto.buckets.map(b => {
-    const mentionShare = (b as { mentionShare?: BrandMetricsDto['buckets'][number]['mentionShare'] }).mentionShare
-    return {
+export function buildMentionShareTrendRows(
+  dto: BrandMetricsDto,
+  mode: MentionShareSeriesMode = 'overall',
+): TrendData {
+  const buckets = dto.buckets as LegacyTrendBucket[]
+  const series = mode === 'overall'
+    ? [MENTION_SHARE_KEY]
+    : [...new Set(buckets.flatMap(b => Object.keys(b.mentionShare?.[mode] ?? {})))].sort()
+  const rows: TrendRow[] = buckets.map(b => {
+    const mentionShare = b.mentionShare
+    const row: TrendRow = {
       date: b.startDate,
-      [MENTION_SHARE_KEY]: mentionShare?.rate == null ? null : toPercent(mentionShare.rate),
+      [MENTION_SHARE_META_KEY]: mentionShare === undefined
+        ? null
+        : {
+            projectMentionEvents: mentionShare.projectMentionEvents,
+            competitorMentionEvents: mentionShare.competitorMentionEvents,
+            brandMentionEvents: mentionShare.brandMentionEvents,
+            answerObservations: mentionShare.answerObservations,
+            totalObservations: mentionShare.totalObservations,
+            byProvider: mentionShare.byProvider,
+            byLocation: mentionShare.byLocation,
+          },
     }
+    if (mode === 'overall') {
+      row[MENTION_SHARE_KEY] = mentionShare?.rate == null ? null : toPercent(mentionShare.rate)
+    } else {
+      const scopedMetrics = mentionShare?.[mode] ?? {}
+      for (const key of series) {
+        if (!(key in scopedMetrics)) {
+          row[key] = null
+          continue
+        }
+        const metric = scopedMetrics[key]
+        row[key] = metric.rate === null ? null : toPercent(metric.rate)
+      }
+    }
+    return row
   })
-  const plottedValues = rows
-    .map(row => row[MENTION_SHARE_KEY])
-    .filter((v): v is number => typeof v === 'number' && Number.isFinite(v))
+  const plottedBucketCount = rows.filter(row =>
+    series.some(key => typeof row[key] === 'number' && Number.isFinite(row[key] as number)),
+  ).length
   return {
     rows,
-    series: [MENTION_SHARE_KEY],
-    hasData: plottedValues.length > 0,
-    singleBucket: plottedValues.length === 1,
+    series,
+    hasData: plottedBucketCount > 0,
+    singleBucket: plottedBucketCount === 1,
   }
 }
 

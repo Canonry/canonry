@@ -344,8 +344,31 @@ export type BrandMetricsDto = {
         mentionedCount: number;
         mentionShare: {
             rate: number | null;
-            projectMentionSnapshots: number;
-            competitorMentionSnapshots: number;
+            projectMentionEvents: number;
+            competitorMentionEvents: number;
+            brandMentionEvents: number;
+            answerObservations: number;
+            totalObservations: number;
+            byProvider: {
+                [key: string]: {
+                    rate: number | null;
+                    projectMentionEvents: number;
+                    competitorMentionEvents: number;
+                    brandMentionEvents: number;
+                    answerObservations: number;
+                    totalObservations: number;
+                };
+            };
+            byLocation: {
+                [key: string]: {
+                    rate: number | null;
+                    projectMentionEvents: number;
+                    competitorMentionEvents: number;
+                    brandMentionEvents: number;
+                    answerObservations: number;
+                    totalObservations: number;
+                };
+            };
         };
         byProvider: {
             [key: string]: {

@@ -25,12 +25,26 @@ export const providerMetricSchema = z.object({
 })
 export type ProviderMetric = z.infer<typeof providerMetricSchema>
 
-/** Mention-share metric for one time bucket. Null rate means the competitive
- *  frame had no brand mentions in that bucket, so the share is undefined. */
-export const mentionShareBucketMetricSchema = z.object({
+/** Mention-share observation counts for one scope within a time bucket. Null
+ *  rate means the competitive frame had no brand mentions in that scope, so
+ *  the share is undefined. */
+export const mentionShareObservationMetricSchema = z.object({
   rate: z.number().nullable(),
-  projectMentionSnapshots: z.number().int().nonnegative(),
-  competitorMentionSnapshots: z.number().int().nonnegative(),
+  projectMentionEvents: z.number().int().nonnegative(),
+  competitorMentionEvents: z.number().int().nonnegative(),
+  /** Denominator for `rate`: project + tracked-competitor brand mention events. */
+  brandMentionEvents: z.number().int().nonnegative(),
+  answerObservations: z.number().int().nonnegative(),
+  totalObservations: z.number().int().nonnegative(),
+})
+
+/** Mention-share metric for one time bucket, including provider/location
+ *  distributions so clients can render this as repeated observations rather
+ *  than a standalone score. */
+export const mentionShareBucketMetricSchema = mentionShareObservationMetricSchema.extend({
+  byProvider: z.record(z.string(), mentionShareObservationMetricSchema),
+  /** `unscoped` groups snapshots from runs with no configured location. */
+  byLocation: z.record(z.string(), mentionShareObservationMetricSchema),
 })
 export type MentionShareBucketMetric = z.infer<typeof mentionShareBucketMetricSchema>
 

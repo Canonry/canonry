@@ -30,8 +30,12 @@ import {
   formatQueryChangeCaption,
   latestSeriesValue,
   MENTION_SHARE_KEY,
+  MENTION_SHARE_META_KEY,
   MENTIONED_KEY,
+  type MentionShareSeriesMode,
+  type MentionShareTrendMeta,
   type MetricChoice,
+  type TrendRow,
   type TrendSeriesMode,
 } from '../../lib/visibility-trend-helpers.js'
 
@@ -44,6 +48,11 @@ const WINDOW_OPTIONS: Array<{ value: MetricsWindow; label: string }> = [
 const MODE_OPTIONS: Array<{ value: TrendSeriesMode; label: string }> = [
   { value: 'byProvider', label: 'By engine' },
   { value: 'overall', label: 'All engines' },
+]
+const MENTION_SHARE_MODE_OPTIONS: Array<{ value: MentionShareSeriesMode; label: string }> = [
+  { value: 'byProvider', label: 'By engine' },
+  { value: 'byLocation', label: 'By location' },
+  { value: 'overall', label: 'Overall' },
 ]
 const METRIC_OPTIONS: Array<{ value: MetricChoice; label: string }> = [
   { value: 'mentioned', label: 'Mentioned' },
@@ -87,12 +96,34 @@ function seriesColor(key: string, index: number): string {
   return providerSeriesColor(key, index)
 }
 
-function firstSeriesValue(rows: Array<Record<string, string | number | null>>, key: string): number | null {
+function firstSeriesValue(rows: TrendRow[], key: string): number | null {
   for (const row of rows) {
     const value = row[key]
     if (typeof value === 'number' && Number.isFinite(value)) return value
   }
   return null
+}
+
+function isMentionShareTrendMeta(value: unknown): value is MentionShareTrendMeta {
+  return typeof value === 'object' && value !== null && 'brandMentionEvents' in value
+}
+
+function latestMentionSharePoint(rows: TrendRow[], key = MENTION_SHARE_KEY): { value: number; meta: MentionShareTrendMeta | null } | null {
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const row = rows[i]!
+    const value = row[key]
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      const meta = row[MENTION_SHARE_META_KEY]
+      return { value, meta: isMentionShareTrendMeta(meta) ? meta : null }
+    }
+  }
+  return null
+}
+
+function mentionShareSeriesLabel(key: string, mode: MentionShareSeriesMode): string {
+  if (key === MENTION_SHARE_KEY) return 'Overall'
+  if (mode === 'byLocation') return key === 'unscoped' ? 'No location' : key
+  return providerDisplayName(key)
 }
 
 function competitorFrameKey(competitorDomains: readonly string[]): string {
@@ -178,9 +209,13 @@ export function VisibilityTrendSection({
   // doesn't read as one engine's color) and tag it "avg".
   const headlineDotColor = byProviderMode ? CHART_NEUTRAL.textDim : metricColor
   const buckets = data?.buckets ?? []
-  const latestPct = buckets.length > 0 ? round1(buckets[buckets.length - 1]![metricField] * 100) : null
+  const latestBucket = buckets.length > 0 ? buckets[buckets.length - 1]! : null
+  const latestPct = latestBucket ? round1(latestBucket[metricField] * 100) : null
   const firstPct = buckets.length > 0 ? round1(buckets[0]![metricField] * 100) : null
   const deltaPts = latestPct !== null && firstPct !== null && buckets.length > 1 ? round1(latestPct - firstPct) : null
+  const latestObservationLabel = latestBucket
+    ? `${metric === 'cited' ? latestBucket.cited : latestBucket.mentionedCount} / ${latestBucket.total} observations`
+    : null
 
   const header = (
     <>
@@ -198,6 +233,7 @@ export function VisibilityTrendSection({
             <span className="visibility-trend-current-label">{metricLabel}</span>
             {byProviderMode && <span className="visibility-trend-current-qualifier">avg</span>}
             <span className="visibility-trend-current-value">{latestPct}%</span>
+            {latestObservationLabel && <span className="visibility-trend-current-sample">{latestObservationLabel}</span>}
             {deltaPts !== null && (
               <span
                 className={`visibility-trend-current-delta ${
@@ -336,6 +372,7 @@ export function MentionShareTrendSection({
   competitorDomains: readonly string[]
 }) {
   const [window, setWindow] = useState<MetricsWindow>('all')
+  const [mode, setMode] = useState<MentionShareSeriesMode>('byProvider')
   const metricsFrameKey = useMemo(() => competitorFrameKey(competitorDomains), [competitorDomains])
   const competitorCount = competitorDomains.length
 
@@ -346,9 +383,12 @@ export function MentionShareTrendSection({
   })
   const data = metricsQuery.data ?? null
   const error = metricsQuery.error
-  const trend = useMemo(() => (data ? buildMentionShareTrendRows(data) : null), [data])
-  const latestPct = trend ? latestSeriesValue(trend.rows, MENTION_SHARE_KEY) : null
-  const firstPct = trend ? firstSeriesValue(trend.rows, MENTION_SHARE_KEY) : null
+  const trend = useMemo(() => (data ? buildMentionShareTrendRows(data, mode) : null), [data, mode])
+  const overallTrend = useMemo(() => (data ? buildMentionShareTrendRows(data, 'overall') : null), [data])
+  const latestPoint = overallTrend ? latestMentionSharePoint(overallTrend.rows) : null
+  const latestPct = latestPoint?.value ?? null
+  const firstPct = overallTrend ? firstSeriesValue(overallTrend.rows, MENTION_SHARE_KEY) : null
+  const latestMeta = latestPoint?.meta ?? null
   const deltaPts = latestPct !== null && firstPct !== null && latestPct !== firstPct
     ? round1(latestPct - firstPct)
     : latestPct !== null && firstPct !== null
@@ -369,7 +409,14 @@ export function MentionShareTrendSection({
           <div className="visibility-trend-current">
             <span className="visibility-trend-current-dot" style={{ backgroundColor: CHART_TONE.positive }} aria-hidden="true" />
             <span className="visibility-trend-current-label">Mention share</span>
+            {mode !== 'overall' && <span className="visibility-trend-current-qualifier">overall</span>}
             <span className="visibility-trend-current-value">{latestPct}%</span>
+            {latestMeta && (
+              <span className="visibility-trend-current-sample">
+                {latestMeta.projectMentionEvents} / {latestMeta.brandMentionEvents} brand mention events
+              </span>
+            )}
+            {latestMeta && <span className="visibility-trend-current-sample">{latestMeta.answerObservations} answer observations</span>}
             {deltaPts !== null && (
               <span
                 className={`visibility-trend-current-delta ${
@@ -383,6 +430,7 @@ export function MentionShareTrendSection({
         )}
       </div>
       <div className="visibility-trend-controls">
+        <Segmented options={MENTION_SHARE_MODE_OPTIONS} value={mode} onChange={setMode} ariaLabel="Distribution" />
         <Segmented options={WINDOW_OPTIONS} value={window} onChange={setWindow} ariaLabel="Time window" className="sm:ml-auto" />
       </div>
     </>
@@ -399,15 +447,39 @@ export function MentionShareTrendSection({
     body = null
   } else if (!trend.hasData) {
     body = <p className="text-sm text-zinc-400">No answer-text brand mentions for you or tracked competitors in this window yet.</p>
+  } else if (mode !== 'overall' && trend.series.length === 0) {
+    body = (
+      <p className="text-sm text-zinc-400">
+        No {mode === 'byProvider' ? 'engine' : 'location'} distribution is available for this data yet. Switch to <span className="text-zinc-200">Overall</span> to see the trend.
+      </p>
+    )
   } else {
     const caption = formatQueryChangeCaption(data.queryChanges)
-    const { rows, singleBucket } = trend
+    const { rows, series, singleBucket } = trend
     const srSummary = `Mention share across ${rows.length} ${rows.length === 1 ? 'sweep bucket' : 'sweep buckets'}. Latest ${latestPct}%${
       deltaPts !== null ? `, ${deltaPts >= 0 ? 'up' : 'down'} ${Math.abs(deltaPts).toFixed(1)} points over the period` : ''
     }.`
     body = (
       <>
         <p className="sr-only">{srSummary}</p>
+        {mode !== 'overall' && series.length > 0 && (
+          <ul className="trend-legend" aria-label={mode === 'byProvider' ? 'Engines' : 'Locations'}>
+            {series.map((key, i) => {
+              const value = latestSeriesValue(rows, key)
+              return (
+                <li key={key} className="trend-legend-item">
+                  <span
+                    className="trend-legend-swatch"
+                    style={{ backgroundColor: seriesColor(key, i) }}
+                    aria-hidden="true"
+                  />
+                  <span className="trend-legend-name">{mentionShareSeriesLabel(key, mode)}</span>
+                  {value !== null && <span className="trend-legend-value">{value}%</span>}
+                </li>
+              )
+            })}
+          </ul>
+        )}
         <div className="visibility-trend-chart">
           <ResponsiveContainer width="100%" height="100%">
             <ComposedChart data={rows} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
@@ -433,19 +505,22 @@ export function MentionShareTrendSection({
                 {...CHART_TOOLTIP_STYLE}
                 cursor={{ stroke: CHART_AXIS_STROKE, strokeWidth: 1 }}
                 labelFormatter={formatChartDateLabel}
-                formatter={(value) => [value == null ? 'no data' : `${value}%`, 'Mention share']}
+                formatter={(value, name) => [value == null ? 'no data' : `${value}%`, mentionShareSeriesLabel(String(name), mode)]}
               />
-              <Line
-                type="monotone"
-                dataKey={MENTION_SHARE_KEY}
-                name={MENTION_SHARE_KEY}
-                stroke={CHART_TONE.positive}
-                strokeWidth={2.5}
-                dot={{ r: 2.5, fill: CHART_TONE.positive, strokeWidth: 0 }}
-                activeDot={{ r: 4, strokeWidth: 2, stroke: ACTIVE_DOT_RING }}
-                connectNulls
-                isAnimationActive={false}
-              />
+              {series.map((key, i) => (
+                <Line
+                  key={key}
+                  type="monotone"
+                  dataKey={key}
+                  name={key}
+                  stroke={seriesColor(key, i)}
+                  strokeWidth={key === MENTION_SHARE_KEY ? 2.5 : 2}
+                  dot={{ r: 2.5, fill: seriesColor(key, i), strokeWidth: 0 }}
+                  activeDot={{ r: 4, strokeWidth: 2, stroke: ACTIVE_DOT_RING }}
+                  connectNulls
+                  isAnimationActive={false}
+                />
+              ))}
             </ComposedChart>
           </ResponsiveContainer>
         </div>
