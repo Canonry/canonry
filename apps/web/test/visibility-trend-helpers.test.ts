@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import type { BrandMetricsDto } from '@ainyc/canonry-contracts'
+import { MentionShareNoLocationBucket, type BrandMetricsDto } from '@ainyc/canonry-contracts'
 import {
   buildMentionShareTrendRows,
   buildTrendRows,
@@ -30,6 +30,8 @@ function mentionShareObservation(
     rate,
     projectMentionEvents,
     competitorMentionEvents,
+    projectMentionSnapshots: projectMentionEvents,
+    competitorMentionSnapshots: competitorMentionEvents,
     brandMentionEvents: projectMentionEvents + competitorMentionEvents,
     answerObservations,
     totalObservations,
@@ -179,7 +181,6 @@ describe('buildMentionShareTrendRows', () => {
     expect(res.hasData).toBe(true)
     expect(res.rows[1]![MENTION_SHARE_META_KEY]).toMatchObject({
       projectMentionEvents: 3,
-      competitorMentionEvents: 1,
       brandMentionEvents: 4,
       answerObservations: 4,
     })
@@ -228,15 +229,15 @@ describe('buildMentionShareTrendRows', () => {
         ...bucket('2026-04-01', { gemini: provider(0.25, 0.1) }),
         mentionShare: mentionShareMetric(0.5, 2, 2, 4, 4, {}, {
           florida: mentionShareObservation(1, 2, 0),
-          unscoped: mentionShareObservation(0, 0, 2),
+          [MentionShareNoLocationBucket]: mentionShareObservation(0, 0, 2),
         }),
       },
     ])
 
     const res = buildMentionShareTrendRows(d, 'byLocation')
-    expect(res.series).toEqual(['florida', 'unscoped'])
+    expect(res.series).toEqual([MentionShareNoLocationBucket, 'florida'])
     expect(res.rows[0]!.florida).toBe(100)
-    expect(res.rows[0]!.unscoped).toBe(0)
+    expect(res.rows[0]![MentionShareNoLocationBucket]).toBe(0)
   })
 })
 

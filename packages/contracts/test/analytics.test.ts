@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
+  MentionShareNoLocationBucket,
   mentionShareBucketMetricSchema,
   providerMetricSchema,
   timeBucketSchema,
@@ -23,6 +24,8 @@ const mentionShareObservationMetric = {
   rate: 0.6,
   projectMentionEvents: 3,
   competitorMentionEvents: 2,
+  projectMentionSnapshots: 3,
+  competitorMentionSnapshots: 2,
   brandMentionEvents: 5,
   answerObservations: 4,
   totalObservations: 4,
@@ -40,7 +43,7 @@ const bucket = {
   mentionShare: {
     ...mentionShareObservationMetric,
     byProvider: { gemini: mentionShareObservationMetric },
-    byLocation: { unscoped: mentionShareObservationMetric },
+    byLocation: { [MentionShareNoLocationBucket]: mentionShareObservationMetric },
   },
   byProvider: {
     gemini: providerMetric,
@@ -69,6 +72,8 @@ describe('mentionShareBucketMetricSchema', () => {
       rate: null,
       projectMentionEvents: 0,
       competitorMentionEvents: 0,
+      projectMentionSnapshots: 0,
+      competitorMentionSnapshots: 0,
       brandMentionEvents: 0,
       answerObservations: 2,
       totalObservations: 2,
@@ -76,6 +81,7 @@ describe('mentionShareBucketMetricSchema', () => {
       byLocation: {},
     })
     expect(parsed.rate).toBeNull()
+    expect(parsed.projectMentionSnapshots).toBe(parsed.projectMentionEvents)
   })
 })
 

@@ -2,6 +2,7 @@ import React from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, expect, onTestFinished, test, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { MentionShareNoLocationBucket } from '@ainyc/canonry-contracts'
 
 afterEach(cleanup)
 
@@ -45,6 +46,8 @@ function mentionShareObservation(
     rate,
     projectMentionEvents,
     competitorMentionEvents,
+    projectMentionSnapshots: projectMentionEvents,
+    competitorMentionSnapshots: competitorMentionEvents,
     brandMentionEvents: projectMentionEvents + competitorMentionEvents,
     answerObservations,
     totalObservations,
@@ -87,7 +90,7 @@ const TWO_BUCKETS = [
       gemini: mentionShareObservation(0.25, 1, 3),
       openai: mentionShareObservation(0.25, 1, 3),
     }, {
-      unscoped: mentionShareObservation(0.25, 1, 3),
+      [MentionShareNoLocationBucket]: mentionShareObservation(0.25, 1, 3),
     }),
     byProvider: { gemini: provider(0.25, 0.5), openai: provider(0.5, 0.25) },
   },
@@ -97,7 +100,7 @@ const TWO_BUCKETS = [
     mentionShare: mentionShareMetric(0.75, 3, 1, 4, 4, {
       gemini: mentionShareObservation(0.75, 3, 1),
     }, {
-      unscoped: mentionShareObservation(0.75, 3, 1),
+      [MentionShareNoLocationBucket]: mentionShareObservation(0.75, 3, 1),
     }),
     byProvider: { gemini: provider(0.75, 0.5) },
   },
@@ -227,7 +230,7 @@ test('keeps mention-share headline counts aligned to the latest plotted bucket',
       mentionShare: mentionShareMetric(null, 0, 0, 8, 8, {
         gemini: mentionShareObservation(null, 0, 0, 8, 8),
       }, {
-        unscoped: mentionShareObservation(null, 0, 0, 8, 8),
+        [MentionShareNoLocationBucket]: mentionShareObservation(null, 0, 0, 8, 8),
       }),
     },
   ]

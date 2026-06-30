@@ -15,6 +15,9 @@ export const visibilityMetricModeSchema = z.enum(['mentioned', 'cited'])
 export type VisibilityMetricMode = z.infer<typeof visibilityMetricModeSchema>
 export const VisibilityMetricModes = visibilityMetricModeSchema.enum
 
+/** byLocation bucket key for snapshots from runs with no configured location. */
+export const MentionShareNoLocationBucket = '__canonry_no_location__'
+
 /** Citation + mention rates for one provider (or the overall roll-up) within a window or bucket. */
 export const providerMetricSchema = z.object({
   citationRate: z.number(),
@@ -32,6 +35,10 @@ export const mentionShareObservationMetricSchema = z.object({
   rate: z.number().nullable(),
   projectMentionEvents: z.number().int().nonnegative(),
   competitorMentionEvents: z.number().int().nonnegative(),
+  /** Deprecated alias kept for one release for clients pinned to the old analytics DTO shape. */
+  projectMentionSnapshots: z.number().int().nonnegative(),
+  /** Deprecated alias kept for one release for clients pinned to the old analytics DTO shape. */
+  competitorMentionSnapshots: z.number().int().nonnegative(),
   /** Denominator for `rate`: project + tracked-competitor brand mention events. */
   brandMentionEvents: z.number().int().nonnegative(),
   answerObservations: z.number().int().nonnegative(),
@@ -43,7 +50,7 @@ export const mentionShareObservationMetricSchema = z.object({
  *  than a standalone score. */
 export const mentionShareBucketMetricSchema = mentionShareObservationMetricSchema.extend({
   byProvider: z.record(z.string(), mentionShareObservationMetricSchema),
-  /** `unscoped` groups snapshots from runs with no configured location. */
+  /** `MentionShareNoLocationBucket` groups snapshots from runs with no configured location. */
   byLocation: z.record(z.string(), mentionShareObservationMetricSchema),
 })
 export type MentionShareBucketMetric = z.infer<typeof mentionShareBucketMetricSchema>

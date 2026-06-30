@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import type { MetricsWindow } from '@ainyc/canonry-contracts'
+import { MentionShareNoLocationBucket, type MetricsWindow } from '@ainyc/canonry-contracts'
 import {
   CartesianGrid,
   CHART_AXIS_STROKE,
@@ -121,8 +121,8 @@ function latestMentionSharePoint(rows: TrendRow[], key = MENTION_SHARE_KEY): { v
 }
 
 function mentionShareSeriesLabel(key: string, mode: MentionShareSeriesMode): string {
-  if (key === MENTION_SHARE_KEY) return 'Overall'
-  if (mode === 'byLocation') return key === 'unscoped' ? 'No location' : key
+  if (key === MENTION_SHARE_KEY) return 'Mention share'
+  if (mode === 'byLocation') return key === MentionShareNoLocationBucket ? 'No location' : key
   return providerDisplayName(key)
 }
 

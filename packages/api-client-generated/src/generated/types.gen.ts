@@ -346,6 +346,8 @@ export type BrandMetricsDto = {
             rate: number | null;
             projectMentionEvents: number;
             competitorMentionEvents: number;
+            projectMentionSnapshots: number;
+            competitorMentionSnapshots: number;
             brandMentionEvents: number;
             answerObservations: number;
             totalObservations: number;
@@ -354,6 +356,8 @@ export type BrandMetricsDto = {
                     rate: number | null;
                     projectMentionEvents: number;
                     competitorMentionEvents: number;
+                    projectMentionSnapshots: number;
+                    competitorMentionSnapshots: number;
                     brandMentionEvents: number;
                     answerObservations: number;
                     totalObservations: number;
@@ -364,6 +368,8 @@ export type BrandMetricsDto = {
                     rate: number | null;
                     projectMentionEvents: number;
                     competitorMentionEvents: number;
+                    projectMentionSnapshots: number;
+                    competitorMentionSnapshots: number;
                     brandMentionEvents: number;
                     answerObservations: number;
                     totalObservations: number;

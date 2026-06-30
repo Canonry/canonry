@@ -28,12 +28,8 @@ export interface TrendRow {
 
 export interface MentionShareTrendMeta {
   projectMentionEvents: number
-  competitorMentionEvents: number
   brandMentionEvents: number
   answerObservations: number
-  totalObservations: number
-  byProvider: BrandMetricsDto['buckets'][number]['mentionShare']['byProvider']
-  byLocation: BrandMetricsDto['buckets'][number]['mentionShare']['byLocation']
 }
 
 type TrendBucket = BrandMetricsDto['buckets'][number]
@@ -107,12 +103,8 @@ export function buildMentionShareTrendRows(
         ? null
         : {
             projectMentionEvents: mentionShare.projectMentionEvents,
-            competitorMentionEvents: mentionShare.competitorMentionEvents,
             brandMentionEvents: mentionShare.brandMentionEvents,
             answerObservations: mentionShare.answerObservations,
-            totalObservations: mentionShare.totalObservations,
-            byProvider: mentionShare.byProvider,
-            byLocation: mentionShare.byLocation,
           },
     }
     if (mode === 'overall') {

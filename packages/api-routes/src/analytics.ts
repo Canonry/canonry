@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify'
 import { filterTrackedSnapshots, groupRunsByCreatedAt, pickGroupRepresentative, querySnapshots, runs, queries, competitors, domainClassifications, parseJsonColumn } from '@ainyc/canonry-db'
 import {
   AI_PROVIDER_INFRA_DOMAINS, brandLabelFromDomain, categorizeSource, categoryLabel, CitationStates,
+  MentionShareNoLocationBucket,
   classifySurfaceFromCategory, surfaceClassFromCompetitorType, surfaceClassLabel,
   effectiveDomains, normalizeProjectDomain, parseWindow, windowCutoff, validationError,
 } from '@ainyc/canonry-contracts'
@@ -642,6 +643,8 @@ function computeMentionShareObservationMetric(
     rate: denominator > 0 ? round4(projectMentionEvents / denominator) : null,
     projectMentionEvents,
     competitorMentionEvents,
+    projectMentionSnapshots: projectMentionEvents,
+    competitorMentionSnapshots: competitorMentionEvents,
     brandMentionEvents: denominator,
     answerObservations: result.breakdown.snapshotsWithAnswerText,
     totalObservations: result.breakdown.snapshotsTotal,
@@ -653,6 +656,8 @@ function emptyMentionShareObservationMetric(snapshots: SnapshotLike[]): MentionS
     rate: null,
     projectMentionEvents: 0,
     competitorMentionEvents: 0,
+    projectMentionSnapshots: 0,
+    competitorMentionSnapshots: 0,
     brandMentionEvents: 0,
     answerObservations: snapshots.filter(s => (s.answerText ?? '').length > 0).length,
     totalObservations: snapshots.length,
@@ -660,7 +665,7 @@ function emptyMentionShareObservationMetric(snapshots: SnapshotLike[]): MentionS
 }
 
 function locationBucketKey(location: string | null): string {
-  return location && location.trim().length > 0 ? location : 'unscoped'
+  return location && location.trim().length > 0 ? location : MentionShareNoLocationBucket
 }
 
 function computeQueryChanges(
