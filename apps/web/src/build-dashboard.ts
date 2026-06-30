@@ -597,6 +597,10 @@ function emptyCommandCenter(
       breakdown: {
         projectMentionSnapshots: 0,
         competitorMentionSnapshots: 0,
+        projectOnlyObservations: 0,
+        sharedObservations: 0,
+        competitorOnlyObservations: 0,
+        unmentionedObservations: 0,
         perCompetitor: [],
         snapshotsWithAnswerText: 0,
         snapshotsTotal: 0,

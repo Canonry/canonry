@@ -574,6 +574,10 @@
     @apply text-xs font-medium tabular-nums;
   }
 
+  .visibility-trend-current-sample {
+    @apply text-[11px] text-zinc-500;
+  }
+
   .visibility-trend-controls {
     @apply mb-3 flex flex-wrap items-center gap-2;
   }
@@ -606,6 +610,10 @@
 
   .trend-legend-value {
     @apply text-[11px] font-semibold tabular-nums text-zinc-50;
+  }
+
+  .trend-legend-sample {
+    @apply text-[11px] text-zinc-500;
   }
 
   /* Segmented control: an inset track with a raised selected chip. Used for the

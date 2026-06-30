@@ -58,6 +58,56 @@ describe('buildMentionShare', () => {
     expect(result.breakdown.competitorMentionSnapshots).toBe(1)
   })
 
+  it('classifies answer observations into a disjoint mention distribution', () => {
+    const result = buildMentionShare(
+      [
+        snap(true, 'Only the project appears in this answer.'),
+        snap(true, 'The project and Rival both appear in this answer.'),
+        snap(false, 'Only Rival appears in this answer.'),
+        snap(false, 'No tracked brand appears in this answer.'),
+      ],
+      baseOpts,
+    )
+
+    expect(result.breakdown).toMatchObject({
+      projectOnlyObservations: 1,
+      sharedObservations: 1,
+      competitorOnlyObservations: 1,
+      unmentionedObservations: 1,
+      snapshotsWithAnswerText: 4,
+    })
+    const distributionTotal = result.breakdown.projectOnlyObservations
+      + result.breakdown.sharedObservations
+      + result.breakdown.competitorOnlyObservations
+      + result.breakdown.unmentionedObservations
+    expect(distributionTotal).toBe(result.breakdown.snapshotsWithAnswerText)
+  })
+
+  it('does not double-count one observation that mentions multiple competitors', () => {
+    const result = buildMentionShare(
+      [
+        snap(false, 'Rival and Other both appear in this answer.'),
+      ],
+      {
+        projectDomain: 'project.com',
+        projectBrand: 'Project',
+        competitors: [
+          { domain: 'rival.com', brandTokens: ['Rival'] },
+          { domain: 'other.com', brandTokens: ['Other'] },
+        ],
+      },
+    )
+
+    expect(result.breakdown.competitorMentionSnapshots).toBe(2)
+    expect(result.breakdown.competitorOnlyObservations).toBe(1)
+    expect(
+      result.breakdown.projectOnlyObservations
+        + result.breakdown.sharedObservations
+        + result.breakdown.competitorOnlyObservations
+        + result.breakdown.unmentionedObservations,
+    ).toBe(result.breakdown.snapshotsWithAnswerText)
+  })
+
   it('per-competitor breakdown ranks by mention count and computes share-of-competitive-total', () => {
     // 2 competitors: rival-a mentioned in 4 snapshots, rival-b in 2 → 4+2=6 competitive
     const snaps: MentionShareSnapshot[] = []

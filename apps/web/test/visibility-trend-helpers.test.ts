@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import type { BrandMetricsDto } from '@ainyc/canonry-contracts'
+import { MentionShareNoLocationBucket, type BrandMetricsDto } from '@ainyc/canonry-contracts'
 import {
   buildMentionShareTrendRows,
   buildTrendRows,
@@ -7,12 +7,61 @@ import {
   formatQueryChangeCaption,
   latestSeriesValue,
   CITED_KEY,
+  MENTION_DISTRIBUTION_COMPETITOR_ONLY_KEY,
+  MENTION_DISTRIBUTION_PROJECT_ONLY_KEY,
+  MENTION_DISTRIBUTION_SHARED_KEY,
+  MENTION_DISTRIBUTION_UNMENTIONED_KEY,
   MENTION_SHARE_KEY,
+  MENTION_SHARE_META_KEY,
   MENTIONED_KEY,
+  mentionShareSeriesMetaKey,
 } from '../src/lib/visibility-trend-helpers.js'
 
 function provider(citationRate: number, mentionRate: number) {
   return { citationRate, cited: 0, total: 4, mentionRate, mentionedCount: 0 }
+}
+
+type MentionShareMetric = BrandMetricsDto['buckets'][number]['mentionShare']
+type MentionShareObservationMetric = MentionShareMetric['byProvider'][string]
+
+function mentionShareObservation(
+  rate: number | null,
+  projectMentionEvents: number,
+  competitorMentionEvents: number,
+  answerObservations = 4,
+  totalObservations = answerObservations,
+): MentionShareObservationMetric {
+  const brandObservationTotal = projectMentionEvents + competitorMentionEvents
+  return {
+    rate,
+    projectMentionEvents,
+    competitorMentionEvents,
+    projectMentionSnapshots: projectMentionEvents,
+    competitorMentionSnapshots: competitorMentionEvents,
+    brandMentionEvents: projectMentionEvents + competitorMentionEvents,
+    answerObservations,
+    totalObservations,
+    projectOnlyObservations: projectMentionEvents,
+    sharedObservations: 0,
+    competitorOnlyObservations: competitorMentionEvents,
+    unmentionedObservations: Math.max(answerObservations - brandObservationTotal, 0),
+  }
+}
+
+function mentionShareMetric(
+  rate: number | null,
+  projectMentionEvents: number,
+  competitorMentionEvents: number,
+  answerObservations = 4,
+  totalObservations = answerObservations,
+  byProvider: MentionShareMetric['byProvider'] = {},
+  byLocation: MentionShareMetric['byLocation'] = {},
+): MentionShareMetric {
+  return {
+    ...mentionShareObservation(rate, projectMentionEvents, competitorMentionEvents, answerObservations, totalObservations),
+    byProvider,
+    byLocation,
+  }
 }
 
 function bucket(date: string, byProvider: BrandMetricsDto['buckets'][number]['byProvider'], rates = { citationRate: 0.5, mentionRate: 0.25 }) {
@@ -25,7 +74,7 @@ function bucket(date: string, byProvider: BrandMetricsDto['buckets'][number]['by
     queryCount: 4,
     mentionRate: rates.mentionRate,
     mentionedCount: 1,
-    mentionShare: { rate: 0.6, projectMentionSnapshots: 3, competitorMentionSnapshots: 2 },
+    mentionShare: mentionShareMetric(0.6, 3, 2),
     byProvider,
   }
 }
@@ -130,28 +179,120 @@ describe('buildTrendRows — data flags', () => {
 })
 
 describe('buildMentionShareTrendRows', () => {
-  it('plots bucket mention share as percentages', () => {
+  it('plots the disjoint answer-observation outcome distribution', () => {
     const d = dto([
-      { ...bucket('2026-04-01', { gemini: provider(0.25, 0.1) }), mentionShare: { rate: 0.25, projectMentionSnapshots: 1, competitorMentionSnapshots: 3 } },
-      { ...bucket('2026-04-08', { gemini: provider(0.5, 0.4) }), mentionShare: { rate: 0.75, projectMentionSnapshots: 3, competitorMentionSnapshots: 1 } },
+      { ...bucket('2026-04-01', { gemini: provider(0.25, 0.1) }), mentionShare: mentionShareMetric(0.25, 1, 3) },
+      { ...bucket('2026-04-08', { gemini: provider(0.5, 0.4) }), mentionShare: mentionShareMetric(0.75, 3, 1) },
     ])
 
     const res = buildMentionShareTrendRows(d)
-    expect(res.series).toEqual([MENTION_SHARE_KEY])
+    expect(res.series).toEqual([
+      MENTION_DISTRIBUTION_PROJECT_ONLY_KEY,
+      MENTION_DISTRIBUTION_SHARED_KEY,
+      MENTION_DISTRIBUTION_COMPETITOR_ONLY_KEY,
+      MENTION_DISTRIBUTION_UNMENTIONED_KEY,
+    ])
+    expect(res.rows.map(r => r[MENTION_DISTRIBUTION_PROJECT_ONLY_KEY])).toEqual([25, 75])
+    expect(res.rows.map(r => r[MENTION_DISTRIBUTION_SHARED_KEY])).toEqual([0, 0])
+    expect(res.rows.map(r => r[MENTION_DISTRIBUTION_COMPETITOR_ONLY_KEY])).toEqual([75, 25])
+    expect(res.rows.map(r => r[MENTION_DISTRIBUTION_UNMENTIONED_KEY])).toEqual([0, 0])
     expect(res.rows.map(r => r[MENTION_SHARE_KEY])).toEqual([25, 75])
     expect(res.hasData).toBe(true)
+    expect(res.rows[1]![MENTION_SHARE_META_KEY]).toMatchObject({
+      projectMentionEvents: 3,
+      brandMentionEvents: 4,
+      answerObservations: 4,
+      projectOnlyObservations: 3,
+      competitorOnlyObservations: 1,
+    })
   })
 
-  it('emits null when a bucket has no competitive brand mentions', () => {
+  it('keeps the derived share null while still plotting unmentioned observations', () => {
     const d = dto([
-      { ...bucket('2026-04-01', { gemini: provider(0.25, 0.1) }), mentionShare: { rate: null, projectMentionSnapshots: 0, competitorMentionSnapshots: 0 } },
-      { ...bucket('2026-04-08', { gemini: provider(0.5, 0.4) }), mentionShare: { rate: 0.5, projectMentionSnapshots: 1, competitorMentionSnapshots: 1 } },
+      { ...bucket('2026-04-01', { gemini: provider(0.25, 0.1) }), mentionShare: mentionShareMetric(null, 0, 0) },
+      { ...bucket('2026-04-08', { gemini: provider(0.5, 0.4) }), mentionShare: mentionShareMetric(0.5, 1, 1) },
     ])
 
     const res = buildMentionShareTrendRows(d)
     expect(res.rows[0]![MENTION_SHARE_KEY]).toBeNull()
+    expect(res.rows[0]![MENTION_DISTRIBUTION_UNMENTIONED_KEY]).toBe(100)
     expect(res.rows[1]![MENTION_SHARE_KEY]).toBe(50)
-    expect(res.singleBucket).toBe(true)
+    expect(res.singleBucket).toBe(false)
+  })
+
+  it('derives a conservative outcome mix when older DTOs omit distribution fields', () => {
+    const legacyMentionShare = {
+      rate: 0.25,
+      projectMentionEvents: 1,
+      competitorMentionEvents: 2,
+      projectMentionSnapshots: 1,
+      competitorMentionSnapshots: 2,
+      brandMentionEvents: 3,
+      answerObservations: 5,
+      totalObservations: 5,
+      byProvider: {},
+      byLocation: {},
+    } as unknown as MentionShareMetric
+    const d = dto([
+      { ...bucket('2026-04-01', { gemini: provider(0.25, 0.1) }), mentionShare: legacyMentionShare },
+    ])
+
+    const res = buildMentionShareTrendRows(d)
+    expect(res.rows[0]![MENTION_DISTRIBUTION_PROJECT_ONLY_KEY]).toBe(20)
+    expect(res.rows[0]![MENTION_DISTRIBUTION_COMPETITOR_ONLY_KEY]).toBe(40)
+    expect(res.rows[0]![MENTION_DISTRIBUTION_UNMENTIONED_KEY]).toBe(40)
+  })
+
+  it('plots mention-share distribution by provider', () => {
+    const d = dto([
+      {
+        ...bucket('2026-04-01', { gemini: provider(0.25, 0.1), openai: provider(0.25, 0.1) }),
+        mentionShare: mentionShareMetric(0.5, 2, 2, 4, 4, {
+          gemini: mentionShareObservation(1, 2, 0),
+          openai: mentionShareObservation(0, 0, 2),
+        }),
+      },
+      {
+        ...bucket('2026-04-08', { gemini: provider(0.5, 0.4) }),
+        mentionShare: mentionShareMetric(0.75, 3, 1, 4, 4, {
+          gemini: mentionShareObservation(0.75, 3, 1),
+        }),
+      },
+    ])
+
+    const res = buildMentionShareTrendRows(d, 'byProvider')
+    expect(res.series).toEqual(['gemini', 'openai'])
+    expect(res.rows[0]!.gemini).toBe(100)
+    expect(res.rows[0]!.openai).toBe(0)
+    expect(res.rows[0]![mentionShareSeriesMetaKey('openai')]).toMatchObject({
+      projectMentionEvents: 0,
+      brandMentionEvents: 2,
+      answerObservations: 4,
+    })
+    expect(res.rows[1]!.gemini).toBe(75)
+    expect(res.rows[1]!.openai).toBeNull()
+  })
+
+  it('plots mention-share distribution by location', () => {
+    const d = dto([
+      {
+        ...bucket('2026-04-01', { gemini: provider(0.25, 0.1) }),
+        mentionShare: mentionShareMetric(0.5, 2, 2, 4, 4, {}, {
+          florida: mentionShareObservation(1, 2, 0),
+          [MentionShareNoLocationBucket]: mentionShareObservation(0, 0, 2),
+        }),
+      },
+    ])
+
+    const res = buildMentionShareTrendRows(d, 'byLocation')
+    expect(res.series).toEqual([MentionShareNoLocationBucket, 'florida'])
+    expect(res.rows[0]!.florida).toBe(100)
+    expect(res.rows[0]![MentionShareNoLocationBucket]).toBe(0)
+    expect(res.rows[0]![mentionShareSeriesMetaKey(MentionShareNoLocationBucket)]).toMatchObject({
+      projectMentionEvents: 0,
+      brandMentionEvents: 2,
+      answerObservations: 4,
+    })
   })
 })
 

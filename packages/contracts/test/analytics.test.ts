@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
+  MentionShareNoLocationBucket,
   mentionShareBucketMetricSchema,
   providerMetricSchema,
   timeBucketSchema,
@@ -19,6 +20,21 @@ const providerMetric = {
   mentionedCount: 2,
 }
 
+const mentionShareObservationMetric = {
+  rate: 0.6,
+  projectMentionEvents: 3,
+  competitorMentionEvents: 2,
+  projectMentionSnapshots: 3,
+  competitorMentionSnapshots: 2,
+  brandMentionEvents: 5,
+  answerObservations: 4,
+  totalObservations: 4,
+  projectOnlyObservations: 2,
+  sharedObservations: 1,
+  competitorOnlyObservations: 1,
+  unmentionedObservations: 0,
+}
+
 const bucket = {
   startDate: '2026-04-01T00:00:00.000Z',
   endDate: '2026-04-08T00:00:00.000Z',
@@ -28,7 +44,11 @@ const bucket = {
   queryCount: 2,
   mentionRate: 0.75,
   mentionedCount: 3,
-  mentionShare: { rate: 0.6, projectMentionSnapshots: 3, competitorMentionSnapshots: 2 },
+  mentionShare: {
+    ...mentionShareObservationMetric,
+    byProvider: { gemini: mentionShareObservationMetric },
+    byLocation: { [MentionShareNoLocationBucket]: mentionShareObservationMetric },
+  },
   byProvider: {
     gemini: providerMetric,
     openai: { citationRate: 0.5, cited: 1, total: 2, mentionRate: 0.5, mentionedCount: 1 },
@@ -54,10 +74,22 @@ describe('mentionShareBucketMetricSchema', () => {
   it('allows null rate when no competitive brand mentions exist', () => {
     const parsed = mentionShareBucketMetricSchema.parse({
       rate: null,
+      projectMentionEvents: 0,
+      competitorMentionEvents: 0,
       projectMentionSnapshots: 0,
       competitorMentionSnapshots: 0,
+      brandMentionEvents: 0,
+      answerObservations: 2,
+      totalObservations: 2,
+      projectOnlyObservations: 0,
+      sharedObservations: 0,
+      competitorOnlyObservations: 0,
+      unmentionedObservations: 2,
+      byProvider: {},
+      byLocation: {},
     })
     expect(parsed.rate).toBeNull()
+    expect(parsed.projectMentionSnapshots).toBe(parsed.projectMentionEvents)
   })
 })
 

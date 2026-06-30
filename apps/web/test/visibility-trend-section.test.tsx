@@ -2,6 +2,7 @@ import React from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, expect, onTestFinished, test, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { MentionShareNoLocationBucket } from '@ainyc/canonry-contracts'
 
 afterEach(cleanup)
 
@@ -34,6 +35,46 @@ function provider(citationRate: number, mentionRate: number) {
   return { citationRate, cited: 1, total: 4, mentionRate, mentionedCount: 2 }
 }
 
+function mentionShareObservation(
+  rate: number | null,
+  projectMentionEvents: number,
+  competitorMentionEvents: number,
+  answerObservations = 4,
+  totalObservations = answerObservations,
+) {
+  const brandObservationTotal = projectMentionEvents + competitorMentionEvents
+  return {
+    rate,
+    projectMentionEvents,
+    competitorMentionEvents,
+    projectMentionSnapshots: projectMentionEvents,
+    competitorMentionSnapshots: competitorMentionEvents,
+    brandMentionEvents: projectMentionEvents + competitorMentionEvents,
+    answerObservations,
+    totalObservations,
+    projectOnlyObservations: projectMentionEvents,
+    sharedObservations: 0,
+    competitorOnlyObservations: competitorMentionEvents,
+    unmentionedObservations: Math.max(answerObservations - brandObservationTotal, 0),
+  }
+}
+
+function mentionShareMetric(
+  rate: number | null,
+  projectMentionEvents: number,
+  competitorMentionEvents: number,
+  answerObservations = 4,
+  totalObservations = answerObservations,
+  byProvider = {},
+  byLocation = {},
+) {
+  return {
+    ...mentionShareObservation(rate, projectMentionEvents, competitorMentionEvents, answerObservations, totalObservations),
+    byProvider,
+    byLocation,
+  }
+}
+
 function metricsDto(buckets: unknown[]) {
   return {
     window: 'all',
@@ -50,13 +91,22 @@ const TWO_BUCKETS = [
   {
     startDate: '2026-04-01', endDate: '2026-04-08',
     citationRate: 0.25, cited: 1, total: 4, queryCount: 4, mentionRate: 0.5, mentionedCount: 2,
-    mentionShare: { rate: 0.25, projectMentionSnapshots: 1, competitorMentionSnapshots: 3 },
+    mentionShare: mentionShareMetric(0.25, 1, 3, 4, 4, {
+      gemini: mentionShareObservation(0.25, 1, 3),
+      openai: mentionShareObservation(0.25, 1, 3),
+    }, {
+      [MentionShareNoLocationBucket]: mentionShareObservation(0.25, 1, 3),
+    }),
     byProvider: { gemini: provider(0.25, 0.5), openai: provider(0.5, 0.25) },
   },
   {
     startDate: '2026-04-08', endDate: '2026-04-15',
     citationRate: 0.75, cited: 3, total: 4, queryCount: 4, mentionRate: 0.5, mentionedCount: 2,
-    mentionShare: { rate: 0.75, projectMentionSnapshots: 3, competitorMentionSnapshots: 1 },
+    mentionShare: mentionShareMetric(0.75, 3, 1, 4, 4, {
+      gemini: mentionShareObservation(0.75, 3, 1),
+    }, {
+      [MentionShareNoLocationBucket]: mentionShareObservation(0.75, 3, 1),
+    }),
     byProvider: { gemini: provider(0.75, 0.5) },
   },
 ]
@@ -113,6 +163,7 @@ test('defaults to the by-engine view with a per-engine legend, and toggles to al
 
   // The headline is the blended average across engines, tagged "avg".
   expect(screen.getByText('avg')).toBeTruthy()
+  expect(screen.getByText('2 / 4 observations')).toBeTruthy()
 
   // The legend lists each engine with its latest value (a direct read of the
   // rightmost plotted point — gemini 50% in both buckets, openai 25% then gone).
@@ -159,9 +210,62 @@ test('renders mention-share trend from bucket metrics', async () => {
 
   renderMentionShareSection()
 
-  expect(await screen.findByText('Mention share over time')).toBeTruthy()
-  expect(await screen.findByText('75%')).toBeTruthy()
+  expect(await screen.findByText('Mention distribution over time')).toBeTruthy()
+  await waitFor(() => {
+    expect(screen.getAllByText('75%').length).toBeGreaterThan(0)
+  })
+  expect(screen.getByText('Latest sample')).toBeTruthy()
+  expect(screen.getByText('answer observations')).toBeTruthy()
+  expect(screen.getByText('3 / 4 brand events were you')).toBeTruthy()
+  expect(screen.getByText('3 project-only, 0 shared, 1 competitor-only, 0 neither')).toBeTruthy()
+  expect(screen.getByText('75% derived share')).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Outcome mix' }).getAttribute('aria-pressed')).toBe('true')
+  const outcomes = screen.getByRole('list', { name: 'Observation outcomes' })
+  expect(within(outcomes).getByText('Project only')).toBeTruthy()
+  expect(within(outcomes).getByText('Competitor only')).toBeTruthy()
+  expect(within(outcomes).getByText('Neither')).toBeTruthy()
+  expect(within(outcomes).getByText('3 obs')).toBeTruthy()
+
+  act(() => { fireEvent.click(screen.getByRole('button', { name: 'By engine' })) })
+  const engines = screen.getByRole('list', { name: 'Engines' })
+  expect(within(engines).getByText('Gemini')).toBeTruthy()
+  expect(within(engines).getByText('OpenAI')).toBeTruthy()
+  expect(within(engines).getByText('3 / 4 events, 4 obs')).toBeTruthy()
+
+  act(() => { fireEvent.click(screen.getByRole('button', { name: 'By location' })) })
+  const locations = await screen.findByRole('list', { name: 'Locations' })
+  expect(within(locations).getByText('No location')).toBeTruthy()
   expect(screen.getByRole('button', { name: 'All' })).toBeTruthy()
+})
+
+test('keeps mention-share headline counts aligned to the latest plotted bucket', async () => {
+  const trailingNullBuckets = [
+    TWO_BUCKETS[0],
+    {
+      ...TWO_BUCKETS[1],
+      mentionShare: mentionShareMetric(null, 0, 0, 8, 8, {
+        gemini: mentionShareObservation(null, 0, 0, 8, 8),
+      }, {
+        [MentionShareNoLocationBucket]: mentionShareObservation(null, 0, 0, 8, 8),
+      }),
+    },
+  ]
+  const restore = mockFetch((url) => {
+    const path = url.split('?')[0]!
+    if (path.endsWith('/projects/test-project/analytics/metrics')) {
+      return jsonResponse(metricsDto(trailingNullBuckets))
+    }
+    throw new Error(`Unexpected fetch: ${url}`)
+  })
+  onTestFinished(restore)
+
+  renderMentionShareSection()
+
+  await waitFor(() => {
+    expect(screen.getByText('No brand mention events in sample')).toBeTruthy()
+  })
+  expect(screen.getByText('0 project-only, 0 shared, 0 competitor-only, 8 neither')).toBeTruthy()
+  expect(screen.queryByText('25% derived share')).toBeNull()
 })
 
 test('prompts for competitors before rendering mention-share history', async () => {

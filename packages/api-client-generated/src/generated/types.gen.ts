@@ -346,8 +346,49 @@ export type BrandMetricsDto = {
         mentionedCount: number;
         mentionShare: {
             rate: number | null;
+            projectMentionEvents: number;
+            competitorMentionEvents: number;
             projectMentionSnapshots: number;
             competitorMentionSnapshots: number;
+            brandMentionEvents: number;
+            answerObservations: number;
+            totalObservations: number;
+            projectOnlyObservations: number;
+            sharedObservations: number;
+            competitorOnlyObservations: number;
+            unmentionedObservations: number;
+            byProvider: {
+                [key: string]: {
+                    rate: number | null;
+                    projectMentionEvents: number;
+                    competitorMentionEvents: number;
+                    projectMentionSnapshots: number;
+                    competitorMentionSnapshots: number;
+                    brandMentionEvents: number;
+                    answerObservations: number;
+                    totalObservations: number;
+                    projectOnlyObservations: number;
+                    sharedObservations: number;
+                    competitorOnlyObservations: number;
+                    unmentionedObservations: number;
+                };
+            };
+            byLocation: {
+                [key: string]: {
+                    rate: number | null;
+                    projectMentionEvents: number;
+                    competitorMentionEvents: number;
+                    projectMentionSnapshots: number;
+                    competitorMentionSnapshots: number;
+                    brandMentionEvents: number;
+                    answerObservations: number;
+                    totalObservations: number;
+                    projectOnlyObservations: number;
+                    sharedObservations: number;
+                    competitorOnlyObservations: number;
+                    unmentionedObservations: number;
+                };
+            };
         };
         byProvider: {
             [key: string]: {
@@ -1505,6 +1546,10 @@ export type ProjectOverviewDto = {
             breakdown: {
                 projectMentionSnapshots: number;
                 competitorMentionSnapshots: number;
+                projectOnlyObservations: number;
+                sharedObservations: number;
+                competitorOnlyObservations: number;
+                unmentionedObservations: number;
                 perCompetitor: Array<{
                     domain: string;
                     mentionSnapshots: number;

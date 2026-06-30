@@ -15,6 +15,9 @@ export const visibilityMetricModeSchema = z.enum(['mentioned', 'cited'])
 export type VisibilityMetricMode = z.infer<typeof visibilityMetricModeSchema>
 export const VisibilityMetricModes = visibilityMetricModeSchema.enum
 
+/** byLocation bucket key for snapshots from runs with no configured location. */
+export const MentionShareNoLocationBucket = '__canonry_no_location__'
+
 /** Citation + mention rates for one provider (or the overall roll-up) within a window or bucket. */
 export const providerMetricSchema = z.object({
   citationRate: z.number(),
@@ -25,12 +28,35 @@ export const providerMetricSchema = z.object({
 })
 export type ProviderMetric = z.infer<typeof providerMetricSchema>
 
-/** Mention-share metric for one time bucket. Null rate means the competitive
- *  frame had no brand mentions in that bucket, so the share is undefined. */
-export const mentionShareBucketMetricSchema = z.object({
+/** Mention-share observation counts for one scope within a time bucket. Null
+ *  rate means the competitive frame had no brand mentions in that scope, so
+ *  the share is undefined. */
+export const mentionShareObservationMetricSchema = z.object({
   rate: z.number().nullable(),
+  projectMentionEvents: z.number().int().nonnegative(),
+  competitorMentionEvents: z.number().int().nonnegative(),
+  /** Deprecated alias kept for one release for clients pinned to the old analytics DTO shape. */
   projectMentionSnapshots: z.number().int().nonnegative(),
+  /** Deprecated alias kept for one release for clients pinned to the old analytics DTO shape. */
   competitorMentionSnapshots: z.number().int().nonnegative(),
+  /** Denominator for `rate`: project + tracked-competitor brand mention events. */
+  brandMentionEvents: z.number().int().nonnegative(),
+  answerObservations: z.number().int().nonnegative(),
+  totalObservations: z.number().int().nonnegative(),
+  /** Disjoint answer-observation buckets; these sum to `answerObservations`. */
+  projectOnlyObservations: z.number().int().nonnegative(),
+  sharedObservations: z.number().int().nonnegative(),
+  competitorOnlyObservations: z.number().int().nonnegative(),
+  unmentionedObservations: z.number().int().nonnegative(),
+})
+
+/** Mention-share metric for one time bucket, including provider/location
+ *  distributions so clients can render this as repeated observations rather
+ *  than a standalone score. */
+export const mentionShareBucketMetricSchema = mentionShareObservationMetricSchema.extend({
+  byProvider: z.record(z.string(), mentionShareObservationMetricSchema),
+  /** `MentionShareNoLocationBucket` groups snapshots from runs with no configured location. */
+  byLocation: z.record(z.string(), mentionShareObservationMetricSchema),
 })
 export type MentionShareBucketMetric = z.infer<typeof mentionShareBucketMetricSchema>
 

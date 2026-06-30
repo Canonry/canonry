@@ -33,6 +33,10 @@ export interface MentionShareCompetitorRow {
 export interface MentionShareBreakdown {
   projectMentionSnapshots: number
   competitorMentionSnapshots: number
+  projectOnlyObservations: number
+  sharedObservations: number
+  competitorOnlyObservations: number
+  unmentionedObservations: number
   perCompetitor: MentionShareCompetitorRow[]
   snapshotsWithAnswerText: number
   snapshotsTotal: number
@@ -68,6 +72,10 @@ export function buildMentionShare(
   const emptyBreakdown: MentionShareBreakdown = {
     projectMentionSnapshots: 0,
     competitorMentionSnapshots: 0,
+    projectOnlyObservations: 0,
+    sharedObservations: 0,
+    competitorOnlyObservations: 0,
+    unmentionedObservations: 0,
     perCompetitor: [],
     snapshotsWithAnswerText: 0,
     snapshotsTotal: snapshots.length,
@@ -100,6 +108,10 @@ export function buildMentionShare(
   }
 
   let projectMentionSnapshots = 0
+  let projectOnlyObservations = 0
+  let sharedObservations = 0
+  let competitorOnlyObservations = 0
+  let unmentionedObservations = 0
   let snapshotsWithAnswerText = 0
   const competitorCounts = new Map<string, number>()
   for (const c of options.competitors) competitorCounts.set(c.domain, 0)
@@ -108,14 +120,26 @@ export function buildMentionShare(
     const text = snap.answerText ?? ''
     if (text.length === 0) continue
     snapshotsWithAnswerText++
-    if (snap.projectMentioned) projectMentionSnapshots++
+    const projectMentioned = snap.projectMentioned
+    if (projectMentioned) projectMentionSnapshots++
     // Build the answer's brand-key once per snapshot — it powers the
     // spacing/hyphenation-tolerant match path below.
     const answerBrandKey = brandKeyFromText(text)
+    let competitorMentionedInSnapshot = false
     for (const competitor of options.competitors) {
       if (competitorMentioned(text, answerBrandKey, competitor.brandTokens)) {
+        competitorMentionedInSnapshot = true
         competitorCounts.set(competitor.domain, (competitorCounts.get(competitor.domain) ?? 0) + 1)
       }
+    }
+    if (projectMentioned && competitorMentionedInSnapshot) {
+      sharedObservations++
+    } else if (projectMentioned) {
+      projectOnlyObservations++
+    } else if (competitorMentionedInSnapshot) {
+      competitorOnlyObservations++
+    } else {
+      unmentionedObservations++
     }
   }
 
@@ -137,6 +161,10 @@ export function buildMentionShare(
   const breakdown: MentionShareBreakdown = {
     projectMentionSnapshots,
     competitorMentionSnapshots,
+    projectOnlyObservations,
+    sharedObservations,
+    competitorOnlyObservations,
+    unmentionedObservations,
     perCompetitor,
     snapshotsWithAnswerText,
     snapshotsTotal: snapshots.length,

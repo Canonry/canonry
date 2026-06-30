@@ -408,6 +408,10 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       breakdown: {
         projectMentionSnapshots: 8,
         competitorMentionSnapshots: 13,
+        projectOnlyObservations: 5,
+        sharedObservations: 3,
+        competitorOnlyObservations: 10,
+        unmentionedObservations: 6,
         perCompetitor: [
           { domain: 'downtownsmiles.com', mentionSnapshots: 9, shareOfCompetitiveTotal: 69.2 },
           { domain: 'harbordental.com', mentionSnapshots: 4, shareOfCompetitiveTotal: 30.8 },
@@ -614,6 +618,10 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       breakdown: {
         projectMentionSnapshots: 11,
         competitorMentionSnapshots: 6,
+        projectOnlyObservations: 10,
+        sharedObservations: 1,
+        competitorOnlyObservations: 5,
+        unmentionedObservations: 3,
         perCompetitor: [
           { domain: 'shorelineinjury.com', mentionSnapshots: 6, shareOfCompetitiveTotal: 100 },
         ],
@@ -782,6 +790,10 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       breakdown: {
         projectMentionSnapshots: 4,
         competitorMentionSnapshots: 15,
+        projectOnlyObservations: 3,
+        sharedObservations: 1,
+        competitorOnlyObservations: 14,
+        unmentionedObservations: 3,
         perCompetitor: [
           { domain: 'regionaljointcare.com', mentionSnapshots: 15, shareOfCompetitiveTotal: 100 },
         ],

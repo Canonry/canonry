@@ -5,7 +5,59 @@ import os from 'node:os'
 import crypto from 'node:crypto'
 import Fastify from 'fastify'
 import { createClient, migrate, projects, queries, runs, querySnapshots, competitors, domainClassifications } from '@ainyc/canonry-db'
+import { MentionShareNoLocationBucket } from '@ainyc/canonry-contracts'
 import { apiRoutes } from '../src/index.js'
+
+interface MentionShareObservationLike {
+  projectMentionEvents: number
+  competitorMentionEvents: number
+  projectMentionSnapshots: number
+  competitorMentionSnapshots: number
+  brandMentionEvents: number
+  answerObservations: number
+  totalObservations: number
+  projectOnlyObservations: number
+  sharedObservations: number
+  competitorOnlyObservations: number
+  unmentionedObservations: number
+}
+
+interface MentionShareBucketLike extends MentionShareObservationLike {
+  byProvider: Record<string, MentionShareObservationLike>
+  byLocation: Record<string, MentionShareObservationLike>
+}
+
+function expectMentionSharePartitionSums(
+  mentionShare: MentionShareBucketLike,
+  dimension: 'byProvider' | 'byLocation',
+) {
+  const slices = Object.values(mentionShare[dimension])
+  expect(slices.length).toBeGreaterThan(0)
+  for (const key of [
+    'projectMentionEvents',
+    'competitorMentionEvents',
+    'projectMentionSnapshots',
+    'competitorMentionSnapshots',
+    'brandMentionEvents',
+    'answerObservations',
+    'totalObservations',
+    'projectOnlyObservations',
+    'sharedObservations',
+    'competitorOnlyObservations',
+    'unmentionedObservations',
+  ] as const) {
+    expect(slices.reduce((sum, slice) => sum + slice[key], 0)).toBe(mentionShare[key])
+  }
+}
+
+function expectMentionShareOutcomeDistribution(mentionShare: MentionShareObservationLike) {
+  expect(
+    mentionShare.projectOnlyObservations
+      + mentionShare.sharedObservations
+      + mentionShare.competitorOnlyObservations
+      + mentionShare.unmentionedObservations,
+  ).toBe(mentionShare.answerObservations)
+}
 
 function buildApp() {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'analytics-test-'))
@@ -233,9 +285,202 @@ describe('analytics routes', () => {
       // citation overlap.
       expect(latest.mentionShare).toMatchObject({
         rate: 1,
+        projectMentionEvents: 1,
+        competitorMentionEvents: 0,
         projectMentionSnapshots: 1,
         competitorMentionSnapshots: 0,
+        brandMentionEvents: 1,
+        answerObservations: 4,
+        totalObservations: 4,
+        projectOnlyObservations: 1,
+        sharedObservations: 0,
+        competitorOnlyObservations: 0,
+        unmentionedObservations: 3,
+        byProvider: {
+          gemini: {
+            rate: 1,
+            projectMentionEvents: 1,
+            competitorMentionEvents: 0,
+            projectMentionSnapshots: 1,
+            competitorMentionSnapshots: 0,
+            brandMentionEvents: 1,
+            answerObservations: 3,
+            totalObservations: 3,
+            projectOnlyObservations: 1,
+            sharedObservations: 0,
+            competitorOnlyObservations: 0,
+            unmentionedObservations: 2,
+          },
+          openai: {
+            rate: null,
+            projectMentionEvents: 0,
+            competitorMentionEvents: 0,
+            projectMentionSnapshots: 0,
+            competitorMentionSnapshots: 0,
+            brandMentionEvents: 0,
+            answerObservations: 1,
+            totalObservations: 1,
+            projectOnlyObservations: 0,
+            sharedObservations: 0,
+            competitorOnlyObservations: 0,
+            unmentionedObservations: 1,
+          },
+        },
+        byLocation: {
+          [MentionShareNoLocationBucket]: {
+            rate: 1,
+            projectMentionEvents: 1,
+            competitorMentionEvents: 0,
+            projectMentionSnapshots: 1,
+            competitorMentionSnapshots: 0,
+            brandMentionEvents: 1,
+            answerObservations: 4,
+            totalObservations: 4,
+            projectOnlyObservations: 1,
+            sharedObservations: 0,
+            competitorOnlyObservations: 0,
+            unmentionedObservations: 3,
+          },
+        },
       })
+    })
+
+    it('breaks mention-share observations out by location', async () => {
+      const locationProjectId = crypto.randomUUID()
+      const createdAt = '2026-05-01T00:00:00.000Z'
+      const runAt = '2026-05-02T12:00:00.000Z'
+      db.insert(projects).values({
+        id: locationProjectId,
+        name: 'mention-share-locations',
+        displayName: 'Mention Share Locations',
+        canonicalDomain: 'example-local.com',
+        ownedDomains: '[]',
+        country: 'US',
+        language: 'en',
+        tags: '[]',
+        labels: '{}',
+        providers: '["gemini"]',
+        locations: JSON.stringify([
+          { label: 'florida', city: 'Orlando', region: 'Florida', country: 'US' },
+          { label: 'michigan', city: 'Detroit', region: 'Michigan', country: 'US' },
+        ]),
+        defaultLocation: null,
+        configSource: 'api',
+        configRevision: 1,
+        createdAt,
+        updatedAt: createdAt,
+      }).run()
+      db.insert(competitors).values({
+        id: crypto.randomUUID(),
+        projectId: locationProjectId,
+        domain: 'rival.com',
+        provenance: 'manual',
+        createdAt,
+      }).run()
+      const floridaQueryId = crypto.randomUUID()
+      const michiganQueryId = crypto.randomUUID()
+      const noLocationQueryId = crypto.randomUUID()
+      db.insert(queries).values([
+        { id: floridaQueryId, projectId: locationProjectId, query: 'florida query', createdAt },
+        { id: michiganQueryId, projectId: locationProjectId, query: 'michigan query', createdAt },
+        { id: noLocationQueryId, projectId: locationProjectId, query: 'no location query', createdAt },
+      ]).run()
+      const floridaRunId = crypto.randomUUID()
+      const michiganRunId = crypto.randomUUID()
+      const noLocationRunId = crypto.randomUUID()
+      db.insert(runs).values([
+        { id: floridaRunId, projectId: locationProjectId, kind: 'answer-visibility', status: 'completed', trigger: 'manual', location: 'florida', startedAt: runAt, finishedAt: runAt, error: null, createdAt: runAt },
+        { id: michiganRunId, projectId: locationProjectId, kind: 'answer-visibility', status: 'completed', trigger: 'manual', location: 'michigan', startedAt: runAt, finishedAt: runAt, error: null, createdAt: runAt },
+        { id: noLocationRunId, projectId: locationProjectId, kind: 'answer-visibility', status: 'completed', trigger: 'manual', location: null, startedAt: runAt, finishedAt: runAt, error: null, createdAt: runAt },
+      ]).run()
+      db.insert(querySnapshots).values([
+        { id: crypto.randomUUID(), runId: floridaRunId, queryId: floridaQueryId, provider: 'gemini', model: 'gemini-2.5', citationState: 'not-cited', answerMentioned: true, answerText: 'example-local.com is mentioned here.', citedDomains: [], competitorOverlap: [], recommendedCompetitors: [], location: 'florida', rawResponse: '{}', createdAt: runAt },
+        { id: crypto.randomUUID(), runId: michiganRunId, queryId: michiganQueryId, provider: 'gemini', model: 'gemini-2.5', citationState: 'not-cited', answerMentioned: false, answerText: 'Rival is mentioned here.', citedDomains: [], competitorOverlap: [], recommendedCompetitors: [], location: 'michigan', rawResponse: '{}', createdAt: runAt },
+        { id: crypto.randomUUID(), runId: noLocationRunId, queryId: noLocationQueryId, provider: 'gemini', model: 'gemini-2.5', citationState: 'not-cited', answerMentioned: false, answerText: 'Rival is mentioned without location.', citedDomains: [], competitorOverlap: [], recommendedCompetitors: [], location: null, rawResponse: '{}', createdAt: runAt },
+      ]).run()
+
+      const res = await app.inject({ method: 'GET', url: '/api/v1/projects/mention-share-locations/analytics/metrics' })
+      expect(res.statusCode).toBe(200)
+      const body = JSON.parse(res.payload)
+      const latest = body.buckets.at(-1)
+      expect(latest.mentionShare).toMatchObject({
+        rate: 0.3333,
+        projectMentionEvents: 1,
+        competitorMentionEvents: 2,
+        projectMentionSnapshots: 1,
+        competitorMentionSnapshots: 2,
+        brandMentionEvents: 3,
+        answerObservations: 3,
+        totalObservations: 3,
+        projectOnlyObservations: 1,
+        sharedObservations: 0,
+        competitorOnlyObservations: 2,
+        unmentionedObservations: 0,
+        byProvider: {
+          gemini: {
+            rate: 0.3333,
+            projectMentionEvents: 1,
+            competitorMentionEvents: 2,
+            projectMentionSnapshots: 1,
+            competitorMentionSnapshots: 2,
+            brandMentionEvents: 3,
+            answerObservations: 3,
+            totalObservations: 3,
+            projectOnlyObservations: 1,
+            sharedObservations: 0,
+            competitorOnlyObservations: 2,
+            unmentionedObservations: 0,
+          },
+        },
+        byLocation: {
+          florida: {
+            rate: 1,
+            projectMentionEvents: 1,
+            competitorMentionEvents: 0,
+            projectMentionSnapshots: 1,
+            competitorMentionSnapshots: 0,
+            brandMentionEvents: 1,
+            answerObservations: 1,
+            totalObservations: 1,
+            projectOnlyObservations: 1,
+            sharedObservations: 0,
+            competitorOnlyObservations: 0,
+            unmentionedObservations: 0,
+          },
+          michigan: {
+            rate: 0,
+            projectMentionEvents: 0,
+            competitorMentionEvents: 1,
+            projectMentionSnapshots: 0,
+            competitorMentionSnapshots: 1,
+            brandMentionEvents: 1,
+            answerObservations: 1,
+            totalObservations: 1,
+            projectOnlyObservations: 0,
+            sharedObservations: 0,
+            competitorOnlyObservations: 1,
+            unmentionedObservations: 0,
+          },
+          [MentionShareNoLocationBucket]: {
+            rate: 0,
+            projectMentionEvents: 0,
+            competitorMentionEvents: 1,
+            projectMentionSnapshots: 0,
+            competitorMentionSnapshots: 1,
+            brandMentionEvents: 1,
+            answerObservations: 1,
+            totalObservations: 1,
+            projectOnlyObservations: 0,
+            sharedObservations: 0,
+            competitorOnlyObservations: 1,
+            unmentionedObservations: 0,
+          },
+        },
+      })
+      expect(latest.mentionShare.byLocation.unscoped).toBeUndefined()
+      expectMentionShareOutcomeDistribution(latest.mentionShare)
+      expectMentionSharePartitionSums(latest.mentionShare, 'byProvider')
+      expectMentionSharePartitionSums(latest.mentionShare, 'byLocation')
     })
 
     it('supports window parameter', async () => {
@@ -281,6 +526,22 @@ describe('analytics routes', () => {
         expect(sumTotal).toBe(bucket.total)
         expect(sumCited).toBe(bucket.cited)
         expect(sumMentioned).toBe(bucket.mentionedCount)
+      }
+    })
+
+    it('carries mention-share distributions that sum to the bucket totals', async () => {
+      const res = await app.inject({ method: 'GET', url: '/api/v1/projects/test-site/analytics/metrics' })
+      expect(res.statusCode).toBe(200)
+      const body = JSON.parse(res.payload)
+      expect(body.buckets.length).toBeGreaterThan(0)
+
+      for (const bucket of body.buckets) {
+        const mentionShare = bucket.mentionShare as MentionShareBucketLike
+        expect(mentionShare.projectMentionSnapshots).toBe(mentionShare.projectMentionEvents)
+        expect(mentionShare.competitorMentionSnapshots).toBe(mentionShare.competitorMentionEvents)
+        expectMentionShareOutcomeDistribution(mentionShare)
+        expectMentionSharePartitionSums(mentionShare, 'byProvider')
+        expectMentionSharePartitionSums(mentionShare, 'byLocation')
       }
     })
   })

@@ -96,6 +96,10 @@ export interface MentionShareCompetitorRowDto {
 export interface MentionShareBreakdownDto {
   projectMentionSnapshots: number
   competitorMentionSnapshots: number
+  projectOnlyObservations: number
+  sharedObservations: number
+  competitorOnlyObservations: number
+  unmentionedObservations: number
   perCompetitor: MentionShareCompetitorRowDto[]
   snapshotsWithAnswerText: number
   snapshotsTotal: number
@@ -272,6 +276,10 @@ const mentionShareSchema = scoreSummarySchema.extend({
   breakdown: z.object({
     projectMentionSnapshots: z.number().int().nonnegative(),
     competitorMentionSnapshots: z.number().int().nonnegative(),
+    projectOnlyObservations: z.number().int().nonnegative(),
+    sharedObservations: z.number().int().nonnegative(),
+    competitorOnlyObservations: z.number().int().nonnegative(),
+    unmentionedObservations: z.number().int().nonnegative(),
     perCompetitor: z.array(z.object({
       domain: z.string(),
       mentionSnapshots: z.number().int().nonnegative(),
