@@ -49,6 +49,7 @@ Canonry is API-first. The API is the source of truth, the CLI is the standard op
 | [`../plans/deployment-parity.md`](../plans/deployment-parity.md) | active plan | engineers, operators | Bring local, Docker, and hosted deployment paths into parity |
 | [`../plans/optimize-ai-calls.md`](../plans/optimize-ai-calls.md) | active plan | engineers | Reduce provider cost and unnecessary repeat calls |
 | [`../plans/gbp-phase-3-4-handoff.md`](../plans/gbp-phase-3-4-handoff.md) | active plan | engineers | Google Business Profile next steps — Phase 3 (web UI) + Phase 4 (scheduling, doctor checks, insights) |
+| [`embed-white-label-scope.md`](embed-white-label-scope.md) | scope | engineers, product | Full white-label of the embedded Canonry dashboard: design-token migration, charts/type, branding, transport, report parity, phasing |
 
 Plans describe implementation work. They are not current-behavior reference docs.
 
