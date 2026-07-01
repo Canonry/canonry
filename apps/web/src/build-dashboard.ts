@@ -635,7 +635,18 @@ function emptyCommandCenter(
 export function buildPortfolioProject(data: ProjectData): PortfolioProjectVm {
   const dto = toProjectDto(data.project)
   const sortedRuns = [...data.runs].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-  const latestRun = sortedRuns.find(r => r.kind === RunKinds['answer-visibility']) ?? sortedRuns[0]
+  // `data.runs` is narrowed client-side from the global /runs list, which is
+  // capped (LIMIT 500) and windowed to the last 30 days. A project quiet for
+  // >30 days therefore has an empty `data.runs` even though it has plenty of
+  // older runs, which would render the portfolio "last run" card as "No runs
+  // yet" beside a real mention score. Fall back to the authoritative latest run
+  // from the per-project overview composite (uncapped) so the card stays
+  // accurate. Same class of fix as the project page (#761).
+  const latestRun =
+    sortedRuns.find(r => r.kind === RunKinds['answer-visibility'])
+    ?? sortedRuns[0]
+    ?? data.overview?.latestRun?.run
+    ?? undefined
   const projectLabel = data.project.displayName || data.project.name
   const runItem = latestRun
     ? toRunListItem(latestRun, projectLabel)
