@@ -104,6 +104,31 @@ function providerEntries(byProvider: Map<string, Agg>): VisibilityStatsProviderE
     .sort((a, b) => a.provider.localeCompare(b.provider))
 }
 
+type QueryAttributionSnapshot = Pick<VisibilityStatsSnapshotInput, 'queryId' | 'queryText'>
+type CurrentQuery = { id: string; query: string }
+
+function buildQueryAttribution(projectQueries: CurrentQuery[]): {
+  byId: Map<string, CurrentQuery>
+  byText: Map<string, CurrentQuery>
+} {
+  const byId = new Map<string, CurrentQuery>()
+  const byText = new Map<string, CurrentQuery>()
+  for (const q of projectQueries) {
+    byId.set(q.id, q)
+    byText.set(q.query, q)
+  }
+  return { byId, byText }
+}
+
+function resolveCurrentQuery(
+  attribution: ReturnType<typeof buildQueryAttribution>,
+  snap: QueryAttributionSnapshot,
+): CurrentQuery | undefined {
+  if (snap.queryId && attribution.byId.has(snap.queryId)) return attribution.byId.get(snap.queryId)
+  if (snap.queryText && attribution.byText.has(snap.queryText)) return attribution.byText.get(snap.queryText)
+  return undefined
+}
+
 /**
  * Pure aggregation: attribute snapshots to currently-tracked queries (by
  * `queryId`, falling back to denormalized `queryText` — see `history.ts`),
@@ -118,12 +143,7 @@ export function computeVisibilityStats(input: ComputeVisibilityStatsInput): Comp
   // Attribution maps. `queryId` is the primary link; `queryText` recovers a
   // snapshot whose query row was replaced (queryId SET NULL) but whose text
   // still matches a current query.
-  const queryById = new Map<string, { id: string; query: string }>()
-  const queryByText = new Map<string, { id: string; query: string }>()
-  for (const q of input.queries) {
-    queryById.set(q.id, q)
-    queryByText.set(q.query, q)
-  }
+  const attribution = buildQueryAttribution(input.queries)
 
   interface QueryBucket {
     id: string
@@ -136,9 +156,7 @@ export function computeVisibilityStats(input: ComputeVisibilityStatsInput): Comp
   const totalsByProvider = new Map<string, Agg>()
 
   for (const snap of input.snapshots) {
-    let resolved: { id: string; query: string } | undefined
-    if (snap.queryId && queryById.has(snap.queryId)) resolved = queryById.get(snap.queryId)
-    else if (snap.queryText && queryByText.has(snap.queryText)) resolved = queryByText.get(snap.queryText)
+    const resolved = resolveCurrentQuery(attribution, snap)
     if (!resolved) continue
 
     let bucket = byQuery.get(resolved.id)
@@ -304,6 +322,7 @@ export async function visibilityStatsRoutes(app: FastifyInstance) {
         : []
 
     const stats = computeVisibilityStats({ queries: projectQueries, snapshots, groupBy })
+    const queryAttribution = buildQueryAttribution(projectQueries)
 
     // Pooled share of voice (opt-in) — how often the project's brand is named in
     // answer text vs tracked competitors, across the SAME window of runs, via the
@@ -324,6 +343,8 @@ export async function visibilityStatsRoutes(app: FastifyInstance) {
         runIds.length > 0
           ? app.db
               .select({
+                queryId: querySnapshots.queryId,
+                queryText: querySnapshots.queryText,
                 answerMentioned: querySnapshots.answerMentioned,
                 answerText: querySnapshots.answerText,
               })
@@ -331,8 +352,9 @@ export async function visibilityStatsRoutes(app: FastifyInstance) {
               .where(inArray(querySnapshots.runId, runIds))
               .all()
           : []
+      const attributedSovSnapshots = sovSnapshots.filter((s) => resolveCurrentQuery(queryAttribution, s) !== undefined)
       const result = buildMentionShare(
-        sovSnapshots.map((s) => ({ projectMentioned: s.answerMentioned === true, answerText: s.answerText })),
+        attributedSovSnapshots.map((s) => ({ projectMentioned: s.answerMentioned === true, answerText: s.answerText })),
         { competitors: mentionShareCompetitors },
       )
       const b = result.breakdown

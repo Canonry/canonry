@@ -233,7 +233,7 @@ function seedRun(opts: {
   trigger?: string
   status?: string
   snapshots: Array<{
-    queryId: string
+    queryId: string | null
     queryText: string
     provider: string
     cited: boolean
@@ -524,6 +524,27 @@ describe('GET /projects/:name/visibility-stats', () => {
     expect(sov!.snapshotsWithAnswerText).toBe(3)
     expect(sov!.percent).toBe(50) // 2 / (2 + 2)
     expect(sov!.perCompetitor).toEqual([{ domain: 'rival.com', mentions: 2 }])
+  })
+
+  it('shareOfVoice uses the same current-query attribution as the stats totals', async () => {
+    seedCompetitor('rival.com')
+    seedRun({
+      createdAt: iso(5),
+      snapshots: [
+        { queryId: ctx.q1, queryText: 'best AEO platform', provider: 'openai', cited: false, mentioned: true, answerText: 'brand is the answer.' },
+        // This old query row is in the same run window, but it is not part of
+        // the current query basket. It must not pollute the competitive SoV
+        // numerator/denominator when the stats totals drop it.
+        { queryId: null, queryText: 'retired query', provider: 'openai', cited: false, mentioned: false, answerText: 'rival is the answer.' },
+      ],
+    })
+
+    const { status, body } = await getStats('?shareOfVoice=1')
+    expect(status).toBe(200)
+    expect(body.totals.total).toBe(1)
+    expect(body.shareOfVoice!.projectMentions).toBe(1)
+    expect(body.shareOfVoice!.competitorMentions).toBe(0)
+    expect(body.shareOfVoice!.percent).toBe(100)
   })
 
   it('shareOfVoice is null (not 0) when no competitors are configured', async () => {
