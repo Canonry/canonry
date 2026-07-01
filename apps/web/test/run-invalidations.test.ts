@@ -52,6 +52,14 @@ test('always invalidates the shared runs and projects operations', () => {
   expect(exactKeyOpIds).toContain('getApiV1Projects')
 })
 
+test('invalidates the project-scoped runs list so the project page refreshes after a run', () => {
+  // The project page reads its runs from `getApiV1ProjectsByNameRuns` (NOT the
+  // globally-capped `/runs` list), so this op must be invalidated on a run or
+  // a quiet project's page would never pick up its new sweep.
+  invalidateQueriesForRunKind(queryClient, RunKinds['answer-visibility'], 'demo')
+  expect(predicateMatches('getApiV1ProjectsByNameRuns')).toBe(true)
+})
+
 test('invalidates GSC operations for gsc-sync runs', () => {
   invalidateQueriesForRunKind(queryClient, RunKinds['gsc-sync'], 'demo')
   expect(predicateMatches('getApiV1ProjectsByNameGoogleGscCoverage')).toBe(true)

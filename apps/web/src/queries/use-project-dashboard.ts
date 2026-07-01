@@ -13,7 +13,7 @@ import {
 } from '../api.js'
 import {
   getApiV1ProjectsByNameOptions,
-  getApiV1RunsOptions,
+  getApiV1ProjectsByNameRunsOptions,
 } from '@ainyc/canonry-api-client/react-query'
 import { buildProjectCommandCenter } from '../build-dashboard.js'
 import type { ProjectData } from '../build-dashboard.js'
@@ -70,10 +70,15 @@ export function useProjectDashboard(projectName: string | null | undefined) {
     refetchOnWindowFocus: 'always',
   })
 
-  // Project-scoped runs list (still kind-filtered so the cap doesn't bite
-  // here either). We then narrow client-side to this project's runs.
+  // Project-scoped runs list. MUST be the per-project endpoint, not the global
+  // `/runs` list: that global list is capped to the most recent runs across ALL
+  // projects, so a project that has gone quiet while others keep sweeping falls
+  // off it entirely. Filtering that capped list to the project then yields an
+  // empty `latestRunIds`, and the per-query views render blank even though the
+  // project has plenty of (older) runs. The per-project endpoint always returns
+  // this project's own runs, so the latest sweep is found regardless of cadence.
   const runsQuery = useQuery({
-    ...getApiV1RunsOptions({ client: heyClient, query: { kind: 'answer-visibility' } }),
+    ...getApiV1ProjectsByNameRunsOptions({ client: heyClient, path: { name: projectName ?? '' }, query: { kind: 'answer-visibility' } }),
     enabled: !!projectName,
     staleTime: RUNS_STALE_MS,
     refetchOnWindowFocus: 'always',
