@@ -265,6 +265,22 @@ const groupByProviderQueryParameter: OpenApiParameter = {
   schema: { type: 'string', enum: ['provider'] },
 }
 
+const monthQueryParameter: OpenApiParameter = {
+  name: 'month',
+  in: 'query',
+  description:
+    'Aggregate a single calendar month (YYYY-MM), expanded to that month\'s inclusive UTC bounds. Mutually exclusive with "since"/"until"/"lastRuns".',
+  schema: stringSchema,
+}
+
+const shareOfVoiceQueryParameter: OpenApiParameter = {
+  name: 'shareOfVoice',
+  in: 'query',
+  description:
+    'Set to "1" to include pooled share of voice (project vs tracked-competitor brand mentions in answer text) across the window.',
+  schema: { type: 'string', enum: ['1'] },
+}
+
 const wordpressEnvQueryParameter: OpenApiParameter = {
   name: 'env',
   in: 'query',
@@ -998,9 +1014,17 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/visibility-stats',
     summary: 'Get aggregated mention/citation stats per query',
     description:
-      'Per-query mention (answer-text) and citation (source-list) counts with a sample size, pooled across many answer-visibility runs (probe-excluded). Tri-state aware: `checked` counts only snapshots where answerMentioned was recorded (null = not checked is excluded). Lets a consumer compute confidence-aware (e.g. Wilson) proportions without N+1 run fetches. With no since/until/lastRuns, EVERY completed/partial answer-visibility run is pooled — `window.runCount` reports how many; bound the window with lastRuns or since/until for a recent sample. Set groupBy=provider for a per-provider breakdown whose counts sum to the pooled counts.',
+      'Per-query mention (answer-text) and citation (source-list) counts with a sample size, pooled across many answer-visibility runs (probe-excluded). Tri-state aware: `checked` counts only snapshots where answerMentioned was recorded (null = not checked is excluded). Lets a consumer compute confidence-aware (e.g. Wilson) proportions without N+1 run fetches. With no since/until/lastRuns, EVERY completed/partial answer-visibility run is pooled — `window.runCount` reports how many; bound the window with lastRuns, since/until, or month=YYYY-MM for a recent sample. Set groupBy=provider for a per-provider breakdown whose counts sum to the pooled counts, or shareOfVoice=1 to add pooled share of voice vs tracked competitors.',
     tags: ['analytics'],
-    parameters: [nameParameter, sinceQueryParameter, untilQueryParameter, lastRunsQueryParameter, groupByProviderQueryParameter],
+    parameters: [
+      nameParameter,
+      sinceQueryParameter,
+      untilQueryParameter,
+      lastRunsQueryParameter,
+      groupByProviderQueryParameter,
+      monthQueryParameter,
+      shareOfVoiceQueryParameter,
+    ],
     responses: {
       200: jsonResponse('Aggregated visibility stats returned.', 'VisibilityStatsDto'),
       400: errorResponse('Invalid query parameters.'),

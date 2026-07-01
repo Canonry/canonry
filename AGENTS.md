@@ -79,6 +79,7 @@ canonry status <project>
 canonry visibility-stats <project>                                    # per-query mention/citation rates with sample size, pooled across runs
 canonry visibility-stats <project> --last-runs 10 --by-provider       # last N runs, per-provider breakdown (counts sum to pooled)
 canonry visibility-stats <project> --since 2026-06-01 --until 2026-06-30 --format jsonl  # date window; one record per query
+canonry visibility-stats <project> --month 2026-06 --share-of-voice   # a whole calendar month + pooled share of voice vs tracked competitors (project brand mentions / (project + competitor))
 canonry apply <file...>                          # multi-doc YAML + multiple files
 canonry export <project>
 canonry report <project>                         # client-facing AEO report → canonry-report-<project>-YYYY-MM-DD.html

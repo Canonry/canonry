@@ -5,8 +5,10 @@ import { emitJsonl } from '../cli-output.js'
 export interface VisibilityStatsOptions {
   since?: string
   until?: string
+  month?: string
   lastRuns?: number
   byProvider?: boolean
+  shareOfVoice?: boolean
   format?: string
 }
 
@@ -16,8 +18,10 @@ export async function showVisibilityStats(project: string, opts: VisibilityStats
   const data = await client.getVisibilityStats(project, {
     since: opts.since,
     until: opts.until,
+    month: opts.month,
     lastRuns: opts.lastRuns,
     groupBy: opts.byProvider ? 'provider' : undefined,
+    shareOfVoice: opts.shareOfVoice,
   })
 
   if (opts.format === 'jsonl') {
@@ -120,6 +124,18 @@ function printVisibilityStats(data: VisibilityStatsDto): void {
           pct(p.mentionRate).padStart(7),
         ].join('  '),
       )
+    }
+  }
+
+  const sov = data.shareOfVoice
+  if (sov) {
+    console.log('')
+    const pctStr = sov.percent === null ? '— (no competitors configured)' : `${sov.percent}%`
+    console.log(
+      `Share of voice: ${pctStr}  (you ${sov.projectMentions} vs competitors ${sov.competitorMentions} brand mentions across ${sov.snapshotsWithAnswerText} answers)`,
+    )
+    for (const c of sov.perCompetitor.slice(0, 8)) {
+      console.log(`  ${c.domain}: ${c.mentions}`)
     }
   }
 }

@@ -2759,6 +2759,16 @@ export type VisibilityStatsDto = {
             lastObserved: string;
         }>;
     }>;
+    shareOfVoice?: {
+        percent: number | null;
+        projectMentions: number;
+        competitorMentions: number;
+        snapshotsWithAnswerText: number;
+        perCompetitor: Array<{
+            domain: string;
+            mentions: number;
+        }>;
+    };
 };
 
 export type WordpressAuditPageDto = {
@@ -4220,6 +4230,14 @@ export type GetApiV1ProjectsByNameVisibilityStatsData = {
          * Set to "provider" to include a per-provider breakdown whose counts sum to the pooled counts.
          */
         groupBy?: 'provider';
+        /**
+         * Aggregate a single calendar month (YYYY-MM), expanded to that month's inclusive UTC bounds. Mutually exclusive with "since"/"until"/"lastRuns".
+         */
+        month?: string;
+        /**
+         * Set to "1" to include pooled share of voice (project vs tracked-competitor brand mentions in answer text) across the window.
+         */
+        shareOfVoice?: '1';
     };
     url: '/api/v1/projects/{name}/visibility-stats';
 };

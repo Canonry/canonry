@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import Fastify from 'fastify'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { createClient, migrate, projects, queries as queriesTable, runs, querySnapshots } from '@ainyc/canonry-db'
+import { competitors, createClient, migrate, projects, queries as queriesTable, runs, querySnapshots } from '@ainyc/canonry-db'
 import type { VisibilityStatsDto } from '@ainyc/canonry-contracts'
 import { apiRoutes } from '../src/index.js'
 import { computeVisibilityStats, type VisibilityStatsSnapshotInput } from '../src/visibility-stats.js'
@@ -232,7 +232,14 @@ function seedRun(opts: {
   kind?: string
   trigger?: string
   status?: string
-  snapshots: Array<{ queryId: string; queryText: string; provider: string; cited: boolean; mentioned: boolean | null }>
+  snapshots: Array<{
+    queryId: string
+    queryText: string
+    provider: string
+    cited: boolean
+    mentioned: boolean | null
+    answerText?: string | null
+  }>
 }): string {
   const runId = crypto.randomUUID()
   ctx.db
@@ -258,6 +265,7 @@ function seedRun(opts: {
         provider: s.provider,
         citationState: s.cited ? 'cited' : 'not-cited',
         answerMentioned: s.mentioned,
+        answerText: s.answerText ?? null,
         citedDomains: [],
         competitorOverlap: [],
         recommendedCompetitors: [],
@@ -480,5 +488,99 @@ describe('GET /projects/:name/visibility-stats', () => {
   it('404s for an unknown project', async () => {
     const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/nope/visibility-stats' })
     expect(res.statusCode).toBe(404)
+  })
+
+  // ── Share of voice (opt-in) ──────────────────────────────────────────────
+
+  function seedCompetitor(domain: string): void {
+    ctx.db
+      .insert(competitors)
+      .values({ id: crypto.randomUUID(), projectId: ctx.projectId, domain, createdAt: iso(30) })
+      .run()
+  }
+
+  it('shareOfVoice pools project vs competitor brand mentions across the window', async () => {
+    seedCompetitor('rival.com') // brandLabelFromDomain('rival.com') = "rival"
+    // Project side is counted from answerMentioned; the competitor side scans
+    // answerText for the competitor brand token ("rival").
+    seedRun({
+      createdAt: iso(5),
+      snapshots: [
+        // project mention only
+        { queryId: ctx.q1, queryText: 'best AEO platform', provider: 'openai', cited: false, mentioned: true, answerText: 'We recommend brand for AEO.' },
+        // competitor mention only
+        { queryId: ctx.q1, queryText: 'best AEO platform', provider: 'gemini', cited: false, mentioned: false, answerText: 'Try rival instead.' },
+        // both
+        { queryId: ctx.q2, queryText: 'AI search optimization', provider: 'openai', cited: false, mentioned: true, answerText: 'Both brand and rival are options.' },
+      ],
+    })
+
+    const { status, body } = await getStats('?shareOfVoice=1')
+    expect(status).toBe(200)
+    const sov = body.shareOfVoice
+    expect(sov).toBeDefined()
+    expect(sov!.projectMentions).toBe(2) // the two answerMentioned=true snapshots (both carry answer text)
+    expect(sov!.competitorMentions).toBe(2) // "rival" appears in two answers
+    expect(sov!.snapshotsWithAnswerText).toBe(3)
+    expect(sov!.percent).toBe(50) // 2 / (2 + 2)
+    expect(sov!.perCompetitor).toEqual([{ domain: 'rival.com', mentions: 2 }])
+  })
+
+  it('shareOfVoice is null (not 0) when no competitors are configured', async () => {
+    seedRun({
+      createdAt: iso(5),
+      snapshots: [{ queryId: ctx.q1, queryText: 'best AEO platform', provider: 'openai', cited: false, mentioned: true, answerText: 'brand is great.' }],
+    })
+    const { body } = await getStats('?shareOfVoice=1')
+    expect(body.shareOfVoice).toBeDefined()
+    expect(body.shareOfVoice!.percent).toBeNull()
+  })
+
+  it('shareOfVoice is omitted from the response unless requested', async () => {
+    seedRun({
+      createdAt: iso(5),
+      snapshots: [{ queryId: ctx.q1, queryText: 'best AEO platform', provider: 'openai', cited: false, mentioned: true, answerText: 'brand' }],
+    })
+    const { body } = await getStats('')
+    expect(body.shareOfVoice).toBeUndefined()
+  })
+
+  it('shareOfVoice excludes probe runs', async () => {
+    seedCompetitor('rival.com')
+    seedRun({ createdAt: iso(5), snapshots: [{ queryId: ctx.q1, queryText: 'best AEO platform', provider: 'openai', cited: false, mentioned: true, answerText: 'brand' }] })
+    // a probe run naming only the competitor must NOT count toward SoV
+    seedRun({ createdAt: iso(4), trigger: 'probe', snapshots: [{ queryId: ctx.q1, queryText: 'best AEO platform', provider: 'openai', cited: false, mentioned: false, answerText: 'rival rival rival' }] })
+    const { body } = await getStats('?shareOfVoice=1')
+    expect(body.shareOfVoice!.projectMentions).toBe(1)
+    expect(body.shareOfVoice!.competitorMentions).toBe(0) // the probe's "rival" is excluded
+    expect(body.shareOfVoice!.percent).toBe(100)
+  })
+
+  // ── month window ─────────────────────────────────────────────────────────
+
+  it('month=YYYY-MM pools only that calendar month and echoes the resolved bounds', async () => {
+    seedRun({ createdAt: '2026-06-15T12:00:00.000Z', snapshots: [{ queryId: ctx.q1, queryText: 'best AEO platform', provider: 'openai', cited: true, mentioned: true }] })
+    seedRun({ createdAt: '2026-05-20T12:00:00.000Z', snapshots: [{ queryId: ctx.q1, queryText: 'best AEO platform', provider: 'openai', cited: true, mentioned: true }] })
+
+    const { status, body } = await getStats('?month=2026-06')
+    expect(status).toBe(200)
+    expect(body.window.runCount).toBe(1) // only the June run
+    expect(body.totals.total).toBe(1)
+    expect(body.window.since).toBe('2026-06-01T00:00:00.000Z')
+    expect(body.window.until).toBe('2026-06-30T23:59:59.999Z')
+  })
+
+  it('rejects month combined with other window params, and a malformed month', async () => {
+    const bad = [
+      { qs: '?month=2026-06&since=2026-06-01', match: /month/i },
+      { qs: '?month=2026-06&lastRuns=3', match: /month/i },
+      { qs: '?month=2026-13', match: /between 01 and 12/i },
+      { qs: '?month=June', match: /YYYY-MM/i },
+    ]
+    for (const { qs, match } of bad) {
+      const { status, body } = await getStats(qs)
+      expect(status, qs).toBe(400)
+      expect((body.error as { message: string }).message, qs).toMatch(match)
+    }
   })
 })
