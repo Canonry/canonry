@@ -214,6 +214,10 @@ describe('MCP tool registry', () => {
       type: 'integer',
       maximum: 500,
     })
+
+    const visibilityStatsSchema = inputSchemaFor('canonry_visibility_stats')
+    expect(schemaProperty(visibilityStatsSchema, 'month')).toMatchObject({ type: 'string' })
+    expect(schemaProperty(visibilityStatsSchema, 'shareOfVoice')).toMatchObject({ type: 'boolean' })
   })
 
   it('limits MCP run trigger input to manual answer-visibility runs', () => {
@@ -500,7 +504,22 @@ const handlerCases: HandlerCase[] = [
   { tool: 'canonry_runs_latest', input: projectInput, methods: ['getLatestRun'] },
   { tool: 'canonry_run_get', input: { runId: 'run-1' }, methods: ['getRun'] },
   { tool: 'canonry_timeline_get', input: { project: 'acme', location: 'nyc' }, methods: ['getTimeline'] },
-  { tool: 'canonry_visibility_stats', input: { project: 'acme', lastRuns: 5, groupBy: 'provider' }, methods: ['getVisibilityStats'] },
+  {
+    tool: 'canonry_visibility_stats',
+    input: { project: 'acme', month: '2026-06', groupBy: 'provider', shareOfVoice: true },
+    methods: ['getVisibilityStats'],
+    expectedArgs: [[
+      'acme',
+      {
+        since: undefined,
+        until: undefined,
+        lastRuns: undefined,
+        groupBy: 'provider',
+        month: '2026-06',
+        shareOfVoice: true,
+      },
+    ]],
+  },
   { tool: 'canonry_snapshots_list', input: { project: 'acme', limit: 5 }, methods: ['getSnapshots'] },
   { tool: 'canonry_snapshots_diff', input: { project: 'acme', run1: 'run-1', run2: 'run-2' }, methods: ['getSnapshotDiff'] },
   { tool: 'canonry_insights_list', input: { project: 'acme', dismissed: true }, methods: ['getInsights'] },

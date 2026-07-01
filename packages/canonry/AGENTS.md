@@ -43,7 +43,7 @@ The publishable npm package (`@ainyc/canonry`). Bundles the CLI, local Fastify s
 | `src/run-coordinator.ts` | Post-run orchestrator — dispatches to intelligence + notifications |
 | `src/commands/insights.ts` | `insights` and `insights dismiss` command implementations |
 | `src/commands/health-cmd.ts` | `health` command implementation |
-| `src/commands/visibility-stats.ts` | `visibility-stats <project>` — aggregated per-query mention/citation rates with sample size (`--since`/`--until`/`--last-runs`/`--by-provider`); collection command → jsonl streams one record per query. Delegates to `ApiClient.getVisibilityStats`. Registered via `src/cli-commands/visibility-stats.ts`. |
+| `src/commands/visibility-stats.ts` | `visibility-stats <project>` — aggregated per-query mention/citation rates with sample size (`--since`/`--until`/`--month <YYYY-MM>`/`--last-runs`/`--by-provider`/`--share-of-voice`); `--share-of-voice` adds pooled project-vs-competitor share of voice to the envelope; collection command → jsonl streams one record per query. Delegates to `ApiClient.getVisibilityStats`. Registered via `src/cli-commands/visibility-stats.ts`. |
 | `src/commands/doctor.ts` | `canonry doctor` — runs the doctor check registry via `ApiClient.runDoctor` |
 | `src/cli-commands/doctor.ts` | CLI spec for `canonry doctor [--project <name>] [--check <id>...]` |
 | `src/commands/backfill.ts` | Historical recomputation for answer visibility fields and insights |

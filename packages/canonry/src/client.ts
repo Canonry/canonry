@@ -2323,7 +2323,14 @@ export class ApiClient {
 
   async getVisibilityStats(
     project: string,
-    opts: { since?: string; until?: string; lastRuns?: number; groupBy?: 'provider' } = {},
+    opts: {
+      since?: string
+      until?: string
+      lastRuns?: number
+      groupBy?: 'provider'
+      month?: string
+      shareOfVoice?: boolean
+    } = {},
   ): Promise<VisibilityStatsDto> {
     return this.invoke<VisibilityStatsDto>(() =>
       getApiV1ProjectsByNameVisibilityStats({
@@ -2334,6 +2341,8 @@ export class ApiClient {
           until: opts.until,
           lastRuns: opts.lastRuns,
           groupBy: opts.groupBy,
+          month: opts.month,
+          shareOfVoice: opts.shareOfVoice ? '1' : undefined,
         } as never,
       }),
     )
