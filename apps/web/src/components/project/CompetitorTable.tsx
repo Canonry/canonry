@@ -19,7 +19,7 @@ export function CompetitorTable({
   activeFilter?: string | null
 }) {
   if (competitors.length === 0) {
-    return <p className="text-sm text-zinc-500">No competitors configured. Add competitors to track overlap.</p>
+    return <p className="text-sm text-muted">No competitors configured. Add competitors to track overlap.</p>
   }
 
   const clickable = onSelectCompetitor != null
@@ -41,8 +41,8 @@ export function CompetitorTable({
           {competitors.map((competitor) => {
             const isActive = activeFilter != null && activeFilter.toLowerCase() === competitor.domain.toLowerCase()
             const rowClass = [
-              clickable ? 'cursor-pointer hover:bg-zinc-800/30 transition-colors' : '',
-              isActive ? 'bg-rose-950/20' : '',
+              clickable ? 'cursor-pointer hover:bg-mono-800/30 transition-colors' : '',
+              isActive ? 'bg-negative-950/20' : '',
             ].filter(Boolean).join(' ')
             return (
               <tr
@@ -51,18 +51,18 @@ export function CompetitorTable({
                 onClick={clickable ? () => onSelectCompetitor!(competitor.domain) : undefined}
                 title={clickable ? `Filter answers to queries where ${competitor.domain} surfaced` : undefined}
               >
-                <td className="font-medium text-zinc-100">{competitor.domain}</td>
+                <td className="font-medium text-heading">{competitor.domain}</td>
                 <td>
                   <ToneBadge tone={competitorTone(competitor.pressureLabel)}>
                     {competitor.pressureLabel}
                   </ToneBadge>
                 </td>
-                <td className="text-zinc-300 tabular-nums">
+                <td className="text-neutral tabular-nums">
                   {competitor.totalQueries > 0
                     ? `${competitor.citationCount} / ${competitor.totalQueries}`
                     : '—'}
                 </td>
-                <td className="text-zinc-500 text-xs">
+                <td className="text-muted text-xs">
                   {competitor.citedQueries.length > 0
                     ? competitor.citedQueries.join(', ')
                     : 'Not cited'}
@@ -71,7 +71,7 @@ export function CompetitorTable({
                   <td className="text-right">
                     <button
                       type="button"
-                      className="rounded px-1.5 py-0.5 text-xs text-zinc-500 transition-colors hover:text-rose-400 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-rose-500"
+                      className="rounded px-1.5 py-0.5 text-xs text-muted transition-colors hover:text-negative-400 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-negative-500"
                       aria-label={`Remove competitor ${competitor.domain}`}
                       title={`Remove ${competitor.domain}`}
                       onClick={(event) => {

@@ -119,11 +119,11 @@ export function NotificationsSection({ projectName }: { projectName: string }) {
       </div>
 
       {adding && (
-        <div className="mb-3 rounded-lg border border-zinc-800 bg-zinc-900/40 p-4 space-y-3">
+        <div className="mb-3 rounded-lg border border-base bg-bg-elevated/40 p-4 space-y-3">
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-zinc-400">Webhook URL</label>
+            <label className="text-xs font-medium text-secondary">Webhook URL</label>
             <input
-              className="w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+              className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
               type="url"
               placeholder="https://hooks.example.com/canonry"
               value={webhookUrl}
@@ -131,22 +131,22 @@ export function NotificationsSection({ projectName }: { projectName: string }) {
             />
           </div>
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-zinc-400">Trigger on</label>
+            <label className="text-xs font-medium text-secondary">Trigger on</label>
             <div className="flex flex-wrap gap-3">
               {NOTIFICATION_EVENTS.map(evt => (
                 <label key={evt.value} className="flex items-center gap-1.5 cursor-pointer select-none">
                   <input
                     type="checkbox"
-                    className="rounded border-zinc-600 bg-zinc-800"
+                    className="rounded border-mono-600 bg-mono-800"
                     checked={selectedEvents.includes(evt.value)}
                     onChange={() => toggleEvent(evt.value)}
                   />
-                  <span className="text-sm text-zinc-300">{evt.label}</span>
+                  <span className="text-sm text-neutral">{evt.label}</span>
                 </label>
               ))}
             </div>
           </div>
-          {error && <p className="text-rose-400 text-sm">{error}</p>}
+          {error && <p className="text-negative-400 text-sm">{error}</p>}
           <div className="flex gap-2 justify-end">
             <Button type="button" variant="outline" size="sm" onClick={() => { setAdding(false); setError(null) }}>Cancel</Button>
             <Button
@@ -184,14 +184,14 @@ export function NotificationsSection({ projectName }: { projectName: string }) {
               {notifs.map(n => (
                 <tr key={n.id}>
                   <td className="evidence-query-cell">
-                    <span className="font-mono text-xs text-zinc-300 break-all" title={n.urlHost}>
+                    <span className="font-mono text-xs text-neutral break-all" title={n.urlHost}>
                       {n.urlDisplay ?? n.url}
                     </span>
                   </td>
                   <td>
                     <div className="flex flex-wrap gap-1">
                       {n.events.map(evt => (
-                        <span key={evt} className="inline-flex items-center rounded-full border border-zinc-700 bg-zinc-800/60 px-2 py-0.5 text-[10px] font-medium text-zinc-400 uppercase tracking-wide">
+                        <span key={evt} className="inline-flex items-center rounded-full border border-strong bg-surface-inset px-2 py-0.5 text-[10px] font-medium text-secondary uppercase tracking-wide">
                           {evt.replace('.', ' ')}
                         </span>
                       ))}
@@ -227,7 +227,7 @@ export function NotificationsSection({ projectName }: { projectName: string }) {
               ))}
             </tbody>
           </table>
-          {error && <p className="text-rose-400 text-sm mt-2">{error}</p>}
+          {error && <p className="text-negative-400 text-sm mt-2">{error}</p>}
         </div>
       )}
     </section>

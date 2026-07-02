@@ -59,10 +59,10 @@ export function YamlApplyPanel({ onApplied }: { onApplied: () => void }) {
       <div className="section-head mt-6">
         <div>
           <p className="eyebrow eyebrow-soft">Config as code</p>
-          <h2 className="text-sm font-medium text-zinc-200">Apply YAML</h2>
+          <h2 className="text-sm font-medium text-strong">Apply YAML</h2>
         </div>
       </div>
-      <p className="text-zinc-500 text-sm mb-3">Paste a <code className="text-zinc-400">canonry.yaml</code> config (multi-document YAML with <code className="text-zinc-400">---</code> separators supported).</p>
+      <p className="text-muted text-sm mb-3">Paste a <code className="text-secondary">canonry.yaml</code> config (multi-document YAML with <code className="text-secondary">---</code> separators supported).</p>
       <textarea
         className="setup-input w-full font-mono text-xs"
         rows={10}
@@ -72,12 +72,12 @@ export function YamlApplyPanel({ onApplied }: { onApplied: () => void }) {
       />
       {results.length > 0 && (
         <ul className="mt-2 space-y-1">
-          {results.map((r, i) => <li key={i} className="text-emerald-400 text-sm">{r}</li>)}
+          {results.map((r, i) => <li key={i} className="text-positive-400 text-sm">{r}</li>)}
         </ul>
       )}
       {errors.length > 0 && (
         <ul className="mt-2 space-y-1">
-          {errors.map((e, i) => <li key={i} className="text-rose-400 text-sm">{e}</li>)}
+          {errors.map((e, i) => <li key={i} className="text-negative-400 text-sm">{e}</li>)}
         </ul>
       )}
       <div className="mt-3">

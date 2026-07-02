@@ -32,8 +32,8 @@ export function SearchConsoleSummaryCard({
       onClick={onClick}
       className={`surface-card w-full text-left transition-colors ${
         active
-          ? 'border-zinc-200 bg-zinc-900/50'
-          : 'hover:border-zinc-700 hover:bg-zinc-900/40'
+          ? 'border-mono-200 bg-bg-elevated/50'
+          : 'hover:border-strong hover:bg-bg-elevated/40'
       }`}
     >
       <div className="section-head">
@@ -44,16 +44,16 @@ export function SearchConsoleSummaryCard({
         <ToneBadge tone={tone}>{status}</ToneBadge>
       </div>
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
-        <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/20 p-3">
-          <p className="text-xs uppercase tracking-wide text-zinc-500">{targetLabel}</p>
-          <p className="mt-1 truncate text-sm text-zinc-200">{targetValue}</p>
+        <div className="rounded-lg border border-default bg-surface-subtle p-3">
+          <p className="text-xs uppercase tracking-wide text-muted">{targetLabel}</p>
+          <p className="mt-1 truncate text-sm text-strong">{targetValue}</p>
         </div>
-        <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/20 p-3">
-          <p className="text-xs uppercase tracking-wide text-zinc-500">Coverage</p>
-          <p className="mt-1 text-sm text-zinc-200">{coverageValue}</p>
+        <div className="rounded-lg border border-default bg-surface-subtle p-3">
+          <p className="text-xs uppercase tracking-wide text-muted">Coverage</p>
+          <p className="mt-1 text-sm text-strong">{coverageValue}</p>
         </div>
       </div>
-      <div className="mt-3 flex flex-col gap-1 text-xs text-zinc-500 sm:flex-row sm:items-center sm:justify-between">
+      <div className="mt-3 flex flex-col gap-1 text-xs text-muted sm:flex-row sm:items-center sm:justify-between">
         <span>{note}</span>
         <span>{updatedAt ? `Updated ${formatTimestamp(updatedAt)}` : 'No recent sync yet'}</span>
       </div>

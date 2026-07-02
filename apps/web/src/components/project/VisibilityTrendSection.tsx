@@ -51,7 +51,7 @@ const METRIC_OPTIONS: Array<{ value: MetricChoice; label: string }> = [
 ]
 
 /** Dark ring drawn around the active (hovered) dot so it reads against the line. */
-const ACTIVE_DOT_RING = '#18181b'
+const ACTIVE_DOT_RING = 'var(--chart-tooltip-bg)'
 
 /** Human-friendly engine names for the legend and tooltip (data keys are lowercase). */
 const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
@@ -201,7 +201,7 @@ export function VisibilityTrendSection({
             {deltaPts !== null && (
               <span
                 className={`visibility-trend-current-delta ${
-                  deltaPts > 0 ? 'text-emerald-400' : deltaPts < 0 ? 'text-rose-400' : 'text-zinc-500'
+                  deltaPts > 0 ? 'text-positive-400' : deltaPts < 0 ? 'text-negative-400' : 'text-muted'
                 }`}
               >
                 {deltaPts > 0 ? '+' : ''}{deltaPts.toFixed(1)} pts
@@ -220,9 +220,9 @@ export function VisibilityTrendSection({
 
   let body: React.ReactNode
   if (error) {
-    body = <p className="text-sm text-rose-400">{error instanceof Error ? error.message : String(error)}</p>
+    body = <p className="text-sm text-negative-400">{error instanceof Error ? error.message : String(error)}</p>
   } else if (metricsQuery.isLoading && !data) {
-    body = <div className="visibility-trend-chart animate-pulse rounded-lg bg-zinc-900/40" aria-hidden="true" />
+    body = <div className="visibility-trend-chart animate-pulse rounded-lg bg-bg-elevated/40" aria-hidden="true" />
   } else if (!data || !trend) {
     body = null
   } else {
@@ -230,12 +230,12 @@ export function VisibilityTrendSection({
     const caption = formatQueryChangeCaption(data.queryChanges)
     if (!hasData) {
       body = (
-        <p className="text-sm text-zinc-400">Run a sweep to start tracking citations and mentions over time.</p>
+        <p className="text-sm text-secondary">Run a sweep to start tracking citations and mentions over time.</p>
       )
     } else if (mode === 'byProvider' && series.length === 0) {
       body = (
-        <p className="text-sm text-zinc-400">
-          No per-engine breakdown for this data yet. Switch to <span className="text-zinc-200">All engines</span> to see the trend.
+        <p className="text-sm text-secondary">
+          No per-engine breakdown for this data yet. Switch to <span className="text-strong">All engines</span> to see the trend.
         </p>
       )
     } else {
@@ -373,7 +373,7 @@ export function MentionShareTrendSection({
             {deltaPts !== null && (
               <span
                 className={`visibility-trend-current-delta ${
-                  deltaPts > 0 ? 'text-emerald-400' : deltaPts < 0 ? 'text-rose-400' : 'text-zinc-500'
+                  deltaPts > 0 ? 'text-positive-400' : deltaPts < 0 ? 'text-negative-400' : 'text-muted'
                 }`}
               >
                 {deltaPts > 0 ? '+' : ''}{deltaPts.toFixed(1)} pts
@@ -390,15 +390,15 @@ export function MentionShareTrendSection({
 
   let body: React.ReactNode
   if (error) {
-    body = <p className="text-sm text-rose-400">{error instanceof Error ? error.message : String(error)}</p>
+    body = <p className="text-sm text-negative-400">{error instanceof Error ? error.message : String(error)}</p>
   } else if (metricsQuery.isLoading && !data) {
-    body = <div className="visibility-trend-chart animate-pulse rounded-lg bg-zinc-900/40" aria-hidden="true" />
+    body = <div className="visibility-trend-chart animate-pulse rounded-lg bg-bg-elevated/40" aria-hidden="true" />
   } else if (competitorCount === 0) {
-    body = <p className="text-sm text-zinc-400">Add tracked competitors to measure mention share over time.</p>
+    body = <p className="text-sm text-secondary">Add tracked competitors to measure mention share over time.</p>
   } else if (!data || !trend) {
     body = null
   } else if (!trend.hasData) {
-    body = <p className="text-sm text-zinc-400">No answer-text brand mentions for you or tracked competitors in this window yet.</p>
+    body = <p className="text-sm text-secondary">No answer-text brand mentions for you or tracked competitors in this window yet.</p>
   } else {
     const caption = formatQueryChangeCaption(data.queryChanges)
     const { rows, singleBucket } = trend
