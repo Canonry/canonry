@@ -62,42 +62,48 @@
   <!-- Text content -->
   <g>
     <!-- Project name -->
-    <text x="500" y="250" font-family="'Manrope', 'Inter', system-ui, -apple-system, sans-serif" font-size="72" font-weight="800" fill="#fafafa" letter-spacing="-2">canonry</text>
+    <text x="500" y="214" font-family="'Manrope', 'Inter', system-ui, -apple-system, sans-serif" font-size="72" font-weight="800" fill="#fafafa" letter-spacing="-2">canonry</text>
 
-    <!-- Tagline -->
-    <text x="500" y="310" font-family="'Manrope', 'Inter', system-ui, -apple-system, sans-serif" font-size="26" font-weight="400" fill="#a1a1aa">Track how AI answer engines cite your domain</text>
+    <!-- Positioning -->
+    <text x="500" y="274" font-family="'Manrope', 'Inter', system-ui, -apple-system, sans-serif" font-size="32" font-weight="700" fill="#e4e4e7" letter-spacing="-0.5">Agent-first AEO operating platform</text>
+    <text x="500" y="318" font-family="'Manrope', 'Inter', system-ui, -apple-system, sans-serif" font-size="21" font-weight="400" fill="#a1a1aa">Track citation + mention coverage across answer engines,</text>
+    <text x="500" y="349" font-family="'Manrope', 'Inter', system-ui, -apple-system, sans-serif" font-size="21" font-weight="400" fill="#a1a1aa">diagnose regressions, and act with Aero.</text>
 
-    <!-- Provider pills -->
-    <g transform="translate(500, 350)">
-      <!-- Gemini -->
-      <rect x="0" y="0" width="100" height="36" rx="18" fill="#27272a" stroke="#3f3f46" stroke-width="1"/>
-      <text x="50" y="23" font-family="'Manrope', 'Inter', system-ui, -apple-system, sans-serif" font-size="14" font-weight="500" fill="#a1a1aa" text-anchor="middle">Gemini</text>
+    <!-- Platform surface pills -->
+    <g transform="translate(500, 392)">
+      <rect x="0" y="0" width="132" height="36" rx="18" fill="#27272a" stroke="#3f3f46" stroke-width="1"/>
+      <circle cx="21" cy="18" r="4" fill="#34d399" opacity="0.85"/>
+      <text x="76" y="23" font-family="'Manrope', 'Inter', system-ui, -apple-system, sans-serif" font-size="14" font-weight="600" fill="#d4d4d8" text-anchor="middle">Open source</text>
 
-      <!-- OpenAI -->
-      <rect x="112" y="0" width="100" height="36" rx="18" fill="#27272a" stroke="#3f3f46" stroke-width="1"/>
-      <text x="162" y="23" font-family="'Manrope', 'Inter', system-ui, -apple-system, sans-serif" font-size="14" font-weight="500" fill="#a1a1aa" text-anchor="middle">OpenAI</text>
+      <rect x="146" y="0" width="130" height="36" rx="18" fill="#27272a" stroke="#3f3f46" stroke-width="1"/>
+      <circle cx="167" cy="18" r="4" fill="#fbbf24" opacity="0.85"/>
+      <text x="221" y="23" font-family="'Manrope', 'Inter', system-ui, -apple-system, sans-serif" font-size="14" font-weight="600" fill="#d4d4d8" text-anchor="middle">Self-hosted</text>
 
-      <!-- Claude -->
-      <rect x="224" y="0" width="100" height="36" rx="18" fill="#27272a" stroke="#3f3f46" stroke-width="1"/>
-      <text x="274" y="23" font-family="'Manrope', 'Inter', system-ui, -apple-system, sans-serif" font-size="14" font-weight="500" fill="#a1a1aa" text-anchor="middle">Claude</text>
-
-      <!-- Perplexity -->
-      <rect x="336" y="0" width="120" height="36" rx="18" fill="#27272a" stroke="#3f3f46" stroke-width="1"/>
-      <text x="396" y="23" font-family="'Manrope', 'Inter', system-ui, -apple-system, sans-serif" font-size="14" font-weight="500" fill="#a1a1aa" text-anchor="middle">Perplexity</text>
+      <rect x="290" y="0" width="146" height="36" rx="18" fill="#27272a" stroke="#3f3f46" stroke-width="1"/>
+      <circle cx="311" cy="18" r="4" fill="#60a5fa" opacity="0.85"/>
+      <text x="365" y="23" font-family="'Manrope', 'Inter', system-ui, -apple-system, sans-serif" font-size="14" font-weight="600" fill="#d4d4d8" text-anchor="middle">CLI / API / MCP</text>
     </g>
 
-    <!-- Open source badge -->
-    <g transform="translate(500, 420)">
-      <rect x="0" y="0" width="160" height="36" rx="18" fill="none" stroke="#10b981" stroke-width="1.5" opacity="0.7"/>
-      <circle cx="22" cy="18" r="4" fill="#10b981" opacity="0.8"/>
-      <text x="88" y="23" font-family="'Manrope', 'Inter', system-ui, -apple-system, sans-serif" font-size="14" font-weight="600" fill="#10b981" text-anchor="middle" opacity="0.9">Open Source</text>
+    <!-- Operating loop -->
+    <g transform="translate(500, 450)">
+      <rect x="0" y="0" width="438" height="74" rx="12" fill="#18181b" stroke="#27272a" stroke-width="1.5"/>
+      <text x="22" y="28" font-family="'SF Mono', 'Fira Code', 'JetBrains Mono', monospace" font-size="13" fill="#71717a">signals</text>
+      <text x="130" y="28" font-family="'SF Mono', 'Fira Code', 'JetBrains Mono', monospace" font-size="13" fill="#71717a">analysis</text>
+      <text x="250" y="28" font-family="'SF Mono', 'Fira Code', 'JetBrains Mono', monospace" font-size="13" fill="#71717a">actions</text>
+      <path d="M88 24H116" stroke="#52525b" stroke-width="1.5"/>
+      <path d="M112 20L118 24L112 28" fill="none" stroke="#52525b" stroke-width="1.5"/>
+      <path d="M202 24H234" stroke="#52525b" stroke-width="1.5"/>
+      <path d="M230 20L236 24L230 28" fill="none" stroke="#52525b" stroke-width="1.5"/>
+      <rect x="22" y="42" width="76" height="12" rx="6" fill="#34d399" opacity="0.82"/>
+      <rect x="130" y="42" width="94" height="12" rx="6" fill="#fbbf24" opacity="0.82"/>
+      <rect x="250" y="42" width="132" height="12" rx="6" fill="#60a5fa" opacity="0.82"/>
     </g>
 
     <!-- CLI command hint -->
-    <g transform="translate(500, 480)">
+    <g transform="translate(500, 544)">
       <rect x="0" y="0" width="340" height="40" rx="8" fill="#18181b" stroke="#27272a" stroke-width="1.5"/>
       <text x="16" y="26" font-family="'SF Mono', 'Fira Code', 'JetBrains Mono', monospace" font-size="15" fill="#71717a">$</text>
-      <text x="32" y="26" font-family="'SF Mono', 'Fira Code', 'JetBrains Mono', monospace" font-size="15" fill="#d4d4d8">npx @canonry/canonry init</text>
+      <text x="32" y="26" font-family="'SF Mono', 'Fira Code', 'JetBrains Mono', monospace" font-size="15" fill="#d4d4d8">cnry run my-site --wait</text>
     </g>
   </g>
 
