@@ -1,5 +1,5 @@
 import crypto from 'node:crypto'
-import { and, desc, eq, gte, inArray } from 'drizzle-orm'
+import { and, desc, eq, gte, inArray, isNull } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import {
   competitors,
@@ -184,6 +184,12 @@ export async function discoveryRoutes(app: FastifyInstance, opts: DiscoveryRoute
         .where(and(
           eq(discoverySessions.projectId, project.id),
           eq(discoverySessions.icpDescription, icpDescription),
+          // Buyer is part of session identity: it changes the seed prompt's
+          // semantics, so a request with a different (or no) buyer must start
+          // its own session, never adopt another buyer's probes.
+          parsed.data.buyerDescription == null
+            ? isNull(discoverySessions.buyerDescription)
+            : eq(discoverySessions.buyerDescription, parsed.data.buyerDescription),
           inArray(discoverySessions.status, [
             DiscoverySessionStatuses.queued,
             DiscoverySessionStatuses.seeding,
@@ -210,6 +216,7 @@ export async function discoveryRoutes(app: FastifyInstance, opts: DiscoveryRoute
         runId,
         status: DiscoverySessionStatuses.queued,
         icpDescription,
+        buyerDescription: parsed.data.buyerDescription ?? null,
         dedupThreshold: parsed.data.dedupThreshold,
         competitorMap: [],
         createdAt: now,
@@ -240,6 +247,8 @@ export async function discoveryRoutes(app: FastifyInstance, opts: DiscoveryRoute
       // The caller's `dedupThreshold` / `maxProbes` / `probeConcurrency` are
       // intentionally dropped — the in-flight session was already started with
       // its own config and changing it mid-flight would silently corrupt the run.
+      // `buyerDescription` is NOT dropped: it is part of the consolidation
+      // identity above, so a reused session always has the caller's buyer.
       return reply.status(200).send({
         runId: decision.runId,
         sessionId: decision.sessionId,
@@ -659,6 +668,7 @@ function serializeSession(row: typeof discoverySessions.$inferSelect): Discovery
     seedFromAnswerCount: row.seedFromAnswerCount ?? null,
     seedFromGroundingCount: row.seedFromGroundingCount ?? null,
     seedBrandFilteredCount: row.seedBrandFilteredCount ?? null,
+    buyerDescription: row.buyerDescription ?? null,
     dedupThreshold: row.dedupThreshold ?? null,
     probeCount: row.probeCount ?? null,
     citedCount: row.citedCount ?? null,

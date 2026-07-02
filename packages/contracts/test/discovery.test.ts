@@ -857,3 +857,16 @@ test('discoverySessionDtoSchema carries the brand-filtered diagnostic count', ()
   })
   expect(parsed.seedBrandFilteredCount).toBe(7)
 })
+
+test('filterBrandedSeedCandidates normalizes raw URL-style configured domains to their host', () => {
+  // Project upsert/apply store canonicalDomain as configured — full URLs
+  // included. The clean-host query must drop even when only the raw URL form
+  // is configured.
+  const { kept, droppedBranded } = filterBrandedSeedCandidates({
+    candidates: ['example.com reviews', 'https://www.example.com/path reviews', 'best widget shops'],
+    brandNames: [],
+    canonicalDomains: ['https://www.Example.com/path'],
+  })
+  expect(droppedBranded).toEqual(['example.com reviews', 'https://www.example.com/path reviews'])
+  expect(kept).toEqual(['best widget shops'])
+})

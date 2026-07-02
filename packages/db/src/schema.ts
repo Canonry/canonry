@@ -918,6 +918,9 @@ export const discoverySessions = sqliteTable('discovery_sessions', {
   // Diagnostics: raw candidates dropped by the branded self-query filter
   // before seed_count_raw was recorded. Nullable for legacy sessions.
   seedBrandFilteredCount: integer('seed_brand_filtered_count'),
+  // Buyer definition the session was seeded with; part of session identity
+  // for in-flight consolidation (same ICP + different buyer never reuses).
+  buyerDescription: text('buyer_description'),
   dedupThreshold: real('dedup_threshold'),
   probeCount: integer('probe_count'),
   citedCount: integer('cited_count'),

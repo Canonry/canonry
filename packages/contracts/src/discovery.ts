@@ -113,6 +113,9 @@ export const discoverySessionDtoSchema = z.object({
    * additive: no gate or warning reads it.
    */
   seedBrandFilteredCount: z.number().int().nullable().optional(),
+  /** Buyer definition the session was seeded with (part of session identity
+   *  for in-flight consolidation). Null on legacy / no-buyer sessions. */
+  buyerDescription: z.string().nullable().optional(),
   dedupThreshold: z.number().nullable().optional(),
   probeCount: z.number().int().nullable().optional(),
   citedCount: z.number().int().nullable().default(null),
@@ -273,7 +276,11 @@ function brandMatchTokens(brandNames: readonly string[], canonicalDomains: reado
     if (squashed.length >= 4 && squashed !== normalized) tokens.add(squashed)
   }
   for (const domain of canonicalDomains) {
-    const host = normalizeForBrandMatch(domain).replace(/^www\./, '')
+    // Configured domains arrive raw (project upsert/apply store them as
+    // given), so a value like "https://www.Example.com/path" must still
+    // yield the "example.com" token. hostOf is the canonical extractor;
+    // fall back to the normalized raw string for values it cannot parse.
+    const host = hostOf(domain) ?? normalizeForBrandMatch(domain).replace(/^www\./, '')
     if (!host) continue
     tokens.add(host)
     tokens.add(`www.${host}`)

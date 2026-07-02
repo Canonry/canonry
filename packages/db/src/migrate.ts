@@ -1949,6 +1949,16 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `ALTER TABLE discovery_sessions ADD COLUMN seed_brand_filtered_count INTEGER`,
     ],
   },
+  {
+    version: 90,
+    name: 'discovery-session-buyer-description',
+    statements: [
+      // Buyer definition the session was seeded with. Part of the in-flight
+      // consolidation identity (a request with a different buyer must never
+      // reuse another buyer's session) and auditability for seed provenance.
+      `ALTER TABLE discovery_sessions ADD COLUMN buyer_description TEXT`,
+    ],
+  },
 ]
 
 /**

@@ -1131,6 +1131,54 @@ describe('discovery routes', () => {
     expect(db.select().from(runs).all()).toHaveLength(0)
   })
 
+
+  it('POST /discover/run does NOT consolidate across different buyers (buyer is session identity)', async () => {
+    const calls: Array<{ runId: string; sessionId: string; projectId: string; icp: string }> = []
+    const { app, db, tmpDir } = buildAppWithRoutes(calls)
+    cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
+    seedProject(db)
+
+    const first = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/demand-iq/discover/run',
+      payload: { icpDescription: 'industrial coatings', buyerDescription: 'plant facility managers' },
+    })
+    expect(first.statusCode).toBe(201)
+    db.update(discoverySessions).set({ status: 'probing' }).run()
+
+    // Same ICP, DIFFERENT buyer: the probes seeded for the first buyer answer a
+    // different question, so this must start a fresh session, never consolidate.
+    const second = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/demand-iq/discover/run',
+      payload: { icpDescription: 'industrial coatings', buyerDescription: 'roofing distributors' },
+    })
+    expect(second.statusCode).toBe(201)
+    expect((second.json() as { consolidated?: boolean }).consolidated).toBeFalsy()
+
+    // Same ICP, NO buyer: still a different identity than a with-buyer session.
+    const third = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/demand-iq/discover/run',
+      payload: { icpDescription: 'industrial coatings' },
+    })
+    expect(third.statusCode).toBe(201)
+
+    // Same ICP + same buyer DOES consolidate onto the first session.
+    const fourth = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/demand-iq/discover/run',
+      payload: { icpDescription: 'industrial coatings', buyerDescription: 'plant facility managers' },
+    })
+    expect(fourth.statusCode).toBe(200)
+    expect((fourth.json() as { consolidated: boolean }).consolidated).toBe(true)
+    expect((fourth.json() as { sessionId: string }).sessionId).toBe((first.json() as { sessionId: string }).sessionId)
+
+    // Buyer is persisted on the session row for auditability.
+    const rows = db.select().from(discoverySessions).all()
+    expect(rows.map((r) => r.buyerDescription).sort()).toEqual([null, 'plant facility managers', 'roofing distributors'].sort())
+  })
+
   it('POST /discover/run reuses an in-flight session with the same ICP (no new rows, no callback)', async () => {
     // The fragmentation bug in issue #498: back-to-back `canonry discover run`
     // commands today fire a fresh Gemini seed each time. Consolidation keeps
