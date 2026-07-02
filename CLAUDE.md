@@ -25,10 +25,23 @@ The web dashboard follows a dark, professional analytics aesthetic inspired by *
   `zinc-50`; `text-heading` = `zinc-100`; `text-strong` = `zinc-200`;
   `text-secondary` = `zinc-400`; `text-muted` = `zinc-500`;
   `text-faint` = `zinc-600`.
-- Legacy literal palette utilities (`bg-zinc-*`, `text-zinc-*`,
-  `border-zinc-*`, `emerald` / `amber` / `rose`) still exist in older code
-  until the migration phases complete. Do not add new literal palette utilities
-  for themeable UI; add or use a semantic token instead.
+- Off-ladder shades resolve through raw scales, never new literals: the neutral
+  `mono-*` scale (`mono-100/400/500/600/700/800`, each = the matching `zinc-*`)
+  backs one-off dots, focus rings, tracks, dividers, and underlines; the tone
+  scales (`positive-*` = `emerald-*`, `caution-*` = `amber-*`, `negative-*` =
+  `rose-*`, at the ladder's levels) back insight cards, toasts, chips, gauges,
+  and sparklines. Prefer the semantic role tokens above; reach for a scale token
+  — with a Tailwind opacity modifier for alpha steps, e.g. `bg-caution-950/25`,
+  `border-mono-800/30` — only for a shade the role tokens don't name. Effect
+  colors cover the remaining raw hex: `--color-track`, `--color-scrollbar-thumb`,
+  `--color-shadow-drop`, `--color-shadow-panel`, `--color-overlay-hover`,
+  `--color-caution-glow` / `-glow-inset`.
+- `apps/web/src/styles.css` is fully tokenized — zero literal palette utilities
+  and zero raw hex/rgba outside the `@theme` block (guarded by
+  `design-tokens.test.ts`). Literal palette utilities (`bg-zinc-*`, `text-zinc-*`,
+  `border-zinc-*`, `emerald` / `amber` / `rose`) still exist in the `.tsx`
+  component code until the Phase 3 migration completes. Do not add new literal
+  palette utilities for themeable UI; add or use a semantic (or scale) token.
 - Font: **Geist Sans** (400–800 weights) for UI text, **Geist Mono** for code/numerics. Globally enabled OpenType features `cv11`, `ss01`, `ss03` for sharper i/l/I/0 disambiguation. Headings tighten tracking (`-0.015em`, `-0.02em` on h1). Use `text-heading` / `text-strong` for heading and emphasized neutral text, `text-primary` for highest-contrast body text, `text-secondary` for supporting text, and `text-muted` / `text-faint` for labels.
 - Tone tokens: **positive** = emerald, **caution** = amber, **negative** = rose, **neutral** = zinc. Use `text-positive`, `border-positive`, `bg-positive-soft`, `fill-positive`, and the matching caution/negative/neutral utilities for new themeable tone work.
 - Provider identity colors in `ProviderBadge` encode which answer engine produced a signal. They are not semantic tone colors and stay literal unless the provider identity system changes.

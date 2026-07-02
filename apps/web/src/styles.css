@@ -54,6 +54,54 @@
   --color-ring: rgb(113 113 122 / 0.5);
   --color-ring-accent: rgb(251 191 36 / 0.6);
 
+  /* Neutral scale — raw zinc backbone for the one-off shades/alphas that have
+     no dedicated role token (dots, focus rings, tracks, dividers, underlines).
+     Prefer the semantic bg / surface / border / text tokens above; reach for
+     mono-* only when a specific neutral step is needed. */
+  --color-mono-100: var(--color-zinc-100);
+  --color-mono-400: var(--color-zinc-400);
+  --color-mono-500: var(--color-zinc-500);
+  --color-mono-600: var(--color-zinc-600);
+  --color-mono-700: var(--color-zinc-700);
+  --color-mono-800: var(--color-zinc-800);
+
+  /* Tone scales — per-tone palette steps for the richer surface / border / text
+     ladder (insight cards, toasts, chips, gauges, sparklines). The
+     positive/caution/negative -text / -border / -bg-soft / -fill semantics
+     above remain the common path; these cover the off-ladder steps. */
+  --color-positive-100: var(--color-emerald-100);
+  --color-positive-400: var(--color-emerald-400);
+  --color-positive-500: var(--color-emerald-500);
+  --color-positive-600: var(--color-emerald-600);
+  --color-positive-700: var(--color-emerald-700);
+  --color-positive-800: var(--color-emerald-800);
+  --color-positive-950: var(--color-emerald-950);
+  --color-caution-50: var(--color-amber-50);
+  --color-caution-100: var(--color-amber-100);
+  --color-caution-200: var(--color-amber-200);
+  --color-caution-300: var(--color-amber-300);
+  --color-caution-400: var(--color-amber-400);
+  --color-caution-500: var(--color-amber-500);
+  --color-caution-700: var(--color-amber-700);
+  --color-caution-800: var(--color-amber-800);
+  --color-caution-950: var(--color-amber-950);
+  --color-negative-100: var(--color-rose-100);
+  --color-negative-400: var(--color-rose-400);
+  --color-negative-500: var(--color-rose-500);
+  --color-negative-700: var(--color-rose-700);
+  --color-negative-800: var(--color-rose-800);
+  --color-negative-950: var(--color-rose-950);
+
+  /* Effect colors — gauge/sparkline track, scrollbar thumb, panel/drop
+     shadows, the caution glow, and the light hover overlay. */
+  --color-track: rgb(255 255 255 / 0.06);
+  --color-scrollbar-thumb: rgb(113 113 122 / 0.3);
+  --color-shadow-drop: rgb(8 11 15 / 0.34);
+  --color-shadow-panel: rgb(0 0 0 / 0.32);
+  --color-overlay-hover: rgb(255 255 255 / 0.08);
+  --color-caution-glow: rgb(245 158 11 / 0.4);
+  --color-caution-glow-inset: rgb(245 158 11 / 0.06);
+
   --chart-series-1: #34d399;
   --chart-series-2: #60a5fa;
   --chart-series-3: #f472b6;
@@ -282,7 +330,7 @@
 
   .brand-icon {
     @apply size-10 shrink-0;
-    filter: drop-shadow(0 10px 18px rgba(8, 11, 15, 0.34));
+    filter: drop-shadow(0 10px 18px var(--color-shadow-drop));
   }
 
   .brand-lockup-compact .brand-icon {
@@ -315,29 +363,29 @@
   }
 
   .brand-icon-link {
-    @apply block shrink-0 outline-none focus-visible:ring-2 focus-visible:ring-amber-400/60 rounded-full;
+    @apply block shrink-0 outline-none focus-visible:ring-2 focus-visible:ring-caution-400/60 rounded-full;
   }
 
   .brand-update-bubble {
-    @apply relative mt-2 inline-flex w-max items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 py-0.5 pl-2 pr-1 font-mono text-[11px] leading-none text-amber-100 transition;
+    @apply relative mt-2 inline-flex w-max items-center gap-1 rounded-full border border-caution bg-caution-soft py-0.5 pl-2 pr-1 font-mono text-[11px] leading-none text-caution-100 transition;
     box-shadow:
-      0 8px 20px -10px rgba(245, 158, 11, 0.4),
-      inset 0 0 0 1px rgba(245, 158, 11, 0.06);
+      0 8px 20px -10px var(--color-caution-glow),
+      inset 0 0 0 1px var(--color-caution-glow-inset);
     transform-origin: 0 50%;
     /* Delayed so the bird "speaks" first, then the bubble appears as the chirp. */
     animation: brand-bubble-pop 540ms cubic-bezier(0.34, 1.56, 0.64, 1) 100ms both;
   }
 
   .brand-update-bubble:hover {
-    @apply border-amber-500/45 bg-amber-500/15;
+    @apply border-caution-500/45 bg-caution-500/15;
   }
 
   .brand-update-bubble-link {
-    @apply inline-flex items-center gap-1 rounded-full text-amber-100 no-underline outline-none;
+    @apply inline-flex items-center gap-1 rounded-full text-caution-100 no-underline outline-none;
   }
 
   .brand-update-bubble-link:focus-visible {
-    @apply ring-2 ring-amber-400/60;
+    @apply ring-2 ring-caution-400/60;
   }
 
   .brand-update-bubble-closing {
@@ -345,11 +393,11 @@
   }
 
   .brand-update-bubble-from {
-    @apply text-amber-200/55;
+    @apply text-caution-200/55;
   }
 
   .brand-update-bubble-arrow {
-    @apply shrink-0 text-amber-400/70;
+    @apply shrink-0 text-caution-400/70;
   }
 
   .brand-update-bubble:hover .brand-update-bubble-arrow {
@@ -357,17 +405,17 @@
   }
 
   .brand-update-bubble-to {
-    @apply font-medium text-amber-100;
+    @apply font-medium text-caution-100;
   }
 
   .brand-update-bubble:hover .brand-update-bubble-to {
-    @apply text-amber-50;
+    @apply text-caution-50;
   }
 
   .brand-update-bubble-dismiss {
-    @apply ml-0.5 flex shrink-0 items-center justify-center rounded-full p-0.5 text-amber-300/70 transition;
-    @apply hover:bg-amber-500/20 hover:text-amber-100;
-    @apply focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-amber-300;
+    @apply ml-0.5 flex shrink-0 items-center justify-center rounded-full p-0.5 text-caution-300/70 transition;
+    @apply hover:bg-caution-500/20 hover:text-caution-100;
+    @apply focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-caution-300;
   }
 
   /* Bird chirps just before the bubble appears. Origin near the bird's
@@ -448,19 +496,19 @@
   }
 
   .sidebar-dot {
-    @apply size-1.5 shrink-0 rounded-full bg-zinc-600;
+    @apply size-1.5 shrink-0 rounded-full bg-mono-600;
   }
 
   .sidebar-dot-positive {
-    @apply bg-emerald-400;
+    @apply bg-positive-400;
   }
 
   .sidebar-dot-caution {
-    @apply bg-amber-400;
+    @apply bg-caution-400;
   }
 
   .sidebar-dot-negative {
-    @apply bg-rose-400;
+    @apply bg-negative-400;
   }
 
   .sidebar-footer {
@@ -500,7 +548,7 @@
   }
 
   .breadcrumb-sep {
-    @apply text-zinc-700;
+    @apply text-mono-700;
   }
 
   .breadcrumb-current {
@@ -520,7 +568,7 @@
   }
 
   .health-pill-ok {
-    @apply border-emerald-500/20 bg-emerald-500/8 text-emerald-400;
+    @apply border-positive-500/20 bg-positive-500/8 text-positive-400;
   }
 
   .health-pill-checking {
@@ -528,7 +576,7 @@
   }
 
   .health-pill-error {
-    @apply border-rose-500/20 bg-rose-500/8 text-rose-400;
+    @apply border-negative-500/20 bg-negative-500/8 text-negative-400;
   }
 
   .topbar-cta {
@@ -652,7 +700,7 @@
 
   .gauge-bg {
     fill: none;
-    stroke: rgba(255, 255, 255, 0.06);
+    stroke: var(--color-track);
   }
 
   .gauge-fill {
@@ -668,19 +716,19 @@
   }
 
   .gauge-fill-positive {
-    stroke: #34d399;
+    stroke: var(--color-positive-400);
   }
 
   .gauge-fill-caution {
-    stroke: #fbbf24;
+    stroke: var(--color-caution-400);
   }
 
   .gauge-fill-negative {
-    stroke: #fb7185;
+    stroke: var(--color-negative-400);
   }
 
   .gauge-fill-neutral {
-    stroke: #a1a1aa;
+    stroke: var(--color-mono-400);
   }
 
   .gauge-center {
@@ -704,7 +752,7 @@
   }
 
   .gauge-provider-coverage {
-    @apply mt-1 text-center text-[10px] font-medium text-amber-400/80;
+    @apply mt-1 text-center text-[10px] font-medium text-caution-400/80;
   }
 
   .gauge-description {
@@ -741,7 +789,7 @@
   /* "avg" tag shown beside the headline in by-engine mode — the headline is the
      blended rate across engines, not any single line on the chart. */
   .visibility-trend-current-qualifier {
-    @apply rounded bg-zinc-800/80 px-1 py-px text-[10px] font-medium uppercase tracking-wide text-muted;
+    @apply rounded bg-mono-800/80 px-1 py-px text-[10px] font-medium uppercase tracking-wide text-muted;
   }
 
   .visibility-trend-current-value {
@@ -795,11 +843,11 @@
   .segmented-option {
     @apply rounded-md px-2.5 py-1.5 text-xs font-medium text-secondary transition-colors;
     @apply hover:text-heading;
-    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-500/50;
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-500/50;
   }
 
   .segmented-option-active {
-    @apply bg-zinc-700/90 text-primary shadow-sm;
+    @apply bg-mono-700/90 text-primary shadow-sm;
   }
 
   /* ── AEO performance hero (paired Mention + Citation) ── */
@@ -843,7 +891,7 @@
   }
 
   .aeo-hero-row-bar {
-    @apply h-1.5 w-full rounded-full bg-zinc-800 overflow-hidden;
+    @apply h-1.5 w-full rounded-full bg-mono-800 overflow-hidden;
     grid-area: bar;
   }
 
@@ -879,7 +927,7 @@
   }
 
   .overview-brief-grid {
-    @apply grid border-t border-zinc-800/50 lg:grid-cols-[1.35fr_0.825fr_0.825fr];
+    @apply grid border-t border-mono-800/50 lg:grid-cols-[1.35fr_0.825fr_0.825fr];
   }
 
   .overview-brief-panel {
@@ -903,7 +951,7 @@
   }
 
   .overview-brief-link {
-    @apply mt-3 inline-flex rounded text-[11px] font-medium text-neutral underline decoration-zinc-700 underline-offset-4 transition-colors hover:text-primary hover:decoration-zinc-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-500/60;
+    @apply mt-3 inline-flex rounded text-[11px] font-medium text-neutral underline decoration-mono-700 underline-offset-4 transition-colors hover:text-primary hover:decoration-mono-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-500/60;
   }
 
   .overview-signal-change-list {
@@ -919,7 +967,7 @@
   }
 
   .overview-brief-note {
-    @apply mt-3 text-[11px] text-amber-400/80;
+    @apply mt-3 text-[11px] text-caution-400/80;
   }
 
   .overview-brief-coverage .aeo-hero-rows {
@@ -931,7 +979,7 @@
   }
 
   .mention-share-breakdown {
-    @apply mt-4 pt-4 border-t border-zinc-800/50;
+    @apply mt-4 pt-4 border-t border-mono-800/50;
   }
 
   .mention-share-breakdown-title {
@@ -987,7 +1035,7 @@
   }
 
   .movement-banner-chip {
-    @apply rounded transition-colors hover:bg-surface-inset px-1.5 py-0.5 -my-0.5 cursor-pointer focus:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500;
+    @apply rounded transition-colors hover:bg-surface-inset px-1.5 py-0.5 -my-0.5 cursor-pointer focus:outline-none focus-visible:ring-1 focus-visible:ring-mono-500;
   }
 
   .movement-banner-detail {
@@ -1015,7 +1063,7 @@
   }
 
   .metric-card-bar {
-    @apply mt-3 h-1.5 w-full rounded-full bg-zinc-800;
+    @apply mt-3 h-1.5 w-full rounded-full bg-mono-800;
   }
 
   .metric-card-bar-fill {
@@ -1082,7 +1130,7 @@
   /* Progressive disclosure keeps evidence and diagnostics available without
      turning the default overview scan into a four-page analytics archive. */
   .overview-disclosure-summary {
-    @apply flex cursor-pointer list-none items-center justify-between gap-4 rounded-md py-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-500/60;
+    @apply flex cursor-pointer list-none items-center justify-between gap-4 rounded-md py-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-500/60;
   }
 
   .overview-disclosure {
@@ -1124,11 +1172,11 @@
   }
 
   .inline-disclosure {
-    @apply rounded-lg border border-zinc-800/50 bg-bg-elevated/15 px-3 py-2.5;
+    @apply rounded-lg border border-mono-800/50 bg-bg-elevated/15 px-3 py-2.5;
   }
 
   .inline-disclosure > summary {
-    @apply cursor-pointer list-none text-[12px] font-medium text-secondary transition-colors hover:text-heading focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-500/60;
+    @apply cursor-pointer list-none text-[12px] font-medium text-secondary transition-colors hover:text-heading focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-500/60;
   }
 
   .inline-disclosure > summary::-webkit-details-marker {
@@ -1156,7 +1204,7 @@
   }
 
   .project-subnav-link-active {
-    @apply border-zinc-100 text-primary;
+    @apply border-mono-100 text-primary;
   }
 
   /* Trailing group (overflow "More" + Settings), pushed to the far right. */
@@ -1174,7 +1222,7 @@
 
   /* Overflow menu surface — floating, so a real shadow is allowed here. */
   .project-subnav-menu {
-    @apply absolute right-0 top-full z-20 mt-1 flex min-w-[9rem] flex-col gap-0.5 rounded-md border border-zinc-800/80 bg-bg-elevated p-1 shadow-[0_12px_28px_rgba(0,0,0,0.32)];
+    @apply absolute right-0 top-full z-20 mt-1 flex min-w-[9rem] flex-col gap-0.5 rounded-md border border-mono-800/80 bg-bg-elevated p-1 shadow-[0_12px_28px_var(--color-shadow-panel)];
   }
 
   .project-subnav-menu-item {
@@ -1259,7 +1307,7 @@
   .attention-list-scrollable,
   .compact-stack-scrollable {
     scrollbar-width: thin;
-    scrollbar-color: rgba(113, 113, 122, 0.3) transparent;
+    scrollbar-color: var(--color-scrollbar-thumb) transparent;
   }
 
   .project-list-scrollable::-webkit-scrollbar,
@@ -1277,7 +1325,7 @@
   .project-list-scrollable::-webkit-scrollbar-thumb,
   .attention-list-scrollable::-webkit-scrollbar-thumb,
   .compact-stack-scrollable::-webkit-scrollbar-thumb {
-    background: rgba(113, 113, 122, 0.3);
+    background: var(--color-scrollbar-thumb);
     border-radius: 2px;
   }
 
@@ -1292,15 +1340,15 @@
   }
 
   .attention-item-negative {
-    @apply border-l-2 border-l-rose-500/60;
+    @apply border-l-2 border-l-negative-500/60;
   }
 
   .attention-item-caution {
-    @apply border-l-2 border-l-amber-500/60;
+    @apply border-l-2 border-l-caution-500/60;
   }
 
   .attention-item-positive {
-    @apply border-l-2 border-l-emerald-500/60;
+    @apply border-l-2 border-l-positive-500/60;
   }
 
   /* Non-actionable status row (e.g. "All projects stable") — not a link, so
@@ -1348,19 +1396,19 @@
      `md:grid-cols-2`) and have been removed. */
 
   .progress-fill-positive {
-    @apply bg-emerald-400;
+    @apply bg-positive-400;
   }
 
   .progress-fill-caution {
-    @apply bg-amber-400;
+    @apply bg-caution-400;
   }
 
   .progress-fill-negative {
-    @apply bg-rose-400;
+    @apply bg-negative-400;
   }
 
   .progress-fill-neutral {
-    @apply bg-zinc-500;
+    @apply bg-mono-500;
   }
 
   /* ── Sparkline ── */
@@ -1377,24 +1425,24 @@
   }
 
   .sparkline-guide {
-    stroke: rgba(255, 255, 255, 0.06);
+    stroke: var(--color-track);
     stroke-width: 1;
   }
 
   .sparkline-positive polyline {
-    stroke: #34d399;
+    stroke: var(--color-positive-400);
   }
 
   .sparkline-caution polyline {
-    stroke: #fbbf24;
+    stroke: var(--color-caution-400);
   }
 
   .sparkline-negative polyline {
-    stroke: #fb7185;
+    stroke: var(--color-negative-400);
   }
 
   .sparkline-neutral polyline {
-    stroke: #a1a1aa;
+    stroke: var(--color-mono-400);
   }
 
   /* ── Grids ── */
@@ -1431,7 +1479,7 @@
 
   .setup-step + .setup-step::before {
     content: '';
-    @apply block w-4 h-px bg-zinc-700 mr-1;
+    @apply block w-4 h-px bg-mono-700 mr-1;
   }
 
   .setup-step-number {
@@ -1443,7 +1491,7 @@
   }
 
   .setup-step-active .setup-step-number {
-    @apply border-emerald-500 bg-emerald-500/10 text-emerald-400;
+    @apply border-positive-500 bg-positive-soft text-positive-400;
   }
 
   .setup-step-done {
@@ -1451,7 +1499,7 @@
   }
 
   .setup-step-done .setup-step-number {
-    @apply border-emerald-600 bg-emerald-600/20 text-emerald-400;
+    @apply border-positive-600 bg-positive-600/20 text-positive-400;
   }
 
   .setup-nav {
@@ -1471,11 +1519,11 @@
   }
 
   .setup-input {
-    @apply rounded-md border border-strong bg-bg-elevated/50 px-3 py-2 text-sm text-heading placeholder-zinc-600 outline-none transition focus:border-zinc-500 focus:ring-1 focus:ring-zinc-500;
+    @apply rounded-md border border-strong bg-bg-elevated/50 px-3 py-2 text-sm text-heading placeholder-mono-600 outline-none transition focus:border-mono-500 focus:ring-1 focus:ring-mono-500;
   }
 
   .setup-textarea {
-    @apply rounded-md border border-strong bg-bg-elevated/50 px-3 py-2 text-sm text-heading placeholder-zinc-600 outline-none transition focus:border-zinc-500 focus:ring-1 focus:ring-zinc-500 resize-y font-mono;
+    @apply rounded-md border border-strong bg-bg-elevated/50 px-3 py-2 text-sm text-heading placeholder-mono-600 outline-none transition focus:border-mono-500 focus:ring-1 focus:ring-mono-500 resize-y font-mono;
   }
 
   .setup-input:disabled,
@@ -1486,7 +1534,7 @@
   /* ── Action queue ── */
 
   .opportunities-grid {
-    @apply overflow-hidden rounded-xl border border-default bg-surface-subtle divide-y divide-zinc-800/40;
+    @apply overflow-hidden rounded-xl border border-default bg-surface-subtle divide-y divide-mono-800/40;
   }
 
   .opportunity-card {
@@ -1494,15 +1542,15 @@
   }
 
   .opportunity-card-write {
-    @apply bg-amber-950/5;
+    @apply bg-caution-950/5;
   }
 
   .opportunity-card-investigate {
-    @apply bg-rose-950/10;
+    @apply bg-negative-950/10;
   }
 
   .opportunity-card-monitor {
-    @apply bg-emerald-950/5;
+    @apply bg-positive-950/5;
   }
 
   .opportunity-card-track {
@@ -1510,7 +1558,7 @@
   }
 
   .opportunity-monitor-summary {
-    @apply flex cursor-pointer list-none items-center justify-between gap-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-500/60;
+    @apply flex cursor-pointer list-none items-center justify-between gap-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-500/60;
   }
 
   .opportunity-monitor-summary::-webkit-details-marker {
@@ -1556,19 +1604,19 @@
   }
 
   .opportunity-item {
-    @apply rounded-md bg-transparent px-2.5 py-2 transition-colors hover:bg-zinc-800/30;
+    @apply rounded-md bg-transparent px-2.5 py-2 transition-colors hover:bg-mono-800/30;
   }
 
   .opportunity-item-positive {
-    @apply bg-emerald-950/10;
+    @apply bg-positive-950/10;
   }
 
   .opportunity-item-caution {
-    @apply bg-amber-950/10;
+    @apply bg-caution-950/10;
   }
 
   .opportunity-item-negative {
-    @apply bg-rose-950/15;
+    @apply bg-negative-950/15;
   }
 
   .opportunity-item-neutral {
@@ -1576,46 +1624,46 @@
   }
 
   .opportunity-item-detail {
-    @apply mt-1 px-2.5 py-2 bg-bg/40 rounded-md border border-zinc-800/30 flex flex-col gap-1.5;
+    @apply mt-1 px-2.5 py-2 bg-bg/40 rounded-md border border-mono-800/30 flex flex-col gap-1.5;
   }
 
   /* ── Insight rows (compact signal list) — legacy, kept for any external pages ── */
 
   .insight-list {
-    @apply rounded-xl border border-default divide-y divide-zinc-800/30 overflow-hidden;
+    @apply rounded-xl border border-default divide-y divide-mono-800/30 overflow-hidden;
   }
 
   .insight-row {
-    @apply flex items-center justify-between gap-4 px-4 py-2.5 border-l-2 border-l-zinc-700 bg-surface-subtle transition hover:bg-zinc-800/30;
+    @apply flex items-center justify-between gap-4 px-4 py-2.5 border-l-2 border-l-mono-700 bg-surface-subtle transition hover:bg-mono-800/30;
   }
 
   .insight-row-positive {
-    @apply border-l-emerald-500/60;
+    @apply border-l-positive-500/60;
   }
 
   .insight-row-caution {
-    @apply border-l-amber-500/60;
+    @apply border-l-caution-500/60;
   }
 
   .insight-row-negative {
-    @apply border-l-rose-500/60;
+    @apply border-l-negative-500/60;
   }
 
   /* Keep old card classes for backward compat if used elsewhere */
   .insight-card {
-    @apply grid gap-3 border-l-2 border-l-zinc-700;
+    @apply grid gap-3 border-l-2 border-l-mono-700;
   }
 
   .insight-card-positive {
-    @apply border-l-emerald-500/60;
+    @apply border-l-positive-500/60;
   }
 
   .insight-card-caution {
-    @apply border-l-amber-500/60;
+    @apply border-l-caution-500/60;
   }
 
   .insight-card-negative {
-    @apply border-l-rose-500/60;
+    @apply border-l-negative-500/60;
   }
 
   /* ── Evidence / finding / competitor / step cards ── */
@@ -1650,7 +1698,7 @@
   }
 
   .evidence-table tbody tr {
-    @apply border-b border-zinc-800/30 transition hover:bg-surface;
+    @apply border-b border-mono-800/30 transition hover:bg-surface;
   }
 
   .evidence-table tbody tr:last-child {
@@ -1688,7 +1736,7 @@
   }
 
   .findings-table tbody tr {
-    @apply border-b border-zinc-800/30 transition hover:bg-surface;
+    @apply border-b border-mono-800/30 transition hover:bg-surface;
   }
 
   .findings-table tbody tr:last-child {
@@ -1718,7 +1766,7 @@
   }
 
   .competitor-table tbody tr {
-    @apply border-b border-zinc-800/30 transition hover:bg-surface;
+    @apply border-b border-mono-800/30 transition hover:bg-surface;
   }
 
   .competitor-table tbody tr:last-child {
@@ -1732,7 +1780,7 @@
   /* ── Project row (overview) ── */
 
   .project-row {
-    @apply grid gap-3 rounded-xl border border-subtle bg-bg-elevated/15 px-4 py-3.5 transition hover:border-zinc-700/60 hover:bg-bg-elevated/35 lg:grid-cols-[10rem_minmax(0,1.5fr)_9rem_9rem_9rem_auto] lg:items-center no-underline text-inherit;
+    @apply grid gap-3 rounded-xl border border-subtle bg-bg-elevated/15 px-4 py-3.5 transition hover:border-mono-700/60 hover:bg-bg-elevated/35 lg:grid-cols-[10rem_minmax(0,1.5fr)_9rem_9rem_9rem_auto] lg:items-center no-underline text-inherit;
   }
 
   .project-row-primary {
@@ -1824,7 +1872,7 @@
   }
 
   .filter-chip-active {
-    @apply border-zinc-600 bg-zinc-800 text-heading;
+    @apply border-mono-600 bg-mono-800 text-heading;
   }
 
   /* ── Health / settings ── */
@@ -1897,7 +1945,7 @@
   }
 
   .stat-divider {
-    @apply mx-1 self-center text-zinc-800;
+    @apply mx-1 self-center text-mono-800;
   }
 
   /* ── Info tooltip ── */
@@ -1907,7 +1955,7 @@
   }
 
   .info-tooltip-trigger {
-    @apply inline-flex items-center justify-center rounded-full p-0.5 text-muted cursor-help transition hover:text-neutral focus:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500;
+    @apply inline-flex items-center justify-center rounded-full p-0.5 text-muted cursor-help transition hover:text-neutral focus:outline-none focus-visible:ring-1 focus-visible:ring-mono-500;
   }
 
   .info-tooltip-icon {
@@ -1935,7 +1983,7 @@
   }
 
   .data-table tbody tr {
-    @apply border-b border-zinc-800/30 transition hover:bg-surface;
+    @apply border-b border-mono-800/30 transition hover:bg-surface;
   }
 
   .data-table tbody tr:last-child {
@@ -1959,7 +2007,7 @@
   .evidence-position-hero--cited,
   .evidence-position-hero--mentioned,
   .evidence-position-hero--emerging {
-    @apply border-emerald-800/40 bg-emerald-950/25;
+    @apply border-positive-800/40 bg-positive-950/25;
   }
 
   .evidence-position-hero--not-cited,
@@ -1968,7 +2016,7 @@
   }
 
   .evidence-position-hero--lost {
-    @apply border-rose-800/40 bg-rose-950/20;
+    @apply border-negative-800/40 bg-negative-950/20;
   }
 
   .evidence-position-hero--pending {
@@ -1982,7 +2030,7 @@
   .evidence-position-label--cited,
   .evidence-position-label--mentioned,
   .evidence-position-label--emerging {
-    @apply text-emerald-500;
+    @apply text-positive-500;
   }
 
   .evidence-position-label--not-cited,
@@ -1991,7 +2039,7 @@
   }
 
   .evidence-position-label--lost {
-    @apply text-rose-500;
+    @apply text-negative-500;
   }
 
   .evidence-position-title {
@@ -2030,8 +2078,8 @@
 
   .answer-highlight,
   .answer-highlight-brand {
-    background: rgba(52, 211, 153, 0.15);
-    color: rgb(110 231 183);
+    background: color-mix(in oklab, var(--color-positive-400) 15%, transparent);
+    color: var(--color-positive-text);
     border-radius: 2px;
     padding: 0 2px;
     font-style: normal;
@@ -2039,8 +2087,8 @@
   }
 
   .answer-highlight-competitor {
-    background: rgba(251, 191, 36, 0.12);
-    color: rgb(252 211 77);
+    background: color-mix(in oklab, var(--color-caution-400) 12%, transparent);
+    color: var(--color-caution-text);
     border-radius: 2px;
     padding: 0 2px;
     font-style: normal;
@@ -2055,7 +2103,7 @@
 
   .mention-status--visible,
   .mention-status--mentioned {
-    @apply border-emerald-800/40 bg-emerald-950/25 text-positive;
+    @apply border-positive-800/40 bg-positive-950/25 text-positive;
   }
 
   .mention-status--not-visible,
@@ -2076,11 +2124,11 @@
   }
 
   .mention-chip--brand {
-    @apply border-emerald-800/40 bg-emerald-950/25 text-positive;
+    @apply border-positive-800/40 bg-positive-950/25 text-positive;
   }
 
   .mention-chip--competitor {
-    @apply border-amber-800/30 bg-amber-950/15 text-caution;
+    @apply border-caution-800/30 bg-caution-950/15 text-caution;
   }
 
   .mention-chip--muted {
@@ -2098,11 +2146,11 @@
   }
 
   .citation-leaderboard-item--you {
-    @apply border-emerald-800/40 bg-emerald-950/25 text-positive;
+    @apply border-positive-800/40 bg-positive-950/25 text-positive;
   }
 
   .citation-leaderboard-item--competitor {
-    @apply border-rose-800/30 bg-rose-950/15 text-negative;
+    @apply border-negative-800/30 bg-negative-950/15 text-negative;
   }
 
   .citation-leaderboard-item--other {
@@ -2179,7 +2227,7 @@
   }
 
   .sidebar-tab--active {
-    @apply bg-zinc-800 text-strong shadow-sm;
+    @apply bg-mono-800 text-strong shadow-sm;
   }
 
   .evidence-answer-collapsed {
@@ -2197,11 +2245,11 @@
   .evidence-run-dot {
     @apply flex flex-col items-center gap-0.5 px-2 py-1 rounded-md transition-colors cursor-pointer;
     @apply hover:bg-surface-inset;
-    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400;
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400;
   }
 
   .evidence-run-dot--selected {
-    @apply bg-zinc-800 ring-1 ring-zinc-600;
+    @apply bg-mono-800 ring-1 ring-mono-600;
   }
 
   /* ── Drawer section label ── */
@@ -2268,7 +2316,7 @@
 
   .toast-card {
     @apply flex items-start gap-3 rounded-xl border px-4 py-3 shadow-lg backdrop-blur-sm;
-    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.32);
+    box-shadow: 0 12px 28px var(--color-shadow-panel);
   }
 
   .toast-card[data-state='open'] {
@@ -2280,19 +2328,19 @@
   }
 
   .toast-card-neutral {
-    @apply border-zinc-700/70 bg-bg-elevated/92 text-heading;
+    @apply border-mono-700/70 bg-bg-elevated/92 text-heading;
   }
 
   .toast-card-positive {
-    @apply border-emerald-700/60 bg-emerald-950/88 text-emerald-100;
+    @apply border-positive-700/60 bg-positive-950/88 text-positive-100;
   }
 
   .toast-card-caution {
-    @apply border-amber-700/60 bg-amber-950/88 text-amber-100;
+    @apply border-caution-700/60 bg-caution-950/88 text-caution-100;
   }
 
   .toast-card-negative {
-    @apply border-rose-700/60 bg-rose-950/88 text-rose-100;
+    @apply border-negative-700/60 bg-negative-950/88 text-negative-100;
   }
 
   .toast-copy {
@@ -2308,11 +2356,11 @@
   }
 
   .toast-action {
-    @apply mt-2 inline-flex rounded-md border border-current/20 px-2.5 py-1 text-xs font-medium text-current transition hover:bg-white/8;
+    @apply mt-2 inline-flex rounded-md border border-current/20 px-2.5 py-1 text-xs font-medium text-current transition hover:bg-overlay-hover;
   }
 
   .toast-dismiss {
-    @apply shrink-0 rounded-md p-1 text-current/65 transition hover:bg-white/8 hover:text-current;
+    @apply shrink-0 rounded-md p-1 text-current/65 transition hover:bg-overlay-hover hover:text-current;
   }
 
   @keyframes toast-in {

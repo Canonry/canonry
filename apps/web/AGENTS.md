@@ -161,10 +161,21 @@ classes: `bg-bg`, `bg-surface`, `bg-surface-subtle`,
 `border-positive`, `bg-positive-soft`, and `fill-positive` (and the
 caution/negative/neutral variants).
 
-Legacy `zinc` / `emerald` / `amber` / `rose` utilities are still present until
-the migration phases finish. Do not add new literal palette utilities for
-themeable UI. The fixed provider identity palettes in `ProviderBadge` remain
-literal because they encode the engine, not semantic tone.
+For off-ladder shades that no role token names, use the raw scales rather than a
+literal: neutral `mono-100/400/500/600/700/800` (= the matching `zinc-*`) and the
+tone scales `positive-*` / `caution-*` / `negative-*` (= `emerald-*` / `amber-*` /
+`rose-*`). Apply alpha with a Tailwind opacity modifier on the scale token
+(`bg-mono-800/30`, `bg-caution-950/25`) — this is exactly how `styles.css`'s
+one-off shades migrated with no visual change. Effect colors live as
+`--color-track`, `--color-scrollbar-thumb`, `--color-shadow-drop`,
+`--color-shadow-panel`, `--color-overlay-hover`, and `--color-caution-glow`.
+
+`styles.css` is fully tokenized (zero literal palette utilities / raw hex outside
+the `@theme` block). Legacy `zinc` / `emerald` / `amber` / `rose` utilities are
+still present in the `.tsx` component code until the Phase 3 migration finishes.
+Do not add new literal palette utilities for themeable UI. The fixed provider
+identity palettes in `ProviderBadge` remain literal because they encode the
+engine, not semantic tone.
 
 Token migration guardrails:
 

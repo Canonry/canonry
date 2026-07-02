@@ -107,3 +107,39 @@ test('shared stylesheet primitives consume semantic tokens', async () => {
   expect(ruleFor(css, '.page-section-divider')).toContain('border-color: var(--color-border-subtle)')
   expect(ruleFor(css, '.sidebar-link')).toContain('background-color: var(--color-surface-inset-hover)')
 })
+
+test('neutral and tone scale utilities compile through CSS variables', async () => {
+  const css = await compileAppStyles([
+    'bg-mono-800',
+    'bg-mono-800/30',
+    'ring-mono-500/60',
+    'text-positive-400',
+    'bg-caution-950/25',
+    'border-negative-800',
+    'bg-overlay-hover',
+  ])
+
+  expect(css).toContain('.bg-mono-800')
+  expect(css).toContain('background-color: var(--color-mono-800)')
+  expect(css).toContain('.text-positive-400')
+  expect(css).toContain('color: var(--color-positive-400)')
+  expect(css).toContain('.border-negative-800')
+  expect(css).toContain('border-color: var(--color-negative-800)')
+  expect(css).toContain('.bg-overlay-hover')
+  expect(css).toContain('background-color: var(--color-overlay-hover)')
+  // opacity modifiers must resolve against the scale tokens (this is why the
+  // one-off zinc/tone alphas could migrate onto a single base token each)
+  expect(css).toContain('color-mix(in oklab, var(--color-mono-800) 30%, transparent)')
+  expect(css).toContain('color-mix(in oklab, var(--color-caution-950) 25%, transparent)')
+})
+
+test('gauge, highlight, and effect primitives consume tokens', async () => {
+  const css = await compileAppStyles([])
+
+  expect(ruleFor(css, '.gauge-bg')).toContain('stroke: var(--color-track)')
+  expect(ruleFor(css, '.gauge-fill-positive')).toContain('stroke: var(--color-positive-400)')
+  expect(ruleFor(css, '.gauge-fill-neutral')).toContain('stroke: var(--color-mono-400)')
+  expect(ruleFor(css, '.answer-highlight-brand')).toContain('var(--color-positive-400)')
+  expect(ruleFor(css, '.brand-update-bubble')).toContain('var(--color-caution-glow)')
+  expect(ruleFor(css, '.brand-icon')).toContain('var(--color-shadow-drop)')
+})
