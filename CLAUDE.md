@@ -11,9 +11,24 @@ The web dashboard follows a dark, professional analytics aesthetic inspired by *
 - Pages use a `page-header` (title + subtitle + optional actions) followed by sections separated by `page-section-divider`.
 
 ### Color & Theme
-- Background: `bg-zinc-950`. Cards/surfaces: `bg-zinc-900/30` with `border-zinc-800/60`.
+- Use semantic color tokens for new dashboard code. `apps/web/src/styles.css`
+  registers color/chart tokens in a static, non-inline `@theme` block so the
+  full foundation is emitted and generated utilities still reference
+  runtime-overridable CSS variables. The font tokens stay in the existing
+  `@theme inline` block until the typography phase.
+- Current dark defaults: `bg-bg` = `zinc-950`; `bg-surface` = `zinc-900/30`;
+  `bg-surface-subtle` = `zinc-900/20`; `bg-surface-hover` = `zinc-900/40`;
+  `bg-surface-inset` = `zinc-800/60`; `border-default` =
+  `zinc-800/60`; `border-subtle` = `zinc-800/40`; `border-strong` =
+  `zinc-700`; `text-primary` = `zinc-50`; `text-secondary` =
+  `zinc-400`; `text-muted` = `zinc-500`; `text-faint` = `zinc-600`.
+- Legacy literal palette utilities (`bg-zinc-*`, `text-zinc-*`,
+  `border-zinc-*`, `emerald` / `amber` / `rose`) still exist in older code
+  until the migration phases complete. Do not add new literal palette utilities
+  for themeable UI; add or use a semantic token instead.
 - Font: **Geist Sans** (400–800 weights) for UI text, **Geist Mono** for code/numerics. Globally enabled OpenType features `cv11`, `ss01`, `ss03` for sharper i/l/I/0 disambiguation. Headings tighten tracking (`-0.015em`, `-0.02em` on h1). `text-zinc-50` primary, `text-zinc-400` secondary, `text-zinc-500`/`text-zinc-600` for labels.
-- Tone colors: **positive** = emerald, **caution** = amber, **negative** = rose, **neutral** = zinc.
+- Tone tokens: **positive** = emerald, **caution** = amber, **negative** = rose, **neutral** = zinc. Use `text-positive`, `border-positive`, `bg-positive-soft`, `fill-positive`, and the matching caution/negative/neutral utilities for new themeable tone work.
+- Provider identity colors in `ProviderBadge` encode which answer engine produced a signal. They are not semantic tone colors and stay literal unless the provider identity system changes.
 - No decorative background gradients. Keep it clean and flat.
 
 ### Components & Patterns
@@ -56,6 +71,7 @@ The web dashboard follows a dark, professional analytics aesthetic inspired by *
 
 - Import chart components and shared constants from `components/shared/ChartPrimitives.js`.
 - Use `CHART_TOOLTIP_STYLE`, `CHART_AXIS_TICK`, `CHART_GRID_STROKE`, `CHART_AXIS_STROKE`, and `CHART_SERIES_COLORS` for consistent styling.
+- Chart CSS variables (`--chart-series-*`, `--chart-tone-*`, `--chart-neutral-*`, `--chart-tooltip-*`, `--chart-grid`, `--chart-axis`) are registered in `styles.css`. Phase 4 bridges `ChartPrimitives.tsx` to these variables; until then, keep the JS constants and CSS token defaults in sync when touching chart colors.
 - Use `formatChartDateLabel` for tooltip labels and `formatChartDateTick` for axis ticks.
 - Custom SVG is allowed only for non-chart visualizations (gauges, sparklines, timelines) where Recharts is overkill.
 - If Recharts is missing a feature, extend `ChartPrimitives.tsx` rather than adding a second library.
@@ -63,6 +79,11 @@ The web dashboard follows a dark, professional analytics aesthetic inspired by *
 ### Report parity (Critical)
 
 **The downloadable HTML report (`canonry report` / `GET /report.html`) and the in-app SPA report view must stay perfectly aligned.** They are two renderers of the same `ProjectReportDto` — clients and agencies see one report. Any change to a section, label, headline, chart, tile, or order in `apps/web/src/pages/ReportPage.tsx` must ship the same change in `packages/api-routes/src/report-renderer.ts` in the same commit, and vice versa. Tile labels, eyebrows, titles, subtitles, action-card copy, and evidence-card titles must match verbatim across both. Update `packages/api-routes/test/report-renderer.test.ts` whenever client/agency strings change. See AGENTS.md "Report parity" for the full rule set.
+
+### Theme Migration Tests
+
+- `apps/web/test/design-tokens.test.ts` compiles `styles.css` with Tailwind's compiler and asserts semantic utilities such as `bg-bg`, `bg-surface/50`, `border-default`, and `text-primary` resolve through CSS variables. This is the build assertion that guards against accidentally putting color tokens in `@theme inline` and confirms chart-only tokens are emitted before the chart bridge uses them.
+- `apps/web/test/dashboard-class-baseline.test.tsx` SSR-renders representative routes and snapshots stable component class lists. Use it as a fast migration tripwire before browser visual checks. The suite runs in jsdom; jsdom cannot compute Tailwind v4's modern CSS output (`@layer`, `@property`, `color-mix`) reliably, so computed-style coverage lives at the Tailwind compiler-output level here.
 
 ### Don'ts
 - Don't use hero grids with large descriptive text blocks on the project page. Keep headers compact.

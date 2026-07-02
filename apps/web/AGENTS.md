@@ -8,6 +8,7 @@ Vite SPA (React 19 + TanStack Router/Query + Tailwind CSS 4) for the analytics d
 
 | File | Role |
 |------|------|
+| `src/styles.css` | Tailwind v4 entrypoint, global component classes, semantic color/chart tokens |
 | `src/api.ts` | `apiFetch<T>()` wrapper, `ApiError` class, all API call functions, `getEmbedConfig()` (#716 — reads `window.__CANONRY_CONFIG__.embed`, returns the block when enabled else `null`; `typeof window` guarded for SSR) |
 | `src/embed.ts` | Read-only embed mode (#716) presentational helpers: `embedViewIdForPath(pathname)` (coarse route→view-id map for the allowlist) and `embedThemeStyle(theme)` (allowlisted `--canonry-embed-*` CSS custom properties with per-value strict color-regex sanitization — CSS-injection guard) |
 | `src/router/routes.tsx` | TanStack Router route tree |
@@ -143,6 +144,36 @@ PRs rather than rolling into tooling work.
 ```typescript
 import { CHART_TOOLTIP_STYLE, CHART_AXIS_TICK, CHART_SERIES_COLORS } from '../shared/ChartPrimitives'
 ```
+
+### Design tokens
+
+`src/styles.css` keeps font tokens in the existing `@theme inline` block, but
+color and chart tokens live in a separate static, non-inline `@theme` block so
+the full foundation is emitted while generated Tailwind utilities compile to
+`var(--color-*)` and can be overridden at runtime.
+New themeable UI code should use semantic utilities instead of literal palette
+classes: `bg-bg`, `bg-surface`, `bg-surface-subtle`,
+`bg-surface-hover`, `bg-surface-inset`, `border-default`,
+`border-subtle`, `border-strong`, `text-primary`, `text-secondary`,
+`text-muted`, `text-faint`, plus tone utilities such as `text-positive`,
+`border-positive`, `bg-positive-soft`, and `fill-positive` (and the
+caution/negative/neutral variants).
+
+Legacy `zinc` / `emerald` / `amber` / `rose` utilities are still present until
+the migration phases finish. Do not add new literal palette utilities for
+themeable UI. The fixed provider identity palettes in `ProviderBadge` remain
+literal because they encode the engine, not semantic tone.
+
+Token migration guardrails:
+
+- `test/design-tokens.test.ts` compiles the stylesheet with Tailwind and proves
+  semantic utilities reference CSS variables, including opacity modifiers like
+  `bg-surface/50`, and that chart-only tokens are emitted before the chart
+  bridge consumes them.
+- `test/dashboard-class-baseline.test.tsx` SSR-renders representative routes and
+  snapshots stable class lists for later migration PRs. jsdom cannot compute
+  Tailwind v4 `@layer` / `@property` / `color-mix` output reliably, so the
+  computed-style spot check is the Tailwind compiler-output assertion.
 
 ### Component organization
 

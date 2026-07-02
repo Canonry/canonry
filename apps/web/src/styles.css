@@ -6,6 +6,168 @@
   --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
+@theme static {
+  --color-bg: var(--color-zinc-950);
+  --color-bg-elevated: var(--color-zinc-900);
+
+  --color-surface: rgb(24 24 27 / 0.3);
+  --color-surface-subtle: rgb(24 24 27 / 0.2);
+  --color-surface-hover: rgb(24 24 27 / 0.4);
+  --color-surface-inset: rgb(39 39 42 / 0.6);
+
+  --color-border: rgb(39 39 42 / 0.6);
+  --color-border-subtle: rgb(39 39 42 / 0.4);
+  --color-border-strong: var(--color-zinc-700);
+
+  --color-text-primary: var(--color-zinc-50);
+  --color-text-secondary: var(--color-zinc-400);
+  --color-text-muted: var(--color-zinc-500);
+  --color-text-faint: var(--color-zinc-600);
+
+  --color-accent: var(--color-zinc-50);
+  --color-accent-fg: var(--color-zinc-950);
+
+  --color-positive-text: var(--color-emerald-300);
+  --color-positive-border: rgb(16 185 129 / 0.25);
+  --color-positive-bg-soft: rgb(16 185 129 / 0.1);
+  --color-positive-fill: #34d399;
+
+  --color-caution-text: var(--color-amber-300);
+  --color-caution-border: rgb(245 158 11 / 0.3);
+  --color-caution-bg-soft: rgb(245 158 11 / 0.1);
+  --color-caution-fill: #fbbf24;
+
+  --color-negative-text: var(--color-rose-300);
+  --color-negative-border: rgb(244 63 94 / 0.25);
+  --color-negative-bg-soft: rgb(244 63 94 / 0.1);
+  --color-negative-fill: #fb7185;
+
+  --color-neutral-text: var(--color-zinc-300);
+  --color-neutral-border: rgb(63 63 70 / 0.45);
+  --color-neutral-bg-soft: rgb(63 63 70 / 0.2);
+  --color-neutral-fill: var(--color-zinc-400);
+
+  --color-ring: rgb(113 113 122 / 0.5);
+  --color-ring-accent: rgb(251 191 36 / 0.6);
+
+  --chart-series-1: #34d399;
+  --chart-series-2: #60a5fa;
+  --chart-series-3: #f472b6;
+  --chart-series-4: #facc15;
+  --chart-series-5: #a78bfa;
+  --chart-series-6: #fb923c;
+  --chart-series-7: #22d3ee;
+  --chart-series-8: #f87171;
+  --chart-tone-positive: #34d399;
+  --chart-tone-positive-deep: #10b981;
+  --chart-tone-caution: #fbbf24;
+  --chart-tone-negative: #fb7185;
+  --chart-tone-neutral: #a1a1aa;
+  --chart-neutral-text: #a1a1aa;
+  --chart-neutral-text-dim: #71717a;
+  --chart-neutral-text-faint: #52525b;
+  --chart-neutral-surface: #27272a;
+  --chart-neutral-grid-line: rgb(255 255 255 / 0.06);
+  --chart-tooltip-bg: #18181b;
+  --chart-tooltip-border: #3f3f46;
+  --chart-tooltip-label: #e4e4e7;
+  --chart-tooltip-item: #a1a1aa;
+  --chart-grid: #27272a;
+  --chart-axis: #27272a;
+}
+
+@utility border-default {
+  border-color: var(--color-border);
+}
+
+@utility border-subtle {
+  border-color: var(--color-border-subtle);
+}
+
+@utility border-strong {
+  border-color: var(--color-border-strong);
+}
+
+@utility text-primary {
+  color: var(--color-text-primary);
+}
+
+@utility text-secondary {
+  color: var(--color-text-secondary);
+}
+
+@utility text-muted {
+  color: var(--color-text-muted);
+}
+
+@utility text-faint {
+  color: var(--color-text-faint);
+}
+
+@utility text-positive {
+  color: var(--color-positive-text);
+}
+
+@utility text-caution {
+  color: var(--color-caution-text);
+}
+
+@utility text-negative {
+  color: var(--color-negative-text);
+}
+
+@utility text-neutral {
+  color: var(--color-neutral-text);
+}
+
+@utility border-positive {
+  border-color: var(--color-positive-border);
+}
+
+@utility border-caution {
+  border-color: var(--color-caution-border);
+}
+
+@utility border-negative {
+  border-color: var(--color-negative-border);
+}
+
+@utility border-neutral {
+  border-color: var(--color-neutral-border);
+}
+
+@utility bg-positive-soft {
+  background-color: var(--color-positive-bg-soft);
+}
+
+@utility bg-caution-soft {
+  background-color: var(--color-caution-bg-soft);
+}
+
+@utility bg-negative-soft {
+  background-color: var(--color-negative-bg-soft);
+}
+
+@utility bg-neutral-soft {
+  background-color: var(--color-neutral-bg-soft);
+}
+
+@utility fill-positive {
+  fill: var(--color-positive-fill);
+}
+
+@utility fill-caution {
+  fill: var(--color-caution-fill);
+}
+
+@utility fill-negative {
+  fill: var(--color-negative-fill);
+}
+
+@utility fill-neutral {
+  fill: var(--color-neutral-fill);
+}
+
 @layer base {
   * {
     @apply border-zinc-800;
