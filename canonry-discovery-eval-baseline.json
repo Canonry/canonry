@@ -1,0 +1,70 @@
+{
+  "capturedAt": "2026-07-02T22:25:37.829Z",
+  "scorecards": [
+    {
+      "shape": "eval-local-single-intent",
+      "seedCountRaw": 30,
+      "canonicalCount": 16,
+      "canonicalCountTruncated": false,
+      "retention": 0.5333333333333333,
+      "brandShare": 0,
+      "groundingShare": 0,
+      "bandPairFraction": 0.4,
+      "probeCount": 2,
+      "warning": null,
+      "durationSeconds": 28
+    },
+    {
+      "shape": "eval-local-multi-intent",
+      "seedCountRaw": 30,
+      "canonicalCount": 23,
+      "canonicalCountTruncated": false,
+      "retention": 0.7666666666666667,
+      "brandShare": 0,
+      "groundingShare": 0,
+      "bandPairFraction": 0.423,
+      "probeCount": 2,
+      "warning": null,
+      "durationSeconds": 24
+    },
+    {
+      "shape": "eval-b2b-saas",
+      "seedCountRaw": 30,
+      "canonicalCount": 25,
+      "canonicalCountTruncated": false,
+      "retention": 0.8333333333333334,
+      "brandShare": 0,
+      "groundingShare": 0,
+      "bandPairFraction": 0.1862,
+      "probeCount": 2,
+      "warning": null,
+      "durationSeconds": 19
+    },
+    {
+      "shape": "eval-national-ecommerce",
+      "seedCountRaw": 30,
+      "canonicalCount": 25,
+      "canonicalCountTruncated": false,
+      "retention": 0.8333333333333334,
+      "brandShare": 0,
+      "groundingShare": 0,
+      "bandPairFraction": 0.3057,
+      "probeCount": 2,
+      "warning": null,
+      "durationSeconds": 25
+    },
+    {
+      "shape": "eval-problem-heavy-consumer",
+      "seedCountRaw": 30,
+      "canonicalCount": 30,
+      "canonicalCountTruncated": false,
+      "retention": 1,
+      "brandShare": 0,
+      "groundingShare": 0,
+      "bandPairFraction": 0.131,
+      "probeCount": 2,
+      "warning": null,
+      "durationSeconds": 27
+    }
+  ]
+}
