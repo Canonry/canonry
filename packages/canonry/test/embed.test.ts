@@ -71,4 +71,31 @@ describe('resolveEmbedConfig', () => {
     const cfg = baseConfig({ enabled: true, theme: { accent: '#0af' } })
     expect(resolveEmbedConfig({}, cfg).theme).toEqual({ accent: '#0af' })
   })
+
+  it('parses CANONRY_EMBED_PROJECT_TABS on comma + whitespace and lowercases', () => {
+    const out = resolveEmbedConfig(
+      { CANONRY_EMBED: '1', CANONRY_EMBED_PROJECT_TABS: 'Overview, technical-aeo  report' },
+      baseConfig(),
+    )
+    expect(out.projectTabs).toEqual(['overview', 'technical-aeo', 'report'])
+  })
+
+  it('CANONRY_EMBED_PROJECT_TABS overrides config.embed.projectTabs (env wins)', () => {
+    const cfg = baseConfig({ enabled: true, projectTabs: ['overview', 'backlinks'] })
+    expect(
+      resolveEmbedConfig({ CANONRY_EMBED: '1', CANONRY_EMBED_PROJECT_TABS: 'overview, technical-aeo' }, cfg).projectTabs,
+    ).toEqual(['overview', 'technical-aeo'])
+  })
+
+  it('uses config.embed.projectTabs when the env var is unset', () => {
+    const cfg = baseConfig({ enabled: true, projectTabs: ['overview', 'technical-aeo'] })
+    expect(resolveEmbedConfig({ CANONRY_EMBED: '1' }, cfg).projectTabs).toEqual(['overview', 'technical-aeo'])
+  })
+
+  it('normalizes an empty / whitespace-only projectTabs list to undefined (= all tabs), never []', () => {
+    expect(
+      resolveEmbedConfig({ CANONRY_EMBED: '1', CANONRY_EMBED_PROJECT_TABS: '   ' }, baseConfig()).projectTabs,
+    ).toBeUndefined()
+    expect(resolveEmbedConfig({ CANONRY_EMBED: '1' }, baseConfig()).projectTabs).toBeUndefined()
+  })
 })

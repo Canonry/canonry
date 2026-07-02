@@ -53,6 +53,7 @@ import {
   triggerGscSync,
   fetchRunDetail,
   heyClient,
+  getEmbedConfig,
   type ApiBingConnection,
   type ApiBingSite,
   type ApiBingInspection,
@@ -61,6 +62,7 @@ import {
   type ApiGoogleConnection,
   type ApiGscCoverageSummary,
 } from '../api.js'
+import { isEmbedProjectTabAllowed, resolveEmbedProjectTab } from '../embed.js'
 import {
   getApiV1ProjectsByNameBingCoverageOptions,
   getApiV1ProjectsByNameBingInspectionsOptions,
@@ -1671,7 +1673,7 @@ function ProjectSubnavMore({ items, activeTab }: { items: ProjectTabItem[]; acti
 }
 
 function ProjectPageContent({
-  tab,
+  tab: requestedTab,
   model,
   refetch,
 }: {
@@ -1681,6 +1683,12 @@ function ProjectPageContent({
 }) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  // Read-only embed mode (#716): an optional project-tab allowlist hides operator
+  // surfaces (Search Engines, Activity, Backlinks, ...) from the embedded client
+  // dashboard. Unset (or non-embed) = all tabs. The subnav below is filtered to
+  // the allowlist; a direct-URL hit on a hidden tab falls back to a visible board.
+  const embedProjectTabs = useMemo(() => getEmbedConfig()?.projectTabs, [])
+  const tab = resolveEmbedProjectTab(requestedTab, embedProjectTabs)
   const competitorDomains = useMemo(() => model.competitors.map(c => c.domain), [model.competitors])
   // "Local Presence" is always shown — GbpSection renders a setup guide when no
   // Google Business Profile is connected, so the tab is the entry point to
@@ -2012,7 +2020,7 @@ function ProjectPageContent({
   // trailing "More" overflow; Settings is split out at the far right (universal
   // convention). "Local Presence" only appears once GBP is connected.
   const projectTabBase = `/projects/${encodeURIComponent(model.project.name)}`
-  const projectTabItems: ProjectTabItem[] = [
+  const projectTabItemsAll: ProjectTabItem[] = [
     { key: 'overview', label: 'Overview', href: projectTabBase },
     { key: 'search-console', label: 'Search Engines', href: `${projectTabBase}/search-console` },
     { key: 'activity', label: 'Activity', href: `${projectTabBase}/activity` },
@@ -2021,10 +2029,18 @@ function ProjectPageContent({
     { key: 'discovery', label: 'Query Discovery', href: `${projectTabBase}/discovery` },
     { key: 'backlinks', label: 'Backlinks', href: `${projectTabBase}/backlinks` },
   ]
-  const projectOverflowTabItems: ProjectTabItem[] = [
+  const projectOverflowTabItemsAll: ProjectTabItem[] = [
     { key: 'report', label: 'Report', href: `${projectTabBase}/report` },
   ]
-  const projectSettingsTab = { key: 'settings' as const, label: 'Settings', href: `${projectTabBase}/settings` }
+  // The embed projectTabs allowlist (when set) narrows the subnav to the curated
+  // client-facing tabs; with no allowlist every tab shows (today's behavior).
+  const projectTabItems = projectTabItemsAll.filter((item) => isEmbedProjectTabAllowed(item.key, embedProjectTabs))
+  const projectOverflowTabItems = projectOverflowTabItemsAll.filter((item) =>
+    isEmbedProjectTabAllowed(item.key, embedProjectTabs),
+  )
+  const projectSettingsTab = isEmbedProjectTabAllowed('settings', embedProjectTabs)
+    ? { key: 'settings' as const, label: 'Settings', href: `${projectTabBase}/settings` }
+    : null
 
   function focusOverviewSection(id: string, openDetails = false) {
     const section = document.getElementById(id)
@@ -2206,14 +2222,16 @@ function ProjectPageContent({
         ))}
         <div className="project-subnav-trailing">
           <ProjectSubnavMore items={projectOverflowTabItems} activeTab={tab} />
-          <Link
-            key={projectSettingsTab.key}
-            to={projectSettingsTab.href}
-            className={`project-subnav-link ${tab === 'settings' ? 'project-subnav-link-active' : ''}`}
-            aria-current={tab === 'settings' ? 'page' : undefined}
-          >
-            {projectSettingsTab.label}
-          </Link>
+          {projectSettingsTab && (
+            <Link
+              key={projectSettingsTab.key}
+              to={projectSettingsTab.href}
+              className={`project-subnav-link ${tab === 'settings' ? 'project-subnav-link-active' : ''}`}
+              aria-current={tab === 'settings' ? 'page' : undefined}
+            >
+              {projectSettingsTab.label}
+            </Link>
+          )}
         </div>
       </nav>
 

@@ -26,6 +26,15 @@ export interface EmbedConfigEntry {
   allowOrigins?: string[]
   /** Optional allowlist of view ids the embed may render (omit = all views). */
   views?: string[]
+  /**
+   * Optional allowlist of PROJECT TAB keys the embedded project page may render
+   * (`overview`, `technical-aeo`, `search-console`, `activity`, `backlinks`, ...).
+   * Finer-grained than `views` (which only gates whole top-level routes): the
+   * project page collapses to one `project` view, so this is the only lever that
+   * can hide individual operator tabs from the embedded client dashboard. Omit =
+   * all tabs.
+   */
+  projectTabs?: string[]
   /** Optional CSS custom-property overrides for the host page (sanitized client-side). */
   theme?: Record<string, string>
 }
@@ -37,6 +46,8 @@ export interface ResolvedEmbedConfig {
   allowedOrigins: string[]
   /** Normalized view allowlist; `undefined` means "all views" (never `[]`). */
   views?: string[]
+  /** Normalized project-tab allowlist; `undefined` means "all tabs" (never `[]`). */
+  projectTabs?: string[]
   theme?: Record<string, string>
 }
 
@@ -48,6 +59,8 @@ export interface ResolvedEmbedConfig {
 export interface EmbedClientConfig {
   enabled: true
   views?: string[]
+  /** Project-tab allowlist; `undefined` means "all tabs". */
+  projectTabs?: string[]
   theme?: Record<string, string>
 }
 
@@ -147,6 +160,64 @@ export function buildEmbedClientConfig(resolved: ResolvedEmbedConfig): EmbedClie
   if (!resolved.enabled) return undefined
   const client: EmbedClientConfig = { enabled: true }
   if (resolved.views && resolved.views.length > 0) client.views = resolved.views
+  if (resolved.projectTabs && resolved.projectTabs.length > 0) client.projectTabs = resolved.projectTabs
   if (resolved.theme && Object.keys(resolved.theme).length > 0) client.theme = resolved.theme
   return client
+}
+
+/**
+ * Lowercase + de-dupe id tokens (view ids or project-tab keys), preserving
+ * first-seen order; an empty result becomes `undefined` (= "all", never an
+ * allowlist of nothing). Shared by the server's boot config resolution and the
+ * per-request embed override below.
+ */
+export function normalizeIdTokens(raw: string[]): string[] | undefined {
+  if (raw.length === 0) return undefined
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const token of raw) {
+    const id = token.toLowerCase()
+    if (seen.has(id)) continue
+    seen.add(id)
+    out.push(id)
+  }
+  return out.length > 0 ? out : undefined
+}
+
+/**
+ * The client-config block for ONE request: the boot-resolved embed settings, but
+ * with `projectTabs` replaced by a per-request override when present. The Embed
+ * v2 platform `/e` proxy sets that override (an `X-Canonry-Embed-Tabs` header it
+ * controls per dashboard); the end client cannot reach the loopback engine to set
+ * it. An absent / empty override keeps the boot-wide `projectTabs`. Presentational
+ * only, NOT a security boundary: the API key scope governs data access.
+ */
+export function embedClientConfigForRequest(
+  resolved: ResolvedEmbedConfig,
+  projectTabsOverride: string | string[] | undefined,
+): EmbedClientConfig | undefined {
+  const base = buildEmbedClientConfig(resolved)
+  if (!base) return undefined
+  const override = normalizeIdTokens(splitList(projectTabsOverride))
+  return override ? { ...base, projectTabs: override } : base
+}
+
+/**
+ * JSON-serialize a value for SAFE embedding inside an inline `<script>` element
+ * (used for `window.__CANONRY_CONFIG__`). `JSON.stringify` escapes `"` but NOT
+ * `<` / `>` / `&`, so a value containing `</script>` would terminate the script
+ * element early (the classic JSON-in-HTML-script XSS). This escapes those plus
+ * the JS line separators (U+2028 / U+2029) to their equivalent `\uXXXX` JSON
+ * escapes: the output parses to the identical value but can never break out of
+ * the `<script>`. Defense in depth — the embed projectTabs override is the first
+ * request-derived value to reach this script, and the engine cannot assume the
+ * fronting proxy strips a client-tainted header.
+ */
+export function serializeForInlineScript(value: unknown): string {
+  return JSON.stringify(value)
+    .replace(/</g, '\\u003c')
+    .replace(/>/g, '\\u003e')
+    .replace(/&/g, '\\u0026')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029')
 }
