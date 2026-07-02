@@ -157,7 +157,7 @@ export function AuthGate() {
   }
 
   return (
-    <div className="min-h-screen bg-zinc-950 px-4 py-8">
+    <div className="min-h-screen bg-bg px-4 py-8">
       <div className="mx-auto flex min-h-[calc(100vh-4rem)] max-w-md items-center justify-center">
         <Card className="surface-card w-full">
           {authState === 'checking' ? (
@@ -176,10 +176,10 @@ export function AuthGate() {
               <CardContent>
                 <form className="space-y-4" onSubmit={asyncHandler(handleSetup)}>
                   <label className="block space-y-1.5">
-                    <span className="text-xs font-medium text-zinc-400">Password</span>
+                    <span className="text-xs font-medium text-secondary">Password</span>
                     <input
                       autoFocus
-                      className="w-full rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 outline-none transition focus:border-zinc-600"
+                      className="w-full rounded-md border border-base bg-bg px-3 py-2 text-sm text-heading outline-none transition focus:border-mono-600"
                       type="password"
                       value={password}
                       onChange={(event) => setPassword(event.target.value)}
@@ -187,16 +187,16 @@ export function AuthGate() {
                     />
                   </label>
                   <label className="block space-y-1.5">
-                    <span className="text-xs font-medium text-zinc-400">Confirm password</span>
+                    <span className="text-xs font-medium text-secondary">Confirm password</span>
                     <input
-                      className="w-full rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 outline-none transition focus:border-zinc-600"
+                      className="w-full rounded-md border border-base bg-bg px-3 py-2 text-sm text-heading outline-none transition focus:border-mono-600"
                       type="password"
                       value={confirmPassword}
                       onChange={(event) => setConfirmPassword(event.target.value)}
                       placeholder="Re-enter password"
                     />
                   </label>
-                  {error ? <p className="text-sm text-rose-400">{error}</p> : null}
+                  {error ? <p className="text-sm text-negative-400">{error}</p> : null}
                   <Button type="submit" disabled={submitting || !password.trim() || !confirmPassword.trim()}>
                     {submitting ? 'Setting up…' : 'Create password & open dashboard'}
                   </Button>
@@ -214,23 +214,23 @@ export function AuthGate() {
               </CardHeader>
               <CardContent>
                 {sessionExpired ? (
-                  <p className="mb-4 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-300">
+                  <p className="mb-4 rounded-md border border-caution bg-caution-soft px-3 py-2 text-sm text-caution">
                     Your session expired — please sign in again.
                   </p>
                 ) : null}
                 <form className="space-y-4" onSubmit={asyncHandler(handleLogin)}>
                   <label className="block space-y-1.5">
-                    <span className="text-xs font-medium text-zinc-400">Password</span>
+                    <span className="text-xs font-medium text-secondary">Password</span>
                     <input
                       autoFocus
-                      className="w-full rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 outline-none transition focus:border-zinc-600"
+                      className="w-full rounded-md border border-base bg-bg px-3 py-2 text-sm text-heading outline-none transition focus:border-mono-600"
                       type="password"
                       value={password}
                       onChange={(event) => setPassword(event.target.value)}
                       placeholder="Dashboard password"
                     />
                   </label>
-                  {error ? <p className="text-sm text-rose-400">{error}</p> : null}
+                  {error ? <p className="text-sm text-negative-400">{error}</p> : null}
                   <Button type="submit" disabled={submitting || !password.trim()}>
                     {submitting ? 'Signing in…' : 'Open dashboard'}
                   </Button>

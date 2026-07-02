@@ -61,7 +61,7 @@ export function CdpConfigCard() {
           </div>
         )}
       </dl>
-      <p className="mt-2 text-sm text-zinc-500">
+      <p className="mt-2 text-sm text-muted">
         {cdpStatus?.connected
           ? `Connected to Chrome via CDP. Launch Chrome with --remote-debugging-port to use this provider.`
           : cdpStatusError
@@ -105,14 +105,14 @@ export function CdpConfigCard() {
         >
           <div className="flex gap-2">
             <input
-              className="flex-1 rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+              className="flex-1 rounded border border-strong bg-bg-elevated px-2 py-1 text-sm text-heading placeholder-mono-500 focus:outline-none focus:ring-1 focus:ring-mono-500"
               placeholder="localhost"
               value={cdpHost}
               onChange={e => setCdpHost(e.target.value)}
               aria-label="CDP host"
             />
             <input
-              className="w-24 rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+              className="w-24 rounded border border-strong bg-bg-elevated px-2 py-1 text-sm text-heading placeholder-mono-500 focus:outline-none focus:ring-1 focus:ring-mono-500"
               placeholder="9222"
               value={cdpPort}
               onChange={e => setCdpPort(e.target.value)}

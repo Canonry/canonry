@@ -14,7 +14,7 @@ const SheetOverlay = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <Dialog.Overlay
     ref={ref}
-    className={cn('fixed inset-0 z-50 bg-black/70 backdrop-blur-sm', className)}
+    className={cn('fixed inset-0 z-50 bg-overlay-scrim/70 backdrop-blur-sm', className)}
     {...props}
   />
 ))
@@ -58,10 +58,10 @@ const SheetContent = React.forwardRef<
       <Dialog.Content
         ref={ref}
         className={cn(
-          'fixed z-50 flex flex-col bg-zinc-950 px-5 py-4 shadow-2xl overflow-hidden',
+          'fixed z-50 flex flex-col bg-bg px-5 py-4 shadow-2xl overflow-hidden',
           'max-md:inset-x-0 max-md:bottom-0 max-md:top-auto max-md:max-h-[88vh] max-md:rounded-t-2xl max-md:border-t',
           'md:inset-y-0 md:right-0 md:h-full md:border-l',
-          'border-zinc-800',
+          'border-base',
           className,
         )}
         style={{ width: `min(${width}px, 100vw)` }}
@@ -69,13 +69,13 @@ const SheetContent = React.forwardRef<
       >
         {/* Resize handle */}
         <div
-          className="absolute inset-y-0 left-0 w-1.5 cursor-col-resize hover:bg-zinc-700/50 active:bg-zinc-600/50 transition-colors max-md:hidden"
+          className="absolute inset-y-0 left-0 w-1.5 cursor-col-resize hover:bg-mono-700/50 active:bg-mono-600/50 transition-colors max-md:hidden"
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
         />
         {children}
-        <Dialog.Close className="absolute right-4 top-4 inline-flex size-8 items-center justify-center rounded-md text-zinc-500 transition hover:bg-zinc-900 hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400">
+        <Dialog.Close className="absolute right-4 top-4 inline-flex size-8 items-center justify-center rounded-md text-muted transition hover:bg-bg-elevated hover:text-heading focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400">
           <X className="size-4" />
           <span className="sr-only">Close</span>
         </Dialog.Close>
@@ -93,7 +93,7 @@ const SheetTitle = React.forwardRef<
   React.ElementRef<typeof Dialog.Title>,
   React.ComponentPropsWithoutRef<typeof Dialog.Title>
 >(({ className, ...props }, ref) => (
-  <Dialog.Title ref={ref} className={cn('text-lg font-medium text-zinc-50', className)} {...props} />
+  <Dialog.Title ref={ref} className={cn('text-lg font-medium text-primary', className)} {...props} />
 ))
 SheetTitle.displayName = Dialog.Title.displayName
 
@@ -101,7 +101,7 @@ const SheetDescription = React.forwardRef<
   React.ElementRef<typeof Dialog.Description>,
   React.ComponentPropsWithoutRef<typeof Dialog.Description>
 >(({ className, ...props }, ref) => (
-  <Dialog.Description ref={ref} className={cn('text-sm text-zinc-500', className)} {...props} />
+  <Dialog.Description ref={ref} className={cn('text-sm text-muted', className)} {...props} />
 ))
 SheetDescription.displayName = Dialog.Description.displayName
 

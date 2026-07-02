@@ -31,11 +31,11 @@ export class ErrorBoundary extends Component<Props, State> {
     return (
       <div className="page-container">
         <div className="flex flex-col items-center justify-center gap-4 py-20 text-center">
-          <div className="rounded-full bg-rose-950/40 p-3">
-            <AlertTriangle className="size-6 text-rose-400" />
+          <div className="rounded-full bg-negative-950/40 p-3">
+            <AlertTriangle className="size-6 text-negative-400" />
           </div>
-          <h2 className="text-lg font-semibold text-zinc-100">Something went wrong</h2>
-          <p className="text-sm text-zinc-400 max-w-md">
+          <h2 className="text-lg font-semibold text-heading">Something went wrong</h2>
+          <p className="text-sm text-secondary max-w-md">
             {this.state.error.message || 'An unexpected error occurred while rendering this page.'}
           </p>
           <div className="flex gap-3 mt-2">

@@ -31,6 +31,10 @@
 
   --color-accent: var(--color-zinc-50);
   --color-accent-fg: var(--color-zinc-950);
+  /* Semantic roles: inline-link accent (blue, distinct from sky/info) + button on-colors */
+  --color-link: var(--color-blue-400);
+  --color-on-inverse: rgb(0 0 0);
+  --color-on-emphasis: rgb(255 255 255);
 
   --color-positive-text: var(--color-emerald-300);
   --color-positive-border: rgb(16 185 129 / 0.25);
@@ -65,6 +69,9 @@
   --color-mono-600: var(--color-zinc-600);
   --color-mono-700: var(--color-zinc-700);
   --color-mono-800: var(--color-zinc-800);
+  --color-mono-200: var(--color-zinc-200);
+  --color-mono-900: var(--color-zinc-900);
+  --color-mono-950: var(--color-zinc-950);
 
   /* Tone scales — per-tone palette steps for the richer surface / border / text
      ladder (insight cards, toasts, chips, gauges, sparklines). The
@@ -77,6 +84,8 @@
   --color-positive-700: var(--color-emerald-700);
   --color-positive-800: var(--color-emerald-800);
   --color-positive-950: var(--color-emerald-950);
+  --color-positive-200: var(--color-emerald-200);
+  --color-positive-900: var(--color-emerald-900);
   --color-caution-50: var(--color-amber-50);
   --color-caution-100: var(--color-amber-100);
   --color-caution-200: var(--color-amber-200);
@@ -86,12 +95,17 @@
   --color-caution-700: var(--color-amber-700);
   --color-caution-800: var(--color-amber-800);
   --color-caution-950: var(--color-amber-950);
+  --color-caution-600: var(--color-amber-600);
   --color-negative-100: var(--color-rose-100);
   --color-negative-400: var(--color-rose-400);
   --color-negative-500: var(--color-rose-500);
   --color-negative-700: var(--color-rose-700);
   --color-negative-800: var(--color-rose-800);
   --color-negative-950: var(--color-rose-950);
+  --color-negative-200: var(--color-rose-200);
+  --color-negative-300: var(--color-rose-300);
+  --color-negative-600: var(--color-rose-600);
+  --color-negative-900: var(--color-rose-900);
 
   /* Info — a minor sky-blue accent (opportunity "track" cards, the
      suggested-query add action). Not one of the four semantic tones; kept as a
@@ -100,6 +114,8 @@
   --color-info-300: var(--color-sky-300);
   --color-info-500: var(--color-sky-500);
   --color-info-950: var(--color-sky-950);
+  --color-info-100: var(--color-sky-100);
+  --color-info-400: var(--color-sky-400);
 
   /* Effect colors — scrollbar thumb, panel/drop shadows, the caution glow, and
      the light hover overlay. (Gauge/sparkline strokes + track consume the shared
@@ -107,9 +123,13 @@
   --color-scrollbar-thumb: rgb(113 113 122 / 0.3);
   --color-shadow-drop: rgb(8 11 15 / 0.34);
   --color-shadow-panel: rgb(0 0 0 / 0.32);
+  --color-shadow-hairline: rgb(255 255 255 / 0.01);
+  --color-shadow-tooltip: rgb(0 0 0 / 0.1);
   --color-overlay-hover: rgb(255 255 255 / 0.08);
   --color-caution-glow: rgb(245 158 11 / 0.4);
   --color-caution-glow-inset: rgb(245 158 11 / 0.06);
+  --color-overlay-scrim: rgb(0 0 0);
+  --color-chart-series-2: var(--chart-series-2);
 
   --chart-series-1: #34d399;
   --chart-series-2: #60a5fa;

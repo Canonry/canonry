@@ -157,18 +157,19 @@ classes: `bg-bg`, `bg-surface`, `bg-surface-subtle`,
 `bg-surface-active`, `border-default`,
 `border-subtle`, `border-base`, `border-strong`, `text-primary`,
 `text-heading`, `text-strong`, `text-secondary`, `text-muted`,
-`text-faint`, plus tone utilities such as `text-positive`,
-`border-positive`, `bg-positive-soft`, and `fill-positive` (and the
-caution/negative/neutral variants).
+`text-faint`, `text-link`, `text-on-inverse`, `text-on-emphasis`, plus tone
+utilities such as `text-positive`, `border-positive`, `bg-positive-soft`, and
+`fill-positive` (and the caution/negative/neutral variants).
 
 For off-ladder shades that no role token names, use the raw scales rather than a
-literal: neutral `mono-100/400/500/600/700/800` (= the matching `zinc-*`) and the
-tone scales `positive-*` / `caution-*` / `negative-*` (= `emerald-*` / `amber-*` /
-`rose-*`). Apply alpha with a Tailwind opacity modifier on the scale token
-(`bg-mono-800/30`, `bg-caution-950/25`) — this is exactly how `styles.css`'s
-one-off shades migrated with no visual change. Effect colors live as
-`--color-track`, `--color-scrollbar-thumb`, `--color-shadow-drop`,
-`--color-shadow-panel`, `--color-overlay-hover`, and `--color-caution-glow`.
+literal: neutral `mono-100/200/400/500/600/700/800/900/950` (= the matching
+`zinc-*`) and the tone scales `positive-*` / `caution-*` / `negative-*` (=
+`emerald-*` / `amber-*` / `rose-*`). Apply alpha with a Tailwind opacity modifier
+on the scale token (`bg-mono-800/30`, `bg-caution-950/25`) — this is exactly how
+`styles.css`'s one-off shades migrated with no visual change. Effect colors live
+as `--color-scrollbar-thumb`, `--color-shadow-drop`, `--color-shadow-panel`,
+`--color-shadow-hairline`, `--color-shadow-tooltip`, `--color-overlay-hover`,
+`--color-overlay-scrim`, and `--color-caution-glow`.
 
 `styles.css` is fully tokenized (zero literal palette utilities / raw hex outside
 the `@theme` block). Legacy `zinc` / `emerald` / `amber` / `rose` utilities are

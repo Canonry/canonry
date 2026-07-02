@@ -130,6 +130,18 @@ test('neutral, tone, and info scale utilities compile through CSS variables', as
     'bg-caution-950/25',
     'border-negative-800',
     'bg-overlay-hover',
+    'bg-overlay-scrim/70',
+    'text-on-inverse',
+    'text-on-emphasis',
+    'text-link',
+    'bg-negative-600',
+    'bg-mono-200',
+    'bg-mono-950/75',
+    'placeholder-mono-600',
+    'ring-offset-bg',
+    'focus:border-mono-500',
+    'border-caution-400/30',
+    'bg-chart-series-2',
     'bg-info-500/10',
     'text-info-300',
   ])
@@ -142,12 +154,30 @@ test('neutral, tone, and info scale utilities compile through CSS variables', as
   expect(css).toContain('border-color: var(--color-negative-800)')
   expect(css).toContain('.bg-overlay-hover')
   expect(css).toContain('background-color: var(--color-overlay-hover)')
+  expect(css).toContain('.text-on-inverse')
+  expect(css).toContain('color: var(--color-on-inverse)')
+  expect(css).toContain('.text-on-emphasis')
+  expect(css).toContain('color: var(--color-on-emphasis)')
+  expect(css).toContain('--color-on-inverse: rgb(0 0 0)')
+  expect(css).toContain('--color-on-emphasis: rgb(255 255 255)')
+  expect(css).toContain('.text-link')
+  expect(css).toContain('color: var(--color-link)')
+  expect(css).toContain('.bg-negative-600')
+  expect(css).toContain('background-color: var(--color-negative-600)')
+  expect(css).toContain('.placeholder-mono-600')
+  expect(css).toContain('color: var(--color-mono-600)')
+  expect(css).toContain('.ring-offset-bg')
+  expect(css).toContain('--tw-ring-offset-color: var(--color-bg)')
+  expect(css).toContain('.bg-chart-series-2')
+  expect(css).toContain('background-color: var(--color-chart-series-2)')
   expect(css).toContain('.text-info-300')
   expect(css).toContain('color: var(--color-info-300)')
   // opacity modifiers must resolve against the scale tokens (this is why the
   // one-off zinc/tone/sky alphas could migrate onto a single base token each)
   expect(css).toContain('color-mix(in oklab, var(--color-mono-800) 30%, transparent)')
   expect(css).toContain('color-mix(in oklab, var(--color-caution-950) 25%, transparent)')
+  expect(css).toContain('color-mix(in oklab, var(--color-overlay-scrim) 70%, transparent)')
+  expect(css).toContain('color-mix(in oklab, var(--color-mono-950) 75%, transparent)')
   // the chart tokens are emitted unconditionally from @theme (the chart bridge
   // consumes them in a later phase)
   expect(css).toContain('--chart-series-1: #34d399')

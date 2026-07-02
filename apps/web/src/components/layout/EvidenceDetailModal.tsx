@@ -348,7 +348,7 @@ export function EvidenceDetailModal({
       const line = raw.trim()
       if (/^[-\u2013\u2014]{3,}$/.test(line)) {
         flushPara()
-        elements.push(<hr key={key++} className="border-zinc-800/60 my-3" />)
+        elements.push(<hr key={key++} className="border-default my-3" />)
         continue
       }
       const headingMatch = line.match(/^(#{1,3})\s+(\S.*)$/)
@@ -357,10 +357,10 @@ export function EvidenceDetailModal({
         const level = headingMatch[1].length
         const text = headingMatch[2].replace(/^[\p{Emoji}\p{Emoji_Component}\s]+/u, '').trim() || headingMatch[2]
         const cls = level === 1
-          ? 'text-[13px] font-semibold text-zinc-100 mt-4 mb-1'
+          ? 'text-[13px] font-semibold text-heading mt-4 mb-1'
           : level === 2
-            ? 'text-xs font-semibold text-zinc-200 mt-3 mb-0.5'
-            : 'text-xs font-medium text-zinc-300 mt-2'
+            ? 'text-xs font-semibold text-strong mt-3 mb-0.5'
+            : 'text-xs font-medium text-neutral mt-2'
         elements.push(
           <p key={key++} className={cls}>
             {highlightTermsInText(text, highlightTermGroups)}
@@ -381,7 +381,7 @@ export function EvidenceDetailModal({
   return (
     <Dialog.Root open onOpenChange={(open) => { if (!open) onClose() }}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm" />
+        <Dialog.Overlay className="fixed inset-0 z-50 bg-overlay-scrim/80 backdrop-blur-sm" />
         <Dialog.Content
           className="evidence-modal"
           aria-describedby={undefined}
@@ -390,9 +390,9 @@ export function EvidenceDetailModal({
           <div className="evidence-modal-header">
             <div className="min-w-0 flex-1">
               <p className="eyebrow eyebrow-soft">{project.project.name} {'\u00b7'} {display.provider || 'All providers'}</p>
-              <Dialog.Title className="text-lg font-semibold text-zinc-50 truncate">{evidence.query}</Dialog.Title>
+              <Dialog.Title className="text-lg font-semibold text-primary truncate">{evidence.query}</Dialog.Title>
             </div>
-            <Dialog.Close className="inline-flex size-8 items-center justify-center rounded-md text-zinc-500 transition hover:bg-zinc-800 hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 shrink-0">
+            <Dialog.Close className="inline-flex size-8 items-center justify-center rounded-md text-muted transition hover:bg-mono-800 hover:text-heading focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400 shrink-0">
               <X className="size-4" />
               <span className="sr-only">Close</span>
             </Dialog.Close>
@@ -408,9 +408,9 @@ export function EvidenceDetailModal({
                   const visibilityState = run.visibilityState ?? (run.answerMentioned ? 'visible' : 'not-visible')
                   const visibilityTransition = run.visibilityTransition ?? visibilityState
                   const dotColor = visibilityState === 'visible'
-                    ? 'bg-emerald-400' : visibilityTransition === 'emerging'
-                      ? 'bg-amber-400' : visibilityTransition === 'lost'
-                        ? 'bg-rose-400' : 'bg-zinc-600'
+                    ? 'bg-positive-400' : visibilityTransition === 'emerging'
+                      ? 'bg-caution-400' : visibilityTransition === 'lost'
+                        ? 'bg-negative-400' : 'bg-mono-600'
                   const date = new Date(run.createdAt)
                   const label = date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
                   const modelChanged = Boolean(run.model && i > 0 && history[i - 1]?.model && history[i - 1]!.model !== run.model)
@@ -428,18 +428,18 @@ export function EvidenceDetailModal({
                       aria-pressed={isSelected}
                     >
                       <span
-                        className={`size-2 rounded-full ${dotColor} ${modelChanged ? 'ring-1 ring-amber-300/80 ring-offset-2 ring-offset-zinc-950' : ''}`}
+                        className={`size-2 rounded-full ${dotColor} ${modelChanged ? 'ring-1 ring-caution-300/80 ring-offset-2 ring-offset-bg' : ''}`}
                         aria-hidden="true"
                       />
-                      <span className="text-[10px] text-zinc-500">{label}</span>
+                      <span className="text-[10px] text-muted">{label}</span>
                     </button>
                   )
                 })}
               </div>
               {selectedRunIdx >= 0 && selectedRunIdx < history.length && (
-                <p className="text-[11px] text-zinc-500 mt-1">
+                <p className="text-[11px] text-muted mt-1">
                   Viewing run from {new Date(history[selectedRunIdx].createdAt).toLocaleString()} {'\u2014'} <span className="capitalize">{history[selectedRunIdx].visibilityState ?? (history[selectedRunIdx].answerMentioned ? 'visible' : 'not-visible')}</span>
-                  <button type="button" className="text-zinc-400 hover:text-zinc-200 ml-2" onClick={() => { void selectHistoricalRun(-1) }}>{'\u2190'} Back to latest</button>
+                  <button type="button" className="text-secondary hover:text-strong ml-2" onClick={() => { void selectHistoricalRun(-1) }}>{'\u2190'} Back to latest</button>
                 </p>
               )}
               {!isViewingHistory && (evidence.modelTransitions?.length ?? 0) > 0 && (
@@ -447,7 +447,7 @@ export function EvidenceDetailModal({
                   {evidence.modelTransitions!.map((transition) => (
                     <span
                       key={`${transition.runId}:${transition.toModel ?? 'unknown'}`}
-                      className="inline-flex items-center rounded-full border border-amber-400/30 bg-amber-400/10 px-2 py-1 text-[10px] text-amber-100"
+                      className="inline-flex items-center rounded-full border border-caution-400/30 bg-caution-400/10 px-2 py-1 text-[10px] text-caution-100"
                     >
                       {`${transition.fromModel ?? 'unknown'} -> ${transition.toModel ?? 'unknown'} on ${new Date(transition.createdAt).toLocaleDateString()}`}
                     </span>
@@ -460,7 +460,7 @@ export function EvidenceDetailModal({
           {/* ── Two-column body ── */}
           <div className="evidence-modal-body">
             {loadingHistory && (
-              <div className="md:col-span-2 flex items-center justify-center py-12 text-zinc-500 text-sm">
+              <div className="md:col-span-2 flex items-center justify-center py-12 text-muted text-sm">
                 Loading historical run data{'\u2026'}
               </div>
             )}
@@ -479,7 +479,7 @@ export function EvidenceDetailModal({
                     </p>
                     <p className="evidence-position-meta">{heroCopy.meta}</p>
                     {providerMetaNote && (
-                      <p className="mt-1 text-[11px] text-zinc-500">{providerMetaNote}</p>
+                      <p className="mt-1 text-[11px] text-muted">{providerMetaNote}</p>
                     )}
                   </div>
 
@@ -493,7 +493,7 @@ export function EvidenceDetailModal({
                       {display.answerSnippet.length > 280 && (
                         <button
                           type="button"
-                          className="mt-1.5 text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+                          className="mt-1.5 text-xs text-muted hover:text-neutral transition-colors"
                           onClick={() => setShowFullAnswer(!showFullAnswer)}
                         >
                           {showFullAnswer ? '\u2191 Collapse' : '\u2193 Show full answer'}
@@ -503,7 +503,7 @@ export function EvidenceDetailModal({
                   )}
 
                   {!display.answerSnippet && !loadingHistory && (
-                    <div className="rounded-lg border border-zinc-800/40 bg-zinc-900/20 px-4 py-8 text-center text-zinc-600 text-sm">
+                    <div className="rounded-lg border border-subtle bg-surface-subtle px-4 py-8 text-center text-faint text-sm">
                       No answer text recorded for this run
                     </div>
                   )}
@@ -517,8 +517,8 @@ export function EvidenceDetailModal({
                       </div>
                       <ul className="grid gap-1">
                         {display.searchQueries.map((q, i) => (
-                          <li key={`${i}-${q}`} className="flex items-start gap-2 text-sm text-zinc-300">
-                            <Search className="size-3.5 mt-0.5 shrink-0 text-zinc-600" aria-hidden="true" />
+                          <li key={`${i}-${q}`} className="flex items-start gap-2 text-sm text-neutral">
+                            <Search className="size-3.5 mt-0.5 shrink-0 text-faint" aria-hidden="true" />
                             <span className="break-words">{q}</span>
                           </li>
                         ))}
@@ -536,7 +536,7 @@ export function EvidenceDetailModal({
                         {evidence.relatedTechnicalSignals.map((signal, i) => (
                           <div key={i} className="action-item">
                             <svg
-                              className={`action-item-icon ${isVisible ? 'text-emerald-400' : 'text-amber-400'}`}
+                              className={`action-item-icon ${isVisible ? 'text-positive-400' : 'text-caution-400'}`}
                               viewBox="0 0 16 16" fill="none" aria-hidden="true"
                             >
                               {isVisible
@@ -558,7 +558,7 @@ export function EvidenceDetailModal({
 
                   {/* Summary */}
                   {display.summary && (
-                    <p className="text-xs text-zinc-600 border-t border-zinc-800/40 pt-3 mt-1">{display.summary}</p>
+                    <p className="text-xs text-faint border-t border-subtle pt-3 mt-1">{display.summary}</p>
                   )}
                 </div>
 
@@ -603,7 +603,7 @@ export function EvidenceDetailModal({
                         {/* Matched terms chips */}
                         {display.matchedTerms.length > 0 && (
                           <div className="mt-2">
-                            <p className="text-[10px] uppercase tracking-wide text-zinc-500 mb-1.5">Matched in answer</p>
+                            <p className="text-[10px] uppercase tracking-wide text-muted mb-1.5">Matched in answer</p>
                             <div className="flex flex-wrap gap-1.5">
                               {display.matchedTerms.map(term => (
                                 <span key={term} className="mention-chip mention-chip--brand">{term}</span>
@@ -615,13 +615,13 @@ export function EvidenceDetailModal({
                         {/* When not visible, show what was searched for */}
                         {!isPending && !isVisible && display.matchedTerms.length === 0 && (
                           <div className="mt-2">
-                            <p className="text-[10px] uppercase tracking-wide text-zinc-500 mb-1.5">Searched for</p>
+                            <p className="text-[10px] uppercase tracking-wide text-muted mb-1.5">Searched for</p>
                             <div className="flex flex-wrap gap-1.5">
                               {brandTerms.map(term => (
                                 <span key={term} className="mention-chip mention-chip--muted">{term}</span>
                               ))}
                             </div>
-                            <p className="text-[11px] text-zinc-600 mt-1.5">None of these appear in the answer text.</p>
+                            <p className="text-[11px] text-faint mt-1.5">None of these appear in the answer text.</p>
                           </div>
                         )}
                       </div>
@@ -692,11 +692,11 @@ export function EvidenceDetailModal({
                               return (
                                 <li key={i} className="truncate text-sm">
                                   {href ? (
-                                    <a href={href} target="_blank" rel="noopener noreferrer" className="text-zinc-400 hover:text-zinc-200 transition-colors">
+                                    <a href={href} target="_blank" rel="noopener noreferrer" className="text-secondary hover:text-strong transition-colors">
                                       {label}
                                     </a>
                                   ) : (
-                                    <span className="text-zinc-400">{label}</span>
+                                    <span className="text-secondary">{label}</span>
                                   )}
                                 </li>
                               )
@@ -714,11 +714,11 @@ export function EvidenceDetailModal({
                               return (
                                 <li key={url} className="truncate text-sm">
                                   {href ? (
-                                    <a href={href} target="_blank" rel="noopener noreferrer" className="text-zinc-400 hover:text-zinc-200 transition-colors">
+                                    <a href={href} target="_blank" rel="noopener noreferrer" className="text-secondary hover:text-strong transition-colors">
                                       {url}
                                     </a>
                                   ) : (
-                                    <span className="text-zinc-400">{url}</span>
+                                    <span className="text-secondary">{url}</span>
                                   )}
                                 </li>
                               )
@@ -728,7 +728,7 @@ export function EvidenceDetailModal({
                       )}
 
                       {display.citedDomains.length === 0 && display.groundingSources.length === 0 && display.evidenceUrls.length === 0 && (
-                        <div className="flex items-center justify-center h-24 text-zinc-600 text-sm">
+                        <div className="flex items-center justify-center h-24 text-faint text-sm">
                           No source data {isViewingHistory ? 'for this run' : 'yet'}
                         </div>
                       )}
@@ -737,7 +737,7 @@ export function EvidenceDetailModal({
 
                   {/* No data state */}
                   {!hasMentionData && !hasSourceData && (
-                    <div className="flex items-center justify-center h-24 text-zinc-600 text-sm">
+                    <div className="flex items-center justify-center h-24 text-faint text-sm">
                       No answer visibility data {isViewingHistory ? 'for this run' : 'yet'}
                     </div>
                   )}

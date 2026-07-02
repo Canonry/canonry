@@ -129,17 +129,17 @@ function SourceTypePicker({ onPick }: { onPick: (type: SourceType) => void }) {
             key={type}
             type="button"
             onClick={() => onPick(type)}
-            className="group flex items-start gap-4 rounded-lg border border-zinc-800 bg-zinc-900/30 p-4 text-left transition-colors hover:border-zinc-600 hover:bg-zinc-900/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400"
+            className="group flex items-start gap-4 rounded-lg border border-base bg-bg-elevated/30 p-4 text-left transition-colors hover:border-mono-600 hover:bg-bg-elevated/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400"
           >
-            <span className="mt-0.5 inline-flex size-9 shrink-0 items-center justify-center rounded-md border border-zinc-800 bg-zinc-950 text-zinc-300 group-hover:text-zinc-100">
+            <span className="mt-0.5 inline-flex size-9 shrink-0 items-center justify-center rounded-md border border-base bg-bg text-neutral group-hover:text-heading">
               <Icon className="size-4" />
             </span>
             <span className="flex flex-col gap-0.5">
               <span className="flex flex-wrap items-baseline gap-x-2">
-                <span className="text-sm font-medium text-zinc-100">{name}</span>
-                <span className="text-[11px] text-zinc-500">{tagline}</span>
+                <span className="text-sm font-medium text-heading">{name}</span>
+                <span className="text-[11px] text-muted">{tagline}</span>
               </span>
-              <span className="text-xs leading-5 text-zinc-500">{description}</span>
+              <span className="text-xs leading-5 text-muted">{description}</span>
             </span>
           </button>
         ))}
@@ -162,7 +162,7 @@ function WizardHeader({
       <button
         type="button"
         onClick={onBack}
-        className="mb-1 inline-flex w-fit items-center gap-1 rounded text-xs text-zinc-500 transition-colors hover:text-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400"
+        className="mb-1 inline-flex w-fit items-center gap-1 rounded text-xs text-muted transition-colors hover:text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400"
       >
         <ArrowLeft className="size-3" />
         Choose a different source
@@ -288,19 +288,19 @@ function ConnectSourceFormShell({
             type="text"
             value={projectName}
             disabled
-            className="w-full rounded border border-zinc-700 bg-zinc-900/50 px-2 py-1.5 text-sm text-zinc-300"
+            className="w-full rounded border border-strong bg-bg-elevated/50 px-2 py-1.5 text-sm text-neutral"
           />
         </Field>
 
         {children}
 
         {error ? (
-          <p className="rounded-md border border-rose-800/50 bg-rose-950/30 px-3 py-2 text-xs text-rose-200">
+          <p className="rounded-md border border-negative-800/50 bg-negative-950/30 px-3 py-2 text-xs text-negative-200">
             {error}
           </p>
         ) : null}
 
-        <div className="mt-2 flex items-center justify-end gap-2 border-t border-zinc-800/60 pt-4">
+        <div className="mt-2 flex items-center justify-end gap-2 border-t border-default pt-4">
           <Button type="button" variant="ghost" size="sm" onClick={onClose}>
             Close
           </Button>
@@ -378,7 +378,7 @@ function WordpressSourceForm({
           required
           autoComplete="url"
           placeholder="https://example.com"
-          className="w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+          className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
         />
       </Field>
 
@@ -393,7 +393,7 @@ function WordpressSourceForm({
           onChange={(e) => setUsername(e.target.value)}
           required
           autoComplete="username"
-          className="w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+          className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
         />
       </Field>
 
@@ -408,7 +408,7 @@ function WordpressSourceForm({
           onChange={(e) => setApplicationPassword(e.target.value)}
           required
           autoComplete="new-password"
-          className="w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+          className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
         />
       </Field>
 
@@ -421,7 +421,7 @@ function WordpressSourceForm({
           value={displayName}
           onChange={(e) => setDisplayName(e.target.value)}
           autoComplete="off"
-          className="w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+          className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
         />
       </Field>
     </ConnectSourceFormShell>
@@ -499,7 +499,7 @@ function CloudRunSourceForm({
           onChange={(e) => setGcpProjectId(e.target.value)}
           required
           autoComplete="off"
-          className="w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+          className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
         />
       </Field>
 
@@ -512,7 +512,7 @@ function CloudRunSourceForm({
           value={serviceName}
           onChange={(e) => setServiceName(e.target.value)}
           autoComplete="off"
-          className="w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+          className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
         />
       </Field>
 
@@ -525,7 +525,7 @@ function CloudRunSourceForm({
           value={location}
           onChange={(e) => setLocation(e.target.value)}
           autoComplete="off"
-          className="w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+          className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
         />
       </Field>
 
@@ -538,7 +538,7 @@ function CloudRunSourceForm({
           value={displayName}
           onChange={(e) => setDisplayName(e.target.value)}
           autoComplete="off"
-          className="w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+          className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
         />
       </Field>
 
@@ -553,18 +553,18 @@ function CloudRunSourceForm({
           rows={6}
           spellCheck={false}
           autoComplete="off"
-          className="w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 font-mono text-[11px] text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+          className="w-full rounded border border-strong bg-transparent px-2 py-1.5 font-mono text-[11px] text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
           placeholder='{"type":"service_account","project_id":"…","private_key":"…"}'
           required
         />
-        <label className="mt-2 inline-flex cursor-pointer items-center gap-2 text-xs text-zinc-400 hover:text-zinc-200">
+        <label className="mt-2 inline-flex cursor-pointer items-center gap-2 text-xs text-secondary hover:text-strong">
           <input
             type="file"
             accept="application/json,.json"
             className="hidden"
             onChange={(e) => void handleFile(e.target.files?.[0] ?? null)}
           />
-          <span className="rounded-md border border-zinc-800 px-2 py-1">Or upload a key file</span>
+          <span className="rounded-md border border-base px-2 py-1">Or upload a key file</span>
         </label>
       </Field>
     </ConnectSourceFormShell>
@@ -638,7 +638,7 @@ function VercelSourceForm({
           required
           autoComplete="off"
           placeholder="prj_…"
-          className="w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+          className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
         />
       </Field>
 
@@ -653,7 +653,7 @@ function VercelSourceForm({
           onChange={(e) => setTeamId(e.target.value)}
           required
           autoComplete="off"
-          className="w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+          className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
         />
       </Field>
 
@@ -668,7 +668,7 @@ function VercelSourceForm({
           onChange={(e) => setToken(e.target.value)}
           required
           autoComplete="new-password"
-          className="w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+          className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
         />
       </Field>
 
@@ -679,7 +679,7 @@ function VercelSourceForm({
         <select
           value={environment}
           onChange={(e) => setEnvironment(e.target.value as 'production' | 'preview')}
-          className="w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 focus:border-zinc-500 focus:outline-none"
+          className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong focus:border-mono-500 focus:outline-none"
         >
           <option value="production">production</option>
           <option value="preview">preview</option>
@@ -695,7 +695,7 @@ function VercelSourceForm({
           value={displayName}
           onChange={(e) => setDisplayName(e.target.value)}
           autoComplete="off"
-          className="w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+          className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
         />
       </Field>
     </ConnectSourceFormShell>
@@ -715,12 +715,12 @@ function Field({
 }) {
   return (
     <label className="flex flex-col gap-1">
-      <span className="text-xs font-medium text-zinc-200">
+      <span className="text-xs font-medium text-strong">
         {label}
-        {required ? <span className="ml-1 text-rose-400">*</span> : null}
+        {required ? <span className="ml-1 text-negative-400">*</span> : null}
       </span>
       {children}
-      <span className="text-[11px] text-zinc-500">{description}</span>
+      <span className="text-[11px] text-muted">{description}</span>
     </label>
   )
 }

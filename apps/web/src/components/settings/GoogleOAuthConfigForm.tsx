@@ -43,15 +43,15 @@ export function GoogleOAuthConfigForm({ onSaved }: { onSaved: () => void }) {
   }
 
   return (
-    <div className="mt-3 rounded-lg border border-zinc-800 bg-zinc-900/40 p-3 space-y-2">
+    <div className="mt-3 rounded-lg border border-base bg-bg-elevated/40 p-3 space-y-2">
       <div>
         <div className="flex items-center justify-between">
-          <label className="text-xs text-zinc-500" htmlFor="google-client-id">Client ID</label>
+          <label className="text-xs text-muted" htmlFor="google-client-id">Client ID</label>
           <a
             href="https://console.cloud.google.com/apis/credentials"
             target="_blank"
             rel="noopener noreferrer"
-            className="text-[10px] text-zinc-500 hover:text-zinc-300 underline underline-offset-2"
+            className="text-[10px] text-muted hover:text-neutral underline underline-offset-2"
           >
             Google Cloud {'\u2197'}
           </a>
@@ -59,28 +59,28 @@ export function GoogleOAuthConfigForm({ onSaved }: { onSaved: () => void }) {
         <input
           id="google-client-id"
           type="text"
-          className="mt-0.5 w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+          className="mt-0.5 w-full rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
           placeholder="Google OAuth client ID"
           value={clientId}
           onChange={(e) => setClientId(e.target.value)}
         />
       </div>
       <div>
-        <label className="text-xs text-zinc-500" htmlFor="google-client-secret">Client secret</label>
+        <label className="text-xs text-muted" htmlFor="google-client-secret">Client secret</label>
         <input
           id="google-client-secret"
           type="password"
-          className="mt-0.5 w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+          className="mt-0.5 w-full rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
           placeholder="Google OAuth client secret"
           value={clientSecret}
           onChange={(e) => setClientSecret(e.target.value)}
         />
       </div>
-      <p className="text-[11px] text-zinc-500">
+      <p className="text-[11px] text-muted">
         These credentials are stored in <code>~/.canonry/config.yaml</code>. Project-level Search Console connections are created separately per canonical domain.
       </p>
-      {error && <p className="text-xs text-rose-400">{error}</p>}
-      {success && <p className="text-xs text-emerald-400">Google OAuth credentials updated.</p>}
+      {error && <p className="text-xs text-negative-400">{error}</p>}
+      {success && <p className="text-xs text-positive-400">Google OAuth credentials updated.</p>}
       <Button type="button" size="sm" disabled={!canSave || saving} onClick={asyncHandler(handleSave)}>
         {saving ? 'Saving...' : 'Save Google OAuth app'}
       </Button>

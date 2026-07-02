@@ -69,11 +69,11 @@ export function InfoTooltip({ text }: { text: string }) {
             textTransform: 'none',
             letterSpacing: 'normal',
             lineHeight: '1rem',
-            color: '#d4d4d8',
-            backgroundColor: '#18181b',
-            border: '1px solid rgba(63, 63, 70, 0.6)',
+            color: 'var(--color-neutral-text)',
+            backgroundColor: 'var(--color-bg-elevated)',
+            border: '1px solid color-mix(in oklab, var(--color-border-strong) 60%, transparent)',
             borderRadius: '0.5rem',
-            boxShadow: '0 10px 15px -3px rgba(0,0,0,.1), 0 4px 6px -4px rgba(0,0,0,.1)',
+            boxShadow: '0 10px 15px -3px var(--color-shadow-tooltip), 0 4px 6px -4px var(--color-shadow-tooltip)',
           }}
         >
           {text}

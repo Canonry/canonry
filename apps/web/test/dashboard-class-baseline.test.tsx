@@ -59,7 +59,7 @@ test('overview route keeps the dark dashboard class baseline stable', async () =
     {
       "appShell": "app-shell ",
       "firstHealthPill": "health-pill health-pill-ok",
-      "firstSurface": "rounded-xl border border-zinc-800 bg-zinc-950/75 shadow-[0_0_0_1px_rgba(255,255,255,0.01)] surface-card compact-card",
+      "firstSurface": "rounded-xl border border-base bg-bg/75 shadow-[0_0_0_1px_var(--color-shadow-hairline)] surface-card compact-card",
       "pageContainer": "page-container",
       "pageHeader": "page-header",
       "pageShell": "page-shell",

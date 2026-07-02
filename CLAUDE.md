@@ -25,17 +25,21 @@ The web dashboard follows a dark, professional analytics aesthetic inspired by *
   `zinc-800`; `border-strong` = `zinc-700`; `text-primary` =
   `zinc-50`; `text-heading` = `zinc-100`; `text-strong` = `zinc-200`;
   `text-secondary` = `zinc-400`; `text-muted` = `zinc-500`;
-  `text-faint` = `zinc-600`.
+  `text-faint` = `zinc-600`; `text-link` = `blue-400`;
+  `text-on-inverse` = black; `text-on-emphasis` = white (exact legacy button
+  on-colors).
 - Off-ladder shades resolve through raw scales, never new literals: the neutral
-  `mono-*` scale (`mono-100/400/500/600/700/800`, each = the matching `zinc-*`)
-  backs one-off dots, focus rings, tracks, dividers, and underlines; the tone
+  `mono-*` scale (`mono-100/200/400/500/600/700/800/900/950`, each = the
+  matching `zinc-*`) backs one-off dots, focus rings, tracks, dividers,
+  underlines, and exact primitive states; the tone
   scales (`positive-*` = `emerald-*`, `caution-*` = `amber-*`, `negative-*` =
   `rose-*`, at the ladder's levels) back insight cards, toasts, chips, gauges,
   and sparklines. Prefer the semantic role tokens above; reach for a scale token
   — with a Tailwind opacity modifier for alpha steps, e.g. `bg-caution-950/25`,
   `border-mono-800/30` — only for a shade the role tokens don't name. Effect
-  colors cover the remaining raw hex: `--color-track`, `--color-scrollbar-thumb`,
-  `--color-shadow-drop`, `--color-shadow-panel`, `--color-overlay-hover`,
+  colors cover the remaining raw hex: `--color-scrollbar-thumb`,
+  `--color-shadow-drop`, `--color-shadow-panel`, `--color-shadow-hairline`,
+  `--color-shadow-tooltip`, `--color-overlay-hover`, `--color-overlay-scrim`,
   `--color-caution-glow` / `-glow-inset`.
 - `apps/web/src/styles.css` is fully tokenized — zero literal palette utilities
   and zero raw hex/rgba outside the `@theme` block (guarded by
@@ -44,7 +48,7 @@ The web dashboard follows a dark, professional analytics aesthetic inspired by *
   component code until the Phase 3 migration completes. Do not add new literal
   palette utilities for themeable UI; add or use a semantic (or scale) token.
 - Font: **Geist Sans** (400–800 weights) for UI text, **Geist Mono** for code/numerics. Globally enabled OpenType features `cv11`, `ss01`, `ss03` for sharper i/l/I/0 disambiguation. Headings tighten tracking (`-0.015em`, `-0.02em` on h1). Use `text-heading` / `text-strong` for heading and emphasized neutral text, `text-primary` for highest-contrast body text, `text-secondary` for supporting text, and `text-muted` / `text-faint` for labels.
-- Tone tokens: **positive** = emerald, **caution** = amber, **negative** = rose, **neutral** = zinc. Use `text-positive`, `border-positive`, `bg-positive-soft`, `fill-positive`, and the matching caution/negative/neutral utilities for new themeable tone work. **info** = sky is a minor accent (opportunity "track" cards, the suggested-query add action) exposed only as an `info-{200,300,500,950}` scale, not a full tone quartet.
+- Tone tokens: **positive** = emerald, **caution** = amber, **negative** = rose, **neutral** = zinc. Use `text-positive`, `border-positive`, `bg-positive-soft`, `fill-positive`, and the matching caution/negative/neutral utilities for new themeable tone work. **info** = sky is a minor accent (opportunity "track" cards, the suggested-query add action) exposed only as an `info-{100,200,300,400,500,950}` scale, not a full tone quartet.
 - Provider identity colors in `ProviderBadge` encode which answer engine produced a signal. They are not semantic tone colors and stay literal unless the provider identity system changes.
 - No decorative background gradients. Keep it clean and flat.
 
