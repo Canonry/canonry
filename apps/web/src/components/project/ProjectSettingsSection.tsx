@@ -196,8 +196,8 @@ export function ProjectSettingsSection({
     JSON.stringify(ownedDomains) !== JSON.stringify(project.ownedDomains ?? []) ||
     JSON.stringify(aliases) !== JSON.stringify(project.aliases ?? [])
 
-  const inputClass = 'w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none'
-  const labelClass = 'block text-xs font-medium text-zinc-400 mb-1'
+  const inputClass = 'w-full rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none'
+  const labelClass = 'block text-xs font-medium text-secondary mb-1'
   const newLocValid = newLocLabel.trim() && newLocCity.trim() && newLocRegion.trim() && newLocCountry.trim()
 
   return (
@@ -215,14 +215,14 @@ export function ProjectSettingsSection({
       </div>
 
       {error && (
-        <div className="mb-3 rounded-lg border border-rose-800/40 bg-rose-950/20 px-3 py-2 text-sm text-rose-300">
+        <div className="mb-3 rounded-lg border border-negative-800/40 bg-negative-950/20 px-3 py-2 text-sm text-negative">
           {error}
-          <button type="button" className="ml-2 text-rose-400 hover:text-rose-200" onClick={() => setError(null)}>×</button>
+          <button type="button" className="ml-2 text-negative-400 hover:text-negative-200" onClick={() => setError(null)}>×</button>
         </div>
       )}
 
       {editing ? (
-        <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-4 space-y-4">
+        <div className="rounded-lg border border-base bg-bg-elevated/40 p-4 space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className={labelClass}>Display name</label>
@@ -246,9 +246,9 @@ export function ProjectSettingsSection({
             <label className={labelClass}>Owned domains</label>
             <div className="flex flex-wrap gap-1.5 mb-2">
               {ownedDomains.map((d) => (
-                <span key={d} className="inline-flex items-center gap-1 rounded-full border border-zinc-700/60 bg-zinc-800/40 px-2 py-0.5 text-xs text-zinc-300">
+                <span key={d} className="inline-flex items-center gap-1 rounded-full border border-mono-700/60 bg-mono-800/40 px-2 py-0.5 text-xs text-neutral">
                   {d}
-                  <button type="button" className="ml-0.5 text-zinc-500 hover:text-zinc-200 transition-colors" onClick={() => handleRemoveDomain(d)} aria-label={`Remove ${d}`}>×</button>
+                  <button type="button" className="ml-0.5 text-muted hover:text-strong transition-colors" onClick={() => handleRemoveDomain(d)} aria-label={`Remove ${d}`}>×</button>
                 </span>
               ))}
             </div>
@@ -269,15 +269,15 @@ export function ProjectSettingsSection({
 
           <div>
             <label className={labelClass}>Aliases</label>
-            <p className="text-[11px] text-zinc-500 mb-1.5">
+            <p className="text-[11px] text-muted mb-1.5">
               Additional brand names checked against LLM answer text. Use for product names,
               prior names, or DBAs (e.g. add "Meta" as an alias to facebook.com).
             </p>
             <div className="flex flex-wrap gap-1.5 mb-2">
               {aliases.map((a) => (
-                <span key={a} className="inline-flex items-center gap-1 rounded-full border border-zinc-700/60 bg-zinc-800/40 px-2 py-0.5 text-xs text-zinc-300">
+                <span key={a} className="inline-flex items-center gap-1 rounded-full border border-mono-700/60 bg-mono-800/40 px-2 py-0.5 text-xs text-neutral">
                   {a}
-                  <button type="button" className="ml-0.5 text-zinc-500 hover:text-zinc-200 transition-colors" onClick={() => handleRemoveAlias(a)} aria-label={`Remove ${a}`}>×</button>
+                  <button type="button" className="ml-0.5 text-muted hover:text-strong transition-colors" onClick={() => handleRemoveAlias(a)} aria-label={`Remove ${a}`}>×</button>
                 </span>
               ))}
             </div>
@@ -296,7 +296,7 @@ export function ProjectSettingsSection({
             </div>
           </div>
 
-          <div className="flex items-center gap-2 pt-2 border-t border-zinc-800/60">
+          <div className="flex items-center gap-2 pt-2 border-t border-default">
             <Button type="button" disabled={saving || !hasChanges || !displayName.trim() || !canonicalDomain.trim()} onClick={asyncHandler(handleSave)}>
               {saving ? 'Saving...' : 'Save changes'}
             </Button>
@@ -306,66 +306,66 @@ export function ProjectSettingsSection({
           </div>
         </div>
       ) : (
-        <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/30 overflow-hidden">
+        <div className="rounded-lg border border-default bg-surface overflow-hidden">
           <table className="w-full text-sm">
             <tbody>
-              <tr className="border-b border-zinc-800/40">
-                <td className="px-4 py-2.5 text-zinc-500 font-medium w-40">Display name</td>
-                <td className="px-4 py-2.5 text-zinc-200">{project.displayName || '\u2014'}</td>
+              <tr className="border-b border-subtle">
+                <td className="px-4 py-2.5 text-muted font-medium w-40">Display name</td>
+                <td className="px-4 py-2.5 text-strong">{project.displayName || '\u2014'}</td>
               </tr>
-              <tr className="border-b border-zinc-800/40">
-                <td className="px-4 py-2.5 text-zinc-500 font-medium">Canonical domain</td>
-                <td className="px-4 py-2.5 text-zinc-200">{project.canonicalDomain}</td>
+              <tr className="border-b border-subtle">
+                <td className="px-4 py-2.5 text-muted font-medium">Canonical domain</td>
+                <td className="px-4 py-2.5 text-strong">{project.canonicalDomain}</td>
               </tr>
-              <tr className="border-b border-zinc-800/40">
-                <td className="px-4 py-2.5 text-zinc-500 font-medium">Owned domains</td>
+              <tr className="border-b border-subtle">
+                <td className="px-4 py-2.5 text-muted font-medium">Owned domains</td>
                 <td className="px-4 py-2.5">
                   {(project.ownedDomains ?? []).length > 0 ? (
                     <div className="flex flex-wrap gap-1.5">
                       {project.ownedDomains.map((d) => (
-                        <span key={d} className="rounded-full border border-zinc-700/60 bg-zinc-800/40 px-2 py-0.5 text-xs text-zinc-300">{d}</span>
+                        <span key={d} className="rounded-full border border-mono-700/60 bg-mono-800/40 px-2 py-0.5 text-xs text-neutral">{d}</span>
                       ))}
                     </div>
                   ) : (
-                    <span className="text-zinc-500">{'\u2014'}</span>
+                    <span className="text-muted">{'\u2014'}</span>
                   )}
                 </td>
               </tr>
-              <tr className="border-b border-zinc-800/40">
-                <td className="px-4 py-2.5 text-zinc-500 font-medium">Aliases</td>
+              <tr className="border-b border-subtle">
+                <td className="px-4 py-2.5 text-muted font-medium">Aliases</td>
                 <td className="px-4 py-2.5">
                   {(project.aliases ?? []).length > 0 ? (
                     <div className="flex flex-wrap gap-1.5">
                       {project.aliases.map((a) => (
-                        <span key={a} className="rounded-full border border-zinc-700/60 bg-zinc-800/40 px-2 py-0.5 text-xs text-zinc-300">{a}</span>
+                        <span key={a} className="rounded-full border border-mono-700/60 bg-mono-800/40 px-2 py-0.5 text-xs text-neutral">{a}</span>
                       ))}
                     </div>
                   ) : (
-                    <span className="text-zinc-500">{'\u2014'}</span>
+                    <span className="text-muted">{'\u2014'}</span>
                   )}
                 </td>
               </tr>
-              <tr className="border-b border-zinc-800/40">
-                <td className="px-4 py-2.5 text-zinc-500 font-medium">Country</td>
-                <td className="px-4 py-2.5 text-zinc-200">{project.country}</td>
+              <tr className="border-b border-subtle">
+                <td className="px-4 py-2.5 text-muted font-medium">Country</td>
+                <td className="px-4 py-2.5 text-strong">{project.country}</td>
               </tr>
-              <tr className="border-b border-zinc-800/40">
-                <td className="px-4 py-2.5 text-zinc-500 font-medium">Language</td>
-                <td className="px-4 py-2.5 text-zinc-200">{project.language}</td>
+              <tr className="border-b border-subtle">
+                <td className="px-4 py-2.5 text-muted font-medium">Language</td>
+                <td className="px-4 py-2.5 text-strong">{project.language}</td>
               </tr>
               <tr>
-                <td className="px-4 py-2.5 text-zinc-500 font-medium align-top pt-3">Locations</td>
+                <td className="px-4 py-2.5 text-muted font-medium align-top pt-3">Locations</td>
                 <td className="px-4 py-2.5">
                   {locationError && (
-                    <div className="mb-2 rounded border border-rose-800/40 bg-rose-950/20 px-2 py-1 text-xs text-rose-300">
+                    <div className="mb-2 rounded border border-negative-800/40 bg-negative-950/20 px-2 py-1 text-xs text-negative">
                       {locationError}
-                      <button type="button" className="ml-1 text-rose-400 hover:text-rose-200" onClick={() => setLocationError(null)}>×</button>
+                      <button type="button" className="ml-1 text-negative-400 hover:text-negative-200" onClick={() => setLocationError(null)}>×</button>
                     </div>
                   )}
                   {(project.locations ?? []).length > 0 ? (
                     <table className="w-full text-xs mb-2">
                       <thead>
-                        <tr className="text-zinc-600">
+                        <tr className="text-faint">
                           <th className="text-left pb-1 font-medium pr-3">Label</th>
                           <th className="text-left pb-1 font-medium pr-3">City</th>
                           <th className="text-left pb-1 font-medium pr-3">Region</th>
@@ -376,16 +376,16 @@ export function ProjectSettingsSection({
                       </thead>
                       <tbody>
                         {project.locations.map((loc) => (
-                          <tr key={loc.label} className="border-t border-zinc-800/30">
+                          <tr key={loc.label} className="border-t border-mono-800/30">
                             <td className="py-1.5 pr-3">
-                              <span className={`inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${loc.label === project.defaultLocation ? 'border-emerald-700/60 bg-emerald-950/30 text-emerald-300' : 'border-zinc-700/60 bg-zinc-800/40 text-zinc-300'}`}>
+                              <span className={`inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${loc.label === project.defaultLocation ? 'border-positive-700/60 bg-positive-950/30 text-positive' : 'border-mono-700/60 bg-mono-800/40 text-neutral'}`}>
                                 {loc.label}{loc.label === project.defaultLocation ? ' \u2605' : ''}
                               </span>
                             </td>
-                            <td className="py-1.5 pr-3 text-zinc-300">{loc.city}</td>
-                            <td className="py-1.5 pr-3 text-zinc-300">{loc.region}</td>
-                            <td className="py-1.5 pr-3 text-zinc-300">{loc.country}</td>
-                            <td className="py-1.5 pr-3 text-zinc-500">{loc.timezone ?? '\u2014'}</td>
+                            <td className="py-1.5 pr-3 text-neutral">{loc.city}</td>
+                            <td className="py-1.5 pr-3 text-neutral">{loc.region}</td>
+                            <td className="py-1.5 pr-3 text-neutral">{loc.country}</td>
+                            <td className="py-1.5 pr-3 text-muted">{loc.timezone ?? '\u2014'}</td>
                             <td className="py-1.5">
                               <div className="flex items-center gap-1.5">
                                 {loc.label !== project.defaultLocation && (
@@ -393,7 +393,7 @@ export function ProjectSettingsSection({
                                     type="button"
                                     disabled={locationWorking}
                                     onClick={() => { void handleSetDefaultLocation(loc.label) }}
-                                    className="text-[10px] text-zinc-500 hover:text-emerald-400 transition-colors disabled:opacity-40"
+                                    className="text-[10px] text-muted hover:text-positive-400 transition-colors disabled:opacity-40"
                                     aria-label={`Set ${loc.label} as default location`}
                                   >
                                     Set default
@@ -403,7 +403,7 @@ export function ProjectSettingsSection({
                                   type="button"
                                   disabled={locationWorking}
                                   onClick={() => { void handleRemoveLocation(loc.label) }}
-                                  className="text-[10px] text-zinc-500 hover:text-rose-400 transition-colors disabled:opacity-40"
+                                  className="text-[10px] text-muted hover:text-negative-400 transition-colors disabled:opacity-40"
                                   aria-label={`Remove location ${loc.label}`}
                                 >
                                   Remove
@@ -415,30 +415,30 @@ export function ProjectSettingsSection({
                       </tbody>
                     </table>
                   ) : (
-                    <p className="text-zinc-500 text-xs mb-2">No locations configured</p>
+                    <p className="text-muted text-xs mb-2">No locations configured</p>
                   )}
                   {showAddLocation ? (
-                    <div className="mt-2 rounded border border-zinc-800 bg-zinc-900/50 p-3 space-y-2">
-                      <p className="text-[10px] font-medium uppercase tracking-wide text-zinc-500">Add location</p>
+                    <div className="mt-2 rounded border border-base bg-bg-elevated/50 p-3 space-y-2">
+                      <p className="text-[10px] font-medium uppercase tracking-wide text-muted">Add location</p>
                       <div className="grid grid-cols-2 gap-2">
                         <div>
-                          <label className="block text-[10px] text-zinc-500 mb-0.5">Label *</label>
+                          <label className="block text-[10px] text-muted mb-0.5">Label *</label>
                           <input className={inputClass} type="text" value={newLocLabel} onChange={(e) => setNewLocLabel(e.target.value)} placeholder="nyc" />
                         </div>
                         <div>
-                          <label className="block text-[10px] text-zinc-500 mb-0.5">City *</label>
+                          <label className="block text-[10px] text-muted mb-0.5">City *</label>
                           <input className={inputClass} type="text" value={newLocCity} onChange={(e) => setNewLocCity(e.target.value)} placeholder="New York" />
                         </div>
                         <div>
-                          <label className="block text-[10px] text-zinc-500 mb-0.5">Region *</label>
+                          <label className="block text-[10px] text-muted mb-0.5">Region *</label>
                           <input className={inputClass} type="text" value={newLocRegion} onChange={(e) => setNewLocRegion(e.target.value)} placeholder="NY" />
                         </div>
                         <div>
-                          <label className="block text-[10px] text-zinc-500 mb-0.5">Country *</label>
+                          <label className="block text-[10px] text-muted mb-0.5">Country *</label>
                           <input className={inputClass} type="text" value={newLocCountry} onChange={(e) => setNewLocCountry(e.target.value)} placeholder="US" maxLength={2} />
                         </div>
                         <div className="col-span-2">
-                          <label className="block text-[10px] text-zinc-500 mb-0.5">Timezone (optional)</label>
+                          <label className="block text-[10px] text-muted mb-0.5">Timezone (optional)</label>
                           <input className={inputClass} type="text" value={newLocTimezone} onChange={(e) => setNewLocTimezone(e.target.value)} placeholder="America/New_York" />
                         </div>
                       </div>
