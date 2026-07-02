@@ -637,11 +637,11 @@ export function GscSection({
       </div>
 
       {actionNeeded && (
-        <div className="mb-3 rounded-lg border border-amber-800/40 bg-amber-950/20 px-3 py-2.5 text-sm text-amber-200">
+        <div className="mb-3 rounded-lg border border-caution-800/40 bg-caution-950/20 px-3 py-2.5 text-sm text-caution-200">
           <div className="flex items-start justify-between gap-2">
             <div>
-              <p className="font-medium text-amber-100">{actionNeeded.title}</p>
-              <p className="mt-0.5 text-amber-200/90">{actionNeeded.message}</p>
+              <p className="font-medium text-caution-100">{actionNeeded.title}</p>
+              <p className="mt-0.5 text-caution-200/90">{actionNeeded.message}</p>
               {(safeExternalUrl(actionNeeded.enableUrl) || safeExternalUrl(actionNeeded.indexingApiUrl)) && (
                 <div className="mt-2 flex flex-wrap gap-3">
                   {safeExternalUrl(actionNeeded.enableUrl) && (
@@ -649,7 +649,7 @@ export function GscSection({
                       href={safeExternalUrl(actionNeeded.enableUrl)!}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="font-medium text-amber-100 underline decoration-amber-500/50 underline-offset-2 hover:text-amber-50"
+                      className="font-medium text-caution-100 underline decoration-caution-500/50 underline-offset-2 hover:text-caution-50"
                     >
                       {'Enable Search Console API ↗'}
                     </a>
@@ -659,7 +659,7 @@ export function GscSection({
                       href={safeExternalUrl(actionNeeded.indexingApiUrl)!}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="font-medium text-amber-100 underline decoration-amber-500/50 underline-offset-2 hover:text-amber-50"
+                      className="font-medium text-caution-100 underline decoration-caution-500/50 underline-offset-2 hover:text-caution-50"
                     >
                       {'Enable Indexing API ↗'}
                     </a>
@@ -667,40 +667,40 @@ export function GscSection({
                 </div>
               )}
             </div>
-            <button type="button" className="text-amber-400 hover:text-amber-200" onClick={() => setActionNeeded(null)}>×</button>
+            <button type="button" className="text-caution-400 hover:text-caution-200" onClick={() => setActionNeeded(null)}>×</button>
           </div>
         </div>
       )}
       {error && (
-        <div className="mb-3 rounded-lg border border-rose-800/40 bg-rose-950/20 px-3 py-2 text-sm text-rose-300">
+        <div className="mb-3 rounded-lg border border-negative-800/40 bg-negative-950/20 px-3 py-2 text-sm text-negative">
           {error}
-          <button type="button" className="ml-2 text-rose-400 hover:text-rose-200" onClick={() => setError(null)}>×</button>
+          <button type="button" className="ml-2 text-negative-400 hover:text-negative-200" onClick={() => setError(null)}>×</button>
         </div>
       )}
       {notice && (
-        <div className="mb-3 rounded-lg border border-emerald-800/40 bg-emerald-950/20 px-3 py-2 text-sm text-emerald-300">
+        <div className="mb-3 rounded-lg border border-positive-800/40 bg-positive-950/20 px-3 py-2 text-sm text-positive">
           {notice}
-          <button type="button" className="ml-2 text-emerald-400 hover:text-emerald-200" onClick={() => setNotice(null)}>×</button>
+          <button type="button" className="ml-2 text-positive-400 hover:text-positive-200" onClick={() => setNotice(null)}>×</button>
         </div>
       )}
 
       {loading ? (
-        <p className="text-sm text-zinc-500">{'Loading\u2026'}</p>
+        <p className="text-sm text-muted">{'Loading\u2026'}</p>
       ) : (
         <div className="space-y-3">
           {gscConn ? (
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1 text-xs text-zinc-500">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1 text-xs text-muted">
               <span className="flex items-center gap-1.5">
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                <span className="text-zinc-300">Authorized</span>
+                <span className="h-1.5 w-1.5 rounded-full bg-positive-500" />
+                <span className="text-neutral">Authorized</span>
               </span>
-              <span className="text-zinc-700">·</span>
-              <code className="text-zinc-400">{gscConn.domain}</code>
-              <span className="text-zinc-700">·</span>
+              <span className="text-mono-700">·</span>
+              <code className="text-secondary">{gscConn.domain}</code>
+              <span className="text-mono-700">·</span>
               <span>Last updated {formatTimestamp(gscConn.updatedAt)}</span>
               <button
                 type="button"
-                className="ml-auto text-zinc-500 transition-colors hover:text-rose-400"
+                className="ml-auto text-muted transition-colors hover:text-negative-400"
                 onClick={asyncHandler(handleDisconnect)}
               >
                 Disconnect
@@ -717,8 +717,8 @@ export function GscSection({
                   {googleConfigured ? 'Ready to connect' : 'App credentials missing'}
                 </ToneBadge>
               </div>
-              <div className="mt-3 rounded-lg border border-zinc-800/60 bg-zinc-900/30 px-4 py-5">
-                <p className="text-sm text-zinc-300">
+              <div className="mt-3 rounded-lg border border-default bg-surface px-4 py-5">
+                <p className="text-sm text-neutral">
                   {googleConfigured
                     ? 'Generate a Google OAuth link for this project and have the client sign in with a Google account that already has access to the correct Search Console property.'
                     : 'Set Google OAuth client credentials first. Once configured, you can generate a consent link for this project domain.'}
@@ -734,7 +734,7 @@ export function GscSection({
                     </Button>
                   )}
                   {!googleConfigured && (
-                    <p className="text-xs text-zinc-500">The same Google OAuth app credentials are shared across all projects.</p>
+                    <p className="text-xs text-muted">The same Google OAuth app credentials are shared across all projects.</p>
                   )}
                 </div>
               </div>
@@ -743,16 +743,16 @@ export function GscSection({
 
           {/* One-time sitemap prompt — shown when connected but no sitemap URL stored */}
           {gscConn && !gscConn.sitemapUrl && (
-            <div className="rounded-lg border border-amber-800/40 bg-amber-950/20 px-4 py-3">
+            <div className="rounded-lg border border-caution-800/40 bg-caution-950/20 px-4 py-3">
               <div className="flex items-start gap-3">
-                <span className="mt-0.5 text-amber-400">
+                <span className="mt-0.5 text-caution-400">
                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5" aria-hidden="true">
                     <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 6a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 6zm0 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
                   </svg>
                 </span>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-amber-300">Set your sitemap URL</p>
-                  <p className="mt-1 text-xs text-amber-400/70">Canonry uses your sitemap to discover URLs for index coverage inspection. Auto-discover from GSC or enter it manually.</p>
+                  <p className="text-sm font-medium text-caution-300">Set your sitemap URL</p>
+                  <p className="mt-1 text-xs text-caution-400/70">Canonry uses your sitemap to discover URLs for index coverage inspection. Auto-discover from GSC or enter it manually.</p>
                   <div className="mt-2 flex flex-col gap-2">
                     <div className="flex flex-col gap-2 lg:flex-row">
                       <Button
@@ -763,11 +763,11 @@ export function GscSection({
                       >
                         {triggerDiscoverSitemapsMutation.isPending ? 'Discovering\u2026' : 'Auto-discover from GSC'}
                       </Button>
-                      <span className="self-center text-xs text-amber-400/60">or enter manually:</span>
+                      <span className="self-center text-xs text-caution-400/60">or enter manually:</span>
                     </div>
                     <div className="flex flex-col gap-2 lg:flex-row">
                       <input
-                        className="flex-1 rounded border border-amber-800/40 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-500 focus:border-amber-600 focus:outline-none"
+                        className="flex-1 rounded border border-caution-800/40 bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-500 focus:border-caution-600 focus:outline-none"
                         type="url"
                         placeholder="https://example.com/sitemap.xml"
                         value={sitemapUrlInput}
@@ -831,7 +831,7 @@ export function GscSection({
                             <div className="relative h-48 w-48">
                               <svg viewBox="0 0 128 128" className="h-full w-full" aria-hidden="true">
                                 {/* Background track */}
-                                <circle cx="64" cy="64" r={r} fill="none" stroke="rgba(255,255,255,0.04)" strokeWidth="14" />
+                                <circle cx="64" cy="64" r={r} fill="none" stroke={CHART_NEUTRAL.trackSubtle} strokeWidth="14" />
                                 {/* Indexed arc — emerald */}
                                 <circle
                                   cx="64" cy="64" r={r} fill="none"
@@ -854,29 +854,29 @@ export function GscSection({
                                 )}
                               </svg>
                               <div className="absolute inset-0 flex flex-col items-center justify-center">
-                                <span className="text-3xl font-bold tabular-nums text-zinc-50">{(pct * 100).toFixed(0)}%</span>
-                                <span className="text-xs uppercase tracking-widest text-zinc-500 mt-0.5">Indexed</span>
+                                <span className="text-3xl font-bold tabular-nums text-primary">{(pct * 100).toFixed(0)}%</span>
+                                <span className="text-xs uppercase tracking-widest text-muted mt-0.5">Indexed</span>
                               </div>
                             </div>
 
                             {/* Counts row beneath donut */}
                             <div className="mt-4 flex items-center justify-center gap-8">
                               <div className="flex items-center gap-2">
-                                <span className="inline-block h-2.5 w-2.5 rounded-full bg-emerald-500" />
+                                <span className="inline-block h-2.5 w-2.5 rounded-full bg-positive-500" />
                                 <div>
-                                  <p className="text-2xl font-semibold tabular-nums text-zinc-50">{coverage.summary.indexed.toLocaleString()}</p>
-                                  <p className="text-[11px] uppercase tracking-wide text-zinc-500">Indexed</p>
+                                  <p className="text-2xl font-semibold tabular-nums text-primary">{coverage.summary.indexed.toLocaleString()}</p>
+                                  <p className="text-[11px] uppercase tracking-wide text-muted">Indexed</p>
                                 </div>
                               </div>
-                              <div className="h-8 w-px bg-zinc-800" />
+                              <div className="h-8 w-px bg-mono-800" />
                               <div className="flex items-center gap-2">
-                                <span className="inline-block h-2.5 w-2.5 rounded-full bg-zinc-500" />
+                                <span className="inline-block h-2.5 w-2.5 rounded-full bg-mono-500" />
                                 <div>
-                                  <p className="text-2xl font-semibold tabular-nums text-zinc-50">{coverage.summary.notIndexed.toLocaleString()}</p>
-                                  <p className="text-[11px] uppercase tracking-wide text-zinc-500">
+                                  <p className="text-2xl font-semibold tabular-nums text-primary">{coverage.summary.notIndexed.toLocaleString()}</p>
+                                  <p className="text-[11px] uppercase tracking-wide text-muted">
                                     Not indexed
                                     {(coverage.reasonGroups ?? []).length > 0 && (
-                                      <span className="ml-1 text-zinc-600">
+                                      <span className="ml-1 text-faint">
                                         · {(coverage.reasonGroups ?? []).length} {(coverage.reasonGroups ?? []).length === 1 ? 'reason' : 'reasons'}
                                       </span>
                                     )}
@@ -885,12 +885,12 @@ export function GscSection({
                               </div>
                               {coverage.summary.deindexed > 0 && (
                                 <>
-                                  <div className="h-8 w-px bg-zinc-800" />
+                                  <div className="h-8 w-px bg-mono-800" />
                                   <div className="flex items-center gap-2">
-                                    <span className="inline-block h-2.5 w-2.5 rounded-full bg-rose-500" />
+                                    <span className="inline-block h-2.5 w-2.5 rounded-full bg-negative-500" />
                                     <div>
-                                      <p className="text-2xl font-semibold tabular-nums text-zinc-50">{coverage.summary.deindexed.toLocaleString()}</p>
-                                      <p className="text-[11px] uppercase tracking-wide text-zinc-500">Deindexed</p>
+                                      <p className="text-2xl font-semibold tabular-nums text-primary">{coverage.summary.deindexed.toLocaleString()}</p>
+                                      <p className="text-[11px] uppercase tracking-wide text-muted">Deindexed</p>
                                     </div>
                                   </div>
                                 </>
@@ -915,8 +915,8 @@ export function GscSection({
                             type="button"
                             className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
                               coverageTab === tab
-                                ? 'bg-zinc-700 text-zinc-100'
-                                : 'text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200'
+                                ? 'bg-mono-700 text-heading'
+                                : 'text-secondary hover:bg-mono-800 hover:text-strong'
                             }`}
                             onClick={() => { setCoverageTab(tab); setSelectedReason(null) }}
                           >
@@ -941,10 +941,10 @@ export function GscSection({
                           <tbody>
                             {pagedIndexed.map((row) => (
                               <tr key={row.id}>
-                                <td className="max-w-sm truncate text-zinc-200">{row.url}</td>
-                                <td className="text-zinc-400">{row.verdict ?? 'Unknown'}</td>
-                                <td className="text-zinc-400">{row.crawlTime ? row.crawlTime.split('T')[0] : '\u2014'}</td>
-                                <td className="text-zinc-400">{row.isMobileFriendly === true ? 'Yes' : row.isMobileFriendly === false ? 'No' : '\u2014'}</td>
+                                <td className="max-w-sm truncate text-strong">{row.url}</td>
+                                <td className="text-secondary">{row.verdict ?? 'Unknown'}</td>
+                                <td className="text-secondary">{row.crawlTime ? row.crawlTime.split('T')[0] : '\u2014'}</td>
+                                <td className="text-secondary">{row.isMobileFriendly === true ? 'Yes' : row.isMobileFriendly === false ? 'No' : '\u2014'}</td>
                               </tr>
                             ))}
                           </tbody>
@@ -964,7 +964,7 @@ export function GscSection({
                             {(coverage.reasonGroups ?? []).map((group) => (
                               <tr
                                 key={group.reason}
-                                className="cursor-pointer hover:bg-zinc-800/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400"
+                                className="cursor-pointer hover:bg-surface-inset-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400"
                                 onClick={() => setSelectedReason(group.reason)}
                                 onKeyDown={(e) => {
                                   if (e.key === 'Enter' || e.key === ' ') {
@@ -976,8 +976,8 @@ export function GscSection({
                                 role="button"
                                 aria-label={`View ${group.reason} pages`}
                               >
-                                <td className="text-zinc-200">{group.reason}</td>
-                                <td className="text-right tabular-nums text-zinc-400">{group.count}</td>
+                                <td className="text-strong">{group.reason}</td>
+                                <td className="text-right tabular-nums text-secondary">{group.count}</td>
                               </tr>
                             ))}
                           </tbody>
@@ -997,9 +997,9 @@ export function GscSection({
                           <tbody>
                             {pagedNotIndexedFlat.map((row) => (
                               <tr key={row.id}>
-                                <td className="max-w-sm truncate text-zinc-200">{row.url}</td>
-                                <td className="text-zinc-400">{row.indexingState ?? 'Unknown'}</td>
-                                <td className="text-zinc-400">{row.coverageState ?? 'Unknown'}</td>
+                                <td className="max-w-sm truncate text-strong">{row.url}</td>
+                                <td className="text-secondary">{row.indexingState ?? 'Unknown'}</td>
+                                <td className="text-secondary">{row.coverageState ?? 'Unknown'}</td>
                               </tr>
                             ))}
                           </tbody>
@@ -1015,16 +1015,16 @@ export function GscSection({
                             <div className="flex items-center gap-2 mb-3">
                               <button
                                 type="button"
-                                className="text-xs text-zinc-400 hover:text-zinc-200 transition-colors"
+                                className="text-xs text-secondary hover:text-strong transition-colors"
                                 onClick={() => setSelectedReason(null)}
                               >
                                 {'\u2190'} Back to reasons
                               </button>
                             </div>
-                            <div className="mb-3 flex items-center justify-between rounded-lg border border-zinc-800/60 bg-zinc-900/20 p-3">
+                            <div className="mb-3 flex items-center justify-between rounded-lg border border-default bg-surface-subtle p-3">
                               <div>
-                                <p className="text-sm font-medium text-zinc-200">{group.reason}</p>
-                                <p className="mt-1 text-xs text-zinc-500">{group.count} affected page{group.count !== 1 ? 's' : ''}</p>
+                                <p className="text-sm font-medium text-strong">{group.reason}</p>
+                                <p className="mt-1 text-xs text-muted">{group.count} affected page{group.count !== 1 ? 's' : ''}</p>
                               </div>
                               <Button
                                 type="button"
@@ -1048,12 +1048,12 @@ export function GscSection({
                               <tbody>
                                 {pagedReasonUrls.map((row) => (
                                   <tr key={row.id}>
-                                    <td className="max-w-sm truncate text-zinc-200">{row.url}</td>
-                                    <td className="text-zinc-400">{row.crawlTime ? row.crawlTime.split('T')[0] : '\u2014'}</td>
+                                    <td className="max-w-sm truncate text-strong">{row.url}</td>
+                                    <td className="text-secondary">{row.crawlTime ? row.crawlTime.split('T')[0] : '\u2014'}</td>
                                     <td>
                                       <button
                                         type="button"
-                                        className="text-xs text-zinc-500 hover:text-zinc-200 transition-colors"
+                                        className="text-xs text-muted hover:text-strong transition-colors"
                                         disabled={requestingIndexing}
                                         onClick={() => void handleRequestIndexing([row.url])}
                                         title="Request indexing"
@@ -1083,10 +1083,10 @@ export function GscSection({
                           <tbody>
                             {pagedDeindexed.map((row, i) => (
                               <tr key={`${row.url}-${i}`}>
-                                <td className="max-w-sm truncate text-zinc-200">{row.url}</td>
-                                <td className="text-zinc-400">{row.previousState}</td>
-                                <td className="text-zinc-400">{row.currentState}</td>
-                                <td className="text-zinc-400">{row.transitionDate.split('T')[0]}</td>
+                                <td className="max-w-sm truncate text-strong">{row.url}</td>
+                                <td className="text-secondary">{row.previousState}</td>
+                                <td className="text-secondary">{row.currentState}</td>
+                                <td className="text-secondary">{row.transitionDate.split('T')[0]}</td>
                               </tr>
                             ))}
                           </tbody>
@@ -1095,15 +1095,15 @@ export function GscSection({
                       {((coverageTab === 'indexed' && coverage.indexed.length === 0) ||
                         (coverageTab === 'notIndexed' && !selectedReason && coverage.notIndexed.length === 0) ||
                         (coverageTab === 'deindexed' && coverage.deindexed.length === 0)) && (
-                        <p className="text-sm text-zinc-500">No URLs in this category.</p>
+                        <p className="text-sm text-muted">No URLs in this category.</p>
                       )}
 
                       {coverageShowPagination && (
-                        <div className="mt-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 text-xs text-zinc-400">
+                        <div className="mt-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 text-xs text-secondary">
                           <p className="tabular-nums">
-                            Showing <span className="text-zinc-300">{coverageRangeStart.toLocaleString('en-US')}</span>–
-                            <span className="text-zinc-300">{coverageRangeEnd.toLocaleString('en-US')}</span> of{' '}
-                            <span className="text-zinc-300">{coverageList.length.toLocaleString('en-US')}</span> URLs
+                            Showing <span className="text-neutral">{coverageRangeStart.toLocaleString('en-US')}</span>–
+                            <span className="text-neutral">{coverageRangeEnd.toLocaleString('en-US')}</span> of{' '}
+                            <span className="text-neutral">{coverageList.length.toLocaleString('en-US')}</span> URLs
                           </p>
                           <div className="flex items-center gap-2">
                             <button
@@ -1111,21 +1111,21 @@ export function GscSection({
                               onClick={() => setCoveragePage((p) => Math.max(1, p - 1))}
                               disabled={coverageCurrentPage <= 1}
                               aria-label="Previous page"
-                              className="inline-flex items-center gap-1 rounded-md border border-zinc-800 bg-zinc-950 px-2.5 py-1.5 text-zinc-200 transition hover:border-zinc-700 hover:text-zinc-50 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-zinc-800 disabled:hover:text-zinc-200"
+                              className="inline-flex items-center gap-1 rounded-md border border-base bg-bg px-2.5 py-1.5 text-strong transition hover:border-strong hover:text-primary disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-mono-800 disabled:hover:text-strong"
                             >
                               <ChevronLeft className="size-3.5" />
                               Prev
                             </button>
                             <span className="tabular-nums">
-                              Page <span className="text-zinc-200">{coverageCurrentPage}</span> of{' '}
-                              <span className="text-zinc-200">{coverageTotalPages}</span>
+                              Page <span className="text-strong">{coverageCurrentPage}</span> of{' '}
+                              <span className="text-strong">{coverageTotalPages}</span>
                             </span>
                             <button
                               type="button"
                               onClick={() => setCoveragePage((p) => Math.min(coverageTotalPages, p + 1))}
                               disabled={coverageCurrentPage >= coverageTotalPages}
                               aria-label="Next page"
-                              className="inline-flex items-center gap-1 rounded-md border border-zinc-800 bg-zinc-950 px-2.5 py-1.5 text-zinc-200 transition hover:border-zinc-700 hover:text-zinc-50 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-zinc-800 disabled:hover:text-zinc-200"
+                              className="inline-flex items-center gap-1 rounded-md border border-base bg-bg px-2.5 py-1.5 text-strong transition hover:border-strong hover:text-primary disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-mono-800 disabled:hover:text-strong"
                             >
                               Next
                               <ChevronRight className="size-3.5" />
@@ -1136,7 +1136,7 @@ export function GscSection({
                     </div>
                   </>
                 ) : (
-                  <p className="mt-3 text-sm text-zinc-500">
+                  <p className="mt-3 text-sm text-muted">
                     {loadingCoverage ? 'Loading coverage data\u2026' : 'No coverage data yet. Inspect your sitemap to populate this view.'}
                   </p>
                 )}
@@ -1159,8 +1159,8 @@ export function GscSection({
                           aria-selected={gscWindow === w}
                           className={`px-2.5 py-1 text-xs rounded-full border transition-colors ${
                             gscWindow === w
-                              ? 'bg-zinc-700 border-zinc-600 text-zinc-50'
-                              : 'border-zinc-800 text-zinc-400 hover:border-zinc-700 hover:text-zinc-300'
+                              ? 'bg-mono-700 border-mono-600 text-primary'
+                              : 'border-base text-secondary hover:border-strong hover:text-neutral'
                           }`}
                           onClick={() => setGscWindow(w)}
                         >
@@ -1208,14 +1208,14 @@ export function GscSection({
                     <div className="mt-3">
                       <div className="flex items-center gap-5 mb-2">
                         <div className="flex items-center gap-1.5">
-                          <span className="inline-block h-2.5 w-2.5 rounded-sm bg-emerald-500" />
-                          <span className="text-xs text-zinc-400">Clicks <span className="text-zinc-200 tabular-nums font-medium">{totalClicks.toLocaleString()}</span></span>
+                          <span className="inline-block h-2.5 w-2.5 rounded-sm bg-positive-500" />
+                          <span className="text-xs text-secondary">Clicks <span className="text-strong tabular-nums font-medium">{totalClicks.toLocaleString()}</span></span>
                         </div>
                         <div className="flex items-center gap-1.5">
-                          <span className="inline-block h-2.5 w-2.5 rounded-sm bg-blue-400" />
-                          <span className="text-xs text-zinc-400">Impressions <span className="text-zinc-200 tabular-nums font-medium">{totalImpressions.toLocaleString()}</span></span>
+                          <span className="inline-block h-2.5 w-2.5 rounded-sm bg-chart-series-2" />
+                          <span className="text-xs text-secondary">Impressions <span className="text-strong tabular-nums font-medium">{totalImpressions.toLocaleString()}</span></span>
                         </div>
-                        <span className="text-xs text-zinc-500">CTR <span className="text-amber-400 tabular-nums font-medium">{avgCtr}%</span></span>
+                        <span className="text-xs text-muted">CTR <span className="text-caution-400 tabular-nums font-medium">{avgCtr}%</span></span>
                       </div>
                       <div className="relative w-full" style={{ aspectRatio: `${w} / ${h}` }}>
                         <svg viewBox={`0 0 ${w} ${h}`} className="h-full w-full">
@@ -1224,7 +1224,7 @@ export function GscSection({
                             const y = pad.top + plotH - (tick / ceilVal) * plotH
                             return (
                               <g key={`t-${i}`}>
-                                <line x1={pad.left} y1={y} x2={w - pad.right} y2={y} stroke="rgba(255,255,255,0.06)" strokeWidth="1" />
+                                <line x1={pad.left} y1={y} x2={w - pad.right} y2={y} stroke={CHART_NEUTRAL.gridLine} strokeWidth="1" />
                                 <text x={pad.left - 6} y={y + 3.5} textAnchor="end" fill={CHART_NEUTRAL.text} fontSize="10" fontFamily="inherit">{fmtNum(tick)}</text>
                               </g>
                             )
@@ -1279,7 +1279,7 @@ export function GscSection({
 
                 <div className="mt-3 grid gap-2 lg:grid-cols-5">
                   <input
-                    className="rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+                    className="rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
                     type="date"
                     aria-label="Start date"
                     title="Start date (inclusive). Leave blank to use the window above."
@@ -1287,7 +1287,7 @@ export function GscSection({
                     onChange={(e) => setPerformanceFilters((prev) => ({ ...prev, startDate: e.target.value }))}
                   />
                   <input
-                    className="rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+                    className="rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
                     type="date"
                     aria-label="End date"
                     title="End date (inclusive)."
@@ -1295,7 +1295,7 @@ export function GscSection({
                     onChange={(e) => setPerformanceFilters((prev) => ({ ...prev, endDate: e.target.value }))}
                   />
                   <input
-                    className="rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+                    className="rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
                     type="text"
                     placeholder="Contains query…"
                     aria-label="Filter query (substring match)"
@@ -1304,7 +1304,7 @@ export function GscSection({
                     onChange={(e) => setPerformanceFilters((prev) => ({ ...prev, query: e.target.value }))}
                   />
                   <input
-                    className="rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+                    className="rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
                     type="text"
                     placeholder="Contains page URL…"
                     aria-label="Filter page (substring match)"
@@ -1313,7 +1313,7 @@ export function GscSection({
                     onChange={(e) => setPerformanceFilters((prev) => ({ ...prev, page: e.target.value }))}
                   />
                   <input
-                    className="rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+                    className="rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
                     type="number"
                     min="1"
                     placeholder="Rows per page (20)"
@@ -1323,7 +1323,7 @@ export function GscSection({
                     onChange={(e) => setPerformanceFilters((prev) => ({ ...prev, limit: e.target.value }))}
                   />
                 </div>
-                <p className="mt-2 text-xs text-zinc-500">
+                <p className="mt-2 text-xs text-muted">
                   Query and page filters match case-insensitive substrings. Click Apply filters to run.
                   When a filter or column sort is active, up to {EXPANDED_PERFORMANCE_LIMIT.toLocaleString()} matching rows load so sorting covers the full set.
                 </p>
@@ -1344,7 +1344,7 @@ export function GscSection({
                               >
                                 <button
                                   type="button"
-                                  className="w-full cursor-pointer select-none text-right hover:text-zinc-200 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400 rounded px-1 -mx-1"
+                                  className="w-full cursor-pointer select-none text-right hover:text-strong focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-mono-400 rounded px-1 -mx-1"
                                   onClick={() =>
                                     setPerfSort((prev) =>
                                       prev?.key === col
@@ -1365,20 +1365,20 @@ export function GscSection({
                         <tbody>
                           {sortedPerformance.map((row, i) => (
                             <tr key={`${row.date}:${row.query}:${row.page}:${i}`}>
-                              <td className="text-zinc-400">{row.date}</td>
-                              <td className="max-w-xs truncate text-zinc-200">{row.query}</td>
-                              <td className="max-w-xs truncate text-zinc-400">{row.page}</td>
-                              <td className="text-right tabular-nums text-zinc-300">{row.clicks.toLocaleString()}</td>
-                              <td className="text-right tabular-nums text-zinc-400">{row.impressions.toLocaleString()}</td>
-                              <td className="text-right tabular-nums text-zinc-400">{(Number.isFinite(row.ctr) ? row.ctr * 100 : 0).toFixed(1)}%</td>
-                              <td className="text-right tabular-nums text-zinc-400">{row.position.toFixed(1)}</td>
+                              <td className="text-secondary">{row.date}</td>
+                              <td className="max-w-xs truncate text-strong">{row.query}</td>
+                              <td className="max-w-xs truncate text-secondary">{row.page}</td>
+                              <td className="text-right tabular-nums text-neutral">{row.clicks.toLocaleString()}</td>
+                              <td className="text-right tabular-nums text-secondary">{row.impressions.toLocaleString()}</td>
+                              <td className="text-right tabular-nums text-secondary">{(Number.isFinite(row.ctr) ? row.ctr * 100 : 0).toFixed(1)}%</td>
+                              <td className="text-right tabular-nums text-secondary">{row.position.toFixed(1)}</td>
                             </tr>
                           ))}
                         </tbody>
                       </table>
                     </div>
                     {performanceDisplayedExpanded ? (
-                      <div className="mt-3 text-xs text-zinc-500">
+                      <div className="mt-3 text-xs text-muted">
                         <span className="tabular-nums">
                           Showing {performanceTotalLoaded.toLocaleString()} matching row{performanceTotalLoaded === 1 ? '' : 's'}
                           {performanceTotalLoaded >= EXPANDED_PERFORMANCE_LIMIT
@@ -1391,7 +1391,7 @@ export function GscSection({
                       const from = performanceOffset + 1
                       const to = performanceOffset + performance.length
                       return (
-                        <div className="mt-3 flex items-center justify-between text-xs text-zinc-500">
+                        <div className="mt-3 flex items-center justify-between text-xs text-muted">
                           <span className="tabular-nums">
                             Showing {from.toLocaleString()}{' \u2013 '}{to.toLocaleString()}
                             {performanceHasMore ? '+' : ''}
@@ -1429,7 +1429,7 @@ export function GscSection({
                     })()}
                   </>
                 ) : (
-                  <p className="mt-3 text-sm text-zinc-500">No performance rows match the current filters yet.</p>
+                  <p className="mt-3 text-sm text-muted">No performance rows match the current filters yet.</p>
                 )}
               </Card>
 
@@ -1443,7 +1443,7 @@ export function GscSection({
                 </div>
                 <div className="mt-3 flex flex-col gap-2 lg:flex-row">
                   <input
-                    className="flex-1 rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+                    className="flex-1 rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
                     type="url"
                     placeholder="https://example.com/page"
                     value={inspectionUrl}
@@ -1456,21 +1456,21 @@ export function GscSection({
                 </div>
                 {inspectionResult && (
                   <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                    <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/20 p-3">
-                      <p className="text-xs uppercase tracking-wide text-zinc-500">Indexing state</p>
-                      <p className="mt-1 text-sm text-zinc-200">{inspectionResult.indexingState ?? 'Unknown'}</p>
+                    <div className="rounded-lg border border-default bg-surface-subtle p-3">
+                      <p className="text-xs uppercase tracking-wide text-muted">Indexing state</p>
+                      <p className="mt-1 text-sm text-strong">{inspectionResult.indexingState ?? 'Unknown'}</p>
                     </div>
-                    <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/20 p-3">
-                      <p className="text-xs uppercase tracking-wide text-zinc-500">Verdict</p>
-                      <p className="mt-1 text-sm text-zinc-200">{inspectionResult.verdict ?? 'Unknown'}</p>
+                    <div className="rounded-lg border border-default bg-surface-subtle p-3">
+                      <p className="text-xs uppercase tracking-wide text-muted">Verdict</p>
+                      <p className="mt-1 text-sm text-strong">{inspectionResult.verdict ?? 'Unknown'}</p>
                     </div>
-                    <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/20 p-3">
-                      <p className="text-xs uppercase tracking-wide text-zinc-500">Mobile friendly</p>
-                      <p className="mt-1 text-sm text-zinc-200">{formatBooleanState(inspectionResult.isMobileFriendly ?? null)}</p>
+                    <div className="rounded-lg border border-default bg-surface-subtle p-3">
+                      <p className="text-xs uppercase tracking-wide text-muted">Mobile friendly</p>
+                      <p className="mt-1 text-sm text-strong">{formatBooleanState(inspectionResult.isMobileFriendly ?? null)}</p>
                     </div>
-                    <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/20 p-3">
-                      <p className="text-xs uppercase tracking-wide text-zinc-500">Last crawl</p>
-                      <p className="mt-1 text-sm text-zinc-200">{formatTimestamp(inspectionResult.crawlTime)}</p>
+                    <div className="rounded-lg border border-default bg-surface-subtle p-3">
+                      <p className="text-xs uppercase tracking-wide text-muted">Last crawl</p>
+                      <p className="mt-1 text-sm text-strong">{formatTimestamp(inspectionResult.crawlTime)}</p>
                     </div>
                   </div>
                 )}
@@ -1489,7 +1489,7 @@ export function GscSection({
                 </div>
                 <div className="mt-3 flex flex-col gap-2 lg:flex-row">
                   <input
-                    className="flex-1 rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+                    className="flex-1 rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
                     type="text"
                     placeholder="Filter exact URL"
                     value={inspectionFilterUrl}
@@ -1515,19 +1515,19 @@ export function GscSection({
                       <tbody>
                         {inspections.map((row) => (
                           <tr key={row.id}>
-                            <td className="max-w-sm truncate text-zinc-200">{row.url}</td>
-                            <td className="text-zinc-300">{row.indexingState ?? 'Unknown'}</td>
-                            <td className="text-zinc-400">{row.verdict ?? 'Unknown'}</td>
-                            <td className="text-zinc-400">{row.coverageState ?? 'Unknown'}</td>
-                            <td className="text-zinc-400">{formatBooleanState(row.isMobileFriendly ?? null)}</td>
-                            <td className="text-zinc-400">{formatTimestamp(row.inspectedAt)}</td>
+                            <td className="max-w-sm truncate text-strong">{row.url}</td>
+                            <td className="text-neutral">{row.indexingState ?? 'Unknown'}</td>
+                            <td className="text-secondary">{row.verdict ?? 'Unknown'}</td>
+                            <td className="text-secondary">{row.coverageState ?? 'Unknown'}</td>
+                            <td className="text-secondary">{formatBooleanState(row.isMobileFriendly ?? null)}</td>
+                            <td className="text-secondary">{formatTimestamp(row.inspectedAt)}</td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
                   </div>
                 ) : (
-                  <p className="mt-3 text-sm text-zinc-500">No inspection history yet.</p>
+                  <p className="mt-3 text-sm text-muted">No inspection history yet.</p>
                 )}
               </Card>
 
@@ -1553,17 +1553,17 @@ export function GscSection({
                       <tbody>
                         {deindexed.map((row) => (
                           <tr key={`${row.url}:${row.transitionDate}`}>
-                            <td className="max-w-sm truncate text-zinc-200">{row.url}</td>
-                            <td className="text-zinc-400">{row.previousState ?? 'Unknown'}</td>
-                            <td className="text-zinc-300">{row.currentState ?? 'Unknown'}</td>
-                            <td className="text-zinc-400">{formatTimestamp(row.transitionDate)}</td>
+                            <td className="max-w-sm truncate text-strong">{row.url}</td>
+                            <td className="text-secondary">{row.previousState ?? 'Unknown'}</td>
+                            <td className="text-neutral">{row.currentState ?? 'Unknown'}</td>
+                            <td className="text-secondary">{formatTimestamp(row.transitionDate)}</td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
                   </div>
                 ) : (
-                  <p className="mt-3 text-sm text-zinc-500">No deindexed transitions recorded.</p>
+                  <p className="mt-3 text-sm text-muted">No deindexed transitions recorded.</p>
                 )}
               </Card>
             </>
@@ -1572,7 +1572,7 @@ export function GscSection({
           {/* ── SETUP SECTION (at bottom, collapsible for connected projects) ── */}
           {gscConn && (
             <>
-              <div className="border-t border-zinc-800/60 pt-3">
+              <div className="border-t border-default pt-3">
                 <button
                   type="button"
                   className="flex w-full items-center gap-2 text-left"
@@ -1580,12 +1580,12 @@ export function GscSection({
                 >
                   <svg
                     xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"
-                    className={`h-4 w-4 text-zinc-500 transition-transform ${setupExpanded ? 'rotate-90' : ''}`}
+                    className={`h-4 w-4 text-muted transition-transform ${setupExpanded ? 'rotate-90' : ''}`}
                     aria-hidden="true"
                   >
                     <path fillRule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clipRule="evenodd" />
                   </svg>
-                  <span className="text-xs uppercase tracking-wide text-zinc-500">Setup &amp; Configuration</span>
+                  <span className="text-xs uppercase tracking-wide text-muted">Setup &amp; Configuration</span>
                 </button>
               </div>
 
@@ -1600,10 +1600,10 @@ export function GscSection({
                         </div>
                       </div>
                       <div className="mt-3 space-y-2">
-                        <label className="text-xs text-zinc-500" htmlFor={`gsc-property-${projectName}`}>Property URL</label>
+                        <label className="text-xs text-muted" htmlFor={`gsc-property-${projectName}`}>Property URL</label>
                         <select
                           id={`gsc-property-${projectName}`}
-                          className="w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 focus:border-zinc-500 focus:outline-none"
+                          className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong focus:border-mono-500 focus:outline-none"
                           value={selectedProperty}
                           disabled={propertiesLoading || properties.length === 0}
                           onChange={(e) => setSelectedProperty(e.target.value)}
@@ -1626,7 +1626,7 @@ export function GscSection({
                             {savingProperty ? 'Saving\u2026' : 'Save property'}
                           </Button>
                         </div>
-                        <p className="text-xs text-zinc-500">The selected property is used for future syncs and URL inspections for this project.</p>
+                        <p className="text-xs text-muted">The selected property is used for future syncs and URL inspections for this project.</p>
                       </div>
                     </Card>
 
@@ -1640,17 +1640,17 @@ export function GscSection({
                       <div className="mt-3 space-y-3">
                         <div className="grid gap-3 sm:grid-cols-[160px_1fr]">
                           <div>
-                            <label className="text-xs text-zinc-500" htmlFor={`gsc-sync-days-${projectName}`}>Days</label>
+                            <label className="text-xs text-muted" htmlFor={`gsc-sync-days-${projectName}`}>Days</label>
                             <input
                               id={`gsc-sync-days-${projectName}`}
                               type="number"
                               min="1"
-                              className="mt-0.5 w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+                              className="mt-0.5 w-full rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
                               value={syncDays}
                               onChange={(e) => setSyncDays(e.target.value)}
                             />
                           </div>
-                          <label className="flex items-center gap-2 rounded border border-zinc-800/60 bg-zinc-900/20 px-3 py-2 text-sm text-zinc-300">
+                          <label className="flex items-center gap-2 rounded border border-default bg-surface-subtle px-3 py-2 text-sm text-neutral">
                             <input
                               type="checkbox"
                               checked={fullSync}
@@ -1668,7 +1668,7 @@ export function GscSection({
                           {triggerGscSyncMutation.isPending ? 'Queueing\u2026' : 'Queue sync'}
                         </Button>
                         {!gscConn.propertyId && (
-                          <p className="text-xs text-amber-400">Select a Search Console property before queueing a sync.</p>
+                          <p className="text-xs text-caution-400">Select a Search Console property before queueing a sync.</p>
                         )}
                       </div>
                     </Card>
@@ -1684,9 +1684,9 @@ export function GscSection({
                     </div>
                     <div className="mt-3 space-y-3">
                       {gscConn.sitemapUrl && (
-                        <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/20 p-3">
-                          <p className="text-xs uppercase tracking-wide text-zinc-500">Current sitemap URL</p>
-                          <p className="mt-1 text-sm text-zinc-200 break-all">{gscConn.sitemapUrl}</p>
+                        <div className="rounded-lg border border-default bg-surface-subtle p-3">
+                          <p className="text-xs uppercase tracking-wide text-muted">Current sitemap URL</p>
+                          <p className="mt-1 text-sm text-strong break-all">{gscConn.sitemapUrl}</p>
                         </div>
                       )}
                       {/* Sitemap actions: list (no run) or auto-discover (saves + queues run) */}
@@ -1710,30 +1710,30 @@ export function GscSection({
                           {triggerDiscoverSitemapsMutation.isPending ? 'Discovering\u2026' : 'Auto-discover and queue inspection'}
                         </Button>
                       </div>
-                      <p className="text-xs text-zinc-500">Browse lists available sitemaps without queueing a run. Auto-discover saves the primary sitemap and queues an inspection.</p>
+                      <p className="text-xs text-muted">Browse lists available sitemaps without queueing a run. Auto-discover saves the primary sitemap and queues an inspection.</p>
                       {discoveredSitemaps && discoveredSitemaps.length > 0 && (
-                        <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/20 p-3 space-y-2">
-                          <p className="text-xs uppercase tracking-wide text-zinc-500">Sitemaps ({discoveredSitemaps.length})</p>
+                        <div className="rounded-lg border border-default bg-surface-subtle p-3 space-y-2">
+                          <p className="text-xs uppercase tracking-wide text-muted">Sitemaps ({discoveredSitemaps.length})</p>
                           {discoveredSitemaps.map((s) => {
                             const content = s.contents?.[0]
                             return (
                               <div key={s.path} className="flex items-start justify-between gap-2 text-xs">
                                 <div>
-                                  <p className="text-zinc-200 break-all">{s.path}</p>
+                                  <p className="text-strong break-all">{s.path}</p>
                                   {s.lastSubmitted && (
-                                    <p className="text-zinc-500">Submitted: {s.lastSubmitted.split('T')[0]}</p>
+                                    <p className="text-muted">Submitted: {s.lastSubmitted.split('T')[0]}</p>
                                   )}
                                 </div>
                                 <div className="flex items-center gap-3 shrink-0">
                                   {content && (
                                     <div className="text-right">
-                                      <p className="text-zinc-300">{content.indexed} / {content.submitted}</p>
-                                      <p className="text-zinc-500">indexed</p>
+                                      <p className="text-neutral">{content.indexed} / {content.submitted}</p>
+                                      <p className="text-muted">indexed</p>
                                     </div>
                                   )}
                                   <button
                                     type="button"
-                                    className="text-xs text-zinc-400 hover:text-zinc-200 transition-colors"
+                                    className="text-xs text-secondary hover:text-strong transition-colors"
                                     onClick={() => setSitemapUrlInput(s.path)}
                                   >
                                     Use
@@ -1746,7 +1746,7 @@ export function GscSection({
                       )}
                       <div className="flex flex-col gap-2 lg:flex-row">
                         <input
-                          className="flex-1 rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+                          className="flex-1 rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
                           type="url"
                           placeholder={gscConn.sitemapUrl ? 'Update sitemap URL\u2026' : 'https://example.com/sitemap.xml'}
                           value={sitemapUrlInput}
@@ -1759,7 +1759,7 @@ export function GscSection({
                       </div>
                       <div className="flex flex-col gap-2 lg:flex-row">
                         <input
-                          className="flex-1 rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+                          className="flex-1 rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
                           type="url"
                           placeholder="Sitemap URL for inspection (leave empty for saved default)"
                           id={`gsc-sitemap-inspect-${projectName}`}
@@ -1789,7 +1789,7 @@ export function GscSection({
                         </Button>
                       </div>
                       {!gscConn.propertyId && (
-                        <p className="text-xs text-amber-400">Select a Search Console property first.</p>
+                        <p className="text-xs text-caution-400">Select a Search Console property first.</p>
                       )}
                     </div>
                   </Card>

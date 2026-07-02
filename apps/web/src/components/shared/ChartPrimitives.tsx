@@ -113,6 +113,7 @@ export const CHART_NEUTRAL = {
   textDim: 'var(--chart-neutral-text-dim, #71717a)',    // zinc-500 — secondary text
   textFaint: 'var(--chart-neutral-text-faint, #52525b)', // zinc-600 — faintest text, track lines
   surface: 'var(--chart-neutral-surface, #27272a)',     // zinc-800 — area fill, track surface
+  trackSubtle: 'var(--chart-neutral-track-subtle, rgb(255 255 255 / 0.04))',
   gridLine: 'var(--chart-neutral-grid-line, rgb(255 255 255 / 0.06))',
 } as const
 

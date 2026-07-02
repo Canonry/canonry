@@ -148,6 +148,7 @@
   --chart-neutral-text-dim: #71717a;
   --chart-neutral-text-faint: #52525b;
   --chart-neutral-surface: #27272a;
+  --chart-neutral-track-subtle: rgb(255 255 255 / 0.04);
   --chart-neutral-grid-line: rgb(255 255 255 / 0.06);
   --chart-tooltip-bg: #18181b;
   --chart-tooltip-border: #3f3f46;

@@ -181,6 +181,7 @@ test('neutral, tone, and info scale utilities compile through CSS variables', as
   // the chart tokens are emitted unconditionally from @theme (the chart bridge
   // consumes them in a later phase)
   expect(css).toContain('--chart-series-1: #34d399')
+  expect(css).toContain('--chart-neutral-track-subtle: rgb(255 255 255 / 0.04)')
 })
 
 test('gauge, highlight, and effect primitives consume tokens', async () => {
