@@ -205,12 +205,12 @@ export function GbpSection({ projectName, projectId }: { projectName: string; pr
       {
         title: 'Select locations',
         command: `canonry gbp locations discover ${projectName}`,
-        note: <>Then adopt the ones to sync: <code className="rounded bg-zinc-900/80 px-1 py-0.5 font-mono text-[11px] text-zinc-400">canonry gbp locations select {projectName} &lt;location&gt;</code></>,
+        note: <>Then adopt the ones to sync: <code className="rounded bg-bg-elevated/80 px-1 py-0.5 font-mono text-[11px] text-secondary">canonry gbp locations select {projectName} &lt;location&gt;</code></>,
       },
       {
         title: 'Sync, and keep it fresh',
         command: `canonry gbp sync ${projectName}`,
-        note: <>Schedule it: <code className="rounded bg-zinc-900/80 px-1 py-0.5 font-mono text-[11px] text-zinc-400">canonry schedule set {projectName} --kind gbp-sync --preset daily</code></>,
+        note: <>Schedule it: <code className="rounded bg-bg-elevated/80 px-1 py-0.5 font-mono text-[11px] text-secondary">canonry schedule set {projectName} --kind gbp-sync --preset daily</code></>,
       },
     ]
     return (
@@ -218,22 +218,22 @@ export function GbpSection({ projectName, projectId }: { projectName: string; pr
         <Card className="surface-card">
           <p className="eyebrow eyebrow-soft">Local presence</p>
           <h2>Connect Google Business Profile</h2>
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-500">
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-muted">
             Track local performance, search terms, place-action CTAs, and how your public Maps listing compares to
             the profile you control. Four steps from the CLI:
           </p>
           <ol className="mt-5 space-y-4">
             {steps.map((step, index) => (
               <li key={step.title} className="grid grid-cols-[1.5rem_1fr] gap-x-3">
-                <span className="mt-0.5 inline-flex h-6 w-6 items-center justify-center rounded-full bg-zinc-800 text-xs font-medium tabular-nums text-zinc-300" aria-hidden="true">
+                <span className="mt-0.5 inline-flex h-6 w-6 items-center justify-center rounded-full bg-mono-800 text-xs font-medium tabular-nums text-neutral" aria-hidden="true">
                   {index + 1}
                 </span>
                 <div className="min-w-0">
-                  <p className="text-sm font-medium text-zinc-200">{step.title}</p>
-                  <code className="mt-1.5 inline-block w-fit max-w-full overflow-x-auto rounded bg-zinc-900/80 px-2 py-1 font-mono text-xs text-zinc-300">
+                  <p className="text-sm font-medium text-strong">{step.title}</p>
+                  <code className="mt-1.5 inline-block w-fit max-w-full overflow-x-auto rounded bg-bg-elevated/80 px-2 py-1 font-mono text-xs text-neutral">
                     {step.command}
                   </code>
-                  <p className="mt-1 text-xs leading-5 text-zinc-500">{step.note}</p>
+                  <p className="mt-1 text-xs leading-5 text-muted">{step.note}</p>
                 </div>
               </li>
             ))}
@@ -300,8 +300,8 @@ export function GbpSection({ projectName, projectId }: { projectName: string; pr
           </div>
         </div>
 
-        <p className="mb-4 text-xs text-zinc-500">
-          {account ? <>Account <span className="font-mono text-zinc-400">{account}</span> · </> : null}
+        <p className="mb-4 text-xs text-muted">
+          {account ? <>Account <span className="font-mono text-secondary">{account}</span> · </> : null}
           {locationsQuery.data ? `${locationsQuery.data.totalSelected} of ${locationsQuery.data.totalDiscovered} locations tracked` : 'Loading locations…'}
         </p>
 
@@ -321,8 +321,8 @@ export function GbpSection({ projectName, projectId }: { projectName: string; pr
         )}
 
         {trackedLocations.length === 0 ? (
-          <p className="text-sm text-zinc-500">
-            No locations are tracked yet. Open <span className="font-medium text-zinc-300">Manage locations</span> below to track the one(s) for this business.
+          <p className="text-sm text-muted">
+            No locations are tracked yet. Open <span className="font-medium text-neutral">Manage locations</span> below to track the one(s) for this business.
           </p>
         ) : (
           <>
@@ -330,8 +330,8 @@ export function GbpSection({ projectName, projectId }: { projectName: string; pr
               <div className="mb-6 grid gap-2">
                 <p className="eyebrow eyebrow-soft">Needs attention</p>
                 {attentionInsights.map((ins) => (
-                  <div key={ins.id} className={['insight-card', insightCardToneClass(ins.severity), 'rounded-r-lg border border-zinc-800/60 bg-zinc-900/30 p-3 pl-4'].filter(Boolean).join(' ')}>
-                    <p className="flex items-center gap-2 text-sm font-medium text-zinc-200">
+                  <div key={ins.id} className={['insight-card', insightCardToneClass(ins.severity), 'rounded-r-lg border border-default bg-surface p-3 pl-4'].filter(Boolean).join(' ')}>
+                    <p className="flex items-center gap-2 text-sm font-medium text-strong">
                       {ins.title}
                       {ins.recommendation?.reason && <InfoTooltip text={ins.recommendation.reason} />}
                     </p>
@@ -373,13 +373,13 @@ export function GbpSection({ projectName, projectId }: { projectName: string; pr
               <div className="section-head section-head-inline mb-2">
                 <p className="eyebrow eyebrow-soft">Search terms</p>
                 {keywordsQuery.data && keywordsQuery.data.total > 0 && (
-                  <span className="text-[11px] text-zinc-600">
+                  <span className="text-[11px] text-faint">
                     {keywordsQuery.data.thresholdedPct}% privacy-thresholded
                   </span>
                 )}
               </div>
               {visibleKeywords.length === 0 ? (
-                <p className="text-sm text-zinc-500">No keyword impressions stored yet.</p>
+                <p className="text-sm text-muted">No keyword impressions stored yet.</p>
               ) : (
                 <table className="data-table w-full text-sm">
                   <thead>
@@ -393,18 +393,18 @@ export function GbpSection({ projectName, projectId }: { projectName: string; pr
                   <tbody>
                     {visibleKeywords.slice(0, 25).map((kw) => (
                       <tr key={`${kw.locationName}:${kw.keyword}`}>
-                        <td className="text-zinc-300">{kw.keyword}</td>
+                        <td className="text-neutral">{kw.keyword}</td>
                         {showKeywordLocation && (
-                          <td className="text-zinc-500">
+                          <td className="text-muted">
                             {locations.find((l) => l.locationName === kw.locationName)?.displayName ?? kw.locationName}
                           </td>
                         )}
-                        <td className="text-right font-mono text-zinc-200">
+                        <td className="text-right font-mono text-strong">
                           {kw.valueCount !== null
                             ? kw.valueCount.toLocaleString()
-                            : <span className="text-zinc-500" title="Privacy floor — Google withheld the exact count">{'<'}{kw.valueThreshold}</span>}
+                            : <span className="text-muted" title="Privacy floor — Google withheld the exact count">{'<'}{kw.valueThreshold}</span>}
                         </td>
-                        <td className="text-right font-mono text-[11px] text-zinc-600">{kw.periodStart}–{kw.periodEnd}</td>
+                        <td className="text-right font-mono text-[11px] text-faint">{kw.periodStart}–{kw.periodEnd}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -417,10 +417,10 @@ export function GbpSection({ projectName, projectId }: { projectName: string; pr
         {/* Manage locations — demoted. Discovery surfaces every location the
             connected Google account can see (often unrelated businesses); track
             only the one(s) for this project here. */}
-        <div className="mt-6 border-t border-zinc-800/60 pt-4">
+        <div className="mt-6 border-t border-default pt-4">
           <button
             type="button"
-            className="flex items-center gap-1.5 text-xs font-medium text-zinc-400 hover:text-zinc-200"
+            className="flex items-center gap-1.5 text-xs font-medium text-secondary hover:text-strong"
             onClick={() => setShowManage((v) => !v)}
             aria-expanded={showManage}
           >
@@ -429,7 +429,7 @@ export function GbpSection({ projectName, projectId }: { projectName: string; pr
           {showManage && (
             <div className="mt-3">
               {locations.length === 0 ? (
-                <p className="text-sm text-zinc-500">No locations discovered. Run <span className="font-mono">canonry gbp locations discover</span>.</p>
+                <p className="text-sm text-muted">No locations discovered. Run <span className="font-mono">canonry gbp locations discover</span>.</p>
               ) : (
                 <table className="data-table w-full text-sm">
                   <thead>
@@ -443,8 +443,8 @@ export function GbpSection({ projectName, projectId }: { projectName: string; pr
                   <tbody>
                     {locations.map((loc) => (
                       <tr key={loc.id}>
-                        <td className="text-zinc-200">{loc.displayName}</td>
-                        <td className="text-zinc-500">{loc.storefrontAddress ?? '—'}</td>
+                        <td className="text-strong">{loc.displayName}</td>
+                        <td className="text-muted">{loc.storefrontAddress ?? '—'}</td>
                         <td>
                           <ToneBadge tone={loc.selected ? 'positive' : 'neutral'}>
                             {loc.selected ? 'Tracked' : 'Not tracked'}
@@ -487,8 +487,8 @@ function ScopeChip({ label, active, onClick }: { label: string; active: boolean;
       onClick={onClick}
       className={`rounded-full border px-3 py-1 text-xs transition-colors ${
         active
-          ? 'border-zinc-500 bg-zinc-800 text-zinc-100'
-          : 'border-zinc-700/60 text-zinc-400 hover:border-zinc-600 hover:text-zinc-200'
+          ? 'border-mono-500 bg-mono-800 text-heading'
+          : 'border-mono-700/60 text-secondary hover:border-mono-600 hover:text-strong'
       }`}
     >
       {label}
@@ -543,7 +543,7 @@ function GbpProfileCompleteness({ summary }: { summary: ProfileCompletenessSumma
   ] satisfies Array<{ label: string; value: string; detail?: string; tone: 'positive' | 'caution' | 'negative' | 'neutral' }>
 
   return (
-    <div className="mb-6 border-y border-zinc-800/60 py-3">
+    <div className="mb-6 border-y border-default py-3">
       <div className="mb-3 flex items-center gap-2">
         <p className="eyebrow eyebrow-soft">Owner profile · Business Information</p>
         <InfoTooltip text="Counts selected locations where Google Business Information returned the owner-authored field. A missing value means it was not returned by this API response, not that every Google surface is empty." />
@@ -551,9 +551,9 @@ function GbpProfileCompleteness({ summary }: { summary: ProfileCompletenessSumma
       <div className="grid gap-x-5 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">
         {rows.map((row) => (
           <div key={row.label} className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-3">
-            <span className="text-xs text-zinc-500">{row.label}</span>
+            <span className="text-xs text-muted">{row.label}</span>
             <span className={`font-mono text-sm tabular-nums ${toneTextClass(row.tone)}`}>{row.value}</span>
-            {row.detail && <span className="col-span-2 text-[11px] text-zinc-600">{row.detail}</span>}
+            {row.detail && <span className="col-span-2 text-[11px] text-faint">{row.detail}</span>}
           </div>
         ))}
       </div>
@@ -592,7 +592,7 @@ function GbpLocationEvidenceTable({
           <p className="eyebrow eyebrow-soft">Source evidence</p>
           <InfoTooltip text="Each column names the Google surface it came from. Missing or empty means that surface did not return a value in the latest Canonry sync, not that every Google product lacks the information." />
         </div>
-        <span className="text-[11px] text-zinc-600">{locations.length} location{locations.length === 1 ? '' : 's'}</span>
+        <span className="text-[11px] text-faint">{locations.length} location{locations.length === 1 ? '' : 's'}</span>
       </div>
       <div className="data-table-wrapper">
         <table className="data-table">
@@ -617,8 +617,8 @@ function GbpLocationEvidenceTable({
                   <tr>
                     <td>
                       <div className="min-w-0">
-                        <p className="font-medium text-zinc-200">{loc.displayName}</p>
-                        <p className="mt-1 text-xs text-zinc-600">{loc.primaryCategoryDisplayName ?? 'Primary category not returned'}</p>
+                        <p className="font-medium text-strong">{loc.displayName}</p>
+                        <p className="mt-1 text-xs text-faint">{loc.primaryCategoryDisplayName ?? 'Primary category not returned'}</p>
                         <div className="mt-2 flex flex-wrap gap-1.5">
                           <ToneBadge tone={loc.selected ? 'positive' : 'neutral'}>
                             {loc.selected ? 'Tracked' : 'Not tracked'}
@@ -642,7 +642,7 @@ function GbpLocationEvidenceTable({
                     </td>
                   </tr>
                   {expanded && (
-                    <tr className="bg-zinc-950/35 hover:bg-zinc-950/35">
+                    <tr className="bg-mono-950/35 hover:bg-mono-950/35">
                       <td colSpan={6} className="px-4 py-4">
                         <LocationEvidenceDetail
                           location={loc}
@@ -772,7 +772,7 @@ function SourceCell({
   return (
     <div>
       <ToneBadge tone={tone}>{label}</ToneBadge>
-      <p className="mt-1.5 text-xs leading-5 text-zinc-600">{detail}</p>
+      <p className="mt-1.5 text-xs leading-5 text-faint">{detail}</p>
     </div>
   )
 }
@@ -811,7 +811,7 @@ function LocationEvidenceDetail({
             <EvidenceRow label="Populated groups" value={lodgingGroups.length > 0 ? lodgingGroups.join(', ') : 'None returned'} />
           </>
         ) : (
-          <p className="leading-5 text-zinc-500">No Lodging API snapshot was stored for this location.</p>
+          <p className="leading-5 text-muted">No Lodging API snapshot was stored for this location.</p>
         )}
       </EvidenceDetailGroup>
 
@@ -823,25 +823,25 @@ function LocationEvidenceDetail({
             <EvidenceRow label="Public signals" value={place.amenities.length > 0 ? place.amenities.join(', ') : 'No supported signals detected'} />
           </>
         ) : (
-          <p className="leading-5 text-zinc-500">No Places Details snapshot was stored for this location.</p>
+          <p className="leading-5 text-muted">No Places Details snapshot was stored for this location.</p>
         )}
         {location.mapsUri && (
-          <a href={location.mapsUri} target="_blank" rel="noopener noreferrer" className="inline-block text-zinc-500 hover:text-zinc-300">
+          <a href={location.mapsUri} target="_blank" rel="noopener noreferrer" className="inline-block text-muted hover:text-neutral">
             View on Google Maps →
           </a>
         )}
-        <div className="mt-3 border-t border-zinc-800/60 pt-3">
+        <div className="mt-3 border-t border-default pt-3">
           {placeActions.length === 0 ? (
-            <p className="leading-5 text-zinc-500">No placeActionLinks returned.</p>
+            <p className="leading-5 text-muted">No placeActionLinks returned.</p>
           ) : (
             <div className="grid gap-2">
               {placeActions.map((action) => (
                 <div key={action.placeActionLinkName} className="grid gap-0.5">
-                  <span className="font-medium text-zinc-300">
+                  <span className="font-medium text-neutral">
                     {formatToken(action.placeActionType)}
                     {action.isPreferred ? ' · preferred' : ''}
                   </span>
-                  <span className="text-zinc-600">
+                  <span className="text-faint">
                     {formatToken(action.providerType)}{action.uri ? ` · ${displayDomain(action.uri)}` : ''}
                   </span>
                 </div>
@@ -857,7 +857,7 @@ function LocationEvidenceDetail({
 function EvidenceDetailGroup({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div>
-      <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">{title}</p>
+      <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted">{title}</p>
       <div className="grid gap-2">{children}</div>
     </div>
   )
@@ -866,8 +866,8 @@ function EvidenceDetailGroup({ title, children }: { title: string; children: Rea
 function EvidenceRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="grid grid-cols-[7.25rem_minmax(0,1fr)] gap-3">
-      <span className="text-zinc-600">{label}</span>
-      <span className="min-w-0 break-words text-zinc-400">{value}</span>
+      <span className="text-faint">{label}</span>
+      <span className="min-w-0 break-words text-secondary">{value}</span>
     </div>
   )
 }
@@ -880,10 +880,10 @@ export function completionTone(count: number, total: number, emptyTone: 'caution
 
 function toneTextClass(tone: GbpSourceTone) {
   switch (tone) {
-    case 'positive': return 'text-emerald-300'
-    case 'caution': return 'text-amber-300'
-    case 'negative': return 'text-rose-300'
-    case 'neutral': return 'text-zinc-300'
+    case 'positive': return 'text-positive'
+    case 'caution': return 'text-caution'
+    case 'negative': return 'text-negative'
+    case 'neutral': return 'text-neutral'
   }
 }
 
@@ -994,18 +994,18 @@ function GbpPerformance({
       <div>
         <div className="mb-2 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
           <p className="eyebrow eyebrow-soft">Profile actions · daily</p>
-          {freshnessLabel && <span className="text-[11px] text-zinc-500">{freshnessLabel}</span>}
+          {freshnessLabel && <span className="text-[11px] text-muted">{freshnessLabel}</span>}
         </div>
         {!hasSeries || profileActionMetrics.length === 0 ? (
-          <p className="text-sm text-zinc-500">No profile action activity yet — run a sync.</p>
+          <p className="text-sm text-muted">No profile action activity yet — run a sync.</p>
         ) : (
           <>
             <GbpTrendChart data={chartData} metrics={profileActionMetrics} kind="line" firstPending={firstPending} lastDate={lastDate} />
             <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1">
               {profileActionStats.map((m) => (
-                <span key={m} className="text-sm text-zinc-400">
+                <span key={m} className="text-sm text-secondary">
                   {formatGbpMetricLabel(m)}{' '}
-                  <span className="font-mono text-zinc-100">{(totals[m] ?? 0).toLocaleString()}</span>
+                  <span className="font-mono text-heading">{(totals[m] ?? 0).toLocaleString()}</span>
                 </span>
               ))}
             </div>
@@ -1021,7 +1021,7 @@ function GbpPerformance({
       )}
 
       {notActive.length > 0 && (
-        <p className="text-xs text-zinc-600">
+        <p className="text-xs text-faint">
           Not active: {notActive.map((m) => formatGbpMetricLabel(m)).join(', ')}
         </p>
       )}
