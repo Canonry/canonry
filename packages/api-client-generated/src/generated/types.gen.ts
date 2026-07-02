@@ -687,6 +687,7 @@ export type DiscoverySessionDetailDto = {
     seedFromAnswerCount?: number | null;
     seedFromGroundingCount?: number | null;
     seedBrandFilteredCount?: number | null;
+    buyerDescription?: string | null;
     dedupThreshold?: number | null;
     probeCount?: number | null;
     citedCount: number | null;
@@ -726,6 +727,7 @@ export type DiscoverySessionDto = {
     seedFromAnswerCount?: number | null;
     seedFromGroundingCount?: number | null;
     seedBrandFilteredCount?: number | null;
+    buyerDescription?: string | null;
     dedupThreshold?: number | null;
     probeCount?: number | null;
     citedCount: number | null;
