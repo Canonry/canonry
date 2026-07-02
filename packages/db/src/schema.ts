@@ -921,6 +921,9 @@ export const discoverySessions = sqliteTable('discovery_sessions', {
   // Buyer definition the session was seeded with; part of session identity
   // for in-flight consolidation (same ICP + different buyer never reuses).
   buyerDescription: text('buyer_description'),
+  // Resolved service areas the session was seeded/probed with; part of session
+  // identity for in-flight consolidation. Null on legacy sessions.
+  locations: text('locations', { mode: 'json' }).$type<LocationContext[]>(),
   dedupThreshold: real('dedup_threshold'),
   probeCount: integer('probe_count'),
   citedCount: integer('cited_count'),

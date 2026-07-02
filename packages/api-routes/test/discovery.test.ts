@@ -1132,6 +1132,70 @@ describe('discovery routes', () => {
   })
 
 
+  it('does NOT consolidate across different location sets; persists locations on the session', async () => {
+    const calls: Array<{ runId: string; sessionId: string; projectId: string; icp: string }> = []
+    const { app, db, tmpDir } = buildAppWithRoutes(calls)
+    cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
+    seedProject(db, {
+      locations: [
+        { label: 'phoenix', city: 'Phoenix', region: 'Arizona', country: 'US' },
+        { label: 'tucson', city: 'Tucson', region: 'Arizona', country: 'US' },
+      ],
+    })
+
+    const first = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/demand-iq/discover/run',
+      payload: { icpDescription: 'industrial coatings', locations: ['phoenix'] },
+    })
+    expect(first.statusCode).toBe(201)
+    db.update(discoverySessions).set({ status: 'probing' }).run()
+
+    // Same ICP, different location subset: fresh session, never a reuse.
+    const second = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/demand-iq/discover/run',
+      payload: { icpDescription: 'industrial coatings', locations: ['tucson'] },
+    })
+    expect(second.statusCode).toBe(201)
+    expect((second.json() as { consolidated?: boolean }).consolidated).toBeFalsy()
+
+    // Same ICP, same location subset: consolidates.
+    const third = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/demand-iq/discover/run',
+      payload: { icpDescription: 'industrial coatings', locations: ['phoenix'] },
+    })
+    expect(third.statusCode).toBe(200)
+    expect((third.json() as { consolidated: boolean }).consolidated).toBe(true)
+
+    // Locations persist on the session row for auditability.
+    const rows = db.select().from(discoverySessions).all()
+    const labelSets = rows.map((r) => (r.locations ?? []).map((l) => l.label).join(',')).sort()
+    expect(labelSets).toEqual(['phoenix', 'tucson'])
+  })
+
+  it('legacy NULL-locations in-flight rows: reused on a no-location project, never on a located one', async () => {
+    const calls: Array<{ runId: string; sessionId: string; projectId: string; icp: string }> = []
+    const { app, db, tmpDir } = buildAppWithRoutes(calls)
+    cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
+    // No-location project: a pre-91 NULL row is unambiguous (geo was always
+    // empty), so a fresh request consolidates onto it.
+    seedProject(db)
+    const legacyId = crypto.randomUUID()
+    db.insert(discoverySessions).values({
+      id: legacyId, projectId: db.select().from(projects).get()!.id, runId: crypto.randomUUID(),
+      status: 'probing', icpDescription: 'legacy icp', competitorMap: [], createdAt: new Date().toISOString(),
+    }).run()
+    const reuse = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/demand-iq/discover/run',
+      payload: { icpDescription: 'legacy icp' },
+    })
+    expect(reuse.statusCode).toBe(200)
+    expect((reuse.json() as { sessionId: string }).sessionId).toBe(legacyId)
+  })
+
   it('POST /discover/run does NOT consolidate across different buyers (buyer is session identity)', async () => {
     const calls: Array<{ runId: string; sessionId: string; projectId: string; icp: string }> = []
     const { app, db, tmpDir } = buildAppWithRoutes(calls)
@@ -2470,5 +2534,74 @@ describe('executeDiscovery seed hygiene', () => {
       expect(probe.query.toLowerCase()).not.toContain('demand iq')
       expect(probe.query.toLowerCase()).not.toContain('demand-iq.com')
     }
+  })
+})
+
+describe('executeDiscovery geo probes', () => {
+  const cleanups: Array<() => void> = []
+  afterEach(() => {
+    while (cleanups.length) cleanups.pop()!()
+  })
+
+  const PHOENIX = { label: 'phoenix', city: 'Phoenix', region: 'Arizona', country: 'US' }
+  const TUCSON = { label: 'tucson', city: 'Tucson', region: 'Arizona', country: 'US' }
+
+  function geoDeps(probeLocations: Array<unknown>) {
+    const deps: DiscoveryDeps = {
+      async seed() {
+        return { candidates: ['best roof coating phoenix', 'compare roof coatings'], provider: 'gemini-test' }
+      },
+      async embed(queries) {
+        return queries.map((q) => {
+          const vec = new Array(26).fill(0)
+          vec[Math.max(0, q.toLowerCase().charCodeAt(0) - 97)] = 1
+          return vec
+        })
+      },
+      async probe(input) {
+        probeLocations.push((input as { location?: unknown }).location)
+        return { citationState: 'not-cited', citedDomains: [], answerMentioned: false, rawResponse: {} }
+      },
+      async classifyDomains() {
+        return {}
+      },
+    }
+    return deps
+  }
+
+  async function runWith(locations: Array<typeof PHOENIX> | undefined) {
+    const { db, tmpDir } = buildApp()
+    cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
+    const { projectId } = seedProject(db, { icpDescription: 'roof coatings' })
+    const sessionId = crypto.randomUUID()
+    const runId = crypto.randomUUID()
+    const now = new Date().toISOString()
+    db.insert(discoverySessions).values({
+      id: sessionId, projectId, status: 'queued', icpDescription: 'roof coatings', competitorMap: [], createdAt: now,
+    }).run()
+    db.insert(runs).values({
+      id: runId, projectId, kind: 'aeo-discover-probe', status: 'queued', trigger: 'manual', createdAt: now,
+    }).run()
+    const probeLocations: Array<unknown> = []
+    await executeDiscovery({
+      db, runId, sessionId,
+      project: { id: projectId, name: 'demand-iq', canonicalDomains: ['demand-iq.com'], competitorDomains: [] },
+      icpDescription: 'roof coatings',
+      locations,
+      deps: geoDeps(probeLocations),
+    })
+    return probeLocations
+  }
+
+  it('probes from the FIRST resolved service area (same geo mechanism as sweeps)', async () => {
+    const probeLocations = await runWith([PHOENIX, TUCSON])
+    expect(probeLocations.length).toBeGreaterThan(0)
+    for (const loc of probeLocations) expect(loc).toEqual(PHOENIX)
+  })
+
+  it('probes location-free when the session has no locations (unchanged behaviour)', async () => {
+    const probeLocations = await runWith(undefined)
+    expect(probeLocations.length).toBeGreaterThan(0)
+    for (const loc of probeLocations) expect(loc).toBeUndefined()
   })
 })

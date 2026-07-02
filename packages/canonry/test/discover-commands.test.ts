@@ -430,6 +430,12 @@ describe('discover CLI commands', () => {
       runId: existingRunId,
       status: 'probing',
       icpDescription: 'in-flight icp',
+      // Mirrors what the route writes since migration 91: resolved locations
+      // are persisted and part of the consolidation identity.
+      locations: [
+        { label: 'michigan', city: 'Detroit', region: 'Michigan', country: 'US' },
+        { label: 'florida', city: 'Miami', region: 'Florida', country: 'US' },
+      ],
       competitorMap: [],
       createdAt: new Date().toISOString(),
     }).run()
@@ -460,6 +466,12 @@ describe('discover CLI commands', () => {
       runId: existingRunId,
       status: 'probing',
       icpDescription: 'in-flight icp',
+      // Mirrors what the route writes since migration 91: resolved locations
+      // are persisted and part of the consolidation identity.
+      locations: [
+        { label: 'michigan', city: 'Detroit', region: 'Michigan', country: 'US' },
+        { label: 'florida', city: 'Miami', region: 'Florida', country: 'US' },
+      ],
       competitorMap: [],
       createdAt: new Date().toISOString(),
     }).run()

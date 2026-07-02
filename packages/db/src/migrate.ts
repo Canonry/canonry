@@ -159,7 +159,7 @@ type MigrationDb = Pick<DatabaseClient, 'run' | 'all'>
  * `run` is an optional escape hatch for migrations that need runtime
  * conditionals. It runs after `statements` within the same transaction.
  */
-interface MigrationVersion {
+export interface MigrationVersion {
   version: number
   name: string
   statements: string[]
@@ -1959,6 +1959,17 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `ALTER TABLE discovery_sessions ADD COLUMN buyer_description TEXT`,
     ],
   },
+  {
+    version: 91,
+    name: 'discovery-session-locations',
+    statements: [
+      // Resolved service areas the session was seeded/probed with. Part of the
+      // in-flight consolidation identity (a different location subset never
+      // reuses another geo's session) and seed/probe provenance. Nullable —
+      // legacy sessions stay null.
+      `ALTER TABLE discovery_sessions ADD COLUMN locations TEXT`,
+    ],
+  },
 ]
 
 /**
@@ -2284,7 +2295,12 @@ function recordMigration(
   db.run(sql`INSERT OR IGNORE INTO _migrations (version, name) VALUES (${version}, ${name})`)
 }
 
-export function migrate(db: DatabaseClient) {
+export function migrate(
+  db: DatabaseClient,
+  /** Test seam for downgrade-safety: an "older binary" is simulated by passing
+   *  a truncated version list. Production always uses the full list. */
+  versions: ReadonlyArray<MigrationVersion> = MIGRATION_VERSIONS,
+) {
   // Normalize legacy table/column names before bootstrap SQL runs. Bootstrap
   // creates final-shape indexes, so existing DBs must expose final column names
   // before those statements execute. The same call also runs inside v48's
@@ -2314,7 +2330,7 @@ export function migrate(db: DatabaseClient) {
   // or an ALTER TABLE ADD COLUMN whose duplicate-column error we swallow.
   const appliedVersion = getAppliedVersion(db)
 
-  for (const mv of MIGRATION_VERSIONS) {
+  for (const mv of versions) {
     if (mv.version <= appliedVersion) continue
 
     // Each version's statements + its row in _migrations commit atomically.

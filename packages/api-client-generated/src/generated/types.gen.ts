@@ -688,6 +688,13 @@ export type DiscoverySessionDetailDto = {
     seedFromGroundingCount?: number | null;
     seedBrandFilteredCount?: number | null;
     buyerDescription?: string | null;
+    locations?: Array<{
+        label: string;
+        city: string;
+        region: string;
+        country: string;
+        timezone?: string;
+    }> | null;
     dedupThreshold?: number | null;
     probeCount?: number | null;
     citedCount: number | null;
@@ -728,6 +735,13 @@ export type DiscoverySessionDto = {
     seedFromGroundingCount?: number | null;
     seedBrandFilteredCount?: number | null;
     buyerDescription?: string | null;
+    locations?: Array<{
+        label: string;
+        city: string;
+        region: string;
+        country: string;
+        timezone?: string;
+    }> | null;
     dedupThreshold?: number | null;
     probeCount?: number | null;
     citedCount: number | null;

@@ -718,3 +718,28 @@ describe('buildSeedPrompt seed hygiene', () => {
     expect(prompt).not.toContain('Buyer:')
   })
 })
+
+describe('buildDefaultDeps probe() forwards the location to the provider (geo probes)', () => {
+  it('passes the probe location into executeTrackedQuery like a sweep does', async () => {
+    const seen: Array<Record<string, unknown>> = []
+    const adapter = {
+      name: 'gemini',
+      displayName: 'Gemini',
+      executeTrackedQuery: async (input: Record<string, unknown>) => {
+        seen.push(input)
+        return { rawResponse: { answerText: 'answer' }, model: 'gemini-test' }
+      },
+      normalizeResult: () => ({ answerText: 'answer', citedDomains: [], searchQueries: [], groundingSources: [] }),
+    }
+    const registry = { get: () => ({ adapter, config: { apiKey: 'test-key' } }) } as unknown as ProviderRegistry
+    const deps = buildDefaultDeps(registry)
+    const project = { id: 'p', name: 'demand-iq', brandNames: [], canonicalDomains: ['demand-iq.com'], competitorDomains: [] }
+    const phoenix = { label: 'phoenix', city: 'Phoenix', region: 'Arizona', country: 'US' }
+
+    await deps.probe({ project, query: 'best roof coating contractors', location: phoenix })
+    expect(seen[0]!.location).toEqual(phoenix)
+
+    await deps.probe({ project, query: 'best roof coating contractors' })
+    expect('location' in seen[1]! && seen[1]!.location !== undefined).toBe(false)
+  })
+})
