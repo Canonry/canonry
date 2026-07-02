@@ -557,7 +557,9 @@ export function markSessionFailed(db: DatabaseClient, sessionId: string, error: 
     .run()
 }
 
-function dedupeStrings(input: string[]): string[] {
+/** Exported for the replay suite: fixtures must run through the EXACT dedup
+ *  the orchestrator runs (trim + case-insensitive keep-first). */
+export function dedupeStrings(input: string[]): string[] {
   const seen = new Set<string>()
   const out: string[] = []
   for (const raw of input) {
