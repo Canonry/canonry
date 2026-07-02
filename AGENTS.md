@@ -116,6 +116,7 @@ canonry doctor --project <name> --check google.auth.* --format json   # filter b
 # Discovery — expand a tracked-query basket from an ICP description
 canonry discover run <project> --icp "..." [--wait] [--format json]
 canonry discover run <project> --dedup-threshold 0.95 --max-probes 100 --wait     # tune dedup / per-session probe budget (cap 500)
+canonry discover run <project> --probe-concurrency 3 --wait                       # parallel probe workers (default 1 = serial, cap 8); probe rows persist in canonical order regardless
 canonry discover run <project> --icp-angle "angle 1" --icp-angle "angle 2" --wait  # multi-angle: one session per ICP angle, aggregates coverage across niches
 canonry discover run <project> --locations michigan,florida --wait                # geo-constrain seed generation to a subset of project locations (omit = use all; projects with no locations are unaffected)
 canonry discover list <project> [--limit 20] [--format json]
@@ -601,6 +602,7 @@ The contract test `packages/api-routes/test/openapi-contract.test.ts` enforces a
 | Error factories | `packages/contracts/src/errors.ts` |
 | SQL `LIKE` wildcard escaping | `packages/contracts/src/sql-like.ts` (`escapeLikePattern` — caller adds `ESCAPE '\\'`) |
 | Retry / exponential backoff | `packages/contracts/src/retry.ts` (`withRetry`, `backoffDelayMs`, `isRetryableHttpError`) |
+| Bounded async concurrency | `packages/contracts/src/concurrency.ts` (`mapWithConcurrency` — order-preserving worker pool, fail-fast with clean settle) |
 | Telemetry funnel classification | `packages/contracts/src/telemetry.ts` (`isGhostTelemetryEvent` — shared by the CLI client drop + the cloud collector backstop) |
 | JSON column parsing (DB-only) | `packages/db` (`parseJsonColumn`) |
 

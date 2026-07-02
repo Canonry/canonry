@@ -4,6 +4,7 @@ import {
   AGENT_MEMORY_VALUE_MAX_BYTES,
   competitorBatchRequestSchema,
   DISCOVERY_MAX_PROBES_CAP,
+  DISCOVERY_PROBE_CONCURRENCY_CAP,
   discoveryBucketSchema,
   discoveryCompetitorTypeSchema,
   discoveryPromoteRequestSchema,
@@ -380,6 +381,7 @@ const discoveryRunInputSchema = z.object({
       icpDescription: z.string().min(1).optional().describe('Free-text ICP description. If omitted, the project must already have spec.icpDescription stored.'),
       dedupThreshold: z.number().min(0).max(1).optional().describe('Cosine similarity threshold for clustering seed candidates. Defaults to 0.85. Lower values dedupe more aggressively.'),
       maxProbes: z.number().int().positive().max(DISCOVERY_MAX_PROBES_CAP).optional().describe(`Max canonical queries to probe in this session. Default 100, hard cap ${DISCOVERY_MAX_PROBES_CAP}.`),
+      probeConcurrency: z.number().int().min(1).max(DISCOVERY_PROBE_CONCURRENCY_CAP).optional().describe(`How many probes may run in parallel. Default 1 (strictly serial), hard cap ${DISCOVERY_PROBE_CONCURRENCY_CAP}. Probe rows are persisted in canonical order regardless of concurrency, so this only shortens wall-clock time.`),
     })
     .optional(),
 })

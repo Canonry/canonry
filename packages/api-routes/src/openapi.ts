@@ -3836,7 +3836,7 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/discover/run',
     summary: 'Start a tracked-basket discovery session',
     description:
-      'Kicks off a discovery session for the project. The pipeline: ICP description → Gemini grounded seed prompt → embed + cluster (cosine ≥ 0.95 by default) → pick canonical representatives → probe each canonical via Gemini grounding → classify into cited / aspirational / wasted-surface → aggregate competitor map. Returns immediately with `{ runId, sessionId, status: "running", consolidated }`; the actual work runs in the background. Poll `GET /projects/{name}/discover/sessions/{id}` until `status` is `completed` or `failed`. Concurrent/duplicate requests for the same (project, ICP) are consolidated onto a single in-flight session: the response carries `consolidated: true` and `200 OK` instead of `201`, and the request\'s `dedupThreshold` / `maxProbes` are ignored (the in-flight session keeps its original config).',
+      'Kicks off a discovery session for the project. The pipeline: ICP description → Gemini grounded seed prompt → embed + cluster (cosine ≥ 0.95 by default) → pick canonical representatives → probe each canonical via Gemini grounding → classify into cited / aspirational / wasted-surface → aggregate competitor map. Returns immediately with `{ runId, sessionId, status: "running", consolidated }`; the actual work runs in the background. Poll `GET /projects/{name}/discover/sessions/{id}` until `status` is `completed` or `failed`. Concurrent/duplicate requests for the same (project, ICP) are consolidated onto a single in-flight session: the response carries `consolidated: true` and `200 OK` instead of `201`, and the request\'s `dedupThreshold` / `maxProbes` / `probeConcurrency` are ignored (the in-flight session keeps its original config).',
     tags: ['discovery'],
     parameters: [nameParameter],
     requestBody: {
@@ -3849,6 +3849,12 @@ const routeCatalog: OpenApiOperation[] = [
               icpDescription: { type: 'string', description: 'Free-text ICP. Required if the project does not have spec.icpDescription stored.' },
               dedupThreshold: { type: 'number', description: 'Cosine similarity threshold for clustering. Defaults to 0.95.' },
               maxProbes: { type: 'integer', description: 'Max canonical queries to probe in this session. Default 100, hard cap 500.' },
+              probeConcurrency: {
+                type: 'integer',
+                minimum: 1,
+                maximum: 8,
+                description: 'How many probes may run in parallel. Default 1 (strictly serial — the historical behaviour), hard cap 8. Probe rows are persisted in canonical order regardless of concurrency, so this only shortens wall-clock time.',
+              },
               locations: {
                 type: 'array',
                 items: { type: 'string' },

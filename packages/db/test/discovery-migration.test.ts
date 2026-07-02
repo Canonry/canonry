@@ -307,3 +307,51 @@ test('discovery_sessions.competitor_map default is an array, not an object (regr
   // Drizzle JSON-mode deserializes the stored '[]' default into a JS array.
   expect(row.competitorMap).toEqual([])
 })
+
+test('v88 adds discovery_sessions seed-source diagnostic columns', () => {
+  const { db, tmpDir } = createTempDb()
+  onTestFinished(() => cleanup(tmpDir))
+  expect(columnExists(db, 'discovery_sessions', 'seed_from_answer_count')).toBe(true)
+  expect(columnExists(db, 'discovery_sessions', 'seed_from_grounding_count')).toBe(true)
+})
+
+test('discovery_sessions seed-source counts round-trip, and legacy rows stay null', () => {
+  const { db, tmpDir } = createTempDb()
+  onTestFinished(() => cleanup(tmpDir))
+  seedProject(db)
+
+  const now = new Date().toISOString()
+  db.insert(discoverySessions).values({
+    id: 'sess_split',
+    projectId: 'proj_1',
+    seedFromAnswerCount: 28,
+    seedFromGroundingCount: 9,
+    competitorMap: '[]',
+    createdAt: now,
+  }).run()
+  // A writer that predates the columns simply omits them — null, never 0.
+  db.insert(discoverySessions).values({
+    id: 'sess_legacy',
+    projectId: 'proj_1',
+    competitorMap: '[]',
+    createdAt: now,
+  }).run()
+
+  const rows = db.select().from(discoverySessions).all()
+  const split = rows.find(r => r.id === 'sess_split')!
+  const legacy = rows.find(r => r.id === 'sess_legacy')!
+  expect(split.seedFromAnswerCount).toBe(28)
+  expect(split.seedFromGroundingCount).toBe(9)
+  expect(legacy.seedFromAnswerCount).toBeNull()
+  expect(legacy.seedFromGroundingCount).toBeNull()
+})
+
+test('v88 is idempotent: re-running migrate() over an up-to-date database is a no-op', () => {
+  const { db, tmpDir } = createTempDb()
+  onTestFinished(() => cleanup(tmpDir))
+  // createTempDb already ran migrate(); a second run must not throw on the
+  // ALTER TABLE ADD COLUMN statements (versions are recorded and skipped).
+  expect(() => migrate(db)).not.toThrow()
+  expect(columnExists(db, 'discovery_sessions', 'seed_from_answer_count')).toBe(true)
+  expect(columnExists(db, 'discovery_sessions', 'seed_from_grounding_count')).toBe(true)
+})

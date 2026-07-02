@@ -6,10 +6,13 @@ import { normalizeDomain } from '../content-data.js'
 import {
   CitationStates,
   DISCOVERY_DEFAULT_DEDUP_THRESHOLD,
+  DISCOVERY_DEFAULT_PROBE_CONCURRENCY,
+  DISCOVERY_PROBE_CONCURRENCY_CAP,
   DiscoveryBuckets,
   DiscoveryCompetitorTypes,
   DiscoverySessionStatuses,
   clusterByCosine,
+  mapWithConcurrency,
   pickClusterRepresentative,
   seedCollapseWarning,
   type CitationState,
@@ -45,6 +48,18 @@ export interface DiscoverySeedResult {
   candidates: string[]
   /** Provider that generated the seed (recorded on `discovery_sessions.seedProvider`). */
   provider: string
+  /**
+   * Diagnostics: how many of `candidates` came from the model's answer text.
+   * Recorded on `discovery_sessions.seed_from_answer_count`. Optional — a seed
+   * dep that does not track the split leaves the column null.
+   */
+  fromAnswerCount?: number
+  /**
+   * Diagnostics: how many of `candidates` came from the grounding fan-out (the
+   * search queries the engine actually issued). Recorded on
+   * `discovery_sessions.seed_from_grounding_count`. Optional, same as above.
+   */
+  fromGroundingCount?: number
 }
 
 export interface DiscoveryProbeResult {
@@ -113,6 +128,16 @@ export interface ExecuteDiscoveryOptions {
   icpDescription: string
   dedupThreshold?: number
   maxProbes?: number
+  /**
+   * Bounded worker-pool width for the probe phase. Defaults to
+   * `DISCOVERY_DEFAULT_PROBE_CONCURRENCY` (1 — strictly serial, the historical
+   * behaviour); clamped to `DISCOVERY_PROBE_CONCURRENCY_CAP`. Regardless of the
+   * value, probe rows are persisted in canonical order after the phase
+   * completes, so concurrency changes wall-clock time only — never row order,
+   * bucket counts, or failure semantics (the first probe error still fails the
+   * session).
+   */
+  probeConcurrency?: number
   /**
    * Resolved service-area locations for this session, forwarded to
    * `deps.seed` so seed generation can geo-constrain its queries. Omitted /
@@ -256,6 +281,10 @@ export async function executeDiscovery(opts: ExecuteDiscoveryOptions): Promise<E
   const dedupThreshold = opts.dedupThreshold ?? DISCOVERY_DEFAULT_DEDUP_THRESHOLD
   const requestedMax = opts.maxProbes ?? DEFAULT_MAX_PROBES
   const maxProbes = Math.min(Math.max(1, requestedMax), ABSOLUTE_MAX_PROBES)
+  const probeConcurrency = Math.min(
+    Math.max(1, Math.floor(opts.probeConcurrency ?? DISCOVERY_DEFAULT_PROBE_CONCURRENCY)),
+    DISCOVERY_PROBE_CONCURRENCY_CAP,
+  )
   const startedAt = new Date().toISOString()
 
   opts.db
@@ -303,16 +332,36 @@ export async function executeDiscovery(opts: ExecuteDiscoveryOptions): Promise<E
       seedProvider: seedResult.provider,
       seedCountRaw,
       seedCount,
+      // Seed-source diagnostics (answer text vs. grounding fan-out). Null when
+      // the seed dep does not report the split. Not consumed by any gate.
+      seedFromAnswerCount: seedResult.fromAnswerCount ?? null,
+      seedFromGroundingCount: seedResult.fromGroundingCount ?? null,
       warning,
     })
     .where(eq(discoverySessions.id, opts.sessionId))
     .run()
 
+  // Probe phase — a bounded worker pool (width `probeConcurrency`, default 1 =
+  // the historical serial loop). Results land in an array indexed by canonical
+  // position, so completion order never leaks into output order. The first
+  // probe rejection fails the whole session exactly as the serial loop did:
+  // remaining workers stop claiming queries, in-flight probes settle, and the
+  // error propagates to the caller (which marks the session failed). Nothing
+  // is persisted for a failed probe phase.
+  const probeResults = await mapWithConcurrency(
+    probedCanonicals,
+    probeConcurrency,
+    query => opts.deps.probe({ project: opts.project, query }),
+  )
+
   const probeRows: Array<{ citedDomains: string[]; bucket: DiscoveryBucket }> = []
   const buckets = { cited: 0, aspirational: 0, 'wasted-surface': 0 }
 
-  for (const query of probedCanonicals) {
-    const probe = await opts.deps.probe({ project: opts.project, query })
+  // `created_at` is stamped monotonically in canonical order (base + index ms)
+  // so a created_at-ordered read reproduces the display order even when the
+  // pool finished probes out of order. Bucket counters are order-independent.
+  const insertBaseMs = Date.now()
+  const rowsToInsert = probeResults.map((probe, index) => {
     const bucket = classifyProbeBucket({
       citationState: probe.citationState,
       citedDomains: probe.citedDomains,
@@ -320,19 +369,28 @@ export async function executeDiscovery(opts: ExecuteDiscoveryOptions): Promise<E
     })
     probeRows.push({ citedDomains: probe.citedDomains, bucket })
     buckets[bucket]++
-
-    opts.db.insert(discoveryProbes).values({
+    return {
       id: crypto.randomUUID(),
       sessionId: opts.sessionId,
       projectId: opts.project.id,
-      query,
+      query: probedCanonicals[index]!,
       bucket,
       citationState: probe.citationState,
       answerMentioned: probe.answerMentioned,
       citedDomains: probe.citedDomains,
       rawResponse: JSON.stringify(probe.rawResponse),
-      createdAt: new Date().toISOString(),
-    }).run()
+      createdAt: new Date(insertBaseMs + index).toISOString(),
+    }
+  })
+
+  // One transaction, rows inserted in canonical order — insertion (rowid)
+  // order and created_at order agree, keeping unordered `.all()` reads stable.
+  if (rowsToInsert.length > 0) {
+    opts.db.transaction((tx) => {
+      for (const values of rowsToInsert) {
+        tx.insert(discoveryProbes).values(values).run()
+      }
+    })
   }
 
   // First pass derives the deduped non-canonical domain list; the

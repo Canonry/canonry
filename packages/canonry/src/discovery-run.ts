@@ -12,7 +12,9 @@ import {
   DiscoveryCompetitorTypes,
   effectiveBrandNames,
   effectiveDomains,
+  isRetryableHttpError,
   RunStatuses,
+  withRetry,
   type DiscoveryCompetitorType,
   type LocationContext,
 } from '@ainyc/canonry-contracts'
@@ -35,6 +37,63 @@ const log = createLogger('DiscoveryRun')
 const DEFAULT_SEED_COUNT = 30
 
 /**
+ * Embedding-call resilience. The embed sits BETWEEN two paid grounded Gemini
+ * calls (seed before it, probes after) — a transient blip here used to throw
+ * away an already-paid seed call and fail the whole session. Retry transient
+ * failures (429/5xx/network, per `isRetryableHttpError`) with the shared
+ * jittered backoff; a permanent failure (4xx auth/validation) still fails the
+ * session immediately. Each attempt is bounded by a wall-clock timeout so a
+ * hung connection cannot wedge the session past the route's zombie window.
+ */
+export const EMBED_RETRY_MAX_RETRIES = 3
+export const EMBED_RETRY_MAX_DELAY_MS = 10_000
+export const EMBED_ATTEMPT_TIMEOUT_MS = 60_000
+
+/** Race `promise` against a wall-clock ceiling. The timeout Error carries no
+ *  `.status`, so `isRetryableHttpError` treats it as transient (retryable). */
+function withAttemptTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error(`${label} timed out after ${timeoutMs}ms`)),
+      timeoutMs,
+    )
+    promise.then(
+      (value) => { clearTimeout(timer); resolve(value) },
+      (err: unknown) => { clearTimeout(timer); reject(err instanceof Error ? err : new Error(String(err))) },
+    )
+  })
+}
+
+/**
+ * Wrap a raw embedding call with the transient-failure retry policy above.
+ * `fn` is invoked fresh per attempt. Exported (with injectable knobs) so the
+ * policy is unit-testable without the Gemini client.
+ */
+export async function embedWithRetry(
+  fn: () => Promise<number[][]>,
+  opts: {
+    maxRetries?: number
+    attemptTimeoutMs?: number
+    sleep?: (ms: number) => Promise<void>
+    onRetry?: (info: { attempt: number; err: unknown; delayMs: number }) => void
+  } = {},
+): Promise<number[][]> {
+  const attemptTimeoutMs = opts.attemptTimeoutMs ?? EMBED_ATTEMPT_TIMEOUT_MS
+  return withRetry(
+    () => withAttemptTimeout(fn(), attemptTimeoutMs, 'Discovery embedding call'),
+    {
+      maxRetries: opts.maxRetries ?? EMBED_RETRY_MAX_RETRIES,
+      isRetryable: isRetryableHttpError,
+      maxDelayMs: EMBED_RETRY_MAX_DELAY_MS,
+      sleep: opts.sleep,
+      onRetry: opts.onRetry ?? (({ attempt, delayMs }) => {
+        log.warn('discovery.embed.retry', { attempt, delayMs })
+      }),
+    },
+  )
+}
+
+/**
  * Per-intent-bucket quota the seed prompt requests. Multiplied by the five
  * intent buckets (informational / commercial / navigational / comparative /
  * transactional) it yields {@link DEFAULT_SEED_COUNT}. The bucket structure
@@ -54,6 +113,11 @@ export interface ExecuteDiscoveryRunOptions {
   icpDescription: string
   dedupThreshold?: number
   maxProbes?: number
+  /**
+   * Probe worker-pool width, forwarded to the orchestrator. Omitted = 1
+   * (strictly serial); the orchestrator clamps to the contract cap.
+   */
+  probeConcurrency?: number
   /**
    * Resolved service-area locations for this session (see `resolveLocations`
    * in contracts). Forwarded to the seed prompt so generated queries stay
@@ -124,6 +188,7 @@ export async function executeDiscoveryRun(opts: ExecuteDiscoveryRunOptions): Pro
       icpDescription: opts.icpDescription,
       dedupThreshold: opts.dedupThreshold,
       maxProbes: opts.maxProbes,
+      probeConcurrency: opts.probeConcurrency,
       locations: opts.locations,
       deps,
     })
@@ -202,11 +267,19 @@ export function buildDefaultDeps(registry: ProviderRegistry): DiscoveryDeps {
       return {
         candidates: [...fromAnswer, ...fromGrounding],
         provider: 'gemini',
+        // Session diagnostics: the raw-candidate split by source, persisted on
+        // discovery_sessions so seed-quality calibration is measurable.
+        fromAnswerCount: fromAnswer.length,
+        fromGroundingCount: fromGrounding.length,
       }
     },
     async embed(queries: string[]): Promise<number[][]> {
-      if (cfg.apiKey) {
-        return embedQueries(queries, { apiKey: cfg.apiKey, baseUrl: cfg.baseUrl })
+      const apiKey = cfg.apiKey
+      if (apiKey) {
+        // The embed sits between two paid grounded calls (seed already spent,
+        // probes not yet started) — retry transient failures so a blip does
+        // not discard the paid seed; a permanent failure still fails the session.
+        return embedWithRetry(() => embedQueries(queries, { apiKey, baseUrl: cfg.baseUrl }))
       }
       // Vertex-mode embeddings need a Vertex-aware client; this is outside
       // PR 1's scope. Throw early with a clear remediation so we don't
