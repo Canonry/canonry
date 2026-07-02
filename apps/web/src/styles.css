@@ -14,6 +14,7 @@
   --color-surface-subtle: rgb(24 24 27 / 0.2);
   --color-surface-hover: rgb(24 24 27 / 0.4);
   --color-surface-inset: rgb(39 39 42 / 0.6);
+  --color-surface-inset-hover: rgb(39 39 42 / 0.4);
 
   --color-border: rgb(39 39 42 / 0.6);
   --color-border-subtle: rgb(39 39 42 / 0.4);
@@ -427,7 +428,7 @@
   }
 
   .sidebar-link {
-    @apply flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13px] font-normal text-muted transition hover:bg-surface-hover hover:text-neutral;
+    @apply flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13px] font-normal text-muted transition hover:bg-surface-inset-hover hover:text-neutral;
   }
 
   .sidebar-link-active {
@@ -467,7 +468,7 @@
   }
 
   .sidebar-footer-icon {
-    @apply inline-flex size-7 items-center justify-center rounded-md text-muted transition hover:bg-surface-hover hover:text-strong;
+    @apply inline-flex size-7 items-center justify-center rounded-md text-muted transition hover:bg-surface-inset-hover hover:text-strong;
   }
 
   .main-area {
