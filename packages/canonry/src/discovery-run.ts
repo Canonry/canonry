@@ -117,6 +117,8 @@ export interface ExecuteDiscoveryRunOptions {
    * buyer would plausibly type.
    */
   buyerDescription?: string
+  /** Seed provider set (canonical order). Omitted = Gemini-only. */
+  seedProviders?: string[]
   dedupThreshold?: number
   maxProbes?: number
   /**
@@ -193,6 +195,7 @@ export async function executeDiscoveryRun(opts: ExecuteDiscoveryRunOptions): Pro
       project,
       icpDescription: opts.icpDescription,
       buyerDescription: opts.buyerDescription,
+      seedProviders: opts.seedProviders,
       dedupThreshold: opts.dedupThreshold,
       maxProbes: opts.maxProbes,
       probeConcurrency: opts.probeConcurrency,
@@ -254,30 +257,56 @@ export function buildDefaultDeps(registry: ProviderRegistry): DiscoveryDeps {
 
   const adapter = gemini.adapter
 
+  /** Resolve a seed-capable provider or fail fast with a remediation. */
+  function seedProviderFor(name: string): { adapter: typeof adapter; config: typeof cfg } {
+    if (name === 'gemini') return { adapter, config: cfg }
+    const entry = registry.get(name)
+    if (!entry) {
+      throw new Error(`Seed provider ${name} is not configured. Add its API key before requesting multi-provider seeding.`)
+    }
+    return { adapter: entry.adapter, config: entry.config }
+  }
+
   return {
     async seed(input): Promise<DiscoverySeedResult> {
       const prompt = buildSeedPrompt(input)
-      const raw = await adapter.executeTrackedQuery(
-        {
-          query: prompt,
-          canonicalDomains: input.project.canonicalDomains,
-          competitorDomains: input.project.competitorDomains,
-        },
-        cfg,
+      // Canonical (sorted) provider order keeps candidate merge order — and
+      // therefore downstream exact-dedup keep-first behaviour — deterministic.
+      const providerNames = input.seedProviders && input.seedProviders.length > 0
+        ? [...input.seedProviders]
+        : ['gemini']
+      const perProvider = await Promise.all(providerNames.map(async (name) => {
+        const seedProvider = seedProviderFor(name)
+        const raw = await seedProvider.adapter.executeTrackedQuery(
+          {
+            query: prompt,
+            canonicalDomains: input.project.canonicalDomains,
+            competitorDomains: input.project.competitorDomains,
+          },
+          seedProvider.config,
+        )
+        const normalized = seedProvider.adapter.normalizeResult(raw)
+        const fromAnswer = parseQueryLines(normalized.answerText, DEFAULT_SEED_COUNT * 2)
+        // Grounding metadata exposes the actual web search queries the engine
+        // ran — *real* user-intent strings that show live demand, excellent
+        // seed candidates alongside the model's response. (Gemini populates
+        // this; providers without grounding contribute answer lines only.)
+        const fromGrounding = normalized.searchQueries ?? []
+        return { name, fromAnswer, fromGrounding }
+      }))
+
+      const candidates = perProvider.flatMap((r) => [...r.fromAnswer, ...r.fromGrounding])
+      const providerCounts = Object.fromEntries(
+        perProvider.map((r) => [r.name, r.fromAnswer.length + r.fromGrounding.length]),
       )
-      const normalized = adapter.normalizeResult(raw)
-      const fromAnswer = parseQueryLines(normalized.answerText, DEFAULT_SEED_COUNT * 2)
-      // Gemini's grounding metadata also exposes the actual web search queries
-      // it ran — those are *real* user-intent strings that show live demand,
-      // so they make excellent seed candidates alongside the model's response.
-      const fromGrounding = normalized.searchQueries ?? []
       return {
-        candidates: [...fromAnswer, ...fromGrounding],
-        provider: 'gemini',
-        // Session diagnostics: the raw-candidate split by source, persisted on
+        candidates,
+        provider: providerNames.join('+'),
+        // Session diagnostics: the raw-candidate splits, persisted on
         // discovery_sessions so seed-quality calibration is measurable.
-        fromAnswerCount: fromAnswer.length,
-        fromGroundingCount: fromGrounding.length,
+        fromAnswerCount: perProvider.reduce((n, r) => n + r.fromAnswer.length, 0),
+        fromGroundingCount: perProvider.reduce((n, r) => n + r.fromGrounding.length, 0),
+        providerCounts,
       }
     },
     async embed(queries: string[]): Promise<number[][]> {

@@ -870,3 +870,12 @@ test('filterBrandedSeedCandidates normalizes raw URL-style configured domains to
   expect(droppedBranded).toEqual(['example.com reviews', 'https://www.example.com/path reviews'])
   expect(kept).toEqual(['best widget shops'])
 })
+
+test('discoveryRunRequestSchema accepts seedProviders and canonicalizes to a sorted, deduped set', () => {
+  const parsed = discoveryRunRequestSchema.parse({ seedProviders: ['openai', 'gemini', 'openai'] })
+  // Canonical order makes the value stable for session-identity comparison.
+  expect(parsed.seedProviders).toEqual(['gemini', 'openai'])
+  expect(discoveryRunRequestSchema.parse({}).seedProviders).toBeUndefined()
+  expect(() => discoveryRunRequestSchema.parse({ seedProviders: ['claude'] })).toThrow()
+  expect(() => discoveryRunRequestSchema.parse({ seedProviders: [] })).toThrow()
+})

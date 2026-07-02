@@ -1657,6 +1657,7 @@ export async function createServer(opts: {
         projectId: input.projectId,
         icpDescription: input.icpDescription,
         buyerDescription: input.buyerDescription,
+        seedProviders: input.seedProviders,
         dedupThreshold: input.dedupThreshold,
         maxProbes: input.maxProbes,
         probeConcurrency: input.probeConcurrency,

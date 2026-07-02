@@ -3848,6 +3848,7 @@ const routeCatalog: OpenApiOperation[] = [
             properties: {
               icpDescription: { type: 'string', description: 'Free-text ICP. Required if the project does not have spec.icpDescription stored.' },
               buyerDescription: { type: 'string', description: 'Who evaluates or buys the offering, separate from the ICP. When present, every generated seed query is anchored on this buyer and the seed prompt enforces buyer-fit.' },
+              seedProviders: { type: 'array', items: { type: 'string', enum: ['gemini', 'openai'] }, minItems: 1, description: 'Which providers generate seed candidates. Omit for the Gemini-only default. Canonicalized (deduped + sorted); part of the session consolidation identity.' },
               dedupThreshold: { type: 'number', description: 'Cosine similarity threshold for clustering. Defaults to 0.95.' },
               maxProbes: { type: 'integer', description: 'Max canonical queries to probe in this session. Default 100, hard cap 500.' },
               probeConcurrency: {

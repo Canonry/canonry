@@ -128,6 +128,11 @@ export const discoverySessionDtoSchema = z.object({
   /** Dedup calibration: fraction of all pairs in the ambiguous 0.90-0.97 band. */
   dedupBandPairFraction: z.number().nullable().optional(),
   dedupPairsTotal: z.number().int().nullable().optional(),
+  /** Seed provider set the session ran with (canonical order); null = legacy /
+   *  Gemini-only default. */
+  seedProviders: z.array(z.string()).nullable().optional(),
+  /** Raw candidate count contributed per seed provider. */
+  seedProviderCounts: z.record(z.string(), z.number().int()).nullable().optional(),
   dedupThreshold: z.number().nullable().optional(),
   probeCount: z.number().int().nullable().optional(),
   citedCount: z.number().int().nullable().default(null),
@@ -315,6 +320,12 @@ function containsWholeToken(normalized: string, token: string): boolean {
   return false
 }
 
+/** Providers able to generate seed candidates (v1: the two whose phrasing
+ *  distributions the product measures against). Embeddings stay Gemini. */
+export const DISCOVERY_SEED_PROVIDERS = ['gemini', 'openai'] as const
+export const discoverySeedProviderSchema = z.enum(DISCOVERY_SEED_PROVIDERS)
+export type DiscoverySeedProvider = z.infer<typeof discoverySeedProviderSchema>
+
 export const discoveryRunRequestSchema = z.object({
   icpDescription: z.string().min(1).optional(),
   /**
@@ -324,6 +335,18 @@ export const discoveryRunRequestSchema = z.object({
    * generic provider comparisons.
    */
   buyerDescription: z.string().min(1).optional(),
+  /**
+   * Which providers generate seed candidates. Omitted = Gemini-only (the
+   * historical behaviour). Canonicalized (deduped + sorted) so the value is
+   * stable for session-identity comparison. Part of the consolidation
+   * IDENTITY: a different provider set produces a different phrasing
+   * distribution, so it must never reuse another set's session.
+   */
+  seedProviders: z
+    .array(discoverySeedProviderSchema)
+    .min(1)
+    .transform((arr) => [...new Set(arr)].sort())
+    .optional(),
   dedupThreshold: z.number().min(0).max(1).optional(),
   maxProbes: z.number().int().positive().max(DISCOVERY_MAX_PROBES_CAP).optional(),
   /**
