@@ -4,6 +4,7 @@ import {
   clusterByCosine,
   pickClusterRepresentative,
   DISCOVERY_DEFAULT_DEDUP_THRESHOLD,
+  computeDedupSimilarityStats,
 } from '../src/index.js'
 
 /**
@@ -193,4 +194,47 @@ test('pickClusterRepresentative falls back to first member on tie', () => {
 
 test('pickClusterRepresentative on single-member cluster returns that member', () => {
   expect(pickClusterRepresentative(['only'])).toBe('only')
+})
+
+// ---------------------------------------------------------------------------
+// computeDedupSimilarityStats — the calibration diagnostics the 0.95 threshold
+// decision needs: per-cluster cohesion and how much pairwise mass sits in the
+// ambiguous 0.90-0.97 band.
+// ---------------------------------------------------------------------------
+
+/** 2-d vector with a chosen cosine against [1, 0]. */
+function vecWithCosine(cos: number): number[] {
+  return [cos, Math.sqrt(Math.max(0, 1 - cos * cos))]
+}
+
+test('computeDedupSimilarityStats reports the min pairwise cosine per multi-member cluster', () => {
+  const vectors = [[1, 0], vecWithCosine(0.99), vecWithCosine(0.96), [0, 1]]
+  // Cluster 0 holds indices 0,1,2 (min pair = cos(v1,v2) < 0.96-ish), cluster 1 is a singleton.
+  const stats = computeDedupSimilarityStats(vectors, [[0, 1, 2], [3]])
+  expect(stats.perClusterMinSimilarity).toHaveLength(1) // singletons carry no pairwise cohesion
+  expect(stats.perClusterMinSimilarity[0]!).toBeLessThan(0.97)
+  expect(stats.perClusterMinSimilarity[0]!).toBeGreaterThan(0.9)
+})
+
+test('computeDedupSimilarityStats measures the 0.90-0.97 band fraction over ALL pairs', () => {
+  // Three vectors: cos(0,1)=0.93 (in band), cos(0,2)=0.5 (below), cos(1,2) computed.
+  const vectors = [[1, 0], vecWithCosine(0.93), vecWithCosine(0.5)]
+  const stats = computeDedupSimilarityStats(vectors, [[0, 1], [2]])
+  expect(stats.pairsTotal).toBe(3)
+  // Exactly one of the three pairs (0,1) is guaranteed inside [0.90, 0.97).
+  expect(stats.bandPairFraction).not.toBeNull()
+  expect(stats.bandPairFraction!).toBeCloseTo(1 / 3, 3) // rounded to 4 decimals by contract
+})
+
+test('computeDedupSimilarityStats is null-safe for degenerate inputs', () => {
+  expect(computeDedupSimilarityStats([], [])).toEqual({
+    perClusterMinSimilarity: [],
+    bandPairFraction: null,
+    pairsTotal: 0,
+  })
+  expect(computeDedupSimilarityStats([[1, 0]], [[0]])).toEqual({
+    perClusterMinSimilarity: [],
+    bandPairFraction: null,
+    pairsTotal: 0,
+  })
 })

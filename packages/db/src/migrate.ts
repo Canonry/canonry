@@ -1970,6 +1970,18 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `ALTER TABLE discovery_sessions ADD COLUMN locations TEXT`,
     ],
   },
+  {
+    version: 92,
+    name: 'discovery-session-dedup-diagnostics',
+    statements: [
+      // Seed provenance + dedup calibration diagnostics. Additive + nullable —
+      // legacy sessions stay null; old writers omit them (downgrade-safe).
+      `ALTER TABLE discovery_sessions ADD COLUMN seed_raw_candidates TEXT`,
+      `ALTER TABLE discovery_sessions ADD COLUMN dedup_cluster_min_sims TEXT`,
+      `ALTER TABLE discovery_sessions ADD COLUMN dedup_band_pair_fraction REAL`,
+      `ALTER TABLE discovery_sessions ADD COLUMN dedup_pairs_total INTEGER`,
+    ],
+  },
 ]
 
 /**

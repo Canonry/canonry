@@ -924,6 +924,13 @@ export const discoverySessions = sqliteTable('discovery_sessions', {
   // Resolved service areas the session was seeded/probed with; part of session
   // identity for in-flight consolidation. Null on legacy sessions.
   locations: text('locations', { mode: 'json' }).$type<LocationContext[]>(),
+  // Full seed provenance + dedup calibration diagnostics (nullable, legacy
+  // sessions stay null). seed_raw_candidates is the seed dep's original list,
+  // pre-brand-filter, so filter and dedup changes can replay real sessions.
+  seedRawCandidates: text('seed_raw_candidates', { mode: 'json' }).$type<string[]>(),
+  dedupClusterMinSims: text('dedup_cluster_min_sims', { mode: 'json' }).$type<number[]>(),
+  dedupBandPairFraction: real('dedup_band_pair_fraction'),
+  dedupPairsTotal: integer('dedup_pairs_total'),
   dedupThreshold: real('dedup_threshold'),
   probeCount: integer('probe_count'),
   citedCount: integer('cited_count'),

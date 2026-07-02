@@ -695,6 +695,10 @@ export type DiscoverySessionDetailDto = {
         country: string;
         timezone?: string;
     }> | null;
+    seedRawCandidates?: Array<string> | null;
+    dedupClusterMinSims?: Array<number> | null;
+    dedupBandPairFraction?: number | null;
+    dedupPairsTotal?: number | null;
     dedupThreshold?: number | null;
     probeCount?: number | null;
     citedCount: number | null;
@@ -742,6 +746,10 @@ export type DiscoverySessionDto = {
         country: string;
         timezone?: string;
     }> | null;
+    seedRawCandidates?: Array<string> | null;
+    dedupClusterMinSims?: Array<number> | null;
+    dedupBandPairFraction?: number | null;
+    dedupPairsTotal?: number | null;
     dedupThreshold?: number | null;
     probeCount?: number | null;
     citedCount: number | null;
