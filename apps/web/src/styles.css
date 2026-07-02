@@ -6,9 +6,244 @@
   --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
+@theme static {
+  --color-bg: var(--color-zinc-950);
+  --color-bg-elevated: var(--color-zinc-900);
+
+  --color-surface: rgb(24 24 27 / 0.3);
+  --color-surface-subtle: rgb(24 24 27 / 0.2);
+  --color-surface-hover: rgb(24 24 27 / 0.4);
+  --color-surface-inset: rgb(39 39 42 / 0.6);
+  --color-surface-inset-hover: rgb(39 39 42 / 0.4);
+  --color-surface-active: rgb(39 39 42 / 0.5);
+
+  --color-border: rgb(39 39 42 / 0.6);
+  --color-border-subtle: rgb(39 39 42 / 0.4);
+  --color-border-base: var(--color-zinc-800);
+  --color-border-strong: var(--color-zinc-700);
+
+  --color-text-primary: var(--color-zinc-50);
+  --color-text-heading: var(--color-zinc-100);
+  --color-text-strong: var(--color-zinc-200);
+  --color-text-secondary: var(--color-zinc-400);
+  --color-text-muted: var(--color-zinc-500);
+  --color-text-faint: var(--color-zinc-600);
+
+  --color-accent: var(--color-zinc-50);
+  --color-accent-fg: var(--color-zinc-950);
+
+  --color-positive-text: var(--color-emerald-300);
+  --color-positive-border: rgb(16 185 129 / 0.25);
+  --color-positive-bg-soft: rgb(16 185 129 / 0.1);
+  --color-positive-fill: #34d399;
+
+  --color-caution-text: var(--color-amber-300);
+  --color-caution-border: rgb(245 158 11 / 0.3);
+  --color-caution-bg-soft: rgb(245 158 11 / 0.1);
+  --color-caution-fill: #fbbf24;
+
+  --color-negative-text: var(--color-rose-300);
+  --color-negative-border: rgb(244 63 94 / 0.25);
+  --color-negative-bg-soft: rgb(244 63 94 / 0.1);
+  --color-negative-fill: #fb7185;
+
+  --color-neutral-text: var(--color-zinc-300);
+  --color-neutral-border: rgb(63 63 70 / 0.45);
+  --color-neutral-bg-soft: rgb(63 63 70 / 0.2);
+  --color-neutral-fill: var(--color-zinc-400);
+
+  --color-ring: rgb(113 113 122 / 0.5);
+  --color-ring-accent: rgb(251 191 36 / 0.6);
+
+  /* Neutral scale — raw zinc backbone for the one-off shades/alphas that have
+     no dedicated role token (dots, focus rings, tracks, dividers, underlines).
+     Prefer the semantic bg / surface / border / text tokens above; reach for
+     mono-* only when a specific neutral step is needed. */
+  --color-mono-100: var(--color-zinc-100);
+  --color-mono-400: var(--color-zinc-400);
+  --color-mono-500: var(--color-zinc-500);
+  --color-mono-600: var(--color-zinc-600);
+  --color-mono-700: var(--color-zinc-700);
+  --color-mono-800: var(--color-zinc-800);
+
+  /* Tone scales — per-tone palette steps for the richer surface / border / text
+     ladder (insight cards, toasts, chips, gauges, sparklines). The
+     positive/caution/negative -text / -border / -bg-soft / -fill semantics
+     above remain the common path; these cover the off-ladder steps. */
+  --color-positive-100: var(--color-emerald-100);
+  --color-positive-400: var(--color-emerald-400);
+  --color-positive-500: var(--color-emerald-500);
+  --color-positive-600: var(--color-emerald-600);
+  --color-positive-700: var(--color-emerald-700);
+  --color-positive-800: var(--color-emerald-800);
+  --color-positive-950: var(--color-emerald-950);
+  --color-caution-50: var(--color-amber-50);
+  --color-caution-100: var(--color-amber-100);
+  --color-caution-200: var(--color-amber-200);
+  --color-caution-300: var(--color-amber-300);
+  --color-caution-400: var(--color-amber-400);
+  --color-caution-500: var(--color-amber-500);
+  --color-caution-700: var(--color-amber-700);
+  --color-caution-800: var(--color-amber-800);
+  --color-caution-950: var(--color-amber-950);
+  --color-negative-100: var(--color-rose-100);
+  --color-negative-400: var(--color-rose-400);
+  --color-negative-500: var(--color-rose-500);
+  --color-negative-700: var(--color-rose-700);
+  --color-negative-800: var(--color-rose-800);
+  --color-negative-950: var(--color-rose-950);
+
+  /* Info — a minor sky-blue accent (opportunity "track" cards, the
+     suggested-query add action). Not one of the four semantic tones; kept as a
+     small scale for its handful of off-ladder shades. */
+  --color-info-200: var(--color-sky-200);
+  --color-info-300: var(--color-sky-300);
+  --color-info-500: var(--color-sky-500);
+  --color-info-950: var(--color-sky-950);
+
+  /* Effect colors — gauge/sparkline track, scrollbar thumb, panel/drop
+     shadows, the caution glow, and the light hover overlay. */
+  --color-track: rgb(255 255 255 / 0.06);
+  --color-scrollbar-thumb: rgb(113 113 122 / 0.3);
+  --color-shadow-drop: rgb(8 11 15 / 0.34);
+  --color-shadow-panel: rgb(0 0 0 / 0.32);
+  --color-overlay-hover: rgb(255 255 255 / 0.08);
+  --color-caution-glow: rgb(245 158 11 / 0.4);
+  --color-caution-glow-inset: rgb(245 158 11 / 0.06);
+
+  --chart-series-1: #34d399;
+  --chart-series-2: #60a5fa;
+  --chart-series-3: #f472b6;
+  --chart-series-4: #facc15;
+  --chart-series-5: #a78bfa;
+  --chart-series-6: #fb923c;
+  --chart-series-7: #22d3ee;
+  --chart-series-8: #f87171;
+  --chart-tone-positive: #34d399;
+  --chart-tone-positive-deep: #10b981;
+  --chart-tone-caution: #fbbf24;
+  --chart-tone-negative: #fb7185;
+  --chart-tone-neutral: #a1a1aa;
+  --chart-neutral-text: #a1a1aa;
+  --chart-neutral-text-dim: #71717a;
+  --chart-neutral-text-faint: #52525b;
+  --chart-neutral-surface: #27272a;
+  --chart-neutral-grid-line: rgb(255 255 255 / 0.06);
+  --chart-tooltip-bg: #18181b;
+  --chart-tooltip-border: #3f3f46;
+  --chart-tooltip-label: #e4e4e7;
+  --chart-tooltip-item: #a1a1aa;
+  --chart-grid: #27272a;
+  --chart-axis: #27272a;
+}
+
+@utility border-default {
+  border-color: var(--color-border);
+}
+
+@utility border-subtle {
+  border-color: var(--color-border-subtle);
+}
+
+@utility border-base {
+  border-color: var(--color-border-base);
+}
+
+@utility border-strong {
+  border-color: var(--color-border-strong);
+}
+
+@utility text-primary {
+  color: var(--color-text-primary);
+}
+
+@utility text-heading {
+  color: var(--color-text-heading);
+}
+
+@utility text-strong {
+  color: var(--color-text-strong);
+}
+
+@utility text-secondary {
+  color: var(--color-text-secondary);
+}
+
+@utility text-muted {
+  color: var(--color-text-muted);
+}
+
+@utility text-faint {
+  color: var(--color-text-faint);
+}
+
+@utility text-positive {
+  color: var(--color-positive-text);
+}
+
+@utility text-caution {
+  color: var(--color-caution-text);
+}
+
+@utility text-negative {
+  color: var(--color-negative-text);
+}
+
+@utility text-neutral {
+  color: var(--color-neutral-text);
+}
+
+@utility border-positive {
+  border-color: var(--color-positive-border);
+}
+
+@utility border-caution {
+  border-color: var(--color-caution-border);
+}
+
+@utility border-negative {
+  border-color: var(--color-negative-border);
+}
+
+@utility border-neutral {
+  border-color: var(--color-neutral-border);
+}
+
+@utility bg-positive-soft {
+  background-color: var(--color-positive-bg-soft);
+}
+
+@utility bg-caution-soft {
+  background-color: var(--color-caution-bg-soft);
+}
+
+@utility bg-negative-soft {
+  background-color: var(--color-negative-bg-soft);
+}
+
+@utility bg-neutral-soft {
+  background-color: var(--color-neutral-bg-soft);
+}
+
+@utility fill-positive {
+  fill: var(--color-positive-fill);
+}
+
+@utility fill-caution {
+  fill: var(--color-caution-fill);
+}
+
+@utility fill-negative {
+  fill: var(--color-negative-fill);
+}
+
+@utility fill-neutral {
+  fill: var(--color-neutral-fill);
+}
+
 @layer base {
   * {
-    @apply border-zinc-800;
+    @apply border-base;
   }
 
   html {
@@ -24,7 +259,7 @@
   }
 
   body {
-    @apply min-h-screen bg-zinc-950 font-sans text-zinc-50 antialiased;
+    @apply min-h-screen bg-bg font-sans text-primary antialiased;
   }
 
   /* Headings: tighten tracking and gently bump weight so they read as
@@ -50,14 +285,14 @@
   }
 
   ::selection {
-    background: rgba(250, 250, 250, 0.12);
-    color: #fafafa;
+    background: color-mix(in oklab, var(--color-accent) 12%, transparent);
+    color: var(--color-accent);
   }
 }
 
 @layer components {
   .skip-link {
-    @apply absolute left-4 top-[-3rem] z-50 rounded-md bg-zinc-50 px-4 py-2 text-sm font-medium text-black transition-all focus:top-4;
+    @apply absolute left-4 top-[-3rem] z-50 rounded-md bg-accent px-4 py-2 text-sm font-medium text-accent-fg transition-all focus:top-4;
   }
 
   /* ── Layout shell: sidebar + topbar + content ── */
@@ -74,16 +309,16 @@
      the shell background + text: page content uses fixed Tailwind colors. */
   .app-shell-embed {
     @apply min-h-screen w-full;
-    background: var(--canonry-embed-bg, #09090b);
+    background: var(--canonry-embed-bg, var(--color-bg));
     color: var(--canonry-embed-fg, inherit);
   }
 
   .embed-view-unavailable {
-    @apply mx-auto max-w-6xl px-4 py-16 text-center text-sm text-zinc-500;
+    @apply mx-auto max-w-6xl px-4 py-16 text-center text-sm text-muted;
   }
 
   .sidebar {
-    @apply fixed inset-y-0 left-0 z-30 hidden w-56 flex-col border-r border-zinc-800/60 bg-zinc-950 lg:flex;
+    @apply fixed inset-y-0 left-0 z-30 hidden w-56 flex-col border-r border-default bg-bg lg:flex;
   }
 
   .sidebar-brand {
@@ -104,7 +339,7 @@
 
   .brand-icon {
     @apply size-10 shrink-0;
-    filter: drop-shadow(0 10px 18px rgba(8, 11, 15, 0.34));
+    filter: drop-shadow(0 10px 18px var(--color-shadow-drop));
   }
 
   .brand-lockup-compact .brand-icon {
@@ -112,7 +347,7 @@
   }
 
   .brand-mark {
-    @apply text-[15px] font-semibold leading-none tracking-[-0.02em] text-zinc-100 no-underline;
+    @apply text-[15px] font-semibold leading-none tracking-[-0.02em] text-heading no-underline;
   }
 
   .brand-lockup-compact .brand-mark {
@@ -120,7 +355,7 @@
   }
 
   .brand-version {
-    @apply mt-0.5 font-mono text-[11px] tracking-tight text-zinc-500;
+    @apply mt-0.5 font-mono text-[11px] tracking-tight text-muted;
   }
 
   /* ── Update bubble ── */
@@ -137,29 +372,29 @@
   }
 
   .brand-icon-link {
-    @apply block shrink-0 outline-none focus-visible:ring-2 focus-visible:ring-amber-400/60 rounded-full;
+    @apply block shrink-0 outline-none focus-visible:ring-2 focus-visible:ring-caution-400/60 rounded-full;
   }
 
   .brand-update-bubble {
-    @apply relative mt-2 inline-flex w-max items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 py-0.5 pl-2 pr-1 font-mono text-[11px] leading-none text-amber-100 transition;
+    @apply relative mt-2 inline-flex w-max items-center gap-1 rounded-full border border-caution bg-caution-soft py-0.5 pl-2 pr-1 font-mono text-[11px] leading-none text-caution-100 transition;
     box-shadow:
-      0 8px 20px -10px rgba(245, 158, 11, 0.4),
-      inset 0 0 0 1px rgba(245, 158, 11, 0.06);
+      0 8px 20px -10px var(--color-caution-glow),
+      inset 0 0 0 1px var(--color-caution-glow-inset);
     transform-origin: 0 50%;
     /* Delayed so the bird "speaks" first, then the bubble appears as the chirp. */
     animation: brand-bubble-pop 540ms cubic-bezier(0.34, 1.56, 0.64, 1) 100ms both;
   }
 
   .brand-update-bubble:hover {
-    @apply border-amber-500/45 bg-amber-500/15;
+    @apply border-caution-500/45 bg-caution-500/15;
   }
 
   .brand-update-bubble-link {
-    @apply inline-flex items-center gap-1 rounded-full text-amber-100 no-underline outline-none;
+    @apply inline-flex items-center gap-1 rounded-full text-caution-100 no-underline outline-none;
   }
 
   .brand-update-bubble-link:focus-visible {
-    @apply ring-2 ring-amber-400/60;
+    @apply ring-2 ring-caution-400/60;
   }
 
   .brand-update-bubble-closing {
@@ -167,29 +402,29 @@
   }
 
   .brand-update-bubble-from {
-    @apply text-amber-200/55;
+    @apply text-caution-200/55;
   }
 
   .brand-update-bubble-arrow {
-    @apply shrink-0 text-amber-400/70;
+    @apply shrink-0 text-caution-400/70;
   }
 
   .brand-update-bubble:hover .brand-update-bubble-arrow {
-    @apply text-amber-300;
+    @apply text-caution;
   }
 
   .brand-update-bubble-to {
-    @apply font-medium text-amber-100;
+    @apply font-medium text-caution-100;
   }
 
   .brand-update-bubble:hover .brand-update-bubble-to {
-    @apply text-amber-50;
+    @apply text-caution-50;
   }
 
   .brand-update-bubble-dismiss {
-    @apply ml-0.5 flex shrink-0 items-center justify-center rounded-full p-0.5 text-amber-300/70 transition;
-    @apply hover:bg-amber-500/20 hover:text-amber-100;
-    @apply focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-amber-300;
+    @apply ml-0.5 flex shrink-0 items-center justify-center rounded-full p-0.5 text-caution-300/70 transition;
+    @apply hover:bg-caution-500/20 hover:text-caution-100;
+    @apply focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-caution-300;
   }
 
   /* Bird chirps just before the bubble appears. Origin near the bird's
@@ -246,15 +481,15 @@
   }
 
   .sidebar-section-title {
-    @apply mb-1 mt-5 px-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600;
+    @apply mb-1 mt-5 px-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-faint;
   }
 
   .sidebar-link {
-    @apply flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13px] font-normal text-zinc-500 transition hover:bg-zinc-800/40 hover:text-zinc-300;
+    @apply flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13px] font-normal text-muted transition hover:bg-surface-inset-hover hover:text-neutral;
   }
 
   .sidebar-link-active {
-    @apply bg-zinc-800/50 text-zinc-200 font-medium;
+    @apply bg-surface-active text-strong font-medium;
   }
 
   .sidebar-icon {
@@ -262,35 +497,35 @@
   }
 
   .sidebar-project {
-    @apply flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13px] text-zinc-500 transition hover:bg-zinc-900 hover:text-zinc-200;
+    @apply flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13px] text-muted transition hover:bg-bg-elevated hover:text-strong;
   }
 
   .sidebar-project-active {
-    @apply text-zinc-200;
+    @apply text-strong;
   }
 
   .sidebar-dot {
-    @apply size-1.5 shrink-0 rounded-full bg-zinc-600;
+    @apply size-1.5 shrink-0 rounded-full bg-mono-600;
   }
 
   .sidebar-dot-positive {
-    @apply bg-emerald-400;
+    @apply bg-positive-400;
   }
 
   .sidebar-dot-caution {
-    @apply bg-amber-400;
+    @apply bg-caution-400;
   }
 
   .sidebar-dot-negative {
-    @apply bg-rose-400;
+    @apply bg-negative-400;
   }
 
   .sidebar-footer {
-    @apply flex items-center gap-1 border-t border-zinc-800/60 px-4 py-3;
+    @apply flex items-center gap-1 border-t border-default px-4 py-3;
   }
 
   .sidebar-footer-icon {
-    @apply inline-flex size-7 items-center justify-center rounded-md text-zinc-500 transition hover:bg-zinc-800/40 hover:text-zinc-200;
+    @apply inline-flex size-7 items-center justify-center rounded-md text-muted transition hover:bg-surface-inset-hover hover:text-strong;
   }
 
   .main-area {
@@ -306,7 +541,7 @@
   }
 
   .topbar {
-    @apply sticky top-0 z-20 flex items-center justify-between gap-4 border-b border-zinc-800/60 bg-zinc-950/95 px-4 py-2.5 backdrop-blur-sm md:px-6;
+    @apply sticky top-0 z-20 flex items-center justify-between gap-4 border-b border-default bg-bg/95 px-4 py-2.5 backdrop-blur-sm md:px-6;
   }
 
   .topbar-left {
@@ -318,15 +553,15 @@
   }
 
   .breadcrumb {
-    @apply hidden items-center gap-1.5 text-sm text-zinc-500 md:flex;
+    @apply hidden items-center gap-1.5 text-sm text-muted md:flex;
   }
 
   .breadcrumb-sep {
-    @apply text-zinc-700;
+    @apply text-mono-700;
   }
 
   .breadcrumb-current {
-    @apply text-zinc-200;
+    @apply text-strong;
   }
 
   .topbar-actions {
@@ -342,15 +577,15 @@
   }
 
   .health-pill-ok {
-    @apply border-emerald-500/20 bg-emerald-500/8 text-emerald-400;
+    @apply border-positive-500/20 bg-positive-500/8 text-positive-400;
   }
 
   .health-pill-checking {
-    @apply border-zinc-700 bg-zinc-900 text-zinc-400;
+    @apply border-strong bg-bg-elevated text-secondary;
   }
 
   .health-pill-error {
-    @apply border-rose-500/20 bg-rose-500/8 text-rose-400;
+    @apply border-negative-500/20 bg-negative-500/8 text-negative-400;
   }
 
   .topbar-cta {
@@ -363,7 +598,7 @@
 
   /* mobile nav */
   .mobile-nav {
-    @apply fixed inset-0 z-40 hidden flex-col bg-zinc-950/98 p-4 pt-16 backdrop-blur-sm;
+    @apply fixed inset-0 z-40 hidden flex-col bg-bg/98 p-4 pt-16 backdrop-blur-sm;
   }
 
   .mobile-nav-open {
@@ -371,11 +606,11 @@
   }
 
   .mobile-nav-link {
-    @apply rounded-lg px-4 py-3 text-base font-medium text-zinc-400 transition hover:bg-zinc-900 hover:text-zinc-100;
+    @apply rounded-lg px-4 py-3 text-base font-medium text-secondary transition hover:bg-bg-elevated hover:text-heading;
   }
 
   .mobile-nav-link-active {
-    @apply bg-zinc-900 text-zinc-100;
+    @apply bg-bg-elevated text-heading;
   }
 
   .mobile-nav-close {
@@ -383,11 +618,11 @@
   }
 
   .mobile-nav-section {
-    @apply mt-4 border-t border-zinc-800 pt-4;
+    @apply mt-4 border-t border-base pt-4;
   }
 
   .mobile-nav-section-title {
-    @apply mb-2 px-4 text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-600;
+    @apply mb-2 px-4 text-[11px] font-semibold uppercase tracking-[0.16em] text-faint;
   }
 
   /* ── Page content ── */
@@ -411,11 +646,11 @@
   }
 
   .page-title {
-    @apply text-lg font-semibold tracking-[-0.02em] text-zinc-100;
+    @apply text-lg font-semibold tracking-[-0.02em] text-heading;
   }
 
   .page-subtitle {
-    @apply mt-0.5 text-[13px] font-normal text-zinc-500;
+    @apply mt-0.5 text-[13px] font-normal text-muted;
   }
 
   .page-header-right {
@@ -427,31 +662,31 @@
   }
 
   .tag {
-    @apply rounded-md border border-zinc-800 bg-zinc-900/50 px-2 py-0.5 text-[11px] font-medium text-zinc-400;
+    @apply rounded-md border border-base bg-bg-elevated/50 px-2 py-0.5 text-[11px] font-medium text-secondary;
   }
 
   /* ── Eyebrow / labels ── */
 
   .eyebrow {
-    @apply text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500;
+    @apply text-[11px] font-medium uppercase tracking-[0.18em] text-muted;
   }
 
   .eyebrow-soft {
-    @apply mb-1 text-[10px] font-medium uppercase tracking-[0.16em] text-zinc-600;
+    @apply mb-1 text-[10px] font-medium uppercase tracking-[0.16em] text-faint;
   }
 
   /* ── Typography ── */
 
   .lede {
-    @apply max-w-3xl text-sm leading-6 text-zinc-400;
+    @apply max-w-3xl text-sm leading-6 text-secondary;
   }
 
   .supporting-copy {
-    @apply text-sm leading-6 text-zinc-500;
+    @apply text-sm leading-6 text-muted;
   }
 
   .blocking-copy {
-    @apply text-sm text-rose-300;
+    @apply text-sm text-negative;
   }
 
   /* ── Score gauge ── */
@@ -461,7 +696,7 @@
   }
 
   .score-gauge {
-    @apply flex flex-col items-center rounded-xl border border-zinc-800/60 bg-zinc-900/30 px-3 py-5 min-w-0 overflow-visible;
+    @apply flex flex-col items-center rounded-xl border border-default bg-surface px-3 py-5 min-w-0 overflow-visible;
   }
 
   .gauge-ring-wrapper {
@@ -474,7 +709,7 @@
 
   .gauge-bg {
     fill: none;
-    stroke: rgba(255, 255, 255, 0.06);
+    stroke: var(--color-track);
   }
 
   .gauge-fill {
@@ -490,19 +725,19 @@
   }
 
   .gauge-fill-positive {
-    stroke: #34d399;
+    stroke: var(--color-positive-400);
   }
 
   .gauge-fill-caution {
-    stroke: #fbbf24;
+    stroke: var(--color-caution-400);
   }
 
   .gauge-fill-negative {
-    stroke: #fb7185;
+    stroke: var(--color-negative-400);
   }
 
   .gauge-fill-neutral {
-    stroke: #a1a1aa;
+    stroke: var(--color-mono-400);
   }
 
   .gauge-center {
@@ -510,33 +745,33 @@
   }
 
   .gauge-value {
-    @apply text-xl font-bold tracking-tight text-zinc-50;
+    @apply text-xl font-bold tracking-tight text-primary;
   }
 
   .gauge-value-text {
-    @apply text-sm font-bold tracking-tight text-zinc-50;
+    @apply text-sm font-bold tracking-tight text-primary;
   }
 
   .gauge-label {
-    @apply mt-3 text-center text-[10px] font-medium uppercase tracking-[0.12em] text-zinc-500 w-full;
+    @apply mt-3 text-center text-[10px] font-medium uppercase tracking-[0.12em] text-muted w-full;
   }
 
   .gauge-delta {
-    @apply mt-1.5 text-center text-[11px] text-zinc-400;
+    @apply mt-1.5 text-center text-[11px] text-secondary;
   }
 
   .gauge-provider-coverage {
-    @apply mt-1 text-center text-[10px] font-medium text-amber-400/80;
+    @apply mt-1 text-center text-[10px] font-medium text-caution-400/80;
   }
 
   .gauge-description {
-    @apply mt-2.5 text-center text-[11px] leading-[1.45] text-zinc-500 w-full;
+    @apply mt-2.5 text-center text-[11px] leading-[1.45] text-muted w-full;
   }
 
   /* ── Visibility trend (citations & mentions over time) ── */
 
   .visibility-trend {
-    @apply rounded-xl border border-zinc-800/60 bg-zinc-900/30 px-5 py-5;
+    @apply rounded-xl border border-default bg-surface px-5 py-5;
   }
 
   .visibility-trend-head {
@@ -557,17 +792,17 @@
   }
 
   .visibility-trend-current-label {
-    @apply text-[11px] font-medium uppercase tracking-wide text-zinc-400;
+    @apply text-[11px] font-medium uppercase tracking-wide text-secondary;
   }
 
   /* "avg" tag shown beside the headline in by-engine mode — the headline is the
      blended rate across engines, not any single line on the chart. */
   .visibility-trend-current-qualifier {
-    @apply rounded bg-zinc-800/80 px-1 py-px text-[10px] font-medium uppercase tracking-wide text-zinc-500;
+    @apply rounded bg-mono-800/80 px-1 py-px text-[10px] font-medium uppercase tracking-wide text-muted;
   }
 
   .visibility-trend-current-value {
-    @apply text-2xl font-semibold tabular-nums tracking-tight text-zinc-50;
+    @apply text-2xl font-semibold tabular-nums tracking-tight text-primary;
   }
 
   .visibility-trend-current-delta {
@@ -583,7 +818,7 @@
   }
 
   .visibility-trend-note {
-    @apply mt-2 text-[11px] text-zinc-400;
+    @apply mt-2 text-[11px] text-secondary;
   }
 
   /* Per-engine legend with live values, above the chart. Line-shaped swatches
@@ -601,37 +836,37 @@
   }
 
   .trend-legend-name {
-    @apply text-[11px] font-medium text-zinc-300;
+    @apply text-[11px] font-medium text-neutral;
   }
 
   .trend-legend-value {
-    @apply text-[11px] font-semibold tabular-nums text-zinc-50;
+    @apply text-[11px] font-semibold tabular-nums text-primary;
   }
 
   /* Segmented control: an inset track with a raised selected chip. Used for the
      trend chart's metric / series / window toggles. */
   .segmented {
-    @apply inline-flex items-center gap-0.5 rounded-lg border border-zinc-800 bg-zinc-900/60 p-0.5;
+    @apply inline-flex items-center gap-0.5 rounded-lg border border-base bg-bg-elevated/60 p-0.5;
   }
 
   .segmented-option {
-    @apply rounded-md px-2.5 py-1.5 text-xs font-medium text-zinc-400 transition-colors;
-    @apply hover:text-zinc-100;
-    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-500/50;
+    @apply rounded-md px-2.5 py-1.5 text-xs font-medium text-secondary transition-colors;
+    @apply hover:text-heading;
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-500/50;
   }
 
   .segmented-option-active {
-    @apply bg-zinc-700/90 text-zinc-50 shadow-sm;
+    @apply bg-mono-700/90 text-primary shadow-sm;
   }
 
   /* ── AEO performance hero (paired Mention + Citation) ── */
 
   .aeo-hero {
-    @apply rounded-xl border border-zinc-800/60 bg-zinc-900/30 px-5 py-5;
+    @apply rounded-xl border border-default bg-surface px-5 py-5;
   }
 
   .aeo-hero-title {
-    @apply text-[10px] font-medium uppercase tracking-[0.12em] text-zinc-500 mb-3;
+    @apply text-[10px] font-medium uppercase tracking-[0.12em] text-muted mb-3;
   }
 
   .aeo-hero-rows {
@@ -655,7 +890,7 @@
   }
 
   .aeo-hero-row-label {
-    @apply text-sm font-medium text-zinc-200 flex items-center gap-1;
+    @apply text-sm font-medium text-strong flex items-center gap-1;
     grid-area: label;
   }
 
@@ -665,23 +900,23 @@
   }
 
   .aeo-hero-row-bar {
-    @apply h-1.5 w-full rounded-full bg-zinc-800 overflow-hidden;
+    @apply h-1.5 w-full rounded-full bg-mono-800 overflow-hidden;
     grid-area: bar;
   }
 
   .aeo-hero-row-detail {
-    @apply text-[11px] text-zinc-500 tabular-nums;
+    @apply text-[11px] text-muted tabular-nums;
     grid-area: detail;
   }
 
   .aeo-hero-context {
-    @apply text-[11px] text-zinc-400 mt-4;
+    @apply text-[11px] text-secondary mt-4;
   }
 
   /* ── Project overview operator brief ── */
 
   .overview-brief {
-    @apply overflow-hidden rounded-xl border border-zinc-800/60 bg-zinc-900/20;
+    @apply overflow-hidden rounded-xl border border-default bg-surface-subtle;
   }
 
   .overview-brief-head {
@@ -689,19 +924,19 @@
   }
 
   .overview-brief-title {
-    @apply mt-1 max-w-3xl text-xl font-semibold tracking-[-0.02em] text-zinc-50 sm:text-2xl;
+    @apply mt-1 max-w-3xl text-xl font-semibold tracking-[-0.02em] text-primary sm:text-2xl;
   }
 
   .overview-brief-scope {
-    @apply mt-2 max-w-3xl text-[13px] leading-5 text-zinc-400;
+    @apply mt-2 max-w-3xl text-[13px] leading-5 text-secondary;
   }
 
   .overview-brief-updated {
-    @apply shrink-0 text-[11px] tabular-nums text-zinc-500 sm:pt-5;
+    @apply shrink-0 text-[11px] tabular-nums text-muted sm:pt-5;
   }
 
   .overview-brief-grid {
-    @apply grid border-t border-zinc-800/50 lg:grid-cols-[1.35fr_0.825fr_0.825fr];
+    @apply grid border-t border-mono-800/50 lg:grid-cols-[1.35fr_0.825fr_0.825fr];
   }
 
   .overview-brief-panel {
@@ -709,23 +944,23 @@
   }
 
   .overview-brief-panel + .overview-brief-panel {
-    @apply border-t border-zinc-800/40 lg:border-l lg:border-t-0;
+    @apply border-t border-subtle lg:border-l lg:border-t-0;
   }
 
   .overview-brief-label {
-    @apply mb-3 text-[10px] font-medium uppercase tracking-[0.14em] text-zinc-500;
+    @apply mb-3 text-[10px] font-medium uppercase tracking-[0.14em] text-muted;
   }
 
   .overview-brief-panel-title {
-    @apply text-sm font-medium leading-5 text-zinc-100;
+    @apply text-sm font-medium leading-5 text-heading;
   }
 
   .overview-brief-panel-copy {
-    @apply mt-1.5 text-[12px] leading-[1.5] text-zinc-500;
+    @apply mt-1.5 text-[12px] leading-[1.5] text-muted;
   }
 
   .overview-brief-link {
-    @apply mt-3 inline-flex rounded text-[11px] font-medium text-zinc-300 underline decoration-zinc-700 underline-offset-4 transition-colors hover:text-zinc-50 hover:decoration-zinc-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-500/60;
+    @apply mt-3 inline-flex rounded text-[11px] font-medium text-neutral underline decoration-mono-700 underline-offset-4 transition-colors hover:text-primary hover:decoration-mono-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-500/60;
   }
 
   .overview-signal-change-list {
@@ -737,11 +972,11 @@
   }
 
   .overview-signal-change-label {
-    @apply font-medium text-zinc-200;
+    @apply font-medium text-strong;
   }
 
   .overview-brief-note {
-    @apply mt-3 text-[11px] text-amber-400/80;
+    @apply mt-3 text-[11px] text-caution-400/80;
   }
 
   .overview-brief-coverage .aeo-hero-rows {
@@ -753,11 +988,11 @@
   }
 
   .mention-share-breakdown {
-    @apply mt-4 pt-4 border-t border-zinc-800/50;
+    @apply mt-4 pt-4 border-t border-mono-800/50;
   }
 
   .mention-share-breakdown-title {
-    @apply text-[10px] font-medium uppercase tracking-[0.12em] text-zinc-500 mb-2;
+    @apply text-[10px] font-medium uppercase tracking-[0.12em] text-muted mb-2;
   }
 
   .mention-share-breakdown-rows {
@@ -783,7 +1018,7 @@
   }
 
   .mention-share-breakdown-bar {
-    @apply h-1.5 w-full rounded-full bg-zinc-800/60 overflow-hidden;
+    @apply h-1.5 w-full rounded-full bg-surface-inset overflow-hidden;
   }
 
   .mention-share-breakdown-bar-fill {
@@ -791,29 +1026,29 @@
   }
 
   .mention-share-breakdown-count {
-    @apply text-zinc-400 tabular-nums text-right;
+    @apply text-secondary tabular-nums text-right;
   }
 
   .mention-share-breakdown-share {
-    @apply text-zinc-500 tabular-nums text-right;
+    @apply text-muted tabular-nums text-right;
   }
 
   /* ── Movement banner (Since Last Run) ── */
 
   .movement-banner {
-    @apply rounded-lg border border-zinc-800/40 bg-zinc-900/20 px-4 py-2 text-xs flex flex-col gap-1.5;
+    @apply rounded-lg border border-subtle bg-surface-subtle px-4 py-2 text-xs flex flex-col gap-1.5;
   }
 
   .movement-banner-label {
-    @apply text-[10px] font-medium uppercase tracking-[0.12em] text-zinc-500 mr-1;
+    @apply text-[10px] font-medium uppercase tracking-[0.12em] text-muted mr-1;
   }
 
   .movement-banner-chip {
-    @apply rounded transition-colors hover:bg-zinc-800/60 px-1.5 py-0.5 -my-0.5 cursor-pointer focus:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500;
+    @apply rounded transition-colors hover:bg-surface-inset px-1.5 py-0.5 -my-0.5 cursor-pointer focus:outline-none focus-visible:ring-1 focus-visible:ring-mono-500;
   }
 
   .movement-banner-detail {
-    @apply text-[11px] text-zinc-400 space-y-0.5 mt-0.5 pl-1;
+    @apply text-[11px] text-secondary space-y-0.5 mt-0.5 pl-1;
   }
 
   /* ── Secondary metric grid (gap cards + index coverage) ── */
@@ -825,11 +1060,11 @@
   /* ── Metric cards (non-gauge) ── */
 
   .metric-card {
-    @apply flex flex-col rounded-xl border border-zinc-800/60 bg-zinc-900/30 px-4 py-5 min-w-0 overflow-visible;
+    @apply flex flex-col rounded-xl border border-default bg-surface px-4 py-5 min-w-0 overflow-visible;
   }
 
   .metric-card-eyebrow {
-    @apply text-[10px] font-medium uppercase tracking-[0.12em] text-zinc-500 flex items-center gap-1;
+    @apply text-[10px] font-medium uppercase tracking-[0.12em] text-muted flex items-center gap-1;
   }
 
   .metric-card-big-value {
@@ -837,7 +1072,7 @@
   }
 
   .metric-card-bar {
-    @apply mt-3 h-1.5 w-full rounded-full bg-zinc-800;
+    @apply mt-3 h-1.5 w-full rounded-full bg-mono-800;
   }
 
   .metric-card-bar-fill {
@@ -852,17 +1087,17 @@
   }
 
   .metric-card-detail {
-    @apply mt-2 text-[12px] text-zinc-400;
+    @apply mt-2 text-[12px] text-secondary;
   }
 
   .metric-card-sub {
-    @apply mt-1 text-[11px] leading-4 text-zinc-500;
+    @apply mt-1 text-[11px] leading-4 text-muted;
   }
 
   /* ── Surface cards ── */
 
   .surface-card {
-    @apply rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-4;
+    @apply rounded-xl border border-default bg-surface p-4;
   }
 
   .compact-card {
@@ -870,13 +1105,13 @@
   }
 
   .section-title-sm {
-    @apply text-sm font-semibold tracking-[-0.01em] text-zinc-200;
+    @apply text-sm font-semibold tracking-[-0.01em] text-strong;
   }
 
   .surface-card h2,
   .surface-card h3,
   .empty-card h1 {
-    @apply text-sm font-semibold tracking-[-0.01em] text-zinc-200;
+    @apply text-sm font-semibold tracking-[-0.01em] text-strong;
   }
 
   .empty-card {
@@ -898,13 +1133,13 @@
   }
 
   .page-section-divider {
-    @apply mt-8 border-t border-zinc-800/40 pt-6;
+    @apply mt-8 border-t border-subtle pt-6;
   }
 
   /* Progressive disclosure keeps evidence and diagnostics available without
      turning the default overview scan into a four-page analytics archive. */
   .overview-disclosure-summary {
-    @apply flex cursor-pointer list-none items-center justify-between gap-4 rounded-md py-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-500/60;
+    @apply flex cursor-pointer list-none items-center justify-between gap-4 rounded-md py-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-500/60;
   }
 
   .overview-disclosure {
@@ -916,15 +1151,15 @@
   }
 
   .overview-disclosure-title {
-    @apply mt-1 block text-sm font-semibold tracking-[-0.01em] text-zinc-200;
+    @apply mt-1 block text-sm font-semibold tracking-[-0.01em] text-strong;
   }
 
   .overview-disclosure-meta {
-    @apply flex shrink-0 items-center gap-2 text-[11px] text-zinc-500;
+    @apply flex shrink-0 items-center gap-2 text-[11px] text-muted;
   }
 
   .overview-disclosure-icon {
-    @apply text-zinc-500 transition-transform duration-150;
+    @apply text-muted transition-transform duration-150;
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -946,11 +1181,11 @@
   }
 
   .inline-disclosure {
-    @apply rounded-lg border border-zinc-800/50 bg-zinc-900/15 px-3 py-2.5;
+    @apply rounded-lg border border-mono-800/50 bg-bg-elevated/15 px-3 py-2.5;
   }
 
   .inline-disclosure > summary {
-    @apply cursor-pointer list-none text-[12px] font-medium text-zinc-400 transition-colors hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-500/60;
+    @apply cursor-pointer list-none text-[12px] font-medium text-secondary transition-colors hover:text-heading focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-500/60;
   }
 
   .inline-disclosure > summary::-webkit-details-marker {
@@ -959,7 +1194,7 @@
 
   .inline-disclosure > summary::after {
     content: ' +';
-    @apply text-zinc-600;
+    @apply text-faint;
   }
 
   .inline-disclosure[open] > summary::after {
@@ -970,15 +1205,15 @@
      text that recedes, the active tab marked by a Snow underline sitting on
      the bar's hairline. No pills, no group labels, no dividers. */
   .project-subnav {
-    @apply mt-5 mb-5 flex flex-wrap items-stretch gap-x-1 border-b border-zinc-800/60;
+    @apply mt-5 mb-5 flex flex-wrap items-stretch gap-x-1 border-b border-default;
   }
 
   .project-subnav-link {
-    @apply relative -mb-px inline-flex items-center border-b-2 border-transparent px-3 py-2.5 text-sm font-medium text-zinc-500 transition-colors hover:text-zinc-200 focus-visible:outline-none focus-visible:text-zinc-100;
+    @apply relative -mb-px inline-flex items-center border-b-2 border-transparent px-3 py-2.5 text-sm font-medium text-muted transition-colors hover:text-strong focus-visible:outline-none focus-visible:text-heading;
   }
 
   .project-subnav-link-active {
-    @apply border-zinc-100 text-zinc-50;
+    @apply border-mono-100 text-primary;
   }
 
   /* Trailing group (overflow "More" + Settings), pushed to the far right. */
@@ -996,15 +1231,15 @@
 
   /* Overflow menu surface — floating, so a real shadow is allowed here. */
   .project-subnav-menu {
-    @apply absolute right-0 top-full z-20 mt-1 flex min-w-[9rem] flex-col gap-0.5 rounded-md border border-zinc-800/80 bg-zinc-900 p-1 shadow-[0_12px_28px_rgba(0,0,0,0.32)];
+    @apply absolute right-0 top-full z-20 mt-1 flex min-w-[9rem] flex-col gap-0.5 rounded-md border border-mono-800/80 bg-bg-elevated p-1 shadow-[0_12px_28px_var(--color-shadow-panel)];
   }
 
   .project-subnav-menu-item {
-    @apply rounded px-3 py-2 text-sm font-medium text-zinc-400 transition-colors hover:bg-zinc-800/60 hover:text-zinc-100 focus-visible:outline-none focus-visible:bg-zinc-800/60 focus-visible:text-zinc-100;
+    @apply rounded px-3 py-2 text-sm font-medium text-secondary transition-colors hover:bg-surface-inset hover:text-heading focus-visible:outline-none focus-visible:bg-surface-inset focus-visible:text-heading;
   }
 
   .project-subnav-menu-item-active {
-    @apply bg-zinc-800/60 text-zinc-50;
+    @apply bg-surface-inset text-primary;
   }
 
   /* ── Overview secondary grid (attention + activity) ── */
@@ -1032,11 +1267,11 @@
   }
 
   .hero-copy {
-    @apply space-y-2 rounded-xl border border-zinc-800/60 bg-zinc-900/30 px-4 py-4;
+    @apply space-y-2 rounded-xl border border-default bg-surface px-4 py-4;
   }
 
   .hero-copy h1 {
-    @apply text-2xl font-semibold tracking-tight text-zinc-50 md:text-[1.75rem];
+    @apply text-2xl font-semibold tracking-tight text-primary md:text-[1.75rem];
   }
 
   .hero-action {
@@ -1081,7 +1316,7 @@
   .attention-list-scrollable,
   .compact-stack-scrollable {
     scrollbar-width: thin;
-    scrollbar-color: rgba(113, 113, 122, 0.3) transparent;
+    scrollbar-color: var(--color-scrollbar-thumb) transparent;
   }
 
   .project-list-scrollable::-webkit-scrollbar,
@@ -1099,7 +1334,7 @@
   .project-list-scrollable::-webkit-scrollbar-thumb,
   .attention-list-scrollable::-webkit-scrollbar-thumb,
   .compact-stack-scrollable::-webkit-scrollbar-thumb {
-    background: rgba(113, 113, 122, 0.3);
+    background: var(--color-scrollbar-thumb);
     border-radius: 2px;
   }
 
@@ -1110,25 +1345,25 @@
   }
 
   .attention-item {
-    @apply flex items-start justify-between gap-4 rounded-lg border border-zinc-800/40 bg-zinc-900/20 px-3.5 py-2.5 transition hover:border-zinc-700 hover:bg-zinc-900/50;
+    @apply flex items-start justify-between gap-4 rounded-lg border border-subtle bg-surface-subtle px-3.5 py-2.5 transition hover:border-strong hover:bg-bg-elevated/50;
   }
 
   .attention-item-negative {
-    @apply border-l-2 border-l-rose-500/60;
+    @apply border-l-2 border-l-negative-500/60;
   }
 
   .attention-item-caution {
-    @apply border-l-2 border-l-amber-500/60;
+    @apply border-l-2 border-l-caution-500/60;
   }
 
   .attention-item-positive {
-    @apply border-l-2 border-l-emerald-500/60;
+    @apply border-l-2 border-l-positive-500/60;
   }
 
   /* Non-actionable status row (e.g. "All projects stable") — not a link, so
      drop the hover affordance and pointer cursor the linked variant carries. */
   .attention-item-static {
-    @apply cursor-default hover:border-zinc-800/40 hover:bg-zinc-900/20;
+    @apply cursor-default hover:border-subtle hover:bg-surface-subtle;
   }
 
   .attention-title,
@@ -1136,7 +1371,7 @@
   .run-row-title,
   .project-name,
   .evidence-query {
-    @apply text-[13px] font-medium text-zinc-200;
+    @apply text-[13px] font-medium text-strong;
   }
 
   .attention-detail,
@@ -1145,21 +1380,21 @@
   .run-row-detail,
   .evidence-summary,
   .drawer-copy {
-    @apply mt-0.5 text-[13px] leading-5 text-zinc-500;
+    @apply mt-0.5 text-[13px] leading-5 text-muted;
   }
 
   .attention-action {
-    @apply pt-1 text-[10px] font-medium uppercase tracking-[0.14em] text-zinc-400;
+    @apply pt-1 text-[10px] font-medium uppercase tracking-[0.14em] text-secondary;
   }
 
   /* ── Compact run ── */
 
   .compact-run {
-    @apply flex items-center justify-between gap-4 rounded-lg border border-zinc-800/40 bg-zinc-900/20 px-3.5 py-2.5 text-left transition hover:bg-zinc-900/50;
+    @apply flex items-center justify-between gap-4 rounded-lg border border-subtle bg-surface-subtle px-3.5 py-2.5 text-left transition hover:bg-bg-elevated/50;
   }
 
   .compact-run-detail {
-    @apply mt-0.5 text-[12px] text-zinc-600;
+    @apply mt-0.5 text-[12px] text-faint;
   }
 
   /* ── Metric progress-bar tone fills ──
@@ -1170,19 +1405,19 @@
      `md:grid-cols-2`) and have been removed. */
 
   .progress-fill-positive {
-    @apply bg-emerald-400;
+    @apply bg-positive-400;
   }
 
   .progress-fill-caution {
-    @apply bg-amber-400;
+    @apply bg-caution-400;
   }
 
   .progress-fill-negative {
-    @apply bg-rose-400;
+    @apply bg-negative-400;
   }
 
   .progress-fill-neutral {
-    @apply bg-zinc-500;
+    @apply bg-mono-500;
   }
 
   /* ── Sparkline ── */
@@ -1199,24 +1434,24 @@
   }
 
   .sparkline-guide {
-    stroke: rgba(255, 255, 255, 0.06);
+    stroke: var(--color-track);
     stroke-width: 1;
   }
 
   .sparkline-positive polyline {
-    stroke: #34d399;
+    stroke: var(--color-positive-400);
   }
 
   .sparkline-caution polyline {
-    stroke: #fbbf24;
+    stroke: var(--color-caution-400);
   }
 
   .sparkline-negative polyline {
-    stroke: #fb7185;
+    stroke: var(--color-negative-400);
   }
 
   .sparkline-neutral polyline {
-    stroke: #a1a1aa;
+    stroke: var(--color-mono-400);
   }
 
   /* ── Grids ── */
@@ -1248,32 +1483,32 @@
   }
 
   .setup-step {
-    @apply flex items-center gap-1.5 text-xs text-zinc-500 whitespace-nowrap;
+    @apply flex items-center gap-1.5 text-xs text-muted whitespace-nowrap;
   }
 
   .setup-step + .setup-step::before {
     content: '';
-    @apply block w-4 h-px bg-zinc-700 mr-1;
+    @apply block w-4 h-px bg-mono-700 mr-1;
   }
 
   .setup-step-number {
-    @apply flex items-center justify-center w-5 h-5 rounded-full border border-zinc-700 text-[10px] font-semibold;
+    @apply flex items-center justify-center w-5 h-5 rounded-full border border-strong text-[10px] font-semibold;
   }
 
   .setup-step-active {
-    @apply text-zinc-100;
+    @apply text-heading;
   }
 
   .setup-step-active .setup-step-number {
-    @apply border-emerald-500 bg-emerald-500/10 text-emerald-400;
+    @apply border-positive-500 bg-positive-soft text-positive-400;
   }
 
   .setup-step-done {
-    @apply text-zinc-400;
+    @apply text-secondary;
   }
 
   .setup-step-done .setup-step-number {
-    @apply border-emerald-600 bg-emerald-600/20 text-emerald-400;
+    @apply border-positive-600 bg-positive-600/20 text-positive-400;
   }
 
   .setup-nav {
@@ -1289,15 +1524,15 @@
   }
 
   .setup-label {
-    @apply text-[10px] font-semibold uppercase tracking-wide text-zinc-500;
+    @apply text-[10px] font-semibold uppercase tracking-wide text-muted;
   }
 
   .setup-input {
-    @apply rounded-md border border-zinc-700 bg-zinc-900/50 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 outline-none transition focus:border-zinc-500 focus:ring-1 focus:ring-zinc-500;
+    @apply rounded-md border border-strong bg-bg-elevated/50 px-3 py-2 text-sm text-heading placeholder-mono-600 outline-none transition focus:border-mono-500 focus:ring-1 focus:ring-mono-500;
   }
 
   .setup-textarea {
-    @apply rounded-md border border-zinc-700 bg-zinc-900/50 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 outline-none transition focus:border-zinc-500 focus:ring-1 focus:ring-zinc-500 resize-y font-mono;
+    @apply rounded-md border border-strong bg-bg-elevated/50 px-3 py-2 text-sm text-heading placeholder-mono-600 outline-none transition focus:border-mono-500 focus:ring-1 focus:ring-mono-500 resize-y font-mono;
   }
 
   .setup-input:disabled,
@@ -1308,7 +1543,7 @@
   /* ── Action queue ── */
 
   .opportunities-grid {
-    @apply overflow-hidden rounded-xl border border-zinc-800/60 bg-zinc-900/20 divide-y divide-zinc-800/40;
+    @apply overflow-hidden rounded-xl border border-default bg-surface-subtle divide-y divide-mono-800/40;
   }
 
   .opportunity-card {
@@ -1316,23 +1551,23 @@
   }
 
   .opportunity-card-write {
-    @apply bg-amber-950/5;
+    @apply bg-caution-950/5;
   }
 
   .opportunity-card-investigate {
-    @apply bg-rose-950/10;
+    @apply bg-negative-950/10;
   }
 
   .opportunity-card-monitor {
-    @apply bg-emerald-950/5;
+    @apply bg-positive-950/5;
   }
 
   .opportunity-card-track {
-    @apply bg-sky-950/5;
+    @apply bg-info-950/5;
   }
 
   .opportunity-monitor-summary {
-    @apply flex cursor-pointer list-none items-center justify-between gap-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-500/60;
+    @apply flex cursor-pointer list-none items-center justify-between gap-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-500/60;
   }
 
   .opportunity-monitor-summary::-webkit-details-marker {
@@ -1354,7 +1589,7 @@
   }
 
   .suggested-query-add {
-    @apply text-[11px] font-medium rounded-md px-2.5 py-1 bg-sky-500/10 text-sky-300 border border-sky-500/30 transition-colors hover:bg-sky-500/20 hover:text-sky-200 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap;
+    @apply text-[11px] font-medium rounded-md px-2.5 py-1 bg-info-500/10 text-info-300 border border-info-500/30 transition-colors hover:bg-info-500/20 hover:text-info-200 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap;
   }
 
   .opportunity-card-head {
@@ -1362,15 +1597,15 @@
   }
 
   .opportunity-card-title {
-    @apply text-sm font-semibold text-zinc-100;
+    @apply text-sm font-semibold text-heading;
   }
 
   .opportunity-card-count {
-    @apply text-[11px] font-medium rounded-full px-2 py-0.5 bg-zinc-800/60 text-zinc-300 tabular-nums;
+    @apply text-[11px] font-medium rounded-full px-2 py-0.5 bg-surface-inset text-neutral tabular-nums;
   }
 
   .opportunity-card-subtitle {
-    @apply text-[11px] text-zinc-500 leading-snug;
+    @apply text-[11px] text-muted leading-snug;
   }
 
   .opportunity-card-list {
@@ -1378,66 +1613,66 @@
   }
 
   .opportunity-item {
-    @apply rounded-md bg-transparent px-2.5 py-2 transition-colors hover:bg-zinc-800/30;
+    @apply rounded-md bg-transparent px-2.5 py-2 transition-colors hover:bg-mono-800/30;
   }
 
   .opportunity-item-positive {
-    @apply bg-emerald-950/10;
+    @apply bg-positive-950/10;
   }
 
   .opportunity-item-caution {
-    @apply bg-amber-950/10;
+    @apply bg-caution-950/10;
   }
 
   .opportunity-item-negative {
-    @apply bg-rose-950/15;
+    @apply bg-negative-950/15;
   }
 
   .opportunity-item-neutral {
-    @apply bg-zinc-900/20;
+    @apply bg-surface-subtle;
   }
 
   .opportunity-item-detail {
-    @apply mt-1 px-2.5 py-2 bg-zinc-950/40 rounded-md border border-zinc-800/30 flex flex-col gap-1.5;
+    @apply mt-1 px-2.5 py-2 bg-bg/40 rounded-md border border-mono-800/30 flex flex-col gap-1.5;
   }
 
   /* ── Insight rows (compact signal list) — legacy, kept for any external pages ── */
 
   .insight-list {
-    @apply rounded-xl border border-zinc-800/60 divide-y divide-zinc-800/30 overflow-hidden;
+    @apply rounded-xl border border-default divide-y divide-mono-800/30 overflow-hidden;
   }
 
   .insight-row {
-    @apply flex items-center justify-between gap-4 px-4 py-2.5 border-l-2 border-l-zinc-700 bg-zinc-900/20 transition hover:bg-zinc-800/30;
+    @apply flex items-center justify-between gap-4 px-4 py-2.5 border-l-2 border-l-mono-700 bg-surface-subtle transition hover:bg-mono-800/30;
   }
 
   .insight-row-positive {
-    @apply border-l-emerald-500/60;
+    @apply border-l-positive-500/60;
   }
 
   .insight-row-caution {
-    @apply border-l-amber-500/60;
+    @apply border-l-caution-500/60;
   }
 
   .insight-row-negative {
-    @apply border-l-rose-500/60;
+    @apply border-l-negative-500/60;
   }
 
   /* Keep old card classes for backward compat if used elsewhere */
   .insight-card {
-    @apply grid gap-3 border-l-2 border-l-zinc-700;
+    @apply grid gap-3 border-l-2 border-l-mono-700;
   }
 
   .insight-card-positive {
-    @apply border-l-emerald-500/60;
+    @apply border-l-positive-500/60;
   }
 
   .insight-card-caution {
-    @apply border-l-amber-500/60;
+    @apply border-l-caution-500/60;
   }
 
   .insight-card-negative {
-    @apply border-l-rose-500/60;
+    @apply border-l-negative-500/60;
   }
 
   /* ── Evidence / finding / competitor / step cards ── */
@@ -1450,13 +1685,13 @@
   }
 
   .evidence-snippet {
-    @apply mt-2 text-sm leading-6 text-zinc-400;
+    @apply mt-2 text-sm leading-6 text-secondary;
   }
 
   /* ── Evidence table ── */
 
   .evidence-table-wrap {
-    @apply overflow-x-auto rounded-xl border border-zinc-800/60;
+    @apply overflow-x-auto rounded-xl border border-default;
   }
 
   .evidence-table {
@@ -1464,15 +1699,15 @@
   }
 
   .evidence-table thead {
-    @apply border-b border-zinc-800/60 bg-zinc-900/50;
+    @apply border-b border-default bg-bg-elevated/50;
   }
 
   .evidence-table th {
-    @apply px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500;
+    @apply px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.14em] text-muted;
   }
 
   .evidence-table tbody tr {
-    @apply border-b border-zinc-800/30 transition hover:bg-zinc-900/30;
+    @apply border-b border-mono-800/30 transition hover:bg-surface;
   }
 
   .evidence-table tbody tr:last-child {
@@ -1480,21 +1715,21 @@
   }
 
   .evidence-table td {
-    @apply px-4 py-3 text-zinc-300;
+    @apply px-4 py-3 text-neutral;
   }
 
   .evidence-query-cell {
-    @apply font-medium text-zinc-100;
+    @apply font-medium text-heading;
   }
 
   .evidence-change-cell {
-    @apply text-xs text-zinc-500;
+    @apply text-xs text-muted;
   }
 
   /* ── Findings table ── */
 
   .findings-table-wrap {
-    @apply overflow-x-auto rounded-xl border border-zinc-800/60;
+    @apply overflow-x-auto rounded-xl border border-default;
   }
 
   .findings-table {
@@ -1502,15 +1737,15 @@
   }
 
   .findings-table thead {
-    @apply border-b border-zinc-800/60 bg-zinc-900/50;
+    @apply border-b border-default bg-bg-elevated/50;
   }
 
   .findings-table th {
-    @apply px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500;
+    @apply px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.14em] text-muted;
   }
 
   .findings-table tbody tr {
-    @apply border-b border-zinc-800/30 transition hover:bg-zinc-900/30;
+    @apply border-b border-mono-800/30 transition hover:bg-surface;
   }
 
   .findings-table tbody tr:last-child {
@@ -1518,13 +1753,13 @@
   }
 
   .findings-table td {
-    @apply px-4 py-3 text-zinc-300;
+    @apply px-4 py-3 text-neutral;
   }
 
   /* ── Competitor table ── */
 
   .competitor-table-wrap {
-    @apply overflow-x-auto rounded-xl border border-zinc-800/60;
+    @apply overflow-x-auto rounded-xl border border-default;
   }
 
   .competitor-table {
@@ -1532,15 +1767,15 @@
   }
 
   .competitor-table thead {
-    @apply border-b border-zinc-800/60 bg-zinc-900/50;
+    @apply border-b border-default bg-bg-elevated/50;
   }
 
   .competitor-table th {
-    @apply px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500;
+    @apply px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.14em] text-muted;
   }
 
   .competitor-table tbody tr {
-    @apply border-b border-zinc-800/30 transition hover:bg-zinc-900/30;
+    @apply border-b border-mono-800/30 transition hover:bg-surface;
   }
 
   .competitor-table tbody tr:last-child {
@@ -1548,13 +1783,13 @@
   }
 
   .competitor-table td {
-    @apply px-4 py-3 text-zinc-300;
+    @apply px-4 py-3 text-neutral;
   }
 
   /* ── Project row (overview) ── */
 
   .project-row {
-    @apply grid gap-3 rounded-xl border border-zinc-800/40 bg-zinc-900/15 px-4 py-3.5 transition hover:border-zinc-700/60 hover:bg-zinc-900/35 lg:grid-cols-[10rem_minmax(0,1.5fr)_9rem_9rem_9rem_auto] lg:items-center no-underline text-inherit;
+    @apply grid gap-3 rounded-xl border border-subtle bg-bg-elevated/15 px-4 py-3.5 transition hover:border-mono-700/60 hover:bg-bg-elevated/35 lg:grid-cols-[10rem_minmax(0,1.5fr)_9rem_9rem_9rem_auto] lg:items-center no-underline text-inherit;
   }
 
   .project-row-primary {
@@ -1574,7 +1809,7 @@
   }
 
   .project-insight {
-    @apply mt-1.5 text-[12px] leading-5 text-zinc-500;
+    @apply mt-1.5 text-[12px] leading-5 text-muted;
   }
 
   .metric-inline-block {
@@ -1582,21 +1817,21 @@
   }
 
   .metric-inline-label {
-    @apply text-[10px] font-medium uppercase tracking-[0.16em] text-zinc-600;
+    @apply text-[10px] font-medium uppercase tracking-[0.16em] text-faint;
   }
 
   .metric-inline-value {
-    @apply text-base font-semibold tracking-[-0.02em] text-zinc-100;
+    @apply text-base font-semibold tracking-[-0.02em] text-heading;
   }
 
   .metric-inline-delta {
-    @apply text-[12px] text-zinc-600;
+    @apply text-[12px] text-faint;
   }
 
   /* ── Run row ── */
 
   .run-row {
-    @apply grid gap-4 rounded-xl border border-zinc-800/60 bg-zinc-900/20 px-4 py-4 transition hover:bg-zinc-900/40 xl:grid-cols-[minmax(0,1.6fr)_20rem_auto] xl:items-center;
+    @apply grid gap-4 rounded-xl border border-default bg-surface-subtle px-4 py-4 transition hover:bg-surface-hover xl:grid-cols-[minmax(0,1.6fr)_20rem_auto] xl:items-center;
   }
 
   .run-row-main {
@@ -1612,7 +1847,7 @@
   }
 
   .run-row-subtitle {
-    @apply mt-1 text-sm text-zinc-500;
+    @apply mt-1 text-sm text-muted;
   }
 
   .run-row-meta,
@@ -1627,12 +1862,12 @@
   .run-row-meta dt,
   .definition-list dt,
   .detail-label {
-    @apply text-[10px] font-medium uppercase tracking-[0.16em] text-zinc-600;
+    @apply text-[10px] font-medium uppercase tracking-[0.16em] text-faint;
   }
 
   .run-row-meta dd,
   .definition-list dd {
-    @apply mt-1 text-sm text-zinc-100;
+    @apply mt-1 text-sm text-heading;
   }
 
   /* ── Filter chips ── */
@@ -1642,11 +1877,11 @@
   }
 
   .filter-chip {
-    @apply rounded-full border border-zinc-800 bg-zinc-950 px-3 py-1.5 text-sm text-zinc-500 transition hover:bg-zinc-900 hover:text-zinc-100;
+    @apply rounded-full border border-base bg-bg px-3 py-1.5 text-sm text-muted transition hover:bg-bg-elevated hover:text-heading;
   }
 
   .filter-chip-active {
-    @apply border-zinc-600 bg-zinc-800 text-zinc-100;
+    @apply border-mono-600 bg-mono-800 text-heading;
   }
 
   /* ── Health / settings ── */
@@ -1657,21 +1892,21 @@
   }
 
   .detail-list {
-    @apply grid gap-2 pl-4 text-sm leading-6 text-zinc-400;
+    @apply grid gap-2 pl-4 text-sm leading-6 text-secondary;
   }
 
   /* ── Footer ── */
 
   .footer {
-    @apply mx-auto flex max-w-6xl flex-col gap-3 border-t border-zinc-800/40 px-4 py-5 text-sm md:flex-row md:items-center md:justify-between md:px-6;
+    @apply mx-auto flex max-w-6xl flex-col gap-3 border-t border-subtle px-4 py-5 text-sm md:flex-row md:items-center md:justify-between md:px-6;
   }
 
   .footer-brand {
-    @apply flex items-center gap-2 text-zinc-500;
+    @apply flex items-center gap-2 text-muted;
   }
 
   .footer-version {
-    @apply font-mono text-[11px] tracking-tight text-zinc-600;
+    @apply font-mono text-[11px] tracking-tight text-faint;
   }
 
   .footer-links {
@@ -1679,7 +1914,7 @@
   }
 
   .footer-icon {
-    @apply inline-flex size-7 items-center justify-center rounded-md text-zinc-500 transition hover:bg-zinc-800/40 hover:text-zinc-200;
+    @apply inline-flex size-7 items-center justify-center rounded-md text-muted transition hover:bg-surface-inset-hover hover:text-strong;
   }
 
   /* ── Drawer ── */
@@ -1703,7 +1938,7 @@
   /* ── Summary stats strip ── */
 
   .stats-strip {
-    @apply flex flex-wrap gap-4 rounded-xl border border-zinc-800/60 bg-zinc-900/20 px-4 py-3;
+    @apply flex flex-wrap gap-4 rounded-xl border border-default bg-surface-subtle px-4 py-3;
   }
 
   .stat-item {
@@ -1711,15 +1946,15 @@
   }
 
   .stat-value {
-    @apply text-lg font-bold tracking-tight text-zinc-100;
+    @apply text-lg font-bold tracking-tight text-heading;
   }
 
   .stat-label {
-    @apply text-[12px] text-zinc-500;
+    @apply text-[12px] text-muted;
   }
 
   .stat-divider {
-    @apply mx-1 self-center text-zinc-800;
+    @apply mx-1 self-center text-mono-800;
   }
 
   /* ── Info tooltip ── */
@@ -1729,7 +1964,7 @@
   }
 
   .info-tooltip-trigger {
-    @apply inline-flex items-center justify-center rounded-full p-0.5 text-zinc-500 cursor-help transition hover:text-zinc-300 focus:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500;
+    @apply inline-flex items-center justify-center rounded-full p-0.5 text-muted cursor-help transition hover:text-neutral focus:outline-none focus-visible:ring-1 focus-visible:ring-mono-500;
   }
 
   .info-tooltip-icon {
@@ -1741,7 +1976,7 @@
   /* ── Data table (generic) ── */
 
   .data-table-wrapper {
-    @apply overflow-x-auto rounded-xl border border-zinc-800/60;
+    @apply overflow-x-auto rounded-xl border border-default;
   }
 
   .data-table {
@@ -1749,15 +1984,15 @@
   }
 
   .data-table thead {
-    @apply border-b border-zinc-800/60 bg-zinc-900/50;
+    @apply border-b border-default bg-bg-elevated/50;
   }
 
   .data-table th {
-    @apply px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500;
+    @apply px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.14em] text-muted;
   }
 
   .data-table tbody tr {
-    @apply border-b border-zinc-800/30 transition hover:bg-zinc-900/30;
+    @apply border-b border-mono-800/30 transition hover:bg-surface;
   }
 
   .data-table tbody tr:last-child {
@@ -1765,7 +2000,7 @@
   }
 
   .data-table td {
-    @apply px-4 py-3 text-zinc-300;
+    @apply px-4 py-3 text-neutral;
   }
 
   .filter-chip-compare {
@@ -1781,20 +2016,20 @@
   .evidence-position-hero--cited,
   .evidence-position-hero--mentioned,
   .evidence-position-hero--emerging {
-    @apply border-emerald-800/40 bg-emerald-950/25;
+    @apply border-positive-800/40 bg-positive-950/25;
   }
 
   .evidence-position-hero--not-cited,
   .evidence-position-hero--not-mentioned {
-    @apply border-zinc-800/60 bg-zinc-900/30;
+    @apply border-default bg-surface;
   }
 
   .evidence-position-hero--lost {
-    @apply border-rose-800/40 bg-rose-950/20;
+    @apply border-negative-800/40 bg-negative-950/20;
   }
 
   .evidence-position-hero--pending {
-    @apply border-zinc-800/40 bg-zinc-900/20;
+    @apply border-subtle bg-surface-subtle;
   }
 
   .evidence-position-label {
@@ -1804,16 +2039,16 @@
   .evidence-position-label--cited,
   .evidence-position-label--mentioned,
   .evidence-position-label--emerging {
-    @apply text-emerald-500;
+    @apply text-positive-500;
   }
 
   .evidence-position-label--not-cited,
   .evidence-position-label--not-mentioned {
-    @apply text-zinc-500;
+    @apply text-muted;
   }
 
   .evidence-position-label--lost {
-    @apply text-rose-500;
+    @apply text-negative-500;
   }
 
   .evidence-position-title {
@@ -1823,26 +2058,26 @@
   .evidence-position-title--cited,
   .evidence-position-title--mentioned,
   .evidence-position-title--emerging {
-    @apply text-emerald-300;
+    @apply text-positive;
   }
 
   .evidence-position-title--not-cited,
   .evidence-position-title--not-mentioned {
-    @apply text-zinc-300;
+    @apply text-neutral;
   }
 
   .evidence-position-title--lost {
-    @apply text-rose-300;
+    @apply text-negative;
   }
 
   .evidence-position-meta {
-    @apply mt-0.5 text-xs text-zinc-500;
+    @apply mt-0.5 text-xs text-muted;
   }
 
   /* ── Answer snippet with highlight ── */
 
   .answer-snippet-block {
-    @apply rounded-lg border border-zinc-800/60 bg-zinc-900/50 p-3 text-sm leading-relaxed text-zinc-400;
+    @apply rounded-lg border border-default bg-bg-elevated/50 p-3 text-sm leading-relaxed text-secondary;
     /* Long markdown citation URLs in answer text have no natural break
        points; force them to wrap so they can't push the column wider than
        the modal viewport. */
@@ -1852,8 +2087,7 @@
 
   .answer-highlight,
   .answer-highlight-brand {
-    background: rgba(52, 211, 153, 0.15);
-    color: rgb(110 231 183);
+    @apply bg-positive-400/15 text-positive;
     border-radius: 2px;
     padding: 0 2px;
     font-style: normal;
@@ -1861,8 +2095,7 @@
   }
 
   .answer-highlight-competitor {
-    background: rgba(251, 191, 36, 0.12);
-    color: rgb(252 211 77);
+    @apply bg-caution-400/12 text-caution;
     border-radius: 2px;
     padding: 0 2px;
     font-style: normal;
@@ -1877,12 +2110,12 @@
 
   .mention-status--visible,
   .mention-status--mentioned {
-    @apply border-emerald-800/40 bg-emerald-950/25 text-emerald-300;
+    @apply border-positive-800/40 bg-positive-950/25 text-positive;
   }
 
   .mention-status--not-visible,
   .mention-status--not-mentioned {
-    @apply border-zinc-800/40 bg-zinc-900/20 text-zinc-500;
+    @apply border-subtle bg-surface-subtle text-muted;
   }
 
   .mention-status-icon {
@@ -1898,15 +2131,15 @@
   }
 
   .mention-chip--brand {
-    @apply border-emerald-800/40 bg-emerald-950/25 text-emerald-300;
+    @apply border-positive-800/40 bg-positive-950/25 text-positive;
   }
 
   .mention-chip--competitor {
-    @apply border-amber-800/30 bg-amber-950/15 text-amber-300;
+    @apply border-caution-800/30 bg-caution-950/15 text-caution;
   }
 
   .mention-chip--muted {
-    @apply border-zinc-800/40 bg-zinc-900/20 text-zinc-500;
+    @apply border-subtle bg-surface-subtle text-muted;
   }
 
   /* ── Citation leaderboard ── */
@@ -1920,19 +2153,19 @@
   }
 
   .citation-leaderboard-item--you {
-    @apply border-emerald-800/40 bg-emerald-950/25 text-emerald-300;
+    @apply border-positive-800/40 bg-positive-950/25 text-positive;
   }
 
   .citation-leaderboard-item--competitor {
-    @apply border-rose-800/30 bg-rose-950/15 text-rose-300;
+    @apply border-negative-800/30 bg-negative-950/15 text-negative;
   }
 
   .citation-leaderboard-item--other {
-    @apply border-zinc-800/40 bg-zinc-900/20 text-zinc-400;
+    @apply border-subtle bg-surface-subtle text-secondary;
   }
 
   .citation-leaderboard-rank {
-    @apply w-5 text-center text-[11px] font-semibold shrink-0 text-zinc-500;
+    @apply w-5 text-center text-[11px] font-semibold shrink-0 text-muted;
   }
 
   .citation-leaderboard-domain {
@@ -1950,7 +2183,7 @@
   }
 
   .action-item {
-    @apply flex items-start gap-2.5 rounded-lg border border-zinc-800/40 bg-zinc-900/20 px-3 py-2.5;
+    @apply flex items-start gap-2.5 rounded-lg border border-subtle bg-surface-subtle px-3 py-2.5;
   }
 
   .action-item-icon {
@@ -1958,23 +2191,23 @@
   }
 
   .action-item-text {
-    @apply text-sm text-zinc-400 leading-snug;
+    @apply text-sm text-secondary leading-snug;
   }
 
   /* ── Evidence detail modal ── */
 
   .evidence-modal {
-    @apply fixed z-50 flex flex-col bg-zinc-950 border border-zinc-800 rounded-2xl shadow-2xl overflow-hidden;
+    @apply fixed z-50 flex flex-col bg-bg border border-base rounded-2xl shadow-2xl overflow-hidden;
     @apply top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2;
     @apply w-[min(95vw,1100px)] max-h-[min(90vh,800px)];
   }
 
   .evidence-modal-header {
-    @apply flex items-start gap-3 px-6 pt-5 pb-3 border-b border-zinc-800/60 shrink-0;
+    @apply flex items-start gap-3 px-6 pt-5 pb-3 border-b border-default shrink-0;
   }
 
   .evidence-modal-timeline {
-    @apply px-6 py-3 border-b border-zinc-800/40 shrink-0;
+    @apply px-6 py-3 border-b border-subtle shrink-0;
   }
 
   .evidence-modal-body {
@@ -1988,20 +2221,20 @@
 
   .evidence-modal-sidebar {
     @apply grid gap-4 content-start;
-    @apply md:border-l md:border-zinc-800/40 md:pl-6;
+    @apply md:border-l md:border-subtle md:pl-6;
   }
 
   .sidebar-tabs {
-    @apply flex gap-1 p-0.5 rounded-lg bg-zinc-900/60 border border-zinc-800/40;
+    @apply flex gap-1 p-0.5 rounded-lg bg-bg-elevated/60 border border-subtle;
   }
 
   .sidebar-tab {
     @apply flex-1 px-3 py-1.5 text-xs font-medium rounded-md transition-colors;
-    @apply text-zinc-500 hover:text-zinc-300;
+    @apply text-muted hover:text-neutral;
   }
 
   .sidebar-tab--active {
-    @apply bg-zinc-800 text-zinc-200 shadow-sm;
+    @apply bg-mono-800 text-strong shadow-sm;
   }
 
   .evidence-answer-collapsed {
@@ -2018,39 +2251,39 @@
 
   .evidence-run-dot {
     @apply flex flex-col items-center gap-0.5 px-2 py-1 rounded-md transition-colors cursor-pointer;
-    @apply hover:bg-zinc-800/60;
-    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400;
+    @apply hover:bg-surface-inset;
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400;
   }
 
   .evidence-run-dot--selected {
-    @apply bg-zinc-800 ring-1 ring-zinc-600;
+    @apply bg-mono-800 ring-1 ring-mono-600;
   }
 
   /* ── Drawer section label ── */
 
   .drawer-section-label {
-    @apply mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600;
+    @apply mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-faint;
   }
 
   /* ── Skeleton / loading placeholders ── */
 
   .skeleton {
-    @apply rounded bg-zinc-800/60;
+    @apply rounded bg-surface-inset;
     animation: skeleton-pulse 1.5s ease-in-out infinite;
   }
 
   .skeleton-text {
-    @apply h-3 rounded bg-zinc-800/60;
+    @apply h-3 rounded bg-surface-inset;
     animation: skeleton-pulse 1.5s ease-in-out infinite;
   }
 
   .skeleton-text-sm {
-    @apply h-2.5 rounded bg-zinc-800/60;
+    @apply h-2.5 rounded bg-surface-inset;
     animation: skeleton-pulse 1.5s ease-in-out infinite;
   }
 
   .skeleton-circle {
-    @apply rounded-full bg-zinc-800/60;
+    @apply rounded-full bg-surface-inset;
     animation: skeleton-pulse 1.5s ease-in-out infinite;
   }
 
@@ -2079,7 +2312,7 @@
   }
 
   .page-skeleton-card {
-    @apply rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-5 space-y-3;
+    @apply rounded-xl border border-default bg-surface p-5 space-y-3;
   }
 
   /* ── Toasts ── */
@@ -2090,7 +2323,7 @@
 
   .toast-card {
     @apply flex items-start gap-3 rounded-xl border px-4 py-3 shadow-lg backdrop-blur-sm;
-    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.32);
+    box-shadow: 0 12px 28px var(--color-shadow-panel);
   }
 
   .toast-card[data-state='open'] {
@@ -2102,19 +2335,19 @@
   }
 
   .toast-card-neutral {
-    @apply border-zinc-700/70 bg-zinc-900/92 text-zinc-100;
+    @apply border-mono-700/70 bg-bg-elevated/92 text-heading;
   }
 
   .toast-card-positive {
-    @apply border-emerald-700/60 bg-emerald-950/88 text-emerald-100;
+    @apply border-positive-700/60 bg-positive-950/88 text-positive-100;
   }
 
   .toast-card-caution {
-    @apply border-amber-700/60 bg-amber-950/88 text-amber-100;
+    @apply border-caution-700/60 bg-caution-950/88 text-caution-100;
   }
 
   .toast-card-negative {
-    @apply border-rose-700/60 bg-rose-950/88 text-rose-100;
+    @apply border-negative-700/60 bg-negative-950/88 text-negative-100;
   }
 
   .toast-copy {
@@ -2130,11 +2363,11 @@
   }
 
   .toast-action {
-    @apply mt-2 inline-flex rounded-md border border-current/20 px-2.5 py-1 text-xs font-medium text-current transition hover:bg-white/8;
+    @apply mt-2 inline-flex rounded-md border border-current/20 px-2.5 py-1 text-xs font-medium text-current transition hover:bg-overlay-hover;
   }
 
   .toast-dismiss {
-    @apply shrink-0 rounded-md p-1 text-current/65 transition hover:bg-white/8 hover:text-current;
+    @apply shrink-0 rounded-md p-1 text-current/65 transition hover:bg-overlay-hover hover:text-current;
   }
 
   @keyframes toast-in {
