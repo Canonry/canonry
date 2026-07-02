@@ -394,6 +394,7 @@ export async function executeDiscovery(opts: ExecuteDiscoveryOptions): Promise<E
       seedFromAnswerCount: seedResult.fromAnswerCount ?? null,
       seedFromGroundingCount: seedResult.fromGroundingCount ?? null,
       seedBrandFilteredCount: droppedBranded.length,
+      canonicalCount: canonicals.length,
       // Full seed provenance + dedup calibration diagnostics: the raw
       // candidate list (as the seed dep returned it, pre-filter) makes every
       // live session a replayable fixture; the similarity stats are the data

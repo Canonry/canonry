@@ -703,6 +703,7 @@ export type DiscoverySessionDetailDto = {
     seedProviderCounts?: {
         [key: string]: number;
     } | null;
+    canonicalCount?: number | null;
     dedupThreshold?: number | null;
     probeCount?: number | null;
     citedCount: number | null;
@@ -758,6 +759,7 @@ export type DiscoverySessionDto = {
     seedProviderCounts?: {
         [key: string]: number;
     } | null;
+    canonicalCount?: number | null;
     dedupThreshold?: number | null;
     probeCount?: number | null;
     citedCount: number | null;

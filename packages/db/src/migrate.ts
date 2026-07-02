@@ -1992,6 +1992,15 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `ALTER TABLE discovery_sessions ADD COLUMN seed_provider_counts TEXT`,
     ],
   },
+  {
+    version: 94,
+    name: 'discovery-session-canonical-count',
+    statements: [
+      // True post-dedup, pre-truncation canonical count (seed_count is
+      // post-truncation). Additive + nullable (downgrade-safe).
+      `ALTER TABLE discovery_sessions ADD COLUMN canonical_count INTEGER`,
+    ],
+  },
 ]
 
 /**

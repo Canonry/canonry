@@ -133,6 +133,9 @@ export const discoverySessionDtoSchema = z.object({
   seedProviders: z.array(z.string()).nullable().optional(),
   /** Raw candidate count contributed per seed provider. */
   seedProviderCounts: z.record(z.string(), z.number().int()).nullable().optional(),
+  /** True post-dedup canonical count BEFORE the probe-budget slice (seedCount
+   *  is post-truncation). Null on legacy sessions. */
+  canonicalCount: z.number().int().nullable().optional(),
   dedupThreshold: z.number().nullable().optional(),
   probeCount: z.number().int().nullable().optional(),
   citedCount: z.number().int().nullable().default(null),
