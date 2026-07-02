@@ -111,6 +111,12 @@ export interface ExecuteDiscoveryRunOptions {
   sessionId: string
   projectId: string
   icpDescription: string
+  /**
+   * Who evaluates or buys the offering, separate from what is sold. Forwarded
+   * to the seed prompt: when present, every generated query must be one this
+   * buyer would plausibly type.
+   */
+  buyerDescription?: string
   dedupThreshold?: number
   maxProbes?: number
   /**
@@ -186,6 +192,7 @@ export async function executeDiscoveryRun(opts: ExecuteDiscoveryRunOptions): Pro
       sessionId: opts.sessionId,
       project,
       icpDescription: opts.icpDescription,
+      buyerDescription: opts.buyerDescription,
       dedupThreshold: opts.dedupThreshold,
       maxProbes: opts.maxProbes,
       probeConcurrency: opts.probeConcurrency,
@@ -500,15 +507,24 @@ export function buildLocationConstraint(locations: readonly LocationContext[]): 
 export function buildSeedPrompt(input: {
   project: DiscoveryProjectContext
   icpDescription: string
+  buyerDescription?: string
   locations?: readonly LocationContext[]
 }): string {
   const locationConstraint = buildLocationConstraint(input.locations ?? [])
   const currentYear = new Date().getFullYear()
+  const buyer = input.buyerDescription?.trim() ?? ''
+  const brandIdentities = [...(input.project.brandNames ?? []), ...input.project.canonicalDomains]
   return [
     'You are an AEO (Answer Engine Optimization) analyst expanding a tracked-query basket for a customer.',
     '',
     `Customer: ${input.project.name} (domains: ${input.project.canonicalDomains.join(', ')})`,
     `ICP: ${input.icpDescription}`,
+    ...(buyer
+      ? [
+          `Buyer: ${buyer}`,
+          'Every query must be one this buyer would plausibly type into an answer engine. Skip queries only an industry insider, investor, or job seeker would ask.',
+        ]
+      : []),
     ...(locationConstraint.length > 0 ? ['', ...locationConstraint] : []),
     '',
     'Brainstorm queries a member of this ICP would type into an AI answer engine (Gemini, ChatGPT, Perplexity). Generate candidates across the five intent buckets below — these are SEMANTICALLY DISTINCT search intents, not stylistic variants. A query should fit one bucket cleanly. Diversity across buckets is the point: it keeps the list from collapsing into near-synonyms of a single intent.',
@@ -518,6 +534,8 @@ export function buildSeedPrompt(input: {
     ' 3. Navigational — the searcher is looking for a specific brand, place, or directory. Templates: "X near me", "X reviews", "X website", "X directory".',
     ' 4. Comparative — the searcher is weighing named alternatives head-to-head. Templates: "X vs Y", "X or Y for Z", "alternatives to X".',
     ' 5. Transactional — the searcher is ready to act on a purchase or booking. Templates: "book X", "X pricing", "X discount code", "buy X online".',
+    '',
+    `Hard rule: NEVER include the customer's own brand name or domain (${brandIdentities.join(', ') || input.project.name}) in any query. A buyer who already knows the business by name is out of scope for this list; the goal is queries where the customer must EARN the mention. Naming competitors or directories is fine (Navigational queries should target directories and platforms, never the customer).`,
     '',
     `Generate EXACTLY ${QUERIES_PER_INTENT_BUCKET} queries per bucket — ${QUERIES_PER_INTENT_BUCKET * 5} total. Return ONE query per line. Plain text only — no numbering, bullets, quotes, bucket labels, or commentary.`,
   ].join('\n')

@@ -19,6 +19,7 @@ import {
   DISCOVERY_SEED_COLLAPSE_MIN_RAW,
   DISCOVERY_SEED_COLLAPSE_RATIO,
   seedCollapseWarning,
+  filterBrandedSeedCandidates,
   discoveryProbeDtoSchema,
   discoverySessionDtoSchema,
   discoverySessionDetailDtoSchema,
@@ -745,4 +746,127 @@ test('aggregateHarvestedQueries skips non-string elements without throwing', () 
     { searchQueries: ['solar panel cost', 123, null, { q: 'x' }, 'best solar installer'] as unknown[] },
   ])
   expect(candidates.map(c => c.query).sort()).toEqual(['best solar installer', 'solar panel cost'])
+})
+
+// ---------------------------------------------------------------------------
+// filterBrandedSeedCandidates — seed hygiene (branded self-queries never reach
+// the paid probe loop, and never inflate seedCountRaw / the gate denominator)
+// ---------------------------------------------------------------------------
+
+test('filterBrandedSeedCandidates drops phrase-brand, squashed-brand, and domain candidates', () => {
+  const { kept, droppedBranded } = filterBrandedSeedCandidates({
+    candidates: [
+      'AZ Coatings reviews',
+      'azcoatings phoenix reviews',
+      'is azcoatings.com legit',
+      'visit www.azcoatings.com for quotes',
+      'best roof coating contractors phoenix',
+      'TPO roof repair vs coating phoenix',
+    ],
+    brandNames: ['AZ Coatings'],
+    canonicalDomains: ['azcoatings.com'],
+  })
+  expect(droppedBranded).toEqual([
+    'AZ Coatings reviews',
+    'azcoatings phoenix reviews',
+    'is azcoatings.com legit',
+    'visit www.azcoatings.com for quotes',
+  ])
+  expect(kept).toEqual([
+    'best roof coating contractors phoenix',
+    'TPO roof repair vs coating phoenix',
+  ])
+})
+
+test('filterBrandedSeedCandidates is case-insensitive and whitespace-normalizing', () => {
+  const { kept, droppedBranded } = filterBrandedSeedCandidates({
+    candidates: ['aZ   cOATINGS   pricing', 'roof coating pricing'],
+    brandNames: ['AZ Coatings'],
+    canonicalDomains: [],
+  })
+  expect(droppedBranded).toEqual(['aZ   cOATINGS   pricing'])
+  expect(kept).toEqual(['roof coating pricing'])
+})
+
+test('filterBrandedSeedCandidates matches whole tokens only, never substrings of other words', () => {
+  const { kept, droppedBranded } = filterBrandedSeedCandidates({
+    candidates: ['azcoatingspro llc reviews', 'subclassing in python'],
+    brandNames: ['AZ Coatings', 'class'],
+    canonicalDomains: [],
+  })
+  // 'azcoatingspro' is a different word; 'subclassing' contains 'class' mid-word.
+  expect(droppedBranded).toEqual([])
+  expect(kept.length).toBe(2)
+})
+
+test('filterBrandedSeedCandidates never uses the bare domain label (generic-word domains stay safe)', () => {
+  const { kept, droppedBranded } = filterBrandedSeedCandidates({
+    candidates: ['roofing contractors near me', 'roofing.com reviews'],
+    brandNames: [],
+    canonicalDomains: ['roofing.com'],
+  })
+  // The full host drops; the generic word 'roofing' alone must NOT.
+  expect(droppedBranded).toEqual(['roofing.com reviews'])
+  expect(kept).toEqual(['roofing contractors near me'])
+})
+
+test('filterBrandedSeedCandidates drops branded comparatives too (buyer already knows the name)', () => {
+  const { droppedBranded } = filterBrandedSeedCandidates({
+    candidates: ['azcoatings vs polyglass', 'gaco vs polyglass roof coating'],
+    brandNames: ['AZ Coatings'],
+    canonicalDomains: ['azcoatings.com'],
+  })
+  expect(droppedBranded).toEqual(['azcoatings vs polyglass'])
+})
+
+test('filterBrandedSeedCandidates with no brand identities is a no-op', () => {
+  const input = ['anything at all', 'azcoatings reviews']
+  const { kept, droppedBranded } = filterBrandedSeedCandidates({
+    candidates: input,
+    brandNames: [],
+    canonicalDomains: [],
+  })
+  expect(kept).toEqual(input)
+  expect(droppedBranded).toEqual([])
+})
+
+test('filterBrandedSeedCandidates ignores degenerate one-character brand names', () => {
+  const { kept } = filterBrandedSeedCandidates({
+    candidates: ['a guide to roof coatings'],
+    brandNames: ['A'],
+    canonicalDomains: [],
+  })
+  expect(kept).toEqual(['a guide to roof coatings'])
+})
+
+test('discoveryRunRequestSchema accepts an optional buyerDescription', () => {
+  expect(discoveryRunRequestSchema.parse({ buyerDescription: 'facility managers with aging flat roofs' }).buyerDescription).toBe(
+    'facility managers with aging flat roofs',
+  )
+  expect(discoveryRunRequestSchema.parse({}).buyerDescription).toBeUndefined()
+  expect(() => discoveryRunRequestSchema.parse({ buyerDescription: '' })).toThrow()
+})
+
+test('discoverySessionDtoSchema carries the brand-filtered diagnostic count', () => {
+  const parsed = discoverySessionDtoSchema.parse({
+    id: 's1',
+    projectId: 'p1',
+    status: 'completed',
+    createdAt: '2026-07-02T00:00:00.000Z',
+    seedBrandFilteredCount: 7,
+  })
+  expect(parsed.seedBrandFilteredCount).toBe(7)
+})
+
+test('filterBrandedSeedCandidates normalizes raw URL-style configured domains to their host', () => {
+  // Project upsert/apply store canonicalDomain as configured — full URLs
+  // included. The clean-host query must drop even when only the raw URL form
+  // is configured.
+  const { kept, droppedBranded } = filterBrandedSeedCandidates({
+    candidates: ['example.com reviews', 'https://www.example.com/path reviews', 'best widget shops'],
+    brandNames: [],
+    canonicalDomains: ['https://www.Example.com/path'],
+  })
+  expect(droppedBranded).toEqual(['example.com reviews', 'https://www.example.com/path reviews'])
+  expect(kept).toEqual(['best widget shops'])
 })

@@ -114,7 +114,7 @@ canonry doctor --project <name>                               # project-scoped c
 canonry doctor --project <name> --check google.auth.* --format json   # filter by id/wildcard, JSON output
 
 # Discovery — expand a tracked-query basket from an ICP description
-canonry discover run <project> --icp "..." [--wait] [--format json]
+canonry discover run <project> --icp "..." [--buyer "..."] [--wait] [--format json]
 canonry discover run <project> --dedup-threshold 0.95 --max-probes 100 --wait     # tune dedup / per-session probe budget (cap 500)
 canonry discover run <project> --probe-concurrency 3 --wait                       # parallel probe workers (default 1 = serial, cap 8); probe rows persist in canonical order regardless
 canonry discover run <project> --icp-angle "angle 1" --icp-angle "angle 2" --wait  # multi-angle: one session per ICP angle, aggregates coverage across niches
@@ -549,6 +549,7 @@ The CLI and API **are** the agent interface. MCP is allowed only as an adapter o
 - [ ] Equivalent MCP tool added, or `openapi-classification.ts` has an explicit `deferred` / `excluded-protocol` rationale
 - [ ] Common read patterns achievable in a single API call
 - [ ] Exit code follows 0/1/2 convention
+- [ ] New request parameters classified identity vs tuning (see "Request Parameters: Identity vs Tuning"): identity params join every reuse/dedup key with a test; tuning params documented as dropped on reuse
 
 #### Checklist for any new UI component
 
@@ -929,6 +930,15 @@ The SPA receives `basePath` via an injected config object. Use it for all API fe
 - Renaming or restructuring existing routes requires a versioned migration plan and explicit user approval.
 - If a route is wrong, fix the underlying logic — not the URL.
 
+## Request Parameters: Identity vs Tuning (Critical)
+
+Any operation that can SKIP or REUSE work has an identity key: in-flight consolidation (discover-run), dedup keys, response caches, idempotency guards. Every new request parameter on such an operation MUST be classified explicitly, in the PR, as one of:
+
+1. **Identity** — the parameter changes what the operation PRODUCES (its output semantics). It must join the reuse key, be persisted on the row for auditability, and ship a test asserting that two requests differing only in this parameter never share a result. Example: `buyerDescription` on discover-run changes the seed prompt's semantics, so it is part of the consolidation identity — same ICP with a different (or no) buyer never consolidates onto another buyer's session.
+2. **Tuning** — the parameter only changes HOW the work runs (cost / speed / quality knobs). It may be dropped when an in-flight operation is reused, but the drop must be documented at the route and in the endpoint description. Examples: `dedupThreshold`, `maxProbes`, `probeConcurrency` on discover-run.
+
+The failure mode this prevents: a new semantics-bearing parameter is wired parse → forward → consumer while an existing reuse branch between parse and forward silently returns another request's result (a caller gets probes seeded for a different buyer, with `200 consolidated: true` and no error). When touching such a route, read the ENTIRE handler between request parse and operation kickoff — hunting for early-return, reuse, and cache branches — not just the lines the diff touches.
+
 ## Versioning
 
 **Only bump the package version for non-documentation changes that modify more than 100 lines.** When a bump is required, the root `package.json` and `packages/canonry/package.json` versions must always be kept in sync with each other and with the latest published version on npm (`@canonry/canonry` and the compatibility `@ainyc/canonry` publish).
@@ -951,6 +961,7 @@ The SPA receives `basePath` via an injected config object. Use it for all API fe
 - When testing CLI commands, capture stdout/stderr and assert on output rather than only checking side effects.
 - Use temp directories (`os.tmpdir()`) for file-system tests; clean up in `afterEach`.
 - Run `pnpm run test` to verify before committing.
+- **Test boundary matchers with data as STORED, not idealized.** Before writing a filter/normalizer/matcher over a stored column, check how that column is actually populated (project upsert/apply store `canonicalDomain` raw — full URLs and mixed case included) and sample real values when a database is available. Use the canonical helpers (`hostOf`, `normalizeQueryText`) from contracts instead of inline normalization: a clean-fixture-only suite passes while production values miss the match.
 - **Test default-value propagation end-to-end.** When a feature stores a default (e.g., `defaultLocation` on a project) that another feature consumes (e.g., run creation), write a test that exercises the full path with no explicit override. Don't just test that the default is stored and that the consumer accepts a value — test that they connect.
 
 ## Code Comments

@@ -686,6 +686,8 @@ export type DiscoverySessionDetailDto = {
     seedCount?: number | null;
     seedFromAnswerCount?: number | null;
     seedFromGroundingCount?: number | null;
+    seedBrandFilteredCount?: number | null;
+    buyerDescription?: string | null;
     dedupThreshold?: number | null;
     probeCount?: number | null;
     citedCount: number | null;
@@ -724,6 +726,8 @@ export type DiscoverySessionDto = {
     seedCount?: number | null;
     seedFromAnswerCount?: number | null;
     seedFromGroundingCount?: number | null;
+    seedBrandFilteredCount?: number | null;
+    buyerDescription?: string | null;
     dedupThreshold?: number | null;
     probeCount?: number | null;
     citedCount: number | null;
@@ -9840,6 +9844,10 @@ export type PostApiV1ProjectsByNameDiscoverRunData = {
          * Free-text ICP. Required if the project does not have spec.icpDescription stored.
          */
         icpDescription?: string;
+        /**
+         * Who evaluates or buys the offering, separate from the ICP. When present, every generated seed query is anchored on this buyer and the seed prompt enforces buyer-fit.
+         */
+        buyerDescription?: string;
         /**
          * Cosine similarity threshold for clustering. Defaults to 0.95.
          */
