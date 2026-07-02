@@ -75,9 +75,9 @@ Same capabilities exposed for users who say "Claude, install canonry and set me 
 
 ### 3. Packaged (macOS first, one-click)
 
-**Status:** npm-only (`@ainyc/canonry@2.0.0`). Dockerfile exists. No Homebrew, no .dmg, no desktop bundle.
+**Status:** npm-only (`@canonry/canonry`; compatibility publishes continue as `@ainyc/canonry`). Dockerfile exists. No Homebrew, no .dmg, no desktop bundle.
 
-- **`npx @ainyc/canonry init`** — verify this works end-to-end for zero-install trial. This is the lowest-friction entry for any npm-capable user.
+- **`npx @canonry/canonry init`** — verify this works end-to-end for zero-install trial. This is the lowest-friction entry for any npm-capable user.
 - **Homebrew tap** (small lift, big reach): `brew install ainyc/tap/canonry`. Wraps the npm install + `canonry init` shim.
 - **macOS signed/notarized .pkg installer:** bundles Node runtime + canonry + optional launchd agent for background `canonry serve`. Click → menu-bar app showing serve status + quick-open dashboard. Removes "install Node first" from the funnel.
 - **Tauri desktop shell (defer):** full GUI wrapping the SPA. Only pursue if a non-CLI audience shows up.
@@ -420,7 +420,7 @@ Content is the lead investment. It's the differentiator, the demo headliner, and
 - **Hosted demo sandbox** at a `canonry.ai` subdomain — public read-only dashboard with the content-loop fixtures.
 - "Using canonry with Claude Code, Codex, Hermes, OpenClaw" docs (#1, #7).
 - Homebrew tap (#3).
-- Verified `npx @ainyc/canonry init` zero-install path (#3).
+- Verified `npx @canonry/canonry init` zero-install path (#3).
 - Landing page at `canonry.ai` with agent-workflow demo video — **lead with the content loop** (#7).
 - Onboarding telemetry events + funnel dashboard (#8).
 

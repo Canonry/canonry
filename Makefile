@@ -20,7 +20,7 @@ dev:
 
 # Build the canonry package (TypeScript + bundled SPA)
 build:
-	pnpm --filter @ainyc/canonry run build
+	pnpm --filter @canonry/canonry run build
 
 # Build and serve the SPA locally
 serve: build

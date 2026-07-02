@@ -100,8 +100,8 @@ describe('update-check', () => {
       expect(out).toEqual({
         current: '4.34.0',
         latest: '4.35.0',
-        url: 'https://www.npmjs.com/package/@ainyc/canonry',
-        upgradeCommand: 'npm install -g @ainyc/canonry',
+        url: 'https://www.npmjs.com/package/@canonry/canonry',
+        upgradeCommand: 'npm install -g @canonry/canonry',
       })
     })
 

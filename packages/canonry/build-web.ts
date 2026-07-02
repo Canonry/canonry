@@ -4,7 +4,7 @@
  * Builds the web SPA (apps/web) and copies the output to packages/canonry/assets/.
  * This allows `canonry serve` to serve the dashboard as static files.
  *
- * Run from the repo root: pnpm --filter @ainyc/canonry run build:web
+ * Run from the repo root: pnpm --filter @canonry/canonry run build:web
  * Or directly: tsx packages/canonry/build-web.ts
  */
 

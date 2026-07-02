@@ -12,18 +12,18 @@ metadata:
             {
               "id": "npm",
               "kind": "npm",
-              "package": "@ainyc/canonry",
+              "package": "@canonry/canonry",
               "bins": ["canonry"],
               "label": "Install canonry globally",
-              "command": "npm install -g @ainyc/canonry"
+              "command": "npm install -g @canonry/canonry"
             },
             {
               "id": "npx",
               "kind": "npx",
-              "package": "@ainyc/canonry",
+              "package": "@canonry/canonry",
               "bins": ["canonry"],
               "label": "Run canonry via npx",
-              "command": "npx @ainyc/canonry@latest init"
+              "command": "npx @canonry/canonry@latest init"
             }
           ],
       },
@@ -34,7 +34,7 @@ metadata:
 
 Agent-first open-source AEO (Answer Engine Optimization) operating platform. Track how AI answer engines **mention** your brand in answers and **cite** your domain in sources across Gemini, ChatGPT, Claude, and Perplexity, then act on the signal through the content engine and integrations.
 
-**Website:** [canonry.ai](https://canonry.ai) | **Org:** [ainyc.ai](https://ainyc.ai) | **Docs:** [github.com/AINYC/canonry](https://github.com/AINYC/canonry)
+**Website:** [canonry.ai](https://canonry.ai) | **Docs:** [github.com/Canonry/canonry](https://github.com/Canonry/canonry)
 
 **CLI:** invoke as `cnry` (short form) or `canonry` — both ship with the npm package and are interchangeable. Examples in this skill use `cnry`.
 

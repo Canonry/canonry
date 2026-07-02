@@ -4,7 +4,7 @@ import { configExists, loadConfigRaw, saveConfigPatch } from './config.js'
 const _require = createRequire(import.meta.url)
 const { version: PKG_VERSION } = _require('../package.json') as { version: string }
 
-const PKG_NAME = '@ainyc/canonry'
+const PKG_NAME = '@canonry/canonry'
 const NPM_DIST_TAGS_URL = `https://registry.npmjs.org/-/package/${PKG_NAME}/dist-tags`
 const NPM_PACKAGE_URL = `https://www.npmjs.com/package/${PKG_NAME}`
 const FETCH_TIMEOUT_MS = 1_500

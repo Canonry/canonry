@@ -7,9 +7,9 @@ describe('canonry skill metadata', () => {
     const skillPath = fileURLToPath(new URL('../../../skills/canonry/SKILL.md', import.meta.url))
     const body = fs.readFileSync(skillPath, 'utf-8')
 
-    expect(body).toContain('"package": "@ainyc/canonry"')
-    expect(body).toContain('"command": "npm install -g @ainyc/canonry"')
-    expect(body).toContain('"command": "npx @ainyc/canonry@latest init"')
+    expect(body).toContain('"package": "@canonry/canonry"')
+    expect(body).toContain('"command": "npm install -g @canonry/canonry"')
+    expect(body).toContain('"command": "npx @canonry/canonry@latest init"')
     expect(body).not.toContain('"package": "canonry"')
   })
 })
