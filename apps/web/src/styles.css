@@ -15,6 +15,7 @@
   --color-surface-hover: rgb(24 24 27 / 0.4);
   --color-surface-inset: rgb(39 39 42 / 0.6);
   --color-surface-inset-hover: rgb(39 39 42 / 0.4);
+  --color-surface-active: rgb(39 39 42 / 0.5);
 
   --color-border: rgb(39 39 42 / 0.6);
   --color-border-subtle: rgb(39 39 42 / 0.4);
@@ -480,7 +481,7 @@
   }
 
   .sidebar-link-active {
-    @apply bg-surface-inset text-strong font-medium;
+    @apply bg-surface-active text-strong font-medium;
   }
 
   .sidebar-icon {

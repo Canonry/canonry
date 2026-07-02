@@ -19,7 +19,8 @@ The web dashboard follows a dark, professional analytics aesthetic inspired by *
 - Current dark defaults: `bg-bg` = `zinc-950`; `bg-surface` = `zinc-900/30`;
   `bg-surface-subtle` = `zinc-900/20`; `bg-surface-hover` = `zinc-900/40`;
   `bg-surface-inset` = `zinc-800/60`; `bg-surface-inset-hover` =
-  `zinc-800/40`; `border-default` = `zinc-800/60`; `border-subtle` =
+  `zinc-800/40`; `bg-surface-active` = `zinc-800/50`;
+  `border-default` = `zinc-800/60`; `border-subtle` =
   `zinc-800/40`; `border-base` =
   `zinc-800`; `border-strong` = `zinc-700`; `text-primary` =
   `zinc-50`; `text-heading` = `zinc-100`; `text-strong` = `zinc-200`;

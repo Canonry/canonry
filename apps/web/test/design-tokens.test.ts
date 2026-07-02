@@ -61,6 +61,7 @@ test('semantic color utilities compile to runtime-overridable CSS variables', as
   const css = await compileAppStyles([
     'bg-bg',
     'bg-surface/50',
+    'bg-surface-active',
     'bg-surface-inset-hover',
     'border-base',
     'border-default',
@@ -72,6 +73,8 @@ test('semantic color utilities compile to runtime-overridable CSS variables', as
 
   expect(css).toContain('.bg-bg')
   expect(css).toContain('background-color: var(--color-bg)')
+  expect(css).toContain('.bg-surface-active')
+  expect(css).toContain('background-color: var(--color-surface-active)')
   expect(css).toContain('.bg-surface-inset-hover')
   expect(css).toContain('background-color: var(--color-surface-inset-hover)')
   expect(css).toContain('.text-primary')
@@ -106,6 +109,7 @@ test('shared stylesheet primitives consume semantic tokens', async () => {
   expect(ruleFor(css, '.surface-card')).toContain('background-color: var(--color-surface)')
   expect(ruleFor(css, '.page-section-divider')).toContain('border-color: var(--color-border-subtle)')
   expect(ruleFor(css, '.sidebar-link')).toContain('background-color: var(--color-surface-inset-hover)')
+  expect(ruleFor(css, '.sidebar-link-active')).toContain('background-color: var(--color-surface-active)')
 })
 
 test('neutral and tone scale utilities compile through CSS variables', async () => {
