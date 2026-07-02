@@ -57,6 +57,8 @@ export type OnDiscoveryRunRequested = (input: {
   sessionId: string
   projectId: string
   icpDescription: string
+  /** Optional buyer definition, forwarded to the seed prompt. */
+  buyerDescription?: string
   dedupThreshold?: number
   maxProbes?: number
   /**
@@ -126,7 +128,7 @@ export async function discoveryRoutes(app: FastifyInstance, opts: DiscoveryRoute
   // POST /projects/:name/discover/run — kick off a discovery session
   app.post<{
     Params: { name: string }
-    Body: { icpDescription?: string; dedupThreshold?: number; maxProbes?: number; probeConcurrency?: number; locations?: string[] }
+    Body: { icpDescription?: string; buyerDescription?: string; dedupThreshold?: number; maxProbes?: number; probeConcurrency?: number; locations?: string[] }
   }>('/projects/:name/discover/run', async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
 
@@ -251,6 +253,7 @@ export async function discoveryRoutes(app: FastifyInstance, opts: DiscoveryRoute
       sessionId: decision.sessionId,
       projectId: project.id,
       icpDescription,
+      buyerDescription: parsed.data.buyerDescription,
       dedupThreshold: parsed.data.dedupThreshold,
       maxProbes: parsed.data.maxProbes,
       probeConcurrency: parsed.data.probeConcurrency,
@@ -655,6 +658,7 @@ function serializeSession(row: typeof discoverySessions.$inferSelect): Discovery
     seedCount: row.seedCount ?? null,
     seedFromAnswerCount: row.seedFromAnswerCount ?? null,
     seedFromGroundingCount: row.seedFromGroundingCount ?? null,
+    seedBrandFilteredCount: row.seedBrandFilteredCount ?? null,
     dedupThreshold: row.dedupThreshold ?? null,
     probeCount: row.probeCount ?? null,
     citedCount: row.citedCount ?? null,

@@ -120,9 +120,10 @@ export const DISCOVER_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['discover', 'run'],
     usage:
-      'canonry discover run <project> [--icp "..."] [--icp-angle "..."] [--locations michigan,florida] [--dedup-threshold 0.95] [--max-probes 100] [--probe-concurrency 3] [--wait] [--format json]',
+      'canonry discover run <project> [--icp "..."] [--buyer "..."] [--icp-angle "..."] [--locations michigan,florida] [--dedup-threshold 0.95] [--max-probes 100] [--probe-concurrency 3] [--wait] [--format json]',
     options: {
       icp: stringOption(),
+      buyer: stringOption(),
       'icp-angle': multiStringOption(),
       locations: multiStringOption(),
       'dedup-threshold': stringOption(),
@@ -132,10 +133,11 @@ export const DISCOVER_CLI_COMMANDS: readonly CliCommandSpec[] = [
     },
     run: async (input) => {
       const usage =
-        'canonry discover run <project> [--icp "..."] [--icp-angle "..."] [--locations michigan,florida] [--dedup-threshold 0.95] [--max-probes 100] [--probe-concurrency 3] [--wait] [--format json]'
+        'canonry discover run <project> [--icp "..."] [--buyer "..."] [--icp-angle "..."] [--locations michigan,florida] [--dedup-threshold 0.95] [--max-probes 100] [--probe-concurrency 3] [--wait] [--format json]'
       const project = requireProject(input, 'discover.run', usage)
       await discoverRun(project, {
         icp: getString(input.values, 'icp'),
+        buyer: getString(input.values, 'buyer'),
         icpAngles: getStringArray(input.values, 'icp-angle'),
         locations: parseLocationsOption(input.values),
         dedupThreshold: parseFloatOption(input.values, 'dedup-threshold', usage),
@@ -157,9 +159,10 @@ export const DISCOVER_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['discover', 'seed'],
     usage:
-      'canonry discover seed <project> [--icp "..."] [--icp-angle "..."] [--locations michigan,florida] [--dedup-threshold 0.95] [--max-probes 100] [--probe-concurrency 3] [--wait] [--format json]',
+      'canonry discover seed <project> [--icp "..."] [--buyer "..."] [--icp-angle "..."] [--locations michigan,florida] [--dedup-threshold 0.95] [--max-probes 100] [--probe-concurrency 3] [--wait] [--format json]',
     options: {
       icp: stringOption(),
+      buyer: stringOption(),
       'icp-angle': multiStringOption(),
       locations: multiStringOption(),
       'dedup-threshold': stringOption(),
@@ -169,10 +172,11 @@ export const DISCOVER_CLI_COMMANDS: readonly CliCommandSpec[] = [
     },
     run: async (input) => {
       const usage =
-        'canonry discover seed <project> [--icp "..."] [--icp-angle "..."] [--locations michigan,florida] [--dedup-threshold 0.95] [--max-probes 100] [--probe-concurrency 3] [--wait] [--format json]'
+        'canonry discover seed <project> [--icp "..."] [--buyer "..."] [--icp-angle "..."] [--locations michigan,florida] [--dedup-threshold 0.95] [--max-probes 100] [--probe-concurrency 3] [--wait] [--format json]'
       const project = requireProject(input, 'discover.seed', usage)
       await discoverSeed(project, {
         icp: getString(input.values, 'icp'),
+        buyer: getString(input.values, 'buyer'),
         icpAngles: getStringArray(input.values, 'icp-angle'),
         locations: parseLocationsOption(input.values),
         dedupThreshold: parseFloatOption(input.values, 'dedup-threshold', usage),

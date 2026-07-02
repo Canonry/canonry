@@ -3847,6 +3847,7 @@ const routeCatalog: OpenApiOperation[] = [
             type: 'object',
             properties: {
               icpDescription: { type: 'string', description: 'Free-text ICP. Required if the project does not have spec.icpDescription stored.' },
+              buyerDescription: { type: 'string', description: 'Who evaluates or buys the offering, separate from the ICP. When present, every generated seed query is anchored on this buyer and the seed prompt enforces buyer-fit.' },
               dedupThreshold: { type: 'number', description: 'Cosine similarity threshold for clustering. Defaults to 0.95.' },
               maxProbes: { type: 'integer', description: 'Max canonical queries to probe in this session. Default 100, hard cap 500.' },
               probeConcurrency: {

@@ -1939,6 +1939,16 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `ALTER TABLE discovery_sessions ADD COLUMN seed_from_grounding_count INTEGER`,
     ],
   },
+  {
+    version: 89,
+    name: 'discovery-session-brand-filter-count',
+    statements: [
+      // Diagnostics: raw candidates dropped by the branded self-query filter
+      // before seed_count_raw was recorded. Nullable — legacy sessions stay
+      // null. Idempotent (the runner swallows the duplicate-column error).
+      `ALTER TABLE discovery_sessions ADD COLUMN seed_brand_filtered_count INTEGER`,
+    ],
+  },
 ]
 
 /**

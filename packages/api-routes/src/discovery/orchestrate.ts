@@ -12,6 +12,7 @@ import {
   DiscoveryCompetitorTypes,
   DiscoverySessionStatuses,
   clusterByCosine,
+  filterBrandedSeedCandidates,
   mapWithConcurrency,
   pickClusterRepresentative,
   seedCollapseWarning,
@@ -90,6 +91,12 @@ export interface DiscoveryDeps {
     project: DiscoveryProjectContext
     icpDescription: string
     /**
+     * Who evaluates or buys the offering, separate from what is sold. When
+     * present, a buyer-aware seed implementation anchors every generated query
+     * on this buyer.
+     */
+    buyerDescription?: string
+    /**
      * Resolved service-area locations for this session — empty when the
      * project has no locations configured (or when a deployment does not
      * resolve them). A location-aware seed implementation geographically
@@ -126,6 +133,8 @@ export interface ExecuteDiscoveryOptions {
   sessionId: string
   project: DiscoveryProjectContext
   icpDescription: string
+  /** Optional buyer definition forwarded verbatim to `deps.seed`. */
+  buyerDescription?: string
   dedupThreshold?: number
   maxProbes?: number
   /**
@@ -300,10 +309,23 @@ export async function executeDiscovery(opts: ExecuteDiscoveryOptions): Promise<E
   const seedResult = await opts.deps.seed({
     project: opts.project,
     icpDescription: opts.icpDescription,
+    buyerDescription: opts.buyerDescription,
     locations: opts.locations ?? [],
   })
 
-  const rawCandidates = dedupeStrings(seedResult.candidates)
+  // Seed hygiene: drop branded self-queries BEFORE seedCountRaw is recorded.
+  // Ordering is load-bearing — live sessions carried 37-60% brand share, and
+  // counting the branded mass in the denominator would deflate the retention
+  // ratio and false-trip collapse guards downstream. The drop count is
+  // persisted as a diagnostic; the prompt-side no-brand rule makes the drop
+  // small, this filter is the deterministic backstop.
+  const { kept: unbrandedCandidates, droppedBranded } = filterBrandedSeedCandidates({
+    candidates: seedResult.candidates,
+    brandNames: opts.project.brandNames ?? [],
+    canonicalDomains: opts.project.canonicalDomains,
+  })
+
+  const rawCandidates = dedupeStrings(unbrandedCandidates)
   const seedCountRaw = rawCandidates.length
 
   const canonicals = await pickCanonicals(
@@ -336,6 +358,7 @@ export async function executeDiscovery(opts: ExecuteDiscoveryOptions): Promise<E
       // the seed dep does not report the split. Not consumed by any gate.
       seedFromAnswerCount: seedResult.fromAnswerCount ?? null,
       seedFromGroundingCount: seedResult.fromGroundingCount ?? null,
+      seedBrandFilteredCount: droppedBranded.length,
       warning,
     })
     .where(eq(discoverySessions.id, opts.sessionId))

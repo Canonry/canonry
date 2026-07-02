@@ -106,6 +106,13 @@ export const discoverySessionDtoSchema = z.object({
    */
   seedFromAnswerCount: z.number().int().nullable().optional(),
   seedFromGroundingCount: z.number().int().nullable().optional(),
+  /**
+   * Diagnostics: how many raw seed candidates were dropped by the branded
+   * self-query filter before seedCountRaw was recorded (the customer's own
+   * brand or domain in the query text). Null on legacy sessions. Purely
+   * additive: no gate or warning reads it.
+   */
+  seedBrandFilteredCount: z.number().int().nullable().optional(),
   dedupThreshold: z.number().nullable().optional(),
   probeCount: z.number().int().nullable().optional(),
   citedCount: z.number().int().nullable().default(null),
@@ -210,8 +217,94 @@ export function seedCollapseWarning(input: {
   )
 }
 
+/**
+ * Seed hygiene: split raw seed candidates into branded self-queries (the
+ * customer's own brand name or domain appears in the query text) and everything
+ * else. Branded self-queries measure brand recall, not buyer visibility: the
+ * searcher already knows the business by name, the product's own taxonomy
+ * excludes branded-navigational clusters from ad groups, and on invisible
+ * domains they waste probe budget without even inflating the cited signal.
+ *
+ * MUST run on the RAW candidate list BEFORE `seedCountRaw` is recorded:
+ * per-session brand shares of 37-60% were observed live, and filtering after
+ * the count would deflate the retention ratio and false-trip collapse guards.
+ *
+ * Matching is deliberately conservative:
+ *  - brand names match as whole-token phrases (case- and whitespace-insensitive),
+ *    plus their squashed form ("AZ Coatings" also matches "azcoatings") when it
+ *    is 4+ characters;
+ *  - canonical domains match as full hosts with and without "www."
+ *    ("azcoatings.com", "www.azcoatings.com") but NEVER as the bare label —
+ *    a business at roofing.com must not drop every "roofing" query;
+ *  - competitor brand names are untouched (only the customer's identities are
+ *    filtered), so comparative queries between competitors survive.
+ */
+export function filterBrandedSeedCandidates(input: {
+  candidates: readonly string[]
+  /** The customer's brand identities (effectiveBrandNames output). */
+  brandNames: readonly string[]
+  canonicalDomains: readonly string[]
+}): { kept: string[]; droppedBranded: string[] } {
+  const tokens = brandMatchTokens(input.brandNames, input.canonicalDomains)
+  if (tokens.length === 0) return { kept: [...input.candidates], droppedBranded: [] }
+  const kept: string[] = []
+  const droppedBranded: string[] = []
+  for (const candidate of input.candidates) {
+    const normalized = normalizeForBrandMatch(candidate)
+    if (tokens.some(token => containsWholeToken(normalized, token))) droppedBranded.push(candidate)
+    else kept.push(candidate)
+  }
+  return { kept, droppedBranded }
+}
+
+function normalizeForBrandMatch(text: string): string {
+  return text.toLowerCase().replace(/\s+/g, ' ').trim()
+}
+
+function brandMatchTokens(brandNames: readonly string[], canonicalDomains: readonly string[]): string[] {
+  const tokens = new Set<string>()
+  for (const name of brandNames) {
+    const normalized = normalizeForBrandMatch(name)
+    // One- or two-character "brands" ("A", "GO") are indistinguishable from
+    // ordinary words; matching them would shred generic queries.
+    if (normalized.length < 3) continue
+    tokens.add(normalized)
+    const squashed = normalized.replace(/[^a-z0-9]/g, '')
+    if (squashed.length >= 4 && squashed !== normalized) tokens.add(squashed)
+  }
+  for (const domain of canonicalDomains) {
+    const host = normalizeForBrandMatch(domain).replace(/^www\./, '')
+    if (!host) continue
+    tokens.add(host)
+    tokens.add(`www.${host}`)
+  }
+  return [...tokens]
+}
+
+/** Whole-token containment: the match must not extend an adjacent alphanumeric
+ *  run ("subclassing" never matches "class"; "azcoatings.com/reviews" matches
+ *  "azcoatings.com" because "/" is a boundary). */
+function containsWholeToken(normalized: string, token: string): boolean {
+  let index = normalized.indexOf(token)
+  while (index !== -1) {
+    const before = index === 0 ? ' ' : normalized[index - 1]!
+    const afterIndex = index + token.length
+    const after = afterIndex >= normalized.length ? ' ' : normalized[afterIndex]!
+    if (!/[a-z0-9]/.test(before) && !/[a-z0-9]/.test(after)) return true
+    index = normalized.indexOf(token, index + 1)
+  }
+  return false
+}
+
 export const discoveryRunRequestSchema = z.object({
   icpDescription: z.string().min(1).optional(),
+  /**
+   * Who evaluates or buys the offering, separate from what is sold
+   * (icpDescription). When present, the seed prompt anchors every generated
+   * query on this buyer, so discovery selects buyer-fit demand instead of
+   * generic provider comparisons.
+   */
+  buyerDescription: z.string().min(1).optional(),
   dedupThreshold: z.number().min(0).max(1).optional(),
   maxProbes: z.number().int().positive().max(DISCOVERY_MAX_PROBES_CAP).optional(),
   /**

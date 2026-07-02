@@ -915,6 +915,9 @@ export const discoverySessions = sqliteTable('discovery_sessions', {
   // seed time; nullable for legacy sessions. No gate/warning math reads these.
   seedFromAnswerCount: integer('seed_from_answer_count'),
   seedFromGroundingCount: integer('seed_from_grounding_count'),
+  // Diagnostics: raw candidates dropped by the branded self-query filter
+  // before seed_count_raw was recorded. Nullable for legacy sessions.
+  seedBrandFilteredCount: integer('seed_brand_filtered_count'),
   dedupThreshold: real('dedup_threshold'),
   probeCount: integer('probe_count'),
   citedCount: integer('cited_count'),

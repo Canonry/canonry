@@ -2343,3 +2343,84 @@ describe('GET /discover/sessions/:id/harvest', () => {
     expect(response.statusCode).toBe(404)
   })
 })
+
+describe('executeDiscovery seed hygiene', () => {
+  const cleanups: Array<() => void> = []
+  afterEach(() => {
+    while (cleanups.length) cleanups.pop()!()
+  })
+
+  it('drops branded self-queries BEFORE seedCountRaw, records the diagnostic, and never probes them', async () => {
+    const { db, tmpDir } = buildApp()
+    cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
+    const { projectId } = seedProject(db, { icpDescription: 'solar contractors' })
+    const sessionId = crypto.randomUUID()
+    const runId = crypto.randomUUID()
+    const now = new Date().toISOString()
+    db.insert(discoverySessions).values({
+      id: sessionId, projectId, status: 'queued', icpDescription: 'solar contractors', competitorMap: [], createdAt: now,
+    }).run()
+    db.insert(runs).values({
+      id: runId, projectId, kind: 'aeo-discover-probe', status: 'queued', trigger: 'manual', createdAt: now,
+    }).run()
+
+    let seedInput: { buyerDescription?: string } | null = null
+    const deps: DiscoveryDeps = {
+      async seed(input) {
+        seedInput = input
+        return {
+          candidates: [
+            'demand iq reviews', // branded: phrase match on brand name
+            'is demand-iq.com legit', // branded: canonical domain
+            'best solar quoting tool',
+            'compare solar quoting tools',
+          ],
+          provider: 'gemini-test',
+        }
+      },
+      async embed(queries) {
+        return queries.map((q) => {
+          const vec = new Array(26).fill(0)
+          vec[Math.max(0, q.toLowerCase().charCodeAt(0) - 97)] = 1
+          return vec
+        })
+      },
+      async probe() {
+        return { citationState: 'not-cited', citedDomains: [], answerMentioned: false, rawResponse: {} }
+      },
+      async classifyDomains() {
+        return {}
+      },
+    }
+
+    const result = await executeDiscovery({
+      db, runId, sessionId,
+      project: {
+        id: projectId,
+        name: 'demand-iq',
+        brandNames: ['Demand IQ'],
+        canonicalDomains: ['demand-iq.com'],
+        competitorDomains: [],
+      },
+      icpDescription: 'solar contractors',
+      buyerDescription: 'solar sales managers comparing quoting tools',
+      deps,
+    })
+
+    // Branded candidates never reach the denominator: 4 raw candidates from
+    // the model, 2 branded, seedCountRaw records 2.
+    expect(result.seedCountRaw).toBe(2)
+    expect(seedInput?.buyerDescription).toBe('solar sales managers comparing quoting tools')
+
+    const sessionRow = db.select().from(discoverySessions).get()!
+    expect(sessionRow.seedCountRaw).toBe(2)
+    expect(sessionRow.seedBrandFilteredCount).toBe(2)
+
+    const probes = db.select().from(discoveryProbes).all()
+    expect(probes.length).toBeGreaterThan(0)
+    for (const probe of probes) {
+      expect(probe.query.toLowerCase()).not.toContain('demand iq')
+      expect(probe.query.toLowerCase()).not.toContain('demand-iq.com')
+    }
+  })
+})

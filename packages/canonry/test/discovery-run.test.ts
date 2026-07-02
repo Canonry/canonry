@@ -685,3 +685,36 @@ describe('buildDefaultDeps probe() computes the mention signal independently of 
     expect(res.answerMentioned).toBe(true)
   })
 })
+
+describe('buildSeedPrompt seed hygiene', () => {
+  const project = {
+    id: 'p1',
+    name: 'demand-iq',
+    brandNames: ['Demand IQ'],
+    canonicalDomains: ['demand-iq.com'],
+    competitorDomains: [],
+  }
+
+  it('always states the no-brand hard rule with the concrete identities', () => {
+    const prompt = buildSeedPrompt({ project, icpDescription: 'solar contractors' })
+    expect(prompt).toMatch(/NEVER include the customer's own brand name or domain/)
+    expect(prompt).toContain('Demand IQ')
+    expect(prompt).toContain('demand-iq.com')
+    expect(prompt).toMatch(/EARN the mention/)
+  })
+
+  it('anchors on the buyer when buyerDescription is provided', () => {
+    const prompt = buildSeedPrompt({
+      project,
+      icpDescription: 'solar contractors',
+      buyerDescription: 'solar sales managers comparing quoting tools',
+    })
+    expect(prompt).toContain('Buyer: solar sales managers comparing quoting tools')
+    expect(prompt).toMatch(/Every query must be one this buyer would plausibly type/)
+  })
+
+  it('omits the buyer block when no buyerDescription is given', () => {
+    const prompt = buildSeedPrompt({ project, icpDescription: 'solar contractors' })
+    expect(prompt).not.toContain('Buyer:')
+  })
+})

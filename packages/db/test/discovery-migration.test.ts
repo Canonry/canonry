@@ -355,3 +355,13 @@ test('v88 is idempotent: re-running migrate() over an up-to-date database is a n
   expect(columnExists(db, 'discovery_sessions', 'seed_from_answer_count')).toBe(true)
   expect(columnExists(db, 'discovery_sessions', 'seed_from_grounding_count')).toBe(true)
 })
+
+test('v89 adds discovery_sessions.seed_brand_filtered_count column', () => {
+  const { db, tmpDir } = createTempDb()
+  try {
+    const cols = db.$client.prepare(`PRAGMA table_info(discovery_sessions)`).all() as Array<{ name: string }>
+    expect(cols.some((c) => c.name === 'seed_brand_filtered_count')).toBe(true)
+  } finally {
+    cleanup(tmpDir)
+  }
+})
