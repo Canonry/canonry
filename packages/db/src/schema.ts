@@ -910,6 +910,11 @@ export const discoverySessions = sqliteTable('discovery_sessions', {
   seedProvider: text('seed_provider'),
   seedCountRaw: integer('seed_count_raw'),
   seedCount: integer('seed_count'),
+  // Diagnostics: split of the raw seed candidates by source — the model's
+  // answer text vs. the grounding fan-out (issued search queries). Recorded at
+  // seed time; nullable for legacy sessions. No gate/warning math reads these.
+  seedFromAnswerCount: integer('seed_from_answer_count'),
+  seedFromGroundingCount: integer('seed_from_grounding_count'),
   dedupThreshold: real('dedup_threshold'),
   probeCount: integer('probe_count'),
   citedCount: integer('cited_count'),

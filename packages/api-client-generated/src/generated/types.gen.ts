@@ -684,6 +684,8 @@ export type DiscoverySessionDetailDto = {
     seedProvider?: string | null;
     seedCountRaw?: number | null;
     seedCount?: number | null;
+    seedFromAnswerCount?: number | null;
+    seedFromGroundingCount?: number | null;
     dedupThreshold?: number | null;
     probeCount?: number | null;
     citedCount: number | null;
@@ -720,6 +722,8 @@ export type DiscoverySessionDto = {
     seedProvider?: string | null;
     seedCountRaw?: number | null;
     seedCount?: number | null;
+    seedFromAnswerCount?: number | null;
+    seedFromGroundingCount?: number | null;
     dedupThreshold?: number | null;
     probeCount?: number | null;
     citedCount: number | null;
@@ -9844,6 +9848,10 @@ export type PostApiV1ProjectsByNameDiscoverRunData = {
          * Max canonical queries to probe in this session. Default 100, hard cap 500.
          */
         maxProbes?: number;
+        /**
+         * How many probes may run in parallel. Default 1 (strictly serial — the historical behaviour), hard cap 8. Probe rows are persisted in canonical order regardless of concurrency, so this only shortens wall-clock time.
+         */
+        probeConcurrency?: number;
         /**
          * Optional override of the project location labels used to geo-constrain seed generation. Each label must match a configured project location; an unknown label is a 400. Omit to use every project location.
          */

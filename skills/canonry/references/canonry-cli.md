@@ -383,6 +383,7 @@ cnry google request-indexing <project> --all-unindexed # push all unknown pages
 cnry discover run <project> --icp "..." --wait --format json    # full pipeline: seed → embed → cluster → probe → bucket
 cnry discover run <project> --icp "..." --dedup-threshold 0.95  # tune cosine threshold (default 0.95)
 cnry discover run <project> --icp "..." --max-probes 100         # per-session probe budget (default 100, hard cap 500)
+cnry discover run <project> --icp "..." --probe-concurrency 3    # parallel probe workers (default 1 = serial, hard cap 8); probe rows stay in canonical order
 cnry discover run <project> --icp-angle "angle 1" --icp-angle "angle 2" --wait  # multi-angle: one session per ICP angle, useful for hyperlocal/niche businesses
 cnry discover run <project> --icp "..." --locations michigan,florida  # geo-constrain seed generation to a subset of project locations (omit = all project locations)
 

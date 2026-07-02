@@ -13,6 +13,8 @@ import {
   DiscoverySessionStatuses,
   discoverySessionStatusSchema,
   DISCOVERY_MAX_PROBES_CAP,
+  DISCOVERY_PROBE_CONCURRENCY_CAP,
+  DISCOVERY_DEFAULT_PROBE_CONCURRENCY,
   DISCOVERY_DEFAULT_DEDUP_THRESHOLD,
   DISCOVERY_SEED_COLLAPSE_MIN_RAW,
   DISCOVERY_SEED_COLLAPSE_RATIO,
@@ -166,6 +168,45 @@ test('discoverySessionDtoSchema parses an in-flight session with pre/post dedup 
   expect(session.competitorMap).toEqual([
     { domain: 'theyellowsign.com', hits: 4, competitorType: 'direct-competitor' },
   ])
+})
+
+test('discoverySessionDtoSchema carries the seed-source diagnostic split (nullable, optional)', () => {
+  const withSplit = discoverySessionDtoSchema.parse({
+    id: 'sess_1',
+    projectId: 'proj_1',
+    status: 'completed',
+    seedFromAnswerCount: 28,
+    seedFromGroundingCount: 9,
+    createdAt: '2026-05-11T12:00:00.000Z',
+  })
+  expect(withSplit.seedFromAnswerCount).toBe(28)
+  expect(withSplit.seedFromGroundingCount).toBe(9)
+
+  // Legacy session — the split is simply absent, never coerced to 0.
+  const legacy = discoverySessionDtoSchema.parse({
+    id: 'sess_2',
+    projectId: 'proj_1',
+    status: 'completed',
+    createdAt: '2026-05-11T12:00:00.000Z',
+  })
+  expect(legacy.seedFromAnswerCount).toBeUndefined()
+  expect(legacy.seedFromGroundingCount).toBeUndefined()
+})
+
+test('discoveryRunRequestSchema bounds probeConcurrency to 1..DISCOVERY_PROBE_CONCURRENCY_CAP', () => {
+  expect(DISCOVERY_PROBE_CONCURRENCY_CAP).toBe(8)
+  expect(DISCOVERY_DEFAULT_PROBE_CONCURRENCY).toBe(1)
+
+  // Omitted — valid; the orchestrator applies the serial default of 1.
+  expect(discoveryRunRequestSchema.parse({}).probeConcurrency).toBeUndefined()
+  // In-range values pass.
+  expect(discoveryRunRequestSchema.parse({ probeConcurrency: 1 }).probeConcurrency).toBe(1)
+  expect(discoveryRunRequestSchema.parse({ probeConcurrency: 3 }).probeConcurrency).toBe(3)
+  expect(discoveryRunRequestSchema.parse({ probeConcurrency: 8 }).probeConcurrency).toBe(8)
+  // Out-of-range / non-integer values are rejected at the contract boundary.
+  expect(() => discoveryRunRequestSchema.parse({ probeConcurrency: 0 })).toThrow()
+  expect(() => discoveryRunRequestSchema.parse({ probeConcurrency: 9 })).toThrow()
+  expect(() => discoveryRunRequestSchema.parse({ probeConcurrency: 2.5 })).toThrow()
 })
 
 test('discoverySessionDtoSchema defaults bucket counts to null when unset', () => {
@@ -340,12 +381,24 @@ test('seedCollapseWarning pluralizes the canonical count', () => {
   expect(warning).toContain('into 5 canonical queries')
 })
 
-test('seedCollapseWarning ratio boundary: strictly below the floor warns, at the floor does not', () => {
+test('seedCollapseWarning ratio boundary is INCLUSIVE: at or below the floor warns, above does not', () => {
   expect(DISCOVERY_SEED_COLLAPSE_RATIO).toBe(0.2)
   // 1/10 = 0.1 < 0.2 — warns
   expect(seedCollapseWarning({ seedCountRaw: 10, canonicalCount: 1, dedupThreshold: 0.95 })).not.toBeNull()
-  // 2/10 = 0.2, not strictly below the floor — healthy
-  expect(seedCollapseWarning({ seedCountRaw: 10, canonicalCount: 2, dedupThreshold: 0.95 })).toBeNull()
+  // 2/10 = 0.2, exactly at the floor — degenerate, warns (inclusive threshold)
+  expect(seedCollapseWarning({ seedCountRaw: 10, canonicalCount: 2, dedupThreshold: 0.95 })).not.toBeNull()
+  // 3/10 = 0.3, strictly above the floor — healthy
+  expect(seedCollapseWarning({ seedCountRaw: 10, canonicalCount: 3, dedupThreshold: 0.95 })).toBeNull()
+})
+
+test('seedCollapseWarning regression: exactly 6 of 30 (0.20 retention) warns', () => {
+  // The old `>=` comparison let a session at exactly the collapse ratio slip
+  // through unwarned. 6/30 is the observed real-world boundary case.
+  const warning = seedCollapseWarning({ seedCountRaw: 30, canonicalCount: 6, dedupThreshold: 0.95 })
+  expect(warning).not.toBeNull()
+  expect(warning).toContain('collapsed 30 raw candidates into 6 canonical queries')
+  // One canonical more (7/30 ≈ 0.233) clears the inclusive floor.
+  expect(seedCollapseWarning({ seedCountRaw: 30, canonicalCount: 7, dedupThreshold: 0.95 })).toBeNull()
 })
 
 test('seedCollapseWarning ignores seed sets below the minimum raw count', () => {

@@ -26,6 +26,8 @@ export interface DiscoverRunOptions {
   icpAngles?: string[]
   dedupThreshold?: number
   maxProbes?: number
+  /** Probe worker-pool width (1-8). Omit for the serial default (1). */
+  probeConcurrency?: number
   /** Project location labels to geo-constrain seed generation. Resolved server-side; omit to use every project location. */
   locations?: string[]
   wait?: boolean
@@ -37,6 +39,7 @@ function buildRunBody(opts: DiscoverRunOptions, icpDescription?: string): Record
   if (icpDescription) body.icpDescription = icpDescription
   if (opts.dedupThreshold !== undefined) body.dedupThreshold = opts.dedupThreshold
   if (opts.maxProbes !== undefined) body.maxProbes = opts.maxProbes
+  if (opts.probeConcurrency !== undefined) body.probeConcurrency = opts.probeConcurrency
   if (opts.locations && opts.locations.length > 0) body.locations = opts.locations
   return body
 }
