@@ -38,7 +38,8 @@ import {
   authInvalid,
   authRequired,
   validationError,
-  buildEmbedClientConfig,
+  embedClientConfigForRequest,
+  serializeForInlineScript,
   frameAncestorsHeaderValue,
   CcReleaseSyncStatuses,
   RunKinds,
@@ -2085,17 +2086,24 @@ export async function createServer(opts: {
     const indexPath = path.join(assetsDir, "index.html");
 
     // basePath is already resolved above. Used here for SPA serving.
-    const injectConfig = (html: string): string => {
+    const injectConfig = (html: string, projectTabsOverride?: string | string[]): string => {
       const clientConfig: Record<string, unknown> = {};
       if (basePath) clientConfig.basePath = basePath;
       // Embed block is appended LAST and only when enabled, so the default
       // (non-embed) serve emits byte-for-byte the same `{}` / `{basePath}`.
+      // `projectTabs` may be overridden PER REQUEST by the X-Canonry-Embed-Tabs
+      // header the Embed v2 /e proxy sets per dashboard (the end client cannot
+      // reach this loopback engine to set it); absent header keeps the boot config.
       if (embed.enabled) {
-        const embedClient = buildEmbedClientConfig(embed);
+        const embedClient = embedClientConfigForRequest(embed, projectTabsOverride);
         if (embedClient) clientConfig.embed = embedClient;
       }
 
-      const configScript = `<script>window.__CANONRY_CONFIG__=${JSON.stringify(clientConfig)}</script>`;
+      // serializeForInlineScript (NOT bare JSON.stringify): escapes < > & and the
+      // JS line separators so a value containing </script> can never break out of
+      // this inline script. The per-request projectTabs override is the first
+      // request-derived value to reach here, so this is a hard requirement.
+      const configScript = `<script>window.__CANONRY_CONFIG__=${serializeForInlineScript(clientConfig)}</script>`;
       // Inject <base href> unconditionally so relative asset paths (`./assets/…`)
       // resolve against the mount point instead of the current URL. Without this,
       // deep-links like `/projects/ainyc` request `/projects/assets/…js`, hit the
@@ -2115,7 +2123,7 @@ export async function createServer(opts: {
     const sendSpaDocument = (reply: FastifyReply, html: string) => {
       reply.header("Cache-Control", "no-cache, must-revalidate");
       if (embedCsp) reply.header("Content-Security-Policy", embedCsp);
-      return reply.type("text/html").send(injectConfig(html));
+      return reply.type("text/html").send(injectConfig(html, reply.request.headers["x-canonry-embed-tabs"]));
     };
 
     const fastifyStatic = await import("@fastify/static");

@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest'
-import { embedViewIdForPath, embedThemeStyle } from '../src/embed.js'
+import { embedViewIdForPath, embedThemeStyle, isEmbedProjectTabAllowed, resolveEmbedProjectTab } from '../src/embed.js'
 import { getEmbedConfig } from '../src/api.js'
 
 type WindowLike = { __CANONRY_CONFIG__?: { embed?: { enabled: boolean; views?: string[]; theme?: Record<string, string> } } }
@@ -77,5 +77,40 @@ describe('getEmbedConfig', () => {
   it('returns the embed block when enabled', () => {
     globalRef.window = { __CANONRY_CONFIG__: { embed: { enabled: true, views: ['overview'] } } }
     expect(getEmbedConfig()).toEqual({ enabled: true, views: ['overview'] })
+  })
+})
+
+describe('isEmbedProjectTabAllowed', () => {
+  it('allows every tab when the allowlist is undefined (non-embed / unset)', () => {
+    expect(isEmbedProjectTabAllowed('backlinks', undefined)).toBe(true)
+    expect(isEmbedProjectTabAllowed('settings', undefined)).toBe(true)
+  })
+
+  it('allows only the listed tabs when an allowlist is set', () => {
+    const allow = ['overview', 'technical-aeo']
+    expect(isEmbedProjectTabAllowed('overview', allow)).toBe(true)
+    expect(isEmbedProjectTabAllowed('technical-aeo', allow)).toBe(true)
+    expect(isEmbedProjectTabAllowed('search-console', allow)).toBe(false)
+    expect(isEmbedProjectTabAllowed('activity', allow)).toBe(false)
+    expect(isEmbedProjectTabAllowed('backlinks', allow)).toBe(false)
+  })
+})
+
+describe('resolveEmbedProjectTab', () => {
+  it('returns the requested tab unchanged with no allowlist', () => {
+    expect(resolveEmbedProjectTab('backlinks', undefined)).toBe('backlinks')
+  })
+
+  it('returns the requested tab when it is allowed', () => {
+    expect(resolveEmbedProjectTab('technical-aeo', ['overview', 'technical-aeo'])).toBe('technical-aeo')
+  })
+
+  it('falls back to overview when the requested tab is hidden', () => {
+    expect(resolveEmbedProjectTab('backlinks', ['overview', 'technical-aeo'])).toBe('overview')
+    expect(resolveEmbedProjectTab('search-console', ['overview', 'technical-aeo'])).toBe('overview')
+  })
+
+  it('falls back to the first allowed tab when even overview is hidden', () => {
+    expect(resolveEmbedProjectTab('backlinks', ['technical-aeo', 'report'])).toBe('technical-aeo')
   })
 })
