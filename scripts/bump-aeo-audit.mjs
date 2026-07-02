@@ -134,8 +134,8 @@ function main() {
   }
 
   const versionNote = bumpCanonryVersion
-    ? `\`@ainyc/canonry\` ${canonryFrom} -> ${canonryTo} (ships to npm on merge).`
-    : '`@ainyc/canonry` version unchanged — the engine updates in-repo and ships with the next canonry release.'
+    ? `\`@canonry/canonry\` ${canonryFrom} -> ${canonryTo} (ships to npm on merge).`
+    : '`@canonry/canonry` version unchanged — the engine updates in-repo and ships with the next canonry release.'
 
   emitOutput({
     changed: 'true',

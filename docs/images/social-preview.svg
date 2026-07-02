@@ -97,7 +97,7 @@
     <g transform="translate(500, 480)">
       <rect x="0" y="0" width="340" height="40" rx="8" fill="#18181b" stroke="#27272a" stroke-width="1.5"/>
       <text x="16" y="26" font-family="'SF Mono', 'Fira Code', 'JetBrains Mono', monospace" font-size="15" fill="#71717a">$</text>
-      <text x="32" y="26" font-family="'SF Mono', 'Fira Code', 'JetBrains Mono', monospace" font-size="15" fill="#d4d4d8">npx @ainyc/canonry init</text>
+      <text x="32" y="26" font-family="'SF Mono', 'Fira Code', 'JetBrains Mono', monospace" font-size="15" fill="#d4d4d8">npx @canonry/canonry init</text>
     </g>
   </g>
 

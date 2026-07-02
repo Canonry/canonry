@@ -113,7 +113,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
-      - run: pnpm --filter @ainyc/canonry build
+      - run: pnpm --filter @canonry/canonry build
         name: Build canonry (required for pnpm pack)
       - name: Pack canonry tarball
         id: pack

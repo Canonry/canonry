@@ -11,7 +11,7 @@ New public API/CLI capabilities should get MCP parity by default. If a capabilit
 Install Canonry normally:
 
 ```bash
-npm install -g @ainyc/canonry
+npm install -g @canonry/canonry
 ```
 
 The package exposes one MCP executable:

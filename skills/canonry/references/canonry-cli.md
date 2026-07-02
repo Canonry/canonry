@@ -1,6 +1,6 @@
 # Canonry CLI Reference
 
-The CLI is invoked as `cnry` (short form) or `canonry` — both ship with the `@ainyc/canonry` npm package and behave identically. This reference uses `cnry`.
+The CLI is invoked as `cnry` (short form) or `canonry` — both ship with the `@canonry/canonry` npm package and behave identically. This reference uses `cnry`.
 
 ## Server Management
 

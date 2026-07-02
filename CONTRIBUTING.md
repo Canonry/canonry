@@ -5,7 +5,7 @@ Thanks for your interest in contributing! Canonry is FSL-1.1-ALv2 licensed and w
 ## Setup
 
 ```bash
-git clone https://github.com/ainyc/canonry.git
+git clone https://github.com/Canonry/canonry.git
 cd canonry
 pnpm install
 ```
@@ -40,7 +40,7 @@ packages/provider-*/      Provider adapters (Gemini, OpenAI, Claude, local)
 apps/web/                 Vite SPA source (bundled into packages/canonry/assets/)
 ```
 
-Only `@ainyc/canonry` is published to npm. All other packages are internal workspace dependencies bundled by tsup at build time.
+`@canonry/canonry` is the primary npm package. `@ainyc/canonry` is also published at the same versions for compatibility. All other packages are internal workspace dependencies bundled by tsup at build time.
 
 ## Guidelines
 

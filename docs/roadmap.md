@@ -19,7 +19,7 @@ Canonry is a fully functional agent-first open-source AEO operating platform wit
 - **OpenAPI spec**: Auto-generated at `/api/v1/openapi.json`
 - **SQLite**: Local-first with Drizzle ORM and auto-migration
 
-Published as `@ainyc/canonry` on npm.
+Published as `@canonry/canonry` on npm, with `@ainyc/canonry` kept as a compatibility package at the same versions.
 
 ---
 

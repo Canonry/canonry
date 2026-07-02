@@ -82,11 +82,8 @@ jobs:
 
       - run: pnpm run test
 
-      - name: Copy root README into package
-        run: cp README.md packages/canonry/README.md
-
-      - name: Build and publish
-        run: pnpm --filter @ainyc/canonry publish --no-git-checks --access public
+      - name: Build and publish npm packages
+        run: node scripts/publish-canonry-npm.mjs
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
@@ -115,7 +112,7 @@ jobs:
         uses: peter-evans/repository-dispatch@v3
         with:
           token: ${{ secrets.HOMEBREW_TAP_DISPATCH_TOKEN }}
-          repository: AINYC/homebrew-canonry
+          repository: Canonry/homebrew-canonry
           event-type: canonry-published
           client-payload: '{"version": "${{ needs.version.outputs.version }}"}'
 
@@ -236,8 +233,8 @@ jobs:
             echo "labels<<EOF"
             echo "org.opencontainers.image.title=canonry"
             echo "org.opencontainers.image.description=Open-source AEO monitoring for your domain."
-            echo "org.opencontainers.image.source=https://github.com/AINYC/canonry"
-            echo "org.opencontainers.image.url=https://github.com/AINYC/canonry"
+            echo "org.opencontainers.image.source=https://github.com/Canonry/canonry"
+            echo "org.opencontainers.image.url=https://github.com/Canonry/canonry"
             echo "org.opencontainers.image.revision=$GITHUB_SHA"
             echo "org.opencontainers.image.version=$VERSION"
             echo "org.opencontainers.image.licenses=FSL-1.1-ALv2"

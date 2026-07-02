@@ -14,8 +14,8 @@ COPY apps ./apps
 COPY packages ./packages
 
 RUN pnpm install --frozen-lockfile
-RUN pnpm --filter @ainyc/canonry build
-RUN pnpm deploy --legacy --filter @ainyc/canonry --prod /prod/app
+RUN pnpm --filter @canonry/canonry build
+RUN pnpm deploy --legacy --filter @canonry/canonry --prod /prod/app
 
 FROM public.ecr.aws/docker/library/node:20-bookworm-slim
 

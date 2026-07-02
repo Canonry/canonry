@@ -20,7 +20,7 @@ on:
         required: false
         default: ''
       bump_canonry_version:
-        description: 'Also patch @ainyc/canonry version (default off: engine updates in-repo, ships with the next canonry release)'
+        description: 'Also patch @canonry/canonry version (default off: engine updates in-repo, ships with the next canonry release)'
         type: boolean
         required: false
         default: false

@@ -1,17 +1,20 @@
 {
-  "name": "@ainyc/canonry",
-  "version": "4.103.0",
+  "name": "@canonry/canonry",
+  "version": "4.104.0",
   "type": "module",
   "description": "Agent-first open-source AEO operating platform - track how answer engines cite your domain",
   "license": "FSL-1.1-ALv2",
   "homepage": "https://canonry.ai",
   "repository": {
     "type": "git",
-    "url": "https://github.com/AINYC/canonry.git",
+    "url": "https://github.com/Canonry/canonry.git",
     "directory": "packages/canonry"
   },
   "bugs": {
-    "url": "https://github.com/AINYC/canonry/issues"
+    "url": "https://github.com/Canonry/canonry/issues"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "bin": {
     "canonry": "./bin/canonry.mjs",

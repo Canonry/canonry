@@ -2,7 +2,7 @@
 
 ## Purpose
 
-The publishable npm package (`@ainyc/canonry`). Bundles the CLI, local Fastify server, in-process job runner, provider registry, scheduler, and pre-built SPA. This is what users install with `npm install -g @ainyc/canonry`.
+The publishable npm package (`@canonry/canonry`, plus compatibility publish as `@ainyc/canonry`). Bundles the CLI, local Fastify server, in-process job runner, provider registry, scheduler, and pre-built SPA. This is what users install with `npm install -g @canonry/canonry`.
 
 ## Key Files
 
