@@ -164,9 +164,11 @@ utilities such as `text-positive`, `border-positive`, `bg-positive-soft`, and
 For off-ladder shades that no role token names, use the raw scales rather than a
 literal: neutral `mono-100/200/400/500/600/700/800/900/950` (= the matching
 `zinc-*`) and the tone scales `positive-*` / `caution-*` / `negative-*` (=
-`emerald-*` / `amber-*` / `rose-*`). Apply alpha with a Tailwind opacity modifier
-on the scale token (`bg-mono-800/30`, `bg-caution-950/25`) — this is exactly how
-`styles.css`'s one-off shades migrated with no visual change. Effect colors live
+`emerald-*` / `amber-*` / `rose-*`), plus the small `info-*` sky scale
+(`100/200/300/400/500/800/950`) for info accents. Apply alpha with a Tailwind
+opacity modifier on the scale token (`bg-mono-800/30`, `bg-caution-950/25`) —
+this is exactly how `styles.css`'s one-off shades migrated with no visual
+change. Effect colors live
 as `--color-scrollbar-thumb`, `--color-shadow-drop`, `--color-shadow-panel`,
 `--color-shadow-hairline`, `--color-shadow-tooltip`, `--color-overlay-hover`,
 `--color-overlay-scrim`, and `--color-caution-glow`.

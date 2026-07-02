@@ -141,6 +141,7 @@ test('neutral, tone, and info scale utilities compile through CSS variables', as
     'ring-offset-bg',
     'focus:border-mono-500',
     'border-caution-400/30',
+    'border-info-800/40',
     'bg-chart-series-2',
     'bg-info-500/10',
     'text-info-300',
@@ -178,6 +179,7 @@ test('neutral, tone, and info scale utilities compile through CSS variables', as
   expect(css).toContain('color-mix(in oklab, var(--color-caution-950) 25%, transparent)')
   expect(css).toContain('color-mix(in oklab, var(--color-overlay-scrim) 70%, transparent)')
   expect(css).toContain('color-mix(in oklab, var(--color-mono-950) 75%, transparent)')
+  expect(css).toContain('color-mix(in oklab, var(--color-info-800) 40%, transparent)')
   // the chart tokens are emitted unconditionally from @theme (the chart bridge
   // consumes them in a later phase)
   expect(css).toContain('--chart-series-1: #34d399')

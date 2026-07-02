@@ -110,12 +110,13 @@
   /* Info — a minor sky-blue accent (opportunity "track" cards, the
      suggested-query add action). Not one of the four semantic tones; kept as a
      small scale for its handful of off-ladder shades. */
+  --color-info-100: var(--color-sky-100);
   --color-info-200: var(--color-sky-200);
   --color-info-300: var(--color-sky-300);
-  --color-info-500: var(--color-sky-500);
-  --color-info-950: var(--color-sky-950);
-  --color-info-100: var(--color-sky-100);
   --color-info-400: var(--color-sky-400);
+  --color-info-500: var(--color-sky-500);
+  --color-info-800: var(--color-sky-800);
+  --color-info-950: var(--color-sky-950);
 
   /* Effect colors — scrollbar thumb, panel/drop shadows, the caution glow, and
      the light hover overlay. (Gauge/sparkline strokes + track consume the shared
