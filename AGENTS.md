@@ -65,7 +65,7 @@ pnpm run dev:web
 # CLI
 canonry init
 canonry serve
-canonry serve --embed --embed-allow-origin https://app.example.com [--embed-allow-origin ...] [--embed-view overview]  # opt-in read-only embed mode (#716): chromeless render + Content-Security-Policy: frame-ancestors. Off by default; serve is byte-for-byte unchanged without --embed. Fails CLOSED to frame-ancestors 'none' when no (valid) origins are configured. Env equivalents: CANONRY_EMBED=1, CANONRY_EMBED_ORIGINS=a,b (comma/space), CANONRY_EMBED_VIEWS=overview,project (env overrides config.yaml `embed:`). Cross-origin embeds cannot use the SameSite=Lax session cookie (it is not sent in a cross-site iframe) — v1 supports a same-origin embed (cookie flows) OR a self-hosted build with a read-only VITE_API_KEY (client-visible). Not an /api/v1 op, so no MCP tool (same precedent as --base-path).
+canonry serve --embed --embed-allow-origin https://app.example.com [--embed-allow-origin ...] [--embed-view overview] [--embed-project-tab overview --embed-project-tab technical-aeo]  # opt-in read-only embed mode (#716): chromeless render + Content-Security-Policy: frame-ancestors. Off by default; serve is byte-for-byte unchanged without --embed. Fails CLOSED to frame-ancestors 'none' when no (valid) origins are configured. --embed-project-tab is an allowlist of PROJECT-PAGE tabs (overview/technical-aeo/search-console/activity/backlinks/...) the embedded project dashboard may show; finer than --embed-view (which only gates whole top-level routes). Env equivalents: CANONRY_EMBED=1, CANONRY_EMBED_ORIGINS=a,b (comma/space), CANONRY_EMBED_VIEWS=overview,project, CANONRY_EMBED_PROJECT_TABS=overview,technical-aeo (env overrides config.yaml `embed:`). Cross-origin embeds cannot use the SameSite=Lax session cookie (it is not sent in a cross-site iframe) — v1 supports a same-origin embed (cookie flows) OR a self-hosted build with a read-only VITE_API_KEY (client-visible). Not an /api/v1 op, so no MCP tool (same precedent as --base-path).
 canonry start --embed --embed-allow-origin https://app.example.com   # daemon form; forwards the embed flags to the spawned serve
 canonry project create <name> --domain <domain> --country US --language en
 canonry query add <project> <query>...
@@ -116,6 +116,7 @@ canonry doctor --project <name> --check google.auth.* --format json   # filter b
 # Discovery — expand a tracked-query basket from an ICP description
 canonry discover run <project> --icp "..." [--wait] [--format json]
 canonry discover run <project> --dedup-threshold 0.95 --max-probes 100 --wait     # tune dedup / per-session probe budget (cap 500)
+canonry discover run <project> --probe-concurrency 3 --wait                       # parallel probe workers (default 1 = serial, cap 8); probe rows persist in canonical order regardless
 canonry discover run <project> --icp-angle "angle 1" --icp-angle "angle 2" --wait  # multi-angle: one session per ICP angle, aggregates coverage across niches
 canonry discover run <project> --locations michigan,florida --wait                # geo-constrain seed generation to a subset of project locations (omit = use all; projects with no locations are unaffected)
 canonry discover list <project> [--limit 20] [--format json]
@@ -601,6 +602,7 @@ The contract test `packages/api-routes/test/openapi-contract.test.ts` enforces a
 | Error factories | `packages/contracts/src/errors.ts` |
 | SQL `LIKE` wildcard escaping | `packages/contracts/src/sql-like.ts` (`escapeLikePattern` — caller adds `ESCAPE '\\'`) |
 | Retry / exponential backoff | `packages/contracts/src/retry.ts` (`withRetry`, `backoffDelayMs`, `isRetryableHttpError`) |
+| Bounded async concurrency | `packages/contracts/src/concurrency.ts` (`mapWithConcurrency` — order-preserving worker pool, fail-fast with clean settle) |
 | Telemetry funnel classification | `packages/contracts/src/telemetry.ts` (`isGhostTelemetryEvent` — shared by the CLI client drop + the cloud collector backstop) |
 | JSON column parsing (DB-only) | `packages/db` (`parseJsonColumn`) |
 

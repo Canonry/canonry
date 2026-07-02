@@ -97,6 +97,15 @@ export const discoverySessionDtoSchema = z.object({
   seedProvider: z.string().nullable().optional(),
   seedCountRaw: z.number().int().nullable().optional(),
   seedCount: z.number().int().nullable().optional(),
+  /**
+   * Diagnostics: how many raw seed candidates came from the model's answer
+   * text vs. from the grounding fan-out (the search queries the engine
+   * actually issued). Recorded at seed time so seed-quality calibration is
+   * measurable per session. Null on legacy sessions (or when a seed dep does
+   * not report the split). Purely additive — no gate or warning reads these.
+   */
+  seedFromAnswerCount: z.number().int().nullable().optional(),
+  seedFromGroundingCount: z.number().int().nullable().optional(),
   dedupThreshold: z.number().nullable().optional(),
   probeCount: z.number().int().nullable().optional(),
   citedCount: z.number().int().nullable().default(null),
@@ -129,6 +138,19 @@ export type DiscoverySessionDetailDto = z.infer<typeof discoverySessionDetailDto
 export const DISCOVERY_MAX_PROBES_CAP = 500
 
 /**
+ * Ceiling on how many discovery probes may be in flight at once. Each probe is
+ * a paid grounded Gemini call (~7s wall-clock); the orchestrator runs them
+ * through a bounded worker pool. The default is 1 (strictly serial — the
+ * pre-concurrency behaviour); callers opt in per request via
+ * `probeConcurrency`, and the cap keeps a bad input from stampeding the
+ * provider's rate limits.
+ */
+export const DISCOVERY_PROBE_CONCURRENCY_CAP = 8
+
+/** Default probe concurrency when the request does not opt in: strictly serial. */
+export const DISCOVERY_DEFAULT_PROBE_CONCURRENCY = 1
+
+/**
  * Default cosine-similarity threshold for seed dedup clustering.
  *
  * Calibrated against gemini-embedding-001 (CLUSTERING task, 768 dims), the
@@ -149,9 +171,10 @@ export const DISCOVERY_DEFAULT_DEDUP_THRESHOLD = 0.95
 
 /**
  * Degenerate seed-collapse guard: dedup is expected to trim a seed set, not
- * vaporize it. When the canonical count falls below this fraction of the raw
- * candidate count, the clustering almost certainly chained distinct intents
- * together and the session's coverage is misleading.
+ * vaporize it. When the canonical count falls to this fraction of the raw
+ * candidate count OR BELOW (inclusive — retaining exactly 6 of 30 warns), the
+ * clustering almost certainly chained distinct intents together and the
+ * session's coverage is misleading.
  */
 export const DISCOVERY_SEED_COLLAPSE_RATIO = 0.2
 
@@ -175,7 +198,10 @@ export function seedCollapseWarning(input: {
 }): string | null {
   const { seedCountRaw, canonicalCount, dedupThreshold } = input
   if (seedCountRaw < DISCOVERY_SEED_COLLAPSE_MIN_RAW) return null
-  if (canonicalCount / seedCountRaw >= DISCOVERY_SEED_COLLAPSE_RATIO) return null
+  // Inclusive threshold: retention AT the collapse ratio is already degenerate
+  // (6 of 30 = 0.20 warns), so only strictly-above passes as healthy. A `>=`
+  // here let the exact-boundary session slip through unwarned.
+  if (canonicalCount / seedCountRaw > DISCOVERY_SEED_COLLAPSE_RATIO) return null
   const noun = canonicalCount === 1 ? 'query' : 'queries'
   return (
     `Seed dedup collapsed ${seedCountRaw} raw candidates into ${canonicalCount} canonical ${noun} ` +
@@ -188,6 +214,14 @@ export const discoveryRunRequestSchema = z.object({
   icpDescription: z.string().min(1).optional(),
   dedupThreshold: z.number().min(0).max(1).optional(),
   maxProbes: z.number().int().positive().max(DISCOVERY_MAX_PROBES_CAP).optional(),
+  /**
+   * How many probes may run in parallel for this session. Defaults to
+   * `DISCOVERY_DEFAULT_PROBE_CONCURRENCY` (1 — strictly serial, the historical
+   * behaviour) when omitted; capped at `DISCOVERY_PROBE_CONCURRENCY_CAP`.
+   * Probe results are persisted in canonical order regardless of concurrency,
+   * so this only changes wall-clock time, never output order.
+   */
+  probeConcurrency: z.number().int().min(1).max(DISCOVERY_PROBE_CONCURRENCY_CAP).optional(),
   /**
    * Optional override of the project's location labels, constraining seed
    * generation to a subset of the configured service areas. Each label must

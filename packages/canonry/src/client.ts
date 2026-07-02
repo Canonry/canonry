@@ -1818,7 +1818,7 @@ export class ApiClient {
 
   async triggerDiscoveryRun(
     project: string,
-    body?: { icpDescription?: string; dedupThreshold?: number; maxProbes?: number; locations?: string[] },
+    body?: { icpDescription?: string; dedupThreshold?: number; maxProbes?: number; probeConcurrency?: number; locations?: string[] },
   ): Promise<DiscoveryRunStartResponse> {
     return this.invoke<DiscoveryRunStartResponse>(() =>
       postApiV1ProjectsByNameDiscoverRun({

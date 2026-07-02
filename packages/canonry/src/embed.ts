@@ -1,5 +1,5 @@
 import type { ResolvedEmbedConfig } from '@ainyc/canonry-contracts'
-import { parseOriginList, splitList } from '@ainyc/canonry-contracts'
+import { normalizeIdTokens, parseOriginList, splitList } from '@ainyc/canonry-contracts'
 import type { CanonryConfig } from './config.js'
 
 /**
@@ -21,6 +21,10 @@ import type { CanonryConfig } from './config.js'
  *  - `views`: `CANONRY_EMBED_VIEWS` when set, else `config.embed.views`,
  *    lowercased + de-duped; an empty list collapses to `undefined` (= all
  *    views) so an empty allowlist never silently bricks every embed.
+ *  - `projectTabs`: `CANONRY_EMBED_PROJECT_TABS` when set, else
+ *    `config.embed.projectTabs`, lowercased + de-duped; empty → `undefined`
+ *    (= all tabs). Hides individual project-page tabs (search-console,
+ *    activity, backlinks, ...) that `views` cannot reach.
  *  - `theme`: `config.embed.theme` only (no env form).
  */
 export function resolveEmbedConfig(env: NodeJS.ProcessEnv, config: CanonryConfig): ResolvedEmbedConfig {
@@ -38,26 +42,19 @@ export function resolveEmbedConfig(env: NodeJS.ProcessEnv, config: CanonryConfig
 
   const rawViews =
     env.CANONRY_EMBED_VIEWS !== undefined ? splitList(env.CANONRY_EMBED_VIEWS) : splitList(embed?.views)
-  const views = normalizeViews(rawViews)
+  const views = normalizeIdTokens(rawViews)
+
+  const rawProjectTabs =
+    env.CANONRY_EMBED_PROJECT_TABS !== undefined
+      ? splitList(env.CANONRY_EMBED_PROJECT_TABS)
+      : splitList(embed?.projectTabs)
+  const projectTabs = normalizeIdTokens(rawProjectTabs)
 
   return {
     enabled,
     allowedOrigins,
     ...(views ? { views } : {}),
+    ...(projectTabs ? { projectTabs } : {}),
     ...(embed?.theme ? { theme: embed.theme } : {}),
   }
-}
-
-/** Lowercase + de-dupe view ids; an empty result becomes `undefined` (= all views). */
-function normalizeViews(raw: string[]): string[] | undefined {
-  if (raw.length === 0) return undefined
-  const seen = new Set<string>()
-  const out: string[] = []
-  for (const view of raw) {
-    const id = view.toLowerCase()
-    if (seen.has(id)) continue
-    seen.add(id)
-    out.push(id)
-  }
-  return out.length > 0 ? out : undefined
 }

@@ -60,6 +60,12 @@ export type OnDiscoveryRunRequested = (input: {
   dedupThreshold?: number
   maxProbes?: number
   /**
+   * Requested probe worker-pool width. Omitted = the orchestrator default
+   * (1, strictly serial); the orchestrator clamps to
+   * `DISCOVERY_PROBE_CONCURRENCY_CAP`.
+   */
+  probeConcurrency?: number
+  /**
    * Resolved service-area locations for this session — every project
    * location, or the subset named by the request's `locations` override.
    * Empty when the project has no locations configured. Forwarded to the
@@ -120,7 +126,7 @@ export async function discoveryRoutes(app: FastifyInstance, opts: DiscoveryRoute
   // POST /projects/:name/discover/run — kick off a discovery session
   app.post<{
     Params: { name: string }
-    Body: { icpDescription?: string; dedupThreshold?: number; maxProbes?: number; locations?: string[] }
+    Body: { icpDescription?: string; dedupThreshold?: number; maxProbes?: number; probeConcurrency?: number; locations?: string[] }
   }>('/projects/:name/discover/run', async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
 
@@ -229,9 +235,9 @@ export async function discoveryRoutes(app: FastifyInstance, opts: DiscoveryRoute
 
     if (decision.reused) {
       // Nothing was inserted; do not fire the orchestrator callback again.
-      // The caller's `dedupThreshold` / `maxProbes` are intentionally
-      // dropped — the in-flight session was already started with its own
-      // config and changing it mid-flight would silently corrupt the run.
+      // The caller's `dedupThreshold` / `maxProbes` / `probeConcurrency` are
+      // intentionally dropped — the in-flight session was already started with
+      // its own config and changing it mid-flight would silently corrupt the run.
       return reply.status(200).send({
         runId: decision.runId,
         sessionId: decision.sessionId,
@@ -247,6 +253,7 @@ export async function discoveryRoutes(app: FastifyInstance, opts: DiscoveryRoute
       icpDescription,
       dedupThreshold: parsed.data.dedupThreshold,
       maxProbes: parsed.data.maxProbes,
+      probeConcurrency: parsed.data.probeConcurrency,
       locations,
     })
 
@@ -646,6 +653,8 @@ function serializeSession(row: typeof discoverySessions.$inferSelect): Discovery
     seedProvider: row.seedProvider ?? null,
     seedCountRaw: row.seedCountRaw ?? null,
     seedCount: row.seedCount ?? null,
+    seedFromAnswerCount: row.seedFromAnswerCount ?? null,
+    seedFromGroundingCount: row.seedFromGroundingCount ?? null,
     dedupThreshold: row.dedupThreshold ?? null,
     probeCount: row.probeCount ?? null,
     citedCount: row.citedCount ?? null,

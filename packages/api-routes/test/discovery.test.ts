@@ -363,6 +363,10 @@ describe('executeDiscovery', () => {
     ])
     expect(sessionRow.seedProvider).toBe('gemini-test')
     expect(sessionRow.warning).toBeNull() // healthy dedup ratio — no collapse warning
+    // A seed dep that does not report the answer/grounding split leaves the
+    // diagnostics null (unknown), never coerced to 0.
+    expect(sessionRow.seedFromAnswerCount).toBeNull()
+    expect(sessionRow.seedFromGroundingCount).toBeNull()
     expect(sessionRow.startedAt).not.toBeNull()
     expect(sessionRow.finishedAt).not.toBeNull()
 
@@ -537,6 +541,233 @@ describe('executeDiscovery', () => {
       'Seed dedup collapsed 12 raw candidates into 1 canonical query at threshold 0.95. ' +
         'Distinct intents were likely merged into one cluster; re-run with a higher --dedup-threshold.',
     )
+  })
+
+  describe('bounded probe concurrency', () => {
+    function deferred() {
+      let resolve!: () => void
+      const promise = new Promise<void>((res) => { resolve = res })
+      return { promise, resolve }
+    }
+
+    function tick(): Promise<void> {
+      return new Promise(resolve => setTimeout(resolve, 0))
+    }
+
+    function seedSessionRows(db: ReturnType<typeof createClient>, projectId: string) {
+      const sessionId = crypto.randomUUID()
+      const runId = crypto.randomUUID()
+      const now = new Date().toISOString()
+      db.insert(discoverySessions).values({
+        id: sessionId, projectId, status: 'queued', competitorMap: [], createdAt: now,
+      }).run()
+      db.insert(runs).values({
+        id: runId, projectId, kind: 'aeo-discover-probe', status: 'queued', trigger: 'manual', createdAt: now,
+      }).run()
+      return { sessionId, runId }
+    }
+
+    // Five candidates with distinct first letters → five singleton clusters,
+    // so canonical order === candidate order under the first-char embedding.
+    const QUERIES = ['alpha q', 'beta q', 'gamma q', 'delta q', 'epsilon q']
+
+    function firstCharEmbed(queries: string[]): number[][] {
+      return queries.map((q) => {
+        const ch = q.toLowerCase().charCodeAt(0) - 97
+        const vec = new Array(26).fill(0)
+        vec[Math.max(0, ch)] = 1
+        return vec
+      })
+    }
+
+    it('runs probes through a bounded pool and persists rows in canonical order despite out-of-order completion', async () => {
+      const { db, tmpDir } = buildApp()
+      cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
+      const { projectId } = seedProject(db)
+      const { sessionId, runId } = seedSessionRows(db, projectId)
+
+      const gates = new Map(QUERIES.map(q => [q, deferred()]))
+      const started: string[] = []
+      let inFlight = 0
+      let maxInFlight = 0
+      const deps: DiscoveryDeps = {
+        async seed() {
+          // Also exercises the seed-source diagnostics split end-to-end.
+          return { candidates: QUERIES, provider: 'gemini-test', fromAnswerCount: 3, fromGroundingCount: 2 }
+        },
+        async embed(queries) { return firstCharEmbed(queries) },
+        async probe({ query }) {
+          started.push(query)
+          inFlight++
+          maxInFlight = Math.max(maxInFlight, inFlight)
+          await gates.get(query)!.promise
+          inFlight--
+          return {
+            citationState: query === 'alpha q' ? 'cited' as const : 'not-cited' as const,
+            citedDomains: query === 'alpha q' ? ['demand-iq.com'] : [],
+            answerMentioned: query === 'alpha q',
+            rawResponse: { query },
+          }
+        },
+        async classifyDomains() { return {} },
+      }
+
+      const promise = executeDiscovery({
+        db,
+        runId,
+        sessionId,
+        project: { id: projectId, name: 'demand-iq', canonicalDomains: ['demand-iq.com'], competitorDomains: [] },
+        icpDescription: 'pool test',
+        probeConcurrency: 3,
+        deps,
+      })
+
+      // Exactly the pool width starts; the cap is respected before any settle.
+      await tick()
+      expect(started).toEqual(['alpha q', 'beta q', 'gamma q'])
+
+      // Resolve OUT of canonical order — completion order must not leak into
+      // the persisted row order.
+      gates.get('gamma q')!.resolve()
+      await tick()
+      expect(started).toEqual(['alpha q', 'beta q', 'gamma q', 'delta q'])
+      gates.get('delta q')!.resolve()
+      await tick()
+      gates.get('epsilon q')!.resolve()
+      gates.get('beta q')!.resolve()
+      gates.get('alpha q')!.resolve()
+
+      const result = await promise
+      expect(maxInFlight).toBe(3)
+      expect(result.buckets).toEqual({ cited: 1, aspirational: 4, 'wasted-surface': 0 })
+
+      // Rows land in canonical order: unordered read, created_at-ordered read,
+      // and per-row payload alignment all agree.
+      const rows = db.select().from(discoveryProbes).all()
+      expect(rows.map(r => r.query)).toEqual(QUERIES)
+      const createdAts = rows.map(r => r.createdAt)
+      expect([...createdAts].sort()).toEqual(createdAts)
+      expect(new Set(createdAts).size).toBe(QUERIES.length) // strictly increasing, no ties
+      expect(rows[0]!.bucket).toBe('cited')
+      expect(rows[0]!.answerMentioned).toBe(true)
+      expect(JSON.parse(rows[3]!.rawResponse!)).toEqual({ query: 'delta q' })
+
+      // Seed-source diagnostics persisted from the seed dep's split.
+      const sessionRow = db.select().from(discoverySessions).get()!
+      expect(sessionRow.seedFromAnswerCount).toBe(3)
+      expect(sessionRow.seedFromGroundingCount).toBe(2)
+      expect(sessionRow.status).toBe('completed')
+    })
+
+    it('defaults to strictly serial probing when probeConcurrency is omitted', async () => {
+      const { db, tmpDir } = buildApp()
+      cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
+      const { projectId } = seedProject(db)
+      const { sessionId, runId } = seedSessionRows(db, projectId)
+
+      let inFlight = 0
+      let maxInFlight = 0
+      const deps: DiscoveryDeps = {
+        async seed() { return { candidates: QUERIES, provider: 'gemini-test' } },
+        async embed(queries) { return firstCharEmbed(queries) },
+        async probe() {
+          inFlight++
+          maxInFlight = Math.max(maxInFlight, inFlight)
+          await tick()
+          inFlight--
+          return { citationState: 'not-cited' as const, citedDomains: [], answerMentioned: false, rawResponse: {} }
+        },
+        async classifyDomains() { return {} },
+      }
+
+      await executeDiscovery({
+        db,
+        runId,
+        sessionId,
+        project: { id: projectId, name: 'demand-iq', canonicalDomains: ['demand-iq.com'], competitorDomains: [] },
+        icpDescription: 'serial default test',
+        deps,
+      })
+
+      expect(maxInFlight).toBe(1) // unchanged default behaviour
+      expect(db.select().from(discoveryProbes).all().map(r => r.query)).toEqual(QUERIES)
+    })
+
+    it('clamps probeConcurrency to the contract cap', async () => {
+      const { db, tmpDir } = buildApp()
+      cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
+      const { projectId } = seedProject(db)
+      const { sessionId, runId } = seedSessionRows(db, projectId)
+
+      // 12 distinct-first-letter candidates, all blocked at once, so the pool
+      // would exceed the cap if the clamp were missing.
+      const queries = Array.from({ length: 12 }, (_, i) => `${String.fromCharCode(97 + i)} q`)
+      let inFlight = 0
+      let maxInFlight = 0
+      const deps: DiscoveryDeps = {
+        async seed() { return { candidates: queries, provider: 'gemini-test' } },
+        async embed(qs) { return firstCharEmbed(qs) },
+        async probe() {
+          inFlight++
+          maxInFlight = Math.max(maxInFlight, inFlight)
+          await tick()
+          inFlight--
+          return { citationState: 'not-cited' as const, citedDomains: [], answerMentioned: false, rawResponse: {} }
+        },
+        async classifyDomains() { return {} },
+      }
+
+      await executeDiscovery({
+        db,
+        runId,
+        sessionId,
+        project: { id: projectId, name: 'demand-iq', canonicalDomains: ['demand-iq.com'], competitorDomains: [] },
+        icpDescription: 'clamp test',
+        probeConcurrency: 999,
+        deps,
+      })
+
+      expect(maxInFlight).toBeLessThanOrEqual(8) // DISCOVERY_PROBE_CONCURRENCY_CAP
+      expect(maxInFlight).toBeGreaterThan(1)
+    })
+
+    it('propagates a single probe failure (session fails, no partial probe rows persisted)', async () => {
+      const { db, tmpDir } = buildApp()
+      cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
+      const { projectId } = seedProject(db)
+      const { sessionId, runId } = seedSessionRows(db, projectId)
+
+      const started: string[] = []
+      const deps: DiscoveryDeps = {
+        async seed() { return { candidates: QUERIES, provider: 'gemini-test' } },
+        async embed(queries) { return firstCharEmbed(queries) },
+        async probe({ query }) {
+          started.push(query)
+          await tick()
+          if (query === 'beta q') throw new Error('provider 500 on beta q')
+          return { citationState: 'not-cited' as const, citedDomains: [], answerMentioned: false, rawResponse: {} }
+        },
+        async classifyDomains() { return {} },
+      }
+
+      await expect(executeDiscovery({
+        db,
+        runId,
+        sessionId,
+        project: { id: projectId, name: 'demand-iq', canonicalDomains: ['demand-iq.com'], competitorDomains: [] },
+        icpDescription: 'failure test',
+        probeConcurrency: 2,
+        deps,
+      })).rejects.toThrow('provider 500 on beta q')
+
+      // The pool stopped claiming new queries after the failure and the batch
+      // insert never ran — no orphaned partial probe rows.
+      expect(db.select().from(discoveryProbes).all()).toHaveLength(0)
+      expect(started).not.toContain('epsilon q')
+      // The error propagates to the caller (discovery-run), which is what marks
+      // the session/run failed — same contract as the old serial loop.
+      expect(db.select().from(discoverySessions).get()!.status).toBe('probing')
+    })
   })
 
   it('deduplicates whitespace and case in raw candidates', async () => {

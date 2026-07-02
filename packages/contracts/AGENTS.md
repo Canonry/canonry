@@ -20,6 +20,7 @@ Shared DTOs, enums, Zod schemas, error codes, config validation, and **generic u
 | `src/url-normalize.ts` | Domain / URL normalization helpers |
 | `src/report-dedup.ts` | Report action / opportunity dedup utilities |
 | `src/retry.ts` | Generic retry helpers: `backoffDelayMs`, `withRetry`, `isRetryableHttpError`. Used by every API provider, GA4, and GBP — domain-specific code only supplies the `isRetryable` predicate; the math (jittered exponential backoff per Google's documented formula) lives here. |
+| `src/concurrency.ts` | `mapWithConcurrency` — generic order-preserving bounded worker pool (fail-fast on the first rejection, in-flight tasks settle cleanly). Used by the discovery probe phase. |
 | `src/index.ts` | Barrel re-export of all modules |
 
 ## Patterns

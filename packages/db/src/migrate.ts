@@ -1927,6 +1927,18 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `CREATE INDEX IF NOT EXISTS idx_api_keys_project ON api_keys(project_id)`,
     ],
   },
+  {
+    version: 88,
+    name: 'discovery-session-seed-source-counts',
+    statements: [
+      // Diagnostics: split of raw seed candidates by source (answer text vs.
+      // grounding fan-out), recorded at seed time. Nullable — legacy sessions
+      // stay null. ALTER ADD COLUMN is idempotent (the runner swallows the
+      // duplicate-column error on retry).
+      `ALTER TABLE discovery_sessions ADD COLUMN seed_from_answer_count INTEGER`,
+      `ALTER TABLE discovery_sessions ADD COLUMN seed_from_grounding_count INTEGER`,
+    ],
+  },
 ]
 
 /**
