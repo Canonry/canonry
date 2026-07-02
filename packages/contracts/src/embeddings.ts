@@ -115,3 +115,58 @@ export function pickClusterRepresentative(cluster: string[]): string {
   }
   return best
 }
+
+/** Ambiguous-similarity band: pairs here are where a threshold change (0.93 vs
+ *  0.95 vs 0.97) actually flips clustering decisions. */
+export const DEDUP_SIMILARITY_BAND_LOW = 0.9
+export const DEDUP_SIMILARITY_BAND_HIGH = 0.97
+
+export interface DedupSimilarityStats {
+  /** Min pairwise cosine within each MULTI-member cluster (singletons carry no
+   *  pairwise cohesion). A low value = the cluster likely chained distinct
+   *  intents via single-link. */
+  perClusterMinSimilarity: number[]
+  /** Fraction of ALL candidate pairs with cosine in [BAND_LOW, BAND_HIGH).
+   *  Null when there are fewer than 2 candidates. */
+  bandPairFraction: number | null
+  pairsTotal: number
+}
+
+/**
+ * Calibration diagnostics for the dedup threshold decision. `indexClusters`
+ * holds vector indices grouped as `clusterByCosine` grouped them. Values are
+ * rounded to 4 decimals so persisted JSON stays small and stable.
+ */
+export function computeDedupSimilarityStats(
+  vectors: readonly number[][],
+  indexClusters: readonly number[][],
+): DedupSimilarityStats {
+  const n = vectors.length
+  if (n < 2) return { perClusterMinSimilarity: [], bandPairFraction: null, pairsTotal: 0 }
+
+  const round = (v: number) => Math.round(v * 10_000) / 10_000
+
+  const perClusterMinSimilarity: number[] = []
+  for (const cluster of indexClusters) {
+    if (cluster.length < 2) continue
+    let min = Infinity
+    for (let a = 0; a < cluster.length; a++) {
+      for (let b = a + 1; b < cluster.length; b++) {
+        min = Math.min(min, cosineSimilarity(vectors[cluster[a]!]!, vectors[cluster[b]!]!))
+      }
+    }
+    perClusterMinSimilarity.push(round(min))
+  }
+
+  let inBand = 0
+  let pairsTotal = 0
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      pairsTotal++
+      const sim = cosineSimilarity(vectors[i]!, vectors[j]!)
+      if (sim >= DEDUP_SIMILARITY_BAND_LOW && sim < DEDUP_SIMILARITY_BAND_HIGH) inBand++
+    }
+  }
+
+  return { perClusterMinSimilarity, bandPairFraction: round(inBand / pairsTotal), pairsTotal }
+}

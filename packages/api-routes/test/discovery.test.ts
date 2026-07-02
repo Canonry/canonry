@@ -2633,3 +2633,60 @@ describe('executeDiscovery geo probes', () => {
     for (const loc of probeLocations) expect(loc).toBeUndefined()
   })
 })
+
+describe('executeDiscovery dedup diagnostics', () => {
+  const cleanups: Array<() => void> = []
+  afterEach(() => {
+    while (cleanups.length) cleanups.pop()!()
+  })
+
+  it('persists raw candidates and similarity stats on the session (replayable fixture)', async () => {
+    const { db, tmpDir } = buildApp()
+    cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
+    const { projectId } = seedProject(db, { icpDescription: 'solar contractors' })
+    const sessionId = crypto.randomUUID()
+    const runId = crypto.randomUUID()
+    const now = new Date().toISOString()
+    db.insert(discoverySessions).values({
+      id: sessionId, projectId, status: 'queued', icpDescription: 'solar contractors', competitorMap: [], createdAt: now,
+    }).run()
+    db.insert(runs).values({
+      id: runId, projectId, kind: 'aeo-discover-probe', status: 'queued', trigger: 'manual', createdAt: now,
+    }).run()
+
+    const deps: DiscoveryDeps = {
+      async seed() {
+        return { candidates: ['best solar tool', 'buy solar tool', 'compare solar tools'], provider: 'gemini-test' }
+      },
+      async embed(queries) {
+        // 'b'-cluster (two members) + 'c' singleton via first-letter one-hots.
+        return queries.map((q) => {
+          const vec = new Array(26).fill(0)
+          vec[Math.max(0, q.toLowerCase().charCodeAt(0) - 97)] = 1
+          return vec
+        })
+      },
+      async probe() {
+        return { citationState: 'not-cited', citedDomains: [], answerMentioned: false, rawResponse: {} }
+      },
+      async classifyDomains() {
+        return {}
+      },
+    }
+
+    await executeDiscovery({
+      db, runId, sessionId,
+      project: { id: projectId, name: 'demand-iq', canonicalDomains: ['demand-iq.com'], competitorDomains: [] },
+      icpDescription: 'solar contractors',
+      deps,
+    })
+
+    const row = db.select().from(discoverySessions).get()!
+    expect(row.seedRawCandidates).toEqual(['best solar tool', 'buy solar tool', 'compare solar tools'])
+    // One multi-member cluster of identical one-hot vectors: min sim = 1.
+    expect(row.dedupClusterMinSims).toEqual([1])
+    expect(row.dedupPairsTotal).toBe(3)
+    // One-hot vectors give pairwise sims of exactly 0 or 1 — nothing in band.
+    expect(row.dedupBandPairFraction).toBe(0)
+  })
+})

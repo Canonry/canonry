@@ -5,6 +5,8 @@ import { discoveryProbes, discoverySessions, domainClassifications } from '@ainy
 import { normalizeDomain } from '../content-data.js'
 import {
   CitationStates,
+  computeDedupSimilarityStats,
+  type DedupSimilarityStats,
   DISCOVERY_DEFAULT_DEDUP_THRESHOLD,
   DISCOVERY_DEFAULT_PROBE_CONCURRENCY,
   DISCOVERY_PROBE_CONCURRENCY_CAP,
@@ -273,11 +275,28 @@ export async function pickCanonicals(
   deps: { embed: DiscoveryDeps['embed'] },
   dedupThreshold: number,
 ): Promise<string[]> {
-  if (candidates.length === 0) return []
-  if (candidates.length === 1) return candidates
+  return (await pickCanonicalsWithStats(candidates, deps, dedupThreshold)).canonicals
+}
+
+/**
+ * `pickCanonicals` plus the calibration diagnostics the threshold decision
+ * needs (per-cluster cohesion, ambiguous-band pair fraction). One embed call
+ * either way; the orchestrator persists the stats on the session.
+ */
+export async function pickCanonicalsWithStats(
+  candidates: string[],
+  deps: { embed: DiscoveryDeps['embed'] },
+  dedupThreshold: number,
+): Promise<{ canonicals: string[]; stats: DedupSimilarityStats }> {
+  const emptyStats: DedupSimilarityStats = { perClusterMinSimilarity: [], bandPairFraction: null, pairsTotal: 0 }
+  if (candidates.length === 0) return { canonicals: [], stats: emptyStats }
+  if (candidates.length === 1) return { canonicals: candidates, stats: emptyStats }
   const vectors = await deps.embed(candidates)
-  const clusters = clusterByCosine(candidates, vectors, dedupThreshold)
-  return clusters.map(pickClusterRepresentative)
+  // Cluster INDICES so the similarity stats can address vectors per cluster;
+  // representatives are picked from the mapped strings exactly as before.
+  const indexClusters = clusterByCosine(candidates.map((_, i) => i), vectors, dedupThreshold)
+  const canonicals = indexClusters.map((cluster) => pickClusterRepresentative(cluster.map((i) => candidates[i]!)))
+  return { canonicals, stats: computeDedupSimilarityStats(vectors, indexClusters) }
 }
 
 /**
@@ -336,7 +355,7 @@ export async function executeDiscovery(opts: ExecuteDiscoveryOptions): Promise<E
   const rawCandidates = dedupeStrings(unbrandedCandidates)
   const seedCountRaw = rawCandidates.length
 
-  const canonicals = await pickCanonicals(
+  const { canonicals, stats: dedupStats } = await pickCanonicalsWithStats(
     rawCandidates,
     { embed: opts.deps.embed },
     dedupThreshold,
@@ -367,6 +386,14 @@ export async function executeDiscovery(opts: ExecuteDiscoveryOptions): Promise<E
       seedFromAnswerCount: seedResult.fromAnswerCount ?? null,
       seedFromGroundingCount: seedResult.fromGroundingCount ?? null,
       seedBrandFilteredCount: droppedBranded.length,
+      // Full seed provenance + dedup calibration diagnostics: the raw
+      // candidate list (as the seed dep returned it, pre-filter) makes every
+      // live session a replayable fixture; the similarity stats are the data
+      // the 0.95-threshold decision was missing. No gate reads any of these.
+      seedRawCandidates: seedResult.candidates,
+      dedupClusterMinSims: dedupStats.perClusterMinSimilarity,
+      dedupBandPairFraction: dedupStats.bandPairFraction,
+      dedupPairsTotal: dedupStats.pairsTotal,
       warning,
     })
     .where(eq(discoverySessions.id, opts.sessionId))

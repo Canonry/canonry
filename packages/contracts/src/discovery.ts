@@ -120,6 +120,14 @@ export const discoverySessionDtoSchema = z.object({
   /** Resolved service areas the session was seeded/probed with (part of
    *  session identity for in-flight consolidation). Null on legacy sessions. */
   locations: z.array(locationContextSchema).nullable().optional(),
+  /** Seed provenance: the seed dep's original candidate list (pre-filter),
+   *  so filter/dedup changes replay against real sessions. Null on legacy. */
+  seedRawCandidates: z.array(z.string()).nullable().optional(),
+  /** Dedup calibration: min pairwise cosine per multi-member cluster. */
+  dedupClusterMinSims: z.array(z.number()).nullable().optional(),
+  /** Dedup calibration: fraction of all pairs in the ambiguous 0.90-0.97 band. */
+  dedupBandPairFraction: z.number().nullable().optional(),
+  dedupPairsTotal: z.number().int().nullable().optional(),
   dedupThreshold: z.number().nullable().optional(),
   probeCount: z.number().int().nullable().optional(),
   citedCount: z.number().int().nullable().default(null),
