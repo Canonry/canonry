@@ -353,7 +353,7 @@
   }
 
   .brand-update-bubble:hover .brand-update-bubble-arrow {
-    @apply text-amber-300;
+    @apply text-caution;
   }
 
   .brand-update-bubble-to {
@@ -629,7 +629,7 @@
   }
 
   .blocking-copy {
-    @apply text-sm text-rose-300;
+    @apply text-sm text-negative;
   }
 
   /* ── Score gauge ── */
@@ -639,7 +639,7 @@
   }
 
   .score-gauge {
-    @apply flex flex-col items-center rounded-xl border border-zinc-800/60 bg-zinc-900/30 px-3 py-5 min-w-0 overflow-visible;
+    @apply flex flex-col items-center rounded-xl border border-default bg-surface px-3 py-5 min-w-0 overflow-visible;
   }
 
   .gauge-ring-wrapper {
@@ -688,19 +688,19 @@
   }
 
   .gauge-value {
-    @apply text-xl font-bold tracking-tight text-zinc-50;
+    @apply text-xl font-bold tracking-tight text-primary;
   }
 
   .gauge-value-text {
-    @apply text-sm font-bold tracking-tight text-zinc-50;
+    @apply text-sm font-bold tracking-tight text-primary;
   }
 
   .gauge-label {
-    @apply mt-3 text-center text-[10px] font-medium uppercase tracking-[0.12em] text-zinc-500 w-full;
+    @apply mt-3 text-center text-[10px] font-medium uppercase tracking-[0.12em] text-muted w-full;
   }
 
   .gauge-delta {
-    @apply mt-1.5 text-center text-[11px] text-zinc-400;
+    @apply mt-1.5 text-center text-[11px] text-secondary;
   }
 
   .gauge-provider-coverage {
@@ -708,13 +708,13 @@
   }
 
   .gauge-description {
-    @apply mt-2.5 text-center text-[11px] leading-[1.45] text-zinc-500 w-full;
+    @apply mt-2.5 text-center text-[11px] leading-[1.45] text-muted w-full;
   }
 
   /* ── Visibility trend (citations & mentions over time) ── */
 
   .visibility-trend {
-    @apply rounded-xl border border-zinc-800/60 bg-zinc-900/30 px-5 py-5;
+    @apply rounded-xl border border-default bg-surface px-5 py-5;
   }
 
   .visibility-trend-head {
@@ -735,17 +735,17 @@
   }
 
   .visibility-trend-current-label {
-    @apply text-[11px] font-medium uppercase tracking-wide text-zinc-400;
+    @apply text-[11px] font-medium uppercase tracking-wide text-secondary;
   }
 
   /* "avg" tag shown beside the headline in by-engine mode — the headline is the
      blended rate across engines, not any single line on the chart. */
   .visibility-trend-current-qualifier {
-    @apply rounded bg-zinc-800/80 px-1 py-px text-[10px] font-medium uppercase tracking-wide text-zinc-500;
+    @apply rounded bg-zinc-800/80 px-1 py-px text-[10px] font-medium uppercase tracking-wide text-muted;
   }
 
   .visibility-trend-current-value {
-    @apply text-2xl font-semibold tabular-nums tracking-tight text-zinc-50;
+    @apply text-2xl font-semibold tabular-nums tracking-tight text-primary;
   }
 
   .visibility-trend-current-delta {
@@ -761,7 +761,7 @@
   }
 
   .visibility-trend-note {
-    @apply mt-2 text-[11px] text-zinc-400;
+    @apply mt-2 text-[11px] text-secondary;
   }
 
   /* Per-engine legend with live values, above the chart. Line-shaped swatches
@@ -779,37 +779,37 @@
   }
 
   .trend-legend-name {
-    @apply text-[11px] font-medium text-zinc-300;
+    @apply text-[11px] font-medium text-neutral;
   }
 
   .trend-legend-value {
-    @apply text-[11px] font-semibold tabular-nums text-zinc-50;
+    @apply text-[11px] font-semibold tabular-nums text-primary;
   }
 
   /* Segmented control: an inset track with a raised selected chip. Used for the
      trend chart's metric / series / window toggles. */
   .segmented {
-    @apply inline-flex items-center gap-0.5 rounded-lg border border-zinc-800 bg-zinc-900/60 p-0.5;
+    @apply inline-flex items-center gap-0.5 rounded-lg border border-base bg-bg-elevated/60 p-0.5;
   }
 
   .segmented-option {
-    @apply rounded-md px-2.5 py-1.5 text-xs font-medium text-zinc-400 transition-colors;
-    @apply hover:text-zinc-100;
+    @apply rounded-md px-2.5 py-1.5 text-xs font-medium text-secondary transition-colors;
+    @apply hover:text-heading;
     @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-500/50;
   }
 
   .segmented-option-active {
-    @apply bg-zinc-700/90 text-zinc-50 shadow-sm;
+    @apply bg-zinc-700/90 text-primary shadow-sm;
   }
 
   /* ── AEO performance hero (paired Mention + Citation) ── */
 
   .aeo-hero {
-    @apply rounded-xl border border-zinc-800/60 bg-zinc-900/30 px-5 py-5;
+    @apply rounded-xl border border-default bg-surface px-5 py-5;
   }
 
   .aeo-hero-title {
-    @apply text-[10px] font-medium uppercase tracking-[0.12em] text-zinc-500 mb-3;
+    @apply text-[10px] font-medium uppercase tracking-[0.12em] text-muted mb-3;
   }
 
   .aeo-hero-rows {
@@ -833,7 +833,7 @@
   }
 
   .aeo-hero-row-label {
-    @apply text-sm font-medium text-zinc-200 flex items-center gap-1;
+    @apply text-sm font-medium text-strong flex items-center gap-1;
     grid-area: label;
   }
 
@@ -848,18 +848,18 @@
   }
 
   .aeo-hero-row-detail {
-    @apply text-[11px] text-zinc-500 tabular-nums;
+    @apply text-[11px] text-muted tabular-nums;
     grid-area: detail;
   }
 
   .aeo-hero-context {
-    @apply text-[11px] text-zinc-400 mt-4;
+    @apply text-[11px] text-secondary mt-4;
   }
 
   /* ── Project overview operator brief ── */
 
   .overview-brief {
-    @apply overflow-hidden rounded-xl border border-zinc-800/60 bg-zinc-900/20;
+    @apply overflow-hidden rounded-xl border border-default bg-surface-subtle;
   }
 
   .overview-brief-head {
@@ -867,15 +867,15 @@
   }
 
   .overview-brief-title {
-    @apply mt-1 max-w-3xl text-xl font-semibold tracking-[-0.02em] text-zinc-50 sm:text-2xl;
+    @apply mt-1 max-w-3xl text-xl font-semibold tracking-[-0.02em] text-primary sm:text-2xl;
   }
 
   .overview-brief-scope {
-    @apply mt-2 max-w-3xl text-[13px] leading-5 text-zinc-400;
+    @apply mt-2 max-w-3xl text-[13px] leading-5 text-secondary;
   }
 
   .overview-brief-updated {
-    @apply shrink-0 text-[11px] tabular-nums text-zinc-500 sm:pt-5;
+    @apply shrink-0 text-[11px] tabular-nums text-muted sm:pt-5;
   }
 
   .overview-brief-grid {
@@ -887,23 +887,23 @@
   }
 
   .overview-brief-panel + .overview-brief-panel {
-    @apply border-t border-zinc-800/40 lg:border-l lg:border-t-0;
+    @apply border-t border-subtle lg:border-l lg:border-t-0;
   }
 
   .overview-brief-label {
-    @apply mb-3 text-[10px] font-medium uppercase tracking-[0.14em] text-zinc-500;
+    @apply mb-3 text-[10px] font-medium uppercase tracking-[0.14em] text-muted;
   }
 
   .overview-brief-panel-title {
-    @apply text-sm font-medium leading-5 text-zinc-100;
+    @apply text-sm font-medium leading-5 text-heading;
   }
 
   .overview-brief-panel-copy {
-    @apply mt-1.5 text-[12px] leading-[1.5] text-zinc-500;
+    @apply mt-1.5 text-[12px] leading-[1.5] text-muted;
   }
 
   .overview-brief-link {
-    @apply mt-3 inline-flex rounded text-[11px] font-medium text-zinc-300 underline decoration-zinc-700 underline-offset-4 transition-colors hover:text-zinc-50 hover:decoration-zinc-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-500/60;
+    @apply mt-3 inline-flex rounded text-[11px] font-medium text-neutral underline decoration-zinc-700 underline-offset-4 transition-colors hover:text-primary hover:decoration-zinc-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-500/60;
   }
 
   .overview-signal-change-list {
@@ -915,7 +915,7 @@
   }
 
   .overview-signal-change-label {
-    @apply font-medium text-zinc-200;
+    @apply font-medium text-strong;
   }
 
   .overview-brief-note {
@@ -935,7 +935,7 @@
   }
 
   .mention-share-breakdown-title {
-    @apply text-[10px] font-medium uppercase tracking-[0.12em] text-zinc-500 mb-2;
+    @apply text-[10px] font-medium uppercase tracking-[0.12em] text-muted mb-2;
   }
 
   .mention-share-breakdown-rows {
@@ -961,7 +961,7 @@
   }
 
   .mention-share-breakdown-bar {
-    @apply h-1.5 w-full rounded-full bg-zinc-800/60 overflow-hidden;
+    @apply h-1.5 w-full rounded-full bg-surface-inset overflow-hidden;
   }
 
   .mention-share-breakdown-bar-fill {
@@ -969,29 +969,29 @@
   }
 
   .mention-share-breakdown-count {
-    @apply text-zinc-400 tabular-nums text-right;
+    @apply text-secondary tabular-nums text-right;
   }
 
   .mention-share-breakdown-share {
-    @apply text-zinc-500 tabular-nums text-right;
+    @apply text-muted tabular-nums text-right;
   }
 
   /* ── Movement banner (Since Last Run) ── */
 
   .movement-banner {
-    @apply rounded-lg border border-zinc-800/40 bg-zinc-900/20 px-4 py-2 text-xs flex flex-col gap-1.5;
+    @apply rounded-lg border border-subtle bg-surface-subtle px-4 py-2 text-xs flex flex-col gap-1.5;
   }
 
   .movement-banner-label {
-    @apply text-[10px] font-medium uppercase tracking-[0.12em] text-zinc-500 mr-1;
+    @apply text-[10px] font-medium uppercase tracking-[0.12em] text-muted mr-1;
   }
 
   .movement-banner-chip {
-    @apply rounded transition-colors hover:bg-zinc-800/60 px-1.5 py-0.5 -my-0.5 cursor-pointer focus:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500;
+    @apply rounded transition-colors hover:bg-surface-inset px-1.5 py-0.5 -my-0.5 cursor-pointer focus:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500;
   }
 
   .movement-banner-detail {
-    @apply text-[11px] text-zinc-400 space-y-0.5 mt-0.5 pl-1;
+    @apply text-[11px] text-secondary space-y-0.5 mt-0.5 pl-1;
   }
 
   /* ── Secondary metric grid (gap cards + index coverage) ── */
@@ -1094,15 +1094,15 @@
   }
 
   .overview-disclosure-title {
-    @apply mt-1 block text-sm font-semibold tracking-[-0.01em] text-zinc-200;
+    @apply mt-1 block text-sm font-semibold tracking-[-0.01em] text-strong;
   }
 
   .overview-disclosure-meta {
-    @apply flex shrink-0 items-center gap-2 text-[11px] text-zinc-500;
+    @apply flex shrink-0 items-center gap-2 text-[11px] text-muted;
   }
 
   .overview-disclosure-icon {
-    @apply text-zinc-500 transition-transform duration-150;
+    @apply text-muted transition-transform duration-150;
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -1124,11 +1124,11 @@
   }
 
   .inline-disclosure {
-    @apply rounded-lg border border-zinc-800/50 bg-zinc-900/15 px-3 py-2.5;
+    @apply rounded-lg border border-zinc-800/50 bg-bg-elevated/15 px-3 py-2.5;
   }
 
   .inline-disclosure > summary {
-    @apply cursor-pointer list-none text-[12px] font-medium text-zinc-400 transition-colors hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-500/60;
+    @apply cursor-pointer list-none text-[12px] font-medium text-secondary transition-colors hover:text-heading focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-500/60;
   }
 
   .inline-disclosure > summary::-webkit-details-marker {
@@ -1137,7 +1137,7 @@
 
   .inline-disclosure > summary::after {
     content: ' +';
-    @apply text-zinc-600;
+    @apply text-faint;
   }
 
   .inline-disclosure[open] > summary::after {
@@ -1148,15 +1148,15 @@
      text that recedes, the active tab marked by a Snow underline sitting on
      the bar's hairline. No pills, no group labels, no dividers. */
   .project-subnav {
-    @apply mt-5 mb-5 flex flex-wrap items-stretch gap-x-1 border-b border-zinc-800/60;
+    @apply mt-5 mb-5 flex flex-wrap items-stretch gap-x-1 border-b border-default;
   }
 
   .project-subnav-link {
-    @apply relative -mb-px inline-flex items-center border-b-2 border-transparent px-3 py-2.5 text-sm font-medium text-zinc-500 transition-colors hover:text-zinc-200 focus-visible:outline-none focus-visible:text-zinc-100;
+    @apply relative -mb-px inline-flex items-center border-b-2 border-transparent px-3 py-2.5 text-sm font-medium text-muted transition-colors hover:text-strong focus-visible:outline-none focus-visible:text-heading;
   }
 
   .project-subnav-link-active {
-    @apply border-zinc-100 text-zinc-50;
+    @apply border-zinc-100 text-primary;
   }
 
   /* Trailing group (overflow "More" + Settings), pushed to the far right. */
@@ -1174,15 +1174,15 @@
 
   /* Overflow menu surface — floating, so a real shadow is allowed here. */
   .project-subnav-menu {
-    @apply absolute right-0 top-full z-20 mt-1 flex min-w-[9rem] flex-col gap-0.5 rounded-md border border-zinc-800/80 bg-zinc-900 p-1 shadow-[0_12px_28px_rgba(0,0,0,0.32)];
+    @apply absolute right-0 top-full z-20 mt-1 flex min-w-[9rem] flex-col gap-0.5 rounded-md border border-zinc-800/80 bg-bg-elevated p-1 shadow-[0_12px_28px_rgba(0,0,0,0.32)];
   }
 
   .project-subnav-menu-item {
-    @apply rounded px-3 py-2 text-sm font-medium text-zinc-400 transition-colors hover:bg-zinc-800/60 hover:text-zinc-100 focus-visible:outline-none focus-visible:bg-zinc-800/60 focus-visible:text-zinc-100;
+    @apply rounded px-3 py-2 text-sm font-medium text-secondary transition-colors hover:bg-surface-inset hover:text-heading focus-visible:outline-none focus-visible:bg-surface-inset focus-visible:text-heading;
   }
 
   .project-subnav-menu-item-active {
-    @apply bg-zinc-800/60 text-zinc-50;
+    @apply bg-surface-inset text-primary;
   }
 
   /* ── Overview secondary grid (attention + activity) ── */
@@ -1210,11 +1210,11 @@
   }
 
   .hero-copy {
-    @apply space-y-2 rounded-xl border border-zinc-800/60 bg-zinc-900/30 px-4 py-4;
+    @apply space-y-2 rounded-xl border border-default bg-surface px-4 py-4;
   }
 
   .hero-copy h1 {
-    @apply text-2xl font-semibold tracking-tight text-zinc-50 md:text-[1.75rem];
+    @apply text-2xl font-semibold tracking-tight text-primary md:text-[1.75rem];
   }
 
   .hero-action {
@@ -1288,7 +1288,7 @@
   }
 
   .attention-item {
-    @apply flex items-start justify-between gap-4 rounded-lg border border-zinc-800/40 bg-zinc-900/20 px-3.5 py-2.5 transition hover:border-zinc-700 hover:bg-zinc-900/50;
+    @apply flex items-start justify-between gap-4 rounded-lg border border-subtle bg-surface-subtle px-3.5 py-2.5 transition hover:border-strong hover:bg-bg-elevated/50;
   }
 
   .attention-item-negative {
@@ -1306,7 +1306,7 @@
   /* Non-actionable status row (e.g. "All projects stable") — not a link, so
      drop the hover affordance and pointer cursor the linked variant carries. */
   .attention-item-static {
-    @apply cursor-default hover:border-zinc-800/40 hover:bg-zinc-900/20;
+    @apply cursor-default hover:border-subtle hover:bg-surface-subtle;
   }
 
   .attention-title,
@@ -1314,7 +1314,7 @@
   .run-row-title,
   .project-name,
   .evidence-query {
-    @apply text-[13px] font-medium text-zinc-200;
+    @apply text-[13px] font-medium text-strong;
   }
 
   .attention-detail,
@@ -1323,21 +1323,21 @@
   .run-row-detail,
   .evidence-summary,
   .drawer-copy {
-    @apply mt-0.5 text-[13px] leading-5 text-zinc-500;
+    @apply mt-0.5 text-[13px] leading-5 text-muted;
   }
 
   .attention-action {
-    @apply pt-1 text-[10px] font-medium uppercase tracking-[0.14em] text-zinc-400;
+    @apply pt-1 text-[10px] font-medium uppercase tracking-[0.14em] text-secondary;
   }
 
   /* ── Compact run ── */
 
   .compact-run {
-    @apply flex items-center justify-between gap-4 rounded-lg border border-zinc-800/40 bg-zinc-900/20 px-3.5 py-2.5 text-left transition hover:bg-zinc-900/50;
+    @apply flex items-center justify-between gap-4 rounded-lg border border-subtle bg-surface-subtle px-3.5 py-2.5 text-left transition hover:bg-bg-elevated/50;
   }
 
   .compact-run-detail {
-    @apply mt-0.5 text-[12px] text-zinc-600;
+    @apply mt-0.5 text-[12px] text-faint;
   }
 
   /* ── Metric progress-bar tone fills ──
@@ -1426,7 +1426,7 @@
   }
 
   .setup-step {
-    @apply flex items-center gap-1.5 text-xs text-zinc-500 whitespace-nowrap;
+    @apply flex items-center gap-1.5 text-xs text-muted whitespace-nowrap;
   }
 
   .setup-step + .setup-step::before {
@@ -1435,11 +1435,11 @@
   }
 
   .setup-step-number {
-    @apply flex items-center justify-center w-5 h-5 rounded-full border border-zinc-700 text-[10px] font-semibold;
+    @apply flex items-center justify-center w-5 h-5 rounded-full border border-strong text-[10px] font-semibold;
   }
 
   .setup-step-active {
-    @apply text-zinc-100;
+    @apply text-heading;
   }
 
   .setup-step-active .setup-step-number {
@@ -1447,7 +1447,7 @@
   }
 
   .setup-step-done {
-    @apply text-zinc-400;
+    @apply text-secondary;
   }
 
   .setup-step-done .setup-step-number {
@@ -1467,15 +1467,15 @@
   }
 
   .setup-label {
-    @apply text-[10px] font-semibold uppercase tracking-wide text-zinc-500;
+    @apply text-[10px] font-semibold uppercase tracking-wide text-muted;
   }
 
   .setup-input {
-    @apply rounded-md border border-zinc-700 bg-zinc-900/50 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 outline-none transition focus:border-zinc-500 focus:ring-1 focus:ring-zinc-500;
+    @apply rounded-md border border-strong bg-bg-elevated/50 px-3 py-2 text-sm text-heading placeholder-zinc-600 outline-none transition focus:border-zinc-500 focus:ring-1 focus:ring-zinc-500;
   }
 
   .setup-textarea {
-    @apply rounded-md border border-zinc-700 bg-zinc-900/50 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 outline-none transition focus:border-zinc-500 focus:ring-1 focus:ring-zinc-500 resize-y font-mono;
+    @apply rounded-md border border-strong bg-bg-elevated/50 px-3 py-2 text-sm text-heading placeholder-zinc-600 outline-none transition focus:border-zinc-500 focus:ring-1 focus:ring-zinc-500 resize-y font-mono;
   }
 
   .setup-input:disabled,
@@ -1486,7 +1486,7 @@
   /* ── Action queue ── */
 
   .opportunities-grid {
-    @apply overflow-hidden rounded-xl border border-zinc-800/60 bg-zinc-900/20 divide-y divide-zinc-800/40;
+    @apply overflow-hidden rounded-xl border border-default bg-surface-subtle divide-y divide-zinc-800/40;
   }
 
   .opportunity-card {
@@ -1540,15 +1540,15 @@
   }
 
   .opportunity-card-title {
-    @apply text-sm font-semibold text-zinc-100;
+    @apply text-sm font-semibold text-heading;
   }
 
   .opportunity-card-count {
-    @apply text-[11px] font-medium rounded-full px-2 py-0.5 bg-zinc-800/60 text-zinc-300 tabular-nums;
+    @apply text-[11px] font-medium rounded-full px-2 py-0.5 bg-surface-inset text-neutral tabular-nums;
   }
 
   .opportunity-card-subtitle {
-    @apply text-[11px] text-zinc-500 leading-snug;
+    @apply text-[11px] text-muted leading-snug;
   }
 
   .opportunity-card-list {
@@ -1572,21 +1572,21 @@
   }
 
   .opportunity-item-neutral {
-    @apply bg-zinc-900/20;
+    @apply bg-surface-subtle;
   }
 
   .opportunity-item-detail {
-    @apply mt-1 px-2.5 py-2 bg-zinc-950/40 rounded-md border border-zinc-800/30 flex flex-col gap-1.5;
+    @apply mt-1 px-2.5 py-2 bg-bg/40 rounded-md border border-zinc-800/30 flex flex-col gap-1.5;
   }
 
   /* ── Insight rows (compact signal list) — legacy, kept for any external pages ── */
 
   .insight-list {
-    @apply rounded-xl border border-zinc-800/60 divide-y divide-zinc-800/30 overflow-hidden;
+    @apply rounded-xl border border-default divide-y divide-zinc-800/30 overflow-hidden;
   }
 
   .insight-row {
-    @apply flex items-center justify-between gap-4 px-4 py-2.5 border-l-2 border-l-zinc-700 bg-zinc-900/20 transition hover:bg-zinc-800/30;
+    @apply flex items-center justify-between gap-4 px-4 py-2.5 border-l-2 border-l-zinc-700 bg-surface-subtle transition hover:bg-zinc-800/30;
   }
 
   .insight-row-positive {
@@ -1628,13 +1628,13 @@
   }
 
   .evidence-snippet {
-    @apply mt-2 text-sm leading-6 text-zinc-400;
+    @apply mt-2 text-sm leading-6 text-secondary;
   }
 
   /* ── Evidence table ── */
 
   .evidence-table-wrap {
-    @apply overflow-x-auto rounded-xl border border-zinc-800/60;
+    @apply overflow-x-auto rounded-xl border border-default;
   }
 
   .evidence-table {
@@ -1642,15 +1642,15 @@
   }
 
   .evidence-table thead {
-    @apply border-b border-zinc-800/60 bg-zinc-900/50;
+    @apply border-b border-default bg-bg-elevated/50;
   }
 
   .evidence-table th {
-    @apply px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500;
+    @apply px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.14em] text-muted;
   }
 
   .evidence-table tbody tr {
-    @apply border-b border-zinc-800/30 transition hover:bg-zinc-900/30;
+    @apply border-b border-zinc-800/30 transition hover:bg-surface;
   }
 
   .evidence-table tbody tr:last-child {
@@ -1658,21 +1658,21 @@
   }
 
   .evidence-table td {
-    @apply px-4 py-3 text-zinc-300;
+    @apply px-4 py-3 text-neutral;
   }
 
   .evidence-query-cell {
-    @apply font-medium text-zinc-100;
+    @apply font-medium text-heading;
   }
 
   .evidence-change-cell {
-    @apply text-xs text-zinc-500;
+    @apply text-xs text-muted;
   }
 
   /* ── Findings table ── */
 
   .findings-table-wrap {
-    @apply overflow-x-auto rounded-xl border border-zinc-800/60;
+    @apply overflow-x-auto rounded-xl border border-default;
   }
 
   .findings-table {
@@ -1680,15 +1680,15 @@
   }
 
   .findings-table thead {
-    @apply border-b border-zinc-800/60 bg-zinc-900/50;
+    @apply border-b border-default bg-bg-elevated/50;
   }
 
   .findings-table th {
-    @apply px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500;
+    @apply px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.14em] text-muted;
   }
 
   .findings-table tbody tr {
-    @apply border-b border-zinc-800/30 transition hover:bg-zinc-900/30;
+    @apply border-b border-zinc-800/30 transition hover:bg-surface;
   }
 
   .findings-table tbody tr:last-child {
@@ -1696,13 +1696,13 @@
   }
 
   .findings-table td {
-    @apply px-4 py-3 text-zinc-300;
+    @apply px-4 py-3 text-neutral;
   }
 
   /* ── Competitor table ── */
 
   .competitor-table-wrap {
-    @apply overflow-x-auto rounded-xl border border-zinc-800/60;
+    @apply overflow-x-auto rounded-xl border border-default;
   }
 
   .competitor-table {
@@ -1710,15 +1710,15 @@
   }
 
   .competitor-table thead {
-    @apply border-b border-zinc-800/60 bg-zinc-900/50;
+    @apply border-b border-default bg-bg-elevated/50;
   }
 
   .competitor-table th {
-    @apply px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500;
+    @apply px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.14em] text-muted;
   }
 
   .competitor-table tbody tr {
-    @apply border-b border-zinc-800/30 transition hover:bg-zinc-900/30;
+    @apply border-b border-zinc-800/30 transition hover:bg-surface;
   }
 
   .competitor-table tbody tr:last-child {
@@ -1726,13 +1726,13 @@
   }
 
   .competitor-table td {
-    @apply px-4 py-3 text-zinc-300;
+    @apply px-4 py-3 text-neutral;
   }
 
   /* ── Project row (overview) ── */
 
   .project-row {
-    @apply grid gap-3 rounded-xl border border-zinc-800/40 bg-zinc-900/15 px-4 py-3.5 transition hover:border-zinc-700/60 hover:bg-zinc-900/35 lg:grid-cols-[10rem_minmax(0,1.5fr)_9rem_9rem_9rem_auto] lg:items-center no-underline text-inherit;
+    @apply grid gap-3 rounded-xl border border-subtle bg-bg-elevated/15 px-4 py-3.5 transition hover:border-zinc-700/60 hover:bg-bg-elevated/35 lg:grid-cols-[10rem_minmax(0,1.5fr)_9rem_9rem_9rem_auto] lg:items-center no-underline text-inherit;
   }
 
   .project-row-primary {
@@ -1752,7 +1752,7 @@
   }
 
   .project-insight {
-    @apply mt-1.5 text-[12px] leading-5 text-zinc-500;
+    @apply mt-1.5 text-[12px] leading-5 text-muted;
   }
 
   .metric-inline-block {
@@ -1760,21 +1760,21 @@
   }
 
   .metric-inline-label {
-    @apply text-[10px] font-medium uppercase tracking-[0.16em] text-zinc-600;
+    @apply text-[10px] font-medium uppercase tracking-[0.16em] text-faint;
   }
 
   .metric-inline-value {
-    @apply text-base font-semibold tracking-[-0.02em] text-zinc-100;
+    @apply text-base font-semibold tracking-[-0.02em] text-heading;
   }
 
   .metric-inline-delta {
-    @apply text-[12px] text-zinc-600;
+    @apply text-[12px] text-faint;
   }
 
   /* ── Run row ── */
 
   .run-row {
-    @apply grid gap-4 rounded-xl border border-zinc-800/60 bg-zinc-900/20 px-4 py-4 transition hover:bg-zinc-900/40 xl:grid-cols-[minmax(0,1.6fr)_20rem_auto] xl:items-center;
+    @apply grid gap-4 rounded-xl border border-default bg-surface-subtle px-4 py-4 transition hover:bg-surface-hover xl:grid-cols-[minmax(0,1.6fr)_20rem_auto] xl:items-center;
   }
 
   .run-row-main {
@@ -1790,7 +1790,7 @@
   }
 
   .run-row-subtitle {
-    @apply mt-1 text-sm text-zinc-500;
+    @apply mt-1 text-sm text-muted;
   }
 
   .run-row-meta,
@@ -1805,12 +1805,12 @@
   .run-row-meta dt,
   .definition-list dt,
   .detail-label {
-    @apply text-[10px] font-medium uppercase tracking-[0.16em] text-zinc-600;
+    @apply text-[10px] font-medium uppercase tracking-[0.16em] text-faint;
   }
 
   .run-row-meta dd,
   .definition-list dd {
-    @apply mt-1 text-sm text-zinc-100;
+    @apply mt-1 text-sm text-heading;
   }
 
   /* ── Filter chips ── */
@@ -1820,11 +1820,11 @@
   }
 
   .filter-chip {
-    @apply rounded-full border border-zinc-800 bg-zinc-950 px-3 py-1.5 text-sm text-zinc-500 transition hover:bg-zinc-900 hover:text-zinc-100;
+    @apply rounded-full border border-base bg-bg px-3 py-1.5 text-sm text-muted transition hover:bg-bg-elevated hover:text-heading;
   }
 
   .filter-chip-active {
-    @apply border-zinc-600 bg-zinc-800 text-zinc-100;
+    @apply border-zinc-600 bg-zinc-800 text-heading;
   }
 
   /* ── Health / settings ── */
@@ -1835,21 +1835,21 @@
   }
 
   .detail-list {
-    @apply grid gap-2 pl-4 text-sm leading-6 text-zinc-400;
+    @apply grid gap-2 pl-4 text-sm leading-6 text-secondary;
   }
 
   /* ── Footer ── */
 
   .footer {
-    @apply mx-auto flex max-w-6xl flex-col gap-3 border-t border-zinc-800/40 px-4 py-5 text-sm md:flex-row md:items-center md:justify-between md:px-6;
+    @apply mx-auto flex max-w-6xl flex-col gap-3 border-t border-subtle px-4 py-5 text-sm md:flex-row md:items-center md:justify-between md:px-6;
   }
 
   .footer-brand {
-    @apply flex items-center gap-2 text-zinc-500;
+    @apply flex items-center gap-2 text-muted;
   }
 
   .footer-version {
-    @apply font-mono text-[11px] tracking-tight text-zinc-600;
+    @apply font-mono text-[11px] tracking-tight text-faint;
   }
 
   .footer-links {
@@ -1857,7 +1857,7 @@
   }
 
   .footer-icon {
-    @apply inline-flex size-7 items-center justify-center rounded-md text-zinc-500 transition hover:bg-zinc-800/40 hover:text-zinc-200;
+    @apply inline-flex size-7 items-center justify-center rounded-md text-muted transition hover:bg-surface-inset-hover hover:text-strong;
   }
 
   /* ── Drawer ── */
@@ -1881,7 +1881,7 @@
   /* ── Summary stats strip ── */
 
   .stats-strip {
-    @apply flex flex-wrap gap-4 rounded-xl border border-zinc-800/60 bg-zinc-900/20 px-4 py-3;
+    @apply flex flex-wrap gap-4 rounded-xl border border-default bg-surface-subtle px-4 py-3;
   }
 
   .stat-item {
@@ -1889,11 +1889,11 @@
   }
 
   .stat-value {
-    @apply text-lg font-bold tracking-tight text-zinc-100;
+    @apply text-lg font-bold tracking-tight text-heading;
   }
 
   .stat-label {
-    @apply text-[12px] text-zinc-500;
+    @apply text-[12px] text-muted;
   }
 
   .stat-divider {
@@ -1907,7 +1907,7 @@
   }
 
   .info-tooltip-trigger {
-    @apply inline-flex items-center justify-center rounded-full p-0.5 text-zinc-500 cursor-help transition hover:text-zinc-300 focus:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500;
+    @apply inline-flex items-center justify-center rounded-full p-0.5 text-muted cursor-help transition hover:text-neutral focus:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500;
   }
 
   .info-tooltip-icon {
@@ -1919,7 +1919,7 @@
   /* ── Data table (generic) ── */
 
   .data-table-wrapper {
-    @apply overflow-x-auto rounded-xl border border-zinc-800/60;
+    @apply overflow-x-auto rounded-xl border border-default;
   }
 
   .data-table {
@@ -1927,15 +1927,15 @@
   }
 
   .data-table thead {
-    @apply border-b border-zinc-800/60 bg-zinc-900/50;
+    @apply border-b border-default bg-bg-elevated/50;
   }
 
   .data-table th {
-    @apply px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500;
+    @apply px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.14em] text-muted;
   }
 
   .data-table tbody tr {
-    @apply border-b border-zinc-800/30 transition hover:bg-zinc-900/30;
+    @apply border-b border-zinc-800/30 transition hover:bg-surface;
   }
 
   .data-table tbody tr:last-child {
@@ -1943,7 +1943,7 @@
   }
 
   .data-table td {
-    @apply px-4 py-3 text-zinc-300;
+    @apply px-4 py-3 text-neutral;
   }
 
   .filter-chip-compare {
@@ -1964,7 +1964,7 @@
 
   .evidence-position-hero--not-cited,
   .evidence-position-hero--not-mentioned {
-    @apply border-zinc-800/60 bg-zinc-900/30;
+    @apply border-default bg-surface;
   }
 
   .evidence-position-hero--lost {
@@ -1972,7 +1972,7 @@
   }
 
   .evidence-position-hero--pending {
-    @apply border-zinc-800/40 bg-zinc-900/20;
+    @apply border-subtle bg-surface-subtle;
   }
 
   .evidence-position-label {
@@ -1987,7 +1987,7 @@
 
   .evidence-position-label--not-cited,
   .evidence-position-label--not-mentioned {
-    @apply text-zinc-500;
+    @apply text-muted;
   }
 
   .evidence-position-label--lost {
@@ -2001,26 +2001,26 @@
   .evidence-position-title--cited,
   .evidence-position-title--mentioned,
   .evidence-position-title--emerging {
-    @apply text-emerald-300;
+    @apply text-positive;
   }
 
   .evidence-position-title--not-cited,
   .evidence-position-title--not-mentioned {
-    @apply text-zinc-300;
+    @apply text-neutral;
   }
 
   .evidence-position-title--lost {
-    @apply text-rose-300;
+    @apply text-negative;
   }
 
   .evidence-position-meta {
-    @apply mt-0.5 text-xs text-zinc-500;
+    @apply mt-0.5 text-xs text-muted;
   }
 
   /* ── Answer snippet with highlight ── */
 
   .answer-snippet-block {
-    @apply rounded-lg border border-zinc-800/60 bg-zinc-900/50 p-3 text-sm leading-relaxed text-zinc-400;
+    @apply rounded-lg border border-default bg-bg-elevated/50 p-3 text-sm leading-relaxed text-secondary;
     /* Long markdown citation URLs in answer text have no natural break
        points; force them to wrap so they can't push the column wider than
        the modal viewport. */
@@ -2055,12 +2055,12 @@
 
   .mention-status--visible,
   .mention-status--mentioned {
-    @apply border-emerald-800/40 bg-emerald-950/25 text-emerald-300;
+    @apply border-emerald-800/40 bg-emerald-950/25 text-positive;
   }
 
   .mention-status--not-visible,
   .mention-status--not-mentioned {
-    @apply border-zinc-800/40 bg-zinc-900/20 text-zinc-500;
+    @apply border-subtle bg-surface-subtle text-muted;
   }
 
   .mention-status-icon {
@@ -2076,15 +2076,15 @@
   }
 
   .mention-chip--brand {
-    @apply border-emerald-800/40 bg-emerald-950/25 text-emerald-300;
+    @apply border-emerald-800/40 bg-emerald-950/25 text-positive;
   }
 
   .mention-chip--competitor {
-    @apply border-amber-800/30 bg-amber-950/15 text-amber-300;
+    @apply border-amber-800/30 bg-amber-950/15 text-caution;
   }
 
   .mention-chip--muted {
-    @apply border-zinc-800/40 bg-zinc-900/20 text-zinc-500;
+    @apply border-subtle bg-surface-subtle text-muted;
   }
 
   /* ── Citation leaderboard ── */
@@ -2098,19 +2098,19 @@
   }
 
   .citation-leaderboard-item--you {
-    @apply border-emerald-800/40 bg-emerald-950/25 text-emerald-300;
+    @apply border-emerald-800/40 bg-emerald-950/25 text-positive;
   }
 
   .citation-leaderboard-item--competitor {
-    @apply border-rose-800/30 bg-rose-950/15 text-rose-300;
+    @apply border-rose-800/30 bg-rose-950/15 text-negative;
   }
 
   .citation-leaderboard-item--other {
-    @apply border-zinc-800/40 bg-zinc-900/20 text-zinc-400;
+    @apply border-subtle bg-surface-subtle text-secondary;
   }
 
   .citation-leaderboard-rank {
-    @apply w-5 text-center text-[11px] font-semibold shrink-0 text-zinc-500;
+    @apply w-5 text-center text-[11px] font-semibold shrink-0 text-muted;
   }
 
   .citation-leaderboard-domain {
@@ -2128,7 +2128,7 @@
   }
 
   .action-item {
-    @apply flex items-start gap-2.5 rounded-lg border border-zinc-800/40 bg-zinc-900/20 px-3 py-2.5;
+    @apply flex items-start gap-2.5 rounded-lg border border-subtle bg-surface-subtle px-3 py-2.5;
   }
 
   .action-item-icon {
@@ -2136,23 +2136,23 @@
   }
 
   .action-item-text {
-    @apply text-sm text-zinc-400 leading-snug;
+    @apply text-sm text-secondary leading-snug;
   }
 
   /* ── Evidence detail modal ── */
 
   .evidence-modal {
-    @apply fixed z-50 flex flex-col bg-zinc-950 border border-zinc-800 rounded-2xl shadow-2xl overflow-hidden;
+    @apply fixed z-50 flex flex-col bg-bg border border-base rounded-2xl shadow-2xl overflow-hidden;
     @apply top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2;
     @apply w-[min(95vw,1100px)] max-h-[min(90vh,800px)];
   }
 
   .evidence-modal-header {
-    @apply flex items-start gap-3 px-6 pt-5 pb-3 border-b border-zinc-800/60 shrink-0;
+    @apply flex items-start gap-3 px-6 pt-5 pb-3 border-b border-default shrink-0;
   }
 
   .evidence-modal-timeline {
-    @apply px-6 py-3 border-b border-zinc-800/40 shrink-0;
+    @apply px-6 py-3 border-b border-subtle shrink-0;
   }
 
   .evidence-modal-body {
@@ -2166,20 +2166,20 @@
 
   .evidence-modal-sidebar {
     @apply grid gap-4 content-start;
-    @apply md:border-l md:border-zinc-800/40 md:pl-6;
+    @apply md:border-l md:border-subtle md:pl-6;
   }
 
   .sidebar-tabs {
-    @apply flex gap-1 p-0.5 rounded-lg bg-zinc-900/60 border border-zinc-800/40;
+    @apply flex gap-1 p-0.5 rounded-lg bg-bg-elevated/60 border border-subtle;
   }
 
   .sidebar-tab {
     @apply flex-1 px-3 py-1.5 text-xs font-medium rounded-md transition-colors;
-    @apply text-zinc-500 hover:text-zinc-300;
+    @apply text-muted hover:text-neutral;
   }
 
   .sidebar-tab--active {
-    @apply bg-zinc-800 text-zinc-200 shadow-sm;
+    @apply bg-zinc-800 text-strong shadow-sm;
   }
 
   .evidence-answer-collapsed {
@@ -2196,7 +2196,7 @@
 
   .evidence-run-dot {
     @apply flex flex-col items-center gap-0.5 px-2 py-1 rounded-md transition-colors cursor-pointer;
-    @apply hover:bg-zinc-800/60;
+    @apply hover:bg-surface-inset;
     @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400;
   }
 
@@ -2207,28 +2207,28 @@
   /* ── Drawer section label ── */
 
   .drawer-section-label {
-    @apply mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600;
+    @apply mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-faint;
   }
 
   /* ── Skeleton / loading placeholders ── */
 
   .skeleton {
-    @apply rounded bg-zinc-800/60;
+    @apply rounded bg-surface-inset;
     animation: skeleton-pulse 1.5s ease-in-out infinite;
   }
 
   .skeleton-text {
-    @apply h-3 rounded bg-zinc-800/60;
+    @apply h-3 rounded bg-surface-inset;
     animation: skeleton-pulse 1.5s ease-in-out infinite;
   }
 
   .skeleton-text-sm {
-    @apply h-2.5 rounded bg-zinc-800/60;
+    @apply h-2.5 rounded bg-surface-inset;
     animation: skeleton-pulse 1.5s ease-in-out infinite;
   }
 
   .skeleton-circle {
-    @apply rounded-full bg-zinc-800/60;
+    @apply rounded-full bg-surface-inset;
     animation: skeleton-pulse 1.5s ease-in-out infinite;
   }
 
@@ -2257,7 +2257,7 @@
   }
 
   .page-skeleton-card {
-    @apply rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-5 space-y-3;
+    @apply rounded-xl border border-default bg-surface p-5 space-y-3;
   }
 
   /* ── Toasts ── */
@@ -2280,7 +2280,7 @@
   }
 
   .toast-card-neutral {
-    @apply border-zinc-700/70 bg-zinc-900/92 text-zinc-100;
+    @apply border-zinc-700/70 bg-bg-elevated/92 text-heading;
   }
 
   .toast-card-positive {
