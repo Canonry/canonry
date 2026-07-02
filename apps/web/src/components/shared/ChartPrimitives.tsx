@@ -46,34 +46,41 @@ export const CHART_TOOLTIP_STYLE: {
   itemStyle: CSSProperties
 } = {
   contentStyle: {
-    backgroundColor: '#18181b',
-    border: '1px solid #3f3f46',
+    backgroundColor: 'var(--chart-tooltip-bg, #18181b)',
+    border: '1px solid var(--chart-tooltip-border, #3f3f46)',
     borderRadius: 8,
     fontSize: 12,
   },
-  labelStyle: { color: '#e4e4e7' },
-  itemStyle: { color: '#a1a1aa' },
+  labelStyle: { color: 'var(--chart-tooltip-label, #e4e4e7)' },
+  itemStyle: { color: 'var(--chart-tooltip-item, #a1a1aa)' },
 }
 
 /** Standard axis tick styling. */
-export const CHART_AXIS_TICK = { fill: '#71717a', fontSize: 11 } as const
+export const CHART_AXIS_TICK = { fill: 'var(--chart-neutral-text-dim, #71717a)', fontSize: 11 } as const
 
 /** Standard grid line color. */
-export const CHART_GRID_STROKE = '#27272a'
+export const CHART_GRID_STROKE = 'var(--chart-grid, #27272a)'
 
 /** Standard axis line stroke. */
-export const CHART_AXIS_STROKE = '#27272a'
+export const CHART_AXIS_STROKE = 'var(--chart-axis, #27272a)'
 
-/** Palette for multi-series charts (up to 8 series). */
+/**
+ * Palette for multi-series charts (up to 8 series). Each entry bridges to the
+ * `--chart-series-N` CSS token (registered in styles.css) with the original hex
+ * as the fallback, so the default dark render is unchanged and a theme can
+ * override the ramp at runtime. Recharts passes these straight to SVG
+ * fill/stroke, which resolve CSS variables. NEVER do string math on these
+ * (slice/alpha-concat) — a `var(...)` string would break.
+ */
 export const CHART_SERIES_COLORS = [
-  '#34d399', // emerald-400
-  '#60a5fa', // blue-400
-  '#f472b6', // pink-400
-  '#facc15', // yellow-400
-  '#a78bfa', // violet-400
-  '#fb923c', // orange-400
-  '#22d3ee', // cyan-400
-  '#f87171', // red-400
+  'var(--chart-series-1, #34d399)', // emerald-400
+  'var(--chart-series-2, #60a5fa)', // blue-400
+  'var(--chart-series-3, #f472b6)', // pink-400
+  'var(--chart-series-4, #facc15)', // yellow-400
+  'var(--chart-series-5, #a78bfa)', // violet-400
+  'var(--chart-series-6, #fb923c)', // orange-400
+  'var(--chart-series-7, #22d3ee)', // cyan-400
+  'var(--chart-series-8, #f87171)', // red-400
 ] as const
 
 /**
@@ -102,11 +109,11 @@ export function providerSeriesColor(provider: string, fallbackIndex = 0): string
  * the documented palette in DESIGN.md.
  */
 export const CHART_NEUTRAL = {
-  text: '#a1a1aa',      // zinc-400 — primary axis labels
-  textDim: '#71717a',   // zinc-500 — secondary text
-  textFaint: '#52525b', // zinc-600 — faintest text, track lines
-  surface: '#27272a',   // zinc-800 — area fill, track surface
-  gridLine: 'rgba(255, 255, 255, 0.06)',
+  text: 'var(--chart-neutral-text, #a1a1aa)',           // zinc-400 — primary axis labels
+  textDim: 'var(--chart-neutral-text-dim, #71717a)',    // zinc-500 — secondary text
+  textFaint: 'var(--chart-neutral-text-faint, #52525b)', // zinc-600 — faintest text, track lines
+  surface: 'var(--chart-neutral-surface, #27272a)',     // zinc-800 — area fill, track surface
+  gridLine: 'var(--chart-neutral-grid-line, rgb(255 255 255 / 0.06))',
 } as const
 
 /**
@@ -116,11 +123,11 @@ export const CHART_NEUTRAL = {
  * (large donut arcs); use the base variant for sparklines and gauges.
  */
 export const CHART_TONE = {
-  positive: '#34d399',     // emerald-400 — gauge fill, sparkline positive
-  positiveDeep: '#10b981', // emerald-500 — donut arc weight
-  caution: '#fbbf24',      // amber-400
-  negative: '#fb7185',     // rose-400
-  neutral: '#a1a1aa',      // zinc-400
+  positive: 'var(--chart-tone-positive, #34d399)',          // emerald-400 — gauge fill, sparkline positive
+  positiveDeep: 'var(--chart-tone-positive-deep, #10b981)', // emerald-500 — donut arc weight
+  caution: 'var(--chart-tone-caution, #fbbf24)',            // amber-400
+  negative: 'var(--chart-tone-negative, #fb7185)',          // rose-400
+  neutral: 'var(--chart-tone-neutral, #a1a1aa)',            // zinc-400
 } as const
 
 /** Parse a date string that may be a date-only ("2026-03-15") or full ISO timestamp. */

@@ -156,9 +156,11 @@ test('neutral, tone, and info scale utilities compile through CSS variables', as
 test('gauge, highlight, and effect primitives consume tokens', async () => {
   const css = await compileAppStyles([])
 
-  expect(ruleFor(css, '.gauge-bg')).toContain('stroke: var(--color-track)')
-  expect(ruleFor(css, '.gauge-fill-positive')).toContain('stroke: var(--color-positive-400)')
-  expect(ruleFor(css, '.gauge-fill-neutral')).toContain('stroke: var(--color-mono-400)')
+  // gauges/sparklines consume the CHART tone tokens (shared with ChartPrimitives,
+  // Phase 4) so they can't drift from the charts
+  expect(ruleFor(css, '.gauge-bg')).toContain('stroke: var(--chart-neutral-grid-line)')
+  expect(ruleFor(css, '.gauge-fill-positive')).toContain('stroke: var(--chart-tone-positive)')
+  expect(ruleFor(css, '.gauge-fill-neutral')).toContain('stroke: var(--chart-tone-neutral)')
   expect(ruleFor(css, '.answer-highlight-brand')).toContain('var(--color-positive-400)')
   expect(ruleFor(css, '.brand-icon')).toContain('var(--color-shadow-drop)')
   // both glow layers must be present — assert each distinctly so the outer-glow

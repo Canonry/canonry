@@ -101,9 +101,9 @@
   --color-info-500: var(--color-sky-500);
   --color-info-950: var(--color-sky-950);
 
-  /* Effect colors — gauge/sparkline track, scrollbar thumb, panel/drop
-     shadows, the caution glow, and the light hover overlay. */
-  --color-track: rgb(255 255 255 / 0.06);
+  /* Effect colors — scrollbar thumb, panel/drop shadows, the caution glow, and
+     the light hover overlay. (Gauge/sparkline strokes + track consume the shared
+     --chart-tone-* / --chart-neutral-grid-line tokens registered below.) */
   --color-scrollbar-thumb: rgb(113 113 122 / 0.3);
   --color-shadow-drop: rgb(8 11 15 / 0.34);
   --color-shadow-panel: rgb(0 0 0 / 0.32);
@@ -709,7 +709,7 @@
 
   .gauge-bg {
     fill: none;
-    stroke: var(--color-track);
+    stroke: var(--chart-neutral-grid-line);
   }
 
   .gauge-fill {
@@ -725,19 +725,19 @@
   }
 
   .gauge-fill-positive {
-    stroke: var(--color-positive-400);
+    stroke: var(--chart-tone-positive);
   }
 
   .gauge-fill-caution {
-    stroke: var(--color-caution-400);
+    stroke: var(--chart-tone-caution);
   }
 
   .gauge-fill-negative {
-    stroke: var(--color-negative-400);
+    stroke: var(--chart-tone-negative);
   }
 
   .gauge-fill-neutral {
-    stroke: var(--color-mono-400);
+    stroke: var(--chart-tone-neutral);
   }
 
   .gauge-center {
@@ -1434,24 +1434,24 @@
   }
 
   .sparkline-guide {
-    stroke: var(--color-track);
+    stroke: var(--chart-neutral-grid-line);
     stroke-width: 1;
   }
 
   .sparkline-positive polyline {
-    stroke: var(--color-positive-400);
+    stroke: var(--chart-tone-positive);
   }
 
   .sparkline-caution polyline {
-    stroke: var(--color-caution-400);
+    stroke: var(--chart-tone-caution);
   }
 
   .sparkline-negative polyline {
-    stroke: var(--color-negative-400);
+    stroke: var(--chart-tone-negative);
   }
 
   .sparkline-neutral polyline {
-    stroke: var(--color-mono-400);
+    stroke: var(--chart-tone-neutral);
   }
 
   /* ── Grids ── */
