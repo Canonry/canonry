@@ -150,17 +150,6 @@ function pct(num: number, denom: number, digits = 1): string {
 function mean(xs: number[]): number {
   return xs.length === 0 ? 0 : xs.reduce((a, b) => a + b, 0) / xs.length
 }
-function median(xs: number[]): number {
-  if (xs.length === 0) return 0
-  const s = [...xs].sort((a, b) => a - b)
-  const mid = Math.floor(s.length / 2)
-  return s.length % 2 === 0 ? (s[mid - 1]! + s[mid]!) / 2 : s[mid]!
-}
-function p90(xs: number[]): number {
-  if (xs.length === 0) return 0
-  const s = [...xs].sort((a, b) => a - b)
-  return s[Math.floor(s.length * 0.9)]!
-}
 
 // ─── Main analysis ───
 function main(): void {
