@@ -376,16 +376,16 @@ export function AeroBar({ projectName }: AeroBarProps) {
   //   open      → panel at bottom, max-w-3xl, ~40vh transcript
   //   expanded  → near-fullscreen overlay with backdrop, big transcript
   const hostClasses = open && expanded
-    ? 'pointer-events-auto fixed inset-0 z-40 flex items-stretch justify-center bg-zinc-950/70 p-4 sm:p-8 backdrop-blur-sm'
+    ? 'pointer-events-auto fixed inset-0 z-40 flex items-stretch justify-center bg-bg/70 p-4 sm:p-8 backdrop-blur-sm'
     : 'pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center p-3'
 
   const panelClasses = expanded
-    ? 'pointer-events-auto flex h-full w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-zinc-800/80 bg-zinc-950/95 shadow-2xl'
+    ? 'pointer-events-auto flex h-full w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-mono-800/80 bg-bg/95 shadow-2xl'
     : 'pointer-events-auto w-full max-w-3xl'
 
   const transcriptClasses = expanded
-    ? 'flex-1 overflow-y-auto px-6 py-5 text-sm text-zinc-200'
-    : 'max-h-[40vh] min-h-[120px] overflow-y-auto px-4 py-3 text-sm text-zinc-200'
+    ? 'flex-1 overflow-y-auto px-6 py-5 text-sm text-strong'
+    : 'max-h-[40vh] min-h-[120px] overflow-y-auto px-4 py-3 text-sm text-strong'
 
   return (
     <div
@@ -397,12 +397,12 @@ export function AeroBar({ projectName }: AeroBarProps) {
     >
       <div className={panelClasses}>
         {open ? (
-          <div className={expanded ? 'flex h-full flex-col' : 'flex flex-col overflow-hidden rounded-2xl border border-zinc-800/80 bg-zinc-950/95 shadow-xl backdrop-blur'}>
-            <div className="flex items-center justify-between gap-2 border-b border-zinc-800/70 px-4 py-2.5">
+          <div className={expanded ? 'flex h-full flex-col' : 'flex flex-col overflow-hidden rounded-2xl border border-mono-800/80 bg-bg/95 shadow-xl backdrop-blur'}>
+            <div className="flex items-center justify-between gap-2 border-b border-mono-800/70 px-4 py-2.5">
               <div className="flex items-center gap-2">
-                <Radio className="h-4 w-4 text-emerald-400" aria-hidden="true" />
-                <span className="text-sm font-medium text-zinc-100">Aero</span>
-                <span className="text-[10px] uppercase tracking-wider text-zinc-500">
+                <Radio className="h-4 w-4 text-positive-400" aria-hidden="true" />
+                <span className="text-sm font-medium text-heading">Aero</span>
+                <span className="text-[10px] uppercase tracking-wider text-muted">
                   {streaming ? 'working…' : projectName}
                 </span>
               </div>
@@ -417,7 +417,7 @@ export function AeroBar({ projectName }: AeroBarProps) {
                 <button
                   type="button"
                   onClick={asyncHandler(handleReset)}
-                  className="rounded-md p-1.5 text-zinc-500 transition hover:bg-zinc-800/60 hover:text-zinc-200"
+                  className="rounded-md p-1.5 text-muted transition hover:bg-surface-inset hover:text-strong"
                   aria-label="Reset conversation"
                   title="Reset conversation"
                 >
@@ -426,7 +426,7 @@ export function AeroBar({ projectName }: AeroBarProps) {
                 <button
                   type="button"
                   onClick={() => setExpanded((v) => !v)}
-                  className="rounded-md p-1.5 text-zinc-500 transition hover:bg-zinc-800/60 hover:text-zinc-200"
+                  className="rounded-md p-1.5 text-muted transition hover:bg-surface-inset hover:text-strong"
                   aria-label={expanded ? 'Collapse' : 'Expand'}
                   title={expanded ? 'Collapse' : 'Expand'}
                 >
@@ -442,7 +442,7 @@ export function AeroBar({ projectName }: AeroBarProps) {
                     setExpanded(false)
                     setOpen(false)
                   }}
-                  className="rounded-md p-1.5 text-zinc-500 transition hover:bg-zinc-800/60 hover:text-zinc-200"
+                  className="rounded-md p-1.5 text-muted transition hover:bg-surface-inset hover:text-strong"
                   aria-label="Close Aero"
                 >
                   <X className="h-4 w-4" aria-hidden="true" />
@@ -452,14 +452,14 @@ export function AeroBar({ projectName }: AeroBarProps) {
 
             <div ref={transcriptRef} className={transcriptClasses}>
               {error && (
-                <div className="mb-2 rounded-md border border-rose-700/40 bg-rose-950/40 px-3 py-2 text-xs text-rose-200">
+                <div className="mb-2 rounded-md border border-negative-700/40 bg-negative-950/40 px-3 py-2 text-xs text-negative-200">
                   {error}
                 </div>
               )}
               {conversationIsEmpty && !streaming && (
                 <div className="flex flex-col gap-3 py-2">
-                  <p className="text-xs text-zinc-500">
-                    Ask anything about <span className="text-zinc-300">{projectName}</span>, or start with:
+                  <p className="text-xs text-muted">
+                    Ask anything about <span className="text-neutral">{projectName}</span>, or start with:
                   </p>
                   <div className="flex flex-wrap gap-1.5">
                     {STARTER_PROMPTS.map((s) => (
@@ -467,7 +467,7 @@ export function AeroBar({ projectName }: AeroBarProps) {
                         key={s.label}
                         type="button"
                         onClick={() => { void send(s.prompt) }}
-                        className="rounded-full border border-zinc-800 bg-zinc-900/70 px-3 py-1 text-xs text-zinc-300 transition hover:border-zinc-700 hover:bg-zinc-800/70 hover:text-zinc-100"
+                        className="rounded-full border border-base bg-bg-elevated/70 px-3 py-1 text-xs text-neutral transition hover:border-strong hover:bg-mono-800/70 hover:text-heading"
                       >
                         {s.label}
                       </button>
@@ -485,7 +485,7 @@ export function AeroBar({ projectName }: AeroBarProps) {
               )}
               {streaming && streamingText && (
                 <div className="mt-3">
-                  <div className="mb-0.5 text-[10px] uppercase tracking-wider text-emerald-400">Aero</div>
+                  <div className="mb-0.5 text-[10px] uppercase tracking-wider text-positive-400">Aero</div>
                   <AeroMarkdown content={streamingText} />
                 </div>
               )}
@@ -516,7 +516,7 @@ export function AeroBar({ projectName }: AeroBarProps) {
                 />
               )}
               <form
-                className="flex items-end gap-2 border-t border-zinc-800/70 bg-zinc-950/80 px-3 py-2.5"
+                className="flex items-end gap-2 border-t border-mono-800/70 bg-bg/80 px-3 py-2.5"
                 onSubmit={(e) => {
                   e.preventDefault()
                   if (paletteMatches.length > 0) {
@@ -572,12 +572,12 @@ export function AeroBar({ projectName }: AeroBarProps) {
                   placeholder="Ask Aero, or / for commands…"
                   disabled={streaming}
                   rows={expanded ? 3 : 1}
-                  className="flex-1 resize-none bg-transparent text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none disabled:opacity-60"
+                  className="flex-1 resize-none bg-transparent text-sm text-heading placeholder:text-mono-600 focus:outline-none disabled:opacity-60"
                 />
                 <button
                   type="submit"
                   disabled={streaming || !draft.trim()}
-                  className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-emerald-500 text-zinc-950 transition hover:bg-emerald-400 disabled:opacity-40"
+                  className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-positive-500 text-accent-fg transition hover:bg-positive-400 disabled:opacity-40"
                   aria-label="Send"
                 >
                   <ArrowUp className="h-3.5 w-3.5" aria-hidden="true" />
@@ -589,13 +589,13 @@ export function AeroBar({ projectName }: AeroBarProps) {
           <button
             type="button"
             onClick={() => setOpen(true)}
-            className="flex w-full items-center justify-between rounded-full border border-zinc-800/80 bg-zinc-950/95 px-4 py-2 text-left text-sm text-zinc-400 shadow-lg backdrop-blur transition hover:border-zinc-700 hover:bg-zinc-900/90 hover:text-zinc-200"
+            className="flex w-full items-center justify-between rounded-full border border-mono-800/80 bg-bg/95 px-4 py-2 text-left text-sm text-secondary shadow-lg backdrop-blur transition hover:border-strong hover:bg-bg-elevated/90 hover:text-strong"
           >
             <span className="flex items-center gap-2">
-              <Radio className="h-4 w-4 text-emerald-400" aria-hidden="true" />
+              <Radio className="h-4 w-4 text-positive-400" aria-hidden="true" />
               Ask Aero about {projectName}…
             </span>
-            <span className="text-[10px] uppercase tracking-wider text-zinc-600">Enter</span>
+            <span className="text-[10px] uppercase tracking-wider text-faint">Enter</span>
           </button>
         )}
       </div>
@@ -654,22 +654,22 @@ function ProviderPicker({
         type="button"
         onClick={() => setOpen((v) => !v)}
         disabled={disabled}
-        className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-zinc-400 transition hover:bg-zinc-800/60 hover:text-zinc-200 disabled:opacity-50"
+        className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-secondary transition hover:bg-surface-inset hover:text-strong disabled:opacity-50"
         aria-label="Switch agent model"
         aria-haspopup="listbox"
         aria-expanded={open}
         title={active ? `${active.label} · ${active.defaultModel}` : 'Pick a provider'}
       >
-        <span className="font-medium text-zinc-200">{label}</span>
-        {model && <span className="hidden font-mono text-[10px] text-zinc-500 sm:inline">{model}</span>}
+        <span className="font-medium text-strong">{label}</span>
+        {model && <span className="hidden font-mono text-[10px] text-muted sm:inline">{model}</span>}
         <ChevronDown className="h-3 w-3" aria-hidden="true" />
       </button>
       {open && (
         <div
           role="listbox"
-          className="absolute right-0 top-full z-50 mt-1 w-64 overflow-hidden rounded-lg border border-zinc-800 bg-zinc-950 shadow-xl"
+          className="absolute right-0 top-full z-50 mt-1 w-64 overflow-hidden rounded-lg border border-base bg-bg shadow-xl"
         >
-          <div className="border-b border-zinc-800/60 px-3 py-2 text-[10px] uppercase tracking-wider text-zinc-500">
+          <div className="border-b border-default px-3 py-2 text-[10px] uppercase tracking-wider text-muted">
             Aero provider
           </div>
           <ul className="max-h-72 overflow-y-auto py-1">
@@ -688,35 +688,35 @@ function ProviderPicker({
                       onPick(isOverride ? null : p.id)
                       setOpen(false)
                     }}
-                    className="flex w-full items-start gap-2 px-3 py-2 text-left text-xs transition enabled:hover:bg-zinc-900 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="flex w-full items-start gap-2 px-3 py-2 text-left text-xs transition enabled:hover:bg-bg-elevated disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <span className="mt-0.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center">
-                      {isActive ? <Check className="h-3 w-3 text-emerald-400" aria-hidden="true" /> : null}
+                      {isActive ? <Check className="h-3 w-3 text-positive-400" aria-hidden="true" /> : null}
                     </span>
                     <span className="flex-1">
                       <span className="flex items-center gap-1.5">
-                        <span className="font-medium text-zinc-100">{p.label}</span>
+                        <span className="font-medium text-heading">{p.label}</span>
                         {isOverride && (
-                          <span className="rounded-full border border-emerald-800/60 bg-emerald-950/60 px-1.5 text-[9px] uppercase tracking-wider text-emerald-300">
+                          <span className="rounded-full border border-positive-800/60 bg-positive-950/60 px-1.5 text-[9px] uppercase tracking-wider text-positive">
                             Pinned
                           </span>
                         )}
                         {!p.configured && (
-                          <span className="rounded-full border border-zinc-800 px-1.5 text-[9px] uppercase tracking-wider text-zinc-500">
+                          <span className="rounded-full border border-base px-1.5 text-[9px] uppercase tracking-wider text-muted">
                             Key missing
                           </span>
                         )}
                       </span>
-                      <span className="mt-0.5 block font-mono text-[10px] text-zinc-500">
+                      <span className="mt-0.5 block font-mono text-[10px] text-muted">
                         {p.defaultModel}
                       </span>
                       {p.keySource === 'env' && (
-                        <span className="mt-0.5 block text-[10px] text-zinc-600">via env var</span>
+                        <span className="mt-0.5 block text-[10px] text-faint">via env var</span>
                       )}
                       {!p.configured && (
-                        <span className="mt-0.5 block text-[10px] text-zinc-600">
+                        <span className="mt-0.5 block text-[10px] text-faint">
                           Add key in config.yaml or export{' '}
-                          <code className="font-mono text-zinc-400">{envVarHint(p.id)}</code>
+                          <code className="font-mono text-secondary">{envVarHint(p.id)}</code>
                         </span>
                       )}
                     </span>
@@ -732,7 +732,7 @@ function ProviderPicker({
                 onPick(null)
                 setOpen(false)
               }}
-              className="w-full border-t border-zinc-800/60 px-3 py-2 text-left text-[11px] text-zinc-400 transition hover:bg-zinc-900 hover:text-zinc-100"
+              className="w-full border-t border-default px-3 py-2 text-left text-[11px] text-secondary transition hover:bg-bg-elevated hover:text-heading"
             >
               Reset to auto-detected default
             </button>
@@ -766,15 +766,15 @@ function ContextPills({
   const providerLabel = activeProvider?.label.replace(/\s+\(.+\)$/, '') ?? null
   const writeMode = scope === 'all'
   return (
-    <div className="flex flex-wrap items-center gap-1.5 border-t border-zinc-800/70 bg-zinc-950/80 px-3 pt-2">
-      <span className="inline-flex items-center gap-1 rounded-full border border-zinc-800 bg-zinc-900/70 px-2 py-0.5 text-[10px] text-zinc-400">
-        <span className="text-zinc-600">project</span>
-        <span className="font-medium text-zinc-200">{projectName}</span>
+    <div className="flex flex-wrap items-center gap-1.5 border-t border-mono-800/70 bg-bg/80 px-3 pt-2">
+      <span className="inline-flex items-center gap-1 rounded-full border border-base bg-bg-elevated/70 px-2 py-0.5 text-[10px] text-secondary">
+        <span className="text-faint">project</span>
+        <span className="font-medium text-strong">{projectName}</span>
       </span>
       {providerLabel && (
-        <span className="inline-flex items-center gap-1 rounded-full border border-zinc-800 bg-zinc-900/70 px-2 py-0.5 text-[10px] text-zinc-400">
-          <span className="text-zinc-600">model</span>
-          <span className="font-medium text-zinc-200">{providerLabel}</span>
+        <span className="inline-flex items-center gap-1 rounded-full border border-base bg-bg-elevated/70 px-2 py-0.5 text-[10px] text-secondary">
+          <span className="text-faint">model</span>
+          <span className="font-medium text-strong">{providerLabel}</span>
         </span>
       )}
       <button
@@ -783,8 +783,8 @@ function ContextPills({
         disabled={disabled}
         className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] transition disabled:opacity-50 ${
           writeMode
-            ? 'border-amber-800/60 bg-amber-950/40 text-amber-300 hover:border-amber-700 hover:text-amber-200'
-            : 'border-zinc-800 bg-zinc-900/70 text-zinc-400 hover:border-zinc-700 hover:text-zinc-200'
+            ? 'border-caution-800/60 bg-caution-950/40 text-caution hover:border-caution-700 hover:text-caution-200'
+            : 'border-base bg-bg-elevated/70 text-secondary hover:border-strong hover:text-strong'
         }`}
         title={
           writeMode
@@ -792,7 +792,7 @@ function ContextPills({
             : 'Aero is restricted to read-only tools. Click to allow writes.'
         }
       >
-        <span className={writeMode ? 'text-amber-500' : 'text-zinc-600'}>scope</span>
+        <span className={writeMode ? 'text-caution-500' : 'text-faint'}>scope</span>
         <span className="font-medium">{writeMode ? 'all tools' : 'read-only'}</span>
       </button>
     </div>
@@ -818,8 +818,8 @@ function SlashPalette({
   onPick: (cmd: SlashCommand) => void
 }) {
   return (
-    <div className="absolute inset-x-3 bottom-full mb-2 overflow-hidden rounded-lg border border-zinc-800 bg-zinc-950/98 shadow-2xl">
-      <div className="border-b border-zinc-800/60 px-3 py-1.5 text-[10px] uppercase tracking-wider text-zinc-500">
+    <div className="absolute inset-x-3 bottom-full mb-2 overflow-hidden rounded-lg border border-base bg-bg/98 shadow-2xl">
+      <div className="border-b border-default px-3 py-1.5 text-[10px] uppercase tracking-wider text-muted">
         Commands
       </div>
       <ul role="listbox" className="max-h-72 overflow-y-auto py-1">
@@ -834,18 +834,18 @@ function SlashPalette({
                 onMouseEnter={() => onHover(i)}
                 onClick={() => onPick(cmd)}
                 className={`flex w-full items-center gap-3 px-3 py-1.5 text-left text-xs transition ${
-                  active ? 'bg-zinc-900 text-zinc-100' : 'text-zinc-300 hover:bg-zinc-900/60'
+                  active ? 'bg-bg-elevated text-heading' : 'text-neutral hover:bg-bg-elevated/60'
                 }`}
               >
-                <span className="font-mono text-[11px] text-emerald-400">{cmd.command}</span>
+                <span className="font-mono text-[11px] text-positive-400">{cmd.command}</span>
                 <span className="font-medium">{cmd.label}</span>
-                <span className="ml-auto text-[10px] text-zinc-500">{cmd.hint}</span>
+                <span className="ml-auto text-[10px] text-muted">{cmd.hint}</span>
               </button>
             </li>
           )
         })}
       </ul>
-      <div className="border-t border-zinc-800/60 px-3 py-1.5 text-[10px] text-zinc-600">
+      <div className="border-t border-default px-3 py-1.5 text-[10px] text-faint">
         <span className="mr-3">↑↓ to select</span>
         <span className="mr-3">Enter to run</span>
         <span>Tab to autocomplete</span>
@@ -935,7 +935,7 @@ function renderTranscript(
           )}
           {text.trim() && (
             <div className="mt-3">
-              <div className="mb-0.5 text-[10px] uppercase tracking-wider text-emerald-400">Aero</div>
+              <div className="mb-0.5 text-[10px] uppercase tracking-wider text-positive-400">Aero</div>
               <AeroMarkdown content={text} />
             </div>
           )}
@@ -989,19 +989,19 @@ function UserMessageRow({
   }
 
   return (
-    <div className="group relative mt-3 rounded-md bg-zinc-900/60 px-3 py-2 text-zinc-200">
+    <div className="group relative mt-3 rounded-md bg-bg-elevated/60 px-3 py-2 text-strong">
       <div className="flex items-center justify-between gap-2">
-        <div className="text-[10px] uppercase tracking-wider text-zinc-500">You</div>
+        <div className="text-[10px] uppercase tracking-wider text-muted">You</div>
         <button
           type="button"
           onClick={asyncHandler(handleCopy)}
-          className="inline-flex items-center gap-1 rounded border border-zinc-800/70 bg-zinc-950/60 px-1.5 py-0.5 text-[10px] text-zinc-400 opacity-0 transition hover:border-zinc-700 hover:text-zinc-100 group-hover:opacity-100 focus:opacity-100"
+          className="inline-flex items-center gap-1 rounded border border-mono-800/70 bg-bg/60 px-1.5 py-0.5 text-[10px] text-secondary opacity-0 transition hover:border-strong hover:text-heading group-hover:opacity-100 focus:opacity-100"
           aria-label="Copy as CLI command"
           title={cliCommand}
         >
           {copied ? (
             <>
-              <Check className="h-2.5 w-2.5 text-emerald-400" aria-hidden="true" />
+              <Check className="h-2.5 w-2.5 text-positive-400" aria-hidden="true" />
               Copied
             </>
           ) : (
@@ -1080,11 +1080,11 @@ function ToolTrailRow({ trail }: { trail: ToolTrail }) {
     durationMs == null || durationMs < 0 ? null : durationMs < 1000 ? `${durationMs}ms` : `${(durationMs / 1000).toFixed(1)}s`
 
   const borderClass = failed
-    ? 'border-rose-800/50'
+    ? 'border-negative-800/50'
     : running
-      ? 'border-emerald-800/50'
-      : 'border-zinc-800/70'
-  const bgClass = failed ? 'bg-rose-950/20' : running ? 'bg-emerald-950/20' : 'bg-zinc-900/40'
+      ? 'border-positive-800/50'
+      : 'border-mono-800/70'
+  const bgClass = failed ? 'bg-negative-950/20' : running ? 'bg-positive-950/20' : 'bg-surface-hover'
 
   return (
     <div className={`rounded-md border ${borderClass} ${bgClass} font-mono`}>
@@ -1096,17 +1096,17 @@ function ToolTrailRow({ trail }: { trail: ToolTrail }) {
       >
         <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center">
           {running ? (
-            <Loader2 className="h-3 w-3 animate-spin text-emerald-400" aria-hidden="true" />
+            <Loader2 className="h-3 w-3 animate-spin text-positive-400" aria-hidden="true" />
           ) : failed ? (
-            <AlertTriangle className="h-3 w-3 text-rose-400" aria-hidden="true" />
+            <AlertTriangle className="h-3 w-3 text-negative-400" aria-hidden="true" />
           ) : (
-            <Wrench className="h-3 w-3 text-zinc-500" aria-hidden="true" />
+            <Wrench className="h-3 w-3 text-muted" aria-hidden="true" />
           )}
         </span>
-        <span className="text-[11px] font-semibold text-zinc-100">{trail.name}</span>
-        <span className="ml-auto flex items-center gap-2 text-[10px] text-zinc-500">
+        <span className="text-[11px] font-semibold text-heading">{trail.name}</span>
+        <span className="ml-auto flex items-center gap-2 text-[10px] text-muted">
           {running ? (
-            <span className="text-emerald-400">running…</span>
+            <span className="text-positive-400">running…</span>
           ) : (
             <>
               <span>{failed ? 'failed' : 'ok'}</span>
@@ -1120,17 +1120,17 @@ function ToolTrailRow({ trail }: { trail: ToolTrail }) {
         </span>
       </button>
       {expanded && (
-        <div className="border-t border-zinc-800/60 px-2.5 py-2 text-[11px] text-zinc-400">
-          <div className="mb-1 text-[9px] uppercase tracking-wider text-zinc-600">Args</div>
-          <pre className="mb-2 overflow-x-auto whitespace-pre-wrap break-all text-[10px] text-zinc-300">
+        <div className="border-t border-default px-2.5 py-2 text-[11px] text-secondary">
+          <div className="mb-1 text-[9px] uppercase tracking-wider text-faint">Args</div>
+          <pre className="mb-2 overflow-x-auto whitespace-pre-wrap break-all text-[10px] text-neutral">
             {formatJsonPreview(trail.args)}
           </pre>
           {!running && trail.result !== undefined && (
             <>
-              <div className="mb-1 text-[9px] uppercase tracking-wider text-zinc-600">
+              <div className="mb-1 text-[9px] uppercase tracking-wider text-faint">
                 {failed ? 'Error' : 'Result'}
               </div>
-              <pre className="overflow-x-auto whitespace-pre-wrap break-all text-[10px] text-zinc-300">
+              <pre className="overflow-x-auto whitespace-pre-wrap break-all text-[10px] text-neutral">
                 {formatJsonPreview(trail.result)}
               </pre>
             </>
@@ -1159,23 +1159,23 @@ function formatJsonPreview(value: unknown): string {
  */
 function AeroMarkdown({ content }: { content: string }) {
   return (
-    <div className="aero-markdown text-zinc-100">
+    <div className="aero-markdown text-heading">
       <ReactMarkdown
         components={{
-          h1: (props) => <h1 {...props} className="mt-3 mb-2 text-base font-semibold text-zinc-50" />,
-          h2: (props) => <h2 {...props} className="mt-3 mb-2 text-sm font-semibold text-zinc-50" />,
-          h3: (props) => <h3 {...props} className="mt-3 mb-1.5 text-sm font-semibold text-zinc-100" />,
-          h4: (props) => <h4 {...props} className="mt-2 mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-300" />,
+          h1: (props) => <h1 {...props} className="mt-3 mb-2 text-base font-semibold text-primary" />,
+          h2: (props) => <h2 {...props} className="mt-3 mb-2 text-sm font-semibold text-primary" />,
+          h3: (props) => <h3 {...props} className="mt-3 mb-1.5 text-sm font-semibold text-heading" />,
+          h4: (props) => <h4 {...props} className="mt-2 mb-1 text-xs font-semibold uppercase tracking-wide text-neutral" />,
           p: (props) => <p {...props} className="mb-2 leading-relaxed" />,
           ul: (props) => <ul {...props} className="mb-2 ml-4 list-disc space-y-1" />,
           ol: (props) => <ol {...props} className="mb-2 ml-4 list-decimal space-y-1" />,
-          li: (props) => <li {...props} className="marker:text-zinc-600" />,
-          strong: (props) => <strong {...props} className="font-semibold text-zinc-50" />,
-          em: (props) => <em {...props} className="text-zinc-200" />,
+          li: (props) => <li {...props} className="marker:text-mono-600" />,
+          strong: (props) => <strong {...props} className="font-semibold text-primary" />,
+          em: (props) => <em {...props} className="text-strong" />,
           code: ({ children, ...props }) => (
             <code
               {...props}
-              className="rounded bg-zinc-800/70 px-1 py-0.5 font-mono text-[12px] text-emerald-200"
+              className="rounded bg-mono-800/70 px-1 py-0.5 font-mono text-[12px] text-positive-200"
             >
               {children}
             </code>
@@ -1183,13 +1183,13 @@ function AeroMarkdown({ content }: { content: string }) {
           pre: (props) => (
             <pre
               {...props}
-              className="mb-2 overflow-x-auto rounded-md border border-zinc-800 bg-zinc-900/70 p-3 font-mono text-xs text-zinc-200"
+              className="mb-2 overflow-x-auto rounded-md border border-base bg-bg-elevated/70 p-3 font-mono text-xs text-strong"
             />
           ),
           a: (props) => (
             <a
               {...props}
-              className="text-emerald-400 underline decoration-emerald-700 hover:decoration-emerald-400"
+              className="text-positive-400 underline decoration-positive-700 hover:decoration-positive-400"
               target="_blank"
               rel="noopener noreferrer"
             />
@@ -1199,17 +1199,17 @@ function AeroMarkdown({ content }: { content: string }) {
               <table {...props} className="w-full border-collapse text-xs" />
             </div>
           ),
-          thead: (props) => <thead {...props} className="border-b border-zinc-800" />,
-          th: (props) => <th {...props} className="px-2 py-1 text-left font-semibold text-zinc-300" />,
-          tr: (props) => <tr {...props} className="border-b border-zinc-900" />,
-          td: (props) => <td {...props} className="px-2 py-1 text-zinc-200" />,
+          thead: (props) => <thead {...props} className="border-b border-base" />,
+          th: (props) => <th {...props} className="px-2 py-1 text-left font-semibold text-neutral" />,
+          tr: (props) => <tr {...props} className="border-b border-mono-900" />,
+          td: (props) => <td {...props} className="px-2 py-1 text-strong" />,
           blockquote: (props) => (
             <blockquote
               {...props}
-              className="mb-2 border-l-2 border-zinc-700 pl-3 italic text-zinc-400"
+              className="mb-2 border-l-2 border-strong pl-3 italic text-secondary"
             />
           ),
-          hr: () => <hr className="my-3 border-zinc-800" />,
+          hr: () => <hr className="my-3 border-base" />,
         }}
       >
         {content}
@@ -1222,11 +1222,11 @@ function AeroMarkdown({ content }: { content: string }) {
 function TypingIndicator() {
   return (
     <div className="mt-3 flex items-center gap-2">
-      <div className="text-[10px] uppercase tracking-wider text-emerald-400">Aero</div>
+      <div className="text-[10px] uppercase tracking-wider text-positive-400">Aero</div>
       <div className="flex items-center gap-1" aria-label="Aero is thinking">
-        <span className="aero-dot h-1.5 w-1.5 rounded-full bg-emerald-400/80" />
-        <span className="aero-dot aero-dot-2 h-1.5 w-1.5 rounded-full bg-emerald-400/60" />
-        <span className="aero-dot aero-dot-3 h-1.5 w-1.5 rounded-full bg-emerald-400/40" />
+        <span className="aero-dot h-1.5 w-1.5 rounded-full bg-positive-400/80" />
+        <span className="aero-dot aero-dot-2 h-1.5 w-1.5 rounded-full bg-positive-400/60" />
+        <span className="aero-dot aero-dot-3 h-1.5 w-1.5 rounded-full bg-positive-400/40" />
       </div>
     </div>
   )
