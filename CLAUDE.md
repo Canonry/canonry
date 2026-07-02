@@ -88,7 +88,7 @@ The web dashboard follows a dark, professional analytics aesthetic inspired by *
 
 - Import chart components and shared constants from `components/shared/ChartPrimitives.js`.
 - Use `CHART_TOOLTIP_STYLE`, `CHART_AXIS_TICK`, `CHART_GRID_STROKE`, `CHART_AXIS_STROKE`, and `CHART_SERIES_COLORS` for consistent styling.
-- Chart CSS variables (`--chart-series-*`, `--chart-tone-*`, `--chart-neutral-*`, `--chart-tooltip-*`, `--chart-grid`, `--chart-axis`) are registered in `styles.css`. Phase 4 bridges `ChartPrimitives.tsx` to these variables; until then, keep the JS constants and CSS token defaults in sync when touching chart colors.
+- Chart CSS variables (`--chart-series-*`, `--chart-tone-*`, `--chart-neutral-*`, `--chart-tooltip-*`, `--chart-grid`, `--chart-axis`) are registered in `styles.css` and consumed by `ChartPrimitives.tsx`: every Recharts color constant is `var(--chart-*, <hex fallback>)`, so the default dark render is unchanged and a theme can override the ramp at runtime. `test/chart-primitives.test.ts` locks each JS fallback to its CSS default (no two-source drift). Gauges/sparklines share the same `--chart-tone-*` / `--chart-neutral-grid-line` tokens so they can't drift from the charts. `PROVIDER_SERIES_COLORS` stays literal — it encodes engine identity, not tone. Never do string math (slice/alpha-concat) on these constants; a `var()` string would break.
 - Use `formatChartDateLabel` for tooltip labels and `formatChartDateTick` for axis ticks.
 - Custom SVG is allowed only for non-chart visualizations (gauges, sparklines, timelines) where Recharts is overkill.
 - If Recharts is missing a feature, extend `ChartPrimitives.tsx` rather than adding a second library.
