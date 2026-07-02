@@ -174,13 +174,13 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
         <Card className="surface-card compact-card">
           <div className="flex items-start justify-between gap-4">
             <div className="space-y-1">
-              <p className="text-sm font-medium text-zinc-200">{scheduleLabel(schedule.preset ?? null, schedule.cronExpr, schedule.timezone)}</p>
-              <p className="text-xs text-zinc-500">Cron: <span className="font-mono">{schedule.cronExpr}</span></p>
+              <p className="text-sm font-medium text-strong">{scheduleLabel(schedule.preset ?? null, schedule.cronExpr, schedule.timezone)}</p>
+              <p className="text-xs text-muted">Cron: <span className="font-mono">{schedule.cronExpr}</span></p>
               {schedule.nextRunAt && (
-                <p className="text-xs text-zinc-500">Next run: {new Date(schedule.nextRunAt).toLocaleString()}</p>
+                <p className="text-xs text-muted">Next run: {new Date(schedule.nextRunAt).toLocaleString()}</p>
               )}
               {schedule.lastRunAt && (
-                <p className="text-xs text-zinc-500">Last run: {new Date(schedule.lastRunAt).toLocaleString()}</p>
+                <p className="text-xs text-muted">Last run: {new Date(schedule.lastRunAt).toLocaleString()}</p>
               )}
             </div>
             <div className="flex items-center gap-2 shrink-0">
@@ -195,17 +195,17 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
               </Button>
             </div>
           </div>
-          {error && <p className="text-rose-400 text-sm mt-2">{error}</p>}
+          {error && <p className="text-negative-400 text-sm mt-2">{error}</p>}
         </Card>
       )}
 
       {editing && (
-        <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-4 space-y-3">
+        <div className="rounded-lg border border-base bg-bg-elevated/40 p-4 space-y-3">
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <label className="text-xs font-medium text-zinc-400">Frequency</label>
+              <label className="text-xs font-medium text-secondary">Frequency</label>
               <select
-                className="w-full rounded border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-sm text-zinc-200 focus:border-zinc-500 focus:outline-none"
+                className="w-full rounded border border-strong bg-bg-elevated px-2 py-1.5 text-sm text-strong focus:border-mono-500 focus:outline-none"
                 value={freq}
                 onChange={(e) => setFreq(e.target.value)}
               >
@@ -215,9 +215,9 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
               </select>
             </div>
             <div className="space-y-1.5">
-              <label className="text-xs font-medium text-zinc-400">Time</label>
+              <label className="text-xs font-medium text-secondary">Time</label>
               <select
-                className="w-full rounded border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-sm text-zinc-200 focus:border-zinc-500 focus:outline-none disabled:opacity-40"
+                className="w-full rounded border border-strong bg-bg-elevated px-2 py-1.5 text-sm text-strong focus:border-mono-500 focus:outline-none disabled:opacity-40"
                 value={hour}
                 disabled={freq === 'twice-daily' || freq === 'custom'}
                 onChange={(e) => setHour(parseInt(e.target.value))}
@@ -230,9 +230,9 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
           </div>
           {freq === 'custom' && (
             <div className="space-y-1.5">
-              <label className="text-xs font-medium text-zinc-400">Cron expression</label>
+              <label className="text-xs font-medium text-secondary">Cron expression</label>
               <input
-                className="w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 font-mono focus:border-zinc-500 focus:outline-none"
+                className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder:text-faint font-mono focus:border-mono-500 focus:outline-none"
                 type="text"
                 placeholder="0 9 * * 1-5"
                 value={customCron}
@@ -241,9 +241,9 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
             </div>
           )}
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-zinc-400">Timezone</label>
+            <label className="text-xs font-medium text-secondary">Timezone</label>
             <select
-              className="w-full rounded border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-sm text-zinc-200 focus:border-zinc-500 focus:outline-none"
+              className="w-full rounded border border-strong bg-bg-elevated px-2 py-1.5 text-sm text-strong focus:border-mono-500 focus:outline-none"
               value={tzOther ? 'Other' : timezone}
               onChange={(e) => {
                 if (e.target.value === 'Other') { setTzOther(true); setTimezone('Other') }
@@ -257,7 +257,7 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
             </select>
             {tzOther && (
               <input
-                className="w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+                className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder:text-faint focus:border-mono-500 focus:outline-none"
                 type="text"
                 placeholder="e.g. America/New_York"
                 value={tzOtherValue}
@@ -265,7 +265,7 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
               />
             )}
           </div>
-          {error && <p className="text-rose-400 text-sm">{error}</p>}
+          {error && <p className="text-negative-400 text-sm">{error}</p>}
           <div className="flex gap-2 justify-end">
             <Button type="button" variant="outline" size="sm" onClick={() => { setEditing(false); setError(null) }}>Cancel</Button>
             <Button
