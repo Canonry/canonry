@@ -8,6 +8,7 @@ import {
   discoverSeed,
   discoverShow,
 } from '../commands/discover.js'
+import { discoverEval } from '../commands/discover-eval.js'
 import {
   discoveryBucketSchema,
   discoveryCompetitorTypeSchema,
@@ -154,6 +155,40 @@ export const DISCOVER_CLI_COMMANDS: readonly CliCommandSpec[] = [
           message: '--probe-concurrency must be an integer',
         }),
         wait: getBoolean(input.values, 'wait'),
+        format: input.format,
+      })
+    },
+  },
+  {
+    path: ['discover', 'eval'],
+    usage:
+      'canonry discover eval [--baseline <path>] [--update-baseline] [--shape eval-b2b-saas ...] [--seed-provider gemini --seed-provider openai] [--max-probes 2] [--probe-concurrency 2] [--format json]',
+    options: {
+      baseline: stringOption(),
+      'update-baseline': { type: 'boolean', default: false },
+      shape: multiStringOption(),
+      'seed-provider': multiStringOption(),
+      'max-probes': stringOption(),
+      'probe-concurrency': stringOption(),
+    },
+    run: async (input) => {
+      const usage =
+        'canonry discover eval [--baseline <path>] [--update-baseline] [--shape eval-b2b-saas ...] [--seed-provider gemini --seed-provider openai] [--max-probes 2] [--probe-concurrency 2] [--format json]'
+      await discoverEval({
+        baseline: getString(input.values, 'baseline'),
+        updateBaseline: getBoolean(input.values, 'update-baseline'),
+        shapes: getStringArray(input.values, 'shape'),
+        seedProviders: getStringArray(input.values, 'seed-provider') as Array<'gemini' | 'openai'> | undefined,
+        maxProbes: parseIntegerOption(input, 'max-probes', {
+          command: 'discover.eval',
+          usage,
+          message: '--max-probes must be an integer',
+        }),
+        probeConcurrency: parseIntegerOption(input, 'probe-concurrency', {
+          command: 'discover.eval',
+          usage,
+          message: '--probe-concurrency must be an integer',
+        }),
         format: input.format,
       })
     },

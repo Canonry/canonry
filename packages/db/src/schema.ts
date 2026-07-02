@@ -935,6 +935,10 @@ export const discoverySessions = sqliteTable('discovery_sessions', {
   // session identity for consolidation — and per-provider candidate counts.
   seedProviders: text('seed_providers', { mode: 'json' }).$type<string[]>(),
   seedProviderCounts: text('seed_provider_counts', { mode: 'json' }).$type<Record<string, number>>(),
+  // TRUE canonical count after dedup, BEFORE the probe-budget slice. seed_count
+  // is post-truncation (probedCanonicals.length), so a deliberately small
+  // maxProbes deflates it; this column is the honest numerator.
+  canonicalCount: integer('canonical_count'),
   dedupThreshold: real('dedup_threshold'),
   probeCount: integer('probe_count'),
   citedCount: integer('cited_count'),

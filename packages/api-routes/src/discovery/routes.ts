@@ -708,6 +708,7 @@ function serializeSession(row: typeof discoverySessions.$inferSelect): Discovery
     seedRawCandidates: row.seedRawCandidates ?? null,
     seedProviders: row.seedProviders ?? null,
     seedProviderCounts: row.seedProviderCounts ?? null,
+    canonicalCount: row.canonicalCount ?? null,
     dedupClusterMinSims: row.dedupClusterMinSims ?? null,
     dedupBandPairFraction: row.dedupBandPairFraction ?? null,
     dedupPairsTotal: row.dedupPairsTotal ?? null,
