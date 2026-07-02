@@ -83,6 +83,38 @@ export type VisibilityStatsWindow = z.infer<typeof visibilityStatsWindowSchema>
 export const visibilityStatsGroupBySchema = z.enum(['provider'])
 export type VisibilityStatsGroupBy = z.infer<typeof visibilityStatsGroupBySchema>
 
+/** One competitor's pooled brand-mention count within the window. */
+export const visibilityStatsShareCompetitorSchema = z.object({
+  domain: z.string(),
+  /** Snapshots (with answer text) in the window where this competitor's brand appeared. */
+  mentions: z.number().int(),
+})
+export type VisibilityStatsShareCompetitor = z.infer<typeof visibilityStatsShareCompetitorSchema>
+
+/**
+ * Pooled **share of voice** across the window — how often the project's brand is
+ * named in answer TEXT vs tracked competitors:
+ *   `share = projectMentions / (projectMentions + competitorMentions)`.
+ * Per-snapshot (binary), mirroring `answerMentioned` — matches `buildMentionShare`.
+ * Present only when the caller passes `shareOfVoice=1`.
+ *
+ * `percent` is `null` when no competitors are configured (the head-to-head metric
+ * is undefined without a competitive frame — reporting 100% would mislead).
+ */
+export const visibilityStatsShareOfVoiceSchema = z.object({
+  /** `projectMentions / (projectMentions + competitorMentions)` as 0-100; `null` when no competitors configured. */
+  percent: z.number().nullable(),
+  /** Snapshots (with answer text) where the project's brand appeared in the answer. */
+  projectMentions: z.number().int(),
+  /** Snapshots (with answer text) where any tracked competitor's brand appeared. */
+  competitorMentions: z.number().int(),
+  /** Snapshots that carried answer text — the universe the mentions were counted over. */
+  snapshotsWithAnswerText: z.number().int(),
+  /** Per-competitor mention counts, descending; only competitors with ≥1 mention appear. */
+  perCompetitor: z.array(visibilityStatsShareCompetitorSchema),
+})
+export type VisibilityStatsShareOfVoice = z.infer<typeof visibilityStatsShareOfVoiceSchema>
+
 export const visibilityStatsDtoSchema = z.object({
   project: z.string(),
   /**
@@ -102,5 +134,26 @@ export const visibilityStatsDtoSchema = z.object({
   byProvider: z.array(visibilityStatsProviderEntrySchema).optional(),
   /** Per-query stats, sorted by query text. Only queries with ≥1 snapshot in the window appear. */
   queries: z.array(visibilityStatsQueryEntrySchema),
+  /** Pooled share of voice vs tracked competitors — present only when `shareOfVoice=1` was requested. */
+  shareOfVoice: visibilityStatsShareOfVoiceSchema.optional(),
 })
 export type VisibilityStatsDto = z.infer<typeof visibilityStatsDtoSchema>
+
+/**
+ * Calendar-month window for a `YYYY-MM` string as inclusive ISO 8601 UTC bounds:
+ * `since` = the first instant of the month, `until` = its last millisecond. Pure —
+ * never reads the clock (a future-month guard, which needs "now", belongs in the
+ * route). Throws `RangeError` on a malformed or out-of-range month so the caller
+ * can map it to a `validationError`.
+ */
+export function calendarMonthBounds(month: string): { since: string; until: string } {
+  const match = /^(\d{4})-(\d{2})$/.exec(month)
+  if (!match) throw new RangeError('month must be in YYYY-MM format')
+  const year = Number(match[1])
+  const mon = Number(match[2])
+  if (mon < 1 || mon > 12) throw new RangeError('month must be between 01 and 12')
+  return {
+    since: new Date(Date.UTC(year, mon - 1, 1)).toISOString(),
+    until: new Date(Date.UTC(year, mon, 1) - 1).toISOString(),
+  }
+}

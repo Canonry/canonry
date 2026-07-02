@@ -40,7 +40,7 @@ flowchart LR
 
 ### Key components
 
-- **`packages/canonry/`** — publishable npm package (`@ainyc/canonry`). Bundles CLI, Fastify server, job runner, and pre-built SPA.
+- **`packages/canonry/`** — publishable npm package (`@canonry/canonry`, plus compatibility publish as `@ainyc/canonry`). Bundles CLI, Fastify server, job runner, and pre-built SPA.
 - **`packages/api-routes/`** — shared Fastify route plugins. The HTTP surface consumed by the local `cnry serve` process.
 - **`packages/db/`** — Drizzle ORM schema, backed by SQLite. Auto-migration on startup.
 - **`packages/provider-*/`** — Provider adapters. Each implements `ProviderAdapter` from contracts.

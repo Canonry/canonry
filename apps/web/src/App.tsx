@@ -65,9 +65,9 @@ import type {
 import { Outlet, Link, useLocation } from '@tanstack/react-router'
 
 const resources: { label: string; href: string; Icon: LucideIcon }[] = [
-  { label: 'GitHub', href: 'https://github.com/AINYC/canonry', Icon: Github },
-  { label: 'Docs', href: 'https://github.com/AINYC/canonry/tree/main/docs', Icon: BookOpen },
-  { label: 'Changelog', href: 'https://github.com/AINYC/canonry/releases', Icon: FileText },
+  { label: 'GitHub', href: 'https://github.com/Canonry/canonry', Icon: Github },
+  { label: 'Docs', href: 'https://github.com/Canonry/canonry/tree/main/docs', Icon: BookOpen },
+  { label: 'Changelog', href: 'https://github.com/Canonry/canonry/releases', Icon: FileText },
 ]
 
 const checkingStatus = (label: string): ServiceStatus => ({
@@ -331,8 +331,8 @@ export function RootLayout() {
     ? {
         current: healthSnapshot.apiStatus.version ?? '0.0.0',
         latest: forceUpdateVersion,
-        url: 'https://www.npmjs.com/package/@ainyc/canonry',
-        upgradeCommand: 'npm install -g @ainyc/canonry',
+        url: 'https://www.npmjs.com/package/@canonry/canonry',
+        upgradeCommand: 'npm install -g @canonry/canonry',
       }
     : healthSnapshot.apiStatus.updateAvailable
   const showUpdatePill = updateAvailable && updateAvailable.latest !== dismissedUpdateVersion

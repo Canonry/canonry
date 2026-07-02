@@ -1227,4 +1227,27 @@ test('buildPortfolioProject carries the mention-rate trend, score, and subtitle 
 
   // Without an overview (no runs yet) the trend is empty and the sparkline no-ops.
   expect(buildPortfolioProject({ ...base, overview: null }).trend).toEqual([])
+
+  // Quiet-project fallback (#761 class): the capped, 30-day-windowed global runs
+  // list yields NO runs for a project quiet for >30 days (`data.runs` empty), so
+  // the portfolio "last run" card must fall back to the authoritative latest run
+  // from the uncapped overview composite instead of reading "No runs yet" beside
+  // a real mention score.
+  const overviewRun = {
+    id: 'run_from_overview', projectId: 'proj_portfolio', kind: 'answer-visibility',
+    status: 'completed', trigger: 'scheduled',
+    startedAt: '2026-04-01T00:00:00Z', finishedAt: '2026-04-01T00:00:10Z',
+    error: null, createdAt: '2026-04-01T00:00:00Z',
+  }
+  const quietWithOverviewRun = buildPortfolioProject({
+    ...base,
+    runs: [],
+    overview: { ...base.overview!, latestRun: { totalRuns: 65, run: overviewRun } },
+  })
+  expect(quietWithOverviewRun.lastRun.id).toBe('run_from_overview')
+  expect(quietWithOverviewRun.lastRun.status).toBe('completed')
+
+  // Regression guard: with no runs anywhere (`data.runs` empty AND the overview
+  // run null) it still degrades to the empty "No runs yet" item.
+  expect(buildPortfolioProject({ ...base, runs: [] }).lastRun.id).toBe('none')
 })

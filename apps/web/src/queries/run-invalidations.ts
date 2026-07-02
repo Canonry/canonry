@@ -48,6 +48,12 @@ export function invalidateQueriesForRunKind(
   // below for the surgical per-domain invalidations.
   void queryClient.invalidateQueries({ queryKey: getApiV1RunsQueryKey({ client: heyClient }) })
   void queryClient.invalidateQueries({ queryKey: getApiV1ProjectsQueryKey({ client: heyClient }) })
+  // The project page's runs list uses the PROJECT-SCOPED runs endpoint
+  // (`getApiV1ProjectsByNameRuns`), not the global `/runs` list above, so it
+  // must be invalidated too or the page won't refresh after a run completes.
+  // `getApiV1ProjectsByNameRuns` matches only the runs sub-endpoint (there is
+  // no per-project run-detail op), so the prefix is safe (not greedy).
+  invalidateByOpPrefix(queryClient, 'getApiV1ProjectsByNameRuns')
 
   switch (kind) {
     case RunKinds['answer-visibility']:

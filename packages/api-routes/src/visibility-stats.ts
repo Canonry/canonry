@@ -1,7 +1,10 @@
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { queries, querySnapshots, runs } from '@ainyc/canonry-db'
+import { competitors, queries, querySnapshots, runs } from '@ainyc/canonry-db'
+import { buildMentionShare } from '@ainyc/canonry-intelligence'
 import {
+  brandLabelFromDomain,
+  calendarMonthBounds,
   CitationStates,
   parseInclusiveEndMs,
   RunKinds,
@@ -12,6 +15,7 @@ import {
   type VisibilityStatsGroupBy,
   type VisibilityStatsProviderEntry,
   type VisibilityStatsQueryEntry,
+  type VisibilityStatsShareOfVoice,
 } from '@ainyc/canonry-contracts'
 import { notProbeRun, resolveProject } from './helpers.js'
 
@@ -100,6 +104,31 @@ function providerEntries(byProvider: Map<string, Agg>): VisibilityStatsProviderE
     .sort((a, b) => a.provider.localeCompare(b.provider))
 }
 
+type QueryAttributionSnapshot = Pick<VisibilityStatsSnapshotInput, 'queryId' | 'queryText'>
+type CurrentQuery = { id: string; query: string }
+
+function buildQueryAttribution(projectQueries: CurrentQuery[]): {
+  byId: Map<string, CurrentQuery>
+  byText: Map<string, CurrentQuery>
+} {
+  const byId = new Map<string, CurrentQuery>()
+  const byText = new Map<string, CurrentQuery>()
+  for (const q of projectQueries) {
+    byId.set(q.id, q)
+    byText.set(q.query, q)
+  }
+  return { byId, byText }
+}
+
+function resolveCurrentQuery(
+  attribution: ReturnType<typeof buildQueryAttribution>,
+  snap: QueryAttributionSnapshot,
+): CurrentQuery | undefined {
+  if (snap.queryId && attribution.byId.has(snap.queryId)) return attribution.byId.get(snap.queryId)
+  if (snap.queryText && attribution.byText.has(snap.queryText)) return attribution.byText.get(snap.queryText)
+  return undefined
+}
+
 /**
  * Pure aggregation: attribute snapshots to currently-tracked queries (by
  * `queryId`, falling back to denormalized `queryText` — see `history.ts`),
@@ -114,12 +143,7 @@ export function computeVisibilityStats(input: ComputeVisibilityStatsInput): Comp
   // Attribution maps. `queryId` is the primary link; `queryText` recovers a
   // snapshot whose query row was replaced (queryId SET NULL) but whose text
   // still matches a current query.
-  const queryById = new Map<string, { id: string; query: string }>()
-  const queryByText = new Map<string, { id: string; query: string }>()
-  for (const q of input.queries) {
-    queryById.set(q.id, q)
-    queryByText.set(q.query, q)
-  }
+  const attribution = buildQueryAttribution(input.queries)
 
   interface QueryBucket {
     id: string
@@ -132,9 +156,7 @@ export function computeVisibilityStats(input: ComputeVisibilityStatsInput): Comp
   const totalsByProvider = new Map<string, Agg>()
 
   for (const snap of input.snapshots) {
-    let resolved: { id: string; query: string } | undefined
-    if (snap.queryId && queryById.has(snap.queryId)) resolved = queryById.get(snap.queryId)
-    else if (snap.queryText && queryByText.has(snap.queryText)) resolved = queryByText.get(snap.queryText)
+    const resolved = resolveCurrentQuery(attribution, snap)
     if (!resolved) continue
 
     let bucket = byQuery.get(resolved.id)
@@ -181,11 +203,25 @@ export async function visibilityStatsRoutes(app: FastifyInstance) {
   // consumer compute confidence-aware (Wilson) proportions without N+1 fetches.
   app.get<{
     Params: { name: string }
-    Querystring: { since?: string; until?: string; lastRuns?: string; groupBy?: string }
+    Querystring: {
+      since?: string
+      until?: string
+      lastRuns?: string
+      groupBy?: string
+      month?: string
+      shareOfVoice?: string
+    }
   }>('/projects/:name/visibility-stats', async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
 
-    const { since: sinceRaw, until: untilRaw, lastRuns: lastRunsRaw, groupBy: groupByRaw } = request.query
+    const {
+      since: sinceRaw,
+      until: untilRaw,
+      lastRuns: lastRunsRaw,
+      groupBy: groupByRaw,
+      month: monthRaw,
+      shareOfVoice: shareOfVoiceRaw,
+    } = request.query
 
     let groupBy: VisibilityStatsGroupBy | null = null
     if (groupByRaw !== undefined && groupByRaw !== '') {
@@ -196,12 +232,18 @@ export async function visibilityStatsRoutes(app: FastifyInstance) {
     const hasSince = sinceRaw !== undefined && sinceRaw !== ''
     const hasUntil = untilRaw !== undefined && untilRaw !== ''
     const hasLastRuns = lastRunsRaw !== undefined && lastRunsRaw !== ''
+    const hasMonth = monthRaw !== undefined && monthRaw !== ''
+    const wantShareOfVoice = shareOfVoiceRaw === '1' || shareOfVoiceRaw === 'true'
     if (hasLastRuns && (hasSince || hasUntil)) {
       throw validationError('"lastRuns" cannot be combined with "since"/"until" — use one or the other')
+    }
+    if (hasMonth && (hasSince || hasUntil || hasLastRuns)) {
+      throw validationError('"month" cannot be combined with "since"/"until"/"lastRuns" — use one or the other')
     }
 
     let sinceMs: number | null = null
     let untilMs: number | null = null
+    let resolvedMonthWindow: { since: string; until: string } | null = null
     // A date-only `since` already parses to the day's start (00:00), so it is
     // a correct inclusive lower bound as-is. A date-only `until` must be
     // widened to end-of-day (23:59:59.999) via `parseInclusiveEndMs` — parsed
@@ -216,6 +258,17 @@ export async function visibilityStatsRoutes(app: FastifyInstance) {
       const ms = parseInclusiveEndMs(untilRaw as string)
       if (ms === null) throw validationError('"until" must be an ISO 8601 date/time')
       untilMs = ms
+    }
+    if (hasMonth) {
+      let bounds: { since: string; until: string }
+      try {
+        bounds = calendarMonthBounds(monthRaw as string)
+      } catch (err) {
+        throw validationError(err instanceof RangeError ? err.message : '"month" must be in YYYY-MM format')
+      }
+      sinceMs = Date.parse(bounds.since)
+      untilMs = Date.parse(bounds.until)
+      resolvedMonthWindow = bounds
     }
     if (sinceMs !== null && untilMs !== null && untilMs < sinceMs) {
       throw validationError('"until" must be on or after "since"')
@@ -269,12 +322,61 @@ export async function visibilityStatsRoutes(app: FastifyInstance) {
         : []
 
     const stats = computeVisibilityStats({ queries: projectQueries, snapshots, groupBy })
+    const queryAttribution = buildQueryAttribution(projectQueries)
+
+    // Pooled share of voice (opt-in) — how often the project's brand is named in
+    // answer text vs tracked competitors, across the SAME window of runs, via the
+    // shared buildMentionShare. Loads answerText only on this path so the default
+    // endpoint stays lean.
+    let shareOfVoice: VisibilityStatsShareOfVoice | undefined
+    if (wantShareOfVoice) {
+      const competitorRows = app.db
+        .select({ domain: competitors.domain })
+        .from(competitors)
+        .where(eq(competitors.projectId, project.id))
+        .all()
+      const mentionShareCompetitors = competitorRows.map((c) => ({
+        domain: c.domain,
+        brandTokens: [brandLabelFromDomain(c.domain)].filter((t) => t.length >= 3),
+      }))
+      const sovSnapshots =
+        runIds.length > 0
+          ? app.db
+              .select({
+                queryId: querySnapshots.queryId,
+                queryText: querySnapshots.queryText,
+                answerMentioned: querySnapshots.answerMentioned,
+                answerText: querySnapshots.answerText,
+              })
+              .from(querySnapshots)
+              .where(inArray(querySnapshots.runId, runIds))
+              .all()
+          : []
+      const attributedSovSnapshots = sovSnapshots.filter((s) => resolveCurrentQuery(queryAttribution, s) !== undefined)
+      const result = buildMentionShare(
+        attributedSovSnapshots.map((s) => ({ projectMentioned: s.answerMentioned === true, answerText: s.answerText })),
+        { competitors: mentionShareCompetitors },
+      )
+      const b = result.breakdown
+      const denom = b.projectMentionSnapshots + b.competitorMentionSnapshots
+      shareOfVoice = {
+        // `null` (not 0) when there is no competitive frame configured — a 0 here
+        // would read as "losing" when the head-to-head metric is simply undefined.
+        percent: competitorRows.length === 0 ? null : denom > 0 ? Math.round((b.projectMentionSnapshots / denom) * 100) : 0,
+        projectMentions: b.projectMentionSnapshots,
+        competitorMentions: b.competitorMentionSnapshots,
+        snapshotsWithAnswerText: b.snapshotsWithAnswerText,
+        perCompetitor: b.perCompetitor.map((c) => ({ domain: c.domain, mentions: c.mentionSnapshots })),
+      }
+    }
 
     const response: VisibilityStatsDto = {
       project: project.name,
       window: {
-        since: hasSince ? (sinceRaw as string) : null,
-        until: hasUntil ? (untilRaw as string) : null,
+        // A `month` request echoes the resolved inclusive bounds it expanded to,
+        // so the window is self-documenting regardless of which input was used.
+        since: resolvedMonthWindow ? resolvedMonthWindow.since : hasSince ? (sinceRaw as string) : null,
+        until: resolvedMonthWindow ? resolvedMonthWindow.until : hasUntil ? (untilRaw as string) : null,
         lastRuns,
         runCount,
       },
@@ -285,6 +387,7 @@ export async function visibilityStatsRoutes(app: FastifyInstance) {
       // SDK types `groupBy` as `groupBy?: 'provider'` rather than a misleading
       // always-present literal.
       ...(groupBy === 'provider' ? { groupBy, byProvider: stats.byProvider ?? [] } : {}),
+      ...(shareOfVoice ? { shareOfVoice } : {}),
     }
     return reply.send(response)
   })

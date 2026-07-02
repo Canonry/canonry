@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-`canonry` is an **agent-first** open-source AEO operating platform that tracks how AI answer engines cite a domain for tracked queries and acts on the signal through the content engine and integrations. Published as `@ainyc/canonry` on npm. The CLI and API are the primary interfaces — the web dashboard is supplementary.
+`canonry` is an **agent-first** open-source AEO operating platform that tracks how AI answer engines cite a domain for tracked queries and acts on the signal through the content engine and integrations. Published as `@canonry/canonry` on npm, with `@ainyc/canonry` kept as a compatibility package at the same versions. The CLI and API are the primary interfaces — the web dashboard is supplementary.
 
 ## Deployment Posture (Critical)
 
@@ -79,6 +79,7 @@ canonry status <project>
 canonry visibility-stats <project>                                    # per-query mention/citation rates with sample size, pooled across runs
 canonry visibility-stats <project> --last-runs 10 --by-provider       # last N runs, per-provider breakdown (counts sum to pooled)
 canonry visibility-stats <project> --since 2026-06-01 --until 2026-06-30 --format jsonl  # date window; one record per query
+canonry visibility-stats <project> --month 2026-06 --share-of-voice   # a whole calendar month + pooled share of voice vs tracked competitors (project brand mentions / (project + competitor))
 canonry apply <file...>                          # multi-doc YAML + multiple files
 canonry export <project>
 canonry report <project>                         # client-facing AEO report → canonry-report-<project>-YYYY-MM-DD.html
@@ -928,7 +929,7 @@ The SPA receives `basePath` via an injected config object. Use it for all API fe
 
 ## Versioning
 
-**Only bump the package version for non-documentation changes that modify more than 100 lines.** When a bump is required, the root `package.json` and `packages/canonry/package.json` versions must always be kept in sync with each other and with the latest published version on npm (`@ainyc/canonry`).
+**Only bump the package version for non-documentation changes that modify more than 100 lines.** When a bump is required, the root `package.json` and `packages/canonry/package.json` versions must always be kept in sync with each other and with the latest published version on npm (`@canonry/canonry` and the compatibility `@ainyc/canonry` publish).
 
 - Documentation-only changes (README, docs/, CLAUDE.md) do not require a bump.
 - Small non-documentation changes of 100 changed lines or fewer do not require a bump.

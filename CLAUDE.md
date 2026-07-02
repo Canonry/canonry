@@ -76,7 +76,7 @@ The web dashboard follows a dark, professional analytics aesthetic inspired by *
 
 ## Skills Maintenance
 
-The repo ships **two** Claude skills under `skills/`, both bundled into the published `@ainyc/canonry` package and installable into any user's project via `canonry skills install`:
+The repo ships **two** Claude skills under `skills/`, both bundled into the published `@canonry/canonry` package and installable into any user's project via `canonry skills install`:
 
 | Skill | Audience | Purpose |
 |---|---|---|

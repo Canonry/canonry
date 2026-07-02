@@ -214,7 +214,7 @@ sudo systemctl enable --now canonry
 
 ```dockerfile
 FROM node:22-alpine
-RUN npm install -g @ainyc/canonry
+RUN npm install -g @canonry/canonry
 EXPOSE 4100
 CMD ["canonry", "serve", "--host", "0.0.0.0"]
 ```

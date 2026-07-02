@@ -266,12 +266,12 @@ describe('canonry mcp install (claude-desktop)', () => {
     const result = await installMcp({
       client: 'claude-desktop',
       configPath,
-      binPath: '/usr/local/lib/node_modules/@ainyc/canonry/bin/canonry-mcp.mjs',
+      binPath: '/usr/local/lib/node_modules/@canonry/canonry/bin/canonry-mcp.mjs',
       platform: 'darwin',
     })
 
     expect(result.entry).toEqual({
-      command: '/usr/local/lib/node_modules/@ainyc/canonry/bin/canonry-mcp.mjs',
+      command: '/usr/local/lib/node_modules/@canonry/canonry/bin/canonry-mcp.mjs',
       args: [],
     })
   })

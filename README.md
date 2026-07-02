@@ -1,6 +1,6 @@
-# Canonry <img src="https://raw.githubusercontent.com/AINYC/canonry/main/apps/web/public/favicon-32.png" alt="Canonry canary icon" width="24" />
+# Canonry <img src="https://raw.githubusercontent.com/Canonry/canonry/main/apps/web/public/favicon-32.png" alt="Canonry canary icon" width="24" />
 
-[![npm version](https://img.shields.io/npm/v/@ainyc/canonry)](https://www.npmjs.com/package/@ainyc/canonry) [![Node.js >= 22.14](https://img.shields.io/badge/node-%3E%3D22.14-brightgreen)](https://nodejs.org)
+[![npm version](https://img.shields.io/npm/v/@canonry/canonry)](https://www.npmjs.com/package/@canonry/canonry) [![Node.js >= 22.14](https://img.shields.io/badge/node-%3E%3D22.14-brightgreen)](https://nodejs.org)
 
 **Agent-first AEO operating platform. Open source. Self-hosted.**
 
@@ -18,17 +18,18 @@
 
 Every dashboard view has a matching CLI command and API endpoint. The CLI is the surface; the UI consumes the same API your agent does.
 
-![Canonry Dashboard](https://raw.githubusercontent.com/AINYC/canonry/main/docs/images/dashboard.png)
+![Canonry Dashboard](https://raw.githubusercontent.com/Canonry/canonry/main/docs/images/dashboard.png)
 
 ## Run your first AI visibility check in 5 minutes
 
 ```bash
-npm install -g @ainyc/canonry
+npm install -g @canonry/canonry
 cnry init
 cnry serve
 ```
 
 The CLI installs as `cnry` (short form) and `canonry` — the two are interchangeable.
+The legacy package name `@ainyc/canonry` is still published at the same versions for compatibility, but new installs should use `@canonry/canonry`.
 
 Open [http://localhost:4100/setup](http://localhost:4100/setup). A guided wizard walks you through provider keys, project setup, queries, and your first visibility check.
 
@@ -52,7 +53,7 @@ Drop this into Claude Code, Codex, or any shell-capable agent. It installs canon
 Set up canonry for me. Canonry is an open-source platform that tracks how AI answer engines (Gemini, ChatGPT, Claude, Perplexity) cite my site.
 
 1. Ask me for: my domain, 3–5 queries I want to track, and which provider I want to start with (gemini / openai / claude / perplexity). Wait for my answers before proceeding.
-2. Run `npm install -g @ainyc/canonry`.
+2. Run `npm install -g @canonry/canonry`.
 3. Run `cnry init` in this directory. This scaffolds config and installs the canonry skills into `.claude/skills/canonry/`, `.claude/skills/aero/`, `.codex/skills/canonry/`, and `.codex/skills/aero/`. If the skills aren't there afterwards, run `cnry skills install`.
 4. Read the operator playbook at `.claude/skills/canonry/SKILL.md` and follow it end-to-end: create the project with my domain and queries, wire up the provider key I chose, and trigger the first sweep.
 5. Open my browser to the dashboard so I can see the run results.
@@ -105,7 +106,7 @@ Node.js ≥ 22.14.0. At least one provider API key.
 ## Contributing
 
 ```bash
-git clone https://github.com/ainyc/canonry.git && cd canonry
+git clone https://github.com/Canonry/canonry.git && cd canonry
 pnpm install && pnpm run typecheck && pnpm run test && pnpm run lint
 ```
 
