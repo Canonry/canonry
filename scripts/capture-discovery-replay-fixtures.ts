@@ -24,7 +24,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { embedQueries } from '../packages/provider-gemini/src/index.js'
 import { filterBrandedSeedCandidates, seedCollapseWarning, DISCOVERY_DEFAULT_DEDUP_THRESHOLD } from '../packages/contracts/src/index.js'
-import { pickCanonicalsWithStats } from '../packages/api-routes/src/discovery/orchestrate.js'
+import { dedupeStrings, pickCanonicalsWithStats } from '../packages/api-routes/src/discovery/orchestrate.js'
 
 const ENGINE = process.env.ENGINE_URL ?? 'http://127.0.0.1:43001'
 const KEY = process.env.CANONRY_KEY
@@ -126,6 +126,37 @@ async function captureShape(shape: (typeof SHAPES)[number]): Promise<void> {
   const vectors = await embedQueries(candidates, { apiKey: GEMINI_KEY! })
   const rounded = vectors.map((v) => v.map((x) => Math.round(x * 100_000) / 100_000))
 
+  // Golden replay expectations: run the SAME deterministic chain the replay
+  // suite runs (test/discovery-replay.test.ts), at capture time, so CI pins
+  // exact equality. Regenerating these is a conscious act (rerun this
+  // script), never an accident.
+  const embeddingByCandidate = new Map(candidates.map((c, i) => [c, rounded[i]!]))
+  const { kept } = filterBrandedSeedCandidates({
+    candidates,
+    brandNames: [shape.displayName],
+    canonicalDomains: [shape.domain],
+  })
+  const replayInput = dedupeStrings(kept)
+  const { canonicals, stats } = await pickCanonicalsWithStats(
+    replayInput,
+    { embed: async (qs: string[]) => qs.map((q) => embeddingByCandidate.get(q)!) },
+    DISCOVERY_DEFAULT_DEDUP_THRESHOLD,
+  )
+  const expectedReplay = {
+    dedupThreshold: DISCOVERY_DEFAULT_DEDUP_THRESHOLD,
+    brandDroppedCount: candidates.length - kept.length,
+    postFilterCount: replayInput.length,
+    canonicalCount: canonicals.length,
+    canonicals,
+    clusterMinSims: stats.perClusterMinSimilarity,
+    bandPairFraction: stats.bandPairFraction,
+    warning: seedCollapseWarning({
+      seedCountRaw: replayInput.length,
+      canonicalCount: canonicals.length,
+      dedupThreshold: DISCOVERY_DEFAULT_DEDUP_THRESHOLD,
+    }),
+  }
+
   const fixture = {
     meta: {
       capturedWith: 'scripts/capture-discovery-replay-fixtures.ts',
@@ -154,37 +185,6 @@ async function captureShape(shape: (typeof SHAPES)[number]): Promise<void> {
       warning: session.warning ?? null,
     },
   }
-  // Golden replay expectations: run the SAME deterministic chain the replay
-  // suite runs, at capture time, so CI pins exact equality. Regenerating these
-  // is a conscious act (rerun this script), never an accident.
-  const embeddingByCandidate = new Map(candidates.map((c, i) => [c, rounded[i]!]))
-  const { kept } = filterBrandedSeedCandidates({
-    candidates,
-    brandNames: [shape.displayName],
-    canonicalDomains: [shape.domain],
-  })
-  const deduped = [...new Set(kept.map((c) => c.toLowerCase()))]
-  const replayInput = kept.filter((c, i) => kept.findIndex((k) => k.toLowerCase() === c.toLowerCase()) === i)
-  const { canonicals, stats } = await pickCanonicalsWithStats(
-    replayInput,
-    { embed: async (qs: string[]) => qs.map((q) => embeddingByCandidate.get(q)!) },
-    DISCOVERY_DEFAULT_DEDUP_THRESHOLD,
-  )
-  const expectedReplay = {
-    dedupThreshold: DISCOVERY_DEFAULT_DEDUP_THRESHOLD,
-    brandDroppedCount: candidates.length - kept.length,
-    postFilterCount: replayInput.length,
-    canonicalCount: canonicals.length,
-    canonicals,
-    clusterMinSims: stats.perClusterMinSimilarity,
-    bandPairFraction: stats.bandPairFraction,
-    warning: seedCollapseWarning({
-      seedCountRaw: replayInput.length,
-      canonicalCount: canonicals.length,
-      dedupThreshold: DISCOVERY_DEFAULT_DEDUP_THRESHOLD,
-    }),
-  }
-  void deduped
   fs.mkdirSync(OUT_DIR, { recursive: true })
   fs.writeFileSync(path.join(OUT_DIR, `${shape.slug}.json`), JSON.stringify(fixture, null, 1))
   console.log(`${shape.slug}: ${candidates.length} candidates, ${String(session.seedCount)} canonicals, warning=${String(session.warning ?? 'none')}`)
