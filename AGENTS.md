@@ -114,7 +114,7 @@ canonry doctor --project <name>                               # project-scoped c
 canonry doctor --project <name> --check google.auth.* --format json   # filter by id/wildcard, JSON output
 
 # Discovery — expand a tracked-query basket from an ICP description
-canonry discover run <project> --icp "..." [--buyer "..."] [--wait] [--format json]
+canonry discover run <project> --icp "..." [--buyer "..."] [--seed-provider gemini --seed-provider openai] [--wait] [--format json]
 canonry discover run <project> --dedup-threshold 0.95 --max-probes 100 --wait     # tune dedup / per-session probe budget (cap 500)
 canonry discover run <project> --probe-concurrency 3 --wait                       # parallel probe workers (default 1 = serial, cap 8); probe rows persist in canonical order regardless
 canonry discover run <project> --icp-angle "angle 1" --icp-angle "angle 2" --wait  # multi-angle: one session per ICP angle, aggregates coverage across niches

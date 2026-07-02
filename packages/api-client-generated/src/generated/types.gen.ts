@@ -699,6 +699,10 @@ export type DiscoverySessionDetailDto = {
     dedupClusterMinSims?: Array<number> | null;
     dedupBandPairFraction?: number | null;
     dedupPairsTotal?: number | null;
+    seedProviders?: Array<string> | null;
+    seedProviderCounts?: {
+        [key: string]: number;
+    } | null;
     dedupThreshold?: number | null;
     probeCount?: number | null;
     citedCount: number | null;
@@ -750,6 +754,10 @@ export type DiscoverySessionDto = {
     dedupClusterMinSims?: Array<number> | null;
     dedupBandPairFraction?: number | null;
     dedupPairsTotal?: number | null;
+    seedProviders?: Array<string> | null;
+    seedProviderCounts?: {
+        [key: string]: number;
+    } | null;
     dedupThreshold?: number | null;
     probeCount?: number | null;
     citedCount: number | null;
@@ -9870,6 +9878,10 @@ export type PostApiV1ProjectsByNameDiscoverRunData = {
          * Who evaluates or buys the offering, separate from the ICP. When present, every generated seed query is anchored on this buyer and the seed prompt enforces buyer-fit.
          */
         buyerDescription?: string;
+        /**
+         * Which providers generate seed candidates. Omit for the Gemini-only default. Canonicalized (deduped + sorted); part of the session consolidation identity.
+         */
+        seedProviders?: Array<'gemini' | 'openai'>;
         /**
          * Cosine similarity threshold for clustering. Defaults to 0.95.
          */

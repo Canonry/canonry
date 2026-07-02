@@ -1203,6 +1203,44 @@ describe('discovery routes', () => {
     expect((row.locations ?? []).map((l) => l.label)).toEqual(['tucson', 'phoenix'])
   })
 
+  it('seed provider set is session identity; explicit gemini-only equals the omitted default', async () => {
+    const calls: Array<{ runId: string; sessionId: string; projectId: string; icp: string }> = []
+    const { app, db, tmpDir } = buildAppWithRoutes(calls)
+    cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
+    seedProject(db)
+
+    const first = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/demand-iq/discover/run',
+      payload: { icpDescription: 'industrial coatings' },
+    })
+    expect(first.statusCode).toBe(201)
+    db.update(discoverySessions).set({ status: 'probing' }).run()
+
+    // Different provider set = fresh session (different phrasing distribution).
+    const second = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/demand-iq/discover/run',
+      payload: { icpDescription: 'industrial coatings', seedProviders: ['openai', 'gemini'] },
+    })
+    expect(second.statusCode).toBe(201)
+    expect((second.json() as { consolidated?: boolean }).consolidated).toBeFalsy()
+
+    // Explicit ['gemini'] is normalized to the default identity: consolidates
+    // onto the first (no-provider-field) session.
+    const third = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/demand-iq/discover/run',
+      payload: { icpDescription: 'industrial coatings', seedProviders: ['gemini'] },
+    })
+    expect(third.statusCode).toBe(200)
+    expect((third.json() as { sessionId: string }).sessionId).toBe((first.json() as { sessionId: string }).sessionId)
+
+    // The composite set persists canonically on its session row.
+    const rows = db.select().from(discoverySessions).all()
+    expect(rows.map((r) => r.seedProviders).sort()).toEqual([null, ['gemini', 'openai']].sort())
+  })
+
   it('legacy NULL-locations in-flight rows: reused on a no-location project, never on a located one', async () => {
     const calls: Array<{ runId: string; sessionId: string; projectId: string; icp: string }> = []
     const { app, db, tmpDir } = buildAppWithRoutes(calls)

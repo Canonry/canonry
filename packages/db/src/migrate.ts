@@ -1982,6 +1982,16 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `ALTER TABLE discovery_sessions ADD COLUMN dedup_pairs_total INTEGER`,
     ],
   },
+  {
+    version: 93,
+    name: 'discovery-session-seed-providers',
+    statements: [
+      // Seed provider set (consolidation identity) + per-provider candidate
+      // counts. Additive + nullable — legacy rows stay null (downgrade-safe).
+      `ALTER TABLE discovery_sessions ADD COLUMN seed_providers TEXT`,
+      `ALTER TABLE discovery_sessions ADD COLUMN seed_provider_counts TEXT`,
+    ],
+  },
 ]
 
 /**

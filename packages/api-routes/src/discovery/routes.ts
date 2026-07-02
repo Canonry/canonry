@@ -60,6 +60,8 @@ export type OnDiscoveryRunRequested = (input: {
   icpDescription: string
   /** Optional buyer definition, forwarded to the seed prompt. */
   buyerDescription?: string
+  /** Seed provider set (canonical order; null/omitted = Gemini-only). */
+  seedProviders?: string[]
   dedupThreshold?: number
   maxProbes?: number
   /**
@@ -129,7 +131,7 @@ export async function discoveryRoutes(app: FastifyInstance, opts: DiscoveryRoute
   // POST /projects/:name/discover/run — kick off a discovery session
   app.post<{
     Params: { name: string }
-    Body: { icpDescription?: string; buyerDescription?: string; dedupThreshold?: number; maxProbes?: number; probeConcurrency?: number; locations?: string[] }
+    Body: { icpDescription?: string; buyerDescription?: string; seedProviders?: string[]; dedupThreshold?: number; maxProbes?: number; probeConcurrency?: number; locations?: string[] }
   }>('/projects/:name/discover/run', async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
 
@@ -152,6 +154,15 @@ export async function discoveryRoutes(app: FastifyInstance, opts: DiscoveryRoute
         'icpDescription is required. Pass it in the request body or store it on the project (spec.icpDescription).',
       )
     }
+
+    // An explicit ['gemini'] is the same semantics as the omitted default, so
+    // normalize it to null: both identities consolidate together and legacy
+    // rows (null) match either form.
+    const requestedSeedProviders = parsed.data.seedProviders ?? null
+    const seedProviders =
+      requestedSeedProviders && !(requestedSeedProviders.length === 1 && requestedSeedProviders[0] === 'gemini')
+        ? requestedSeedProviders
+        : null
 
     // Resolve the session's service areas: every project location, or the
     // subset named by `locations`. An unknown label throws validationError.
@@ -205,6 +216,12 @@ export async function discoveryRoutes(app: FastifyInstance, opts: DiscoveryRoute
           locations.length === 0
             ? or(isNull(discoverySessions.locations), eq(discoverySessions.locations, locations))
             : eq(discoverySessions.locations, locations),
+          // Seed provider set is identity: a different phrasing distribution
+          // must never reuse another set's session. Null (= Gemini-only
+          // default, including explicit ['gemini']) matches legacy rows.
+          seedProviders == null
+            ? isNull(discoverySessions.seedProviders)
+            : eq(discoverySessions.seedProviders, seedProviders),
           inArray(discoverySessions.status, [
             DiscoverySessionStatuses.queued,
             DiscoverySessionStatuses.seeding,
@@ -232,6 +249,7 @@ export async function discoveryRoutes(app: FastifyInstance, opts: DiscoveryRoute
         status: DiscoverySessionStatuses.queued,
         icpDescription,
         buyerDescription: parsed.data.buyerDescription ?? null,
+        seedProviders,
         locations,
         dedupThreshold: parsed.data.dedupThreshold,
         competitorMap: [],
@@ -279,6 +297,7 @@ export async function discoveryRoutes(app: FastifyInstance, opts: DiscoveryRoute
       projectId: project.id,
       icpDescription,
       buyerDescription: parsed.data.buyerDescription,
+      seedProviders: seedProviders ?? undefined,
       dedupThreshold: parsed.data.dedupThreshold,
       maxProbes: parsed.data.maxProbes,
       probeConcurrency: parsed.data.probeConcurrency,
@@ -687,6 +706,8 @@ function serializeSession(row: typeof discoverySessions.$inferSelect): Discovery
     buyerDescription: row.buyerDescription ?? null,
     locations: row.locations ?? null,
     seedRawCandidates: row.seedRawCandidates ?? null,
+    seedProviders: row.seedProviders ?? null,
+    seedProviderCounts: row.seedProviderCounts ?? null,
     dedupClusterMinSims: row.dedupClusterMinSims ?? null,
     dedupBandPairFraction: row.dedupBandPairFraction ?? null,
     dedupPairsTotal: row.dedupPairsTotal ?? null,

@@ -26,6 +26,8 @@ export interface DiscoverRunOptions {
   icpAngles?: string[]
   /** Buyer definition: who evaluates or buys, separate from the ICP. */
   buyer?: string
+  /** Seed provider set (repeatable); omit for the Gemini-only default. */
+  seedProviders?: string[]
   dedupThreshold?: number
   maxProbes?: number
   /** Probe worker-pool width (1-8). Omit for the serial default (1). */
@@ -40,6 +42,7 @@ function buildRunBody(opts: DiscoverRunOptions, icpDescription?: string): Record
   const body: Record<string, unknown> = {}
   if (icpDescription) body.icpDescription = icpDescription
   if (opts.buyer !== undefined && opts.buyer.trim() !== '') body.buyerDescription = opts.buyer
+  if (opts.seedProviders && opts.seedProviders.length > 0) body.seedProviders = opts.seedProviders
   if (opts.dedupThreshold !== undefined) body.dedupThreshold = opts.dedupThreshold
   if (opts.maxProbes !== undefined) body.maxProbes = opts.maxProbes
   if (opts.probeConcurrency !== undefined) body.probeConcurrency = opts.probeConcurrency

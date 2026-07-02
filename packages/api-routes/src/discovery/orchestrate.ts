@@ -49,8 +49,11 @@ export interface DiscoveryProjectContext {
 
 export interface DiscoverySeedResult {
   candidates: string[]
-  /** Provider that generated the seed (recorded on `discovery_sessions.seedProvider`). */
+  /** Provider label that generated the seed (recorded on
+   *  `discovery_sessions.seedProvider`; a composite reads "gemini+openai"). */
   provider: string
+  /** Raw candidate count contributed per provider (diagnostics). */
+  providerCounts?: Record<string, number>
   /**
    * Diagnostics: how many of `candidates` came from the model's answer text.
    * Recorded on `discovery_sessions.seed_from_answer_count`. Optional — a seed
@@ -98,6 +101,8 @@ export interface DiscoveryDeps {
      * on this buyer.
      */
     buyerDescription?: string
+    /** Seed provider set (canonical order). Omitted/empty = Gemini-only. */
+    seedProviders?: readonly string[]
     /**
      * Resolved service-area locations for this session — empty when the
      * project has no locations configured (or when a deployment does not
@@ -145,6 +150,8 @@ export interface ExecuteDiscoveryOptions {
   icpDescription: string
   /** Optional buyer definition forwarded verbatim to `deps.seed`. */
   buyerDescription?: string
+  /** Seed provider set (canonical order), forwarded to `deps.seed`. */
+  seedProviders?: string[]
   dedupThreshold?: number
   maxProbes?: number
   /**
@@ -337,6 +344,7 @@ export async function executeDiscovery(opts: ExecuteDiscoveryOptions): Promise<E
     project: opts.project,
     icpDescription: opts.icpDescription,
     buyerDescription: opts.buyerDescription,
+    seedProviders: opts.seedProviders,
     locations: opts.locations ?? [],
   })
 
@@ -391,6 +399,8 @@ export async function executeDiscovery(opts: ExecuteDiscoveryOptions): Promise<E
       // live session a replayable fixture; the similarity stats are the data
       // the 0.95-threshold decision was missing. No gate reads any of these.
       seedRawCandidates: seedResult.candidates,
+      seedProviders: opts.seedProviders ?? null,
+      seedProviderCounts: seedResult.providerCounts ?? null,
       dedupClusterMinSims: dedupStats.perClusterMinSimilarity,
       dedupBandPairFraction: dedupStats.bandPairFraction,
       dedupPairsTotal: dedupStats.pairsTotal,

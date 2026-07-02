@@ -743,3 +743,68 @@ describe('buildDefaultDeps probe() forwards the location to the provider (geo pr
     expect('location' in seen[1]! && seen[1]!.location !== undefined).toBe(false)
   })
 })
+
+describe('buildDefaultDeps seed() multi-provider composite', () => {
+  function registryWith(answers: Record<string, string[]>) {
+    const calls: Record<string, number> = {}
+    const providers: Record<string, unknown> = {}
+    for (const [name, lines] of Object.entries(answers)) {
+      calls[name] = 0
+      providers[name] = {
+        adapter: {
+          name,
+          displayName: name,
+          executeTrackedQuery: async () => {
+            calls[name] = (calls[name] ?? 0) + 1
+            return { rawResponse: {}, model: `${name}-test` }
+          },
+          normalizeResult: () => ({
+            answerText: lines.join('\n'),
+            citedDomains: [],
+            searchQueries: name === 'gemini' ? ['gemini grounding query'] : [],
+            groundingSources: [],
+          }),
+        },
+        config: { apiKey: `${name}-key` },
+      }
+    }
+    const registry = { get: (n: string) => providers[n] } as unknown as ProviderRegistry
+    return { registry, calls }
+  }
+
+  const project = { id: 'p', name: 'demand-iq', brandNames: [], canonicalDomains: ['demand-iq.com'], competitorDomains: [] }
+
+  it('defaults to Gemini-only: identical behaviour, one seed call', async () => {
+    const { registry, calls } = registryWith({ gemini: ['g one', 'g two'], openai: ['o one'] })
+    const deps = buildDefaultDeps(registry)
+    const result = await deps.seed({ project, icpDescription: 'icp', locations: [] })
+    expect(result.provider).toBe('gemini')
+    expect(calls.openai).toBe(0)
+    expect(result.candidates).toEqual(['g one', 'g two', 'gemini grounding query'])
+  })
+
+  it('composites gemini + openai: both phrasing distributions merged, per-provider counts reported', async () => {
+    const { registry, calls } = registryWith({ gemini: ['g one', 'g two'], openai: ['o one', 'o two', 'o three'] })
+    const deps = buildDefaultDeps(registry)
+    const result = await deps.seed({
+      project, icpDescription: 'icp', locations: [], seedProviders: ['gemini', 'openai'],
+    })
+    expect(result.provider).toBe('gemini+openai')
+    expect(calls.gemini).toBe(1)
+    expect(calls.openai).toBe(1)
+    // Gemini candidates (answer + grounding) lead, then OpenAI's.
+    expect(result.candidates).toEqual(['g one', 'g two', 'gemini grounding query', 'o one', 'o two', 'o three'])
+    expect(result.providerCounts).toEqual({ gemini: 3, openai: 3 })
+    // Source-split diagnostics still hold: grounding only comes from Gemini.
+    expect(result.fromAnswerCount).toBe(5)
+    expect(result.fromGroundingCount).toBe(1)
+  })
+
+  it('fails fast with a clear error when a requested seed provider is not configured', async () => {
+    const { registry } = registryWith({ gemini: ['g one'] })
+    const deps = buildDefaultDeps(registry)
+    await expect(
+      deps.seed({ project, icpDescription: 'icp', locations: [], seedProviders: ['gemini', 'openai'] }),
+    ).rejects.toThrow(/openai.*not configured/i)
+  })
+})

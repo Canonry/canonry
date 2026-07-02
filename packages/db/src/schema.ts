@@ -931,6 +931,10 @@ export const discoverySessions = sqliteTable('discovery_sessions', {
   dedupClusterMinSims: text('dedup_cluster_min_sims', { mode: 'json' }).$type<number[]>(),
   dedupBandPairFraction: real('dedup_band_pair_fraction'),
   dedupPairsTotal: integer('dedup_pairs_total'),
+  // Seed provider set (canonical order; null = legacy / Gemini-only) — part of
+  // session identity for consolidation — and per-provider candidate counts.
+  seedProviders: text('seed_providers', { mode: 'json' }).$type<string[]>(),
+  seedProviderCounts: text('seed_provider_counts', { mode: 'json' }).$type<Record<string, number>>(),
   dedupThreshold: real('dedup_threshold'),
   probeCount: integer('probe_count'),
   citedCount: integer('cited_count'),
