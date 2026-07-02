@@ -93,6 +93,14 @@
   --color-negative-800: var(--color-rose-800);
   --color-negative-950: var(--color-rose-950);
 
+  /* Info — a minor sky-blue accent (opportunity "track" cards, the
+     suggested-query add action). Not one of the four semantic tones; kept as a
+     small scale for its handful of off-ladder shades. */
+  --color-info-200: var(--color-sky-200);
+  --color-info-300: var(--color-sky-300);
+  --color-info-500: var(--color-sky-500);
+  --color-info-950: var(--color-sky-950);
+
   /* Effect colors — gauge/sparkline track, scrollbar thumb, panel/drop
      shadows, the caution glow, and the light hover overlay. */
   --color-track: rgb(255 255 255 / 0.06);
@@ -1555,7 +1563,7 @@
   }
 
   .opportunity-card-track {
-    @apply bg-sky-950/5;
+    @apply bg-info-950/5;
   }
 
   .opportunity-monitor-summary {
@@ -1581,7 +1589,7 @@
   }
 
   .suggested-query-add {
-    @apply text-[11px] font-medium rounded-md px-2.5 py-1 bg-sky-500/10 text-sky-300 border border-sky-500/30 transition-colors hover:bg-sky-500/20 hover:text-sky-200 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap;
+    @apply text-[11px] font-medium rounded-md px-2.5 py-1 bg-info-500/10 text-info-300 border border-info-500/30 transition-colors hover:bg-info-500/20 hover:text-info-200 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap;
   }
 
   .opportunity-card-head {
@@ -2079,8 +2087,7 @@
 
   .answer-highlight,
   .answer-highlight-brand {
-    background: color-mix(in oklab, var(--color-positive-400) 15%, transparent);
-    color: var(--color-positive-text);
+    @apply bg-positive-400/15 text-positive;
     border-radius: 2px;
     padding: 0 2px;
     font-style: normal;
@@ -2088,8 +2095,7 @@
   }
 
   .answer-highlight-competitor {
-    background: color-mix(in oklab, var(--color-caution-400) 12%, transparent);
-    color: var(--color-caution-text);
+    @apply bg-caution-400/12 text-caution;
     border-radius: 2px;
     padding: 0 2px;
     font-style: normal;
