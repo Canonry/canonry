@@ -56,6 +56,7 @@ function seedProject(
   opts: {
     icpDescription?: string
     locations?: LocationContext[]
+    defaultLocation?: string
     canonicalDomain?: string
     ownedDomains?: string[]
   } = {},
@@ -72,6 +73,7 @@ function seedProject(
     language: 'en',
     icpDescription: opts.icpDescription ?? null,
     locations: opts.locations ?? [],
+    defaultLocation: opts.defaultLocation ?? null,
     createdAt: now,
     updatedAt: now,
   }).run()
@@ -1173,6 +1175,32 @@ describe('discovery routes', () => {
     const rows = db.select().from(discoverySessions).all()
     const labelSets = rows.map((r) => (r.locations ?? []).map((l) => l.label).join(',')).sort()
     expect(labelSets).toEqual(['phoenix', 'tucson'])
+  })
+
+  it('resolves probe geo like a sweep: project defaultLocation leads the resolved locations', async () => {
+    const calls: Array<{ runId: string; sessionId: string; projectId: string; icp: string; locations?: LocationContext[] }> = []
+    const { app, db, tmpDir } = buildAppWithRoutes(calls)
+    cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
+    seedProject(db, {
+      locations: [
+        { label: 'phoenix', city: 'Phoenix', region: 'Arizona', country: 'US' },
+        { label: 'tucson', city: 'Tucson', region: 'Arizona', country: 'US' },
+      ],
+      defaultLocation: 'tucson',
+    })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/demand-iq/discover/run',
+      payload: { icpDescription: 'industrial coatings' },
+    })
+    expect(res.statusCode).toBe(201)
+    // The orchestrator callback and the persisted session both carry the
+    // default-first ordering, so probes (locations[0]) measure from the same
+    // geo a sweep would (project.defaultLocation), not from config order.
+    expect(calls[0]!.locations?.map((l) => l.label)).toEqual(['tucson', 'phoenix'])
+    const row = db.select().from(discoverySessions).get()!
+    expect((row.locations ?? []).map((l) => l.label)).toEqual(['tucson', 'phoenix'])
   })
 
   it('legacy NULL-locations in-flight rows: reused on a no-location project, never on a located one', async () => {

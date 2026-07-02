@@ -40,6 +40,22 @@ export function hasLocationLabel(
  * - An unknown label throws `validationError` so the caller surfaces a 400
  *   rather than silently dropping the override.
  */
+/**
+ * Order a location list so the project's default location (by label) leads.
+ * Discovery probes measure from `locations[0]`, and sweeps measure from
+ * `project.defaultLocation` — this keeps the two geo semantics identical.
+ * Stable for the rest of the list; a missing/unknown default is a no-op.
+ */
+export function orderLocationsDefaultFirst(
+  locations: readonly LocationContext[],
+  defaultLabel: string | null | undefined,
+): LocationContext[] {
+  if (!defaultLabel) return [...locations]
+  const index = locations.findIndex(l => l.label === defaultLabel)
+  if (index <= 0) return [...locations]
+  return [locations[index]!, ...locations.slice(0, index), ...locations.slice(index + 1)]
+}
+
 export function resolveLocations(
   projectLocations: readonly LocationContext[],
   requestedLabels: readonly string[] | undefined,

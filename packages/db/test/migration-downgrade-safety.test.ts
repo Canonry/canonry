@@ -38,6 +38,24 @@ test(`every migration after v${DOWNGRADE_BASELINE} is additive-only (downgrade-s
   }
 })
 
+/**
+ * `run` hooks execute arbitrary code the statement allowlist cannot see. A
+ * post-baseline migration that needs one must be explicitly reviewed for
+ * downgrade safety and listed here WITH a justification comment.
+ */
+const RUN_HOOK_ALLOWLIST: ReadonlySet<number> = new Set([])
+
+test(`migrations after v${DOWNGRADE_BASELINE} define no run() hook unless explicitly allowlisted`, () => {
+  for (const mv of MIGRATION_VERSIONS.filter((m) => m.version > DOWNGRADE_BASELINE)) {
+    if (mv.run !== undefined) {
+      expect(
+        RUN_HOOK_ALLOWLIST.has(mv.version),
+        `v${mv.version} (${mv.name}) defines a run() hook: review it for downgrade safety and allowlist it with a justification`,
+      ).toBe(true)
+    }
+  }
+})
+
 test(`columns added after v${DOWNGRADE_BASELINE} are nullable or defaulted (old writers omit them)`, () => {
   for (const mv of MIGRATION_VERSIONS.filter((m) => m.version > DOWNGRADE_BASELINE)) {
     for (const statement of mv.statements) {

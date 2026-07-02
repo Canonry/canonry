@@ -29,6 +29,7 @@ import {
   effectiveDomains,
   gateHarvestedSearchQueries,
   notFound,
+  orderLocationsDefaultFirst,
   resolveLocations,
   validationError,
   type DiscoveryBucket,
@@ -154,9 +155,11 @@ export async function discoveryRoutes(app: FastifyInstance, opts: DiscoveryRoute
 
     // Resolve the session's service areas: every project location, or the
     // subset named by `locations`. An unknown label throws validationError.
-    const locations = resolveLocations(
-      project.locations,
-      parsed.data.locations,
+    // The project's defaultLocation leads the list so probes (locations[0])
+    // measure from the same geo a sweep would, not from config order.
+    const locations = orderLocationsDefaultFirst(
+      resolveLocations(project.locations, parsed.data.locations),
+      project.defaultLocation,
     )
 
     if (!opts.onDiscoveryRunRequested) {
