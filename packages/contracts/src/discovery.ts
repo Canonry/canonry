@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { citationStateSchema } from './run.js'
 import { cosineSimilarity } from './embeddings.js'
 import { hostOf } from './url-normalize.js'
+import { locationContextSchema } from './provider.js'
 
 export const discoveryBucketSchema = z.enum(['cited', 'aspirational', 'wasted-surface'])
 export type DiscoveryBucket = z.infer<typeof discoveryBucketSchema>
@@ -116,6 +117,9 @@ export const discoverySessionDtoSchema = z.object({
   /** Buyer definition the session was seeded with (part of session identity
    *  for in-flight consolidation). Null on legacy / no-buyer sessions. */
   buyerDescription: z.string().nullable().optional(),
+  /** Resolved service areas the session was seeded/probed with (part of
+   *  session identity for in-flight consolidation). Null on legacy sessions. */
+  locations: z.array(locationContextSchema).nullable().optional(),
   dedupThreshold: z.number().nullable().optional(),
   probeCount: z.number().int().nullable().optional(),
   citedCount: z.number().int().nullable().default(null),

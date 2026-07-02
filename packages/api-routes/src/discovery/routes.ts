@@ -1,5 +1,5 @@
 import crypto from 'node:crypto'
-import { and, desc, eq, gte, inArray, isNull } from 'drizzle-orm'
+import { and, desc, eq, gte, inArray, isNull, or } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import {
   competitors,
@@ -29,6 +29,7 @@ import {
   effectiveDomains,
   gateHarvestedSearchQueries,
   notFound,
+  orderLocationsDefaultFirst,
   resolveLocations,
   validationError,
   type DiscoveryBucket,
@@ -154,9 +155,11 @@ export async function discoveryRoutes(app: FastifyInstance, opts: DiscoveryRoute
 
     // Resolve the session's service areas: every project location, or the
     // subset named by `locations`. An unknown label throws validationError.
-    const locations = resolveLocations(
-      project.locations,
-      parsed.data.locations,
+    // The project's defaultLocation leads the list so probes (locations[0])
+    // measure from the same geo a sweep would, not from config order.
+    const locations = orderLocationsDefaultFirst(
+      resolveLocations(project.locations, parsed.data.locations),
+      project.defaultLocation,
     )
 
     if (!opts.onDiscoveryRunRequested) {
@@ -190,6 +193,18 @@ export async function discoveryRoutes(app: FastifyInstance, opts: DiscoveryRoute
           parsed.data.buyerDescription == null
             ? isNull(discoverySessions.buyerDescription)
             : eq(discoverySessions.buyerDescription, parsed.data.buyerDescription),
+          // Locations are identity too: a different service-area subset seeds
+          // and probes a different geo, so it must never reuse another geo's
+          // session. resolveLocations is deterministic (project-config order),
+          // so equal subsets always serialize identically. Legacy in-flight
+          // rows (pre-91) carry NULL: on a NO-location project that geo is
+          // unambiguous (always []), so NULL matches; on a project WITH
+          // locations a NULL row's subset is unknowable, so it conservatively
+          // never reuses — a one-time, bounded (2h window) non-reuse after
+          // upgrade, never a wrong reuse.
+          locations.length === 0
+            ? or(isNull(discoverySessions.locations), eq(discoverySessions.locations, locations))
+            : eq(discoverySessions.locations, locations),
           inArray(discoverySessions.status, [
             DiscoverySessionStatuses.queued,
             DiscoverySessionStatuses.seeding,
@@ -217,6 +232,7 @@ export async function discoveryRoutes(app: FastifyInstance, opts: DiscoveryRoute
         status: DiscoverySessionStatuses.queued,
         icpDescription,
         buyerDescription: parsed.data.buyerDescription ?? null,
+        locations,
         dedupThreshold: parsed.data.dedupThreshold,
         competitorMap: [],
         createdAt: now,
@@ -669,6 +685,7 @@ function serializeSession(row: typeof discoverySessions.$inferSelect): Discovery
     seedFromGroundingCount: row.seedFromGroundingCount ?? null,
     seedBrandFilteredCount: row.seedBrandFilteredCount ?? null,
     buyerDescription: row.buyerDescription ?? null,
+    locations: row.locations ?? null,
     dedupThreshold: row.dedupThreshold ?? null,
     probeCount: row.probeCount ?? null,
     citedCount: row.citedCount ?? null,

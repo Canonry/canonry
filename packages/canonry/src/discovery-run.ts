@@ -299,6 +299,9 @@ export function buildDefaultDeps(registry: ProviderRegistry): DiscoveryDeps {
           query: input.query,
           canonicalDomains: input.project.canonicalDomains,
           competitorDomains: input.project.competitorDomains,
+          // Same geo mechanism as sweeps: the provider renders the location
+          // into the prompt so the probe measures from the buyer's area.
+          ...(input.location ? { location: input.location } : {}),
         },
         cfg,
       )

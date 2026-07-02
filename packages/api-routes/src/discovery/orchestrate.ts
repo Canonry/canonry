@@ -110,6 +110,14 @@ export interface DiscoveryDeps {
   probe: (input: {
     project: DiscoveryProjectContext
     query: string
+    /**
+     * Probe geo context: the session's FIRST resolved service area, rendered by
+     * the provider exactly like a sweep location ("searching from City, Region,
+     * Country"). Absent for location-free projects/sessions. Multi-location
+     * probe fan-out is deliberate future work; one geo context per session
+     * keeps probe cost flat.
+     */
+    location?: LocationContext
   }) => Promise<DiscoveryProbeResult>
 
   /**
@@ -371,10 +379,14 @@ export async function executeDiscovery(opts: ExecuteDiscoveryOptions): Promise<E
   // remaining workers stop claiming queries, in-flight probes settle, and the
   // error propagates to the caller (which marks the session failed). Nothing
   // is persisted for a failed probe phase.
+  // Geo: probes measure from the buyer's location, not from nowhere. The
+  // session's first resolved service area is the probe context (sweeps use the
+  // same provider mechanism); location-free sessions probe exactly as before.
+  const probeLocation = opts.locations?.[0]
   const probeResults = await mapWithConcurrency(
     probedCanonicals,
     probeConcurrency,
-    query => opts.deps.probe({ project: opts.project, query }),
+    query => opts.deps.probe({ project: opts.project, query, location: probeLocation }),
   )
 
   const probeRows: Array<{ citedDomains: string[]; bucket: DiscoveryBucket }> = []
