@@ -19,14 +19,16 @@ The web dashboard follows a dark, professional analytics aesthetic inspired by *
 - Current dark defaults: `bg-bg` = `zinc-950`; `bg-surface` = `zinc-900/30`;
   `bg-surface-subtle` = `zinc-900/20`; `bg-surface-hover` = `zinc-900/40`;
   `bg-surface-inset` = `zinc-800/60`; `border-default` =
-  `zinc-800/60`; `border-subtle` = `zinc-800/40`; `border-strong` =
-  `zinc-700`; `text-primary` = `zinc-50`; `text-secondary` =
-  `zinc-400`; `text-muted` = `zinc-500`; `text-faint` = `zinc-600`.
+  `zinc-800/60`; `border-subtle` = `zinc-800/40`; `border-base` =
+  `zinc-800`; `border-strong` = `zinc-700`; `text-primary` =
+  `zinc-50`; `text-heading` = `zinc-100`; `text-strong` = `zinc-200`;
+  `text-secondary` = `zinc-400`; `text-muted` = `zinc-500`;
+  `text-faint` = `zinc-600`.
 - Legacy literal palette utilities (`bg-zinc-*`, `text-zinc-*`,
   `border-zinc-*`, `emerald` / `amber` / `rose`) still exist in older code
   until the migration phases complete. Do not add new literal palette utilities
   for themeable UI; add or use a semantic token instead.
-- Font: **Geist Sans** (400–800 weights) for UI text, **Geist Mono** for code/numerics. Globally enabled OpenType features `cv11`, `ss01`, `ss03` for sharper i/l/I/0 disambiguation. Headings tighten tracking (`-0.015em`, `-0.02em` on h1). `text-zinc-50` primary, `text-zinc-400` secondary, `text-zinc-500`/`text-zinc-600` for labels.
+- Font: **Geist Sans** (400–800 weights) for UI text, **Geist Mono** for code/numerics. Globally enabled OpenType features `cv11`, `ss01`, `ss03` for sharper i/l/I/0 disambiguation. Headings tighten tracking (`-0.015em`, `-0.02em` on h1). Use `text-heading` / `text-strong` for heading and emphasized neutral text, `text-primary` for highest-contrast body text, `text-secondary` for supporting text, and `text-muted` / `text-faint` for labels.
 - Tone tokens: **positive** = emerald, **caution** = amber, **negative** = rose, **neutral** = zinc. Use `text-positive`, `border-positive`, `bg-positive-soft`, `fill-positive`, and the matching caution/negative/neutral utilities for new themeable tone work.
 - Provider identity colors in `ProviderBadge` encode which answer engine produced a signal. They are not semantic tone colors and stay literal unless the provider identity system changes.
 - No decorative background gradients. Keep it clean and flat.

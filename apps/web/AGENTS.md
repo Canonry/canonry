@@ -154,8 +154,9 @@ the full foundation is emitted while generated Tailwind utilities compile to
 New themeable UI code should use semantic utilities instead of literal palette
 classes: `bg-bg`, `bg-surface`, `bg-surface-subtle`,
 `bg-surface-hover`, `bg-surface-inset`, `border-default`,
-`border-subtle`, `border-strong`, `text-primary`, `text-secondary`,
-`text-muted`, `text-faint`, plus tone utilities such as `text-positive`,
+`border-subtle`, `border-base`, `border-strong`, `text-primary`,
+`text-heading`, `text-strong`, `text-secondary`, `text-muted`,
+`text-faint`, plus tone utilities such as `text-positive`,
 `border-positive`, `bg-positive-soft`, and `fill-positive` (and the
 caution/negative/neutral variants).
 

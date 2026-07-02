@@ -17,9 +17,12 @@
 
   --color-border: rgb(39 39 42 / 0.6);
   --color-border-subtle: rgb(39 39 42 / 0.4);
+  --color-border-base: var(--color-zinc-800);
   --color-border-strong: var(--color-zinc-700);
 
   --color-text-primary: var(--color-zinc-50);
+  --color-text-heading: var(--color-zinc-100);
+  --color-text-strong: var(--color-zinc-200);
   --color-text-secondary: var(--color-zinc-400);
   --color-text-muted: var(--color-zinc-500);
   --color-text-faint: var(--color-zinc-600);
@@ -84,12 +87,24 @@
   border-color: var(--color-border-subtle);
 }
 
+@utility border-base {
+  border-color: var(--color-border-base);
+}
+
 @utility border-strong {
   border-color: var(--color-border-strong);
 }
 
 @utility text-primary {
   color: var(--color-text-primary);
+}
+
+@utility text-heading {
+  color: var(--color-text-heading);
+}
+
+@utility text-strong {
+  color: var(--color-text-strong);
 }
 
 @utility text-secondary {
@@ -170,7 +185,7 @@
 
 @layer base {
   * {
-    @apply border-zinc-800;
+    @apply border-base;
   }
 
   html {
@@ -186,7 +201,7 @@
   }
 
   body {
-    @apply min-h-screen bg-zinc-950 font-sans text-zinc-50 antialiased;
+    @apply min-h-screen bg-bg font-sans text-primary antialiased;
   }
 
   /* Headings: tighten tracking and gently bump weight so they read as
@@ -212,14 +227,14 @@
   }
 
   ::selection {
-    background: rgba(250, 250, 250, 0.12);
-    color: #fafafa;
+    background: color-mix(in oklab, var(--color-accent) 12%, transparent);
+    color: var(--color-accent);
   }
 }
 
 @layer components {
   .skip-link {
-    @apply absolute left-4 top-[-3rem] z-50 rounded-md bg-zinc-50 px-4 py-2 text-sm font-medium text-black transition-all focus:top-4;
+    @apply absolute left-4 top-[-3rem] z-50 rounded-md bg-accent px-4 py-2 text-sm font-medium text-accent-fg transition-all focus:top-4;
   }
 
   /* ── Layout shell: sidebar + topbar + content ── */
@@ -236,16 +251,16 @@
      the shell background + text: page content uses fixed Tailwind colors. */
   .app-shell-embed {
     @apply min-h-screen w-full;
-    background: var(--canonry-embed-bg, #09090b);
+    background: var(--canonry-embed-bg, var(--color-bg));
     color: var(--canonry-embed-fg, inherit);
   }
 
   .embed-view-unavailable {
-    @apply mx-auto max-w-6xl px-4 py-16 text-center text-sm text-zinc-500;
+    @apply mx-auto max-w-6xl px-4 py-16 text-center text-sm text-muted;
   }
 
   .sidebar {
-    @apply fixed inset-y-0 left-0 z-30 hidden w-56 flex-col border-r border-zinc-800/60 bg-zinc-950 lg:flex;
+    @apply fixed inset-y-0 left-0 z-30 hidden w-56 flex-col border-r border-default bg-bg lg:flex;
   }
 
   .sidebar-brand {
@@ -274,7 +289,7 @@
   }
 
   .brand-mark {
-    @apply text-[15px] font-semibold leading-none tracking-[-0.02em] text-zinc-100 no-underline;
+    @apply text-[15px] font-semibold leading-none tracking-[-0.02em] text-heading no-underline;
   }
 
   .brand-lockup-compact .brand-mark {
@@ -282,7 +297,7 @@
   }
 
   .brand-version {
-    @apply mt-0.5 font-mono text-[11px] tracking-tight text-zinc-500;
+    @apply mt-0.5 font-mono text-[11px] tracking-tight text-muted;
   }
 
   /* ── Update bubble ── */
@@ -408,15 +423,15 @@
   }
 
   .sidebar-section-title {
-    @apply mb-1 mt-5 px-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600;
+    @apply mb-1 mt-5 px-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-faint;
   }
 
   .sidebar-link {
-    @apply flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13px] font-normal text-zinc-500 transition hover:bg-zinc-800/40 hover:text-zinc-300;
+    @apply flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13px] font-normal text-muted transition hover:bg-surface-hover hover:text-neutral;
   }
 
   .sidebar-link-active {
-    @apply bg-zinc-800/50 text-zinc-200 font-medium;
+    @apply bg-surface-inset text-strong font-medium;
   }
 
   .sidebar-icon {
@@ -424,11 +439,11 @@
   }
 
   .sidebar-project {
-    @apply flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13px] text-zinc-500 transition hover:bg-zinc-900 hover:text-zinc-200;
+    @apply flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13px] text-muted transition hover:bg-bg-elevated hover:text-strong;
   }
 
   .sidebar-project-active {
-    @apply text-zinc-200;
+    @apply text-strong;
   }
 
   .sidebar-dot {
@@ -448,11 +463,11 @@
   }
 
   .sidebar-footer {
-    @apply flex items-center gap-1 border-t border-zinc-800/60 px-4 py-3;
+    @apply flex items-center gap-1 border-t border-default px-4 py-3;
   }
 
   .sidebar-footer-icon {
-    @apply inline-flex size-7 items-center justify-center rounded-md text-zinc-500 transition hover:bg-zinc-800/40 hover:text-zinc-200;
+    @apply inline-flex size-7 items-center justify-center rounded-md text-muted transition hover:bg-surface-hover hover:text-strong;
   }
 
   .main-area {
@@ -468,7 +483,7 @@
   }
 
   .topbar {
-    @apply sticky top-0 z-20 flex items-center justify-between gap-4 border-b border-zinc-800/60 bg-zinc-950/95 px-4 py-2.5 backdrop-blur-sm md:px-6;
+    @apply sticky top-0 z-20 flex items-center justify-between gap-4 border-b border-default bg-bg/95 px-4 py-2.5 backdrop-blur-sm md:px-6;
   }
 
   .topbar-left {
@@ -480,7 +495,7 @@
   }
 
   .breadcrumb {
-    @apply hidden items-center gap-1.5 text-sm text-zinc-500 md:flex;
+    @apply hidden items-center gap-1.5 text-sm text-muted md:flex;
   }
 
   .breadcrumb-sep {
@@ -488,7 +503,7 @@
   }
 
   .breadcrumb-current {
-    @apply text-zinc-200;
+    @apply text-strong;
   }
 
   .topbar-actions {
@@ -508,7 +523,7 @@
   }
 
   .health-pill-checking {
-    @apply border-zinc-700 bg-zinc-900 text-zinc-400;
+    @apply border-strong bg-bg-elevated text-secondary;
   }
 
   .health-pill-error {
@@ -525,7 +540,7 @@
 
   /* mobile nav */
   .mobile-nav {
-    @apply fixed inset-0 z-40 hidden flex-col bg-zinc-950/98 p-4 pt-16 backdrop-blur-sm;
+    @apply fixed inset-0 z-40 hidden flex-col bg-bg/98 p-4 pt-16 backdrop-blur-sm;
   }
 
   .mobile-nav-open {
@@ -533,11 +548,11 @@
   }
 
   .mobile-nav-link {
-    @apply rounded-lg px-4 py-3 text-base font-medium text-zinc-400 transition hover:bg-zinc-900 hover:text-zinc-100;
+    @apply rounded-lg px-4 py-3 text-base font-medium text-secondary transition hover:bg-bg-elevated hover:text-heading;
   }
 
   .mobile-nav-link-active {
-    @apply bg-zinc-900 text-zinc-100;
+    @apply bg-bg-elevated text-heading;
   }
 
   .mobile-nav-close {
@@ -545,11 +560,11 @@
   }
 
   .mobile-nav-section {
-    @apply mt-4 border-t border-zinc-800 pt-4;
+    @apply mt-4 border-t border-base pt-4;
   }
 
   .mobile-nav-section-title {
-    @apply mb-2 px-4 text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-600;
+    @apply mb-2 px-4 text-[11px] font-semibold uppercase tracking-[0.16em] text-faint;
   }
 
   /* ── Page content ── */
@@ -573,11 +588,11 @@
   }
 
   .page-title {
-    @apply text-lg font-semibold tracking-[-0.02em] text-zinc-100;
+    @apply text-lg font-semibold tracking-[-0.02em] text-heading;
   }
 
   .page-subtitle {
-    @apply mt-0.5 text-[13px] font-normal text-zinc-500;
+    @apply mt-0.5 text-[13px] font-normal text-muted;
   }
 
   .page-header-right {
@@ -589,27 +604,27 @@
   }
 
   .tag {
-    @apply rounded-md border border-zinc-800 bg-zinc-900/50 px-2 py-0.5 text-[11px] font-medium text-zinc-400;
+    @apply rounded-md border border-base bg-bg-elevated/50 px-2 py-0.5 text-[11px] font-medium text-secondary;
   }
 
   /* ── Eyebrow / labels ── */
 
   .eyebrow {
-    @apply text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500;
+    @apply text-[11px] font-medium uppercase tracking-[0.18em] text-muted;
   }
 
   .eyebrow-soft {
-    @apply mb-1 text-[10px] font-medium uppercase tracking-[0.16em] text-zinc-600;
+    @apply mb-1 text-[10px] font-medium uppercase tracking-[0.16em] text-faint;
   }
 
   /* ── Typography ── */
 
   .lede {
-    @apply max-w-3xl text-sm leading-6 text-zinc-400;
+    @apply max-w-3xl text-sm leading-6 text-secondary;
   }
 
   .supporting-copy {
-    @apply text-sm leading-6 text-zinc-500;
+    @apply text-sm leading-6 text-muted;
   }
 
   .blocking-copy {
@@ -987,11 +1002,11 @@
   /* ── Metric cards (non-gauge) ── */
 
   .metric-card {
-    @apply flex flex-col rounded-xl border border-zinc-800/60 bg-zinc-900/30 px-4 py-5 min-w-0 overflow-visible;
+    @apply flex flex-col rounded-xl border border-default bg-surface px-4 py-5 min-w-0 overflow-visible;
   }
 
   .metric-card-eyebrow {
-    @apply text-[10px] font-medium uppercase tracking-[0.12em] text-zinc-500 flex items-center gap-1;
+    @apply text-[10px] font-medium uppercase tracking-[0.12em] text-muted flex items-center gap-1;
   }
 
   .metric-card-big-value {
@@ -1014,17 +1029,17 @@
   }
 
   .metric-card-detail {
-    @apply mt-2 text-[12px] text-zinc-400;
+    @apply mt-2 text-[12px] text-secondary;
   }
 
   .metric-card-sub {
-    @apply mt-1 text-[11px] leading-4 text-zinc-500;
+    @apply mt-1 text-[11px] leading-4 text-muted;
   }
 
   /* ── Surface cards ── */
 
   .surface-card {
-    @apply rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-4;
+    @apply rounded-xl border border-default bg-surface p-4;
   }
 
   .compact-card {
@@ -1032,13 +1047,13 @@
   }
 
   .section-title-sm {
-    @apply text-sm font-semibold tracking-[-0.01em] text-zinc-200;
+    @apply text-sm font-semibold tracking-[-0.01em] text-strong;
   }
 
   .surface-card h2,
   .surface-card h3,
   .empty-card h1 {
-    @apply text-sm font-semibold tracking-[-0.01em] text-zinc-200;
+    @apply text-sm font-semibold tracking-[-0.01em] text-strong;
   }
 
   .empty-card {
@@ -1060,7 +1075,7 @@
   }
 
   .page-section-divider {
-    @apply mt-8 border-t border-zinc-800/40 pt-6;
+    @apply mt-8 border-t border-subtle pt-6;
   }
 
   /* Progressive disclosure keeps evidence and diagnostics available without
