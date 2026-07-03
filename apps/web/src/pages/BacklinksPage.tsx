@@ -24,7 +24,7 @@ function Hint({
         type="button"
         aria-label={label}
         aria-describedby={open ? id : undefined}
-        className="inline-flex h-4 w-4 items-center justify-center rounded-full text-zinc-500 hover:text-zinc-200 focus:text-zinc-200 focus:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500"
+        className="inline-flex h-4 w-4 items-center justify-center rounded-full text-muted hover:text-strong focus:text-strong focus:outline-none focus-visible:ring-1 focus-visible:ring-mono-500"
         onMouseEnter={() => setOpen(true)}
         onMouseLeave={() => setOpen(false)}
         onFocus={() => setOpen(true)}
@@ -36,7 +36,7 @@ function Hint({
         <span
           id={id}
           role="tooltip"
-          className={`absolute z-50 w-64 rounded border border-zinc-700 bg-zinc-900 px-3 py-2 text-xs font-normal leading-relaxed text-zinc-200 shadow-lg ${
+          className={`absolute z-50 w-64 rounded border border-strong bg-bg-elevated px-3 py-2 text-xs font-normal leading-relaxed text-strong shadow-lg ${
             placement === 'top' ? 'bottom-full mb-2' : 'top-full mt-2'
           } left-1/2 -translate-x-1/2 whitespace-normal`}
         >
@@ -207,18 +207,18 @@ export function BacklinksPage() {
         </div>
       </div>
 
-      <Card className="surface-card p-4 mb-6 border-amber-800/60">
+      <Card className="surface-card p-4 mb-6 border-caution-800/60">
         <div className="flex items-start gap-3">
-          <AlertTriangle className="h-5 w-5 text-amber-400 shrink-0 mt-0.5" aria-hidden />
-          <div className="text-sm text-zinc-300 leading-relaxed">
-            <p className="font-medium text-amber-200">Heads up — a release sync is a large download.</p>
-            <ul className="mt-1.5 space-y-1 text-zinc-400">
+          <AlertTriangle className="h-5 w-5 text-caution-400 shrink-0 mt-0.5" aria-hidden />
+          <div className="text-sm text-neutral leading-relaxed">
+            <p className="font-medium text-caution-200">Heads up — a release sync is a large download.</p>
+            <ul className="mt-1.5 space-y-1 text-secondary">
               <li>
-                <span className="text-zinc-200">~16 GB</span> of gzipped vertex + edge files per release, stored at{' '}
-                <code className="text-zinc-300">~/.canonry/cache/commoncrawl/</code>.
+                <span className="text-strong">~16 GB</span> of gzipped vertex + edge files per release, stored at{' '}
+                <code className="text-neutral">~/.canonry/cache/commoncrawl/</code>.
               </li>
               <li>
-                <span className="text-zinc-200">10–20 min on a fast connection</span> for the download, then ~5 min for the DuckDB query.
+                <span className="text-strong">10–20 min on a fast connection</span> for the download, then ~5 min for the DuckDB query.
               </li>
               <li>
                 One sync covers every project in this workspace. Releases are immutable, so the download only happens once per release.
@@ -236,29 +236,29 @@ export function BacklinksPage() {
           </div>
         </div>
         <Card className="surface-card p-5">
-          <p className="text-sm text-zinc-400 leading-relaxed max-w-3xl mb-4">
+          <p className="text-sm text-secondary leading-relaxed max-w-3xl mb-4">
             Common Crawl publishes a quarterly snapshot of the public web&rsquo;s hyperlink graph. Canonry downloads one{' '}
-            <span className="text-zinc-200">release</span> at a time and extracts backlinks for every project in this
+            <span className="text-strong">release</span> at a time and extracts backlinks for every project in this
             workspace in a single pass.
           </p>
-          <ol className="space-y-3 text-sm text-zinc-400 max-w-3xl">
+          <ol className="space-y-3 text-sm text-secondary max-w-3xl">
             <li className="flex gap-3">
-              <span className="shrink-0 inline-flex h-6 w-6 items-center justify-center rounded-full border border-zinc-700 bg-zinc-900 text-xs font-semibold text-zinc-300 tabular-nums">1</span>
+              <span className="shrink-0 inline-flex h-6 w-6 items-center justify-center rounded-full border border-strong bg-bg-elevated text-xs font-semibold text-neutral tabular-nums">1</span>
               <span>
-                <span className="text-zinc-200 font-medium">Download (one-time, ~16 GB)</span> — vertex + edge files cached to{' '}
-                <code className="text-zinc-300">~/.canonry/cache/commoncrawl/</code>. Runs once per release; subsequent operations reuse the cache.
+                <span className="text-strong font-medium">Download (one-time, ~16 GB)</span> — vertex + edge files cached to{' '}
+                <code className="text-neutral">~/.canonry/cache/commoncrawl/</code>. Runs once per release; subsequent operations reuse the cache.
               </span>
             </li>
             <li className="flex gap-3">
-              <span className="shrink-0 inline-flex h-6 w-6 items-center justify-center rounded-full border border-zinc-700 bg-zinc-900 text-xs font-semibold text-zinc-300 tabular-nums">2</span>
+              <span className="shrink-0 inline-flex h-6 w-6 items-center justify-center rounded-full border border-strong bg-bg-elevated text-xs font-semibold text-neutral tabular-nums">2</span>
               <span>
-                <span className="text-zinc-200 font-medium">Query (~5 min)</span> — one DuckDB pass scans the cached files and extracts referring domains for every project&rsquo;s canonical domain. DuckDB is only used to <span className="text-zinc-200">read</span> these dumps; it doesn&rsquo;t store any canonry state.
+                <span className="text-strong font-medium">Query (~5 min)</span> — one DuckDB pass scans the cached files and extracts referring domains for every project&rsquo;s canonical domain. DuckDB is only used to <span className="text-strong">read</span> these dumps; it doesn&rsquo;t store any canonry state.
               </span>
             </li>
             <li className="flex gap-3">
-              <span className="shrink-0 inline-flex h-6 w-6 items-center justify-center rounded-full border border-zinc-700 bg-zinc-900 text-xs font-semibold text-zinc-300 tabular-nums">3</span>
+              <span className="shrink-0 inline-flex h-6 w-6 items-center justify-center rounded-full border border-strong bg-bg-elevated text-xs font-semibold text-neutral tabular-nums">3</span>
               <span>
-                <span className="text-zinc-200 font-medium">Persist</span> — results land in the same SQLite database the rest of canonry uses. After the first sync, per-project reads (and re-run extracts against the cached release) are instant.
+                <span className="text-strong font-medium">Persist</span> — results land in the same SQLite database the rest of canonry uses. After the first sync, per-project reads (and re-run extracts against the cached release) are instant.
               </span>
             </li>
           </ol>
@@ -266,13 +266,13 @@ export function BacklinksPage() {
       </section>
 
       {error && (
-        <Card className="surface-card p-4 mb-4 border-rose-800/60">
-          <p className="text-sm text-rose-300">{error}</p>
+        <Card className="surface-card p-4 mb-4 border-negative-800/60">
+          <p className="text-sm text-negative">{error}</p>
         </Card>
       )}
       {notice && (
-        <Card className="surface-card p-4 mb-4 border-emerald-800/60">
-          <p className="text-sm text-emerald-300">{notice}</p>
+        <Card className="surface-card p-4 mb-4 border-positive-800/60">
+          <p className="text-sm text-positive">{notice}</p>
         </Card>
       )}
 
@@ -286,11 +286,11 @@ export function BacklinksPage() {
                 <span className="block">
                   DuckDB is a query engine canonry uses to scan the ~16 GB Common Crawl dumps and pull out your referring domains.
                 </span>
-                <span className="mt-2 block text-zinc-400">
-                  It does <span className="text-zinc-200">not</span> store any canonry data — your backlink results live in SQLite alongside the rest of your projects. DuckDB is purely a tool for processing the raw CSV files.
+                <span className="mt-2 block text-secondary">
+                  It does <span className="text-strong">not</span> store any canonry data — your backlink results live in SQLite alongside the rest of your projects. DuckDB is purely a tool for processing the raw CSV files.
                 </span>
-                <span className="mt-2 block text-zinc-500">
-                  Installed on demand (not bundled) into <code className="text-zinc-300">~/.canonry/plugins/</code> so users who never run backlinks don&rsquo;t pay the ~40 MB install cost.
+                <span className="mt-2 block text-muted">
+                  Installed on demand (not bundled) into <code className="text-neutral">~/.canonry/plugins/</code> so users who never run backlinks don&rsquo;t pay the ~40 MB install cost.
                 </span>
               </Hint>
             </h2>
@@ -303,31 +303,31 @@ export function BacklinksPage() {
         </div>
         <Card className="surface-card p-5">
           {loading ? (
-            <p className="text-sm text-zinc-500">Checking…</p>
+            <p className="text-sm text-muted">Checking…</p>
           ) : status?.duckdbInstalled ? (
             <div className="flex items-start gap-3">
-              <CheckCircle2 className="h-5 w-5 text-emerald-400 shrink-0 mt-0.5" aria-hidden />
+              <CheckCircle2 className="h-5 w-5 text-positive-400 shrink-0 mt-0.5" aria-hidden />
               <div>
-                <p className="text-sm text-zinc-200">
+                <p className="text-sm text-strong">
                   Version {status.duckdbVersion ?? 'unknown'} installed at{' '}
-                  <code className="text-zinc-300">{status.pluginDir}</code>
+                  <code className="text-neutral">{status.pluginDir}</code>
                 </p>
-                <p className="text-xs text-zinc-500 mt-1">Required spec: {status.duckdbSpec}</p>
+                <p className="text-xs text-muted mt-1">Required spec: {status.duckdbSpec}</p>
               </div>
             </div>
           ) : (
             <div className="flex items-start gap-3">
-              <AlertCircle className="h-5 w-5 text-amber-400 shrink-0 mt-0.5" aria-hidden />
+              <AlertCircle className="h-5 w-5 text-caution-400 shrink-0 mt-0.5" aria-hidden />
               <div className="flex-1">
-                <p className="text-sm text-zinc-200">
+                <p className="text-sm text-strong">
                   DuckDB is not installed. It&rsquo;s the query engine canonry uses to scan Common Crawl dumps — required before you can run a release sync or per-project extract.
                 </p>
-                <p className="text-xs text-zinc-500 mt-1">
+                <p className="text-xs text-muted mt-1">
                   Installing doesn&rsquo;t touch your project data. DuckDB only reads the downloaded CSV files; backlink results are written to the same SQLite database canonry already uses.
                 </p>
                 {status && (
-                  <p className="text-xs text-zinc-500 mt-1">
-                    Will be installed into <code className="text-zinc-300">{status.pluginDir}</code> (~40 MB).
+                  <p className="text-xs text-muted mt-1">
+                    Will be installed into <code className="text-neutral">{status.pluginDir}</code> (~40 MB).
                   </p>
                 )}
                 <div className="mt-3">
@@ -356,76 +356,76 @@ export function BacklinksPage() {
           {latest && <ToneBadge tone={syncStatusTone(latest.status)}>{latest.status}</ToneBadge>}
         </div>
         <Card className="surface-card p-5">
-          <p className="text-xs text-zinc-500 max-w-3xl mb-4">
-            A release is one Common Crawl dump (e.g. <code className="text-zinc-400">cc-main-2026-jan-feb-mar</code>). Syncing it downloads the graph and populates backlinks for every project in this workspace.
+          <p className="text-xs text-muted max-w-3xl mb-4">
+            A release is one Common Crawl dump (e.g. <code className="text-secondary">cc-main-2026-jan-feb-mar</code>). Syncing it downloads the graph and populates backlinks for every project in this workspace.
           </p>
           {latest ? (
             <div className="space-y-2 text-sm">
-              <p className="text-zinc-200">
-                Release <code className="text-zinc-300">{latest.release}</code>
+              <p className="text-strong">
+                Release <code className="text-neutral">{latest.release}</code>
               </p>
               {latest.phaseDetail && (
-                <p className="text-zinc-500">{latest.phaseDetail}</p>
+                <p className="text-muted">{latest.phaseDetail}</p>
               )}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs text-zinc-500 pt-2">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs text-muted pt-2">
                 <div>
-                  <p className="text-zinc-600 uppercase tracking-wide">Projects</p>
-                  <p className="text-zinc-300 mt-0.5">{latest.projectsProcessed ?? '—'}</p>
+                  <p className="text-faint uppercase tracking-wide">Projects</p>
+                  <p className="text-neutral mt-0.5">{latest.projectsProcessed ?? '—'}</p>
                 </div>
                 <div>
-                  <p className="text-zinc-600 uppercase tracking-wide flex items-center gap-1">
+                  <p className="text-faint uppercase tracking-wide flex items-center gap-1">
                     Rows
                     <Hint label="What are rows?">
                       Total number of (project, referring domain) pairs persisted in SQLite from this sync, across every project in the workspace.
                     </Hint>
                   </p>
-                  <p className="text-zinc-300 mt-0.5">{latest.domainsDiscovered ?? '—'}</p>
+                  <p className="text-neutral mt-0.5">{latest.domainsDiscovered ?? '—'}</p>
                 </div>
                 <div>
-                  <p className="text-zinc-600 uppercase tracking-wide">Started</p>
-                  <p className="text-zinc-300 mt-0.5">{relativeTime(latest.downloadStartedAt ?? latest.createdAt)}</p>
+                  <p className="text-faint uppercase tracking-wide">Started</p>
+                  <p className="text-neutral mt-0.5">{relativeTime(latest.downloadStartedAt ?? latest.createdAt)}</p>
                 </div>
                 <div>
-                  <p className="text-zinc-600 uppercase tracking-wide">Finished</p>
-                  <p className="text-zinc-300 mt-0.5">{relativeTime(latest.queryFinishedAt)}</p>
+                  <p className="text-faint uppercase tracking-wide">Finished</p>
+                  <p className="text-neutral mt-0.5">{relativeTime(latest.queryFinishedAt)}</p>
                 </div>
               </div>
               {latest.error && (
-                <p className="text-sm text-rose-400 pt-2">{latest.error}</p>
+                <p className="text-sm text-negative-400 pt-2">{latest.error}</p>
               )}
             </div>
           ) : (
-            <p className="text-sm text-zinc-500">No release sync has run in this workspace yet.</p>
+            <p className="text-sm text-muted">No release sync has run in this workspace yet.</p>
           )}
           {latestReadyButCacheMissing && (
-            <div className="mt-4 rounded border border-amber-800/60 bg-amber-950/20 p-3">
+            <div className="mt-4 rounded border border-caution-800/60 bg-caution-950/20 p-3">
               <div className="flex items-start gap-2">
-                <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" aria-hidden />
-                <div className="text-xs text-zinc-300 leading-relaxed">
-                  <p className="font-medium text-amber-200">Cached files for this release are missing.</p>
-                  <p className="mt-1 text-zinc-400">
+                <AlertTriangle className="h-4 w-4 text-caution-400 shrink-0 mt-0.5" aria-hidden />
+                <div className="text-xs text-neutral leading-relaxed">
+                  <p className="font-medium text-caution-200">Cached files for this release are missing.</p>
+                  <p className="mt-1 text-secondary">
                     The sync record in the database says this release finished successfully, but the ~16 GB dump at{' '}
-                    <code className="text-zinc-300">~/.canonry/cache/commoncrawl/{latest?.release}/</code> isn&rsquo;t on disk. Your backlink data is still intact (it lives in SQLite), but per-project re-run extracts will fail until you either re-sync this release or start a new one.
+                    <code className="text-neutral">~/.canonry/cache/commoncrawl/{latest?.release}/</code> isn&rsquo;t on disk. Your backlink data is still intact (it lives in SQLite), but per-project re-run extracts will fail until you either re-sync this release or start a new one.
                   </p>
                 </div>
               </div>
             </div>
           )}
-          <div className="mt-4 rounded border border-zinc-800 bg-zinc-900/40 p-3">
+          <div className="mt-4 rounded border border-base bg-bg-elevated/40 p-3">
             <div className="flex items-start justify-between gap-3 mb-3">
               <div>
-                <p className="text-[10px] uppercase tracking-wide text-zinc-500">
+                <p className="text-[10px] uppercase tracking-wide text-muted">
                   Auto-detected release
                 </p>
                 {latestAvailable ? (
-                  <p className="text-sm text-zinc-200 mt-0.5">
-                    <code className="text-zinc-100">{latestAvailable.release}</code>
-                    <span className="ml-2 text-xs text-zinc-500">
+                  <p className="text-sm text-strong mt-0.5">
+                    <code className="text-heading">{latestAvailable.release}</code>
+                    <span className="ml-2 text-xs text-muted">
                       — vertex {formatBytes(latestAvailable.vertexBytes)}, edges {formatBytes(latestAvailable.edgesBytes)}
                     </span>
                   </p>
                 ) : (
-                  <p className="text-sm text-zinc-500 mt-0.5">
+                  <p className="text-sm text-muted mt-0.5">
                     {loading ? 'Probing Common Crawl…' : 'Could not auto-detect — pass an explicit release below.'}
                   </p>
                 )}
@@ -433,7 +433,7 @@ export function BacklinksPage() {
                   href={COMMON_CRAWL_RELEASES_URL}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="mt-1 inline-flex items-center gap-1 text-xs text-zinc-400 hover:text-zinc-200 focus:text-zinc-200 focus:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500 rounded"
+                  className="mt-1 inline-flex items-center gap-1 text-xs text-secondary hover:text-strong focus:text-strong focus:outline-none focus-visible:ring-1 focus-visible:ring-mono-500 rounded"
                 >
                   Browse all Common Crawl web-graph releases
                   <ExternalLink className="h-3 w-3" aria-hidden />
@@ -452,10 +452,10 @@ export function BacklinksPage() {
                 <Hint label="What does Run sync do?">
                   <span className="block">
                     Downloads the auto-detected (or chosen) Common Crawl release (~16 GB) to{' '}
-                    <code className="text-zinc-300">~/.canonry/cache/commoncrawl/</code>, then runs a single DuckDB query that extracts referring domains for every project in this workspace.
+                    <code className="text-neutral">~/.canonry/cache/commoncrawl/</code>, then runs a single DuckDB query that extracts referring domains for every project in this workspace.
                   </span>
-                  <span className="mt-2 block text-zinc-400">
-                    First time for a release: <span className="text-zinc-200">~10–20 min download + ~5 min query</span>. Re-running the same release later: <span className="text-zinc-200">skips download, just re-queries</span> (~5 min).
+                  <span className="mt-2 block text-secondary">
+                    First time for a release: <span className="text-strong">~10–20 min download + ~5 min query</span>. Re-running the same release later: <span className="text-strong">skips download, just re-queries</span> (~5 min).
                   </span>
                 </Hint>
               </div>
@@ -463,7 +463,7 @@ export function BacklinksPage() {
             {!showOverride ? (
               <button
                 type="button"
-                className="text-xs text-zinc-500 hover:text-zinc-300 focus:text-zinc-300 focus:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500 rounded"
+                className="text-xs text-muted hover:text-neutral focus:text-neutral focus:outline-none focus-visible:ring-1 focus-visible:ring-mono-500 rounded"
                 onClick={() => setShowOverride(true)}
                 disabled={syncing}
               >
@@ -473,7 +473,7 @@ export function BacklinksPage() {
               <div className="flex flex-wrap items-center gap-2">
                 <input
                   type="text"
-                  className="flex-1 min-w-[240px] rounded border border-zinc-700 bg-transparent px-2.5 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+                  className="flex-1 min-w-[240px] rounded border border-strong bg-transparent px-2.5 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
                   placeholder="cc-main-2026-jan-feb-mar"
                   value={releaseInput}
                   onChange={(e) => setReleaseInput(e.target.value)}
@@ -482,7 +482,7 @@ export function BacklinksPage() {
                 />
                 <button
                   type="button"
-                  className="text-xs text-zinc-500 hover:text-zinc-300 focus:text-zinc-300 focus:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500 rounded"
+                  className="text-xs text-muted hover:text-neutral focus:text-neutral focus:outline-none focus-visible:ring-1 focus-visible:ring-mono-500 rounded"
                   onClick={() => { setReleaseInput(''); setShowOverride(false) }}
                   disabled={syncing}
                 >
@@ -492,7 +492,7 @@ export function BacklinksPage() {
             )}
           </div>
           {!status?.duckdbInstalled && (
-            <p className="text-xs text-zinc-600 mt-2">Install DuckDB first to enable sync.</p>
+            <p className="text-xs text-faint mt-2">Install DuckDB first to enable sync.</p>
           )}
         </Card>
       </section>
@@ -506,22 +506,22 @@ export function BacklinksPage() {
               <Hint label="What is this?">
                 <span className="block">
                   Raw Common Crawl dumps stored at{' '}
-                  <code className="text-zinc-300">~/.canonry/cache/commoncrawl/&lt;release&gt;/</code>. Each release takes ~16 GB.
+                  <code className="text-neutral">~/.canonry/cache/commoncrawl/&lt;release&gt;/</code>. Each release takes ~16 GB.
                 </span>
-                <span className="mt-2 block text-zinc-400">
-                  These files are needed to re-run per-project extracts against a release without re-downloading. Pruning here <span className="text-zinc-200">does not delete your backlink data</span> — that lives in SQLite.
+                <span className="mt-2 block text-secondary">
+                  These files are needed to re-run per-project extracts against a release without re-downloading. Pruning here <span className="text-strong">does not delete your backlink data</span> — that lives in SQLite.
                 </span>
               </Hint>
             </h2>
           </div>
         </div>
-        <p className="text-xs text-zinc-500 mb-3 max-w-3xl">
+        <p className="text-xs text-muted mb-3 max-w-3xl">
           Each cached release is a ~16 GB pair of gzipped files. They&rsquo;re needed to re-query the graph (e.g. for a newly-added project) without re-downloading. Safe to prune — backlink results persist in SQLite.
         </p>
         <Card className="surface-card overflow-hidden">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-zinc-800 text-left text-xs uppercase tracking-wide text-zinc-600">
+              <tr className="border-b border-base text-left text-xs uppercase tracking-wide text-faint">
                 <th className="px-4 py-2 font-medium">Release</th>
                 <th className="px-4 py-2 font-medium">Sync status</th>
                 <th className="px-4 py-2 text-right font-medium">Size</th>
@@ -531,17 +531,17 @@ export function BacklinksPage() {
             </thead>
             <tbody>
               {cached.map((row) => (
-                <tr key={row.release} className="border-b border-zinc-900 last:border-0">
-                  <td className="px-4 py-2 text-zinc-200"><code>{row.release}</code></td>
+                <tr key={row.release} className="border-b border-mono-900 last:border-0">
+                  <td className="px-4 py-2 text-strong"><code>{row.release}</code></td>
                   <td className="px-4 py-2">
                     {row.syncStatus ? (
                       <ToneBadge tone={syncStatusTone(row.syncStatus)}>{row.syncStatus}</ToneBadge>
                     ) : (
-                      <span className="text-zinc-600">—</span>
+                      <span className="text-faint">—</span>
                     )}
                   </td>
-                  <td className="px-4 py-2 text-right text-zinc-400 tabular-nums">{formatBytes(row.bytes)}</td>
-                  <td className="px-4 py-2 text-zinc-400">{relativeTime(row.lastUsedAt)}</td>
+                  <td className="px-4 py-2 text-right text-secondary tabular-nums">{formatBytes(row.bytes)}</td>
+                  <td className="px-4 py-2 text-secondary">{relativeTime(row.lastUsedAt)}</td>
                   <td className="px-4 py-2 text-right">
                     <div className="inline-flex items-center gap-1">
                       <Button type="button" variant="outline" size="sm" onClick={() => { void handlePrune(row.release) }}>
@@ -556,7 +556,7 @@ export function BacklinksPage() {
                 </tr>
               ))}
               {cached.length === 0 && (
-                <tr><td className="px-4 py-4 text-sm text-zinc-500" colSpan={5}>
+                <tr><td className="px-4 py-4 text-sm text-muted" colSpan={5}>
                   No cached releases on this machine. If you ran a sync from a different machine (or deleted the cache), the backlink data is still in the database — but you&rsquo;ll need to re-sync a release to run new extracts.
                 </td></tr>
               )}
@@ -576,7 +576,7 @@ export function BacklinksPage() {
           <Card className="surface-card overflow-hidden">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-zinc-800 text-left text-xs uppercase tracking-wide text-zinc-600">
+                <tr className="border-b border-base text-left text-xs uppercase tracking-wide text-faint">
                   <th className="px-4 py-2 font-medium">Release</th>
                   <th className="px-4 py-2 font-medium">Status</th>
                   <th className="px-4 py-2 text-right font-medium">Projects</th>
@@ -586,12 +586,12 @@ export function BacklinksPage() {
               </thead>
               <tbody>
                 {history.map((row) => (
-                  <tr key={row.id} className="border-b border-zinc-900 last:border-0">
-                    <td className="px-4 py-2 text-zinc-200"><code>{row.release}</code></td>
+                  <tr key={row.id} className="border-b border-mono-900 last:border-0">
+                    <td className="px-4 py-2 text-strong"><code>{row.release}</code></td>
                     <td className="px-4 py-2"><ToneBadge tone={syncStatusTone(row.status)}>{row.status}</ToneBadge></td>
-                    <td className="px-4 py-2 text-right text-zinc-400 tabular-nums">{row.projectsProcessed ?? '—'}</td>
-                    <td className="px-4 py-2 text-right text-zinc-400 tabular-nums">{row.domainsDiscovered ?? '—'}</td>
-                    <td className="px-4 py-2 text-zinc-400">{relativeTime(row.queryFinishedAt ?? row.updatedAt)}</td>
+                    <td className="px-4 py-2 text-right text-secondary tabular-nums">{row.projectsProcessed ?? '—'}</td>
+                    <td className="px-4 py-2 text-right text-secondary tabular-nums">{row.domainsDiscovered ?? '—'}</td>
+                    <td className="px-4 py-2 text-secondary">{relativeTime(row.queryFinishedAt ?? row.updatedAt)}</td>
                   </tr>
                 ))}
               </tbody>

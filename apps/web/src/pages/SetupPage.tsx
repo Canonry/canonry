@@ -312,14 +312,14 @@ export function SetupPage() {
                     <p className="run-row-title">{check.label}</p>
                     <p className="supporting-copy">{check.detail}</p>
                     {check.id === 'provider' && check.state !== 'ready' && (
-                      <div className="mt-3 rounded-md border border-zinc-800/60 bg-zinc-900/40 p-3 space-y-2">
-                        <p className="text-xs text-zinc-400">
+                      <div className="mt-3 rounded-md border border-default bg-bg-elevated/40 p-3 space-y-2">
+                        <p className="text-xs text-secondary">
                           Paste a Gemini key to enable visibility checks (free at{' '}
                           <a
                             href="https://aistudio.google.com/apikey"
                             target="_blank"
                             rel="noreferrer"
-                            className="text-emerald-400 hover:text-emerald-300 underline underline-offset-2"
+                            className="text-positive-400 hover:text-positive underline underline-offset-2"
                           >
                             aistudio.google.com
                           </a>
@@ -331,7 +331,7 @@ export function SetupPage() {
                             value={geminiKey}
                             onChange={(e) => setGeminiKey(e.target.value)}
                             placeholder="AI... (paste here)"
-                            className="flex-1 rounded-md border border-zinc-800 bg-zinc-950 px-2.5 py-1.5 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-zinc-600 focus:outline-none font-mono"
+                            className="flex-1 rounded-md border border-base bg-bg px-2.5 py-1.5 text-sm text-heading placeholder:text-faint focus:border-mono-600 focus:outline-none font-mono"
                             disabled={geminiSaving}
                           />
                           <Button
@@ -343,10 +343,10 @@ export function SetupPage() {
                             {geminiSaving ? 'Saving...' : 'Save'}
                           </Button>
                         </div>
-                        {geminiError && <p className="text-xs text-rose-400">{geminiError}</p>}
-                        <p className="text-[11px] text-zinc-600">
+                        {geminiError && <p className="text-xs text-negative-400">{geminiError}</p>}
+                        <p className="text-[11px] text-faint">
                           Other providers (OpenAI, Claude, Perplexity) configurable later via{' '}
-                          <Link to="/settings" className="text-zinc-500 hover:text-zinc-300 underline underline-offset-2">
+                          <Link to="/settings" className="text-muted hover:text-neutral underline underline-offset-2">
                             /settings
                           </Link>
                           .
@@ -390,7 +390,7 @@ export function SetupPage() {
             </div>
             {createdProjectName ? (
               <div className="compact-stack">
-                <p className="text-zinc-300">Project <span className="text-zinc-100 font-medium">{createdProjectName}</span> created successfully.</p>
+                <p className="text-neutral">Project <span className="text-heading font-medium">{createdProjectName}</span> created successfully.</p>
                 <div className="setup-nav">
                   <Button type="button" variant="outline" onClick={goBack}>Back</Button>
                   <Button type="button" onClick={() => setStep(2)}>Continue</Button>
@@ -421,24 +421,24 @@ export function SetupPage() {
                     <input id="language" className="setup-input" type="text" placeholder="en" maxLength={5} value={language} onChange={(e) => setLanguage(e.target.value.toLowerCase())} />
                   </div>
                 </div>
-                <label className="flex items-start gap-3 rounded-md border border-zinc-800/60 bg-zinc-900/30 p-3 cursor-pointer hover:border-zinc-700">
+                <label className="flex items-start gap-3 rounded-md border border-default bg-surface p-3 cursor-pointer hover:border-strong">
                   <input
                     type="checkbox"
-                    className="mt-0.5 h-4 w-4 rounded border-zinc-700 bg-zinc-950"
+                    className="mt-0.5 h-4 w-4 rounded border-strong bg-bg"
                     checked={autoExtractBacklinks}
                     onChange={(e) => setAutoExtractBacklinks(e.target.checked)}
                   />
                   <span className="flex-1">
-                    <span className="block text-sm text-zinc-100">Auto-extract backlinks</span>
-                    <span className="block text-xs text-zinc-500 mt-0.5">
+                    <span className="block text-sm text-heading">Auto-extract backlinks</span>
+                    <span className="block text-xs text-muted mt-0.5">
                       When a new Common Crawl release syncs, automatically extract backlinks for this project.{' '}
-                      <Link to="/backlinks" className="text-emerald-400 hover:text-emerald-300 underline underline-offset-2">
+                      <Link to="/backlinks" className="text-positive-400 hover:text-positive underline underline-offset-2">
                         Manage backlinks
                       </Link>
                     </span>
                   </span>
                 </label>
-                {projectError ? <p className="text-rose-400 text-sm">{projectError}</p> : null}
+                {projectError ? <p className="text-negative-400 text-sm">{projectError}</p> : null}
                 <div className="setup-nav">
                   <Button type="button" variant="outline" onClick={goBack}>Back</Button>
                   <Button type="button" disabled={!slug || !domain || projectSaving} onClick={asyncHandler(handleCreateProject)}>
@@ -479,10 +479,10 @@ export function SetupPage() {
               <div className="compact-stack">
                 {readyProviders.length > 0 ? (
                   <div className="compact-stack">
-                    <div className="flex items-center gap-2 text-zinc-500 text-xs uppercase tracking-wide">
-                      <span className="flex-1 border-t border-zinc-800" />
+                    <div className="flex items-center gap-2 text-muted text-xs uppercase tracking-wide">
+                      <span className="flex-1 border-t border-base" />
                       auto-generate
-                      <span className="flex-1 border-t border-zinc-800" />
+                      <span className="flex-1 border-t border-base" />
                     </div>
                     <div className="flex items-end gap-2">
                       <div className="setup-field flex-1">
@@ -520,13 +520,13 @@ export function SetupPage() {
                         {generatingQueries ? 'Analyzing site...' : 'Generate'}
                       </Button>
                     </div>
-                    {generateError ? <p className="text-rose-400 text-sm">{generateError}</p> : null}
+                    {generateError ? <p className="text-negative-400 text-sm">{generateError}</p> : null}
                   </div>
                 ) : null}
-                <div className="flex items-center gap-2 text-zinc-500 text-xs uppercase tracking-wide">
-                  <span className="flex-1 border-t border-zinc-800" />
+                <div className="flex items-center gap-2 text-muted text-xs uppercase tracking-wide">
+                  <span className="flex-1 border-t border-base" />
                   or type manually
-                  <span className="flex-1 border-t border-zinc-800" />
+                  <span className="flex-1 border-t border-base" />
                 </div>
                 <div className="setup-field">
                   <label className="setup-label" htmlFor="queries">Queries (one per line)</label>
@@ -539,7 +539,7 @@ export function SetupPage() {
                     onChange={(e) => setQueriesText(e.target.value)}
                   />
                 </div>
-                {queriesError ? <p className="text-rose-400 text-sm">{queriesError}</p> : null}
+                {queriesError ? <p className="text-negative-400 text-sm">{queriesError}</p> : null}
                 <div className="setup-nav">
                   <Button type="button" variant="outline" onClick={goBack}>Back</Button>
                   <Button type="button" disabled={parsedQueries.length === 0 || queriesSaving} onClick={asyncHandler(handleSaveQueries)}>
@@ -585,7 +585,7 @@ export function SetupPage() {
                     onChange={(e) => setCompetitorsText(e.target.value)}
                   />
                 </div>
-                {competitorsError ? <p className="text-rose-400 text-sm">{competitorsError}</p> : null}
+                {competitorsError ? <p className="text-negative-400 text-sm">{competitorsError}</p> : null}
                 <div className="setup-nav">
                   <Button type="button" variant="outline" onClick={goBack}>Back</Button>
                   <div className="flex gap-2">
@@ -630,7 +630,7 @@ export function SetupPage() {
             {!runTriggered ? (
               <div className="compact-stack">
                 <p className="supporting-copy">
-                  Everything is configured. Launch an answer-visibility sweep to start tracking citations for <span className="text-zinc-100 font-medium">{createdProjectName}</span>.
+                  Everything is configured. Launch an answer-visibility sweep to start tracking citations for <span className="text-heading font-medium">{createdProjectName}</span>.
                 </p>
                 <div className="setup-nav">
                   <Button type="button" variant="outline" onClick={goBack}>Back</Button>
@@ -641,11 +641,11 @@ export function SetupPage() {
               </div>
             ) : !terminal ? (
               <div className="compact-stack">
-                <p className="text-zinc-300">
+                <p className="text-neutral">
                   Sweep running — typically 30-60s. Polling every 2s…
                 </p>
-                <div className="rounded-md border border-zinc-800/60 bg-zinc-900/30 p-3 text-xs text-zinc-500">
-                  <p>Status: <span className="text-zinc-300">{run?.status ?? 'queued'}</span></p>
+                <div className="rounded-md border border-default bg-surface p-3 text-xs text-muted">
+                  <p>Status: <span className="text-neutral">{run?.status ?? 'queued'}</span></p>
                 </div>
                 <div className="setup-nav">
                   <span />
@@ -656,7 +656,7 @@ export function SetupPage() {
               </div>
             ) : run?.status === 'failed' ? (
               <div className="compact-stack">
-                <p className="text-rose-400">Sweep failed. Inspect the run on the project page for the provider error and retry from there.</p>
+                <p className="text-negative-400">Sweep failed. Inspect the run on the project page for the provider error and retry from there.</p>
                 <div className="setup-nav">
                   <span />
                   <Button type="button" onClick={() => { void navigate({ to: createdProjectName ? `/projects/${encodeURIComponent(createdProjectName)}` : '/' }) }}>
@@ -666,28 +666,28 @@ export function SetupPage() {
               </div>
             ) : (
               <div className="compact-stack">
-                <p className="text-zinc-300">
+                <p className="text-neutral">
                   Sweep complete. Your first answer-visibility snapshot for{' '}
-                  <span className="text-zinc-100 font-medium">{createdProjectName}</span>:
+                  <span className="text-heading font-medium">{createdProjectName}</span>:
                 </p>
                 <div className="grid grid-cols-3 gap-2 mt-1">
-                  <div className="rounded-md border border-zinc-800/60 bg-zinc-900/30 p-3">
-                    <p className="text-[10px] uppercase tracking-wide text-zinc-500">Mentioned</p>
-                    <p className="text-2xl font-bold tabular-nums text-zinc-50 mt-1">{mentioned}<span className="text-zinc-600 text-lg"> / {totalQueries}</span></p>
-                    <p className="text-[11px] text-zinc-500 mt-0.5">queries with brand in answer</p>
+                  <div className="rounded-md border border-default bg-surface p-3">
+                    <p className="text-[10px] uppercase tracking-wide text-muted">Mentioned</p>
+                    <p className="text-2xl font-bold tabular-nums text-primary mt-1">{mentioned}<span className="text-faint text-lg"> / {totalQueries}</span></p>
+                    <p className="text-[11px] text-muted mt-0.5">queries with brand in answer</p>
                   </div>
-                  <div className="rounded-md border border-zinc-800/60 bg-zinc-900/30 p-3">
-                    <p className="text-[10px] uppercase tracking-wide text-zinc-500">Cited</p>
-                    <p className="text-2xl font-bold tabular-nums text-zinc-50 mt-1">{cited}<span className="text-zinc-600 text-lg"> / {totalQueries}</span></p>
-                    <p className="text-[11px] text-zinc-500 mt-0.5">queries with domain in sources</p>
+                  <div className="rounded-md border border-default bg-surface p-3">
+                    <p className="text-[10px] uppercase tracking-wide text-muted">Cited</p>
+                    <p className="text-2xl font-bold tabular-nums text-primary mt-1">{cited}<span className="text-faint text-lg"> / {totalQueries}</span></p>
+                    <p className="text-[11px] text-muted mt-0.5">queries with domain in sources</p>
                   </div>
-                  <div className="rounded-md border border-zinc-800/60 bg-zinc-900/30 p-3">
-                    <p className="text-[10px] uppercase tracking-wide text-zinc-500">Snapshots</p>
-                    <p className="text-2xl font-bold tabular-nums text-zinc-50 mt-1">{snapshots.length}</p>
-                    <p className="text-[11px] text-zinc-500 mt-0.5">total (query × provider)</p>
+                  <div className="rounded-md border border-default bg-surface p-3">
+                    <p className="text-[10px] uppercase tracking-wide text-muted">Snapshots</p>
+                    <p className="text-2xl font-bold tabular-nums text-primary mt-1">{snapshots.length}</p>
+                    <p className="text-[11px] text-muted mt-0.5">total (query × provider)</p>
                   </div>
                 </div>
-                <p className="text-[11px] text-zinc-500 mt-1">
+                <p className="text-[11px] text-muted mt-1">
                   Full evidence, per-provider breakdown, and suggested next queries on the project dashboard.
                 </p>
                 <div className="setup-nav">
