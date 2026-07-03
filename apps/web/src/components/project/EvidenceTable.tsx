@@ -140,12 +140,12 @@ export function summarizeSignalsForItems(items: CitationInsightVm[]): EvidenceSi
 
 function SignalBadge({ signal }: { signal: EvidenceSignalSummary }) {
   const toneClass = signal.tone === 'positive'
-    ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-300'
+    ? 'border-positive-500/25 bg-positive-500/10 text-positive'
     : signal.tone === 'negative'
-      ? 'border-rose-500/25 bg-rose-500/10 text-rose-300'
+      ? 'border-negative-500/25 bg-negative-500/10 text-negative'
       : signal.tone === 'pending'
-        ? 'border-amber-500/20 bg-amber-500/10 text-amber-300'
-        : 'border-zinc-700/60 bg-zinc-900/70 text-zinc-400'
+        ? 'border-caution-500/20 bg-caution-500/10 text-caution'
+        : 'border-mono-700/60 bg-bg-elevated/70 text-secondary'
   return (
     <span className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium leading-none ${toneClass}`}>
       {signal.label}
@@ -214,9 +214,9 @@ export function EvidenceTable({
   return (
     <div>
       <div className="mb-3 flex flex-wrap items-center gap-2">
-        <span className="text-[10px] uppercase tracking-wide text-zinc-500">View by</span>
+        <span className="text-[10px] uppercase tracking-wide text-muted">View by</span>
         <div
-          className="inline-flex gap-0.5 p-0.5 rounded-md bg-zinc-900/60 border border-zinc-800/40"
+          className="inline-flex gap-0.5 p-0.5 rounded-md bg-bg-elevated/60 border border-subtle"
           role="tablist"
           aria-label="Citation tracking view"
         >
@@ -226,8 +226,8 @@ export function EvidenceTable({
             aria-selected={mode === 'mentions'}
             className={`px-2.5 py-1 text-xs font-medium rounded transition-colors ${
               mode === 'mentions'
-                ? 'bg-zinc-800 text-zinc-100'
-                : 'text-zinc-400 hover:text-zinc-200'
+                ? 'bg-mono-800 text-heading'
+                : 'text-secondary hover:text-strong'
             }`}
             onClick={() => setMode('mentions')}
           >
@@ -239,15 +239,15 @@ export function EvidenceTable({
             aria-selected={mode === 'citations'}
             className={`px-2.5 py-1 text-xs font-medium rounded transition-colors ${
               mode === 'citations'
-                ? 'bg-zinc-800 text-zinc-100'
-                : 'text-zinc-400 hover:text-zinc-200'
+                ? 'bg-mono-800 text-heading'
+                : 'text-secondary hover:text-strong'
             }`}
             onClick={() => setMode('citations')}
           >
             Citations
           </button>
         </div>
-        <span className="text-[11px] text-zinc-500">
+        <span className="text-[11px] text-muted">
           {mode === 'mentions'
             ? 'Brand or domain in answer text'
             : 'Brand or domain in source links'}
@@ -255,7 +255,7 @@ export function EvidenceTable({
         <div className="ml-auto flex items-center gap-3">
           <button
             type="button"
-            className="text-[11px] text-zinc-400 hover:text-zinc-200"
+            className="text-[11px] text-secondary hover:text-strong"
             onClick={() => {
               setExpandedRows(prev =>
                 prev.size === groups.length
@@ -267,9 +267,9 @@ export function EvidenceTable({
             {expandedRows.size === groups.length && groups.length > 0 ? 'Collapse all' : 'Expand all'}
           </button>
           <div className="flex items-center gap-2">
-            <span className="text-[10px] uppercase tracking-wide text-zinc-500">Density</span>
+            <span className="text-[10px] uppercase tracking-wide text-muted">Density</span>
             <div
-              className="inline-flex gap-0.5 p-0.5 rounded-md bg-zinc-900/60 border border-zinc-800/40"
+              className="inline-flex gap-0.5 p-0.5 rounded-md bg-bg-elevated/60 border border-subtle"
               role="tablist"
               aria-label="Evidence row density"
             >
@@ -279,8 +279,8 @@ export function EvidenceTable({
                 aria-selected={density === 'compact'}
                 className={`px-2.5 py-1 text-xs font-medium rounded transition-colors ${
                   density === 'compact'
-                    ? 'bg-zinc-800 text-zinc-100'
-                    : 'text-zinc-400 hover:text-zinc-200'
+                    ? 'bg-mono-800 text-heading'
+                    : 'text-secondary hover:text-strong'
                 }`}
                 onClick={() => setDensity('compact')}
               >
@@ -292,8 +292,8 @@ export function EvidenceTable({
                 aria-selected={density === 'detailed'}
                 className={`px-2.5 py-1 text-xs font-medium rounded transition-colors ${
                   density === 'detailed'
-                    ? 'bg-zinc-800 text-zinc-100'
-                    : 'text-zinc-400 hover:text-zinc-200'
+                    ? 'bg-mono-800 text-heading'
+                    : 'text-secondary hover:text-strong'
                 }`}
                 onClick={() => setDensity('detailed')}
               >
@@ -332,7 +332,7 @@ export function EvidenceTable({
               return (
                 <Fragment key={groupKey}>
                   <tr
-                    className="evidence-phrase-row cursor-pointer hover:bg-zinc-800/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400"
+                    className="evidence-phrase-row cursor-pointer hover:bg-mono-800/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400"
                     onClick={() => toggleRow(groupKey)}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' || e.key === ' ') {
@@ -347,14 +347,14 @@ export function EvidenceTable({
                     <td>
                       <ChevronRight
                         size={14}
-                        className={`transition-transform duration-150 text-zinc-500 ${isExpanded ? 'rotate-90' : ''}`}
+                        className={`transition-transform duration-150 text-muted ${isExpanded ? 'rotate-90' : ''}`}
                       />
                     </td>
                     <td className="evidence-query-cell">
                       <div>
-                        <span className="font-medium text-zinc-100">{phrase}</span>
+                        <span className="font-medium text-heading">{phrase}</span>
                         {compareLocations && (
-                          <span className="ml-2 text-[10px] uppercase tracking-wide text-zinc-500">
+                          <span className="ml-2 text-[10px] uppercase tracking-wide text-muted">
                             {location ?? 'No location'}
                           </span>
                         )}
@@ -369,7 +369,7 @@ export function EvidenceTable({
                       <div className="flex items-center gap-2">
                         <CitationBadge state={aggState} label={statusLabelForMode(aggState, mode)} />
                         <span
-                          className="text-[11px] text-zinc-500"
+                          className="text-[11px] text-muted"
                           title={`${presentCount} of ${items.length} engines ${countNoun}`}
                         >
                           {presentCount}/{items.length}
@@ -387,7 +387,7 @@ export function EvidenceTable({
                   </tr>
                   {isExpanded && items.map((item, index) => (
                     <Fragment key={item.id}>
-                      <tr className="bg-zinc-900/30">
+                      <tr className="bg-surface">
                         <td />
                         <td className="evidence-query-cell pl-5">
                           <ProviderBadge provider={item.provider} />
@@ -417,7 +417,7 @@ export function EvidenceTable({
                         </td>
                       </tr>
                       {density === 'detailed' && (
-                        <tr className="bg-zinc-900/20">
+                        <tr className="bg-surface-subtle">
                           <td />
                           <td colSpan={5} className="px-5 pb-4">
                             <AnswerInlinePanel
@@ -474,7 +474,7 @@ function AnswerInlinePanel({
   const hasAnswer = item.answerSnippet.trim().length > 0
   if (!hasAnswer) {
     return (
-      <p className="text-[11px] text-zinc-500 italic">
+      <p className="text-[11px] text-muted italic">
         No answer text captured for this run.
       </p>
     )
@@ -485,41 +485,41 @@ function AnswerInlinePanel({
 
   return (
     <div className="space-y-2">
-      <p className="text-[10px] uppercase tracking-wide text-zinc-500">Answer text</p>
-      <p className="text-sm leading-relaxed text-zinc-300">
+      <p className="text-[10px] uppercase tracking-wide text-muted">Answer text</p>
+      <p className="text-sm leading-relaxed text-neutral">
         {highlightTermsInText(body, groups)}
       </p>
       {(item.citedDomains.length > 0 || item.competitorDomains.length > 0) && (
         <div className="flex flex-wrap items-center gap-1.5">
           {item.citedDomains.length > 0 && (
             <>
-              <span className="text-[10px] uppercase tracking-wide text-zinc-500">Cited:</span>
+              <span className="text-[10px] uppercase tracking-wide text-muted">Cited:</span>
               {item.citedDomains.slice(0, 6).map(d => (
                 <span
                   key={`c-${d}`}
-                  className="rounded-full border border-zinc-700/60 bg-zinc-900/60 px-2 py-0.5 text-[11px] text-zinc-300"
+                  className="rounded-full border border-mono-700/60 bg-bg-elevated/60 px-2 py-0.5 text-[11px] text-neutral"
                 >
                   {d}
                 </span>
               ))}
               {item.citedDomains.length > 6 && (
-                <span className="text-[10px] text-zinc-500">+{item.citedDomains.length - 6} more</span>
+                <span className="text-[10px] text-muted">+{item.citedDomains.length - 6} more</span>
               )}
             </>
           )}
           {item.competitorDomains.length > 0 && (
             <>
-              <span className="ml-2 text-[10px] uppercase tracking-wide text-rose-500/80">Competitors:</span>
+              <span className="ml-2 text-[10px] uppercase tracking-wide text-negative-500/80">Competitors:</span>
               {item.competitorDomains.slice(0, 4).map(d => (
                 <span
                   key={`co-${d}`}
-                  className="rounded-full border border-rose-900/40 bg-rose-950/30 px-2 py-0.5 text-[11px] text-rose-300"
+                  className="rounded-full border border-negative-900/40 bg-negative-950/30 px-2 py-0.5 text-[11px] text-negative"
                 >
                   {d}
                 </span>
               ))}
               {item.competitorDomains.length > 4 && (
-                <span className="text-[10px] text-zinc-500">+{item.competitorDomains.length - 4} more</span>
+                <span className="text-[10px] text-muted">+{item.competitorDomains.length - 4} more</span>
               )}
             </>
           )}
@@ -528,7 +528,7 @@ function AnswerInlinePanel({
       {truncated && (
         <button
           type="button"
-          className="text-[11px] font-medium text-emerald-400 hover:text-emerald-300"
+          className="text-[11px] font-medium text-positive-400 hover:text-positive"
           onClick={(e) => { e.stopPropagation(); onViewFull() }}
         >
           View full answer →

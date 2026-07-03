@@ -40,7 +40,7 @@ function Hint({
         type="button"
         aria-label={label}
         aria-describedby={open ? id : undefined}
-        className="inline-flex h-4 w-4 items-center justify-center rounded-full text-zinc-500 hover:text-zinc-200 focus:text-zinc-200 focus:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500"
+        className="inline-flex h-4 w-4 items-center justify-center rounded-full text-muted hover:text-strong focus:text-strong focus:outline-none focus-visible:ring-1 focus-visible:ring-mono-500"
         onMouseEnter={() => setOpen(true)}
         onMouseLeave={() => setOpen(false)}
         onFocus={() => setOpen(true)}
@@ -52,7 +52,7 @@ function Hint({
         <span
           id={id}
           role="tooltip"
-          className={`absolute z-50 w-64 rounded border border-zinc-700 bg-zinc-900 px-3 py-2 text-xs font-normal leading-relaxed text-zinc-200 shadow-lg ${
+          className={`absolute z-50 w-64 rounded border border-strong bg-bg-elevated px-3 py-2 text-xs font-normal leading-relaxed text-strong shadow-lg ${
             placement === 'top' ? 'bottom-full mb-2' : 'top-full mt-2'
           } left-1/2 -translate-x-1/2 whitespace-normal`}
         >
@@ -324,45 +324,45 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
         <div>
           <p className="eyebrow eyebrow-soft">Backlinks</p>
           <h2>Referring domains</h2>
-          <p className="text-sm text-zinc-500 mt-1 max-w-2xl">
+          <p className="text-sm text-muted mt-1 max-w-2xl">
             Domains linking to {' '}
-            <span className="text-zinc-300">{projectName}</span>, from whichever source you have set up — the{' '}
-            <span className="text-zinc-300">Common Crawl</span> hyperlink graph (~monthly) and{' '}
-            <span className="text-zinc-300">Bing Webmaster</span> inbound links (live).
+            <span className="text-neutral">{projectName}</span>, from whichever source you have set up — the{' '}
+            <span className="text-neutral">Common Crawl</span> hyperlink graph (~monthly) and{' '}
+            <span className="text-neutral">Bing Webmaster</span> inbound links (live).
           </p>
         </div>
       </div>
 
       {error && (
-        <Card className="surface-card p-4 mb-4 border-rose-800/60">
-          <p className="text-sm text-rose-300">{error}</p>
+        <Card className="surface-card p-4 mb-4 border-negative-800/60">
+          <p className="text-sm text-negative">{error}</p>
         </Card>
       )}
       {activeRun && (
-        <Card className="surface-card p-4 mb-4 border-sky-800/60">
+        <Card className="surface-card p-4 mb-4 border-info-800/60">
           <div className="flex items-start gap-3">
-            <Loader2 className="h-5 w-5 text-sky-400 animate-spin shrink-0 mt-0.5" aria-hidden />
+            <Loader2 className="h-5 w-5 text-info-400 animate-spin shrink-0 mt-0.5" aria-hidden />
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
-                <p className="text-sm font-medium text-zinc-100">
+                <p className="text-sm font-medium text-heading">
                   {syncSource === 'bing-webmaster' ? 'Bing sync running' : 'Extract running'}
                 </p>
                 <ToneBadge tone="neutral">{activeRun.status}</ToneBadge>
-                <span className="text-xs text-zinc-500 tabular-nums">
+                <span className="text-xs text-muted tabular-nums">
                   {formatElapsed(activeRun.startedAt ?? null, activeRun.createdAt)} elapsed · refreshing every 3s
                 </span>
                 <span className="sr-only">now={now}</span>
               </div>
               {syncSource === 'bing-webmaster' ? (
-                <p className="text-xs text-zinc-500 mt-1">
+                <p className="text-xs text-muted mt-1">
                   Pulling inbound links live from Bing Webmaster for{' '}
-                  <span className="text-zinc-300">{projectName}</span>. Time depends on how many pages link to your site.
+                  <span className="text-neutral">{projectName}</span>. Time depends on how many pages link to your site.
                 </p>
               ) : (
-                <p className="text-xs text-zinc-500 mt-1">
+                <p className="text-xs text-muted mt-1">
                   Re-querying the cached Common Crawl release for{' '}
-                  <span className="text-zinc-300">{projectName}</span>. No re-download — the ~16&nbsp;GB dump already lives at{' '}
-                  <code className="text-zinc-400">~/.canonry/cache/commoncrawl/</code>. Typically takes ~5 minutes.
+                  <span className="text-neutral">{projectName}</span>. No re-download — the ~16&nbsp;GB dump already lives at{' '}
+                  <code className="text-secondary">~/.canonry/cache/commoncrawl/</code>. Typically takes ~5 minutes.
                 </p>
               )}
             </div>
@@ -370,23 +370,23 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
         </Card>
       )}
       {justCompletedRun && !activeRun && (
-        <Card className={`surface-card p-4 mb-4 ${justCompletedRun.status === 'failed' ? 'border-rose-800/60' : 'border-emerald-800/60'}`}>
+        <Card className={`surface-card p-4 mb-4 ${justCompletedRun.status === 'failed' ? 'border-negative-800/60' : 'border-positive-800/60'}`}>
           <div className="flex items-start gap-3">
             {justCompletedRun.status === 'failed' ? (
-              <span className="h-5 w-5 shrink-0 mt-0.5 text-rose-400 text-lg leading-none" aria-hidden>!</span>
+              <span className="h-5 w-5 shrink-0 mt-0.5 text-negative-400 text-lg leading-none" aria-hidden>!</span>
             ) : (
-              <CheckCircle2 className="h-5 w-5 text-emerald-400 shrink-0 mt-0.5" aria-hidden />
+              <CheckCircle2 className="h-5 w-5 text-positive-400 shrink-0 mt-0.5" aria-hidden />
             )}
             <div className="flex-1">
-              <p className={`text-sm font-medium ${justCompletedRun.status === 'failed' ? 'text-rose-300' : 'text-emerald-300'}`}>
+              <p className={`text-sm font-medium ${justCompletedRun.status === 'failed' ? 'text-negative' : 'text-positive'}`}>
                 {syncSource === 'bing-webmaster'
                   ? (justCompletedRun.status === 'failed' ? 'Bing sync failed' : 'Bing sync complete')
                   : (justCompletedRun.status === 'failed' ? 'Extract failed' : 'Extract complete')}
               </p>
               {justCompletedRun.error
-                ? <p className="text-xs text-zinc-500 mt-1">{summarizeRunError(justCompletedRun.error)}</p>
+                ? <p className="text-xs text-muted mt-1">{summarizeRunError(justCompletedRun.error)}</p>
                 : justCompletedRun.status !== 'failed'
-                  ? <p className="text-xs text-zinc-500 mt-1">
+                  ? <p className="text-xs text-muted mt-1">
                       {syncSource === 'bing-webmaster'
                         ? 'Inbound links refreshed live from Bing Webmaster.'
                         : 'Backlinks refreshed from the cached release.'}
@@ -405,7 +405,7 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
     if (loading || !sources) {
       return (
         <Card className="surface-card p-6">
-          <p className="text-sm text-zinc-500">Loading backlinks…</p>
+          <p className="text-sm text-muted">Loading backlinks…</p>
         </Card>
       )
     }
@@ -426,7 +426,7 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
       <div className="flex items-center gap-2 mb-4 flex-wrap" role="tablist" aria-label="Backlink source">
         {avail.sources.map((s) => {
           const active = s.source === selectedSource
-          const dot = s.hasData ? 'bg-emerald-500' : s.connected ? 'bg-amber-500' : 'bg-zinc-600'
+          const dot = s.hasData ? 'bg-positive-500' : s.connected ? 'bg-caution-500' : 'bg-mono-600'
           return (
             <button
               key={s.source}
@@ -434,15 +434,15 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
               role="tab"
               aria-selected={active}
               onClick={() => pickSource(s.source)}
-              className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500 ${
+              className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-mono-500 ${
                 active
-                  ? 'border-zinc-500 bg-zinc-800 text-zinc-100'
-                  : 'border-zinc-800 bg-zinc-900/40 text-zinc-400 hover:text-zinc-200'
+                  ? 'border-mono-500 bg-mono-800 text-heading'
+                  : 'border-base bg-bg-elevated/40 text-secondary hover:text-strong'
               }`}
             >
               <span className={`h-1.5 w-1.5 rounded-full ${dot}`} aria-hidden />
               {SOURCE_LABELS[s.source]}
-              {s.hasData && <span className="text-zinc-500 tabular-nums">{formatNumber(s.totalLinkingDomains)}</span>}
+              {s.hasData && <span className="text-muted tabular-nums">{formatNumber(s.totalLinkingDomains)}</span>}
             </button>
           )
         })}
@@ -454,22 +454,22 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
     return (
       <Card className="surface-card p-6">
         <div className="flex items-start gap-4">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-zinc-900 text-zinc-400">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-bg-elevated text-secondary">
             <Link2 className="h-5 w-5" aria-hidden />
           </div>
           <div className="flex-1">
-            <h3 className="text-base font-semibold text-zinc-100">No backlink source set up yet</h3>
-            <p className="text-sm text-zinc-500 mt-1 max-w-2xl">
+            <h3 className="text-base font-semibold text-heading">No backlink source set up yet</h3>
+            <p className="text-sm text-muted mt-1 max-w-2xl">
               Connect at least one source to see which domains link to{' '}
-              <code className="text-zinc-300">{projectName}</code>:
+              <code className="text-neutral">{projectName}</code>:
             </p>
-            <ul className="mt-3 space-y-2 text-sm text-zinc-400">
+            <ul className="mt-3 space-y-2 text-sm text-secondary">
               <li>
-                <span className="text-zinc-200">Common Crawl</span> — free public hyperlink graph, refreshes ~monthly.
+                <span className="text-strong">Common Crawl</span> — free public hyperlink graph, refreshes ~monthly.
                 Enable backlinks and run a workspace release sync.
               </li>
               <li>
-                <span className="text-zinc-200">Bing Webmaster</span> — live inbound links from your verified site.
+                <span className="text-strong">Bing Webmaster</span> — live inbound links from your verified site.
                 Connect a Bing Webmaster account, then sync.
               </li>
             </ul>
@@ -478,9 +478,9 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
                 <a href={publicPath('/backlinks')}>Set up Common Crawl</a>
               </Button>
             </div>
-            <p className="mt-3 text-xs text-zinc-500">
+            <p className="mt-3 text-xs text-muted">
               Connect Bing with{' '}
-              <code className="text-zinc-400">canonry bing connect {projectName} --api-key &lt;key&gt;</code>.
+              <code className="text-secondary">canonry bing connect {projectName} --api-key &lt;key&gt;</code>.
             </p>
           </div>
         </div>
@@ -501,15 +501,15 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
       return (
         <Card className="surface-card p-6">
           <div className="flex items-start gap-4">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-zinc-900 text-zinc-400">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-bg-elevated text-secondary">
               <Link2 className="h-5 w-5" aria-hidden />
             </div>
             <div className="flex-1">
               {connected && everSynced ? (
                 <>
-                  <h3 className="text-base font-semibold text-zinc-100">No non-crawler referring domains</h3>
-                  <p className="text-sm text-zinc-500 mt-1">
-                    Bing Webmaster synced for <code className="text-zinc-300">{projectName}</code>, but every inbound
+                  <h3 className="text-base font-semibold text-heading">No non-crawler referring domains</h3>
+                  <p className="text-sm text-muted mt-1">
+                    Bing Webmaster synced for <code className="text-neutral">{projectName}</code>, but every inbound
                     link in the latest window is a crawler/proxy host (hidden by default). Re-sync to check for new links.
                   </p>
                   <div className="mt-4">
@@ -521,9 +521,9 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
                 </>
               ) : connected ? (
                 <>
-                  <h3 className="text-base font-semibold text-zinc-100">No Bing inbound links yet</h3>
-                  <p className="text-sm text-zinc-500 mt-1">
-                    Bing Webmaster is connected for <code className="text-zinc-300">{projectName}</code> but no inbound
+                  <h3 className="text-base font-semibold text-heading">No Bing inbound links yet</h3>
+                  <p className="text-sm text-muted mt-1">
+                    Bing Webmaster is connected for <code className="text-neutral">{projectName}</code> but no inbound
                     links have been synced yet. Run a sync to pull them live from your account.
                   </p>
                   <div className="mt-4">
@@ -535,12 +535,12 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
                 </>
               ) : (
                 <>
-                  <h3 className="text-base font-semibold text-zinc-100">Bing Webmaster not connected</h3>
-                  <p className="text-sm text-zinc-500 mt-1">
-                    Connect a Bing Webmaster account for <code className="text-zinc-300">{projectName}</code> to pull
+                  <h3 className="text-base font-semibold text-heading">Bing Webmaster not connected</h3>
+                  <p className="text-sm text-muted mt-1">
+                    Connect a Bing Webmaster account for <code className="text-neutral">{projectName}</code> to pull
                     live inbound links, then sync.
                   </p>
-                  <pre className="mt-3 rounded bg-zinc-900 border border-zinc-800 px-3 py-2 text-xs text-zinc-300 overflow-x-auto">
+                  <pre className="mt-3 rounded bg-bg-elevated border border-base px-3 py-2 text-xs text-neutral overflow-x-auto">
                     canonry bing connect {projectName} --api-key &lt;key&gt;
                   </pre>
                 </>
@@ -571,14 +571,14 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
       return (
         <Card className="surface-card p-6">
           <div className="flex items-start gap-4">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-zinc-900 text-zinc-400">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-bg-elevated text-secondary">
               <Link2 className="h-5 w-5" aria-hidden />
             </div>
             <div className="flex-1">
               {!latestSync && (
                 <>
-                  <h3 className="text-base font-semibold text-zinc-100">No release sync yet</h3>
-                  <p className="text-sm text-zinc-500 mt-1">
+                  <h3 className="text-base font-semibold text-heading">No release sync yet</h3>
+                  <p className="text-sm text-muted mt-1">
                     Run a workspace release sync to populate backlinks for every project in this workspace.
                   </p>
                   <div className="mt-4">
@@ -590,8 +590,8 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
               )}
               {hasRunningSync && (
                 <>
-                  <h3 className="text-base font-semibold text-zinc-100">Sync in progress</h3>
-                  <p className="text-sm text-zinc-500 mt-1">
+                  <h3 className="text-base font-semibold text-heading">Sync in progress</h3>
+                  <p className="text-sm text-muted mt-1">
                     A workspace release sync is running ({latestSync.status}
                     {latestSync.phaseDetail ? ` — ${latestSync.phaseDetail}` : ''}). Backlinks will appear here once it finishes.
                   </p>
@@ -604,8 +604,8 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
               )}
               {hasFailedSync && (
                 <>
-                  <h3 className="text-base font-semibold text-zinc-100">Last sync failed</h3>
-                  <p className="text-sm text-zinc-500 mt-1">
+                  <h3 className="text-base font-semibold text-heading">Last sync failed</h3>
+                  <p className="text-sm text-muted mt-1">
                     {latestSync.error ?? 'The workspace release sync failed. Retry from the Backlinks admin page.'}
                   </p>
                   <div className="mt-4">
@@ -617,10 +617,10 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
               )}
               {hasReadySync && !hasRunningSync && !hasEmptySummary && !justFailed && (
                 <>
-                  <h3 className="text-base font-semibold text-zinc-100">No backlinks yet for this project</h3>
-                  <p className="text-sm text-zinc-500 mt-1">
-                    Release <code className="text-zinc-300">{latestSync.release}</code> is ready but no backlinks have been extracted for{' '}
-                    <code className="text-zinc-300">{projectName}</code>. Run an extract to populate data using the cached release.
+                  <h3 className="text-base font-semibold text-heading">No backlinks yet for this project</h3>
+                  <p className="text-sm text-muted mt-1">
+                    Release <code className="text-neutral">{latestSync.release}</code> is ready but no backlinks have been extracted for{' '}
+                    <code className="text-neutral">{projectName}</code>. Run an extract to populate data using the cached release.
                   </p>
                   <div className="mt-4 flex items-center gap-3 flex-wrap">
                     <Button type="button" size="sm" disabled={extracting || activeRun !== null} onClick={asyncHandler(handleExtract)}>
@@ -629,11 +629,11 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
                     </Button>
                     <Hint label="What does Run extract do?">
                       <span className="block">
-                        Runs a DuckDB query against the <span className="text-zinc-200">cached release files</span> at{' '}
-                        <code className="text-zinc-300">~/.canonry/cache/commoncrawl/</code> to find referring domains for <span className="text-zinc-200">{projectName}</span>.
+                        Runs a DuckDB query against the <span className="text-strong">cached release files</span> at{' '}
+                        <code className="text-neutral">~/.canonry/cache/commoncrawl/</code> to find referring domains for <span className="text-strong">{projectName}</span>.
                       </span>
-                      <span className="mt-2 block text-zinc-400">
-                        No re-download. Typically takes <span className="text-zinc-200">~5 min</span>.
+                      <span className="mt-2 block text-secondary">
+                        No re-download. Typically takes <span className="text-strong">~5 min</span>.
                       </span>
                     </Hint>
                   </div>
@@ -641,10 +641,10 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
               )}
               {justFailed && (
                 <>
-                  <h3 className="text-base font-semibold text-zinc-100">Last extract failed</h3>
-                  <p className="text-sm text-zinc-500 mt-1">
+                  <h3 className="text-base font-semibold text-heading">Last extract failed</h3>
+                  <p className="text-sm text-muted mt-1">
                     See the error above for details. If the cache files for release{' '}
-                    <code className="text-zinc-300">{latestSync?.release}</code> are missing, re-sync the release from the Backlinks admin to restore the ~16 GB dump, then re-run the extract.
+                    <code className="text-neutral">{latestSync?.release}</code> are missing, re-sync the release from the Backlinks admin to restore the ~16 GB dump, then re-run the extract.
                   </p>
                   <div className="mt-4 flex items-center gap-3 flex-wrap">
                     <Button asChild type="button" size="sm">
@@ -655,18 +655,18 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
               )}
               {hasEmptySummary && (
                 <>
-                  <h3 className="text-base font-semibold text-zinc-100">No referring domains found</h3>
-                  <p className="text-sm text-zinc-500 mt-1">
-                    The last extract against release <code className="text-zinc-300">{summary!.release}</code> found{' '}
-                    <span className="text-zinc-300">0 referring domains</span> for{' '}
-                    <code className="text-zinc-300">{summary!.targetDomain}</code>. This can happen when:
+                  <h3 className="text-base font-semibold text-heading">No referring domains found</h3>
+                  <p className="text-sm text-muted mt-1">
+                    The last extract against release <code className="text-neutral">{summary!.release}</code> found{' '}
+                    <span className="text-neutral">0 referring domains</span> for{' '}
+                    <code className="text-neutral">{summary!.targetDomain}</code>. This can happen when:
                   </p>
-                  <ul className="mt-2 space-y-1 text-xs text-zinc-500 list-disc list-inside">
+                  <ul className="mt-2 space-y-1 text-xs text-muted list-disc list-inside">
                     <li>the domain is newer than the release&rsquo;s crawl window</li>
                     <li>the Common Crawl snapshot didn&rsquo;t capture pages that link to it</li>
                     <li>the extract ran against a cache that was missing or incomplete</li>
                   </ul>
-                  <p className="text-sm text-zinc-500 mt-3">
+                  <p className="text-sm text-muted mt-3">
                     Try syncing a newer release — each Common Crawl dump is a different snapshot of the web graph.
                   </p>
                   <div className="mt-4 flex items-center gap-3 flex-wrap">
@@ -679,9 +679,9 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
                     </Button>
                     <Hint label="What does Re-run extract do?">
                       <span className="block">
-                        Re-queries the cached release for <span className="text-zinc-200">{summary!.targetDomain}</span>. Only useful if the cache files were incomplete last time.
+                        Re-queries the cached release for <span className="text-strong">{summary!.targetDomain}</span>. Only useful if the cache files were incomplete last time.
                       </span>
-                      <span className="mt-2 block text-zinc-400">
+                      <span className="mt-2 block text-secondary">
                         No re-download. ~5 min. If the release genuinely has no links for your domain, this won&rsquo;t help — sync a different release instead.
                       </span>
                     </Hint>
@@ -702,11 +702,11 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
         </Button>
         <Hint label="What does Re-run extract do?">
           <span className="block">
-            Re-queries the <span className="text-zinc-200">cached release files</span> at{' '}
-            <code className="text-zinc-300">~/.canonry/cache/commoncrawl/</code> for <span className="text-zinc-200">{projectName}</span>. Replaces existing backlink rows for this project under the current release.
+            Re-queries the <span className="text-strong">cached release files</span> at{' '}
+            <code className="text-neutral">~/.canonry/cache/commoncrawl/</code> for <span className="text-strong">{projectName}</span>. Replaces existing backlink rows for this project under the current release.
           </span>
-          <span className="mt-2 block text-zinc-400">
-            <span className="text-zinc-200">No re-download</span> of the ~16 GB dump. Typically <span className="text-zinc-200">~5 min</span>.
+          <span className="mt-2 block text-secondary">
+            <span className="text-strong">No re-download</span> of the ~16 GB dump. Typically <span className="text-strong">~5 min</span>.
           </span>
         </Hint>
         <Button asChild type="button" variant="outline" size="sm">
@@ -731,34 +731,34 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
           <div className="metric-card">
             <p className="metric-card-eyebrow">Referring domains</p>
             <p className="metric-card-big-value">
-              <span className="text-zinc-50">{formatNumber(summary.totalLinkingDomains)}</span>
+              <span className="text-primary">{formatNumber(summary.totalLinkingDomains)}</span>
             </p>
             <p className="metric-card-sub">unique domains linking to {summary.targetDomain}</p>
           </div>
           <div className="metric-card">
             <p className="metric-card-eyebrow">Total {countNoun}</p>
             <p className="metric-card-big-value">
-              <span className="text-zinc-50">{formatNumber(summary.totalHosts)}</span>
+              <span className="text-primary">{formatNumber(summary.totalHosts)}</span>
             </p>
             <p className="metric-card-sub">aggregate {countNoun} across referring domains</p>
           </div>
           <div className="metric-card">
             <p className="metric-card-eyebrow">Top-10 concentration</p>
             <p className="metric-card-big-value">
-              <span className="text-zinc-50">{formatPct(summary.top10HostsShare)}</span>
+              <span className="text-primary">{formatPct(summary.top10HostsShare)}</span>
             </p>
             <p className="metric-card-sub">share of {countNoun} from the 10 largest linking domains</p>
           </div>
         </div>
 
-        <p className="text-xs text-zinc-600 mt-2">
-          <span className="text-zinc-400">{SOURCE_LABELS[selectedSource]}</span> · {windowNoun}{' '}
-          <code className="text-zinc-400">{summary.release}</code> · queried {relativeTime(summary.queriedAt)}
+        <p className="text-xs text-faint mt-2">
+          <span className="text-secondary">{SOURCE_LABELS[selectedSource]}</span> · {windowNoun}{' '}
+          <code className="text-secondary">{summary.release}</code> · queried {relativeTime(summary.queriedAt)}
           {hiddenCount > 0 && (
-            <> · <span className="text-zinc-500">{hiddenCount} crawler/proxy domain{hiddenCount === 1 ? '' : 's'} hidden</span></>
+            <> · <span className="text-muted">{hiddenCount} crawler/proxy domain{hiddenCount === 1 ? '' : 's'} hidden</span></>
           )}
         </p>
-        <p className="text-[11px] text-zinc-600 mt-0.5">{SOURCE_FRESHNESS[selectedSource]}</p>
+        <p className="text-[11px] text-faint mt-0.5">{SOURCE_FRESHNESS[selectedSource]}</p>
 
         {chartData.length >= 2 && (
           <Card className="surface-card p-4 mt-4">
@@ -798,7 +798,7 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
           <div className="flex items-center justify-between mb-2">
             <p className="eyebrow eyebrow-soft">Top referring domains</p>
             {canPage && (
-              <p className="text-xs text-zinc-600">
+              <p className="text-xs text-faint">
                 Page {page} of {totalPages} · {formatNumber(visibleTotal)} total
               </p>
             )}
@@ -806,20 +806,20 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
           <Card className="surface-card overflow-hidden">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-zinc-800 text-left text-xs uppercase tracking-wide text-zinc-600">
+                <tr className="border-b border-base text-left text-xs uppercase tracking-wide text-faint">
                   <th className="px-4 py-2 font-medium">Domain</th>
                   <th className="px-4 py-2 text-right font-medium">{countLabel}</th>
                 </tr>
               </thead>
               <tbody>
                 {pageRows.map((row: BacklinkDomainDto) => (
-                  <tr key={row.linkingDomain} className="border-b border-zinc-900 last:border-0">
-                    <td className="px-4 py-2 text-zinc-200">{row.linkingDomain}</td>
-                    <td className="px-4 py-2 text-right text-zinc-400 tabular-nums">{formatNumber(row.numHosts)}</td>
+                  <tr key={row.linkingDomain} className="border-b border-mono-900 last:border-0">
+                    <td className="px-4 py-2 text-strong">{row.linkingDomain}</td>
+                    <td className="px-4 py-2 text-right text-secondary tabular-nums">{formatNumber(row.numHosts)}</td>
                   </tr>
                 ))}
                 {pageRows.length === 0 && (
-                  <tr><td className="px-4 py-4 text-sm text-zinc-500" colSpan={2}>
+                  <tr><td className="px-4 py-4 text-sm text-muted" colSpan={2}>
                     {hiddenCount > 0 && visibleTotal === 0
                       ? `Every referring domain in this ${windowNoun} was a crawler/proxy host (${hiddenCount} hidden).`
                       : `No referring domains in this ${windowNoun}.`}
