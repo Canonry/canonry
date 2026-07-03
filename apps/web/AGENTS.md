@@ -173,12 +173,12 @@ as `--color-scrollbar-thumb`, `--color-shadow-drop`, `--color-shadow-panel`,
 `--color-shadow-hairline`, `--color-shadow-tooltip`, `--color-overlay-hover`,
 `--color-overlay-scrim`, and `--color-caution-glow`.
 
-`styles.css` is fully tokenized (zero literal palette utilities / raw hex outside
-the `@theme` block). Legacy `zinc` / `emerald` / `amber` / `rose` utilities are
-still present in the `.tsx` component code until the Phase 3 migration finishes.
+`styles.css` and the entire `apps/web/src` `.tsx` component tree are fully
+tokenized (zero literal palette utilities / raw hex outside the `@theme` block) —
+the Phase 3 migration is COMPLETE and enforced whole-tree by the ratchet below.
 Do not add new literal palette utilities for themeable UI. The fixed provider
-identity palettes in `ProviderBadge` remain literal because they encode the
-engine, not semantic tone.
+identity palettes in `ProviderBadge` (and `ChartPrimitives`' `var(--chart-*, #hex)`
+fallbacks) remain literal because they encode engine identity, not semantic tone.
 
 Two migration conventions (decided against the actual codebase, keep slices
 consistent):
@@ -192,17 +192,17 @@ consistent):
 - **Placeholder color uses the `placeholder-mono-NNN` shorthand**
   (e.g. `placeholder-mono-600`), not the `placeholder:text-*` variant form.
 
-**Design-token ratchet (Phase 3, enforced).** The
-`design-tokens/no-literal-palette` ESLint rule (`eslint.config.js`) flags any raw
-Tailwind palette utility in `apps/web/src`. Files still mid-migration are listed
-in `RAW_PALETTE_ALLOWLIST`; `ProviderBadge` + `ChartPrimitives` are permanent
-exclusions. **When you migrate a file, delete it from `RAW_PALETTE_ALLOWLIST`** in
-the same PR so it can never regress; when the list is empty, drop the `ignores`
-line so the rule covers the whole tree. `pnpm --filter @ainyc/canonry-web scan:colors`
-prints the remaining per-file counts (progress only; the lint rule is the gate).
-Each migration slice is class-only (no redesign) and runs the same checks:
-`design-tokens.test.ts` + a `dashboard-class-baseline.test.tsx` update if the
-baselined class lists move + typecheck + lint + build.
+**Design-token ratchet (Phase 3, COMPLETE + enforced).** The
+`design-tokens/no-literal-palette` ESLint rule (`eslint.config.js`) errors on any
+raw Tailwind palette utility across the whole `apps/web/src` tree; only
+`ProviderBadge` + `ChartPrimitives` are permanently excluded (engine identity /
+chart hex fallbacks). The migration allowlist has been emptied and removed, so any
+new literal palette utility now fails lint. `pnpm --filter @ainyc/canonry-web scan:colors`
+reports per-file counts (now 0 — a progress view; the lint rule is the gate). New
+themeable UI must use a semantic or scale token; if you ever introduce a run of
+literals, migrate them in the same PR (class-only, no redesign) and keep these
+checks green: `design-tokens.test.ts` + a `dashboard-class-baseline.test.tsx`
+update if the baselined class lists move + typecheck + lint + build.
 
 Token migration guardrails:
 

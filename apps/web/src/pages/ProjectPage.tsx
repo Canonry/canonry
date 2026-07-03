@@ -305,7 +305,7 @@ function BingSection({
   if (loading) {
     return (
       <Card className="surface-card">
-        <div className="text-sm text-zinc-400">Loading Bing data...</div>
+        <div className="text-sm text-secondary">Loading Bing data...</div>
       </Card>
     )
   }
@@ -320,16 +320,16 @@ function BingSection({
           </div>
           <ToneBadge tone="caution">Not connected</ToneBadge>
         </div>
-        <p className="text-sm text-zinc-300">
+        <p className="text-sm text-neutral">
           Connect Bing Webmaster Tools to inspect URLs, monitor index coverage, and submit pages for indexing.
         </p>
         <div className="mt-3">
-          <label className="text-xs text-zinc-500" htmlFor="bing-api-key">API Key</label>
+          <label className="text-xs text-muted" htmlFor="bing-api-key">API Key</label>
           <div className="flex items-center gap-2 mt-1">
             <input
               id="bing-api-key"
               type="password"
-              className="flex-1 rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+              className="flex-1 rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
               placeholder="Bing Webmaster Tools API key"
               value={apiKeyInput}
               onChange={(e) => setApiKeyInput(e.target.value)}
@@ -339,19 +339,19 @@ function BingSection({
               Connect
             </Button>
           </div>
-          <p className="mt-1 text-[11px] text-zinc-500">
+          <p className="mt-1 text-[11px] text-muted">
             Get your API key from{' '}
             <a
               href="https://www.bing.com/webmasters/"
               target="_blank"
               rel="noopener noreferrer"
-              className="text-zinc-400 hover:text-zinc-300 underline underline-offset-2"
+              className="text-secondary hover:text-neutral underline underline-offset-2"
             >
               Bing Webmaster Tools
             </a>
           </p>
         </div>
-        {error && <p className="mt-3 text-xs text-rose-400">{error}</p>}
+        {error && <p className="mt-3 text-xs text-negative-400">{error}</p>}
       </Card>
     )
   }
@@ -370,32 +370,32 @@ function BingSection({
           </div>
         </div>
         <div className="space-y-3">
-          <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/30 px-4 py-3">
+          <div className="rounded-lg border border-default bg-surface px-4 py-3">
             <div className="flex items-center gap-3">
-              <span className="h-2 w-2 rounded-full bg-emerald-500" />
-              <span className="text-sm text-zinc-200">Authorized for this project domain</span>
-              <span className="text-xs text-zinc-500">{connection.domain}</span>
+              <span className="h-2 w-2 rounded-full bg-positive-500" />
+              <span className="text-sm text-strong">Authorized for this project domain</span>
+              <span className="text-xs text-muted">{connection.domain}</span>
             </div>
-            <p className="mt-2 text-xs text-zinc-500">
+            <p className="mt-2 text-xs text-muted">
               The API key is connected, but no Bing site is selected yet. Pick the verified site that should receive inspections and indexing requests.
             </p>
           </div>
           <div className="grid gap-3 lg:grid-cols-2">
-            <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/20 p-3">
-              <p className="text-xs uppercase tracking-wide text-zinc-500">Registered domain</p>
-              <p className="mt-1 text-sm text-zinc-200">{connection.domain}</p>
+            <div className="rounded-lg border border-default bg-surface-subtle p-3">
+              <p className="text-xs uppercase tracking-wide text-muted">Registered domain</p>
+              <p className="mt-1 text-sm text-strong">{connection.domain}</p>
             </div>
-            <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/20 p-3">
-              <p className="text-xs uppercase tracking-wide text-zinc-500">Last auth update</p>
-              <p className="mt-1 text-sm text-zinc-200">{connection.updatedAt ? formatTimestamp(connection.updatedAt) : '\u2014'}</p>
+            <div className="rounded-lg border border-default bg-surface-subtle p-3">
+              <p className="text-xs uppercase tracking-wide text-muted">Last auth update</p>
+              <p className="mt-1 text-sm text-strong">{connection.updatedAt ? formatTimestamp(connection.updatedAt) : '\u2014'}</p>
             </div>
           </div>
-          <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/20 p-3">
-            <p className="text-xs uppercase tracking-wide text-zinc-500">Select site</p>
+          <div className="rounded-lg border border-default bg-surface-subtle p-3">
+            <p className="text-xs uppercase tracking-wide text-muted">Select site</p>
             {sites.length > 0 ? (
               <div className="mt-3 flex flex-col gap-2 lg:flex-row">
                 <select
-                  className="flex-1 rounded border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-sm text-zinc-200 focus:border-zinc-500 focus:outline-none"
+                  className="flex-1 rounded border border-strong bg-bg-elevated px-2 py-1.5 text-sm text-strong focus:border-mono-500 focus:outline-none"
                   value={selectedSite}
                   onChange={(e) => setSelectedSite(e.target.value)}
                 >
@@ -407,13 +407,13 @@ function BingSection({
                 <Button size="sm" disabled={!selectedSite} onClick={asyncHandler(handleSetSite)}>Set Site</Button>
               </div>
             ) : (
-              <p className="mt-3 text-xs text-zinc-500">
+              <p className="mt-3 text-xs text-muted">
                 No verified Bing sites are available yet. Verify the domain in Bing Webmaster Tools, then use the page-level refresh to reload everything.
               </p>
             )}
           </div>
         </div>
-        {error && <p className="mt-3 text-xs text-rose-400">{error}</p>}
+        {error && <p className="mt-3 text-xs text-negative-400">{error}</p>}
       </Card>
     )
   }
@@ -438,26 +438,26 @@ function BingSection({
             <Button size="sm" variant="ghost" onClick={asyncHandler(handleDisconnect)}>Disconnect</Button>
           </div>
         </div>
-        {error && <p className="mb-3 text-xs text-rose-400">{error}</p>}
+        {error && <p className="mb-3 text-xs text-negative-400">{error}</p>}
         <div className="space-y-3">
-          <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/30 px-4 py-3">
+          <div className="rounded-lg border border-default bg-surface px-4 py-3">
             <div className="flex items-center gap-3">
-              <span className="h-2 w-2 rounded-full bg-emerald-500" />
-              <span className="text-sm text-zinc-200">Authorized for this project domain</span>
-              <span className="text-xs text-zinc-500">{connection.domain}</span>
+              <span className="h-2 w-2 rounded-full bg-positive-500" />
+              <span className="text-sm text-strong">Authorized for this project domain</span>
+              <span className="text-xs text-muted">{connection.domain}</span>
             </div>
-            <p className="mt-2 text-xs text-zinc-500">
+            <p className="mt-2 text-xs text-muted">
               Canonry stores Bing connections per canonical domain. This project is currently mapped to <code>{connection.siteUrl}</code>.
             </p>
           </div>
           <div className="grid gap-3 lg:grid-cols-2">
-            <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/20 p-3">
-              <p className="text-xs uppercase tracking-wide text-zinc-500">Selected site</p>
-              <p className="mt-1 text-sm text-zinc-200">{connection.siteUrl}</p>
+            <div className="rounded-lg border border-default bg-surface-subtle p-3">
+              <p className="text-xs uppercase tracking-wide text-muted">Selected site</p>
+              <p className="mt-1 text-sm text-strong">{connection.siteUrl}</p>
             </div>
-            <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/20 p-3">
-              <p className="text-xs uppercase tracking-wide text-zinc-500">Last auth update</p>
-              <p className="mt-1 text-sm text-zinc-200">{connection.updatedAt ? formatTimestamp(connection.updatedAt) : '\u2014'}</p>
+            <div className="rounded-lg border border-default bg-surface-subtle p-3">
+              <p className="text-xs uppercase tracking-wide text-muted">Last auth update</p>
+              <p className="mt-1 text-sm text-strong">{connection.updatedAt ? formatTimestamp(connection.updatedAt) : '\u2014'}</p>
             </div>
           </div>
         </div>
@@ -469,19 +469,19 @@ function BingSection({
             <p className="eyebrow eyebrow-soft">{activeTabMeta.eyebrow}</p>
             <h3>{activeTabMeta.title}</h3>
           </div>
-          <p className="text-xs text-zinc-500">
+          <p className="text-xs text-muted">
             {coverage?.lastInspectedAt ? `Last inspected ${formatTimestamp(coverage.lastInspectedAt)}` : 'No inspection history yet'}
           </p>
         </div>
 
-        <div className="flex gap-1 border-b border-zinc-800">
+        <div className="flex gap-1 border-b border-base">
           {tabs.map((t) => (
             <button
               key={t.key}
               className={`px-3 py-1.5 text-xs font-medium border-b-2 transition-colors ${
                 activeTab === t.key
-                  ? 'border-zinc-200 text-zinc-200'
-                  : 'border-transparent text-zinc-500 hover:text-zinc-300'
+                  ? 'border-mono-200 text-strong'
+                  : 'border-transparent text-muted hover:text-neutral'
               }`}
               onClick={() => setActiveTab(t.key)}
             >
@@ -502,28 +502,28 @@ function BingSection({
             {coverage.notIndexed.length > 0 && (
               <div>
                 <div className="mb-2 flex items-center justify-between gap-3">
-                  <h4 className="text-xs font-medium text-zinc-400">Not Indexed ({coverage.notIndexed.length})</h4>
+                  <h4 className="text-xs font-medium text-secondary">Not Indexed ({coverage.notIndexed.length})</h4>
                   <Button size="sm" variant="ghost" disabled={requestingIndexing} onClick={asyncHandler(handleSubmitAllUnindexed)}>
                     {requestingIndexing ? 'Submitting…' : 'Submit all to Bing'}
                   </Button>
                 </div>
-                <div className="overflow-x-auto rounded-lg border border-zinc-800/60">
+                <div className="overflow-x-auto rounded-lg border border-default">
                   <table className="w-full text-xs">
                     <thead>
-                      <tr className="border-b border-zinc-800">
-                        <th className="text-left py-1.5 px-3 text-zinc-500 font-medium">URL</th>
-                        <th className="text-left py-1.5 px-3 text-zinc-500 font-medium w-16">HTTP</th>
-                        <th className="text-right py-1.5 px-3 text-zinc-500 font-medium w-20">Action</th>
+                      <tr className="border-b border-base">
+                        <th className="text-left py-1.5 px-3 text-muted font-medium">URL</th>
+                        <th className="text-left py-1.5 px-3 text-muted font-medium w-16">HTTP</th>
+                        <th className="text-right py-1.5 px-3 text-muted font-medium w-20">Action</th>
                       </tr>
                     </thead>
                     <tbody>
                       {coverage.notIndexed.map((row) => (
-                        <tr key={row.id} className="border-b border-zinc-800/50">
-                          <td className="py-1.5 px-3 text-zinc-300 truncate max-w-[480px]">{row.url}</td>
-                          <td className="py-1.5 px-3 text-zinc-400">{row.httpCode ?? '\u2014'}</td>
+                        <tr key={row.id} className="border-b border-base/50">
+                          <td className="py-1.5 px-3 text-neutral truncate max-w-[480px]">{row.url}</td>
+                          <td className="py-1.5 px-3 text-secondary">{row.httpCode ?? '\u2014'}</td>
                           <td className="py-1.5 px-3 text-right">
                             <button
-                              className="text-[10px] text-zinc-400 hover:text-zinc-200 underline underline-offset-2"
+                              className="text-[10px] text-secondary hover:text-strong underline underline-offset-2"
                               disabled={requestingIndexing}
                               onClick={() => { void handleSubmitUrl(row.url) }}
                             >
@@ -541,28 +541,28 @@ function BingSection({
             {(coverage.unknown ?? []).length > 0 && (
               <div>
                 <div className="mb-2 flex items-center justify-between gap-3">
-                  <h4 className="text-xs font-medium text-zinc-400">Unknown — not yet confirmed ({(coverage.unknown ?? []).length})</h4>
+                  <h4 className="text-xs font-medium text-secondary">Unknown — not yet confirmed ({(coverage.unknown ?? []).length})</h4>
                   <Button size="sm" variant="ghost" disabled={requestingIndexing} onClick={asyncHandler(handleSubmitAllUnindexed)}>
                     {requestingIndexing ? 'Submitting…' : 'Submit all to Bing'}
                   </Button>
                 </div>
-                <div className="overflow-x-auto rounded-lg border border-zinc-800/60">
+                <div className="overflow-x-auto rounded-lg border border-default">
                   <table className="w-full text-xs">
                     <thead>
-                      <tr className="border-b border-zinc-800">
-                        <th className="text-left py-1.5 px-3 text-zinc-500 font-medium">URL</th>
-                        <th className="text-left py-1.5 px-3 text-zinc-500 font-medium w-32">Last Crawled</th>
-                        <th className="text-right py-1.5 px-3 text-zinc-500 font-medium w-20">Action</th>
+                      <tr className="border-b border-base">
+                        <th className="text-left py-1.5 px-3 text-muted font-medium">URL</th>
+                        <th className="text-left py-1.5 px-3 text-muted font-medium w-32">Last Crawled</th>
+                        <th className="text-right py-1.5 px-3 text-muted font-medium w-20">Action</th>
                       </tr>
                     </thead>
                     <tbody>
                       {(coverage.unknown ?? []).map((row) => (
-                        <tr key={row.id} className="border-b border-zinc-800/50">
-                          <td className="py-1.5 px-3 text-zinc-300 truncate max-w-[480px]">{row.url}</td>
-                          <td className="py-1.5 px-3 text-zinc-400">{row.lastCrawledDate ? formatTimestamp(row.lastCrawledDate) : '\u2014'}</td>
+                        <tr key={row.id} className="border-b border-base/50">
+                          <td className="py-1.5 px-3 text-neutral truncate max-w-[480px]">{row.url}</td>
+                          <td className="py-1.5 px-3 text-secondary">{row.lastCrawledDate ? formatTimestamp(row.lastCrawledDate) : '\u2014'}</td>
                           <td className="py-1.5 px-3 text-right">
                             <button
-                              className="text-[10px] text-zinc-400 hover:text-zinc-200 underline underline-offset-2"
+                              className="text-[10px] text-secondary hover:text-strong underline underline-offset-2"
                               disabled={requestingIndexing}
                               onClick={() => { void handleSubmitUrl(row.url) }}
                             >
@@ -579,20 +579,20 @@ function BingSection({
 
             {coverage.indexed.length > 0 && (
               <div>
-                <h4 className="mb-2 text-xs font-medium text-zinc-400">Indexed ({coverage.indexed.length})</h4>
-                <div className="overflow-x-auto rounded-lg border border-zinc-800/60">
+                <h4 className="mb-2 text-xs font-medium text-secondary">Indexed ({coverage.indexed.length})</h4>
+                <div className="overflow-x-auto rounded-lg border border-default">
                   <table className="w-full text-xs">
                     <thead>
-                      <tr className="border-b border-zinc-800">
-                        <th className="text-left py-1.5 px-3 text-zinc-500 font-medium">URL</th>
-                        <th className="text-left py-1.5 px-3 text-zinc-500 font-medium w-32">Last Crawled</th>
+                      <tr className="border-b border-base">
+                        <th className="text-left py-1.5 px-3 text-muted font-medium">URL</th>
+                        <th className="text-left py-1.5 px-3 text-muted font-medium w-32">Last Crawled</th>
                       </tr>
                     </thead>
                     <tbody>
                       {coverage.indexed.map((row) => (
-                        <tr key={row.id} className="border-b border-zinc-800/50">
-                          <td className="py-1.5 px-3 text-zinc-300 truncate max-w-[480px]">{row.url}</td>
-                          <td className="py-1.5 px-3 text-zinc-400">{row.lastCrawledDate ? formatTimestamp(row.lastCrawledDate) : '\u2014'}</td>
+                        <tr key={row.id} className="border-b border-base/50">
+                          <td className="py-1.5 px-3 text-neutral truncate max-w-[480px]">{row.url}</td>
+                          <td className="py-1.5 px-3 text-secondary">{row.lastCrawledDate ? formatTimestamp(row.lastCrawledDate) : '\u2014'}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -604,7 +604,7 @@ function BingSection({
         )}
 
         {activeTab === 'coverage' && !coverage && (
-          <p className="mt-4 text-xs text-zinc-500">No coverage data yet. Inspect URLs to build coverage data.</p>
+          <p className="mt-4 text-xs text-muted">No coverage data yet. Inspect URLs to build coverage data.</p>
         )}
 
         {activeTab === 'inspections' && (
@@ -612,7 +612,7 @@ function BingSection({
             <div className="flex flex-col gap-2 lg:flex-row">
               <input
                 type="text"
-                className="flex-1 rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+                className="flex-1 rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
                 placeholder="URL to inspect"
                 value={inspectionUrl}
                 onChange={(e) => setInspectionUrl(e.target.value)}
@@ -624,10 +624,10 @@ function BingSection({
             </div>
 
             {inspectionResult && (
-              <div className="rounded border border-zinc-800 bg-zinc-900/40 p-3 text-xs space-y-1">
-                <div className="font-medium text-zinc-200">{inspectionResult.url}</div>
-                <div className="text-zinc-400">
-                  In Index: <span className={inspectionResult.inIndex ? 'text-emerald-400' : 'text-rose-400'}>
+              <div className="rounded border border-base bg-bg-elevated/40 p-3 text-xs space-y-1">
+                <div className="font-medium text-strong">{inspectionResult.url}</div>
+                <div className="text-secondary">
+                  In Index: <span className={inspectionResult.inIndex ? 'text-positive-400' : 'text-negative-400'}>
                     {inspectionResult.inIndex ? 'Yes' : 'No'}
                   </span>
                   {' \u00b7 '}HTTP: {inspectionResult.httpCode ?? '\u2014'}
@@ -637,25 +637,25 @@ function BingSection({
             )}
 
             {inspections.length > 0 && (
-              <div className="overflow-x-auto rounded-lg border border-zinc-800/60">
+              <div className="overflow-x-auto rounded-lg border border-default">
                 <table className="w-full text-xs">
                   <thead>
-                    <tr className="border-b border-zinc-800">
-                      <th className="text-left py-1.5 px-3 text-zinc-500 font-medium">URL</th>
-                      <th className="text-left py-1.5 px-3 text-zinc-500 font-medium w-16">Index</th>
-                      <th className="text-left py-1.5 px-3 text-zinc-500 font-medium w-14">HTTP</th>
-                      <th className="text-left py-1.5 px-3 text-zinc-500 font-medium w-32">Inspected</th>
+                    <tr className="border-b border-base">
+                      <th className="text-left py-1.5 px-3 text-muted font-medium">URL</th>
+                      <th className="text-left py-1.5 px-3 text-muted font-medium w-16">Index</th>
+                      <th className="text-left py-1.5 px-3 text-muted font-medium w-14">HTTP</th>
+                      <th className="text-left py-1.5 px-3 text-muted font-medium w-32">Inspected</th>
                     </tr>
                   </thead>
                   <tbody>
                     {inspections.map((row) => (
-                      <tr key={row.id} className="border-b border-zinc-800/50">
-                        <td className="py-1.5 px-3 text-zinc-300 truncate max-w-[480px]">{row.url}</td>
+                      <tr key={row.id} className="border-b border-base/50">
+                        <td className="py-1.5 px-3 text-neutral truncate max-w-[480px]">{row.url}</td>
                         <td className="py-1.5 px-3">
                           <ToneBadge tone={row.inIndex ? 'positive' : 'negative'}>{row.inIndex ? 'Yes' : 'No'}</ToneBadge>
                         </td>
-                        <td className="py-1.5 px-3 text-zinc-400">{row.httpCode ?? '\u2014'}</td>
-                        <td className="py-1.5 px-3 text-zinc-400">{formatTimestamp(row.inspectedAt)}</td>
+                        <td className="py-1.5 px-3 text-secondary">{row.httpCode ?? '\u2014'}</td>
+                        <td className="py-1.5 px-3 text-secondary">{formatTimestamp(row.inspectedAt)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -668,27 +668,27 @@ function BingSection({
         {activeTab === 'performance' && (
           <div className="mt-4">
             {performance.length === 0 ? (
-              <p className="text-xs text-zinc-500">No Bing performance data available.</p>
+              <p className="text-xs text-muted">No Bing performance data available.</p>
             ) : (
-              <div className="overflow-x-auto rounded-lg border border-zinc-800/60">
+              <div className="overflow-x-auto rounded-lg border border-default">
                 <table className="w-full text-xs">
                   <thead>
-                    <tr className="border-b border-zinc-800">
-                      <th className="text-left py-1.5 px-3 text-zinc-500 font-medium">Query</th>
-                      <th className="text-right py-1.5 px-3 text-zinc-500 font-medium w-16">{SEARCH_METRIC_SHORT_LABELS[SearchMetric.Clicks]}</th>
-                      <th className="text-right py-1.5 px-3 text-zinc-500 font-medium w-16">{SEARCH_METRIC_SHORT_LABELS[SearchMetric.Impressions]}</th>
-                      <th className="text-right py-1.5 px-3 text-zinc-500 font-medium w-14">{SEARCH_METRIC_SHORT_LABELS[SearchMetric.CTR]}</th>
-                      <th className="text-right py-1.5 px-3 text-zinc-500 font-medium w-14">{SEARCH_METRIC_SHORT_LABELS[SearchMetric.Position]}</th>
+                    <tr className="border-b border-base">
+                      <th className="text-left py-1.5 px-3 text-muted font-medium">Query</th>
+                      <th className="text-right py-1.5 px-3 text-muted font-medium w-16">{SEARCH_METRIC_SHORT_LABELS[SearchMetric.Clicks]}</th>
+                      <th className="text-right py-1.5 px-3 text-muted font-medium w-16">{SEARCH_METRIC_SHORT_LABELS[SearchMetric.Impressions]}</th>
+                      <th className="text-right py-1.5 px-3 text-muted font-medium w-14">{SEARCH_METRIC_SHORT_LABELS[SearchMetric.CTR]}</th>
+                      <th className="text-right py-1.5 px-3 text-muted font-medium w-14">{SEARCH_METRIC_SHORT_LABELS[SearchMetric.Position]}</th>
                     </tr>
                   </thead>
                   <tbody>
                     {performance.map((row, i) => (
-                      <tr key={i} className="border-b border-zinc-800/50">
-                        <td className="py-1.5 px-3 text-zinc-300 truncate max-w-[480px]">{row.query}</td>
-                        <td className="py-1.5 px-3 text-right text-zinc-200">{row.clicks}</td>
-                        <td className="py-1.5 px-3 text-right text-zinc-400">{row.impressions}</td>
-                        <td className="py-1.5 px-3 text-right text-zinc-400">{(Number.isFinite(row.ctr) ? row.ctr * 100 : 0).toFixed(1)}%</td>
-                        <td className="py-1.5 px-3 text-right text-zinc-400">{row.averagePosition.toFixed(1)}</td>
+                      <tr key={i} className="border-b border-base/50">
+                        <td className="py-1.5 px-3 text-neutral truncate max-w-[480px]">{row.query}</td>
+                        <td className="py-1.5 px-3 text-right text-strong">{row.clicks}</td>
+                        <td className="py-1.5 px-3 text-right text-secondary">{row.impressions}</td>
+                        <td className="py-1.5 px-3 text-right text-secondary">{(Number.isFinite(row.ctr) ? row.ctr * 100 : 0).toFixed(1)}%</td>
+                        <td className="py-1.5 px-3 text-right text-secondary">{row.averagePosition.toFixed(1)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -914,7 +914,7 @@ function SearchConsoleSection({
           <div>
             <p className="eyebrow eyebrow-soft">Search engines</p>
             <h2>Coverage &amp; performance</h2>
-            <p className="mt-1 max-w-3xl text-sm leading-6 text-zinc-500">
+            <p className="mt-1 max-w-3xl text-sm leading-6 text-muted">
               Scan both engines at a glance, then open the Google or Bing workspace when you need to inspect coverage or take action.
             </p>
           </div>
@@ -924,7 +924,7 @@ function SearchConsoleSection({
         </div>
 
         {error && (
-          <div className="mb-3 rounded-lg border border-rose-800/40 bg-rose-950/20 px-3 py-2 text-sm text-rose-300">
+          <div className="mb-3 rounded-lg border border-negative-800/40 bg-negative-950/20 px-3 py-2 text-sm text-negative">
             {error}
           </div>
         )}
@@ -1028,7 +1028,7 @@ function OverviewMetricRow({
         {displayValue ?? (
           <>
             {summary.value}
-            {numeric ? <span className="text-zinc-600">%</span> : null}
+            {numeric ? <span className="text-faint">%</span> : null}
           </>
         )}
       </p>
@@ -1150,16 +1150,16 @@ function OverviewBrief({
               <div className="overview-signal-change-list">
                 <div className="overview-signal-change-row">
                   <span className="overview-signal-change-label">Mentioned</span>
-                  <span className="text-emerald-400">+{mentionMovement.gained}</span>
-                  <span className="text-rose-400">-{mentionMovement.lost}</span>
+                  <span className="text-positive-400">+{mentionMovement.gained}</span>
+                  <span className="text-negative-400">-{mentionMovement.lost}</span>
                 </div>
                 <div className="overview-signal-change-row">
                   <span className="overview-signal-change-label">Cited</span>
-                  <span className="text-emerald-400">+{citationMovement.gained}</span>
-                  <span className="text-rose-400">-{citationMovement.lost}</span>
+                  <span className="text-positive-400">+{citationMovement.gained}</span>
+                  <span className="text-negative-400">-{citationMovement.lost}</span>
                 </div>
               </div>
-              <p className={`overview-brief-panel-copy ${comparison.querySetChanged ? 'text-amber-400/80' : ''}`}>
+              <p className={`overview-brief-panel-copy ${comparison.querySetChanged ? 'text-caution-400/80' : ''}`}>
                 {comparison.querySetChanged
                   ? `Query basket changed: +${comparison.addedQueryCount} added, -${comparison.removedQueryCount} removed. Movement compares ${comparison.comparableQueryCount} shared queries.`
                   : `Same ${comparison.comparableQueryCount}-query basket${comparison.previousRunAt ? ` since ${formatTimestamp(comparison.previousRunAt)}` : ''}.`}
@@ -1263,12 +1263,12 @@ function MentionShareBreakdown({
           const share = (row.mentions / combinedTotal) * 100
           return (
             <li key={row.label} className="mention-share-breakdown-row">
-              <span className={`mention-share-breakdown-label ${row.isYou ? 'text-zinc-100 font-medium' : 'text-zinc-400'}`}>
+              <span className={`mention-share-breakdown-label ${row.isYou ? 'text-heading font-medium' : 'text-secondary'}`}>
                 {row.label}
               </span>
               <div className="mention-share-breakdown-bar">
                 <div
-                  className={`mention-share-breakdown-bar-fill ${row.isYou ? 'bg-emerald-500/70' : 'bg-zinc-500/60'}`}
+                  className={`mention-share-breakdown-bar-fill ${row.isYou ? 'bg-positive-500/70' : 'bg-mono-500/60'}`}
                   style={{ width: `${Math.max((row.mentions / maxMentions) * 100, 2)}%` }}
                 />
               </div>
@@ -1312,7 +1312,7 @@ function InsightSignals({
   const hasSuggestions = suggestedQueries.rows.length > 0
   if (insights.length === 0 && !hasSuggestions) {
     return (
-      <p className="text-sm text-zinc-500">
+      <p className="text-sm text-muted">
         No outstanding opportunities. Trigger a sweep to surface fresh signals.
       </p>
     )
@@ -1340,7 +1340,7 @@ function InsightSignals({
                 return (
                   <div key={insight.id}>
                     <div
-                      className={`opportunity-item opportunity-item-${insight.tone} ${hasAffected ? 'cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400' : ''}`}
+                      className={`opportunity-item opportunity-item-${insight.tone} ${hasAffected ? 'cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400' : ''}`}
                       onClick={hasAffected ? () => setExpandedId(isExpanded ? null : insight.id) : undefined}
                       onKeyDown={hasAffected ? (e) => {
                         if (e.key === 'Enter' || e.key === ' ') {
@@ -1356,12 +1356,12 @@ function InsightSignals({
                         {hasAffected && (
                           <ChevronRight
                             size={12}
-                            className={`mt-1 shrink-0 text-zinc-500 transition-transform duration-150 ${isExpanded ? 'rotate-90' : ''}`}
+                            className={`mt-1 shrink-0 text-muted transition-transform duration-150 ${isExpanded ? 'rotate-90' : ''}`}
                           />
                         )}
                         <div className="min-w-0">
-                          <p className="text-sm font-medium text-zinc-100 leading-snug">{insight.title}</p>
-                          {insight.detail && <p className="text-[11px] text-zinc-500 mt-0.5 leading-snug">{insight.detail}</p>}
+                          <p className="text-sm font-medium text-heading leading-snug">{insight.title}</p>
+                          {insight.detail && <p className="text-[11px] text-muted mt-0.5 leading-snug">{insight.detail}</p>}
                         </div>
                       </div>
                     </div>
@@ -1374,13 +1374,13 @@ function InsightSignals({
                           >
                             <div className="flex items-center gap-1.5 min-w-0">
                               <CitationBadge state={ap.citationState} />
-                              <span className="text-xs text-zinc-300 truncate">{ap.query}</span>
+                              <span className="text-xs text-neutral truncate">{ap.query}</span>
                               {ap.provider && <ProviderBadge provider={ap.provider} />}
                             </div>
                             {ap.evidenceId && (
                               <button
                                 type="button"
-                                className="text-[11px] text-zinc-400 hover:text-zinc-200 whitespace-nowrap"
+                                className="text-[11px] text-secondary hover:text-strong whitespace-nowrap"
                                 onClick={(e) => { e.stopPropagation(); void openEvidence(ap.evidenceId) }}
                               >
                                 View →
@@ -1406,7 +1406,7 @@ function InsightSignals({
                 </span>
                 <span className="flex items-center gap-2">
                   <span className="opportunity-card-count">{items.length}</span>
-                  <ChevronDown className="opportunity-monitor-icon text-zinc-500" size={14} aria-hidden="true" />
+                  <ChevronDown className="opportunity-monitor-icon text-muted" size={14} aria-hidden="true" />
                 </span>
               </summary>
               {itemRows}
@@ -1499,10 +1499,10 @@ function SuggestedQueriesCard({
               className="opportunity-item opportunity-item-neutral flex items-center justify-between gap-2"
             >
               <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium text-zinc-100 leading-snug truncate" title={suggestion.query}>
+                <p className="text-sm font-medium text-heading leading-snug truncate" title={suggestion.query}>
                   {suggestion.query}
                 </p>
-                <p className="text-[11px] text-zinc-500 mt-0.5 leading-snug">{suggestion.reason}</p>
+                <p className="text-[11px] text-muted mt-0.5 leading-snug">{suggestion.reason}</p>
               </div>
               <button
                 type="button"
@@ -2059,10 +2059,10 @@ function ProjectPageContent({
   return (
     <div className="page-container">
       {showDeleteConfirm ? (
-        <Card className="surface-card p-6 mb-6 border-rose-800/60">
-          <h3 className="text-base font-semibold text-rose-400 mb-2">Delete project?</h3>
-          <p className="text-sm text-zinc-400 mb-4">
-            This will permanently delete <strong className="text-zinc-200">{model.project.displayName || model.project.name}</strong> and
+        <Card className="surface-card p-6 mb-6 border-negative-800/60">
+          <h3 className="text-base font-semibold text-negative-400 mb-2">Delete project?</h3>
+          <p className="text-sm text-secondary mb-4">
+            This will permanently delete <strong className="text-strong">{model.project.displayName || model.project.name}</strong> and
             all its queries, competitors, runs, and snapshots. This cannot be undone.
           </p>
           <div className="flex items-center gap-3">
@@ -2088,7 +2088,7 @@ function ProjectPageContent({
             {(model.project.ownedDomains ?? []).length === 0 && !addingOwnedDomain && (
               <button
                 type="button"
-                className="ml-2 rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/60 transition-colors"
+                className="ml-2 rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-secondary hover:text-strong hover:bg-surface-inset transition-colors"
                 onClick={() => setAddingOwnedDomain(true)}
               >+ add domain</button>
             )}
@@ -2105,13 +2105,13 @@ function ProjectPageContent({
           </div>
           {((model.project.ownedDomains ?? []).length > 0 || addingOwnedDomain) && (
             <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-              <span className="text-[10px] uppercase tracking-wide text-zinc-500 mr-1">Also tracking</span>
+              <span className="text-[10px] uppercase tracking-wide text-muted mr-1">Also tracking</span>
               {(model.project.ownedDomains ?? []).map((d) => (
-                <span key={d} className="inline-flex items-center gap-1 rounded-full border border-zinc-700/60 bg-zinc-800/40 px-2 py-0.5 text-xs text-zinc-300">
+                <span key={d} className="inline-flex items-center gap-1 rounded-full border border-strong/60 bg-surface-inset-hover px-2 py-0.5 text-xs text-neutral">
                   {d}
                   <button
                     type="button"
-                    className="-mr-1 ml-0.5 inline-flex items-center justify-center rounded p-1 leading-none text-zinc-500 hover:bg-zinc-700/40 hover:text-zinc-200 transition-colors"
+                    className="-mr-1 ml-0.5 inline-flex items-center justify-center rounded p-1 leading-none text-muted hover:bg-mono-700/40 hover:text-strong transition-colors"
                     disabled={ownedDomainSaving}
                     onClick={() => { void handleRemoveOwnedDomain(d) }}
                     aria-label={`Remove ${d}`}
@@ -2121,7 +2121,7 @@ function ProjectPageContent({
               {addingOwnedDomain ? (
                 <span className="inline-flex items-center gap-1">
                   <input
-                    className="rounded border border-zinc-700 bg-transparent px-1.5 py-0.5 text-xs text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none w-40"
+                    className="rounded border border-strong bg-transparent px-1.5 py-0.5 text-xs text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none w-40"
                     type="text"
                     placeholder="docs.example.com"
                     value={newOwnedDomain}
@@ -2132,28 +2132,28 @@ function ProjectPageContent({
                   <Button type="button" size="sm" disabled={!newOwnedDomain.trim() || ownedDomainSaving} onClick={asyncHandler(handleAddOwnedDomain)}>
                     {ownedDomainSaving ? '...' : 'Add'}
                   </Button>
-                  <button type="button" className="text-xs text-zinc-500 hover:text-zinc-300" onClick={() => { setAddingOwnedDomain(false); setNewOwnedDomain('') }}>Cancel</button>
+                  <button type="button" className="text-xs text-muted hover:text-neutral" onClick={() => { setAddingOwnedDomain(false); setNewOwnedDomain('') }}>Cancel</button>
                 </span>
               ) : (
                 <button
                   type="button"
-                  className="rounded-full border border-dashed border-zinc-700 px-2 py-0.5 text-[10px] uppercase tracking-wide text-zinc-500 hover:text-zinc-300 hover:border-zinc-500 transition-colors"
+                  className="rounded-full border border-dashed border-strong px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted hover:text-neutral hover:border-mono-500 transition-colors"
                   onClick={() => setAddingOwnedDomain(true)}
                 >+ domain</button>
               )}
             </div>
           )}
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-            <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wide text-zinc-500 mr-1">
+            <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wide text-muted mr-1">
               Also known as
               <InfoTooltip text="Extra brand names checked against LLM answer text alongside the project name. Use for product names, prior names, or DBAs (e.g. add Meta as an alias to facebook.com). Changing these recomputes mentions on historical runs." />
             </span>
             {(model.project.aliases ?? []).map((a) => (
-              <span key={a} className="inline-flex items-center gap-1 rounded-full border border-zinc-700/60 bg-zinc-800/40 px-2 py-0.5 text-xs text-zinc-300">
+              <span key={a} className="inline-flex items-center gap-1 rounded-full border border-strong/60 bg-surface-inset-hover px-2 py-0.5 text-xs text-neutral">
                 {a}
                 <button
                   type="button"
-                  className="-mr-1 ml-0.5 inline-flex items-center justify-center rounded p-1 leading-none text-zinc-500 hover:bg-zinc-700/40 hover:text-zinc-200 transition-colors"
+                  className="-mr-1 ml-0.5 inline-flex items-center justify-center rounded p-1 leading-none text-muted hover:bg-mono-700/40 hover:text-strong transition-colors"
                   disabled={aliasSaving}
                   onClick={() => { void handleRemoveAlias(a) }}
                   aria-label={`Remove ${a}`}
@@ -2163,7 +2163,7 @@ function ProjectPageContent({
             {addingAlias ? (
               <span className="inline-flex items-center gap-1">
                 <input
-                  className="rounded border border-zinc-700 bg-transparent px-1.5 py-0.5 text-xs text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none w-40"
+                  className="rounded border border-strong bg-transparent px-1.5 py-0.5 text-xs text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none w-40"
                   type="text"
                   placeholder="LlamaParse"
                   value={newAlias}
@@ -2174,25 +2174,25 @@ function ProjectPageContent({
                 <Button type="button" size="sm" disabled={!newAlias.trim() || aliasSaving} onClick={asyncHandler(handleAddAlias)}>
                   {aliasSaving ? '...' : 'Add'}
                 </Button>
-                <button type="button" className="text-xs text-zinc-500 hover:text-zinc-300" onClick={() => { setAddingAlias(false); setNewAlias('') }}>Cancel</button>
+                <button type="button" className="text-xs text-muted hover:text-neutral" onClick={() => { setAddingAlias(false); setNewAlias('') }}>Cancel</button>
               </span>
             ) : (
               <button
                 type="button"
-                className="rounded-full border border-dashed border-zinc-700 px-2 py-0.5 text-[10px] uppercase tracking-wide text-zinc-500 hover:text-zinc-300 hover:border-zinc-500 transition-colors"
+                className="rounded-full border border-dashed border-strong px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted hover:text-neutral hover:border-mono-500 transition-colors"
                 onClick={() => setAddingAlias(true)}
               >+ alias</button>
             )}
           </div>
         </div>
         <div className="page-header-right">
-          <p className="text-sm text-zinc-500">{model.dateRangeLabel}</p>
+          <p className="text-sm text-muted">{model.dateRangeLabel}</p>
           <div className="flex items-center gap-2">
             <Button type="button" variant="outline" size="icon" onClick={asyncHandler(handleExport)} aria-label="Export project as YAML">
-              <Download className="h-4 w-4 text-zinc-400" />
+              <Download className="h-4 w-4 text-secondary" />
             </Button>
             <Button type="button" variant="outline" size="icon" onClick={() => setShowDeleteConfirm(true)} aria-label="Delete project">
-              <Trash2 className="h-4 w-4 text-zinc-400" />
+              <Trash2 className="h-4 w-4 text-secondary" />
             </Button>
             <Button
               type="button"
@@ -2276,13 +2276,13 @@ function ProjectPageContent({
                 <OverviewMetricRow
                   label="Mention gaps"
                   summary={model.mentionGaps}
-                  displayValue={<><span className="text-zinc-50">{model.mentionGaps.value}</span><span className="text-zinc-600"> / {model.queryCounts.total}</span></>}
+                  displayValue={<><span className="text-primary">{model.mentionGaps.value}</span><span className="text-faint"> / {model.queryCounts.total}</span></>}
                   tooltip="Queries where a competitor was mentioned in the answer but your brand was not."
                 />
                 <OverviewMetricRow
                   label="Citation gaps"
                   summary={model.gapQueries}
-                  displayValue={<><span className="text-zinc-50">{model.gapQueries.value}</span><span className="text-zinc-600"> / {model.queryCounts.total}</span></>}
+                  displayValue={<><span className="text-primary">{model.gapQueries.value}</span><span className="text-faint"> / {model.queryCounts.total}</span></>}
                   tooltip="Queries where a competitor was cited as a source but you were not."
                 />
               </div>
@@ -2294,9 +2294,9 @@ function ProjectPageContent({
             </div>
 
             {addingCompetitor && (
-              <div className="mt-4 mb-3 flex gap-2 rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
+              <div className="mt-4 mb-3 flex gap-2 rounded-lg border border-base bg-bg-elevated/40 p-3">
                 <input
-                  className="flex-1 rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+                  className="flex-1 rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
                   type="text"
                   placeholder="competitor.com"
                   value={newCompetitorDomain}
@@ -2339,15 +2339,15 @@ function ProjectPageContent({
               </Button>
             </div>
             {managingQueries && (
-              <div className="mb-3 rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
+              <div className="mb-3 rounded-lg border border-base bg-bg-elevated/40 p-3">
                 {trackedQueries.length > 0 ? (
-                  <ul className="mb-3 max-h-64 divide-y divide-zinc-800/60 overflow-y-auto rounded border border-zinc-800/60">
+                  <ul className="mb-3 max-h-64 divide-y divide-mono-800/60 overflow-y-auto rounded border border-default">
                     {trackedQueries.map((q) => (
                       <li key={q} className="flex items-center justify-between gap-3 px-3 py-2">
-                        <span className="min-w-0 truncate text-sm text-zinc-200" title={q}>{q}</span>
+                        <span className="min-w-0 truncate text-sm text-strong" title={q}>{q}</span>
                         <button
                           type="button"
-                          className="shrink-0 rounded px-1.5 py-0.5 text-xs text-zinc-500 transition-colors hover:text-rose-400 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-rose-500 disabled:opacity-50"
+                          className="shrink-0 rounded px-1.5 py-0.5 text-xs text-muted transition-colors hover:text-negative-400 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-negative-500 disabled:opacity-50"
                           aria-label={`Remove query ${q}`}
                           title={`Stop tracking "${q}"`}
                           disabled={removingQuery !== null}
@@ -2359,17 +2359,17 @@ function ProjectPageContent({
                     ))}
                   </ul>
                 ) : (
-                  <p className="mb-3 text-xs text-zinc-500">No queries tracked yet. Add some below.</p>
+                  <p className="mb-3 text-xs text-muted">No queries tracked yet. Add some below.</p>
                 )}
                 <textarea
-                  className="w-full resize-none rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+                  className="w-full resize-none rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
                   rows={3}
                   placeholder="Enter queries to add, one per line"
                   value={newQueryText}
                   onChange={(e) => setNewQueryText(e.target.value)}
                 />
                 <div className="mt-2 flex items-center justify-between">
-                  <p className="text-xs text-zinc-500">{newQueryText.split('\n').filter(k => k.trim()).length} to add</p>
+                  <p className="text-xs text-muted">{newQueryText.split('\n').filter(k => k.trim()).length} to add</p>
                   <Button type="button" size="sm" disabled={!newQueryText.trim() || querySaving} onClick={asyncHandler(handleAddQueries)}>
                     {querySaving ? 'Adding...' : 'Add queries'}
                   </Button>
@@ -2421,12 +2421,12 @@ function ProjectPageContent({
               </div>
             )}
             {competitorFilter && (
-              <div className="mb-3 flex items-center gap-2 rounded-md border border-rose-900/40 bg-rose-950/20 px-3 py-2">
-                <span className="text-[11px] uppercase tracking-wide text-rose-400">Competitor filter</span>
-                <span className="text-sm text-zinc-200">Showing queries where <span className="font-semibold">{competitorFilter}</span> surfaced</span>
+              <div className="mb-3 flex items-center gap-2 rounded-md border border-negative-900/40 bg-negative-950/20 px-3 py-2">
+                <span className="text-[11px] uppercase tracking-wide text-negative-400">Competitor filter</span>
+                <span className="text-sm text-strong">Showing queries where <span className="font-semibold">{competitorFilter}</span> surfaced</span>
                 <button
                   type="button"
-                  className="ml-auto text-xs text-zinc-400 hover:text-zinc-200"
+                  className="ml-auto text-xs text-secondary hover:text-strong"
                   onClick={() => setCompetitorFilter(null)}
                 >
                   Clear filter ×
@@ -2465,11 +2465,11 @@ function ProjectPageContent({
                           <td>
                             <div className="flex flex-col items-start gap-0.5">
                               <ProviderBadge provider={ps.provider} />
-                              {ps.model && <span className="text-[11px] font-mono text-zinc-500">{ps.model}</span>}
+                              {ps.model && <span className="text-[11px] font-mono text-muted">{ps.model}</span>}
                             </div>
                           </td>
-                          <td><span className="font-semibold text-zinc-200">{ps.score}%</span></td>
-                          <td className="text-zinc-500">{ps.cited} of {ps.total}</td>
+                          <td><span className="font-semibold text-strong">{ps.score}%</span></td>
+                          <td className="text-muted">{ps.cited} of {ps.total}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -2487,7 +2487,7 @@ function ProjectPageContent({
             </div>
           </OverviewDisclosure>
 
-          <section id="action-queue" className="page-section-divider scroll-mt-24 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-500/60" tabIndex={-1}>
+          <section id="action-queue" className="page-section-divider scroll-mt-24 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-500/60" tabIndex={-1}>
             <div className="section-head section-head-inline">
               <div>
                 <p className="eyebrow eyebrow-soft">Action queue</p>
