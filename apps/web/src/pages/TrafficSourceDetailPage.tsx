@@ -311,7 +311,7 @@ export function TrafficSourceDetailPage() {
   if (!projectName || !sourceId) {
     return (
       <div className="page-container">
-        <p className="text-sm text-zinc-500">Missing project name or source id in URL.</p>
+        <p className="text-sm text-muted">Missing project name or source id in URL.</p>
       </div>
     )
   }
@@ -319,7 +319,7 @@ export function TrafficSourceDetailPage() {
   if (sourceQuery.isLoading) {
     return (
       <div className="page-container">
-        <p className="text-sm text-zinc-500">Loading source…</p>
+        <p className="text-sm text-muted">Loading source…</p>
       </div>
     )
   }
@@ -327,8 +327,8 @@ export function TrafficSourceDetailPage() {
   if (sourceQuery.isError || !detail) {
     return (
       <div className="page-container">
-        <p className="text-sm text-rose-300">Could not load this source.</p>
-        <BackLink canGoBack={canGoBack} className="mt-2 text-xs text-zinc-400 hover:text-zinc-200" />
+        <p className="text-sm text-negative">Could not load this source.</p>
+        <BackLink canGoBack={canGoBack} className="mt-2 text-xs text-secondary hover:text-strong" />
       </div>
     )
   }
@@ -337,11 +337,11 @@ export function TrafficSourceDetailPage() {
     <div className="page-container space-y-8">
       <div className="page-header">
         <div className="page-header-left">
-          <BackLink canGoBack={canGoBack} className="text-xs text-zinc-500 hover:text-zinc-200" />
+          <BackLink canGoBack={canGoBack} className="text-xs text-muted hover:text-strong" />
           <h1 className="page-title mt-2">{detail.displayName}</h1>
           <p className="page-subtitle">
-            {detail.sourceType} · project <span className="text-zinc-300">{projectName}</span> ·
-            <span className="ml-1 font-mono text-zinc-400">{detail.id}</span>
+            {detail.sourceType} · project <span className="text-neutral">{projectName}</span> ·
+            <span className="ml-1 font-mono text-secondary">{detail.id}</span>
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -360,10 +360,10 @@ export function TrafficSourceDetailPage() {
       </div>
 
       {syncError ? (
-        <div className="rounded-md border border-rose-800/50 bg-rose-950/30 px-3 py-2 text-xs text-rose-200">{syncError}</div>
+        <div className="rounded-md border border-negative-800/50 bg-negative-950/30 px-3 py-2 text-xs text-negative-200">{syncError}</div>
       ) : null}
       {syncResult ? (
-        <div className="rounded-md border border-emerald-800/50 bg-emerald-950/30 px-3 py-2 text-xs text-emerald-200">{syncResult}</div>
+        <div className="rounded-md border border-positive-800/50 bg-positive-950/30 px-3 py-2 text-xs text-positive-200">{syncResult}</div>
       ) : null}
 
       <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -398,37 +398,37 @@ export function TrafficSourceDetailPage() {
       </section>
 
       <section>
-        <p className="mb-4 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">Latest sync run</p>
+        <p className="mb-4 text-[10px] font-semibold uppercase tracking-wider text-muted">Latest sync run</p>
         {detail.latestRun ? (
           <Card className="p-4 text-sm">
             <div className="flex flex-wrap items-center gap-x-6 gap-y-1.5">
-              <span className="text-zinc-100">Status: <span className="font-medium">{detail.latestRun.status}</span></span>
-              <span className="text-zinc-500">Started: {formatRelative(detail.latestRun.startedAt)}</span>
+              <span className="text-heading">Status: <span className="font-medium">{detail.latestRun.status}</span></span>
+              <span className="text-muted">Started: {formatRelative(detail.latestRun.startedAt)}</span>
               {detail.latestRun.finishedAt ? (
-                <span className="text-zinc-500">Finished: {formatRelative(detail.latestRun.finishedAt)}</span>
+                <span className="text-muted">Finished: {formatRelative(detail.latestRun.finishedAt)}</span>
               ) : null}
-              <span className="font-mono text-[11px] text-zinc-600">{detail.latestRun.runId}</span>
+              <span className="font-mono text-[11px] text-faint">{detail.latestRun.runId}</span>
             </div>
             {detail.latestRun.error ? (
-              <p className="mt-2 rounded border border-rose-900/40 bg-rose-950/30 px-3 py-2 text-xs text-rose-300">
+              <p className="mt-2 rounded border border-negative-900/40 bg-negative-950/30 px-3 py-2 text-xs text-negative">
                 {detail.latestRun.error}
               </p>
             ) : null}
           </Card>
         ) : (
-          <Card className="px-4 py-3 text-sm text-zinc-500">No traffic-sync runs recorded yet. Hit "Sync now" above to create one.</Card>
+          <Card className="px-4 py-3 text-sm text-muted">No traffic-sync runs recorded yet. Hit "Sync now" above to create one.</Card>
         )}
       </section>
 
       <section>
         <div className="mb-4 flex flex-wrap items-end justify-between gap-x-4 gap-y-3">
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">Events</p>
-            <h2 className="mt-1 text-base font-semibold text-zinc-50">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted">Events</p>
+            <h2 className="mt-1 text-base font-semibold text-primary">
               {activeWindow.granularity === 'day' ? 'Daily rollups' : 'Hourly rollups'}
             </h2>
             {totals ? (
-              <p className="mt-1.5 text-xs text-zinc-500">
+              <p className="mt-1.5 text-xs text-muted">
                 {totals.crawlerContentHits.toLocaleString('en-US')} content crawls ·{' '}
                 {totals.crawlerInfraHits.toLocaleString('en-US')} infra (sitemap/robots/assets) ·{' '}
                 {totals.aiUserFetchHits.toLocaleString('en-US')} AI user fetches ·{' '}
@@ -479,13 +479,13 @@ export function TrafficSourceDetailPage() {
             />
           </div>
           {eventsQuery.isError ? (
-            <p className="py-12 text-center text-xs text-rose-400">
+            <p className="py-12 text-center text-xs text-negative-400">
               Failed to load events: {eventsQuery.error instanceof Error ? eventsQuery.error.message : 'Unknown error'}
             </p>
           ) : eventsQuery.isLoading ? (
-            <p className="py-12 text-center text-xs text-zinc-500">Loading events…</p>
+            <p className="py-12 text-center text-xs text-muted">Loading events…</p>
           ) : chartData.length === 0 ? (
-            <p className="py-12 text-center text-xs text-zinc-500">No events in this window.</p>
+            <p className="py-12 text-center text-xs text-muted">No events in this window.</p>
           ) : (
             <div className="h-72">
               <ResponsiveContainer>
@@ -545,19 +545,19 @@ export function TrafficSourceDetailPage() {
       <section>
         <div className="mb-4 flex flex-wrap items-end justify-between gap-x-4 gap-y-2">
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">Event rows</p>
-            <p className="mt-1 text-xs text-zinc-500">
-              Showing <span className="tabular-nums text-zinc-300">{filteredEvents.length.toLocaleString('en-US')}</span> of{' '}
-              <span className="tabular-nums text-zinc-500">{visibleEvents.length.toLocaleString('en-US')}</span> events · {LOCAL_TZ}
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted">Event rows</p>
+            <p className="mt-1 text-xs text-muted">
+              Showing <span className="tabular-nums text-neutral">{filteredEvents.length.toLocaleString('en-US')}</span> of{' '}
+              <span className="tabular-nums text-muted">{visibleEvents.length.toLocaleString('en-US')}</span> events · {LOCAL_TZ}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <span className="inline-flex items-center text-zinc-400">
+            <span className="inline-flex items-center text-secondary">
               <select
                 aria-label="Filter by identity"
                 value={identityFilter}
                 onChange={(e) => setIdentityFilter(e.target.value)}
-                className="rounded-md border border-zinc-800 bg-zinc-950 px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus-visible:ring-1 focus-visible:ring-zinc-600"
+                className="rounded-md border border-base bg-bg px-2.5 py-1.5 text-xs text-strong focus:outline-none focus-visible:ring-1 focus-visible:ring-mono-600"
               >
                 <option value="">All identities</option>
                 {identityOptions.map((opt) => (
@@ -568,12 +568,12 @@ export function TrafficSourceDetailPage() {
               </select>
               <InfoTooltip text="The specific bot or AI product making the request (e.g., GPTBot, ChatGPT-User, Perplexity). One operator usually runs several identities." />
             </span>
-            <span className="inline-flex items-center text-zinc-400">
+            <span className="inline-flex items-center text-secondary">
               <select
                 aria-label="Filter by operator"
                 value={operatorFilter}
                 onChange={(e) => setOperatorFilter(e.target.value)}
-                className="rounded-md border border-zinc-800 bg-zinc-950 px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus-visible:ring-1 focus-visible:ring-zinc-600"
+                className="rounded-md border border-base bg-bg px-2.5 py-1.5 text-xs text-strong focus:outline-none focus-visible:ring-1 focus-visible:ring-mono-600"
               >
                 <option value="">All operators</option>
                 {operatorOptions.map((opt) => (
@@ -588,7 +588,7 @@ export function TrafficSourceDetailPage() {
               aria-label="Filter by HTTP status class"
               value={statusClassFilter}
               onChange={(e) => setStatusClassFilter(e.target.value as StatusClassFilter)}
-              className="rounded-md border border-zinc-800 bg-zinc-950 px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus-visible:ring-1 focus-visible:ring-zinc-600"
+              className="rounded-md border border-base bg-bg px-2.5 py-1.5 text-xs text-strong focus:outline-none focus-visible:ring-1 focus-visible:ring-mono-600"
             >
               {STATUS_CLASS_OPTIONS.map((opt) => (
                 <option key={opt.value} value={opt.value}>
@@ -600,7 +600,7 @@ export function TrafficSourceDetailPage() {
               aria-label="Filter by verification claim"
               value={verificationFilter}
               onChange={(e) => setVerificationFilter(e.target.value as VerificationFilter)}
-              className="rounded-md border border-zinc-800 bg-zinc-950 px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus-visible:ring-1 focus-visible:ring-zinc-600"
+              className="rounded-md border border-base bg-bg px-2.5 py-1.5 text-xs text-strong focus:outline-none focus-visible:ring-1 focus-visible:ring-mono-600"
             >
               {VERIFICATION_OPTIONS.map((opt) => (
                 <option key={opt.value} value={opt.value}>
@@ -614,7 +614,7 @@ export function TrafficSourceDetailPage() {
               placeholder="path contains…"
               value={pathFilter}
               onChange={(e) => setPathFilter(e.target.value)}
-              className="w-44 rounded-md border border-zinc-800 bg-zinc-950 px-2.5 py-1.5 text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus-visible:ring-1 focus-visible:ring-zinc-600"
+              className="w-44 rounded-md border border-base bg-bg px-2.5 py-1.5 text-xs text-strong placeholder:text-faint focus:outline-none focus-visible:ring-1 focus-visible:ring-mono-600"
             />
           </div>
         </div>
@@ -648,7 +648,7 @@ export function TrafficSourceDetailPage() {
             <button
               type="button"
               onClick={clearAllFilters}
-              className="text-xs text-zinc-500 underline-offset-4 hover:text-zinc-200 hover:underline"
+              className="text-xs text-muted underline-offset-4 hover:text-strong hover:underline"
             >
               Clear all
             </button>
@@ -658,11 +658,11 @@ export function TrafficSourceDetailPage() {
         <EventsTable events={pagedEvents} />
 
         {showPagination ? (
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 text-xs text-zinc-400">
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 text-xs text-secondary">
             <p className="tabular-nums">
-              Showing <span className="text-zinc-300">{pageRangeStart.toLocaleString('en-US')}</span>–
-              <span className="text-zinc-300">{pageRangeEnd.toLocaleString('en-US')}</span> of{' '}
-              <span className="text-zinc-300">{filteredEvents.length.toLocaleString('en-US')}</span> events
+              Showing <span className="text-neutral">{pageRangeStart.toLocaleString('en-US')}</span>–
+              <span className="text-neutral">{pageRangeEnd.toLocaleString('en-US')}</span> of{' '}
+              <span className="text-neutral">{filteredEvents.length.toLocaleString('en-US')}</span> events
             </p>
             <div className="flex items-center gap-2">
               <button
@@ -670,21 +670,21 @@ export function TrafficSourceDetailPage() {
                 onClick={() => setEventsPage((p) => Math.max(1, p - 1))}
                 disabled={currentEventsPage <= 1}
                 aria-label="Previous page"
-                className="inline-flex items-center gap-1 rounded-md border border-zinc-800 bg-zinc-950 px-2.5 py-1.5 text-zinc-200 transition hover:border-zinc-700 hover:text-zinc-50 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-zinc-800 disabled:hover:text-zinc-200"
+                className="inline-flex items-center gap-1 rounded-md border border-base bg-bg px-2.5 py-1.5 text-strong transition hover:border-strong hover:text-primary disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-base disabled:hover:text-strong"
               >
                 <ChevronLeft className="size-3.5" />
                 Prev
               </button>
               <span className="tabular-nums">
-                Page <span className="text-zinc-200">{currentEventsPage}</span> of{' '}
-                <span className="text-zinc-200">{totalEventsPages}</span>
+                Page <span className="text-strong">{currentEventsPage}</span> of{' '}
+                <span className="text-strong">{totalEventsPages}</span>
               </span>
               <button
                 type="button"
                 onClick={() => setEventsPage((p) => Math.min(totalEventsPages, p + 1))}
                 disabled={currentEventsPage >= totalEventsPages}
                 aria-label="Next page"
-                className="inline-flex items-center gap-1 rounded-md border border-zinc-800 bg-zinc-950 px-2.5 py-1.5 text-zinc-200 transition hover:border-zinc-700 hover:text-zinc-50 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-zinc-800 disabled:hover:text-zinc-200"
+                className="inline-flex items-center gap-1 rounded-md border border-base bg-bg px-2.5 py-1.5 text-strong transition hover:border-strong hover:text-primary disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-base disabled:hover:text-strong"
               >
                 Next
                 <ChevronRight className="size-3.5" />
@@ -781,13 +781,13 @@ function labelForVerification(value: VerificationFilter): string {
 
 function ActiveFilterPill({ label, onClear }: { label: string; onClear: () => void }) {
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-full border border-zinc-700 bg-zinc-800/60 px-2.5 py-1 text-[11px] text-zinc-200">
+    <span className="inline-flex items-center gap-1.5 rounded-full border border-strong bg-surface-inset px-2.5 py-1 text-[11px] text-strong">
       {label}
       <button
         type="button"
         onClick={onClear}
         aria-label={`Clear ${label}`}
-        className="rounded-full p-0.5 text-zinc-400 hover:bg-zinc-700/60 hover:text-zinc-100"
+        className="rounded-full p-0.5 text-secondary hover:bg-mono-700/60 hover:text-heading"
       >
         <X className="size-3" />
       </button>
@@ -815,8 +815,8 @@ function SeriesToggle({
       aria-pressed={active}
       className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium transition ${
         active
-          ? 'border-zinc-700 bg-zinc-800/60 text-zinc-100'
-          : 'border-zinc-800 bg-transparent text-zinc-500 hover:text-zinc-300'
+          ? 'border-strong bg-surface-inset text-heading'
+          : 'border-base bg-transparent text-muted hover:text-neutral'
       }`}
     >
       <span
@@ -825,7 +825,7 @@ function SeriesToggle({
         style={{ backgroundColor: color }}
       />
       <span>{label}</span>
-      <span className={`tabular-nums ${active ? 'text-zinc-400' : 'text-zinc-600'}`}>
+      <span className={`tabular-nums ${active ? 'text-secondary' : 'text-faint'}`}>
         {count.toLocaleString('en-US')}
       </span>
     </button>
@@ -862,12 +862,12 @@ function renderEvidence(event: TrafficEventEntry): string {
 
 function EventsTable({ events }: { events: readonly TrafficEventEntry[] }) {
   if (events.length === 0) {
-    return <Card className="p-6 text-center text-sm text-zinc-500">No event rows match the current filters.</Card>
+    return <Card className="p-6 text-center text-sm text-muted">No event rows match the current filters.</Card>
   }
   return (
-    <div className="rounded-xl border border-zinc-800/60 bg-zinc-900/30 overflow-hidden">
+    <div className="rounded-xl border border-default bg-surface overflow-hidden">
       <table className="w-full text-sm">
-        <thead className="bg-zinc-900/50 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+        <thead className="bg-bg-elevated/50 text-[10px] font-semibold uppercase tracking-wider text-muted">
           <tr>
             <th className="px-4 py-2 text-left">Hour</th>
             <th className="px-4 py-2 text-left">Kind</th>
@@ -882,18 +882,18 @@ function EventsTable({ events }: { events: readonly TrafficEventEntry[] }) {
             </th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-zinc-800/60">
+        <tbody className="divide-y divide-mono-800/60">
           {events.map((event, i) => (
-            <tr key={`${event.kind}:${event.tsHour}:${i}`} className="hover:bg-zinc-900/40 transition-colors">
-              <td className="px-4 py-2 font-mono text-xs text-zinc-300">{formatHourLabel(event.tsHour)}</td>
-              <td className="px-4 py-2 text-zinc-300">{renderKindLabel(event.kind)}</td>
-              <td className="px-4 py-2 text-zinc-100">
+            <tr key={`${event.kind}:${event.tsHour}:${i}`} className="hover:bg-bg-elevated/40 transition-colors">
+              <td className="px-4 py-2 font-mono text-xs text-neutral">{formatHourLabel(event.tsHour)}</td>
+              <td className="px-4 py-2 text-neutral">{renderKindLabel(event.kind)}</td>
+              <td className="px-4 py-2 text-heading">
                 {renderIdentity(event)}
-                <span className="ml-2 text-[11px] text-zinc-500">{event.operator}</span>
+                <span className="ml-2 text-[11px] text-muted">{event.operator}</span>
               </td>
-              <td className="px-4 py-2 text-zinc-300">{renderEvidence(event)}</td>
-              <td className="px-4 py-2 truncate font-mono text-xs text-zinc-300">{pathOf(event)}</td>
-              <td className="px-4 py-2 text-right tabular-nums text-zinc-100">{event.hits}</td>
+              <td className="px-4 py-2 text-neutral">{renderEvidence(event)}</td>
+              <td className="px-4 py-2 truncate font-mono text-xs text-neutral">{pathOf(event)}</td>
+              <td className="px-4 py-2 text-right tabular-nums text-heading">{event.hits}</td>
             </tr>
           ))}
         </tbody>

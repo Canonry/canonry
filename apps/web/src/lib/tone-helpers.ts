@@ -57,8 +57,8 @@ export function competitorTone(label: string): MetricTone {
 
 /** Maps a metric tone to its Tailwind text-color utility. */
 export const METRIC_TONE_TEXT_CLASS: Record<MetricTone, string> = {
-  positive: 'text-emerald-400',
-  caution: 'text-amber-400',
-  negative: 'text-rose-400',
-  neutral: 'text-zinc-400',
+  positive: 'text-positive-400',
+  caution: 'text-caution-400',
+  negative: 'text-negative-400',
+  neutral: 'text-secondary',
 }
