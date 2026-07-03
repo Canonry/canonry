@@ -97,13 +97,13 @@ export function ReportPage({ projectName }: { projectName: string }) {
   }
 
   if (reportQuery.isLoading) {
-    return <p className="text-sm text-zinc-500 py-8 text-center">Loading report…</p>
+    return <p className="text-sm text-muted py-8 text-center">Loading report…</p>
   }
   if (reportQuery.error) {
     const message = reportQuery.error instanceof Error ? reportQuery.error.message : 'Failed to load report'
     return (
       <div className="py-8 text-center">
-        <p className="text-sm text-rose-400">{message}</p>
+        <p className="text-sm text-negative-400">{message}</p>
       </div>
     )
   }
@@ -124,7 +124,7 @@ export function ReportPage({ projectName }: { projectName: string }) {
             {' · '}Last {report.meta.periodDays} days
             {' · '}Generated {formatDate(report.meta.generatedAt)}
           </p>
-          {downloadError && <p className="mt-2 text-xs text-rose-400">{downloadError}</p>}
+          {downloadError && <p className="mt-2 text-xs text-negative-400">{downloadError}</p>}
         </div>
         <div className="page-header-right flex flex-col items-end gap-2">
           <PeriodToggle period={period} onChange={setPeriod} />
@@ -161,7 +161,7 @@ function PeriodToggle({
 }) {
   return (
     <div
-      className="inline-flex items-center gap-0.5 rounded-full border border-zinc-800/60 bg-zinc-900/40 p-0.5"
+      className="inline-flex items-center gap-0.5 rounded-full border border-default bg-bg-elevated/40 p-0.5"
       role="group"
       aria-label="Report time period"
     >
@@ -174,7 +174,7 @@ function PeriodToggle({
             onClick={() => onChange(opt)}
             aria-pressed={active}
             className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-              active ? 'bg-zinc-200 text-zinc-900' : 'text-zinc-400 hover:text-zinc-100'
+              active ? 'bg-mono-200 text-mono-900' : 'text-secondary hover:text-heading'
             }`}
           >
             {opt}d
@@ -214,7 +214,7 @@ function ServerActivityClientView({ report }: { report: ProjectReportDto }) {
           title={SERVER_ACTIVITY_TITLE}
           subtitle={SERVER_ACTIVITY_INTRO_NO_DATA}
         />
-        <p className="text-sm text-zinc-500">
+        <p className="text-sm text-muted">
           Your server-side traffic source is connected. Numbers will appear after the next sync.
         </p>
       </section>
@@ -289,7 +289,7 @@ function ServerActivityClientView({ report }: { report: ProjectReportDto }) {
               </tbody>
             </table>
           </div>
-          <p className="mt-2 text-[11px] text-zinc-500">
+          <p className="mt-2 text-[11px] text-muted">
             Bot requests are bulk crawl (GPTBot, PerplexityBot, …). User fetches are on-demand reads triggered by real users inside an AI surface (ChatGPT-User, Perplexity-User, …). Verified means the request came from an IP the operator publishes as its own; unverified means the user-agent matched but the IP is not in a published range. User-fetch totals count both, since many genuine user fetches come from outside any published range.
           </p>
         </div>
@@ -347,12 +347,12 @@ function ClientSummarySection({ report }: { report: ProjectReportDto }) {
 
   return (
     <section className="page-section-divider">
-      <div className="rounded-2xl border border-zinc-800/60 bg-zinc-900/40 p-6 sm:p-8">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">Overview</p>
-        <p className="mt-3 text-6xl font-bold tracking-tight text-zinc-50 sm:text-7xl">{heroNumber}</p>
-        <p className="mt-3 max-w-2xl text-base text-zinc-300 sm:text-lg">{heroSentence}</p>
+      <div className="rounded-2xl border border-default bg-bg-elevated/40 p-6 sm:p-8">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">Overview</p>
+        <p className="mt-3 text-6xl font-bold tracking-tight text-primary sm:text-7xl">{heroNumber}</p>
+        <p className="mt-3 max-w-2xl text-base text-neutral sm:text-lg">{heroSentence}</p>
         {trend && (
-          <p className={`mt-3 text-sm font-medium ${trend.tone === 'positive' ? 'text-emerald-400' : trend.tone === 'negative' ? 'text-rose-400' : 'text-zinc-400'}`}>
+          <p className={`mt-3 text-sm font-medium ${trend.tone === 'positive' ? 'text-positive-400' : trend.tone === 'negative' ? 'text-negative-400' : 'text-secondary'}`}>
             <span className="mr-1">{trend.arrow}</span>{trend.text}
           </p>
         )}
@@ -376,21 +376,21 @@ function ClientSummarySection({ report }: { report: ProjectReportDto }) {
         />
       </div>
 
-      <div className="mt-4 rounded-xl border border-zinc-800/60 bg-zinc-950/40 px-4 py-3 text-xs text-zinc-400">
-        <span className="font-semibold text-zinc-200">Mentions and links are different.</span>{' '}
-        A <span className="font-medium text-zinc-200">mention</span> is when AI says your name out loud in its answer.
-        A <span className="font-medium text-zinc-200">link</span> is when AI lists your website as a source it used.
+      <div className="mt-4 rounded-xl border border-default bg-bg/40 px-4 py-3 text-xs text-secondary">
+        <span className="font-semibold text-strong">Mentions and links are different.</span>{' '}
+        A <span className="font-medium text-strong">mention</span> is when AI says your name out loud in its answer.
+        A <span className="font-medium text-strong">link</span> is when AI lists your website as a source it used.
         AI can do either, both, or neither — that's why we track both.
       </div>
 
       {sc.queries.length > 0 && (
-        <div className="mt-5 rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-5">
-          <p className="text-sm font-semibold text-zinc-100">Customer questions we tested</p>
-          <p className="mt-1 text-xs text-zinc-500">These are the {sc.queries.length} {sc.queries.length === 1 ? 'question we asked' : 'questions we asked'} every AI tool. The numbers above measure how often you came up.</p>
+        <div className="mt-5 rounded-xl border border-default bg-surface p-5">
+          <p className="text-sm font-semibold text-heading">Customer questions we tested</p>
+          <p className="mt-1 text-xs text-muted">These are the {sc.queries.length} {sc.queries.length === 1 ? 'question we asked' : 'questions we asked'} every AI tool. The numbers above measure how often you came up.</p>
           <ol className="mt-4 grid gap-2 sm:grid-cols-2">
             {sc.queries.map((q, i) => (
-              <li key={i} className="flex items-start gap-3 rounded-lg border border-zinc-800/60 bg-zinc-950/40 px-3 py-2 text-sm text-zinc-200">
-                <span className="shrink-0 text-xs font-semibold tabular-nums text-zinc-500">{String(i + 1).padStart(2, '0')}</span>
+              <li key={i} className="flex items-start gap-3 rounded-lg border border-default bg-bg/40 px-3 py-2 text-sm text-strong">
+                <span className="shrink-0 text-xs font-semibold tabular-nums text-muted">{String(i + 1).padStart(2, '0')}</span>
                 <span>"{q}"</span>
               </li>
             ))}
@@ -399,18 +399,18 @@ function ClientSummarySection({ report }: { report: ProjectReportDto }) {
       )}
 
       {sc.providerRates.length > 0 && (
-        <div className="mt-5 rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-5">
-          <p className="text-sm font-semibold text-zinc-100">How often each AI tool mentions you</p>
-          <p className="mt-1 text-xs text-zinc-500">Higher is better. Each bar shows the share of customer questions where the AI named you in the answer.</p>
+        <div className="mt-5 rounded-xl border border-default bg-surface p-5">
+          <p className="text-sm font-semibold text-heading">How often each AI tool mentions you</p>
+          <p className="mt-1 text-xs text-muted">Higher is better. Each bar shows the share of customer questions where the AI named you in the answer.</p>
           <div className="mt-4 space-y-3">
             {sc.providerRates.map(r => (
               <div key={r.provider} className="grid grid-cols-[120px_1fr_120px] items-center gap-3">
-                <span className="text-sm text-zinc-300">{providerDisplayName(r.provider)}</span>
-                <div className="h-3 overflow-hidden rounded-full bg-zinc-800/80">
-                  <div className="h-full rounded-full bg-emerald-500/70" style={{ width: `${Math.max(r.mentionRate, 1.5)}%` }} />
+                <span className="text-sm text-neutral">{providerDisplayName(r.provider)}</span>
+                <div className="h-3 overflow-hidden rounded-full bg-mono-800/80">
+                  <div className="h-full rounded-full bg-positive-500/70" style={{ width: `${Math.max(r.mentionRate, 1.5)}%` }} />
                 </div>
-                <span className="text-right text-sm font-semibold text-zinc-100">
-                  {r.mentionRate}% <span className="font-normal text-zinc-500">({r.mentionedCount}/{r.totalCount})</span>
+                <span className="text-right text-sm font-semibold text-heading">
+                  {r.mentionRate}% <span className="font-normal text-muted">({r.mentionedCount}/{r.totalCount})</span>
                 </span>
               </div>
             ))}
@@ -421,7 +421,7 @@ function ClientSummarySection({ report }: { report: ProjectReportDto }) {
       {report.clientSummary.confidenceNotes.length > 0 && (
         <div className="mt-4 grid gap-2">
           {report.clientSummary.confidenceNotes.map((note, i) => (
-            <div key={i} className="rounded-lg border border-zinc-800/60 bg-zinc-900/30 px-3 py-2 text-xs text-zinc-400">{note}</div>
+            <div key={i} className="rounded-lg border border-default bg-surface px-3 py-2 text-xs text-secondary">{note}</div>
           ))}
         </div>
       )}
@@ -431,10 +431,10 @@ function ClientSummarySection({ report }: { report: ProjectReportDto }) {
 
 function BigMetricTile({ label, value, subtitle }: { label: string; value: string; subtitle: string }) {
   return (
-    <div className="rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-5">
-      <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">{label}</p>
-      <p className="mt-3 text-4xl font-bold tracking-tight text-zinc-50 sm:text-5xl">{value}</p>
-      <p className="mt-2 text-xs text-zinc-500">{subtitle}</p>
+    <div className="rounded-xl border border-default bg-surface p-5">
+      <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">{label}</p>
+      <p className="mt-3 text-4xl font-bold tracking-tight text-primary sm:text-5xl">{value}</p>
+      <p className="mt-2 text-xs text-muted">{subtitle}</p>
     </div>
   )
 }
@@ -536,10 +536,10 @@ function ActionPlanSection({ report, audience, projectName }: { report: ProjectR
             const proof = action.evidence.length > 0 ? action.evidence : action.why
             const hasDetails = action.why.length > 0 || action.evidence.length > 0
             return (
-              <article key={`${action.priority}-${action.title}`} className="rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-4">
+              <article key={`${action.priority}-${action.title}`} className="rounded-xl border border-default bg-surface p-4">
                 <div className="flex items-start gap-3">
                   <div
-                    className="flex size-8 shrink-0 items-center justify-center rounded-full bg-zinc-800/80 text-sm font-semibold text-zinc-100"
+                    className="flex size-8 shrink-0 items-center justify-center rounded-full bg-mono-800/80 text-sm font-semibold text-heading"
                     title="Priority — 1 will move the needle fastest"
                   >
                     {idx + 1}
@@ -550,14 +550,14 @@ function ActionPlanSection({ report, audience, projectName }: { report: ProjectR
                       {!isClient && <ToneBadge tone="neutral">{reportActionCategoryLabel(action.category)}</ToneBadge>}
                       <ToneBadge tone="neutral">{isClient ? clientConfidenceLabel(action.confidence) : `${reportConfidenceLabel(action.confidence)} confidence`}</ToneBadge>
                     </div>
-                    <p className="text-sm font-medium text-zinc-100">{action.title}</p>
+                    <p className="text-sm font-medium text-heading">{action.title}</p>
                   </div>
                 </div>
-                <p className="mt-3 text-sm text-zinc-400">{action.action}</p>
+                <p className="mt-3 text-sm text-secondary">{action.action}</p>
                 <ProofChips items={proof} limit={3} className="mt-3" />
                 {hasDetails && (
-                  <details className="mt-3 text-xs text-zinc-400">
-                    <summary className="cursor-pointer text-zinc-500 hover:text-zinc-300">{isClient ? 'See the data behind this' : 'Evidence details'}</summary>
+                  <details className="mt-3 text-xs text-secondary">
+                    <summary className="cursor-pointer text-muted hover:text-neutral">{isClient ? 'See the data behind this' : 'Evidence details'}</summary>
                     {action.why.length > 0 && (
                       <div className="mt-2">
                         <p className="eyebrow-soft mb-1">{isClient ? 'Why this matters' : 'Why'}</p>
@@ -576,7 +576,7 @@ function ActionPlanSection({ report, audience, projectName }: { report: ProjectR
                     )}
                   </details>
                 )}
-                <p className="mt-3 border-t border-zinc-800/60 pt-3 text-xs text-zinc-300">
+                <p className="mt-3 border-t border-default pt-3 text-xs text-neutral">
                   <span className="font-medium">{isClient ? 'What success looks like:' : 'Win condition:'}</span> {action.successMetric}
                 </p>
                 {action.targetRef && (
@@ -584,7 +584,7 @@ function ActionPlanSection({ report, audience, projectName }: { report: ProjectR
                     <button
                       type="button"
                       onClick={() => handleDismiss(action)}
-                      className="rounded-md border border-zinc-700/60 bg-zinc-900/50 px-2.5 py-1 text-[11px] font-medium text-zinc-300 hover:border-zinc-600 hover:bg-zinc-800/70 hover:text-zinc-100"
+                      className="rounded-md border border-strong/60 bg-bg-elevated/50 px-2.5 py-1 text-[11px] font-medium text-neutral hover:border-mono-600 hover:bg-mono-800/70 hover:text-heading"
                       title="Stop showing this recommendation. The page-detection logic relies on GSC/GA syncs that lag by days — if you've already addressed it, dismissing keeps the report current."
                     >
                       Mark addressed
@@ -605,12 +605,12 @@ function HorizontalBarRow({ label, value, displayValue, max, barClass }: { label
   return (
     <div className="grid grid-cols-[1fr_auto] items-center gap-3 text-sm">
       <div className="min-w-0">
-        <p className="truncate text-zinc-300" title={label}>{label}</p>
-        <div className="mt-1 h-2 overflow-hidden rounded-full bg-zinc-800/80">
+        <p className="truncate text-neutral" title={label}>{label}</p>
+        <div className="mt-1 h-2 overflow-hidden rounded-full bg-mono-800/80">
           <div className={`h-full rounded-full ${barClass}`} style={{ width: `${pct}%` }} />
         </div>
       </div>
-      <span className="whitespace-nowrap text-sm font-semibold text-zinc-100">{displayValue}</span>
+      <span className="whitespace-nowrap text-sm font-semibold text-heading">{displayValue}</span>
     </div>
   )
 }
@@ -638,9 +638,9 @@ function ClientEvidenceSection({ report }: { report: ProjectReportDto }) {
       ) : (
         <div className="grid gap-4 lg:grid-cols-2">
           {ai.length > 0 && (
-            <div className="rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-5">
-              <p className="text-sm font-semibold text-zinc-100">Where AI gets its answers</p>
-              <p className="mt-1 text-xs text-zinc-500">The websites AI tools cited most often when answering customer questions about your industry.</p>
+            <div className="rounded-xl border border-default bg-surface p-5">
+              <p className="text-sm font-semibold text-heading">Where AI gets its answers</p>
+              <p className="mt-1 text-xs text-muted">The websites AI tools cited most often when answering customer questions about your industry.</p>
               <div className="mt-4 space-y-3">
                 {ai.map(d => (
                   <HorizontalBarRow
@@ -649,36 +649,36 @@ function ClientEvidenceSection({ report }: { report: ProjectReportDto }) {
                     value={d.count}
                     displayValue={`${formatNumber(d.count)}×`}
                     max={aiMax}
-                    barClass="bg-zinc-400/70"
+                    barClass="bg-mono-400/70"
                   />
                 ))}
               </div>
             </div>
           )}
           {indexing && (
-            <div className="rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-5">
-              <p className="text-sm font-semibold text-zinc-100">Pages Google can find on your site</p>
-              <p className="mt-1 text-xs text-zinc-500">Google indexing your site increases the chances of it appearing in AI search (especially Gemini).</p>
-              <p className={`mt-4 text-5xl font-bold tracking-tight ${indexing.indexedPct >= 90 ? 'text-emerald-400' : indexing.indexedPct >= 70 ? 'text-amber-400' : 'text-rose-400'}`}>
+            <div className="rounded-xl border border-default bg-surface p-5">
+              <p className="text-sm font-semibold text-heading">Pages Google can find on your site</p>
+              <p className="mt-1 text-xs text-muted">Google indexing your site increases the chances of it appearing in AI search (especially Gemini).</p>
+              <p className={`mt-4 text-5xl font-bold tracking-tight ${indexing.indexedPct >= 90 ? 'text-positive-400' : indexing.indexedPct >= 70 ? 'text-caution-400' : 'text-negative-400'}`}>
                 {indexing.indexedPct}%
               </p>
-              <p className="mt-1 text-xs text-zinc-500">{formatNumber(indexing.indexed)} of {formatNumber(indexing.total)} pages indexed</p>
-              <div className="mt-3 h-3 overflow-hidden rounded-full bg-zinc-800/80">
+              <p className="mt-1 text-xs text-muted">{formatNumber(indexing.indexed)} of {formatNumber(indexing.total)} pages indexed</p>
+              <div className="mt-3 h-3 overflow-hidden rounded-full bg-mono-800/80">
                 <div
-                  className={`h-full rounded-full ${indexing.indexedPct >= 90 ? 'bg-emerald-500/70' : indexing.indexedPct >= 70 ? 'bg-amber-500/70' : 'bg-rose-500/70'}`}
+                  className={`h-full rounded-full ${indexing.indexedPct >= 90 ? 'bg-positive-500/70' : indexing.indexedPct >= 70 ? 'bg-caution-500/70' : 'bg-negative-500/70'}`}
                   style={{ width: `${Math.max(indexing.indexedPct, 1.5)}%` }}
                 />
               </div>
-              <p className="mt-3 text-xs text-zinc-400">
-                <span className="font-medium text-zinc-200">{formatNumber(indexing.notIndexed)}</span> {indexing.notIndexed === 1 ? 'page is' : 'pages are'} not indexed yet.
+              <p className="mt-3 text-xs text-secondary">
+                <span className="font-medium text-strong">{formatNumber(indexing.notIndexed)}</span> {indexing.notIndexed === 1 ? 'page is' : 'pages are'} not indexed yet.
               </p>
             </div>
           )}
           {gsc && (
-            <div className="rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-5">
-              <p className="text-sm font-semibold text-zinc-100">What people search Google for</p>
-              <p className="mt-1 text-xs text-zinc-500">
-                You appeared in <span className="font-semibold text-zinc-200">{formatNumber(gsc.totalImpressions)}</span> Google searches and got <span className="font-semibold text-zinc-200">{formatNumber(gsc.totalClicks)}</span> {gsc.totalClicks === 1 ? 'click' : 'clicks'} this period.
+            <div className="rounded-xl border border-default bg-surface p-5">
+              <p className="text-sm font-semibold text-heading">What people search Google for</p>
+              <p className="mt-1 text-xs text-muted">
+                You appeared in <span className="font-semibold text-strong">{formatNumber(gsc.totalImpressions)}</span> Google searches and got <span className="font-semibold text-strong">{formatNumber(gsc.totalClicks)}</span> {gsc.totalClicks === 1 ? 'click' : 'clicks'} this period.
               </p>
               {gsc.topQueries.length > 0 && (
                 <div className="mt-4 space-y-3">
@@ -689,7 +689,7 @@ function ClientEvidenceSection({ report }: { report: ProjectReportDto }) {
                       value={q.impressions}
                       displayValue={`${formatNumber(q.impressions)} ${q.impressions === 1 ? 'search' : 'searches'}`}
                       max={gscMax}
-                      barClass="bg-sky-500/70"
+                      barClass="bg-info-500/70"
                     />
                   ))}
                 </div>
@@ -697,14 +697,14 @@ function ClientEvidenceSection({ report }: { report: ProjectReportDto }) {
             </div>
           )}
           {opportunities.length > 0 && (
-            <div className="rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-5">
-              <p className="text-sm font-semibold text-zinc-100">Topics where you could improve</p>
-              <p className="mt-1 text-xs text-zinc-500">Customer questions where better content on your site would help AI cite you.</p>
-              <ul className="mt-4 space-y-2 text-sm text-zinc-300">
+            <div className="rounded-xl border border-default bg-surface p-5">
+              <p className="text-sm font-semibold text-heading">Topics where you could improve</p>
+              <p className="mt-1 text-xs text-muted">Customer questions where better content on your site would help AI cite you.</p>
+              <ul className="mt-4 space-y-2 text-sm text-neutral">
                 {opportunities.map((o, i) => (
-                  <li key={i} className="rounded-lg border border-zinc-800/60 bg-zinc-950/40 px-3 py-2">
-                    <p className="font-medium text-zinc-100">{o.query}</p>
-                    <p className="mt-0.5 flex items-center gap-2 text-xs text-zinc-400">
+                  <li key={i} className="rounded-lg border border-default bg-bg/40 px-3 py-2">
+                    <p className="font-medium text-heading">{o.query}</p>
+                    <p className="mt-0.5 flex items-center gap-2 text-xs text-secondary">
                       {contentActionLabel(o.action)}
                       {o.winnabilityClass === 'ceded' && <ToneBadge tone="caution">Ceded surface</ToneBadge>}
                     </p>
@@ -744,30 +744,30 @@ function RateDeltaTile({
 }) {
   if (!delta) {
     return (
-      <div className="rounded-xl border border-zinc-800/60 bg-zinc-900/30 px-4 py-3">
+      <div className="rounded-xl border border-default bg-surface px-4 py-3">
         <p className="eyebrow-soft">{label}</p>
-        <p className="text-2xl font-semibold tracking-tight text-zinc-500">—</p>
-        <p className="mt-1 text-[11px] text-zinc-500">No prior data</p>
+        <p className="text-2xl font-semibold tracking-tight text-muted">—</p>
+        <p className="mt-1 text-[11px] text-muted">No prior data</p>
       </div>
     )
   }
   const valueSuffix = unit === '%' ? '%' : ''
   const tone = deltaTone(delta.direction)
-  const toneClass = tone === 'positive' ? 'text-emerald-400'
-    : tone === 'negative' ? 'text-rose-400'
-    : 'text-zinc-100'
+  const toneClass = tone === 'positive' ? 'text-positive-400'
+    : tone === 'negative' ? 'text-negative-400'
+    : 'text-heading'
   // unit='%' keeps its percentage-point copy; unit='count' routes through the
   // shared "smart %" formatter so the SPA and HTML stay byte-identical.
   const deltaText = unit === '%'
     ? `${delta.deltaAbs > 0 ? '+' : ''}${delta.deltaAbs.toFixed(1)}% vs ${delta.prior}%`
     : formatAverageDelta(delta)
   return (
-    <div className="rounded-xl border border-zinc-800/60 bg-zinc-900/30 px-4 py-3">
+    <div className="rounded-xl border border-default bg-surface px-4 py-3">
       <p className="eyebrow-soft">{label}</p>
       <p className={`text-2xl font-semibold tracking-tight ${toneClass}`}>
         {delta.current}{valueSuffix} <span className="text-sm font-medium">{deltaArrow(delta.direction)}</span>
       </p>
-      <p className="mt-1 text-[11px] text-zinc-500">
+      <p className="mt-1 text-[11px] text-muted">
         {deltaText}
       </p>
     </div>
@@ -787,27 +787,27 @@ function TrafficDeltaTile({
 }) {
   if (!delta) {
     return (
-      <div className="rounded-xl border border-zinc-800/60 bg-zinc-900/30 px-4 py-3">
+      <div className="rounded-xl border border-default bg-surface px-4 py-3">
         <p className="eyebrow-soft">{label}</p>
-        <p className="text-2xl font-semibold tracking-tight text-zinc-500">—</p>
-        <p className="mt-1 text-[11px] text-zinc-500">Not enough trend data</p>
+        <p className="text-2xl font-semibold tracking-tight text-muted">—</p>
+        <p className="mt-1 text-[11px] text-muted">Not enough trend data</p>
       </div>
     )
   }
   const tone = deltaTone(delta.direction)
-  const toneClass = tone === 'positive' ? 'text-emerald-400'
-    : tone === 'negative' ? 'text-rose-400'
-    : 'text-zinc-100'
+  const toneClass = tone === 'positive' ? 'text-positive-400'
+    : tone === 'negative' ? 'text-negative-400'
+    : 'text-heading'
   // Shared "smart %" formatter — same helper the HTML renderer calls, so both
   // surfaces emit byte-identical copy per the report-parity rule.
   const deltaText = formatWindowCountDelta(delta, countLabel, `vs prior ${comparisonWindowDays} days`)
   return (
-    <div className="rounded-xl border border-zinc-800/60 bg-zinc-900/30 px-4 py-3">
+    <div className="rounded-xl border border-default bg-surface px-4 py-3">
       <p className="eyebrow-soft">{label}</p>
       <p className={`text-2xl font-semibold tracking-tight ${toneClass}`}>
         {formatNumber(delta.current)} <span className="text-sm font-medium">{deltaArrow(delta.direction)}</span>
       </p>
-      <p className="mt-1 text-[11px] text-zinc-500">
+      <p className="mt-1 text-[11px] text-muted">
         {deltaText}
       </p>
     </div>
@@ -841,9 +841,9 @@ function ProviderMovementsTable({
             {meaningful.map(m => {
               const sign = m.deltaAbs > 0 ? '+' : ''
               const tone = deltaTone(m.direction)
-              const cellClass = tone === 'positive' ? 'text-emerald-400'
-                : tone === 'negative' ? 'text-rose-400'
-                : 'text-zinc-300'
+              const cellClass = tone === 'positive' ? 'text-positive-400'
+                : tone === 'negative' ? 'text-negative-400'
+                : 'text-neutral'
               return (
                 <tr key={m.provider}>
                   <td>{isClient ? providerDisplayName(m.provider) : m.provider}</td>
@@ -875,9 +875,9 @@ function WinsLossesTable({
 }) {
   if (insights.length === 0) {
     return (
-      <div className="mt-4 rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-4">
+      <div className="mt-4 rounded-xl border border-default bg-surface p-4">
         <p className="eyebrow mb-1">{heading}</p>
-        <p className="text-xs text-zinc-500">{emptyMessage}</p>
+        <p className="text-xs text-muted">{emptyMessage}</p>
       </div>
     )
   }
@@ -901,12 +901,12 @@ function WinsLossesTable({
                 {!isClient && (
                   <td>
                     <ToneBadge tone={SEVERITY_TONE[i.severity]}>{reportSeverityLabel(i.severity)}</ToneBadge>
-                    {i.instanceCount > 1 && <span className="ml-2 text-[11px] text-zinc-500">×{i.instanceCount}</span>}
+                    {i.instanceCount > 1 && <span className="ml-2 text-[11px] text-muted">×{i.instanceCount}</span>}
                   </td>
                 )}
-                <td className="evidence-query-cell">{i.title}{isClient && i.instanceCount > 1 && <span className="ml-2 text-[11px] text-zinc-500">×{i.instanceCount}</span>}</td>
-                <td className="text-xs text-zinc-400">{i.query}</td>
-                <td className="text-xs text-zinc-400">{isClient ? providerDisplayName(i.provider) : i.provider}</td>
+                <td className="evidence-query-cell">{i.title}{isClient && i.instanceCount > 1 && <span className="ml-2 text-[11px] text-muted">×{i.instanceCount}</span>}</td>
+                <td className="text-xs text-secondary">{i.query}</td>
+                <td className="text-xs text-secondary">{isClient ? providerDisplayName(i.provider) : i.provider}</td>
               </tr>
             ))}
           </tbody>
@@ -957,15 +957,15 @@ function WhatsChangedSection({ report, audience }: { report: ProjectReportDto; a
 }
 
 function Metric({ label, value, tone, subtitle }: { label: string; value: string; tone?: MetricTone; subtitle?: string }) {
-  const toneClass = tone === 'positive' ? 'text-emerald-400'
-    : tone === 'caution' ? 'text-amber-400'
-    : tone === 'negative' ? 'text-rose-400'
-    : 'text-zinc-100'
+  const toneClass = tone === 'positive' ? 'text-positive-400'
+    : tone === 'caution' ? 'text-caution-400'
+    : tone === 'negative' ? 'text-negative-400'
+    : 'text-heading'
   return (
-    <div className="rounded-xl border border-zinc-800/60 bg-zinc-900/30 px-4 py-3">
+    <div className="rounded-xl border border-default bg-surface px-4 py-3">
       <p className="eyebrow-soft">{label}</p>
       <p className={`text-2xl font-semibold tracking-tight ${toneClass}`}>{value}</p>
-      {subtitle && <p className="mt-1 text-[11px] text-zinc-500">{subtitle}</p>}
+      {subtitle && <p className="mt-1 text-[11px] text-muted">{subtitle}</p>}
     </div>
   )
 }
@@ -989,12 +989,12 @@ function ProofChips({ items, limit = 3, className }: { items: readonly string[];
   return (
     <div className={`flex flex-wrap gap-1.5 ${className ?? ''}`}>
       {visible.map((item, i) => (
-        <span key={i} className="rounded-md border border-zinc-800/60 bg-zinc-900/40 px-2 py-0.5 text-[11px] text-zinc-300">
+        <span key={i} className="rounded-md border border-default bg-bg-elevated/40 px-2 py-0.5 text-[11px] text-neutral">
           {item}
         </span>
       ))}
       {more > 0 && (
-        <span className="rounded-md border border-zinc-800/60 bg-zinc-900/40 px-2 py-0.5 text-[11px] text-zinc-400">
+        <span className="rounded-md border border-default bg-bg-elevated/40 px-2 py-0.5 text-[11px] text-secondary">
           +{more} more
         </span>
       )}
@@ -1003,5 +1003,5 @@ function ProofChips({ items, limit = 3, className }: { items: readonly string[];
 }
 
 function EmptyHint({ message }: { message: string }) {
-  return <p className="text-sm text-zinc-500 py-4 text-center">{message}</p>
+  return <p className="text-sm text-muted py-4 text-center">{message}</p>
 }
