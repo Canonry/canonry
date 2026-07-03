@@ -14,6 +14,7 @@ import {
   DiscoveryCompetitorTypes,
   DiscoverySessionStatuses,
   clusterByCosine,
+  cosineSimilarity,
   filterBrandedSeedCandidates,
   mapWithConcurrency,
   pickClusterRepresentative,
@@ -49,6 +50,12 @@ export interface DiscoveryProjectContext {
 
 export interface DiscoverySeedResult {
   candidates: string[]
+  /**
+   * Parallel to `candidates`: the provider that produced each one. Enables the
+   * monotonic multi-provider merge (anchor on the primary provider, only add
+   * novel secondaries). Optional; when absent, dedup uses the pooled path.
+   */
+  candidateProviders?: string[]
   /** Provider label that generated the seed (recorded on
    *  `discovery_sessions.seedProvider`; a composite reads "gemini+openai"). */
   provider: string
@@ -294,16 +301,71 @@ export async function pickCanonicalsWithStats(
   candidates: string[],
   deps: { embed: DiscoveryDeps['embed'] },
   dedupThreshold: number,
-): Promise<{ canonicals: string[]; stats: DedupSimilarityStats }> {
+  /**
+   * Multi-provider monotonic merge. `primaryMask[i]` marks candidates from the
+   * PRIMARY seed provider (canonical-first, e.g. gemini). When it names both
+   * roles, dedup anchors on the primary provider's own clustering and then only
+   * ADDS novel secondary candidates, guaranteeing the count never drops below a
+   * single-primary run. Omitted / single-role = the historical pooled path.
+   */
+  primaryMask?: readonly boolean[],
+): Promise<{ canonicals: string[]; stats: DedupSimilarityStats; primaryCanonicalCount?: number }> {
   const emptyStats: DedupSimilarityStats = { perClusterMinSimilarity: [], bandPairFraction: null, pairsTotal: 0 }
   if (candidates.length === 0) return { canonicals: [], stats: emptyStats }
   if (candidates.length === 1) return { canonicals: candidates, stats: emptyStats }
   const vectors = await deps.embed(candidates)
-  // Cluster INDICES so the similarity stats can address vectors per cluster;
-  // representatives are picked from the mapped strings exactly as before.
-  const indexClusters = clusterByCosine(candidates.map((_, i) => i), vectors, dedupThreshold)
-  const canonicals = indexClusters.map((cluster) => pickClusterRepresentative(cluster.map((i) => candidates[i]!)))
-  return { canonicals, stats: computeDedupSimilarityStats(vectors, indexClusters) }
+  const indices = candidates.map((_, i) => i)
+
+  const hasBothRoles =
+    primaryMask !== undefined &&
+    primaryMask.length === candidates.length &&
+    primaryMask.some((p) => p) &&
+    primaryMask.some((p) => !p)
+
+  if (!hasBothRoles) {
+    // Pooled path (single provider, or degenerate all-one-role mask): cluster
+    // INDICES so the similarity stats can address vectors per cluster;
+    // representatives are picked from the mapped strings exactly as before.
+    const indexClusters = clusterByCosine(indices, vectors, dedupThreshold)
+    const canonicals = indexClusters.map((cluster) => pickClusterRepresentative(cluster.map((i) => candidates[i]!)))
+    return { canonicals, stats: computeDedupSimilarityStats(vectors, indexClusters) }
+  }
+
+  // Monotonic multi-provider merge. Anchor on the PRIMARY provider's OWN
+  // clustering: same candidates and same single-link as a single-provider run
+  // over that subset, so it reproduces the primary canonicals EXACTLY. Then
+  // greedily append only SECONDARY candidates that are novel vs everything kept
+  // so far. Because novelty is tested against a fixed growing set (never a
+  // fresh re-clustering of the union), single-link chaining cannot bridge two
+  // primary intents through dense secondary phrasings. Guaranteed floor:
+  //   |canonicals(primary + secondary)| >= |canonicals(primary alone)|
+  // so adding a second provider can never REDUCE the canonical count.
+  const primaryIdx = indices.filter((i) => primaryMask![i])
+  // clusterByCosine needs vectors parallel to its items; pass the primary
+  // subset's vectors so the returned clusters carry the ORIGINAL candidate
+  // indices (computeDedupSimilarityStats then indexes the full vector array).
+  const primaryClusters = clusterByCosine(
+    primaryIdx,
+    primaryIdx.map((i) => vectors[i]!),
+    dedupThreshold,
+  )
+  const repIndexOf = (cluster: number[]): number => {
+    const rep = pickClusterRepresentative(cluster.map((i) => candidates[i]!))
+    return cluster.find((i) => candidates[i] === rep)!
+  }
+  const keptIdx = primaryClusters.map(repIndexOf)
+  for (const s of indices.filter((i) => !primaryMask![i])) {
+    const novel = keptIdx.every((k) => cosineSimilarity(vectors[s]!, vectors[k]!) < dedupThreshold)
+    if (novel) keptIdx.push(s)
+  }
+  return {
+    canonicals: keptIdx.map((i) => candidates[i]!),
+    // Band fraction describes the candidate SPACE (not the clustering), so it is
+    // computed over all vectors as before; per-cluster cohesion reports the
+    // primary clusters.
+    stats: computeDedupSimilarityStats(vectors, primaryClusters),
+    primaryCanonicalCount: primaryClusters.length,
+  }
 }
 
 /**
@@ -363,10 +425,29 @@ export async function executeDiscovery(opts: ExecuteDiscoveryOptions): Promise<E
   const rawCandidates = dedupeStrings(unbrandedCandidates)
   const seedCountRaw = rawCandidates.length
 
+  // Monotonic multi-provider merge: when 2+ seed providers ran, mark each
+  // surviving candidate as primary (the first provider in canonical order) or
+  // secondary, keyed by the string so the mask survives the brand filter +
+  // exact dedup. The dedup then anchors on the primary provider and only ADDS
+  // novel secondaries, so a second provider can never regress the canonical
+  // count below a single-provider run (see pickCanonicalsWithStats).
+  const primaryProvider = opts.seedProviders?.[0]
+  const multiProvider = (opts.seedProviders?.length ?? 0) >= 2 && seedResult.candidateProviders != null
+  let primaryMask: boolean[] | undefined
+  if (multiProvider && primaryProvider) {
+    const providerOf = new Map<string, string>()
+    seedResult.candidates.forEach((candidate, i) => {
+      const key = candidate.trim().toLowerCase()
+      if (!providerOf.has(key)) providerOf.set(key, seedResult.candidateProviders![i]!)
+    })
+    primaryMask = rawCandidates.map((c) => providerOf.get(c.trim().toLowerCase()) === primaryProvider)
+  }
+
   const { canonicals, stats: dedupStats } = await pickCanonicalsWithStats(
     rawCandidates,
     { embed: opts.deps.embed },
     dedupThreshold,
+    primaryMask,
   )
 
   // Degenerate-collapse guard, measured BEFORE the probe-budget slice so a

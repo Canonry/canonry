@@ -296,11 +296,19 @@ export function buildDefaultDeps(registry: ProviderRegistry): DiscoveryDeps {
       }))
 
       const candidates = perProvider.flatMap((r) => [...r.fromAnswer, ...r.fromGrounding])
+      // Parallel provenance: which provider produced each candidate, so the
+      // orchestrator's monotonic merge can anchor on the primary provider.
+      // providerNames is canonical order (primary first), so gemini candidates
+      // lead and exact-dedup keep-first never reassigns them.
+      const candidateProviders = perProvider.flatMap((r) =>
+        [...r.fromAnswer, ...r.fromGrounding].map(() => r.name),
+      )
       const providerCounts = Object.fromEntries(
         perProvider.map((r) => [r.name, r.fromAnswer.length + r.fromGrounding.length]),
       )
       return {
         candidates,
+        candidateProviders,
         provider: providerNames.join('+'),
         // Session diagnostics: the raw-candidate splits, persisted on
         // discovery_sessions so seed-quality calibration is measurable.
