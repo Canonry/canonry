@@ -180,6 +180,30 @@ Do not add new literal palette utilities for themeable UI. The fixed provider
 identity palettes in `ProviderBadge` remain literal because they encode the
 engine, not semantic tone.
 
+Two migration conventions (decided against the actual codebase, keep slices
+consistent):
+
+- **Off-ladder `zinc-900` alpha shades use `bg-bg-elevated/NN`**, not
+  `bg-surface-hover` (they compute to the same color: `bg-elevated` is solid
+  `zinc-900`, so the opacity modifier reproduces the literal exactly). The named
+  `surface-*` role tokens (`bg-surface` = `/30`, `-subtle` = `/20`,
+  `-hover` = `/40`) are reserved for the shades they name; the codebase uses
+  `bg-bg-elevated/NN` everywhere else (`/40`, `/50`, `/60`, `/70`, `/80`).
+- **Placeholder color uses the `placeholder-mono-NNN` shorthand**
+  (e.g. `placeholder-mono-600`), not the `placeholder:text-*` variant form.
+
+**Design-token ratchet (Phase 3, enforced).** The
+`design-tokens/no-literal-palette` ESLint rule (`eslint.config.js`) flags any raw
+Tailwind palette utility in `apps/web/src`. Files still mid-migration are listed
+in `RAW_PALETTE_ALLOWLIST`; `ProviderBadge` + `ChartPrimitives` are permanent
+exclusions. **When you migrate a file, delete it from `RAW_PALETTE_ALLOWLIST`** in
+the same PR so it can never regress; when the list is empty, drop the `ignores`
+line so the rule covers the whole tree. `pnpm --filter @ainyc/canonry-web scan:colors`
+prints the remaining per-file counts (progress only; the lint rule is the gate).
+Each migration slice is class-only (no redesign) and runs the same checks:
+`design-tokens.test.ts` + a `dashboard-class-baseline.test.tsx` update if the
+baselined class lists move + typecheck + lint + build.
+
 Token migration guardrails:
 
 - `test/design-tokens.test.ts` compiles the stylesheet with Tailwind and proves
