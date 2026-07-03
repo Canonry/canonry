@@ -9,7 +9,8 @@
     "build": "vite build",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run --config vitest.config.ts",
-    "lint": "eslint src/ test/ vite.config.ts"
+    "lint": "eslint src/ test/ vite.config.ts",
+    "scan:colors": "node scripts/scan-raw-colors.mjs"
   },
   "dependencies": {
     "@ainyc/canonry-api-client": "workspace:*",

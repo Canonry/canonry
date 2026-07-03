@@ -21,6 +21,77 @@ const ALT_CHART_LIB_PATTERNS = [
   { group: ['plotly.js-*'], message: 'Use Recharts via ChartPrimitives instead.' },
 ]
 
+// Design-token migration ratchet (engine issue #767, Phase 3). Flags raw Tailwind
+// palette color utilities (`bg-zinc-500`, `text-emerald-400`, `border-rose-500/25`,
+// ...) in themeable web code so a migrated file can't regress. Implemented as a
+// CUSTOM rule with a unique id rather than another `no-restricted-syntax` block:
+// ESLint flat config does LAST-WINS OVERRIDE for a shared rule id across
+// overlapping config blocks, so a 4th `no-restricted-syntax` on apps/web/src would
+// silently disable the raw-`fetch()`/SDK guard (verified 2026-07-03). A unique id
+// composes instead of clobbering. As each Phase-3 slice migrates a file to
+// semantic/scale tokens, delete it from RAW_PALETTE_ALLOWLIST; when the list is
+// empty, drop the `ignores` line in the block below so the rule covers the whole
+// tree (only the permanent exclusions remain).
+const RAW_PALETTE_RE =
+  /\b(?:bg|text|border|ring|fill|stroke|from|via|to|divide|outline|decoration|accent|caret|placeholder|shadow|ring-offset)-(?:zinc|slate|gray|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-(?:50|100|200|300|400|500|600|700|800|900|950)\b/
+
+const noLiteralPaletteRule = {
+  meta: {
+    type: 'problem',
+    docs: { description: 'Disallow raw Tailwind palette color utilities in themeable web code (design-token migration).' },
+    schema: [],
+    messages: {
+      rawPalette:
+        'Raw Tailwind palette utility in themeable web code. Use a semantic token (bg-surface, ' +
+        'text-secondary, border-default, ...) or a scale token (mono-*/positive-*/caution-*/negative-*/info-*). ' +
+        'See apps/web/AGENTS.md "Design tokens".',
+    },
+  },
+  create(context) {
+    return {
+      Literal(node) {
+        if (typeof node.value === 'string' && RAW_PALETTE_RE.test(node.value)) {
+          context.report({ node, messageId: 'rawPalette' })
+        }
+      },
+      TemplateElement(node) {
+        if (RAW_PALETTE_RE.test(node.value.raw)) {
+          context.report({ node, messageId: 'rawPalette' })
+        }
+      },
+    }
+  },
+}
+
+// Files still carrying raw palette utilities (Phase 3 migration in progress).
+// Remove a file the moment its slice lands. When this list is empty, delete the
+// `ignores: [...RAW_PALETTE_ALLOWLIST, ...]` line in the block below.
+const RAW_PALETTE_ALLOWLIST = [
+  'apps/web/src/App.tsx',
+  'apps/web/src/pages/ProjectPage.tsx',
+  'apps/web/src/pages/ReportPage.tsx',
+  'apps/web/src/pages/BacklinksPage.tsx',
+  'apps/web/src/pages/TrafficSourceDetailPage.tsx',
+  'apps/web/src/pages/SetupPage.tsx',
+  'apps/web/src/pages/TrafficPage.tsx',
+  'apps/web/src/pages/SettingsPage.tsx',
+  'apps/web/src/pages/ProjectsPage.tsx',
+  'apps/web/src/pages/OverviewPage.tsx',
+  'apps/web/src/pages/RunsPage.tsx',
+  'apps/web/src/components/project/TechnicalAeoSection.tsx',
+  'apps/web/src/components/project/DiscoverySection.tsx',
+  'apps/web/src/components/project/CitationVisibilitySection.tsx',
+  'apps/web/src/lib/highlight.ts',
+  'apps/web/src/lib/tone-helpers.ts',
+]
+
+// PERMANENT exclusions: ProviderBadge encodes engine identity (not tone) and
+// ChartPrimitives carries the `var(--chart-*, #hex)` fallbacks. Both stay literal.
+const RAW_PALETTE_PERMANENT_EXCLUSIONS = [
+  'apps/web/src/components/shared/ProviderBadge.tsx',
+  'apps/web/src/components/shared/ChartPrimitives.tsx',
+]
+
 export default tseslint.config(
   {
     ignores: [
@@ -273,5 +344,15 @@ export default tseslint.config(
         message: 'Use the generated `@ainyc/canonry-api-client` SDK via `ApiClient` / `createApiClient()` (which routes through `invoke()` for tracing, CliError mapping, and the base-path probe) instead of raw `fetch()`. If you genuinely need raw `fetch()` for an external (non-canonry) HTTP call, add the file to the `ignores` list in `eslint.config.js` with a one-line comment naming the external service.',
       }],
     },
+  },
+  {
+    // Design-token migration ratchet: no raw Tailwind palette utilities in
+    // themeable web code. Unique rule id (does NOT collide with the
+    // `no-restricted-syntax` blocks above). `ignores` is the in-progress
+    // allowlist + the two permanent exclusions; shrink it as slices land.
+    files: ['apps/web/src/**/*.ts', 'apps/web/src/**/*.tsx'],
+    ignores: [...RAW_PALETTE_ALLOWLIST, ...RAW_PALETTE_PERMANENT_EXCLUSIONS],
+    plugins: { 'design-tokens': { rules: { 'no-literal-palette': noLiteralPaletteRule } } },
+    rules: { 'design-tokens/no-literal-palette': 'error' },
   },
 )
