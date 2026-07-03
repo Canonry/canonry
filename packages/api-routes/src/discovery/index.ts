@@ -11,6 +11,7 @@ export {
   buildCompetitorMap,
   markSessionFailed,
   pickCanonicals,
+  pickCanonicalsWithStats,
   type DiscoveryDeps,
   type DiscoveryDomainClassification,
   type DiscoveryProjectContext,
