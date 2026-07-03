@@ -21,7 +21,7 @@ export function RunsPage() {
         </div>
         <div className="space-y-2">
           {[1, 2, 3, 4].map((i) => (
-            <div key={i} className="rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-3 flex items-center gap-3">
+            <div key={i} className="rounded-xl border border-default bg-surface p-3 flex items-center gap-3">
               <div className="flex-1 space-y-1.5">
                 <div className="skeleton-text w-40" />
                 <div className="skeleton-text-sm w-56" />

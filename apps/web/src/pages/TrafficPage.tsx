@@ -91,13 +91,13 @@ export function TrafficPage() {
         </div>
 
         {!activeProject ? (
-          <Card className="p-6 text-center text-sm text-zinc-500">No projects yet.</Card>
+          <Card className="p-6 text-center text-sm text-muted">No projects yet.</Card>
         ) : sourcesQuery.isLoading ? (
-          <Card className="p-6 text-center text-sm text-zinc-500">Loading sources…</Card>
+          <Card className="p-6 text-center text-sm text-muted">Loading sources…</Card>
         ) : sources.length === 0 ? (
           <Card className="p-8 text-center">
-            <p className="text-sm text-zinc-300">No traffic sources connected for {activeProject}.</p>
-            <p className="mt-1 text-xs text-zinc-500">Connect a traffic source to start ingesting crawler hits and AI-referral sessions from your server logs.</p>
+            <p className="text-sm text-neutral">No traffic sources connected for {activeProject}.</p>
+            <p className="mt-1 text-xs text-muted">Connect a traffic source to start ingesting crawler hits and AI-referral sessions from your server logs.</p>
             <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
               <Button type="button" variant="outline" size="sm" onClick={() => setConnectOpen(true)}>
                 <Plus className="size-3.5" />
@@ -139,9 +139,9 @@ function SourcesTable({ projectName, sources }: { projectName: string; sources: 
   }))
 
   return (
-    <div className="rounded-xl border border-zinc-800/60 bg-zinc-900/30 overflow-hidden">
+    <div className="rounded-xl border border-default bg-surface overflow-hidden">
       <table className="w-full text-sm">
-        <thead className="bg-zinc-900/50 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+        <thead className="bg-bg-elevated/50 text-[10px] font-semibold uppercase tracking-wider text-muted">
           <tr>
             <th className="px-4 py-2 text-left">Source</th>
             <th className="px-4 py-2 text-left">Status</th>
@@ -153,44 +153,44 @@ function SourcesTable({ projectName, sources }: { projectName: string; sources: 
             <th className="px-4 py-2 text-right" />
           </tr>
         </thead>
-        <tbody className="divide-y divide-zinc-800/60">
+        <tbody className="divide-y divide-mono-800/60">
           {rows.map(({ source, detail, isLoading }) => (
-            <tr key={source.id} className="hover:bg-zinc-900/40 transition-colors">
+            <tr key={source.id} className="hover:bg-bg-elevated/40 transition-colors">
               <td className="px-4 py-3">
-                <div className="font-medium text-zinc-100">{source.displayName}</div>
-                <div className="text-[11px] text-zinc-500 font-mono">{source.sourceType} · {source.id.slice(0, 8)}</div>
+                <div className="font-medium text-heading">{source.displayName}</div>
+                <div className="text-[11px] text-muted font-mono">{source.sourceType} · {source.id.slice(0, 8)}</div>
               </td>
               <td className="px-4 py-3">
                 <ToneBadge tone={toneFromTrafficSourceStatus(source.status)}>
                   {source.status}
                 </ToneBadge>
                 {source.lastError ? (
-                  <p className="mt-1 max-w-[18rem] truncate text-[11px] text-rose-400/80" title={source.lastError}>
+                  <p className="mt-1 max-w-[18rem] truncate text-[11px] text-negative-400/80" title={source.lastError}>
                     {source.lastError}
                   </p>
                 ) : null}
               </td>
-              <td className="px-4 py-3 text-zinc-300">{relativeTime(source.lastSyncedAt)}</td>
+              <td className="px-4 py-3 text-neutral">{relativeTime(source.lastSyncedAt)}</td>
               <td
-                className="px-4 py-3 text-right tabular-nums text-zinc-100"
+                className="px-4 py-3 text-right tabular-nums text-heading"
                 title={detail ? `${detail.totals24h.crawlerHits.toLocaleString('en-US')} total crawler hits` : undefined}
               >
                 {isLoading ? '—' : formatCompact(detail?.totals24h.crawlerContentHits ?? 0)}
               </td>
-              <td className="px-4 py-3 text-right tabular-nums text-zinc-500">
+              <td className="px-4 py-3 text-right tabular-nums text-muted">
                 {isLoading ? '—' : formatCompact(detail?.totals24h.crawlerInfraHits ?? 0)}
               </td>
-              <td className="px-4 py-3 text-right tabular-nums text-zinc-100">
+              <td className="px-4 py-3 text-right tabular-nums text-heading">
                 {isLoading ? '—' : formatCompact(detail?.totals24h.aiUserFetchHits ?? 0)}
               </td>
-              <td className="px-4 py-3 text-right tabular-nums text-zinc-100">
+              <td className="px-4 py-3 text-right tabular-nums text-heading">
                 {isLoading ? '—' : formatCompact(detail?.totals24h.aiReferralHits ?? 0)}
               </td>
               <td className="px-4 py-3 text-right">
                 <Link
                   to="/traffic/$projectName/$sourceId"
                   params={{ projectName, sourceId: source.id }}
-                  className="inline-flex items-center gap-1 text-xs text-zinc-300 hover:text-zinc-100"
+                  className="inline-flex items-center gap-1 text-xs text-neutral hover:text-heading"
                 >
                   <RefreshCw className="size-3" />
                   View
@@ -200,9 +200,9 @@ function SourcesTable({ projectName, sources }: { projectName: string; sources: 
           ))}
         </tbody>
       </table>
-      <p className="border-t border-zinc-800/60 px-4 py-2 text-[11px] text-zinc-600">
+      <p className="border-t border-default px-4 py-2 text-[11px] text-faint">
         Showing {sources.filter((s) => s.status !== TrafficSourceStatuses.archived).length} active source{sources.length === 1 ? '' : 's'} for {projectName}.
-        Same shape as <code className="text-zinc-400">canonry traffic status {projectName} --format json</code>.
+        Same shape as <code className="text-secondary">canonry traffic status {projectName} --format json</code>.
       </p>
     </div>
   )

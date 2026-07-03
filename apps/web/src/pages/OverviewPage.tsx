@@ -38,9 +38,9 @@ function OverviewProjectCard({
       <div className="project-row-stat">
         <div className="metric-inline-block">
           <p className="metric-inline-label">Mentioned</p>
-          <p className={`metric-inline-value ${project.mentionTone === 'caution' ? 'text-amber-400' : ''}`}>{project.mentionScore}</p>
+          <p className={`metric-inline-value ${project.mentionTone === 'caution' ? 'text-caution-400' : ''}`}>{project.mentionScore}</p>
           <p className="metric-inline-delta">{project.mentionDelta}</p>
-          {project.providerCoverage && <p className="text-[10px] font-medium text-amber-400/80">{project.providerCoverage}</p>}
+          {project.providerCoverage && <p className="text-[10px] font-medium text-caution-400/80">{project.providerCoverage}</p>}
         </div>
       </div>
       <div className="project-row-stat">
@@ -50,7 +50,7 @@ function OverviewProjectCard({
         </div>
       </div>
       <span className="project-row-link">
-        <ChevronRight className="h-4 w-4 text-zinc-500" />
+        <ChevronRight className="h-4 w-4 text-muted" />
       </span>
     </Link>
   )
@@ -70,7 +70,7 @@ export function OverviewPage() {
         </div>
         <div className="space-y-3">
           {[1, 2, 3].map((i) => (
-            <div key={i} className="rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-4 flex items-center gap-4">
+            <div key={i} className="rounded-xl border border-default bg-surface p-4 flex items-center gap-4">
               <div className="flex-1 space-y-2">
                 <div className="skeleton-text w-36" />
                 <div className="skeleton-text-sm w-48" />
@@ -102,7 +102,7 @@ export function OverviewPage() {
           <p className="page-subtitle">Visibility and execution state across all projects</p>
         </div>
         <div className="page-header-right">
-          <p className="text-[11px] text-zinc-600">{model.lastUpdatedAt}</p>
+          <p className="text-[11px] text-faint">{model.lastUpdatedAt}</p>
         </div>
       </div>
 

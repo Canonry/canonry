@@ -66,7 +66,7 @@ export function SettingsPage() {
                 <dd className="font-mono text-xs">
                   {provider.model ?? provider.defaultModel ?? 'unknown'}
                   {!provider.model && provider.defaultModel && (
-                    <span className="ml-1 font-sans text-zinc-500">(default)</span>
+                    <span className="ml-1 font-sans text-muted">(default)</span>
                   )}
                 </dd>
               </div>
@@ -83,7 +83,7 @@ export function SettingsPage() {
                 </>
               )}
             </dl>
-            <p className="mt-2 text-sm text-zinc-500">{provider.detail}</p>
+            <p className="mt-2 text-sm text-muted">{provider.detail}</p>
             <div className="mt-2">
               <Button
                 type="button"
@@ -127,7 +127,7 @@ export function SettingsPage() {
               <dd className="font-mono text-xs">~/.canonry/config.yaml</dd>
             </div>
           </dl>
-          <p className="mt-2 text-sm text-zinc-500">{settings.google.detail}</p>
+          <p className="mt-2 text-sm text-muted">{settings.google.detail}</p>
           <div className="mt-2">
             <Button
               type="button"
@@ -167,7 +167,7 @@ export function SettingsPage() {
               <dd className="font-mono text-xs">~/.canonry/config.yaml</dd>
             </div>
           </dl>
-          <p className="mt-2 text-sm text-zinc-500">{settings.bing.detail}</p>
+          <p className="mt-2 text-sm text-muted">{settings.bing.detail}</p>
           <div className="mt-2">
             <Button
               type="button"
@@ -179,15 +179,15 @@ export function SettingsPage() {
             </Button>
           </div>
           {configuringBing && (
-            <div className="mt-3 rounded-lg border border-zinc-800 bg-zinc-900/40 p-3 space-y-2">
+            <div className="mt-3 rounded-lg border border-base bg-bg-elevated/40 p-3 space-y-2">
               <div>
                 <div className="flex items-center justify-between">
-                  <label className="text-xs text-zinc-500" htmlFor="bing-api-key">API Key</label>
+                  <label className="text-xs text-muted" htmlFor="bing-api-key">API Key</label>
                   <a
                     href="https://www.bing.com/webmasters/"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-[10px] text-zinc-500 hover:text-zinc-300 underline underline-offset-2"
+                    className="text-[10px] text-muted hover:text-neutral underline underline-offset-2"
                   >
                     Bing Webmaster Tools
                   </a>
@@ -195,17 +195,17 @@ export function SettingsPage() {
                 <input
                   id="bing-api-key"
                   type="password"
-                  className="mt-0.5 w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+                  className="mt-0.5 w-full rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
                   placeholder="Bing Webmaster Tools API key"
                   value={bingApiKey}
                   onChange={(e) => setBingApiKey(e.target.value)}
                 />
               </div>
-              <p className="text-[11px] text-zinc-500">
+              <p className="text-[11px] text-muted">
                 This key is stored in <code>~/.canonry/config.yaml</code>. Project-level Bing connections are created separately per canonical domain.
               </p>
-              {bingError && <p className="text-xs text-rose-400">{bingError}</p>}
-              {bingSuccess && <p className="text-xs text-emerald-400">Bing API key updated.</p>}
+              {bingError && <p className="text-xs text-negative-400">{bingError}</p>}
+              {bingSuccess && <p className="text-xs text-positive-400">Bing API key updated.</p>}
               <Button type="button" size="sm" disabled={!bingApiKey.trim() || bingSaving} onClick={asyncHandler(async () => {
                 if (!bingApiKey.trim()) return
                 setBingSaving(true)
