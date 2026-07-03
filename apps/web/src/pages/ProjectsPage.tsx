@@ -23,14 +23,14 @@ export function ProjectsPage() {
           <div className="skeleton-text h-6 w-28" />
           <div className="skeleton-text-sm w-40" />
         </div>
-        <div className="rounded-xl border border-zinc-800/60 bg-zinc-900/30 overflow-hidden">
-          <div className="p-3 border-b border-zinc-800/60 flex gap-8">
+        <div className="rounded-xl border border-default bg-surface overflow-hidden">
+          <div className="p-3 border-b border-default flex gap-8">
             {['Name', 'Domain', 'Mentions', 'Last run', 'Country'].map((h) => (
               <div key={h} className="skeleton-text-sm w-16" />
             ))}
           </div>
           {[1, 2, 3].map((i) => (
-            <div key={i} className="p-3 border-b border-zinc-800/40 flex gap-8 items-center">
+            <div key={i} className="p-3 border-b border-subtle flex gap-8 items-center">
               <div className="flex-1 space-y-1">
                 <div className="skeleton-text w-28" />
                 <div className="skeleton-text-sm w-16" />
@@ -113,7 +113,7 @@ export function ProjectsPage() {
           <div className="section-head">
             <div>
               <p className="eyebrow eyebrow-soft">New project</p>
-              <h2 className="text-sm font-medium text-zinc-200">Create a new monitoring project</h2>
+              <h2 className="text-sm font-medium text-strong">Create a new monitoring project</h2>
             </div>
           </div>
           <div className="compact-stack mt-4">
@@ -182,7 +182,7 @@ export function ProjectsPage() {
               </div>
             </div>
           </div>
-          {error ? <p className="text-rose-400 text-sm mt-3">{error}</p> : null}
+          {error ? <p className="text-negative-400 text-sm mt-3">{error}</p> : null}
           <div className="flex items-center gap-3 mt-4">
             <Button type="button" disabled={!slug || !domain || saving} onClick={asyncHandler(handleCreate)}>
               {saving ? 'Creating...' : 'Create project'}
@@ -215,25 +215,25 @@ export function ProjectsPage() {
                       <Link
                         to="/projects/$projectName"
                         params={{ projectName: p.project.name }}
-                        className="text-zinc-100 font-medium hover:underline"
+                        className="text-heading font-medium hover:underline"
                         onClick={(e) => e.stopPropagation()}
                       >
                         {p.project.displayName || p.project.name}
                       </Link>
-                      <p className="text-[11px] text-zinc-500">{p.project.name}</p>
+                      <p className="text-[11px] text-muted">{p.project.name}</p>
                     </td>
-                    <td className="text-zinc-400">{p.project.canonicalDomain}</td>
+                    <td className="text-secondary">{p.project.canonicalDomain}</td>
                     <td>
                       <ToneBadge tone={p.mentionSummary.tone}>{p.mentionSummary.value}</ToneBadge>
                     </td>
-                    <td className="text-zinc-500 text-sm">
+                    <td className="text-muted text-sm">
                       {latestRun ? (
                         <StatusBadge status={latestRun.status} />
                       ) : (
-                        <span className="text-zinc-600">No runs</span>
+                        <span className="text-faint">No runs</span>
                       )}
                     </td>
-                    <td className="text-right text-zinc-500">{p.project.country}</td>
+                    <td className="text-right text-muted">{p.project.country}</td>
                   </tr>
                 )
               })}

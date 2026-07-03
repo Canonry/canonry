@@ -769,25 +769,25 @@ export function RootLayout() {
         >
           <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-sm">
             <StatusBadge status={selectedRun.status} />
-            <span className="text-zinc-400">{selectedRun.startedAt}</span>
-            <span className="text-zinc-500">{selectedRun.duration}</span>
-            <span className="text-zinc-600">{selectedRun.triggerLabel}</span>
+            <span className="text-secondary">{selectedRun.startedAt}</span>
+            <span className="text-muted">{selectedRun.duration}</span>
+            <span className="text-faint">{selectedRun.triggerLabel}</span>
           </div>
           {selectedRun.status === 'failed' && selectedRun.statusDetail && (
-            <p className="text-sm text-rose-300/80 mt-2">{selectedRun.statusDetail}</p>
+            <p className="text-sm text-negative/80 mt-2">{selectedRun.statusDetail}</p>
           )}
 
           {/* Run activity log */}
           <div className="mt-4">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 mb-2">Activity Log</p>
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted mb-2">Activity Log</p>
             {runDetailLoading ? (
-              <p className="text-sm text-zinc-500">Loading run details...</p>
+              <p className="text-sm text-muted">Loading run details...</p>
             ) : runDetail?.snapshots && runDetail.snapshots.length > 0 ? (
               <div className="space-y-2">
                 {runDetail.snapshots.map((snap) => (
-                  <div key={snap.id} className="rounded-lg border border-zinc-800/60 bg-zinc-900/30 p-3">
+                  <div key={snap.id} className="rounded-lg border border-default bg-surface p-3">
                     <div className="flex items-center justify-between gap-2 mb-1">
-                      <p className="text-sm font-medium text-zinc-200 truncate">{snap.query ?? 'Unknown query'}</p>
+                      <p className="text-sm font-medium text-strong truncate">{snap.query ?? 'Unknown query'}</p>
                       <div className="flex items-center gap-1.5">
                         <ProviderBadge provider={snap.provider} />
                         <Badge variant={snap.citationState === CitationStates.cited ? 'success' : 'neutral'}>
@@ -796,21 +796,21 @@ export function RootLayout() {
                       </div>
                     </div>
                     {snap.model && (
-                      <p className="text-[11px] text-zinc-500 font-mono">{snap.model}</p>
+                      <p className="text-[11px] text-muted font-mono">{snap.model}</p>
                     )}
                     {snap.citedDomains.length > 0 && (
-                      <p className="text-xs text-zinc-500 mt-1">
-                        <span className="text-zinc-400">Sources:</span> {snap.citedDomains.join(', ')}
+                      <p className="text-xs text-muted mt-1">
+                        <span className="text-secondary">Sources:</span> {snap.citedDomains.join(', ')}
                       </p>
                     )}
                     {snap.competitorOverlap.length > 0 && (
-                      <p className="text-xs text-rose-400/80 mt-0.5">
+                      <p className="text-xs text-negative-400/80 mt-0.5">
                         Competitor cited: {snap.competitorOverlap.join(', ')}
                       </p>
                     )}
                     {snap.groundingSources && snap.groundingSources.length > 0 && (
                       <details className="mt-2">
-                        <summary className="text-xs text-zinc-500 cursor-pointer hover:text-zinc-400">
+                        <summary className="text-xs text-muted cursor-pointer hover:text-secondary">
                           {snap.groundingSources.length} grounding source{snap.groundingSources.length !== 1 ? 's' : ''}
                         </summary>
                         <ul className="mt-1 space-y-0.5">
@@ -820,9 +820,9 @@ export function RootLayout() {
                             const href = safeExternalUrl(src.uri)
                             const label = src.title || src.uri
                             return (
-                              <li key={i} className="text-xs text-zinc-500 truncate">
+                              <li key={i} className="text-xs text-muted truncate">
                                 {href ? (
-                                  <a href={href} target="_blank" rel="noopener noreferrer" className="hover:text-zinc-300">{label}</a>
+                                  <a href={href} target="_blank" rel="noopener noreferrer" className="hover:text-neutral">{label}</a>
                                 ) : (
                                   <span>{label}</span>
                                 )}
@@ -834,36 +834,36 @@ export function RootLayout() {
                     )}
                     {snap.answerText && (
                       <details className="mt-1">
-                        <summary className="text-xs text-zinc-500 cursor-pointer hover:text-zinc-400">Answer preview</summary>
-                        <p className="mt-1 text-xs text-zinc-400 leading-relaxed whitespace-pre-wrap">{snap.answerText}</p>
+                        <summary className="text-xs text-muted cursor-pointer hover:text-secondary">Answer preview</summary>
+                        <p className="mt-1 text-xs text-secondary leading-relaxed whitespace-pre-wrap">{snap.answerText}</p>
                       </details>
                     )}
                   </div>
                 ))}
                 {runDetail.status === 'running' && (
-                  <div className="flex items-center gap-2 p-3 text-sm text-zinc-500">
-                    <span className="inline-block h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
+                  <div className="flex items-center gap-2 p-3 text-sm text-muted">
+                    <span className="inline-block h-2 w-2 rounded-full bg-caution-500 animate-pulse" />
                     Running remaining queries...
                   </div>
                 )}
               </div>
             ) : runDetail && runDetail.status === 'running' ? (
-              <div className="flex items-center gap-2 p-3 text-sm text-zinc-500">
-                <span className="inline-block h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
+              <div className="flex items-center gap-2 p-3 text-sm text-muted">
+                <span className="inline-block h-2 w-2 rounded-full bg-caution-500 animate-pulse" />
                 Waiting for first query result...
               </div>
             ) : runDetail && runDetail.status === 'queued' ? (
-              <div className="flex items-center gap-2 p-3 text-sm text-zinc-500">
-                <span className="inline-block h-2 w-2 rounded-full bg-zinc-500 animate-pulse" />
+              <div className="flex items-center gap-2 p-3 text-sm text-muted">
+                <span className="inline-block h-2 w-2 rounded-full bg-mono-500 animate-pulse" />
                 Run queued, waiting for execution slot...
               </div>
             ) : runDetail && runDetail.error ? (
-              <div className="rounded-lg border border-rose-800/40 bg-rose-950/20 p-3">
-                <p className="text-sm font-medium text-rose-300 mb-2">Run failed</p>
-                <pre className="text-xs text-rose-300/80 whitespace-pre-wrap break-words max-h-48 overflow-y-auto font-mono leading-5">{formatErrorLog(runDetail.error)}</pre>
+              <div className="rounded-lg border border-negative-800/40 bg-negative-950/20 p-3">
+                <p className="text-sm font-medium text-negative mb-2">Run failed</p>
+                <pre className="text-xs text-negative/80 whitespace-pre-wrap break-words max-h-48 overflow-y-auto font-mono leading-5">{formatErrorLog(runDetail.error)}</pre>
               </div>
             ) : (
-              <p className="text-sm text-zinc-500">No snapshot data available.</p>
+              <p className="text-sm text-muted">No snapshot data available.</p>
             )}
           </div>
         </Drawer>

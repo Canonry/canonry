@@ -38,17 +38,11 @@ const ALT_CHART_LIB_PATTERNS = [
 // Remove a file the moment its slice lands. When this list is empty, delete the
 // `ignores: [...RAW_PALETTE_ALLOWLIST, ...]` line in the block below.
 const RAW_PALETTE_ALLOWLIST = [
-  'apps/web/src/App.tsx',
   'apps/web/src/pages/ProjectPage.tsx',
   'apps/web/src/pages/ReportPage.tsx',
   'apps/web/src/pages/BacklinksPage.tsx',
   'apps/web/src/pages/TrafficSourceDetailPage.tsx',
   'apps/web/src/pages/SetupPage.tsx',
-  'apps/web/src/pages/TrafficPage.tsx',
-  'apps/web/src/pages/SettingsPage.tsx',
-  'apps/web/src/pages/ProjectsPage.tsx',
-  'apps/web/src/pages/OverviewPage.tsx',
-  'apps/web/src/pages/RunsPage.tsx',
   'apps/web/src/lib/highlight.ts',
   'apps/web/src/lib/tone-helpers.ts',
 ]
