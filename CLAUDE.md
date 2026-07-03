@@ -43,10 +43,11 @@ The web dashboard follows a dark, professional analytics aesthetic inspired by *
   `--color-caution-glow` / `-glow-inset`.
 - `apps/web/src/styles.css` is fully tokenized — zero literal palette utilities
   and zero raw hex/rgba outside the `@theme` block (guarded by
-  `design-tokens.test.ts`). Literal palette utilities (`bg-zinc-*`, `text-zinc-*`,
-  `border-zinc-*`, `emerald` / `amber` / `rose`) still exist in the `.tsx`
-  component code until the Phase 3 migration completes. Do not add new literal
-  palette utilities for themeable UI; add or use a semantic (or scale) token.
+  `design-tokens.test.ts`). The Phase 3 migration is COMPLETE: the entire
+  `apps/web/src` `.tsx` tree is tokenized and the `design-tokens/no-literal-palette`
+  ratchet errors on any raw palette utility (only `ProviderBadge` / `ChartPrimitives`
+  excluded). Do not add new literal palette utilities for themeable UI; add or use a
+  semantic (or scale) token.
 - Font: **Geist Sans** (400–800 weights) for UI text, **Geist Mono** for code/numerics. Globally enabled OpenType features `cv11`, `ss01`, `ss03` for sharper i/l/I/0 disambiguation. Headings tighten tracking (`-0.015em`, `-0.02em` on h1). Use `text-heading` / `text-strong` for heading and emphasized neutral text, `text-primary` for highest-contrast body text, `text-secondary` for supporting text, and `text-muted` / `text-faint` for labels.
 - Tone tokens: **positive** = emerald, **caution** = amber, **negative** = rose, **neutral** = zinc. Use `text-positive`, `border-positive`, `bg-positive-soft`, `fill-positive`, and the matching caution/negative/neutral utilities for new themeable tone work. **info** = sky is a minor accent (opportunity "track" cards, the suggested-query add action) exposed only as an `info-{100,200,300,400,500,800,950}` scale, not a full tone quartet.
 - Provider identity colors in `ProviderBadge` encode which answer engine produced a signal. They are not semantic tone colors and stay literal unless the provider identity system changes.

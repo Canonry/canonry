@@ -30,16 +30,9 @@ const ALT_CHART_LIB_PATTERNS = [
 // OVERRIDE for a shared rule id across overlapping config blocks, so a 4th
 // `no-restricted-syntax` on apps/web/src would silently disable the
 // raw-`fetch()`/SDK guard (verified 2026-07-03). A unique id composes instead of
-// clobbering. As each Phase-3 slice migrates a file, delete it from
-// RAW_PALETTE_ALLOWLIST; when the list is empty, drop the `ignores` line in the
-// block below so the rule covers the whole tree (permanent exclusions remain).
-
-// Files still carrying raw palette utilities (Phase 3 migration in progress).
-// Remove a file the moment its slice lands. When this list is empty, delete the
-// `ignores: [...RAW_PALETTE_ALLOWLIST, ...]` line in the block below.
-const RAW_PALETTE_ALLOWLIST = [
-  'apps/web/src/pages/ProjectPage.tsx',
-]
+// clobbering. Phase 3 is COMPLETE: every apps/web/src file is migrated, so the
+// rule now covers the whole tree with only the two permanent exclusions below
+// (the migration allowlist has been emptied and removed).
 
 // PERMANENT exclusions: ProviderBadge encodes engine identity (not tone) and
 // ChartPrimitives carries the `var(--chart-*, #hex)` fallbacks. Both stay literal.
@@ -302,12 +295,12 @@ export default tseslint.config(
     },
   },
   {
-    // Design-token migration ratchet: no raw Tailwind palette utilities in
-    // themeable web code. Unique rule id (does NOT collide with the
-    // `no-restricted-syntax` blocks above). `ignores` is the in-progress
-    // allowlist + the two permanent exclusions; shrink it as slices land.
+    // Design-token ratchet (Phase 3 COMPLETE): no raw Tailwind palette utilities
+    // anywhere in themeable web code. Unique rule id (does NOT collide with the
+    // `no-restricted-syntax` blocks above). Only the two permanent exclusions are
+    // ignored — the migration allowlist is empty and has been removed.
     files: ['apps/web/src/**/*.ts', 'apps/web/src/**/*.tsx'],
-    ignores: [...RAW_PALETTE_ALLOWLIST, ...RAW_PALETTE_PERMANENT_EXCLUSIONS],
+    ignores: [...RAW_PALETTE_PERMANENT_EXCLUSIONS],
     plugins: { 'design-tokens': { rules: { 'no-literal-palette': noLiteralPaletteRule } } },
     rules: { 'design-tokens/no-literal-palette': 'error' },
   },
