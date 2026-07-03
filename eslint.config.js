@@ -49,9 +49,6 @@ const RAW_PALETTE_ALLOWLIST = [
   'apps/web/src/pages/ProjectsPage.tsx',
   'apps/web/src/pages/OverviewPage.tsx',
   'apps/web/src/pages/RunsPage.tsx',
-  'apps/web/src/components/project/TechnicalAeoSection.tsx',
-  'apps/web/src/components/project/DiscoverySection.tsx',
-  'apps/web/src/components/project/CitationVisibilitySection.tsx',
   'apps/web/src/lib/highlight.ts',
   'apps/web/src/lib/tone-helpers.ts',
 ]
