@@ -168,9 +168,16 @@ export function compareToBaseline(
         `${base.shape}: canonicalCount ${current.canonicalCount} vs baseline ${base.canonicalCount} (band: >= ${EVAL_BANDS.canonicalCountFactor}x)`,
       )
     }
-    if (current.retention < base.retention - EVAL_BANDS.retentionDrop) {
+    // Retention (canonicals / raw) only fails when canonicals ALSO regressed.
+    // Retention is a within-config collapse signal; across configs whose raw
+    // candidate volume differs (e.g. a single-provider baseline vs a
+    // multi-provider variant that roughly doubles raw), retention drops purely
+    // because the denominator grew even as distinct output rose. The canonical
+    // count is the real quality signal, so retention only corroborates a
+    // canonical regression, it never fails on its own.
+    if (current.canonicalCount < base.canonicalCount && current.retention < base.retention - EVAL_BANDS.retentionDrop) {
       regressions.push(
-        `${base.shape}: retention ${current.retention.toFixed(2)} vs baseline ${base.retention.toFixed(2)} (band: -${EVAL_BANDS.retentionDrop})`,
+        `${base.shape}: retention ${current.retention.toFixed(2)} vs baseline ${base.retention.toFixed(2)} (band: -${EVAL_BANDS.retentionDrop}), with canonicals also down (${current.canonicalCount} < ${base.canonicalCount})`,
       )
     }
     const brandCeiling = Math.min(base.brandShare + EVAL_BANDS.brandShareSlack, EVAL_BANDS.brandShareCeiling)

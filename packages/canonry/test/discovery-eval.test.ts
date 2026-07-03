@@ -94,6 +94,21 @@ describe('compareToBaseline', () => {
     expect(verdict.regressions.join(' ')).toMatch(/floor/)
   })
 
+  it('does NOT fail on a retention drop when canonicals grew (multi-provider A/B: bigger raw, more distinct output)', () => {
+    // baseline canonicalCount 20, retention 0.667; variant doubles raw so
+    // retention falls to 0.40 but canonicals RISE to 30 — a win, not a regression.
+    const verdict = compareToBaseline([{ ...baselineCard, canonicalCount: 30, retention: 0.4 }], baseline)
+    expect(verdict.pass).toBe(true)
+    expect(verdict.regressions).toEqual([])
+  })
+
+  it('DOES fail on a retention drop when canonicals also regressed', () => {
+    // canonicals 15 < baseline 20 (still above the 0.6x band) AND retention collapsed.
+    const verdict = compareToBaseline([{ ...baselineCard, canonicalCount: 15, retention: 0.4 }], baseline)
+    expect(verdict.pass).toBe(false)
+    expect(verdict.regressions.join(' ')).toMatch(/retention/)
+  })
+
   it('fails on brand-share leakage and on a collapse warning', () => {
     const brandy = compareToBaseline([{ ...baselineCard, brandShare: 0.3 }], baseline)
     expect(brandy.pass).toBe(false)

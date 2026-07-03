@@ -22,6 +22,7 @@ import {
   buildCompetitorMap,
   classifyProbeBucket,
   executeDiscovery,
+  pickCanonicalsWithStats,
   type DiscoveryDeps,
   type DiscoveryDomainClassification,
   type DiscoveryProjectContext,
@@ -2726,5 +2727,166 @@ describe('executeDiscovery dedup diagnostics', () => {
     expect(row.dedupPairsTotal).toBe(3)
     // One-hot vectors give pairwise sims of exactly 0 or 1 — nothing in band.
     expect(row.dedupBandPairFraction).toBe(0)
+  })
+})
+
+describe('pickCanonicalsWithStats monotonic multi-provider merge (the robustness guarantee)', () => {
+  // A 2D unit vector at `deg` degrees; the cosine of two such vectors is
+  // exactly cos(delta deg), so tests dial exact similarity relationships.
+  const vec = (deg: number): number[] => {
+    const r = (deg * Math.PI) / 180
+    return [Math.cos(r), Math.sin(r)]
+  }
+  const embedFrom =
+    (map: Record<string, number[]>): DiscoveryDeps['embed'] =>
+    async (qs: string[]) =>
+      qs.map((q) => map[q]!)
+
+  // Deterministic PRNG (mulberry32) so the property test never flakes.
+  function mulberry32(seed: number): () => number {
+    let a = seed
+    return () => {
+      a |= 0
+      a = (a + 0x6d2b79f5) | 0
+      let t = Math.imul(a ^ (a >>> 15), 1 | a)
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+    }
+  }
+
+  it('single-provider path is byte-identical when no primaryMask is passed', async () => {
+    const map = { a: vec(0), b: vec(2), c: vec(90) }
+    const { canonicals } = await pickCanonicalsWithStats(['a', 'b', 'c'], { embed: embedFrom(map) }, 0.99)
+    expect(canonicals.sort()).toEqual(['a', 'c'])
+  })
+
+  it('holds the FLOOR invariant where naive pooling would collapse (the homogeneous-local case)', async () => {
+    // Primary has two DISTINCT intents (0 and 40 deg). Secondary drops dense
+    // bridge points (15, 25 deg) that chain them under single-link pooling.
+    const map = { p0: vec(0), p1: vec(40), s0: vec(15), s1: vec(25) }
+    const cands = ['p0', 'p1', 's0', 's1']
+    const mask = [true, true, false, false]
+    const thr = 0.9
+    const pooled = await pickCanonicalsWithStats(cands, { embed: embedFrom(map) }, thr)
+    const mono = await pickCanonicalsWithStats(cands, { embed: embedFrom(map) }, thr, mask)
+    const primaryOnly = await pickCanonicalsWithStats(['p0', 'p1'], { embed: embedFrom(map) }, thr)
+    expect(primaryOnly.canonicals.length).toBe(2)
+    expect(pooled.canonicals.length).toBeLessThan(2) // the collapse the fix prevents
+    expect(mono.canonicals.length).toBeGreaterThanOrEqual(primaryOnly.canonicals.length)
+    for (const c of primaryOnly.canonicals) expect(mono.canonicals).toContain(c)
+  })
+
+  it('keeps genuinely novel secondary candidates (heterogeneous upside preserved)', async () => {
+    const map = { p0: vec(0), p1: vec(90), sNew: vec(180) }
+    const mono = await pickCanonicalsWithStats(
+      ['p0', 'p1', 'sNew'],
+      { embed: embedFrom(map) },
+      0.9,
+      [true, true, false],
+    )
+    expect(mono.canonicals.sort()).toEqual(['p0', 'p1', 'sNew'])
+  })
+
+  it('drops a redundant secondary (a near-dup of a primary is never added)', async () => {
+    const map = { p0: vec(0), sDup: vec(3) }
+    const mono = await pickCanonicalsWithStats(['p0', 'sDup'], { embed: embedFrom(map) }, 0.95, [true, false])
+    expect(mono.canonicals).toEqual(['p0'])
+  })
+
+  it('property: across 200 random configs, monotonic never drops below primary-only and keeps every primary canonical', async () => {
+    const rng = mulberry32(0x1234abcd)
+    let checked = 0
+    for (let trial = 0; trial < 200; trial++) {
+      const n = 3 + Math.floor(rng() * 12)
+      const map: Record<string, number[]> = {}
+      const cands: string[] = []
+      const mask: boolean[] = []
+      let anyP = false
+      let anyS = false
+      for (let i = 0; i < n; i++) {
+        const name = `q${i}_${trial}`
+        map[name] = vec(rng() * 360)
+        cands.push(name)
+        const isP = rng() < 0.5
+        mask.push(isP)
+        anyP ||= isP
+        anyS ||= !isP
+      }
+      if (!anyP || !anyS) continue
+      const thr = 0.7 + rng() * 0.29
+      const embed = embedFrom(map)
+      const mono = await pickCanonicalsWithStats(cands, { embed }, thr, mask)
+      const primaryOnly = await pickCanonicalsWithStats(
+        cands.filter((_, i) => mask[i]),
+        { embed },
+        thr,
+      )
+      expect(mono.canonicals.length).toBeGreaterThanOrEqual(primaryOnly.canonicals.length)
+      for (const c of primaryOnly.canonicals) expect(mono.canonicals).toContain(c)
+      checked++
+    }
+    expect(checked).toBeGreaterThan(150)
+  })
+})
+
+describe('executeDiscovery multi-provider monotonic merge (end-to-end)', () => {
+  const cleanups: Array<() => void> = []
+  afterEach(() => {
+    while (cleanups.length) cleanups.pop()!()
+  })
+
+  it('anchors on the primary provider and never regresses below its canonical count', async () => {
+    const { db, tmpDir } = buildApp()
+    cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
+    const { projectId } = seedProject(db, { icpDescription: 'roof coatings' })
+    const sessionId = crypto.randomUUID()
+    const runId = crypto.randomUUID()
+    const now = new Date().toISOString()
+    db.insert(discoverySessions).values({
+      id: sessionId, projectId, status: 'queued', icpDescription: 'roof coatings', competitorMap: [], createdAt: now,
+    }).run()
+    db.insert(runs).values({
+      id: runId, projectId, kind: 'aeo-discover-probe', status: 'queued', trigger: 'manual', createdAt: now,
+    }).run()
+
+    // gemini (primary) has TWO distinct intents; openai (secondary) supplies a
+    // dense bridge that would chain them if pooled+clustered together.
+    const seedCandidates = ['g roof coating', 'g inspect schedule', 'o bridge one', 'o bridge two']
+    const seedProviders = ['gemini', 'gemini', 'openai', 'openai']
+    const vecByCandidate: Record<string, number[]> = {
+      'g roof coating': [1, 0],
+      'g inspect schedule': [Math.cos((40 * Math.PI) / 180), Math.sin((40 * Math.PI) / 180)],
+      'o bridge one': [Math.cos((15 * Math.PI) / 180), Math.sin((15 * Math.PI) / 180)],
+      'o bridge two': [Math.cos((25 * Math.PI) / 180), Math.sin((25 * Math.PI) / 180)],
+    }
+    const deps: DiscoveryDeps = {
+      async seed() {
+        return { candidates: seedCandidates, candidateProviders: seedProviders, provider: 'gemini+openai' }
+      },
+      async embed(queries) {
+        return queries.map((q) => vecByCandidate[q]!)
+      },
+      async probe() {
+        return { citationState: 'not-cited', citedDomains: [], answerMentioned: false, rawResponse: {} }
+      },
+      async classifyDomains() {
+        return {}
+      },
+    }
+
+    const result = await executeDiscovery({
+      db, runId, sessionId,
+      project: { id: projectId, name: 'demand-iq', canonicalDomains: ['demand-iq.com'], competitorDomains: [] },
+      icpDescription: 'roof coatings',
+      seedProviders: ['gemini', 'openai'],
+      // wide threshold so the bridges WOULD chain the two primary intents if pooled
+      dedupThreshold: 0.9,
+      maxProbes: 100,
+      deps,
+    })
+
+    // The two primary intents survive (floor = 2); the dense openai bridges are
+    // dropped as redundant rather than collapsing the primaries.
+    expect(result.seedCount).toBe(2)
   })
 })
