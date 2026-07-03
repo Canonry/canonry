@@ -29,7 +29,7 @@ export function CitationVisibilitySection({ projectName }: { projectName: string
             <h2>Citation + answer-mention coverage</h2>
           </div>
         </div>
-        <p className="text-sm text-rose-400">{error instanceof Error ? error.message : String(error)}</p>
+        <p className="text-sm text-negative-400">{error instanceof Error ? error.message : String(error)}</p>
       </section>
     )
   }
@@ -44,7 +44,7 @@ export function CitationVisibilitySection({ projectName }: { projectName: string
             <h2>Citation + answer-mention coverage</h2>
           </div>
         </div>
-        <p className="text-sm text-zinc-500">
+        <p className="text-sm text-muted">
           {data.reason === 'no-queries'
             ? 'Add queries to start tracking AI citations.'
             : 'Run a sweep to see which engines cite this project.'}
@@ -64,7 +64,7 @@ export function CitationVisibilitySection({ projectName }: { projectName: string
             Cited by {providersCiting} of {providersConfigured} engines
             <InfoTooltip text="An engine is &lsquo;citing&rsquo; when our domain appears in its grounding source list (the structured citation/search-result attribution it returns alongside the answer). Counts each configured engine that cites the project on at least one tracked query in the latest snapshot per (query × provider)." />
           </h2>
-          <p className="text-base text-zinc-300 flex items-center gap-2">
+          <p className="text-base text-neutral flex items-center gap-2">
             Mentioned in {providersMentioning} of {providersConfigured} engine answers
             <InfoTooltip text="An engine is &lsquo;mentioning&rsquo; when our brand or domain appears inside the prose of the answer text — independent of whether it&rsquo;s in the citation list. Models often name-drop from training without citing a fresh page." />
           </p>
@@ -125,19 +125,19 @@ type Tone = 'positive' | 'positive-dim' | 'caution' | 'negative' | 'neutral'
 
 function SummaryCell({ label, value, helper, tone }: { label: string; value: string; helper: string; tone: Tone }) {
   const valueClass = tone === 'positive'
-    ? 'text-emerald-300'
+    ? 'text-positive'
     : tone === 'positive-dim'
-      ? 'text-emerald-400/70'
+      ? 'text-positive-400/70'
       : tone === 'caution'
-        ? 'text-amber-300'
+        ? 'text-caution'
         : tone === 'negative'
-          ? 'text-rose-300'
-          : 'text-zinc-100'
+          ? 'text-negative'
+          : 'text-heading'
   return (
-    <div className="rounded-md border border-zinc-800/60 bg-zinc-900/30 px-4 py-3">
-      <p className="text-[10px] uppercase tracking-wide text-zinc-500">{label}</p>
+    <div className="rounded-md border border-default bg-surface px-4 py-3">
+      <p className="text-[10px] uppercase tracking-wide text-muted">{label}</p>
       <p className={`mt-1 text-2xl font-semibold tabular-nums ${valueClass}`}>{value}</p>
-      <p className="text-[11px] text-zinc-500">{helper}</p>
+      <p className="text-[11px] text-muted">{helper}</p>
     </div>
   )
 }
@@ -152,7 +152,7 @@ function CoverageTable({ data }: { data: CitationVisibilityResponse }) {
   }, [data.byQuery])
 
   if (data.byQuery.length === 0) {
-    return <p className="text-sm text-zinc-500">No query coverage rows.</p>
+    return <p className="text-sm text-muted">No query coverage rows.</p>
   }
 
   return (
@@ -175,13 +175,13 @@ function CoverageTable({ data }: { data: CitationVisibilityResponse }) {
           <tbody>
             {data.byQuery.map(row => (
               <tr key={row.queryId}>
-                <td className="font-medium text-zinc-100">{row.query}</td>
+                <td className="font-medium text-heading">{row.query}</td>
                 {providerColumns.map(p => {
                   const provider = row.providers.find(x => x.provider === p)
                   return (
                     <td key={p} className="text-center">
                       {provider == null ? (
-                        <Minus className="inline h-3.5 w-3.5 text-zinc-700" aria-label="no data" />
+                        <Minus className="inline h-3.5 w-3.5 text-mono-700" aria-label="no data" />
                       ) : (
                         <DualIndicator provider={provider} />
                       )}
@@ -192,10 +192,10 @@ function CoverageTable({ data }: { data: CitationVisibilityResponse }) {
                   <span
                     className={
                       row.totalProviders > 0 && row.citedCount === row.totalProviders
-                        ? 'text-emerald-300'
+                        ? 'text-positive'
                         : row.citedCount > 0
-                          ? 'text-emerald-400/70'
-                          : 'text-zinc-500'
+                          ? 'text-positive-400/70'
+                          : 'text-muted'
                     }
                   >
                     {row.citedCount}/{row.totalProviders}
@@ -205,10 +205,10 @@ function CoverageTable({ data }: { data: CitationVisibilityResponse }) {
                   <span
                     className={
                       row.totalProviders > 0 && row.mentionedCount === row.totalProviders
-                        ? 'text-sky-300'
+                        ? 'text-info-300'
                         : row.mentionedCount > 0
-                          ? 'text-sky-400/70'
-                          : 'text-zinc-500'
+                          ? 'text-info-400/70'
+                          : 'text-muted'
                     }
                   >
                     {row.mentionedCount}/{row.totalProviders}
@@ -225,7 +225,7 @@ function CoverageTable({ data }: { data: CitationVisibilityResponse }) {
 
 function CoverageLegend() {
   return (
-    <div className="mb-2 flex flex-wrap items-center gap-3 text-[11px] text-zinc-500">
+    <div className="mb-2 flex flex-wrap items-center gap-3 text-[11px] text-muted">
       <span className="flex items-center gap-1.5">
         <IndicatorDot active tone="cited" />
         <span>cited (in sources)</span>
@@ -262,21 +262,21 @@ function describeIndicator(provider: CitationCoverageProvider): string {
 
 function IndicatorDot({ active, tone }: { active: boolean; tone: 'cited' | 'mentioned' }) {
   if (!active) {
-    return <span className="inline-block h-2 w-2 rounded-full border border-zinc-700/80 bg-transparent" aria-hidden="true" />
+    return <span className="inline-block h-2 w-2 rounded-full border border-strong/80 bg-transparent" aria-hidden="true" />
   }
   const className = tone === 'cited'
-    ? 'inline-block h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_0_1px_rgba(16,185,129,0.25)]'
-    : 'inline-block h-2 w-2 rounded-full bg-sky-400 shadow-[0_0_0_1px_rgba(56,189,248,0.25)]'
+    ? 'inline-block h-2 w-2 rounded-full bg-positive-400 shadow-[0_0_0_1px_rgba(16,185,129,0.25)]'
+    : 'inline-block h-2 w-2 rounded-full bg-info-400 shadow-[0_0_0_1px_rgba(56,189,248,0.25)]'
   return <span className={className} aria-hidden="true" />
 }
 
 function CompetitorGapList({ data }: { data: CitationVisibilityResponse }) {
   return (
     <div className="mt-4">
-      <h3 className="text-sm font-semibold text-zinc-200 mb-2 flex items-center gap-2">
+      <h3 className="text-sm font-semibold text-strong mb-2 flex items-center gap-2">
         Competitor gaps
         <InfoTooltip text="Queries where the project is not cited but a configured competitor is. Each row maps to one (query, engine) pair — the same query may surface for multiple engines." />
-        <span className="text-[10px] font-normal uppercase tracking-wide text-zinc-500">
+        <span className="text-[10px] font-normal uppercase tracking-wide text-muted">
           {data.competitorGaps.length} {data.competitorGaps.length === 1 ? 'gap' : 'gaps'}
         </span>
       </h3>
@@ -292,9 +292,9 @@ function CompetitorGapList({ data }: { data: CitationVisibilityResponse }) {
           <tbody>
             {data.competitorGaps.map(gap => (
               <tr key={`${gap.queryId}::${gap.provider}`}>
-                <td className="font-medium text-zinc-100">{gap.query}</td>
+                <td className="font-medium text-heading">{gap.query}</td>
                 <td><ProviderBadge provider={gap.provider} /></td>
-                <td className="text-zinc-300">{gap.citingCompetitors.join(', ')}</td>
+                <td className="text-neutral">{gap.citingCompetitors.join(', ')}</td>
               </tr>
             ))}
           </tbody>

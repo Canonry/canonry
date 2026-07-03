@@ -156,7 +156,7 @@ export function DiscoverySection({ projectName }: { projectName: string }) {
         <div>
           <p className="eyebrow eyebrow-soft">Discovery</p>
           <h2>Find new queries to track</h2>
-          <p className="mt-1 max-w-3xl text-sm leading-6 text-zinc-500">
+          <p className="mt-1 max-w-3xl text-sm leading-6 text-muted">
             Describe your ideal customer and Canonry generates the questions they would ask an AI engine, checks which ones already cite your site, then lets you add the promising ones to your tracked queries.
           </p>
         </div>
@@ -184,23 +184,23 @@ export function DiscoverySection({ projectName }: { projectName: string }) {
             </div>
             <div className="space-y-3">
               <label className="block">
-                <span className="text-xs text-zinc-500">Who is your ideal customer?</span>
+                <span className="text-xs text-muted">Who is your ideal customer?</span>
                 <textarea
-                  className="mt-1 min-h-24 w-full rounded border border-zinc-700 bg-transparent px-3 py-2 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+                  className="mt-1 min-h-24 w-full rounded border border-strong bg-transparent px-3 py-2 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
                   placeholder="e.g. Small e-commerce stores that want AI-powered customer support. Leave blank to use the customer profile saved on this project."
                   value={icpDescription}
                   onChange={(event) => setIcpDescription(event.target.value)}
                 />
               </label>
               <label className="block">
-                <span className="text-xs text-zinc-500">How many questions to test</span>
+                <span className="text-xs text-muted">How many questions to test</span>
                 <input
-                  className="mt-1 w-full rounded border border-zinc-700 bg-transparent px-3 py-2 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+                  className="mt-1 w-full rounded border border-strong bg-transparent px-3 py-2 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
                   inputMode="numeric"
                   value={maxProbes}
                   onChange={(event) => setMaxProbes(event.target.value)}
                 />
-                <span className="mt-1 block text-[11px] text-zinc-600">
+                <span className="mt-1 block text-[11px] text-faint">
                   More questions means broader coverage but a longer run. 100 is a good default.
                 </span>
               </label>
@@ -225,7 +225,7 @@ export function DiscoverySection({ projectName }: { projectName: string }) {
               {sessionsQuery.isFetching && <ToneBadge tone="neutral">Loading</ToneBadge>}
             </div>
             {sessions.length === 0 ? (
-              <p className="text-sm text-zinc-500">No discovery runs yet. Describe your customer above to start your first one.</p>
+              <p className="text-sm text-muted">No discovery runs yet. Describe your customer above to start your first one.</p>
             ) : (
               <div className="space-y-2">
                 {sessions.map(session => (
@@ -234,16 +234,16 @@ export function DiscoverySection({ projectName }: { projectName: string }) {
                     type="button"
                     className={`w-full rounded-md border px-3 py-2 text-left transition-colors ${
                       selectedSessionId === session.id
-                        ? 'border-zinc-600 bg-zinc-900/70'
-                        : 'border-zinc-800/60 bg-zinc-950/40 hover:border-zinc-700 hover:bg-zinc-900/40'
+                        ? 'border-mono-600 bg-bg-elevated/70'
+                        : 'border-default bg-bg/40 hover:border-strong hover:bg-bg-elevated/40'
                     }`}
                     onClick={() => setSelectedSessionId(session.id)}
                   >
                     <div className="flex items-center justify-between gap-3">
-                      <span className="text-sm font-medium text-zinc-100">{shortId(session.id)}</span>
+                      <span className="text-sm font-medium text-heading">{shortId(session.id)}</span>
                       <ToneBadge tone={toneForSession(session.status)}>{session.status}</ToneBadge>
                     </div>
-                    <div className="mt-2 grid grid-cols-3 gap-2 text-[11px] text-zinc-500">
+                    <div className="mt-2 grid grid-cols-3 gap-2 text-[11px] text-muted">
                       <span>Cited {session.citedCount ?? 0}</span>
                       <span>Opportunity {session.aspirationalCount ?? 0}</span>
                       <span>Low value {session.wastedCount ?? 0}</span>
@@ -266,7 +266,7 @@ export function DiscoverySection({ projectName }: { projectName: string }) {
             </div>
 
             {!activeSession ? (
-              <p className="text-sm text-zinc-500">Start a run above, or pick one from Recent runs to see its progress.</p>
+              <p className="text-sm text-muted">Start a run above, or pick one from Recent runs to see its progress.</p>
             ) : (
               <div className="space-y-4">
                 <div className="grid gap-3 sm:grid-cols-4">
@@ -277,31 +277,31 @@ export function DiscoverySection({ projectName }: { projectName: string }) {
                 </div>
 
                 {activeSession.error && (
-                  <div className="rounded-md border border-rose-800/40 bg-rose-950/20 px-3 py-2 text-sm text-rose-300">
+                  <div className="rounded-md border border-negative-800/40 bg-negative-950/20 px-3 py-2 text-sm text-negative">
                     {activeSession.error}
                   </div>
                 )}
 
                 {activeSession.warning && (
-                  <div className="rounded-md border border-amber-800/40 bg-amber-950/20 px-3 py-2 text-sm text-amber-300">
+                  <div className="rounded-md border border-caution-800/40 bg-caution-950/20 px-3 py-2 text-sm text-caution">
                     {activeSession.warning}
                   </div>
                 )}
 
                 {activeSession.icpDescription && (
-                  <div className="rounded-md border border-zinc-800/60 bg-zinc-900/30 px-3 py-2">
-                    <p className="text-[10px] uppercase tracking-wide text-zinc-500">Customer profile</p>
-                    <p className="mt-1 text-sm text-zinc-300">{activeSession.icpDescription}</p>
+                  <div className="rounded-md border border-default bg-surface px-3 py-2">
+                    <p className="text-[10px] uppercase tracking-wide text-muted">Customer profile</p>
+                    <p className="mt-1 text-sm text-neutral">{activeSession.icpDescription}</p>
                   </div>
                 )}
 
                 {activeSession.competitorMap.length > 0 && (
                   <div>
-                    <p className="mb-2 text-xs font-medium text-zinc-400">Sites that keep getting cited</p>
+                    <p className="mb-2 text-xs font-medium text-secondary">Sites that keep getting cited</p>
                     <div className="flex flex-wrap gap-2">
                       {activeSession.competitorMap.slice(0, 8).map(entry => (
-                        <span key={entry.domain} className="rounded-md border border-zinc-800/60 bg-zinc-950 px-2 py-1 text-xs text-zinc-300">
-                          {entry.domain} <span className="text-zinc-500">{entry.hits}</span>
+                        <span key={entry.domain} className="rounded-md border border-default bg-bg px-2 py-1 text-xs text-neutral">
+                          {entry.domain} <span className="text-muted">{entry.hits}</span>
                         </span>
                       ))}
                     </div>
@@ -329,7 +329,7 @@ export function DiscoverySection({ projectName }: { projectName: string }) {
                 </Button>
               </div>
               {previewQuery.isLoading ? (
-                <p className="text-sm text-zinc-500">Loading recommendations…</p>
+                <p className="text-sm text-muted">Loading recommendations…</p>
               ) : preview ? (
                 <div className="space-y-4">
                   <div className="grid gap-3 sm:grid-cols-4">
@@ -338,16 +338,16 @@ export function DiscoverySection({ projectName }: { projectName: string }) {
                     <DiscoveryMetric label="Opportunities" value={preview.queriesByBucket.aspirational.length} tone="caution" />
                     <DiscoveryMetric label="Low value (skipped)" value={preview.queriesByBucket['wasted-surface'].length} tone="negative" />
                   </div>
-                  <p className="text-xs leading-5 text-zinc-500">
+                  <p className="text-xs leading-5 text-muted">
                     Adding queries starts tracking the “already cited” and “opportunity” questions, plus any competitor sites that kept showing up. “Low value” questions are listed below for reference only and are not added.
                   </p>
                   {preview.suggestedCompetitors.length > 0 && (
                     <div>
-                      <p className="mb-2 text-xs font-medium text-zinc-400">Competitor sites that will be added</p>
+                      <p className="mb-2 text-xs font-medium text-secondary">Competitor sites that will be added</p>
                       <div className="flex flex-wrap gap-2">
                         {preview.suggestedCompetitors.map(entry => (
-                          <span key={entry.domain} className="rounded-md border border-zinc-800/60 bg-zinc-950 px-2 py-1 text-xs text-zinc-300">
-                            {entry.domain} <span className="text-zinc-500">{entry.hits}</span>
+                          <span key={entry.domain} className="rounded-md border border-default bg-bg px-2 py-1 text-xs text-neutral">
+                            {entry.domain} <span className="text-muted">{entry.hits}</span>
                           </span>
                         ))}
                       </div>
@@ -355,7 +355,7 @@ export function DiscoverySection({ projectName }: { projectName: string }) {
                   )}
                 </div>
               ) : (
-                <p className="text-sm text-zinc-500">No recommendations available for this run.</p>
+                <p className="text-sm text-muted">No recommendations available for this run.</p>
               )}
             </Card>
           )}
@@ -369,7 +369,7 @@ export function DiscoverySection({ projectName }: { projectName: string }) {
               {detailQuery.isFetching && <ToneBadge tone="neutral">Loading</ToneBadge>}
             </div>
             {probeRows.length === 0 ? (
-              <p className="text-sm text-zinc-500">Results show up here once the run starts testing questions.</p>
+              <p className="text-sm text-muted">Results show up here once the run starts testing questions.</p>
             ) : (
               <div className="evidence-table-wrap">
                 <table className="evidence-table">
@@ -383,11 +383,11 @@ export function DiscoverySection({ projectName }: { projectName: string }) {
                   <tbody>
                     {probeRows.map(probe => (
                       <tr key={probe.id}>
-                        <td className="font-medium text-zinc-100">{probe.query}</td>
+                        <td className="font-medium text-heading">{probe.query}</td>
                         <td>
                           <ToneBadge tone={toneForBucket(probe.bucket)}>{bucketLabel(probe.bucket)}</ToneBadge>
                         </td>
-                        <td className="text-zinc-400">
+                        <td className="text-secondary">
                           {probe.citedDomains.length > 0 ? probe.citedDomains.slice(0, 3).join(', ') : '-'}
                         </td>
                       </tr>
@@ -413,10 +413,10 @@ function DiscoveryMetric({
   tone?: 'positive' | 'caution' | 'negative' | 'neutral'
 }) {
   const valueClass =
-    tone === 'positive' ? 'text-emerald-300' : tone === 'caution' ? 'text-amber-300' : tone === 'negative' ? 'text-rose-300' : 'text-zinc-100'
+    tone === 'positive' ? 'text-positive' : tone === 'caution' ? 'text-caution' : tone === 'negative' ? 'text-negative' : 'text-heading'
   return (
-    <div className="rounded-md border border-zinc-800/60 bg-zinc-900/30 px-4 py-3">
-      <p className="text-[10px] uppercase tracking-wide text-zinc-500">{label}</p>
+    <div className="rounded-md border border-default bg-surface px-4 py-3">
+      <p className="text-[10px] uppercase tracking-wide text-muted">{label}</p>
       <p className={`mt-1 text-2xl font-semibold tabular-nums ${valueClass}`}>{value}</p>
     </div>
   )

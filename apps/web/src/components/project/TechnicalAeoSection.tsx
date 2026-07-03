@@ -45,7 +45,7 @@ function scoreTone(score: number): MetricTone {
 }
 
 function scoreTextClass(score: number): string {
-  return score >= 70 ? 'text-emerald-400' : score >= 40 ? 'text-amber-400' : 'text-rose-400'
+  return score >= 70 ? 'text-positive-400' : score >= 40 ? 'text-caution-400' : 'text-negative-400'
 }
 
 function factorTone(status: SiteAuditFactorSummaryDto['status']): MetricTone {
@@ -111,8 +111,8 @@ export function TechnicalAeoSection({ projectName }: { projectName: string }) {
   if (!score || !score.hasData) {
     return (
       <Card className="surface-card mt-6 p-8 text-center">
-        <ScanSearch className="mx-auto mb-3 h-8 w-8 text-zinc-500" aria-hidden="true" />
-        <h2 className="text-base font-semibold text-zinc-100">No technical audit yet</h2>
+        <ScanSearch className="mx-auto mb-3 h-8 w-8 text-muted" aria-hidden="true" />
+        <h2 className="text-base font-semibold text-heading">No technical audit yet</h2>
         <p className="supporting-copy mx-auto mt-2 max-w-md">
           A technical AEO audit crawls your sitemap and scores every page for structured data, AI-readable content,
           crawler access, freshness, and more, then rolls it up into one site score.
@@ -123,8 +123,8 @@ export function TechnicalAeoSection({ projectName }: { projectName: string }) {
             {runMutation.isPending ? 'Starting…' : 'Run first audit'}
           </Button>
         </div>
-        <p className="mt-3 text-xs text-zinc-600">
-          Or from the CLI: <code className="text-zinc-400">canonry technical-aeo run {projectName} --wait</code>
+        <p className="mt-3 text-xs text-faint">
+          Or from the CLI: <code className="text-secondary">canonry technical-aeo run {projectName} --wait</code>
         </p>
       </Card>
     )
@@ -157,34 +157,34 @@ export function TechnicalAeoSection({ projectName }: { projectName: string }) {
   return (
     <div className="mt-6">
       {/* Hero — aggregate score + sitemap provenance + action */}
-      <section className="surface-card flex flex-wrap items-start justify-between gap-6 rounded-lg border border-zinc-800/60 bg-zinc-900/30 p-6">
+      <section className="surface-card flex flex-wrap items-start justify-between gap-6 rounded-lg border border-default bg-surface p-6">
         <div className="min-w-0">
           <p className="eyebrow eyebrow-soft">Technical AEO</p>
           <div className="mt-1 flex items-baseline gap-3">
             <span className={`text-4xl font-semibold tabular-nums ${scoreTextClass(score.aggregateScore)}`}>
               {score.aggregateScore}
             </span>
-            <span className="text-lg text-zinc-500">/ 100</span>
+            <span className="text-lg text-muted">/ 100</span>
             <ToneBadge tone={scoreTone(score.aggregateScore)}>{statusLabel(score.aggregateScore)}</ToneBadge>
             {deltaLabel ? <ToneBadge tone={deltaTone}>{deltaLabel}</ToneBadge> : null}
           </div>
           <p className="supporting-copy mt-2 tabular-nums">
             {score.pagesDiscovered} URL{score.pagesDiscovered === 1 ? '' : 's'} in sitemap · {score.pagesAudited} audited · {score.pagesSkipped} skipped · {score.pagesErrored} errored
           </p>
-          <p className="mt-1 flex flex-wrap items-center gap-x-1.5 text-xs text-zinc-500">
-            <span className="text-zinc-600">Sitemap:</span>
+          <p className="mt-1 flex flex-wrap items-center gap-x-1.5 text-xs text-muted">
+            <span className="text-faint">Sitemap:</span>
             <a
               href={score.sitemapUrl ?? '#'}
               target="_blank"
               rel="noreferrer"
-              className="max-w-[22rem] truncate text-zinc-400 underline decoration-zinc-700 underline-offset-2 hover:text-zinc-200"
+              className="max-w-[22rem] truncate text-secondary underline decoration-mono-700 underline-offset-2 hover:text-strong"
             >
               {score.sitemapUrl}
             </a>
             <InfoTooltip text="Every audit re-reads this sitemap, so pages you add or remove are picked up on the next run. Discovered/audited counts and the score reflect the sitemap at the time of the latest run. Override it with `canonry technical-aeo run <project> --sitemap-url <url>`." />
           </p>
           {score.auditedAt ? (
-            <p className="mt-0.5 text-xs text-zinc-600">Audited {new Date(score.auditedAt).toLocaleString()}</p>
+            <p className="mt-0.5 text-xs text-faint">Audited {new Date(score.auditedAt).toLocaleString()}</p>
           ) : null}
         </div>
         <div className="flex items-center gap-2">
@@ -275,54 +275,54 @@ export function TechnicalAeoSection({ projectName }: { projectName: string }) {
                 const belowPassTotal = f.pagesPartial + f.pagesFailing
                 return (
                   <Fragment key={f.id}>
-                    <tr className={expanded ? 'bg-zinc-900/30' : undefined}>
+                    <tr className={expanded ? 'bg-surface' : undefined}>
                       <td>
                         <button
                           type="button"
-                          className="flex items-center gap-1.5 text-left font-medium text-zinc-200 hover:text-zinc-50"
+                          className="flex items-center gap-1.5 text-left font-medium text-strong hover:text-primary"
                           aria-expanded={expanded}
                           onClick={() => setExpandedFactor(expanded ? null : f.id)}
                         >
                           {expanded
-                            ? <ChevronDown className="h-3.5 w-3.5 shrink-0 text-zinc-500" aria-hidden="true" />
-                            : <ChevronRight className="h-3.5 w-3.5 shrink-0 text-zinc-500" aria-hidden="true" />}
+                            ? <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted" aria-hidden="true" />
+                            : <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted" aria-hidden="true" />}
                           {f.name}
                         </button>
                       </td>
-                      <td className="text-right tabular-nums text-zinc-500">{f.weight}%</td>
-                      <td className="text-right tabular-nums text-zinc-200">{f.avgScore}</td>
+                      <td className="text-right tabular-nums text-muted">{f.weight}%</td>
+                      <td className="text-right tabular-nums text-strong">{f.avgScore}</td>
                       <td><ToneBadge tone={factorTone(f.status)}>{statusLabel(f.avgScore)}</ToneBadge></td>
-                      <td className="tabular-nums text-zinc-400">
-                        <span className="text-emerald-400">{f.pagesPassing}</span>
+                      <td className="tabular-nums text-secondary">
+                        <span className="text-positive-400">{f.pagesPassing}</span>
                         {' / '}
-                        <span className="text-amber-400">{f.pagesPartial}</span>
+                        <span className="text-caution-400">{f.pagesPartial}</span>
                         {' / '}
-                        <span className="text-rose-400">{f.pagesFailing}</span>
+                        <span className="text-negative-400">{f.pagesFailing}</span>
                       </td>
                     </tr>
                     {expanded ? (
-                      <tr className="bg-zinc-900/30">
+                      <tr className="bg-surface">
                         <td colSpan={5} className="px-4 pb-4 pt-0">
-                          <div className="space-y-4 border-l border-zinc-800 pl-4">
+                          <div className="space-y-4 border-l border-base pl-4">
                             {issue && issue.topRecommendations.length > 0 ? (
                               <div>
-                                <p className="eyebrow eyebrow-soft mb-1.5 text-zinc-500">How to fix</p>
+                                <p className="eyebrow eyebrow-soft mb-1.5 text-muted">How to fix</p>
                                 <ul className="space-y-1">
                                   {issue.topRecommendations.map((rec, i) => (
-                                    <li key={i} className="flex gap-2 text-sm text-zinc-300">
-                                      <span className="select-none text-zinc-600">→</span>
+                                    <li key={i} className="flex gap-2 text-sm text-neutral">
+                                      <span className="select-none text-faint">→</span>
                                       <span>{rec}</span>
                                     </li>
                                   ))}
                                 </ul>
                               </div>
                             ) : belowPassTotal === 0 ? (
-                              <p className="text-sm text-zinc-500">Every audited page passes this factor.</p>
+                              <p className="text-sm text-muted">Every audited page passes this factor.</p>
                             ) : null}
 
                             {belowPassTotal > 0 ? (
                               <div>
-                                <p className="eyebrow eyebrow-soft mb-1.5 text-zinc-500">
+                                <p className="eyebrow eyebrow-soft mb-1.5 text-muted">
                                   Pages below pass ({belowPassTotal})
                                 </p>
                                 <ul className="space-y-1">
@@ -333,7 +333,7 @@ export function TechnicalAeoSection({ projectName }: { projectName: string }) {
                                         href={row.url}
                                         target="_blank"
                                         rel="noreferrer"
-                                        className="truncate text-zinc-300 hover:text-zinc-100"
+                                        className="truncate text-neutral hover:text-heading"
                                         title={row.url}
                                       >
                                         {row.url}
@@ -342,12 +342,12 @@ export function TechnicalAeoSection({ projectName }: { projectName: string }) {
                                   ))}
                                 </ul>
                                 {belowPass.length > FACTOR_DRILLDOWN_PAGE_CAP ? (
-                                  <p className="mt-1 text-xs text-zinc-600">
+                                  <p className="mt-1 text-xs text-faint">
                                     + {belowPass.length - FACTOR_DRILLDOWN_PAGE_CAP} more below pass
                                   </p>
                                 ) : null}
                                 {pagesCapped ? (
-                                  <p className="mt-1 text-xs text-zinc-600">Showing the worst {allPages.length} audited pages.</p>
+                                  <p className="mt-1 text-xs text-faint">Showing the worst {allPages.length} audited pages.</p>
                                 ) : null}
                               </div>
                             ) : null}
@@ -373,22 +373,22 @@ export function TechnicalAeoSection({ projectName }: { projectName: string }) {
               <InfoTooltip text="Factors scoring below pass across the most pages, ranked by site-wide impact. Fixing one of these typically lifts many pages at once." />
             </h2>
           </div>
-          <div className="mt-3 divide-y divide-zinc-800/60 overflow-hidden rounded-lg border border-zinc-800/60">
+          <div className="mt-3 divide-y divide-mono-800/60 overflow-hidden rounded-lg border border-default">
             {score.crossCuttingIssues.map((issue) => {
               return (
                 <div key={issue.factorId} className="p-4">
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                    <span className="text-sm font-medium text-zinc-100">{issue.factorName}</span>
+                    <span className="text-sm font-medium text-heading">{issue.factorName}</span>
                     <ToneBadge tone={scoreTone(issue.avgScore)}>{statusLabel(issue.avgScore)}</ToneBadge>
-                    <span className="text-xs tabular-nums text-zinc-500">
+                    <span className="text-xs tabular-nums text-muted">
                       avg {issue.avgScore} · affects {issue.affectedPages} of {issue.totalPages} pages ({issue.affectedPct}%)
                     </span>
                   </div>
                   {issue.topRecommendations.length > 0 ? (
                     <ul className="mt-2 space-y-1">
                       {issue.topRecommendations.map((rec, i) => (
-                        <li key={i} className="flex gap-2 text-sm text-zinc-400">
-                          <span className="select-none text-zinc-600">→</span>
+                        <li key={i} className="flex gap-2 text-sm text-secondary">
+                          <span className="select-none text-faint">→</span>
                           <span>{rec}</span>
                         </li>
                       ))}
@@ -409,12 +409,12 @@ export function TechnicalAeoSection({ projectName }: { projectName: string }) {
             <h2>Per-page breakdown</h2>
           </div>
           {hasErrors ? (
-            <div className="inline-flex items-center gap-1 rounded-full border border-zinc-800/60 p-0.5" role="group" aria-label="Filter pages">
+            <div className="inline-flex items-center gap-1 rounded-full border border-default p-0.5" role="group" aria-label="Filter pages">
               <button
                 type="button"
                 onClick={() => setErrorsOnly(false)}
                 aria-pressed={!showErrorsOnly}
-                className={`rounded-full px-3 py-1 text-xs font-medium tabular-nums transition-colors ${!showErrorsOnly ? 'bg-zinc-800 text-zinc-100' : 'text-zinc-500 hover:text-zinc-300'}`}
+                className={`rounded-full px-3 py-1 text-xs font-medium tabular-nums transition-colors ${!showErrorsOnly ? 'bg-mono-800 text-heading' : 'text-muted hover:text-neutral'}`}
               >
                 All {score.pagesAudited}
               </button>
@@ -422,7 +422,7 @@ export function TechnicalAeoSection({ projectName }: { projectName: string }) {
                 type="button"
                 onClick={() => setErrorsOnly(true)}
                 aria-pressed={showErrorsOnly}
-                className={`rounded-full px-3 py-1 text-xs font-medium tabular-nums transition-colors ${showErrorsOnly ? 'bg-rose-500/15 text-rose-300' : 'text-zinc-500 hover:text-zinc-300'}`}
+                className={`rounded-full px-3 py-1 text-xs font-medium tabular-nums transition-colors ${showErrorsOnly ? 'bg-negative-500/15 text-negative' : 'text-muted hover:text-neutral'}`}
               >
                 Errors {score.pagesErrored}
               </button>
@@ -447,12 +447,12 @@ export function TechnicalAeoSection({ projectName }: { projectName: string }) {
                     <tr key={p.url}>
                       <td className="text-right tabular-nums">
                         {p.status === 'error'
-                          ? <span className="inline-flex items-center gap-1 text-rose-400"><AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />err</span>
+                          ? <span className="inline-flex items-center gap-1 text-negative-400"><AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />err</span>
                           : <span className={scoreTextClass(p.overallScore)}>{p.overallScore}</span>}
                       </td>
                       <td>{p.status === 'error' ? <ToneBadge tone="negative">Error</ToneBadge> : <ToneBadge tone={scoreTone(p.overallScore)}>{statusLabel(p.overallScore)}</ToneBadge>}</td>
                       <td className="w-full max-w-0">
-                        <a href={p.url} target="_blank" rel="noreferrer" className="block truncate text-zinc-300 hover:text-zinc-100" title={p.status === 'error' ? p.error ?? p.url : p.url}>
+                        <a href={p.url} target="_blank" rel="noreferrer" className="block truncate text-neutral hover:text-heading" title={p.status === 'error' ? p.error ?? p.url : p.url}>
                           {p.url}
                         </a>
                       </td>
@@ -462,7 +462,7 @@ export function TechnicalAeoSection({ projectName }: { projectName: string }) {
               </table>
             </div>
             {pagesCapped ? (
-              <p className="mt-2 text-xs text-zinc-600">Showing the worst {allPages.length} of {score.pagesAudited} audited pages.</p>
+              <p className="mt-2 text-xs text-faint">Showing the worst {allPages.length} of {score.pagesAudited} audited pages.</p>
             ) : null}
           </>
         )}
