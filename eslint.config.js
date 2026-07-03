@@ -39,7 +39,6 @@ const ALT_CHART_LIB_PATTERNS = [
 // `ignores: [...RAW_PALETTE_ALLOWLIST, ...]` line in the block below.
 const RAW_PALETTE_ALLOWLIST = [
   'apps/web/src/pages/ProjectPage.tsx',
-  'apps/web/src/pages/ReportPage.tsx',
 ]
 
 // PERMANENT exclusions: ProviderBadge encodes engine identity (not tone) and
