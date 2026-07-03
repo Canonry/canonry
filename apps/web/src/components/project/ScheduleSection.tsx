@@ -232,7 +232,7 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-secondary">Cron expression</label>
               <input
-                className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder:text-faint font-mono focus:border-mono-500 focus:outline-none"
+                className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 font-mono focus:border-mono-500 focus:outline-none"
                 type="text"
                 placeholder="0 9 * * 1-5"
                 value={customCron}
@@ -257,7 +257,7 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
             </select>
             {tzOther && (
               <input
-                className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder:text-faint focus:border-mono-500 focus:outline-none"
+                className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
                 type="text"
                 placeholder="e.g. America/New_York"
                 value={tzOtherValue}
