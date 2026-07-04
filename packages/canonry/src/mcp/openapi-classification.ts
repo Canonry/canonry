@@ -15,6 +15,11 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'GET /api/v1/projects/{name}/queries': 'included',
   'PUT /api/v1/projects/{name}/queries': 'included',
   'DELETE /api/v1/projects/{name}/queries': 'included',
+  // By-id delete is a convenience for id-addressed clients (the dashboard,
+  // which lists queries with their row ids). Agents work with query TEXT, so
+  // the by-text bulk delete tool above already covers the agent workflow —
+  // defer the by-id tool until an agent actually needs id-addressed deletes.
+  'DELETE /api/v1/projects/{name}/queries/{id}': 'deferred',
   'POST /api/v1/projects/{name}/queries': 'included',
   'POST /api/v1/projects/{name}/queries/generate': 'included',
   'POST /api/v1/projects/{name}/queries/replace-preview': 'included',

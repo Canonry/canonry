@@ -4,6 +4,7 @@ import path from 'node:path'
 import os from 'node:os'
 import crypto from 'node:crypto'
 import Fastify from 'fastify'
+import { eq } from 'drizzle-orm'
 import { createClient, migrate, projects, queries, querySnapshots, runs } from '@ainyc/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import type { ApiRoutesOptions } from '../src/index.js'
@@ -176,6 +177,86 @@ describe('api-routes', () => {
       payload: { queries: [] },
     })
     expect(res.statusCode).toBe(400)
+  })
+
+  it('DELETE /api/v1/projects/:name/queries/:id removes one query by id', async () => {
+    const queryId = crypto.randomUUID()
+    const runId = crypto.randomUUID()
+    const snapshotId = crypto.randomUUID()
+    const now = new Date().toISOString()
+    const project = db.select().from(projects).where(eq(projects.name, 'my-site')).get()
+    expect(project).toBeDefined()
+    if (!project) throw new Error('Expected my-site project to exist')
+
+    db.insert(queries).values({
+      id: queryId,
+      projectId: project.id,
+      query: 'temporary id delete query',
+      createdAt: now,
+    }).run()
+    db.insert(runs).values({
+      id: runId,
+      projectId: project.id,
+      status: 'completed',
+      createdAt: now,
+      finishedAt: now,
+    }).run()
+    db.insert(querySnapshots).values({
+      id: snapshotId,
+      runId,
+      queryId,
+      provider: 'gemini',
+      citationState: 'not-cited',
+      answerText: 'No mention.',
+      citedDomains: [],
+      competitorOverlap: [],
+      recommendedCompetitors: [],
+      rawResponse: '{}',
+      createdAt: now,
+    }).run()
+
+    const res = await app.inject({
+      method: 'DELETE',
+      url: `/api/v1/projects/my-site/queries/${queryId}`,
+    })
+    expect(res.statusCode).toBe(204)
+
+    const deleted = db.select().from(queries).where(eq(queries.id, queryId)).get()
+    expect(deleted).toBeUndefined()
+    const snapshot = db.select().from(querySnapshots).where(eq(querySnapshots.id, snapshotId)).get()
+    expect(snapshot?.queryId).toBeNull()
+    expect(snapshot?.queryText).toBe('temporary id delete query')
+  })
+
+  it('DELETE /api/v1/projects/:name/queries/:id returns 404 for an id outside the project', async () => {
+    const queryId = crypto.randomUUID()
+    const now = new Date().toISOString()
+    const projectId = crypto.randomUUID()
+
+    db.insert(projects).values({
+      id: projectId,
+      name: 'other-query-project',
+      displayName: 'Other Query Project',
+      canonicalDomain: 'other-query.example.com',
+      country: 'US',
+      language: 'en',
+      providers: '[]',
+      createdAt: now,
+      updatedAt: now,
+    }).run()
+    db.insert(queries).values({
+      id: queryId,
+      projectId,
+      query: 'belongs elsewhere',
+      createdAt: now,
+    }).run()
+
+    const res = await app.inject({
+      method: 'DELETE',
+      url: `/api/v1/projects/my-site/queries/${queryId}`,
+    })
+    expect(res.statusCode).toBe(404)
+    expect(db.select().from(queries).where(eq(queries.id, queryId)).get()).toBeDefined()
   })
 
   // Re-add queries for subsequent tests

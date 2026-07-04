@@ -1,9 +1,9 @@
 import crypto from 'node:crypto'
-import { eq, inArray, sql } from 'drizzle-orm'
+import { and, eq, inArray, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import type { DatabaseClient } from '@ainyc/canonry-db'
 import { queries, querySnapshots } from '@ainyc/canonry-db'
-import { keywordGenerateRequestSchema, queryGenerateRequestSchema, validationError, notImplemented, internalError } from '@ainyc/canonry-contracts'
+import { keywordGenerateRequestSchema, queryGenerateRequestSchema, validationError, notImplemented, internalError, notFound } from '@ainyc/canonry-contracts'
 import { auditFromRequest, resolveProject, writeAuditLog } from './helpers.js'
 
 export interface QueryRoutesOptions {
@@ -204,6 +204,40 @@ export async function queryRoutes(app: FastifyInstance, opts: QueryRoutesOptions
 
     const rows = app.db.select().from(queries).where(eq(queries.projectId, project.id)).all()
     return reply.send(rows.map(r => ({ id: r.id, query: r.query, createdAt: r.createdAt })))
+  })
+
+  // DELETE /projects/:name/queries/:id — remove one query by row id.
+  app.delete<{
+    Params: { name: string; id: string }
+  }>('/projects/:name/queries/:id', async (request, reply) => {
+    const project = resolveProject(app.db, request.params.name)
+
+    const query = app.db
+      .select()
+      .from(queries)
+      .where(and(eq(queries.projectId, project.id), eq(queries.id, request.params.id)))
+      .get()
+
+    if (!query) {
+      throw notFound('Query', request.params.id)
+    }
+
+    app.db.transaction((tx) => {
+      // Preserve query_text on associated snapshots before the FK detaches.
+      preserveSnapshotQueryText(tx, project.id, [query.id])
+      tx.delete(queries).where(eq(queries.id, query.id)).run()
+
+      writeAuditLog(tx, auditFromRequest(request, {
+        projectId: project.id,
+        actor: 'api',
+        action: 'queries.deleted',
+        entityType: 'query',
+        entityId: query.id,
+        diff: { deleted: [query.query] },
+      }))
+    })
+
+    return reply.status(204).send()
   })
 
   // POST /projects/:name/queries — append (skip duplicates)
