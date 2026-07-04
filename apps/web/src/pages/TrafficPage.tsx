@@ -5,7 +5,7 @@ import { Plus, RefreshCw } from 'lucide-react'
 
 import { TrafficSourceStatuses, type TrafficSourceDto } from '@ainyc/canonry-contracts'
 
-import { heyClient, type ApiProject, type ApiTrafficSourceDetail } from '../api.js'
+import { heyClient, isEmbed, type ApiProject, type ApiTrafficSourceDetail } from '../api.js'
 import {
   getApiV1ProjectsByNameTrafficSourcesByIdOptions,
   getApiV1ProjectsOptions,
@@ -61,18 +61,20 @@ export function TrafficPage() {
             Bulk crawler hits, AI user fetches (ChatGPT-User, Perplexity-User), and AI referral sessions pulled directly from your server logs. Independent of GA — useful when you need server-side evidence that an AI engine actually hit a page.
           </p>
         </div>
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => setConnectOpen(true)}
-            disabled={!activeProject}
-          >
-            <Plus className="size-3.5" />
-            Connect a source
-          </Button>
-        </div>
+        {!isEmbed() && (
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setConnectOpen(true)}
+              disabled={!activeProject}
+            >
+              <Plus className="size-3.5" />
+              Connect a source
+            </Button>
+          </div>
+        )}
       </div>
 
       <section>
@@ -97,24 +99,30 @@ export function TrafficPage() {
         ) : sources.length === 0 ? (
           <Card className="p-8 text-center">
             <p className="text-sm text-neutral">No traffic sources connected for {activeProject}.</p>
-            <p className="mt-1 text-xs text-muted">Connect a traffic source to start ingesting crawler hits and AI-referral sessions from your server logs.</p>
-            <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
-              <Button type="button" variant="outline" size="sm" onClick={() => setConnectOpen(true)}>
-                <Plus className="size-3.5" />
-                Connect a source
-              </Button>
-            </div>
+            {!isEmbed() && (
+              <>
+                <p className="mt-1 text-xs text-muted">Connect a traffic source to start ingesting crawler hits and AI-referral sessions from your server logs.</p>
+                <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+                  <Button type="button" variant="outline" size="sm" onClick={() => setConnectOpen(true)}>
+                    <Plus className="size-3.5" />
+                    Connect a source
+                  </Button>
+                </div>
+              </>
+            )}
           </Card>
         ) : (
           <SourcesTable projectName={activeProject} sources={sources} />
         )}
       </section>
 
-      <ConnectSourceDrawer
-        open={connectOpen}
-        onOpenChange={setConnectOpen}
-        projectName={activeProject}
-      />
+      {!isEmbed() && (
+        <ConnectSourceDrawer
+          open={connectOpen}
+          onOpenChange={setConnectOpen}
+          projectName={activeProject}
+        />
+      )}
     </div>
   )
 }

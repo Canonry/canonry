@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { Button } from '../components/ui/button.js'
 import { Card } from '../components/ui/card.js'
 import { RunRow } from '../components/shared/RunRow.js'
+import { isEmbed } from '../api.js'
 import { toTitleCase } from '../lib/format-helpers.js'
 import { useTriggerAllRuns } from '../queries/mutations.js'
 import { useDashboardOverview as useDashboard } from '../queries/use-dashboard-overview.js'
@@ -55,9 +56,11 @@ export function RunsPage() {
             Status, type, project, duration, and the shortest explanation that makes the outcome trustworthy.
           </p>
         </div>
-        <Button type="button" variant="outline" size="sm" disabled={triggerAllRunsMutation.isPending} onClick={() => void handleTriggerAll()}>
-          {triggerAllRunsMutation.isPending ? 'Queueing…' : 'Run all projects'}
-        </Button>
+        {!isEmbed() && (
+          <Button type="button" variant="outline" size="sm" disabled={triggerAllRunsMutation.isPending} onClick={() => void handleTriggerAll()}>
+            {triggerAllRunsMutation.isPending ? 'Queueing…' : 'Run all projects'}
+          </Button>
+        )}
       </div>
 
       <section>

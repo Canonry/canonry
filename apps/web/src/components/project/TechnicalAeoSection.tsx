@@ -4,7 +4,7 @@ import { AlertTriangle, ChevronDown, ChevronRight, Play, RefreshCw, ScanSearch }
 import type { MetricTone } from '../../view-models.js'
 import type { SiteAuditFactorSummaryDto, SiteAuditPageDto } from '@ainyc/canonry-contracts'
 
-import { triggerSiteAudit, heyClient } from '../../api.js'
+import { triggerSiteAudit, isEmbed, heyClient } from '../../api.js'
 import {
   getApiV1ProjectsByNameTechnicalAeoOptions,
   getApiV1ProjectsByNameTechnicalAeoPagesOptions,
@@ -117,12 +117,14 @@ export function TechnicalAeoSection({ projectName }: { projectName: string }) {
           A technical AEO audit crawls your sitemap and scores every page for structured data, AI-readable content,
           crawler access, freshness, and more, then rolls it up into one site score.
         </p>
-        <div className="mt-5 flex items-center justify-center gap-3">
-          <Button type="button" onClick={() => runMutation.mutate()} disabled={runMutation.isPending}>
-            <Play className="mr-1.5 h-4 w-4" aria-hidden="true" />
-            {runMutation.isPending ? 'Starting…' : 'Run first audit'}
-          </Button>
-        </div>
+        {!isEmbed() && (
+          <div className="mt-5 flex items-center justify-center gap-3">
+            <Button type="button" onClick={() => runMutation.mutate()} disabled={runMutation.isPending}>
+              <Play className="mr-1.5 h-4 w-4" aria-hidden="true" />
+              {runMutation.isPending ? 'Starting…' : 'Run first audit'}
+            </Button>
+          </div>
+        )}
         <p className="mt-3 text-xs text-faint">
           Or from the CLI: <code className="text-secondary">canonry technical-aeo run {projectName} --wait</code>
         </p>
@@ -192,10 +194,12 @@ export function TechnicalAeoSection({ projectName }: { projectName: string }) {
             <RefreshCw className="mr-1.5 h-4 w-4" aria-hidden="true" />
             Refresh
           </Button>
-          <Button type="button" size="sm" onClick={() => runMutation.mutate()} disabled={runMutation.isPending}>
-            <Play className="mr-1.5 h-4 w-4" aria-hidden="true" />
-            {runMutation.isPending ? 'Starting…' : 'Re-run audit'}
-          </Button>
+          {!isEmbed() && (
+            <Button type="button" size="sm" onClick={() => runMutation.mutate()} disabled={runMutation.isPending}>
+              <Play className="mr-1.5 h-4 w-4" aria-hidden="true" />
+              {runMutation.isPending ? 'Starting…' : 'Re-run audit'}
+            </Button>
+          )}
         </div>
       </section>
 

@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { parseAllDocuments } from 'yaml'
 
 import { Button } from '../ui/button.js'
-import { applyProjectConfig } from '../../api.js'
+import { applyProjectConfig, isEmbed } from '../../api.js'
 import { addToast } from '../../lib/toast-store.js'
 import { asyncHandler } from '../../lib/async-handler.js'
 
@@ -11,6 +11,11 @@ export function YamlApplyPanel({ onApplied }: { onApplied: () => void }) {
   const [applying, setApplying] = useState(false)
   const [results, setResults] = useState<string[]>([])
   const [errors, setErrors] = useState<string[]>([])
+
+  // The whole panel is a write surface (paste config → apply). Nothing read-only
+  // here, so it renders nothing in the read-only embed. Hook order is preserved
+  // (the early return is after all hooks) - Rules of Hooks hold on both paths.
+  if (isEmbed()) return null
 
   const handleApply = async () => {
     if (!yamlText.trim()) return

@@ -6,7 +6,7 @@ import { ToneBadge } from '../shared/ToneBadge.js'
 import { formatHour, buildPreset, parsePreset, scheduleLabel } from '../../lib/format-helpers.js'
 import { addToast } from '../../lib/toast-store.js'
 import { asyncHandler } from '../../lib/async-handler.js'
-import { fetchSchedule, saveSchedule, removeSchedule, type ApiSchedule } from '../../api.js'
+import { fetchSchedule, saveSchedule, removeSchedule, isEmbed, type ApiSchedule } from '../../api.js'
 
 // --- Schedule helpers ---
 const FREQ_OPTIONS = [
@@ -155,7 +155,7 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
           <p className="eyebrow eyebrow-soft">Automation</p>
           <h2>Scheduled runs</h2>
         </div>
-        {schedule !== 'loading' && !editing && (
+        {!isEmbed() && schedule !== 'loading' && !editing && (
           <Button type="button" variant="outline" size="sm" onClick={startEditing}>
             {schedule ? 'Edit schedule' : '+ Set schedule'}
           </Button>
@@ -187,19 +187,23 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
               <ToneBadge tone={schedule.enabled ? 'positive' : 'neutral'}>
                 {schedule.enabled ? 'Active' : 'Paused'}
               </ToneBadge>
-              <Button type="button" variant="outline" size="sm" disabled={saving} onClick={asyncHandler(handleToggleEnabled)}>
-                {schedule.enabled ? 'Pause' : 'Resume'}
-              </Button>
-              <Button type="button" variant="ghost" size="sm" disabled={removing} onClick={asyncHandler(handleRemove)}>
-                {removing ? 'Removing...' : 'Remove'}
-              </Button>
+              {!isEmbed() && (
+                <Button type="button" variant="outline" size="sm" disabled={saving} onClick={asyncHandler(handleToggleEnabled)}>
+                  {schedule.enabled ? 'Pause' : 'Resume'}
+                </Button>
+              )}
+              {!isEmbed() && (
+                <Button type="button" variant="ghost" size="sm" disabled={removing} onClick={asyncHandler(handleRemove)}>
+                  {removing ? 'Removing...' : 'Remove'}
+                </Button>
+              )}
             </div>
           </div>
           {error && <p className="text-negative-400 text-sm mt-2">{error}</p>}
         </Card>
       )}
 
-      {editing && (
+      {!isEmbed() && editing && (
         <div className="rounded-lg border border-base bg-bg-elevated/40 p-4 space-y-3">
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">

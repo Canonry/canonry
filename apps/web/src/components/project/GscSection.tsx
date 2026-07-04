@@ -18,6 +18,7 @@ import {
   fetchSettings,
   googleConnect,
   googleDisconnect,
+  isEmbed,
   saveGoogleProperty,
   inspectGscUrl,
   saveSitemapUrl,
@@ -698,13 +699,15 @@ export function GscSection({
               <code className="text-secondary">{gscConn.domain}</code>
               <span className="text-mono-700">·</span>
               <span>Last updated {formatTimestamp(gscConn.updatedAt)}</span>
-              <button
-                type="button"
-                className="ml-auto text-muted transition-colors hover:text-negative-400"
-                onClick={asyncHandler(handleDisconnect)}
-              >
-                Disconnect
-              </button>
+              {!isEmbed() && (
+                <button
+                  type="button"
+                  className="ml-auto text-muted transition-colors hover:text-negative-400"
+                  onClick={asyncHandler(handleDisconnect)}
+                >
+                  Disconnect
+                </button>
+              )}
             </div>
           ) : (
             <Card className="surface-card">
@@ -723,20 +726,22 @@ export function GscSection({
                     ? 'Generate a Google OAuth link for this project and have the client sign in with a Google account that already has access to the correct Search Console property.'
                     : 'Set Google OAuth client credentials first. Once configured, you can generate a consent link for this project domain.'}
                 </p>
-                <div className="mt-3 flex flex-wrap items-center gap-2">
-                  {googleConfigured ? (
-                    <Button type="button" variant="outline" size="sm" disabled={connecting} onClick={asyncHandler(handleConnect)}>
-                      {connecting ? 'Opening\u2026' : 'Connect Google Search Console'}
-                    </Button>
-                  ) : (
-                    <Button type="button" variant="outline" size="sm" asChild>
-                      <Link to="/settings">Open Settings</Link>
-                    </Button>
-                  )}
-                  {!googleConfigured && (
-                    <p className="text-xs text-muted">The same Google OAuth app credentials are shared across all projects.</p>
-                  )}
-                </div>
+                {!isEmbed() && (
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    {googleConfigured ? (
+                      <Button type="button" variant="outline" size="sm" disabled={connecting} onClick={asyncHandler(handleConnect)}>
+                        {connecting ? 'Opening\u2026' : 'Connect Google Search Console'}
+                      </Button>
+                    ) : (
+                      <Button type="button" variant="outline" size="sm" asChild>
+                        <Link to="/settings">Open Settings</Link>
+                      </Button>
+                    )}
+                    {!googleConfigured && (
+                      <p className="text-xs text-muted">The same Google OAuth app credentials are shared across all projects.</p>
+                    )}
+                  </div>
+                )}
               </div>
             </Card>
           )}
@@ -753,32 +758,34 @@ export function GscSection({
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-caution-300">Set your sitemap URL</p>
                   <p className="mt-1 text-xs text-caution-400/70">Canonry uses your sitemap to discover URLs for index coverage inspection. Auto-discover from GSC or enter it manually.</p>
-                  <div className="mt-2 flex flex-col gap-2">
-                    <div className="flex flex-col gap-2 lg:flex-row">
-                      <Button
-                        type="button"
-                        size="sm"
-                        disabled={triggerDiscoverSitemapsMutation.isPending || !gscConn.propertyId}
-                        onClick={asyncHandler(handleDiscoverSitemaps)}
-                      >
-                        {triggerDiscoverSitemapsMutation.isPending ? 'Discovering\u2026' : 'Auto-discover from GSC'}
-                      </Button>
-                      <span className="self-center text-xs text-caution-400/60">or enter manually:</span>
+                  {!isEmbed() && (
+                    <div className="mt-2 flex flex-col gap-2">
+                      <div className="flex flex-col gap-2 lg:flex-row">
+                        <Button
+                          type="button"
+                          size="sm"
+                          disabled={triggerDiscoverSitemapsMutation.isPending || !gscConn.propertyId}
+                          onClick={asyncHandler(handleDiscoverSitemaps)}
+                        >
+                          {triggerDiscoverSitemapsMutation.isPending ? 'Discovering\u2026' : 'Auto-discover from GSC'}
+                        </Button>
+                        <span className="self-center text-xs text-caution-400/60">or enter manually:</span>
+                      </div>
+                      <div className="flex flex-col gap-2 lg:flex-row">
+                        <input
+                          className="flex-1 rounded border border-caution-800/40 bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-500 focus:border-caution-600 focus:outline-none"
+                          type="url"
+                          placeholder="https://example.com/sitemap.xml"
+                          value={sitemapUrlInput}
+                          onChange={(e) => setSitemapUrlInput(e.target.value)}
+                          onKeyDown={(e) => e.key === 'Enter' && void handleSaveSitemap()}
+                        />
+                        <Button type="button" size="sm" variant="outline" disabled={savingSitemap || !sitemapUrlInput.trim()} onClick={asyncHandler(handleSaveSitemap)}>
+                          {savingSitemap ? 'Saving\u2026' : 'Save sitemap URL'}
+                        </Button>
+                      </div>
                     </div>
-                    <div className="flex flex-col gap-2 lg:flex-row">
-                      <input
-                        className="flex-1 rounded border border-caution-800/40 bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-500 focus:border-caution-600 focus:outline-none"
-                        type="url"
-                        placeholder="https://example.com/sitemap.xml"
-                        value={sitemapUrlInput}
-                        onChange={(e) => setSitemapUrlInput(e.target.value)}
-                        onKeyDown={(e) => e.key === 'Enter' && void handleSaveSitemap()}
-                      />
-                      <Button type="button" size="sm" variant="outline" disabled={savingSitemap || !sitemapUrlInput.trim()} onClick={asyncHandler(handleSaveSitemap)}>
-                        {savingSitemap ? 'Saving\u2026' : 'Save sitemap URL'}
-                      </Button>
-                    </div>
-                  </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -796,7 +803,7 @@ export function GscSection({
                     <h3>Index coverage</h3>
                   </div>
                   <div className="flex items-center gap-2">
-                    {coverage && coverage.notIndexed.length > 0 && (
+                    {!isEmbed() && coverage && coverage.notIndexed.length > 0 && (
                       <Button
                         type="button"
                         variant="outline"
@@ -1026,15 +1033,17 @@ export function GscSection({
                                 <p className="text-sm font-medium text-strong">{group.reason}</p>
                                 <p className="mt-1 text-xs text-muted">{group.count} affected page{group.count !== 1 ? 's' : ''}</p>
                               </div>
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                disabled={requestingIndexing}
-                                onClick={() => void handleRequestIndexing(group.urls.map((u) => u.url))}
-                              >
-                                {requestingIndexing ? 'Requesting\u2026' : `Request indexing (${group.count})`}
-                              </Button>
+                              {!isEmbed() && (
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  disabled={requestingIndexing}
+                                  onClick={() => void handleRequestIndexing(group.urls.map((u) => u.url))}
+                                >
+                                  {requestingIndexing ? 'Requesting\u2026' : `Request indexing (${group.count})`}
+                                </Button>
+                              )}
                             </div>
 
                             <table className="data-table w-full text-sm">
@@ -1042,7 +1051,7 @@ export function GscSection({
                                 <tr>
                                   <th className="text-left">URL</th>
                                   <th className="text-left">Last Crawl</th>
-                                  <th className="w-8"></th>
+                                  {!isEmbed() && <th className="w-8"></th>}
                                 </tr>
                               </thead>
                               <tbody>
@@ -1050,17 +1059,19 @@ export function GscSection({
                                   <tr key={row.id}>
                                     <td className="max-w-sm truncate text-strong">{row.url}</td>
                                     <td className="text-secondary">{row.crawlTime ? row.crawlTime.split('T')[0] : '\u2014'}</td>
-                                    <td>
-                                      <button
-                                        type="button"
-                                        className="text-xs text-muted hover:text-strong transition-colors"
-                                        disabled={requestingIndexing}
-                                        onClick={() => void handleRequestIndexing([row.url])}
-                                        title="Request indexing"
-                                      >
-                                        Index
-                                      </button>
-                                    </td>
+                                    {!isEmbed() && (
+                                      <td>
+                                        <button
+                                          type="button"
+                                          className="text-xs text-muted hover:text-strong transition-colors"
+                                          disabled={requestingIndexing}
+                                          onClick={() => void handleRequestIndexing([row.url])}
+                                          title="Request indexing"
+                                        >
+                                          Index
+                                        </button>
+                                      </td>
+                                    )}
                                   </tr>
                                 ))}
                               </tbody>
@@ -1441,19 +1452,21 @@ export function GscSection({
                     <h3>Inspect a URL</h3>
                   </div>
                 </div>
-                <div className="mt-3 flex flex-col gap-2 lg:flex-row">
-                  <input
-                    className="flex-1 rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
-                    type="url"
-                    placeholder="https://example.com/page"
-                    value={inspectionUrl}
-                    onChange={(e) => setInspectionUrl(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && void handleInspect()}
-                  />
-                  <Button type="button" size="sm" disabled={inspecting || !gscConn?.propertyId || !inspectionUrl.trim()} onClick={asyncHandler(handleInspect)}>
-                    {inspecting ? 'Inspecting\u2026' : 'Inspect URL'}
-                  </Button>
-                </div>
+                {!isEmbed() && (
+                  <div className="mt-3 flex flex-col gap-2 lg:flex-row">
+                    <input
+                      className="flex-1 rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
+                      type="url"
+                      placeholder="https://example.com/page"
+                      value={inspectionUrl}
+                      onChange={(e) => setInspectionUrl(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && void handleInspect()}
+                    />
+                    <Button type="button" size="sm" disabled={inspecting || !gscConn?.propertyId || !inspectionUrl.trim()} onClick={asyncHandler(handleInspect)}>
+                      {inspecting ? 'Inspecting\u2026' : 'Inspect URL'}
+                    </Button>
+                  </div>
+                )}
                 {inspectionResult && (
                   <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                     <div className="rounded-lg border border-default bg-surface-subtle p-3">
@@ -1622,9 +1635,11 @@ export function GscSection({
                           <Button type="button" size="sm" variant="outline" disabled={propertiesLoading} onClick={() => void loadProperties(gscConn)}>
                             {propertiesLoading ? 'Refreshing\u2026' : 'Refresh properties'}
                           </Button>
-                          <Button type="button" size="sm" disabled={!selectedProperty || savingProperty} onClick={asyncHandler(handleSaveProperty)}>
-                            {savingProperty ? 'Saving\u2026' : 'Save property'}
-                          </Button>
+                          {!isEmbed() && (
+                            <Button type="button" size="sm" disabled={!selectedProperty || savingProperty} onClick={asyncHandler(handleSaveProperty)}>
+                              {savingProperty ? 'Saving\u2026' : 'Save property'}
+                            </Button>
+                          )}
                         </div>
                         <p className="text-xs text-muted">The selected property is used for future syncs and URL inspections for this project.</p>
                       </div>
@@ -1659,14 +1674,16 @@ export function GscSection({
                             Replace existing imported rows for the requested range
                           </label>
                         </div>
-                        <Button
-                          type="button"
-                          size="sm"
-                          disabled={triggerGscSyncMutation.isPending || !gscConn.propertyId}
-                          onClick={asyncHandler(handleSync)}
-                        >
-                          {triggerGscSyncMutation.isPending ? 'Queueing\u2026' : 'Queue sync'}
-                        </Button>
+                        {!isEmbed() && (
+                          <Button
+                            type="button"
+                            size="sm"
+                            disabled={triggerGscSyncMutation.isPending || !gscConn.propertyId}
+                            onClick={asyncHandler(handleSync)}
+                          >
+                            {triggerGscSyncMutation.isPending ? 'Queueing\u2026' : 'Queue sync'}
+                          </Button>
+                        )}
                         {!gscConn.propertyId && (
                           <p className="text-xs text-caution-400">Select a Search Console property before queueing a sync.</p>
                         )}
@@ -1700,15 +1717,17 @@ export function GscSection({
                         >
                           {listingSitemaps ? 'Loading\u2026' : 'Browse sitemaps from GSC'}
                         </Button>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          disabled={triggerDiscoverSitemapsMutation.isPending || !gscConn.propertyId}
-                          onClick={asyncHandler(handleDiscoverSitemaps)}
-                        >
-                          {triggerDiscoverSitemapsMutation.isPending ? 'Discovering\u2026' : 'Auto-discover and queue inspection'}
-                        </Button>
+                        {!isEmbed() && (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            disabled={triggerDiscoverSitemapsMutation.isPending || !gscConn.propertyId}
+                            onClick={asyncHandler(handleDiscoverSitemaps)}
+                          >
+                            {triggerDiscoverSitemapsMutation.isPending ? 'Discovering\u2026' : 'Auto-discover and queue inspection'}
+                          </Button>
+                        )}
                       </div>
                       <p className="text-xs text-muted">Browse lists available sitemaps without queueing a run. Auto-discover saves the primary sitemap and queues an inspection.</p>
                       {discoveredSitemaps && discoveredSitemaps.length > 0 && (
@@ -1744,32 +1763,35 @@ export function GscSection({
                           })}
                         </div>
                       )}
-                      <div className="flex flex-col gap-2 lg:flex-row">
-                        <input
-                          className="flex-1 rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
-                          type="url"
-                          placeholder={gscConn.sitemapUrl ? 'Update sitemap URL\u2026' : 'https://example.com/sitemap.xml'}
-                          value={sitemapUrlInput}
-                          onChange={(e) => setSitemapUrlInput(e.target.value)}
-                          onKeyDown={(e) => e.key === 'Enter' && sitemapUrlInput.trim() && void handleSaveSitemap()}
-                        />
-                        <Button type="button" size="sm" disabled={savingSitemap || !sitemapUrlInput.trim()} onClick={asyncHandler(handleSaveSitemap)}>
-                          {savingSitemap ? 'Saving\u2026' : gscConn.sitemapUrl ? 'Update' : 'Save'}
-                        </Button>
-                      </div>
-                      <div className="flex flex-col gap-2 lg:flex-row">
-                        <input
-                          className="flex-1 rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
-                          type="url"
-                          placeholder="Sitemap URL for inspection (leave empty for saved default)"
-                          id={`gsc-sitemap-inspect-${projectName}`}
-                        />
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          disabled={triggerInspectSitemapMutation.isPending || !gscConn.propertyId}
-                          onClick={asyncHandler(async () => {
+                      {!isEmbed() && (
+                        <div className="flex flex-col gap-2 lg:flex-row">
+                          <input
+                            className="flex-1 rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
+                            type="url"
+                            placeholder={gscConn.sitemapUrl ? 'Update sitemap URL\u2026' : 'https://example.com/sitemap.xml'}
+                            value={sitemapUrlInput}
+                            onChange={(e) => setSitemapUrlInput(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && sitemapUrlInput.trim() && void handleSaveSitemap()}
+                          />
+                          <Button type="button" size="sm" disabled={savingSitemap || !sitemapUrlInput.trim()} onClick={asyncHandler(handleSaveSitemap)}>
+                            {savingSitemap ? 'Saving\u2026' : gscConn.sitemapUrl ? 'Update' : 'Save'}
+                          </Button>
+                        </div>
+                      )}
+                      {!isEmbed() && (
+                        <div className="flex flex-col gap-2 lg:flex-row">
+                          <input
+                            className="flex-1 rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
+                            type="url"
+                            placeholder="Sitemap URL for inspection (leave empty for saved default)"
+                            id={`gsc-sitemap-inspect-${projectName}`}
+                          />
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            disabled={triggerInspectSitemapMutation.isPending || !gscConn.propertyId}
+                            onClick={asyncHandler(async () => {
                             const el = document.getElementById(`gsc-sitemap-inspect-${projectName}`) as HTMLInputElement | null
                             const url = el?.value?.trim() || gscConn.sitemapUrl || undefined
                             setError(null)
@@ -1786,8 +1808,9 @@ export function GscSection({
                           })}
                         >
                           {triggerInspectSitemapMutation.isPending ? 'Queueing\u2026' : 'Inspect sitemap'}
-                        </Button>
-                      </div>
+                          </Button>
+                        </div>
+                      )}
                       {!gscConn.propertyId && (
                         <p className="text-xs text-caution-400">Select a Search Console property first.</p>
                       )}

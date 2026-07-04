@@ -4,6 +4,7 @@ import { ArrowLeft, ChevronLeft, ChevronRight, RefreshCw, X } from 'lucide-react
 
 import { TrafficEventKinds, type TrafficEventEntry } from '@ainyc/canonry-contracts'
 
+import { isEmbed } from '../api.js'
 import { Button } from '../components/ui/button.js'
 import { Card } from '../components/ui/card.js'
 import { InfoTooltip } from '../components/shared/InfoTooltip.js'
@@ -346,16 +347,18 @@ export function TrafficSourceDetailPage() {
         </div>
         <div className="flex items-center gap-2">
           <ToneBadge tone={toneFromTrafficSourceStatus(detail.status)}>{detail.status}</ToneBadge>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={sync.isPending}
-            onClick={() => void handleSync()}
-          >
-            <RefreshCw className={`size-3.5 ${sync.isPending ? 'animate-spin' : ''}`} />
-            {sync.isPending ? 'Syncing…' : 'Sync now'}
-          </Button>
+          {!isEmbed() && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={sync.isPending}
+              onClick={() => void handleSync()}
+            >
+              <RefreshCw className={`size-3.5 ${sync.isPending ? 'animate-spin' : ''}`} />
+              {sync.isPending ? 'Syncing…' : 'Sync now'}
+            </Button>
+          )}
         </div>
       </div>
 
@@ -416,7 +419,7 @@ export function TrafficSourceDetailPage() {
             ) : null}
           </Card>
         ) : (
-          <Card className="px-4 py-3 text-sm text-muted">No traffic-sync runs recorded yet. Hit "Sync now" above to create one.</Card>
+          <Card className="px-4 py-3 text-sm text-muted">{isEmbed() ? 'No traffic-sync runs recorded yet.' : 'No traffic-sync runs recorded yet. Hit "Sync now" above to create one.'}</Card>
         )}
       </section>
 

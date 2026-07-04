@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import { Button } from '../ui/button.js'
-import { addLocation, removeLocation, setDefaultLocation, type ApiLocation } from '../../api.js'
+import { addLocation, removeLocation, setDefaultLocation, isEmbed, type ApiLocation } from '../../api.js'
 import { addToast } from '../../lib/toast-store.js'
 import { asyncHandler } from '../../lib/async-handler.js'
 
@@ -207,7 +207,7 @@ export function ProjectSettingsSection({
           <p className="eyebrow eyebrow-soft">Configuration</p>
           <h2>Project settings</h2>
         </div>
-        {!editing && (
+        {!isEmbed() && !editing && (
           <Button type="button" variant="outline" size="sm" onClick={() => setEditing(true)}>
             Edit settings
           </Button>
@@ -221,7 +221,7 @@ export function ProjectSettingsSection({
         </div>
       )}
 
-      {editing ? (
+      {!isEmbed() && editing ? (
         <div className="rounded-lg border border-base bg-bg-elevated/40 p-4 space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
@@ -388,7 +388,7 @@ export function ProjectSettingsSection({
                             <td className="py-1.5 pr-3 text-muted">{loc.timezone ?? '\u2014'}</td>
                             <td className="py-1.5">
                               <div className="flex items-center gap-1.5">
-                                {loc.label !== project.defaultLocation && (
+                                {!isEmbed() && loc.label !== project.defaultLocation && (
                                   <button
                                     type="button"
                                     disabled={locationWorking}
@@ -399,15 +399,17 @@ export function ProjectSettingsSection({
                                     Set default
                                   </button>
                                 )}
-                                <button
-                                  type="button"
-                                  disabled={locationWorking}
-                                  onClick={() => { void handleRemoveLocation(loc.label) }}
-                                  className="text-[10px] text-muted hover:text-negative-400 transition-colors disabled:opacity-40"
-                                  aria-label={`Remove location ${loc.label}`}
-                                >
-                                  Remove
-                                </button>
+                                {!isEmbed() && (
+                                  <button
+                                    type="button"
+                                    disabled={locationWorking}
+                                    onClick={() => { void handleRemoveLocation(loc.label) }}
+                                    className="text-[10px] text-muted hover:text-negative-400 transition-colors disabled:opacity-40"
+                                    aria-label={`Remove location ${loc.label}`}
+                                  >
+                                    Remove
+                                  </button>
+                                )}
                               </div>
                             </td>
                           </tr>
@@ -417,7 +419,7 @@ export function ProjectSettingsSection({
                   ) : (
                     <p className="text-muted text-xs mb-2">No locations configured</p>
                   )}
-                  {showAddLocation ? (
+                  {isEmbed() ? null : showAddLocation ? (
                     <div className="mt-2 rounded border border-base bg-bg-elevated/50 p-3 space-y-2">
                       <p className="text-[10px] font-medium uppercase tracking-wide text-muted">Add location</p>
                       <div className="grid grid-cols-2 gap-2">

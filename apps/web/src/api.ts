@@ -189,6 +189,16 @@ export function getEmbedConfig(): EmbedClientConfig | null {
   return embed?.enabled ? embed : null
 }
 
+/**
+ * True in the read-only embed render. embed presence == read-only for v1 (the
+ * embed key is the read-only project-scoped key), so operator/write controls hide
+ * while every read-only view still renders. NOT a security boundary (the API key
+ * scope is) - purely white-label UI cleanliness.
+ */
+export function isEmbed(): boolean {
+  return getEmbedConfig() !== null
+}
+
 function getApiBase(): string {
   if (typeof window !== 'undefined' && window.__CANONRY_CONFIG__?.basePath) {
     // Strip trailing slash then append /api/v1 so we never get double slashes

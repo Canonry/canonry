@@ -27,7 +27,7 @@ import {
 
 import { ToneBadge } from '../components/shared/ToneBadge.js'
 import { Button } from '../components/ui/button.js'
-import { downloadReportHtml, heyClient, ApiError } from '../api.js'
+import { downloadReportHtml, heyClient, isEmbed, ApiError } from '../api.js'
 import { getApiV1ProjectsByNameReportOptions } from '@ainyc/canonry-api-client/react-query'
 import { asyncHandler } from '../lib/async-handler.js'
 import { useDismissContentTarget } from '../queries/mutations.js'
@@ -579,7 +579,7 @@ function ActionPlanSection({ report, audience, projectName }: { report: ProjectR
                 <p className="mt-3 border-t border-default pt-3 text-xs text-neutral">
                   <span className="font-medium">{isClient ? 'What success looks like:' : 'Win condition:'}</span> {action.successMetric}
                 </p>
-                {action.targetRef && (
+                {action.targetRef && !isEmbed() && (
                   <div className="mt-3 flex justify-end">
                     <button
                       type="button"
