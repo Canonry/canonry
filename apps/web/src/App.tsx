@@ -22,7 +22,7 @@ import { CitationStates, RunKinds, formatRunErrorOneLine, type RunKind } from '@
 
 import { formatErrorLog } from './lib/format-helpers.js'
 import { getEmbedConfig, heyClient, type ApiProject, type ApiRun } from './api.js'
-import { embedThemeStyle, embedViewIdForPath } from './embed.js'
+import { embedThemeFontHref, embedThemeMode, embedThemeStyle, embedViewIdForPath } from './embed.js'
 import { getApiV1ProjectsOptions, getApiV1RunsOptions } from '@ainyc/canonry-api-client/react-query'
 import { serviceStatusTooltip } from './lib/health-helpers.js'
 import { addToast, type ToastTone } from './lib/toast-store.js'
@@ -452,10 +452,27 @@ export function RootLayout() {
   // surfaces like /settings are never reachable inside the iframe. Placed after
   // every hook above so the Rules of Hooks hold on both render paths.
   const embed = useMemo(() => getEmbedConfig(), [])
+  // When the embed theme names a client font, inject its Google-Fonts stylesheet
+  // so `--font-sans` resolves to a loaded family. No-op off-embed / when unset.
+  useEffect(() => {
+    const href = embedThemeFontHref(embed?.theme)
+    if (!href) return
+    const link = document.createElement('link')
+    link.rel = 'stylesheet'
+    link.href = href
+    document.head.appendChild(link)
+    return () => {
+      document.head.removeChild(link)
+    }
+  }, [embed])
   if (embed) {
     const viewAllowed = !embed.views || embed.views.includes(embedViewIdForPath(location.pathname))
     return (
-      <div className="app-shell app-shell-embed" style={embedThemeStyle(embed.theme)}>
+      <div
+        className="app-shell app-shell-embed"
+        data-theme={embedThemeMode(embed.theme)}
+        style={embedThemeStyle(embed.theme)}
+      >
         <a className="skip-link" href="#content">
           Skip to content
         </a>
