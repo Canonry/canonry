@@ -3487,6 +3487,40 @@ export type PutApiV1ProjectsByNameQueriesResponses = {
 
 export type PutApiV1ProjectsByNameQueriesResponse = PutApiV1ProjectsByNameQueriesResponses[keyof PutApiV1ProjectsByNameQueriesResponses];
 
+export type DeleteApiV1ProjectsByNameQueriesByIdData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+        /**
+         * Query ID.
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/queries/{id}';
+};
+
+export type DeleteApiV1ProjectsByNameQueriesByIdErrors = {
+    /**
+     * Project or query not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type DeleteApiV1ProjectsByNameQueriesByIdError = DeleteApiV1ProjectsByNameQueriesByIdErrors[keyof DeleteApiV1ProjectsByNameQueriesByIdErrors];
+
+export type DeleteApiV1ProjectsByNameQueriesByIdResponses = {
+    /**
+     * Query deleted.
+     */
+    204: void;
+};
+
+export type DeleteApiV1ProjectsByNameQueriesByIdResponse = DeleteApiV1ProjectsByNameQueriesByIdResponses[keyof DeleteApiV1ProjectsByNameQueriesByIdResponses];
+
 export type PostApiV1ProjectsByNameQueriesReplacePreviewData = {
     body: {
         queries: Array<string>;

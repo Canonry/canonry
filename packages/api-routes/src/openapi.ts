@@ -93,6 +93,14 @@ const runIdParameter: OpenApiParameter = {
   schema: stringSchema,
 }
 
+const queryIdParameter: OpenApiParameter = {
+  name: 'id',
+  in: 'path',
+  required: true,
+  description: 'Query ID.',
+  schema: stringSchema,
+}
+
 const notificationIdParameter: OpenApiParameter = {
   name: 'id',
   in: 'path',
@@ -527,6 +535,17 @@ const routeCatalog: OpenApiOperation[] = [
     responses: {
       200: jsonArrayResponse('Remaining queries returned.', 'QueryDto'),
       400: errorResponse('Invalid query delete request.'),
+    },
+  },
+  {
+    method: 'delete',
+    path: '/api/v1/projects/{name}/queries/{id}',
+    summary: 'Delete one query by ID',
+    tags: ['queries'],
+    parameters: [nameParameter, queryIdParameter],
+    responses: {
+      204: { description: 'Query deleted.' },
+      404: errorResponse('Project or query not found.'),
     },
   },
   {
