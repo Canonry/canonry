@@ -187,6 +187,47 @@ describe('embedClientConfigForRequest', () => {
       projectTabs: ['overview', 'technical-aeo'],
     })
   })
+
+  it('adds a per-request theme from the JSON override header', () => {
+    expect(
+      embedClientConfigForRequest(enabled, undefined, '{"mode":"light","font":"Inter","accent":"#2563eb"}'),
+    ).toEqual({
+      enabled: true,
+      projectTabs: ['overview', 'technical-aeo', 'report'],
+      theme: { mode: 'light', font: 'Inter', accent: '#2563eb' },
+    })
+  })
+
+  it('carries both the projectTabs and theme overrides together', () => {
+    expect(embedClientConfigForRequest(enabled, 'overview', '{"mode":"light"}')).toEqual({
+      enabled: true,
+      projectTabs: ['overview'],
+      theme: { mode: 'light' },
+    })
+  })
+
+  it('ignores a malformed / non-object / oversized theme header (keeps boot config)', () => {
+    for (const bad of ['not json', '["mode"]', '"light"', '42', `{"x":"${'a'.repeat(3000)}"}`]) {
+      expect(embedClientConfigForRequest(enabled, undefined, bad)).toEqual({
+        enabled: true,
+        projectTabs: ['overview', 'technical-aeo', 'report'],
+      })
+    }
+  })
+
+  it('drops non-string / overlong theme values but keeps the valid ones', () => {
+    expect(
+      embedClientConfigForRequest(
+        enabled,
+        undefined,
+        JSON.stringify({ mode: 'light', bad: 5, big: 'a'.repeat(300) }),
+      ),
+    ).toEqual({
+      enabled: true,
+      projectTabs: ['overview', 'technical-aeo', 'report'],
+      theme: { mode: 'light' },
+    })
+  })
 })
 
 describe('serializeForInlineScript', () => {

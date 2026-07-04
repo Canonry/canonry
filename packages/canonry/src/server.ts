@@ -2089,16 +2089,21 @@ export async function createServer(opts: {
     const indexPath = path.join(assetsDir, "index.html");
 
     // basePath is already resolved above. Used here for SPA serving.
-    const injectConfig = (html: string, projectTabsOverride?: string | string[]): string => {
+    const injectConfig = (
+      html: string,
+      projectTabsOverride?: string | string[],
+      themeOverride?: string | string[],
+    ): string => {
       const clientConfig: Record<string, unknown> = {};
       if (basePath) clientConfig.basePath = basePath;
       // Embed block is appended LAST and only when enabled, so the default
       // (non-embed) serve emits byte-for-byte the same `{}` / `{basePath}`.
-      // `projectTabs` may be overridden PER REQUEST by the X-Canonry-Embed-Tabs
-      // header the Embed v2 /e proxy sets per dashboard (the end client cannot
-      // reach this loopback engine to set it); absent header keeps the boot config.
+      // `projectTabs` + `theme` may be overridden PER REQUEST by the
+      // X-Canonry-Embed-Tabs / X-Canonry-Embed-Theme headers the Embed v2 /e
+      // proxy sets per dashboard (the end client cannot reach this loopback
+      // engine to set them); absent headers keep the boot config.
       if (embed.enabled) {
-        const embedClient = embedClientConfigForRequest(embed, projectTabsOverride);
+        const embedClient = embedClientConfigForRequest(embed, projectTabsOverride, themeOverride);
         if (embedClient) clientConfig.embed = embedClient;
       }
 
@@ -2126,7 +2131,15 @@ export async function createServer(opts: {
     const sendSpaDocument = (reply: FastifyReply, html: string) => {
       reply.header("Cache-Control", "no-cache, must-revalidate");
       if (embedCsp) reply.header("Content-Security-Policy", embedCsp);
-      return reply.type("text/html").send(injectConfig(html, reply.request.headers["x-canonry-embed-tabs"]));
+      return reply
+        .type("text/html")
+        .send(
+          injectConfig(
+            html,
+            reply.request.headers["x-canonry-embed-tabs"],
+            reply.request.headers["x-canonry-embed-theme"],
+          ),
+        );
     };
 
     const fastifyStatic = await import("@fastify/static");

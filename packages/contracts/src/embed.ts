@@ -185,21 +185,56 @@ export function normalizeIdTokens(raw: string[]): string[] | undefined {
 }
 
 /**
+ * Parse a per-request theme override header (`X-Canonry-Embed-Theme`, a plain
+ * JSON object string the Embed v2 `/e` proxy sets per dashboard) into a flat
+ * `Record<string,string>`. STRUCTURAL defense-in-depth only: caps the header
+ * size, keeps only string keys/values within length bounds, and bounds the key
+ * count — the VALUE-level guards (color form / font-family / mode enum) live in
+ * the SPA's `embedThemeStyle` / `embedThemeMode`, which apply these values. A
+ * malformed / oversized / non-object header yields `undefined` (keep boot theme).
+ */
+function parseThemeOverride(raw: string | string[] | undefined): Record<string, string> | undefined {
+  const value = Array.isArray(raw) ? raw[0] : raw
+  if (typeof value !== 'string' || value.length === 0 || value.length > 2048) return undefined
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(value)
+  } catch {
+    return undefined
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return undefined
+  const out: Record<string, string> = {}
+  for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
+    if (Object.keys(out).length >= 12) break
+    if (typeof k !== 'string' || k.length === 0 || k.length > 32) continue
+    if (typeof v !== 'string' || v.length > 256) continue
+    out[k] = v
+  }
+  return Object.keys(out).length > 0 ? out : undefined
+}
+
+/**
  * The client-config block for ONE request: the boot-resolved embed settings, but
- * with `projectTabs` replaced by a per-request override when present. The Embed
- * v2 platform `/e` proxy sets that override (an `X-Canonry-Embed-Tabs` header it
- * controls per dashboard); the end client cannot reach the loopback engine to set
- * it. An absent / empty override keeps the boot-wide `projectTabs`. Presentational
- * only, NOT a security boundary: the API key scope governs data access.
+ * with `projectTabs` and `theme` replaced by per-request overrides when present.
+ * The Embed v2 platform `/e` proxy sets those overrides (the `X-Canonry-Embed-Tabs`
+ * / `X-Canonry-Embed-Theme` headers it controls per dashboard); the end client
+ * cannot reach the loopback engine to set them. An absent / empty override keeps
+ * the boot-wide value. Presentational only, NOT a security boundary: the API key
+ * scope governs data access, and the SPA sanitizes every theme value it applies.
  */
 export function embedClientConfigForRequest(
   resolved: ResolvedEmbedConfig,
   projectTabsOverride: string | string[] | undefined,
+  themeOverride?: string | string[],
 ): EmbedClientConfig | undefined {
   const base = buildEmbedClientConfig(resolved)
   if (!base) return undefined
-  const override = normalizeIdTokens(splitList(projectTabsOverride))
-  return override ? { ...base, projectTabs: override } : base
+  const tabs = normalizeIdTokens(splitList(projectTabsOverride))
+  const theme = parseThemeOverride(themeOverride)
+  let out = base
+  if (tabs) out = { ...out, projectTabs: tabs }
+  if (theme) out = { ...out, theme }
+  return out
 }
 
 /**
