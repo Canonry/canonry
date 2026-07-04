@@ -84,3 +84,69 @@ test('embed theme applies allowlisted CSS custom properties to the shell', async
   })
   expect(html).toContain('--canonry-embed-bg:#00aaff')
 })
+
+// White-label de-leak: the read-only embed render hides every write/operator
+// control that would 403 on click against the read-only project-scoped key,
+// while keeping every read-only view. Not a security boundary (the API key
+// scope is) — purely UI cleanliness. See isEmbed() in src/api.ts.
+test('embed hides the page-header write cluster (export / delete / run) that leaks on every tab', async () => {
+  const embed = await renderAt('/projects/project_citypoint', { enabled: true })
+  const operator = await renderAt('/projects/project_citypoint')
+
+  // Operator sees the header action cluster…
+  expect(operator).toContain('Export project as YAML')
+  expect(operator).toContain('Delete project')
+  // …the embed render does not (this cluster renders OUTSIDE the tab switch, so
+  // it would otherwise leak on the default overview embed).
+  expect(embed).not.toContain('Export project as YAML')
+  expect(embed).not.toContain('Delete project')
+
+  // A read-only view still renders in the embed (the project name + a section
+  // heading + a metric label), proving we hid controls, not content.
+  expect(embed).toContain('Citypoint Dental NYC')
+  expect(embed).toContain('Where competitors are winning')
+  expect(embed).toContain('Mention share')
+})
+
+test('embed hides the overview competitor + query managers and the identity editors', async () => {
+  const embed = await renderAt('/projects/project_citypoint', { enabled: true })
+  const operator = await renderAt('/projects/project_citypoint')
+
+  // Operator sees the overview write affordances + the alias editor row…
+  expect(operator).toContain('+ Add competitor')
+  expect(operator).toContain('Manage queries')
+  expect(operator).toContain('Also known as')
+  // …none of which render in the embed.
+  expect(embed).not.toContain('+ Add competitor')
+  expect(embed).not.toContain('Manage queries')
+  expect(embed).not.toContain('Also known as')
+})
+
+// A default embed config (enabled, no `views` allowlist) makes every top-level
+// route reachable inside the iframe — `embedViewIdForPath` maps them but the
+// unset allowlist permits them all. These admin pages (/runs, /traffic,
+// /backlinks) must therefore hide their own operator write controls too, not
+// just the project-tab buttons. Same rule: hide the mutating control, keep the
+// read-only view.
+test('embed hides the operator write controls on the top-level admin pages (default config, no views allowlist)', async () => {
+  // /runs — "Run all projects" triggers a sweep across every project.
+  const runsEmbed = await renderAt('/runs', { enabled: true })
+  const runsOperator = await renderAt('/runs')
+  expect(runsOperator).toContain('Run all projects')
+  expect(runsEmbed).not.toContain('Run all projects')
+  expect(runsEmbed).toContain('Runs') // the read-only page still renders
+
+  // /traffic — "Connect a source" opens the write drawer.
+  const trafficEmbed = await renderAt('/traffic', { enabled: true })
+  const trafficOperator = await renderAt('/traffic')
+  expect(trafficOperator).toContain('Connect a source')
+  expect(trafficEmbed).not.toContain('Connect a source')
+  expect(trafficEmbed).toContain('Server traffic') // the read-only page still renders
+
+  // /backlinks — "Run sync" downloads + queries a Common Crawl release.
+  const backlinksEmbed = await renderAt('/backlinks', { enabled: true })
+  const backlinksOperator = await renderAt('/backlinks')
+  expect(backlinksOperator).toContain('Run sync')
+  expect(backlinksEmbed).not.toContain('Run sync')
+  expect(backlinksEmbed).toContain('Backlinks') // the read-only page still renders
+})

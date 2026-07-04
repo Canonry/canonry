@@ -54,6 +54,7 @@ import {
   fetchRunDetail,
   heyClient,
   getEmbedConfig,
+  isEmbed,
   type ApiBingConnection,
   type ApiBingSite,
   type ApiBingInspection,
@@ -311,6 +312,20 @@ function BingSection({
   }
 
   if (!connection?.connected) {
+    if (isEmbed()) {
+      return (
+        <Card className="surface-card">
+          <div className="section-head section-head-inline">
+            <div>
+              <p className="eyebrow eyebrow-soft">Connection</p>
+              <h3>Domain authorization</h3>
+            </div>
+            <ToneBadge tone="caution">Not connected</ToneBadge>
+          </div>
+          <p className="text-sm text-neutral">Bing Webmaster Tools is not connected for this project.</p>
+        </Card>
+      )
+    }
     return (
       <Card className="surface-card">
         <div className="section-head section-head-inline">
@@ -366,7 +381,7 @@ function BingSection({
           </div>
           <div className="flex items-center gap-2">
             <ToneBadge tone="positive">Connected</ToneBadge>
-            <Button size="sm" variant="ghost" onClick={asyncHandler(handleDisconnect)}>Disconnect</Button>
+            {!isEmbed() && <Button size="sm" variant="ghost" onClick={asyncHandler(handleDisconnect)}>Disconnect</Button>}
           </div>
         </div>
         <div className="space-y-3">
@@ -404,7 +419,7 @@ function BingSection({
                     <option key={s.url} value={s.url}>{s.url}{s.verified ? ' (verified)' : ''}</option>
                   ))}
                 </select>
-                <Button size="sm" disabled={!selectedSite} onClick={asyncHandler(handleSetSite)}>Set Site</Button>
+                {!isEmbed() && <Button size="sm" disabled={!selectedSite} onClick={asyncHandler(handleSetSite)}>Set Site</Button>}
               </div>
             ) : (
               <p className="mt-3 text-xs text-muted">
@@ -435,7 +450,7 @@ function BingSection({
           </div>
           <div className="flex items-center gap-2">
             <ToneBadge tone="positive">Connected</ToneBadge>
-            <Button size="sm" variant="ghost" onClick={asyncHandler(handleDisconnect)}>Disconnect</Button>
+            {!isEmbed() && <Button size="sm" variant="ghost" onClick={asyncHandler(handleDisconnect)}>Disconnect</Button>}
           </div>
         </div>
         {error && <p className="mb-3 text-xs text-negative-400">{error}</p>}
@@ -447,7 +462,7 @@ function BingSection({
               <span className="text-xs text-muted">{connection.domain}</span>
             </div>
             <p className="mt-2 text-xs text-muted">
-              Canonry stores Bing connections per canonical domain. This project is currently mapped to <code>{connection.siteUrl}</code>.
+              {isEmbed() ? <>This project is currently mapped to <code>{connection.siteUrl}</code>.</> : <>Canonry stores Bing connections per canonical domain. This project is currently mapped to <code>{connection.siteUrl}</code>.</>}
             </p>
           </div>
           <div className="grid gap-3 lg:grid-cols-2">
@@ -503,9 +518,11 @@ function BingSection({
               <div>
                 <div className="mb-2 flex items-center justify-between gap-3">
                   <h4 className="text-xs font-medium text-secondary">Not Indexed ({coverage.notIndexed.length})</h4>
-                  <Button size="sm" variant="ghost" disabled={requestingIndexing} onClick={asyncHandler(handleSubmitAllUnindexed)}>
-                    {requestingIndexing ? 'Submitting…' : 'Submit all to Bing'}
-                  </Button>
+                  {!isEmbed() && (
+                    <Button size="sm" variant="ghost" disabled={requestingIndexing} onClick={asyncHandler(handleSubmitAllUnindexed)}>
+                      {requestingIndexing ? 'Submitting…' : 'Submit all to Bing'}
+                    </Button>
+                  )}
                 </div>
                 <div className="overflow-x-auto rounded-lg border border-default">
                   <table className="w-full text-xs">
@@ -513,7 +530,7 @@ function BingSection({
                       <tr className="border-b border-base">
                         <th className="text-left py-1.5 px-3 text-muted font-medium">URL</th>
                         <th className="text-left py-1.5 px-3 text-muted font-medium w-16">HTTP</th>
-                        <th className="text-right py-1.5 px-3 text-muted font-medium w-20">Action</th>
+                        {!isEmbed() && <th className="text-right py-1.5 px-3 text-muted font-medium w-20">Action</th>}
                       </tr>
                     </thead>
                     <tbody>
@@ -521,15 +538,17 @@ function BingSection({
                         <tr key={row.id} className="border-b border-base/50">
                           <td className="py-1.5 px-3 text-neutral truncate max-w-[480px]">{row.url}</td>
                           <td className="py-1.5 px-3 text-secondary">{row.httpCode ?? '\u2014'}</td>
-                          <td className="py-1.5 px-3 text-right">
-                            <button
-                              className="text-[10px] text-secondary hover:text-strong underline underline-offset-2"
-                              disabled={requestingIndexing}
-                              onClick={() => { void handleSubmitUrl(row.url) }}
-                            >
-                              Submit
-                            </button>
-                          </td>
+                          {!isEmbed() && (
+                            <td className="py-1.5 px-3 text-right">
+                              <button
+                                className="text-[10px] text-secondary hover:text-strong underline underline-offset-2"
+                                disabled={requestingIndexing}
+                                onClick={() => { void handleSubmitUrl(row.url) }}
+                              >
+                                Submit
+                              </button>
+                            </td>
+                          )}
                         </tr>
                       ))}
                     </tbody>
@@ -542,9 +561,11 @@ function BingSection({
               <div>
                 <div className="mb-2 flex items-center justify-between gap-3">
                   <h4 className="text-xs font-medium text-secondary">Unknown — not yet confirmed ({(coverage.unknown ?? []).length})</h4>
-                  <Button size="sm" variant="ghost" disabled={requestingIndexing} onClick={asyncHandler(handleSubmitAllUnindexed)}>
-                    {requestingIndexing ? 'Submitting…' : 'Submit all to Bing'}
-                  </Button>
+                  {!isEmbed() && (
+                    <Button size="sm" variant="ghost" disabled={requestingIndexing} onClick={asyncHandler(handleSubmitAllUnindexed)}>
+                      {requestingIndexing ? 'Submitting…' : 'Submit all to Bing'}
+                    </Button>
+                  )}
                 </div>
                 <div className="overflow-x-auto rounded-lg border border-default">
                   <table className="w-full text-xs">
@@ -552,7 +573,7 @@ function BingSection({
                       <tr className="border-b border-base">
                         <th className="text-left py-1.5 px-3 text-muted font-medium">URL</th>
                         <th className="text-left py-1.5 px-3 text-muted font-medium w-32">Last Crawled</th>
-                        <th className="text-right py-1.5 px-3 text-muted font-medium w-20">Action</th>
+                        {!isEmbed() && <th className="text-right py-1.5 px-3 text-muted font-medium w-20">Action</th>}
                       </tr>
                     </thead>
                     <tbody>
@@ -560,15 +581,17 @@ function BingSection({
                         <tr key={row.id} className="border-b border-base/50">
                           <td className="py-1.5 px-3 text-neutral truncate max-w-[480px]">{row.url}</td>
                           <td className="py-1.5 px-3 text-secondary">{row.lastCrawledDate ? formatTimestamp(row.lastCrawledDate) : '\u2014'}</td>
-                          <td className="py-1.5 px-3 text-right">
-                            <button
-                              className="text-[10px] text-secondary hover:text-strong underline underline-offset-2"
-                              disabled={requestingIndexing}
-                              onClick={() => { void handleSubmitUrl(row.url) }}
-                            >
-                              Submit
-                            </button>
-                          </td>
+                          {!isEmbed() && (
+                            <td className="py-1.5 px-3 text-right">
+                              <button
+                                className="text-[10px] text-secondary hover:text-strong underline underline-offset-2"
+                                disabled={requestingIndexing}
+                                onClick={() => { void handleSubmitUrl(row.url) }}
+                              >
+                                Submit
+                              </button>
+                            </td>
+                          )}
                         </tr>
                       ))}
                     </tbody>
@@ -609,19 +632,21 @@ function BingSection({
 
         {activeTab === 'inspections' && (
           <div className="mt-4 space-y-3">
-            <div className="flex flex-col gap-2 lg:flex-row">
-              <input
-                type="text"
-                className="flex-1 rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
-                placeholder="URL to inspect"
-                value={inspectionUrl}
-                onChange={(e) => setInspectionUrl(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') { void handleInspect() } }}
-              />
-              <Button size="sm" disabled={!inspectionUrl.trim()} onClick={asyncHandler(handleInspect)}>
-                Inspect
-              </Button>
-            </div>
+            {!isEmbed() && (
+              <div className="flex flex-col gap-2 lg:flex-row">
+                <input
+                  type="text"
+                  className="flex-1 rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
+                  placeholder="URL to inspect"
+                  value={inspectionUrl}
+                  onChange={(e) => setInspectionUrl(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { void handleInspect() } }}
+                />
+                <Button size="sm" disabled={!inspectionUrl.trim()} onClick={asyncHandler(handleInspect)}>
+                  Inspect
+                </Button>
+              </div>
+            )}
 
             {inspectionResult && (
               <div className="rounded border border-base bg-bg-elevated/40 p-3 text-xs space-y-1">
@@ -918,9 +943,11 @@ function SearchConsoleSection({
               Scan both engines at a glance, then open the Google or Bing workspace when you need to inspect coverage or take action.
             </p>
           </div>
-          <Button type="button" variant="outline" size="sm" disabled={loading || refreshState !== 'idle'} onClick={() => void handleRefresh()}>
-            {loading ? 'Loading…' : refreshState === 'syncing' ? 'Refreshing Google & Bing…' : refreshState === 'reloading' ? 'Reloading workspaces…' : 'Refresh all'}
-          </Button>
+          {!isEmbed() && (
+            <Button type="button" variant="outline" size="sm" disabled={loading || refreshState !== 'idle'} onClick={() => void handleRefresh()}>
+              {loading ? 'Loading…' : refreshState === 'syncing' ? 'Refreshing Google & Bing…' : refreshState === 'reloading' ? 'Reloading workspaces…' : 'Refresh all'}
+            </Button>
+          )}
         </div>
 
         {error && (
@@ -1195,7 +1222,7 @@ function OverviewBrief({
           ) : (
             <>
               <p className="overview-brief-panel-title">No outstanding action</p>
-              <p className="overview-brief-panel-copy">Keep monitoring. Canonry will surface regressions and new query opportunities here.</p>
+              <p className="overview-brief-panel-copy">{isEmbed() ? 'Keep monitoring. Regressions and new query opportunities will surface here.' : 'Keep monitoring. Canonry will surface regressions and new query opportunities here.'}</p>
             </>
           )}
         </div>
@@ -2109,16 +2136,18 @@ function ProjectPageContent({
               {(model.project.ownedDomains ?? []).map((d) => (
                 <span key={d} className="inline-flex items-center gap-1 rounded-full border border-strong/60 bg-surface-inset-hover px-2 py-0.5 text-xs text-neutral">
                   {d}
-                  <button
-                    type="button"
-                    className="-mr-1 ml-0.5 inline-flex items-center justify-center rounded p-1 leading-none text-muted hover:bg-mono-700/40 hover:text-strong transition-colors"
-                    disabled={ownedDomainSaving}
-                    onClick={() => { void handleRemoveOwnedDomain(d) }}
-                    aria-label={`Remove ${d}`}
-                  >×</button>
+                  {!isEmbed() && (
+                    <button
+                      type="button"
+                      className="-mr-1 ml-0.5 inline-flex items-center justify-center rounded p-1 leading-none text-muted hover:bg-mono-700/40 hover:text-strong transition-colors"
+                      disabled={ownedDomainSaving}
+                      onClick={() => { void handleRemoveOwnedDomain(d) }}
+                      aria-label={`Remove ${d}`}
+                    >×</button>
+                  )}
                 </span>
               ))}
-              {addingOwnedDomain ? (
+              {isEmbed() ? null : addingOwnedDomain ? (
                 <span className="inline-flex items-center gap-1">
                   <input
                     className="rounded border border-strong bg-transparent px-1.5 py-0.5 text-xs text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none w-40"
@@ -2143,6 +2172,7 @@ function ProjectPageContent({
               )}
             </div>
           )}
+          {(!isEmbed() || (model.project.aliases ?? []).length > 0) && (
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
             <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wide text-muted mr-1">
               Also known as
@@ -2151,16 +2181,18 @@ function ProjectPageContent({
             {(model.project.aliases ?? []).map((a) => (
               <span key={a} className="inline-flex items-center gap-1 rounded-full border border-strong/60 bg-surface-inset-hover px-2 py-0.5 text-xs text-neutral">
                 {a}
-                <button
-                  type="button"
-                  className="-mr-1 ml-0.5 inline-flex items-center justify-center rounded p-1 leading-none text-muted hover:bg-mono-700/40 hover:text-strong transition-colors"
-                  disabled={aliasSaving}
-                  onClick={() => { void handleRemoveAlias(a) }}
-                  aria-label={`Remove ${a}`}
-                >×</button>
+                {!isEmbed() && (
+                  <button
+                    type="button"
+                    className="-mr-1 ml-0.5 inline-flex items-center justify-center rounded p-1 leading-none text-muted hover:bg-mono-700/40 hover:text-strong transition-colors"
+                    disabled={aliasSaving}
+                    onClick={() => { void handleRemoveAlias(a) }}
+                    aria-label={`Remove ${a}`}
+                  >×</button>
+                )}
               </span>
             ))}
-            {addingAlias ? (
+            {isEmbed() ? null : addingAlias ? (
               <span className="inline-flex items-center gap-1">
                 <input
                   className="rounded border border-strong bg-transparent px-1.5 py-0.5 text-xs text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none w-40"
@@ -2184,28 +2216,31 @@ function ProjectPageContent({
               >+ alias</button>
             )}
           </div>
+          )}
         </div>
         <div className="page-header-right">
           <p className="text-sm text-muted">{model.dateRangeLabel}</p>
-          <div className="flex items-center gap-2">
-            <Button type="button" variant="outline" size="icon" onClick={asyncHandler(handleExport)} aria-label="Export project as YAML">
-              <Download className="h-4 w-4 text-secondary" />
-            </Button>
-            <Button type="button" variant="outline" size="icon" onClick={() => setShowDeleteConfirm(true)} aria-label="Delete project">
-              <Trash2 className="h-4 w-4 text-secondary" />
-            </Button>
-            <Button
-              type="button"
-              disabled={triggerRunMutation.isPending || hasActiveVisibilitySweep}
-              onClick={asyncHandler(handleTriggerRun)}
-            >
-              {triggerRunMutation.isPending
-                ? 'Starting…'
-                : hasActiveVisibilitySweep
-                  ? 'Sweep running…'
-                  : 'Run now'}
-            </Button>
-          </div>
+          {!isEmbed() && (
+            <div className="flex items-center gap-2">
+              <Button type="button" variant="outline" size="icon" onClick={asyncHandler(handleExport)} aria-label="Export project as YAML">
+                <Download className="h-4 w-4 text-secondary" />
+              </Button>
+              <Button type="button" variant="outline" size="icon" onClick={() => setShowDeleteConfirm(true)} aria-label="Delete project">
+                <Trash2 className="h-4 w-4 text-secondary" />
+              </Button>
+              <Button
+                type="button"
+                disabled={triggerRunMutation.isPending || hasActiveVisibilitySweep}
+                onClick={asyncHandler(handleTriggerRun)}
+              >
+                {triggerRunMutation.isPending
+                  ? 'Starting…'
+                  : hasActiveVisibilitySweep
+                    ? 'Sweep running…'
+                    : 'Run now'}
+              </Button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -2260,9 +2295,11 @@ function ProjectPageContent({
               </div>
               <div className="flex items-center gap-3">
                 <p className="supporting-copy">{model.competitors.length} tracked</p>
-                <Button type="button" variant="outline" size="sm" onClick={() => setAddingCompetitor(!addingCompetitor)}>
-                  {addingCompetitor ? 'Cancel' : '+ Add competitor'}
-                </Button>
+                {!isEmbed() && (
+                  <Button type="button" variant="outline" size="sm" onClick={() => setAddingCompetitor(!addingCompetitor)}>
+                    {addingCompetitor ? 'Cancel' : '+ Add competitor'}
+                  </Button>
+                )}
               </div>
             </div>
 
@@ -2319,7 +2356,7 @@ function ProjectPageContent({
                       setCompetitorFilter(domain)
                       focusOverviewSection('evidence-section', true)
                     }}
-                    onRemoveCompetitor={(domain) => { void handleRemoveCompetitor(domain) }}
+                    onRemoveCompetitor={isEmbed() ? undefined : (domain) => { void handleRemoveCompetitor(domain) }}
                     activeFilter={competitorFilter}
                   />
                 </div>
@@ -2333,12 +2370,14 @@ function ProjectPageContent({
             title="Query evidence"
             meta={`${model.queryCounts.total} ${model.queryCounts.total === 1 ? 'query' : 'queries'}`}
           >
-            <div className="mb-3 flex items-center justify-end">
-              <Button type="button" variant="outline" size="sm" onClick={() => setManagingQueries(!managingQueries)}>
-                {managingQueries ? 'Done' : 'Manage queries'}
-              </Button>
-            </div>
-            {managingQueries && (
+            {!isEmbed() && (
+              <div className="mb-3 flex items-center justify-end">
+                <Button type="button" variant="outline" size="sm" onClick={() => setManagingQueries(!managingQueries)}>
+                  {managingQueries ? 'Done' : 'Manage queries'}
+                </Button>
+              </div>
+            )}
+            {!isEmbed() && managingQueries && (
               <div className="mb-3 rounded-lg border border-base bg-bg-elevated/40 p-3">
                 {trackedQueries.length > 0 ? (
                   <ul className="mb-3 max-h-64 divide-y divide-mono-800/60 overflow-y-auto rounded border border-default">

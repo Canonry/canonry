@@ -34,6 +34,7 @@ import {
   triggerGaSync,
   disconnectGa,
   heyClient,
+  isEmbed,
 } from '../../api.js'
 import {
   getApiV1ProjectsByNameGaAiReferralHistoryOptions,
@@ -113,7 +114,7 @@ function ServerActivityPanel({ projectName }: { projectName: string }) {
           <p className="text-xs text-muted mt-1">
             Server-side log evidence of bulk crawlers, on-demand AI user fetches (ChatGPT-User, Perplexity-User),
             and AI referral sessions — orthogonal to GA4 click-through traffic below.{' '}
-            <Link to="/traffic" className="text-link hover:underline">Manage sources →</Link>
+            {!isEmbed() && <Link to="/traffic" className="text-link hover:underline">Manage sources →</Link>}
           </p>
         </div>
       </div>
@@ -122,10 +123,14 @@ function ServerActivityPanel({ projectName }: { projectName: string }) {
         <Card className="p-5">
           <div className="text-sm text-secondary">
             No server traffic source connected yet.{' '}
-            <Link to="/traffic" className="text-link hover:underline">
-              Connect a traffic source
-            </Link>{' '}
-            to surface bot crawls and AI referrals straight from server logs.
+            {!isEmbed() && (
+              <>
+                <Link to="/traffic" className="text-link hover:underline">
+                  Connect a traffic source
+                </Link>{' '}
+                to surface bot crawls and AI referrals straight from server logs.
+              </>
+            )}
           </div>
         </Card>
       ) : (
@@ -162,13 +167,17 @@ function ServerActivityPanel({ projectName }: { projectName: string }) {
                     {s.lastSyncedAt ? relativeTime(s.lastSyncedAt) : 'never'}
                   </td>
                   <td className="px-4 py-3 text-right">
-                    <Link
-                      to="/traffic/$projectName/$sourceId"
-                      params={{ projectName, sourceId: s.id }}
-                      className="text-link hover:underline text-xs"
-                    >
-                      Detail →
-                    </Link>
+                    {isEmbed() ? (
+                      <span className="text-muted text-xs">Detail</span>
+                    ) : (
+                      <Link
+                        to="/traffic/$projectName/$sourceId"
+                        params={{ projectName, sourceId: s.id }}
+                        className="text-link hover:underline text-xs"
+                      >
+                        Detail →
+                      </Link>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -484,6 +493,15 @@ export function ClickThroughActivity({ projectName }: { projectName: string }) {
 
   // Not connected state
   if (!status?.connected) {
+    if (isEmbed()) {
+      return (
+        <Card className="p-5">
+          <div className="text-sm text-secondary">
+            No Google Analytics 4 property connected yet.
+          </div>
+        </Card>
+      )
+    }
     return (
       <Ga4ConnectForm
         projectName={projectName}
@@ -542,27 +560,29 @@ export function ClickThroughActivity({ projectName }: { projectName: string }) {
             {status.clientEmail && <> &middot; <span className="text-muted">{status.clientEmail}</span></>}
           </span>
         </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={syncing}
-            onClick={asyncHandler(handleSync)}
-          >
-            <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${syncing ? 'animate-spin' : ''}`} />
-            {syncing ? 'Syncing…' : 'Sync'}
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-negative-400 hover:text-negative"
-            disabled={disconnecting}
-            onClick={asyncHandler(handleDisconnect)}
-          >
-            <Unplug className="w-3.5 h-3.5 mr-1.5" />
-            Disconnect
-          </Button>
-        </div>
+        {!isEmbed() && (
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={syncing}
+              onClick={asyncHandler(handleSync)}
+            >
+              <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${syncing ? 'animate-spin' : ''}`} />
+              {syncing ? 'Syncing…' : 'Sync'}
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-negative-400 hover:text-negative"
+              disabled={disconnecting}
+              onClick={asyncHandler(handleDisconnect)}
+            >
+              <Unplug className="w-3.5 h-3.5 mr-1.5" />
+              Disconnect
+            </Button>
+          </div>
+        )}
       </div>
 
       {/* Summary gauges */}
@@ -617,10 +637,12 @@ export function ClickThroughActivity({ projectName }: { projectName: string }) {
         ) : (
           <div className="surface-card rounded-lg p-6 text-center border border-default">
             <p className="text-sm text-secondary mb-3">No traffic data yet.</p>
-            <Button variant="outline" size="sm" disabled={syncing} onClick={asyncHandler(handleSync)}>
-              <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${syncing ? 'animate-spin' : ''}`} />
-              Sync from GA4
-            </Button>
+            {!isEmbed() && (
+              <Button variant="outline" size="sm" disabled={syncing} onClick={asyncHandler(handleSync)}>
+                <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${syncing ? 'animate-spin' : ''}`} />
+                Sync from GA4
+              </Button>
+            )}
           </div>
         )}
       </section>

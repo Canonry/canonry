@@ -53,6 +53,7 @@ import {
   fetchLatestReleaseSync,
   fetchReleaseSyncs,
   installBacklinks,
+  isEmbed,
   pruneCachedRelease,
   triggerReleaseSync,
   ApiError,
@@ -330,12 +331,14 @@ export function BacklinksPage() {
                     Will be installed into <code className="text-neutral">{status.pluginDir}</code> (~40 MB).
                   </p>
                 )}
-                <div className="mt-3">
-                  <Button type="button" size="sm" disabled={installing} onClick={asyncHandler(handleInstall)}>
-                    <Download className="h-4 w-4 mr-1.5" aria-hidden />
-                    {installing ? 'Installing…' : 'Install DuckDB'}
-                  </Button>
-                </div>
+                {!isEmbed() && (
+                  <div className="mt-3">
+                    <Button type="button" size="sm" disabled={installing} onClick={asyncHandler(handleInstall)}>
+                      <Download className="h-4 w-4 mr-1.5" aria-hidden />
+                      {installing ? 'Installing…' : 'Install DuckDB'}
+                    </Button>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -439,28 +442,30 @@ export function BacklinksPage() {
                   <ExternalLink className="h-3 w-3" aria-hidden />
                 </a>
               </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <Button
-                  type="button"
-                  size="sm"
-                  disabled={syncing || !status?.duckdbInstalled || (!latestAvailable && !releaseInput.trim())}
-                  onClick={asyncHandler(handleSync)}
-                >
-                  <Play className="h-4 w-4 mr-1.5" aria-hidden />
-                  {syncing ? 'Queuing…' : 'Run sync'}
-                </Button>
-                <Hint label="What does Run sync do?">
-                  <span className="block">
-                    Downloads the auto-detected (or chosen) Common Crawl release (~16 GB) to{' '}
-                    <code className="text-neutral">~/.canonry/cache/commoncrawl/</code>, then runs a single DuckDB query that extracts referring domains for every project in this workspace.
-                  </span>
-                  <span className="mt-2 block text-secondary">
-                    First time for a release: <span className="text-strong">~10–20 min download + ~5 min query</span>. Re-running the same release later: <span className="text-strong">skips download, just re-queries</span> (~5 min).
-                  </span>
-                </Hint>
-              </div>
+              {!isEmbed() && (
+                <div className="flex items-center gap-2 shrink-0">
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={syncing || !status?.duckdbInstalled || (!latestAvailable && !releaseInput.trim())}
+                    onClick={asyncHandler(handleSync)}
+                  >
+                    <Play className="h-4 w-4 mr-1.5" aria-hidden />
+                    {syncing ? 'Queuing…' : 'Run sync'}
+                  </Button>
+                  <Hint label="What does Run sync do?">
+                    <span className="block">
+                      Downloads the auto-detected (or chosen) Common Crawl release (~16 GB) to{' '}
+                      <code className="text-neutral">~/.canonry/cache/commoncrawl/</code>, then runs a single DuckDB query that extracts referring domains for every project in this workspace.
+                    </span>
+                    <span className="mt-2 block text-secondary">
+                      First time for a release: <span className="text-strong">~10–20 min download + ~5 min query</span>. Re-running the same release later: <span className="text-strong">skips download, just re-queries</span> (~5 min).
+                    </span>
+                  </Hint>
+                </div>
+              )}
             </div>
-            {!showOverride ? (
+            {isEmbed() ? null : !showOverride ? (
               <button
                 type="button"
                 className="text-xs text-muted hover:text-neutral focus:text-neutral focus:outline-none focus-visible:ring-1 focus-visible:ring-mono-500 rounded"
@@ -526,7 +531,7 @@ export function BacklinksPage() {
                 <th className="px-4 py-2 font-medium">Sync status</th>
                 <th className="px-4 py-2 text-right font-medium">Size</th>
                 <th className="px-4 py-2 font-medium">Last used</th>
-                <th className="px-4 py-2 font-medium sr-only">Actions</th>
+                {!isEmbed() && <th className="px-4 py-2 font-medium sr-only">Actions</th>}
               </tr>
             </thead>
             <tbody>
@@ -542,21 +547,23 @@ export function BacklinksPage() {
                   </td>
                   <td className="px-4 py-2 text-right text-secondary tabular-nums">{formatBytes(row.bytes)}</td>
                   <td className="px-4 py-2 text-secondary">{relativeTime(row.lastUsedAt)}</td>
-                  <td className="px-4 py-2 text-right">
-                    <div className="inline-flex items-center gap-1">
-                      <Button type="button" variant="outline" size="sm" onClick={() => { void handlePrune(row.release) }}>
-                        <Trash2 className="h-4 w-4 mr-1.5" aria-hidden />
-                        Prune
-                      </Button>
-                      <Hint label="What does Prune do?" placement="top">
-                        Deletes the ~16 GB cache for this release from disk. Backlink results already in SQLite remain untouched. To re-run extracts against this release, you&rsquo;d have to sync it again (another ~16 GB download).
-                      </Hint>
-                    </div>
-                  </td>
+                  {!isEmbed() && (
+                    <td className="px-4 py-2 text-right">
+                      <div className="inline-flex items-center gap-1">
+                        <Button type="button" variant="outline" size="sm" onClick={() => { void handlePrune(row.release) }}>
+                          <Trash2 className="h-4 w-4 mr-1.5" aria-hidden />
+                          Prune
+                        </Button>
+                        <Hint label="What does Prune do?" placement="top">
+                          Deletes the ~16 GB cache for this release from disk. Backlink results already in SQLite remain untouched. To re-run extracts against this release, you&rsquo;d have to sync it again (another ~16 GB download).
+                        </Hint>
+                      </div>
+                    </td>
+                  )}
                 </tr>
               ))}
               {cached.length === 0 && (
-                <tr><td className="px-4 py-4 text-sm text-muted" colSpan={5}>
+                <tr><td className="px-4 py-4 text-sm text-muted" colSpan={isEmbed() ? 4 : 5}>
                   No cached releases on this machine. If you ran a sync from a different machine (or deleted the cache), the backlink data is still in the database — but you&rsquo;ll need to re-sync a release to run new extracts.
                 </td></tr>
               )}

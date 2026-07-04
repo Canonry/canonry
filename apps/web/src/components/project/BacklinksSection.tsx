@@ -73,6 +73,7 @@ import {
   fetchRunDetail,
   triggerBacklinkExtract,
   triggerBingBacklinkSync,
+  isEmbed,
   ApiError,
 } from '../../api.js'
 import type {
@@ -473,15 +474,19 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
                 Connect a Bing Webmaster account, then sync.
               </li>
             </ul>
-            <div className="mt-4 flex items-center gap-3 flex-wrap">
-              <Button asChild type="button" size="sm">
-                <a href={publicPath('/backlinks')}>Set up Common Crawl</a>
-              </Button>
-            </div>
-            <p className="mt-3 text-xs text-muted">
-              Connect Bing with{' '}
-              <code className="text-secondary">canonry bing connect {projectName} --api-key &lt;key&gt;</code>.
-            </p>
+            {!isEmbed() && (
+              <>
+                <div className="mt-4 flex items-center gap-3 flex-wrap">
+                  <Button asChild type="button" size="sm">
+                    <a href={publicPath('/backlinks')}>Set up Common Crawl</a>
+                  </Button>
+                </div>
+                <p className="mt-3 text-xs text-muted">
+                  Connect Bing with{' '}
+                  <code className="text-secondary">canonry bing connect {projectName} --api-key &lt;key&gt;</code>.
+                </p>
+              </>
+            )}
           </div>
         </div>
       </Card>
@@ -512,12 +517,14 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
                     Bing Webmaster synced for <code className="text-neutral">{projectName}</code>, but every inbound
                     link in the latest window is a crawler/proxy host (hidden by default). Re-sync to check for new links.
                   </p>
-                  <div className="mt-4">
-                    <Button type="button" variant="outline" size="sm" disabled={bingSyncing || activeRun !== null} onClick={asyncHandler(handleBingSync)}>
-                      <Download className="h-4 w-4 mr-1.5" aria-hidden />
-                      {activeRun ? 'Sync running…' : bingSyncing ? 'Queuing…' : 'Re-sync Bing inbound links'}
-                    </Button>
-                  </div>
+                  {!isEmbed() && (
+                    <div className="mt-4">
+                      <Button type="button" variant="outline" size="sm" disabled={bingSyncing || activeRun !== null} onClick={asyncHandler(handleBingSync)}>
+                        <Download className="h-4 w-4 mr-1.5" aria-hidden />
+                        {activeRun ? 'Sync running…' : bingSyncing ? 'Queuing…' : 'Re-sync Bing inbound links'}
+                      </Button>
+                    </div>
+                  )}
                 </>
               ) : connected ? (
                 <>
@@ -526,12 +533,14 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
                     Bing Webmaster is connected for <code className="text-neutral">{projectName}</code> but no inbound
                     links have been synced yet. Run a sync to pull them live from your account.
                   </p>
-                  <div className="mt-4">
-                    <Button type="button" size="sm" disabled={bingSyncing || activeRun !== null} onClick={asyncHandler(handleBingSync)}>
-                      <Play className="h-4 w-4 mr-1.5" aria-hidden />
-                      {activeRun ? 'Sync running…' : bingSyncing ? 'Queuing…' : 'Sync Bing inbound links'}
-                    </Button>
-                  </div>
+                  {!isEmbed() && (
+                    <div className="mt-4">
+                      <Button type="button" size="sm" disabled={bingSyncing || activeRun !== null} onClick={asyncHandler(handleBingSync)}>
+                        <Play className="h-4 w-4 mr-1.5" aria-hidden />
+                        {activeRun ? 'Sync running…' : bingSyncing ? 'Queuing…' : 'Sync Bing inbound links'}
+                      </Button>
+                    </div>
+                  )}
                 </>
               ) : (
                 <>
@@ -552,10 +561,12 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
     }
 
     return renderDataView(
-      <Button type="button" variant="outline" size="sm" disabled={bingSyncing || activeRun !== null} onClick={asyncHandler(handleBingSync)}>
-        <Download className="h-4 w-4 mr-1.5" aria-hidden />
-        {activeRun ? 'Sync running…' : bingSyncing ? 'Queuing…' : 'Re-sync Bing'}
-      </Button>,
+      isEmbed() ? null : (
+        <Button type="button" variant="outline" size="sm" disabled={bingSyncing || activeRun !== null} onClick={asyncHandler(handleBingSync)}>
+          <Download className="h-4 w-4 mr-1.5" aria-hidden />
+          {activeRun ? 'Sync running…' : bingSyncing ? 'Queuing…' : 'Re-sync Bing'}
+        </Button>
+      ),
     )
   }
 
@@ -581,11 +592,13 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
                   <p className="text-sm text-muted mt-1">
                     Run a workspace release sync to populate backlinks for every project in this workspace.
                   </p>
-                  <div className="mt-4">
-                    <Button asChild type="button" size="sm">
-                      <a href={publicPath('/backlinks')}>Set up backlinks</a>
-                    </Button>
-                  </div>
+                  {!isEmbed() && (
+                    <div className="mt-4">
+                      <Button asChild type="button" size="sm">
+                        <a href={publicPath('/backlinks')}>Set up backlinks</a>
+                      </Button>
+                    </div>
+                  )}
                 </>
               )}
               {hasRunningSync && (
@@ -595,11 +608,13 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
                     A workspace release sync is running ({latestSync.status}
                     {latestSync.phaseDetail ? ` — ${latestSync.phaseDetail}` : ''}). Backlinks will appear here once it finishes.
                   </p>
-                  <div className="mt-4">
-                    <Button asChild type="button" variant="outline" size="sm">
-                      <a href={publicPath('/backlinks')}>View sync status</a>
-                    </Button>
-                  </div>
+                  {!isEmbed() && (
+                    <div className="mt-4">
+                      <Button asChild type="button" variant="outline" size="sm">
+                        <a href={publicPath('/backlinks')}>View sync status</a>
+                      </Button>
+                    </div>
+                  )}
                 </>
               )}
               {hasFailedSync && (
@@ -608,11 +623,13 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
                   <p className="text-sm text-muted mt-1">
                     {latestSync.error ?? 'The workspace release sync failed. Retry from the Backlinks admin page.'}
                   </p>
-                  <div className="mt-4">
-                    <Button asChild type="button" size="sm">
-                      <a href={publicPath('/backlinks')}>Go to Backlinks admin</a>
-                    </Button>
-                  </div>
+                  {!isEmbed() && (
+                    <div className="mt-4">
+                      <Button asChild type="button" size="sm">
+                        <a href={publicPath('/backlinks')}>Go to Backlinks admin</a>
+                      </Button>
+                    </div>
+                  )}
                 </>
               )}
               {hasReadySync && !hasRunningSync && !hasEmptySummary && !justFailed && (
@@ -622,21 +639,23 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
                     Release <code className="text-neutral">{latestSync.release}</code> is ready but no backlinks have been extracted for{' '}
                     <code className="text-neutral">{projectName}</code>. Run an extract to populate data using the cached release.
                   </p>
-                  <div className="mt-4 flex items-center gap-3 flex-wrap">
-                    <Button type="button" size="sm" disabled={extracting || activeRun !== null} onClick={asyncHandler(handleExtract)}>
-                      <Play className="h-4 w-4 mr-1.5" aria-hidden />
-                      {activeRun ? 'Extract running…' : extracting ? 'Queuing…' : 'Run extract'}
-                    </Button>
-                    <Hint label="What does Run extract do?">
-                      <span className="block">
-                        Runs a DuckDB query against the <span className="text-strong">cached release files</span> at{' '}
-                        <code className="text-neutral">~/.canonry/cache/commoncrawl/</code> to find referring domains for <span className="text-strong">{projectName}</span>.
-                      </span>
-                      <span className="mt-2 block text-secondary">
-                        No re-download. Typically takes <span className="text-strong">~5 min</span>.
-                      </span>
-                    </Hint>
-                  </div>
+                  {!isEmbed() && (
+                    <div className="mt-4 flex items-center gap-3 flex-wrap">
+                      <Button type="button" size="sm" disabled={extracting || activeRun !== null} onClick={asyncHandler(handleExtract)}>
+                        <Play className="h-4 w-4 mr-1.5" aria-hidden />
+                        {activeRun ? 'Extract running…' : extracting ? 'Queuing…' : 'Run extract'}
+                      </Button>
+                      <Hint label="What does Run extract do?">
+                        <span className="block">
+                          Runs a DuckDB query against the <span className="text-strong">cached release files</span> at{' '}
+                          <code className="text-neutral">~/.canonry/cache/commoncrawl/</code> to find referring domains for <span className="text-strong">{projectName}</span>.
+                        </span>
+                        <span className="mt-2 block text-secondary">
+                          No re-download. Typically takes <span className="text-strong">~5 min</span>.
+                        </span>
+                      </Hint>
+                    </div>
+                  )}
                 </>
               )}
               {justFailed && (
@@ -646,11 +665,13 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
                     See the error above for details. If the cache files for release{' '}
                     <code className="text-neutral">{latestSync?.release}</code> are missing, re-sync the release from the Backlinks admin to restore the ~16 GB dump, then re-run the extract.
                   </p>
-                  <div className="mt-4 flex items-center gap-3 flex-wrap">
-                    <Button asChild type="button" size="sm">
-                      <a href={publicPath('/backlinks')}>Go to Backlinks admin</a>
-                    </Button>
-                  </div>
+                  {!isEmbed() && (
+                    <div className="mt-4 flex items-center gap-3 flex-wrap">
+                      <Button asChild type="button" size="sm">
+                        <a href={publicPath('/backlinks')}>Go to Backlinks admin</a>
+                      </Button>
+                    </div>
+                  )}
                 </>
               )}
               {hasEmptySummary && (
@@ -669,23 +690,25 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
                   <p className="text-sm text-muted mt-3">
                     Try syncing a newer release — each Common Crawl dump is a different snapshot of the web graph.
                   </p>
-                  <div className="mt-4 flex items-center gap-3 flex-wrap">
-                    <Button asChild type="button" size="sm">
-                      <a href={publicPath('/backlinks')}>Go to Backlinks admin</a>
-                    </Button>
-                    <Button type="button" variant="outline" size="sm" disabled={extracting || activeRun !== null} onClick={asyncHandler(handleExtract)}>
-                      <Play className="h-4 w-4 mr-1.5" aria-hidden />
-                      {activeRun ? 'Extract running…' : extracting ? 'Queuing…' : 'Re-run extract'}
-                    </Button>
-                    <Hint label="What does Re-run extract do?">
-                      <span className="block">
-                        Re-queries the cached release for <span className="text-strong">{summary!.targetDomain}</span>. Only useful if the cache files were incomplete last time.
-                      </span>
-                      <span className="mt-2 block text-secondary">
-                        No re-download. ~5 min. If the release genuinely has no links for your domain, this won&rsquo;t help — sync a different release instead.
-                      </span>
-                    </Hint>
-                  </div>
+                  {!isEmbed() && (
+                    <div className="mt-4 flex items-center gap-3 flex-wrap">
+                      <Button asChild type="button" size="sm">
+                        <a href={publicPath('/backlinks')}>Go to Backlinks admin</a>
+                      </Button>
+                      <Button type="button" variant="outline" size="sm" disabled={extracting || activeRun !== null} onClick={asyncHandler(handleExtract)}>
+                        <Play className="h-4 w-4 mr-1.5" aria-hidden />
+                        {activeRun ? 'Extract running…' : extracting ? 'Queuing…' : 'Re-run extract'}
+                      </Button>
+                      <Hint label="What does Re-run extract do?">
+                        <span className="block">
+                          Re-queries the cached release for <span className="text-strong">{summary!.targetDomain}</span>. Only useful if the cache files were incomplete last time.
+                        </span>
+                        <span className="mt-2 block text-secondary">
+                          No re-download. ~5 min. If the release genuinely has no links for your domain, this won&rsquo;t help — sync a different release instead.
+                        </span>
+                      </Hint>
+                    </div>
+                  )}
                 </>
               )}
             </div>
@@ -696,22 +719,28 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
 
     return renderDataView(
       <>
-        <Button type="button" variant="outline" size="sm" disabled={extracting || activeRun !== null} onClick={asyncHandler(handleExtract)}>
-          <Download className="h-4 w-4 mr-1.5" aria-hidden />
-          {activeRun ? 'Extract running…' : extracting ? 'Queuing…' : 'Re-run extract'}
-        </Button>
-        <Hint label="What does Re-run extract do?">
-          <span className="block">
-            Re-queries the <span className="text-strong">cached release files</span> at{' '}
-            <code className="text-neutral">~/.canonry/cache/commoncrawl/</code> for <span className="text-strong">{projectName}</span>. Replaces existing backlink rows for this project under the current release.
-          </span>
-          <span className="mt-2 block text-secondary">
-            <span className="text-strong">No re-download</span> of the ~16 GB dump. Typically <span className="text-strong">~5 min</span>.
-          </span>
-        </Hint>
-        <Button asChild type="button" variant="outline" size="sm">
-          <a href={publicPath('/backlinks')}>Open admin</a>
-        </Button>
+        {!isEmbed() && (
+          <>
+            <Button type="button" variant="outline" size="sm" disabled={extracting || activeRun !== null} onClick={asyncHandler(handleExtract)}>
+              <Download className="h-4 w-4 mr-1.5" aria-hidden />
+              {activeRun ? 'Extract running…' : extracting ? 'Queuing…' : 'Re-run extract'}
+            </Button>
+            <Hint label="What does Re-run extract do?">
+              <span className="block">
+                Re-queries the <span className="text-strong">cached release files</span> at{' '}
+                <code className="text-neutral">~/.canonry/cache/commoncrawl/</code> for <span className="text-strong">{projectName}</span>. Replaces existing backlink rows for this project under the current release.
+              </span>
+              <span className="mt-2 block text-secondary">
+                <span className="text-strong">No re-download</span> of the ~16 GB dump. Typically <span className="text-strong">~5 min</span>.
+              </span>
+            </Hint>
+          </>
+        )}
+        {!isEmbed() && (
+          <Button asChild type="button" variant="outline" size="sm">
+            <a href={publicPath('/backlinks')}>Open admin</a>
+          </Button>
+        )}
       </>,
     )
   }

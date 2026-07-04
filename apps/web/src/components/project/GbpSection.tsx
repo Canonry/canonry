@@ -52,7 +52,7 @@ import {
   formatChartDateTick,
   formatChartDateLabel,
 } from '../shared/ChartPrimitives.js'
-import { fetchInsights, heyClient } from '../../api.js'
+import { fetchInsights, heyClient, isEmbed } from '../../api.js'
 import { addToast } from '../../lib/toast-store.js'
 import { getRunTrackerState, subscribeRunTracker, trackRun } from '../../lib/run-tracker-store.js'
 
@@ -288,15 +288,17 @@ export function GbpSection({ projectName, projectId }: { projectName: string; pr
           </div>
           <div className="flex items-center gap-2">
             <ToneBadge tone="positive">Connected</ToneBadge>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={isSyncing}
-              onClick={() => syncMutation.mutate({ client: heyClient, path: { name: projectName }, body: {} })}
-            >
-              {isSyncing ? 'Syncing…' : 'Sync'}
-            </Button>
+            {!isEmbed() && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={isSyncing}
+                onClick={() => syncMutation.mutate({ client: heyClient, path: { name: projectName }, body: {} })}
+              >
+                {isSyncing ? 'Syncing…' : 'Sync'}
+              </Button>
+            )}
           </div>
         </div>
 
@@ -437,7 +439,7 @@ export function GbpSection({ projectName, projectId }: { projectName: string; pr
                       <th className="text-left">Location</th>
                       <th className="text-left">Address</th>
                       <th className="text-left">Status</th>
-                      <th className="text-right">Action</th>
+                      {!isEmbed() && <th className="text-right">Action</th>}
                     </tr>
                   </thead>
                   <tbody>
@@ -450,21 +452,23 @@ export function GbpSection({ projectName, projectId }: { projectName: string; pr
                             {loc.selected ? 'Tracked' : 'Not tracked'}
                           </ToneBadge>
                         </td>
-                        <td className="text-right">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            disabled={selectionMutation.isPending}
-                            onClick={() => selectionMutation.mutate({
-                              client: heyClient,
-                              path: { name: projectName, locationName: loc.locationName },
-                              body: { selected: !loc.selected },
-                            })}
-                          >
-                            {loc.selected ? 'Untrack' : 'Track'}
-                          </Button>
-                        </td>
+                        {!isEmbed() && (
+                          <td className="text-right">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              disabled={selectionMutation.isPending}
+                              onClick={() => selectionMutation.mutate({
+                                client: heyClient,
+                                path: { name: projectName, locationName: loc.locationName },
+                                body: { selected: !loc.selected },
+                              })}
+                            >
+                              {loc.selected ? 'Untrack' : 'Track'}
+                            </Button>
+                          </td>
+                        )}
                       </tr>
                     ))}
                   </tbody>
@@ -590,7 +594,7 @@ function GbpLocationEvidenceTable({
       <div className="section-head section-head-inline mb-2">
         <div className="flex items-center gap-2">
           <p className="eyebrow eyebrow-soft">Source evidence</p>
-          <InfoTooltip text="Each column names the Google surface it came from. Missing or empty means that surface did not return a value in the latest Canonry sync, not that every Google product lacks the information." />
+          <InfoTooltip text={isEmbed() ? 'Each column names the Google surface it came from. Missing or empty means that surface did not return a value in the latest sync, not that every Google product lacks the information.' : 'Each column names the Google surface it came from. Missing or empty means that surface did not return a value in the latest Canonry sync, not that every Google product lacks the information.'} />
         </div>
         <span className="text-[11px] text-faint">{locations.length} location{locations.length === 1 ? '' : 's'}</span>
       </div>

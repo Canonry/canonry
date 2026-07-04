@@ -7,6 +7,7 @@ import {
   promoteDiscovery,
   triggerDiscoveryRun,
   heyClient,
+  isEmbed,
   type DiscoveryPromoteResult,
 } from '../../api.js'
 import {
@@ -157,7 +158,9 @@ export function DiscoverySection({ projectName }: { projectName: string }) {
           <p className="eyebrow eyebrow-soft">Discovery</p>
           <h2>Find new queries to track</h2>
           <p className="mt-1 max-w-3xl text-sm leading-6 text-muted">
-            Describe your ideal customer and Canonry generates the questions they would ask an AI engine, checks which ones already cite your site, then lets you add the promising ones to your tracked queries.
+            {isEmbed()
+              ? 'Generated questions your ideal customers would ask an AI engine, with a check of which ones already cite your site.'
+              : 'Describe your ideal customer and Canonry generates the questions they would ask an AI engine, checks which ones already cite your site, then lets you add the promising ones to your tracked queries.'}
           </p>
         </div>
         <Button
@@ -204,15 +207,17 @@ export function DiscoverySection({ projectName }: { projectName: string }) {
                   More questions means broader coverage but a longer run. 100 is a good default.
                 </span>
               </label>
-              <Button
-                type="button"
-                size="sm"
-                disabled={startMutation.isPending}
-                onClick={() => startMutation.mutate()}
-              >
-                <Play size={14} />
-                {startMutation.isPending ? 'Starting…' : 'Find queries'}
-              </Button>
+              {!isEmbed() && (
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={startMutation.isPending}
+                  onClick={() => startMutation.mutate()}
+                >
+                  <Play size={14} />
+                  {startMutation.isPending ? 'Starting…' : 'Find queries'}
+                </Button>
+              )}
             </div>
           </Card>
 
@@ -318,15 +323,17 @@ export function DiscoverySection({ projectName }: { projectName: string }) {
                   <p className="eyebrow eyebrow-soft">Step 2</p>
                   <h3>Add queries to your project</h3>
                 </div>
-                <Button
-                  type="button"
-                  size="sm"
-                  disabled={promoteMutation.isPending || safeDefaultCount === 0}
-                  onClick={() => promoteMutation.mutate(undefined)}
-                >
-                  <CheckCircle2 size={14} />
-                  {promoteMutation.isPending ? 'Adding…' : 'Add recommended queries'}
-                </Button>
+                {!isEmbed() && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={promoteMutation.isPending || safeDefaultCount === 0}
+                    onClick={() => promoteMutation.mutate(undefined)}
+                  >
+                    <CheckCircle2 size={14} />
+                    {promoteMutation.isPending ? 'Adding…' : 'Add recommended queries'}
+                  </Button>
+                )}
               </div>
               {previewQuery.isLoading ? (
                 <p className="text-sm text-muted">Loading recommendations…</p>
