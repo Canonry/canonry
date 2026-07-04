@@ -236,3 +236,23 @@ test('styles.css carries no literal palette utilities or raw hex outside the @th
   expect(body.match(/#[0-9a-f]{3,8}\b/gi) ?? []).toEqual([])
   expect(body.match(/\brgba?\(/g) ?? []).toEqual([])
 })
+
+test('the light theme deepens the tone-scale foreground steps (no bright tone text on white)', async () => {
+  const source = await readFile(stylesPath, 'utf8')
+  // The main [data-theme='light'] token block (not the .provider-badge-- rules).
+  const light = source.match(/\[data-theme='light'\]\s*\{([\s\S]*?)\n\}/)?.[1] ?? ''
+  expect(light, 'light theme block not found').not.toBe('')
+  // Tone SCALE steps used as bright foreground text on the dark canvas must be
+  // re-pointed to dark inks so they stay AA-legible on the light canvas
+  // (regression guard for the invisible tone-colored text the review caught).
+  for (const decl of [
+    '--color-positive-400: var(--color-emerald-700)',
+    '--color-caution-400: var(--color-amber-700)',
+    '--color-negative-400: var(--color-rose-700)',
+    '--color-info-400: var(--color-sky-700)',
+    '--color-info-100: var(--color-sky-800)',
+    '--color-caution-100: var(--color-amber-800)',
+  ]) {
+    expect(light, `light theme must re-point "${decl}"`).toContain(decl)
+  }
+})

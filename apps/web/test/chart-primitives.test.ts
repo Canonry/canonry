@@ -44,8 +44,10 @@ function parseVar(value: string): { name: string; fallback: string } {
 async function chartTokenDefaults(): Promise<Map<string, string>> {
   const css = await readFile(stylesPath, 'utf8')
   const map = new Map<string, string>()
+  // First occurrence wins: the @theme default (dark) is declared before the
+  // `[data-theme='light']` override, and the JS fallbacks mirror the dark default.
   for (const m of css.matchAll(/(--chart-[a-z0-9-]+):([^;]+);/g)) {
-    map.set(m[1]!, m[2]!.trim())
+    if (!map.has(m[1]!)) map.set(m[1]!, m[2]!.trim())
   }
   return map
 }

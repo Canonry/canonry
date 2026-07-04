@@ -267,6 +267,64 @@ describe('server embed mode (#716)', () => {
     }
   })
 
+  it('ON: a per-request X-Canonry-Embed-Theme header injects the theme (root + deep-link)', async () => {
+    const { app, cleanup } = await buildServer({ enabled: true, allowOrigins: ['https://host.example'] })
+    try {
+      // No header => embed block present, but no theme.
+      const boot = await app.inject({ method: 'GET', url: '/' })
+      expect(boot.body).toContain('"embed"')
+      expect(boot.body).not.toContain('"theme"')
+
+      // Header => THIS request's theme rides the embed block.
+      const scoped = await app.inject({
+        method: 'GET',
+        url: '/',
+        headers: { 'x-canonry-embed-theme': '{"mode":"light","font":"Inter"}' },
+      })
+      expect(scoped.body).toContain('"theme":{"mode":"light","font":"Inter"}')
+
+      // The deep-link fallback honors the header too.
+      const deep = await app.inject({
+        method: 'GET',
+        url: '/projects/acme',
+        headers: { 'x-canonry-embed-theme': '{"mode":"light"}' },
+      })
+      expect(deep.body).toContain('"theme":{"mode":"light"}')
+    } finally {
+      await cleanup()
+    }
+  })
+
+  it('OFF: the X-Canonry-Embed-Theme header is ignored (no embed block, byte-for-byte default)', async () => {
+    const { app, cleanup } = await buildServer()
+    try {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/',
+        headers: { 'x-canonry-embed-theme': '{"mode":"light"}' },
+      })
+      expect(res.body).toContain('<script>window.__CANONRY_CONFIG__={}</script>')
+      expect(res.body).not.toContain('embed')
+    } finally {
+      await cleanup()
+    }
+  })
+
+  it('ON: a </script> payload in an X-Canonry-Embed-Theme value is escaped (XSS)', async () => {
+    const { app, cleanup } = await buildServer({ enabled: true, allowOrigins: ['https://host.example'] })
+    try {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/',
+        headers: { 'x-canonry-embed-theme': JSON.stringify({ accent: '</script><img src=x onerror=alert(1)>' }) },
+      })
+      expect(res.body).not.toContain('</script><img')
+      expect(res.body).toContain('\\u003c/script\\u003e\\u003cimg')
+    } finally {
+      await cleanup()
+    }
+  })
+
   it('ON but index.html missing: 404 without throwing', async () => {
     const { app, cleanup } = await buildServer({ enabled: true }, false)
     try {

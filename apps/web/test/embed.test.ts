@@ -1,5 +1,12 @@
 import { describe, it, expect, afterEach } from 'vitest'
-import { embedViewIdForPath, embedThemeStyle, isEmbedProjectTabAllowed, resolveEmbedProjectTab } from '../src/embed.js'
+import {
+  embedViewIdForPath,
+  embedThemeStyle,
+  embedThemeMode,
+  embedThemeFontHref,
+  isEmbedProjectTabAllowed,
+  resolveEmbedProjectTab,
+} from '../src/embed.js'
 import { getEmbedConfig } from '../src/api.js'
 
 type WindowLike = { __CANONRY_CONFIG__?: { embed?: { enabled: boolean; views?: string[]; theme?: Record<string, string> } } }
@@ -38,8 +45,29 @@ describe('embedThemeStyle', () => {
 
   it('drops unsupported keys, even with a valid color', () => {
     expect(embedThemeStyle({ evil: '#fff' })).toEqual({})
-    // surface/muted/accent/border are not wired into the shell — they are dropped.
-    expect(embedThemeStyle({ accent: '#fff', surface: '#000', border: '#111' })).toEqual({})
+    // surface/muted/border are not wired into the shell — they are dropped.
+    expect(embedThemeStyle({ surface: '#000', border: '#111' })).toEqual({})
+  })
+
+  it('drops Object.prototype keys (own-property guard, not a proto-chain walk)', () => {
+    expect(embedThemeStyle({ constructor: '#fff' })).toEqual({})
+    expect(embedThemeStyle({ toString: '#fff', valueOf: '#000', hasOwnProperty: '#111' })).toEqual({})
+  })
+
+  it('maps accent to the inline-link color', () => {
+    expect(embedThemeStyle({ accent: '#2563eb' })).toEqual({ '--color-link': '#2563eb' })
+  })
+
+  it('maps a valid font to --font-sans with the fallback stack', () => {
+    expect(embedThemeStyle({ font: 'Inter' })).toEqual({
+      '--font-sans': '"Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
+    })
+  })
+
+  it('drops a hostile font-family (its own guard, never the color regex)', () => {
+    expect(embedThemeStyle({ font: 'Inter"; } body{display:none' })).toEqual({})
+    expect(embedThemeStyle({ font: 'url(x)' })).toEqual({})
+    expect(embedThemeStyle({ font: 'a:b' })).toEqual({})
   })
 
   it('drops hostile values on supported keys (CSS-injection guard)', () => {
@@ -51,6 +79,34 @@ describe('embedThemeStyle', () => {
   it('returns {} for empty or undefined theme', () => {
     expect(embedThemeStyle(undefined)).toEqual({})
     expect(embedThemeStyle({})).toEqual({})
+  })
+})
+
+describe('embedThemeMode', () => {
+  it('returns the validated mode or undefined', () => {
+    expect(embedThemeMode({ mode: 'light' })).toBe('light')
+    expect(embedThemeMode({ mode: 'dark' })).toBe('dark')
+    expect(embedThemeMode({ mode: 'sepia' })).toBeUndefined()
+    expect(embedThemeMode({})).toBeUndefined()
+    expect(embedThemeMode(undefined)).toBeUndefined()
+  })
+})
+
+describe('embedThemeFontHref', () => {
+  it('builds a Google Fonts URL for a valid family (spaces → +)', () => {
+    expect(embedThemeFontHref({ font: 'Inter' })).toBe(
+      'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap',
+    )
+    expect(embedThemeFontHref({ font: 'IBM Plex Sans' })).toBe(
+      'https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap',
+    )
+  })
+
+  it('returns undefined for a missing or hostile family', () => {
+    expect(embedThemeFontHref(undefined)).toBeUndefined()
+    expect(embedThemeFontHref({})).toBeUndefined()
+    expect(embedThemeFontHref({ font: 'url(x)' })).toBeUndefined()
+    expect(embedThemeFontHref({ font: 'a;b' })).toBeUndefined()
   })
 })
 

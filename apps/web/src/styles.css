@@ -2,11 +2,15 @@
 @import "tailwindcss";
 
 @theme inline {
-  --font-sans: "Geist", "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
 @theme static {
+  /* Non-inline so `font-sans` compiles to `var(--font-sans)` and a per-client
+     embed theme can override the UI font at runtime (mono stays Geist Mono for
+     numerics). Default is unchanged, so the standalone dashboard renders Geist. */
+  --font-sans: "Geist", "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+
   --color-bg: var(--color-zinc-950);
   --color-bg-elevated: var(--color-zinc-900);
 
@@ -157,6 +161,184 @@
   --chart-tooltip-item: #a1a1aa;
   --chart-grid: #27272a;
   --chart-axis: #27272a;
+}
+
+/* ── Light theme ──────────────────────────────────────────────────────────
+   Opt-in via `data-theme="light"` on a container (the embed shell sets it from
+   the per-dashboard theme; the standalone dashboard never sets it and stays
+   dark). Unlayered, so these re-declarations win over the layered `@theme`
+   `:root` defaults; and because custom properties inherit, setting them on the
+   container re-skins its whole subtree with zero component changes. Only the
+   role / semantic / effect / chart tokens are re-pointed — the raw tone
+   SCALES (positive, caution, negative, info) are hue-stable and kept as-is. */
+[data-theme='light'] {
+  /* Surfaces: light page, white cards. */
+  --color-bg: var(--color-zinc-50);
+  --color-bg-elevated: #ffffff;
+
+  --color-surface: rgb(9 9 11 / 0.03);
+  --color-surface-subtle: rgb(9 9 11 / 0.02);
+  --color-surface-hover: rgb(9 9 11 / 0.05);
+  --color-surface-inset: rgb(9 9 11 / 0.06);
+  --color-surface-inset-hover: rgb(9 9 11 / 0.04);
+  --color-surface-active: rgb(9 9 11 / 0.08);
+
+  --color-border: rgb(9 9 11 / 0.1);
+  --color-border-subtle: rgb(9 9 11 / 0.06);
+  --color-border-base: var(--color-zinc-200);
+  --color-border-strong: var(--color-zinc-300);
+
+  /* Text ladder: inverted for a light canvas. */
+  --color-text-primary: var(--color-zinc-950);
+  --color-text-heading: var(--color-zinc-900);
+  --color-text-strong: var(--color-zinc-800);
+  --color-text-secondary: var(--color-zinc-600);
+  --color-text-muted: var(--color-zinc-500);
+  --color-text-faint: var(--color-zinc-400);
+
+  --color-accent: var(--color-zinc-900);
+  --color-accent-fg: var(--color-zinc-50);
+  --color-link: var(--color-blue-600);
+  --color-on-inverse: rgb(255 255 255);
+  --color-on-emphasis: rgb(255 255 255);
+
+  /* Tone text/fill: deepened for contrast on white; bg-soft tints unchanged. */
+  --color-positive-text: var(--color-emerald-600);
+  --color-positive-border: rgb(16 185 129 / 0.35);
+  --color-positive-bg-soft: rgb(16 185 129 / 0.1);
+  --color-positive-fill: #059669;
+
+  --color-caution-text: var(--color-amber-600);
+  --color-caution-border: rgb(217 119 6 / 0.35);
+  --color-caution-bg-soft: rgb(245 158 11 / 0.12);
+  --color-caution-fill: #d97706;
+
+  --color-negative-text: var(--color-rose-600);
+  --color-negative-border: rgb(225 29 72 / 0.3);
+  --color-negative-bg-soft: rgb(244 63 94 / 0.1);
+  --color-negative-fill: #e11d48;
+
+  --color-neutral-text: var(--color-zinc-600);
+  --color-neutral-border: rgb(9 9 11 / 0.12);
+  --color-neutral-bg-soft: rgb(9 9 11 / 0.04);
+  --color-neutral-fill: var(--color-zinc-500);
+
+  --color-ring: rgb(9 9 11 / 0.2);
+  --color-ring-accent: rgb(37 99 235 / 0.4);
+
+  /* Neutral (mono) backbone: inverted so a "bright" neutral reads dark on light. */
+  --color-mono-100: var(--color-zinc-900);
+  --color-mono-200: var(--color-zinc-800);
+  --color-mono-400: var(--color-zinc-600);
+  --color-mono-500: var(--color-zinc-500);
+  --color-mono-600: var(--color-zinc-400);
+  --color-mono-700: var(--color-zinc-300);
+  --color-mono-800: var(--color-zinc-200);
+  --color-mono-900: var(--color-zinc-100);
+  --color-mono-950: var(--color-zinc-50);
+
+  /* Tone SCALE steps — the light-canvas counterparts (the tone analogue of the
+     mono inversion above). Components use the LOW steps (50-400) as bright
+     foreground text on the dark canvas, so on white they deepen to dark inks
+     (AA-legible); the dark -900/-950 steps are used only as background tints, so
+     they lighten. The saturated mids (-500..-800, used as fills / borders / faint
+     -500/alpha tints) stay put — they read on white unchanged. (An earlier note
+     kept these "hue-stable"; that left the low text steps illegible on light.) */
+  --color-positive-100: var(--color-emerald-800);
+  --color-positive-200: var(--color-emerald-700);
+  --color-positive-400: var(--color-emerald-700);
+  --color-positive-900: var(--color-emerald-100);
+  --color-positive-950: var(--color-emerald-50);
+
+  --color-caution-50: var(--color-amber-800);
+  --color-caution-100: var(--color-amber-800);
+  --color-caution-200: var(--color-amber-700);
+  --color-caution-300: var(--color-amber-700);
+  --color-caution-400: var(--color-amber-700);
+  --color-caution-950: var(--color-amber-50);
+
+  --color-negative-100: var(--color-rose-800);
+  --color-negative-200: var(--color-rose-700);
+  --color-negative-300: var(--color-rose-700);
+  --color-negative-400: var(--color-rose-700);
+  --color-negative-900: var(--color-rose-100);
+  --color-negative-950: var(--color-rose-50);
+
+  --color-info-100: var(--color-sky-800);
+  --color-info-200: var(--color-sky-700);
+  --color-info-300: var(--color-sky-700);
+  --color-info-400: var(--color-sky-700);
+  --color-info-950: var(--color-sky-50);
+
+  /* Effect colors: re-tuned for a light canvas (dark shadows/overlays; the
+     dark-canvas white values wash out on white). */
+  --color-scrollbar-thumb: rgb(9 9 11 / 0.2);
+  --color-shadow-drop: rgb(0 0 0 / 0.08);
+  --color-shadow-panel: rgb(0 0 0 / 0.08);
+  --color-shadow-hairline: rgb(9 9 11 / 0.04);
+  --color-shadow-tooltip: rgb(0 0 0 / 0.12);
+  --color-overlay-hover: rgb(9 9 11 / 0.04);
+  --color-caution-glow: rgb(217 119 6 / 0.3);
+  --color-caution-glow-inset: rgb(217 119 6 / 0.06);
+  --color-overlay-scrim: rgb(0 0 0);
+
+  /* Chart ramp: deepened series for contrast on white; light grid/axis/tooltip.
+     Gauges + sparklines share these --chart-* tokens, so they flip for free. */
+  --chart-series-1: #10b981;
+  --chart-series-2: #3b82f6;
+  --chart-series-3: #ec4899;
+  --chart-series-4: #f59e0b;
+  --chart-series-5: #8b5cf6;
+  --chart-series-6: #f97316;
+  --chart-series-7: #0891b2;
+  --chart-series-8: #ef4444;
+  --chart-tone-positive: #10b981;
+  --chart-tone-positive-deep: #059669;
+  --chart-tone-caution: #d97706;
+  --chart-tone-negative: #e11d48;
+  --chart-tone-neutral: #71717a;
+  --chart-neutral-text: #52525b;
+  --chart-neutral-text-dim: #71717a;
+  --chart-neutral-text-faint: #a1a1aa;
+  --chart-neutral-surface: #f4f4f5;
+  --chart-neutral-track-subtle: rgb(9 9 11 / 0.04);
+  --chart-neutral-grid-line: rgb(9 9 11 / 0.06);
+  --chart-tooltip-bg: #ffffff;
+  --chart-tooltip-border: #e4e4e7;
+  --chart-tooltip-label: #18181b;
+  --chart-tooltip-item: #52525b;
+  --chart-grid: #e4e4e7;
+  --chart-axis: #d4d4d8;
+}
+
+/* Provider-identity pills on the light canvas: keep the engine hue but flip the
+   canvas polarity (light tint + darker ink) so the uppercase label stays legible
+   on white. The dark-canvas defaults (literal utilities in ProviderBadge, a
+   permanent no-literal-palette exclusion) are unchanged. */
+[data-theme='light'] .provider-badge--gemini {
+  background: color-mix(in srgb, var(--color-blue-800) 8%, transparent);
+  border-color: color-mix(in srgb, var(--color-blue-800) 30%, transparent);
+  color: var(--color-blue-800);
+}
+[data-theme='light'] .provider-badge--openai {
+  background: color-mix(in srgb, var(--color-green-800) 8%, transparent);
+  border-color: color-mix(in srgb, var(--color-green-800) 30%, transparent);
+  color: var(--color-green-800);
+}
+[data-theme='light'] .provider-badge--claude {
+  background: color-mix(in srgb, var(--color-amber-800) 8%, transparent);
+  border-color: color-mix(in srgb, var(--color-amber-800) 30%, transparent);
+  color: var(--color-amber-800);
+}
+[data-theme='light'] .provider-badge--perplexity {
+  background: color-mix(in srgb, var(--color-teal-800) 8%, transparent);
+  border-color: color-mix(in srgb, var(--color-teal-800) 30%, transparent);
+  color: var(--color-teal-800);
+}
+[data-theme='light'] .provider-badge--local {
+  background: color-mix(in srgb, var(--color-purple-800) 8%, transparent);
+  border-color: color-mix(in srgb, var(--color-purple-800) 30%, transparent);
+  color: var(--color-purple-800);
 }
 
 @utility border-default {
