@@ -4,8 +4,8 @@ import path from 'node:path'
 import os from 'node:os'
 import crypto from 'node:crypto'
 import Fastify from 'fastify'
-import { eq } from 'drizzle-orm'
-import { createClient, migrate, projects, queries, querySnapshots, runs } from '@ainyc/canonry-db'
+import { and, eq } from 'drizzle-orm'
+import { auditLog, createClient, migrate, projects, queries, querySnapshots, runs } from '@ainyc/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import type { ApiRoutesOptions } from '../src/index.js'
 
@@ -226,6 +226,21 @@ describe('api-routes', () => {
     const snapshot = db.select().from(querySnapshots).where(eq(querySnapshots.id, snapshotId)).get()
     expect(snapshot?.queryId).toBeNull()
     expect(snapshot?.queryText).toBe('temporary id delete query')
+
+    // Destructive-event attribution: this by-id handler writes a queries.deleted
+    // audit row scoped to the deleted row — entityId is the query id (unique to
+    // this route vs the bulk body-delete, which sets none) and diff carries the
+    // removed text. Assert it so a regression that drops the audit write, the
+    // entityId, or the diff payload cannot pass with only the 204 + row-gone checks.
+    const auditRow = db
+      .select()
+      .from(auditLog)
+      .where(and(eq(auditLog.action, 'queries.deleted'), eq(auditLog.entityId, queryId)))
+      .get()
+    expect(auditRow).toBeDefined()
+    expect(auditRow?.entityType).toBe('query')
+    expect(auditRow?.actor).toBe('api')
+    expect(JSON.parse(auditRow!.diff!)).toEqual({ deleted: ['temporary id delete query'] })
   })
 
   it('DELETE /api/v1/projects/:name/queries/:id returns 404 for an id outside the project', async () => {
