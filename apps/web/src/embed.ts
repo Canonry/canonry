@@ -106,7 +106,10 @@ export function embedThemeStyle(theme: Record<string, string> | undefined): CSSP
   if (!theme) return {}
   const style: Record<string, string> = {}
   for (const [key, value] of Object.entries(theme)) {
-    const cssVar = THEME_COLOR_VARS[key]
+    // Own-property check: a bare `THEME_COLOR_VARS[key]` walks the prototype
+    // chain, so keys like `constructor` / `toString` would return a truthy
+    // inherited value and slip past the "unknown keys are dropped" guard.
+    const cssVar = Object.hasOwn(THEME_COLOR_VARS, key) ? THEME_COLOR_VARS[key] : undefined
     if (!cssVar || typeof value !== 'string') continue
     const trimmed = value.trim()
     if (!COLOR_VALUE.test(trimmed)) continue

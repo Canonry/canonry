@@ -49,6 +49,11 @@ describe('embedThemeStyle', () => {
     expect(embedThemeStyle({ surface: '#000', border: '#111' })).toEqual({})
   })
 
+  it('drops Object.prototype keys (own-property guard, not a proto-chain walk)', () => {
+    expect(embedThemeStyle({ constructor: '#fff' })).toEqual({})
+    expect(embedThemeStyle({ toString: '#fff', valueOf: '#000', hasOwnProperty: '#111' })).toEqual({})
+  })
+
   it('maps accent to the inline-link color', () => {
     expect(embedThemeStyle({ accent: '#2563eb' })).toEqual({ '--color-link': '#2563eb' })
   })
