@@ -401,6 +401,33 @@ export function isLoopbackBindHost(host: string | undefined): boolean {
   return false;
 }
 
+export function resolveGooglePublicUrl(
+  config: Pick<CanonryConfig, "apiUrl" | "publicUrl" | "port">,
+  basePath?: string,
+): string | undefined {
+  const configured = config.publicUrl?.trim();
+  if (configured) return configured;
+
+  try {
+    const url = new URL(config.apiUrl);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return undefined;
+    if (!isLoopbackBindHost(url.hostname)) return undefined;
+
+    const port = config.port && config.port > 0 ? String(config.port) : url.port;
+    if (port === "0") return undefined;
+
+    const pathFromApiUrl =
+      url.pathname && url.pathname !== "/" ? url.pathname.replace(/\/$/, "") : "";
+    const pathFromBasePath = basePath ? basePath.replace(/\/$/, "") : "";
+    const pathSuffix = pathFromApiUrl || pathFromBasePath;
+    const portSuffix = port ? `:${port}` : "";
+
+    return `${url.protocol}//localhost${portSuffix}${pathSuffix}`;
+  } catch {
+    return undefined;
+  }
+}
+
 export async function createServer(opts: {
   config: CanonryConfig;
   db: DatabaseClient;
@@ -1153,6 +1180,7 @@ export async function createServer(opts: {
   // If the proxy does strip the prefix, set CANONRY_BASE_PATH to empty/unset and
   // let the proxy handle path rewriting instead.
   const apiPrefix = basePath ? `${basePath}api/v1` : "/api/v1";
+  const googlePublicUrl = resolveGooglePublicUrl(opts.config, basePath);
   // Ensure the configured API key exists in the DB — handles upgrades from
   // older versions that stored the key in config.yaml but never inserted it
   // into the api_keys table (or used a different DB file).
@@ -1514,7 +1542,7 @@ export async function createServer(opts: {
       buildAgentProvidersResponse(opts.config).providers,
     googleConnectionStore,
     googleStateSecret,
-    publicUrl: opts.config.publicUrl,
+    publicUrl: googlePublicUrl,
     onGscSyncRequested: (
       runId: string,
       projectId: string,

@@ -232,6 +232,29 @@ function getPublicBase(): string {
   return ''
 }
 
+function isLoopbackHostname(hostname: string): boolean {
+  const normalized = hostname.trim().toLowerCase().replace(/^\[|\]$/g, '')
+  if (normalized === 'localhost' || normalized === '::1') return true
+  return /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(normalized)
+}
+
+export function resolveLocalGooglePublicUrl(location: Pick<Location, 'protocol' | 'hostname' | 'port'>, basePath?: string): string | undefined {
+  if (location.protocol !== 'http:' && location.protocol !== 'https:') return undefined
+  if (!isLoopbackHostname(location.hostname)) return undefined
+  const port = location.port ? `:${location.port}` : ''
+  const path = basePath ? basePath.replace(/\/$/, '') : ''
+  return `${location.protocol}//localhost${port}${path}`
+}
+
+export function buildGoogleRedirectUri(publicUrl: string): string {
+  return `${publicUrl.replace(/\/$/, '')}/api/v1/google/callback`
+}
+
+function getGoogleConnectPublicUrl(): string | undefined {
+  if (typeof window === 'undefined') return undefined
+  return resolveLocalGooglePublicUrl(window.location, getPublicBase())
+}
+
 function publicPath(path: string): string {
   return `${getPublicBase()}${path}`
 }
@@ -969,12 +992,13 @@ export function fetchGoogleConnections(project: string): Promise<ApiGoogleConnec
   )
 }
 
-export function googleConnect(project: string, type: 'gsc' | 'ga4'): Promise<{ authUrl: string }> {
-  return invokeWeb<{ authUrl: string }>(() =>
+export function googleConnect(project: string, type: 'gsc' | 'ga4'): Promise<{ authUrl: string; redirectUri?: string }> {
+  const publicUrl = getGoogleConnectPublicUrl()
+  return invokeWeb<{ authUrl: string; redirectUri?: string }>(() =>
     postApiV1ProjectsByNameGoogleConnect({
       client: heyClient,
       path: { name: project },
-      body: { type } as never,
+      body: { type, ...(publicUrl ? { publicUrl } : {}) } as never,
     }),
   )
 }
