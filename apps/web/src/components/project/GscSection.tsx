@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import { useQueryClient } from '@tanstack/react-query'
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react'
 import type { GscPerformanceDailyDto, MetricsWindow } from '@ainyc/canonry-contracts'
 
 import { Button } from '../ui/button.js'
@@ -210,7 +210,10 @@ export function GscSection({
   const triggerDiscoverSitemapsMutation = useTriggerDiscoverSitemaps()
   const triggerInspectSitemapMutation = useTriggerInspectSitemap()
 
-  async function loadProperties(currentConn: ApiGoogleConnection | undefined) {
+  async function loadProperties(
+    currentConn: ApiGoogleConnection | undefined,
+    options: { force?: boolean; notify?: boolean } = {},
+  ) {
     if (!currentConn) {
       setProperties([])
       setSelectedProperty('')
@@ -221,14 +224,33 @@ export function GscSection({
     try {
       const { sites } = await queryClient.fetchQuery({
         ...getApiV1ProjectsByNameGooglePropertiesOptions({ client: heyClient, path: { name: projectName } }),
-        staleTime: GSC_STALE_MS,
+        staleTime: options.force ? 0 : GSC_STALE_MS,
       })
       setProperties(sites)
       setSelectedProperty(currentConn.propertyId ?? sites[0]?.siteUrl ?? '')
       setActionNeeded(null)
+      if (options.notify) {
+        addToast({
+          title: 'GSC properties refreshed',
+          detail: `${sites.length} propert${sites.length === 1 ? 'y' : 'ies'} available for this connection.`,
+          tone: sites.length > 0 ? 'positive' : 'caution',
+          dedupeKey: `gsc:properties:${projectName}`,
+          dedupeMode: 'replace',
+        })
+      }
     } catch (err) {
       setProperties([])
       reportGscError(err, 'Failed to load Search Console properties')
+      if (options.notify) {
+        const info = extractApiErrorInfo(err)
+        addToast({
+          title: 'GSC property refresh failed',
+          detail: info.message || 'Failed to load Search Console properties',
+          tone: 'negative',
+          dedupeKey: `gsc:properties:${projectName}`,
+          dedupeMode: 'replace',
+        })
+      }
     } finally {
       setPropertiesLoading(false)
     }
@@ -304,7 +326,7 @@ export function GscSection({
     }
   }
 
-  async function loadInspectionHistory() {
+  async function loadInspectionHistory(options: { force?: boolean; notify?: boolean } = {}) {
     setLoadingInspections(true)
     try {
       const filterUrl = inspectionFilterUrl.trim() || undefined
@@ -317,43 +339,83 @@ export function GscSection({
             path: { name: projectName },
             query: inspectionsQuery as never,
           }),
-          staleTime: GSC_STALE_MS,
+          staleTime: options.force ? 0 : GSC_STALE_MS,
         }),
         queryClient.fetchQuery({
           ...getApiV1ProjectsByNameGoogleGscDeindexedOptions({ client: heyClient, path: { name: projectName } }),
-          staleTime: GSC_STALE_MS,
+          staleTime: options.force ? 0 : GSC_STALE_MS,
         }),
       ])
       setInspections(history)
       setDeindexed(deindexedRows)
+      if (options.notify) {
+        addToast({
+          title: 'Inspection history refreshed',
+          detail: `${history.length} recent inspection${history.length === 1 ? '' : 's'} loaded${deindexedRows.length > 0 ? `, ${deindexedRows.length} deindexed URL${deindexedRows.length === 1 ? '' : 's'} flagged` : ''}.`,
+          tone: 'positive',
+          dedupeKey: `gsc:inspection-history:${projectName}`,
+          dedupeMode: 'replace',
+        })
+      }
     } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to load GSC inspection history'
       setInspections([])
       setDeindexed([])
-      setError(err instanceof Error ? err.message : 'Failed to load GSC inspection history')
+      setError(message)
+      if (options.notify) {
+        addToast({
+          title: 'Inspection history refresh failed',
+          detail: message,
+          tone: 'negative',
+          dedupeKey: `gsc:inspection-history:${projectName}`,
+          dedupeMode: 'replace',
+        })
+      }
     } finally {
       setLoadingInspections(false)
     }
   }
 
-  async function loadCoverage() {
+  async function loadCoverage(options: { force?: boolean; notify?: boolean } = {}) {
     setLoadingCoverage(true)
     try {
       const [data, history] = await Promise.all([
         queryClient.fetchQuery({
           ...getApiV1ProjectsByNameGoogleGscCoverageOptions({ client: heyClient, path: { name: projectName } }),
-          staleTime: GSC_STALE_MS,
+          staleTime: options.force ? 0 : GSC_STALE_MS,
         }),
         queryClient.fetchQuery({
           ...getApiV1ProjectsByNameGoogleGscCoverageHistoryOptions({ client: heyClient, path: { name: projectName } }),
-          staleTime: GSC_STALE_MS,
+          staleTime: options.force ? 0 : GSC_STALE_MS,
         }).catch(() => []),
       ])
       setCoverage(data)
       setCoverageHistory(history)
+      if (options.notify) {
+        addToast({
+          title: 'GSC coverage refreshed',
+          detail: data.summary.total > 0
+            ? `${data.summary.indexed}/${data.summary.total} URLs indexed. Use Inspect sitemap to re-read new sitemap URLs.`
+            : 'No coverage rows yet. Inspect the sitemap to populate this view.',
+          tone: data.summary.total > 0 ? 'positive' : 'caution',
+          dedupeKey: `gsc:coverage:${projectName}`,
+          dedupeMode: 'replace',
+        })
+      }
     } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to load coverage data'
       setCoverage(null)
       setCoverageHistory([])
-      setError(err instanceof Error ? err.message : 'Failed to load coverage data')
+      setError(message)
+      if (options.notify) {
+        addToast({
+          title: 'GSC coverage refresh failed',
+          detail: message,
+          tone: 'negative',
+          dedupeKey: `gsc:coverage:${projectName}`,
+          dedupeMode: 'replace',
+        })
+      }
     } finally {
       setLoadingCoverage(false)
     }
@@ -375,7 +437,15 @@ export function GscSection({
         dedupeMode: 'replace',
       })
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to request indexing')
+      const message = err instanceof Error ? err.message : 'Failed to request indexing'
+      setError(message)
+      addToast({
+        title: 'Indexing request failed',
+        detail: message,
+        tone: 'negative',
+        dedupeKey: `gsc:indexing:${projectName}`,
+        dedupeMode: 'replace',
+      })
     } finally {
       setRequestingIndexing(false)
     }
@@ -397,7 +467,15 @@ export function GscSection({
         dedupeMode: 'replace',
       })
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to request indexing')
+      const message = err instanceof Error ? err.message : 'Failed to request indexing'
+      setError(message)
+      addToast({
+        title: 'Indexing request failed',
+        detail: message,
+        tone: 'negative',
+        dedupeKey: `gsc:indexing-all:${projectName}`,
+        dedupeMode: 'replace',
+      })
     } finally {
       setRequestingIndexing(false)
     }
@@ -456,9 +534,32 @@ export function GscSection({
       setDiscoveredSitemaps(result.sitemaps)
       if (result.sitemaps.length === 0) {
         setNotice('No sitemaps found in this GSC property. Submit a sitemap in Google Search Console first.')
+        addToast({
+          title: 'No GSC sitemaps found',
+          detail: 'Submit a sitemap in Google Search Console, then browse again.',
+          tone: 'caution',
+          dedupeKey: `gsc:sitemaps:${projectName}`,
+          dedupeMode: 'replace',
+        })
+      } else {
+        addToast({
+          title: 'GSC sitemaps loaded',
+          detail: `${result.sitemaps.length} sitemap${result.sitemaps.length === 1 ? '' : 's'} returned from Search Console.`,
+          tone: 'positive',
+          dedupeKey: `gsc:sitemaps:${projectName}`,
+          dedupeMode: 'replace',
+        })
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to list sitemaps')
+      const message = err instanceof Error ? err.message : 'Failed to list sitemaps'
+      setError(message)
+      addToast({
+        title: 'Could not load GSC sitemaps',
+        detail: message,
+        tone: 'negative',
+        dedupeKey: `gsc:sitemaps:${projectName}`,
+        dedupeMode: 'replace',
+      })
     } finally {
       setListingSitemaps(false)
     }
@@ -814,7 +915,8 @@ export function GscSection({
                         {requestingIndexing ? 'Requesting\u2026' : `Request indexing (${coverage.notIndexed.length})`}
                       </Button>
                     )}
-                    <Button type="button" variant="outline" size="sm" disabled={loadingCoverage} onClick={() => void loadCoverage()}>
+                    <Button type="button" variant="outline" size="sm" disabled={loadingCoverage} onClick={() => void loadCoverage({ force: true, notify: true })}>
+                      <RefreshCw className={`h-3.5 w-3.5 ${loadingCoverage ? 'animate-spin' : ''}`} aria-hidden="true" />
                       {loadingCoverage ? 'Loading\u2026' : 'Refresh coverage'}
                     </Button>
                   </div>
@@ -1180,6 +1282,7 @@ export function GscSection({
                       ))}
                     </div>
                     <Button type="button" variant="outline" size="sm" disabled={loadingPerformance} onClick={() => { setPerformanceOffset(0); void loadPerformanceRows(0); void loadPerformanceDaily() }}>
+                      <RefreshCw className={`h-3.5 w-3.5 ${loadingPerformance ? 'animate-spin' : ''}`} aria-hidden="true" />
                       {loadingPerformance ? 'Loading\u2026' : 'Apply filters'}
                     </Button>
                   </div>
@@ -1496,7 +1599,8 @@ export function GscSection({
                     <p className="eyebrow eyebrow-soft">History</p>
                     <h3>Inspection log</h3>
                   </div>
-                  <Button type="button" variant="outline" size="sm" disabled={loadingInspections} onClick={() => void loadInspectionHistory()}>
+                  <Button type="button" variant="outline" size="sm" disabled={loadingInspections} onClick={() => void loadInspectionHistory({ force: true, notify: true })}>
+                    <RefreshCw className={`h-3.5 w-3.5 ${loadingInspections ? 'animate-spin' : ''}`} aria-hidden="true" />
                     {loadingInspections ? 'Loading\u2026' : 'Refresh history'}
                   </Button>
                 </div>
@@ -1508,7 +1612,7 @@ export function GscSection({
                     value={inspectionFilterUrl}
                     onChange={(e) => setInspectionFilterUrl(e.target.value)}
                   />
-                  <Button type="button" size="sm" variant="outline" disabled={loadingInspections} onClick={() => void loadInspectionHistory()}>
+                  <Button type="button" size="sm" variant="outline" disabled={loadingInspections} onClick={() => void loadInspectionHistory({ force: true, notify: true })}>
                     Apply filter
                   </Button>
                 </div>
@@ -1632,7 +1736,8 @@ export function GscSection({
                           )}
                         </select>
                         <div className="flex flex-wrap items-center gap-2">
-                          <Button type="button" size="sm" variant="outline" disabled={propertiesLoading} onClick={() => void loadProperties(gscConn)}>
+                          <Button type="button" size="sm" variant="outline" disabled={propertiesLoading} onClick={() => void loadProperties(gscConn, { force: true, notify: true })}>
+                            <RefreshCw className={`h-3.5 w-3.5 ${propertiesLoading ? 'animate-spin' : ''}`} aria-hidden="true" />
                             {propertiesLoading ? 'Refreshing\u2026' : 'Refresh properties'}
                           </Button>
                           {!isEmbed() && (
