@@ -9,9 +9,6 @@ import {
   getApiV1ProjectsByNameTechnicalAeoOptions,
   getApiV1ProjectsByNameTechnicalAeoPagesOptions,
   getApiV1ProjectsByNameTechnicalAeoTrendOptions,
-  getApiV1ProjectsByNameTechnicalAeoQueryKey,
-  getApiV1ProjectsByNameTechnicalAeoPagesQueryKey,
-  getApiV1ProjectsByNameTechnicalAeoTrendQueryKey,
   getApiV1RunsQueryKey,
 } from '@ainyc/canonry-api-client/react-query'
 import {
@@ -61,6 +58,7 @@ export function TechnicalAeoSection({ projectName }: { projectName: string }) {
   const queryClient = useQueryClient()
   const [errorsOnly, setErrorsOnly] = useState(false)
   const [expandedFactor, setExpandedFactor] = useState<string | null>(null)
+  const [refreshing, setRefreshing] = useState(false)
 
   const scoreQuery = useQuery(getApiV1ProjectsByNameTechnicalAeoOptions({ client: heyClient, path: { name: projectName } }))
   const trendQuery = useQuery(getApiV1ProjectsByNameTechnicalAeoTrendOptions({
@@ -95,10 +93,35 @@ export function TechnicalAeoSection({ projectName }: { projectName: string }) {
     },
   })
 
-  const refreshAll = () => {
-    void queryClient.invalidateQueries({ queryKey: getApiV1ProjectsByNameTechnicalAeoQueryKey({ client: heyClient, path: { name: projectName } }) })
-    void queryClient.invalidateQueries({ queryKey: getApiV1ProjectsByNameTechnicalAeoTrendQueryKey({ client: heyClient, path: { name: projectName }, query: { limit: 30 } }) })
-    void queryClient.invalidateQueries({ queryKey: getApiV1ProjectsByNameTechnicalAeoPagesQueryKey({ client: heyClient, path: { name: projectName }, query: { limit: PAGES_FETCH_LIMIT, sort: 'score-asc' } }) })
+  const refreshAll = async () => {
+    setRefreshing(true)
+    try {
+      const [scoreResult] = await Promise.all([
+        scoreQuery.refetch(),
+        trendQuery.refetch(),
+        pagesQuery.refetch(),
+      ])
+      if (scoreResult.error) throw scoreResult.error
+      addToast({
+        title: 'Technical AEO refreshed',
+        detail: scoreResult.data?.hasData
+          ? `Latest score is ${scoreResult.data.aggregateScore}/100 from ${scoreResult.data.pagesAudited} audited page${scoreResult.data.pagesAudited === 1 ? '' : 's'}.`
+          : 'No audit data yet. Run an audit to crawl the sitemap.',
+        tone: scoreResult.data?.hasData ? 'positive' : 'caution',
+        dedupeKey: `technical-aeo:refresh:${projectName}`,
+        dedupeMode: 'replace',
+      })
+    } catch (error) {
+      addToast({
+        title: 'Technical AEO refresh failed',
+        detail: error instanceof Error ? error.message : 'Could not reload technical audit data.',
+        tone: 'negative',
+        dedupeKey: `technical-aeo:refresh:${projectName}`,
+        dedupeMode: 'replace',
+      })
+    } finally {
+      setRefreshing(false)
+    }
   }
 
   const score = scoreQuery.data
@@ -190,9 +213,9 @@ export function TechnicalAeoSection({ projectName }: { projectName: string }) {
           ) : null}
         </div>
         <div className="flex items-center gap-2">
-          <Button type="button" variant="outline" size="sm" onClick={refreshAll}>
-            <RefreshCw className="mr-1.5 h-4 w-4" aria-hidden="true" />
-            Refresh
+          <Button type="button" variant="outline" size="sm" onClick={() => void refreshAll()} disabled={refreshing}>
+            <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} aria-hidden="true" />
+            {refreshing ? 'Refreshing\u2026' : 'Refresh'}
           </Button>
           {!isEmbed() && (
             <Button type="button" size="sm" onClick={() => runMutation.mutate()} disabled={runMutation.isPending}>

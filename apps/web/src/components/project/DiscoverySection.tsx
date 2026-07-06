@@ -151,6 +151,29 @@ export function DiscoverySection({ projectName }: { projectName: string }) {
   const safeDefaultCount = (preview?.queriesByBucket.cited.length ?? 0) + (preview?.queriesByBucket.aspirational.length ?? 0)
   const probeRows = useMemo(() => (detail?.probes ?? []).slice(0, 30), [detail?.probes])
 
+  async function handleRefreshSessions() {
+    try {
+      const result = await sessionsQuery.refetch()
+      if (result.error) throw result.error
+      const count = result.data?.length ?? 0
+      addToast({
+        title: 'Discovery sessions refreshed',
+        detail: `${count} recent session${count === 1 ? '' : 's'} loaded.`,
+        tone: 'positive',
+        dedupeKey: `discovery:refresh:${projectName}`,
+        dedupeMode: 'replace',
+      })
+    } catch (error) {
+      addToast({
+        title: 'Discovery refresh failed',
+        detail: error instanceof Error ? error.message : 'Could not reload discovery sessions.',
+        tone: 'negative',
+        dedupeKey: `discovery:refresh:${projectName}`,
+        dedupeMode: 'replace',
+      })
+    }
+  }
+
   return (
     <section className="page-section-divider">
       <div className="section-head section-head-inline">
@@ -168,9 +191,9 @@ export function DiscoverySection({ projectName }: { projectName: string }) {
           variant="outline"
           size="sm"
           disabled={sessionsQuery.isFetching}
-          onClick={() => void sessionsQuery.refetch()}
+          onClick={() => void handleRefreshSessions()}
         >
-          <RefreshCw size={14} />
+          <RefreshCw className={`size-3.5 ${sessionsQuery.isFetching ? 'animate-spin' : ''}`} aria-hidden="true" />
           Refresh
         </Button>
       </div>

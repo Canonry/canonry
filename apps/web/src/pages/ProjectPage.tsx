@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronDown, ChevronRight, Download, Trash2 } from 'lucide-react'
+import { ChevronDown, ChevronRight, Download, RefreshCw, Trash2 } from 'lucide-react'
 import { useParams, useNavigate } from '@tanstack/react-router'
 import { Link } from '@tanstack/react-router'
 import { useQueryClient } from '@tanstack/react-query'
@@ -806,6 +806,13 @@ function SearchConsoleSection({
 
     setRefreshState('syncing')
     setError(null)
+    addToast({
+      title: 'Refreshing search coverage',
+      detail: 'Queueing Google and Bing checks, then reloading the workspaces.',
+      tone: 'neutral',
+      dedupeKey: `search-console-refresh:${projectName}`,
+      dedupeMode: 'replace',
+    })
 
     const failures: string[] = []
 
@@ -877,11 +884,35 @@ function SearchConsoleSection({
       setWorkspaceRefreshNonce((current) => current + 1)
 
       if (failures.length > 0) {
-        setError(`Partial refresh: ${failures.join('; ')}`)
+        const message = `Partial refresh: ${failures.join('; ')}`
+        setError(message)
+        addToast({
+          title: 'Search coverage partially refreshed',
+          detail: message,
+          tone: 'caution',
+          dedupeKey: `search-console-refresh:${projectName}`,
+          dedupeMode: 'replace',
+        })
+      } else {
+        addToast({
+          title: 'Search coverage refreshed',
+          detail: 'Google and Bing workspaces are reloaded with the latest stored coverage.',
+          tone: 'positive',
+          dedupeKey: `search-console-refresh:${projectName}`,
+          dedupeMode: 'replace',
+        })
       }
     } catch (err) {
       if (!signal.aborted) {
-        setError(err instanceof Error ? err.message : 'Refresh failed')
+        const message = err instanceof Error ? err.message : 'Refresh failed'
+        setError(message)
+        addToast({
+          title: 'Search coverage refresh failed',
+          detail: message,
+          tone: 'negative',
+          dedupeKey: `search-console-refresh:${projectName}`,
+          dedupeMode: 'replace',
+        })
       }
     } finally {
       if (!signal.aborted) {
@@ -945,6 +976,7 @@ function SearchConsoleSection({
           </div>
           {!isEmbed() && (
             <Button type="button" variant="outline" size="sm" disabled={loading || refreshState !== 'idle'} onClick={() => void handleRefresh()}>
+              <RefreshCw className={`h-3.5 w-3.5 ${refreshState !== 'idle' ? 'animate-spin' : ''}`} aria-hidden="true" />
               {loading ? 'Loading…' : refreshState === 'syncing' ? 'Refreshing Google & Bing…' : refreshState === 'reloading' ? 'Reloading workspaces…' : 'Refresh all'}
             </Button>
           )}
