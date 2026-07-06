@@ -1,7 +1,7 @@
 import { useState } from 'react'
 
 import { Button } from '../ui/button.js'
-import { updateGoogleAuthConfig } from '../../api.js'
+import { buildGoogleRedirectUri, resolveLocalGooglePublicUrl, updateGoogleAuthConfig } from '../../api.js'
 import { addToast } from '../../lib/toast-store.js'
 import { asyncHandler } from '../../lib/async-handler.js'
 
@@ -13,6 +13,10 @@ export function GoogleOAuthConfigForm({ onSaved }: { onSaved: () => void }) {
   const [success, setSuccess] = useState(false)
 
   const canSave = clientId.trim().length > 0 && clientSecret.trim().length > 0
+  const localPublicUrl = typeof window === 'undefined'
+    ? undefined
+    : resolveLocalGooglePublicUrl(window.location, window.__CANONRY_CONFIG__?.basePath)
+  const redirectUri = localPublicUrl ? buildGoogleRedirectUri(localPublicUrl) : undefined
 
   async function handleSave() {
     if (!canSave) return
@@ -79,6 +83,12 @@ export function GoogleOAuthConfigForm({ onSaved }: { onSaved: () => void }) {
       <p className="text-[11px] text-muted">
         These credentials are stored in <code>~/.canonry/config.yaml</code>. Project-level Search Console connections are created separately per canonical domain.
       </p>
+      {redirectUri && (
+        <div className="rounded border border-default bg-surface px-3 py-2">
+          <p className="text-[11px] text-muted">Authorized redirect URI</p>
+          <code className="mt-1 block break-all text-xs text-strong">{redirectUri}</code>
+        </div>
+      )}
       {error && <p className="text-xs text-negative-400">{error}</p>}
       {success && <p className="text-xs text-positive-400">Google OAuth credentials updated.</p>}
       <Button type="button" size="sm" disabled={!canSave || saving} onClick={asyncHandler(handleSave)}>

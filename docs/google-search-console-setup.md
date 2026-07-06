@@ -52,7 +52,7 @@ https://console.developers.google.com/apis/api/indexing.googleapis.com/overview?
 
 Canonry has two callback paths depending on your setup:
 
-**Option A — Shared callback (recommended).** If you configure a `publicUrl` in your canonry server config or pass `--public-url` when connecting, canonry uses a single shared callback for all projects:
+**Option A — Shared callback (recommended).** Local `canonry serve` installs automatically use the local shared callback from `apiUrl` / the serve port. If you configure a `publicUrl` in your canonry server config or pass `--public-url` when connecting, canonry uses that same shared-callback shape for all projects:
 
 ```
 http://localhost:4100/api/v1/google/callback
@@ -60,7 +60,7 @@ http://localhost:4100/api/v1/google/callback
 
 Register this one URI and you're done. For a custom host, replace `localhost:4100` with your server address.
 
-**Option B — Per-project callbacks (auto-detect fallback).** If no `publicUrl` is configured, canonry generates a per-project redirect URI based on the request headers:
+**Option B — Per-project callbacks (auto-detect fallback).** If canonry cannot resolve a shared callback from `publicUrl` or a local loopback `apiUrl`, it generates a per-project redirect URI based on the request headers:
 
 ```
 http://localhost:4100/api/v1/projects/<project-name>/google/callback
