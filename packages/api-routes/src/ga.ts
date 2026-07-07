@@ -2,8 +2,8 @@ import crypto from 'node:crypto'
 import { eq, desc, and, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { gaTrafficSnapshots, gaTrafficSummaries, gaTrafficWindowSummaries, gaAiReferrals, gaSocialReferrals, runs } from '@ainyc/canonry-db'
-import { validationError, notFound, RunKinds, RunStatuses, RunTriggers, parseWindow, windowCutoff, normalizeUrlPath } from '@ainyc/canonry-contracts'
-import type { GA4ChannelBreakdownDto } from '@ainyc/canonry-contracts'
+import { GA4AiReferralTrafficClasses, classifyGa4AiReferralTrafficClass, validationError, notFound, RunKinds, RunStatuses, RunTriggers, parseWindow, windowCutoff, normalizeUrlPath } from '@ainyc/canonry-contracts'
+import type { GA4AiReferralTrafficClass, GA4ChannelBreakdownDto } from '@ainyc/canonry-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import {
   getAccessToken,
@@ -104,6 +104,114 @@ function pickWinningDimension<T extends { sessions: number | null }>(
     }
   }
   return [...winners.values()].sort((a, b) => (b.sessions ?? 0) - (a.sessions ?? 0))
+}
+
+function normalizeAiTrafficClass(value: string | null | undefined): GA4AiReferralTrafficClass {
+  return value === GA4AiReferralTrafficClasses.paid
+    ? GA4AiReferralTrafficClasses.paid
+    : GA4AiReferralTrafficClasses.organic
+}
+
+function emptyAiCounts() {
+  return { sessions: 0, users: 0 }
+}
+
+interface DimensionClassCounts {
+  paidSessions: number
+  organicSessions: number
+  paidUsers: number
+  organicUsers: number
+}
+
+function summarizeAiReferralCounts(rows: Array<{
+  date: string
+  source: string
+  medium: string
+  trafficClass: string | null
+  sourceDimension: string
+  channelGroup: string
+  sessions: number | null
+  users: number | null
+}>) {
+  // The deduped total dedupes on (date, source, medium) ONLY — 'session',
+  // 'first_user', and 'manual_utm' are overlapping attribution lenses on the
+  // same visits, so it takes MAX across dimensions and never sums them.
+  // Traffic class must NOT join this key: a visit counted paid under one lens
+  // and organic under another would then survive twice and inflate the
+  // combined total. Instead we keep each dimension's paid/organic split and,
+  // for the winning (MAX) dimension, partition its total by class — the rows
+  // within a dimension are disjoint by class, so paid + organic always equals
+  // the deduped total.
+  const dedupeGroups = new Map<string, Map<string, DimensionClassCounts>>()
+  const bySessionChannelGroup = new Map<string, number>()
+  const paidDeduped = emptyAiCounts()
+  const organicDeduped = emptyAiCounts()
+  const paidBySession = emptyAiCounts()
+  const organicBySession = emptyAiCounts()
+
+  for (const row of rows) {
+    const isPaid = normalizeAiTrafficClass(row.trafficClass) === GA4AiReferralTrafficClasses.paid
+    const sessions = row.sessions ?? 0
+    const users = row.users ?? 0
+    const key = `${row.date}\0${row.source}\0${row.medium}`
+    let byDimension = dedupeGroups.get(key)
+    if (!byDimension) {
+      byDimension = new Map()
+      dedupeGroups.set(key, byDimension)
+    }
+    let dim = byDimension.get(row.sourceDimension)
+    if (!dim) {
+      dim = { paidSessions: 0, organicSessions: 0, paidUsers: 0, organicUsers: 0 }
+      byDimension.set(row.sourceDimension, dim)
+    }
+    if (isPaid) {
+      dim.paidSessions += sessions
+      dim.paidUsers += users
+    } else {
+      dim.organicSessions += sessions
+      dim.organicUsers += users
+    }
+
+    if (row.sourceDimension === 'session') {
+      bySessionChannelGroup.set(
+        row.channelGroup,
+        (bySessionChannelGroup.get(row.channelGroup) ?? 0) + sessions,
+      )
+      const sessionBucket = isPaid ? paidBySession : organicBySession
+      sessionBucket.sessions += sessions
+      sessionBucket.users += users
+    }
+  }
+
+  for (const byDimension of dedupeGroups.values()) {
+    const dims = [...byDimension.values()]
+    // Sessions and users each pick their own winning dimension, matching the
+    // prior independent MAX(sessions) / MAX(users) dedupe.
+    const bestSessions = dims.reduce((best, d) =>
+      d.paidSessions + d.organicSessions > best.paidSessions + best.organicSessions ? d : best)
+    const bestUsers = dims.reduce((best, d) =>
+      d.paidUsers + d.organicUsers > best.paidUsers + best.organicUsers ? d : best)
+    paidDeduped.sessions += bestSessions.paidSessions
+    organicDeduped.sessions += bestSessions.organicSessions
+    paidDeduped.users += bestUsers.paidUsers
+    organicDeduped.users += bestUsers.organicUsers
+  }
+
+  return {
+    paidDeduped,
+    organicDeduped,
+    paidBySession,
+    organicBySession,
+    bySessionChannelGroup,
+    deduped: {
+      sessions: paidDeduped.sessions + organicDeduped.sessions,
+      users: paidDeduped.users + organicDeduped.users,
+    },
+    bySession: {
+      sessions: paidBySession.sessions + organicBySession.sessions,
+      users: paidBySession.users + organicBySession.users,
+    },
+  }
 }
 
 export interface Ga4CredentialRecord {
@@ -532,6 +640,12 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
               date: row.date,
               source: row.source,
               medium: row.medium,
+              trafficClass: row.trafficClass ?? classifyGa4AiReferralTrafficClass({
+                source: row.source,
+                medium: row.medium,
+                channelGroup: row.channelGroup,
+                landingPage: row.landingPage,
+              }),
               sourceDimension: row.sourceDimension,
               channelGroup: row.channelGroup,
               landingPage: row.landingPage,
@@ -777,19 +891,21 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       .select({
         source: gaAiReferrals.source,
         medium: gaAiReferrals.medium,
+        trafficClass: gaAiReferrals.trafficClass,
         sourceDimension: gaAiReferrals.sourceDimension,
         sessions: sql<number>`SUM(${gaAiReferrals.sessions})`,
         users: sql<number>`SUM(${gaAiReferrals.users})`,
       })
       .from(gaAiReferrals)
       .where(and(...aiConditions))
-      .groupBy(gaAiReferrals.source, gaAiReferrals.medium, gaAiReferrals.sourceDimension)
+      .groupBy(gaAiReferrals.source, gaAiReferrals.medium, gaAiReferrals.trafficClass, gaAiReferrals.sourceDimension)
       .all()
 
     const aiReferralLandingPageRows = app.db
       .select({
         source: gaAiReferrals.source,
         medium: gaAiReferrals.medium,
+        trafficClass: gaAiReferrals.trafficClass,
         sourceDimension: gaAiReferrals.sourceDimension,
         landingPage: sql<string>`COALESCE(${gaAiReferrals.landingPageNormalized}, ${gaAiReferrals.landingPage})`,
         sessions: sql<number>`SUM(${gaAiReferrals.sessions})`,
@@ -800,9 +916,25 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       .groupBy(
         gaAiReferrals.source,
         gaAiReferrals.medium,
+        gaAiReferrals.trafficClass,
         gaAiReferrals.sourceDimension,
         sql`COALESCE(${gaAiReferrals.landingPageNormalized}, ${gaAiReferrals.landingPage})`,
       )
+      .all()
+
+    const aiRowsForTotals = app.db
+      .select({
+        date: gaAiReferrals.date,
+        source: gaAiReferrals.source,
+        medium: gaAiReferrals.medium,
+        trafficClass: gaAiReferrals.trafficClass,
+        sourceDimension: gaAiReferrals.sourceDimension,
+        channelGroup: gaAiReferrals.channelGroup,
+        sessions: gaAiReferrals.sessions,
+        users: gaAiReferrals.users,
+      })
+      .from(gaAiReferrals)
+      .where(and(...aiConditions))
       .all()
 
     // Dedupe across attribution dimensions: 'session', 'first_user', and
@@ -815,62 +947,17 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
     // are computed independently below and are unaffected.
     const aiReferrals = pickWinningDimension(
       aiReferralRows,
-      (r) => `${r.source} ${r.medium}`,
+      (r) => `${r.source}\0${r.medium}\0${r.trafficClass}`,
     )
     const aiReferralLandingPages = pickWinningDimension(
       aiReferralLandingPageRows,
-      (r) => `${r.source} ${r.medium} ${r.landingPage}`,
+      (r) => `${r.source}\0${r.medium}\0${r.trafficClass}\0${r.landingPage}`,
     )
 
-    // Deduplicated AI totals: sessionSource, firstUserSource, and manualSource are
-    // overlapping attribution lenses, not disjoint visits. To avoid double-counting,
-    // first sum landing pages within each dimension, then take MAX(sessions) per
-    // date+source+medium across dimensions, then sum.
-    const aiDeduped = app.db
-      .select({
-        sessions: sql<number>`COALESCE(SUM(max_sessions), 0)`,
-        users: sql<number>`COALESCE(SUM(max_users), 0)`,
-      })
-      .from(
-        sql`(
-          SELECT date, source, medium,
-                 MAX(dimension_sessions) AS max_sessions,
-                 MAX(dimension_users) AS max_users
-          FROM (
-            SELECT date, source, medium, source_dimension,
-                   SUM(sessions) AS dimension_sessions,
-                   SUM(users) AS dimension_users
-            FROM ga_ai_referrals
-            WHERE project_id = ${project.id}${cutoffDate ? sql` AND date >= ${cutoffDate}` : sql``}
-            GROUP BY date, source, medium, source_dimension
-          )
-          GROUP BY date, source, medium
-        )`
-      )
-      .get()
-
-    // Session-source-only AI total: sessions whose CURRENT sessionSource matched
-    // an AI engine. The stored GA4 default channel group lets the channel
-    // breakdown remove known-AI sessions from their native bucket before
-    // computing the residual "Other" bucket.
-    const aiBySessionRows = app.db
-      .select({
-        channelGroup: gaAiReferrals.channelGroup,
-        sessions: sql<number>`COALESCE(SUM(${gaAiReferrals.sessions}), 0)`,
-        users: sql<number>`COALESCE(SUM(${gaAiReferrals.users}), 0)`,
-      })
-      .from(gaAiReferrals)
-      .where(and(...aiConditions, eq(gaAiReferrals.sourceDimension, 'session')))
-      .groupBy(gaAiReferrals.channelGroup)
-      .all()
-
-    const aiSessionsByChannelGroup = new Map<string, number>()
-    let aiBySessionUsers = 0
-    for (const row of aiBySessionRows) {
-      aiSessionsByChannelGroup.set(row.channelGroup, row.sessions ?? 0)
-      aiBySessionUsers += row.users ?? 0
-    }
-    const aiBySessionSessions = [...aiSessionsByChannelGroup.values()].reduce((sum, sessions) => sum + sessions, 0)
+    // SessionSource, firstUserSource, and manual UTM rows are overlapping
+    // attribution lenses. Summarize once, keeping the existing combined AI
+    // totals while also splitting paid vs organic/non-paid AI traffic.
+    const aiSummary = summarizeAiReferralCounts(aiRowsForTotals)
 
     const socialReferrals = app.db
       .select({
@@ -914,7 +1001,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       organicSessions: totalOrganicSessions,
       socialSessions,
       directSessions: totalDirectSessions,
-      aiSessionsByChannelGroup,
+      aiSessionsByChannelGroup: aiSummary.bySessionChannelGroup,
     })
 
     return {
@@ -932,6 +1019,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       aiReferrals: aiReferrals.map((r) => ({
         source: r.source,
         medium: r.medium,
+        trafficClass: normalizeAiTrafficClass(r.trafficClass),
         sourceDimension: r.sourceDimension,
         sessions: r.sessions ?? 0,
         users: r.users ?? 0,
@@ -939,15 +1027,24 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       aiReferralLandingPages: aiReferralLandingPages.map((r) => ({
         source: r.source,
         medium: r.medium,
+        trafficClass: normalizeAiTrafficClass(r.trafficClass),
         sourceDimension: r.sourceDimension,
         landingPage: r.landingPage,
         sessions: r.sessions ?? 0,
         users: r.users ?? 0,
       })),
-      aiSessionsDeduped: aiDeduped?.sessions ?? 0,
-      aiUsersDeduped: aiDeduped?.users ?? 0,
-      aiSessionsBySession: aiBySessionSessions,
-      aiUsersBySession: aiBySessionUsers,
+      aiSessionsDeduped: aiSummary.deduped.sessions,
+      aiUsersDeduped: aiSummary.deduped.users,
+      paidAiSessionsDeduped: aiSummary.paidDeduped.sessions,
+      paidAiUsersDeduped: aiSummary.paidDeduped.users,
+      organicAiSessionsDeduped: aiSummary.organicDeduped.sessions,
+      organicAiUsersDeduped: aiSummary.organicDeduped.users,
+      aiSessionsBySession: aiSummary.bySession.sessions,
+      aiUsersBySession: aiSummary.bySession.users,
+      paidAiSessionsBySession: aiSummary.paidBySession.sessions,
+      paidAiUsersBySession: aiSummary.paidBySession.users,
+      organicAiSessionsBySession: aiSummary.organicBySession.sessions,
+      organicAiUsersBySession: aiSummary.organicBySession.users,
       socialReferrals: socialReferrals.map((r) => ({
         source: r.source,
         medium: r.medium,
@@ -959,16 +1056,24 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       socialUsers: socialTotals?.users ?? 0,
       channelBreakdown,
       organicSharePct: total > 0 ? Math.round((totalOrganicSessions / total) * 100) : 0,
-      aiSharePct: total > 0 ? Math.round(((aiDeduped?.sessions ?? 0) / total) * 100) : 0,
-      aiSharePctBySession: total > 0 ? Math.round((aiBySessionSessions / total) * 100) : 0,
+      aiSharePct: total > 0 ? Math.round((aiSummary.deduped.sessions / total) * 100) : 0,
+      aiSharePctBySession: total > 0 ? Math.round((aiSummary.bySession.sessions / total) * 100) : 0,
+      paidAiSharePct: total > 0 ? Math.round((aiSummary.paidDeduped.sessions / total) * 100) : 0,
+      paidAiSharePctBySession: total > 0 ? Math.round((aiSummary.paidBySession.sessions / total) * 100) : 0,
+      organicAiSharePct: total > 0 ? Math.round((aiSummary.organicDeduped.sessions / total) * 100) : 0,
+      organicAiSharePctBySession: total > 0 ? Math.round((aiSummary.organicBySession.sessions / total) * 100) : 0,
       directSharePct: total > 0 ? Math.round((totalDirectSessions / total) * 100) : 0,
       socialSharePct: total > 0 ? Math.round((socialSessions / total) * 100) : 0,
       otherSessions: channelBreakdown.other.sessions,
       otherSharePct: channelBreakdown.other.sharePct,
       otherSharePctDisplay: channelBreakdown.other.sharePctDisplay,
       organicSharePctDisplay: formatSharePct(totalOrganicSessions, total),
-      aiSharePctDisplay: formatSharePct(aiDeduped?.sessions ?? 0, total),
-      aiSharePctBySessionDisplay: formatSharePct(aiBySessionSessions, total),
+      aiSharePctDisplay: formatSharePct(aiSummary.deduped.sessions, total),
+      aiSharePctBySessionDisplay: formatSharePct(aiSummary.bySession.sessions, total),
+      paidAiSharePctDisplay: formatSharePct(aiSummary.paidDeduped.sessions, total),
+      paidAiSharePctBySessionDisplay: formatSharePct(aiSummary.paidBySession.sessions, total),
+      organicAiSharePctDisplay: formatSharePct(aiSummary.organicDeduped.sessions, total),
+      organicAiSharePctBySessionDisplay: formatSharePct(aiSummary.organicBySession.sessions, total),
       directSharePctDisplay: formatSharePct(totalDirectSessions, total),
       socialSharePctDisplay: formatSharePct(socialSessions, total),
       lastSyncedAt: latestSync?.syncedAt ?? null,
@@ -1000,6 +1105,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
         date: gaAiReferrals.date,
         source: gaAiReferrals.source,
         medium: gaAiReferrals.medium,
+        trafficClass: gaAiReferrals.trafficClass,
         landingPage: sql<string>`COALESCE(${gaAiReferrals.landingPageNormalized}, ${gaAiReferrals.landingPage})`,
         sourceDimension: gaAiReferrals.sourceDimension,
         sessions: sql<number>`SUM(${gaAiReferrals.sessions})`,
@@ -1011,6 +1117,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
         gaAiReferrals.date,
         gaAiReferrals.source,
         gaAiReferrals.medium,
+        gaAiReferrals.trafficClass,
         gaAiReferrals.sourceDimension,
         sql`COALESCE(${gaAiReferrals.landingPageNormalized}, ${gaAiReferrals.landingPage})`,
       )

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  classifyGa4AiReferralTrafficClass,
   ga4AiReferralHistoryEntrySchema,
   ga4TrafficSummaryDtoSchema,
 } from '../src/ga.js'
@@ -17,6 +18,7 @@ describe('GA contracts', () => {
         {
           source: 'chatgpt.com',
           medium: 'referral',
+          trafficClass: 'organic',
           sourceDimension: 'session',
           landingPage: '/pricing',
           sessions: 12,
@@ -25,8 +27,16 @@ describe('GA contracts', () => {
       ],
       aiSessionsDeduped: 12,
       aiUsersDeduped: 9,
+      paidAiSessionsDeduped: 0,
+      paidAiUsersDeduped: 0,
+      organicAiSessionsDeduped: 12,
+      organicAiUsersDeduped: 9,
       aiSessionsBySession: 12,
       aiUsersBySession: 9,
+      paidAiSessionsBySession: 0,
+      paidAiUsersBySession: 0,
+      organicAiSessionsBySession: 12,
+      organicAiUsersBySession: 9,
       socialReferrals: [],
       socialSessions: 0,
       socialUsers: 0,
@@ -40,11 +50,19 @@ describe('GA contracts', () => {
       organicSharePct: 30,
       aiSharePct: 12,
       aiSharePctBySession: 12,
+      paidAiSharePct: 0,
+      paidAiSharePctBySession: 0,
+      organicAiSharePct: 12,
+      organicAiSharePctBySession: 12,
       directSharePct: 20,
       socialSharePct: 0,
       organicSharePctDisplay: '30%',
       aiSharePctDisplay: '12%',
       aiSharePctBySessionDisplay: '12%',
+      paidAiSharePctDisplay: '0%',
+      paidAiSharePctBySessionDisplay: '0%',
+      organicAiSharePctDisplay: '12%',
+      organicAiSharePctBySessionDisplay: '12%',
       directSharePctDisplay: '20%',
       socialSharePctDisplay: '0%',
       otherSessions: 38,
@@ -61,6 +79,7 @@ describe('GA contracts', () => {
       date: '2026-03-20',
       source: 'perplexity.ai',
       medium: 'referral',
+      trafficClass: 'organic',
       sourceDimension: 'session',
       landingPage: '/guide',
       sessions: 7,
@@ -68,5 +87,21 @@ describe('GA contracts', () => {
     })
 
     expect(parsed.landingPage).toBe('/guide')
+  })
+
+  it('classifies tagged ChatGPT ad traffic as paid and ordinary AI referrals as organic', () => {
+    expect(classifyGa4AiReferralTrafficClass({
+      source: 'chatgpt.com',
+      medium: 'cpc',
+      channelGroup: 'Paid Other',
+      landingPage: '/pricing?utm_source=chatgpt&utm_medium=cpc&utm_campaign=openai_ads',
+    })).toBe('paid')
+
+    expect(classifyGa4AiReferralTrafficClass({
+      source: 'chatgpt.com',
+      medium: 'referral',
+      channelGroup: 'Referral',
+      landingPage: '/pricing?utm_source=chatgpt',
+    })).toBe('organic')
   })
 })

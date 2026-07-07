@@ -521,6 +521,8 @@ export function ClickThroughActivity({ projectName }: { projectName: string }) {
   const aiSessions = traffic?.aiSessionsDeduped ?? 0
   const aiSessionsBySession = traffic?.channelBreakdown?.ai.sessions ?? traffic?.aiSessionsBySession ?? 0
   const aiSharePctBySessionDisplay = traffic?.channelBreakdown?.ai.sharePctDisplay ?? traffic?.aiSharePctBySessionDisplay ?? '0%'
+  const paidAiSessionsBySession = traffic?.paidAiSessionsBySession ?? 0
+  const paidAiSharePctBySessionDisplay = traffic?.paidAiSharePctBySessionDisplay ?? '0%'
   const aiSourceCount = traffic ? new Set(traffic.aiReferrals.map((referral) => referral.source.toLowerCase())).size : 0
   const topAiSource = sortedAiReferrals[0] ?? null
   const directSessions = traffic?.totalDirectSessions ?? 0
@@ -658,7 +660,7 @@ export function ClickThroughActivity({ projectName }: { projectName: string }) {
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-muted mb-1">Traffic Attribution</p>
                 <h2 className="text-base font-semibold text-primary flex items-center gap-1.5">
                   Traffic by channel
-                  <InfoTooltip text="Decomposes GA4 sessions into five disjoint channels — known AI referrers first, then organic search, social, direct, and other channels. Known AI referrers are removed from their native GA4 channel before the residual Other bucket is computed. Other channels are the remaining GA4 session default channel groups, such as Referral, Email, Paid Search, Display, Cross-network, Shopping, Video, Affiliates, SMS, and Paid Other." />
+                  <InfoTooltip text="Decomposes GA4 sessions into five disjoint channels — known AI referrers first, then organic search, social, direct, and other channels. Known AI includes paid and organic AI referrals; paid rows are labeled in the source table below. Known AI referrers are removed from their native GA4 channel before the residual Other bucket is computed." />
                 </h2>
               </div>
               {dateRange && (
@@ -783,9 +785,11 @@ export function ClickThroughActivity({ projectName }: { projectName: string }) {
                 <AttributionStat
                   label="Known AI referrers (lower bound)"
                   value={aiSharePctBySessionDisplay}
-                  hint={`${aiSessionsBySession.toLocaleString()} sessions`}
+                  hint={paidAiSessionsBySession > 0
+                    ? `${aiSessionsBySession.toLocaleString()} sessions · ${paidAiSessionsBySession.toLocaleString()} paid`
+                    : `${aiSessionsBySession.toLocaleString()} sessions`}
                   tone="positive"
-                  tooltip="Sessions whose current sessionSource matched a known AI engine (e.g. chatgpt.com, claude.ai, gemini.google.com). These sessions are removed from their native GA4 channel in this card grid so the five buckets stay disjoint. This is a strict lower bound: most AI traffic strips the referrer and falls into Direct, so the true AI share is typically higher than what's shown here. The detail table below also surfaces firstUserSource and UTM-tagged AI signals."
+                  tooltip="Sessions whose current sessionSource matched a known AI engine (e.g. chatgpt.com, claude.ai, gemini.google.com). Paid AI is inferred from paid/cpc/sponsored UTM values or GA4 paid channel groups. Untagged ad clicks with no referrer still fall under Direct because GA4 has no paid evidence for them."
                 />
                 <AttributionStat
                   label="Other channels"
@@ -799,6 +803,9 @@ export function ClickThroughActivity({ projectName }: { projectName: string }) {
               {topAiSource && (
                 <div className="mt-4 rounded-lg border border-positive-800/40 bg-positive-500/6 px-4 py-3 text-sm text-positive-100">
                   Top AI referrer: <span className="font-medium">{topAiSource.source}</span> via {topAiSource.medium}, accounting for {topAiSource.sessions.toLocaleString()} sessions.
+                  {paidAiSessionsBySession > 0 && (
+                    <span> Paid AI: {paidAiSessionsBySession.toLocaleString()} sessions ({paidAiSharePctBySessionDisplay}).</span>
+                  )}
                 </div>
               )}
             </Card>
@@ -821,6 +828,7 @@ export function ClickThroughActivity({ projectName }: { projectName: string }) {
                       <tr className="text-[10px] uppercase tracking-wider text-muted">
                         <SortHeader label="Source" sortKey="source" current={referralSortKey} dir={referralSortDir} onSort={handleReferralSort} align="left" />
                         <SortHeader label="Medium" sortKey="medium" current={referralSortKey} dir={referralSortDir} onSort={handleReferralSort} align="left" />
+                        <th className="py-1 font-medium text-left">Class</th>
                         <th className="py-1 font-medium text-left">Attribution</th>
                         <SortHeader label="Sessions" sortKey="sessions" current={referralSortKey} dir={referralSortDir} onSort={handleReferralSort} align="right" />
                         <th className="py-1 font-medium text-right">Share</th>
@@ -1467,6 +1475,10 @@ function AiReferralRow({
   const share = totalSessions > 0 ? ((referral.sessions / totalSessions) * 100).toFixed(1) : '0.0'
   const dimLabel = DIMENSION_LABELS[referral.sourceDimension] ?? referral.sourceDimension
   const dimTooltip = DIMENSION_TOOLTIPS[referral.sourceDimension] ?? ''
+  const trafficClassLabel = referral.trafficClass === 'paid' ? 'Paid' : 'Organic'
+  const trafficClassTooltip = referral.trafficClass === 'paid'
+    ? 'Paid AI traffic inferred from paid/cpc/sponsored UTM values or a GA4 paid channel group'
+    : 'AI traffic without a paid attribution signal'
 
   return (
     <tr className="border-t border-subtle">
@@ -1475,6 +1487,18 @@ function AiReferralRow({
       </td>
       <td className="py-1.5 text-muted max-w-[180px] truncate" title={referral.medium}>
         {referral.medium}
+      </td>
+      <td className="py-1.5">
+        <span
+          className={`inline-block text-[10px] px-1.5 py-0.5 rounded-full border ${
+            referral.trafficClass === 'paid'
+              ? 'border-caution-700 text-caution-300'
+              : 'border-strong text-secondary'
+          }`}
+          title={trafficClassTooltip}
+        >
+          {trafficClassLabel}
+        </span>
       </td>
       <td className="py-1.5">
         <span

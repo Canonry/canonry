@@ -1,5 +1,84 @@
 import { z } from 'zod'
 
+export const ga4AiReferralTrafficClassSchema = z.enum(['organic', 'paid'])
+export type GA4AiReferralTrafficClass = z.infer<typeof ga4AiReferralTrafficClassSchema>
+export const GA4AiReferralTrafficClasses = ga4AiReferralTrafficClassSchema.enum
+
+const PAID_CHANNEL_GROUPS = new Set([
+  'paid search',
+  'paid social',
+  'paid shopping',
+  'paid video',
+  'paid other',
+  'display',
+  'cross-network',
+])
+
+const PAID_SOURCE_OR_MEDIUM_VALUES = new Set([
+  'ad',
+  'ads',
+  'cpa',
+  'cpc',
+  'cpm',
+  'cpv',
+  'display',
+  'openai-ads',
+  'openai_ads',
+  'paid',
+  'paid-ai',
+  'paid_ai',
+  'paidai',
+  'ppc',
+  'retargeting',
+  'sponsored',
+])
+
+const PAID_QUERY_PARAMS = ['utm_medium', 'utm_campaign', 'utm_content', 'utm_term']
+
+function normalizedTokens(value: string | null | undefined): string[] {
+  return (value ?? '')
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean)
+}
+
+function hasPaidToken(value: string | null | undefined): boolean {
+  const normalized = (value ?? '').trim().toLowerCase()
+  if (!normalized) return false
+  if (PAID_SOURCE_OR_MEDIUM_VALUES.has(normalized)) return true
+  return normalizedTokens(normalized).some((token) => PAID_SOURCE_OR_MEDIUM_VALUES.has(token))
+}
+
+function hasPaidLandingPageParam(landingPage: string | null | undefined): boolean {
+  if (!landingPage) return false
+  try {
+    const url = new URL(landingPage, 'https://canonry.local')
+    return PAID_QUERY_PARAMS.some((key) => hasPaidToken(url.searchParams.get(key)))
+  } catch {
+    return false
+  }
+}
+
+export function classifyGa4AiReferralTrafficClass(input: {
+  source?: string | null
+  medium?: string | null
+  channelGroup?: string | null
+  landingPage?: string | null
+}): GA4AiReferralTrafficClass {
+  const channelGroup = (input.channelGroup ?? '').trim().toLowerCase()
+  if (PAID_CHANNEL_GROUPS.has(channelGroup) || channelGroup.startsWith('paid ')) {
+    return GA4AiReferralTrafficClasses.paid
+  }
+  if (
+    hasPaidToken(input.medium) ||
+    hasPaidToken(input.source) ||
+    hasPaidLandingPageParam(input.landingPage)
+  ) {
+    return GA4AiReferralTrafficClasses.paid
+  }
+  return GA4AiReferralTrafficClasses.organic
+}
+
 export const ga4ConnectionDtoSchema = z.object({
   id: z.string(),
   projectId: z.string(),
@@ -27,6 +106,7 @@ export type GA4SourceDimension = z.infer<typeof ga4SourceDimensionSchema>
 export const ga4AiReferralDtoSchema = z.object({
   source: z.string(),
   medium: z.string(),
+  trafficClass: ga4AiReferralTrafficClassSchema,
   sessions: z.number(),
   users: z.number(),
   /**
@@ -43,6 +123,7 @@ export type GA4AiReferralDto = z.infer<typeof ga4AiReferralDtoSchema>
 export const ga4AiReferralLandingPageDtoSchema = z.object({
   source: z.string(),
   medium: z.string(),
+  trafficClass: ga4AiReferralTrafficClassSchema,
   /**
    * The winning attribution dimension for this (source, medium, landingPage)
    * tuple — the one with the highest session count.
@@ -100,10 +181,26 @@ export const ga4TrafficSummaryDtoSchema = z.object({
   aiSessionsDeduped: z.number(),
   /** Deduped AI user total: MAX(users) per date+source+medium across attribution dimensions, then summed. */
   aiUsersDeduped: z.number(),
+  /** Deduped AI sessions whose attribution carries paid intent. */
+  paidAiSessionsDeduped: z.number(),
+  /** Deduped users for paid AI sessions. */
+  paidAiUsersDeduped: z.number(),
+  /** Deduped AI sessions without paid intent evidence. */
+  organicAiSessionsDeduped: z.number(),
+  /** Deduped users for organic/non-paid AI sessions. */
+  organicAiUsersDeduped: z.number(),
   /** AI sessions whose CURRENT sessionSource matched an AI engine. Can overlap with raw Organic/Social/Direct totals; `channelBreakdown` removes those overlaps for display. */
   aiSessionsBySession: z.number(),
   /** AI users whose CURRENT sessionSource matched an AI engine. Can overlap with raw Organic/Social/Direct totals. */
   aiUsersBySession: z.number(),
+  /** Session-source-only paid AI sessions. */
+  paidAiSessionsBySession: z.number(),
+  /** Session-source-only paid AI users. */
+  paidAiUsersBySession: z.number(),
+  /** Session-source-only organic/non-paid AI sessions. */
+  organicAiSessionsBySession: z.number(),
+  /** Session-source-only organic/non-paid AI users. */
+  organicAiUsersBySession: z.number(),
   socialReferrals: z.array(ga4SocialReferralDtoSchema),
   /** Total social sessions (session-scoped, no cross-dimension dedup needed). */
   socialSessions: z.number(),
@@ -117,6 +214,14 @@ export const ga4TrafficSummaryDtoSchema = z.object({
   aiSharePct: z.number(),
   /** Session-source-only AI sessions as a percentage of total sessions (0–100, rounded). Can overlap with raw Organic/Social/Direct totals. */
   aiSharePctBySession: z.number(),
+  /** Paid AI sessions as a percentage of total sessions (0–100, rounded). */
+  paidAiSharePct: z.number(),
+  /** Session-source paid AI sessions as a percentage of total sessions (0–100, rounded). */
+  paidAiSharePctBySession: z.number(),
+  /** Organic/non-paid AI sessions as a percentage of total sessions (0–100, rounded). */
+  organicAiSharePct: z.number(),
+  /** Session-source organic/non-paid AI sessions as a percentage of total sessions (0–100, rounded). */
+  organicAiSharePctBySession: z.number(),
   /** Direct-channel sessions as a percentage of total sessions (0–100, rounded). */
   directSharePct: z.number(),
   /** Social sessions as a percentage of total sessions (0–100, rounded). */
@@ -127,6 +232,14 @@ export const ga4TrafficSummaryDtoSchema = z.object({
   aiSharePctDisplay: z.string(),
   /** Display string for aiSharePctBySession: 'X%', '<1%' for non-zero shares that round below 1, or '—' when sessions exist but total is unknown (partial sync). */
   aiSharePctBySessionDisplay: z.string(),
+  /** Display string for paidAiSharePct. */
+  paidAiSharePctDisplay: z.string(),
+  /** Display string for paidAiSharePctBySession. */
+  paidAiSharePctBySessionDisplay: z.string(),
+  /** Display string for organicAiSharePct. */
+  organicAiSharePctDisplay: z.string(),
+  /** Display string for organicAiSharePctBySession. */
+  organicAiSharePctBySessionDisplay: z.string(),
   /** Display string for directSharePct: 'X%', '<1%' for non-zero shares that round below 1, or '—' when sessions exist but total is unknown (partial sync). */
   directSharePctDisplay: z.string(),
   /** Display string for socialSharePct: 'X%', '<1%' for non-zero shares that round below 1, or '—' when sessions exist but total is unknown (partial sync). */
@@ -231,17 +344,33 @@ export interface GaTrafficResponse {
   totalUsers: number
   topPages: Array<{ landingPage: string; sessions: number; organicSessions: number; directSessions: number; users: number }>
   /** Deduped to the winning attribution dimension (highest sessions) per (source, medium). */
-  aiReferrals: Array<{ source: string; medium: string; sessions: number; users: number; sourceDimension: GA4SourceDimension }>
+  aiReferrals: Array<{ source: string; medium: string; trafficClass: GA4AiReferralTrafficClass; sessions: number; users: number; sourceDimension: GA4SourceDimension }>
   /** Deduped to the winning attribution dimension (highest sessions) per (source, medium, landingPage). */
-  aiReferralLandingPages: Array<{ source: string; medium: string; sourceDimension: GA4SourceDimension; landingPage: string; sessions: number; users: number }>
+  aiReferralLandingPages: Array<{ source: string; medium: string; trafficClass: GA4AiReferralTrafficClass; sourceDimension: GA4SourceDimension; landingPage: string; sessions: number; users: number }>
   /** Deduped AI session total: MAX(sessions) per date+source+medium across attribution dimensions, then summed. Cross-cutting: can overlap with Direct/Organic/Social via firstUserSource. */
   aiSessionsDeduped: number
   /** Deduped AI user total: MAX(users) per date+source+medium across attribution dimensions, then summed. */
   aiUsersDeduped: number
+  /** Deduped AI sessions whose attribution carries paid intent. */
+  paidAiSessionsDeduped: number
+  /** Deduped users for paid AI sessions. */
+  paidAiUsersDeduped: number
+  /** Deduped AI sessions without paid intent evidence. */
+  organicAiSessionsDeduped: number
+  /** Deduped users for organic/non-paid AI sessions. */
+  organicAiUsersDeduped: number
   /** AI sessions whose CURRENT sessionSource matched an AI engine. Can overlap with raw Organic/Social/Direct totals; `channelBreakdown` removes those overlaps for display. */
   aiSessionsBySession: number
   /** AI users whose CURRENT sessionSource matched an AI engine. Can overlap with raw Organic/Social/Direct totals. */
   aiUsersBySession: number
+  /** Session-source-only paid AI sessions. */
+  paidAiSessionsBySession: number
+  /** Session-source-only paid AI users. */
+  paidAiUsersBySession: number
+  /** Session-source-only organic/non-paid AI sessions. */
+  organicAiSessionsBySession: number
+  /** Session-source-only organic/non-paid AI users. */
+  organicAiUsersBySession: number
   socialReferrals: Array<{ source: string; medium: string; sessions: number; users: number; channelGroup: string }>
   /** Total social sessions (session-scoped via sessionDefaultChannelGroup). */
   socialSessions: number
@@ -261,6 +390,14 @@ export interface GaTrafficResponse {
   aiSharePct: number
   /** Session-source-only AI sessions as a percentage of total sessions (0–100, rounded). Can overlap with raw Organic/Social/Direct totals. */
   aiSharePctBySession: number
+  /** Paid AI sessions as a percentage of total sessions (0–100, rounded). */
+  paidAiSharePct: number
+  /** Session-source paid AI sessions as a percentage of total sessions (0–100, rounded). */
+  paidAiSharePctBySession: number
+  /** Organic/non-paid AI sessions as a percentage of total sessions (0–100, rounded). */
+  organicAiSharePct: number
+  /** Session-source organic/non-paid AI sessions as a percentage of total sessions (0–100, rounded). */
+  organicAiSharePctBySession: number
   /** Direct-channel sessions as a percentage of total sessions (0–100, rounded). */
   directSharePct: number
   /** Social sessions as a percentage of total sessions (0–100, rounded). */
@@ -271,6 +408,14 @@ export interface GaTrafficResponse {
   aiSharePctDisplay: string
   /** Display string for aiSharePctBySession: 'X%', '<1%' for non-zero shares that round below 1, or '—' when sessions exist but total is unknown (partial sync). */
   aiSharePctBySessionDisplay: string
+  /** Display string for paidAiSharePct. */
+  paidAiSharePctDisplay: string
+  /** Display string for paidAiSharePctBySession. */
+  paidAiSharePctBySessionDisplay: string
+  /** Display string for organicAiSharePct. */
+  organicAiSharePctDisplay: string
+  /** Display string for organicAiSharePctBySession. */
+  organicAiSharePctBySessionDisplay: string
   /** Display string for directSharePct: 'X%', '<1%' for non-zero shares that round below 1, or '—' when sessions exist but total is unknown (partial sync). */
   directSharePctDisplay: string
   /** Display string for socialSharePct: 'X%', '<1%' for non-zero shares that round below 1, or '—' when sessions exist but total is unknown (partial sync). */
@@ -296,6 +441,7 @@ export const ga4AiReferralHistoryEntrySchema = z.object({
   date: z.string(),
   source: z.string(),
   medium: z.string(),
+  trafficClass: ga4AiReferralTrafficClassSchema,
   landingPage: z.string(),
   sessions: z.number(),
   users: z.number(),

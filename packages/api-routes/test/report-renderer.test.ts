@@ -244,9 +244,13 @@ function richReport(): ProjectReportDto {
     aiReferrals: {
       totalSessions: 200,
       totalUsers: 150,
+      paidSessions: 150,
+      paidUsers: 110,
+      organicSessions: 50,
+      organicUsers: 40,
       bySource: [
-        { source: 'chatgpt.com', sessions: 150, users: 110, sharePct: 75 },
-        { source: 'gemini.google.com', sessions: 50, users: 40, sharePct: 25 },
+        { source: 'chatgpt.com', sessions: 150, users: 110, paidSessions: 150, organicSessions: 0, sharePct: 75 },
+        { source: 'gemini.google.com', sessions: 50, users: 40, paidSessions: 0, organicSessions: 50, sharePct: 25 },
       ],
       trend: [
         { date: '2026-04-15', sessions: 100 },

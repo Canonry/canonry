@@ -160,19 +160,24 @@ export async function gaTraffic(project: string, opts?: { limit?: number; window
   if (result.aiSessionsDeduped > 0) {
     const share = result.totalSessions > 0 ? Math.round((result.aiSessionsDeduped / result.totalSessions) * 100) : 0
     console.log(`  AI Sessions (deduped):   ${result.aiSessionsDeduped} (${share}% of total)`)
+    if (result.paidAiSessionsDeduped > 0) {
+      console.log(`    Paid AI:               ${result.paidAiSessionsDeduped} (${result.paidAiSharePctDisplay} of total)`)
+    }
   }
   console.log()
 
   if (result.aiReferrals.length > 0) {
     const attrWidth = 12
+    const classWidth = 8
     console.log('  AI REFERRAL SOURCES')
-    console.log(`  ${'SOURCE'.padEnd(25)}  ${'MEDIUM'.padEnd(15)}  ${'ATTRIBUTION'.padEnd(attrWidth)}  ${'SESSIONS'.padEnd(10)}${'USERS'.padEnd(8)}`)
-    console.log(`  ${'─'.repeat(25)}  ${'─'.repeat(15)}  ${'─'.repeat(attrWidth)}  ${'─'.repeat(10)}${'─'.repeat(8)}`)
+    console.log(`  ${'SOURCE'.padEnd(25)}  ${'MEDIUM'.padEnd(15)}  ${'CLASS'.padEnd(classWidth)}  ${'ATTRIBUTION'.padEnd(attrWidth)}  ${'SESSIONS'.padEnd(10)}${'USERS'.padEnd(8)}`)
+    console.log(`  ${'─'.repeat(25)}  ${'─'.repeat(15)}  ${'─'.repeat(classWidth)}  ${'─'.repeat(attrWidth)}  ${'─'.repeat(10)}${'─'.repeat(8)}`)
 
     for (const ref of result.aiReferrals) {
       const dimLabel = ref.sourceDimension === 'first_user' ? 'first-visit' : ref.sourceDimension === 'manual_utm' ? 'utm' : 'session'
+      const classLabel = ref.trafficClass === 'paid' ? 'paid' : 'organic'
       console.log(
-        `  ${ref.source.padEnd(25)}  ${ref.medium.padEnd(15)}  ${dimLabel.padEnd(attrWidth)}  ${String(ref.sessions).padEnd(10)}${String(ref.users).padEnd(8)}`,
+        `  ${ref.source.padEnd(25)}  ${ref.medium.padEnd(15)}  ${classLabel.padEnd(classWidth)}  ${dimLabel.padEnd(attrWidth)}  ${String(ref.sessions).padEnd(10)}${String(ref.users).padEnd(8)}`,
       )
     }
     console.log()
@@ -444,19 +449,35 @@ export async function gaAttribution(project: string, opts?: { trend?: boolean; f
         organicSessions: traffic.totalOrganicSessions,
         aiSessions: traffic.aiSessionsDeduped,
         aiUsers: traffic.aiUsersDeduped,
+        paidAiSessions: traffic.paidAiSessionsDeduped,
+        paidAiUsers: traffic.paidAiUsersDeduped,
+        organicAiSessions: traffic.organicAiSessionsDeduped,
+        organicAiUsers: traffic.organicAiUsersDeduped,
         aiSessionsBySession: traffic.aiSessionsBySession,
         aiUsersBySession: traffic.aiUsersBySession,
+        paidAiSessionsBySession: traffic.paidAiSessionsBySession,
+        paidAiUsersBySession: traffic.paidAiUsersBySession,
+        organicAiSessionsBySession: traffic.organicAiSessionsBySession,
+        organicAiUsersBySession: traffic.organicAiUsersBySession,
         socialSessions: traffic.socialSessions,
         socialUsers: traffic.socialUsers,
         directSessions: traffic.totalDirectSessions,
         aiSharePct: traffic.aiSharePct,
         aiSharePctBySession: traffic.aiSharePctBySession,
+        paidAiSharePct: traffic.paidAiSharePct,
+        paidAiSharePctBySession: traffic.paidAiSharePctBySession,
+        organicAiSharePct: traffic.organicAiSharePct,
+        organicAiSharePctBySession: traffic.organicAiSharePctBySession,
         socialSharePct: traffic.socialSharePct,
         organicSharePct: traffic.organicSharePct,
         directSharePct: traffic.directSharePct,
         organicSharePctDisplay: traffic.organicSharePctDisplay,
         aiSharePctDisplay: traffic.aiSharePctDisplay,
         aiSharePctBySessionDisplay: traffic.aiSharePctBySessionDisplay,
+        paidAiSharePctDisplay: traffic.paidAiSharePctDisplay,
+        paidAiSharePctBySessionDisplay: traffic.paidAiSharePctBySessionDisplay,
+        organicAiSharePctDisplay: traffic.organicAiSharePctDisplay,
+        organicAiSharePctBySessionDisplay: traffic.organicAiSharePctBySessionDisplay,
         socialSharePctDisplay: traffic.socialSharePctDisplay,
         directSharePctDisplay: traffic.directSharePctDisplay,
         otherSessions: traffic.otherSessions,
@@ -485,6 +506,9 @@ export async function gaAttribution(project: string, opts?: { trend?: boolean; f
     console.log(`    Social:         ${String(traffic.channelBreakdown.social.sessions).padEnd(6)} (${traffic.channelBreakdown.social.sharePctDisplay.padStart(4)})    ${fmtTrend(trend.social.trend7dPct).padEnd(12)} ${fmtTrend(trend.social.trend30dPct)}`)
     console.log(`    Direct:         ${String(traffic.channelBreakdown.direct.sessions).padEnd(6)} (${traffic.channelBreakdown.direct.sharePctDisplay.padStart(4)})    ${fmtTrend(trend.direct.trend7dPct).padEnd(12)} ${fmtTrend(trend.direct.trend30dPct)}`)
     console.log(`    AI Referrals:   ${String(traffic.channelBreakdown.ai.sessions).padEnd(6)} (${traffic.channelBreakdown.ai.sharePctDisplay.padStart(4)})    ${fmtTrend(trend.ai.trend7dPct).padEnd(12)} ${fmtTrend(trend.ai.trend30dPct)}  (lower bound — sessionSource only; referrer-stripped traffic falls under Direct)`)
+    if (traffic.paidAiSessionsBySession > 0) {
+      console.log(`      Paid AI:      ${String(traffic.paidAiSessionsBySession).padEnd(6)} (${traffic.paidAiSharePctBySessionDisplay.padStart(4)})`)
+    }
     console.log(`    Other:          ${String(traffic.channelBreakdown.other.sessions).padEnd(6)} (${traffic.channelBreakdown.other.sharePctDisplay.padStart(4)})`)
     console.log(`    ─────────────────────────────────────────────────────`)
     console.log(`    Total:          ${String(traffic.totalSessions).padEnd(6)}         ${fmtTrend(trend.total.trend7dPct).padEnd(12)} ${fmtTrend(trend.total.trend30dPct)}`)
@@ -514,19 +538,35 @@ export async function gaAttribution(project: string, opts?: { trend?: boolean; f
       organicSessions: traffic.totalOrganicSessions,
       aiSessions: traffic.aiSessionsDeduped,
       aiUsers: traffic.aiUsersDeduped,
+      paidAiSessions: traffic.paidAiSessionsDeduped,
+      paidAiUsers: traffic.paidAiUsersDeduped,
+      organicAiSessions: traffic.organicAiSessionsDeduped,
+      organicAiUsers: traffic.organicAiUsersDeduped,
       aiSessionsBySession: traffic.aiSessionsBySession,
       aiUsersBySession: traffic.aiUsersBySession,
+      paidAiSessionsBySession: traffic.paidAiSessionsBySession,
+      paidAiUsersBySession: traffic.paidAiUsersBySession,
+      organicAiSessionsBySession: traffic.organicAiSessionsBySession,
+      organicAiUsersBySession: traffic.organicAiUsersBySession,
       socialSessions: traffic.socialSessions,
       socialUsers: traffic.socialUsers,
       directSessions: traffic.totalDirectSessions,
       aiSharePct: traffic.aiSharePct,
       aiSharePctBySession: traffic.aiSharePctBySession,
+      paidAiSharePct: traffic.paidAiSharePct,
+      paidAiSharePctBySession: traffic.paidAiSharePctBySession,
+      organicAiSharePct: traffic.organicAiSharePct,
+      organicAiSharePctBySession: traffic.organicAiSharePctBySession,
       socialSharePct: traffic.socialSharePct,
       organicSharePct: traffic.organicSharePct,
       directSharePct: traffic.directSharePct,
       organicSharePctDisplay: traffic.organicSharePctDisplay,
       aiSharePctDisplay: traffic.aiSharePctDisplay,
       aiSharePctBySessionDisplay: traffic.aiSharePctBySessionDisplay,
+      paidAiSharePctDisplay: traffic.paidAiSharePctDisplay,
+      paidAiSharePctBySessionDisplay: traffic.paidAiSharePctBySessionDisplay,
+      organicAiSharePctDisplay: traffic.organicAiSharePctDisplay,
+      organicAiSharePctBySessionDisplay: traffic.organicAiSharePctBySessionDisplay,
       socialSharePctDisplay: traffic.socialSharePctDisplay,
       directSharePctDisplay: traffic.directSharePctDisplay,
       otherSessions: traffic.otherSessions,
@@ -556,6 +596,9 @@ export async function gaAttribution(project: string, opts?: { trend?: boolean; f
   console.log(`    Social:         ${traffic.channelBreakdown.social.sessions} sessions (${traffic.channelBreakdown.social.sharePctDisplay})`)
   console.log(`    Direct:         ${traffic.channelBreakdown.direct.sessions} sessions (${traffic.channelBreakdown.direct.sharePctDisplay})`)
   console.log(`    AI Referrals:   ${traffic.channelBreakdown.ai.sessions} sessions (${traffic.channelBreakdown.ai.sharePctDisplay})  (lower bound — sessionSource only; referrer-stripped traffic falls under Direct)`)
+  if (traffic.paidAiSessionsBySession > 0) {
+    console.log(`      Paid AI:      ${traffic.paidAiSessionsBySession} sessions (${traffic.paidAiSharePctBySessionDisplay})`)
+  }
   console.log(`    Other:          ${traffic.channelBreakdown.other.sessions} sessions (${traffic.channelBreakdown.other.sharePctDisplay})`)
 
   if (traffic.aiReferrals.length > 0) {
@@ -563,7 +606,8 @@ export async function gaAttribution(project: string, opts?: { trend?: boolean; f
     console.log('  AI SOURCES')
     for (const ref of traffic.aiReferrals.slice(0, 10)) {
       const dimLabel = ref.sourceDimension === 'first_user' ? 'first-visit' : ref.sourceDimension === 'manual_utm' ? 'utm' : 'session'
-      console.log(`    ${ref.source.padEnd(25)} ${String(ref.sessions).padEnd(8)} sessions  (${dimLabel})`)
+      const classLabel = ref.trafficClass === 'paid' ? 'paid' : 'organic'
+      console.log(`    ${ref.source.padEnd(25)} ${String(ref.sessions).padEnd(8)} sessions  (${classLabel}, ${dimLabel})`)
     }
   }
 

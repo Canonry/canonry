@@ -1566,6 +1566,7 @@ export interface ApiGaTrafficPage {
 export interface ApiGaTrafficReferral {
   source: string
   medium: string
+  trafficClass: 'organic' | 'paid'
   sourceDimension: 'session' | 'first_user' | 'manual_utm'
   sessions: number
   users: number
@@ -1574,6 +1575,7 @@ export interface ApiGaTrafficReferral {
 export interface ApiGaTrafficAiLandingPage {
   source: string
   medium: string
+  trafficClass: 'organic' | 'paid'
   sourceDimension: 'session' | 'first_user' | 'manual_utm'
   landingPage: string
   sessions: number
@@ -1615,10 +1617,26 @@ export interface ApiGaTraffic {
   aiSessionsDeduped: number
   /** Deduped AI user total. */
   aiUsersDeduped: number
+  /** Deduped paid AI sessions. */
+  paidAiSessionsDeduped: number
+  /** Deduped paid AI users. */
+  paidAiUsersDeduped: number
+  /** Deduped organic/non-paid AI sessions. */
+  organicAiSessionsDeduped: number
+  /** Deduped organic/non-paid AI users. */
+  organicAiUsersDeduped: number
   /** AI sessions whose CURRENT sessionSource matched an AI engine. Can overlap with raw Organic/Social/Direct totals; channelBreakdown removes those overlaps for display. */
   aiSessionsBySession: number
   /** AI users whose CURRENT sessionSource matched an AI engine. */
   aiUsersBySession: number
+  /** Session-source paid AI sessions. */
+  paidAiSessionsBySession: number
+  /** Session-source paid AI users. */
+  paidAiUsersBySession: number
+  /** Session-source organic/non-paid AI sessions. */
+  organicAiSessionsBySession: number
+  /** Session-source organic/non-paid AI users. */
+  organicAiUsersBySession: number
   socialReferrals: ApiGaSocialReferral[]
   /** Total social sessions (session-scoped via sessionDefaultChannelGroup). */
   socialSessions: number
@@ -1632,6 +1650,10 @@ export interface ApiGaTraffic {
   aiSharePct: number
   /** Session-source-only AI sessions as a percentage of total sessions (0–100, rounded). Can overlap with raw Organic/Social/Direct totals. */
   aiSharePctBySession: number
+  paidAiSharePct: number
+  paidAiSharePctBySession: number
+  organicAiSharePct: number
+  organicAiSharePctBySession: number
   /** Social sessions as a percentage of total sessions (0–100, rounded). */
   socialSharePct: number
   /** Direct sessions as a percentage of total sessions (0–100, rounded). */
@@ -1642,6 +1664,10 @@ export interface ApiGaTraffic {
   aiSharePctDisplay: string
   /** Display string for aiSharePctBySession: 'X%', '<1%' for non-zero shares that round below 1, or '—' when sessions exist but total is unknown (partial sync). */
   aiSharePctBySessionDisplay: string
+  paidAiSharePctDisplay: string
+  paidAiSharePctBySessionDisplay: string
+  organicAiSharePctDisplay: string
+  organicAiSharePctBySessionDisplay: string
   /** Display string for socialSharePct: 'X%', '<1%' for non-zero shares that round below 1, or '—' when sessions exist but total is unknown (partial sync). */
   socialSharePctDisplay: string
   /** Display string for directSharePct: 'X%', '<1%' for non-zero shares that round below 1, or '—' when sessions exist but total is unknown (partial sync). */

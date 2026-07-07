@@ -48,8 +48,8 @@ const {
 } = await import('../src/commands/ga.js')
 
 const aiRows: GA4AiReferralHistoryEntry[] = [
-  { date: '2026-05-01', source: 'chatgpt.com', medium: 'referral', landingPage: '/a', sourceDimension: 'session', sessions: 12, users: 9 },
-  { date: '2026-05-02', source: 'perplexity.ai', medium: 'referral', landingPage: '/b', sourceDimension: 'first_user', sessions: 5, users: 4 },
+  { date: '2026-05-01', source: 'chatgpt.com', medium: 'referral', trafficClass: 'organic', landingPage: '/a', sourceDimension: 'session', sessions: 12, users: 9 },
+  { date: '2026-05-02', source: 'perplexity.ai', medium: 'referral', trafficClass: 'organic', landingPage: '/b', sourceDimension: 'first_user', sessions: 5, users: 4 },
 ]
 
 const socialRows: GA4SocialReferralHistoryEntry[] = [

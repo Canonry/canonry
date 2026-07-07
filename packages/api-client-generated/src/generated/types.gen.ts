@@ -827,6 +827,7 @@ export type Ga4AiReferralHistoryEntry = {
     date: string;
     source: string;
     medium: string;
+    trafficClass: 'organic' | 'paid';
     landingPage: string;
     sessions: number;
     users: number;
@@ -1875,10 +1876,16 @@ export type ProjectReportDto = {
     aiReferrals: {
         totalSessions: number;
         totalUsers: number;
+        paidSessions: number;
+        paidUsers: number;
+        organicSessions: number;
+        organicUsers: number;
         bySource: Array<{
             source: string;
             sessions: number;
             users: number;
+            paidSessions: number;
+            organicSessions: number;
             sharePct: number;
         }>;
         trend: Array<{

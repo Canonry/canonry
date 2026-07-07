@@ -248,7 +248,7 @@ describe('GA4 routes', () => {
       totalUsers: windowKey === '7d' ? 15 : windowKey === '30d' ? 55 : 140,
     }))
     const fetchAiReferralsSpy = vi.spyOn(gaModule, 'fetchAiReferrals').mockResolvedValue([
-      { date: '2026-03-20', source: 'chatgpt.com', medium: 'referral', channelGroup: 'Referral', landingPage: '/pricing?utm_source=chatgpt.com', sessions: 12, users: 9, sourceDimension: 'session' },
+      { date: '2026-03-20', source: 'chatgpt.com', medium: 'referral', trafficClass: 'organic', channelGroup: 'Referral', landingPage: '/pricing?utm_source=chatgpt.com', sessions: 12, users: 9, sourceDimension: 'session' },
     ])
     const fetchSocialReferralsSpy = vi.spyOn(gaModule, 'fetchSocialReferrals').mockResolvedValue([
       { date: '2026-03-20', source: 'facebook.com', medium: 'social', sessions: 8, users: 6, channelGroup: 'Organic Social' },
@@ -309,6 +309,7 @@ describe('GA4 routes', () => {
       .all()
     expect(aiReferrals).toHaveLength(1)
     expect(aiReferrals[0]!.source).toBe('chatgpt.com')
+    expect(aiReferrals[0]!.trafficClass).toBe('organic')
     expect(aiReferrals[0]!.landingPage).toBe('/pricing?utm_source=chatgpt.com')
     expect(aiReferrals[0]!.landingPageNormalized).toBe('/pricing')
 
@@ -663,17 +664,25 @@ describe('GA4 routes', () => {
     expect(body.topPages[0].sessions).toBe(300)
     expect(body.topPages[1].landingPage).toBe('/page-b')
     expect(body.aiReferrals).toEqual([
-      { source: 'chatgpt.com', medium: 'referral', sourceDimension: 'session', sessions: 17, users: 10 },
+      { source: 'chatgpt.com', medium: 'referral', trafficClass: 'organic', sourceDimension: 'session', sessions: 17, users: 10 },
     ])
     expect(body.aiReferralLandingPages).toEqual([
-      { source: 'chatgpt.com', medium: 'referral', sourceDimension: 'session', landingPage: '/page-a', sessions: 17, users: 10 },
+      { source: 'chatgpt.com', medium: 'referral', trafficClass: 'organic', sourceDimension: 'session', landingPage: '/page-a', sessions: 17, users: 10 },
     ])
     expect(body.aiSessionsDeduped).toBe(17)
     expect(body.aiUsersDeduped).toBe(10)
+    expect(body.paidAiSessionsDeduped).toBe(0)
+    expect(body.paidAiUsersDeduped).toBe(0)
+    expect(body.organicAiSessionsDeduped).toBe(17)
+    expect(body.organicAiUsersDeduped).toBe(10)
     // Only sessionSource-attributed rows seeded, so bySession matches dedup here.
     expect(body.aiSessionsBySession).toBe(17)
     expect(body.aiUsersBySession).toBe(10)
+    expect(body.paidAiSessionsBySession).toBe(0)
+    expect(body.organicAiSessionsBySession).toBe(17)
     expect(body.aiSharePctBySession).toBe(5)
+    expect(body.paidAiSharePctBySession).toBe(0)
+    expect(body.organicAiSharePctBySession).toBe(5)
     expect(body.socialReferrals).toEqual([])
     expect(body.socialSessions).toBe(0)
     expect(body.socialUsers).toBe(0)
@@ -692,6 +701,225 @@ describe('GA4 routes', () => {
     expect(body.periodEnd).toBe('2026-03-20')
 
     credentials.delete('test-project')
+  })
+
+  it('GET /ga/traffic splits tagged ChatGPT ads from organic AI referrals', async () => {
+    const now = new Date().toISOString()
+    const projectRes = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/projects/paid-ai-split',
+      payload: {
+        displayName: 'Paid AI Split',
+        canonicalDomain: 'paid-ai.example',
+        country: 'US',
+        language: 'en',
+      },
+    })
+    const paidProjectId = JSON.parse(projectRes.payload).id as string
+    credentials.set('paid-ai-split', {
+      projectName: 'paid-ai-split',
+      propertyId: '999777',
+      clientEmail: 'sa@test.iam.gserviceaccount.com',
+      privateKey: 'fake-key',
+      createdAt: now,
+      updatedAt: now,
+    })
+
+    const paidRowId = crypto.randomUUID()
+    const organicRowId = crypto.randomUUID()
+
+    try {
+      db.insert(gaTrafficSnapshots).values({
+        id: crypto.randomUUID(),
+        projectId: paidProjectId,
+        date: '2026-03-20',
+        landingPage: '/pricing',
+        sessions: 100,
+        organicSessions: 40,
+        directSessions: 20,
+        users: 80,
+        syncedAt: now,
+      }).run()
+      db.insert(gaTrafficSummaries).values({
+        id: crypto.randomUUID(),
+        projectId: paidProjectId,
+        periodStart: '2026-02-19',
+        periodEnd: '2026-03-20',
+        totalSessions: 100,
+        totalOrganicSessions: 40,
+        totalUsers: 80,
+        syncedAt: now,
+      }).run()
+      db.insert(gaAiReferrals).values([
+        {
+          id: paidRowId,
+          projectId: paidProjectId,
+          date: '2026-03-20',
+          source: 'chatgpt.com',
+          medium: 'cpc',
+          trafficClass: 'paid',
+          sourceDimension: 'session',
+          channelGroup: 'Paid Other',
+          landingPage: '/pricing?utm_source=chatgpt&utm_medium=cpc&utm_campaign=openai_ads',
+          landingPageNormalized: '/pricing',
+          sessions: 30,
+          users: 24,
+          syncedAt: now,
+        },
+        {
+          id: organicRowId,
+          projectId: paidProjectId,
+          date: '2026-03-20',
+          source: 'chatgpt.com',
+          medium: 'referral',
+          trafficClass: 'organic',
+          sourceDimension: 'session',
+          channelGroup: 'Direct',
+          landingPage: '/guide?utm_source=chatgpt',
+          landingPageNormalized: '/guide',
+          sessions: 10,
+          users: 8,
+          syncedAt: now,
+        },
+      ]).run()
+
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/v1/projects/paid-ai-split/ga/traffic',
+      })
+      expect(res.statusCode).toBe(200)
+      const body = JSON.parse(res.payload)
+
+      expect(body.aiSessionsDeduped).toBe(40)
+      expect(body.paidAiSessionsDeduped).toBe(30)
+      expect(body.organicAiSessionsDeduped).toBe(10)
+      expect(body.aiSessionsBySession).toBe(40)
+      expect(body.paidAiSessionsBySession).toBe(30)
+      expect(body.organicAiSessionsBySession).toBe(10)
+      expect(body.paidAiSharePctBySessionDisplay).toBe('30%')
+
+      const byClass = Object.fromEntries(
+        body.aiReferrals.map((row: { trafficClass: string; sessions: number }) => [row.trafficClass, row.sessions]),
+      )
+      expect(byClass.paid).toBe(30)
+      expect(byClass.organic).toBe(10)
+
+      expect(body.channelBreakdown).toEqual({
+        organic: { sessions: 40, sharePct: 40, sharePctDisplay: '40%' },
+        social: { sessions: 0, sharePct: 0, sharePctDisplay: '0%' },
+        direct: { sessions: 10, sharePct: 10, sharePctDisplay: '10%' },
+        ai: { sessions: 40, sharePct: 40, sharePctDisplay: '40%' },
+        other: { sessions: 10, sharePct: 10, sharePctDisplay: '10%' },
+      })
+    } finally {
+      credentials.delete('paid-ai-split')
+      db.delete(gaAiReferrals).where(inArray(gaAiReferrals.id, [paidRowId, organicRowId])).run()
+      db.delete(gaTrafficSnapshots).where(eq(gaTrafficSnapshots.projectId, paidProjectId)).run()
+      db.delete(gaTrafficSummaries).where(eq(gaTrafficSummaries.projectId, paidProjectId)).run()
+    }
+  })
+
+  it('GET /ga/traffic does not inflate deduped AI totals when one source is paid under one lens and organic under another', async () => {
+    // Same (date, source, medium) carrying a paid row under the 'session' lens
+    // and a larger organic row under the 'first_user' lens. These are the same
+    // visits seen through overlapping attribution lenses, so the deduped total
+    // must stay MAX(20, 30) = 30 — NOT 20 + 30. Keying the dedupe on traffic
+    // class would let both survive and double-count.
+    const now = new Date().toISOString()
+    const projectRes = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/projects/paid-ai-overlap',
+      payload: {
+        displayName: 'Paid AI Overlap',
+        canonicalDomain: 'paid-ai-overlap.example',
+        country: 'US',
+        language: 'en',
+      },
+    })
+    const overlapProjectId = JSON.parse(projectRes.payload).id as string
+    credentials.set('paid-ai-overlap', {
+      projectName: 'paid-ai-overlap',
+      propertyId: '999778',
+      clientEmail: 'sa@test.iam.gserviceaccount.com',
+      privateKey: 'fake-key',
+      createdAt: now,
+      updatedAt: now,
+    })
+
+    const paidSessionRowId = crypto.randomUUID()
+    const organicFirstUserRowId = crypto.randomUUID()
+
+    try {
+      db.insert(gaTrafficSummaries).values({
+        id: crypto.randomUUID(),
+        projectId: overlapProjectId,
+        periodStart: '2026-02-19',
+        periodEnd: '2026-03-20',
+        totalSessions: 100,
+        totalOrganicSessions: 40,
+        totalUsers: 80,
+        syncedAt: now,
+      }).run()
+      db.insert(gaAiReferrals).values([
+        {
+          id: paidSessionRowId,
+          projectId: overlapProjectId,
+          date: '2026-03-20',
+          source: 'chatgpt.com',
+          medium: 'referral',
+          trafficClass: 'paid',
+          sourceDimension: 'session',
+          channelGroup: 'Referral',
+          landingPage: '/pricing?utm_medium=cpc',
+          landingPageNormalized: '/pricing',
+          sessions: 20,
+          users: 15,
+          syncedAt: now,
+        },
+        {
+          id: organicFirstUserRowId,
+          projectId: overlapProjectId,
+          date: '2026-03-20',
+          source: 'chatgpt.com',
+          medium: 'referral',
+          trafficClass: 'organic',
+          sourceDimension: 'first_user',
+          channelGroup: 'Referral',
+          landingPage: '/guide',
+          landingPageNormalized: '/guide',
+          sessions: 30,
+          users: 25,
+          syncedAt: now,
+        },
+      ]).run()
+
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/v1/projects/paid-ai-overlap/ga/traffic',
+      })
+      expect(res.statusCode).toBe(200)
+      const body = JSON.parse(res.payload)
+
+      // Combined deduped total is the cross-lens MAX, unchanged by the split.
+      expect(body.aiSessionsDeduped).toBe(30)
+      expect(body.aiUsersDeduped).toBe(25)
+      // The winning (larger) lens is the organic first_user row.
+      expect(body.paidAiSessionsDeduped).toBe(0)
+      expect(body.paidAiUsersDeduped).toBe(0)
+      expect(body.organicAiSessionsDeduped).toBe(30)
+      expect(body.organicAiUsersDeduped).toBe(25)
+      // Invariant: the class split always partitions the deduped total.
+      expect(body.paidAiSessionsDeduped + body.organicAiSessionsDeduped).toBe(body.aiSessionsDeduped)
+      expect(body.paidAiUsersDeduped + body.organicAiUsersDeduped).toBe(body.aiUsersDeduped)
+      // Session-lens-only totals are disjoint by class, so the paid session row stands.
+      expect(body.aiSessionsBySession).toBe(20)
+      expect(body.paidAiSessionsBySession).toBe(20)
+      expect(body.organicAiSessionsBySession).toBe(0)
+    } finally {
+      credentials.delete('paid-ai-overlap')
+      db.delete(gaAiReferrals).where(inArray(gaAiReferrals.id, [paidSessionRowId, organicFirstUserRowId])).run()
+      db.delete(gaTrafficSummaries).where(eq(gaTrafficSummaries.projectId, overlapProjectId)).run()
+    }
   })
 
   it('GET /ga/traffic computes disjoint channel breakdown when AI overlaps native GA4 channels', async () => {
