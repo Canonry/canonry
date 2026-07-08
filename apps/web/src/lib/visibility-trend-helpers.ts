@@ -1,5 +1,5 @@
-import type { BrandMetricsDto, QueryChangeEvent, TrendDirection } from '@ainyc/canonry-contracts'
-import type { MetricTone } from '../view-models.js'
+import type { BrandMetricsDto, MetricsWindow, QueryChangeEvent, TrendDirection } from '@ainyc/canonry-contracts'
+import type { CitationInsightVm, MetricTone } from '../view-models.js'
 
 /**
  * Pure reshaping of `BrandMetricsDto` into Recharts-ready rows for the
@@ -32,6 +32,8 @@ export interface TrendData {
   /** A single bucket can't draw a line — the chart shows a dot + "not enough history" hint. */
   singleBucket: boolean
 }
+
+export type ProviderModelHints = Record<string, string[]>
 
 /** Presentation-only: 0-1 rate → 0-100 axis value, one decimal. */
 function toPercent(rate: number): number {
@@ -73,6 +75,66 @@ export function buildTrendRows(
     return row
   })
   return { rows, series, hasData, singleBucket }
+}
+
+function cutoffMsForWindow(window: MetricsWindow, now: Date): number | null {
+  if (window === 'all') return null
+  const days = window === '7d' ? 7 : window === '30d' ? 30 : 90
+  return now.getTime() - days * 24 * 60 * 60 * 1000
+}
+
+function touchModel(
+  byProvider: Map<string, Map<string, number>>,
+  provider: string,
+  model: string | null | undefined,
+  timestamp: number,
+) {
+  const normalized = model?.trim()
+  if (!normalized) return
+  let models = byProvider.get(provider)
+  if (!models) {
+    models = new Map<string, number>()
+    byProvider.set(provider, models)
+  }
+  models.set(normalized, Math.max(models.get(normalized) ?? Number.NEGATIVE_INFINITY, timestamp))
+}
+
+export function buildProviderModelHints(
+  evidence: readonly CitationInsightVm[],
+  window: MetricsWindow,
+  now = new Date(),
+): ProviderModelHints {
+  const cutoffMs = cutoffMsForWindow(window, now)
+  const byProvider = new Map<string, Map<string, number>>()
+
+  for (const row of evidence) {
+    if (!row.provider) continue
+    let sawWindowedHistoryModel = false
+
+    for (const point of row.runHistory) {
+      if (!point.model) continue
+      const createdAt = Date.parse(point.createdAt)
+      if (cutoffMs !== null && (!Number.isFinite(createdAt) || createdAt < cutoffMs)) continue
+      sawWindowedHistoryModel = true
+      touchModel(byProvider, row.provider, point.model, Number.isFinite(createdAt) ? createdAt : 0)
+    }
+
+    if (!sawWindowedHistoryModel && window === 'all') {
+      for (const model of row.modelsSeen ?? []) {
+        touchModel(byProvider, row.provider, model, 0)
+      }
+      touchModel(byProvider, row.provider, row.model, Number.MAX_SAFE_INTEGER)
+    }
+  }
+
+  return Object.fromEntries(
+    [...byProvider.entries()].map(([provider, models]) => [
+      provider,
+      [...models.entries()]
+        .sort(([modelA, seenA], [modelB, seenB]) => seenB - seenA || modelA.localeCompare(modelB))
+        .map(([model]) => model),
+    ]),
+  )
 }
 
 export function buildMentionShareTrendRows(dto: BrandMetricsDto): TrendData {

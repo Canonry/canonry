@@ -28,6 +28,7 @@ vi.mock('recharts', () => {
 })
 
 import { MentionShareTrendSection, VisibilityTrendSection } from '../src/components/project/VisibilityTrendSection.js'
+import type { CitationInsightVm } from '../src/view-models.js'
 import { mockFetch, jsonResponse } from './mock-fetch.js'
 
 function provider(citationRate: number, mentionRate: number) {
@@ -68,6 +69,41 @@ function renderSection() {
       <VisibilityTrendSection projectName="test-project" />
     </QueryClientProvider>,
   )
+}
+
+function renderSectionWithEvidence(visibilityEvidence: readonly CitationInsightVm[]) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <VisibilityTrendSection projectName="test-project" visibilityEvidence={visibilityEvidence} />
+    </QueryClientProvider>,
+  )
+}
+
+function evidence(providerName: string, models: string[]): CitationInsightVm {
+  return {
+    id: `${providerName}-evidence`,
+    query: `${providerName} query`,
+    provider: providerName,
+    model: models.at(-1) ?? null,
+    location: null,
+    citationState: 'cited',
+    visibilityState: 'visible',
+    changeLabel: 'Stable',
+    answerSnippet: '',
+    citedDomains: [],
+    evidenceUrls: [],
+    competitorDomains: [],
+    relatedTechnicalSignals: [],
+    groundingSources: [],
+    summary: '',
+    runHistory: models.map((model, index) => ({
+      runId: `${providerName}-${index}`,
+      citationState: 'cited',
+      createdAt: `2026-04-${String(index + 1).padStart(2, '0')}T00:00:00.000Z`,
+      model,
+    })),
+  }
 }
 
 function renderMentionShareSection(competitorDomains: readonly string[] = ['competitor.com']) {
@@ -128,6 +164,29 @@ test('defaults to the by-engine view with a per-engine legend, and toggles to al
   expect(byEngine.getAttribute('aria-pressed')).toBe('false')
   expect(screen.queryByRole('list', { name: 'Engines' })).toBeNull()
   expect(screen.queryByText('avg')).toBeNull()
+})
+
+test('labels per-engine legend entries with model versions and model changes', async () => {
+  const restore = mockFetch((url) => {
+    const path = url.split('?')[0]!
+    if (path.endsWith('/projects/test-project/analytics/metrics')) {
+      return jsonResponse(metricsDto(TWO_BUCKETS))
+    }
+    throw new Error(`Unexpected fetch: ${url}`)
+  })
+  onTestFinished(restore)
+
+  renderSectionWithEvidence([
+    evidence('gemini', ['gemini-2.0-flash', 'gemini-2.5-flash']),
+    evidence('openai', ['gpt-5.4']),
+  ])
+
+  const legend = await screen.findByRole('list', { name: 'Engines' })
+  expect(within(legend).getByText('Gemini')).toBeTruthy()
+  expect(within(legend).getByText('gemini-2.5-flash')).toBeTruthy()
+  expect(within(legend).getByText('gemini-2.0-flash')).toBeTruthy()
+  expect(within(legend).getByText('OpenAI')).toBeTruthy()
+  expect(within(legend).getByText('gpt-5.4')).toBeTruthy()
 })
 
 test('shows an empty state when there are no buckets yet', async () => {

@@ -1268,16 +1268,18 @@ function OverviewDisclosure({
   eyebrow,
   title,
   meta,
+  defaultOpen = false,
   children,
 }: {
   id?: string
   eyebrow: string
   title: string
   meta?: string
+  defaultOpen?: boolean
   children: React.ReactNode
 }) {
   return (
-    <details id={id} className="overview-disclosure page-section-divider scroll-mt-24">
+    <details id={id} className="overview-disclosure page-section-divider scroll-mt-24" open={defaultOpen || undefined}>
       <summary className="overview-disclosure-summary">
         <span>
           <span className="eyebrow eyebrow-soft">{eyebrow}</span>
@@ -2144,7 +2146,7 @@ function ProjectPageContent({
           <h1 className="page-title">{model.project.displayName || model.project.name}</h1>
           <p className="page-subtitle">
             {model.project.canonicalDomain}
-            {(model.project.ownedDomains ?? []).length === 0 && !addingOwnedDomain && (
+            {!isEmbed() && (model.project.ownedDomains ?? []).length === 0 && !addingOwnedDomain && (
               <button
                 type="button"
                 className="ml-2 rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-secondary hover:text-strong hover:bg-surface-inset transition-colors"
@@ -2305,7 +2307,11 @@ function ProjectPageContent({
       {tab === 'overview' ? (
         <>
           <section className="page-section-divider">
-            <VisibilityTrendSection projectName={model.project.name} competitorDomains={competitorDomains} />
+            <VisibilityTrendSection
+              projectName={model.project.name}
+              competitorDomains={competitorDomains}
+              visibilityEvidence={model.visibilityEvidence}
+            />
           </section>
 
           <section className="page-section-divider">
@@ -2401,6 +2407,7 @@ function ProjectPageContent({
             eyebrow="Tracked coverage"
             title="Query evidence"
             meta={`${model.queryCounts.total} ${model.queryCounts.total === 1 ? 'query' : 'queries'}`}
+            defaultOpen={isEmbed()}
           >
             {!isEmbed() && (
               <div className="mb-3 flex items-center justify-end">
@@ -2510,7 +2517,7 @@ function ProjectPageContent({
             />
           </OverviewDisclosure>
 
-          <OverviewDisclosure eyebrow="Analysis" title="Citation and engine diagnostics" meta="Deep dive">
+          <OverviewDisclosure eyebrow="Analysis" title="Citation and engine diagnostics" meta="Deep dive" defaultOpen={isEmbed()}>
             <CitationVisibilitySection projectName={model.project.name} />
 
             {model.providerScores.length > 1 && (
@@ -2550,13 +2557,15 @@ function ProjectPageContent({
             )}
           </OverviewDisclosure>
 
-          <OverviewDisclosure eyebrow="Run history" title="Recent execution history" meta={`${model.recentRuns.length} recent`}>
-            <div className="run-list">
-              {model.recentRuns.map((run) => (
-                <RunRow key={run.id} run={run} />
-              ))}
-            </div>
-          </OverviewDisclosure>
+          {!isEmbed() && (
+            <OverviewDisclosure eyebrow="Run history" title="Recent execution history" meta={`${model.recentRuns.length} recent`}>
+              <div className="run-list">
+                {model.recentRuns.map((run) => (
+                  <RunRow key={run.id} run={run} />
+                ))}
+              </div>
+            </OverviewDisclosure>
+          )}
 
           <section id="action-queue" className="page-section-divider scroll-mt-24 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-500/60" tabIndex={-1}>
             <div className="section-head section-head-inline">

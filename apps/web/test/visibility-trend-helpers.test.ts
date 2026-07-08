@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import type { BrandMetricsDto } from '@ainyc/canonry-contracts'
 import {
+  buildProviderModelHints,
   buildMentionShareTrendRows,
   buildTrendRows,
   trendToTone,
@@ -10,6 +11,7 @@ import {
   MENTION_SHARE_KEY,
   MENTIONED_KEY,
 } from '../src/lib/visibility-trend-helpers.js'
+import type { CitationInsightVm } from '../src/view-models.js'
 
 function provider(citationRate: number, mentionRate: number) {
   return { citationRate, cited: 0, total: 4, mentionRate, mentionedCount: 0 }
@@ -39,6 +41,32 @@ function dto(buckets: BrandMetricsDto['buckets']): BrandMetricsDto {
     trend: 'stable',
     mentionTrend: 'stable',
     queryChanges: [],
+  }
+}
+
+function evidence(providerName: string, models: string[]): CitationInsightVm {
+  return {
+    id: `${providerName}-evidence`,
+    query: `${providerName} query`,
+    provider: providerName,
+    model: models.at(-1) ?? null,
+    location: null,
+    citationState: 'cited',
+    visibilityState: 'visible',
+    changeLabel: 'Stable',
+    answerSnippet: '',
+    citedDomains: [],
+    evidenceUrls: [],
+    competitorDomains: [],
+    relatedTechnicalSignals: [],
+    groundingSources: [],
+    summary: '',
+    runHistory: models.map((model, index) => ({
+      runId: `${providerName}-${index}`,
+      citationState: 'cited',
+      createdAt: `2026-04-${String(index + 1).padStart(2, '0')}T00:00:00.000Z`,
+      model,
+    })),
   }
 }
 
@@ -126,6 +154,20 @@ describe('buildTrendRows — data flags', () => {
     const res = buildTrendRows(dto([bucket('2026-04-01', { gemini: provider(0.5, 0.5) })]), 'cited', 'overall')
     expect(res.hasData).toBe(true)
     expect(res.singleBucket).toBe(true)
+  })
+})
+
+describe('buildProviderModelHints', () => {
+  it('returns model versions by provider, latest model first', () => {
+    const hints = buildProviderModelHints([
+      evidence('gemini', ['gemini-2.0-flash', 'gemini-2.5-flash']),
+      evidence('openai', ['gpt-5.4']),
+    ], 'all')
+
+    expect(hints).toEqual({
+      gemini: ['gemini-2.5-flash', 'gemini-2.0-flash'],
+      openai: ['gpt-5.4'],
+    })
   })
 })
 

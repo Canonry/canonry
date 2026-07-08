@@ -256,3 +256,10 @@ test('the light theme deepens the tone-scale foreground steps (no bright tone te
     expect(light, `light theme must re-point "${decl}"`).toContain(decl)
   }
 })
+
+test('the light theme gives visibility chart titles a semantic text color', async () => {
+  const css = await compileAppStyles([])
+  const rule = ruleFor(css, "[data-theme='light'] .visibility-trend-title")
+
+  expect(rule).toContain('color: var(--color-text-heading)')
+})

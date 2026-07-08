@@ -25,6 +25,7 @@ import { fetchAnalyticsMetrics } from '../../api.js'
 import { STATIC_VISIBILITY_STALE_MS } from '../../queries/query-client.js'
 import {
   buildMentionShareTrendRows,
+  buildProviderModelHints,
   buildTrendRows,
   CITED_KEY,
   formatQueryChangeCaption,
@@ -34,6 +35,7 @@ import {
   type MetricChoice,
   type TrendSeriesMode,
 } from '../../lib/visibility-trend-helpers.js'
+import type { CitationInsightVm } from '../../view-models.js'
 
 const WINDOW_OPTIONS: Array<{ value: MetricsWindow; label: string }> = [
   { value: '7d', label: '7d' },
@@ -144,9 +146,11 @@ function Segmented<T extends string>({
 export function VisibilityTrendSection({
   projectName,
   competitorDomains = [],
+  visibilityEvidence = [],
 }: {
   projectName: string
   competitorDomains?: readonly string[]
+  visibilityEvidence?: readonly CitationInsightVm[]
 }) {
   const [window, setWindow] = useState<MetricsWindow>('all')
   const [metric, setMetric] = useState<MetricChoice>('mentioned')
@@ -165,6 +169,10 @@ export function VisibilityTrendSection({
   const error = metricsQuery.error
 
   const trend = useMemo(() => (data ? buildTrendRows(data, metric, mode) : null), [data, metric, mode])
+  const providerModelHints = useMemo(
+    () => buildProviderModelHints(visibilityEvidence, window),
+    [visibilityEvidence, window],
+  )
 
   // Headline readout: the selected metric's latest bucket value plus its change
   // across the visible window. Quantifies "where it sits now, which way it
@@ -259,7 +267,12 @@ export function VisibilityTrendSection({
                       style={{ backgroundColor: seriesColor(key, i) }}
                       aria-hidden="true"
                     />
-                    <span className="trend-legend-name">{seriesLabel(key)}</span>
+                    <span className="trend-legend-label">
+                      <span className="trend-legend-name">{seriesLabel(key)}</span>
+                      {(providerModelHints[key] ?? []).map(model => (
+                        <span key={model} className="trend-legend-model"><span aria-hidden="true">· </span>{model}</span>
+                      ))}
+                    </span>
                     {value !== null && <span className="trend-legend-value">{value}%</span>}
                   </li>
                 )

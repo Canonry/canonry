@@ -40,6 +40,15 @@ async function renderAt(pathname: string, embed?: EmbedBlock): Promise<string> {
   )
 }
 
+function parseHtml(html: string): Document {
+  return new DOMParser().parseFromString(html, 'text/html')
+}
+
+function detailsForTitle(doc: Document, title: string): HTMLDetailsElement | null {
+  return [...doc.querySelectorAll<HTMLDetailsElement>('details.overview-disclosure')]
+    .find((details) => details.querySelector('.overview-disclosure-title')?.textContent === title) ?? null
+}
+
 test('without embed config the full application chrome renders', async () => {
   const html = await renderAt('/')
   expect(html).toContain('class="sidebar"')
@@ -113,13 +122,34 @@ test('embed hides the overview competitor + query managers and the identity edit
   const operator = await renderAt('/projects/project_citypoint')
 
   // Operator sees the overview write affordances + the alias editor row…
+  expect(operator).toContain('+ add domain')
   expect(operator).toContain('+ Add competitor')
   expect(operator).toContain('Manage queries')
   expect(operator).toContain('Also known as')
   // …none of which render in the embed.
+  expect(embed).not.toContain('+ add domain')
   expect(embed).not.toContain('+ Add competitor')
   expect(embed).not.toContain('Manage queries')
   expect(embed).not.toContain('Also known as')
+
+  const embedDoc = parseHtml(embed)
+  const header = embedDoc.querySelector('.page-header')
+  expect(header?.querySelector('.tag-row')?.textContent).toContain('US')
+  expect(header?.querySelector('.tag-row')?.textContent).toContain('EN')
+  expect(header?.querySelector('.tag-row button, .tag-row input, .tag-row select')).toBeNull()
+})
+
+test('embed defaults client-value overview disclosures open and omits run history', async () => {
+  const embedDoc = parseHtml(await renderAt('/projects/project_citypoint', { enabled: true, views: ['project'] }))
+  const operatorDoc = parseHtml(await renderAt('/projects/project_citypoint'))
+
+  expect(detailsForTitle(operatorDoc, 'Query evidence')?.hasAttribute('open')).toBe(false)
+  expect(detailsForTitle(operatorDoc, 'Citation and engine diagnostics')?.hasAttribute('open')).toBe(false)
+  expect(detailsForTitle(operatorDoc, 'Recent execution history')).not.toBeNull()
+
+  expect(detailsForTitle(embedDoc, 'Query evidence')?.hasAttribute('open')).toBe(true)
+  expect(detailsForTitle(embedDoc, 'Citation and engine diagnostics')?.hasAttribute('open')).toBe(true)
+  expect(detailsForTitle(embedDoc, 'Recent execution history')).toBeNull()
 })
 
 // A default embed config (enabled, no `views` allowlist) makes every top-level
