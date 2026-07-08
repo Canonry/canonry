@@ -48,7 +48,7 @@ import {
   type ProviderAdapter,
 } from "@ainyc/canonry-contracts";
 import type { CanonryConfig, ProviderConfigEntry } from "./config.js";
-import { resolveEmbedConfig } from "./embed.js";
+import { resolveEmbedConfig, SERVER_ENFORCED_EMBED_PROJECT_TABS, unsupportedEmbedProjectTabs } from "./embed.js";
 import { resolveAgentEnabled } from "./agent-config.js";
 import { saveConfigPatch, loadConfig, getConfigPath } from "./config.js";
 import { getPlacesConfig } from "./places-config.js";
@@ -1186,6 +1186,16 @@ export async function createServer(opts: {
   const embedCsp = embed.enabled
     ? frameAncestorsHeaderValue(embed.allowedOrigins)
     : undefined;
+  const unsupportedProjectTabs = unsupportedEmbedProjectTabs(embed.projectTabs);
+  if (embed.enabled && unsupportedProjectTabs.length > 0) {
+    app.log.warn(
+      {
+        projectTabs: unsupportedProjectTabs,
+        supportedProjectTabs: [...SERVER_ENFORCED_EMBED_PROJECT_TABS],
+      },
+      "Embed project tabs include unsupported values; API reads for those tabs will be blocked",
+    );
+  }
   const dashboardRequirePassword = resolveDashboardRequirePassword(process.env, opts.config);
   app.log.info(
     { dashboardRequirePassword },

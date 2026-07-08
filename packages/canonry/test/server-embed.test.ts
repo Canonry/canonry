@@ -539,6 +539,7 @@ describe('server embed mode (#716)', () => {
       for (const url of [
         '/api/v1/settings',
         `/api/v1/projects/${name}/google/connections`,
+        `/api/v1/projects/${name}/runs`,
         `/api/v1/projects/${name}/technical-aeo`,
         '/api/v1/runs/run_audit',
       ]) {

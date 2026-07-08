@@ -169,7 +169,7 @@ function isGlobalAnswerVisibilityRunsList(request: FastifyRequest, url: string):
 function isAnswerVisibilityRunsList(request: FastifyRequest, rest: string): boolean {
   if (rest !== 'runs') return false
   const kind = queryValue(request, 'kind')
-  return !kind || kind === RunKinds['answer-visibility']
+  return kind === RunKinds['answer-visibility']
 }
 
 function isAnswerVisibilityRunDetail(request: FastifyRequest, url: string): boolean {

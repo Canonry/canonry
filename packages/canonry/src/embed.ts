@@ -3,6 +3,13 @@ import { normalizeIdTokens, parseOriginList, splitList } from '@ainyc/canonry-co
 import type { CanonryConfig } from './config.js'
 
 const DEFAULT_EMBED_PROJECT_TABS = ['overview']
+export const SERVER_ENFORCED_EMBED_PROJECT_TABS = ['overview', 'technical-aeo', 'report'] as const
+
+export function unsupportedEmbedProjectTabs(projectTabs: readonly string[] | undefined): string[] {
+  if (!projectTabs) return []
+  const supported = new Set<string>(SERVER_ENFORCED_EMBED_PROJECT_TABS)
+  return projectTabs.filter(tab => !supported.has(tab))
+}
 
 /**
  * Read-only embed mode (issue #716) — resolve the effective embed settings from
