@@ -527,6 +527,61 @@ describe('api-routes', () => {
     expect(JSON.parse(res.payload).map((row: { domain: string }) => row.domain)).toEqual(['other-rival.com'])
   })
 
+  it('DELETE /api/v1/projects/:name/competitors/:id removes one competitor by id', async () => {
+    await app.inject({
+      method: 'PUT',
+      url: '/api/v1/projects/competitor-delete-by-id',
+      payload: {
+        displayName: 'Competitor Delete By ID',
+        canonicalDomain: 'delete-by-id.example.com',
+        country: 'US',
+        language: 'en',
+      },
+    })
+    const append = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/competitor-delete-by-id/competitors',
+      payload: { competitors: ['rival.com', 'other-rival.com'] },
+    })
+    const rows = JSON.parse(append.payload) as Array<{ id: string; domain: string }>
+    const rival = rows.find(row => row.domain === 'rival.com')
+    expect(rival).toBeDefined()
+    if (!rival) throw new Error('Expected rival.com competitor')
+
+    const res = await app.inject({
+      method: 'DELETE',
+      url: `/api/v1/projects/competitor-delete-by-id/competitors/${rival.id}`,
+    })
+
+    expect(res.statusCode).toBe(204)
+
+    const remaining = await app.inject({
+      method: 'GET',
+      url: '/api/v1/projects/competitor-delete-by-id/competitors',
+    })
+    expect(JSON.parse(remaining.payload).map((row: { domain: string }) => row.domain)).toEqual(['other-rival.com'])
+  })
+
+  it('DELETE /api/v1/projects/:name/competitors/:id returns 404 for an unknown competitor id', async () => {
+    await app.inject({
+      method: 'PUT',
+      url: '/api/v1/projects/competitor-delete-missing-id',
+      payload: {
+        displayName: 'Competitor Delete Missing ID',
+        canonicalDomain: 'delete-missing-id.example.com',
+        country: 'US',
+        language: 'en',
+      },
+    })
+
+    const res = await app.inject({
+      method: 'DELETE',
+      url: `/api/v1/projects/competitor-delete-missing-id/competitors/${crypto.randomUUID()}`,
+    })
+
+    expect(res.statusCode).toBe(404)
+  })
+
   it('POST /api/v1/projects/:name/runs triggers a run', async () => {
     const res = await app.inject({
       method: 'POST',

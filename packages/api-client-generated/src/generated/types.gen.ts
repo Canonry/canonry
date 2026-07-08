@@ -3832,6 +3832,40 @@ export type PutApiV1ProjectsByNameCompetitorsResponses = {
 
 export type PutApiV1ProjectsByNameCompetitorsResponse = PutApiV1ProjectsByNameCompetitorsResponses[keyof PutApiV1ProjectsByNameCompetitorsResponses];
 
+export type DeleteApiV1ProjectsByNameCompetitorsByIdData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+        /**
+         * Competitor ID.
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/competitors/{id}';
+};
+
+export type DeleteApiV1ProjectsByNameCompetitorsByIdErrors = {
+    /**
+     * Project or competitor not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type DeleteApiV1ProjectsByNameCompetitorsByIdError = DeleteApiV1ProjectsByNameCompetitorsByIdErrors[keyof DeleteApiV1ProjectsByNameCompetitorsByIdErrors];
+
+export type DeleteApiV1ProjectsByNameCompetitorsByIdResponses = {
+    /**
+     * Competitor deleted.
+     */
+    204: void;
+};
+
+export type DeleteApiV1ProjectsByNameCompetitorsByIdResponse = DeleteApiV1ProjectsByNameCompetitorsByIdResponses[keyof DeleteApiV1ProjectsByNameCompetitorsByIdResponses];
+
 export type GetApiV1ProjectsByNameRunsData = {
     body?: never;
     path: {

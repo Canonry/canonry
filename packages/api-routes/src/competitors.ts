@@ -1,9 +1,9 @@
 import crypto from 'node:crypto'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { competitors } from '@ainyc/canonry-db'
-import { competitorBatchRequestSchema, normalizeProjectDomain, registrableDomain, validationError } from '@ainyc/canonry-contracts'
-import { resolveProject, writeAuditLog } from './helpers.js'
+import { competitorBatchRequestSchema, normalizeProjectDomain, notFound, registrableDomain, validationError } from '@ainyc/canonry-contracts'
+import { auditFromRequest, resolveProject, writeAuditLog } from './helpers.js'
 
 // Reduce a competitor domain to its registrable form (eTLD+1) so that
 // arbitrary subdomain labels like `offers` in `offers.roofle.com` cannot
@@ -30,12 +30,16 @@ function normalizeCompetitorList(domains: readonly string[]): string[] {
   return result
 }
 
+function serializeCompetitor(row: typeof competitors.$inferSelect) {
+  return { id: row.id, domain: row.domain, createdAt: row.createdAt }
+}
+
 export async function competitorRoutes(app: FastifyInstance) {
   // GET /projects/:name/competitors
   app.get<{ Params: { name: string } }>('/projects/:name/competitors', async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
     const rows = app.db.select().from(competitors).where(eq(competitors.projectId, project.id)).all()
-    return reply.send(rows.map(r => ({ id: r.id, domain: r.domain, createdAt: r.createdAt })))
+    return reply.send(rows.map(serializeCompetitor))
   })
 
   // PUT /projects/:name/competitors — replace all
@@ -77,7 +81,7 @@ export async function competitorRoutes(app: FastifyInstance) {
     })
 
     const rows = app.db.select().from(competitors).where(eq(competitors.projectId, project.id)).all()
-    return reply.send(rows.map(r => ({ id: r.id, domain: r.domain, createdAt: r.createdAt })))
+    return reply.send(rows.map(serializeCompetitor))
   })
 
   // POST /projects/:name/competitors — append (skip duplicates)
@@ -124,7 +128,7 @@ export async function competitorRoutes(app: FastifyInstance) {
     })
 
     const rows = app.db.select().from(competitors).where(eq(competitors.projectId, project.id)).all()
-    return reply.send(rows.map(r => ({ id: r.id, domain: r.domain, createdAt: r.createdAt })))
+    return reply.send(rows.map(serializeCompetitor))
   })
 
   // DELETE /projects/:name/competitors — remove specific competitors
@@ -164,7 +168,39 @@ export async function competitorRoutes(app: FastifyInstance) {
     })
 
     const rows = app.db.select().from(competitors).where(eq(competitors.projectId, project.id)).all()
-    return reply.send(rows.map(r => ({ id: r.id, domain: r.domain, createdAt: r.createdAt })))
+    return reply.send(rows.map(serializeCompetitor))
+  })
+
+  // DELETE /projects/:name/competitors/:id — remove one competitor by row id.
+  app.delete<{
+    Params: { name: string; id: string }
+  }>('/projects/:name/competitors/:id', async (request, reply) => {
+    const project = resolveProject(app.db, request.params.name)
+
+    const competitor = app.db
+      .select()
+      .from(competitors)
+      .where(and(eq(competitors.projectId, project.id), eq(competitors.id, request.params.id)))
+      .get()
+
+    if (!competitor) {
+      throw notFound('Competitor', request.params.id)
+    }
+
+    app.db.transaction((tx) => {
+      tx.delete(competitors).where(eq(competitors.id, competitor.id)).run()
+
+      writeAuditLog(tx, auditFromRequest(request, {
+        projectId: project.id,
+        actor: 'api',
+        action: 'competitors.deleted',
+        entityType: 'competitor',
+        entityId: competitor.id,
+        diff: { deleted: [competitor.domain] },
+      }))
+    })
+
+    return reply.status(204).send()
   })
 }
 

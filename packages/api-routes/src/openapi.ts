@@ -101,6 +101,14 @@ const queryIdParameter: OpenApiParameter = {
   schema: stringSchema,
 }
 
+const competitorIdParameter: OpenApiParameter = {
+  name: 'id',
+  in: 'path',
+  required: true,
+  description: 'Competitor ID.',
+  schema: stringSchema,
+}
+
 const notificationIdParameter: OpenApiParameter = {
   name: 'id',
   in: 'path',
@@ -817,6 +825,17 @@ const routeCatalog: OpenApiOperation[] = [
     responses: {
       200: jsonArrayResponse('Remaining competitors returned.', 'CompetitorDto'),
       400: errorResponse('Invalid competitor delete request.'),
+    },
+  },
+  {
+    method: 'delete',
+    path: '/api/v1/projects/{name}/competitors/{id}',
+    summary: 'Delete competitor',
+    tags: ['competitors'],
+    parameters: [nameParameter, competitorIdParameter],
+    responses: {
+      204: { description: 'Competitor deleted.' },
+      404: errorResponse('Project or competitor not found.'),
     },
   },
   {
