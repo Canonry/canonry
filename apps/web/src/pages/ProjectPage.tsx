@@ -38,9 +38,8 @@ import {
   deleteProject as apiDeleteProject,
   appendQueries as apiAppendQueries,
   removeQueries as apiRemoveQueries,
-  fetchCompetitors as apiFetchCompetitors,
-  setCompetitors as apiSetCompetitors,
-  removeCompetitors as apiRemoveCompetitors,
+  appendCompetitors as apiAppendCompetitors,
+  removeCompetitorById as apiRemoveCompetitorById,
   updateOwnedDomains as apiUpdateOwnedDomains,
   updateAliases as apiUpdateAliases,
   updateProject as apiUpdateProject,
@@ -1972,10 +1971,7 @@ function ProjectPageContent({
     if (!domain) return
     setCompetitorSaving(true)
     try {
-      const existing = await apiFetchCompetitors(projectName)
-      const existingDomains = existing.map(c => c.domain)
-      const merged = [...new Set([...existingDomains, domain])]
-      await apiSetCompetitors(projectName, merged)
+      await apiAppendCompetitors(projectName, [domain])
       await queryClient.invalidateQueries({ queryKey: ['analytics-metrics', projectName] })
       void refetch()
       setNewCompetitorDomain('')
@@ -1986,14 +1982,26 @@ function ProjectPageContent({
   }
 
   async function handleRemoveCompetitor(domain: string) {
+    const competitor = model.competitors.find(c => c.domain === domain)
+    if (!competitor) {
+      addToast({
+        title: 'Could not remove competitor',
+        detail: `Could not find ${domain} in the tracked competitor list`,
+        tone: 'negative',
+        dedupeKey: 'competitor:remove',
+        dedupeMode: 'replace',
+      })
+      return
+    }
+
     try {
-      await apiRemoveCompetitors(projectName, [domain])
+      await apiRemoveCompetitorById(projectName, competitor.id)
       await queryClient.invalidateQueries({ queryKey: ['analytics-metrics', projectName] })
       void refetch()
     } catch (err) {
       addToast({
         title: 'Could not remove competitor',
-        detail: err instanceof Error ? err.message : `Failed to remove ${domain}`,
+        detail: err instanceof Error ? err.message : `Failed to remove ${competitor.domain}`,
         tone: 'negative',
         dedupeKey: 'competitor:remove',
         dedupeMode: 'replace',

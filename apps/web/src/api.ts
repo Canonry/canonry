@@ -15,8 +15,9 @@ import {
   postApiV1ProjectsByNameQueriesGenerate,
   postApiV1ProjectsByNameContentDismissals,
   deleteApiV1ProjectsByNameContentDismissalsByTargetRef,
-  deleteApiV1ProjectsByNameCompetitors,
+  deleteApiV1ProjectsByNameCompetitorsById,
   getApiV1ProjectsByNameCompetitors,
+  postApiV1ProjectsByNameCompetitors,
   putApiV1ProjectsByNameCompetitors,
   postApiV1ProjectsByNameLocations,
   deleteApiV1ProjectsByNameLocationsByLabel,
@@ -711,17 +712,21 @@ export function setCompetitors(projectName: string, competitors: string[]): Prom
   )
 }
 
-/**
- * Remove specific competitors by domain. Returns the remaining tracked
- * competitors. Domains are normalized server-side, so either the original or
- * a subdomain form resolves to the stored registrable domain.
- */
-export function removeCompetitors(projectName: string, competitors: string[]): Promise<ApiCompetitor[]> {
+export function appendCompetitors(projectName: string, competitors: string[]): Promise<ApiCompetitor[]> {
   return invokeWeb<ApiCompetitor[]>(() =>
-    deleteApiV1ProjectsByNameCompetitors({
+    postApiV1ProjectsByNameCompetitors({
       client: heyClient,
       path: { name: projectName },
       body: { competitors },
+    }),
+  )
+}
+
+export function removeCompetitorById(projectName: string, id: string): Promise<void> {
+  return invokeWeb<void>(() =>
+    deleteApiV1ProjectsByNameCompetitorsById({
+      client: heyClient,
+      path: { name: projectName, id },
     }),
   )
 }

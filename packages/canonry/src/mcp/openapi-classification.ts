@@ -32,6 +32,10 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'PUT /api/v1/projects/{name}/competitors': 'deferred',
   'POST /api/v1/projects/{name}/competitors': 'included',
   'DELETE /api/v1/projects/{name}/competitors': 'included',
+  // By-id delete is useful for UI clients that render competitor row ids.
+  // Agents work with competitor domains, so the domain-based remove tool above
+  // covers the MCP workflow without forcing agents to look up ids first.
+  'DELETE /api/v1/projects/{name}/competitors/{id}': 'deferred',
   'POST /api/v1/projects/{name}/runs': 'included',
   'GET /api/v1/projects/{name}/report': 'included',
   'GET /api/v1/projects/{name}/report.html': 'excluded-protocol',
