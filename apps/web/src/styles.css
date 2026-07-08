@@ -311,6 +311,10 @@
   --chart-axis: #d4d4d8;
 }
 
+[data-theme='light'] .visibility-trend-title {
+  color: var(--color-text-heading);
+}
+
 /* Provider-identity pills on the light canvas: keep the engine hue but flip the
    canvas polarity (light tint + darker ink) so the uppercase label stays legible
    on white. The dark-canvas defaults (literal utilities in ProviderBadge, a
@@ -1032,15 +1036,27 @@
   }
 
   .trend-legend-item {
-    @apply inline-flex items-center gap-1.5;
+    @apply inline-flex min-w-0 items-center gap-1.5;
   }
 
   .trend-legend-swatch {
     @apply h-[3px] w-3.5 shrink-0 rounded-full;
   }
 
+  .trend-legend-label {
+    @apply inline-flex min-w-0 items-baseline gap-1;
+  }
+
   .trend-legend-name {
-    @apply text-[11px] font-medium text-neutral;
+    @apply shrink-0 text-[11px] font-medium text-neutral;
+  }
+
+  .trend-legend-model {
+    @apply inline-block max-w-44 truncate font-mono text-[11px] text-muted;
+  }
+
+  .trend-legend-model-more {
+    @apply shrink-0 rounded bg-bg-elevated/60 px-1 py-px font-mono text-[10px] text-muted;
   }
 
   .trend-legend-value {

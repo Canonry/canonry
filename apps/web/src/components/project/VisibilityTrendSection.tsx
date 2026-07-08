@@ -25,15 +25,18 @@ import { fetchAnalyticsMetrics } from '../../api.js'
 import { STATIC_VISIBILITY_STALE_MS } from '../../queries/query-client.js'
 import {
   buildMentionShareTrendRows,
+  buildProviderModelHints,
   buildTrendRows,
   CITED_KEY,
   formatQueryChangeCaption,
   latestSeriesValue,
   MENTION_SHARE_KEY,
   MENTIONED_KEY,
+  normalizeProviderKey,
   type MetricChoice,
   type TrendSeriesMode,
 } from '../../lib/visibility-trend-helpers.js'
+import type { CitationInsightVm } from '../../view-models.js'
 
 const WINDOW_OPTIONS: Array<{ value: MetricsWindow; label: string }> = [
   { value: '7d', label: '7d' },
@@ -49,6 +52,7 @@ const METRIC_OPTIONS: Array<{ value: MetricChoice; label: string }> = [
   { value: 'mentioned', label: 'Mentioned' },
   { value: 'cited', label: 'Cited' },
 ]
+const MAX_VISIBLE_PROVIDER_MODELS = 2
 
 /** Dark ring drawn around the active (hovered) dot so it reads against the line. */
 const ACTIVE_DOT_RING = 'var(--chart-tooltip-bg)'
@@ -63,7 +67,8 @@ const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
 }
 
 function providerDisplayName(name: string): string {
-  return PROVIDER_DISPLAY_NAMES[name] ?? name.charAt(0).toUpperCase() + name.slice(1)
+  const key = normalizeProviderKey(name)
+  return PROVIDER_DISPLAY_NAMES[key] ?? name.charAt(0).toUpperCase() + name.slice(1)
 }
 
 function round1(n: number): number {
@@ -84,7 +89,7 @@ function seriesColor(key: string, index: number): string {
   if (key === CITED_KEY) return CHART_TONE.positive // emerald
   if (key === MENTIONED_KEY) return CHART_SERIES_COLORS[1]! // blue
   if (key === MENTION_SHARE_KEY) return CHART_TONE.positive
-  return providerSeriesColor(key, index)
+  return providerSeriesColor(normalizeProviderKey(key), index)
 }
 
 function firstSeriesValue(rows: Array<Record<string, string | number | null>>, key: string): number | null {
@@ -144,9 +149,11 @@ function Segmented<T extends string>({
 export function VisibilityTrendSection({
   projectName,
   competitorDomains = [],
+  visibilityEvidence = [],
 }: {
   projectName: string
   competitorDomains?: readonly string[]
+  visibilityEvidence?: readonly CitationInsightVm[]
 }) {
   const [window, setWindow] = useState<MetricsWindow>('all')
   const [metric, setMetric] = useState<MetricChoice>('mentioned')
@@ -165,6 +172,13 @@ export function VisibilityTrendSection({
   const error = metricsQuery.error
 
   const trend = useMemo(() => (data ? buildTrendRows(data, metric, mode) : null), [data, metric, mode])
+  // Capture the window cutoff once per data/window change; this keeps
+  // supplementary model hints stable while the user is looking at the chart.
+  const modelHintNow = useMemo(() => new Date(), [visibilityEvidence, window])
+  const providerModelHints = useMemo(
+    () => buildProviderModelHints(visibilityEvidence, window, modelHintNow),
+    [visibilityEvidence, window, modelHintNow],
+  )
 
   // Headline readout: the selected metric's latest bucket value plus its change
   // across the visible window. Quantifies "where it sits now, which way it
@@ -252,6 +266,9 @@ export function VisibilityTrendSection({
             <ul className="trend-legend" aria-label="Engines">
               {series.map((key, i) => {
                 const value = latestSeriesValue(rows, key)
+                const modelHints = providerModelHints[normalizeProviderKey(key)] ?? []
+                const visibleModels = modelHints.slice(0, MAX_VISIBLE_PROVIDER_MODELS)
+                const hiddenModelCount = modelHints.length - visibleModels.length
                 return (
                   <li key={key} className="trend-legend-item">
                     <span
@@ -259,7 +276,13 @@ export function VisibilityTrendSection({
                       style={{ backgroundColor: seriesColor(key, i) }}
                       aria-hidden="true"
                     />
-                    <span className="trend-legend-name">{seriesLabel(key)}</span>
+                    <span className="trend-legend-label">
+                      <span className="trend-legend-name">{seriesLabel(key)}</span>
+                      {visibleModels.map(model => (
+                        <span key={model} className="trend-legend-model"><span aria-hidden="true">· </span>{model}</span>
+                      ))}
+                      {hiddenModelCount > 0 && <span className="trend-legend-model-more">+{hiddenModelCount}</span>}
+                    </span>
                     {value !== null && <span className="trend-legend-value">{value}%</span>}
                   </li>
                 )
