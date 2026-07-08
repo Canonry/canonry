@@ -452,7 +452,7 @@ describe('server embed mode (#716)', () => {
   })
 
   it('embed mode does NOT weaken the read-only write gate (regression)', async () => {
-    const { app, apiKey, db, cleanup } = await buildServer({ enabled: true, allowOrigins: ['https://host.example'] })
+    const { app, db, cleanup } = await buildServer({ enabled: true, allowOrigins: ['https://host.example'] })
     try {
       seedProject(db, 'gate_proj', 'gate-test')
       // Mint a read-only key alongside the server's default full key.
@@ -516,9 +516,18 @@ describe('server embed mode (#716)', () => {
 
       const auth = { authorization: `Bearer ${apiKey}` }
       const overviewReads = [
+        '/api/v1/projects',
+        '/api/v1/runs?kind=answer-visibility',
         `/api/v1/projects/${name}`,
+        `/api/v1/projects/${name}/overview`,
         `/api/v1/projects/${name}/queries`,
         `/api/v1/projects/${name}/competitors`,
+        `/api/v1/projects/${name}/timeline`,
+        `/api/v1/projects/${name}/analytics/metrics`,
+        `/api/v1/projects/${name}/google/gsc/coverage`,
+        `/api/v1/projects/${name}/bing/coverage`,
+        `/api/v1/projects/${name}/insights`,
+        `/api/v1/projects/${name}/citations/visibility`,
         `/api/v1/projects/${name}/runs?kind=answer-visibility`,
         `/api/v1/runs/run_answer`,
       ]
@@ -544,6 +553,37 @@ describe('server embed mode (#716)', () => {
         payload: { queries: ['best roofer'] },
       })
       expect(write.statusCode).toBe(403)
+    } finally {
+      await cleanup()
+    }
+  })
+
+  it('ON + per-request tabs: X-Canonry-Embed-Tabs can allow report reads server-side', async () => {
+    const { app, apiKey, db, cleanup } = await buildServer({ enabled: true, allowOrigins: ['https://host.example'] })
+    try {
+      const { name } = seedProject(db)
+      const auth = {
+        authorization: `Bearer ${apiKey}`,
+        'x-canonry-embed-tabs': 'report',
+      }
+
+      for (const url of [
+        '/api/v1/projects',
+        `/api/v1/projects/${name}`,
+        `/api/v1/projects/${name}/runs?kind=answer-visibility`,
+        `/api/v1/projects/${name}/report`,
+        `/api/v1/projects/${name}/report.html?audience=client&period=30`,
+      ]) {
+        const res = await app.inject({ method: 'GET', url, headers: auth })
+        expect(res.statusCode, `${url} should be reachable for report embed data`).not.toBe(403)
+      }
+
+      const hidden = await app.inject({
+        method: 'GET',
+        url: `/api/v1/projects/${name}/technical-aeo`,
+        headers: auth,
+      })
+      expect(hidden.statusCode).toBe(403)
     } finally {
       await cleanup()
     }

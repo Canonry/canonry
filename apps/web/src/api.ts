@@ -183,19 +183,25 @@ function getEmbedRenderToken(): string | undefined {
   return typeof token === 'string' && token.length > 0 ? token : undefined
 }
 
-function appendEmbedRenderToken(url: string): string {
+export function appendEmbedRenderToken(url: string): string {
   const token = getEmbedRenderToken()
   if (!token) return url
 
   let parsed: URL
+  const base = typeof window !== 'undefined' && window.location ? window.location.href : 'http://localhost/'
   try {
-    const base = typeof window !== 'undefined' && window.location ? window.location.href : 'http://localhost/'
     parsed = new URL(url, base)
   } catch {
     return url
   }
 
-  if (!parsed.pathname.includes('/api/v1')) return url
+  const currentOrigin = new URL(base).origin
+  if (parsed.origin !== currentOrigin) return url
+
+  const publicBase = getPublicBase().replace(/\/$/, '')
+  const apiPath = `${publicBase}/api/v1`
+  if (parsed.pathname !== apiPath && !parsed.pathname.startsWith(`${apiPath}/`)) return url
+
   parsed.searchParams.set('token', token)
 
   return /^[a-z][a-z\d+.-]*:/i.test(url)
@@ -204,10 +210,9 @@ function appendEmbedRenderToken(url: string): string {
 }
 
 function requestWithUrl(request: Request, url: string): Request {
-  return new Request(url, {
+  const init: RequestInit & { duplex?: 'half' } = {
     method: request.method,
     headers: request.headers,
-    body: request.body,
     cache: request.cache,
     credentials: request.credentials,
     integrity: request.integrity,
@@ -217,7 +222,12 @@ function requestWithUrl(request: Request, url: string): Request {
     referrer: request.referrer,
     referrerPolicy: request.referrerPolicy,
     signal: request.signal,
-  })
+  }
+  if (request.body) {
+    init.body = request.body
+    init.duplex = 'half'
+  }
+  return new Request(url, init)
 }
 
 /**

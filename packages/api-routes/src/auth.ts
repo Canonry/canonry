@@ -160,34 +160,45 @@ function projectRouteRest(url: string): string | null {
   return match[1] ?? ''
 }
 
+function isGlobalAnswerVisibilityRunsList(request: FastifyRequest, url: string): boolean {
+  if (!url.endsWith('/runs')) return false
+  const kind = queryValue(request, 'kind')
+  return kind === RunKinds['answer-visibility']
+}
+
 function isAnswerVisibilityRunsList(request: FastifyRequest, rest: string): boolean {
   if (rest !== 'runs') return false
   const kind = queryValue(request, 'kind')
   return !kind || kind === RunKinds['answer-visibility']
 }
 
-function isOverviewRead(request: FastifyRequest, url: string): boolean {
+function isAnswerVisibilityRunDetail(request: FastifyRequest, url: string): boolean {
+  const runMatch = url.match(/\/runs\/([^/?#]+)$/)
+  if (!runMatch) return false
+  const run = request.server.db
+    .select({ kind: runs.kind })
+    .from(runs)
+    .where(eq(runs.id, decodeURIComponent(runMatch[1]!)))
+    .get()
+  // Unknown ids continue downstream to the route's normal 404. Existing
+  // answer-visibility ids are safe for the project dashboard evidence drawer.
+  return !run || run.kind === RunKinds['answer-visibility']
+}
+
+function isProjectShellRead(request: FastifyRequest, url: string): boolean {
   if (url.endsWith('/projects')) return true
-  if (url.endsWith('/runs')) {
-    const kind = queryValue(request, 'kind')
-    return kind === RunKinds['answer-visibility']
-  }
+  if (isGlobalAnswerVisibilityRunsList(request, url)) return true
 
   const rest = projectRouteRest(url)
-  if (rest === null) {
-    const runMatch = url.match(/\/runs\/([^/?#]+)$/)
-    if (!runMatch) return false
-    const run = request.server.db
-      .select({ kind: runs.kind })
-      .from(runs)
-      .where(eq(runs.id, decodeURIComponent(runMatch[1]!)))
-      .get()
-    return !run || run.kind === RunKinds['answer-visibility']
-  }
+  if (rest === null) return isAnswerVisibilityRunDetail(request, url)
 
-  if (isAnswerVisibilityRunsList(request, rest)) return true
+  return rest === '' || isAnswerVisibilityRunsList(request, rest)
+}
+
+function isOverviewRead(url: string): boolean {
+  const rest = projectRouteRest(url)
+  if (rest === null) return false
   return new Set([
-    '',
     'queries',
     'competitors',
     'timeline',
@@ -196,12 +207,18 @@ function isOverviewRead(request: FastifyRequest, url: string): boolean {
     'google/gsc/coverage',
     'bing/coverage',
     'insights',
+    'citations/visibility',
   ]).has(rest)
 }
 
 function isTechnicalAeoRead(url: string): boolean {
   const rest = projectRouteRest(url)
   return rest === 'technical-aeo' || rest === 'technical-aeo/pages' || rest === 'technical-aeo/trend'
+}
+
+function isReportRead(url: string): boolean {
+  const rest = projectRouteRest(url)
+  return rest === 'report' || rest === 'report.html'
 }
 
 function enforceEmbedProjectTabs(request: FastifyRequest, configuredTabs: readonly string[] | undefined): void {
@@ -217,8 +234,10 @@ function enforceEmbedProjectTabs(request: FastifyRequest, configuredTabs: readon
   }
 
   const url = request.url.split('?')[0]!
-  if (tabs.includes('overview') && isOverviewRead(request, url)) return
+  if (isProjectShellRead(request, url)) return
+  if (tabs.includes('overview') && isOverviewRead(url)) return
   if (tabs.includes('technical-aeo') && isTechnicalAeoRead(url)) return
+  if (tabs.includes('report') && isReportRead(url)) return
 
   throw forbidden('This endpoint is not available for the configured embed tabs.')
 }
