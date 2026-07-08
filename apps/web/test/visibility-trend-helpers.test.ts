@@ -3,6 +3,7 @@ import type { BrandMetricsDto } from '@ainyc/canonry-contracts'
 import {
   buildProviderModelHints,
   buildMentionShareTrendRows,
+  buildSelectedTrendRows,
   buildTrendRows,
   trendToTone,
   formatQueryChangeCaption,
@@ -206,6 +207,25 @@ describe('buildMentionShareTrendRows', () => {
     expect(res.rows[0]![MENTION_SHARE_KEY]).toBeNull()
     expect(res.rows[1]![MENTION_SHARE_KEY]).toBe(50)
     expect(res.singleBucket).toBe(true)
+  })
+})
+
+describe('buildSelectedTrendRows', () => {
+  it('delegates mentioned and cited metrics to the presence trend builder', () => {
+    const d = dto([
+      bucket('2026-04-01', { gemini: provider(0.25, 0.1) }, { citationRate: 0.25, mentionRate: 0.1 }),
+    ])
+
+    expect(buildSelectedTrendRows(d, 'mentioned', 'overall')).toEqual(buildTrendRows(d, 'mentioned', 'overall'))
+    expect(buildSelectedTrendRows(d, 'cited', 'byProvider')).toEqual(buildTrendRows(d, 'cited', 'byProvider'))
+  })
+
+  it('uses mention-share rows regardless of requested series mode', () => {
+    const d = dto([
+      { ...bucket('2026-04-01', { gemini: provider(0.25, 0.1) }), mentionShare: { rate: 0.25, projectMentionSnapshots: 1, competitorMentionSnapshots: 3 } },
+    ])
+
+    expect(buildSelectedTrendRows(d, 'mentionShare', 'byProvider')).toEqual(buildMentionShareTrendRows(d))
   })
 })
 

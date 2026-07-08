@@ -1021,6 +1021,14 @@
     @apply mb-3 flex flex-wrap items-center gap-2;
   }
 
+  .visibility-trend-metric-control {
+    @apply w-full sm:w-auto;
+  }
+
+  .visibility-trend-metric-control .segmented-option {
+    @apply flex-1 sm:flex-none;
+  }
+
   .visibility-trend-chart {
     @apply h-64 w-full sm:h-72;
   }
@@ -1061,6 +1069,42 @@
 
   .trend-legend-value {
     @apply text-[11px] font-semibold tabular-nums text-primary;
+  }
+
+  .trend-tooltip {
+    @apply min-w-48 rounded-lg border border-default bg-bg-elevated px-3 py-2 text-xs text-secondary shadow-lg;
+  }
+
+  .trend-tooltip-label {
+    @apply mb-1.5 font-medium text-primary;
+  }
+
+  .trend-tooltip-block {
+    @apply mt-2 first:mt-0;
+  }
+
+  .trend-tooltip-row {
+    @apply flex items-center gap-2;
+  }
+
+  .trend-tooltip-swatch {
+    @apply h-2 w-2 shrink-0 rounded-full;
+  }
+
+  .trend-tooltip-swatch-ring {
+    @apply border bg-transparent;
+  }
+
+  .trend-tooltip-name {
+    @apply text-neutral;
+  }
+
+  .trend-tooltip-value {
+    @apply ml-auto font-semibold tabular-nums text-primary;
+  }
+
+  .trend-tooltip-detail {
+    @apply mt-1 text-[11px] leading-snug text-muted;
   }
 
   /* Segmented control: an inset track with a raised selected chip. Used for the
