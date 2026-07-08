@@ -213,6 +213,15 @@ export interface AgentConfigEntry {
   mode?: 'disabled'
 }
 
+export interface DashboardConfigEntry {
+  /**
+   * Whether the browser dashboard requires Canonry's built-in password/session
+   * gate. Defaults to true. Set false only when an upstream layer enforces auth
+   * and the engine is not directly internet-reachable.
+   */
+  requirePassword?: boolean
+}
+
 /**
  * Google Places API config — supplemental rendered-listing data for GBP
  * lodging locations (#648). The API key authenticates Place Details calls
@@ -255,6 +264,9 @@ export interface CanonryConfig {
   openaiAds?: OpenAiAdsConfigEntry
   // Dashboard password hash (SHA-256 hex) — set during first dashboard visit
   dashboardPasswordHash?: string
+  // Browser dashboard auth gate. `dashboard.requirePassword=false` trusts an
+  // upstream auth layer while keeping API bearer-key auth intact.
+  dashboard?: DashboardConfigEntry
   // Telemetry (opt-out: undefined/true = enabled, false = disabled)
   telemetry?: boolean
   anonymousId?: string

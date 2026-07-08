@@ -41,6 +41,13 @@ Opens at [http://127.0.0.1:4100](http://127.0.0.1:4100). No configuration needed
 > process. Restarting `canonry serve` (or `canonry stop` / a crash) clears them,
 > so you'll be asked to sign in again after a restart. This is expected.
 
+> **Only disable the dashboard password behind upstream auth.** `dashboard:
+> { requirePassword: false }` (or `CANONRY_DASHBOARD_REQUIRE_PASSWORD=0`) skips
+> Canonry's browser password gate while leaving API bearer-key auth intact. Set
+> it false only when an upstream layer enforces auth, such as the Canonry Embed
+> proxy. Never expose an engine with `requirePassword: false` directly to the
+> internet.
+
 ---
 
 ## Behind a Reverse Proxy

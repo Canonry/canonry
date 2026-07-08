@@ -48,7 +48,7 @@ import {
   type ProviderAdapter,
 } from "@ainyc/canonry-contracts";
 import type { CanonryConfig, ProviderConfigEntry } from "./config.js";
-import { resolveEmbedConfig } from "./embed.js";
+import { resolveEmbedConfig, SERVER_ENFORCED_EMBED_PROJECT_TABS, unsupportedEmbedProjectTabs } from "./embed.js";
 import { resolveAgentEnabled } from "./agent-config.js";
 import { saveConfigPatch, loadConfig, getConfigPath } from "./config.js";
 import { getPlacesConfig } from "./places-config.js";
@@ -160,6 +160,20 @@ const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 interface SessionRecord {
   apiKeyId: string;
   expiresAt: number;
+}
+
+function parseBooleanEnv(value: string | undefined): boolean | undefined {
+  const normalized = value?.trim().toLowerCase();
+  if (!normalized) return undefined;
+  if (normalized === "1" || normalized === "true" || normalized === "yes") return true;
+  if (normalized === "0" || normalized === "false" || normalized === "no") return false;
+  return undefined;
+}
+
+function resolveDashboardRequirePassword(env: NodeJS.ProcessEnv, config: CanonryConfig): boolean {
+  return parseBooleanEnv(env.CANONRY_DASHBOARD_REQUIRE_PASSWORD)
+    ?? config.dashboard?.requirePassword
+    ?? true;
 }
 
 /** All known API adapters — add new providers here */
@@ -1172,6 +1186,21 @@ export async function createServer(opts: {
   const embedCsp = embed.enabled
     ? frameAncestorsHeaderValue(embed.allowedOrigins)
     : undefined;
+  const unsupportedProjectTabs = unsupportedEmbedProjectTabs(embed.projectTabs);
+  if (embed.enabled && unsupportedProjectTabs.length > 0) {
+    app.log.warn(
+      {
+        projectTabs: unsupportedProjectTabs,
+        supportedProjectTabs: [...SERVER_ENFORCED_EMBED_PROJECT_TABS],
+      },
+      "Embed project tabs include unsupported values; API reads for those tabs will be blocked",
+    );
+  }
+  const dashboardRequirePassword = resolveDashboardRequirePassword(process.env, opts.config);
+  app.log.info(
+    { dashboardRequirePassword },
+    "Dashboard password gate resolved",
+  );
 
   // Register API routes.
   // When a basePath is set, routes are registered at `${basePath}api/v1` so they
@@ -1303,6 +1332,9 @@ export async function createServer(opts: {
   };
 
   app.get(apiPrefix + "/session", async (request, reply) => {
+    if (!dashboardRequirePassword) {
+      return reply.send({ authenticated: true, setupRequired: false });
+    }
     const sessionId = parseCookies(request.headers.cookie)[SESSION_COOKIE_NAME];
     return reply.send({
       authenticated: Boolean(sessionId && resolveSessionApiKeyId(sessionId)),
@@ -1314,6 +1346,9 @@ export async function createServer(opts: {
   app.post<{
     Body: { password?: string };
   }>(apiPrefix + "/session/setup", async (request, reply) => {
+    if (!dashboardRequirePassword) {
+      return reply.send({ authenticated: true, setupRequired: false });
+    }
     // First-run dashboard password setup mints a session bound to the install's
     // default `*` API key — full read/write on every project. That is safe on a
     // loopback bind (only local processes can reach it) but a pre-auth privilege
@@ -1351,6 +1386,9 @@ export async function createServer(opts: {
   app.post<{
     Body: { password?: string; apiKey?: string };
   }>(apiPrefix + "/session", async (request, reply) => {
+    if (!dashboardRequirePassword) {
+      return reply.send({ authenticated: true, setupRequired: false });
+    }
     const password = request.body?.password?.trim();
     const apiKey = request.body?.apiKey?.trim();
 
@@ -1489,6 +1527,7 @@ export async function createServer(opts: {
     skipAuth: false,
     sessionCookieName: SESSION_COOKIE_NAME,
     resolveSessionApiKeyId,
+    ...(embed.enabled && embed.projectTabs ? { embedProjectTabs: embed.projectTabs } : {}),
     explainContentRecommendation,
     briefContentRecommendation,
     briefPromptVersion: RECOMMENDATION_BRIEF_PROMPT_VERSION,
@@ -2121,6 +2160,7 @@ export async function createServer(opts: {
       html: string,
       projectTabsOverride?: string | string[],
       themeOverride?: string | string[],
+      renderTokenOverride?: string | string[],
     ): string => {
       const clientConfig: Record<string, unknown> = {};
       if (basePath) clientConfig.basePath = basePath;
@@ -2128,10 +2168,12 @@ export async function createServer(opts: {
       // (non-embed) serve emits byte-for-byte the same `{}` / `{basePath}`.
       // `projectTabs` + `theme` may be overridden PER REQUEST by the
       // X-Canonry-Embed-Tabs / X-Canonry-Embed-Theme headers the Embed v2 /e
-      // proxy sets per dashboard (the end client cannot reach this loopback
-      // engine to set them); absent headers keep the boot config.
+      // proxy sets per dashboard. The proxy also sets X-Canonry-Embed-Render-Token
+      // for the initial HTML so the SPA can call back through /e/api/v1 without
+      // seeing the engine key. The end client cannot reach this loopback engine
+      // to set any of these headers; absent headers keep the boot config.
       if (embed.enabled) {
-        const embedClient = embedClientConfigForRequest(embed, projectTabsOverride, themeOverride);
+        const embedClient = embedClientConfigForRequest(embed, projectTabsOverride, themeOverride, renderTokenOverride);
         if (embedClient) clientConfig.embed = embedClient;
       }
 
@@ -2166,6 +2208,7 @@ export async function createServer(opts: {
             html,
             reply.request.headers["x-canonry-embed-tabs"],
             reply.request.headers["x-canonry-embed-theme"],
+            reply.request.headers["x-canonry-embed-render-token"],
           ),
         );
     };

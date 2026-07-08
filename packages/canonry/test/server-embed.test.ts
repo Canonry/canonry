@@ -3,7 +3,8 @@ import os from 'node:os'
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import { createClient, migrate, apiKeys, type DatabaseClient } from '@ainyc/canonry-db'
+import { createClient, migrate, apiKeys, projects, runs, type DatabaseClient } from '@ainyc/canonry-db'
+import { RunKinds } from '@ainyc/canonry-contracts'
 import { createServer } from '../src/server.js'
 import type { CanonryConfig } from '../src/config.js'
 
@@ -15,6 +16,7 @@ const EMBED_ENV = [
   'CANONRY_EMBED_ORIGINS',
   'CANONRY_EMBED_VIEWS',
   'CANONRY_EMBED_PROJECT_TABS',
+  'CANONRY_DASHBOARD_REQUIRE_PASSWORD',
 ] as const
 
 interface Built {
@@ -24,7 +26,11 @@ interface Built {
   cleanup: () => Promise<void>
 }
 
-async function buildServer(embed?: CanonryConfig['embed'], withIndexHtml = true): Promise<Built> {
+async function buildServer(
+  embed?: CanonryConfig['embed'],
+  withIndexHtml = true,
+  configPatch: Partial<CanonryConfig> = {},
+): Promise<Built> {
   const tmpDir = path.join(os.tmpdir(), `canonry-embed-${crypto.randomUUID()}`)
   const assetsDir = path.join(tmpDir, 'assets')
   fs.mkdirSync(assetsDir, { recursive: true })
@@ -42,6 +48,7 @@ async function buildServer(embed?: CanonryConfig['embed'], withIndexHtml = true)
     database: dbPath,
     apiKey,
     ...(embed ? { embed } : {}),
+    ...configPatch,
   }
 
   const app = await createServer({ config, db, logger: false, assetsDir })
@@ -54,6 +61,23 @@ async function buildServer(embed?: CanonryConfig['embed'], withIndexHtml = true)
       fs.rmSync(tmpDir, { recursive: true, force: true })
     },
   }
+}
+
+function seedProject(db: DatabaseClient, id = 'proj_1', name = 'acme') {
+  const now = new Date().toISOString()
+  db.insert(projects)
+    .values({
+      id,
+      name,
+      displayName: 'Acme',
+      canonicalDomain: 'example.com',
+      country: 'US',
+      language: 'en',
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run()
+  return { id, name, now }
 }
 
 describe('server embed mode (#716)', () => {
@@ -99,6 +123,43 @@ describe('server embed mode (#716)', () => {
     }
   })
 
+  it('dashboard.requirePassword defaults to true, preserving the first-run password gate', async () => {
+    const { app, cleanup } = await buildServer()
+    try {
+      const res = await app.inject({ method: 'GET', url: '/api/v1/session' })
+      expect(res.statusCode).toBe(200)
+      expect(JSON.parse(res.body)).toEqual({ authenticated: false, setupRequired: true })
+    } finally {
+      await cleanup()
+    }
+  })
+
+  it('dashboard.requirePassword=false skips the browser password gate without requiring embed mode', async () => {
+    const { app, cleanup } = await buildServer(undefined, true, {
+      dashboard: { requirePassword: false },
+    })
+    try {
+      const res = await app.inject({ method: 'GET', url: '/api/v1/session' })
+      expect(res.statusCode).toBe(200)
+      expect(JSON.parse(res.body)).toEqual({ authenticated: true, setupRequired: false })
+    } finally {
+      await cleanup()
+    }
+  })
+
+  it('CANONRY_DASHBOARD_REQUIRE_PASSWORD overrides config for container deploys', async () => {
+    process.env.CANONRY_DASHBOARD_REQUIRE_PASSWORD = '0'
+    const { app, cleanup } = await buildServer(undefined, true, {
+      dashboard: { requirePassword: true },
+    })
+    try {
+      const res = await app.inject({ method: 'GET', url: '/api/v1/session' })
+      expect(JSON.parse(res.body)).toEqual({ authenticated: true, setupRequired: false })
+    } finally {
+      await cleanup()
+    }
+  })
+
   it('ON + origins: exact frame-ancestors header on the root AND on a deep-link fallback', async () => {
     const { app, cleanup } = await buildServer({ enabled: true, allowOrigins: ['https://host.example'] })
     try {
@@ -107,7 +168,8 @@ describe('server embed mode (#716)', () => {
       expect(root.headers['content-security-policy']).toBe('frame-ancestors https://host.example')
       expect(root.headers['x-frame-options']).toBeUndefined()
       // The injected client block opts the SPA into chromeless render.
-      expect(root.body).toContain('"embed":{"enabled":true}')
+      expect(root.body).toContain('"embed":{"enabled":true')
+      expect(root.body).toContain('"projectTabs":["overview"]')
       // No 'unsafe-inline' is forced — the inline config script still ships.
       expect(root.body).toContain('window.__CANONRY_CONFIG__')
       expect(root.headers['content-security-policy']).not.toContain('unsafe-inline')
@@ -142,6 +204,16 @@ describe('server embed mode (#716)', () => {
     try {
       const res = await app.inject({ method: 'GET', url: '/' })
       expect(res.headers['content-security-policy']).toBe("frame-ancestors 'none'")
+    } finally {
+      await cleanup()
+    }
+  })
+
+  it('ON + no project tabs configured: defaults to overview-only in the client config', async () => {
+    const { app, cleanup } = await buildServer({ enabled: true, allowOrigins: ['https://host.example'] })
+    try {
+      const res = await app.inject({ method: 'GET', url: '/' })
+      expect(res.body).toContain('"projectTabs":["overview"]')
     } finally {
       await cleanup()
     }
@@ -295,6 +367,50 @@ describe('server embed mode (#716)', () => {
     }
   })
 
+  it('ON: a per-request X-Canonry-Embed-Render-Token header injects the render token for /e API calls', async () => {
+    const { app, cleanup } = await buildServer({ enabled: true, allowOrigins: ['https://host.example'] })
+    try {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/',
+        headers: { 'x-canonry-embed-render-token': 'render.jwt.token' },
+      })
+      expect(res.body).toContain('"renderToken":"render.jwt.token"')
+    } finally {
+      await cleanup()
+    }
+  })
+
+  it('OFF: the X-Canonry-Embed-Render-Token header is ignored (no embed block)', async () => {
+    const { app, cleanup } = await buildServer()
+    try {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/',
+        headers: { 'x-canonry-embed-render-token': 'render.jwt.token' },
+      })
+      expect(res.body).toContain('<script>window.__CANONRY_CONFIG__={}</script>')
+      expect(res.body).not.toContain('renderToken')
+    } finally {
+      await cleanup()
+    }
+  })
+
+  it('ON: a </script> payload in X-Canonry-Embed-Render-Token is escaped (XSS)', async () => {
+    const { app, cleanup } = await buildServer({ enabled: true, allowOrigins: ['https://host.example'] })
+    try {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/',
+        headers: { 'x-canonry-embed-render-token': '</script><img src=x onerror=alert(1)>' },
+      })
+      expect(res.body).not.toContain('</script><img')
+      expect(res.body).toContain('\\u003c/script\\u003e\\u003cimg')
+    } finally {
+      await cleanup()
+    }
+  })
+
   it('OFF: the X-Canonry-Embed-Theme header is ignored (no embed block, byte-for-byte default)', async () => {
     const { app, cleanup } = await buildServer()
     try {
@@ -336,8 +452,9 @@ describe('server embed mode (#716)', () => {
   })
 
   it('embed mode does NOT weaken the read-only write gate (regression)', async () => {
-    const { app, apiKey, db, cleanup } = await buildServer({ enabled: true, allowOrigins: ['https://host.example'] })
+    const { app, db, cleanup } = await buildServer({ enabled: true, allowOrigins: ['https://host.example'] })
     try {
+      seedProject(db, 'gate_proj', 'gate-test')
       // Mint a read-only key alongside the server's default full key.
       const readOnlyRaw = `cnry_${crypto.randomBytes(16).toString('hex')}`
       db.insert(apiKeys)
@@ -351,21 +468,10 @@ describe('server embed mode (#716)', () => {
         })
         .run()
       const auth = { authorization: `Bearer ${readOnlyRaw}` }
-      const fullAuth = { authorization: `Bearer ${apiKey}` }
 
       // Reads pass.
       const read = await app.inject({ method: 'GET', url: '/api/v1/projects', headers: auth })
       expect(read.statusCode).toBe(200)
-
-      // Seed a real project with the full key so the write routes below resolve
-      // a target rather than 404-ing before the method-based gate is exercised.
-      const seed = await app.inject({
-        method: 'PUT',
-        url: '/api/v1/projects/gate-test',
-        headers: fullAuth,
-        payload: { displayName: 'Gate Test', canonicalDomain: 'example.com', country: 'US', language: 'en' },
-      })
-      expect(seed.statusCode).toBe(201)
 
       // Writes are still 403 FORBIDDEN with embed enabled — across a route with
       // no requireScope (runs), a create/update (PUT), and a DELETE.
@@ -383,6 +489,125 @@ describe('server embed mode (#716)', () => {
     }
   })
 
+  it('ON + overview tabs: server-side policy allows overview reads and blocks hidden tab data', async () => {
+    const { app, apiKey, db, cleanup } = await buildServer({ enabled: true, allowOrigins: ['https://host.example'] })
+    try {
+      const { id: projectId, name, now } = seedProject(db)
+      db.insert(runs)
+        .values({
+          id: 'run_answer',
+          projectId,
+          kind: RunKinds['answer-visibility'],
+          status: 'completed',
+          trigger: 'manual',
+          createdAt: now,
+        })
+        .run()
+      db.insert(runs)
+        .values({
+          id: 'run_audit',
+          projectId,
+          kind: RunKinds['site-audit'],
+          status: 'completed',
+          trigger: 'manual',
+          createdAt: now,
+        })
+        .run()
+
+      const auth = { authorization: `Bearer ${apiKey}` }
+      const overviewReads = [
+        '/api/v1/projects',
+        '/api/v1/runs?kind=answer-visibility',
+        `/api/v1/projects/${name}`,
+        `/api/v1/projects/${name}/overview`,
+        `/api/v1/projects/${name}/queries`,
+        `/api/v1/projects/${name}/competitors`,
+        `/api/v1/projects/${name}/timeline`,
+        `/api/v1/projects/${name}/analytics/metrics`,
+        `/api/v1/projects/${name}/google/gsc/coverage`,
+        `/api/v1/projects/${name}/bing/coverage`,
+        `/api/v1/projects/${name}/insights`,
+        `/api/v1/projects/${name}/citations/visibility`,
+        `/api/v1/projects/${name}/runs?kind=answer-visibility`,
+        `/api/v1/runs/run_answer`,
+      ]
+      for (const url of overviewReads) {
+        const res = await app.inject({ method: 'GET', url, headers: auth })
+        expect(res.statusCode, `${url} should be reachable for overview embed data`).not.toBe(403)
+      }
+
+      for (const url of [
+        '/api/v1/settings',
+        `/api/v1/projects/${name}/google/connections`,
+        `/api/v1/projects/${name}/runs`,
+        `/api/v1/projects/${name}/technical-aeo`,
+        '/api/v1/runs/run_audit',
+      ]) {
+        const res = await app.inject({ method: 'GET', url, headers: auth })
+        expect(res.statusCode, `${url} should be hidden by overview-only embed tabs`).toBe(403)
+      }
+
+      const write = await app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/${name}/queries`,
+        headers: auth,
+        payload: { queries: ['best roofer'] },
+      })
+      expect(write.statusCode).toBe(403)
+    } finally {
+      await cleanup()
+    }
+  })
+
+  it('ON + per-request tabs: X-Canonry-Embed-Tabs can allow report reads server-side', async () => {
+    const { app, apiKey, db, cleanup } = await buildServer({ enabled: true, allowOrigins: ['https://host.example'] })
+    try {
+      const { name } = seedProject(db)
+      const auth = {
+        authorization: `Bearer ${apiKey}`,
+        'x-canonry-embed-tabs': 'report',
+      }
+
+      for (const url of [
+        '/api/v1/projects',
+        `/api/v1/projects/${name}`,
+        `/api/v1/projects/${name}/runs?kind=answer-visibility`,
+        `/api/v1/projects/${name}/report`,
+        `/api/v1/projects/${name}/report.html?audience=client&period=30`,
+      ]) {
+        const res = await app.inject({ method: 'GET', url, headers: auth })
+        expect(res.statusCode, `${url} should be reachable for report embed data`).not.toBe(403)
+      }
+
+      const hidden = await app.inject({
+        method: 'GET',
+        url: `/api/v1/projects/${name}/technical-aeo`,
+        headers: auth,
+      })
+      expect(hidden.statusCode).toBe(403)
+    } finally {
+      await cleanup()
+    }
+  })
+
+  it('ON + per-request tabs: X-Canonry-Embed-Tabs can allow technical-AEO reads server-side', async () => {
+    const { app, apiKey, db, cleanup } = await buildServer({ enabled: true, allowOrigins: ['https://host.example'] })
+    try {
+      const { name } = seedProject(db)
+      const res = await app.inject({
+        method: 'GET',
+        url: `/api/v1/projects/${name}/technical-aeo`,
+        headers: {
+          authorization: `Bearer ${apiKey}`,
+          'x-canonry-embed-tabs': 'overview,technical-aeo',
+        },
+      })
+      expect(res.statusCode).not.toBe(403)
+    } finally {
+      await cleanup()
+    }
+  })
+
   it('env (CANONRY_EMBED + CANONRY_EMBED_ORIGINS) is wired through createServer and overrides config', async () => {
     process.env.CANONRY_EMBED = '1'
     process.env.CANONRY_EMBED_ORIGINS = 'https://env.example'
@@ -391,7 +616,7 @@ describe('server embed mode (#716)', () => {
     try {
       const res = await app.inject({ method: 'GET', url: '/' })
       expect(res.headers['content-security-policy']).toBe('frame-ancestors https://env.example')
-      expect(res.body).toContain('"embed":{"enabled":true}')
+      expect(res.body).toContain('"embed":{"enabled":true')
     } finally {
       await cleanup()
     }

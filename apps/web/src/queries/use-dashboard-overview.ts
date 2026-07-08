@@ -44,9 +44,14 @@ import { useInitialDashboard } from '../contexts/dashboard-context.js'
  * signal. The duplicated client derivation in `buildAttentionItems` is
  * tracked for removal in a follow-up.
  */
-export function useDashboardOverview(initialDashboard?: DashboardVm | null) {
+interface DashboardOverviewOptions {
+  includeSettings?: boolean
+}
+
+export function useDashboardOverview(initialDashboard?: DashboardVm | null, options: DashboardOverviewOptions = {}) {
   const contextDashboard = useInitialDashboard()
   const effectiveInitial = initialDashboard ?? contextDashboard?.dashboard ?? null
+  const includeSettings = options.includeSettings ?? true
 
   const projectsQuery = useQuery({
     ...getApiV1ProjectsOptions({ client: heyClient }),
@@ -69,7 +74,7 @@ export function useDashboardOverview(initialDashboard?: DashboardVm | null) {
 
   const settingsQuery = useQuery({
     ...getApiV1SettingsOptions({ client: heyClient }),
-    enabled: !effectiveInitial,
+    enabled: !effectiveInitial && includeSettings,
   })
 
   const projects = projectsQuery.data ?? []
@@ -143,12 +148,15 @@ export function useDashboardOverview(initialDashboard?: DashboardVm | null) {
   const isLoading = !effectiveInitial && !dashboard && !isError
 
   const refetch = useCallback(async () => {
-    await Promise.all([
+    const queries: Array<Promise<unknown>> = [
       projectsQuery.refetch(),
       runsQuery.refetch(),
-      settingsQuery.refetch(),
-    ])
-  }, [projectsQuery.refetch, runsQuery.refetch, settingsQuery.refetch])
+    ]
+    if (includeSettings) {
+      queries.push(settingsQuery.refetch())
+    }
+    await Promise.all(queries)
+  }, [includeSettings, projectsQuery.refetch, runsQuery.refetch, settingsQuery.refetch])
 
   return {
     dashboard,

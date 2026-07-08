@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { resolveEmbedConfig } from '../src/embed.js'
+import { resolveEmbedConfig, unsupportedEmbedProjectTabs } from '../src/embed.js'
 import type { CanonryConfig } from '../src/config.js'
 
 function baseConfig(embed?: CanonryConfig['embed']): CanonryConfig {
@@ -92,10 +92,23 @@ describe('resolveEmbedConfig', () => {
     expect(resolveEmbedConfig({ CANONRY_EMBED: '1' }, cfg).projectTabs).toEqual(['overview', 'technical-aeo'])
   })
 
-  it('normalizes an empty / whitespace-only projectTabs list to undefined (= all tabs), never []', () => {
+  it('defaults an empty / whitespace-only projectTabs list to overview in embed mode', () => {
     expect(
       resolveEmbedConfig({ CANONRY_EMBED: '1', CANONRY_EMBED_PROJECT_TABS: '   ' }, baseConfig()).projectTabs,
-    ).toBeUndefined()
-    expect(resolveEmbedConfig({ CANONRY_EMBED: '1' }, baseConfig()).projectTabs).toBeUndefined()
+    ).toEqual(['overview'])
+    expect(resolveEmbedConfig({ CANONRY_EMBED: '1' }, baseConfig()).projectTabs).toEqual(['overview'])
+  })
+
+  it('does not default projectTabs when embed is disabled', () => {
+    expect(resolveEmbedConfig({}, baseConfig()).projectTabs).toBeUndefined()
+  })
+})
+
+describe('unsupportedEmbedProjectTabs', () => {
+  it('returns tab names that have no server-side read classifier', () => {
+    expect(unsupportedEmbedProjectTabs(['overview', 'technical-aeo', 'report', 'backlinks', 'local'])).toEqual([
+      'backlinks',
+      'local',
+    ])
   })
 })

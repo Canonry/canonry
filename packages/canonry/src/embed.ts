@@ -2,6 +2,15 @@ import type { ResolvedEmbedConfig } from '@ainyc/canonry-contracts'
 import { normalizeIdTokens, parseOriginList, splitList } from '@ainyc/canonry-contracts'
 import type { CanonryConfig } from './config.js'
 
+const DEFAULT_EMBED_PROJECT_TABS = ['overview']
+export const SERVER_ENFORCED_EMBED_PROJECT_TABS = ['overview', 'technical-aeo', 'report'] as const
+
+export function unsupportedEmbedProjectTabs(projectTabs: readonly string[] | undefined): string[] {
+  if (!projectTabs) return []
+  const supported = new Set<string>(SERVER_ENFORCED_EMBED_PROJECT_TABS)
+  return projectTabs.filter(tab => !supported.has(tab))
+}
+
 /**
  * Read-only embed mode (issue #716) — resolve the effective embed settings from
  * environment variables layered over `~/.canonry/config.yaml`.
@@ -22,9 +31,9 @@ import type { CanonryConfig } from './config.js'
  *    lowercased + de-duped; an empty list collapses to `undefined` (= all
  *    views) so an empty allowlist never silently bricks every embed.
  *  - `projectTabs`: `CANONRY_EMBED_PROJECT_TABS` when set, else
- *    `config.embed.projectTabs`, lowercased + de-duped; empty → `undefined`
- *    (= all tabs). Hides individual project-page tabs (search-console,
- *    activity, backlinks, ...) that `views` cannot reach.
+ *    `config.embed.projectTabs`, lowercased + de-duped. Empty/missing defaults
+ *    to `overview` in embed mode so the client-facing iframe starts locked
+ *    down rather than exposing every project tab.
  *  - `theme`: `config.embed.theme` only (no env form).
  */
 export function resolveEmbedConfig(env: NodeJS.ProcessEnv, config: CanonryConfig): ResolvedEmbedConfig {
@@ -48,7 +57,7 @@ export function resolveEmbedConfig(env: NodeJS.ProcessEnv, config: CanonryConfig
     env.CANONRY_EMBED_PROJECT_TABS !== undefined
       ? splitList(env.CANONRY_EMBED_PROJECT_TABS)
       : splitList(embed?.projectTabs)
-  const projectTabs = normalizeIdTokens(rawProjectTabs)
+  const projectTabs = normalizeIdTokens(rawProjectTabs) ?? (enabled ? DEFAULT_EMBED_PROJECT_TABS : undefined)
 
   return {
     enabled,

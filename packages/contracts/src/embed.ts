@@ -62,6 +62,12 @@ export interface EmbedClientConfig {
   /** Project-tab allowlist; `undefined` means "all tabs". */
   projectTabs?: string[]
   theme?: Record<string, string>
+  /**
+   * Short-lived Canonry Embed render token for the fronting /e proxy. This is
+   * NOT a Canonry API key; the platform re-verifies it and injects the
+   * project-scoped engine key server-side.
+   */
+  renderToken?: string
 }
 
 /** The CSP keyword for same-origin framing, passed through verbatim when configured. */
@@ -213,6 +219,12 @@ function parseThemeOverride(raw: string | string[] | undefined): Record<string, 
   return Object.keys(out).length > 0 ? out : undefined
 }
 
+function parseRenderTokenOverride(raw: string | string[] | undefined): string | undefined {
+  const value = Array.isArray(raw) ? raw[0] : raw
+  if (typeof value !== 'string' || value.length === 0 || value.length > 4096) return undefined
+  return value
+}
+
 /**
  * The client-config block for ONE request: the boot-resolved embed settings, but
  * with `projectTabs` and `theme` replaced by per-request overrides when present.
@@ -226,14 +238,17 @@ export function embedClientConfigForRequest(
   resolved: ResolvedEmbedConfig,
   projectTabsOverride: string | string[] | undefined,
   themeOverride?: string | string[],
+  renderTokenOverride?: string | string[],
 ): EmbedClientConfig | undefined {
   const base = buildEmbedClientConfig(resolved)
   if (!base) return undefined
   const tabs = normalizeIdTokens(splitList(projectTabsOverride))
   const theme = parseThemeOverride(themeOverride)
+  const renderToken = parseRenderTokenOverride(renderTokenOverride)
   let out = base
   if (tabs) out = { ...out, projectTabs: tabs }
   if (theme) out = { ...out, theme }
+  if (renderToken) out = { ...out, renderToken }
   return out
 }
 

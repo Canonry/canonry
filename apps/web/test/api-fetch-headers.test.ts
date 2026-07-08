@@ -1,6 +1,6 @@
 import { test, expect, onTestFinished, describe } from 'vitest'
 
-import { connectServerTrafficWordpress, installBacklinks, triggerGscSync } from '../src/api.js'
+import { appendEmbedRenderToken, connectServerTrafficWordpress, fetchProjects, installBacklinks, loginWithPassword, triggerGscSync } from '../src/api.js'
 
 /**
  * After the hey-api migration the SDK calls `fetch(new Request(...))` —
@@ -48,6 +48,14 @@ function jsonResponse(body: unknown, status = 200) {
     status,
     headers: { 'content-type': 'application/json' },
   })
+}
+
+function withEmbedRenderToken(token: string): () => void {
+  const previous = window.__CANONRY_CONFIG__
+  window.__CANONRY_CONFIG__ = { embed: { enabled: true, renderToken: token } }
+  return () => {
+    window.__CANONRY_CONFIG__ = previous
+  }
 }
 
 describe('apiFetch Content-Type header', () => {
@@ -118,5 +126,67 @@ describe('apiFetch Content-Type header', () => {
       applicationPassword: 'xxxx xxxx',
       displayName: 'WP logs',
     })
+  })
+
+  test('appends the embed render token to generated SDK API requests', async () => {
+    let observed: Observed | undefined
+    const restoreFetch = mockFetch((req) => {
+      observed = req
+      return jsonResponse([])
+    })
+    const restoreConfig = withEmbedRenderToken('render-token-123')
+    onTestFinished(() => {
+      restoreFetch()
+      restoreConfig()
+    })
+
+    await fetchProjects()
+
+    expect(observed?.path).toBe('/api/v1/projects?token=render-token-123')
+  })
+
+  test('appends the embed render token to generated SDK API requests with bodies', async () => {
+    let observed: Observed | undefined
+    const restoreFetch = mockFetch((req) => {
+      observed = req
+      return jsonResponse({ id: 'run-1', status: 'queued' })
+    })
+    const restoreConfig = withEmbedRenderToken('render-token-body')
+    onTestFinished(() => {
+      restoreFetch()
+      restoreConfig()
+    })
+
+    await triggerGscSync('demo', { days: 7 })
+
+    expect(observed?.path).toBe('/api/v1/projects/demo/google/gsc/sync?token=render-token-body')
+    expect(observed?.method).toBe('POST')
+    expect(observed?.body).toBeTruthy()
+  })
+
+  test('only appends the embed render token to same-origin canonical API paths', () => {
+    const restoreConfig = withEmbedRenderToken('render-token-safe')
+    onTestFinished(restoreConfig)
+
+    expect(appendEmbedRenderToken('/api/v1/projects')).toBe('/api/v1/projects?token=render-token-safe')
+    expect(appendEmbedRenderToken('/nested/api/v1ish/projects')).toBe('/nested/api/v1ish/projects')
+    expect(appendEmbedRenderToken('https://example.test/api/v1/projects')).toBe('https://example.test/api/v1/projects')
+  })
+
+  test('appends the embed render token to raw apiFetch requests', async () => {
+    let observed: Observed | undefined
+    const restoreFetch = mockFetch((req) => {
+      observed = req
+      return jsonResponse({ authenticated: true })
+    })
+    const restoreConfig = withEmbedRenderToken('render-token-456')
+    onTestFinished(() => {
+      restoreFetch()
+      restoreConfig()
+    })
+
+    await loginWithPassword('pw')
+
+    expect(observed?.path).toBe('/api/v1/session?token=render-token-456')
   })
 })
