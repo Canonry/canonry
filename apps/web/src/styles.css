@@ -1055,6 +1055,10 @@
     @apply inline-block max-w-44 truncate font-mono text-[11px] text-muted;
   }
 
+  .trend-legend-model-more {
+    @apply shrink-0 rounded bg-bg-elevated/60 px-1 py-px font-mono text-[10px] text-muted;
+  }
+
   .trend-legend-value {
     @apply text-[11px] font-semibold tabular-nums text-primary;
   }

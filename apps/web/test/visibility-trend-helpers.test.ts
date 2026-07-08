@@ -10,6 +10,7 @@ import {
   CITED_KEY,
   MENTION_SHARE_KEY,
   MENTIONED_KEY,
+  normalizeProviderKey,
 } from '../src/lib/visibility-trend-helpers.js'
 import type { CitationInsightVm } from '../src/view-models.js'
 
@@ -158,6 +159,17 @@ describe('buildTrendRows — data flags', () => {
 })
 
 describe('buildProviderModelHints', () => {
+  it('normalizes provider keys so metrics series can join evidence hints safely', () => {
+    expect(normalizeProviderKey(' Gemini ')).toBe('gemini')
+    const hints = buildProviderModelHints([
+      evidence(' Gemini ', ['gemini-2.5-flash']),
+    ], 'all')
+
+    expect(hints).toEqual({
+      gemini: ['gemini-2.5-flash'],
+    })
+  })
+
   it('returns model versions by provider, latest model first', () => {
     const hints = buildProviderModelHints([
       evidence('gemini', ['gemini-2.0-flash', 'gemini-2.5-flash']),

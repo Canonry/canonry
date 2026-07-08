@@ -177,7 +177,7 @@ test('labels per-engine legend entries with model versions and model changes', a
   onTestFinished(restore)
 
   renderSectionWithEvidence([
-    evidence('gemini', ['gemini-2.0-flash', 'gemini-2.5-flash']),
+    evidence('gemini', ['gemini-1.5-flash', 'gemini-2.0-flash', 'gemini-2.5-flash']),
     evidence('openai', ['gpt-5.4']),
   ])
 
@@ -185,6 +185,8 @@ test('labels per-engine legend entries with model versions and model changes', a
   expect(within(legend).getByText('Gemini')).toBeTruthy()
   expect(within(legend).getByText('gemini-2.5-flash')).toBeTruthy()
   expect(within(legend).getByText('gemini-2.0-flash')).toBeTruthy()
+  expect(within(legend).queryByText('gemini-1.5-flash')).toBeNull()
+  expect(within(legend).getByText('+1')).toBeTruthy()
   expect(within(legend).getByText('OpenAI')).toBeTruthy()
   expect(within(legend).getByText('gpt-5.4')).toBeTruthy()
 })

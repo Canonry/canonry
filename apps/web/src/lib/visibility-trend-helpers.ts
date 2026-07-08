@@ -35,6 +35,10 @@ export interface TrendData {
 
 export type ProviderModelHints = Record<string, string[]>
 
+export function normalizeProviderKey(provider: string): string {
+  return provider.trim().toLowerCase()
+}
+
 /** Presentation-only: 0-1 rate → 0-100 axis value, one decimal. */
 function toPercent(rate: number): number {
   return Math.round(rate * 1000) / 10
@@ -108,7 +112,8 @@ export function buildProviderModelHints(
   const byProvider = new Map<string, Map<string, number>>()
 
   for (const row of evidence) {
-    if (!row.provider) continue
+    const providerKey = normalizeProviderKey(row.provider)
+    if (!providerKey) continue
     let sawWindowedHistoryModel = false
 
     for (const point of row.runHistory) {
@@ -116,14 +121,17 @@ export function buildProviderModelHints(
       const createdAt = Date.parse(point.createdAt)
       if (cutoffMs !== null && (!Number.isFinite(createdAt) || createdAt < cutoffMs)) continue
       sawWindowedHistoryModel = true
-      touchModel(byProvider, row.provider, point.model, Number.isFinite(createdAt) ? createdAt : 0)
+      touchModel(byProvider, providerKey, point.model, Number.isFinite(createdAt) ? createdAt : 0)
     }
 
+    // Narrow windows intentionally require an in-window run with model data.
+    // Falling back to all-time `modelsSeen` would make a 7d/30d legend imply
+    // model coverage that is older than the plotted window.
     if (!sawWindowedHistoryModel && window === 'all') {
       for (const model of row.modelsSeen ?? []) {
-        touchModel(byProvider, row.provider, model, 0)
+        touchModel(byProvider, providerKey, model, 0)
       }
-      touchModel(byProvider, row.provider, row.model, Number.MAX_SAFE_INTEGER)
+      touchModel(byProvider, providerKey, row.model, Number.MAX_SAFE_INTEGER)
     }
   }
 
