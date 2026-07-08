@@ -1,8 +1,16 @@
 import crypto from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
-import { apiKeys, projects } from '@ainyc/canonry-db'
-import { authRequired, authInvalid, forbidden, isReadOnlyKey } from '@ainyc/canonry-contracts'
+import { apiKeys, projects, runs } from '@ainyc/canonry-db'
+import {
+  authRequired,
+  authInvalid,
+  forbidden,
+  isReadOnlyKey,
+  normalizeIdTokens,
+  RunKinds,
+  splitList,
+} from '@ainyc/canonry-contracts'
 
 /**
  * HTTP methods that mutate state. A read-only key is rejected on these; the
@@ -102,6 +110,13 @@ function shouldSkipAuth(url: string): boolean {
 export interface AuthPluginOptions {
   sessionCookieName?: string
   resolveSessionApiKeyId?: (sessionId: string) => string | null | Promise<string | null>
+  /**
+   * When set, the server is running in embed mode and this is the effective
+   * project-tab allowlist. It is a server-side data boundary layered on top of
+   * the read-only/project-scoped key: hidden tabs' API reads are rejected even
+   * if a client forges the URL.
+   */
+  embedProjectTabs?: readonly string[]
 }
 
 function parseCookies(header: string | undefined): Record<string, string> {
@@ -124,6 +139,88 @@ function parseCookies(header: string | undefined): Record<string, string> {
       }
       return cookies
     }, {})
+}
+
+function queryValue(request: FastifyRequest, key: string): string | undefined {
+  const raw = (request.query as Record<string, unknown> | undefined)?.[key]
+  if (typeof raw === 'string') return raw
+  if (Array.isArray(raw) && typeof raw[0] === 'string') return raw[0]
+  return undefined
+}
+
+function requestEmbedProjectTabs(request: FastifyRequest, fallback: readonly string[] | undefined): string[] | undefined {
+  const headerTabs = normalizeIdTokens(splitList(request.headers['x-canonry-embed-tabs']))
+  if (headerTabs) return headerTabs
+  return fallback && fallback.length > 0 ? [...fallback] : undefined
+}
+
+function projectRouteRest(url: string): string | null {
+  const match = url.match(/\/projects\/[^/]+(?:\/([^?#]*))?$/)
+  if (!match) return null
+  return match[1] ?? ''
+}
+
+function isAnswerVisibilityRunsList(request: FastifyRequest, rest: string): boolean {
+  if (rest !== 'runs') return false
+  const kind = queryValue(request, 'kind')
+  return !kind || kind === RunKinds['answer-visibility']
+}
+
+function isOverviewRead(request: FastifyRequest, url: string): boolean {
+  if (url.endsWith('/projects')) return true
+  if (url.endsWith('/runs')) {
+    const kind = queryValue(request, 'kind')
+    return kind === RunKinds['answer-visibility']
+  }
+
+  const rest = projectRouteRest(url)
+  if (rest === null) {
+    const runMatch = url.match(/\/runs\/([^/?#]+)$/)
+    if (!runMatch) return false
+    const run = request.server.db
+      .select({ kind: runs.kind })
+      .from(runs)
+      .where(eq(runs.id, decodeURIComponent(runMatch[1]!)))
+      .get()
+    return !run || run.kind === RunKinds['answer-visibility']
+  }
+
+  if (isAnswerVisibilityRunsList(request, rest)) return true
+  return new Set([
+    '',
+    'queries',
+    'competitors',
+    'timeline',
+    'overview',
+    'analytics/metrics',
+    'google/gsc/coverage',
+    'bing/coverage',
+    'insights',
+  ]).has(rest)
+}
+
+function isTechnicalAeoRead(url: string): boolean {
+  const rest = projectRouteRest(url)
+  return rest === 'technical-aeo' || rest === 'technical-aeo/pages' || rest === 'technical-aeo/trend'
+}
+
+function enforceEmbedProjectTabs(request: FastifyRequest, configuredTabs: readonly string[] | undefined): void {
+  const tabs = requestEmbedProjectTabs(request, configuredTabs)
+  if (!tabs || tabs.length === 0) return
+  if (request.method === 'OPTIONS') return
+
+  // In embed mode with a tab allowlist, the public iframe is a read surface.
+  // The read-only key already blocks writes, but this makes the tab policy
+  // independent of key shape and future write routes.
+  if (WRITE_METHODS.has(request.method)) {
+    throw forbidden('This endpoint is not available in embed mode.')
+  }
+
+  const url = request.url.split('?')[0]!
+  if (tabs.includes('overview') && isOverviewRead(request, url)) return
+  if (tabs.includes('technical-aeo') && isTechnicalAeoRead(url)) return
+
+  throw forbidden('This endpoint is not available for the configured embed tabs.')
 }
 
 export async function authPlugin(app: FastifyInstance, opts: AuthPluginOptions = {}) {
@@ -193,6 +290,8 @@ export async function authPlugin(app: FastifyInstance, opts: AuthPluginOptions =
     if (isReadOnlyKey(scopes) && WRITE_METHODS.has(request.method)) {
       throw forbidden('This API key is read-only and cannot perform write operations.')
     }
+
+    enforceEmbedProjectTabs(request, opts.embedProjectTabs)
 
     // Project-scope gate. A key bound to a single project (`project_id` set) may
     // only touch THAT project. The project name is the first `/projects/<name>`

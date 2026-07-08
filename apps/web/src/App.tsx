@@ -294,9 +294,14 @@ export function RunNotificationObserver() {
 export function RootLayout() {
   // ── Context-based initial data (tests inject via DashboardProvider) ──
   const contextDashboard = useInitialDashboard()
+  // Read-only embed mode (#716). Resolved once (the injected config is fixed for
+  // the page lifetime). In embed mode the root shell is chromeless, so it should
+  // not fetch instance settings just to build nav/settings state it will not
+  // render. The server-side embed tab policy intentionally blocks /settings.
+  const embed = useMemo(() => getEmbedConfig(), [])
 
   // ── Data fetching via TanStack Query ──
-  const { dashboard, isLoading, refetch: refreshData } = useDashboard()
+  const { dashboard, isLoading, refetch: refreshData } = useDashboard(undefined, { includeSettings: !embed })
   const enableLiveStatus = !contextDashboard
   const healthQuery = useHealth(enableLiveStatus, contextDashboard?.health)
   const healthSnapshot = healthQuery.data ?? contextDashboard?.health ?? defaultHealthSnapshot
@@ -444,14 +449,12 @@ export function RootLayout() {
     return 'Not found'
   })()
 
-  // Read-only embed mode (#716). Resolved once (the injected config is fixed for
-  // the page lifetime). When set, render chromeless: only the requested view,
+  // When set, render chromeless: only the requested view,
   // with NO sidebar / topbar / mobile nav / footer / drawers / run observer /
   // toaster / AeroBar. The view allowlist is a presentational gate — a
   // non-allowlisted route renders an unavailable state instead of the page, so
   // surfaces like /settings are never reachable inside the iframe. Placed after
   // every hook above so the Rules of Hooks hold on both render paths.
-  const embed = useMemo(() => getEmbedConfig(), [])
   // When the embed theme names a client font, inject its Google-Fonts stylesheet
   // so `--font-sans` resolves to a loaded family. No-op off-embed / when unset.
   useEffect(() => {

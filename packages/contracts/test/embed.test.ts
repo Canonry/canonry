@@ -228,6 +228,25 @@ describe('embedClientConfigForRequest', () => {
       theme: { mode: 'light' },
     })
   })
+
+  it('adds the per-request render token when supplied by the embed proxy', () => {
+    expect(embedClientConfigForRequest(enabled, undefined, undefined, 'render.jwt.token')).toEqual({
+      enabled: true,
+      projectTabs: ['overview', 'technical-aeo', 'report'],
+      renderToken: 'render.jwt.token',
+    })
+  })
+
+  it('ignores an empty / oversized render token header', () => {
+    expect(embedClientConfigForRequest(enabled, undefined, undefined, '')).toEqual({
+      enabled: true,
+      projectTabs: ['overview', 'technical-aeo', 'report'],
+    })
+    expect(embedClientConfigForRequest(enabled, undefined, undefined, 'x'.repeat(5000))).toEqual({
+      enabled: true,
+      projectTabs: ['overview', 'technical-aeo', 'report'],
+    })
+  })
 })
 
 describe('serializeForInlineScript', () => {

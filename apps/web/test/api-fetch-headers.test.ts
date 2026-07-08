@@ -1,6 +1,6 @@
 import { test, expect, onTestFinished, describe } from 'vitest'
 
-import { connectServerTrafficWordpress, installBacklinks, triggerGscSync } from '../src/api.js'
+import { connectServerTrafficWordpress, fetchProjects, installBacklinks, loginWithPassword, triggerGscSync } from '../src/api.js'
 
 /**
  * After the hey-api migration the SDK calls `fetch(new Request(...))` —
@@ -48,6 +48,14 @@ function jsonResponse(body: unknown, status = 200) {
     status,
     headers: { 'content-type': 'application/json' },
   })
+}
+
+function withEmbedRenderToken(token: string): () => void {
+  const previous = window.__CANONRY_CONFIG__
+  window.__CANONRY_CONFIG__ = { embed: { enabled: true, renderToken: token } }
+  return () => {
+    window.__CANONRY_CONFIG__ = previous
+  }
 }
 
 describe('apiFetch Content-Type header', () => {
@@ -118,5 +126,39 @@ describe('apiFetch Content-Type header', () => {
       applicationPassword: 'xxxx xxxx',
       displayName: 'WP logs',
     })
+  })
+
+  test('appends the embed render token to generated SDK API requests', async () => {
+    let observed: Observed | undefined
+    const restoreFetch = mockFetch((req) => {
+      observed = req
+      return jsonResponse([])
+    })
+    const restoreConfig = withEmbedRenderToken('render-token-123')
+    onTestFinished(() => {
+      restoreFetch()
+      restoreConfig()
+    })
+
+    await fetchProjects()
+
+    expect(observed?.path).toBe('/api/v1/projects?token=render-token-123')
+  })
+
+  test('appends the embed render token to raw apiFetch requests', async () => {
+    let observed: Observed | undefined
+    const restoreFetch = mockFetch((req) => {
+      observed = req
+      return jsonResponse({ authenticated: true })
+    })
+    const restoreConfig = withEmbedRenderToken('render-token-456')
+    onTestFinished(() => {
+      restoreFetch()
+      restoreConfig()
+    })
+
+    await loginWithPassword('pw')
+
+    expect(observed?.path).toBe('/api/v1/session?token=render-token-456')
   })
 })

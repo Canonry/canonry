@@ -79,6 +79,8 @@ export interface ApiRoutesOptions {
   /** Optional cookie-backed browser session support */
   sessionCookieName?: string
   resolveSessionApiKeyId?: (sessionId: string) => string | null | Promise<string | null>
+  /** Effective project-tab allowlist when the host runs the API in embed mode. */
+  embedProjectTabs?: readonly string[]
 
   /** Callback when a run is created (wire up job runner) */
   onRunCreated?: (runId: string, projectId: string, providers?: string[], location?: import('@ainyc/canonry-contracts').LocationContext | null) => void
@@ -313,6 +315,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       await authPlugin(api, {
         sessionCookieName: opts.sessionCookieName,
         resolveSessionApiKeyId: opts.resolveSessionApiKeyId,
+        embedProjectTabs: opts.embedProjectTabs,
       })
     }
 

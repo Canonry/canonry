@@ -177,6 +177,49 @@ declare global {
   }
 }
 
+function getEmbedRenderToken(): string | undefined {
+  if (typeof window === 'undefined') return undefined
+  const token = window.__CANONRY_CONFIG__?.embed?.renderToken
+  return typeof token === 'string' && token.length > 0 ? token : undefined
+}
+
+function appendEmbedRenderToken(url: string): string {
+  const token = getEmbedRenderToken()
+  if (!token) return url
+
+  let parsed: URL
+  try {
+    const base = typeof window !== 'undefined' && window.location ? window.location.href : 'http://localhost/'
+    parsed = new URL(url, base)
+  } catch {
+    return url
+  }
+
+  if (!parsed.pathname.includes('/api/v1')) return url
+  parsed.searchParams.set('token', token)
+
+  return /^[a-z][a-z\d+.-]*:/i.test(url)
+    ? parsed.toString()
+    : `${parsed.pathname}${parsed.search}${parsed.hash}`
+}
+
+function requestWithUrl(request: Request, url: string): Request {
+  return new Request(url, {
+    method: request.method,
+    headers: request.headers,
+    body: request.body,
+    cache: request.cache,
+    credentials: request.credentials,
+    integrity: request.integrity,
+    keepalive: request.keepalive,
+    mode: request.mode,
+    redirect: request.redirect,
+    referrer: request.referrer,
+    referrerPolicy: request.referrerPolicy,
+    signal: request.signal,
+  })
+}
+
 /**
  * The read-only embed config (#716) when the server has enabled embed mode.
  * Returns `null` outside the browser or when embed is off, so callers can treat
@@ -332,6 +375,11 @@ heyClient.interceptors.response.use((res, req) => {
   return res
 })
 
+heyClient.interceptors.request.use((req) => {
+  const url = appendEmbedRenderToken(req.url)
+  return url === req.url ? req : requestWithUrl(req, url)
+})
+
 /**
  * Result shape returned by every generated SDK operation. `data` is typed
  * `unknown` here — see `packages/canonry/src/client.ts` for the rationale
@@ -395,7 +443,7 @@ async function invokeWeb<T>(call: () => Promise<SdkResult>): Promise<T> {
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   const key = getApiKey()
   const hasBody = options?.body != null
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await fetch(appendEmbedRenderToken(`${API_BASE}${path}`), {
     ...options,
     credentials: options?.credentials ?? 'same-origin',
     headers: {
@@ -1456,10 +1504,13 @@ export async function downloadReportHtml(project: string, audience: ReportAudien
   const key = getApiKey()
   const params = new URLSearchParams({ audience })
   if (period !== undefined) params.set('period', String(period))
-  const res = await fetch(`${API_BASE}/projects/${encodeURIComponent(project)}/report.html?${params.toString()}`, {
-    credentials: 'same-origin',
-    headers: key ? { Authorization: `Bearer ${key}` } : {},
-  })
+  const res = await fetch(
+    appendEmbedRenderToken(`${API_BASE}/projects/${encodeURIComponent(project)}/report.html?${params.toString()}`),
+    {
+      credentials: 'same-origin',
+      headers: key ? { Authorization: `Bearer ${key}` } : {},
+    },
+  )
   if (!res.ok) {
     throw new ApiError(`Failed to download report: ${res.status}`, res.status)
   }
