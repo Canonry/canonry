@@ -132,11 +132,13 @@ test('embed hides the overview competitor + query managers and the identity edit
   expect(embed).not.toContain('Manage queries')
   expect(embed).not.toContain('Also known as')
 
+  // The locale tag-row (US/EN pills) duplicates the "· US/EN" subtitle, so the
+  // embed drops it while the operator keeps it. The locale still shows once in
+  // the subtitle, so no information is lost.
   const embedDoc = parseHtml(embed)
-  const header = embedDoc.querySelector('.page-header')
-  expect(header?.querySelector('.tag-row')?.textContent).toContain('US')
-  expect(header?.querySelector('.tag-row')?.textContent).toContain('EN')
-  expect(header?.querySelector('.tag-row button, .tag-row input, .tag-row select')).toBeNull()
+  const operatorDoc = parseHtml(operator)
+  expect(operatorDoc.querySelector('.page-header .tag-row')).not.toBeNull()
+  expect(embedDoc.querySelector('.page-header .tag-row')).toBeNull()
 })
 
 test('embed defaults client-value overview disclosures open and omits run history', async () => {

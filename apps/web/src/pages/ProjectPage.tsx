@@ -2155,15 +2155,17 @@ function ProjectPageContent({
             )}
             {' '} · {model.contextLabel}
           </p>
-          <div className="tag-row">
-            <span className="tag">{model.project.country}</span>
-            <span className="tag">{model.project.language.toUpperCase()}</span>
-            {model.project.tags.map((tag) => (
-              <span key={tag} className="tag">
-                {tag}
-              </span>
-            ))}
-          </div>
+          {!isEmbed() && (
+            <div className="tag-row">
+              <span className="tag">{model.project.country}</span>
+              <span className="tag">{model.project.language.toUpperCase()}</span>
+              {model.project.tags.map((tag) => (
+                <span key={tag} className="tag">
+                  {tag}
+                </span>
+              ))}
+            </div>
+          )}
           {((model.project.ownedDomains ?? []).length > 0 || addingOwnedDomain) && (
             <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
               <span className="text-[10px] uppercase tracking-wide text-muted mr-1">Also tracking</span>
