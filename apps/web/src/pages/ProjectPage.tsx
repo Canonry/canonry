@@ -21,7 +21,7 @@ import { GscSection } from '../components/project/GscSection.js'
 import { GbpSection } from '../components/project/GbpSection.js'
 import { BacklinksSection } from '../components/project/BacklinksSection.js'
 import { CitationVisibilitySection } from '../components/project/CitationVisibilitySection.js'
-import { MentionShareTrendSection, VisibilityTrendSection } from '../components/project/VisibilityTrendSection.js'
+import { VisibilityTrendSection } from '../components/project/VisibilityTrendSection.js'
 import { DiscoverySection } from '../components/project/DiscoverySection.js'
 import { TechnicalAeoSection } from '../components/project/TechnicalAeoSection.js'
 import { ReportPage } from './ReportPage.js'
@@ -2314,10 +2314,6 @@ function ProjectPageContent({
               competitorDomains={competitorDomains}
               visibilityEvidence={model.visibilityEvidence}
             />
-          </section>
-
-          <section className="page-section-divider">
-            <MentionShareTrendSection projectName={model.project.name} competitorDomains={competitorDomains} />
           </section>
 
           <OverviewBrief

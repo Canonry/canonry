@@ -27,7 +27,7 @@ vi.mock('recharts', () => {
   }
 })
 
-import { MentionShareTrendSection, VisibilityTrendSection } from '../src/components/project/VisibilityTrendSection.js'
+import { VisibilityTrendSection } from '../src/components/project/VisibilityTrendSection.js'
 import type { CitationInsightVm } from '../src/view-models.js'
 import { mockFetch, jsonResponse } from './mock-fetch.js'
 
@@ -62,11 +62,11 @@ const TWO_BUCKETS = [
   },
 ]
 
-function renderSection() {
+function renderSection(competitorDomains: readonly string[] = []) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={queryClient}>
-      <VisibilityTrendSection projectName="test-project" />
+      <VisibilityTrendSection projectName="test-project" competitorDomains={competitorDomains} />
     </QueryClientProvider>,
   )
 }
@@ -106,15 +106,6 @@ function evidence(providerName: string, models: string[]): CitationInsightVm {
   }
 }
 
-function renderMentionShareSection(competitorDomains: readonly string[] = ['competitor.com']) {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return render(
-    <QueryClientProvider client={queryClient}>
-      <MentionShareTrendSection projectName="test-project" competitorDomains={competitorDomains} />
-    </QueryClientProvider>,
-  )
-}
-
 test('defaults to the by-engine view with a per-engine legend, and toggles to all-engines', async () => {
   const restore = mockFetch((url) => {
     const path = url.split('?')[0]!
@@ -127,7 +118,7 @@ test('defaults to the by-engine view with a per-engine legend, and toggles to al
 
   renderSection()
 
-  expect(screen.getByText('Citations & mentions over time')).toBeTruthy()
+  expect(screen.getByText('Answer-engine trend')).toBeTruthy()
 
   // The legend only renders once the DTO has loaded (and only in by-engine
   // mode) — wait on it rather than the chart skeleton, which shares the
@@ -138,7 +129,13 @@ test('defaults to the by-engine view with a per-engine legend, and toggles to al
   // Mentioned (no "Both"); Mentioned is the default.
   expect(screen.queryByRole('button', { name: 'Both' })).toBeNull()
   expect(screen.getByRole('button', { name: 'Cited' })).toBeTruthy()
-  expect(screen.getByRole('button', { name: 'Mentioned' }).getAttribute('aria-pressed')).toBe('true')
+  expect(screen.getByRole('button', { name: 'Mention share' })).toBeTruthy()
+  const mentioned = screen.getByRole('button', { name: 'Mentioned' })
+  expect(mentioned.getAttribute('aria-pressed')).toBe('true')
+  expect(mentioned.getAttribute('title')).toBeNull()
+  const mentionedDescriptionId = mentioned.getAttribute('aria-describedby')
+  expect(mentionedDescriptionId).toBeTruthy()
+  expect(document.getElementById(mentionedDescriptionId!)?.textContent).toBe('Your brand or domain appears in the answer text.')
 
   // By engine is the default breakdown; All engines is the other mode.
   const byEngine = screen.getByRole('button', { name: 'By engine' })
@@ -208,7 +205,7 @@ test('shows an empty state when there are no buckets yet', async () => {
   })
 })
 
-test('renders mention-share trend from bucket metrics', async () => {
+test('renders mention-share as a metric view and hides the engine split', async () => {
   const restore = mockFetch((url) => {
     const path = url.split('?')[0]!
     if (path.endsWith('/projects/test-project/analytics/metrics')) {
@@ -218,14 +215,21 @@ test('renders mention-share trend from bucket metrics', async () => {
   })
   onTestFinished(restore)
 
-  renderMentionShareSection()
+  renderSection(['competitor.com'])
 
-  expect(await screen.findByText('Mention share over time')).toBeTruthy()
-  expect(await screen.findByText('75%')).toBeTruthy()
-  expect(screen.getByRole('button', { name: 'All' })).toBeTruthy()
+  await screen.findByRole('list', { name: 'Engines' })
+  const mentionShare = screen.getByRole('button', { name: 'Mention share' })
+  act(() => { fireEvent.click(mentionShare) })
+
+  expect(mentionShare.getAttribute('aria-pressed')).toBe('true')
+  expect(screen.queryByRole('group', { name: 'Series' })).toBeNull()
+  expect(screen.queryByRole('list', { name: 'Engines' })).toBeNull()
+  expect(screen.getByText('75%')).toBeTruthy()
+  expect(screen.getByRole('img', { name: /Mention share trend chart/i })).toBeTruthy()
+  expect(screen.getByText(/75% mention share, 3 of 4 brand mentions were you/)).toBeTruthy()
 })
 
-test('prompts for competitors before rendering mention-share history', async () => {
+test('prompts for competitors before rendering the mention-share metric view', async () => {
   const restore = mockFetch((url) => {
     const path = url.split('?')[0]!
     if (path.endsWith('/projects/test-project/analytics/metrics')) {
@@ -235,7 +239,10 @@ test('prompts for competitors before rendering mention-share history', async () 
   })
   onTestFinished(restore)
 
-  renderMentionShareSection([])
+  renderSection([])
+
+  await screen.findByRole('list', { name: 'Engines' })
+  act(() => { fireEvent.click(screen.getByRole('button', { name: 'Mention share' })) })
 
   await waitFor(() => {
     expect(screen.getByText(/Add tracked competitors/)).toBeTruthy()
@@ -257,7 +264,7 @@ test('refetches mention-share metrics when the competitor frame changes', async 
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const view = render(
     <QueryClientProvider client={queryClient}>
-      <MentionShareTrendSection projectName="test-project" competitorDomains={['competitor.com']} />
+      <VisibilityTrendSection projectName="test-project" competitorDomains={['competitor.com']} />
     </QueryClientProvider>,
   )
 
@@ -267,7 +274,7 @@ test('refetches mention-share metrics when the competitor frame changes', async 
 
   view.rerender(
     <QueryClientProvider client={queryClient}>
-      <MentionShareTrendSection projectName="test-project" competitorDomains={['competitor.com', 'new-rival.com']} />
+      <VisibilityTrendSection projectName="test-project" competitorDomains={['competitor.com', 'new-rival.com']} />
     </QueryClientProvider>,
   )
 

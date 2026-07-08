@@ -17,7 +17,8 @@ export const MENTION_SHARE_KEY = '__mentionShare__'
 export type TrendSeriesMode = 'overall' | 'byProvider'
 
 /** Which metric line to plot. */
-export type MetricChoice = 'cited' | 'mentioned'
+export type PresenceMetricChoice = 'cited' | 'mentioned'
+export type MetricChoice = PresenceMetricChoice | 'mentionShare'
 
 export interface TrendRow {
   date: string
@@ -34,6 +35,10 @@ export interface TrendData {
 }
 
 export type ProviderModelHints = Record<string, string[]>
+type BucketProviderMetric = BrandMetricsDto['buckets'][number]['byProvider'][string]
+type BucketWithOptionalProviders = Omit<BrandMetricsDto['buckets'][number], 'byProvider'> & {
+  byProvider?: Record<string, BucketProviderMetric | undefined>
+}
 
 export function normalizeProviderKey(provider: string): string {
   return provider.trim().toLowerCase()
@@ -44,9 +49,13 @@ function toPercent(rate: number): number {
   return Math.round(rate * 1000) / 10
 }
 
+function bucketProviders(bucket: BrandMetricsDto['buckets'][number]): Record<string, BucketProviderMetric | undefined> {
+  return (bucket as BucketWithOptionalProviders).byProvider ?? {}
+}
+
 export function buildTrendRows(
   dto: BrandMetricsDto,
-  metric: MetricChoice,
+  metric: PresenceMetricChoice,
   mode: TrendSeriesMode,
 ): TrendData {
   const hasData = dto.buckets.length > 0
@@ -67,11 +76,12 @@ export function buildTrendRows(
   // `?? {}` guards buckets from an older backend (≤4.67.0) that predates the
   // per-bucket breakdown and omits `byProvider` entirely — degrade to no
   // provider lines instead of throwing on `Object.keys(undefined)`.
-  const series = [...new Set(dto.buckets.flatMap(b => Object.keys(b.byProvider ?? {})))].sort()
+  const series = [...new Set(dto.buckets.flatMap(b => Object.keys(bucketProviders(b))))].sort()
   const rows: TrendRow[] = dto.buckets.map(b => {
     const row: TrendRow = { date: b.startDate }
+    const providers = bucketProviders(b)
     for (const provider of series) {
-      const metricRow = b.byProvider?.[provider]
+      const metricRow = providers[provider]
       // null (not 0) when a provider has no data in this bucket — Recharts
       // `connectNulls` bridges the gap rather than dropping the line to zero.
       row[provider] = metricRow ? toPercent(metricRow[field]) : null
@@ -162,6 +172,15 @@ export function buildMentionShareTrendRows(dto: BrandMetricsDto): TrendData {
     hasData: plottedValues.length > 0,
     singleBucket: plottedValues.length === 1,
   }
+}
+
+export function buildSelectedTrendRows(
+  dto: BrandMetricsDto,
+  metric: MetricChoice,
+  mode: TrendSeriesMode,
+): TrendData {
+  if (metric === 'mentionShare') return buildMentionShareTrendRows(dto)
+  return buildTrendRows(dto, metric, mode)
 }
 
 /**
