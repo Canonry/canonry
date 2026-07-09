@@ -511,21 +511,44 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
             </div>
             <div className="flex-1">
               {connected && everSynced ? (
-                <>
-                  <h3 className="text-base font-semibold text-heading">No non-crawler referring domains</h3>
-                  <p className="text-sm text-muted mt-1">
-                    Bing Webmaster synced for <code className="text-neutral">{projectName}</code>, but every inbound
-                    link in the latest window is a crawler/proxy host (hidden by default). Re-sync to check for new links.
-                  </p>
-                  {!isEmbed() && (
-                    <div className="mt-4">
-                      <Button type="button" variant="outline" size="sm" disabled={bingSyncing || activeRun !== null} onClick={asyncHandler(handleBingSync)}>
-                        <Download className="h-4 w-4 mr-1.5" aria-hidden />
-                        {activeRun ? 'Sync running…' : bingSyncing ? 'Queuing…' : 'Re-sync Bing inbound links'}
-                      </Button>
-                    </div>
-                  )}
-                </>
+                hiddenCount > 0 ? (
+                  <>
+                    <h3 className="text-base font-semibold text-heading">No non-crawler referring domains</h3>
+                    <p className="text-sm text-muted mt-1">
+                      Bing Webmaster synced for <code className="text-neutral">{projectName}</code>, but{' '}
+                      {formatNumber(hiddenCount)} crawler/proxy referring domain{hiddenCount === 1 ? '' : 's'} in
+                      the latest window {hiddenCount === 1 ? 'is' : 'are'} hidden by default. Re-sync to check for new links.
+                    </p>
+                    {!isEmbed() && (
+                      <div className="mt-4">
+                        <Button type="button" variant="outline" size="sm" disabled={bingSyncing || activeRun !== null} onClick={asyncHandler(handleBingSync)}>
+                          <Download className="h-4 w-4 mr-1.5" aria-hidden />
+                          {activeRun ? 'Sync running…' : bingSyncing ? 'Queuing…' : 'Re-sync Bing inbound links'}
+                        </Button>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <h3 className="text-base font-semibold text-heading">No Bing inbound links returned</h3>
+                    <p className="text-sm text-muted mt-1">
+                      Bing Webmaster synced for <code className="text-neutral">{projectName}</code>, but the Bing
+                      backlink API returned <span className="text-neutral">0 inbound-link rows</span> in the latest
+                      window. There were no referring domains to filter.
+                    </p>
+                    <p className="text-xs text-muted mt-2">
+                      Re-sync later or compare against the Bing Webmaster Tools backlink export for this verified site.
+                    </p>
+                    {!isEmbed() && (
+                      <div className="mt-4">
+                        <Button type="button" variant="outline" size="sm" disabled={bingSyncing || activeRun !== null} onClick={asyncHandler(handleBingSync)}>
+                          <Download className="h-4 w-4 mr-1.5" aria-hidden />
+                          {activeRun ? 'Sync running…' : bingSyncing ? 'Queuing…' : 'Re-sync Bing inbound links'}
+                        </Button>
+                      </div>
+                    )}
+                  </>
+                )
               ) : connected ? (
                 <>
                   <h3 className="text-base font-semibold text-heading">No Bing inbound links yet</h3>
