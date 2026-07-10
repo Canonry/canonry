@@ -2822,7 +2822,7 @@ export type VisibilityCompareDto = {
         };
         rateRatio: number | null;
         direction: 'up' | 'down' | 'flat' | null;
-        verdict: 'within-noise' | 'moved' | 'insufficient-data';
+        verdict: 'within-noise' | 'moved' | 'insufficient-data' | 'model-discontinuous' | 'model-unknown';
     }>;
     queriesMentioned: {
         from: {
@@ -2852,6 +2852,16 @@ export type VisibilityCompareDto = {
         fromModels: Array<string>;
         toModels: Array<string>;
     }>;
+    continuity: {
+        status: 'comparable' | 'model-discontinuous' | 'model-unknown' | 'insufficient-data';
+        comparedProviders: Array<string>;
+        providers: Array<{
+            provider: string;
+            status: 'included' | 'model-discontinuous' | 'model-unknown';
+            fromModels: Array<string>;
+            toModels: Array<string>;
+        }>;
+    };
     competitors: {
         from: Array<{
             domain: string;

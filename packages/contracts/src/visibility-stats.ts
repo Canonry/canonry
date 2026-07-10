@@ -145,10 +145,10 @@ export type VisibilityStatsDto = z.infer<typeof visibilityStatsDtoSchema>
 // A statistically honest m/m primitive so report builders never hand-roll AEO
 // deltas. Method, per the statistician panel that scoped it:
 //   - Primary metric = SHARE OF VOICE (brand vs competitor mentions in the SAME
-//     answers). It cancels engine drift — when a provider's model updates it
-//     names fewer/more brands overall, a shared factor that divides out of a
-//     ratio but corrupts an absolute rate. So SoV carries the directional call;
-//     the mention/cited RATE is context ("level"), `driftRobust: false`.
+//     answers). It is less exposed to a model's broad naming propensity than an
+//     absolute rate, but it does NOT make a model transition comparable.
+//     Providers must pass the model-continuity gate before any metric can carry
+//     a directional call.
 //   - Every rate is pooled per-snapshot over the whole month (K-invariant — a
 //     mean of per-sweep rates, NOT `1-(1-p)^K` union which climbs with sweep
 //     count, NOR an OR-over-providers per-query rate which climbs with provider
@@ -160,8 +160,14 @@ export type VisibilityStatsDto = z.infer<typeof visibilityStatsDtoSchema>
 //     called a decline.
 // ────────────────────────────────────────────────────────────────────────────
 
-/** `within-noise`: the periods' CIs overlap (do not call it a change). `moved`: disjoint CIs. `insufficient-data`: a period has no denominator. */
-export const visibilityCompareVerdictSchema = z.enum(['within-noise', 'moved', 'insufficient-data'])
+/** `within-noise`: the periods' CIs overlap (do not call it a change). `moved`: disjoint CIs. `insufficient-data`: a period has no denominator. Model-continuity verdicts block a directional call. */
+export const visibilityCompareVerdictSchema = z.enum([
+  'within-noise',
+  'moved',
+  'insufficient-data',
+  'model-discontinuous',
+  'model-unknown',
+])
 export type VisibilityCompareVerdict = z.infer<typeof visibilityCompareVerdictSchema>
 
 /** Sign of the point move — display only; never overrides the statistical `verdict`. */
@@ -197,10 +203,9 @@ export const visibilityCompareMetricSchema = z.object({
   /** Human label ("Named share of voice", "Cited rate", …). */
   label: z.string(),
   /**
-   * `true` for the share-of-voice metrics, which cancel engine drift and so
-   * carry the directional m/m call. `false` for the absolute rate metrics: when
-   * `modelChanges` is non-empty a rate move may be the model, not the brand —
-   * trust only `driftRobust` metrics for direction in that case.
+   * `true` for share of voice, which is less exposed to broad model-wide naming
+   * propensity than an absolute rate. It does not bypass model continuity: no
+   * metric can make a directional call when every provider is excluded.
    */
   driftRobust: z.boolean(),
   from: visibilityCompareMetricPeriodSchema,
@@ -258,9 +263,9 @@ export type VisibilityCompareBasket = z.infer<typeof visibilityCompareBasketSche
  * an unchanged id is NOT — the stored `model` is the configured id, so absence
  * of a change here does not prove the model was stable). Reported only when
  * BOTH periods observed at least one model id for the provider: an empty side
- * means "no model recorded" (legacy null-model rows), not a change. When
- * non-empty, the absolute rate metrics' moves are not cleanly attributable to
- * the brand.
+ * means "no model recorded" (legacy null-model rows), not a change. The
+ * `continuity` field is the enforcement decision: it excludes providers whose
+ * model id is unknown, changed, or mixed within a month.
  */
 export const visibilityCompareModelChangeSchema = z.object({
   provider: z.string(),
@@ -268,6 +273,41 @@ export const visibilityCompareModelChangeSchema = z.object({
   toModels: z.array(z.string()),
 })
 export type VisibilityCompareModelChange = z.infer<typeof visibilityCompareModelChangeSchema>
+
+/** How one provider fared against the strict model-continuity gate. */
+export const visibilityCompareProviderContinuityStatusSchema = z.enum([
+  'included',
+  'model-discontinuous',
+  'model-unknown',
+])
+export type VisibilityCompareProviderContinuityStatus = z.infer<typeof visibilityCompareProviderContinuityStatusSchema>
+
+export const visibilityCompareProviderContinuitySchema = z.object({
+  provider: z.string(),
+  /** `included` only when both months have one known, identical model id. */
+  status: visibilityCompareProviderContinuityStatusSchema,
+  fromModels: z.array(z.string()),
+  toModels: z.array(z.string()),
+})
+export type VisibilityCompareProviderContinuity = z.infer<typeof visibilityCompareProviderContinuitySchema>
+
+/** The continuity state for the full comparison, including every provider with common query/provider pairs. */
+export const visibilityCompareContinuityStatusSchema = z.enum([
+  'comparable',
+  'model-discontinuous',
+  'model-unknown',
+  'insufficient-data',
+])
+export type VisibilityCompareContinuityStatus = z.infer<typeof visibilityCompareContinuityStatusSchema>
+
+export const visibilityCompareContinuitySchema = z.object({
+  status: visibilityCompareContinuityStatusSchema,
+  /** Providers retained in the directional comparison after the continuity gate. */
+  comparedProviders: z.array(z.string()),
+  /** Every provider with common query/provider pairs, including excluded ones and their model evidence. */
+  providers: z.array(visibilityCompareProviderContinuitySchema),
+})
+export type VisibilityCompareContinuity = z.infer<typeof visibilityCompareContinuitySchema>
 
 /** Per-provider raw counts for both periods — feeds the engines×months coverage matrix a report renders. */
 export const visibilityCompareProviderRowSchema = z.object({
@@ -297,8 +337,10 @@ export const visibilityCompareDtoSchema = z.object({
   metrics: z.array(visibilityCompareMetricSchema),
   queriesMentioned: visibilityCompareQueriesMentionedSchema,
   byProvider: z.array(visibilityCompareProviderRowSchema),
-  /** Providers whose configured model id changed between the periods (empty = none detected). */
+  /** Providers whose configured model id set changed between the periods (empty = none detected). */
   modelChanges: z.array(visibilityCompareModelChangeSchema),
+  /** Strict model-continuity evidence and the providers that remain comparable. */
+  continuity: visibilityCompareContinuitySchema,
   /** Per-competitor mention counts within each period's basket (for the SoV detail). */
   competitors: z.object({
     from: z.array(visibilityStatsShareCompetitorSchema),

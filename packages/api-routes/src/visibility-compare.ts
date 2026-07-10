@@ -7,6 +7,8 @@ import {
   type VisibilityCompareMetric,
   type VisibilityCompareMetricKey,
   type VisibilityCompareMetricPeriod,
+  type VisibilityCompareContinuityStatus,
+  type VisibilityCompareProviderContinuityStatus,
   type VisibilityCompareProviderRow,
   type VisibilityStatsShareCompetitor,
 } from '@ainyc/canonry-contracts'
@@ -137,13 +139,15 @@ function metric(
   driftRobust: boolean,
   from: VisibilityCompareMetricPeriod,
   to: VisibilityCompareMetricPeriod,
+  continuityBlock: 'model-discontinuous' | 'model-unknown' | null,
 ): VisibilityCompareMetric {
   const verdict =
-    from.denominator === 0 || to.denominator === 0
+    continuityBlock ??
+    (from.denominator === 0 || to.denominator === 0
       ? 'insufficient-data'
       : ciOverlap(from, to)
         ? 'within-noise'
-        : 'moved'
+        : 'moved')
   const direction =
     from.point === null || to.point === null
       ? null
@@ -263,14 +267,47 @@ export function computeVisibilityCompare(input: ComputeVisibilityCompareInput): 
   const fromPairs = observedPairs(input.from.snapshots, attribution, queriesObservedBoth)
   const toPairs = observedPairs(input.to.snapshots, attribution, queriesObservedBoth)
   const pairsBoth = new Map([...fromPairs].filter(([key]) => toPairs.has(key)))
-  const queriesBoth = new Set([...pairsBoth.values()].map((pair) => pair.queryId))
-  const providersBoth = new Set([...pairsBoth.values()].map((pair) => pair.provider))
+  const candidateProviders = new Set([...pairsBoth.values()].map((pair) => pair.provider))
+  const fromCandidateSnaps = restrict(input.from.snapshots, attribution, pairsBoth)
+  const toCandidateSnaps = restrict(input.to.snapshots, attribution, pairsBoth)
+  const fromCandidateCounts = countPeriod(fromCandidateSnaps, input.competitors)
+  const toCandidateCounts = countPeriod(toCandidateSnaps, input.competitors)
+  const continuityProviders = [...candidateProviders]
+    .sort((a, b) => a.localeCompare(b))
+    .map((provider) => {
+      const fromModels = [...(fromCandidateCounts.models.get(provider) ?? new Set<string>())].sort((a, b) => a.localeCompare(b))
+      const toModels = [...(toCandidateCounts.models.get(provider) ?? new Set<string>())].sort((a, b) => a.localeCompare(b))
+      const status: VisibilityCompareProviderContinuityStatus =
+        fromModels.length === 0 || toModels.length === 0
+          ? 'model-unknown'
+          : fromModels.length === 1 && toModels.length === 1 && fromModels[0] === toModels[0]
+            ? 'included'
+            : 'model-discontinuous'
+      return { provider, status, fromModels, toModels }
+    })
+  const providersBoth = new Set(
+    continuityProviders.filter((provider) => provider.status === 'included').map((provider) => provider.provider),
+  )
+  const continuityStatus: VisibilityCompareContinuityStatus =
+    candidateProviders.size === 0
+      ? 'insufficient-data'
+      : providersBoth.size > 0
+        ? 'comparable'
+        : continuityProviders.every((provider) => provider.status === 'model-unknown')
+          ? 'model-unknown'
+          : 'model-discontinuous'
+  const continuityBlock: 'model-discontinuous' | 'model-unknown' | null =
+    continuityStatus === 'model-discontinuous' || continuityStatus === 'model-unknown'
+      ? continuityStatus
+      : null
+  const comparedPairs = new Map([...pairsBoth].filter(([, pair]) => providersBoth.has(pair.provider)))
+  const queriesBoth = new Set([...comparedPairs.values()].map((pair) => pair.queryId))
   const excludedProviders = [...new Set([...fromObs.providers, ...toObs.providers])]
     .filter((p) => !providersBoth.has(p))
     .sort((a, b) => a.localeCompare(b))
 
-  const fromSnaps = restrict(input.from.snapshots, attribution, pairsBoth)
-  const toSnaps = restrict(input.to.snapshots, attribution, pairsBoth)
+  const fromSnaps = restrict(input.from.snapshots, attribution, comparedPairs)
+  const toSnaps = restrict(input.to.snapshots, attribution, comparedPairs)
 
   const fromCounts = countPeriod(fromSnaps, input.competitors)
   const toCounts = countPeriod(toSnaps, input.competitors)
@@ -289,6 +326,7 @@ export function computeVisibilityCompare(input: ComputeVisibilityCompareInput): 
       true,
       period(fromShare.proj, fromShare.proj + fromShare.comp),
       period(toShare.proj, toShare.proj + toShare.comp),
+      continuityBlock,
     ),
     // Share of voice is undefined without a competitive frame: with zero
     // configured competitors the denominator degenerates to the project's own
@@ -305,6 +343,7 @@ export function computeVisibilityCompare(input: ComputeVisibilityCompareInput): 
       input.competitors.length > 0
         ? period(toCounts.projectCited, toCounts.projectCited + toCounts.competitorCited)
         : period(0, 0),
+      continuityBlock,
     ),
     metric(
       'mention-rate',
@@ -312,6 +351,7 @@ export function computeVisibilityCompare(input: ComputeVisibilityCompareInput): 
       false,
       period(fromCounts.mentioned, fromCounts.checked),
       period(toCounts.mentioned, toCounts.checked),
+      continuityBlock,
     ),
     metric(
       'cited-rate',
@@ -319,19 +359,18 @@ export function computeVisibilityCompare(input: ComputeVisibilityCompareInput): 
       false,
       period(fromCounts.cited, fromCounts.total),
       period(toCounts.cited, toCounts.total),
+      continuityBlock,
     ),
   ]
 
-  // Model changes over the basket providers: differ when the distinct configured
-  // model id set is not identical between periods. Reported ONLY when both
-  // periods observed at least one model id for the provider — an empty side
-  // means "no model recorded" (legacy null-model rows), not a change; flagging
-  // it would falsely downgrade the rate metrics' attribution.
-  const modelChanges = [...providersBoth]
+  // Model changes are reported over the pre-continuity pair basket so a
+  // discontinuous provider remains visible even though it is excluded from the
+  // directional metrics.
+  const modelChanges = [...candidateProviders]
     .sort((a, b) => a.localeCompare(b))
     .map((provider) => {
-      const fromModels = [...(fromCounts.models.get(provider) ?? new Set<string>())].sort((a, b) => a.localeCompare(b))
-      const toModels = [...(toCounts.models.get(provider) ?? new Set<string>())].sort((a, b) => a.localeCompare(b))
+      const fromModels = [...(fromCandidateCounts.models.get(provider) ?? new Set<string>())].sort((a, b) => a.localeCompare(b))
+      const toModels = [...(toCandidateCounts.models.get(provider) ?? new Set<string>())].sort((a, b) => a.localeCompare(b))
       return { provider, fromModels, toModels }
     })
     .filter(
@@ -379,6 +418,11 @@ export function computeVisibilityCompare(input: ComputeVisibilityCompareInput): 
     },
     byProvider,
     modelChanges,
+    continuity: {
+      status: continuityStatus,
+      comparedProviders: [...providersBoth].sort((a, b) => a.localeCompare(b)),
+      providers: continuityProviders,
+    },
     competitors: { from: fromCounts.competitors, to: toCounts.competitors },
   }
 }

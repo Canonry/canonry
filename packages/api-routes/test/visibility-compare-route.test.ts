@@ -105,6 +105,7 @@ describe('GET /visibility-compare', () => {
     expect(dto.from.since).toBe('2026-05-01T00:00:00.000Z')
     expect(dto.from.lowRunCount).toBe(true) // 1 sweep < 5
     expect(dto.basket).toMatchObject({ queryCount: 1, providers: ['openai'] })
+    expect(dto.continuity).toMatchObject({ status: 'comparable', comparedProviders: ['openai'] })
   })
 
   it('rejects missing or mis-ordered months', async () => {

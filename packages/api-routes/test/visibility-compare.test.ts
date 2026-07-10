@@ -10,7 +10,7 @@ function snap(
 ): VisibilityCompareSnapshotInput {
   return {
     queryText: null,
-    model: null,
+    model: 'gpt-5.4',
     citationState: 'not-cited',
     answerMentioned: false,
     answerText: 'a neutral answer with no brands',
@@ -202,31 +202,89 @@ describe('computeVisibilityCompare — verdict', () => {
     const dto = computeVisibilityCompare(build([snap({ queryId: 'q1', provider: 'openai' })], []))
     for (const m of dto.metrics) expect(m.verdict).toBe('insufficient-data')
     expect(dto.basket.queryCount).toBe(0)
+    expect(dto.continuity.status).toBe('insufficient-data')
   })
 })
 
-describe('computeVisibilityCompare — model drift', () => {
-  it('flags a provider whose configured model id changed between periods', () => {
+describe('computeVisibilityCompare — model continuity', () => {
+  it('blocks directional metrics when every provider changed model between periods', () => {
     const from = [snap({ queryId: 'q1', provider: 'openai', model: 'gpt-5.4' })]
     const to = [snap({ queryId: 'q1', provider: 'openai', model: 'gpt-5.5' })]
     const dto = computeVisibilityCompare(build(from, to))
     expect(dto.modelChanges).toEqual([{ provider: 'openai', fromModels: ['gpt-5.4'], toModels: ['gpt-5.5'] }])
-    // the rate metrics are the ones whose attribution the change undermines
-    expect(metricOf(dto, 'mention-rate').driftRobust).toBe(false)
+    expect(dto.continuity).toEqual({
+      status: 'model-discontinuous',
+      comparedProviders: [],
+      providers: [{ provider: 'openai', status: 'model-discontinuous', fromModels: ['gpt-5.4'], toModels: ['gpt-5.5'] }],
+    })
+    expect(dto.basket.providers).toEqual([])
+    expect(dto.basket.excludedProviders).toContain('openai')
+    for (const metric of dto.metrics) {
+      expect(metric.verdict).toBe('model-discontinuous')
+      expect(metric.direction).toBeNull()
+    }
   })
 
-  it('does not flag a provider whose model id is stable', () => {
+  it('includes a provider whose model id is stable', () => {
     const from = [snap({ queryId: 'q1', provider: 'openai', model: 'gpt-5.4' })]
     const to = [snap({ queryId: 'q1', provider: 'openai', model: 'gpt-5.4' })]
-    expect(computeVisibilityCompare(build(from, to)).modelChanges).toEqual([])
+    const dto = computeVisibilityCompare(build(from, to))
+    expect(dto.modelChanges).toEqual([])
+    expect(dto.continuity).toEqual({
+      status: 'comparable',
+      comparedProviders: ['openai'],
+      providers: [{ provider: 'openai', status: 'included', fromModels: ['gpt-5.4'], toModels: ['gpt-5.4'] }],
+    })
   })
 
-  it('does not flag a change when one period has no recorded model (legacy null rows)', () => {
-    // An empty side means "no model recorded", not "the model changed" —
-    // flagging it would falsely downgrade the rate metrics' attribution.
+  it('blocks directional metrics when model ids are unknown on legacy rows', () => {
     const from = [snap({ queryId: 'q1', provider: 'openai', model: null })]
     const to = [snap({ queryId: 'q1', provider: 'openai', model: 'gpt-5.5' })]
-    expect(computeVisibilityCompare(build(from, to)).modelChanges).toEqual([])
+    const dto = computeVisibilityCompare(build(from, to))
+    expect(dto.modelChanges).toEqual([])
+    expect(dto.continuity).toEqual({
+      status: 'model-unknown',
+      comparedProviders: [],
+      providers: [{ provider: 'openai', status: 'model-unknown', fromModels: [], toModels: ['gpt-5.5'] }],
+    })
+    for (const metric of dto.metrics) expect(metric.verdict).toBe('model-unknown')
+  })
+
+  it('blocks a provider that changes models mid-month, even when one model overlaps', () => {
+    const from = [snap({ queryId: 'q1', provider: 'openai', model: 'gpt-5.4' })]
+    const to = [
+      snap({ queryId: 'q1', provider: 'openai', model: 'gpt-5.4' }),
+      snap({ queryId: 'q1', provider: 'openai', model: 'gpt-5.5' }),
+    ]
+    const dto = computeVisibilityCompare(build(from, to))
+    expect(dto.continuity.providers).toEqual([
+      { provider: 'openai', status: 'model-discontinuous', fromModels: ['gpt-5.4'], toModels: ['gpt-5.4', 'gpt-5.5'] },
+    ])
+    for (const metric of dto.metrics) expect(metric.verdict).toBe('model-discontinuous')
+  })
+
+  it('compares only stable providers while surfacing a discontinuous provider in analytics output', () => {
+    const from = [
+      snap({ queryId: 'q1', provider: 'claude', model: 'claude-4', answerMentioned: false }),
+      snap({ queryId: 'q1', provider: 'openai', model: 'gpt-5.4', answerMentioned: true }),
+    ]
+    const to = [
+      snap({ queryId: 'q1', provider: 'claude', model: 'claude-4', answerMentioned: false }),
+      snap({ queryId: 'q1', provider: 'openai', model: 'gpt-5.5', answerMentioned: false }),
+    ]
+    const dto = computeVisibilityCompare(build(from, to))
+    expect(dto.continuity).toMatchObject({
+      status: 'comparable',
+      comparedProviders: ['claude'],
+      providers: [
+        { provider: 'claude', status: 'included' },
+        { provider: 'openai', status: 'model-discontinuous' },
+      ],
+    })
+    expect(dto.basket).toMatchObject({ providers: ['claude'] })
+    expect(dto.basket.excludedProviders).toContain('openai')
+    expect(metricOf(dto, 'mention-rate').from).toMatchObject({ numerator: 0, denominator: 1 })
+    expect(metricOf(dto, 'mention-rate').to).toMatchObject({ numerator: 0, denominator: 1 })
   })
 
   it('excludes a provider whose only snapshots in one period sit on non-basket queries — no phantom rows, no spurious model change', () => {

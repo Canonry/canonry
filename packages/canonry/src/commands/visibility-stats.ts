@@ -86,6 +86,10 @@ function verdictCell(m: VisibilityCompareMetric): string {
       return 'no data'
     case 'moved':
       return `moved ${m.direction === 'down' ? 'down' : m.direction === 'up' ? 'up' : ''}`.trim()
+    case 'model-discontinuous':
+      return 'model discontinuity'
+    case 'model-unknown':
+      return 'model unknown'
   }
 }
 
@@ -100,6 +104,9 @@ function printVisibilityCompare(data: VisibilityCompareDto): void {
   const sweeps = `Sweeps: ${data.from.month} ${data.from.runCount}, ${data.to.month} ${data.to.runCount}`
   const low = data.from.lowRunCount || data.to.lowRunCount
   console.log(low ? `${sweeps}  (below the 5-sweep floor — intervals are wide, a "moved" verdict is unlikely to be reachable)` : sweeps)
+  if (data.continuity.status !== 'comparable') {
+    console.log(`Continuity: ${data.continuity.status.replace('-', ' ')} — no directional call is made.`)
+  }
   console.log('')
 
   // Column widths.
@@ -125,10 +132,10 @@ function printVisibilityCompare(data: VisibilityCompareDto): void {
     console.log(`  ${r.label.padEnd(lw)}  ${r.to.padEnd(tw)}  ${r.from.padEnd(fw)}  ${r.verdict}`)
   }
   console.log('')
-  console.log('  * share of voice is drift-robust (cancels model changes); it carries the directional call.')
-  if (data.modelChanges.length > 0) {
-    for (const mc of data.modelChanges) {
-      console.log(`  Model changed: ${mc.provider} (${mc.fromModels.join('/') || '?'} -> ${mc.toModels.join('/') || '?'}) — absolute rate moves are not attributable to the site.`)
+  console.log('  * share of voice is less exposed to broad model-wide naming propensity; model continuity is still required.')
+  for (const provider of data.continuity.providers) {
+    if (provider.status !== 'included') {
+      console.log(`  Excluded for model continuity: ${provider.provider} (${provider.fromModels.join('/') || '?'} -> ${provider.toModels.join('/') || '?'}; ${provider.status.replace('-', ' ')})`)
     }
   }
 }
