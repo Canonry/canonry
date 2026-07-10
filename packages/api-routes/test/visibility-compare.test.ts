@@ -67,6 +67,38 @@ describe('computeVisibilityCompare — basket', () => {
     expect(metricOf(dto, 'mention-rate').from.denominator).toBe(1)
     expect(metricOf(dto, 'mention-rate').to.denominator).toBe(1)
   })
+
+  it('compares only common query/provider pairs, not a provider’s different query coverage in each period', () => {
+    // OpenAI has q1 only in May and q3 only in June. It also has q2 in both,
+    // so a provider-set intersection alone would keep OpenAI and incorrectly
+    // count its q1/q3 coverage churn as a 1/5 -> 0/5 decline. Claude keeps all
+    // three queries present in both months, so every query is otherwise common.
+    const from = [
+      snap({ queryId: 'q1', provider: 'openai', answerMentioned: true }),
+      snap({ queryId: 'q2', provider: 'openai', answerMentioned: false }),
+      snap({ queryId: 'q1', provider: 'claude' }),
+      snap({ queryId: 'q2', provider: 'claude' }),
+      snap({ queryId: 'q3', provider: 'claude' }),
+    ]
+    const to = [
+      snap({ queryId: 'q2', provider: 'openai', answerMentioned: false }),
+      snap({ queryId: 'q3', provider: 'openai', answerMentioned: false }),
+      snap({ queryId: 'q1', provider: 'claude' }),
+      snap({ queryId: 'q2', provider: 'claude' }),
+      snap({ queryId: 'q3', provider: 'claude' }),
+    ]
+
+    const dto = computeVisibilityCompare(build(from, to))
+    const mentionRate = metricOf(dto, 'mention-rate')
+    expect(dto.basket).toMatchObject({ queryCount: 3, providers: ['claude', 'openai'] })
+    expect(mentionRate.from).toMatchObject({ numerator: 0, denominator: 4, point: 0 })
+    expect(mentionRate.to).toMatchObject({ numerator: 0, denominator: 4, point: 0 })
+    expect(mentionRate.verdict).toBe('within-noise')
+    expect(dto.byProvider.find((row) => row.provider === 'openai')).toMatchObject({
+      from: { checked: 1, mentioned: 0 },
+      to: { checked: 1, mentioned: 0 },
+    })
+  })
 })
 
 describe('computeVisibilityCompare — K-invariance', () => {

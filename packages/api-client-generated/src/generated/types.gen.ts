@@ -2821,7 +2821,7 @@ export type VisibilityCompareDto = {
             denominator: number;
         };
         rateRatio: number | null;
-        direction: 'up' | 'down' | 'flat';
+        direction: 'up' | 'down' | 'flat' | null;
         verdict: 'within-noise' | 'moved' | 'insufficient-data';
     }>;
     queriesMentioned: {

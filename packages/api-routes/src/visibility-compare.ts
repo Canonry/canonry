@@ -52,24 +52,31 @@ interface Attributed extends VisibilityCompareSnapshotInput {
   queryId: string // non-null after attribution
 }
 
+interface BasketPair {
+  queryId: string
+  provider: string
+}
+
+function basketPairKey(queryId: string, provider: string): string {
+  return JSON.stringify([queryId, provider])
+}
+
 /** A cited hostname belongs to a competitor when it equals or is a subdomain of the competitor's host. */
 function citedHostMatches(citedHost: string, competitorHost: string): boolean {
   return citedHost === competitorHost || citedHost.endsWith(`.${competitorHost}`)
 }
 
-/** Attribute snapshots to currently-tracked queries (drop the rest), restricted to the given query + provider basket. */
+/** Attribute snapshots to currently-tracked queries (drop the rest), restricted to the common query/provider-pair basket. */
 function restrict(
   snapshots: VisibilityCompareSnapshotInput[],
   attribution: ReturnType<typeof buildQueryAttribution>,
-  queryIds: ReadonlySet<string>,
-  providers: ReadonlySet<string>,
+  pairs: ReadonlyMap<string, BasketPair>,
 ): Attributed[] {
   const out: Attributed[] = []
   for (const snap of snapshots) {
     const resolved = resolveCurrentQuery(attribution, snap)
     if (!resolved) continue
-    if (!queryIds.has(resolved.id)) continue
-    if (!providers.has(snap.provider)) continue
+    if (!pairs.has(basketPairKey(resolved.id, snap.provider))) continue
     out.push({ ...snap, queryId: resolved.id })
   }
   return out
@@ -91,19 +98,20 @@ function observed(
   return { queryIds, providers }
 }
 
-/** Providers a period observed on the given (basket) queries only. */
-function providersOnQueries(
+/** Query/provider pairs a period observed on the given (common) queries. */
+function observedPairs(
   snapshots: VisibilityCompareSnapshotInput[],
   attribution: ReturnType<typeof buildQueryAttribution>,
   queryIds: ReadonlySet<string>,
-): Set<string> {
-  const providers = new Set<string>()
+): Map<string, BasketPair> {
+  const pairs = new Map<string, BasketPair>()
   for (const snap of snapshots) {
     const resolved = resolveCurrentQuery(attribution, snap)
     if (!resolved || !queryIds.has(resolved.id)) continue
-    providers.add(snap.provider)
+    const pair = { queryId: resolved.id, provider: snap.provider }
+    pairs.set(basketPairKey(pair.queryId, pair.provider), pair)
   }
-  return providers
+  return pairs
 }
 
 function period(numerator: number, denominator: number): VisibilityCompareMetricPeriod {
@@ -247,22 +255,22 @@ export function computeVisibilityCompare(input: ComputeVisibilityCompareInput): 
   const fromObs = observed(input.from.snapshots, attribution)
   const toObs = observed(input.to.snapshots, attribution)
 
-  // BASKET: only queries + providers present in BOTH periods are compared.
-  const queriesBoth = new Set([...fromObs.queryIds].filter((q) => toObs.queryIds.has(q)))
-  // The provider basket is decided AFTER the query restriction: a provider
-  // joins only when it has >= 1 basket-query snapshot in BOTH periods.
-  // Deciding it pre-restriction would admit a provider whose only snapshots in
-  // one period sit on excluded queries — its counts would read 0-of-0 and its
-  // empty model set would surface as a spurious "model changed".
-  const fromBasketProviders = providersOnQueries(input.from.snapshots, attribution, queriesBoth)
-  const toBasketProviders = providersOnQueries(input.to.snapshots, attribution, queriesBoth)
-  const providersBoth = new Set([...fromBasketProviders].filter((p) => toBasketProviders.has(p)))
+  // BASKET: only query/provider PAIRS observed in BOTH periods are compared.
+  // Intersecting query ids and provider names separately would still admit a
+  // provider on different queries in each month, making coverage churn look
+  // like a visibility move.
+  const queriesObservedBoth = new Set([...fromObs.queryIds].filter((q) => toObs.queryIds.has(q)))
+  const fromPairs = observedPairs(input.from.snapshots, attribution, queriesObservedBoth)
+  const toPairs = observedPairs(input.to.snapshots, attribution, queriesObservedBoth)
+  const pairsBoth = new Map([...fromPairs].filter(([key]) => toPairs.has(key)))
+  const queriesBoth = new Set([...pairsBoth.values()].map((pair) => pair.queryId))
+  const providersBoth = new Set([...pairsBoth.values()].map((pair) => pair.provider))
   const excludedProviders = [...new Set([...fromObs.providers, ...toObs.providers])]
     .filter((p) => !providersBoth.has(p))
     .sort((a, b) => a.localeCompare(b))
 
-  const fromSnaps = restrict(input.from.snapshots, attribution, queriesBoth, providersBoth)
-  const toSnaps = restrict(input.to.snapshots, attribution, queriesBoth, providersBoth)
+  const fromSnaps = restrict(input.from.snapshots, attribution, pairsBoth)
+  const toSnaps = restrict(input.to.snapshots, attribution, pairsBoth)
 
   const fromCounts = countPeriod(fromSnaps, input.competitors)
   const toCounts = countPeriod(toSnaps, input.competitors)

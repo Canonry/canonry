@@ -153,8 +153,8 @@ export type VisibilityStatsDto = z.infer<typeof visibilityStatsDtoSchema>
 //     mean of per-sweep rates, NOT `1-(1-p)^K` union which climbs with sweep
 //     count, NOR an OR-over-providers per-query rate which climbs with provider
 //     count; both were rejected precisely because they fabricate m/m moves).
-//   - Comparison is restricted to a common query + provider BASKET (queries and
-//     providers present in BOTH months) so query/provider churn can't leak in.
+//   - Comparison is restricted to common query/provider PAIRS present in BOTH
+//     months so query/provider coverage churn can't leak in.
 //   - Every figure carries a Wilson interval; the verdict is `within-noise` when
 //     the two periods' CIs overlap, so a move on a handful of mentions is never
 //     called a decline.
@@ -208,7 +208,7 @@ export const visibilityCompareMetricSchema = z.object({
   /** `to.point / from.point`; `null` when `from.point` is `0` or `null` (ratio undefined). */
   rateRatio: z.number().nullable(),
   /** Sign of `to.point - from.point`; `null` when either point is `null`. */
-  direction: visibilityCompareDirectionSchema.nullable(),
+  direction: z.union([visibilityCompareDirectionSchema, z.null()]),
   verdict: visibilityCompareVerdictSchema,
 })
 export type VisibilityCompareMetric = z.infer<typeof visibilityCompareMetricSchema>
@@ -232,22 +232,19 @@ export const visibilityComparePeriodWindowSchema = z.object({
 export type VisibilityComparePeriodWindow = z.infer<typeof visibilityComparePeriodWindowSchema>
 
 /**
- * The comparability frame: only queries and providers present in BOTH periods
- * are compared, so a query added/removed or a provider dropped between months
- * never masquerades as an AEO change. Exclusions are surfaced, not hidden.
+ * The comparability frame: only query/provider pairs present in BOTH periods
+ * are compared, so a query added/removed or different provider coverage between
+ * months never masquerades as an AEO change. Exclusions are surfaced, not hidden.
  */
 export const visibilityCompareBasketSchema = z.object({
-  /** Distinct tracked queries observed in BOTH periods — the compared universe. */
+  /** Distinct tracked queries with at least one common provider pair — the compared universe. */
   queryCount: z.number().int(),
   /** Queries observed only in `from` (dropped from the comparison). */
   excludedFromOnly: z.number().int(),
   /** Queries observed only in `to`. */
   excludedToOnly: z.number().int(),
   /**
-   * The compared engine set: providers with ≥1 basket-query snapshot in BOTH
-   * periods. Decided AFTER the query restriction, so a provider whose only
-   * snapshots in one period sit on excluded queries never enters with 0-of-0
-   * counts.
+   * The compared engine set: providers with ≥1 common query/provider pair.
    */
   providers: z.array(z.string()),
   /** Providers observed in either period that did not make the basket (dropped from the comparison). */
