@@ -1,6 +1,6 @@
 # Canonry GTM Launch Plan
 
-> **Scope:** launch-oriented sequencing, success metrics, and per-agent distribution. The canonical product roadmap remains `docs/roadmap.md`. This doc is the launch view; roadmap is the feature view.
+> **Scope:** launch-oriented sequencing, success metrics, and per-agent distribution.
 
 ## Launch Thesis
 
@@ -575,6 +575,5 @@ Track against a funnel dashboard powered by `packages/canonry/src/telemetry.ts`:
 
 ## Relationship to other docs
 
-- **`docs/roadmap.md`** — feature-level product priority (stays canonical for what to build). This doc is the launch view.
 - **`docs/architecture.md`** — current system topology.
 - **`AGENTS.md` (root)** — agent-first contract, surface priority, UI/CLI parity rules. This GTM plan operationalizes those rules.

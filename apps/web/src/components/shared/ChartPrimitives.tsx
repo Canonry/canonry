@@ -106,7 +106,7 @@ export function providerSeriesColor(provider: string, fallbackIndex = 0): string
 /**
  * Neutral color tokens for custom SVG visualizations (non-Recharts).
  * Mirrors the dashboard's zinc neutral ramp so custom charts stay on
- * the documented palette in DESIGN.md.
+ * the documented dashboard palette.
  */
 export const CHART_NEUTRAL = {
   text: 'var(--chart-neutral-text, #a1a1aa)',           // zinc-400 — primary axis labels
@@ -119,7 +119,7 @@ export const CHART_NEUTRAL = {
 
 /**
  * Tone fills for direct categorical charts (bars, donuts).
- * Matches the Listening Post tone palette in DESIGN.md. Use the
+ * Matches the Listening Post tone palette. Use the
  * `Deep` variant when the chart wants heavier visual weight
  * (large donut arcs); use the base variant for sparklines and gauges.
  */

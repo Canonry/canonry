@@ -50,7 +50,7 @@ The provider uses OpenAI's **web search** tool (`web_search`, the current GA too
 
 Citation detection works by extracting domains from final `output_text.annotations` entries where `type === 'url_citation'`. The provider intentionally does not treat `web_search_call.action.sources` as citations, because those are retrieval/search telemetry rather than final answer citations. The job runner then matches the cited domains against the project's canonical domain and competitor domains to determine citation state.
 
-We deliberately do **not** set the new `web_search` tool's `filters.allowed_domains` — Canonry tracks who actually gets cited across the open web, so allow-listing would defeat the point. See [ADR 0010](../adr/0010-openai-web-search-tool.md) for the full rationale on choosing `web_search` over `web_search_preview`.
+We deliberately do **not** set the new `web_search` tool's `filters.allowed_domains` — Canonry tracks who actually gets cited across the open web, so allow-listing would defeat the point. `web_search` (GA) is used over the legacy `web_search_preview` for the same reason: measure the open web as users see it.
 
 ### Upstream references
 
