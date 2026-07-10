@@ -48,7 +48,7 @@ packages/integration-wordpress/  WordPress integration
 docs/                            Architecture, roadmap, testing, ADRs
 ```
 
-Start with `docs/README.md` when you need the current doc map, active plans, ADR index, or canonical roadmap.
+Start with `docs/README.md` when you need the current doc map, ADR index, or canonical roadmap.
 
 ## Commands
 

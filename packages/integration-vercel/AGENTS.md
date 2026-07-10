@@ -161,7 +161,6 @@ with **no in-app instrumentation** required on the user's Vercel project.
   `drainVercelTrafficEvents`, which sub-windows the span and retention-clamps
   the start; the route fails when `retentionClamped` is set so an operator can
   rerun a narrower pull instead of silently skipping history.
-- `plans/server-side-ai-traffic-ingestion.md` — overall traffic plan
 - Vercel Configurable Log Drains (`https://vercel.com/docs/drains`): the only
   Vercel surface that exposes the client IP (`proxy.clientIp`). Relevant only
   if verified Vercel crawler hits are ever required.

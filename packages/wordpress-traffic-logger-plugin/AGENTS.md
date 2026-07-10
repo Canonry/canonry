@@ -155,4 +155,3 @@ Test files cover:
   this plugin's `/wp-json/canonry/v1/events` endpoint.
 - `packages/integration-wordpress/` — separate content-publishing plugin
   client; shares only the Application-Password auth pattern.
-- `plans/server-side-ai-traffic-ingestion.md` — overall traffic plan.

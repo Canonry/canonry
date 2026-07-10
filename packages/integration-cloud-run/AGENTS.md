@@ -31,6 +31,4 @@ Cloud Run / Cloud Logging integration — pulls request logs for `cloud_run_revi
 
 - `packages/contracts/src/traffic.ts` — the `NormalizedTrafficRequest` contract this package emits
 - `packages/integration-traffic/` — provider-neutral classifier + rollup over normalized events
-- `plans/cloud-run-traffic-source-model-review.md` — design rationale for the raw-event vs aggregate-bucket split
-- `plans/server-side-ai-traffic-ingestion.md` — overall traffic ingestion plan
 - `scripts/test-cloud-run-traffic-pull.ts` — local probe that exercises pull → normalize → analyze

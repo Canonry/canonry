@@ -1,6 +1,6 @@
 # Canonry Docs Index
 
-Start here when you need to understand what is implemented today, what is planned next, and which architectural decisions are already settled.
+Start here when you need to understand what is implemented today, what is on the roadmap, and which architectural decisions are already settled.
 
 Canonry is API-first. The API is the source of truth, the CLI is the standard operator surface, and the web UI is a secondary consumer for human analysts.
 
@@ -40,17 +40,9 @@ Canonry is API-first. The API is the source of truth, the CLI is the standard op
 | [`roadmap.md`](roadmap.md) | roadmap | founders, maintainers | Canonical product roadmap and prioritization |
 | [`gtm.md`](gtm.md) | launch plan | founders, maintainers | GTM launch sequencing, success metrics, per-agent distribution |
 
-`docs/roadmap.md` is the canonical product roadmap (feature-level priority). `docs/gtm.md` is the launch view (waves, ship gates, distribution). Do not treat plans or ADRs as substitutes for either.
+`docs/roadmap.md` is the canonical product roadmap (feature-level priority). `docs/gtm.md` is the launch view (waves, ship gates, distribution). Do not treat ADRs as a substitute for either.
 
-## Active Plans
-
-| Document | Label | Audience | Purpose |
-| --- | --- | --- | --- |
-| [`../plans/deployment-parity.md`](../plans/deployment-parity.md) | active plan | engineers, operators | Bring local, Docker, and hosted deployment paths into parity |
-| [`../plans/optimize-ai-calls.md`](../plans/optimize-ai-calls.md) | active plan | engineers | Reduce provider cost and unnecessary repeat calls |
-| [`../plans/gbp-phase-3-4-handoff.md`](../plans/gbp-phase-3-4-handoff.md) | active plan | engineers | Google Business Profile next steps — Phase 3 (web UI) + Phase 4 (scheduling, doctor checks, insights) |
-
-Plans describe implementation work. They are not current-behavior reference docs.
+Implementation plans live in PR descriptions, not in the repo — a plan doc goes stale the day its PR merges, while the PR record stays attached to the change that realized it.
 
 ## ADR Index
 

@@ -186,7 +186,7 @@ describe('buildMentionShare', () => {
   })
 
   it('demand-iq replication: project gets crushed by competitors (5 vs 92 across 15 competitors)', () => {
-    // Mirrors the empirical finding from plans/sov-rework-analysis.md.
+    // Mirrors the empirical finding from the 2026-07 SoV rework analysis.
     const competitors: MentionShareCompetitor[] = [
       { domain: 'roofr.com', brandTokens: ['roofr'] },
       { domain: 'buildxact.com', brandTokens: ['buildxact'] },
