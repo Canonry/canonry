@@ -1908,6 +1908,13 @@ function renderServerActivity(report: ProjectReportDto, audience: ReportAudience
     return `<span class="tone-${deltaTone(d.deltaPct)}">${escapeHtml(copy)}</span>`
   }
 
+  // Referral arrivals mix paid and organic clicks. Without the split a reader
+  // takes the whole number for earned AI traffic. Same string on both surfaces
+  // — the API renders it (`referralArrivalsClassSummary`) so they cannot drift.
+  const referralSubtitle = [formatDelta(sa.referralArrivals, 'sessions'), escapeHtml(sa.referralArrivalsClassSummary)]
+    .filter(Boolean)
+    .join(' · ')
+
   // ── Client view (lightweight; mirrors the SPA's ServerActivityClientView) ──
   if (isClient) {
     const crawlerRequests = {
@@ -1953,7 +1960,7 @@ function renderServerActivity(report: ProjectReportDto, audience: ReportAudience
         <div class="metric">
           <div class="label">AI referral sessions</div>
           <div class="value">${formatNumber(sa.referralArrivals.current)}</div>
-          <div class="subtitle">${formatDelta(sa.referralArrivals, 'sessions')}</div>
+          <div class="subtitle">${referralSubtitle}</div>
         </div>
       </div>
       ${clientOperatorRows ? `<div class="chart-card"><h3>By AI tool</h3>
@@ -2033,7 +2040,7 @@ function renderServerActivity(report: ProjectReportDto, audience: ReportAudience
       <div class="metric">
         <div class="label">AI-referral sessions (${windowLabel})</div>
         <div class="value">${formatNumber(sa.referralArrivals.current)}</div>
-        <div class="subtitle">${formatDelta(sa.referralArrivals, 'sessions')}</div>
+        <div class="subtitle">${referralSubtitle}</div>
       </div>
     </div>
     ${trendChart}

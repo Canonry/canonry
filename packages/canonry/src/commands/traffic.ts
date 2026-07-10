@@ -549,6 +549,7 @@ function formatEventLine(event: TrafficEventEntry): string {
         event.sourceDomain,
         event.landingPathNormalized,
         `${event.hits} hits`,
+        `(paid ${event.paidHits} · organic ${event.organicHits} · unclassified ${event.unknownHits})`,
       ].join('  ')
   }
 }
@@ -615,6 +616,9 @@ export async function trafficEvents(project: string, opts: {
   console.log(`  Crawler hits total (window):   ${result.totals.crawlerHits}`)
   console.log(`  AI user-fetch hits (window):   ${result.totals.aiUserFetchHits}`)
   console.log(`  AI referral sessions (window): ${result.totals.aiReferralHits}`)
+  console.log(`    paid:                       ${result.totals.aiReferralPaidHits}`)
+  console.log(`    organic:                    ${result.totals.aiReferralOrganicHits}`)
+  console.log(`    unclassified:               ${result.totals.aiReferralUnknownHits}  (ingested before paid/organic classification)`)
   console.log('')
 
   if (result.events.length === 0) {

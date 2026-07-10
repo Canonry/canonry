@@ -1,4 +1,4 @@
-import type { NormalizedTrafficRequest } from '@ainyc/canonry-contracts'
+import type { AiReferralTrafficClass, NormalizedTrafficRequest } from '@ainyc/canonry-contracts'
 
 export type CrawlerVerificationStatus = 'verified' | 'claimed_unverified' | 'unknown_ai_like'
 export type AiReferralEvidenceType = 'referer' | 'utm' | 'referer-utm'
@@ -44,6 +44,11 @@ export interface ClassifiedAiReferral {
   product: string
   sourceDomain: string
   evidenceType: AiReferralEvidenceType
+  /**
+   * Paid vs organic, decided from the event's UTM tags. Orthogonal to
+   * `evidenceType`, which only says which signal identified the engine.
+   */
+  trafficClass: AiReferralTrafficClass
 }
 
 export interface CrawlerEventHourlyBucket {
@@ -79,6 +84,15 @@ export interface AiReferralEventHourlyBucket {
   landingPathNormalized: string
   status: number | null
   hits: number
+  /**
+   * Traffic class is a property of the arriving session, not of the bucket's
+   * identity — one hour, product, domain, evidence type, and landing path can
+   * legitimately carry both paid and organic arrivals. So the class splits the
+   * MEASURE rather than joining the key: `paidHits + organicHits === hits` for
+   * every bucket this rollup emits.
+   */
+  paidHits: number
+  organicHits: number
 }
 
 export interface TrafficProbeSample {
@@ -105,6 +119,10 @@ export interface TrafficProbeReport {
     crawlerHits: number
     aiUserFetchHits: number
     aiReferralSessions: number
+    /** Sessions carrying paid-attribution UTM evidence. Sums with `aiReferralOrganicSessions` to `aiReferralSessions`. */
+    aiReferralPaidSessions: number
+    /** Sessions with no paid-attribution evidence. */
+    aiReferralOrganicSessions: number
     aiReferralHits: number
     unknownHits: number
   }

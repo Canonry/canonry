@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm'
-import { classifyGa4AiReferralTrafficClass } from '@ainyc/canonry-contracts'
+import { classifyAiReferralTrafficClass } from '@ainyc/canonry-contracts'
 import type { DatabaseClient } from './client.js'
 import { parseJsonColumn } from './json.js'
 
@@ -2030,7 +2030,7 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
     //
     // Every row is re-classified, not only the "unclassified" ones: v95's
     // default is indistinguishable from a genuinely-organic classification, so
-    // there is no way to tell the two apart. `classifyGa4AiReferralTrafficClass`
+    // there is no way to tell the two apart. `classifyAiReferralTrafficClass`
     // is pure and deterministic, so re-running it over already-correct rows
     // writes nothing, which is what makes this version safe to replay.
     version: 96,
@@ -2039,6 +2039,27 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
     run: (tx) => {
       backfillGaAiReferralTrafficClass(tx)
     },
+  },
+  {
+    // Splits the server-side AI-referral MEASURE by traffic class rather than
+    // adding a class column. Paid-ness lives in the request's UTM tags, which
+    // `landing_path_normalized` strips, so one hourly bucket can legitimately
+    // hold both paid and organic arrivals: a class column outside the 8-column
+    // primary key would silently stamp a mixed bucket with one label, and
+    // SQLite cannot extend a composite key with ADD COLUMN anyway.
+    //
+    // Deliberately NO backfill. The discriminator was never persisted — the
+    // request's query string is dropped before the hourly bucket and before
+    // `raw_event_samples` — so no honest class exists for historical rows.
+    // Leaving both counters at 0 surfaces their whole `sessions_or_hits` as the
+    // unknown residual. An older binary writing rows after a downgrade lands in
+    // that residual too, which is the truth about those rows.
+    version: 97,
+    name: 'server-side-ai-referral-traffic-class',
+    statements: [
+      `ALTER TABLE ai_referral_events_hourly ADD COLUMN paid_sessions_or_hits INTEGER NOT NULL DEFAULT 0`,
+      `ALTER TABLE ai_referral_events_hourly ADD COLUMN organic_sessions_or_hits INTEGER NOT NULL DEFAULT 0`,
+    ],
   },
 ]
 
@@ -2208,7 +2229,7 @@ interface GaAiReferralClassRow {
  * the ingest classifier reads (`source`, `medium`, `channel_group`,
  * `landing_page`).
  *
- * Calls the shared `classifyGa4AiReferralTrafficClass` rather than restating the
+ * Calls the shared `classifyAiReferralTrafficClass` rather than restating the
  * heuristic in SQL, so the backfill can never drift from what ingest writes (a
  * SQL rewrite would also have to drop the landing-page UTM check, which needs
  * URL parsing).
@@ -2226,7 +2247,7 @@ export function backfillGaAiReferralTrafficClass(tx: MigrationDb): number {
 
   let updated = 0
   for (const row of rows) {
-    const next = classifyGa4AiReferralTrafficClass({
+    const next = classifyAiReferralTrafficClass({
       source: row.source,
       medium: row.medium,
       channelGroup: row.channel_group,

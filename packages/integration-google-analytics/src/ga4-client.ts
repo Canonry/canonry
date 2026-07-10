@@ -1,5 +1,5 @@
 import crypto from 'node:crypto'
-import { AI_ENGINE_DOMAINS, classifyGa4AiReferralTrafficClass, withRetry } from '@ainyc/canonry-contracts'
+import { AI_ENGINE_DOMAINS, classifyAiReferralTrafficClass, withRetry } from '@ainyc/canonry-contracts'
 import {
   GA4_DATA_API_BASE,
   GA4_SCOPE,
@@ -822,7 +822,7 @@ export async function fetchAiReferrals(
           date: row.dimensionValues[0]!.value,
           source,
           medium,
-          trafficClass: classifyGa4AiReferralTrafficClass({ source, medium, channelGroup, landingPage }),
+          trafficClass: classifyAiReferralTrafficClass({ source, medium, channelGroup, landingPage }),
           channelGroup,
           landingPage,
           sessions: parseInt(row.metricValues[0]!.value, 10) || 0,

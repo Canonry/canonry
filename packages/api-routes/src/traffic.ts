@@ -12,6 +12,7 @@ import {
   schedules,
 } from '@ainyc/canonry-db'
 import {
+  aiReferralClassCounts,
   notFound,
   providerError,
   validationError,
@@ -566,6 +567,8 @@ async function runBackfillTask(options: RunBackfillTaskOptions): Promise<void> {
             landingPathNormalized: bucket.landingPathNormalized,
             status: bucket.status ?? 0,
             sessionsOrHits: bucket.hits,
+            paidSessionsOrHits: bucket.paidHits,
+            organicSessionsOrHits: bucket.organicHits,
             usersEstimated: null,
             createdAt: finishedAt,
             updatedAt: finishedAt,
@@ -1723,6 +1726,8 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
             landingPathNormalized: bucket.landingPathNormalized,
             status,
             sessionsOrHits: bucket.hits,
+            paidSessionsOrHits: bucket.paidHits,
+            organicSessionsOrHits: bucket.organicHits,
             usersEstimated: null,
             createdAt: finishedAt,
             updatedAt: finishedAt,
@@ -1738,8 +1743,13 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
               aiReferralEventsHourly.landingPathNormalized,
               aiReferralEventsHourly.status,
             ],
+            // All three counters accumulate. The class splits the measure, so a
+            // colliding bucket adds its paid and organic arrivals to the ones
+            // already there rather than overwriting a single label.
             set: {
               sessionsOrHits: sql`${aiReferralEventsHourly.sessionsOrHits} + ${bucket.hits}`,
+              paidSessionsOrHits: sql`${aiReferralEventsHourly.paidSessionsOrHits} + ${bucket.paidHits}`,
+              organicSessionsOrHits: sql`${aiReferralEventsHourly.organicSessionsOrHits} + ${bucket.organicHits}`,
               updatedAt: finishedAt,
             },
           })
@@ -2423,7 +2433,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
     let crawlerTotal = 0
     let crawlerSegments = { content: 0, sitemap: 0, robots: 0, asset: 0, other: 0 }
     let aiUserFetchTotal = 0
-    let aiReferralTotal = 0
+    let aiReferralCounts = aiReferralClassCounts(0, 0, 0)
 
     if (kind === 'all' || kind === TrafficEventKinds.crawler) {
       const crawlerFilters = [
@@ -2527,11 +2537,19 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       const aiWhere = and(...aiFilters)
 
       const total = app.db
-        .select({ total: sql<number>`COALESCE(SUM(${aiReferralEventsHourly.sessionsOrHits}), 0)` })
+        .select({
+          total: sql<number>`COALESCE(SUM(${aiReferralEventsHourly.sessionsOrHits}), 0)`,
+          paid: sql<number>`COALESCE(SUM(${aiReferralEventsHourly.paidSessionsOrHits}), 0)`,
+          organic: sql<number>`COALESCE(SUM(${aiReferralEventsHourly.organicSessionsOrHits}), 0)`,
+        })
         .from(aiReferralEventsHourly)
         .where(aiWhere)
         .get()
-      aiReferralTotal = Number(total?.total ?? 0)
+      aiReferralCounts = aiReferralClassCounts(
+        Number(total?.total ?? 0),
+        Number(total?.paid ?? 0),
+        Number(total?.organic ?? 0),
+      )
 
       const rows = app.db
         .select()
@@ -2541,6 +2559,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         .limit(limit)
         .all()
       for (const r of rows) {
+        const counts = aiReferralClassCounts(r.sessionsOrHits, r.paidSessionsOrHits, r.organicSessionsOrHits)
         events.push({
           kind: TrafficEventKinds['ai-referral'],
           sourceId: r.sourceId,
@@ -2551,7 +2570,10 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
           evidenceType: r.evidenceType,
           landingPathNormalized: r.landingPathNormalized,
           status: r.status,
-          hits: r.sessionsOrHits,
+          hits: counts.total,
+          paidHits: counts.paid,
+          organicHits: counts.organic,
+          unknownHits: counts.unknown,
         })
       }
     }
@@ -2568,7 +2590,10 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         crawlerInfraHits: sumInfraHits(crawlerSegments),
         crawlerSegments,
         aiUserFetchHits: aiUserFetchTotal,
-        aiReferralHits: aiReferralTotal,
+        aiReferralHits: aiReferralCounts.total,
+        aiReferralPaidHits: aiReferralCounts.paid,
+        aiReferralOrganicHits: aiReferralCounts.organic,
+        aiReferralUnknownHits: aiReferralCounts.unknown,
       },
       events: trimmed,
     }

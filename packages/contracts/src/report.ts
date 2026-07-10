@@ -451,8 +451,23 @@ export const serverActivitySectionSchema = z.object({
    * not "is this a confirmed bot identity?"
    */
   aiUserFetchHits: z.object({ current: z.number(), prior: z.number(), deltaPct: z.number().nullable() }),
-  /** Last-7d AI-referral sessions (sessionized from server-side request evidence). */
+  /** Last-7d AI-referral sessions (sessionized from server-side request evidence). Paid + organic + unclassified. */
   referralArrivals: z.object({ current: z.number(), prior: z.number(), deltaPct: z.number().nullable() }),
+  /**
+   * `referralArrivals` split by traffic class. The three buckets sum to it.
+   *
+   * `unclassified` counts sessions ingested before the classifier shipped: the
+   * UTM tags that carry paid-ness were never persisted, so those sessions can
+   * never be resolved. Reporting them as organic would overstate earned AI
+   * traffic by exactly a client's ad volume.
+   */
+  referralArrivalsByClass: z.object({
+    paid: z.object({ current: z.number(), prior: z.number(), deltaPct: z.number().nullable() }),
+    organic: z.object({ current: z.number(), prior: z.number(), deltaPct: z.number().nullable() }),
+    unclassified: z.object({ current: z.number(), prior: z.number(), deltaPct: z.number().nullable() }),
+  }),
+  /** Pre-rendered one-line breakdown, e.g. "Paid 1,200 · Organic 24". Empty when there is nothing to split. */
+  referralArrivalsClassSummary: z.string(),
 
   /** Per-AI-operator breakdown (OpenAI, Anthropic, Google AI, Perplexity, …). */
   byOperator: z.array(z.object({

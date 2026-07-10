@@ -268,6 +268,12 @@ function richReport(): ProjectReportDto {
       unverifiedCrawlerHits: { current: 15, prior: 5, deltaPct: 200 },
       aiUserFetchHits: { current: 42, prior: 18, deltaPct: 133 },
       referralArrivals: { current: 12, prior: 6, deltaPct: 100 },
+      referralArrivalsByClass: {
+        paid: { current: 9, prior: 4, deltaPct: 125 },
+        organic: { current: 2, prior: 2, deltaPct: 0 },
+        unclassified: { current: 1, prior: 0, deltaPct: null },
+      },
+      referralArrivalsClassSummary: 'Paid 9 · Organic 2 · Unclassified 1',
       byOperator: [
         { operator: 'OpenAI', verifiedHits: 140, unverifiedHits: 10, userFetchHits: 32, referralArrivals: 8, deltaPct: 75 },
         { operator: 'Anthropic', verifiedHits: 70, unverifiedHits: 0, userFetchHits: 0, referralArrivals: 3, deltaPct: 40 },
@@ -683,6 +689,9 @@ describe('renderReportHtml', () => {
     expect(html).toContain('AI bot requests observed')
     expect(html).toContain('AI user-fetch requests')
     expect(html).toContain('AI referral sessions')
+    // The referral headline mixes paid and organic clicks. Without the split
+    // beside it a client reads the whole number as earned AI traffic.
+    expect(html).toContain('Paid 9 · Organic 2 · Unclassified 1')
     expect(html).toContain('User-fetch totals count both')
     // Section eyebrow in client view is the friendlier "AI engine attention" label
     expect(html).toContain('AI engine attention')
@@ -708,6 +717,34 @@ describe('renderReportHtml', () => {
     // A user-fetch-only operator (Perplexity in fixture) is sorted into the
     // table even though its verifiedHits / unverifiedHits / referrals are 0
     expect(html).toContain('Perplexity')
+  })
+
+  test('both audiences render the referral paid/organic split beside the headline', () => {
+    const report = richReport()
+    for (const audience of ['client', 'agency'] as const) {
+      const html = renderReportHtml(report, { audience })
+      // Verbatim the API-rendered summary, so the HTML report and the SPA can
+      // never disagree about a client's paid-vs-earned AI traffic.
+      expect(html, audience).toContain('Paid 9 · Organic 2 · Unclassified 1')
+    }
+  })
+
+  test('an all-unclassified window says so instead of rendering a bare total', () => {
+    const report = richReport()
+    report.serverActivity = {
+      ...report.serverActivity!,
+      referralArrivals: { current: 37, prior: 0, deltaPct: null },
+      referralArrivalsByClass: {
+        paid: { current: 0, prior: 0, deltaPct: null },
+        organic: { current: 0, prior: 0, deltaPct: null },
+        unclassified: { current: 37, prior: 0, deltaPct: null },
+      },
+      referralArrivalsClassSummary: 'Unclassified 37',
+    }
+    const html = renderReportHtml(report, { audience: 'agency' })
+    expect(html).toContain('Unclassified 37')
+    // The pre-classifier rows must never be presented as organic wins.
+    expect(html).not.toContain('Organic 37')
   })
 
   test('client HTML hides the section entirely when no traffic source is connected', () => {
@@ -827,6 +864,12 @@ describe('renderReportHtml', () => {
       unverifiedCrawlerHits: { current: 0, prior: 0, deltaPct: null },
       aiUserFetchHits: { current: 0, prior: 0, deltaPct: null },
       referralArrivals: { current: 0, prior: 0, deltaPct: null },
+      referralArrivalsByClass: {
+        paid: { current: 0, prior: 0, deltaPct: null },
+        organic: { current: 0, prior: 0, deltaPct: null },
+        unclassified: { current: 0, prior: 0, deltaPct: null },
+      },
+      referralArrivalsClassSummary: '',
       byOperator: [],
       topCrawledPaths: [],
       referralProducts: [],

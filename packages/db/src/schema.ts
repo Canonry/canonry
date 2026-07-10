@@ -1,5 +1,5 @@
 import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
-import type { BacklinkSource, ContentBriefDto, DiscoveryCompetitorMapEntry, DiscoveryCompetitorType, GA4AiReferralTrafficClass, LocationContext, ProviderName, SiteAuditCrossCuttingIssueDto, SiteAuditFactorSummaryDto, SiteAuditPageFactorDto } from '@ainyc/canonry-contracts'
+import type { BacklinkSource, ContentBriefDto, DiscoveryCompetitorMapEntry, DiscoveryCompetitorType, AiReferralTrafficClass, LocationContext, ProviderName, SiteAuditCrossCuttingIssueDto, SiteAuditFactorSummaryDto, SiteAuditPageFactorDto } from '@ainyc/canonry-contracts'
 
 export const projects = sqliteTable('projects', {
   id: text('id').primaryKey(),
@@ -449,7 +449,7 @@ export const gaAiReferrals = sqliteTable('ga_ai_referrals', {
   date: text('date').notNull(),
   source: text('source').notNull(),
   medium: text('medium').notNull(),
-  trafficClass: text('traffic_class').$type<GA4AiReferralTrafficClass>().notNull().default('organic'),
+  trafficClass: text('traffic_class').$type<AiReferralTrafficClass>().notNull().default('organic'),
   /** Which GA4 dimension produced this row: 'session' | 'first_user' | 'manual_utm' */
   sourceDimension: text('source_dimension').notNull().default('session'),
   /** GA4 default channel group for the session (e.g. 'Referral', 'Organic Social'). */
@@ -862,6 +862,17 @@ export const aiReferralEventsHourly = sqliteTable('ai_referral_events_hourly', {
   landingPathNormalized: text('landing_path_normalized').notNull(),
   status: integer('status').notNull(),
   sessionsOrHits: integer('sessions_or_hits').notNull().default(0),
+  /**
+   * Paid/organic splits the MEASURE, not the primary key. The paid marker lives
+   * in the request's UTM tags, which `landing_path_normalized` strips, so one
+   * bucket can legitimately hold both kinds and the class is NOT functionally
+   * determined by the key. Unclassified arrivals are the residual
+   * `sessions_or_hits - paid - organic`, which leaves rows written before the
+   * ingest classifier shipped (both columns 0) visibly unknown rather than
+   * silently organic — the regression migration v95 shipped on the GA4 side.
+   */
+  paidSessionsOrHits: integer('paid_sessions_or_hits').notNull().default(0),
+  organicSessionsOrHits: integer('organic_sessions_or_hits').notNull().default(0),
   usersEstimated: integer('users_estimated'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),

@@ -1,4 +1,5 @@
-import type { NormalizedTrafficRequest } from '@ainyc/canonry-contracts'
+import type { AiReferralTrafficClass, NormalizedTrafficRequest } from '@ainyc/canonry-contracts'
+import { AiReferralTrafficClasses } from '@ainyc/canonry-contracts'
 import { classifyAiReferral, classifyAiUserFetch, classifyCrawler, isSelfTraffic } from './classifier.js'
 import type {
   AiReferralEventHourlyBucket,
@@ -35,6 +36,7 @@ interface AiReferralSession {
   evidenceType: AiReferralEvidenceType
   landingPathNormalized: string
   status: number | null
+  trafficClass: AiReferralTrafficClass
 }
 
 export function normalizeTrafficPathPattern(path: string): string {
@@ -133,11 +135,18 @@ function evidenceRank(evidenceType: AiReferralEvidenceType): number {
   }
 }
 
-function strongerReferralEvidence(
+function mergeReferralSession(
   current: AiReferralSession,
   next: AiReferralSession,
 ): AiReferralSession {
-  return evidenceRank(next.evidenceType) > evidenceRank(current.evidenceType) ? next : current
+  const winner = evidenceRank(next.evidenceType) > evidenceRank(current.evidenceType) ? next : current
+  // Paid evidence anywhere in the session settles the class. A session's hits
+  // are one actor's burst: the landing request carries the ad's UTM tags, the
+  // sub-resource requests that follow carry none. Absence of the tags on a
+  // later hit is not evidence the click was organic.
+  const paid = current.trafficClass === AiReferralTrafficClasses.paid ||
+    next.trafficClass === AiReferralTrafficClasses.paid
+  return { ...winner, trafficClass: paid ? AiReferralTrafficClasses.paid : winner.trafficClass }
 }
 
 function sortCrawlerBuckets(a: CrawlerEventHourlyBucket, b: CrawlerEventHourlyBucket): number {
@@ -201,6 +210,8 @@ export function buildTrafficProbeReport(
   let crawlerHits = 0
   let aiUserFetchHits = 0
   let aiReferralHits = 0
+  let aiReferralPaidSessions = 0
+  let aiReferralOrganicSessions = 0
   let unknownHits = 0
   const samples: TrafficProbeReport['samples'] = []
 
@@ -287,10 +298,11 @@ export function buildTrafficProbeReport(
           evidenceType: aiReferral.evidenceType,
           landingPathNormalized,
           status: event.status,
+          trafficClass: aiReferral.trafficClass,
         }
         const key = aiReferralSessionKey(event, aiReferral, landingPathNormalized, aiReferralSessionWindowMs)
         const existing = aiReferralSessions.get(key)
-        aiReferralSessions.set(key, existing ? strongerReferralEvidence(existing, session) : session)
+        aiReferralSessions.set(key, existing ? mergeReferralSession(existing, session) : session)
       }
     }
 
@@ -325,13 +337,21 @@ export function buildTrafficProbeReport(
       session.landingPathNormalized,
       session.status ?? 'null',
     ].join('\t')
+    const { trafficClass, ...bucketFields } = session
+    const paid = trafficClass === AiReferralTrafficClasses.paid
+    if (paid) aiReferralPaidSessions += 1
+    else aiReferralOrganicSessions += 1
     const existing = aiReferralBuckets.get(key)
     if (existing) {
       existing.hits += 1
+      if (paid) existing.paidHits += 1
+      else existing.organicHits += 1
     } else {
       aiReferralBuckets.set(key, {
-        ...session,
+        ...bucketFields,
         hits: 1,
+        paidHits: paid ? 1 : 0,
+        organicHits: paid ? 0 : 1,
       })
     }
     incrementBucket(topAiReferrers, session.sourceDomain, {
@@ -351,6 +371,8 @@ export function buildTrafficProbeReport(
       crawlerHits,
       aiUserFetchHits,
       aiReferralSessions: aiReferralSessions.size,
+      aiReferralPaidSessions,
+      aiReferralOrganicSessions,
       aiReferralHits,
       unknownHits,
     },

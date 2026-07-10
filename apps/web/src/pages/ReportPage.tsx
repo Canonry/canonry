@@ -235,6 +235,10 @@ function ServerActivityClientView({ report }: { report: ProjectReportDto }) {
   const crawlerSubtitle = `${formatNumber(sa.verifiedCrawlerHits.current)} verified · ${formatNumber(sa.unverifiedCrawlerHits.current)} unverified${crawlerDelta ? ` · ${crawlerDelta}` : ''}`
   const userFetchDelta = formatDeltaCopy(sa.aiUserFetchHits, 'requests', priorWindowLabel)
   const referralDelta = formatDeltaCopy(sa.referralArrivals, 'sessions', priorWindowLabel)
+  // Referral arrivals mix paid and organic clicks. Without the split a reader
+  // takes the whole number for earned AI traffic. The API renders the summary
+  // string so this and the HTML report cannot drift.
+  const referralSubtitle = [referralDelta, sa.referralArrivalsClassSummary].filter(Boolean).join(' · ')
   // For the client view we cap at the top 5 entries — agencies see the full breakdown in the HTML report.
   const topOperators = sa.byOperator
     .filter(o => o.verifiedHits > 0 || o.unverifiedHits > 0 || o.userFetchHits > 0 || o.referralArrivals > 0)
@@ -261,7 +265,7 @@ function ServerActivityClientView({ report }: { report: ProjectReportDto }) {
         <Metric
           label="AI referral sessions"
           value={formatNumber(sa.referralArrivals.current)}
-          subtitle={referralDelta}
+          subtitle={referralSubtitle}
         />
       </div>
       {topOperators.length > 0 && (

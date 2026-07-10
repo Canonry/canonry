@@ -343,7 +343,18 @@ export const trafficAiReferralEventEntrySchema = z.object({
   evidenceType: z.string(),
   landingPathNormalized: z.string(),
   status: z.number().int(),
+  /** Total AI-referral sessions in the bucket. `paidHits + organicHits + unknownHits === hits`. */
   hits: z.number().int().nonnegative(),
+  /** Sessions carrying paid-attribution UTM evidence (`utm_medium=cpc`, …). */
+  paidHits: z.number().int().nonnegative(),
+  /** Sessions with no paid-attribution evidence. Not proof the click was unpaid — an untagged ad click is indistinguishable. */
+  organicHits: z.number().int().nonnegative(),
+  /**
+   * Sessions ingested before the classifier shipped. Their UTM tags were never
+   * persisted, so they can never be resolved to paid or organic. Never fold
+   * these into `organicHits`.
+   */
+  unknownHits: z.number().int().nonnegative(),
 })
 export type TrafficAiReferralEventEntry = z.infer<typeof trafficAiReferralEventEntrySchema>
 
@@ -367,7 +378,14 @@ export const trafficEventsResponseSchema = z.object({
     /** Full per-class crawler-hit breakdown; the five buckets sum to `crawlerHits`. */
     crawlerSegments: trafficCrawlerSegmentsSchema,
     aiUserFetchHits: z.number().int().nonnegative(),
+    /** Total AI-referral sessions. The three class buckets below sum to it. */
     aiReferralHits: z.number().int().nonnegative(),
+    /** AI-referral sessions carrying paid-attribution UTM evidence. */
+    aiReferralPaidHits: z.number().int().nonnegative(),
+    /** AI-referral sessions with no paid-attribution evidence. */
+    aiReferralOrganicHits: z.number().int().nonnegative(),
+    /** AI-referral sessions ingested before the classifier shipped; unresolvable, never organic. */
+    aiReferralUnknownHits: z.number().int().nonnegative(),
   }),
   events: z.array(trafficEventEntrySchema),
 })

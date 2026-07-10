@@ -3575,6 +3575,96 @@ describe('GET /traffic/events', () => {
     } finally { await h.close() }
   })
 
+  it('splits AI-referral sessions into paid / organic end-to-end through sync and read', async () => {
+    const baseTime = new Date(Date.now() - 60 * 60_000)
+    baseTime.setMinutes(0, 0, 0)
+    const fromBase = (mins: number) => new Date(baseTime.getTime() + mins * 60_000).toISOString()
+
+    // Two distinct actors (distinct IPs), same engine, same landing path, same
+    // hour → one hourly bucket carrying one paid and one organic session. The
+    // paid one is tagged utm_medium=cpc exactly as ChatGPT ads tag it.
+    const events: NormalizedTrafficRequest[] = [
+      buildEvent({
+        remoteIp: '198.51.100.1',
+        userAgent: 'Mozilla/5.0',
+        path: '/pricing',
+        referer: 'https://chatgpt.com/',
+        queryString: 'utm_source=chatgpt&utm_medium=cpc&utm_campaign=openai_ads',
+        status: 200,
+        observedAt: fromBase(5),
+      }),
+      buildEvent({
+        remoteIp: '198.51.100.2',
+        userAgent: 'Mozilla/5.0',
+        path: '/pricing',
+        referer: 'https://chatgpt.com/',
+        queryString: 'utm_source=chatgpt',
+        status: 200,
+        observedAt: fromBase(9),
+      }),
+    ]
+
+    const h = await buildHarness(events)
+    try {
+      const connectRes = await h.app.inject({
+        method: 'POST',
+        url: '/api/v1/projects/test-project/traffic/connect/cloud-run',
+        payload: { gcpProjectId: 'openclaw-nyc', keyJson: SA_KEY },
+      })
+      const sourceId = JSON.parse(connectRes.payload).id
+      await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`,
+        payload: { sinceMinutes: 120 },
+      })
+
+      // 1. The stored row carries the split, and the counters sum to the total.
+      const aiRows = h.db.select().from(aiReferralEventsHourly).all()
+      expect(aiRows.length).toBe(1)
+      expect(aiRows[0].sessionsOrHits).toBe(2)
+      expect(aiRows[0].paidSessionsOrHits).toBe(1)
+      expect(aiRows[0].organicSessionsOrHits).toBe(1)
+
+      // 2. The read path surfaces the split in the totals and per-row, with no
+      // unclassified sessions (both were classified at ingest).
+      const res = await h.app.inject({
+        method: 'GET',
+        url: '/api/v1/projects/test-project/traffic/events',
+      })
+      const body = JSON.parse(res.payload)
+      expect(body.totals.aiReferralHits).toBe(2)
+      expect(body.totals.aiReferralPaidHits).toBe(1)
+      expect(body.totals.aiReferralOrganicHits).toBe(1)
+      expect(body.totals.aiReferralUnknownHits).toBe(0)
+      const referral = body.events.find((e: { kind: string }) => e.kind === 'ai-referral')
+      expect(referral).toMatchObject({ hits: 2, paidHits: 1, organicHits: 1, unknownHits: 0 })
+    } finally { await h.close() }
+  })
+
+  it('surfaces a legacy pre-classifier bucket as unclassified, never organic', async () => {
+    // A row written by a build before the classifier shipped: total sessions,
+    // both class counters at their DEFAULT 0. It must read as unclassified.
+    const { h, sourceId } = await syncedHarness()
+    try {
+      const legacyRow = h.db.select().from(aiReferralEventsHourly).all()[0]
+      // Simulate the legacy shape by zeroing the split on the synced row.
+      h.db.update(aiReferralEventsHourly)
+        .set({ paidSessionsOrHits: 0, organicSessionsOrHits: 0 })
+        .run()
+
+      const res = await h.app.inject({
+        method: 'GET',
+        url: '/api/v1/projects/test-project/traffic/events',
+      })
+      const body = JSON.parse(res.payload)
+      expect(body.totals.aiReferralHits).toBe(legacyRow.sessionsOrHits)
+      expect(body.totals.aiReferralUnknownHits).toBe(legacyRow.sessionsOrHits)
+      expect(body.totals.aiReferralOrganicHits).toBe(0)
+      expect(body.totals.aiReferralPaidHits).toBe(0)
+      expect(sourceId).toBeTruthy()
+    } finally { await h.close() }
+  })
+
   it('serializes ai-user-fetch entries alongside crawler + ai-referral', async () => {
     // End-to-end at the read path: when ChatGPT-User events were persisted
     // into ai_user_fetch_events_hourly, GET /traffic/events MUST return them
