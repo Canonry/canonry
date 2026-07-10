@@ -1922,6 +1922,24 @@ export type ProjectReportDto = {
             prior: number;
             deltaPct: number | null;
         };
+        referralArrivalsByClass: {
+            paid: {
+                current: number;
+                prior: number;
+                deltaPct: number | null;
+            };
+            organic: {
+                current: number;
+                prior: number;
+                deltaPct: number | null;
+            };
+            unclassified: {
+                current: number;
+                prior: number;
+                deltaPct: number | null;
+            };
+        };
+        referralArrivalsClassSummary: string;
         byOperator: Array<{
             operator: string;
             verifiedHits: number;
@@ -2585,6 +2603,9 @@ export type TrafficEventsResponse = {
         };
         aiUserFetchHits: number;
         aiReferralHits: number;
+        aiReferralPaidHits: number;
+        aiReferralOrganicHits: number;
+        aiReferralUnknownHits: number;
     };
     events: Array<{
         kind: 'crawler';
@@ -2618,6 +2639,9 @@ export type TrafficEventsResponse = {
         landingPathNormalized: string;
         status: number;
         hits: number;
+        paidHits: number;
+        organicHits: number;
+        unknownHits: number;
     }>;
 };
 

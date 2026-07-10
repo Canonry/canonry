@@ -1,4 +1,5 @@
-import type { NormalizedTrafficRequest } from '@ainyc/canonry-contracts'
+import type { AiReferralTrafficClass, NormalizedTrafficRequest } from '@ainyc/canonry-contracts'
+import { AiReferralTrafficClasses, classifyAiReferralTrafficClass } from '@ainyc/canonry-contracts'
 import { verifyIpForRule } from './ip-verify.js'
 import { DEFAULT_AI_CRAWLER_RULES, DEFAULT_AI_REFERRER_RULES, SELF_TRAFFIC_USER_AGENT_PATTERNS } from './rules.js'
 import type {
@@ -58,6 +59,52 @@ function utmSourceFromUrl(value: string | null): string | null {
   } catch {
     return null
   }
+}
+
+function paramsFromQuery(queryString: string | null): URLSearchParams | null {
+  if (!queryString) return null
+  const params = new URLSearchParams(queryString)
+  return [...params.keys()].length > 0 ? params : null
+}
+
+function paramsFromUrl(value: string | null): URLSearchParams | null {
+  if (!value) return null
+  try {
+    return paramsFromQuery(new URL(value).search.replace(/^\?/, ''))
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Paid vs organic for a server-side AI referral.
+ *
+ * Evaluated over EVERY query string on the event, independent of which tier of
+ * `classifyAiReferral`'s cascade matched. A paid ChatGPT ad click carries
+ * `utm_medium=cpc` on the request while still matching on the referer host, and
+ * an edge-cached sub-resource carries the landing URL's UTMs on its referer —
+ * so neither query string can be skipped.
+ *
+ * There is no server-side equivalent of GA4's `channelGroup`, which leaves the
+ * UTM tokens as the only discriminator. `organic` therefore means "no paid
+ * evidence found", exactly as it does for GA4: an ad click that carries no UTM
+ * tags is indistinguishable from an organic click on either surface.
+ */
+export function classifyAiReferralTrafficClassFromEvent(
+  event: NormalizedTrafficRequest,
+): AiReferralTrafficClass {
+  for (const params of [paramsFromQuery(event.queryString), paramsFromUrl(event.referer)]) {
+    if (!params) continue
+    const trafficClass = classifyAiReferralTrafficClass({
+      source: params.get('utm_source'),
+      medium: params.get('utm_medium'),
+      channelGroup: null,
+      // Carries utm_campaign / utm_content / utm_term to the shared rules.
+      landingPage: `/?${params.toString()}`,
+    })
+    if (trafficClass === AiReferralTrafficClasses.paid) return AiReferralTrafficClasses.paid
+  }
+  return AiReferralTrafficClasses.organic
 }
 
 /**
@@ -134,6 +181,10 @@ export function classifyAiUserFetch(event: NormalizedTrafficRequest): Classified
 }
 
 export function classifyAiReferral(event: NormalizedTrafficRequest): ClassifiedAiReferral | null {
+  // Independent of the evidence cascade below: the tier that identifies WHICH
+  // engine sent the visit says nothing about whether the visit was paid for.
+  const trafficClass = classifyAiReferralTrafficClassFromEvent(event)
+
   const refererHost = hostFromUrl(event.referer)
   if (refererHost) {
     const rule = DEFAULT_AI_REFERRER_RULES.find((candidate) => hostMatches(refererHost, candidate.domain))
@@ -143,6 +194,7 @@ export function classifyAiReferral(event: NormalizedTrafficRequest): ClassifiedA
         product: rule.product,
         sourceDomain: refererHost,
         evidenceType: 'referer',
+        trafficClass,
       }
     }
   }
@@ -156,6 +208,7 @@ export function classifyAiReferral(event: NormalizedTrafficRequest): ClassifiedA
         product: rule.product,
         sourceDomain: utmSource,
         evidenceType: 'utm',
+        trafficClass,
       }
     }
   }
@@ -174,6 +227,7 @@ export function classifyAiReferral(event: NormalizedTrafficRequest): ClassifiedA
         product: rule.product,
         sourceDomain: refererUtmSource,
         evidenceType: 'referer-utm',
+        trafficClass,
       }
     }
   }

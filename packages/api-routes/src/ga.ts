@@ -2,8 +2,8 @@ import crypto from 'node:crypto'
 import { eq, desc, and, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { gaTrafficSnapshots, gaTrafficSummaries, gaTrafficWindowSummaries, gaAiReferrals, gaSocialReferrals, runs } from '@ainyc/canonry-db'
-import { GA4AiReferralTrafficClasses, classifyGa4AiReferralTrafficClass, validationError, notFound, RunKinds, RunStatuses, RunTriggers, parseWindow, windowCutoff, normalizeUrlPath } from '@ainyc/canonry-contracts'
-import type { GA4AiReferralTrafficClass, GA4ChannelBreakdownDto } from '@ainyc/canonry-contracts'
+import { AiReferralTrafficClasses, classifyAiReferralTrafficClass, validationError, notFound, RunKinds, RunStatuses, RunTriggers, parseWindow, windowCutoff, normalizeUrlPath } from '@ainyc/canonry-contracts'
+import type { AiReferralTrafficClass, GA4ChannelBreakdownDto } from '@ainyc/canonry-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import {
   getAccessToken,
@@ -106,10 +106,10 @@ function pickWinningDimension<T extends { sessions: number | null }>(
   return [...winners.values()].sort((a, b) => (b.sessions ?? 0) - (a.sessions ?? 0))
 }
 
-function normalizeAiTrafficClass(value: string | null | undefined): GA4AiReferralTrafficClass {
-  return value === GA4AiReferralTrafficClasses.paid
-    ? GA4AiReferralTrafficClasses.paid
-    : GA4AiReferralTrafficClasses.organic
+function normalizeAiTrafficClass(value: string | null | undefined): AiReferralTrafficClass {
+  return value === AiReferralTrafficClasses.paid
+    ? AiReferralTrafficClasses.paid
+    : AiReferralTrafficClasses.organic
 }
 
 function emptyAiCounts() {
@@ -150,7 +150,7 @@ function summarizeAiReferralCounts(rows: Array<{
   const organicBySession = emptyAiCounts()
 
   for (const row of rows) {
-    const isPaid = normalizeAiTrafficClass(row.trafficClass) === GA4AiReferralTrafficClasses.paid
+    const isPaid = normalizeAiTrafficClass(row.trafficClass) === AiReferralTrafficClasses.paid
     const sessions = row.sessions ?? 0
     const users = row.users ?? 0
     const key = `${row.date}\0${row.source}\0${row.medium}`
@@ -640,7 +640,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
               date: row.date,
               source: row.source,
               medium: row.medium,
-              trafficClass: row.trafficClass ?? classifyGa4AiReferralTrafficClass({
+              trafficClass: row.trafficClass ?? classifyAiReferralTrafficClass({
                 source: row.source,
                 medium: row.medium,
                 channelGroup: row.channelGroup,

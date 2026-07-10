@@ -57,14 +57,14 @@ export interface GA4TrafficRow {
   users: number
 }
 
-export type { GA4AiReferralTrafficClass, GA4SourceDimension } from '@ainyc/canonry-contracts'
-import type { GA4AiReferralTrafficClass, GA4SourceDimension } from '@ainyc/canonry-contracts'
+export type { AiReferralTrafficClass, GA4SourceDimension } from '@ainyc/canonry-contracts'
+import type { AiReferralTrafficClass, GA4SourceDimension } from '@ainyc/canonry-contracts'
 
 export interface GA4AiReferralRow {
   date: string
   source: string
   medium: string
-  trafficClass: GA4AiReferralTrafficClass
+  trafficClass: AiReferralTrafficClass
   /** GA4 default channel group for the current session. */
   channelGroup: string
   landingPage: string

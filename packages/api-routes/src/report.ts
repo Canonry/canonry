@@ -23,7 +23,9 @@ import {
 } from '@ainyc/canonry-db'
 import {
   CitationStates,
-  GA4AiReferralTrafficClasses,
+  AiReferralTrafficClasses,
+  aiReferralClassCounts,
+  formatAiReferralClassSummary,
   RunKinds,
   RunStatuses,
   TrafficSourceStatuses,
@@ -110,7 +112,7 @@ function safeNum(value: unknown): number {
 }
 
 function isPaidAiTrafficClass(value: string | null | undefined): boolean {
-  return value === GA4AiReferralTrafficClasses.paid
+  return value === AiReferralTrafficClasses.paid
 }
 
 // Thin wrapper around the shared intelligence-package categorizer.
@@ -751,23 +753,31 @@ function buildServerActivity(db: DatabaseClient, projectId: string, windowDays: 
         .get()?.total ?? 0,
     )
 
-  const sumReferrals = (windowStartIso: string, windowEndIso: string, exclusiveEnd = false) =>
-    Number(
-      db
-        .select({ total: sql<number>`COALESCE(SUM(${aiReferralEventsHourly.sessionsOrHits}), 0)` })
-        .from(aiReferralEventsHourly)
-        .where(
-          and(
-            eq(aiReferralEventsHourly.projectId, projectId),
-            nonSubresourceReferralPathCondition(),
-            gte(aiReferralEventsHourly.tsHour, windowStartIso),
-            exclusiveEnd
-              ? lt(aiReferralEventsHourly.tsHour, windowEndIso)
-              : lte(aiReferralEventsHourly.tsHour, windowEndIso),
-          ),
-        )
-        .get()?.total ?? 0,
-    )
+  // Returns the window's referral sessions split by traffic class. `unknown` is
+  // the residual for rows ingested before the classifier shipped; it must never
+  // be folded into `organic`, which would report a client's ad clicks as earned
+  // AI traffic.
+  const sumReferrals = (windowStartIso: string, windowEndIso: string, exclusiveEnd = false) => {
+    const row = db
+      .select({
+        total: sql<number>`COALESCE(SUM(${aiReferralEventsHourly.sessionsOrHits}), 0)`,
+        paid: sql<number>`COALESCE(SUM(${aiReferralEventsHourly.paidSessionsOrHits}), 0)`,
+        organic: sql<number>`COALESCE(SUM(${aiReferralEventsHourly.organicSessionsOrHits}), 0)`,
+      })
+      .from(aiReferralEventsHourly)
+      .where(
+        and(
+          eq(aiReferralEventsHourly.projectId, projectId),
+          nonSubresourceReferralPathCondition(),
+          gte(aiReferralEventsHourly.tsHour, windowStartIso),
+          exclusiveEnd
+            ? lt(aiReferralEventsHourly.tsHour, windowEndIso)
+            : lte(aiReferralEventsHourly.tsHour, windowEndIso),
+        ),
+      )
+      .get()
+    return aiReferralClassCounts(Number(row?.total ?? 0), Number(row?.paid ?? 0), Number(row?.organic ?? 0))
+  }
 
   // User-fetch hits roll verified + unverified together. For crawlers we
   // split because IP-range confirmation is the trust signal; for user-fetch
@@ -1061,8 +1071,8 @@ function buildServerActivity(db: DatabaseClient, projectId: string, windowDays: 
   return {
     windowStart: headlineStart,
     windowEnd: headlineEnd,
-    hasData: verifiedCurrent + unverifiedCurrent + userFetchCurrent + referralCurrent
-      + verifiedPrior + unverifiedPrior + userFetchPrior + referralPrior > 0
+    hasData: verifiedCurrent + unverifiedCurrent + userFetchCurrent + referralCurrent.total
+      + verifiedPrior + unverifiedPrior + userFetchPrior + referralPrior.total > 0
       || byOperator.length > 0
       || topCrawledPaths.length > 0
       || referralProducts.length > 0,
@@ -1082,10 +1092,28 @@ function buildServerActivity(db: DatabaseClient, projectId: string, windowDays: 
       deltaPct: deltaPercent(userFetchCurrent, userFetchPrior),
     },
     referralArrivals: {
-      current: referralCurrent,
-      prior: referralPrior,
-      deltaPct: deltaPercent(referralCurrent, referralPrior),
+      current: referralCurrent.total,
+      prior: referralPrior.total,
+      deltaPct: deltaPercent(referralCurrent.total, referralPrior.total),
     },
+    referralArrivalsByClass: {
+      paid: {
+        current: referralCurrent.paid,
+        prior: referralPrior.paid,
+        deltaPct: deltaPercent(referralCurrent.paid, referralPrior.paid),
+      },
+      organic: {
+        current: referralCurrent.organic,
+        prior: referralPrior.organic,
+        deltaPct: deltaPercent(referralCurrent.organic, referralPrior.organic),
+      },
+      unclassified: {
+        current: referralCurrent.unknown,
+        prior: referralPrior.unknown,
+        deltaPct: deltaPercent(referralCurrent.unknown, referralPrior.unknown),
+      },
+    },
+    referralArrivalsClassSummary: formatAiReferralClassSummary(referralCurrent),
     byOperator,
     topCrawledPaths,
     referralProducts,

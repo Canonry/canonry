@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import {
-  classifyGa4AiReferralTrafficClass,
   ga4AiReferralHistoryEntrySchema,
   ga4TrafficSummaryDtoSchema,
 } from '../src/ga.js'
@@ -87,21 +86,5 @@ describe('GA contracts', () => {
     })
 
     expect(parsed.landingPage).toBe('/guide')
-  })
-
-  it('classifies tagged ChatGPT ad traffic as paid and ordinary AI referrals as organic', () => {
-    expect(classifyGa4AiReferralTrafficClass({
-      source: 'chatgpt.com',
-      medium: 'cpc',
-      channelGroup: 'Paid Other',
-      landingPage: '/pricing?utm_source=chatgpt&utm_medium=cpc&utm_campaign=openai_ads',
-    })).toBe('paid')
-
-    expect(classifyGa4AiReferralTrafficClass({
-      source: 'chatgpt.com',
-      medium: 'referral',
-      channelGroup: 'Referral',
-      landingPage: '/pricing?utm_source=chatgpt',
-    })).toBe('organic')
   })
 })

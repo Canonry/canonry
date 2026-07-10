@@ -366,6 +366,11 @@ const trafficEventsInputSchema = z.object({
   sourceId: z.string().min(1).optional().describe('Restrict to a single traffic source ID.'),
   limit: z.number().int().positive().max(5000).optional().describe('Max combined rows. Defaults to 500, max 5000. Totals always reflect the full window.'),
 })
+// ai-referral rows and totals split sessions into paid / organic / unclassified.
+// `unclassified` are rows ingested before the classifier shipped; their UTM tags
+// were never persisted, so they can never be resolved. Never report them as
+// organic — for an ads client that overstates earned AI traffic by their whole
+// ad volume. `organic` means "no paid evidence found", not "confirmed unpaid".
 
 const trafficSourceIdInputSchema = z.object({
   project: projectNameSchema,
