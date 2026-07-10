@@ -1,4 +1,5 @@
 import { sql } from 'drizzle-orm'
+import { classifyGa4AiReferralTrafficClass } from '@ainyc/canonry-contracts'
 import type { DatabaseClient } from './client.js'
 import { parseJsonColumn } from './json.js'
 
@@ -2008,12 +2009,35 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
     run: (tx) => {
       if (!tableExists(tx, 'ga_ai_referrals')) return
       // Split AI referral traffic into paid vs organic/non-paid at ingest.
-      // Existing rows default to organic because historical data has no
-      // durable paid signal beyond source/medium/channel labels.
+      // Rows that already exist take the 'organic' default here; v96 backfills
+      // them by re-deriving the class from the columns already on each row.
       if (!columnExists(tx, 'ga_ai_referrals', 'traffic_class')) {
         tx.run(sql.raw(`ALTER TABLE ga_ai_referrals ADD COLUMN traffic_class TEXT NOT NULL DEFAULT 'organic'`))
       }
       tx.run(sql.raw(`CREATE INDEX IF NOT EXISTS idx_ga_ai_ref_traffic_class ON ga_ai_referrals(project_id, date, traffic_class)`))
+    },
+  },
+  {
+    // v95 added `ga_ai_referrals.traffic_class` with `DEFAULT 'organic'` and did
+    // not classify the rows that already existed. Every historical AI referral
+    // was therefore stamped 'organic', including paid ChatGPT-ads traffic
+    // carrying `medium='cpc'` / `channel_group='Paid Other'`. That silently
+    // reports purchased sessions as organic wins.
+    //
+    // The class is a pure function of columns already stored on each row, so
+    // re-derive it here instead of making an operator delete and re-fetch
+    // identical data from GA4.
+    //
+    // Every row is re-classified, not only the "unclassified" ones: v95's
+    // default is indistinguishable from a genuinely-organic classification, so
+    // there is no way to tell the two apart. `classifyGa4AiReferralTrafficClass`
+    // is pure and deterministic, so re-running it over already-correct rows
+    // writes nothing, which is what makes this version safe to replay.
+    version: 96,
+    name: 'ga-ai-referral-traffic-class-backfill',
+    statements: [],
+    run: (tx) => {
+      backfillGaAiReferralTrafficClass(tx)
     },
   },
 ]
@@ -2168,6 +2192,51 @@ function tableIsEmpty(db: MigrationDb, table: string): boolean {
   // Table name is a hard-coded constant in this module — safe to interpolate.
   const rows = db.all(sql.raw(`SELECT COUNT(*) as c FROM ${table}`)) as Array<{ c: number }>
   return (rows[0]?.c ?? 0) === 0
+}
+
+interface GaAiReferralClassRow {
+  id: string
+  source: string | null
+  medium: string | null
+  channel_group: string | null
+  landing_page: string | null
+  traffic_class: string | null
+}
+
+/**
+ * Re-derive `ga_ai_referrals.traffic_class` for every row from the same columns
+ * the ingest classifier reads (`source`, `medium`, `channel_group`,
+ * `landing_page`).
+ *
+ * Calls the shared `classifyGa4AiReferralTrafficClass` rather than restating the
+ * heuristic in SQL, so the backfill can never drift from what ingest writes (a
+ * SQL rewrite would also have to drop the landing-page UTM check, which needs
+ * URL parsing).
+ *
+ * Only rows whose stored class actually differs are written, so a replay is a
+ * no-op. Returns the number of rows updated.
+ */
+export function backfillGaAiReferralTrafficClass(tx: MigrationDb): number {
+  if (!tableExists(tx, 'ga_ai_referrals')) return 0
+  if (!columnExists(tx, 'ga_ai_referrals', 'traffic_class')) return 0
+
+  const rows = tx.all(sql.raw(
+    `SELECT id, source, medium, channel_group, landing_page, traffic_class FROM ga_ai_referrals`,
+  )) as GaAiReferralClassRow[]
+
+  let updated = 0
+  for (const row of rows) {
+    const next = classifyGa4AiReferralTrafficClass({
+      source: row.source,
+      medium: row.medium,
+      channelGroup: row.channel_group,
+      landingPage: row.landing_page,
+    })
+    if (next === row.traffic_class) continue
+    tx.run(sql`UPDATE ga_ai_referrals SET traffic_class = ${next} WHERE id = ${row.id}`)
+    updated += 1
+  }
+  return updated
 }
 
 function hasLegacyQuerySchema(db: MigrationDb): boolean {

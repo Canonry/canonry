@@ -47,6 +47,12 @@ const RUN_HOOK_ALLOWLIST: ReadonlySet<number> = new Set([
   // v95 only adds a defaulted column + index, but uses run() to skip partial
   // legacy schemas where ga_ai_referrals has not been bootstrapped yet.
   95,
+  // v96 only rewrites `ga_ai_referrals.traffic_class` VALUES; it makes no schema
+  // change. Downgrade-safe: the column is unknown to any binary older than v95,
+  // so an older engine neither reads nor writes it. It needs run() because the
+  // class comes from the shared TS classifier, which SQL cannot express (the
+  // landing-page check requires URL parsing).
+  96,
 ])
 
 test(`migrations after v${DOWNGRADE_BASELINE} define no run() hook unless explicitly allowlisted`, () => {
