@@ -4,7 +4,7 @@ import { filterTrackedSnapshots, groupRunsByCreatedAt, pickGroupRepresentative, 
 import {
   AI_PROVIDER_INFRA_DOMAINS, brandLabelFromDomain, categorizeSource, categoryLabel, CitationStates,
   classifySurfaceFromCategory, surfaceClassFromCompetitorType, surfaceClassLabel,
-  effectiveDomains, normalizeProjectDomain, parseWindow, windowCutoff, validationError,
+  effectiveDomains, normalizeProjectDomain, parseWindow, RunKinds, windowCutoff, validationError,
 } from '@ainyc/canonry-contracts'
 import type {
   BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto,
@@ -29,7 +29,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
     const projectRuns = app.db
       .select()
       .from(runs)
-      .where(and(eq(runs.projectId, project.id), notProbeRun()))
+      .where(and(eq(runs.projectId, project.id), eq(runs.kind, RunKinds['answer-visibility']), notProbeRun()))
       .orderBy(runs.createdAt)
       .all()
       .filter(r => r.status === 'completed' || r.status === 'partial')
@@ -130,10 +130,13 @@ export async function analyticsRoutes(app: FastifyInstance) {
     // classification reads snapshots across all locations in it. The single
     // `runId` returned in the response is the deterministic representative
     // (id DESC tiebreak) so callers get a stable id. See #480.
+    // Only `answer-visibility` runs carry query snapshots — a newer sync run
+    // (traffic/gsc/ga/gbp/backlinks/site-audit) would otherwise become "latest"
+    // and classify an empty snapshot set.
     const completedRuns = app.db
       .select()
       .from(runs)
-      .where(and(eq(runs.projectId, project.id), notProbeRun()))
+      .where(and(eq(runs.projectId, project.id), eq(runs.kind, RunKinds['answer-visibility']), notProbeRun()))
       .orderBy(desc(runs.createdAt), desc(runs.id))
       .all()
       .filter(r => r.status === 'completed' || r.status === 'partial')
@@ -145,11 +148,11 @@ export async function analyticsRoutes(app: FastifyInstance) {
       return reply.send({ cited: [], gap: [], uncited: [], mentionedQueries: [], mentionGap: [], notMentioned: [], runId: '', window } satisfies GapAnalysisDto)
     }
 
-    // All runs in window (for consistency signal)
+    // All sweep runs in window (for consistency signal)
     const windowRuns = app.db
       .select()
       .from(runs)
-      .where(and(eq(runs.projectId, project.id), notProbeRun()))
+      .where(and(eq(runs.projectId, project.id), eq(runs.kind, RunKinds['answer-visibility']), notProbeRun()))
       .orderBy(runs.createdAt)
       .all()
       .filter(r => r.status === 'completed' || r.status === 'partial')
@@ -354,11 +357,11 @@ export async function analyticsRoutes(app: FastifyInstance) {
       if (mapped) storedSurfaceClasses.set(normalizeProjectDomain(row.domain), mapped)
     }
 
-    // All runs in window
+    // All sweep runs in window
     const windowRuns = app.db
       .select()
       .from(runs)
-      .where(and(eq(runs.projectId, project.id), notProbeRun()))
+      .where(and(eq(runs.projectId, project.id), eq(runs.kind, RunKinds['answer-visibility']), notProbeRun()))
       .orderBy(desc(runs.createdAt), desc(runs.id))
       .all()
       .filter(r => r.status === 'completed' || r.status === 'partial')

@@ -1148,3 +1148,95 @@ describe('GET /projects/:name/analytics/sources — ranked + byProvider + classi
     expect(body.limit).toBeNull()
   })
 })
+
+// A project that also ingests traffic (or syncs GSC/GA/GBP) accumulates runs whose
+// kind is not `answer-visibility`. Those runs carry zero query_snapshots, so any
+// analytics read that resolves "the latest run" without filtering on kind lands on
+// one of them and classifies an empty snapshot set. traffic-sync alone runs every
+// 30 minutes, so for those projects the newest run is essentially never a sweep.
+describe('analytics ignores non-sweep run kinds', () => {
+  let app: ReturnType<typeof Fastify>
+  let db: ReturnType<typeof createClient>
+  let tmpDir: string
+  let sweepOlderId: string
+  let sweepLatestId: string
+
+  const DAY_MS = 86_400_000
+  const iso = (daysAgo: number) => new Date(Date.now() - daysAgo * DAY_MS).toISOString()
+
+  beforeAll(async () => {
+    const ctx = buildApp()
+    app = ctx.app
+    db = ctx.db
+    tmpDir = ctx.tmpDir
+    await app.ready()
+
+    const projectId = crypto.randomUUID()
+    db.insert(projects).values({
+      id: projectId, name: 'kind-filter', displayName: 'Kind Filter',
+      canonicalDomain: 'kindfilter.com', ownedDomains: [], country: 'US', language: 'en',
+      tags: [], labels: {}, providers: ['gemini'], locations: [], defaultLocation: null,
+      configSource: 'api', configRevision: 1, createdAt: iso(50), updatedAt: iso(50),
+    }).run()
+
+    // Queries predate every bucket so bucket normalization keeps them.
+    const citedQId = crypto.randomUUID()
+    const uncitedQId = crypto.randomUUID()
+    db.insert(queries).values([
+      { id: citedQId, projectId, query: 'cited query', createdAt: iso(50) },
+      { id: uncitedQId, projectId, query: 'uncited query', createdAt: iso(50) },
+    ]).run()
+
+    // Two real sweeps, 3 days apart → a 3-day span → daily buckets.
+    sweepOlderId = crypto.randomUUID()
+    sweepLatestId = crypto.randomUUID()
+    db.insert(runs).values([
+      { id: sweepOlderId, projectId, kind: 'answer-visibility', status: 'completed', trigger: 'manual', location: null, startedAt: iso(40), finishedAt: iso(40), error: null, createdAt: iso(40) },
+      { id: sweepLatestId, projectId, kind: 'answer-visibility', status: 'completed', trigger: 'manual', location: null, startedAt: iso(37), finishedAt: iso(37), error: null, createdAt: iso(37) },
+    ]).run()
+
+    for (const [runId, at] of [[sweepOlderId, iso(40)], [sweepLatestId, iso(37)]] as const) {
+      db.insert(querySnapshots).values([
+        { id: crypto.randomUUID(), runId, queryId: citedQId, provider: 'gemini', citationState: 'cited', answerMentioned: true, answerText: 'kindfilter.com is great', citedDomains: ['kindfilter.com'], competitorOverlap: [], location: null, rawResponse: '{}', createdAt: at },
+        { id: crypto.randomUUID(), runId, queryId: uncitedQId, provider: 'gemini', citationState: 'not-cited', answerMentioned: false, answerText: 'no mention here', citedDomains: [], competitorOverlap: [], location: null, rawResponse: '{}', createdAt: at },
+      ]).run()
+    }
+
+    // The newest run is a traffic-sync with no snapshots — exactly what a
+    // traffic-connected project looks like in production.
+    db.insert(runs).values({
+      id: crypto.randomUUID(), projectId, kind: 'traffic-sync', status: 'completed',
+      trigger: 'scheduled', location: null, startedAt: iso(0), finishedAt: iso(0),
+      error: null, createdAt: iso(0),
+    }).run()
+  })
+
+  afterAll(async () => {
+    await app.close()
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('gaps classifies the latest sweep, not the newer traffic-sync run', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/v1/projects/kind-filter/analytics/gaps' })
+    const body = JSON.parse(res.payload)
+
+    expect(body.runId).toBe(sweepLatestId)
+    expect(body.cited.map((q: { query: string }) => q.query)).toEqual(['cited query'])
+    expect(body.uncited.map((q: { query: string }) => q.query)).toEqual(['uncited query'])
+    expect(body.mentionedQueries.map((q: { query: string }) => q.query)).toEqual(['cited query'])
+    expect(body.notMentioned.map((q: { query: string }) => q.query)).toEqual(['uncited query'])
+  })
+
+  it('sources reports the latest sweep as runId, not the traffic-sync run', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/v1/projects/kind-filter/analytics/sources?window=all' })
+    expect(JSON.parse(res.payload).runId).toBe(sweepLatestId)
+  })
+
+  it('metrics bucket size derives from the sweep span, not a distant non-sweep run', async () => {
+    // Sweeps span 3 days → bucketSizeForSpan(3) = 1 (daily) → one bucket per sweep day.
+    // Counting the traffic-sync run stretches the span to 40 days → 7-day buckets,
+    // which collapses both sweeps into a single bucket.
+    const res = await app.inject({ method: 'GET', url: '/api/v1/projects/kind-filter/analytics/metrics?window=all' })
+    expect(JSON.parse(res.payload).buckets).toHaveLength(2)
+  })
+})
