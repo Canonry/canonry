@@ -33,13 +33,7 @@ Canonry is API-first. The API is the source of truth, the CLI is the standard op
 | [`google-analytics-setup.md`](google-analytics-setup.md) | current | operators | Google Analytics 4 service account setup and usage |
 | [`wordpress-setup.md`](wordpress-setup.md) | current | operators | WordPress REST + Application Password setup, staging diffs, and manual handoff workflows |
 
-## Product Direction
-
-| Document | Label | Audience | Purpose |
-| --- | --- | --- | --- |
-| [`gtm.md`](gtm.md) | launch plan | founders, maintainers | GTM launch sequencing, success metrics, per-agent distribution |
-
-Implementation plans and design rationale live in PR descriptions, not in the repo — a plan doc goes stale the day its PR merges, while the PR record stays attached to the change that realized it. Durable behavior rules live in the per-package `AGENTS.md` files.
+Implementation plans, product direction, and design rationale live in PR descriptions, not in the repo — a plan doc goes stale the day its PR merges, while the PR record stays attached to the change that realized it. Durable behavior rules live in the per-package `AGENTS.md` files.
 
 ## Reading Order
 
