@@ -5,6 +5,10 @@ description: Weekly and monthly report templates with metric tables, regression/
 
 # Reporting Templates
 
+## Month-over-month AEO (do this right)
+
+For ANY month-over-month AEO claim, use `cnry visibility-compare <project> --from <YYYY-MM> --to <YYYY-MM>` — never diff two `visibility-stats --month` calls by hand. It returns the statistically honest comparison: **share of voice is the primary, drift-robust metric that carries the directional call** (it cancels engine model changes; the absolute mention/cited rate is context only). Every metric has a Wilson interval and a `verdict` — **`within-noise` means no confirmed change, so do not report it as a rise or a decline.** Honor `modelChanges` (a provider's model changed → an absolute rate move is not attributable to the site) and `lowRunCount` (a month under 5 sweeps → intervals too wide to resolve a move; recommend raising the sweep schedule). Report the point with its interval, not a bare number.
+
 ## One-Command HTML Report
 
 When a client asks for a "current state" or "AEO report" without a specific custom narrative, prefer the bundled report instead of hand-rolling sections:

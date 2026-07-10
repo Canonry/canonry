@@ -18,6 +18,7 @@ import type {
   GapAnalysisDto,
   SourceBreakdownDto,
   VisibilityStatsDto,
+  VisibilityCompareDto,
   LocationContext,
   WordpressAuditIssueDto,
   WordpressAuditPageDto,
@@ -325,6 +326,7 @@ import {
   getApiV1ProjectsByNameHealthHistory,
   getApiV1ProjectsByNameCitationsVisibility,
   getApiV1ProjectsByNameVisibilityStats,
+  getApiV1ProjectsByNameVisibilityCompare,
   getApiV1Doctor,
   getApiV1ProjectsByNameDoctor,
   // Backlinks
@@ -2344,6 +2346,16 @@ export class ApiClient {
           month: opts.month,
           shareOfVoice: opts.shareOfVoice ? '1' : undefined,
         } as never,
+      }),
+    )
+  }
+
+  async getVisibilityCompare(project: string, from: string, to: string): Promise<VisibilityCompareDto> {
+    return this.invoke<VisibilityCompareDto>(() =>
+      getApiV1ProjectsByNameVisibilityCompare({
+        client: this.heyClient,
+        path: { name: project },
+        query: { from, to } as never,
       }),
     )
   }

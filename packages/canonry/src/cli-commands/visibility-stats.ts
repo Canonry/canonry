@@ -1,4 +1,4 @@
-import { showVisibilityStats } from '../commands/visibility-stats.js'
+import { showVisibilityStats, showVisibilityCompare } from '../commands/visibility-stats.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
 import {
   getBoolean,
@@ -10,6 +10,8 @@ import {
 
 const USAGE =
   'canonry visibility-stats <project> [--since <iso>] [--until <iso>] [--month <YYYY-MM>] [--last-runs <n>] [--by-provider] [--share-of-voice] [--format json|jsonl]'
+
+const COMPARE_USAGE = 'canonry visibility-compare <project> --from <YYYY-MM> --to <YYYY-MM> [--format json]'
 
 export const VISIBILITY_STATS_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
@@ -36,6 +38,22 @@ export const VISIBILITY_STATS_CLI_COMMANDS: readonly CliCommandSpec[] = [
         }),
         byProvider: getBoolean(input.values, 'by-provider'),
         shareOfVoice: getBoolean(input.values, 'share-of-voice'),
+        format: input.format,
+      })
+    },
+  },
+  {
+    path: ['visibility-compare'],
+    usage: COMPARE_USAGE,
+    options: {
+      from: stringOption(),
+      to: stringOption(),
+    },
+    run: async (input) => {
+      const project = requireProject(input, 'visibility-compare', COMPARE_USAGE)
+      await showVisibilityCompare(project, {
+        from: getString(input.values, 'from'),
+        to: getString(input.values, 'to'),
         format: input.format,
       })
     },

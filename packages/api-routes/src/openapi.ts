@@ -289,6 +289,22 @@ const monthQueryParameter: OpenApiParameter = {
   schema: stringSchema,
 }
 
+const compareFromQueryParameter: OpenApiParameter = {
+  name: 'from',
+  in: 'query',
+  required: true,
+  description: 'Earlier calendar month (YYYY-MM) — the baseline period. Must be strictly before "to".',
+  schema: stringSchema,
+}
+
+const compareToQueryParameter: OpenApiParameter = {
+  name: 'to',
+  in: 'query',
+  required: true,
+  description: 'Later calendar month (YYYY-MM) — the reporting period compared against "from".',
+  schema: stringSchema,
+}
+
 const shareOfVoiceQueryParameter: OpenApiParameter = {
   name: 'shareOfVoice',
   in: 'query',
@@ -1066,6 +1082,20 @@ const routeCatalog: OpenApiOperation[] = [
     responses: {
       200: jsonResponse('Aggregated visibility stats returned.', 'VisibilityStatsDto'),
       400: errorResponse('Invalid query parameters.'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/visibility-compare',
+    summary: 'Compare AEO visibility month over month',
+    description:
+      'Statistically honest month-over-month AEO comparison in one call. PRIMARY metric is share of voice (brand vs competitor mentions in the same answers), which cancels engine drift so it carries the directional call; the absolute mention/cited rate is context (driftRobust=false). Rates are pooled per-snapshot over each month (invariant to sweep count), the comparison is restricted to the query + provider basket present in BOTH months, every figure carries a Wilson 95% interval, and `verdict` is `within-noise` when the periods’ intervals overlap (never call a move on a handful of mentions a decline). `modelChanges` flags providers whose configured model id changed between the periods (a config change is visible; a silent upstream version bump is not). `from` must be a month strictly before `to`.',
+    tags: ['analytics'],
+    parameters: [nameParameter, compareFromQueryParameter, compareToQueryParameter],
+    responses: {
+      200: jsonResponse('Month-over-month visibility comparison returned.', 'VisibilityCompareDto'),
+      400: errorResponse('Invalid or missing from/to months.'),
       404: errorResponse('Project not found.'),
     },
   },

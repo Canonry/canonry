@@ -773,6 +773,22 @@ export const canonryMcpTools = [
       }),
   }),
   defineTool({
+    name: 'canonry_visibility_compare',
+    title: 'Compare AEO visibility month over month',
+    description:
+      'Statistically honest month-over-month AEO comparison in ONE call — use this instead of hand-computing deltas from two visibility-stats calls. The PRIMARY metric is share of voice (`mention-share-of-voice`, `driftRobust: true`): it cancels engine model drift, so it carries the directional call; the absolute `mention-rate`/`cited-rate` are context only (`driftRobust: false`). Every figure has a Wilson 95% interval (`ciLow`/`ciHigh`) and a `verdict` — treat `within-noise` (the periods\' intervals overlap) as NO confirmed change, never a decline. `modelChanges` lists providers whose configured model id changed between the periods; when non-empty, do not attribute a `mention-rate`/`cited-rate` move to the site (a silent upstream version bump is invisible and cannot be detected here). `basket` reports the queries + providers compared (present in BOTH months); rates are pooled per-snapshot and invariant to sweep count. `lowRunCount` flags a month under 5 sweeps, where intervals are too wide to resolve a move — raise the sweep schedule. `from` must be a month strictly before `to`.',
+    access: 'read',
+    tier: 'monitoring',
+    inputSchema: z.object({
+      project: projectNameSchema,
+      from: z.string().describe('Earlier calendar month (YYYY-MM), the baseline. Must be strictly before "to".'),
+      to: z.string().describe('Later calendar month (YYYY-MM), compared against "from".'),
+    }),
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/visibility-compare'],
+    handler: (client, input) => client.getVisibilityCompare(input.project, input.from, input.to),
+  }),
+  defineTool({
     name: 'canonry_content_targets',
     title: 'Get content targets',
     description: 'Ranked, action-typed content opportunities. Each row is `{query, action ∈ create|expand|refresh|add-schema, ourBestPage?, winningCompetitor?, score, scoreBreakdown, drivers[], demandSource, actionConfidence, winnabilityClass, winnability?}`. `winnabilityClass` is the winnability gate: "ownable" (worth a brief) vs "ceded" (aggregator/editorial head term to skip); ownable rows sort first. Filter with `winnabilityClass`/`ownable`. Use this to recommend which post the user should write or refresh next.',
