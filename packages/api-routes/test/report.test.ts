@@ -788,6 +788,150 @@ describe('GET /api/v1/projects/:name/report', () => {
     expect(pages).not.toContain('/legacy')
   })
 
+  test('GA report channel mix separates paid ChatGPT ads from organic/direct traffic', async () => {
+    const projectId = insertProject(ctx.db, 'ga-paid-ai')
+    const now = new Date().toISOString()
+
+    ctx.db.insert(gaTrafficWindowSummaries).values({
+      id: crypto.randomUUID(),
+      projectId,
+      windowKey: '30d',
+      periodStart: '2026-04-01',
+      periodEnd: '2026-04-30',
+      totalSessions: 100,
+      totalOrganicSessions: 40,
+      totalDirectSessions: 20,
+      totalUsers: 80,
+      syncedAt: now,
+    }).run()
+    ctx.db.insert(gaTrafficSnapshots).values({
+      id: crypto.randomUUID(),
+      projectId,
+      date: '2026-04-30',
+      landingPage: '/pricing?utm_source=chatgpt&utm_medium=cpc&utm_campaign=openai_ads',
+      landingPageNormalized: '/pricing',
+      sessions: 100,
+      organicSessions: 40,
+      directSessions: 20,
+      users: 80,
+      syncedAt: now,
+    }).run()
+    ctx.db.insert(gaAiReferrals).values([
+      {
+        id: crypto.randomUUID(),
+        projectId,
+        date: '2026-04-30',
+        source: 'chatgpt.com',
+        medium: 'cpc',
+        trafficClass: 'paid',
+        sourceDimension: 'session',
+        channelGroup: 'Paid Other',
+        landingPage: '/pricing?utm_source=chatgpt&utm_medium=cpc&utm_campaign=openai_ads',
+        landingPageNormalized: '/pricing',
+        sessions: 25,
+        users: 20,
+        syncedAt: now,
+      },
+      {
+        id: crypto.randomUUID(),
+        projectId,
+        date: '2026-04-30',
+        source: 'chatgpt.com',
+        medium: 'referral',
+        trafficClass: 'organic',
+        sourceDimension: 'session',
+        channelGroup: 'Direct',
+        landingPage: '/guide?utm_source=chatgpt',
+        landingPageNormalized: '/guide',
+        sessions: 5,
+        users: 4,
+        syncedAt: now,
+      },
+    ]).run()
+
+    await ctx.app.ready()
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/ga-paid-ai/report' })
+    const body = JSON.parse(res.body) as ProjectReportDto
+
+    expect(body.ga).not.toBeNull()
+    expect(body.ga!.channelBreakdown).toEqual([
+      { channel: 'Organic Search', sessions: 40, sharePct: 40 },
+      { channel: 'Direct', sessions: 15, sharePct: 15 },
+      { channel: 'Paid AI', sessions: 25, sharePct: 25 },
+      { channel: 'Organic AI referrals', sessions: 5, sharePct: 5 },
+      { channel: 'Other', sessions: 15, sharePct: 15 },
+    ])
+    expect(body.aiReferrals).not.toBeNull()
+    expect(body.aiReferrals!.paidSessions).toBe(25)
+    expect(body.aiReferrals!.organicSessions).toBe(5)
+    expect(body.aiReferrals!.bySource[0]).toMatchObject({
+      source: 'chatgpt.com',
+      sessions: 30,
+      paidSessions: 25,
+      organicSessions: 5,
+    })
+  })
+
+  test('AI referral section does not inflate totals when a source is paid under one lens and organic under another', async () => {
+    // Same (date, source, medium) with a paid 'session'-lens row and a larger
+    // organic 'first_user'-lens row — overlapping lenses on the same visits.
+    // The deduped total must be MAX(20, 30) = 30, not 20 + 30; the winning
+    // lens supplies the paid/organic split.
+    const projectId = insertProject(ctx.db, 'ai-overlap-report')
+    const now = new Date().toISOString()
+
+    ctx.db.insert(gaAiReferrals).values([
+      {
+        id: crypto.randomUUID(),
+        projectId,
+        date: '2026-04-30',
+        source: 'chatgpt.com',
+        medium: 'referral',
+        trafficClass: 'paid',
+        sourceDimension: 'session',
+        channelGroup: 'Referral',
+        landingPage: '/pricing?utm_medium=cpc',
+        landingPageNormalized: '/pricing',
+        sessions: 20,
+        users: 15,
+        syncedAt: now,
+      },
+      {
+        id: crypto.randomUUID(),
+        projectId,
+        date: '2026-04-30',
+        source: 'chatgpt.com',
+        medium: 'referral',
+        trafficClass: 'organic',
+        sourceDimension: 'first_user',
+        channelGroup: 'Referral',
+        landingPage: '/guide',
+        landingPageNormalized: '/guide',
+        sessions: 30,
+        users: 25,
+        syncedAt: now,
+      },
+    ]).run()
+
+    await ctx.app.ready()
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/ai-overlap-report/report' })
+    const body = JSON.parse(res.body) as ProjectReportDto
+
+    expect(body.aiReferrals).not.toBeNull()
+    expect(body.aiReferrals!.totalSessions).toBe(30)
+    expect(body.aiReferrals!.totalUsers).toBe(25)
+    expect(body.aiReferrals!.paidSessions).toBe(0)
+    expect(body.aiReferrals!.organicSessions).toBe(30)
+    // Invariant: the paid/organic split always partitions the deduped total.
+    expect(body.aiReferrals!.paidSessions + body.aiReferrals!.organicSessions).toBe(body.aiReferrals!.totalSessions)
+    expect(body.aiReferrals!.bySource[0]).toMatchObject({
+      source: 'chatgpt.com',
+      sessions: 30,
+      paidSessions: 0,
+      organicSessions: 30,
+    })
+  })
+
   test('GA traffic, social referral, AI referral sections aggregate from GA tables', async () => {
     const projectId = insertProject(ctx.db, 'ga-test')
     ctx.db.insert(gaTrafficSummaries).values({
@@ -875,7 +1019,11 @@ describe('GET /api/v1/projects/:name/report', () => {
 
     expect(body.aiReferrals).not.toBeNull()
     expect(body.aiReferrals!.totalSessions).toBe(50)
+    expect(body.aiReferrals!.paidSessions).toBe(0)
+    expect(body.aiReferrals!.organicSessions).toBe(50)
     expect(body.aiReferrals!.bySource[0]!.source).toBe('chatgpt.com')
+    expect(body.aiReferrals!.bySource[0]!.paidSessions).toBe(0)
+    expect(body.aiReferrals!.bySource[0]!.organicSessions).toBe(50)
 
     expect(body.socialReferrals).not.toBeNull()
     expect(body.socialReferrals!.totalSessions).toBe(120)
@@ -920,6 +1068,8 @@ describe('GET /api/v1/projects/:name/report', () => {
     expect(body.aiReferrals).not.toBeNull()
     expect(body.aiReferrals!.totalSessions).toBe(10)
     expect(body.aiReferrals!.totalUsers).toBe(8)
+    expect(body.aiReferrals!.paidSessions).toBe(0)
+    expect(body.aiReferrals!.organicSessions).toBe(10)
     expect(body.aiReferrals!.bySource[0]!.sessions).toBe(10)
     expect(body.aiReferrals!.trend[0]!.sessions).toBe(10)
     expect(body.aiReferrals!.topLandingPages[0]!.sessions).toBe(10)

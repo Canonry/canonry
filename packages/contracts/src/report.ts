@@ -397,10 +397,16 @@ export type SocialReferralSection = z.infer<typeof socialReferralSectionSchema>
 export const aiReferralSectionSchema = z.object({
   totalSessions: z.number(),
   totalUsers: z.number(),
+  paidSessions: z.number(),
+  paidUsers: z.number(),
+  organicSessions: z.number(),
+  organicUsers: z.number(),
   bySource: z.array(z.object({
     source: z.string(),
     sessions: z.number(),
     users: z.number(),
+    paidSessions: z.number(),
+    organicSessions: z.number(),
     sharePct: z.number(),
   })),
   trend: z.array(z.object({ date: z.string(), sessions: z.number() })),

@@ -23,6 +23,7 @@ import {
 } from '@ainyc/canonry-db'
 import {
   CitationStates,
+  GA4AiReferralTrafficClasses,
   RunKinds,
   RunStatuses,
   TrafficSourceStatuses,
@@ -106,6 +107,10 @@ function safeNum(value: unknown): number {
     return Number.isFinite(parsed) ? parsed : 0
   }
   return 0
+}
+
+function isPaidAiTrafficClass(value: string | null | undefined): boolean {
+  return value === GA4AiReferralTrafficClasses.paid
 }
 
 // Thin wrapper around the shared intelligence-package categorizer.
@@ -398,15 +403,48 @@ function buildGaSection(db: DatabaseClient, projectId: string, windowDays: numbe
     .sort((a, b) => b.sessions - a.sessions)
     .slice(0, TOP_LANDING_PAGES_LIMIT)
 
+  const aiConditions = [
+    eq(gaAiReferrals.projectId, projectId),
+    eq(gaAiReferrals.sourceDimension, 'session'),
+  ]
+  if (snapshotStartDate && snapshotMaxDate) {
+    aiConditions.push(gte(gaAiReferrals.date, snapshotStartDate))
+    aiConditions.push(lte(gaAiReferrals.date, snapshotMaxDate))
+  }
+  const aiSessionRows = db
+    .select({
+      trafficClass: gaAiReferrals.trafficClass,
+      channelGroup: gaAiReferrals.channelGroup,
+      sessions: sql<number>`COALESCE(SUM(${gaAiReferrals.sessions}), 0)`,
+    })
+    .from(gaAiReferrals)
+    .where(and(...aiConditions))
+    .groupBy(gaAiReferrals.trafficClass, gaAiReferrals.channelGroup)
+    .all()
+
+  let paidAiSessions = 0
+  let organicAiSessions = 0
+  let aiOrganicOverlap = 0
+  let aiDirectOverlap = 0
+  for (const row of aiSessionRows) {
+    const sessions = Number(row.sessions ?? 0)
+    if (isPaidAiTrafficClass(row.trafficClass)) paidAiSessions += sessions
+    else organicAiSessions += sessions
+    if (row.channelGroup === 'Organic Search') aiOrganicOverlap += sessions
+    if (row.channelGroup === 'Direct') aiDirectOverlap += sessions
+  }
+
   const channelBreakdown: ProjectReportDto['ga'] extends infer T
     ? T extends { channelBreakdown: infer C } ? C : never : never = []
   if (totalSessions > 0) {
-    const organic = totalOrganicSessions
-    const direct = directSessions
-    const other = Math.max(totalSessions - organic - direct, 0)
+    const organic = Math.max(0, totalOrganicSessions - Math.min(totalOrganicSessions, aiOrganicOverlap))
+    const direct = Math.max(0, directSessions - Math.min(directSessions, aiDirectOverlap))
+    const other = Math.max(totalSessions - organic - direct - paidAiSessions - organicAiSessions, 0)
     const buckets: Array<{ channel: string; sessions: number }> = [
       { channel: 'Organic Search', sessions: organic },
       { channel: 'Direct', sessions: direct },
+      { channel: 'Paid AI', sessions: paidAiSessions },
+      { channel: 'Organic AI referrals', sessions: organicAiSessions },
       { channel: 'Other', sessions: other },
     ]
     for (const b of buckets) {
@@ -497,7 +535,11 @@ function buildAiReferrals(db: DatabaseClient, projectId: string): ProjectReportD
   // 'manual_utm') the same way GET /projects/:name/ga/traffic in ga.ts does:
   // they're alternate lenses on the same visit, not disjoint events. For each
   // (date, source, medium) tuple, pick the dimension whose total sessions are
-  // largest and keep only rows from that winning dimension.
+  // largest and keep only rows from that winning dimension. Traffic class is
+  // deliberately NOT part of the key: keying on it would let a visit counted
+  // paid under one lens and organic under another survive twice and inflate
+  // the total. The surviving winning-dimension rows are disjoint by class, so
+  // the paid/organic split below still partitions the deduped total cleanly.
   const dimSessionsByTuple = new Map<string, Map<string, number>>()
   for (const r of rows) {
     const tupleKey = `${r.date}::${r.source}::${r.medium}`
@@ -526,16 +568,40 @@ function buildAiReferrals(db: DatabaseClient, projectId: string): ProjectReportD
 
   let total = 0
   let totalUsers = 0
-  const sourceAgg = new Map<string, { sessions: number; users: number }>()
+  let paidSessions = 0
+  let paidUsers = 0
+  let organicSessions = 0
+  let organicUsers = 0
+  const sourceAgg = new Map<string, {
+    sessions: number
+    users: number
+    paidSessions: number
+    organicSessions: number
+  }>()
   const trendAgg = new Map<string, number>()
   const pageAgg = new Map<string, { sessions: number; users: number }>()
 
   for (const r of dedupedRows) {
     total += r.sessions
     totalUsers += r.users
-    const s = sourceAgg.get(r.source) ?? { sessions: 0, users: 0 }
+    const paid = isPaidAiTrafficClass(r.trafficClass)
+    if (paid) {
+      paidSessions += r.sessions
+      paidUsers += r.users
+    } else {
+      organicSessions += r.sessions
+      organicUsers += r.users
+    }
+    const s = sourceAgg.get(r.source) ?? {
+      sessions: 0,
+      users: 0,
+      paidSessions: 0,
+      organicSessions: 0,
+    }
     s.sessions += r.sessions
     s.users += r.users
+    if (paid) s.paidSessions += r.sessions
+    else s.organicSessions += r.sessions
     sourceAgg.set(r.source, s)
     trendAgg.set(r.date, (trendAgg.get(r.date) ?? 0) + r.sessions)
     const page = r.landingPageNormalized ?? r.landingPage
@@ -550,6 +616,8 @@ function buildAiReferrals(db: DatabaseClient, projectId: string): ProjectReportD
       source,
       sessions: data.sessions,
       users: data.users,
+      paidSessions: data.paidSessions,
+      organicSessions: data.organicSessions,
       sharePct: total > 0 ? Math.round((data.sessions / total) * 100) : 0,
     }))
     .sort((a, b) => b.sessions - a.sessions)
@@ -563,7 +631,17 @@ function buildAiReferrals(db: DatabaseClient, projectId: string): ProjectReportD
     .sort((a, b) => b.sessions - a.sessions)
     .slice(0, TOP_AI_REFERRAL_PAGES_LIMIT)
 
-  return { totalSessions: total, totalUsers, bySource, trend, topLandingPages }
+  return {
+    totalSessions: total,
+    totalUsers,
+    paidSessions,
+    paidUsers,
+    organicSessions,
+    organicUsers,
+    bySource,
+    trend,
+    topLandingPages,
+  }
 }
 
 function nonSubresourceReferralPathCondition() {

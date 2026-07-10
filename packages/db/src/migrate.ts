@@ -2001,6 +2001,21 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `ALTER TABLE discovery_sessions ADD COLUMN canonical_count INTEGER`,
     ],
   },
+  {
+    version: 95,
+    name: 'ga-ai-referral-traffic-class',
+    statements: [],
+    run: (tx) => {
+      if (!tableExists(tx, 'ga_ai_referrals')) return
+      // Split AI referral traffic into paid vs organic/non-paid at ingest.
+      // Existing rows default to organic because historical data has no
+      // durable paid signal beyond source/medium/channel labels.
+      if (!columnExists(tx, 'ga_ai_referrals', 'traffic_class')) {
+        tx.run(sql.raw(`ALTER TABLE ga_ai_referrals ADD COLUMN traffic_class TEXT NOT NULL DEFAULT 'organic'`))
+      }
+      tx.run(sql.raw(`CREATE INDEX IF NOT EXISTS idx_ga_ai_ref_traffic_class ON ga_ai_referrals(project_id, date, traffic_class)`))
+    },
+  },
 ]
 
 /**

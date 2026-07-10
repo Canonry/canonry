@@ -43,7 +43,11 @@ test(`every migration after v${DOWNGRADE_BASELINE} is additive-only (downgrade-s
  * post-baseline migration that needs one must be explicitly reviewed for
  * downgrade safety and listed here WITH a justification comment.
  */
-const RUN_HOOK_ALLOWLIST: ReadonlySet<number> = new Set([])
+const RUN_HOOK_ALLOWLIST: ReadonlySet<number> = new Set([
+  // v95 only adds a defaulted column + index, but uses run() to skip partial
+  // legacy schemas where ga_ai_referrals has not been bootstrapped yet.
+  95,
+])
 
 test(`migrations after v${DOWNGRADE_BASELINE} define no run() hook unless explicitly allowlisted`, () => {
   for (const mv of MIGRATION_VERSIONS.filter((m) => m.version > DOWNGRADE_BASELINE)) {

@@ -245,9 +245,9 @@ describe('fetchAiReferrals', () => {
     // Returns one row per dimension (session, first_user, manual_utm) since
     // the mock returns the same data for all three queries
     expect(rows).toEqual([
-      { date: '2026-03-20', source: 'chatgpt.com', medium: 'referral', channelGroup: 'Referral', landingPage: '/pricing?utm_source=chatgpt.com', sessions: 12, users: 10, sourceDimension: 'session' },
-      { date: '2026-03-20', source: 'chatgpt.com', medium: 'referral', channelGroup: 'Referral', landingPage: '/pricing?utm_source=chatgpt.com', sessions: 12, users: 10, sourceDimension: 'first_user' },
-      { date: '2026-03-20', source: 'chatgpt.com', medium: 'referral', channelGroup: 'Referral', landingPage: '/pricing?utm_source=chatgpt.com', sessions: 12, users: 10, sourceDimension: 'manual_utm' },
+      { date: '2026-03-20', source: 'chatgpt.com', medium: 'referral', trafficClass: 'organic', channelGroup: 'Referral', landingPage: '/pricing?utm_source=chatgpt.com', sessions: 12, users: 10, sourceDimension: 'session' },
+      { date: '2026-03-20', source: 'chatgpt.com', medium: 'referral', trafficClass: 'organic', channelGroup: 'Referral', landingPage: '/pricing?utm_source=chatgpt.com', sessions: 12, users: 10, sourceDimension: 'first_user' },
+      { date: '2026-03-20', source: 'chatgpt.com', medium: 'referral', trafficClass: 'organic', channelGroup: 'Referral', landingPage: '/pricing?utm_source=chatgpt.com', sessions: 12, users: 10, sourceDimension: 'manual_utm' },
     ])
 
     // Verify all three dimension pairs were queried
@@ -287,6 +287,29 @@ describe('fetchAiReferrals', () => {
       return dimensions[4]?.name
     })
     expect(landingDims).toEqual(['landingPagePlusQueryString', 'landingPagePlusQueryString', 'landingPagePlusQueryString'])
+  })
+
+  it('marks UTM-tagged ChatGPT ad traffic as paid', async () => {
+    fetchSpy.mockImplementation(async () => mockFetchResponse({
+      rows: [
+        {
+          dimensionValues: [{ value: '20260320' }, { value: 'chatgpt.com' }, { value: 'cpc' }, { value: 'Paid Other' }, { value: '/pricing?utm_source=chatgpt&utm_medium=cpc&utm_campaign=openai_ads' }],
+          metricValues: [{ value: '42' }, { value: '30' }],
+        },
+      ],
+      rowCount: 1,
+    }))
+
+    const rows = await fetchAiReferrals('fake-token', '123456', 7)
+
+    expect(rows.every((row) => row.trafficClass === 'paid')).toBe(true)
+    expect(rows[0]).toMatchObject({
+      source: 'chatgpt.com',
+      medium: 'cpc',
+      channelGroup: 'Paid Other',
+      trafficClass: 'paid',
+      sessions: 42,
+    })
   })
 })
 

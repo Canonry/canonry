@@ -1,5 +1,5 @@
 import crypto from 'node:crypto'
-import { AI_ENGINE_DOMAINS, withRetry } from '@ainyc/canonry-contracts'
+import { AI_ENGINE_DOMAINS, classifyGa4AiReferralTrafficClass, withRetry } from '@ainyc/canonry-contracts'
 import {
   GA4_DATA_API_BASE,
   GA4_SCOPE,
@@ -813,16 +813,23 @@ export async function fetchAiReferrals(
       const response = await runReport(accessToken, propertyId, request)
       if (!response) break
 
-      const pageRows: GA4AiReferralRow[] = (response.rows ?? []).map((row) => ({
-        date: row.dimensionValues[0]!.value,
-        source: row.dimensionValues[1]!.value,
-        medium: row.dimensionValues[2]!.value,
-        channelGroup: row.dimensionValues[3]?.value ?? '(not set)',
-        landingPage: row.dimensionValues[4]?.value ?? '(not set)',
-        sessions: parseInt(row.metricValues[0]!.value, 10) || 0,
-        users: parseInt(row.metricValues[1]!.value, 10) || 0,
-        sourceDimension: dimLabel,
-      }))
+      const pageRows: GA4AiReferralRow[] = (response.rows ?? []).map((row) => {
+        const source = row.dimensionValues[1]!.value
+        const medium = row.dimensionValues[2]!.value
+        const channelGroup = row.dimensionValues[3]?.value ?? '(not set)'
+        const landingPage = row.dimensionValues[4]?.value ?? '(not set)'
+        return {
+          date: row.dimensionValues[0]!.value,
+          source,
+          medium,
+          trafficClass: classifyGa4AiReferralTrafficClass({ source, medium, channelGroup, landingPage }),
+          channelGroup,
+          landingPage,
+          sessions: parseInt(row.metricValues[0]!.value, 10) || 0,
+          users: parseInt(row.metricValues[1]!.value, 10) || 0,
+          sourceDimension: dimLabel,
+        }
+      })
 
       rows.push(...pageRows)
 

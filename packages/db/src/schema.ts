@@ -1,5 +1,5 @@
 import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
-import type { BacklinkSource, ContentBriefDto, DiscoveryCompetitorMapEntry, DiscoveryCompetitorType, LocationContext, ProviderName, SiteAuditCrossCuttingIssueDto, SiteAuditFactorSummaryDto, SiteAuditPageFactorDto } from '@ainyc/canonry-contracts'
+import type { BacklinkSource, ContentBriefDto, DiscoveryCompetitorMapEntry, DiscoveryCompetitorType, GA4AiReferralTrafficClass, LocationContext, ProviderName, SiteAuditCrossCuttingIssueDto, SiteAuditFactorSummaryDto, SiteAuditPageFactorDto } from '@ainyc/canonry-contracts'
 
 export const projects = sqliteTable('projects', {
   id: text('id').primaryKey(),
@@ -449,6 +449,7 @@ export const gaAiReferrals = sqliteTable('ga_ai_referrals', {
   date: text('date').notNull(),
   source: text('source').notNull(),
   medium: text('medium').notNull(),
+  trafficClass: text('traffic_class').$type<GA4AiReferralTrafficClass>().notNull().default('organic'),
   /** Which GA4 dimension produced this row: 'session' | 'first_user' | 'manual_utm' */
   sourceDimension: text('source_dimension').notNull().default('session'),
   /** GA4 default channel group for the session (e.g. 'Referral', 'Organic Social'). */
@@ -463,6 +464,7 @@ export const gaAiReferrals = sqliteTable('ga_ai_referrals', {
   index('idx_ga_ai_ref_project_date').on(table.projectId, table.date),
   index('idx_ga_ai_ref_source').on(table.source),
   index('idx_ga_ai_ref_landing_page').on(table.projectId, table.date, table.landingPageNormalized),
+  index('idx_ga_ai_ref_traffic_class').on(table.projectId, table.date, table.trafficClass),
   uniqueIndex('idx_ga_ai_ref_unique_v4').on(table.projectId, table.date, table.source, table.medium, table.sourceDimension, table.channelGroup, table.landingPage),
   index('idx_ga_ai_ref_run').on(table.syncRunId),
 ])
