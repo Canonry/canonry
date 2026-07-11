@@ -7,7 +7,13 @@ description: Weekly and monthly report templates with metric tables, regression/
 
 ## Month-over-month AEO (do this right)
 
-For ANY month-over-month AEO claim, use `cnry visibility-compare <project> --from <YYYY-MM> --to <YYYY-MM>` — never diff two `visibility-stats --month` calls by hand. It returns the statistically honest comparison: **share of voice is the primary, drift-robust metric that carries the directional call** (it cancels engine model changes; the absolute mention/cited rate is context only). Every metric has a Wilson interval and a `verdict` — **`within-noise` means no confirmed change, so do not report it as a rise or a decline.** Honor `modelChanges` (a provider's model changed → an absolute rate move is not attributable to the site) and `lowRunCount` (a month under 5 sweeps → intervals too wide to resolve a move; recommend raising the sweep schedule). Report the point with its interval, not a bare number.
+For ANY month-over-month AEO claim, use `cnry visibility-compare <project> --from <YYYY-MM> --to <YYYY-MM>` — never diff two `visibility-stats --month` calls by hand. It returns the statistically honest comparison. **Share of voice is the primary metric** (less exposed to an engine's broad naming propensity than an absolute rate), but it does **not** bypass model continuity. The comparison is restricted to the query/provider PAIRS present in BOTH months, then to providers with one known, identical configured model id in both months. Every figure carries a Wilson interval and a `verdict`:
+
+- **`within-noise`** — the periods' intervals overlap. **No confirmed change; never report it as a rise or a decline.**
+- **`moved`** — disjoint intervals; a real directional move (the point sign is the direction).
+- **`model-discontinuous` / `model-unknown`** — the engine's configured model changed, was mixed within a month, or is unrecorded (legacy rows). **No directional call is made for that comparison; never attribute the swing to the site.** Read `continuity` (its `status` plus the per-provider evidence) for what was excluded and why — `continuity` is the enforcement decision, `modelChanges` is advisory context only.
+
+A silent upstream version bump under an unchanged configured id is undetectable; the tool does not pretend otherwise. Honor `lowRunCount` (a month under 5 sweeps → intervals too wide to resolve a move; recommend raising the sweep schedule). Report the point with its interval, not a bare number.
 
 ## One-Command HTML Report
 
