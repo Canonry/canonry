@@ -174,6 +174,10 @@ interface PeriodCounts {
   queriesMentioned: number // distinct basket queries mentioned by >= 1 provider
   perProvider: Map<string, { checked: number; mentioned: number; cited: number }>
   models: Map<string, Set<string>> // provider -> distinct non-null model ids
+  // Providers with >= 1 snapshot whose model id was null/empty in this period.
+  // Such a period carries unattributable model evidence — even alongside a known
+  // id — so the continuity gate must treat it as unknown, not silently drop it.
+  modelUnknownProviders: Set<string>
   mentionShare: ReturnType<typeof buildMentionShare>
   competitors: VisibilityStatsShareCompetitor[]
 }
@@ -185,6 +189,7 @@ function countPeriod(snaps: Attributed[], competitors: VisibilityCompareCompetit
   let competitorCited = 0
   const perProvider = new Map<string, { checked: number; mentioned: number; cited: number }>()
   const models = new Map<string, Set<string>>()
+  const modelUnknownProviders = new Set<string>()
   const mentionedQueries = new Set<string>()
 
   // Normalize competitor hosts once; a competitor with an unparseable domain
@@ -213,6 +218,8 @@ function countPeriod(snaps: Attributed[], competitors: VisibilityCompareCompetit
       const set = models.get(snap.provider) ?? new Set<string>()
       set.add(snap.model)
       models.set(snap.provider, set)
+    } else {
+      modelUnknownProviders.add(snap.provider)
     }
 
     // Competitor citation, per-snapshot per-competitor (mirrors buildMentionShare's
@@ -242,6 +249,7 @@ function countPeriod(snaps: Attributed[], competitors: VisibilityCompareCompetit
     queriesMentioned: mentionedQueries.size,
     perProvider,
     models,
+    modelUnknownProviders,
     mentionShare,
     competitors: mentionShare.breakdown.perCompetitor.map((c) => ({ domain: c.domain, mentions: c.mentionSnapshots })),
   }
@@ -277,8 +285,15 @@ export function computeVisibilityCompare(input: ComputeVisibilityCompareInput): 
     .map((provider) => {
       const fromModels = [...(fromCandidateCounts.models.get(provider) ?? new Set<string>())].sort((a, b) => a.localeCompare(b))
       const toModels = [...(toCandidateCounts.models.get(provider) ?? new Set<string>())].sort((a, b) => a.localeCompare(b))
+      // A period with ANY null-model snapshot carries unattributable evidence —
+      // even when it also has a known id (e.g. legacy `null` rows sitting beside
+      // `gpt-5.4`). Counting only the known ids would mark such a period
+      // comparable and let a directional verdict ride on unknown-model data, so
+      // unknown dominates: null presence (or zero known ids) -> model-unknown.
+      const fromModelUnknown = fromCandidateCounts.modelUnknownProviders.has(provider) || fromModels.length === 0
+      const toModelUnknown = toCandidateCounts.modelUnknownProviders.has(provider) || toModels.length === 0
       const status: VisibilityCompareProviderContinuityStatus =
-        fromModels.length === 0 || toModels.length === 0
+        fromModelUnknown || toModelUnknown
           ? 'model-unknown'
           : fromModels.length === 1 && toModels.length === 1 && fromModels[0] === toModels[0]
             ? 'included'

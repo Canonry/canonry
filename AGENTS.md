@@ -997,4 +997,3 @@ This repo uses per-package `AGENTS.md` files for local context. **These must sta
 | Add a generic utility (formatter, parser, normalizer) | Add it to `packages/contracts/src/<topic>.ts`, re-export from `index.ts`, add tests in `packages/contracts/test/<topic>.test.ts`. Update the "Where utilities live" table in this file if introducing a new category. |
 
 **Documentation-only changes do not require a version bump.**
-

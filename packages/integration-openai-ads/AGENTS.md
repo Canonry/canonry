@@ -46,6 +46,3 @@ management behind an `ads.write` scope later, then paid-vs-organic overlap insig
   live response (sanitized identifiers). When the API surface grows, capture
   the real response first.
 - **Treating insights `spend` as micros** — it is decimal dollars.
-
-## See Also
-

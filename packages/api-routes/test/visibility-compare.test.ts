@@ -263,6 +263,60 @@ describe('computeVisibilityCompare — model continuity', () => {
     for (const metric of dto.metrics) expect(metric.verdict).toBe('model-discontinuous')
   })
 
+  it('blocks a provider whose period mixes a null-model snapshot with a known id (partial unknown evidence)', () => {
+    // `from` has a legacy null-model row sitting BESIDE a gpt-5.4 row for the
+    // same provider; `to` is a clean gpt-5.4. Counting only known ids would read
+    // both sides as gpt-5.4 and mark the provider `included`, letting a
+    // directional verdict ride on the null row's (unattributable) counts. The
+    // null presence must force `model-unknown`.
+    const from = [
+      snap({ queryId: 'q1', provider: 'openai', model: null, answerMentioned: true }),
+      snap({ queryId: 'q1', provider: 'openai', model: 'gpt-5.4', answerMentioned: true }),
+    ]
+    const to = [snap({ queryId: 'q1', provider: 'openai', model: 'gpt-5.4', answerMentioned: false })]
+    const dto = computeVisibilityCompare(build(from, to))
+    expect(dto.continuity).toEqual({
+      status: 'model-unknown',
+      comparedProviders: [],
+      providers: [{ provider: 'openai', status: 'model-unknown', fromModels: ['gpt-5.4'], toModels: ['gpt-5.4'] }],
+    })
+    // Known ids are equal, so it is NOT flagged as a model CHANGE — continuity is
+    // the gate; modelChanges only tracks a changed configured id.
+    expect(dto.modelChanges).toEqual([])
+    expect(dto.basket.providers).toEqual([])
+    for (const metric of dto.metrics) {
+      expect(metric.verdict).toBe('model-unknown')
+      expect(metric.direction).toBeNull()
+    }
+  })
+
+  it('keeps a clean provider comparable while a null-mixed sibling is excluded as model-unknown', () => {
+    // claude is a clean, stable gpt-analog; openai has a null row mixed with a
+    // known id. The whole comparison must not be blocked — it proceeds over
+    // claude, with openai surfaced (and excluded) as model-unknown.
+    const from = [
+      snap({ queryId: 'q1', provider: 'claude', model: 'claude-4' }),
+      snap({ queryId: 'q1', provider: 'openai', model: null }),
+      snap({ queryId: 'q1', provider: 'openai', model: 'gpt-5.4' }),
+    ]
+    const to = [
+      snap({ queryId: 'q1', provider: 'claude', model: 'claude-4' }),
+      snap({ queryId: 'q1', provider: 'openai', model: 'gpt-5.4' }),
+    ]
+    const dto = computeVisibilityCompare(build(from, to))
+    expect(dto.continuity).toMatchObject({
+      status: 'comparable',
+      comparedProviders: ['claude'],
+      providers: [
+        { provider: 'claude', status: 'included' },
+        { provider: 'openai', status: 'model-unknown', fromModels: ['gpt-5.4'], toModels: ['gpt-5.4'] },
+      ],
+    })
+    expect(dto.basket).toMatchObject({ providers: ['claude'] })
+    expect(dto.basket.excludedProviders).toContain('openai')
+    for (const metric of dto.metrics) expect(metric.verdict).not.toBe('model-unknown')
+  })
+
   it('compares only stable providers while surfacing a discontinuous provider in analytics output', () => {
     const from = [
       snap({ queryId: 'q1', provider: 'claude', model: 'claude-4', answerMentioned: false }),

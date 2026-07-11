@@ -284,7 +284,7 @@ export type VisibilityCompareProviderContinuityStatus = z.infer<typeof visibilit
 
 export const visibilityCompareProviderContinuitySchema = z.object({
   provider: z.string(),
-  /** `included` only when both months have one known, identical model id. */
+  /** `included` only when both months carry exactly one known model id, identical across the two, and NO snapshot with an unrecorded (null) model — a null mixed alongside a known id still marks the period `model-unknown`. */
   status: visibilityCompareProviderContinuityStatusSchema,
   fromModels: z.array(z.string()),
   toModels: z.array(z.string()),
