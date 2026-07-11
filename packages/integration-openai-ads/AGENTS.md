@@ -6,7 +6,8 @@ OpenAI Advertiser API (ChatGPT ads) integration — typed read client for ad
 account, campaigns, ad groups, ads, and insights. The paid-surface counterpart
 to the organic answer-visibility data: ads render only in the ChatGPT consumer
 UI (never in API answers), so this client is the only window into the paid
-layer. See `plans/openai-ads-integration.md` for the full lane design.
+layer. Lane shape: read-only insights ingestion (`ads-sync`) first, lifecycle
+management behind an `ads.write` scope later, then paid-vs-organic overlap insights.
 
 ## Key Files
 
@@ -45,8 +46,3 @@ layer. See `plans/openai-ads-integration.md` for the full lane design.
   live response (sanitized identifiers). When the API surface grows, capture
   the real response first.
 - **Treating insights `spend` as micros** — it is decimal dollars.
-
-## See Also
-
-- `plans/openai-ads-integration.md` — phased lane design
-- `docs/roadmap.md` — "Paid Surface (ChatGPT Ads)" lane

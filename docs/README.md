@@ -1,6 +1,6 @@
 # Canonry Docs Index
 
-Start here when you need to understand what is implemented today, what is planned next, and which architectural decisions are already settled.
+Start here when you need to understand what is implemented today and how it fits together.
 
 Canonry is API-first. The API is the source of truth, the CLI is the standard operator surface, and the web UI is a secondary consumer for human analysts.
 
@@ -33,44 +33,10 @@ Canonry is API-first. The API is the source of truth, the CLI is the standard op
 | [`google-analytics-setup.md`](google-analytics-setup.md) | current | operators | Google Analytics 4 service account setup and usage |
 | [`wordpress-setup.md`](wordpress-setup.md) | current | operators | WordPress REST + Application Password setup, staging diffs, and manual handoff workflows |
 
-## Product Direction
-
-| Document | Label | Audience | Purpose |
-| --- | --- | --- | --- |
-| [`roadmap.md`](roadmap.md) | roadmap | founders, maintainers | Canonical product roadmap and prioritization |
-| [`gtm.md`](gtm.md) | launch plan | founders, maintainers | GTM launch sequencing, success metrics, per-agent distribution |
-
-`docs/roadmap.md` is the canonical product roadmap (feature-level priority). `docs/gtm.md` is the launch view (waves, ship gates, distribution). Do not treat plans or ADRs as substitutes for either.
-
-## Active Plans
-
-| Document | Label | Audience | Purpose |
-| --- | --- | --- | --- |
-| [`../plans/deployment-parity.md`](../plans/deployment-parity.md) | active plan | engineers, operators | Bring local, Docker, and hosted deployment paths into parity |
-| [`../plans/optimize-ai-calls.md`](../plans/optimize-ai-calls.md) | active plan | engineers | Reduce provider cost and unnecessary repeat calls |
-| [`../plans/gbp-phase-3-4-handoff.md`](../plans/gbp-phase-3-4-handoff.md) | active plan | engineers | Google Business Profile next steps — Phase 3 (web UI) + Phase 4 (scheduling, doctor checks, insights) |
-
-Plans describe implementation work. They are not current-behavior reference docs.
-
-## ADR Index
-
-| ADR | Label | Purpose |
-| --- | --- | --- |
-| [`0001-root-package-workspace.md`](adr/0001-root-package-workspace.md) | ADR | Keep `@ainyc/aeo-audit` as an external dependency |
-| [`0002-separate-score-families.md`](adr/0002-separate-score-families.md) | ADR | Keep technical readiness and answer visibility as separate score families |
-| [`0003-provider-throttling-and-quotas.md`](adr/0003-provider-throttling-and-quotas.md) | ADR | Use conservative provider throttling and quota defaults |
-| [`0004-local-llm-provider.md`](adr/0004-local-llm-provider.md) | ADR | Support local LLMs via an OpenAI-compatible provider |
-| [`0005-distributed-node-hub-architecture.md`](adr/0005-distributed-node-hub-architecture.md) | ADR | Define the long-term distributed node and hub architecture |
-| [`0006-location-aware-tracking.md`](adr/0006-location-aware-tracking.md) | ADR (superseded) | Historical proposal for query-scoped location tracking |
-| [`0007-project-scoped-location-context.md`](adr/0007-project-scoped-location-context.md) | ADR | Keep locations project-scoped and use them as run context |
-| [`0008-canonry-package-split.md`](adr/0008-canonry-package-split.md) | ADR | Split `@ainyc/canonry` into smaller publishable packages |
-| [`0009-content-action-outcome-ledger-and-publish-boundary.md`](adr/0009-content-action-outcome-ledger-and-publish-boundary.md) | ADR | Content action outcome ledger + publish transformer/adapter boundary |
-| [`0010-openai-web-search-tool.md`](adr/0010-openai-web-search-tool.md) | ADR | Use OpenAI's GA `web_search` tool over legacy `web_search_preview`; keep its new knobs off |
+Implementation plans, product direction, and design rationale live in PR descriptions, not in the repo — a plan doc goes stale the day its PR merges, while the PR record stays attached to the change that realized it. Durable behavior rules live in the per-package `AGENTS.md` files.
 
 ## Reading Order
 
 1. Read [`README.md`](../README.md) for product context and quickstart.
 2. Read [`architecture.md`](architecture.md) for the current shape of the system.
-3. Read [`roadmap.md`](roadmap.md) for feature-level product direction and [`gtm.md`](gtm.md) for the launch view.
-4. Use the provider, deployment, and testing docs for current implementation details.
-5. Read ADRs when you need durable architectural rationale.
+3. Use the provider, deployment, and testing docs for current implementation details.

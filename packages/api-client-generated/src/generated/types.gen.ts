@@ -2779,6 +2779,101 @@ export type TrafficSyncResponse = {
     windowEnd: string;
 };
 
+export type VisibilityCompareDto = {
+    project: string;
+    from: {
+        month: string;
+        since: string;
+        until: string;
+        runCount: number;
+        lowRunCount: boolean;
+    };
+    to: {
+        month: string;
+        since: string;
+        until: string;
+        runCount: number;
+        lowRunCount: boolean;
+    };
+    basket: {
+        queryCount: number;
+        excludedFromOnly: number;
+        excludedToOnly: number;
+        providers: Array<string>;
+        excludedProviders: Array<string>;
+    };
+    metrics: Array<{
+        key: 'mention-share-of-voice' | 'cited-share-of-voice' | 'mention-rate' | 'cited-rate';
+        label: string;
+        driftRobust: boolean;
+        from: {
+            point: number | null;
+            ciLow: number | null;
+            ciHigh: number | null;
+            numerator: number;
+            denominator: number;
+        };
+        to: {
+            point: number | null;
+            ciLow: number | null;
+            ciHigh: number | null;
+            numerator: number;
+            denominator: number;
+        };
+        rateRatio: number | null;
+        direction: 'up' | 'down' | 'flat' | null;
+        verdict: 'within-noise' | 'moved' | 'insufficient-data' | 'model-discontinuous' | 'model-unknown';
+    }>;
+    queriesMentioned: {
+        from: {
+            count: number;
+            of: number;
+        };
+        to: {
+            count: number;
+            of: number;
+        };
+    };
+    byProvider: Array<{
+        provider: string;
+        from: {
+            checked: number;
+            mentioned: number;
+            cited: number;
+        };
+        to: {
+            checked: number;
+            mentioned: number;
+            cited: number;
+        };
+    }>;
+    modelChanges: Array<{
+        provider: string;
+        fromModels: Array<string>;
+        toModels: Array<string>;
+    }>;
+    continuity: {
+        status: 'comparable' | 'model-discontinuous' | 'model-unknown' | 'insufficient-data';
+        comparedProviders: Array<string>;
+        providers: Array<{
+            provider: string;
+            status: 'included' | 'model-discontinuous' | 'model-unknown';
+            fromModels: Array<string>;
+            toModels: Array<string>;
+        }>;
+    };
+    competitors: {
+        from: Array<{
+            domain: string;
+            mentions: number;
+        }>;
+        to: Array<{
+            domain: string;
+            mentions: number;
+        }>;
+    };
+};
+
 export type VisibilityStatsDto = {
     project: string;
     groupBy?: 'provider';
@@ -4402,6 +4497,49 @@ export type GetApiV1ProjectsByNameVisibilityStatsResponses = {
 };
 
 export type GetApiV1ProjectsByNameVisibilityStatsResponse = GetApiV1ProjectsByNameVisibilityStatsResponses[keyof GetApiV1ProjectsByNameVisibilityStatsResponses];
+
+export type GetApiV1ProjectsByNameVisibilityCompareData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query: {
+        /**
+         * Earlier calendar month (YYYY-MM) — the baseline period. Must be strictly before "to".
+         */
+        from: string;
+        /**
+         * Later calendar month (YYYY-MM) — the reporting period compared against "from".
+         */
+        to: string;
+    };
+    url: '/api/v1/projects/{name}/visibility-compare';
+};
+
+export type GetApiV1ProjectsByNameVisibilityCompareErrors = {
+    /**
+     * Invalid or missing from/to months.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameVisibilityCompareError = GetApiV1ProjectsByNameVisibilityCompareErrors[keyof GetApiV1ProjectsByNameVisibilityCompareErrors];
+
+export type GetApiV1ProjectsByNameVisibilityCompareResponses = {
+    /**
+     * Month-over-month visibility comparison returned.
+     */
+    200: VisibilityCompareDto;
+};
+
+export type GetApiV1ProjectsByNameVisibilityCompareResponse = GetApiV1ProjectsByNameVisibilityCompareResponses[keyof GetApiV1ProjectsByNameVisibilityCompareResponses];
 
 export type GetApiV1ProjectsByNameSnapshotsDiffData = {
     body?: never;

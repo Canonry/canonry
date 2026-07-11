@@ -33,5 +33,3 @@ Provider-neutral traffic classifier and rollup. Takes `NormalizedTrafficRequest`
 
 - `packages/contracts/src/traffic.ts` — `NormalizedTrafficRequest` input contract
 - `packages/integration-cloud-run/` — first raw-event adapter feeding this package
-- `plans/server-side-ai-traffic-ingestion.md` — table layout, classifier tiers, surface plan
-- `plans/cloud-run-traffic-source-model-review.md` — raw-event vs aggregate-bucket model rationale

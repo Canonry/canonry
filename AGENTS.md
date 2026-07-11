@@ -45,10 +45,10 @@ packages/integration-google-analytics/  Google Analytics 4 integration
 packages/integration-bing/       Bing Webmaster Tools integration
 packages/integration-openai-ads/  OpenAI Advertiser API (ChatGPT ads) integration
 packages/integration-wordpress/  WordPress integration
-docs/                            Architecture, roadmap, testing, ADRs
+docs/                            Architecture, data model, setup guides, testing
 ```
 
-Start with `docs/README.md` when you need the current doc map, active plans, ADR index, or canonical roadmap.
+Start with `docs/README.md` when you need the current doc map.
 
 ## Commands
 
@@ -997,7 +997,3 @@ This repo uses per-package `AGENTS.md` files for local context. **These must sta
 | Add a generic utility (formatter, parser, normalizer) | Add it to `packages/contracts/src/<topic>.ts`, re-export from `index.ts`, add tests in `packages/contracts/test/<topic>.test.ts`. Update the "Where utilities live" table in this file if introducing a new category. |
 
 **Documentation-only changes do not require a version bump.**
-
-## Roadmap
-
-See `docs/roadmap.md` for the full feature roadmap including competitive analysis, priority matrix, and phased implementation order.

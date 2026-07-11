@@ -1,5 +1,13 @@
-import { formatRatio, type VisibilityStatsDto, type VisibilityStatsCounts } from '@ainyc/canonry-contracts'
+import {
+  formatRatio,
+  type VisibilityStatsDto,
+  type VisibilityStatsCounts,
+  type VisibilityCompareDto,
+  type VisibilityCompareMetric,
+  type VisibilityCompareMetricPeriod,
+} from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
+import { isMachineFormat } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
 
 export interface VisibilityStatsOptions {
@@ -40,6 +48,96 @@ export async function showVisibilityStats(project: string, opts: VisibilityStats
 
 function pct(rate: number | null): string {
   return rate === null ? '—' : formatRatio(rate)
+}
+
+// ── visibility-compare (month over month) ────────────────────────────────────
+
+export interface VisibilityCompareOptions {
+  from?: string
+  to?: string
+  format?: string
+}
+
+/** `canonry visibility-compare <project> --from <YYYY-MM> --to <YYYY-MM>` — object command; jsonl degrades to json. */
+export async function showVisibilityCompare(project: string, opts: VisibilityCompareOptions): Promise<void> {
+  if (!opts.from || !opts.to) throw new Error('visibility-compare requires --from <YYYY-MM> and --to <YYYY-MM>')
+  const client = createApiClient()
+  const data = await client.getVisibilityCompare(project, opts.from, opts.to)
+
+  if (isMachineFormat(opts.format)) {
+    console.log(JSON.stringify(data, null, 2))
+    return
+  }
+  printVisibilityCompare(data)
+}
+
+/** A metric period as `"2.1% [1.3, 3.5]"`, or `"no data"` when the sample was empty. */
+function periodCell(p: VisibilityCompareMetricPeriod): string {
+  if (p.point === null || p.ciLow === null || p.ciHigh === null) return 'no data'
+  const p1 = (v: number) => formatRatio(v)
+  return `${p1(p.point)} [${p1(p.ciLow)}, ${p1(p.ciHigh)}]`
+}
+
+function verdictCell(m: VisibilityCompareMetric): string {
+  switch (m.verdict) {
+    case 'within-noise':
+      return 'within noise'
+    case 'insufficient-data':
+      return 'no data'
+    case 'moved':
+      return `moved ${m.direction === 'down' ? 'down' : m.direction === 'up' ? 'up' : ''}`.trim()
+    case 'model-discontinuous':
+      return 'model discontinuity'
+    case 'model-unknown':
+      return 'model unknown'
+  }
+}
+
+function printVisibilityCompare(data: VisibilityCompareDto): void {
+  console.log(`AEO month over month: ${data.project}   ${data.from.month} -> ${data.to.month}`)
+  const b = data.basket
+  const excl: string[] = []
+  if (b.excludedFromOnly > 0) excl.push(`${b.excludedFromOnly} only in ${data.from.month}`)
+  if (b.excludedToOnly > 0) excl.push(`${b.excludedToOnly} only in ${data.to.month}`)
+  if (b.excludedProviders.length > 0) excl.push(`engines dropped: ${b.excludedProviders.join(', ')}`)
+  console.log(`Basket: ${b.queryCount} quer${b.queryCount === 1 ? 'y' : 'ies'}, ${b.providers.length} engine(s)${excl.length ? ` (excluded: ${excl.join('; ')})` : ''}`)
+  const sweeps = `Sweeps: ${data.from.month} ${data.from.runCount}, ${data.to.month} ${data.to.runCount}`
+  const low = data.from.lowRunCount || data.to.lowRunCount
+  console.log(low ? `${sweeps}  (below the 5-sweep floor — intervals are wide, a "moved" verdict is unlikely to be reachable)` : sweeps)
+  if (data.continuity.status !== 'comparable') {
+    console.log(`Continuity: ${data.continuity.status.replace('-', ' ')} — no directional call is made.`)
+  }
+  console.log('')
+
+  // Column widths.
+  const rows = data.metrics.map((m) => ({
+    label: `${m.label}${m.driftRobust ? ' *' : ''}`,
+    to: periodCell(m.to),
+    from: periodCell(m.from),
+    verdict: verdictCell(m),
+  }))
+  rows.push({
+    label: 'Queries named (count)',
+    to: `${data.queriesMentioned.to.count} of ${data.queriesMentioned.to.of}`,
+    from: `${data.queriesMentioned.from.count} of ${data.queriesMentioned.from.of}`,
+    verdict: '',
+  })
+  const w = (sel: (r: (typeof rows)[number]) => string, head: string) =>
+    Math.max(head.length, ...rows.map((r) => sel(r).length))
+  const lw = w((r) => r.label, 'Metric')
+  const tw = w((r) => r.to, data.to.month)
+  const fw = w((r) => r.from, data.from.month)
+  console.log(`  ${'Metric'.padEnd(lw)}  ${data.to.month.padEnd(tw)}  ${data.from.month.padEnd(fw)}  Verdict`)
+  for (const r of rows) {
+    console.log(`  ${r.label.padEnd(lw)}  ${r.to.padEnd(tw)}  ${r.from.padEnd(fw)}  ${r.verdict}`)
+  }
+  console.log('')
+  console.log('  * share of voice is less exposed to broad model-wide naming propensity; model continuity is still required.')
+  for (const provider of data.continuity.providers) {
+    if (provider.status !== 'included') {
+      console.log(`  Excluded for model continuity: ${provider.provider} (${provider.fromModels.join('/') || '?'} -> ${provider.toModels.join('/') || '?'}; ${provider.status.replace('-', ' ')})`)
+    }
+  }
 }
 
 /** Cited = cited/total; Mentioned = mentioned/checked (checked excludes "not checked"). */

@@ -18,6 +18,7 @@ import {
   type VisibilityStatsShareOfVoice,
 } from '@ainyc/canonry-contracts'
 import { notProbeRun, resolveProject } from './helpers.js'
+import { computeVisibilityCompare } from './visibility-compare.js'
 
 /** Snapshot fields the aggregation reads. Tri-state `answerMentioned` is read RAW. */
 export interface VisibilityStatsSnapshotInput {
@@ -107,7 +108,7 @@ function providerEntries(byProvider: Map<string, Agg>): VisibilityStatsProviderE
 type QueryAttributionSnapshot = Pick<VisibilityStatsSnapshotInput, 'queryId' | 'queryText'>
 type CurrentQuery = { id: string; query: string }
 
-function buildQueryAttribution(projectQueries: CurrentQuery[]): {
+export function buildQueryAttribution(projectQueries: CurrentQuery[]): {
   byId: Map<string, CurrentQuery>
   byText: Map<string, CurrentQuery>
 } {
@@ -120,7 +121,7 @@ function buildQueryAttribution(projectQueries: CurrentQuery[]): {
   return { byId, byText }
 }
 
-function resolveCurrentQuery(
+export function resolveCurrentQuery(
   attribution: ReturnType<typeof buildQueryAttribution>,
   snap: QueryAttributionSnapshot,
 ): CurrentQuery | undefined {
@@ -390,5 +391,98 @@ export async function visibilityStatsRoutes(app: FastifyInstance) {
       ...(shareOfVoice ? { shareOfVoice } : {}),
     }
     return reply.send(response)
+  })
+
+  // GET /projects/:name/visibility-compare?from=YYYY-MM&to=YYYY-MM
+  // Statistically honest month-over-month AEO comparison (share-of-voice-led,
+  // basket-restricted, Wilson intervals, CI-overlap verdict, drift-aware). One
+  // call serves a whole m/m report; the caller renders, never recomputes.
+  app.get<{
+    Params: { name: string }
+    Querystring: { from?: string; to?: string }
+  }>('/projects/:name/visibility-compare', async (request, reply) => {
+    const project = resolveProject(app.db, request.params.name)
+    const { from: fromRaw, to: toRaw } = request.query
+    if (fromRaw === undefined || fromRaw === '') throw validationError('"from" (YYYY-MM) is required')
+    if (toRaw === undefined || toRaw === '') throw validationError('"to" (YYYY-MM) is required')
+
+    let fromBounds: { since: string; until: string }
+    let toBounds: { since: string; until: string }
+    try {
+      fromBounds = calendarMonthBounds(fromRaw)
+    } catch (err) {
+      throw validationError(err instanceof RangeError ? `"from": ${err.message}` : '"from" must be in YYYY-MM format')
+    }
+    try {
+      toBounds = calendarMonthBounds(toRaw)
+    } catch (err) {
+      throw validationError(err instanceof RangeError ? `"to": ${err.message}` : '"to" must be in YYYY-MM format')
+    }
+    if (Date.parse(fromBounds.since) >= Date.parse(toBounds.since)) {
+      throw validationError('"from" must be a month strictly before "to"')
+    }
+
+    const projectQueries = app.db
+      .select({ id: queries.id, query: queries.query })
+      .from(queries)
+      .where(eq(queries.projectId, project.id))
+      .all()
+
+    const competitorRows = app.db
+      .select({ domain: competitors.domain })
+      .from(competitors)
+      .where(eq(competitors.projectId, project.id))
+      .all()
+    const competitorInputs = competitorRows.map((c) => ({
+      domain: c.domain,
+      brandTokens: [brandLabelFromDomain(c.domain)].filter((t) => t.length >= 3),
+    }))
+
+    const loadMonth = (bounds: { since: string; until: string }) => {
+      const sinceMs = Date.parse(bounds.since)
+      const untilMs = Date.parse(bounds.until)
+      const monthRuns = app.db
+        .select({ id: runs.id, createdAt: runs.createdAt, status: runs.status })
+        .from(runs)
+        .where(and(eq(runs.projectId, project.id), eq(runs.kind, RunKinds['answer-visibility']), notProbeRun()))
+        .all()
+        .filter(
+          (r) =>
+            (r.status === RunStatuses.completed || r.status === RunStatuses.partial) &&
+            Date.parse(r.createdAt) >= sinceMs &&
+            Date.parse(r.createdAt) <= untilMs,
+        )
+      const runIds = monthRuns.map((r) => r.id)
+      const snapshots =
+        runIds.length > 0 && projectQueries.length > 0
+          ? app.db
+              .select({
+                queryId: querySnapshots.queryId,
+                queryText: querySnapshots.queryText,
+                provider: querySnapshots.provider,
+                model: querySnapshots.model,
+                citationState: querySnapshots.citationState,
+                answerMentioned: querySnapshots.answerMentioned,
+                answerText: querySnapshots.answerText,
+                citedDomains: querySnapshots.citedDomains,
+              })
+              .from(querySnapshots)
+              .where(inArray(querySnapshots.runId, runIds))
+              .all()
+          : []
+      return { runCount: monthRuns.length, snapshots }
+    }
+
+    const fromMonth = loadMonth(fromBounds)
+    const toMonth = loadMonth(toBounds)
+
+    const dto = computeVisibilityCompare({
+      project: project.name,
+      queries: projectQueries,
+      competitors: competitorInputs,
+      from: { month: fromRaw, since: fromBounds.since, until: fromBounds.until, runCount: fromMonth.runCount, snapshots: fromMonth.snapshots },
+      to: { month: toRaw, since: toBounds.since, until: toBounds.until, runCount: toMonth.runCount, snapshots: toMonth.snapshots },
+    })
+    return reply.send(dto)
   })
 }

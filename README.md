@@ -96,7 +96,6 @@ Configure during `cnry init`, in the dashboard `/settings`, or as env vars.
 | **Deployment** — Docker, Railway, Render, systemd, Tailscale | [docs/deployment.md](docs/deployment.md) |
 | **API** — 118+ endpoints | `GET /api/v1/openapi.json` (no auth) |
 | **Skills bundle** for Claude Code / Codex | `cnry skills install` ([details](skills/canonry/SKILL.md)) |
-| **Roadmap & ADRs** | [docs/roadmap.md](docs/roadmap.md) · [docs/adr/](docs/adr/) |
 | **All docs** | [docs/README.md](docs/README.md) |
 
 ## Requirements

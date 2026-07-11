@@ -67,4 +67,3 @@ site and shares only the Application-Password auth pattern.
 - `packages/integration-traffic/` — provider-neutral classifier + hourly rollup
 - `packages/integration-cloud-run/` — sibling pull adapter; mirror this file
   layout when adding a new adapter
-- `plans/server-side-ai-traffic-ingestion.md` — overall traffic plan

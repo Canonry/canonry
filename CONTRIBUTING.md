@@ -52,7 +52,7 @@ apps/web/                 Vite SPA source (bundled into packages/canonry/assets/
 - Keep provider logic in `packages/provider-*/`.
 - Keep API handlers thin.
 
-Use [`docs/README.md`](docs/README.md) as the entrypoint for roadmap, ADRs, active plans, and current reference docs.
+Use [`docs/README.md`](docs/README.md) as the entrypoint for the current reference docs.
 
 ## Before Submitting a PR
 
