@@ -37,6 +37,7 @@ import { perplexityAdapter } from "@ainyc/canonry-provider-perplexity";
 import {
   authInvalid,
   authRequired,
+  notFound,
   validationError,
   embedClientConfigForRequest,
   serializeForInlineScript,
@@ -2281,9 +2282,8 @@ export async function createServer(opts: {
         url.startsWith("/api/") ||
         (basePath !== undefined && url.startsWith(`${basePath}api/`));
       if (isApiRoute) {
-        return reply
-          .status(404)
-          .send({ error: "Not found", path: request.url });
+        const error = notFound("API route", url);
+        return reply.status(error.statusCode).send(error.toJSON());
       }
 
       // When a base path is configured, only serve the SPA for paths under it.

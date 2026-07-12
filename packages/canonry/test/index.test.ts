@@ -17,6 +17,7 @@ const { version: PKG_VERSION } = _require('../package.json') as { version: strin
 describe('canonry', () => {
   afterEach(() => {
     vi.unstubAllEnvs()
+    vi.unstubAllGlobals()
   })
 
   it('loadConfig throws when no config exists', () => {
@@ -1330,6 +1331,53 @@ describe('canonry', () => {
       await app.close()
       fs.rmSync(tmpDir, { recursive: true, force: true })
     }
+  })
+
+  it('ApiClient keeps analytics, visibility stats, and Technical AEO under /api/v1 for an external base URL', async () => {
+    const fakeFetch = vi.fn(async () =>
+      new Response('{}', {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    )
+    vi.stubGlobal('fetch', fakeFetch)
+
+    const client = new ApiClient('https://example.test/canonry', 'cnry_test', { skipProbe: true })
+    await client.getVisibilityStats('acme')
+    await client.getAnalyticsMetrics('acme')
+    await client.getAnalyticsGaps('acme')
+    await client.getAnalyticsSources('acme')
+    await client.getTechnicalAeoScore('acme')
+
+    expect(fakeFetch.mock.calls.map(([request]) => (request as Request).url)).toEqual([
+      'https://example.test/canonry/api/v1/projects/acme/visibility-stats',
+      'https://example.test/canonry/api/v1/projects/acme/analytics/metrics',
+      'https://example.test/canonry/api/v1/projects/acme/analytics/gaps',
+      'https://example.test/canonry/api/v1/projects/acme/analytics/sources',
+      'https://example.test/canonry/api/v1/projects/acme/technical-aeo',
+    ])
+  })
+
+  it('ApiClient reports an HTML SPA fallback as a response-format error', async () => {
+    const fakeFetch = vi.fn(async () =>
+      new Response('<!doctype html><html><body>Canonry</body></html>', {
+        status: 200,
+        headers: { 'content-type': 'text/html; charset=utf-8' },
+      }),
+    )
+    vi.stubGlobal('fetch', fakeFetch)
+
+    const client = new ApiClient('https://example.test/canonry', 'cnry_test', { skipProbe: true })
+
+    await expect(client.getVisibilityStats('acme')).rejects.toMatchObject({
+      code: 'UNEXPECTED_RESPONSE_FORMAT',
+      exitCode: 2,
+      details: {
+        requestUrl: 'https://example.test/canonry/api/v1/projects/acme/visibility-stats',
+        contentType: 'text/html; charset=utf-8',
+        httpStatus: 200,
+      },
+    })
   })
 
   it('openapi endpoint is public and reports the Canonry version', async () => {

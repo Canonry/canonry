@@ -586,6 +586,27 @@ export class ApiClient {
       )
     }
 
+    // Every operation routed through ApiClient is a JSON API operation. A
+    // successful HTML document means a reverse-proxy or base-path miss fell
+    // through to the dashboard SPA; don't let that masquerade as a connection
+    // failure later when a command tries to read it as a DTO.
+    const contentType = result.response.headers.get('content-type')
+    if (result.response.ok && contentType?.toLowerCase().startsWith('text/html')) {
+      throw new CliError({
+        code: 'UNEXPECTED_RESPONSE_FORMAT',
+        message:
+          `Expected a JSON response from the canonry API at ${result.request.url}, ` +
+          `but received ${contentType} (HTTP ${result.response.status}). ` +
+          'Check the server URL and base path.',
+        exitCode: EXIT_SYSTEM_ERROR,
+        details: {
+          requestUrl: result.request.url,
+          contentType,
+          httpStatus: result.response.status,
+        },
+      })
+    }
+
     if (result.error !== undefined && result.error !== null) {
       const errorObj =
         typeof result.error === 'object' &&

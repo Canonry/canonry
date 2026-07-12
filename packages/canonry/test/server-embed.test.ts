@@ -262,6 +262,24 @@ describe('server embed mode (#716)', () => {
     }
   })
 
+  it('keeps a base-path API-shaped miss JSON instead of serving the SPA', async () => {
+    const { app, cleanup } = await buildServer(undefined, true, { basePath: '/canonry/' })
+    try {
+      const res = await app.inject({ method: 'GET', url: '/canonry/api/this-route-does-not-exist' })
+
+      expect(res.statusCode).toBe(404)
+      expect(res.headers['content-type']).toContain('application/json')
+      expect(JSON.parse(res.body)).toMatchObject({
+        error: {
+          code: 'NOT_FOUND',
+        },
+      })
+      expect(res.body).not.toContain('id="root"')
+    } finally {
+      await cleanup()
+    }
+  })
+
   it('ON: injects views in the client block when configured', async () => {
     const { app, cleanup } = await buildServer({
       enabled: true,
