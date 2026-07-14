@@ -51,6 +51,7 @@ test('projectDtoSchema applies defaults for tags, labels, configSource, configRe
   expect(project.tags).toEqual([])
   expect(project.labels).toEqual({})
   expect(project.ownedDomains).toEqual([])
+  expect(project.providerModels).toEqual({})
   expect(project.configSource).toBe('cli')
   expect(project.configRevision).toBe(1)
 })
@@ -221,6 +222,24 @@ test('projectConfigSchema validates canonry.yaml structure', () => {
   expect(config.metadata.labels).toEqual({})
   expect(resolveConfigSpecQueries(config.spec)).toEqual([])
   expect(config.spec.competitors).toEqual([])
+  expect(config.spec.providerModels).toEqual({})
+})
+
+test('project config trims provider model overrides and rejects blank model IDs', () => {
+  const config = projectConfigSchema.parse({
+    apiVersion: 'canonry/v1',
+    kind: 'Project',
+    metadata: { name: 'model-project' },
+    spec: {
+      displayName: 'Model Project', canonicalDomain: 'example.com', country: 'US', language: 'en',
+      providerModels: { gemini: ' gemini-2.5-pro ' },
+    },
+  })
+  expect(config.spec.providerModels).toEqual({ gemini: 'gemini-2.5-pro' })
+  expect(() => projectConfigSchema.parse({
+    apiVersion: 'canonry/v1', kind: 'Project', metadata: { name: 'bad-model-project' },
+    spec: { displayName: 'Bad', canonicalDomain: 'example.com', country: 'US', language: 'en', providerModels: { gemini: '   ' } },
+  })).toThrow()
 })
 
 test('projectConfigSchema accepts legacy spec.keywords as queries', () => {

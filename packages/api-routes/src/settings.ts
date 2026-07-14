@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify'
-import type { ProviderQuotaPolicy } from '@ainyc/canonry-contracts'
+import type { ProviderModelRegistry, ProviderQuotaPolicy } from '@ainyc/canonry-contracts'
 import {
   validationError,
   notImplemented,
@@ -46,6 +46,10 @@ export interface ProviderAdapterInfo {
   name: string
   displayName: string
   mode: 'api' | 'browser'
+  /** Browser/detected models are visible but cannot be overridden per project. */
+  modelConfigurable: boolean
+  defaultModel: string
+  knownModels: ProviderModelRegistry['knownModels']
   modelValidationPattern: RegExp
   modelValidationHint: string
 }
@@ -64,6 +68,19 @@ export interface SettingsRoutesOptions {
 export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesOptions) {
   app.get('/settings', async () => ({
     providers: opts.providerSummary ?? [],
+    providerCatalog: (opts.providerAdapters ?? []).map(adapter => ({
+      name: adapter.name,
+      displayName: adapter.displayName,
+      mode: adapter.mode,
+      modelConfigurable: adapter.modelConfigurable,
+      defaultModel: adapter.defaultModel,
+      knownModels: adapter.knownModels,
+      modelValidationPattern: {
+        source: adapter.modelValidationPattern.source,
+        flags: adapter.modelValidationPattern.flags,
+      },
+      modelValidationHint: adapter.modelValidationHint,
+    })),
     google: opts.google ?? { configured: false },
     bing: opts.bing ?? { configured: false },
   }))

@@ -45,6 +45,15 @@ cnry evidence my-site
 cnry insights my-site
 ```
 
+To pin a project to a provider model for future sweeps, use an explicit
+override. Omitting a provider keeps the project on all configured engines;
+omitting its model keeps that engine on the instance setting.
+
+```bash
+cnry project update my-site --provider gemini --provider-model gemini=gemini-2.5-pro
+cnry project update my-site --clear-provider-model gemini
+```
+
 ## Or set it up with your AI coding agent
 
 Drop this into Claude Code, Codex, or any shell-capable agent. It installs canonry, runs your first sweep, audits your site for AEO readiness, and stops for your sign-off before taking any action on your behalf:

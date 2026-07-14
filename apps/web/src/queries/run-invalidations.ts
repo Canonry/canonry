@@ -57,6 +57,11 @@ export function invalidateQueriesForRunKind(
 
   switch (kind) {
     case RunKinds['answer-visibility']:
+      // The trend uses a hand-authored key rather than an SDK operation key.
+      // Completion events arrive independently of the chart, so invalidate
+      // every window/frame revision for this project immediately.
+      void queryClient.invalidateQueries({ queryKey: ['analytics-metrics', _projectName] })
+      return
     case RunKinds['site-audit']:
     case RunKinds['backlink-extract']:
       return

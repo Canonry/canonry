@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import { parseAllDocuments } from 'yaml'
+import type { ProjectConfig } from '@ainyc/canonry-contracts'
 import { createApiClient, type ApplyResultDto } from '../client.js'
 import { CliError, isMachineFormat } from '../cli-error.js'
 
@@ -37,7 +38,7 @@ export async function applyConfigFile(filePath: string): Promise<ApplyFileResult
       continue
     }
 
-    const config = doc.toJSON() as object
+    const config = doc.toJSON() as ProjectConfig
     if (!config || typeof config !== 'object') continue
 
     try {

@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS projects (
   tags              TEXT NOT NULL DEFAULT '[]',
   labels            TEXT NOT NULL DEFAULT '{}',
   providers         TEXT NOT NULL DEFAULT '[]',
+  provider_models   TEXT NOT NULL DEFAULT '{}',
   config_source     TEXT NOT NULL DEFAULT 'cli',
   config_revision   INTEGER NOT NULL DEFAULT 1,
   created_at        TEXT NOT NULL,
@@ -2127,6 +2128,15 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
     run: (tx) => {
       relinkOrphanedSnapshotQueryIds(tx)
     },
+  },
+  {
+    version: 99,
+    name: 'project-provider-models',
+    // Additive JSON text default keeps older binaries fully functional after a
+    // downgrade; they simply ignore the new column.
+    statements: [
+      `ALTER TABLE projects ADD COLUMN provider_models TEXT NOT NULL DEFAULT '{}'`,
+    ],
   },
 ]
 

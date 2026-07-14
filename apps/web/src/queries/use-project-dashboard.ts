@@ -101,7 +101,7 @@ export function useProjectDashboard(projectName: string | null | undefined) {
   // Mirror the multi-location run-grouping logic from `useDashboard`:
   // pick all sibling runs with the same `createdAt` as the latest, so
   // every location's snapshot lands in `latestRunDetails`.
-  const { latestRunIds, previousRunIds, latestRunIdsKey } = useMemo(() => {
+  const { latestRunIds, previousRunIds, latestRunIdsKey, latestVisibilityRevision } = useMemo(() => {
     const completed = projectRuns
       .filter(r =>
         (r.status === 'completed' || r.status === 'partial')
@@ -120,6 +120,13 @@ export function useProjectDashboard(projectName: string | null | undefined) {
       latestRunIds: latestIds,
       previousRunIds: previousIds,
       latestRunIdsKey: [...latestIds].sort().join(','),
+      // The trend response depends on the same completed logical sweep as the
+      // evidence/dashboard detail. Include both timestamp and sibling ids so a
+      // just-completed external sweep changes the analytics query key even
+      // when the user has not interacted with the chart.
+      latestVisibilityRevision: latestCreatedAt
+        ? `${latestCreatedAt}:${[...latestIds].sort().join(',')}`
+        : 'none',
     }
   }, [projectRuns])
 
@@ -205,6 +212,7 @@ export function useProjectDashboard(projectName: string | null | undefined) {
     project,
     isLoading,
     isError: projectQuery.isError || runsQuery.isError || detailQuery.isError,
+    latestVisibilityRevision,
     refetch,
   }
 }

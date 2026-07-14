@@ -980,6 +980,7 @@ function formatProject(row: typeof projects.$inferSelect): ProjectDto {
     tags: row.tags,
     labels: row.labels,
     providers: row.providers,
+    providerModels: row.providerModels,
     locations: row.locations,
     defaultLocation: row.defaultLocation,
     autoExtractBacklinks: row.autoExtractBacklinks,

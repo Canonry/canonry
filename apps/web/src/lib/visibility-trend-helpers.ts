@@ -1,5 +1,12 @@
-import type { BrandMetricsDto, MetricsWindow, QueryChangeEvent, TrendDirection } from '@ainyc/canonry-contracts'
-import type { CitationInsightVm, MetricTone } from '../view-models.js'
+import type {
+  BrandMetricsDto,
+  ModelAttribution,
+  ModelAttributionEvent,
+  ModelEvidenceState,
+  QueryChangeEvent,
+  TrendDirection,
+} from '@ainyc/canonry-contracts'
+import type { MetricTone } from '../view-models.js'
 
 /**
  * Pure reshaping of `BrandMetricsDto` into Recharts-ready rows for the
@@ -34,10 +41,25 @@ export interface TrendData {
   singleBucket: boolean
 }
 
-export type ProviderModelHints = Record<string, string[]>
 type BucketProviderMetric = BrandMetricsDto['buckets'][number]['byProvider'][string]
 type BucketWithOptionalProviders = Omit<BrandMetricsDto['buckets'][number], 'byProvider'> & {
   byProvider?: Record<string, BucketProviderMetric | undefined>
+}
+type BucketWithOptionalModelEvidence = BrandMetricsDto['buckets'][number] & {
+  modelEvidenceByProvider?: Record<string, ModelEvidenceState>
+}
+type MetricsWithOptionalModelAttribution = BrandMetricsDto & {
+  modelAttribution?: ModelAttribution
+}
+
+export interface GroupedModelAttributionEvent {
+  provider: string
+  event: ModelAttributionEvent
+}
+
+export interface ModelAttributionEventBucket {
+  bucketStartDate: string
+  events: GroupedModelAttributionEvent[]
 }
 
 export function normalizeProviderKey(provider: string): string {
@@ -91,68 +113,79 @@ export function buildTrendRows(
   return { rows, series, hasData, singleBucket }
 }
 
-function cutoffMsForWindow(window: MetricsWindow, now: Date): number | null {
-  if (window === 'all') return null
-  const days = window === '7d' ? 7 : window === '30d' ? 30 : 90
-  return now.getTime() - days * 24 * 60 * 60 * 1000
+/**
+ * The web app can be served by a newer static bundle against an older API.
+ * Keep a missing property distinct from the API's observed `unknown` state:
+ * the former means attribution is unavailable, the latter means the sampled
+ * snapshots did not record a model.
+ */
+export function readBucketModelEvidence(
+  bucket: BrandMetricsDto['buckets'][number],
+): Record<string, ModelEvidenceState> | null {
+  const candidate = bucket as BucketWithOptionalModelEvidence
+  if (!Object.hasOwn(candidate, 'modelEvidenceByProvider')) return null
+  return candidate.modelEvidenceByProvider ?? {}
 }
 
-function touchModel(
-  byProvider: Map<string, Map<string, number>>,
+export function readModelAttribution(dto: BrandMetricsDto): ModelAttribution | null {
+  const candidate = dto as MetricsWithOptionalModelAttribution
+  if (!Object.hasOwn(candidate, 'modelAttribution')) return null
+  return candidate.modelAttribution ?? {}
+}
+
+function findNormalizedProvider<T>(byProvider: Record<string, T | undefined>, provider: string): T | undefined {
+  const target = normalizeProviderKey(provider)
+  return Object.entries(byProvider).find(([key]) => normalizeProviderKey(key) === target)?.[1]
+}
+
+/** Human-readable, categorical evidence label. This never turns mixed data into a single model. */
+export function formatModelEvidence(state: ModelEvidenceState): string {
+  switch (state.status) {
+    case 'known':
+      return state.model
+    case 'unknown':
+      return 'Unknown model'
+    case 'mixed':
+      return `Mixed: ${state.models.join(', ')}${state.includesUnknown ? ' + unknown' : ''}`
+  }
+}
+
+/**
+ * Read the evidence from the same last bucket that draws a provider's plotted
+ * point. Do not use run-detail/citation history: it can include a different
+ * window, a probe, or a partial sweep that the analytics response excluded.
+ */
+export function latestPlottedProviderModelEvidence(
+  buckets: readonly BrandMetricsDto['buckets'][number][],
   provider: string,
-  model: string | null | undefined,
-  timestamp: number,
-) {
-  const normalized = model?.trim()
-  if (!normalized) return
-  let models = byProvider.get(provider)
-  if (!models) {
-    models = new Map<string, number>()
-    byProvider.set(provider, models)
+): ModelEvidenceState | null {
+  for (let index = buckets.length - 1; index >= 0; index -= 1) {
+    const bucket = buckets[index]!
+    if (!findNormalizedProvider(bucketProviders(bucket), provider)) continue
+    const evidence = readBucketModelEvidence(bucket)
+    return evidence ? findNormalizedProvider(evidence, provider) ?? null : null
   }
-  models.set(normalized, Math.max(models.get(normalized) ?? Number.NEGATIVE_INFINITY, timestamp))
+  return null
 }
 
-export function buildProviderModelHints(
-  evidence: readonly CitationInsightVm[],
-  window: MetricsWindow,
-  now = new Date(),
-): ProviderModelHints {
-  const cutoffMs = cutoffMsForWindow(window, now)
-  const byProvider = new Map<string, Map<string, number>>()
-
-  for (const row of evidence) {
-    const providerKey = normalizeProviderKey(row.provider)
-    if (!providerKey) continue
-    let sawWindowedHistoryModel = false
-
-    for (const point of row.runHistory) {
-      if (!point.model) continue
-      const createdAt = Date.parse(point.createdAt)
-      if (cutoffMs !== null && (!Number.isFinite(createdAt) || createdAt < cutoffMs)) continue
-      sawWindowedHistoryModel = true
-      touchModel(byProvider, providerKey, point.model, Number.isFinite(createdAt) ? createdAt : 0)
-    }
-
-    // Narrow windows intentionally require an in-window run with model data.
-    // Falling back to all-time `modelsSeen` would make a 7d/30d legend imply
-    // model coverage that is older than the plotted window.
-    if (!sawWindowedHistoryModel && window === 'all') {
-      for (const model of row.modelsSeen ?? []) {
-        touchModel(byProvider, providerKey, model, 0)
-      }
-      touchModel(byProvider, providerKey, row.model, Number.MAX_SAFE_INTEGER)
+/** Group categorical changes by the existing plotted bucket; no false-precision timestamp markers. */
+export function groupModelAttributionEvents(
+  attribution: ModelAttribution,
+): ModelAttributionEventBucket[] {
+  const byBucket = new Map<string, GroupedModelAttributionEvent[]>()
+  for (const [provider, entry] of Object.entries(attribution)) {
+    for (const event of entry.events) {
+      const rows = byBucket.get(event.bucketStartDate) ?? []
+      rows.push({ provider, event })
+      byBucket.set(event.bucketStartDate, rows)
     }
   }
-
-  return Object.fromEntries(
-    [...byProvider.entries()].map(([provider, models]) => [
-      provider,
-      [...models.entries()]
-        .sort(([modelA, seenA], [modelB, seenB]) => seenB - seenA || modelA.localeCompare(modelB))
-        .map(([model]) => model),
-    ]),
-  )
+  return [...byBucket.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([bucketStartDate, events]) => ({
+      bucketStartDate,
+      events: [...events].sort((a, b) => a.provider.localeCompare(b.provider) || a.event.observedAt.localeCompare(b.event.observedAt)),
+    }))
 }
 
 export function buildMentionShareTrendRows(dto: BrandMetricsDto): TrendData {

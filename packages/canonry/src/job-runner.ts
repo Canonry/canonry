@@ -316,7 +316,14 @@ export class JobRunner {
 
       // Resolve which providers to use — honour per-run override, then project config
       const projectProviders = providerOverride ?? (project.providers as ProviderName[])
-      activeProviders = this.registry.getForProject(projectProviders)
+      activeProviders = this.registry.getForProject(projectProviders).map((entry) => {
+        const model = project.providerModels[entry.adapter.name]
+        // Clone the registration instead of mutating the shared registry: two
+        // projects can run different models through the same provider process.
+        return model === undefined
+          ? entry
+          : { ...entry, config: { ...entry.config, model } }
+      })
 
       if (activeProviders.length === 0) {
         throw new Error('No providers configured. Add at least one provider API key.')

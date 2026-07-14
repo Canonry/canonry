@@ -3,6 +3,8 @@ import { and, eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { projects, competitors, schedules, notifications } from '@ainyc/canonry-db'
 import { forbidden, normalizeProjectAliases, normalizeProjectDomain, projectConfigSchema, registrableDomain, resolveConfigSpecQueries, SchedulableRunKinds, validationError } from '@ainyc/canonry-contracts'
+import type { ProviderAdapterInfo } from './settings.js'
+import { validateProviderModels } from './provider-models.js'
 import { writeAuditLog } from './helpers.js'
 import { replaceProjectQueries } from './query-replace.js'
 import { resolvePreset, validateCron, isValidTimezone } from './schedule-utils.js'
@@ -14,8 +16,8 @@ export interface ApplyRoutesOptions {
   /** See `ProjectRoutesOptions.onAliasesChanged`. */
   onAliasesChanged?: (projectId: string, projectName: string) => void
   onGoogleConnectionPropertyUpdated?: (domain: string, connectionType: 'gsc' | 'ga4', propertyId: string) => void
-  /** Valid provider names from registered adapters — used to reject unknown providers */
-  validProviderNames?: string[]
+  /** Full descriptors from registered adapters — used to reject unknown providers and invalid model overrides. */
+  providerAdapters?: ProviderAdapterInfo[]
   /** Allow webhook URLs that resolve to loopback addresses. Defaults to false. */
   allowLoopbackWebhooks?: boolean
 }
@@ -34,7 +36,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
     const config = parsed.data
 
     // Validate provider names against registered adapters
-    const validNames = opts?.validProviderNames ?? []
+    const validNames = opts?.providerAdapters?.map(adapter => adapter.name) ?? []
     if (validNames.length) {
       const allProviders = [
         ...(config.spec.providers ?? []),
@@ -50,6 +52,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
         }
       }
     }
+    const providerModels = validateProviderModels(config.spec.providerModels ?? {}, opts?.providerAdapters)
 
     // Validate schedule before entering transaction
     let resolvedSchedule: { cronExpr: string; preset: string | null; timezone: string } | null = null
@@ -136,6 +139,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
           language: config.spec.language,
           labels: config.metadata.labels,
           providers: config.spec.providers ?? [],
+          providerModels,
           locations: config.spec.locations ?? [],
           defaultLocation: config.spec.defaultLocation ?? null,
           autoExtractBacklinks: config.spec.autoExtractBacklinks ?? false,
@@ -165,6 +169,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
           tags: [],
           labels: config.metadata.labels,
           providers: config.spec.providers ?? [],
+          providerModels,
           locations: config.spec.locations ?? [],
           defaultLocation: config.spec.defaultLocation ?? null,
           autoExtractBacklinks: config.spec.autoExtractBacklinks ?? false,
@@ -319,6 +324,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
       tags: project.tags,
       labels: project.labels,
       providers: project.providers,
+      providerModels: project.providerModels,
       locations: project.locations,
       defaultLocation: project.defaultLocation,
       autoExtractBacklinks: project.autoExtractBacklinks,

@@ -2,6 +2,8 @@ import { CliError, EXIT_SYSTEM_ERROR, EXIT_USER_ERROR } from './cli-error.js'
 import { loadConfig } from './config.js'
 import type {
   ProjectDto,
+  ProjectConfig,
+  ProjectUpsertRequest,
   RunDto,
   RunDetailDto,
   LatestProjectRunDto,
@@ -406,11 +408,7 @@ export interface TimelineDto {
 }
 
 /** Export DTO */
-export interface ExportDto {
-  apiVersion: string
-  kind: string
-  metadata: { name: string; labels?: Record<string, string> }
-  spec: object
+export interface ExportDto extends ProjectConfig {
   results?: unknown
 }
 
@@ -742,7 +740,7 @@ export class ApiClient {
 
   // ── Projects ────────────────────────────────────────────────────────────
 
-  async putProject(name: string, body: object): Promise<ProjectDto> {
+  async putProject(name: string, body: ProjectUpsertRequest): Promise<ProjectDto> {
     return this.invoke<ProjectDto>(() =>
       putApiV1ProjectsByName({ client: this.heyClient, path: { name }, body: body as never }),
     )
@@ -778,7 +776,7 @@ export class ApiClient {
     )
   }
 
-  async apply(config: object): Promise<ApplyResultDto> {
+  async apply(config: ProjectConfig): Promise<ApplyResultDto> {
     return this.invoke<ApplyResultDto>(() => postApiV1Apply({ client: this.heyClient, body: config as never }))
   }
 

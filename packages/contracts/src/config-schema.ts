@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { providerNameSchema, locationContextSchema } from './provider.js'
+import { providerModelsSchema, providerNameSchema, locationContextSchema } from './provider.js'
 import { notificationEventSchema } from './notification.js'
 import { findDuplicateLocationLabels, hasLocationLabel } from './project.js'
 
@@ -49,6 +49,7 @@ export const configSpecSchema = z.object({
   keywords: configQueryListSchema.optional(),
   competitors: z.array(z.string().min(1)).optional().default([]),
   providers: z.array(providerNameSchema).optional().default([]),
+  providerModels: providerModelsSchema.optional().default({}),
   locations: z.array(locationContextSchema).optional().default([]),
   defaultLocation: z.string().optional(),
   schedule: configScheduleSchema,

@@ -67,10 +67,10 @@ describe('api error envelopes', () => {
   it('returns a typed envelope for invalid provider settings names', async () => {
     const { app, tmpDir } = buildApp({
       providerAdapters: [
-        { name: 'gemini', displayName: 'Gemini', mode: 'api', modelValidationPattern: /./, modelValidationHint: '' },
-        { name: 'openai', displayName: 'OpenAI', mode: 'api', modelValidationPattern: /./, modelValidationHint: '' },
-        { name: 'claude', displayName: 'Claude', mode: 'api', modelValidationPattern: /^claude-/, modelValidationHint: '' },
-        { name: 'local', displayName: 'Local', mode: 'api', modelValidationPattern: /./, modelValidationHint: '' },
+        { name: 'gemini', displayName: 'Gemini', mode: 'api', modelConfigurable: true, defaultModel: 'gemini-2.5-flash', knownModels: [], modelValidationPattern: /./, modelValidationHint: '' },
+        { name: 'openai', displayName: 'OpenAI', mode: 'api', modelConfigurable: true, defaultModel: 'gpt-5.4', knownModels: [], modelValidationPattern: /./, modelValidationHint: '' },
+        { name: 'claude', displayName: 'Claude', mode: 'api', modelConfigurable: true, defaultModel: 'claude-sonnet-4-5', knownModels: [], modelValidationPattern: /^claude-/, modelValidationHint: '' },
+        { name: 'local', displayName: 'Local', mode: 'api', modelConfigurable: true, defaultModel: 'local', knownModels: [], modelValidationPattern: /./, modelValidationHint: '' },
       ],
     })
     await app.ready()
@@ -93,6 +93,28 @@ describe('api error envelopes', () => {
     expect(body.error.details.provider).toBe('not-a-provider')
     expect(body.error.details.validProviders).toEqual(['gemini', 'openai', 'claude', 'local'])
 
+    await app.close()
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('persists validated project model overrides and resets them when PUT omits the map', async () => {
+    const { app, tmpDir } = buildApp({
+      providerAdapters: [{
+        name: 'gemini', displayName: 'Gemini', mode: 'api', modelConfigurable: true,
+        defaultModel: 'gemini-2.5-flash', knownModels: [], modelValidationPattern: /^gemini-/,
+        modelValidationHint: 'use a Gemini model ID',
+      }],
+    })
+    await app.ready()
+    const body = { displayName: 'Demo', canonicalDomain: 'example.com', country: 'US', language: 'en', providers: ['gemini'] }
+    const created = await app.inject({ method: 'PUT', url: '/api/v1/projects/demo', payload: { ...body, providerModels: { gemini: ' gemini-2.5-pro ' } } })
+    expect(created.statusCode).toBe(201)
+    expect(created.json().providerModels).toEqual({ gemini: 'gemini-2.5-pro' })
+    const reset = await app.inject({ method: 'PUT', url: '/api/v1/projects/demo', payload: body })
+    expect(reset.statusCode).toBe(200)
+    expect(reset.json().providerModels).toEqual({})
+    const settings = await app.inject({ method: 'GET', url: '/api/v1/settings' })
+    expect(settings.json().providerCatalog[0]).toMatchObject({ name: 'gemini', modelConfigurable: true, modelValidationPattern: { source: '^gemini-', flags: '' } })
     await app.close()
     fs.rmSync(tmpDir, { recursive: true, force: true })
   })

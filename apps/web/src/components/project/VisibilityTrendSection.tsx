@@ -14,6 +14,7 @@ import {
   formatChartDateTick,
   Line,
   providerSeriesColor,
+  ReferenceLine,
   RechartsTooltip,
   ResponsiveContainer,
   XAxis,
@@ -23,18 +24,21 @@ import { InfoTooltip } from '../shared/InfoTooltip.js'
 import { fetchAnalyticsMetrics } from '../../api.js'
 import { STATIC_VISIBILITY_STALE_MS } from '../../queries/query-client.js'
 import {
-  buildProviderModelHints,
   buildSelectedTrendRows,
   CITED_KEY,
+  formatModelEvidence,
   formatQueryChangeCaption,
+  groupModelAttributionEvents,
   latestSeriesValue,
+  latestPlottedProviderModelEvidence,
   MENTION_SHARE_KEY,
   MENTIONED_KEY,
   normalizeProviderKey,
+  readBucketModelEvidence,
+  readModelAttribution,
   type MetricChoice,
   type TrendSeriesMode,
 } from '../../lib/visibility-trend-helpers.js'
-import type { CitationInsightVm } from '../../view-models.js'
 
 const WINDOW_OPTIONS: Array<{ value: MetricsWindow; label: string }> = [
   { value: '7d', label: '7d' },
@@ -63,7 +67,6 @@ const METRIC_OPTIONS: Array<{ value: MetricChoice; label: string; description: s
     description: 'Of all answer-text brand mentions for you and tracked competitors, the share that were you.',
   },
 ]
-const MAX_VISIBLE_PROVIDER_MODELS = 2
 const MENTION_SHARE_COLOR = CHART_SERIES_COLORS[2]!
 
 /** Dark ring drawn around the active (hovered) dot so it reads against the line. */
@@ -165,6 +168,57 @@ function findBucket(buckets: readonly MetricsBucket[], label: string | number | 
   return buckets.find(b => b.startDate === key) ?? null
 }
 
+function formatBucketModelEvidence(bucket: MetricsBucket): string {
+  const evidence = readBucketModelEvidence(bucket)
+  if (evidence === null) return 'Model attribution unavailable for this bucket.'
+  const labels = Object.entries(evidence)
+    .sort(([a], [b]) => normalizeProviderKey(a).localeCompare(normalizeProviderKey(b)))
+    .map(([provider, state]) => `${providerDisplayName(provider)}: ${formatModelEvidence(state)}`)
+  return labels.length > 0 ? `Model evidence: ${labels.join('; ')}` : 'No model evidence in this bucket.'
+}
+
+function modelEventMarkerColor(events: ReturnType<typeof groupModelAttributionEvents>[number]['events']): string {
+  if (events.some(({ event }) => event.to.status === 'mixed')) return CHART_TONE.caution
+  if (events.some(({ event }) => event.to.status === 'unknown')) return CHART_TONE.negative
+  if (events.every(({ event }) => event.from.status === 'known' && event.to.status === 'known')) return CHART_SERIES_COLORS[4]!
+  return CHART_TONE.positive
+}
+
+function ModelEvidenceSummary({
+  events,
+  available,
+}: {
+  events: ReturnType<typeof groupModelAttributionEvents>
+  available: boolean
+}) {
+  const descriptionId = useId()
+  return (
+    <aside className="trend-model-evidence" aria-labelledby="trend-model-evidence-title" aria-describedby={descriptionId}>
+      <div className="trend-model-evidence-head">
+        <p id="trend-model-evidence-title" className="trend-model-evidence-title">Model evidence changes</p>
+        <span className="trend-model-evidence-key" aria-hidden="true">Dashed chart markers</span>
+      </div>
+      <p id={descriptionId} className="sr-only">
+        Model evidence is recorded from the exact snapshots that produced each trend bucket. It is not the project’s configured provider model.
+      </p>
+      {!available ? (
+        <p className="trend-model-evidence-empty">Attribution unavailable from this API version.</p>
+      ) : events.length === 0 ? (
+        <p className="trend-model-evidence-empty">No model evidence changes in this window.</p>
+      ) : (
+        <ul className="trend-model-evidence-list">
+          {events.flatMap(({ bucketStartDate, events: bucketEvents }) => bucketEvents.map(({ provider, event }) => (
+            <li key={`${provider}-${event.observedAt}-${event.bucketStartDate}`} className="trend-model-evidence-item">
+              <span className="trend-model-evidence-date">{formatChartDateLabel(bucketStartDate)}</span>
+              <span>{providerDisplayName(provider)}: {formatModelEvidence(event.from)} → {formatModelEvidence(event.to)}</span>
+            </li>
+          )))}
+        </ul>
+      )}
+    </aside>
+  )
+}
+
 function formatPercent(value: number | null): string {
   return value === null ? 'no data' : `${value}%`
 }
@@ -210,6 +264,7 @@ function TrendTooltip({
         ) : (
           <p className="trend-tooltip-detail">No project or competitor brand mentions in this bucket.</p>
         )}
+        <p className="trend-tooltip-detail">{formatBucketModelEvidence(bucket)}</p>
       </div>
     )
   }
@@ -244,6 +299,7 @@ function TrendTooltip({
           </div>
         )
       })}
+      <p className="trend-tooltip-detail">{formatBucketModelEvidence(bucket)}</p>
     </div>
   )
 }
@@ -287,6 +343,7 @@ function TrendDataSummary({
           } else {
             valueText = `${formatRatePercent(bucket[metricField(metric)])} ${metricLabel(metric).toLowerCase()}, ${metricCount(bucket, metric)} of ${bucket.total} snapshots`
           }
+          valueText += `; ${formatBucketModelEvidence(bucket)}`
           return (
             <tr key={bucket.startDate}>
               <th scope="row">{formatChartDateLabel(bucket.startDate)}</th>
@@ -350,11 +407,12 @@ function Segmented<T extends string>({
 export function VisibilityTrendSection({
   projectName,
   competitorDomains = [],
-  visibilityEvidence = [],
+  analyticsRevision = 'none',
 }: {
   projectName: string
   competitorDomains?: readonly string[]
-  visibilityEvidence?: readonly CitationInsightVm[]
+  /** Latest completed answer-visibility logical-sweep revision from dashboard polling. */
+  analyticsRevision?: string
 }) {
   const [window, setWindow] = useState<MetricsWindow>('all')
   const [metric, setMetric] = useState<MetricChoice>('mentioned')
@@ -365,7 +423,7 @@ export function VisibilityTrendSection({
   const metricsFrameKey = useMemo(() => competitorFrameKey(competitorDomains), [competitorDomains])
 
   const metricsQuery = useQuery({
-    queryKey: ['analytics-metrics', projectName, window, metricsFrameKey],
+    queryKey: ['analytics-metrics', projectName, window, metricsFrameKey, analyticsRevision],
     queryFn: () => fetchAnalyticsMetrics(projectName, window),
     staleTime: STATIC_VISIBILITY_STALE_MS,
   })
@@ -377,12 +435,10 @@ export function VisibilityTrendSection({
     () => (data ? buildSelectedTrendRows(data, metric, effectiveMode) : null),
     [data, metric, effectiveMode],
   )
-  // Capture the window cutoff once per data/window change; this keeps
-  // supplementary model hints stable while the user is looking at the chart.
-  const modelHintNow = useMemo(() => new Date(), [visibilityEvidence, window])
-  const providerModelHints = useMemo(
-    () => buildProviderModelHints(visibilityEvidence, window, modelHintNow),
-    [visibilityEvidence, window, modelHintNow],
+  const modelAttribution = data ? readModelAttribution(data) : null
+  const modelEvents = useMemo(
+    () => groupModelAttributionEvents(modelAttribution ?? {}),
+    [modelAttribution],
   )
 
   // Headline readout: the selected metric's latest bucket value plus its change
@@ -495,9 +551,12 @@ export function VisibilityTrendSection({
             <ul className="trend-legend" aria-label="Engines">
               {series.map((key, i) => {
                 const value = latestSeriesValue(rows, key)
-                const modelHints = providerModelHints[normalizeProviderKey(key)] ?? []
-                const visibleModels = modelHints.slice(0, MAX_VISIBLE_PROVIDER_MODELS)
-                const hiddenModelCount = modelHints.length - visibleModels.length
+                const evidence = latestPlottedProviderModelEvidence(buckets, key)
+                const evidenceLabel = modelAttribution === null
+                  ? 'Attribution unavailable'
+                  : evidence
+                    ? formatModelEvidence(evidence)
+                    : 'No observed model evidence'
                 return (
                   <li key={key} className="trend-legend-item">
                     <span
@@ -507,10 +566,7 @@ export function VisibilityTrendSection({
                     />
                     <span className="trend-legend-label">
                       <span className="trend-legend-name">{seriesLabel(key)}</span>
-                      {visibleModels.map(model => (
-                        <span key={model} className="trend-legend-model"><span aria-hidden="true">· </span>{model}</span>
-                      ))}
-                      {hiddenModelCount > 0 && <span className="trend-legend-model-more">+{hiddenModelCount}</span>}
+                      <span className="trend-legend-model"><span aria-hidden="true">· </span>{evidenceLabel}</span>
                     </span>
                     {value !== null && <span className="trend-legend-value">{value}%</span>}
                   </li>
@@ -547,6 +603,16 @@ export function VisibilityTrendSection({
                   cursor={{ stroke: CHART_AXIS_STROKE, strokeWidth: 1 }}
                   content={<TrendTooltip metric={metric} mode={effectiveMode} buckets={buckets} />}
                 />
+                {modelEvents.map(({ bucketStartDate, events }) => (
+                  <ReferenceLine
+                    key={`model-evidence-${bucketStartDate}`}
+                    x={bucketStartDate}
+                    stroke={modelEventMarkerColor(events)}
+                    strokeDasharray="4 4"
+                    strokeWidth={1.5}
+                    ifOverflow="extendDomain"
+                  />
+                ))}
                 {series.map((key, i) => (
                   <Line
                     key={key}
@@ -568,6 +634,7 @@ export function VisibilityTrendSection({
               </ComposedChart>
             </ResponsiveContainer>
           </div>
+          <ModelEvidenceSummary events={modelEvents} available={modelAttribution !== null} />
           {singleBucket && (
             <p className="visibility-trend-note">
               {metric === 'mentionShare'

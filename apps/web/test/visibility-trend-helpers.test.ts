@@ -1,10 +1,14 @@
 import { describe, it, expect } from 'vitest'
-import type { BrandMetricsDto } from '@ainyc/canonry-contracts'
+import type { BrandMetricsDto, ModelAttribution, ModelEvidenceState } from '@ainyc/canonry-contracts'
 import {
-  buildProviderModelHints,
   buildMentionShareTrendRows,
   buildSelectedTrendRows,
   buildTrendRows,
+  formatModelEvidence,
+  groupModelAttributionEvents,
+  latestPlottedProviderModelEvidence,
+  readBucketModelEvidence,
+  readModelAttribution,
   trendToTone,
   formatQueryChangeCaption,
   latestSeriesValue,
@@ -13,7 +17,6 @@ import {
   MENTIONED_KEY,
   normalizeProviderKey,
 } from '../src/lib/visibility-trend-helpers.js'
-import type { CitationInsightVm } from '../src/view-models.js'
 
 function provider(citationRate: number, mentionRate: number) {
   return { citationRate, cited: 0, total: 4, mentionRate, mentionedCount: 0 }
@@ -43,32 +46,6 @@ function dto(buckets: BrandMetricsDto['buckets']): BrandMetricsDto {
     trend: 'stable',
     mentionTrend: 'stable',
     queryChanges: [],
-  }
-}
-
-function evidence(providerName: string, models: string[]): CitationInsightVm {
-  return {
-    id: `${providerName}-evidence`,
-    query: `${providerName} query`,
-    provider: providerName,
-    model: models.at(-1) ?? null,
-    location: null,
-    citationState: 'cited',
-    visibilityState: 'visible',
-    changeLabel: 'Stable',
-    answerSnippet: '',
-    citedDomains: [],
-    evidenceUrls: [],
-    competitorDomains: [],
-    relatedTechnicalSignals: [],
-    groundingSources: [],
-    summary: '',
-    runHistory: models.map((model, index) => ({
-      runId: `${providerName}-${index}`,
-      citationState: 'cited',
-      createdAt: `2026-04-${String(index + 1).padStart(2, '0')}T00:00:00.000Z`,
-      model,
-    })),
   }
 }
 
@@ -159,28 +136,73 @@ describe('buildTrendRows — data flags', () => {
   })
 })
 
-describe('buildProviderModelHints', () => {
-  it('normalizes provider keys so metrics series can join evidence hints safely', () => {
+describe('model attribution helpers', () => {
+  it('normalizes provider keys so trend series can join analytics evidence safely', () => {
     expect(normalizeProviderKey(' Gemini ')).toBe('gemini')
-    const hints = buildProviderModelHints([
-      evidence(' Gemini ', ['gemini-2.5-flash']),
-    ], 'all')
+  })
 
-    expect(hints).toEqual({
-      gemini: ['gemini-2.5-flash'],
+  it('formats known, unknown, and mixed evidence without pretending mixed evidence is a selected model', () => {
+    expect(formatModelEvidence({ status: 'known', model: 'gemini-2.5-flash' })).toBe('gemini-2.5-flash')
+    expect(formatModelEvidence({ status: 'unknown' })).toBe('Unknown model')
+    expect(formatModelEvidence({ status: 'mixed', models: ['gpt-5', 'gpt-5-mini'], includesUnknown: true }))
+      .toBe('Mixed: gpt-5, gpt-5-mini + unknown')
+  })
+
+  it('uses the last plotted provider bucket, not detail-view history, for a legend model label', () => {
+    const buckets = [
+      {
+        ...bucket('2026-04-01', { gemini: provider(0.25, 0.1) }),
+        modelEvidenceByProvider: { gemini: { status: 'known', model: 'gemini-2.0-flash' } },
+      },
+      {
+        ...bucket('2026-04-08', { gemini: provider(0.75, 0.5) }),
+        modelEvidenceByProvider: { gemini: { status: 'mixed', models: ['gemini-2.0-flash', 'gemini-2.5-flash'], includesUnknown: false } },
+      },
+    ] as BrandMetricsDto['buckets']
+
+    expect(latestPlottedProviderModelEvidence(buckets, ' Gemini ')).toEqual({
+      status: 'mixed', models: ['gemini-2.0-flash', 'gemini-2.5-flash'], includesUnknown: false,
     })
   })
 
-  it('returns model versions by provider, latest model first', () => {
-    const hints = buildProviderModelHints([
-      evidence('gemini', ['gemini-2.0-flash', 'gemini-2.5-flash']),
-      evidence('openai', ['gpt-5.4']),
-    ], 'all')
+  it('distinguishes an older analytics payload from an observed unknown model', () => {
+    const legacy = bucket('2026-04-01', { gemini: provider(0.25, 0.1) }) as unknown as BrandMetricsDto['buckets'][number]
+    expect(readBucketModelEvidence(legacy)).toBeNull()
 
-    expect(hints).toEqual({
-      gemini: ['gemini-2.5-flash', 'gemini-2.0-flash'],
-      openai: ['gpt-5.4'],
+    const observed = {
+      ...legacy,
+      modelEvidenceByProvider: { gemini: { status: 'unknown' } satisfies ModelEvidenceState },
+    }
+    expect(readBucketModelEvidence(observed)).toEqual({ gemini: { status: 'unknown' } })
+
+    const legacyDto = dto([legacy]) as unknown as BrandMetricsDto
+    expect(readModelAttribution(legacyDto)).toBeNull()
+    const currentDto = { ...legacyDto, modelAttribution: {} satisfies ModelAttribution }
+    expect(readModelAttribution(currentDto)).toEqual({})
+  })
+
+  it('groups categorical evidence changes by existing trend bucket for chart markers and summaries', () => {
+    const events = groupModelAttributionEvents({
+      gemini: {
+        latestObservation: { observedAt: '2026-04-08T09:00:00.000Z', state: { status: 'known', model: 'gemini-2.5-flash' } },
+        events: [{
+          observedAt: '2026-04-08T09:00:00.000Z',
+          bucketStartDate: '2026-04-08',
+          from: { status: 'known', model: 'gemini-2.0-flash' },
+          to: { status: 'known', model: 'gemini-2.5-flash' },
+        }],
+      },
     })
+
+    expect(events).toEqual([{
+      bucketStartDate: '2026-04-08',
+      events: [{ provider: 'gemini', event: {
+        observedAt: '2026-04-08T09:00:00.000Z',
+        bucketStartDate: '2026-04-08',
+        from: { status: 'known', model: 'gemini-2.0-flash' },
+        to: { status: 'known', model: 'gemini-2.5-flash' },
+      } }],
+    }])
   })
 })
 

@@ -13,6 +13,8 @@ import {
 } from '@ainyc/canonry-contracts'
 import type { LocationContext } from '@ainyc/canonry-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
+import type { ProviderAdapterInfo } from './settings.js'
+import { validateProviderModels } from './provider-models.js'
 
 export interface ProjectRoutesOptions {
   onProjectDeleted?: (projectId: string) => void
@@ -24,8 +26,8 @@ export interface ProjectRoutesOptions {
    * Skipped when only other fields change.
    */
   onAliasesChanged?: (projectId: string, projectName: string) => void
-  /** Valid provider names from registered adapters — used to reject unknown providers */
-  validProviderNames?: string[]
+  /** Full descriptors from registered adapters — validate names and model overrides. */
+  providerAdapters?: ProviderAdapterInfo[]
 }
 
 export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOptions) {
@@ -46,6 +48,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
       defaultLocation?: string | null
       autoExtractBacklinks?: boolean
       configSource?: string
+      providerModels?: Record<string, string>
     }
   }>('/projects/:name', async (request, reply) => {
     const { name } = request.params
@@ -61,7 +64,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
     const body = parsedBody.data
 
     // Validate provider names against registered adapters
-    const validNames = opts.validProviderNames ?? []
+    const validNames = opts.providerAdapters?.map(adapter => adapter.name) ?? []
     if (validNames.length && body.providers?.length) {
       const invalid = body.providers.filter(p => !validNames.includes(p))
       if (invalid.length) {
@@ -71,6 +74,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
         })
       }
     }
+    const providerModels = validateProviderModels(body.providerModels ?? {}, opts.providerAdapters)
 
     const now = new Date().toISOString()
     const existing = app.db.select().from(projects).where(eq(projects.name, name)).get()
@@ -113,6 +117,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
           tags: body.tags ?? [],
           labels: body.labels ?? {},
           providers: body.providers ?? [],
+          providerModels,
           locations: nextLocations,
           defaultLocation: nextDefaultLocation,
           autoExtractBacklinks: nextAutoExtractBacklinks,
@@ -151,6 +156,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
         tags: body.tags ?? [],
         labels: body.labels ?? {},
         providers: body.providers ?? [],
+        providerModels,
         locations: nextLocations,
         defaultLocation: nextDefaultLocation,
         autoExtractBacklinks: nextAutoExtractBacklinks,
@@ -401,6 +407,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
         queries: qs.map(q => q.query),
         competitors: comps.map(c => c.domain),
         providers: project.providers,
+        ...(Object.keys(project.providerModels).length > 0 ? { providerModels: project.providerModels } : {}),
         locations: project.locations,
         ...(project.defaultLocation ? { defaultLocation: project.defaultLocation } : {}),
         ...(project.autoExtractBacklinks ? { autoExtractBacklinks: true } : {}),
@@ -426,7 +433,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
   })
 }
 
-function formatProject(row: InferSelectModel<typeof projects>) {
+export function formatProject(row: InferSelectModel<typeof projects>) {
   return {
     id: row.id,
     name: row.name,
@@ -439,6 +446,7 @@ function formatProject(row: InferSelectModel<typeof projects>) {
     tags: row.tags,
     labels: row.labels,
     providers: row.providers,
+    providerModels: row.providerModels,
     locations: row.locations,
     defaultLocation: row.defaultLocation,
     autoExtractBacklinks: row.autoExtractBacklinks,

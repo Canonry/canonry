@@ -63,7 +63,12 @@ erDiagram
 
 | Table | Purpose | Key Constraints |
 |-------|---------|----------------|
-| **projects** | Root entity — domain, location config, provider list, optional `icp_description` (free-text ICP used by discovery seed phase) | Unique: `name` |
+| **projects** | Root entity — domain, location config, provider list, per-project `provider_models` overrides, optional `icp_description` (free-text ICP used by discovery seed phase) | Unique: `name` |
+
+`projects.provider_models` is a JSON map of provider name to a model ID used
+for future sweeps. `{}` inherits the instance-level provider settings. It is
+not historical attribution: recorded snapshot `model` values remain the source
+of truth for model continuity and trend interpretation.
 | **queries** | Tracked queries per project. `provenance` tags where the entry came from (e.g. `cli`, `discovery:<session_id>`) so adopted basket entries can be traced back to a discovery run. | Unique: `(projectId, query)` |
 | **competitors** | Competitor domains per project. `provenance` tags origin (`cli`, `discovery:<session_id>`) for the same traceability reason. | Unique: `(projectId, domain)` |
 | **runs** | Visibility sweep executions | FK: projectId → projects |

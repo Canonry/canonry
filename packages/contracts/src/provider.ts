@@ -27,6 +27,14 @@ export const ProviderNames = {
 export const providerNameSchema = z.string().min(1)
 export type ProviderName = string
 
+/**
+ * Per-project model overrides. Values are normalized at the contract boundary
+ * so every writer persists a compact, non-blank model id; the route layer
+ * then validates the provider key and adapter-owned naming rule.
+ */
+export const providerModelsSchema = z.record(z.string(), z.string().trim().min(1))
+export type ProviderModels = z.infer<typeof providerModelsSchema>
+
 export const API_PROVIDER_NAMES = ['gemini', 'openai', 'claude', 'perplexity', 'local'] as const
 export const apiProviderNameSchema = z.string().min(1)
 export type ApiProviderName = string

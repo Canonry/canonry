@@ -24,11 +24,11 @@ vi.mock('recharts', () => {
     BarChart: passthrough,
     Cell: nul,
     ReferenceArea: nul,
+    ReferenceLine: nul,
   }
 })
 
 import { VisibilityTrendSection } from '../src/components/project/VisibilityTrendSection.js'
-import type { CitationInsightVm } from '../src/view-models.js'
 import { mockFetch, jsonResponse } from './mock-fetch.js'
 
 function provider(citationRate: number, mentionRate: number) {
@@ -44,6 +44,20 @@ function metricsDto(buckets: unknown[]) {
     trend: 'improving',
     mentionTrend: 'stable',
     queryChanges: [],
+    modelAttribution: {
+      gemini: {
+        latestObservation: {
+          observedAt: '2026-04-08T00:00:00.000Z',
+          state: { status: 'mixed', models: ['gemini-2.0-flash', 'gemini-2.5-flash'], includesUnknown: false },
+        },
+        events: [{
+          observedAt: '2026-04-08T00:00:00.000Z',
+          bucketStartDate: '2026-04-08',
+          from: { status: 'known', model: 'gemini-2.0-flash' },
+          to: { status: 'mixed', models: ['gemini-2.0-flash', 'gemini-2.5-flash'], includesUnknown: false },
+        }],
+      },
+    },
   }
 }
 
@@ -53,12 +67,19 @@ const TWO_BUCKETS = [
     citationRate: 0.25, cited: 1, total: 4, queryCount: 4, mentionRate: 0.5, mentionedCount: 2,
     mentionShare: { rate: 0.25, projectMentionSnapshots: 1, competitorMentionSnapshots: 3 },
     byProvider: { gemini: provider(0.25, 0.5), openai: provider(0.5, 0.25) },
+    modelEvidenceByProvider: {
+      gemini: { status: 'known', model: 'gemini-2.0-flash' },
+      openai: { status: 'unknown' },
+    },
   },
   {
     startDate: '2026-04-08', endDate: '2026-04-15',
     citationRate: 0.75, cited: 3, total: 4, queryCount: 4, mentionRate: 0.5, mentionedCount: 2,
     mentionShare: { rate: 0.75, projectMentionSnapshots: 3, competitorMentionSnapshots: 1 },
     byProvider: { gemini: provider(0.75, 0.5) },
+    modelEvidenceByProvider: {
+      gemini: { status: 'mixed', models: ['gemini-2.0-flash', 'gemini-2.5-flash'], includesUnknown: false },
+    },
   },
 ]
 
@@ -69,41 +90,6 @@ function renderSection(competitorDomains: readonly string[] = []) {
       <VisibilityTrendSection projectName="test-project" competitorDomains={competitorDomains} />
     </QueryClientProvider>,
   )
-}
-
-function renderSectionWithEvidence(visibilityEvidence: readonly CitationInsightVm[]) {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return render(
-    <QueryClientProvider client={queryClient}>
-      <VisibilityTrendSection projectName="test-project" visibilityEvidence={visibilityEvidence} />
-    </QueryClientProvider>,
-  )
-}
-
-function evidence(providerName: string, models: string[]): CitationInsightVm {
-  return {
-    id: `${providerName}-evidence`,
-    query: `${providerName} query`,
-    provider: providerName,
-    model: models.at(-1) ?? null,
-    location: null,
-    citationState: 'cited',
-    visibilityState: 'visible',
-    changeLabel: 'Stable',
-    answerSnippet: '',
-    citedDomains: [],
-    evidenceUrls: [],
-    competitorDomains: [],
-    relatedTechnicalSignals: [],
-    groundingSources: [],
-    summary: '',
-    runHistory: models.map((model, index) => ({
-      runId: `${providerName}-${index}`,
-      citationState: 'cited',
-      createdAt: `2026-04-${String(index + 1).padStart(2, '0')}T00:00:00.000Z`,
-      model,
-    })),
-  }
 }
 
 test('defaults to the by-engine view with a per-engine legend, and toggles to all-engines', async () => {
@@ -163,7 +149,7 @@ test('defaults to the by-engine view with a per-engine legend, and toggles to al
   expect(screen.queryByText('avg')).toBeNull()
 })
 
-test('labels per-engine legend entries with model versions and model changes', async () => {
+test('labels per-engine legend entries from analytics bucket evidence and surfaces categorical model changes', async () => {
   const restore = mockFetch((url) => {
     const path = url.split('?')[0]!
     if (path.endsWith('/projects/test-project/analytics/metrics')) {
@@ -173,19 +159,15 @@ test('labels per-engine legend entries with model versions and model changes', a
   })
   onTestFinished(restore)
 
-  renderSectionWithEvidence([
-    evidence('gemini', ['gemini-1.5-flash', 'gemini-2.0-flash', 'gemini-2.5-flash']),
-    evidence('openai', ['gpt-5.4']),
-  ])
+  renderSection()
 
   const legend = await screen.findByRole('list', { name: 'Engines' })
   expect(within(legend).getByText('Gemini')).toBeTruthy()
-  expect(within(legend).getByText('gemini-2.5-flash')).toBeTruthy()
-  expect(within(legend).getByText('gemini-2.0-flash')).toBeTruthy()
-  expect(within(legend).queryByText('gemini-1.5-flash')).toBeNull()
-  expect(within(legend).getByText('+1')).toBeTruthy()
+  expect(within(legend).getByText('Mixed: gemini-2.0-flash, gemini-2.5-flash')).toBeTruthy()
   expect(within(legend).getByText('OpenAI')).toBeTruthy()
-  expect(within(legend).getByText('gpt-5.4')).toBeTruthy()
+  expect(within(legend).getByText('Unknown model')).toBeTruthy()
+  expect(screen.getByText('Model evidence changes')).toBeTruthy()
+  expect(screen.getByText(/Gemini: gemini-2.0-flash → Mixed: gemini-2.0-flash, gemini-2.5-flash/)).toBeTruthy()
 })
 
 test('shows an empty state when there are no buckets yet', async () => {

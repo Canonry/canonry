@@ -10,7 +10,7 @@ function getClient() {
 
 export async function createProject(
   name: string,
-  opts: { domain: string; ownedDomains?: string[]; aliases?: string[]; country: string; language: string; displayName: string; format?: string },
+  opts: { domain: string; ownedDomains?: string[]; aliases?: string[]; country: string; language: string; displayName: string; providers?: string[]; providerModels?: Record<string, string>; format?: string },
 ): Promise<void> {
   const client = getClient()
   const result: ProjectDto = await client.putProject(name, {
@@ -20,6 +20,8 @@ export async function createProject(
     aliases: normalizeProjectAliases(opts.displayName, opts.aliases ?? []),
     country: opts.country,
     language: opts.language,
+    providers: opts.providers ?? [],
+    providerModels: opts.providerModels ?? {},
   })
 
   if (isMachineFormat(opts.format)) {
@@ -95,6 +97,9 @@ export async function showProject(name: string, format?: string): Promise<void> 
   console.log(`  Language:         ${project.language}`)
   console.log(`  Config source:    ${project.configSource}`)
   console.log(`  Config revision:  ${project.configRevision}`)
+  console.log(`  Providers:        ${(project.providers ?? []).length > 0 ? project.providers.join(', ') : 'all configured'}`)
+  const providerModels = Object.entries(project.providerModels ?? {})
+  console.log(`  Model overrides:  ${providerModels.length > 0 ? providerModels.map(([provider, model]) => `${provider}=${model}`).join(', ') : '(none; instance settings inherited)'}`)
   console.log(`  Tags:             ${project.tags.length > 0 ? project.tags.join(', ') : '(none)'}`)
   const labelEntries = Object.entries(project.labels)
   console.log(`  Labels:           ${labelEntries.length > 0 ? labelEntries.map(([k, v]) => `${k}=${v}`).join(', ') : '(none)'}`)
@@ -115,6 +120,9 @@ export async function updateProjectSettings(
     removeAlias?: string[]
     country?: string
     language?: string
+    providers?: string[]
+    providerModels?: Record<string, string>
+    clearProviderModels?: string[]
     format?: string
   },
 ): Promise<void> {
@@ -142,6 +150,8 @@ export async function updateProjectSettings(
     const toRemove = new Set(opts.removeAlias.map(a => a.toLowerCase()))
     aliases = aliases.filter(a => !toRemove.has(a.toLowerCase()))
   }
+  const providerModels = { ...(project.providerModels ?? {}), ...(opts.providerModels ?? {}) }
+  for (const provider of opts.clearProviderModels ?? []) delete providerModels[provider]
 
   const result: ProjectDto = await client.putProject(name, {
     displayName: nextDisplayName,
@@ -150,6 +160,13 @@ export async function updateProjectSettings(
     aliases: normalizeProjectAliases(nextDisplayName, aliases),
     country: opts.country ?? project.country,
     language: opts.language ?? project.language,
+    tags: project.tags,
+    labels: project.labels,
+    providers: opts.providers ?? project.providers,
+    providerModels,
+    locations: project.locations,
+    defaultLocation: project.defaultLocation,
+    autoExtractBacklinks: project.autoExtractBacklinks,
   })
 
   if (isMachineFormat(opts.format)) {

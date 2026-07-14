@@ -1107,6 +1107,92 @@
     @apply mt-1 text-[11px] leading-snug text-muted;
   }
 
+  /* Observed model evidence stays textual as well as visual: chart markers
+     are supplemental, never the only place an operator can learn a change. */
+  .trend-model-evidence {
+    @apply mt-3 rounded-lg border border-base bg-bg-elevated/40 px-3 py-2.5;
+  }
+
+  .trend-model-evidence-head {
+    @apply flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1;
+  }
+
+  .trend-model-evidence-title {
+    @apply text-[11px] font-medium text-neutral;
+  }
+
+  .trend-model-evidence-key {
+    @apply text-[10px] text-muted;
+  }
+
+  .trend-model-evidence-empty {
+    @apply mt-1 text-[11px] text-muted;
+  }
+
+  .trend-model-evidence-list {
+    @apply mt-1.5 space-y-1;
+  }
+
+  .trend-model-evidence-item {
+    @apply flex flex-wrap items-baseline gap-x-2 text-[11px] leading-snug text-secondary;
+  }
+
+  .trend-model-evidence-date {
+    @apply shrink-0 font-mono text-[10px] text-muted;
+  }
+
+  /* Project execution settings deliberately stand apart from metadata: these
+     controls change future sweeps, so their inherited/override state needs a
+     calm, scannable row layout rather than a modal. */
+  .project-engine-settings {
+    @apply mt-5 rounded-xl border border-default bg-surface px-5 py-5;
+  }
+
+  .project-engine-fieldset {
+    @apply mt-4 space-y-2 border-0 p-0 text-sm text-secondary;
+  }
+
+  .project-engine-fieldset legend {
+    @apply mb-2 text-sm font-medium text-heading;
+  }
+
+  .project-engine-fieldset > label {
+    @apply flex items-center gap-2 text-sm text-neutral;
+  }
+
+  .project-engine-help {
+    @apply text-xs leading-snug text-muted;
+  }
+
+  .project-engine-list {
+    @apply mt-3 divide-y divide-mono-800/40 rounded-lg border border-base bg-bg-elevated/30;
+  }
+
+  .project-engine-row {
+    @apply grid gap-3 px-3 py-3 sm:grid-cols-[minmax(11rem,0.8fr)_minmax(14rem,1.2fr)];
+  }
+
+  .project-engine-provider {
+    @apply flex flex-wrap items-center gap-2 text-sm font-medium text-neutral;
+  }
+
+  .project-engine-model {
+    @apply grid gap-1;
+  }
+
+  .project-engine-model > label {
+    @apply text-xs font-medium text-secondary;
+  }
+
+  .project-engine-model select,
+  .project-engine-model input {
+    @apply min-w-0 rounded-md border border-base bg-surface px-2 py-1.5 text-sm text-primary;
+  }
+
+  .project-engine-warning {
+    @apply mt-3 max-w-3xl text-xs leading-relaxed text-caution-400/90;
+  }
+
   /* Segmented control: an inset track with a raised selected chip. Used for the
      trend chart's metric / series / window toggles. */
   .segmented {

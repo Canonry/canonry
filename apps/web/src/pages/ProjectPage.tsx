@@ -30,6 +30,7 @@ import { METRIC_TONE_TEXT_CLASS } from '../lib/tone-helpers.js'
 import { addToast } from '../lib/toast-store.js'
 import { asyncHandler } from '../lib/async-handler.js'
 import { ProjectSettingsSection } from '../components/project/ProjectSettingsSection.js'
+import { ProjectEngineSettingsSection } from '../components/project/ProjectEngineSettingsSection.js'
 import { ScheduleSection } from '../components/project/ScheduleSection.js'
 import { NotificationsSection } from '../components/project/NotificationsSection.js'
 import {
@@ -71,6 +72,7 @@ import {
   getApiV1ProjectsByNameGoogleConnectionsOptions,
   getApiV1ProjectsByNameGoogleGscCoverageOptions,
   getApiV1ProjectsQueryKey,
+  getApiV1ProjectsByNameQueryKey,
   getApiV1SettingsOptions,
 } from '@ainyc/canonry-api-client/react-query'
 import { useAppendQueries, useTriggerRun } from '../queries/mutations.js'
@@ -1611,6 +1613,7 @@ export function ProjectPage(props: { tab: ProjectPageTab }) {
   const {
     commandCenter: model,
     isLoading: dashboardLoading,
+    latestVisibilityRevision,
     refetch,
   } = useProjectDashboard(lookupProjectName)
   const isLoading = (!nameFromContext && projectsListQuery.isLoading) || dashboardLoading
@@ -1665,7 +1668,12 @@ export function ProjectPage(props: { tab: ProjectPageTab }) {
     )
   }
 
-  return <ProjectPageContent model={model} refetch={refetch} {...props} />
+  return <ProjectPageContent
+    model={model}
+    refetch={refetch}
+    latestVisibilityRevision={latestVisibilityRevision}
+    {...props}
+  />
 }
 
 type ProjectTabItem = { key: ProjectPageTab; label: string; href: string }
@@ -1735,10 +1743,12 @@ function ProjectPageContent({
   tab: requestedTab,
   model,
   refetch,
+  latestVisibilityRevision,
 }: {
   tab: ProjectPageTab
   model: ProjectCommandCenterVm
   refetch: () => Promise<void>
+  latestVisibilityRevision: string
 }) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -2046,8 +2056,8 @@ function ProjectPageContent({
     }
   }
 
-  async function handleUpdateProject(pName: string, updates: { displayName?: string; canonicalDomain?: string; ownedDomains?: string[]; aliases?: string[]; country?: string; language?: string; locations?: Array<{ label: string; city: string; region: string; country: string; timezone?: string }>; defaultLocation?: string | null }) {
-    await apiUpdateProject(pName, updates)
+  async function handleUpdateProject(pName: string, updates: { displayName?: string; canonicalDomain?: string; ownedDomains?: string[]; aliases?: string[]; country?: string; language?: string; locations?: Array<{ label: string; city: string; region: string; country: string; timezone?: string }>; defaultLocation?: string | null; providers?: string[]; providerModels?: Record<string, string> }) {
+    const updated = await apiUpdateProject(pName, updates)
     // Invalidate the whole 'projects' branch (prefix match) so every consumer
     // — sidebar, project page, per-project detail queries — refetches the new
     // displayName before the user sees the next render. `refetch()` alone only
@@ -2058,6 +2068,14 @@ function ProjectPageContent({
     // (not a prefix) so we don't churn every Bing/GSC/GA cache under the
     // project's sub-tree.
     await queryClient.invalidateQueries({ queryKey: getApiV1ProjectsQueryKey({ client: heyClient }) })
+    queryClient.setQueryData(getApiV1ProjectsByNameQueryKey({ client: heyClient, path: { name: pName } }), updated)
+    queryClient.setQueriesData({
+      predicate: query => query.queryKey[0] === 'project-dashboard-full',
+    }, (current: unknown) => {
+      if (!current || typeof current !== 'object' || !('project' in current)) return current
+      return { ...current, project: updated }
+    })
+    return updated
   }
 
   // Quiet underline tabs (Vercel/Linear lineage), not a pill rack. Section nav
@@ -2294,7 +2312,7 @@ function ProjectPageContent({
             <VisibilityTrendSection
               projectName={model.project.name}
               competitorDomains={competitorDomains}
-              visibilityEvidence={model.visibilityEvidence}
+              analyticsRevision={latestVisibilityRevision}
             />
           </section>
 
@@ -2564,7 +2582,8 @@ function ProjectPageContent({
         </>
       ) : tab === 'settings' ? (
         <>
-          <ProjectSettingsSection project={{ ...model.project, displayName: model.project.displayName ?? model.project.name, defaultLocation: model.project.defaultLocation ?? null }} onUpdateProject={handleUpdateProject} onRefresh={() => void refetch()} />
+          <ProjectSettingsSection project={{ ...model.project, displayName: model.project.displayName ?? model.project.name, defaultLocation: model.project.defaultLocation ?? null }} onUpdateProject={async (name, updates) => { await handleUpdateProject(name, updates) }} onRefresh={() => void refetch()} />
+          <ProjectEngineSettingsSection project={model.project} onSave={async next => { await handleUpdateProject(model.project.name, next) }} />
           <ScheduleSection projectName={model.project.name} />
           <NotificationsSection projectName={model.project.name} />
         </>

@@ -60,6 +60,14 @@ test('invalidates the project-scoped runs list so the project page refreshes aft
   expect(predicateMatches('getApiV1ProjectsByNameRuns')).toBe(true)
 })
 
+test('invalidates the project analytics trend after an answer-visibility run completes', () => {
+  invalidateQueriesForRunKind(queryClient, RunKinds['answer-visibility'], 'demo')
+  const analyticsKey = invalidateSpy.mock.calls
+    .map(([arg]) => (arg as { queryKey?: unknown[] })?.queryKey)
+    .find(key => Array.isArray(key) && key[0] === 'analytics-metrics')
+  expect(analyticsKey).toEqual(['analytics-metrics', 'demo'])
+})
+
 test('invalidates GSC operations for gsc-sync runs', () => {
   invalidateQueriesForRunKind(queryClient, RunKinds['gsc-sync'], 'demo')
   expect(predicateMatches('getApiV1ProjectsByNameGoogleGscCoverage')).toBe(true)
