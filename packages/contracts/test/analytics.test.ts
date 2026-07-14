@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import {
   mentionShareBucketMetricSchema,
+  modelEvidenceStateSchema,
+  modelAttributionSchema,
   providerMetricSchema,
   timeBucketSchema,
   brandMetricsDtoSchema,
@@ -43,6 +45,68 @@ describe('providerMetricSchema', () => {
   it('rejects a missing field', () => {
     const { mentionRate: _mentionRate, ...partial } = providerMetric
     expect(() => providerMetricSchema.parse(partial)).toThrow()
+  })
+})
+
+describe('model attribution schemas', () => {
+  it('represents known, unknown, and canonical mixed evidence', () => {
+    expect(modelEvidenceStateSchema.parse({ status: 'known', model: 'gpt-5.5' })).toEqual({
+      status: 'known',
+      model: 'gpt-5.5',
+    })
+    expect(modelEvidenceStateSchema.parse({ status: 'unknown' })).toEqual({ status: 'unknown' })
+    expect(modelEvidenceStateSchema.parse({
+      status: 'mixed',
+      models: ['claude-opus-5', 'claude-sonnet-5'],
+      includesUnknown: false,
+    })).toEqual({
+      status: 'mixed',
+      models: ['claude-opus-5', 'claude-sonnet-5'],
+      includesUnknown: false,
+    })
+  })
+
+  it('rejects non-canonical mixed evidence', () => {
+    expect(() => modelEvidenceStateSchema.parse({
+      status: 'mixed',
+      models: ['claude-sonnet-5', 'claude-opus-5'],
+      includesUnknown: false,
+    })).toThrow()
+    expect(() => modelEvidenceStateSchema.parse({
+      status: 'mixed',
+      models: ['claude-sonnet-5', 'claude-sonnet-5'],
+      includesUnknown: false,
+    })).toThrow()
+  })
+
+  it('round-trips window-scoped observations and first-observed events', () => {
+    expect(modelAttributionSchema.parse({
+      claude: {
+        latestObservation: {
+          observedAt: '2026-07-14T12:00:00.000Z',
+          state: { status: 'known', model: 'claude-sonnet-5' },
+        },
+        events: [{
+          observedAt: '2026-03-20T12:00:00.000Z',
+          bucketStartDate: '2026-03-01T00:00:00.000Z',
+          from: { status: 'known', model: 'claude-opus-5' },
+          to: { status: 'known', model: 'claude-sonnet-5' },
+        }],
+      },
+    })).toEqual({
+      claude: {
+        latestObservation: {
+          observedAt: '2026-07-14T12:00:00.000Z',
+          state: { status: 'known', model: 'claude-sonnet-5' },
+        },
+        events: [{
+          observedAt: '2026-03-20T12:00:00.000Z',
+          bucketStartDate: '2026-03-01T00:00:00.000Z',
+          from: { status: 'known', model: 'claude-opus-5' },
+          to: { status: 'known', model: 'claude-sonnet-5' },
+        }],
+      },
+    })
   })
 })
 

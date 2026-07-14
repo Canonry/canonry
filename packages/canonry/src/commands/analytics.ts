@@ -93,6 +93,36 @@ function printMetrics(data: BrandMetricsDto): void {
       }
     }
   }
+
+  const attributionEntries = Object.entries(readModelAttribution(data))
+    .sort(([a], [b]) => a.localeCompare(b))
+  if (attributionEntries.length > 0) {
+    console.log(`\n  Model Evidence:`)
+    for (const [provider, attribution] of attributionEntries) {
+      const latest = attribution.latestObservation
+      console.log(`    ${provider}: latest ${formatModelEvidence(latest.state)} at ${latest.observedAt}`)
+      for (const event of attribution.events) {
+        console.log(`      ${event.observedAt}  ${formatModelEvidence(event.from)} → ${formatModelEvidence(event.to)}`)
+      }
+    }
+  }
+}
+
+/** A newer CLI can be pointed at an older server during a rolling upgrade. */
+function readModelAttribution(data: BrandMetricsDto): BrandMetricsDto['modelAttribution'] {
+  const legacyCompatible = data as unknown as { modelAttribution?: BrandMetricsDto['modelAttribution'] }
+  return legacyCompatible.modelAttribution ?? {}
+}
+
+function formatModelEvidence(state: BrandMetricsDto['modelAttribution'][string]['latestObservation']['state']): string {
+  switch (state.status) {
+    case 'known':
+      return `known ${state.model}`
+    case 'unknown':
+      return 'unknown'
+    case 'mixed':
+      return `mixed ${state.models.join(', ')}${state.includesUnknown ? ' + unknown' : ''}`
+  }
 }
 
 function printGaps(data: GapAnalysisDto): void {

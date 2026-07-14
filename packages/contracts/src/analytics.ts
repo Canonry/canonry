@@ -25,6 +25,65 @@ export const providerMetricSchema = z.object({
 })
 export type ProviderMetric = z.infer<typeof providerMetricSchema>
 
+const modelIdSchema = z.string().trim().min(1)
+const canonicalModelIdsSchema = z.array(modelIdSchema).min(1).superRefine((models, ctx) => {
+  for (let index = 1; index < models.length; index += 1) {
+    if (models[index - 1]! >= models[index]!) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'mixed model IDs must be sorted and unique',
+        path: [index],
+      })
+    }
+  }
+})
+
+/**
+ * Model evidence from the snapshots contributing to an observation. `unknown`
+ * means every contributing snapshot lacked a model; it is distinct from an
+ * absent provider observation. `mixed` preserves contradictory or partially
+ * legacy evidence instead of choosing an arbitrary model.
+ */
+export const modelEvidenceStateSchema = z.discriminatedUnion('status', [
+  z.object({
+    status: z.literal('known'),
+    model: modelIdSchema,
+  }),
+  z.object({
+    status: z.literal('unknown'),
+  }),
+  z.object({
+    status: z.literal('mixed'),
+    models: canonicalModelIdsSchema,
+    includesUnknown: z.boolean(),
+  }),
+])
+export type ModelEvidenceState = z.infer<typeof modelEvidenceStateSchema>
+
+export const modelAttributionEventSchema = z.object({
+  /** First logical sweep where the `to` evidence state was observed. */
+  observedAt: z.string(),
+  /** Existing categorical trend bucket key, not a claimed transition time. */
+  bucketStartDate: z.string(),
+  from: modelEvidenceStateSchema,
+  to: modelEvidenceStateSchema,
+})
+export type ModelAttributionEvent = z.infer<typeof modelAttributionEventSchema>
+
+export const providerModelAttributionSchema = z.object({
+  /** Most recent logical sweep in the selected analytics window for this provider. */
+  latestObservation: z.object({
+    observedAt: z.string(),
+    state: modelEvidenceStateSchema,
+  }),
+  events: z.array(modelAttributionEventSchema),
+})
+export type ProviderModelAttribution = z.infer<typeof providerModelAttributionSchema>
+
+/** Historical observed model evidence keyed by provider. This is not project configuration. */
+export const modelAttributionSchema = z.record(z.string(), providerModelAttributionSchema)
+export type ModelAttribution = z.infer<typeof modelAttributionSchema>
+
 /** Mention-share metric for one time bucket. Null rate means the competitive
  *  frame had no brand mentions in that bucket, so the share is undefined. */
 export const mentionShareBucketMetricSchema = z.object({
@@ -50,6 +109,8 @@ export const timeBucketSchema = z.object({
   mentionedCount: z.number().int(),
   mentionShare: mentionShareBucketMetricSchema,
   byProvider: z.record(z.string(), providerMetricSchema),
+  /** Evidence from the exact normalized snapshots that produced each provider rate. */
+  modelEvidenceByProvider: z.record(z.string(), modelEvidenceStateSchema).default({}),
 })
 export type TimeBucket = z.infer<typeof timeBucketSchema>
 
@@ -68,6 +129,8 @@ export const brandMetricsDtoSchema = z.object({
   trend: trendDirectionSchema,
   mentionTrend: trendDirectionSchema,
   queryChanges: z.array(queryChangeEventSchema),
+  /** Window-scoped historical evidence, distinct from any configured provider model. */
+  modelAttribution: modelAttributionSchema.default({}),
 })
 export type BrandMetricsDto = z.infer<typeof brandMetricsDtoSchema>
 

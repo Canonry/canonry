@@ -358,6 +358,18 @@ export type BrandMetricsDto = {
                 mentionedCount: number;
             };
         };
+        modelEvidenceByProvider: {
+            [key: string]: {
+                status: 'known';
+                model: string;
+            } | {
+                status: 'unknown';
+            } | {
+                status: 'mixed';
+                models: Array<string>;
+                includesUnknown: boolean;
+            };
+        };
     }>;
     overall: {
         citationRate: number;
@@ -382,6 +394,47 @@ export type BrandMetricsDto = {
         delta: number;
         label: string;
     }>;
+    modelAttribution: {
+        [key: string]: {
+            latestObservation: {
+                observedAt: string;
+                state: {
+                    status: 'known';
+                    model: string;
+                } | {
+                    status: 'unknown';
+                } | {
+                    status: 'mixed';
+                    models: Array<string>;
+                    includesUnknown: boolean;
+                };
+            };
+            events: Array<{
+                observedAt: string;
+                bucketStartDate: string;
+                from: {
+                    status: 'known';
+                    model: string;
+                } | {
+                    status: 'unknown';
+                } | {
+                    status: 'mixed';
+                    models: Array<string>;
+                    includesUnknown: boolean;
+                };
+                to: {
+                    status: 'known';
+                    model: string;
+                } | {
+                    status: 'unknown';
+                } | {
+                    status: 'mixed';
+                    models: Array<string>;
+                    includesUnknown: boolean;
+                };
+            }>;
+        };
+    };
 };
 
 export type CcAvailableRelease = {

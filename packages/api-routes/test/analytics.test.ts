@@ -283,6 +283,129 @@ describe('analytics routes', () => {
         expect(sumMentioned).toBe(bucket.mentionedCount)
       }
     })
+
+    it('attributes model evidence by logical sweep, including a pre-window anchor', async () => {
+      const attributionProjectId = crypto.randomUUID()
+      const now = new Date()
+      const anchorAt = new Date(now)
+      anchorAt.setUTCDate(anchorAt.getUTCDate() - 10)
+      const mixedAt = new Date(now)
+      mixedAt.setUTCDate(mixedAt.getUTCDate() - 2)
+      const knownAt = new Date(now)
+      knownAt.setUTCDate(knownAt.getUTCDate() - 1)
+
+      db.insert(projects).values({
+        id: attributionProjectId,
+        name: 'model-attribution-project',
+        displayName: 'Model Attribution',
+        canonicalDomain: 'attribution.example',
+        ownedDomains: '[]',
+        country: 'US',
+        language: 'en',
+        tags: '[]',
+        labels: '{}',
+        providers: '["claude"]',
+        locations: '[]',
+        defaultLocation: null,
+        configSource: 'api',
+        configRevision: 1,
+        createdAt: anchorAt.toISOString(),
+        updatedAt: anchorAt.toISOString(),
+      }).run()
+      const queryId = crypto.randomUUID()
+      db.insert(queries).values({
+        id: queryId,
+        projectId: attributionProjectId,
+        query: 'model attribution query',
+        createdAt: anchorAt.toISOString(),
+      }).run()
+
+      const insertRun = (
+        createdAt: string,
+        location: string | null,
+        kind: 'answer-visibility' | 'traffic-sync' = 'answer-visibility',
+      ) => {
+        const id = crypto.randomUUID()
+        db.insert(runs).values({
+          id,
+          projectId: attributionProjectId,
+          kind,
+          status: 'completed',
+          trigger: 'manual',
+          location,
+          startedAt: createdAt,
+          finishedAt: createdAt,
+          error: null,
+          createdAt,
+        }).run()
+        return id
+      }
+      const insertSnapshot = (runId: string, model: string | null) => {
+        db.insert(querySnapshots).values({
+          id: crypto.randomUUID(),
+          runId,
+          queryId,
+          provider: 'claude',
+          model,
+          citationState: 'not-cited',
+          answerText: '',
+          citedDomains: [],
+          competitorOverlap: [],
+          location: null,
+          rawResponse: '{}',
+          // Deliberately later than the run: buckets and attribution follow
+          // the canonical sweep time, never persistence timing.
+          createdAt: now.toISOString(),
+        }).run()
+      }
+
+      insertSnapshot(insertRun(anchorAt.toISOString(), null), 'claude-opus-5')
+      const mixedFirstRun = insertRun(mixedAt.toISOString(), 'US')
+      const mixedSecondRun = insertRun(mixedAt.toISOString(), 'EU')
+      insertSnapshot(mixedFirstRun, 'claude-sonnet-5')
+      insertSnapshot(mixedSecondRun, null)
+      insertSnapshot(insertRun(knownAt.toISOString(), null), 'claude-sonnet-5')
+      // Non-answer runs are operational activity, not answer-engine evidence.
+      insertSnapshot(insertRun(now.toISOString(), null, 'traffic-sync'), 'claude-ignored')
+
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/v1/projects/model-attribution-project/analytics/metrics?window=7d',
+      })
+      expect(res.statusCode).toBe(200)
+      const body = JSON.parse(res.payload)
+
+      expect(body.modelAttribution.claude.latestObservation).toEqual({
+        observedAt: knownAt.toISOString(),
+        state: { status: 'known', model: 'claude-sonnet-5' },
+      })
+      expect(body.modelAttribution.claude.events).toEqual([
+        {
+          observedAt: mixedAt.toISOString(),
+          bucketStartDate: new Date(Date.UTC(
+            mixedAt.getUTCFullYear(), mixedAt.getUTCMonth(), mixedAt.getUTCDate(),
+          )).toISOString(),
+          from: { status: 'known', model: 'claude-opus-5' },
+          to: { status: 'mixed', models: ['claude-sonnet-5'], includesUnknown: true },
+        },
+        {
+          observedAt: knownAt.toISOString(),
+          bucketStartDate: new Date(Date.UTC(
+            knownAt.getUTCFullYear(), knownAt.getUTCMonth(), knownAt.getUTCDate(),
+          )).toISOString(),
+          from: { status: 'mixed', models: ['claude-sonnet-5'], includesUnknown: true },
+          to: { status: 'known', model: 'claude-sonnet-5' },
+        },
+      ])
+      const mixedBucket = body.buckets.find((bucket: { startDate: string }) =>
+        bucket.startDate === new Date(Date.UTC(
+          mixedAt.getUTCFullYear(), mixedAt.getUTCMonth(), mixedAt.getUTCDate(),
+        )).toISOString(),
+      )
+      expect(mixedBucket.modelEvidenceByProvider).toEqual({
+        claude: { status: 'mixed', models: ['claude-sonnet-5'], includesUnknown: true },
+      })
+    })
   })
 
   describe('GET /projects/:name/analytics/gaps', () => {
@@ -577,11 +700,11 @@ describe('analytics routes', () => {
         error: null, createdAt: day2ISO,
       }).run()
       db.insert(querySnapshots).values([
-        { id: crypto.randomUUID(), runId: run2Id, queryId: origQ1, provider: 'gemini', citationState: 'cited', answerText: '', citedDomains: [], competitorOverlap: [], location: null, rawResponse: '{}', createdAt: day2ISO },
-        { id: crypto.randomUUID(), runId: run2Id, queryId: origQ2, provider: 'gemini', citationState: 'cited', answerText: '', citedDomains: [], competitorOverlap: [], location: null, rawResponse: '{}', createdAt: day2ISO },
-        { id: crypto.randomUUID(), runId: run2Id, queryId: newQ1, provider: 'gemini', citationState: 'not-cited', answerText: '', citedDomains: [], competitorOverlap: [], location: null, rawResponse: '{}', createdAt: day2ISO },
-        { id: crypto.randomUUID(), runId: run2Id, queryId: newQ2, provider: 'gemini', citationState: 'not-cited', answerText: '', citedDomains: [], competitorOverlap: [], location: null, rawResponse: '{}', createdAt: day2ISO },
-        { id: crypto.randomUUID(), runId: run2Id, queryId: newQ3, provider: 'gemini', citationState: 'not-cited', answerText: '', citedDomains: [], competitorOverlap: [], location: null, rawResponse: '{}', createdAt: day2ISO },
+        { id: crypto.randomUUID(), runId: run2Id, queryId: origQ1, provider: 'gemini', model: 'gemini-2.5-flash', citationState: 'cited', answerText: '', citedDomains: [], competitorOverlap: [], location: null, rawResponse: '{}', createdAt: day2ISO },
+        { id: crypto.randomUUID(), runId: run2Id, queryId: origQ2, provider: 'gemini', model: 'gemini-2.5-flash', citationState: 'cited', answerText: '', citedDomains: [], competitorOverlap: [], location: null, rawResponse: '{}', createdAt: day2ISO },
+        { id: crypto.randomUUID(), runId: run2Id, queryId: newQ1, provider: 'gemini', model: 'gemini-2.5-pro', citationState: 'not-cited', answerText: '', citedDomains: [], competitorOverlap: [], location: null, rawResponse: '{}', createdAt: day2ISO },
+        { id: crypto.randomUUID(), runId: run2Id, queryId: newQ2, provider: 'gemini', model: 'gemini-2.5-pro', citationState: 'not-cited', answerText: '', citedDomains: [], competitorOverlap: [], location: null, rawResponse: '{}', createdAt: day2ISO },
+        { id: crypto.randomUUID(), runId: run2Id, queryId: newQ3, provider: 'gemini', model: 'gemini-2.5-pro', citationState: 'not-cited', answerText: '', citedDomains: [], competitorOverlap: [], location: null, rawResponse: '{}', createdAt: day2ISO },
       ]).run()
 
       const res = await app.inject({ method: 'GET', url: '/api/v1/projects/norm-project/analytics/metrics' })
@@ -597,6 +720,10 @@ describe('analytics routes', () => {
       // slice excludes the 3 newly-added queries too (total 2, not 5).
       expect(lastBucket.byProvider.gemini.total).toBe(2)
       expect(lastBucket.byProvider.gemini.citationRate).toBe(1)
+      expect(lastBucket.modelEvidenceByProvider.gemini).toEqual({
+        status: 'known',
+        model: 'gemini-2.5-flash',
+      })
     })
 
     it('returns queryChanges annotations', async () => {
@@ -653,6 +780,7 @@ describe('analytics routes', () => {
     expect(metricsBody.overall.mentionRate).toBe(0)
     expect(metricsBody.overall.mentionedCount).toBe(0)
     expect(metricsBody.mentionTrend).toBe('stable')
+    expect(metricsBody.modelAttribution).toEqual({})
 
     const gapsRes = await app.inject({ method: 'GET', url: '/api/v1/projects/empty-project/analytics/gaps' })
     expect(gapsRes.statusCode).toBe(200)

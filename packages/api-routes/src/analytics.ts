@@ -1,19 +1,21 @@
-import { and, eq, desc, inArray } from 'drizzle-orm'
+import { and, desc, eq, gte, inArray, isNotNull, lt } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { filterTrackedSnapshots, groupRunsByCreatedAt, pickGroupRepresentative, querySnapshots, runs, queries, competitors, domainClassifications, parseJsonColumn } from '@ainyc/canonry-db'
 import {
   AI_PROVIDER_INFRA_DOMAINS, brandLabelFromDomain, categorizeSource, categoryLabel, CitationStates,
   classifySurfaceFromCategory, surfaceClassFromCompetitorType, surfaceClassLabel,
-  effectiveDomains, normalizeProjectDomain, parseWindow, RunKinds, windowCutoff, validationError,
+  effectiveDomains, normalizeProjectDomain, parseWindow, RunKinds, RunStatuses, windowCutoff, validationError,
 } from '@ainyc/canonry-contracts'
 import type {
   BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto,
   TimeBucket, TrendDirection, GapQuery, GapCategory,
   SourceCategory, SourceCategoryCount, ProviderMetric, QueryChangeEvent,
-  RankedSourceList, SourceRankEntry, SurfaceClass, SurfaceClassCount,
+  RankedSourceList, SourceRankEntry, SurfaceClass, SurfaceClassCount, ModelEvidenceState,
 } from '@ainyc/canonry-contracts'
 import { buildMentionShare } from '@ainyc/canonry-intelligence'
 import { notProbeRun, resolveProject, resolveSnapshotAnswerMentioned } from './helpers.js'
+import { buildModelAttribution } from './analytics-model-attribution.js'
+import { classifyModelEvidence } from './model-evidence.js'
 
 export async function analyticsRoutes(app: FastifyInstance) {
   // GET /projects/:name/analytics/metrics — citation rate trends
@@ -29,11 +31,16 @@ export async function analyticsRoutes(app: FastifyInstance) {
     const projectRuns = app.db
       .select()
       .from(runs)
-      .where(and(eq(runs.projectId, project.id), eq(runs.kind, RunKinds['answer-visibility']), notProbeRun()))
-      .orderBy(runs.createdAt)
+      .where(and(
+        eq(runs.projectId, project.id),
+        eq(runs.kind, RunKinds['answer-visibility']),
+        inArray(runs.status, [RunStatuses.completed, RunStatuses.partial]),
+        notProbeRun(),
+        cutoff ? gte(runs.createdAt, cutoff) : undefined,
+      ))
+      .orderBy(desc(runs.createdAt))
       .all()
-      .filter(r => r.status === 'completed' || r.status === 'partial')
-      .filter(r => !cutoff || r.createdAt >= cutoff)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
 
     if (projectRuns.length === 0) {
       return reply.send({
@@ -44,6 +51,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
         trend: 'stable',
         mentionTrend: 'stable',
         queryChanges: [],
+        modelAttribution: {},
       } satisfies BrandMetricsDto)
     }
 
@@ -56,18 +64,20 @@ export async function analyticsRoutes(app: FastifyInstance) {
         runId: querySnapshots.runId,
         queryId: querySnapshots.queryId,
         provider: querySnapshots.provider,
+        model: querySnapshots.model,
         citationState: querySnapshots.citationState,
         answerMentioned: querySnapshots.answerMentioned,
         answerText: querySnapshots.answerText,
-        createdAt: querySnapshots.createdAt,
       })
       .from(querySnapshots)
       .where(inArray(querySnapshots.runId, runIds))
       .all())
 
     // Resolve answerMentioned for each snapshot (handles null/legacy data)
+    const runCreatedAt = new Map(projectRuns.map(run => [run.id, run.createdAt]))
     const allSnapshots = rawSnapshots.map(s => ({
       ...s,
+      runCreatedAt: runCreatedAt.get(s.runId)!,
       resolvedMentioned: resolveSnapshotAnswerMentioned(s, project),
     }))
 
@@ -105,6 +115,65 @@ export async function analyticsRoutes(app: FastifyInstance) {
     const bucketSize = bucketSizeForSpan(spanDays)
     const buckets = computeBuckets(allSnapshots, projectRuns, bucketSize, queryCreatedAt, mentionShareCompetitors)
 
+    // Model observations are evidence, not configuration. To avoid a false
+    // "first seen" transition at the start of a bounded window, fetch one
+    // latest pre-cutoff logical sweep per in-window provider. This never loads
+    // an unbounded pre-window history, and provider absence remains absent
+    // evidence rather than a fabricated unknown state.
+    const anchors: Record<string, ModelEvidenceState> = {}
+    if (cutoff) {
+      for (const provider of [...new Set(allSnapshots.map(snapshot => snapshot.provider))].sort()) {
+        const latestAnchorSweep = app.db
+          .select({
+            createdAt: runs.createdAt,
+          })
+          .from(querySnapshots)
+          .innerJoin(runs, eq(querySnapshots.runId, runs.id))
+          .where(and(
+            eq(runs.projectId, project.id),
+            eq(runs.kind, RunKinds['answer-visibility']),
+            inArray(runs.status, [RunStatuses.completed, RunStatuses.partial]),
+            notProbeRun(),
+            lt(runs.createdAt, cutoff),
+            eq(querySnapshots.provider, provider),
+            isNotNull(querySnapshots.queryId),
+          ))
+          .orderBy(desc(runs.createdAt))
+          .limit(1)
+          .get()
+        if (!latestAnchorSweep) continue
+
+        const anchorSnapshots = filterTrackedSnapshots(app.db
+          .select({
+            queryId: querySnapshots.queryId,
+            provider: querySnapshots.provider,
+            model: querySnapshots.model,
+          })
+          .from(querySnapshots)
+          .innerJoin(runs, eq(querySnapshots.runId, runs.id))
+          .where(and(
+            eq(runs.projectId, project.id),
+            eq(runs.kind, RunKinds['answer-visibility']),
+            inArray(runs.status, [RunStatuses.completed, RunStatuses.partial]),
+            notProbeRun(),
+            eq(runs.createdAt, latestAnchorSweep.createdAt),
+            eq(querySnapshots.provider, provider),
+          ))
+          .all())
+        anchors[provider] = classifyModelEvidence(anchorSnapshots.map(snapshot => snapshot.model))
+      }
+    }
+    const modelAttribution = buildModelAttribution({
+      observations: allSnapshots.map(snapshot => ({
+        runId: snapshot.runId,
+        runCreatedAt: snapshot.runCreatedAt,
+        provider: snapshot.provider,
+        model: snapshot.model,
+      })),
+      anchors,
+      bucketStartFor: observedAt => bucketStartDateFor(observedAt, earliest, bucketSize),
+    })
+
     // Trends
     const trend = computeTrend(buckets, 'citationRate')
     const mentionTrend = computeTrend(buckets, 'mentionRate')
@@ -112,7 +181,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
     // Query change annotations
     const queryChanges = computeQueryChanges(projectQueries, cutoff)
 
-    return reply.send({ window, buckets, overall, byProvider, trend, mentionTrend, queryChanges } satisfies BrandMetricsDto)
+    return reply.send({ window, buckets, overall, byProvider, trend, mentionTrend, queryChanges, modelAttribution } satisfies BrandMetricsDto)
   })
 
   // GET /projects/:name/analytics/gaps — brand gap analysis
@@ -493,10 +562,12 @@ function bucketSizeForSpan(spanDays: number): number {
 interface SnapshotLike {
   queryId: string
   provider: string
+  model: string | null
   citationState: string
   resolvedMentioned: boolean
   answerText: string | null
-  createdAt: string
+  /** Canonical observation time: the parent run's logical sweep timestamp. */
+  runCreatedAt: string
 }
 
 interface MentionShareCompetitorInput {
@@ -530,10 +601,10 @@ function computeBuckets(
   const latest = new Date(projectRuns[projectRuns.length - 1]!.createdAt)
   const buckets: TimeBucket[] = []
 
-  // Snapshot `createdAt` is stored as UTC ISO, so align bucket boundaries to
-  // UTC midnight (not the server's local midnight) — otherwise a near-midnight
-  // snapshot lands in the wrong bucket on any non-UTC server, and the day-step
-  // would shift across DST transitions.
+  // Run `createdAt` is the canonical sweep time. Align its bucket boundaries
+  // to UTC midnight (not the server's local midnight) so a near-midnight run
+  // never shifts across DST transitions. Snapshot persistence time is not an
+  // observation time and must not drive analytics membership.
   let start = new Date(earliest)
   start.setUTCHours(0, 0, 0, 0)
 
@@ -543,7 +614,7 @@ function computeBuckets(
 
     const startISO = start.toISOString()
     const endISO = end.toISOString()
-    const inBucket = snapshots.filter(s => s.createdAt >= startISO && s.createdAt < endISO)
+    const inBucket = snapshots.filter(s => s.runCreatedAt >= startISO && s.runCreatedAt < endISO)
 
     // Only emit buckets that contain actual sweep data
     if (inBucket.length > 0) {
@@ -565,8 +636,11 @@ function computeBuckets(
       // computeProviderMetric inherits the 4dp rounding and probe exclusion,
       // so a provider line can never drift from the bucket overall.
       const byProvider: Record<string, ProviderMetric> = {}
+      const modelEvidenceByProvider: TimeBucket['modelEvidenceByProvider'] = {}
       for (const provider of new Set(usable.map(s => s.provider))) {
-        byProvider[provider] = computeProviderMetric(usable.filter(s => s.provider === provider))
+        const providerSnapshots = usable.filter(s => s.provider === provider)
+        byProvider[provider] = computeProviderMetric(providerSnapshots)
+        modelEvidenceByProvider[provider] = classifyModelEvidence(providerSnapshots.map(s => s.model))
       }
       buckets.push({
         startDate: startISO,
@@ -579,6 +653,7 @@ function computeBuckets(
         mentionedCount: metric.mentionedCount,
         mentionShare: computeMentionShareBucketMetric(usable, mentionShareCompetitors),
         byProvider,
+        modelEvidenceByProvider,
       })
     }
 
@@ -586,6 +661,17 @@ function computeBuckets(
   }
 
   return buckets
+}
+
+/** Return the emitted trend bucket key containing an in-window sweep. */
+function bucketStartDateFor(observedAt: string, earliest: Date, bucketDays: number): string {
+  const firstBucketStart = new Date(earliest)
+  firstBucketStart.setUTCHours(0, 0, 0, 0)
+  const observationDay = new Date(observedAt)
+  observationDay.setUTCHours(0, 0, 0, 0)
+  const bucketMilliseconds = bucketDays * 86_400_000
+  const offset = Math.max(0, Math.floor((observationDay.getTime() - firstBucketStart.getTime()) / bucketMilliseconds))
+  return new Date(firstBucketStart.getTime() + offset * bucketMilliseconds).toISOString()
 }
 
 function computeMentionShareBucketMetric(

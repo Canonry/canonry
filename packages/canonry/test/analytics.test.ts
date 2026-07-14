@@ -1,4 +1,4 @@
-import { describe, it, beforeEach, afterEach, expect } from 'vitest'
+import { describe, it, beforeEach, afterEach, expect, vi } from 'vitest'
 import os from 'node:os'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -85,6 +85,41 @@ describe('analytics command', () => {
     const { stdout } = await captureOutput(() => showAnalytics('test-proj', { feature: 'metrics' }))
     expect(stdout).toMatch(/Citation Rate Trends/)
     expect(stdout).toMatch(/Overall:/)
+  })
+
+  it('prints latest model evidence and ordered attribution events', async () => {
+    const metricsSpy = vi.spyOn(ApiClient.prototype, 'getAnalyticsMetrics').mockResolvedValue({
+      window: '30d',
+      buckets: [],
+      overall: { citationRate: 0, cited: 0, total: 0, mentionRate: 0, mentionedCount: 0 },
+      byProvider: {},
+      trend: 'stable',
+      mentionTrend: 'stable',
+      queryChanges: [],
+      modelAttribution: {
+        claude: {
+          latestObservation: {
+            observedAt: '2026-07-14T12:00:00.000Z',
+            state: { status: 'known', model: 'claude-sonnet-5' },
+          },
+          events: [{
+            observedAt: '2026-07-10T12:00:00.000Z',
+            bucketStartDate: '2026-07-10T00:00:00.000Z',
+            from: { status: 'known', model: 'claude-opus-5' },
+            to: { status: 'known', model: 'claude-sonnet-5' },
+          }],
+        },
+      },
+    })
+    try {
+      const { showAnalytics } = await import('../src/commands/analytics.js')
+      const { stdout } = await captureOutput(() => showAnalytics('test-proj', { feature: 'metrics' }))
+      expect(stdout).toContain('Model Evidence:')
+      expect(stdout).toContain('claude: latest known claude-sonnet-5 at 2026-07-14T12:00:00.000Z')
+      expect(stdout).toContain('2026-07-10T12:00:00.000Z  known claude-opus-5 → known claude-sonnet-5')
+    } finally {
+      metricsSpy.mockRestore()
+    }
   })
 
   it('prints gap analysis section for empty project', async () => {
