@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import { eq, sql } from 'drizzle-orm'
+import { eq } from 'drizzle-orm'
 import {
   createClient,
   migrate,
@@ -12,7 +12,7 @@ import {
   runs,
   querySnapshots,
 } from '../src/index.js'
-import { RELINK_ORPHANED_SNAPSHOT_QUERY_IDS_SQL } from '../src/migrate.js'
+import { relinkOrphanedSnapshotQueryIds } from '../src/migrate.js'
 
 // v98 self-heal: snapshots orphaned by the historical delete-all + reinsert
 // replace paths (query_id nulled by the FK) are re-linked to the tracked query
@@ -65,7 +65,7 @@ function seedOrphanSnapshot(
 }
 
 function relink(db: ReturnType<typeof createClient>) {
-  db.run(sql.raw(RELINK_ORPHANED_SNAPSHOT_QUERY_IDS_SQL))
+  relinkOrphanedSnapshotQueryIds(db)
 }
 
 function queryIdOf(db: ReturnType<typeof createClient>, snapId: string): string | null {
@@ -78,6 +78,19 @@ test('relinks an orphaned snapshot to the same-project query with matching norma
   const queryId = seedQuery(db, projectId, 'Best AEO Agency')
   // stored snapshot text differs in case + whitespace — normalizeQueryText semantics
   const snapId = seedOrphanSnapshot(db, projectId, '  best aeo agency ')
+
+  relink(db)
+  expect(queryIdOf(db, snapId)).toBe(queryId)
+})
+
+test('relinks non-ASCII case variants the shared normalizer folds but SQLite lower() cannot', () => {
+  // SQLite lower() is ASCII-only: a pure-SQL match would strand ÉCOLE/école
+  // forever (v98 runs once). The TS relink uses normalizeQueryText, which
+  // lowercases Unicode.
+  const db = freshDb()
+  const projectId = seedProject(db, 'alpha')
+  const queryId = seedQuery(db, projectId, 'école de commerce paris')
+  const snapId = seedOrphanSnapshot(db, projectId, 'ÉCOLE DE COMMERCE PARIS')
 
   relink(db)
   expect(queryIdOf(db, snapId)).toBe(queryId)

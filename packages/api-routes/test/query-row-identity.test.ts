@@ -201,6 +201,77 @@ describe('query row identity — PUT /projects/:name/queries (replace)', () => {
   })
 })
 
+describe('query row identity — pre-existing case-variant duplicate rows', () => {
+  // The DB uniqueness is on the RAW text, so `Best AEO Agency` and
+  // `best aeo agency` can coexist as rows from historical writes. A replace
+  // must collapse them onto ONE row without losing either row's snapshots
+  // (reparent, not detach) and without tripping UNIQUE(project_id, query)
+  // when the kept row is renamed onto the duplicate's exact raw text.
+  function seedDuplicatePair(db: ReturnType<typeof createClient>) {
+    const projectId = crypto.randomUUID()
+    const now = new Date().toISOString()
+    db.insert(projects).values({
+      id: projectId, name: 'dupes', displayName: 'Dupes', canonicalDomain: 'dupes.example',
+      country: 'US', language: 'en', createdAt: now, updatedAt: now,
+    }).run()
+    const canonicalId = crypto.randomUUID()
+    const duplicateId = crypto.randomUUID()
+    db.insert(queries).values({ id: canonicalId, projectId, query: 'Best AEO Agency', createdAt: now }).run()
+    db.insert(queries).values({ id: duplicateId, projectId, query: 'best aeo agency', createdAt: now }).run()
+    const canonicalSnap = seedSnapshot(db, projectId, canonicalId, 'Best AEO Agency')
+    const duplicateSnap = seedSnapshot(db, projectId, duplicateId, 'best aeo agency')
+    return { projectId, canonicalId, duplicateId, canonicalSnap, duplicateSnap }
+  }
+
+  it('collapses duplicates onto one row, reparenting the duplicate row\'s snapshots instead of detaching them', async () => {
+    const { app, db } = buildApp()
+    await app.ready()
+    const { projectId, canonicalId, canonicalSnap, duplicateSnap } = seedDuplicatePair(db)
+
+    // Incoming text raw-equals the DUPLICATE row — the kept (first) row must be
+    // renamed onto it, which only works if the duplicate is deleted first.
+    const res = await app.inject({
+      method: 'PUT', url: '/api/v1/projects/dupes/queries',
+      payload: { queries: ['best aeo agency'] },
+    })
+    expect(res.statusCode).toBe(200)
+
+    const rows = queryRows(db, projectId)
+    expect(rows).toHaveLength(1)
+    expect(rows[0]!.id).toBe(canonicalId)
+    expect(rows[0]!.query).toBe('best aeo agency')
+
+    for (const snapId of [canonicalSnap, duplicateSnap]) {
+      const snap = db.select().from(querySnapshots).where(eq(querySnapshots.id, snapId)).get()!
+      expect(snap.queryId).toBe(canonicalId)
+    }
+  })
+
+  it('collapses duplicates through the apply path too', async () => {
+    const { app, db } = buildApp()
+    await app.ready()
+    const { projectId, canonicalId, duplicateSnap } = seedDuplicatePair(db)
+
+    const res = await app.inject({
+      method: 'POST', url: '/api/v1/apply',
+      payload: {
+        apiVersion: 'canonry/v1', kind: 'Project', metadata: { name: 'dupes' },
+        spec: {
+          displayName: 'Dupes', canonicalDomain: 'dupes.example', country: 'US', language: 'en',
+          queries: ['Best AEO Agency'],
+        },
+      },
+    })
+    expect(res.statusCode).toBe(200)
+
+    const rows = queryRows(db, projectId)
+    expect(rows).toHaveLength(1)
+    expect(rows[0]!.id).toBe(canonicalId)
+    const snap = db.select().from(querySnapshots).where(eq(querySnapshots.id, duplicateSnap)).get()!
+    expect(snap.queryId).toBe(canonicalId)
+  })
+})
+
 describe('query row identity — PUT /projects/:name/keywords (legacy alias)', () => {
   it('replacing with the identical list preserves row ids', async () => {
     const { app, db } = buildApp()

@@ -4,7 +4,7 @@ import type { FastifyInstance } from 'fastify'
 import { queries, querySnapshots } from '@ainyc/canonry-db'
 import { keywordGenerateRequestSchema, queryGenerateRequestSchema, validationError, notImplemented, internalError, notFound } from '@ainyc/canonry-contracts'
 import { auditFromRequest, resolveProject, writeAuditLog } from './helpers.js'
-import { preserveSnapshotQueryText, replaceProjectQueries } from './query-replace.js'
+import { diffProjectQueries, preserveSnapshotQueryText, replaceProjectQueries } from './query-replace.js'
 
 export interface QueryRoutesOptions {
   onGenerateQueries?: (provider: string, count: number, project: {
@@ -71,30 +71,34 @@ export async function queryRoutes(app: FastifyInstance, opts: QueryRoutesOptions
 
     const currentRows = app.db.select().from(queries).where(eq(queries.projectId, project.id)).all()
     const currentTexts = currentRows.map(r => r.query)
-    const currentSet = new Set(currentTexts)
-    const proposedSet = new Set(body.queries)
 
-    const removed = currentTexts.filter(q => !proposedSet.has(q))
-    const added = body.queries.filter(q => !currentSet.has(q))
-    const unchanged = currentTexts.filter(q => proposedSet.has(q))
+    // Report exactly what the replace will do: the SAME diff that
+    // replaceProjectQueries executes. Kept rows retain their ids (their
+    // snapshots stay attached), same-normalized-text duplicates reparent onto
+    // the kept row, and only genuinely removed rows detach their snapshots
+    // (queryId → NULL; queryText preserves the snapshot's self-description).
+    const diff = diffProjectQueries(
+      currentRows.map(r => ({ id: r.id, text: r.query })),
+      body.queries,
+    )
+    const removed = diff.removed.map(r => r.text)
+    const added = diff.insertedTexts
+    const unchanged = diff.kept.map(k => k.currentText)
 
-    // Replace wipes every queries row and re-inserts with fresh UUIDs, so
-    // every existing snapshot for this project's queries gets detached
-    // (queryId → NULL). queryText preserves the snapshot's self-description.
-    const currentIds = currentRows.map(r => r.id)
+    const removedIds = diff.removed.map(r => r.id)
     let snapshotsDetached = 0
     let affectedQueries = 0
-    if (currentIds.length > 0) {
+    if (removedIds.length > 0) {
       const snapshotCount = app.db
         .select({ n: sql<number>`count(*)` })
         .from(querySnapshots)
-        .where(inArray(querySnapshots.queryId, currentIds))
+        .where(inArray(querySnapshots.queryId, removedIds))
         .get()
       snapshotsDetached = snapshotCount?.n ?? 0
       const distinctAffected = app.db
         .select({ n: sql<number>`count(distinct ${querySnapshots.queryId})` })
         .from(querySnapshots)
-        .where(inArray(querySnapshots.queryId, currentIds))
+        .where(inArray(querySnapshots.queryId, removedIds))
         .get()
       affectedQueries = distinctAffected?.n ?? 0
     }

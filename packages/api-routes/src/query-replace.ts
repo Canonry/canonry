@@ -45,13 +45,71 @@ export function preserveSnapshotQueryText(
   }
 }
 
-export interface ReplaceQueriesResult {
-  /** Row ids kept because their normalized text is in the incoming list. */
-  keptIds: string[]
-  /** Texts inserted as brand-new rows. */
+export interface QueryReplaceDiff {
+  /** Rows kept because their normalized text is in the incoming list. `incomingText` is the raw incoming form (may differ from `currentText` in case/whitespace only). */
+  kept: Array<{ id: string; currentText: string; incomingText: string }>
+  /** Pre-existing rows whose normalized text equals a kept row's — their snapshots reparent onto `keptId`, then the row is deleted. */
+  duplicates: Array<{ id: string; text: string; keptId: string }>
+  /** Rows whose normalized text left the basket entirely — deleted after the text safety net. */
+  removed: Array<{ id: string; text: string }>
+  /** Incoming texts (first occurrence per normalized key) with no existing row. */
   insertedTexts: string[]
-  /** Row ids deleted because their text left the list. */
-  deletedIds: string[]
+}
+
+/**
+ * Pure diff between a project's existing tracked-query rows and an incoming
+ * declarative list. Matching is by `normalizeQueryText` (trim + lowercase).
+ * Incoming duplicates collapse to their first occurrence — a declarative
+ * list is a set; duplicate rows would double-probe the same query on every
+ * sweep. Pre-existing rows that share a normalized text (possible because
+ * the DB uniqueness is on the RAW text) resolve to one kept row; the extras
+ * are classified `duplicates` so the caller can reparent their snapshots
+ * instead of detaching them.
+ *
+ * Exported for the replace-preview endpoint, which must report exactly what
+ * `replaceProjectQueries` will do — one diff, two consumers, no drift.
+ */
+export function diffProjectQueries(
+  existing: Array<{ id: string; text: string }>,
+  incomingTexts: string[],
+): QueryReplaceDiff {
+  const groups = new Map<string, Array<{ id: string; text: string }>>()
+  for (const row of existing) {
+    const key = normalizeQueryText(row.text)
+    const group = groups.get(key)
+    if (group) group.push(row)
+    else groups.set(key, [row])
+  }
+
+  const kept: QueryReplaceDiff['kept'] = []
+  const duplicates: QueryReplaceDiff['duplicates'] = []
+  const removed: QueryReplaceDiff['removed'] = []
+  const insertedTexts: string[] = []
+  const seenIncoming = new Set<string>()
+
+  for (const text of incomingTexts) {
+    const key = normalizeQueryText(text)
+    if (seenIncoming.has(key)) continue
+    seenIncoming.add(key)
+
+    const group = groups.get(key)
+    if (group) {
+      groups.delete(key)
+      const [canonical, ...extras] = group
+      kept.push({ id: canonical!.id, currentText: canonical!.text, incomingText: text })
+      for (const extra of extras) {
+        duplicates.push({ id: extra.id, text: extra.text, keptId: canonical!.id })
+      }
+    } else {
+      insertedTexts.push(text)
+    }
+  }
+
+  for (const group of groups.values()) {
+    for (const row of group) removed.push({ id: row.id, text: row.text })
+  }
+
+  return { kept, duplicates, removed, insertedTexts }
 }
 
 /**
@@ -64,17 +122,23 @@ export interface ReplaceQueriesResult {
  * is the idempotency rule at the row level: applying the same input
  * twice must leave the same rows.
  *
- * Semantics:
- * - Matching is by `normalizeQueryText` (trim + lowercase). A row whose
- *   normalized text is in the incoming list is KEPT (id, createdAt, and
- *   provenance untouched). A casing/whitespace-only change updates the
- *   stored text in place on the kept row.
- * - Incoming duplicates (same normalized text twice) collapse to one
- *   row — a declarative list is a set; duplicate rows would double-probe
- *   the same query on every sweep.
+ * Semantics (see `diffProjectQueries` for the matching rules):
+ * - Kept rows keep id, createdAt, and provenance. A casing/whitespace-only
+ *   change updates the stored text in place.
+ * - Pre-existing same-normalized-text duplicates collapse onto the kept
+ *   row: their snapshots are REPARENTED to it (same tracked query
+ *   semantically), then the extra rows are deleted.
  * - Rows whose text left the list are deleted, AFTER the
  *   `preserveSnapshotQueryText` safety net stamps their text onto any
  *   referencing snapshot missing it.
+ *
+ * Write ordering matters: duplicate/removed rows are deleted BEFORE kept
+ * rows are renamed, so a rename onto a duplicate's exact raw text (e.g.
+ * keeping `Best AEO Agency` while `best aeo agency` also exists, incoming
+ * `best aeo agency`) cannot trip the UNIQUE(project_id, query) index.
+ * After the dedup pass every kept row has a distinct normalized key, and a
+ * rename target normalizes to its own row's key, so renames cannot collide
+ * with each other or with the fresh inserts.
  *
  * Must run inside the caller's transaction.
  */
@@ -83,51 +147,43 @@ export function replaceProjectQueries(
   projectId: string,
   incomingTexts: string[],
   now: string,
-): ReplaceQueriesResult {
+): QueryReplaceDiff {
   const existing = tx.select({ id: queries.id, text: queries.query })
     .from(queries)
     .where(eq(queries.projectId, projectId))
     .all()
 
-  const unclaimed = new Map<string, { id: string; text: string }>()
-  for (const row of existing) {
-    const key = normalizeQueryText(row.text)
-    // Duplicate normalized texts among existing rows: first row wins the
-    // key; extras fall through to deletion below.
-    if (!unclaimed.has(key)) unclaimed.set(key, row)
+  const diff = diffProjectQueries(existing, incomingTexts)
+
+  // 1. Duplicates: reparent their snapshots onto the kept row, then delete.
+  //    No text safety net needed — the snapshots stay FK-attributed.
+  if (diff.duplicates.length > 0) {
+    for (const dup of diff.duplicates) {
+      tx.update(querySnapshots)
+        .set({ queryId: dup.keptId })
+        .where(eq(querySnapshots.queryId, dup.id))
+        .run()
+    }
+    tx.delete(queries).where(inArray(queries.id, diff.duplicates.map((d) => d.id))).run()
   }
 
-  const keptIds: string[] = []
-  const insertedTexts: string[] = []
-  const seenIncoming = new Set<string>()
+  // 2. Genuinely removed rows: stamp their text onto referencing snapshots,
+  //    then delete (FK sets those snapshots' query_id to NULL).
+  if (diff.removed.length > 0) {
+    const removedIds = diff.removed.map((r) => r.id)
+    preserveSnapshotQueryText(tx, projectId, removedIds)
+    tx.delete(queries).where(inArray(queries.id, removedIds)).run()
+  }
 
-  for (const text of incomingTexts) {
-    const key = normalizeQueryText(text)
-    if (seenIncoming.has(key)) continue
-    seenIncoming.add(key)
-
-    const match = unclaimed.get(key)
-    if (match) {
-      unclaimed.delete(key)
-      keptIds.push(match.id)
-      if (match.text !== text) {
-        tx.update(queries).set({ query: text }).where(eq(queries.id, match.id)).run()
-      }
-    } else {
-      insertedTexts.push(text)
+  // 3. Renames — safe only now that every conflicting raw text is gone.
+  for (const keptRow of diff.kept) {
+    if (keptRow.currentText !== keptRow.incomingText) {
+      tx.update(queries).set({ query: keptRow.incomingText }).where(eq(queries.id, keptRow.id)).run()
     }
   }
 
-  const keptIdSet = new Set(keptIds)
-  const deletedIds = existing
-    .filter((row) => !keptIdSet.has(row.id))
-    .map((row) => row.id)
-  if (deletedIds.length > 0) {
-    preserveSnapshotQueryText(tx, projectId, deletedIds)
-    tx.delete(queries).where(inArray(queries.id, deletedIds)).run()
-  }
-
-  for (const text of insertedTexts) {
+  // 4. Brand-new texts.
+  for (const text of diff.insertedTexts) {
     tx.insert(queries).values({
       id: crypto.randomUUID(),
       projectId,
@@ -137,5 +193,5 @@ export function replaceProjectQueries(
     }).run()
   }
 
-  return { keptIds, insertedTexts, deletedIds }
+  return diff
 }
