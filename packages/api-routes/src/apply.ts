@@ -1,9 +1,10 @@
 import crypto from 'node:crypto'
 import { and, eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { projects, queries, competitors, schedules, notifications } from '@ainyc/canonry-db'
+import { projects, competitors, schedules, notifications } from '@ainyc/canonry-db'
 import { forbidden, normalizeProjectAliases, normalizeProjectDomain, projectConfigSchema, registrableDomain, resolveConfigSpecQueries, SchedulableRunKinds, validationError } from '@ainyc/canonry-contracts'
 import { writeAuditLog } from './helpers.js'
+import { replaceProjectQueries } from './query-replace.js'
 import { resolvePreset, validateCron, isValidTimezone } from './schedule-utils.js'
 import { resolveWebhookTarget } from './webhooks.js'
 
@@ -182,17 +183,10 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
         })
       }
 
-      // Replace queries + competitors
-      tx.delete(queries).where(eq(queries.projectId, projectId)).run()
-      for (const q of configQueries) {
-        tx.insert(queries).values({
-          id: crypto.randomUUID(),
-          projectId,
-          query: q,
-          provenance: 'cli',
-          createdAt: now,
-        }).run()
-      }
+      // Replace queries + competitors. Query rows are the FK anchor for every
+      // historical snapshot, so unchanged texts must keep their EXISTING rows —
+      // delete-all + reinsert would orphan the project's whole sweep history.
+      replaceProjectQueries(tx, projectId, configQueries, now)
 
       writeAuditLog(tx, {
         projectId,

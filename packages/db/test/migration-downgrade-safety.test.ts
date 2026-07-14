@@ -53,6 +53,13 @@ const RUN_HOOK_ALLOWLIST: ReadonlySet<number> = new Set([
   // class comes from the shared TS classifier, which SQL cannot express (the
   // landing-page check requires URL parsing).
   96,
+  // v98 only rewrites `query_snapshots.query_id` VALUES (relinks FK-orphaned
+  // snapshots to the same-project query with matching normalized text); it
+  // makes no schema change. Downgrade-safe: `query_id` has existed since the
+  // initial schema and a populated FK is exactly what every binary expects —
+  // an older engine reads the relinked rows the same way it reads rows that
+  // were never orphaned. Idempotent via the `query_id IS NULL` guard.
+  98,
 ])
 
 test(`migrations after v${DOWNGRADE_BASELINE} define no run() hook unless explicitly allowlisted`, () => {

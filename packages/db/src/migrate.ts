@@ -167,6 +167,38 @@ export interface MigrationVersion {
   run?: (tx: MigrationDb) => void
 }
 
+/**
+ * Relink orphaned snapshot attribution (v98). Historical declarative writes
+ * (`canonry apply`, `PUT /queries`, `PUT /keywords`) replaced tracked-query
+ * rows with delete-all + reinsert even when the texts were unchanged, so
+ * `query_snapshots.query_id` (ON DELETE SET NULL) was silently nulled on
+ * every apply — FK-based readers (the analytics/metrics trend) lost the
+ * project's whole history while text-fallback readers kept working. The
+ * write paths now preserve row identity for unchanged texts; this one-time
+ * fix re-links every already-orphaned snapshot whose `query_text` exactly
+ * matches (trim + lowercase — `normalizeQueryText` semantics) a tracked
+ * query in the snapshot's own project. Snapshots for genuinely retired
+ * queries have no match and correctly stay unlinked. Idempotent: the
+ * `query_id IS NULL` guard makes a re-run a no-op. Exported so the
+ * migration test can exercise the statement against seeded orphans.
+ */
+export const RELINK_ORPHANED_SNAPSHOT_QUERY_IDS_SQL = `
+  UPDATE query_snapshots SET query_id = (
+    SELECT q.id FROM queries q
+    JOIN runs r ON r.project_id = q.project_id
+    WHERE r.id = query_snapshots.run_id
+      AND lower(trim(q.query)) = lower(trim(query_snapshots.query_text))
+    LIMIT 1
+  )
+  WHERE query_id IS NULL
+    AND query_text IS NOT NULL
+    AND EXISTS (
+      SELECT 1 FROM queries q
+      JOIN runs r ON r.project_id = q.project_id
+      WHERE r.id = query_snapshots.run_id
+        AND lower(trim(q.query)) = lower(trim(query_snapshots.query_text))
+    )`
+
 export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
   {
     version: 2,
@@ -2060,6 +2092,19 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `ALTER TABLE ai_referral_events_hourly ADD COLUMN paid_sessions_or_hits INTEGER NOT NULL DEFAULT 0`,
       `ALTER TABLE ai_referral_events_hourly ADD COLUMN organic_sessions_or_hits INTEGER NOT NULL DEFAULT 0`,
     ],
+  },
+  {
+    // One-time self-heal for installs whose snapshot->query FKs were orphaned
+    // by the pre-fix delete-all + reinsert replace paths. Data-only UPDATE (no
+    // schema change) via run() — see the doc comment on
+    // RELINK_ORPHANED_SNAPSHOT_QUERY_IDS_SQL and the downgrade-safety
+    // RUN_HOOK_ALLOWLIST justification.
+    version: 98,
+    name: 'relink-orphaned-snapshot-query-ids',
+    statements: [],
+    run: (tx) => {
+      tx.run(sql.raw(RELINK_ORPHANED_SNAPSHOT_QUERY_IDS_SQL))
+    },
   },
 ]
 
