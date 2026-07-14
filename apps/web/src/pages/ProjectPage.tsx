@@ -2573,7 +2573,7 @@ function ProjectPageContent({
       ) : tab === 'discovery' ? (
         <DiscoverySection projectName={projectName} />
       ) : tab === 'technical-aeo' ? (
-        <TechnicalAeoSection projectName={model.project.name} />
+        <TechnicalAeoSection projectName={model.project.name} projectId={model.project.id} />
       ) : tab === 'activity' ? (
         <ActivitySection projectName={model.project.name} />
       ) : tab === 'backlinks' ? (

@@ -776,6 +776,73 @@
     @apply flex items-center gap-2;
   }
 
+  .task-center {
+    @apply relative;
+  }
+
+  .task-center-details {
+    @apply relative;
+  }
+
+  .task-center-trigger {
+    @apply flex h-7 cursor-pointer list-none items-center gap-1.5 rounded-full border border-caution-500/25 bg-caution-500/8 px-2 text-[11px] font-medium text-caution-300 transition;
+    @apply hover:border-caution-500/40 hover:bg-caution-500/12 hover:text-caution-200;
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-caution-400/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg;
+  }
+
+  .task-center-trigger::-webkit-details-marker {
+    display: none;
+  }
+
+  .task-center-summary {
+    @apply hidden max-w-40 truncate sm:inline;
+  }
+
+  .task-center-count {
+    @apply inline-flex min-w-4 items-center justify-center tabular-nums sm:hidden;
+  }
+
+  .task-center-chevron {
+    @apply transition-transform duration-200;
+  }
+
+  .task-center-details[open] .task-center-chevron {
+    transform: rotate(180deg);
+  }
+
+  .task-center-panel {
+    @apply absolute right-0 top-[calc(100%+0.5rem)] z-30 w-[min(22rem,calc(100vw-2rem))] overflow-hidden rounded-xl border border-default bg-bg-elevated;
+    box-shadow: 0 12px 28px var(--color-shadow-panel);
+  }
+
+  .task-center-heading {
+    @apply flex items-center justify-between border-b border-default px-3 py-2.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted;
+  }
+
+  .task-center-list {
+    @apply max-h-72 divide-y divide-mono-800/60 overflow-y-auto;
+  }
+
+  .task-center-item {
+    @apply flex items-center justify-between gap-4 px-3 py-3;
+  }
+
+  .task-center-footer-link {
+    @apply block border-t border-default px-3 py-2.5 text-xs font-medium text-neutral transition hover:bg-surface-inset-hover hover:text-strong;
+  }
+
+  @media (max-width: 639px) {
+    .task-center-panel {
+      @apply fixed left-4 right-4 top-12 w-auto;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .task-center-chevron {
+      transition: none;
+    }
+  }
+
   .health-pill-row {
     @apply hidden items-center gap-1.5 lg:flex;
   }

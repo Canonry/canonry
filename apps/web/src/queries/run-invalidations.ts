@@ -57,8 +57,10 @@ export function invalidateQueriesForRunKind(
 
   switch (kind) {
     case RunKinds['answer-visibility']:
-    case RunKinds['site-audit']:
     case RunKinds['backlink-extract']:
+      return
+    case RunKinds['site-audit']:
+      invalidateByOpPrefix(queryClient, 'getApiV1ProjectsByNameTechnicalAeo')
       return
     case RunKinds['gsc-sync']:
     case RunKinds['inspect-sitemap']:

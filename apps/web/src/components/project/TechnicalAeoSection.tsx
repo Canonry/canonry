@@ -1,15 +1,15 @@
-import { Fragment, useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertTriangle, ChevronDown, ChevronRight, Play, RefreshCw, ScanSearch } from 'lucide-react'
+import { Fragment, useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { AlertTriangle, ChevronDown, ChevronRight, LoaderCircle, Play, RefreshCw, ScanSearch } from 'lucide-react'
 import type { MetricTone } from '../../view-models.js'
-import type { SiteAuditFactorSummaryDto, SiteAuditPageDto } from '@ainyc/canonry-contracts'
+import { RunKinds, type SiteAuditFactorSummaryDto, type SiteAuditPageDto } from '@ainyc/canonry-contracts'
 
-import { triggerSiteAudit, isEmbed, heyClient } from '../../api.js'
+import { heyClient, isEmbed } from '../../api.js'
 import {
   getApiV1ProjectsByNameTechnicalAeoOptions,
   getApiV1ProjectsByNameTechnicalAeoPagesOptions,
   getApiV1ProjectsByNameTechnicalAeoTrendOptions,
-  getApiV1RunsQueryKey,
+  getApiV1ProjectsByNameRunsOptions,
 } from '@ainyc/canonry-api-client/react-query'
 import {
   CartesianGrid,
@@ -31,6 +31,8 @@ import { Button } from '../ui/button.js'
 import { Card } from '../ui/card.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
 import { InfoTooltip } from '../shared/InfoTooltip.js'
+import { useTriggerSiteAudit } from '../../queries/mutations.js'
+import { getRunTrackerState, subscribeRunTracker } from '../../lib/run-tracker-store.js'
 
 const PAGES_FETCH_LIMIT = 100
 const FACTOR_DRILLDOWN_PAGE_CAP = 12
@@ -54,11 +56,11 @@ function statusLabel(score: number): string {
   return score >= 70 ? 'Pass' : score >= 40 ? 'Partial' : 'Fail'
 }
 
-export function TechnicalAeoSection({ projectName }: { projectName: string }) {
-  const queryClient = useQueryClient()
+export function TechnicalAeoSection({ projectName, projectId }: { projectName: string; projectId: string }) {
   const [errorsOnly, setErrorsOnly] = useState(false)
   const [expandedFactor, setExpandedFactor] = useState<string | null>(null)
-  const [refreshing, setRefreshing] = useState(false)
+  const [isManualRefreshing, setIsManualRefreshing] = useState(false)
+  const lastAutoRefreshedRun = useRef<string | null>(null)
 
   const scoreQuery = useQuery(getApiV1ProjectsByNameTechnicalAeoOptions({ client: heyClient, path: { name: projectName } }))
   const trendQuery = useQuery(getApiV1ProjectsByNameTechnicalAeoTrendOptions({
@@ -73,40 +75,70 @@ export function TechnicalAeoSection({ projectName }: { projectName: string }) {
     path: { name: projectName },
     query: { limit: PAGES_FETCH_LIMIT, sort: 'score-asc' },
   }))
-
-  const runMutation = useMutation({
-    mutationFn: () => triggerSiteAudit(projectName),
-    onSuccess: () => {
-      addToast({
-        title: 'Technical audit started',
-        detail: 'The audit re-reads your sitemap in the background. Refresh in a minute to see the score.',
-        tone: 'positive',
-      })
-      void queryClient.invalidateQueries({ queryKey: getApiV1RunsQueryKey({ client: heyClient }) })
-    },
-    onError: (err: unknown) => {
-      addToast({
-        title: 'Could not start technical audit',
-        detail: err instanceof Error ? err.message : 'Failed to start technical audit.',
-        tone: 'negative',
-      })
+  const auditRunsQuery = useQuery({
+    ...getApiV1ProjectsByNameRunsOptions({
+      client: heyClient,
+      path: { name: projectName },
+      query: { kind: RunKinds['site-audit'], limit: 10 },
+    }),
+    refetchOnWindowFocus: 'always',
+    refetchInterval: (query) => {
+      const hasActiveAudit = query.state.data?.some(
+        (run) => run.status === 'queued' || run.status === 'running',
+      )
+      return hasActiveAudit ? 3000 : 10_000
     },
   })
+  const runMutation = useTriggerSiteAudit()
+  const trackerState = useSyncExternalStore(subscribeRunTracker, getRunTrackerState, getRunTrackerState)
+  const trackedAudit = Object.values(trackerState.runs).find(
+    (run) => run.kind === RunKinds['site-audit'] && run.projectId === projectId,
+  )
+  const auditRuns = auditRunsQuery.data ?? []
+  const activeAudit = auditRuns.find((run) => run.status === 'queued' || run.status === 'running')
+  const latestAudit = auditRuns.at(-1)
+  const auditBusy = runMutation.isPending || Boolean(trackedAudit) || Boolean(activeAudit)
+  const auditStatus = runMutation.isPending
+    ? 'starting'
+    : activeAudit?.status ?? trackedAudit?.lastAnnouncedStatus
 
-  const refreshAll = async () => {
-    setRefreshing(true)
+  const refreshAll = useCallback(async () => {
+    const results = await Promise.all([
+      scoreQuery.refetch(),
+      trendQuery.refetch(),
+      pagesQuery.refetch(),
+    ])
+    const failed = results.find((result) => result.error)
+    if (failed?.error) throw failed.error
+    return results[0]
+  }, [pagesQuery.refetch, scoreQuery.refetch, trendQuery.refetch])
+
+  useEffect(() => {
+    if (!latestAudit || (latestAudit.status !== 'completed' && latestAudit.status !== 'partial')) return
+    if (scoreQuery.data?.runId === latestAudit.id || lastAutoRefreshedRun.current === latestAudit.id) return
+    lastAutoRefreshedRun.current = latestAudit.id
+    void refreshAll().catch((error: unknown) => {
+      addToast({
+        title: 'Technical AEO auto-refresh failed',
+        detail: error instanceof Error ? error.message : 'Could not load the completed audit.',
+        tone: 'negative',
+        dedupeKey: `technical-aeo:auto-refresh:${projectName}`,
+        dedupeMode: 'replace',
+      })
+    })
+  }, [latestAudit?.id, latestAudit?.status, projectName, refreshAll, scoreQuery.data?.runId])
+
+  const handleManualRefresh = async () => {
+    setIsManualRefreshing(true)
     try {
-      const [scoreResult] = await Promise.all([
-        scoreQuery.refetch(),
-        trendQuery.refetch(),
-        pagesQuery.refetch(),
-      ])
-      if (scoreResult.error) throw scoreResult.error
+      const scoreResult = await refreshAll()
       addToast({
         title: 'Technical AEO refreshed',
-        detail: scoreResult.data?.hasData
-          ? `Latest score is ${scoreResult.data.aggregateScore}/100 from ${scoreResult.data.pagesAudited} audited page${scoreResult.data.pagesAudited === 1 ? '' : 's'}.`
-          : 'No audit data yet. Run an audit to crawl the sitemap.',
+        detail: auditBusy
+          ? 'The audit is still running. This view will refresh again when it finishes.'
+          : scoreResult.data?.hasData
+            ? `Latest score is ${scoreResult.data.aggregateScore}/100 from ${scoreResult.data.pagesAudited} audited page${scoreResult.data.pagesAudited === 1 ? '' : 's'}.`
+            : 'No audit data yet. Run an audit to crawl the sitemap.',
         tone: scoreResult.data?.hasData ? 'positive' : 'caution',
         dedupeKey: `technical-aeo:refresh:${projectName}`,
         dedupeMode: 'replace',
@@ -120,9 +152,16 @@ export function TechnicalAeoSection({ projectName }: { projectName: string }) {
         dedupeMode: 'replace',
       })
     } finally {
-      setRefreshing(false)
+      setIsManualRefreshing(false)
     }
   }
+
+  const startAudit = () => runMutation.mutate({ projectName, projectId })
+  const auditStatusLabel = auditStatus === 'running'
+    ? 'Audit running'
+    : auditStatus === 'queued'
+      ? 'Audit queued'
+      : 'Starting audit'
 
   const score = scoreQuery.data
 
@@ -142,12 +181,21 @@ export function TechnicalAeoSection({ projectName }: { projectName: string }) {
         </p>
         {!isEmbed() && (
           <div className="mt-5 flex items-center justify-center gap-3">
-            <Button type="button" onClick={() => runMutation.mutate()} disabled={runMutation.isPending}>
-              <Play className="mr-1.5 h-4 w-4" aria-hidden="true" />
-              {runMutation.isPending ? 'Starting…' : 'Run first audit'}
+            <Button type="button" onClick={startAudit} disabled={auditBusy}>
+              {auditBusy ? (
+                <LoaderCircle className="mr-1.5 h-4 w-4 motion-safe:animate-spin" aria-hidden="true" />
+              ) : (
+                <Play className="mr-1.5 h-4 w-4" aria-hidden="true" />
+              )}
+              {auditBusy ? auditStatusLabel : 'Run first audit'}
             </Button>
           </div>
         )}
+        {auditBusy ? (
+          <p className="mt-3 text-xs text-muted" role="status" aria-live="polite">
+            The dashboard will refresh automatically when the audit finishes.
+          </p>
+        ) : null}
         <p className="mt-3 text-xs text-faint">
           Or from the CLI: <code className="text-secondary">canonry technical-aeo run {projectName} --wait</code>
         </p>
@@ -185,13 +233,14 @@ export function TechnicalAeoSection({ projectName }: { projectName: string }) {
       <section className="surface-card flex flex-wrap items-start justify-between gap-6 rounded-lg border border-default bg-surface p-6">
         <div className="min-w-0">
           <p className="eyebrow eyebrow-soft">Technical AEO</p>
-          <div className="mt-1 flex items-baseline gap-3">
+          <div className="mt-1 flex flex-wrap items-baseline gap-3">
             <span className={`text-4xl font-semibold tabular-nums ${scoreTextClass(score.aggregateScore)}`}>
               {score.aggregateScore}
             </span>
             <span className="text-lg text-muted">/ 100</span>
             <ToneBadge tone={scoreTone(score.aggregateScore)}>{statusLabel(score.aggregateScore)}</ToneBadge>
             {deltaLabel ? <ToneBadge tone={deltaTone}>{deltaLabel}</ToneBadge> : null}
+            {auditBusy ? <ToneBadge tone="neutral">{auditStatusLabel}</ToneBadge> : null}
           </div>
           <p className="supporting-copy mt-2 tabular-nums">
             {score.pagesDiscovered} URL{score.pagesDiscovered === 1 ? '' : 's'} in sitemap · {score.pagesAudited} audited · {score.pagesSkipped} skipped · {score.pagesErrored} errored
@@ -211,16 +260,25 @@ export function TechnicalAeoSection({ projectName }: { projectName: string }) {
           {score.auditedAt ? (
             <p className="mt-0.5 text-xs text-faint">Audited {new Date(score.auditedAt).toLocaleString()}</p>
           ) : null}
+          {auditBusy ? (
+            <p className="mt-1 text-xs text-muted" role="status" aria-live="polite">
+              Results refresh automatically when this audit finishes.
+            </p>
+          ) : null}
         </div>
         <div className="flex items-center gap-2">
-          <Button type="button" variant="outline" size="sm" onClick={() => void refreshAll()} disabled={refreshing}>
-            <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} aria-hidden="true" />
-            {refreshing ? 'Refreshing\u2026' : 'Refresh'}
+          <Button type="button" variant="outline" size="sm" onClick={() => void handleManualRefresh()} disabled={isManualRefreshing}>
+            <RefreshCw className={`mr-1.5 h-4 w-4 ${isManualRefreshing ? 'motion-safe:animate-spin' : ''}`} aria-hidden="true" />
+            {isManualRefreshing ? 'Refreshing…' : 'Refresh'}
           </Button>
           {!isEmbed() && (
-            <Button type="button" size="sm" onClick={() => runMutation.mutate()} disabled={runMutation.isPending}>
-              <Play className="mr-1.5 h-4 w-4" aria-hidden="true" />
-              {runMutation.isPending ? 'Starting…' : 'Re-run audit'}
+            <Button type="button" size="sm" onClick={startAudit} disabled={auditBusy}>
+              {auditBusy ? (
+                <LoaderCircle className="mr-1.5 h-4 w-4 motion-safe:animate-spin" aria-hidden="true" />
+              ) : (
+                <Play className="mr-1.5 h-4 w-4" aria-hidden="true" />
+              )}
+              {auditBusy ? auditStatusLabel : 'Re-run audit'}
             </Button>
           )}
         </div>
