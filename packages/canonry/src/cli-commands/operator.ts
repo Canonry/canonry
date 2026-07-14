@@ -3,13 +3,42 @@ import { showAnalytics } from '../commands/analytics.js'
 import { showSources } from '../commands/sources.js'
 import { showEvidence } from '../commands/evidence.js'
 import { exportProject } from '../commands/export-cmd.js'
+import { exportResults } from '../commands/results-export.js'
 import { showHistory } from '../commands/history.js'
 import { showStatus } from '../commands/status.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
 import { getBoolean, getString, parseIntegerOption, requireProject, stringOption } from '../cli-command-helpers.js'
 import { usageError } from '../cli-error.js'
 
+const RESULTS_EXPORT_USAGE = 'canonry results export <project> [--format json|csv] [--since <ISO>] [--until <ISO>] [--include-probes] [--output <path>|-]'
+
+function parseResultsExportFormat(value: string | undefined): 'json' | 'csv' {
+  if (value === undefined || value === 'json') return 'json'
+  if (value === 'csv') return 'csv'
+  throw usageError(`Error: --format must be "json" or "csv"\n\nUsage: ${RESULTS_EXPORT_USAGE}`)
+}
+
 export const OPERATOR_CLI_COMMANDS: readonly CliCommandSpec[] = [
+  {
+    path: ['results', 'export'],
+    usage: RESULTS_EXPORT_USAGE,
+    options: {
+      since: stringOption(),
+      until: stringOption(),
+      'include-probes': { type: 'boolean', default: false },
+      output: { type: 'string', short: 'o' },
+    },
+    run: async (input) => {
+      const project = requireProject(input, 'results export', RESULTS_EXPORT_USAGE)
+      await exportResults(project, {
+        format: parseResultsExportFormat(getString(input.values, 'format')),
+        since: getString(input.values, 'since'),
+        until: getString(input.values, 'until'),
+        includeProbes: getBoolean(input.values, 'include-probes'),
+        output: getString(input.values, 'output'),
+      })
+    },
+  },
   {
     path: ['status'],
     usage: 'canonry status <project> [--format json]',

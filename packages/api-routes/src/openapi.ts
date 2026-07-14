@@ -504,6 +504,63 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'get',
+    path: '/api/v1/projects/{name}/results/export',
+    summary: 'Download historical answer-engine results',
+    tags: ['exports'],
+    description:
+      'Downloads one record per persisted answer-visibility query × provider observation. Citation and mention stay independent: `citationState` describes source-list attribution, while nullable `answerMentioned` describes answer-text presence. Excludes probe runs by default. JSON is a versioned portable artifact; CSV is its flat spreadsheet representation. Raw provider payloads, credentials, and local paths are never included.',
+    parameters: [
+      nameParameter,
+      {
+        name: 'format',
+        in: 'query',
+        description: 'Download format. Defaults to `json`.',
+        schema: { type: 'string', enum: ['json', 'csv'], default: 'json' },
+      },
+      {
+        name: 'since',
+        in: 'query',
+        description: 'Inclusive ISO 8601 lower bound on run creation time.',
+        schema: stringSchema,
+      },
+      {
+        name: 'until',
+        in: 'query',
+        description: 'Inclusive ISO 8601 upper bound on run creation time. A date-only value includes that whole UTC day.',
+        schema: stringSchema,
+      },
+      {
+        name: 'includeProbes',
+        in: 'query',
+        description: 'Include operator/agent probe runs. Defaults to `false`.',
+        schema: booleanSchema,
+      },
+    ],
+    responses: {
+      200: {
+        description: 'Results attachment returned.',
+        content: {
+          // The query-selected attachment can be JSON or CSV. OpenAPI cannot
+          // express that the `format` parameter selects a media type, so keep
+          // the generated SDK honest with a union rather than promising JSON
+          // to a caller that requested CSV.
+          'application/json': {
+            schema: {
+              oneOf: [
+                { $ref: '#/components/schemas/ResultsExportDto' },
+                { type: 'string' },
+              ],
+            },
+          },
+          'text/csv': { schema: { type: 'string' } },
+        },
+      },
+      400: errorResponse('Invalid export filters.'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
+    method: 'get',
     path: '/api/v1/projects/{name}/queries',
     summary: 'List queries',
     tags: ['queries'],

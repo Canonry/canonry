@@ -2205,6 +2205,54 @@ export type QueryDto = {
     createdAt: string;
 };
 
+export type ResultsExportDto = {
+    schemaVersion: 'canonry.results-export/v1';
+    generatedAt: string;
+    project: {
+        id: string;
+        name: string;
+        displayName: string;
+        canonicalDomain: string;
+        country: string;
+        language: string;
+    };
+    filters: {
+        since: string | null;
+        until: string | null;
+        includeProbes: boolean;
+    };
+    recordCount: number;
+    records: Array<{
+        runId: string;
+        runKind: 'answer-visibility';
+        runStatus: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';
+        runTrigger: 'manual' | 'scheduled' | 'config-apply' | 'backfill' | 'probe';
+        runCreatedAt: string;
+        runStartedAt: string | null;
+        runFinishedAt: string | null;
+        snapshotId: string;
+        snapshotCreatedAt: string;
+        queryId: string | null;
+        query: string | null;
+        provider: string;
+        model: string | null;
+        location: string | null;
+        citationState: 'cited' | 'not-cited';
+        cited: boolean;
+        answerMentioned: boolean | null;
+        mentionState: 'mentioned' | 'not-mentioned' | null;
+        citedDomains: Array<string>;
+        competitorOverlap: Array<string>;
+        recommendedCompetitors: Array<string>;
+        answerText: string | null;
+        groundingSources: Array<{
+            uri: string;
+            title: string;
+        }>;
+        searchQueries: Array<string>;
+    }>;
+};
+
 export type RunDetailDto = {
     id: string;
     projectId: string;
@@ -3513,6 +3561,57 @@ export type GetApiV1ProjectsByNameExportResponses = {
 };
 
 export type GetApiV1ProjectsByNameExportResponse = GetApiV1ProjectsByNameExportResponses[keyof GetApiV1ProjectsByNameExportResponses];
+
+export type GetApiV1ProjectsByNameResultsExportData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Download format. Defaults to `json`.
+         */
+        format?: 'json' | 'csv';
+        /**
+         * Inclusive ISO 8601 lower bound on run creation time.
+         */
+        since?: string;
+        /**
+         * Inclusive ISO 8601 upper bound on run creation time. A date-only value includes that whole UTC day.
+         */
+        until?: string;
+        /**
+         * Include operator/agent probe runs. Defaults to `false`.
+         */
+        includeProbes?: boolean;
+    };
+    url: '/api/v1/projects/{name}/results/export';
+};
+
+export type GetApiV1ProjectsByNameResultsExportErrors = {
+    /**
+     * Invalid export filters.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameResultsExportError = GetApiV1ProjectsByNameResultsExportErrors[keyof GetApiV1ProjectsByNameResultsExportErrors];
+
+export type GetApiV1ProjectsByNameResultsExportResponses = {
+    /**
+     * Results attachment returned.
+     */
+    200: ResultsExportDto | string;
+};
+
+export type GetApiV1ProjectsByNameResultsExportResponse = GetApiV1ProjectsByNameResultsExportResponses[keyof GetApiV1ProjectsByNameResultsExportResponses];
 
 export type DeleteApiV1ProjectsByNameQueriesData = {
     body: {
