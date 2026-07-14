@@ -94,7 +94,7 @@ function readEvidence(rawResponse: string | null): {
       .filter((source): source is { uri: string; title?: string } =>
         typeof source === 'object' && source !== null && typeof (source as { uri?: unknown }).uri === 'string',
       )
-      .map(source => ({ uri: source.uri, title: source.title ?? '' }))
+      .map(source => ({ uri: source.uri, title: typeof source.title === 'string' ? source.title : '' }))
     : []
   const searchQueries = Array.isArray(parsed.searchQueries)
     ? parsed.searchQueries.filter((query): query is string => typeof query === 'string')
@@ -175,6 +175,10 @@ export async function resultsExportRoutes(app: FastifyInstance) {
       ...(sinceIso ? [gte(runs.createdAt, sinceIso)] : []),
       ...(untilIso ? [lte(runs.createdAt, untilIso)] : []),
     ]
+    // The whole result set is materialized in memory (rows + per-row
+    // rawResponse parse) — no pagination or streaming. Single-tenant scale
+    // keeps this small today; past ~100k snapshots this endpoint needs a
+    // streamed/row-windowed rewrite before it needs anything else.
     const rows = app.db
       .select({
         runId: runs.id,

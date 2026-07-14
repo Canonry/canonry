@@ -269,6 +269,39 @@ describe('GET /api/v1/projects/:name/results/export', () => {
     expect(res.body).not.toContain('privateProviderField')
   })
 
+  it('exports a snapshot whose stored rawResponse is corrupt (non-JSON) with empty evidence instead of failing', async () => {
+    // The endpoint's job is exporting history AS STORED — a legacy row with a
+    // mangled rawResponse must degrade to empty grounding evidence, never 500.
+    const corruptRun = insertRun(ctx.db, ctx.projectId, { createdAt: '2026-07-05T12:00:00.000Z' })
+    ctx.db.insert(querySnapshots).values({
+      id: crypto.randomUUID(),
+      runId: corruptRun,
+      queryId: null,
+      queryText: 'corrupt evidence query',
+      provider: 'gemini',
+      citationState: 'not-cited',
+      answerMentioned: false,
+      answerText: 'Row with unparseable rawResponse.',
+      citedDomains: [],
+      competitorOverlap: [],
+      recommendedCompetitors: [],
+      location: null,
+      rawResponse: 'not-json{{{',
+      createdAt: '2026-07-05T12:01:00.000Z',
+    }).run()
+
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/acme/results/export' })
+    expect(res.statusCode).toBe(200)
+    const body = res.json() as ResultExportResponse
+    const corrupt = body.records.find(record => record.query === 'corrupt evidence query')
+    expect(corrupt).toMatchObject({
+      runId: corruptRun,
+      answerText: 'Row with unparseable rawResponse.',
+      groundingSources: [],
+      searchQueries: [],
+    })
+  })
+
   it('rejects invalid export filters', async () => {
     const invalidDate = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/acme/results/export?since=not-a-date' })
     expect(invalidDate.statusCode).toBe(400)

@@ -168,6 +168,27 @@ Behavior to know when narrating numbers from the report:
 - AI referral totals dedupe overlapping GA4 attribution dimensions (`session` / `first_user` / `manual_utm`) by picking the largest dimension per `(date, source, medium)`. Two 10-session rows for the same tuple report 10 sessions, not 20.
 - GSC top-query CTR and avgPosition are impression-weighted, matching GSC's own metric semantics across multi-row queries.
 
+## Results Export (historical observations)
+
+```bash
+cnry results export <project>                          # versioned JSON artifact → canonry-results-<project>-YYYY-MM-DD.json in cwd
+cnry results export <project> --format csv             # flat spreadsheet representation of the same records
+cnry results export <project> --format json --output - # stream the artifact to stdout (agent-friendly)
+cnry results export <project> --since 2026-06-01 --until 2026-06-30   # inclusive run-creation window (date-only until covers the whole UTC day)
+cnry results export <project> --include-probes         # opt IN to probe runs (excluded by default)
+```
+
+Bulk download of every persisted answer-visibility query × provider observation — one record per snapshot, ordered by run then snapshot. This is the raw-history primitive; use `visibility-stats` for aggregates and `visibility-compare` for month-over-month claims.
+
+Behavior to know:
+- **Citation and mention stay independent** per record: `citationState`/`cited` describe source-list attribution; `answerMentioned`/`mentionState` describe answer-text presence. `answerMentioned: null` means "not evaluated" (legacy snapshot), never not-mentioned.
+- `query` is the snapshot-time text, so removed tracked queries keep their history; `queryId` is null for them.
+- Includes completed, partial, and failed answer-visibility runs. Probe runs and other run kinds (site-audit etc.) are excluded unless `--include-probes`.
+- CSV cells are spreadsheet-injection-safe (leading `=`, `+`, `-`, `@` neutralized) and JSON-array columns (`cited_domains_json`, …) are embedded JSON strings.
+- Raw provider payloads and credentials are never included; grounding sources and issued search queries are.
+- Backed by `GET /api/v1/projects/<name>/results/export` (`?format=json|csv&since&until&includeProbes`). Not exposed as an MCP tool by design — bulk attachments don't fit a context window; agents needing slices should use the paginated snapshot reads or this CLI with `--output -`.
+- Distinct from `cnry export <project>`, which exports project CONFIGURATION as YAML, not results.
+
 ## Analytics
 
 ```bash
