@@ -167,6 +167,7 @@ import {
   postApiV1RunsByIdCancel,
   getApiV1ProjectsByNameTimeline,
   getApiV1ProjectsByNameHistory,
+  getApiV1History,
   getApiV1ProjectsByNameSnapshots,
   getApiV1ProjectsByNameSnapshotsDiff,
   // Analytics
@@ -1010,15 +1011,26 @@ export class ApiClient {
     return this.invoke<RunDto>(() => postApiV1RunsByIdCancel({ client: this.heyClient, path: { id } }))
   }
 
-  async getTimeline(project: string, location?: string): Promise<TimelineDto[]> {
+  async getTimeline(project: string, location?: string, limit?: number): Promise<TimelineDto[]> {
     return this.invoke<TimelineDto[]>(() =>
-      getApiV1ProjectsByNameTimeline({ client: this.heyClient, path: { name: project }, query: { location } }),
+      getApiV1ProjectsByNameTimeline({ client: this.heyClient, path: { name: project }, query: { location, limit } }),
     )
   }
 
-  async getHistory(project: string): Promise<AuditLogEntry[]> {
+  async getHistory(
+    project: string,
+    opts?: { limit?: number; offset?: number; since?: string; action?: string; actor?: string; entityType?: string },
+  ): Promise<AuditLogEntry[]> {
     return this.invoke<AuditLogEntry[]>(() =>
-      getApiV1ProjectsByNameHistory({ client: this.heyClient, path: { name: project } }),
+      getApiV1ProjectsByNameHistory({ client: this.heyClient, path: { name: project }, query: opts }),
+    )
+  }
+
+  async getGlobalHistory(
+    opts?: { limit?: number; offset?: number; since?: string; action?: string; actor?: string; entityType?: string },
+  ): Promise<AuditLogEntry[]> {
+    return this.invoke<AuditLogEntry[]>(() =>
+      getApiV1History({ client: this.heyClient, query: opts }),
     )
   }
 
@@ -1967,21 +1979,22 @@ export class ApiClient {
 
   // ── Technical AEO (site-audit) ──────────────────────────────────────────
 
-  async getTechnicalAeoScore(project: string): Promise<SiteAuditScoreDto> {
+  async getTechnicalAeoScore(project: string, opts?: { runId?: string }): Promise<SiteAuditScoreDto> {
     return this.invoke<SiteAuditScoreDto>(() =>
-      getApiV1ProjectsByNameTechnicalAeo({ client: this.heyClient, path: { name: project } }),
+      getApiV1ProjectsByNameTechnicalAeo({ client: this.heyClient, path: { name: project }, query: { runId: opts?.runId } }),
     )
   }
 
   async getTechnicalAeoPages(
     project: string,
-    opts?: { status?: 'success' | 'error'; sort?: string; limit?: number; offset?: number },
+    opts?: { runId?: string; status?: 'success' | 'error'; sort?: string; limit?: number; offset?: number },
   ): Promise<SiteAuditPagesResponseDto> {
     return this.invoke<SiteAuditPagesResponseDto>(() =>
       getApiV1ProjectsByNameTechnicalAeoPages({
         client: this.heyClient,
         path: { name: project },
         query: {
+          runId: opts?.runId,
           status: opts?.status,
           sort: opts?.sort,
           limit: opts?.limit !== undefined ? String(opts.limit) : undefined,

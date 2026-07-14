@@ -1,3 +1,5 @@
+import { z } from 'zod'
+
 export type InsightType =
   | 'regression'
   | 'gain'
@@ -39,31 +41,39 @@ export interface InsightDto {
   createdAt: string
 }
 
-export interface HealthSnapshotDto {
-  id: string
-  projectId: string
-  runId: string | null
-  overallCitedRate: number
+export const healthSnapshotDtoSchema = z.object({
+  id: z.string(),
+  projectId: z.string(),
+  runId: z.string().nullable(),
+  overallCitedRate: z.number(),
   /**
    * Share of (query × provider) pairs where the project was MENTIONED in the
    * answer text. Independent of `overallCitedRate` — never derived from it.
    * Legacy snapshots persisted before the mention columns existed read back
    * as 0 (the API coalesces NULL→0).
    */
-  overallMentionRate: number
-  totalPairs: number
-  citedPairs: number
+  overallMentionRate: z.number(),
+  totalPairs: z.number().int().nonnegative(),
+  citedPairs: z.number().int().nonnegative(),
   /** Count of pairs mentioned in the answer text. Legacy rows read back as 0. */
-  mentionedPairs: number
-  providerBreakdown: Record<string, { citedRate: number; mentionRate: number; cited: number; mentioned: number; total: number }>
-  createdAt: string
+  mentionedPairs: z.number().int().nonnegative(),
+  providerBreakdown: z.record(z.string(), z.object({
+    citedRate: z.number(),
+    mentionRate: z.number(),
+    cited: z.number().int().nonnegative(),
+    mentioned: z.number().int().nonnegative(),
+    total: z.number().int().nonnegative(),
+  })),
+  createdAt: z.string(),
   /**
    * `'ready'` when the snapshot reflects real data; `'no-data'` for the
    * sentinel returned by `/health/latest` when a project has no health
    * snapshots yet (newly created, or only failed runs). Numeric fields are
    * zero and `providerBreakdown` is `{}` in the no-data case.
    */
-  status: 'ready' | 'no-data'
+  status: z.enum(['ready', 'no-data']),
   /** Reason for `status === 'no-data'`. Absent when `status === 'ready'`. */
-  reason?: 'no-runs-yet'
-}
+  reason: z.literal('no-runs-yet').optional(),
+})
+
+export type HealthSnapshotDto = z.infer<typeof healthSnapshotDtoSchema>

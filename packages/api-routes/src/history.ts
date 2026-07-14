@@ -1,20 +1,34 @@
-import { and, eq, desc, inArray } from 'drizzle-orm'
+import { and, asc, desc, eq, gte, inArray } from 'drizzle-orm'
+import type { SQL } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { auditLog, querySnapshots, runs, queries, parseJsonColumn } from '@ainyc/canonry-db'
-import { CitationStates, notFound, validationError } from '@ainyc/canonry-contracts'
+import {
+  CitationStates,
+  mentionStateFromAnswerMentioned,
+  notFound,
+  validationError,
+  visibilityStateFromAnswerMentioned,
+} from '@ainyc/canonry-contracts'
 import { notProbeRun, resolveProject, resolveSnapshotAnswerMentioned, resolveSnapshotMentionState, resolveSnapshotVisibilityState } from './helpers.js'
 import { redactNotificationDiff } from './notification-redaction.js'
 
 export async function historyRoutes(app: FastifyInstance) {
   // GET /projects/:name/history — audit log for project
-  app.get<{ Params: { name: string } }>('/projects/:name/history', async (request, reply) => {
+  app.get<{
+    Params: { name: string }
+    Querystring: AuditHistoryQuery
+  }>('/projects/:name/history', async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
+    const filters = [eq(auditLog.projectId, project.id)]
+    addAuditHistoryFilters(filters, request.query)
 
     const rows = app.db
       .select()
       .from(auditLog)
-      .where(eq(auditLog.projectId, project.id))
+      .where(and(...filters))
       .orderBy(desc(auditLog.createdAt))
+      .limit(parseBoundedInt(request.query.limit, 100, 500))
+      .offset(parseBoundedInt(request.query.offset, 0, Number.MAX_SAFE_INTEGER))
       .all()
 
     return reply.send(rows.map(formatAuditEntry))
@@ -25,13 +39,17 @@ export async function historyRoutes(app: FastifyInstance) {
   // list is not under the /projects/:name auth gate, so filter explicitly
   // (NULL-project instance-level entries are intentionally hidden from a
   // scoped key).
-  app.get('/history', async (request, reply) => {
+  app.get<{ Querystring: AuditHistoryQuery }>('/history', async (request, reply) => {
     const scopedProjectId = request.apiKey?.projectId
+    const filters = scopedProjectId ? [eq(auditLog.projectId, scopedProjectId)] : []
+    addAuditHistoryFilters(filters, request.query)
     const rows = app.db
       .select()
       .from(auditLog)
-      .where(scopedProjectId ? eq(auditLog.projectId, scopedProjectId) : undefined)
+      .where(filters.length > 0 ? and(...filters) : undefined)
       .orderBy(desc(auditLog.createdAt))
+      .limit(parseBoundedInt(request.query.limit, 100, 500))
+      .offset(parseBoundedInt(request.query.offset, 0, Number.MAX_SAFE_INTEGER))
       .all()
 
     return reply.send(rows.map(formatAuditEntry))
@@ -115,7 +133,7 @@ export async function historyRoutes(app: FastifyInstance) {
   })
 
   // GET /projects/:name/timeline — per-query citation state over time
-  app.get<{ Params: { name: string }; Querystring: { location?: string } }>('/projects/:name/timeline', async (request, reply) => {
+  app.get<{ Params: { name: string }; Querystring: { location?: string; limit?: string } }>('/projects/:name/timeline', async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
 
     // Get project queries
@@ -126,12 +144,22 @@ export async function historyRoutes(app: FastifyInstance) {
       .all()
 
     // Get project runs ordered by creation time
-    const projectRuns = app.db
-      .select()
-      .from(runs)
-      .where(and(eq(runs.projectId, project.id), notProbeRun()))
-      .orderBy(runs.createdAt)
-      .all()
+    const requestedLimit = parseOptionalPositiveInt(request.query.limit, 100)
+    const projectRuns = requestedLimit == null
+      ? app.db
+        .select()
+        .from(runs)
+        .where(and(eq(runs.projectId, project.id), notProbeRun()))
+        .orderBy(asc(runs.createdAt))
+        .all()
+      : app.db
+        .select()
+        .from(runs)
+        .where(and(eq(runs.projectId, project.id), notProbeRun()))
+        .orderBy(desc(runs.createdAt))
+        .limit(requestedLimit)
+        .all()
+        .reverse()
 
     if (projectRuns.length === 0 || projectQueries.length === 0) {
       return reply.send([])
@@ -365,49 +393,36 @@ export async function historyRoutes(app: FastifyInstance) {
       .where(eq(querySnapshots.runId, run2))
       .all()
 
-    // Build lookup by query id — prefer 'cited' when multiple providers gave different
-    // states for the same query within a run (same logic as the timeline deduplication)
+    // Build a query-level lookup across providers. Citation and answer mention
+    // are aggregated independently: a query may be cited by one engine and
+    // mentioned by another, and neither signal may erase the other.
     const map1 = new Map<string | null, (typeof snaps1[number]) & {
       resolvedAnswerMentioned: boolean
-      resolvedVisibilityState: ReturnType<typeof resolveSnapshotVisibilityState>
-      resolvedMentionState: ReturnType<typeof resolveSnapshotMentionState>
     }>()
     for (const s of snaps1) {
-      const resolved = {
-        ...s,
-        resolvedAnswerMentioned: resolveSnapshotAnswerMentioned(s, project),
-        resolvedVisibilityState: resolveSnapshotVisibilityState(s, project),
-        resolvedMentionState: resolveSnapshotMentionState(s, project),
-      }
       const existing = map1.get(s.queryId)
-      if (
-        !existing ||
-        (!existing.resolvedAnswerMentioned && resolved.resolvedAnswerMentioned) ||
-        (existing.resolvedAnswerMentioned === resolved.resolvedAnswerMentioned && resolved.citationState === CitationStates.cited)
-      ) {
-        map1.set(s.queryId, resolved)
-      }
+      map1.set(s.queryId, {
+        ...s,
+        query: existing?.query ?? s.query,
+        citationState: existing?.citationState === CitationStates.cited || s.citationState === CitationStates.cited
+          ? CitationStates.cited
+          : CitationStates['not-cited'],
+        resolvedAnswerMentioned: (existing?.resolvedAnswerMentioned ?? false) || resolveSnapshotAnswerMentioned(s, project),
+      })
     }
     const map2 = new Map<string | null, (typeof snaps2[number]) & {
       resolvedAnswerMentioned: boolean
-      resolvedVisibilityState: ReturnType<typeof resolveSnapshotVisibilityState>
-      resolvedMentionState: ReturnType<typeof resolveSnapshotMentionState>
     }>()
     for (const s of snaps2) {
-      const resolved = {
-        ...s,
-        resolvedAnswerMentioned: resolveSnapshotAnswerMentioned(s, project),
-        resolvedVisibilityState: resolveSnapshotVisibilityState(s, project),
-        resolvedMentionState: resolveSnapshotMentionState(s, project),
-      }
       const existing = map2.get(s.queryId)
-      if (
-        !existing ||
-        (!existing.resolvedAnswerMentioned && resolved.resolvedAnswerMentioned) ||
-        (existing.resolvedAnswerMentioned === resolved.resolvedAnswerMentioned && resolved.citationState === CitationStates.cited)
-      ) {
-        map2.set(s.queryId, resolved)
-      }
+      map2.set(s.queryId, {
+        ...s,
+        query: existing?.query ?? s.query,
+        citationState: existing?.citationState === CitationStates.cited || s.citationState === CitationStates.cited
+          ? CitationStates.cited
+          : CitationStates['not-cited'],
+        resolvedAnswerMentioned: (existing?.resolvedAnswerMentioned ?? false) || resolveSnapshotAnswerMentioned(s, project),
+      })
     }
 
     // Compute diff for all queries present in either run
@@ -423,10 +438,10 @@ export async function historyRoutes(app: FastifyInstance) {
         run1AnswerMentioned: s1?.resolvedAnswerMentioned ?? null,
         run2AnswerMentioned: s2?.resolvedAnswerMentioned ?? null,
         // Legacy aliases — same data as run{1,2}MentionState below.
-        run1VisibilityState: s1?.resolvedVisibilityState ?? null,
-        run2VisibilityState: s2?.resolvedVisibilityState ?? null,
-        run1MentionState: s1?.resolvedMentionState ?? null,
-        run2MentionState: s2?.resolvedMentionState ?? null,
+        run1VisibilityState: s1 ? visibilityStateFromAnswerMentioned(s1.resolvedAnswerMentioned) : null,
+        run2VisibilityState: s2 ? visibilityStateFromAnswerMentioned(s2.resolvedAnswerMentioned) : null,
+        run1MentionState: s1 ? mentionStateFromAnswerMentioned(s1.resolvedAnswerMentioned) : null,
+        run2MentionState: s2 ? mentionStateFromAnswerMentioned(s2.resolvedAnswerMentioned) : null,
         changed: (s1?.citationState ?? null) !== (s2?.citationState ?? null),
         visibilityChanged: (s1?.resolvedAnswerMentioned ?? null) !== (s2?.resolvedAnswerMentioned ?? null),
       }
@@ -444,6 +459,8 @@ function formatAuditEntry(row: {
   entityType: string
   entityId: string | null
   diff: string | null
+  userAgent: string | null
+  actorSession: string | null
   createdAt: string
 }) {
   return {
@@ -458,6 +475,37 @@ function formatAuditEntry(row: {
         ? redactNotificationDiff(parseJsonColumn<unknown>(row.diff, null))
         : parseJsonColumn<unknown>(row.diff, null)
       : null,
+    userAgent: row.userAgent,
+    actorSession: row.actorSession,
     createdAt: row.createdAt,
   }
+}
+
+interface AuditHistoryQuery {
+  limit?: string
+  offset?: string
+  since?: string
+  action?: string
+  actor?: string
+  entityType?: string
+}
+
+function addAuditHistoryFilters(filters: SQL[], query: AuditHistoryQuery): void {
+  if (query.since && !Number.isNaN(Date.parse(query.since))) filters.push(gte(auditLog.createdAt, query.since))
+  if (query.action) filters.push(eq(auditLog.action, query.action))
+  if (query.actor) filters.push(eq(auditLog.actor, query.actor))
+  if (query.entityType) filters.push(eq(auditLog.entityType, query.entityType))
+}
+
+function parseBoundedInt(value: string | undefined, fallback: number, max: number): number {
+  const parsed = Number.parseInt(value ?? '', 10)
+  if (!Number.isFinite(parsed) || parsed < 0) return fallback
+  return Math.min(parsed, max)
+}
+
+function parseOptionalPositiveInt(value: string | undefined, max: number): number | undefined {
+  if (value == null) return undefined
+  const parsed = Number.parseInt(value, 10)
+  if (!Number.isFinite(parsed) || parsed <= 0) return undefined
+  return Math.min(parsed, max)
 }

@@ -7,6 +7,7 @@ import {
   FileText,
   Github,
   Globe,
+  History as HistoryIcon,
   LayoutDashboard,
   Link2,
   Menu,
@@ -59,6 +60,7 @@ import { AeroBarHost } from './components/shared/AeroBar.js'
 import { RUNS_STALE_MS } from './queries/query-client.js'
 import { invalidateQueriesForRunKind } from './queries/run-invalidations.js'
 import { formatTrackedRunKind } from './lib/run-labels.js'
+import { toRunListItem } from './build-dashboard.js'
 import type {
   HealthSnapshot,
   ServiceStatus,
@@ -385,7 +387,17 @@ export function RootLayout() {
     && safeDashboard !== null
     && safeDashboard.portfolioOverview.projects.length === 0
 
-  const selectedRun = runId && safeDashboard ? findRunById(safeDashboard, runId) : undefined
+  const selectedRun = runId
+    ? (safeDashboard ? findRunById(safeDashboard, runId) : undefined)
+      ?? (runDetail
+        ? toRunListItem(
+            runDetail,
+            safeDashboard?.projects.find((project) => project.project.id === runDetail.projectId)?.project.displayName
+              ?? safeDashboard?.projects.find((project) => project.project.id === runDetail.projectId)?.project.name
+              ?? 'Unknown project',
+          )
+        : undefined)
+    : undefined
 
   // Evidence lookup spans two data sources because `useDashboard()` here is
   // the slim portfolio hook — its per-project `visibilityEvidence` is
@@ -415,6 +427,7 @@ export function RootLayout() {
     if (path === '/') return 'Portfolio'
     if (path === '/projects') return 'Projects'
     if (path === '/runs') return 'Runs'
+    if (path === '/history') return 'History'
     if (path === '/settings') return 'Settings'
     if (path === '/setup') return 'Setup'
     if (path === '/backlinks') return 'Backlinks'
@@ -520,6 +533,15 @@ export function RootLayout() {
           >
             <Play className="sidebar-icon" />
             <span>Runs</span>
+          </Link>
+          <Link
+            to="/history"
+            className="sidebar-link"
+            activeProps={{ className: 'sidebar-link sidebar-link-active' }}
+            activeOptions={{ exact: true }}
+          >
+            <HistoryIcon className="sidebar-icon" />
+            <span>History</span>
           </Link>
           <Link
             to="/traffic"
@@ -681,6 +703,9 @@ export function RootLayout() {
           <Link to="/runs" className="mobile-nav-link" activeProps={{ className: 'mobile-nav-link mobile-nav-link-active' }} activeOptions={{ exact: true }}>
             Runs
           </Link>
+          <Link to="/history" className="mobile-nav-link" activeProps={{ className: 'mobile-nav-link mobile-nav-link-active' }} activeOptions={{ exact: true }}>
+            History
+          </Link>
           <Link to="/traffic" className="mobile-nav-link" activeProps={{ className: 'mobile-nav-link mobile-nav-link-active' }} activeOptions={{ exact: false }}>
             Server traffic
           </Link>
@@ -765,6 +790,16 @@ export function RootLayout() {
       </div>
 
       {/* ── Drawers ── */}
+      {runId && !selectedRun && runDetailLoading ? (
+        <Drawer open title="Loading run details" subtitle="Fetching the durable run record" onClose={closeDrawer}>
+          <p className="text-sm text-muted" role="status">Loading run details…</p>
+        </Drawer>
+      ) : null}
+      {runId && !selectedRun && runDetailQuery.isError ? (
+        <Drawer open title="Run unavailable" subtitle="The run could not be loaded" onClose={closeDrawer}>
+          <p className="text-sm text-negative">{runDetailQuery.error instanceof Error ? runDetailQuery.error.message : 'Run details are unavailable.'}</p>
+        </Drawer>
+      ) : null}
       {selectedRun ? (
         <Drawer
           open

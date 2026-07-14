@@ -3689,7 +3689,7 @@ export const postApiV1ProjectsByNameDiscoverSessionsByIdPromote = <ThrowOnError 
 /**
  * Get the Technical AEO scorecard for a project
  *
- * Returns the latest completed/partial site-audit: aggregate 0–100 score, page counts, the full per-factor scorecard (site-level averages with pass/partial/fail distribution), cross-cutting issues, prioritized fixes, and the delta vs the previous audit. When the project has never been audited, `hasData` is false and the numeric fields are zeroed — render an onboarding state.
+ * Returns the latest completed/partial site-audit, or the historical audit selected by `runId`: aggregate 0–100 score, page counts, the full per-factor scorecard (site-level averages with pass/partial/fail distribution), cross-cutting issues, prioritized fixes, and the delta vs the audit immediately before it. When the project has never been audited, `hasData` is false and the numeric fields are zeroed — render an onboarding state.
  */
 export const getApiV1ProjectsByNameTechnicalAeo = <ThrowOnError extends boolean = false>(options: Options<GetApiV1ProjectsByNameTechnicalAeoData, ThrowOnError>) => {
     return (options.client ?? client).get<GetApiV1ProjectsByNameTechnicalAeoResponses, GetApiV1ProjectsByNameTechnicalAeoErrors, ThrowOnError>({
@@ -3705,9 +3705,9 @@ export const getApiV1ProjectsByNameTechnicalAeo = <ThrowOnError extends boolean 
 };
 
 /**
- * List audited pages from the latest site-audit run
+ * List audited pages from a site-audit run
  *
- * Returns the per-page breakdown of the latest completed/partial site-audit run (paginated). Filter to `status=error` to surface unreachable pages; sort `score-asc` (default) to surface the worst-scoring pages first.
+ * Returns the per-page breakdown of the latest completed/partial site-audit run, or the historical audit selected by `runId` (paginated). Filter to `status=error` to surface unreachable pages; sort `score-asc` (default) to surface the worst-scoring pages first.
  */
 export const getApiV1ProjectsByNameTechnicalAeoPages = <ThrowOnError extends boolean = false>(options: Options<GetApiV1ProjectsByNameTechnicalAeoPagesData, ThrowOnError>) => {
     return (options.client ?? client).get<GetApiV1ProjectsByNameTechnicalAeoPagesResponses, GetApiV1ProjectsByNameTechnicalAeoPagesErrors, ThrowOnError>({

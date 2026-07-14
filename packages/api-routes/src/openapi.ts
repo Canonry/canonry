@@ -1046,7 +1046,15 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/history',
     summary: 'Get project audit history',
     tags: ['history'],
-    parameters: [nameParameter],
+    parameters: [
+      nameParameter,
+      limitQueryParameter,
+      offsetQueryParameter,
+      { name: 'since', in: 'query', description: 'ISO 8601 lower bound.', schema: stringSchema },
+      { name: 'action', in: 'query', description: 'Exact audit action filter.', schema: stringSchema },
+      { name: 'actor', in: 'query', description: 'Exact actor filter.', schema: stringSchema },
+      { name: 'entityType', in: 'query', description: 'Exact entity type filter.', schema: stringSchema },
+    ],
     responses: {
       200: jsonArrayResponse('Audit history returned.', 'AuditLogEntry'),
     },
@@ -1056,6 +1064,14 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/history',
     summary: 'Get global audit history',
     tags: ['history'],
+    parameters: [
+      limitQueryParameter,
+      offsetQueryParameter,
+      { name: 'since', in: 'query', description: 'ISO 8601 lower bound.', schema: stringSchema },
+      { name: 'action', in: 'query', description: 'Exact audit action filter.', schema: stringSchema },
+      { name: 'actor', in: 'query', description: 'Exact actor filter.', schema: stringSchema },
+      { name: 'entityType', in: 'query', description: 'Exact entity type filter.', schema: stringSchema },
+    ],
     responses: {
       200: jsonArrayResponse('Audit history returned.', 'AuditLogEntry'),
     },
@@ -1080,7 +1096,11 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/timeline',
     summary: 'Get query timeline',
     tags: ['history'],
-    parameters: [nameParameter, locationQueryParameter],
+    parameters: [
+      nameParameter,
+      locationQueryParameter,
+      { name: 'limit', in: 'query', description: 'Restrict each query timeline to snapshots from the most recent N project runs. Omit for full history.', schema: { ...integerSchema, minimum: 1, maximum: 100 } },
+    ],
     responses: {
       // TODO: Add `ProjectTimelineDto` Zod schema in contracts.
       200: rawJsonResponse('Timeline returned.', looseObjectSchema),
@@ -3161,8 +3181,7 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['intelligence'],
     parameters: [nameParameter],
     responses: {
-      // TODO: Add `HealthSnapshotDto` Zod schema in contracts.
-      200: rawJsonResponse('Health snapshot or no-data sentinel returned.', looseObjectSchema),
+      200: jsonResponse('Health snapshot or no-data sentinel returned.', 'HealthSnapshotDto'),
       404: errorResponse('Project not found.'),
     },
   },
@@ -3173,11 +3192,10 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['intelligence'],
     parameters: [
       nameParameter,
-      { name: 'limit', in: 'query', description: 'Max results.', schema: stringSchema },
+      { name: 'limit', in: 'query', description: 'Max results.', schema: { ...integerSchema, minimum: 1, maximum: 100 } },
     ],
     responses: {
-      // TODO: Add `HealthSnapshotDto` Zod schema in contracts.
-      200: rawJsonResponse('Health history returned.', { type: 'array', items: looseObjectSchema }),
+      200: jsonArrayResponse('Health history returned.', 'HealthSnapshotDto'),
       404: errorResponse('Project not found.'),
     },
   },
@@ -4115,23 +4133,27 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/technical-aeo',
     summary: 'Get the Technical AEO scorecard for a project',
     description:
-      'Returns the latest completed/partial site-audit: aggregate 0–100 score, page counts, the full per-factor scorecard (site-level averages with pass/partial/fail distribution), cross-cutting issues, prioritized fixes, and the delta vs the previous audit. When the project has never been audited, `hasData` is false and the numeric fields are zeroed — render an onboarding state.',
+      'Returns the latest completed/partial site-audit, or the historical audit selected by `runId`: aggregate 0–100 score, page counts, the full per-factor scorecard (site-level averages with pass/partial/fail distribution), cross-cutting issues, prioritized fixes, and the delta vs the audit immediately before it. When the project has never been audited, `hasData` is false and the numeric fields are zeroed — render an onboarding state.',
     tags: ['technical-aeo'],
-    parameters: [nameParameter],
+    parameters: [
+      nameParameter,
+      { name: 'runId', in: 'query', description: 'Historical site-audit run ID. Omit for the latest audit.', schema: stringSchema },
+    ],
     responses: {
       200: jsonResponse('Technical AEO scorecard returned.', 'SiteAuditScoreDto'),
-      404: errorResponse('Project not found.'),
+      404: errorResponse('Project or site-audit run not found.'),
     },
   },
   {
     method: 'get',
     path: '/api/v1/projects/{name}/technical-aeo/pages',
-    summary: 'List audited pages from the latest site-audit run',
+    summary: 'List audited pages from a site-audit run',
     description:
-      'Returns the per-page breakdown of the latest completed/partial site-audit run (paginated). Filter to `status=error` to surface unreachable pages; sort `score-asc` (default) to surface the worst-scoring pages first.',
+      'Returns the per-page breakdown of the latest completed/partial site-audit run, or the historical audit selected by `runId` (paginated). Filter to `status=error` to surface unreachable pages; sort `score-asc` (default) to surface the worst-scoring pages first.',
     tags: ['technical-aeo'],
     parameters: [
       nameParameter,
+      { name: 'runId', in: 'query', description: 'Historical site-audit run ID. Omit for the latest audit.', schema: stringSchema },
       { name: 'status', in: 'query', description: 'Filter by page audit status: `success` or `error`.', schema: { type: 'string', enum: ['success', 'error'] } },
       { name: 'sort', in: 'query', description: 'Sort order: `score-asc` (default), `score-desc`, or `url`.', schema: { type: 'string', enum: ['score-asc', 'score-desc', 'url'] } },
       limitQueryParameter,
@@ -4139,7 +4161,7 @@ const routeCatalog: OpenApiOperation[] = [
     ],
     responses: {
       200: jsonResponse('Audited pages returned.', 'SiteAuditPagesResponseDto'),
-      404: errorResponse('Project not found.'),
+      404: errorResponse('Project or site-audit run not found.'),
     },
   },
   {

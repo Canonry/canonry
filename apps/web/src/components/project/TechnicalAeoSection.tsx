@@ -23,6 +23,7 @@ import {
   CHART_AXIS_TICK,
   CHART_GRID_STROKE,
   CHART_TOOLTIP_STYLE,
+  CHART_TONE,
   formatChartDateLabel,
   formatChartDateTick,
 } from '../shared/ChartPrimitives.js'
@@ -59,10 +60,15 @@ function statusLabel(score: number): string {
 export function TechnicalAeoSection({ projectName, projectId }: { projectName: string; projectId: string }) {
   const [errorsOnly, setErrorsOnly] = useState(false)
   const [expandedFactor, setExpandedFactor] = useState<string | null>(null)
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
   const [isManualRefreshing, setIsManualRefreshing] = useState(false)
   const lastAutoRefreshedRun = useRef<string | null>(null)
 
-  const scoreQuery = useQuery(getApiV1ProjectsByNameTechnicalAeoOptions({ client: heyClient, path: { name: projectName } }))
+  const scoreQuery = useQuery(getApiV1ProjectsByNameTechnicalAeoOptions({
+    client: heyClient,
+    path: { name: projectName },
+    ...(selectedRunId ? { query: { runId: selectedRunId } } : {}),
+  }))
   const trendQuery = useQuery(getApiV1ProjectsByNameTechnicalAeoTrendOptions({
     client: heyClient,
     path: { name: projectName },
@@ -73,7 +79,11 @@ export function TechnicalAeoSection({ projectName, projectId }: { projectName: s
   const pagesQuery = useQuery(getApiV1ProjectsByNameTechnicalAeoPagesOptions({
     client: heyClient,
     path: { name: projectName },
-    query: { limit: PAGES_FETCH_LIMIT, sort: 'score-asc' },
+    query: {
+      limit: PAGES_FETCH_LIMIT,
+      sort: 'score-asc',
+      ...(selectedRunId ? { runId: selectedRunId } : {}),
+    },
   }))
   const auditRunsQuery = useQuery({
     ...getApiV1ProjectsByNameRunsOptions({
@@ -114,6 +124,7 @@ export function TechnicalAeoSection({ projectName, projectId }: { projectName: s
   }, [pagesQuery.refetch, scoreQuery.refetch, trendQuery.refetch])
 
   useEffect(() => {
+    if (selectedRunId) return
     if (!latestAudit || (latestAudit.status !== 'completed' && latestAudit.status !== 'partial')) return
     if (scoreQuery.data?.runId === latestAudit.id || lastAutoRefreshedRun.current === latestAudit.id) return
     lastAutoRefreshedRun.current = latestAudit.id
@@ -126,7 +137,7 @@ export function TechnicalAeoSection({ projectName, projectId }: { projectName: s
         dedupeMode: 'replace',
       })
     })
-  }, [latestAudit?.id, latestAudit?.status, projectName, refreshAll, scoreQuery.data?.runId])
+  }, [latestAudit?.id, latestAudit?.status, projectName, refreshAll, scoreQuery.data?.runId, selectedRunId])
 
   const handleManualRefresh = async () => {
     setIsManualRefreshing(true)
@@ -164,6 +175,11 @@ export function TechnicalAeoSection({ projectName, projectId }: { projectName: s
       : 'Starting audit'
 
   const score = scoreQuery.data
+
+  useEffect(() => {
+    setErrorsOnly(false)
+    setExpandedFactor(null)
+  }, [selectedRunId])
 
   if (scoreQuery.isLoading) {
     return <p className="supporting-copy mt-6">Loading technical audit…</p>
@@ -208,7 +224,9 @@ export function TechnicalAeoSection({ projectName, projectId }: { projectName: s
     : `${score.deltaScore >= 0 ? '+' : ''}${score.deltaScore} vs previous`
   const deltaTone: MetricTone = score.trend === 'up' ? 'positive' : score.trend === 'down' ? 'negative' : 'neutral'
 
-  const trendRows = trendQuery.data?.points.map((p) => ({ date: p.auditedAt, score: p.aggregateScore })) ?? []
+  const trendPoints = trendQuery.data?.points ?? []
+  const trendRows = trendPoints.map((p) => ({ runId: p.runId, date: p.auditedAt, score: p.aggregateScore }))
+  const viewingHistorical = selectedRunId !== null
   const allPages = pagesQuery.data?.pages ?? []
   const successPages = allPages.filter((p) => p.status === 'success')
   const hasErrors = score.pagesErrored > 0
@@ -232,7 +250,7 @@ export function TechnicalAeoSection({ projectName, projectId }: { projectName: s
       {/* Hero — aggregate score + sitemap provenance + action */}
       <section className="surface-card flex flex-wrap items-start justify-between gap-6 rounded-lg border border-default bg-surface p-6">
         <div className="min-w-0">
-          <p className="eyebrow eyebrow-soft">Technical AEO</p>
+          <p className="eyebrow eyebrow-soft">{viewingHistorical ? 'Technical AEO history' : 'Technical AEO'}</p>
           <div className="mt-1 flex flex-wrap items-baseline gap-3">
             <span className={`text-4xl font-semibold tabular-nums ${scoreTextClass(score.aggregateScore)}`}>
               {score.aggregateScore}
@@ -266,7 +284,22 @@ export function TechnicalAeoSection({ projectName, projectId }: { projectName: s
             </p>
           ) : null}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {trendPoints.length > 1 ? (
+            <select
+              aria-label="View a Technical AEO audit"
+              value={selectedRunId ?? ''}
+              onChange={(event) => setSelectedRunId(event.target.value || null)}
+              className="min-h-11 rounded-md border border-base bg-bg px-3 text-sm text-strong focus:outline-none focus-visible:ring-1 focus-visible:ring-mono-600"
+            >
+              <option value="">Latest audit</option>
+              {[...trendPoints].reverse().slice(1).map((point) => (
+                <option key={point.runId} value={point.runId}>
+                  {new Date(point.auditedAt).toLocaleDateString()} · {point.aggregateScore}/100
+                </option>
+              ))}
+            </select>
+          ) : null}
           <Button type="button" variant="outline" size="sm" onClick={() => void handleManualRefresh()} disabled={isManualRefreshing}>
             <RefreshCw className={`mr-1.5 h-4 w-4 ${isManualRefreshing ? 'motion-safe:animate-spin' : ''}`} aria-hidden="true" />
             {isManualRefreshing ? 'Refreshing…' : 'Refresh'}
@@ -292,6 +325,10 @@ export function TechnicalAeoSection({ projectName, projectId }: { projectName: s
             <h2>Site score over time</h2>
           </div>
           <div className="mt-3 h-56">
+            <p className="sr-only">
+              Technical AEO scores range from {Math.min(...trendRows.map((row) => row.score))} to {Math.max(...trendRows.map((row) => row.score))} across {trendRows.length} audits. Use the audit selector to inspect a previous scorecard.
+            </p>
+            <div className="h-full" aria-hidden="true">
             <ResponsiveContainer width="100%" height="100%">
               <ComposedChart data={trendRows} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
                 <CartesianGrid stroke={CHART_GRID_STROKE} vertical={false} />
@@ -321,13 +358,14 @@ export function TechnicalAeoSection({ projectName, projectId }: { projectName: s
                   type="monotone"
                   dataKey="score"
                   name="score"
-                  stroke="#34d399"
+                  stroke={CHART_TONE.positive}
                   strokeWidth={2.5}
-                  dot={{ r: 2.5, fill: '#34d399', strokeWidth: 0 }}
+                  dot={{ r: 2.5, fill: CHART_TONE.positive, strokeWidth: 0 }}
                   isAnimationActive={false}
                 />
               </ComposedChart>
             </ResponsiveContainer>
+            </div>
           </div>
         </section>
       ) : null}
@@ -499,7 +537,7 @@ export function TechnicalAeoSection({ projectName, projectId }: { projectName: s
                 type="button"
                 onClick={() => setErrorsOnly(false)}
                 aria-pressed={!showErrorsOnly}
-                className={`rounded-full px-3 py-1 text-xs font-medium tabular-nums transition-colors ${!showErrorsOnly ? 'bg-mono-800 text-heading' : 'text-muted hover:text-neutral'}`}
+                className={`min-h-11 rounded-full px-3 py-1 text-xs font-medium tabular-nums transition-colors ${!showErrorsOnly ? 'bg-mono-800 text-heading' : 'text-muted hover:text-neutral'}`}
               >
                 All {score.pagesAudited}
               </button>
@@ -507,7 +545,7 @@ export function TechnicalAeoSection({ projectName, projectId }: { projectName: s
                 type="button"
                 onClick={() => setErrorsOnly(true)}
                 aria-pressed={showErrorsOnly}
-                className={`rounded-full px-3 py-1 text-xs font-medium tabular-nums transition-colors ${showErrorsOnly ? 'bg-negative-500/15 text-negative' : 'text-muted hover:text-neutral'}`}
+                className={`min-h-11 rounded-full px-3 py-1 text-xs font-medium tabular-nums transition-colors ${showErrorsOnly ? 'bg-negative-500/15 text-negative' : 'text-muted hover:text-neutral'}`}
               >
                 Errors {score.pagesErrored}
               </button>

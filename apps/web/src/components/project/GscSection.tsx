@@ -126,7 +126,7 @@ export function GscSection({
       return dir === 'asc' ? av - bv : bv - av
     })
   }, [performance, perfSort])
-  const [_coverageHistory, setCoverageHistory] = useState<Array<{ date: string; indexed: number; notIndexed: number; reasonBreakdown: Record<string, number> }>>([])
+  const [coverageHistory, setCoverageHistory] = useState<Array<{ date: string; indexed: number; notIndexed: number; reasonBreakdown: Record<string, number> }>>([])
   const [selectedReason, setSelectedReason] = useState<string | null>(null)
   const [coveragePage, setCoveragePage] = useState<number>(1)
 
@@ -1010,6 +1010,44 @@ export function GscSection({
                       })()}
                     </div>
 
+                    {coverageHistory.length >= 2 ? (
+                      <div className="mt-8 border-t border-subtle pt-5">
+                        <div className="section-head section-head-inline">
+                          <div>
+                            <p className="eyebrow eyebrow-soft">History</p>
+                            <h4>Coverage over time</h4>
+                          </div>
+                          <span className="text-xs text-muted">{coverageHistory.length} snapshots</span>
+                        </div>
+                        <div className="evidence-table-wrap mt-3">
+                          <table className="evidence-table">
+                            <thead>
+                              <tr>
+                                <th>Date</th>
+                                <th className="text-right">Indexed</th>
+                                <th className="text-right">Not indexed</th>
+                                <th className="text-right">Coverage</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {coverageHistory.slice(-8).reverse().map((snapshot) => {
+                                const total = snapshot.indexed + snapshot.notIndexed
+                                const percent = total > 0 ? Math.round(snapshot.indexed / total * 100) : 0
+                                return (
+                                  <tr key={snapshot.date}>
+                                    <td className="tabular-nums text-secondary">{new Date(`${snapshot.date}T00:00:00`).toLocaleDateString()}</td>
+                                    <td className="text-right tabular-nums text-positive-400">{snapshot.indexed.toLocaleString()}</td>
+                                    <td className="text-right tabular-nums text-muted">{snapshot.notIndexed.toLocaleString()}</td>
+                                    <td className="text-right tabular-nums text-strong">{percent}%</td>
+                                  </tr>
+                                )
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    ) : null}
+
 
                     {/* Tab pills */}
                     <div className="mt-3 flex gap-1">
@@ -1022,7 +1060,8 @@ export function GscSection({
                           <button
                             key={tab}
                             type="button"
-                            className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                            aria-pressed={coverageTab === tab}
+                            className={`min-h-11 rounded-full px-3 py-1 text-xs font-medium transition-colors ${
                               coverageTab === tab
                                 ? 'bg-mono-700 text-heading'
                                 : 'text-secondary hover:bg-mono-800 hover:text-strong'

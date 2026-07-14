@@ -99,7 +99,20 @@ const runGetInputSchema = z.object({
 const timelineInputSchema = z.object({
   project: projectNameSchema,
   location: z.string().optional().describe('Location label. Use an empty string for locationless results.'),
+  limit: z.number().int().positive().max(100).optional().describe('Restrict history to the most recent N project runs.'),
 })
+
+const historyFilterShape = {
+  limit: z.number().int().positive().max(500).optional(),
+  offset: z.number().int().nonnegative().optional(),
+  since: z.string().optional().describe('ISO 8601 lower bound.'),
+  action: z.string().optional().describe('Exact audit action filter.'),
+  actor: z.string().optional().describe('Exact actor filter.'),
+  entityType: z.string().optional().describe('Exact entity type filter.'),
+}
+
+const projectHistoryInputSchema = z.object({ project: projectNameSchema, ...historyFilterShape })
+const globalHistoryInputSchema = z.object(historyFilterShape)
 
 const snapshotsListInputSchema = z.object({
   project: projectNameSchema,
@@ -444,10 +457,12 @@ const discoveryPromoteInputSchema = z.object({
 
 const technicalAeoScoreInputSchema = z.object({
   project: projectNameSchema,
+  runId: runIdSchema.optional().describe('Historical site-audit run ID. Omit for the latest audit.'),
 })
 
 const technicalAeoPagesInputSchema = z.object({
   project: projectNameSchema,
+  runId: runIdSchema.optional().describe('Historical site-audit run ID. Omit for the latest audit.'),
   status: z.enum(['success', 'error']).optional().describe('Filter to successfully-audited or errored pages.'),
   sort: z.enum(['score-asc', 'score-desc', 'url']).optional().describe('Sort order. Defaults to score-asc (worst pages first).'),
   limit: z.number().int().positive().max(500).optional(),
@@ -614,10 +629,28 @@ export const canonryMcpTools = [
     description: 'Get audit history for a Canonry project.',
     access: 'read',
     tier: 'monitoring',
-    inputSchema: projectInputSchema,
+    inputSchema: projectHistoryInputSchema,
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/history'],
-    handler: (client, input) => client.getHistory(input.project),
+    handler: (client, input) => client.getHistory(input.project, {
+      limit: input.limit,
+      offset: input.offset,
+      since: input.since,
+      action: input.action,
+      actor: input.actor,
+      entityType: input.entityType,
+    }),
+  }),
+  defineTool({
+    name: 'canonry_history_global',
+    title: 'Get instance history',
+    description: 'Get the instance-wide audit trail, including retained entries whose project was deleted. Full-instance keys only; project-scoped keys remain limited to their project.',
+    access: 'read',
+    tier: 'monitoring',
+    inputSchema: globalHistoryInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/history'],
+    handler: (client, input) => client.getGlobalHistory(input),
   }),
   defineTool({
     name: 'canonry_runs_list',
@@ -661,7 +694,7 @@ export const canonryMcpTools = [
     inputSchema: timelineInputSchema,
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/timeline'],
-    handler: (client, input) => client.getTimeline(input.project, input.location),
+    handler: (client, input) => client.getTimeline(input.project, input.location, input.limit),
   }),
   defineTool({
     name: 'canonry_snapshots_list',
@@ -1781,7 +1814,7 @@ export const canonryMcpTools = [
     inputSchema: technicalAeoScoreInputSchema,
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/technical-aeo'],
-    handler: (client, input) => client.getTechnicalAeoScore(input.project),
+    handler: (client, input) => client.getTechnicalAeoScore(input.project, { runId: input.runId }),
   }),
   defineTool({
     name: 'canonry_technical_aeo_pages',
@@ -1794,6 +1827,7 @@ export const canonryMcpTools = [
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/technical-aeo/pages'],
     handler: (client, input) => client.getTechnicalAeoPages(input.project, {
+      runId: input.runId,
       status: input.status,
       sort: input.sort,
       limit: input.limit,

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import React from 'react'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 import {
@@ -148,4 +148,46 @@ test('refreshes the score, trend, and pages when a newer audit completes', async
   const fetchedUrls = fetchMock.mock.calls.map(([input]) => input instanceof Request ? input.url : String(input))
   expect(fetchedUrls.some((url) => url.includes('/technical-aeo/pages'))).toBe(true)
   expect(fetchedUrls.some((url) => url.includes('/technical-aeo/trend'))).toBe(true)
+})
+
+test('loads the scorecard and pages for a selected historical audit', async () => {
+  const queryClient = makeClient()
+  queryClient.setQueryData(scoreKey, score('audit_new', 90))
+  queryClient.setQueryData(pagesKey, { project: projectName, runId: 'audit_new', auditedAt: null, total: 0, pages: [] })
+  queryClient.setQueryData(trendKey, {
+    project: projectName,
+    points: [
+      { runId: 'audit_old', auditedAt: '2026-07-01T18:16:33.000Z', aggregateScore: 72, pagesAudited: 35 },
+      { runId: 'audit_new', auditedAt: '2026-07-14T18:16:33.000Z', aggregateScore: 90, pagesAudited: 39 },
+    ],
+  })
+  queryClient.setQueryData(auditRunsKey, [run('audit_new', 'completed')])
+
+  const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    const url = input instanceof Request ? input.url : String(input)
+    if (url.includes('/technical-aeo/pages')) {
+      return jsonResponse({ project: projectName, runId: 'audit_old', auditedAt: '2026-07-01T18:16:33.000Z', total: 0, pages: [] })
+    }
+    if (url.includes('/technical-aeo')) {
+      return jsonResponse(score('audit_old', 72))
+    }
+    throw new Error(`Unexpected fetch: ${url}`)
+  })
+  vi.stubGlobal('fetch', fetchMock)
+
+  render(
+    <QueryClientProvider client={queryClient}>
+      <TechnicalAeoSection projectName={projectName} projectId={projectId} />
+    </QueryClientProvider>,
+  )
+
+  fireEvent.change(screen.getByRole('combobox', { name: 'View a Technical AEO audit' }), {
+    target: { value: 'audit_old' },
+  })
+
+  await waitFor(() => expect(screen.getByText('72')).not.toBeNull())
+  expect(screen.getByText('Technical AEO history')).not.toBeNull()
+  const fetchedUrls = fetchMock.mock.calls.map(([input]) => input instanceof Request ? input.url : String(input))
+  expect(fetchedUrls.some((url) => url.includes('runId=audit_old'))).toBe(true)
+  expect(fetchedUrls.filter((url) => url.includes('runId=audit_old'))).toHaveLength(2)
 })

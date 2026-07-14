@@ -308,6 +308,10 @@ export const auditLogEntrySchema = z.object({
   entityType: z.string(),
   entityId: z.string().nullable().optional(),
   diff: z.unknown().optional(),
+  /** Originating HTTP client, when available (dashboard browser, CLI, MCP, or external script). */
+  userAgent: z.string().nullable().optional(),
+  /** Optional caller-supplied correlation key for grouping related mutations. */
+  actorSession: z.string().nullable().optional(),
   createdAt: z.string(),
 })
 

@@ -2,10 +2,12 @@ import { describe, expect, it, beforeEach, vi } from 'vitest'
 import type { AuditLogEntry } from '@ainyc/canonry-contracts'
 
 const mockGetHistory = vi.fn()
+const mockGetGlobalHistory = vi.fn()
 
 vi.mock('../src/client.js', () => ({
   createApiClient: () => ({
     getHistory: mockGetHistory,
+    getGlobalHistory: mockGetGlobalHistory,
   }),
 }))
 
@@ -73,6 +75,17 @@ describe('showHistory --format jsonl', () => {
       actor: 'cli',
       entityType: 'project',
     })
+  })
+
+  it('emits instance-wide history with a null project context', async () => {
+    mockGetGlobalHistory.mockResolvedValue(entries)
+    const cap = captureStdout(() => showHistory(undefined, 'jsonl', { limit: 10, actor: 'cli' }))
+    await cap.run
+
+    expect(mockGetGlobalHistory).toHaveBeenCalledWith({ limit: 10, actor: 'cli' })
+    expect(cap.lines().map(line => JSON.parse(line))).toEqual(
+      entries.map(entry => ({ project: null, ...entry })),
+    )
   })
 
   it('empty collection writes nothing', async () => {
