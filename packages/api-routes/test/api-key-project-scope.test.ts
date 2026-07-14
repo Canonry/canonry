@@ -125,6 +125,14 @@ describe('project-scoped API keys', () => {
     expect((await authed('GET', '/api/v1/projects/project-a', SCOPED_KEY)).statusCode).toBe(200)
   })
 
+  it('a scoped read-only key can download its own project results', async () => {
+    expect((await authed('GET', '/api/v1/projects/project-a/results/export', SCOPED_KEY)).statusCode).toBe(200)
+  })
+
+  it('a scoped key cannot download a sibling project results export', async () => {
+    expect((await authed('GET', '/api/v1/projects/project-b/results/export', SCOPED_KEY)).statusCode).toBe(403)
+  })
+
   it('a scoped key is FORBIDDEN on a sibling project (403, central URL gate)', async () => {
     const res = await authed('GET', '/api/v1/projects/project-b', SCOPED_KEY)
     expect(res.statusCode).toBe(403)

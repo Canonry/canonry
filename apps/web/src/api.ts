@@ -1,4 +1,4 @@
-import type { EmbedClientConfig, ErrorCode, GroundingSource, ProjectOverviewDto, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto, GscPerformanceDailyDto, IndexingRequestResultDto, MetricsWindow, BrandMetricsDto, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry, InsightDto, ProjectReportDto, ReportAudience, CitationVisibilityResponse, BacklinkSource, BacklinkSourcesResponseDto, BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinkHistoryEntry, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcAvailableRelease, CcCachedRelease, CcReleaseSyncDto, TrafficSourceDto, TrafficSourceDetailDto, TrafficSourceListResponse, TrafficStatusResponse, TrafficEventsResponse, TrafficConnectCloudRunRequest, TrafficConnectWordpressRequest, TrafficConnectVercelRequest, TrafficSyncResponse, TrafficBackfillResponse, DiscoveryRunRequest, DiscoverySessionDto, DiscoverySessionDetailDto, DiscoveryPromotePreview, DiscoveryPromoteRequest, DiscoveryPromoteResult, ProjectDto, QueryDto, CompetitorDto, LocationContext, GoogleConnectionDto, GscUrlInspectionDto, GscDeindexedRowDto, BingUrlInspectionDto, BingCoverageSummaryDto, BingKeywordStatsDto, BingStatusDto, BingConnectResponseDto, BingSetSiteResponseDto, BingSitesResponseDto, GscSearchDataDto, ContentTargetDismissalDto, ContentTargetDismissRequest, SiteAuditRunResponseDto } from '@ainyc/canonry-contracts'
+import type { EmbedClientConfig, ErrorCode, GroundingSource, ProjectOverviewDto, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto, GscPerformanceDailyDto, IndexingRequestResultDto, MetricsWindow, BrandMetricsDto, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry, InsightDto, ProjectReportDto, ReportAudience, ResultsExportFormat, CitationVisibilityResponse, BacklinkSource, BacklinkSourcesResponseDto, BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinkHistoryEntry, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcAvailableRelease, CcCachedRelease, CcReleaseSyncDto, TrafficSourceDto, TrafficSourceDetailDto, TrafficSourceListResponse, TrafficStatusResponse, TrafficEventsResponse, TrafficConnectCloudRunRequest, TrafficConnectWordpressRequest, TrafficConnectVercelRequest, TrafficSyncResponse, TrafficBackfillResponse, DiscoveryRunRequest, DiscoverySessionDto, DiscoverySessionDetailDto, DiscoveryPromotePreview, DiscoveryPromoteRequest, DiscoveryPromoteResult, ProjectDto, QueryDto, CompetitorDto, LocationContext, GoogleConnectionDto, GscUrlInspectionDto, GscDeindexedRowDto, BingUrlInspectionDto, BingCoverageSummaryDto, BingKeywordStatsDto, BingStatusDto, BingConnectResponseDto, BingSetSiteResponseDto, BingSitesResponseDto, GscSearchDataDto, ContentTargetDismissalDto, ContentTargetDismissRequest, SiteAuditRunResponseDto } from '@ainyc/canonry-contracts'
 import {
   createClient as createHeyClient,
   // Projects + queries + competitors + locations + runs + apply + settings + telemetry
@@ -7,7 +7,6 @@ import {
   putApiV1ProjectsByName,
   deleteApiV1ProjectsByName,
   getApiV1ProjectsByNameOverview,
-  getApiV1ProjectsByNameExport,
   getApiV1ProjectsByNameQueries,
   putApiV1ProjectsByNameQueries,
   postApiV1ProjectsByNameQueries,
@@ -829,10 +828,6 @@ export async function deleteProject(name: string): Promise<void> {
   )
 }
 
-export function fetchExport(name: string): Promise<unknown> {
-  return invokeWeb<unknown>(() => getApiV1ProjectsByNameExport({ client: heyClient, path: { name } }))
-}
-
 export interface ApiProviderSummary {
   name: string
   displayName?: string
@@ -1534,6 +1529,30 @@ export async function downloadReportHtml(project: string, audience: ReportAudien
   const filename =
     parseFilenameFromContentDisposition(res.headers.get('Content-Disposition'))
     ?? `canonry-report-${project}.html`
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
+
+/** Download the historical query × provider results attachment from Project Settings. */
+export async function downloadResultsExport(project: string, format: ResultsExportFormat): Promise<void> {
+  const key = getApiKey()
+  const res = await fetch(`${API_BASE}/projects/${encodeURIComponent(project)}/results/export?format=${format}`, {
+    credentials: 'same-origin',
+    headers: key ? { Authorization: `Bearer ${key}` } : {},
+  })
+  if (!res.ok) {
+    throw new ApiError(`Failed to download results: ${res.status}`, res.status)
+  }
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  const filename =
+    parseFilenameFromContentDisposition(res.headers.get('Content-Disposition'))
+    ?? `canonry-results-${project}.${format}`
   const a = document.createElement('a')
   a.href = url
   a.download = filename

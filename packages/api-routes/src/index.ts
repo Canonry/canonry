@@ -18,6 +18,7 @@ import { intelligenceRoutes } from './intelligence.js'
 import { reportRoutes } from './report.js'
 import { citationRoutes } from './citations.js'
 import { visibilityStatsRoutes } from './visibility-stats.js'
+import { resultsExportRoutes } from './results-export.js'
 import { compositeRoutes } from './composites.js'
 import { contentRoutes } from './content.js'
 import { openApiRoutes } from './openapi.js'
@@ -354,6 +355,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     await api.register(reportRoutes)
     await api.register(citationRoutes)
     await api.register(visibilityStatsRoutes)
+    await api.register(resultsExportRoutes)
     await api.register(compositeRoutes)
     await api.register(contentRoutes, {
       explainContentRecommendation: opts.explainContentRecommendation,

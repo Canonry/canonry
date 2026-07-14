@@ -81,7 +81,9 @@ canonry visibility-stats <project> --last-runs 10 --by-provider       # last N r
 canonry visibility-stats <project> --since 2026-06-01 --until 2026-06-30 --format jsonl  # date window; one record per query
 canonry visibility-stats <project> --month 2026-06 --share-of-voice   # a whole calendar month + pooled share of voice vs tracked competitors (project brand mentions / (project + competitor))
 canonry apply <file...>                          # multi-doc YAML + multiple files
-canonry export <project>
+canonry export <project>                         # project configuration as YAML / JSON
+canonry results export <project> --format csv     # historical citation + mention observations as a CSV attachment
+canonry results export <project> --format json --output -  # versioned historical observations to stdout
 canonry report <project>                         # client-facing AEO report → canonry-report-<project>-YYYY-MM-DD.html
 canonry report <project> --period 7              # window (7|14|30|90, default 30): scopes GSC/GA/server-activity + the period-over-period deltas
 canonry report <project> --output dist/aeo.html

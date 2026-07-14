@@ -119,6 +119,7 @@ import type {
   ApiKeyListDto,
   CreateApiKeyRequest,
   CreatedApiKeyDto,
+  ResultsExportFormat,
 } from '@ainyc/canonry-contracts'
 import {
   createClient as createHeyClient,
@@ -812,6 +813,58 @@ export class ApiClient {
         ...(opts?.period !== undefined && { query: { period: opts.period } }),
       }),
     )
+  }
+
+  /** Download the versioned historical answer-engine results attachment. */
+  async downloadResultsExport(
+    project: string,
+    opts: { format: ResultsExportFormat; since?: string; until?: string; includeProbes?: boolean },
+  ): Promise<{ content: string; filename: string }> {
+    await this.probeBasePath()
+    const params = new URLSearchParams({ format: opts.format })
+    if (opts.since) params.set('since', opts.since)
+    if (opts.until) params.set('until', opts.until)
+    if (opts.includeProbes) params.set('includeProbes', 'true')
+    const url = `${this.originUrl}/api/v1/projects/${encodeURIComponent(project)}/results/export?${params.toString()}`
+
+    let res: Response
+    try {
+      res = await fetch(url, {
+        headers: { Authorization: `Bearer ${this.apiKey}` },
+      })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      if (message.includes('fetch failed') || message.includes('ECONNREFUSED') || message.includes('connect ECONNREFUSED')) {
+        throw new CliError({
+          code: 'CONNECTION_ERROR',
+          message: `Could not connect to canonry server at ${this.originUrl}. Start it with "canonry serve".`,
+          exitCode: EXIT_SYSTEM_ERROR,
+        })
+      }
+      throw new CliError({ code: 'CONNECTION_ERROR', message, exitCode: EXIT_SYSTEM_ERROR })
+    }
+
+    if (!res.ok) {
+      let body: unknown = null
+      try {
+        body = await res.json()
+      } catch {
+        // The status text below is a suitable fallback for non-JSON errors.
+      }
+      const error = body && typeof body === 'object' && 'error' in body
+        ? (body as { error?: { code?: string; message?: string; details?: Record<string, unknown> } }).error
+        : undefined
+      throw new CliError({
+        code: error?.code ?? 'API_ERROR',
+        message: error?.message ?? `HTTP ${res.status}: ${res.statusText}`,
+        exitCode: res.status >= 500 ? EXIT_SYSTEM_ERROR : EXIT_USER_ERROR,
+        details: { ...(error?.details ?? {}), httpStatus: res.status },
+      })
+    }
+
+    const filename = /filename\s*=\s*"?([^";]+)"?/i.exec(res.headers.get('content-disposition') ?? '')?.[1]
+      ?? `canonry-results-${project}.${opts.format}`
+    return { content: await res.text(), filename }
   }
 
   // ── Queries / keywords / competitors ────────────────────────────────────

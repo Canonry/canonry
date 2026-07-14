@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronDown, ChevronRight, Download, RefreshCw, Trash2 } from 'lucide-react'
+import { ChevronDown, ChevronRight, RefreshCw, Trash2 } from 'lucide-react'
 import { useParams, useNavigate } from '@tanstack/react-router'
 import { Link } from '@tanstack/react-router'
 import { useQueryClient } from '@tanstack/react-query'
@@ -33,7 +33,6 @@ import { ProjectSettingsSection } from '../components/project/ProjectSettingsSec
 import { ScheduleSection } from '../components/project/ScheduleSection.js'
 import { NotificationsSection } from '../components/project/NotificationsSection.js'
 import {
-  fetchExport,
   fetchTimeline,
   deleteProject as apiDeleteProject,
   appendQueries as apiAppendQueries,
@@ -1913,28 +1912,6 @@ function ProjectPageContent({
     }
   }
 
-  async function handleExport() {
-    try {
-      const data = await fetchExport(projectName)
-      const yaml = typeof data === 'string' ? data : JSON.stringify(data, null, 2)
-      const blob = new Blob([yaml], { type: 'text/yaml' })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `${projectName}.yaml`
-      a.click()
-      // Blob URL is revoked asynchronously — a.click() returns void with no
-      // completion signal, so revoking synchronously can break the download.
-      // The blob is small and will be GC'd when the page unloads.
-    } catch (err) {
-      addToast({
-        title: 'Export failed',
-        detail: err instanceof Error ? err.message : 'Could not export project YAML.',
-        tone: 'negative',
-      })
-    }
-  }
-
   async function handleAddQueries() {
     const queries = newQueryText.split('\n').map(k => k.trim()).filter(Boolean)
     if (queries.length === 0) return
@@ -2266,9 +2243,6 @@ function ProjectPageContent({
           <p className="text-sm text-muted">{model.dateRangeLabel}</p>
           {!isEmbed() && (
             <div className="flex items-center gap-2">
-              <Button type="button" variant="outline" size="icon" onClick={asyncHandler(handleExport)} aria-label="Export project as YAML">
-                <Download className="h-4 w-4 text-secondary" />
-              </Button>
               <Button type="button" variant="outline" size="icon" onClick={() => setShowDeleteConfirm(true)} aria-label="Delete project">
                 <Trash2 className="h-4 w-4 text-secondary" />
               </Button>

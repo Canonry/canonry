@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
+import type { ResultsExportFormat } from '@ainyc/canonry-contracts'
 
 import { Button } from '../ui/button.js'
-import { addLocation, removeLocation, setDefaultLocation, isEmbed, type ApiLocation } from '../../api.js'
+import { addLocation, downloadResultsExport, removeLocation, setDefaultLocation, isEmbed, type ApiLocation } from '../../api.js'
 import { addToast } from '../../lib/toast-store.js'
 import { asyncHandler } from '../../lib/async-handler.js'
 
@@ -35,6 +36,8 @@ export function ProjectSettingsSection({
   const [newLocRegion, setNewLocRegion] = useState('')
   const [newLocCountry, setNewLocCountry] = useState('')
   const [newLocTimezone, setNewLocTimezone] = useState('')
+  const [exportingFormat, setExportingFormat] = useState<ResultsExportFormat | null>(null)
+  const [resultsExportError, setResultsExportError] = useState<string | null>(null)
 
   // Sync local state when project prop changes (e.g. after save)
   useEffect(() => {
@@ -189,6 +192,25 @@ export function ProjectSettingsSection({
     }
   }
 
+  async function handleResultsExport(format: ResultsExportFormat) {
+    setExportingFormat(format)
+    setResultsExportError(null)
+    try {
+      await downloadResultsExport(project.name, format)
+      addToast({
+        title: `${format.toUpperCase()} download started`,
+        detail: `Historical citation and mention results for ${project.displayName}.`,
+        tone: 'positive',
+        dedupeKey: `project:results-export:${project.name}`,
+        dedupeMode: 'replace',
+      })
+    } catch (err) {
+      setResultsExportError(err instanceof Error ? err.message : 'Could not download tracking results.')
+    } finally {
+      setExportingFormat(null)
+    }
+  }
+
   const hasChanges = displayName !== project.displayName ||
     canonicalDomain !== project.canonicalDomain ||
     country !== project.country ||
@@ -201,7 +223,8 @@ export function ProjectSettingsSection({
   const newLocValid = newLocLabel.trim() && newLocCity.trim() && newLocRegion.trim() && newLocCountry.trim()
 
   return (
-    <section className="page-section-divider">
+    <>
+      <section className="page-section-divider">
       <div className="section-head section-head-inline">
         <div>
           <p className="eyebrow eyebrow-soft">Configuration</p>
@@ -464,6 +487,50 @@ export function ProjectSettingsSection({
           </table>
         </div>
       )}
-    </section>
+      </section>
+
+      <section className="page-section-divider">
+        <div className="section-head">
+          <p className="eyebrow eyebrow-soft">Data export</p>
+          <h2>Tracking results</h2>
+          <p className="mt-1 max-w-2xl text-sm text-muted">
+            Download historical citation and mention observations for this project. Each row is one query and provider result, including stored answer text and source URLs.
+          </p>
+        </div>
+
+        <div className="rounded-lg border border-default bg-surface px-4 py-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="max-w-xl text-xs leading-5 text-muted">
+              Includes completed, partial, and failed answer-visibility runs with stored results. Test runs are excluded. Provider credentials and raw provider payloads are never included.
+            </p>
+            <div className="flex shrink-0 flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={exportingFormat !== null}
+                onClick={asyncHandler(() => handleResultsExport('csv'))}
+              >
+                {exportingFormat === 'csv' ? 'Preparing CSV...' : 'Download CSV'}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={exportingFormat !== null}
+                onClick={asyncHandler(() => handleResultsExport('json'))}
+              >
+                {exportingFormat === 'json' ? 'Preparing JSON...' : 'Download JSON'}
+              </Button>
+            </div>
+          </div>
+          {resultsExportError && (
+            <p className="mt-3 rounded border border-negative-800/40 bg-negative-950/20 px-3 py-2 text-sm text-negative">
+              {resultsExportError}
+            </p>
+          )}
+        </div>
+      </section>
+    </>
   )
 }

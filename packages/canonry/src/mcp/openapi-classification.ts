@@ -12,6 +12,9 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'DELETE /api/v1/projects/{name}/locations/{label}': 'deferred',
   'PUT /api/v1/projects/{name}/locations/default': 'deferred',
   'GET /api/v1/projects/{name}/export': 'included',
+  // Bulk data attachments are unsuitable for an MCP context window. Agents
+  // use the included paginated snapshots read instead.
+  'GET /api/v1/projects/{name}/results/export': 'excluded-protocol',
   'GET /api/v1/projects/{name}/queries': 'included',
   'PUT /api/v1/projects/{name}/queries': 'included',
   'DELETE /api/v1/projects/{name}/queries': 'included',

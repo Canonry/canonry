@@ -98,16 +98,15 @@ test('embed theme applies allowlisted CSS custom properties to the shell', async
 // control that would 403 on click against the read-only project-scoped key,
 // while keeping every read-only view. Not a security boundary (the API key
 // scope is) — purely UI cleanliness. See isEmbed() in src/api.ts.
-test('embed hides the page-header write cluster (export / delete / run) that leaks on every tab', async () => {
+test('embed hides the page-header write cluster (delete / run) that leaks on every tab', async () => {
   const embed = await renderAt('/projects/project_citypoint', { enabled: true })
   const operator = await renderAt('/projects/project_citypoint')
 
-  // Operator sees the header action cluster…
-  expect(operator).toContain('Export project as YAML')
+  // Operator sees the header action cluster… (the YAML-export button was
+  // removed in favor of the Settings-tab results downloads + `canonry export`)
   expect(operator).toContain('Delete project')
   // …the embed render does not (this cluster renders OUTSIDE the tab switch, so
   // it would otherwise leak on the default overview embed).
-  expect(embed).not.toContain('Export project as YAML')
   expect(embed).not.toContain('Delete project')
 
   // A read-only view still renders in the embed (the project name + a section
