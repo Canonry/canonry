@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm'
-import { classifyAiReferralTrafficClass } from '@ainyc/canonry-contracts'
+import { classifyAiReferralTrafficClass, normalizeQueryText } from '@ainyc/canonry-contracts'
 import type { DatabaseClient } from './client.js'
 import { parseJsonColumn } from './json.js'
 
@@ -165,6 +165,60 @@ export interface MigrationVersion {
   name: string
   statements: string[]
   run?: (tx: MigrationDb) => void
+}
+
+/**
+ * Relink orphaned snapshot attribution (v98). Historical declarative writes
+ * (`canonry apply`, `PUT /queries`, `PUT /keywords`) replaced tracked-query
+ * rows with delete-all + reinsert even when the texts were unchanged, so
+ * `query_snapshots.query_id` (ON DELETE SET NULL) was silently nulled on
+ * every apply — FK-based readers (the analytics/metrics trend) lost the
+ * project's whole history while text-fallback readers kept working. The
+ * write paths now preserve row identity for unchanged texts; this one-time
+ * fix re-links every already-orphaned snapshot whose `query_text` matches
+ * (via the SHARED `normalizeQueryText` — trim + lowercase) a tracked query
+ * in the snapshot's own project. Matching runs in TS, not SQL: SQLite's
+ * `lower()` folds ASCII only, so a SQL match would strand non-ASCII pairs
+ * like `ÉCOLE` / `école` that the runtime normalizer considers equal — and
+ * since v98 runs once per install, those FKs would stay broken forever.
+ * Snapshots for genuinely retired queries have no match and correctly stay
+ * unlinked. Idempotent: only `query_id IS NULL` rows are candidates, so a
+ * re-run is a no-op. Exported so the migration test can exercise it against
+ * seeded orphans.
+ */
+export function relinkOrphanedSnapshotQueryIds(tx: MigrationDb): void {
+  const orphans = tx.all(sql`
+    SELECT qs.id AS snapId, qs.query_text AS text, r.project_id AS projectId
+    FROM query_snapshots qs
+    JOIN runs r ON r.id = qs.run_id
+    WHERE qs.query_id IS NULL AND qs.query_text IS NOT NULL
+  `) as Array<{ snapId: string; text: string; projectId: string }>
+  if (orphans.length === 0) return
+
+  const queryRows = tx.all(sql`SELECT id, project_id AS projectId, query FROM queries`) as Array<{
+    id: string
+    projectId: string
+    query: string
+  }>
+  // project -> normalized text -> query id (first row wins on raw-text
+  // duplicates; identical normalized text means identical attribution).
+  const byProject = new Map<string, Map<string, string>>()
+  for (const row of queryRows) {
+    let perProject = byProject.get(row.projectId)
+    if (!perProject) {
+      perProject = new Map<string, string>()
+      byProject.set(row.projectId, perProject)
+    }
+    const key = normalizeQueryText(row.query)
+    if (!perProject.has(key)) perProject.set(key, row.id)
+  }
+
+  for (const orphan of orphans) {
+    const queryId = byProject.get(orphan.projectId)?.get(normalizeQueryText(orphan.text))
+    if (queryId) {
+      tx.run(sql`UPDATE query_snapshots SET query_id = ${queryId} WHERE id = ${orphan.snapId}`)
+    }
+  }
 }
 
 export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
@@ -2060,6 +2114,19 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `ALTER TABLE ai_referral_events_hourly ADD COLUMN paid_sessions_or_hits INTEGER NOT NULL DEFAULT 0`,
       `ALTER TABLE ai_referral_events_hourly ADD COLUMN organic_sessions_or_hits INTEGER NOT NULL DEFAULT 0`,
     ],
+  },
+  {
+    // One-time self-heal for installs whose snapshot->query FKs were orphaned
+    // by the pre-fix delete-all + reinsert replace paths. Data-only UPDATEs
+    // (no schema change) via run() — TS matching because SQLite lower() is
+    // ASCII-only; see the doc comment on relinkOrphanedSnapshotQueryIds and
+    // the downgrade-safety RUN_HOOK_ALLOWLIST justification.
+    version: 98,
+    name: 'relink-orphaned-snapshot-query-ids',
+    statements: [],
+    run: (tx) => {
+      relinkOrphanedSnapshotQueryIds(tx)
+    },
   },
 ]
 

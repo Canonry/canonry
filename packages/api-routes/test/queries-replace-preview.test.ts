@@ -111,7 +111,7 @@ describe('POST /projects/:name/queries/replace-preview', () => {
     expect(body.diff.unchanged.sort()).toEqual(['beta', 'gamma'])
   })
 
-  it('reports snapshot impact: replace wipes all queries → all snapshots for current queries detach', async () => {
+  it('reports snapshot impact: kept queries retain their rows, only removed queries detach snapshots', async () => {
     const { app, db } = buildApp()
     const projectId = seedProject(db, 'with-history')
     const alpha = seedQuery(db, projectId, 'alpha')
@@ -127,16 +127,40 @@ describe('POST /projects/:name/queries/replace-preview', () => {
     const res = await app.inject({
       method: 'POST',
       url: '/api/v1/projects/with-history/queries/replace-preview',
-      payload: { queries: ['alpha', 'gamma'] }, // 'alpha' is "unchanged" by text but its row is replaced
+      payload: { queries: ['alpha', 'gamma'] },
     })
     expect(res.statusCode).toBe(200)
     const body = res.json() as {
+      diff: { added: string[]; removed: string[]; unchanged: string[] }
       snapshotImpact: { affectedQueries: number; snapshotsDetached: number }
     }
-    // Both alpha + beta's rows go away (replace wipes everything), even though
-    // alpha's text reappears. So ALL 5 snapshots detach across 2 query rows.
-    expect(body.snapshotImpact.affectedQueries).toBe(2)
-    expect(body.snapshotImpact.snapshotsDetached).toBe(5)
+    // The replace keeps alpha's ROW (its 3 snapshots stay attached) and only
+    // deletes beta — so the preview must report beta's 2 snapshots as the
+    // whole impact, exactly what replaceProjectQueries will execute.
+    expect(body.diff).toEqual({ added: ['gamma'], removed: ['beta'], unchanged: ['alpha'] })
+    expect(body.snapshotImpact.affectedQueries).toBe(1)
+    expect(body.snapshotImpact.snapshotsDetached).toBe(2)
+  })
+
+  it('treats a casing-only change as unchanged (no detach), matching the in-place rename the replace performs', async () => {
+    const { app, db } = buildApp()
+    const projectId = seedProject(db, 'case-only')
+    const alpha = seedQuery(db, projectId, 'Alpha Query')
+    seedSnapshot(db, projectId, alpha)
+    await app.ready()
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/case-only/queries/replace-preview',
+      payload: { queries: ['alpha query'] },
+    })
+    expect(res.statusCode).toBe(200)
+    const body = res.json() as {
+      diff: { added: string[]; removed: string[]; unchanged: string[] }
+      snapshotImpact: { affectedQueries: number; snapshotsDetached: number }
+    }
+    expect(body.diff).toEqual({ added: [], removed: [], unchanged: ['Alpha Query'] })
+    expect(body.snapshotImpact).toEqual({ affectedQueries: 0, snapshotsDetached: 0 })
   })
 
   it('returns 404 for unknown project', async () => {
