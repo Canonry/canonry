@@ -139,6 +139,8 @@ export type AuditLogEntry = {
     entityType: string;
     entityId?: string | null;
     diff?: unknown;
+    userAgent?: string | null;
+    actorSession?: string | null;
     createdAt: string;
 };
 
@@ -1242,6 +1244,29 @@ export type GscUrlInspectionDto = {
     richResults: Array<string>;
     referringUrls: Array<string>;
     inspectedAt: string;
+};
+
+export type HealthSnapshotDto = {
+    id: string;
+    projectId: string;
+    runId: string | null;
+    overallCitedRate: number;
+    overallMentionRate: number;
+    totalPairs: number;
+    citedPairs: number;
+    mentionedPairs: number;
+    providerBreakdown: {
+        [key: string]: {
+            citedRate: number;
+            mentionRate: number;
+            cited: number;
+            mentioned: number;
+            total: number;
+        };
+    };
+    createdAt: string;
+    status: 'ready' | 'no-data';
+    reason?: 'no-runs-yet';
 };
 
 export type IndexingRequestResponseDto = {
@@ -4336,7 +4361,32 @@ export type GetApiV1ProjectsByNameHistoryData = {
          */
         name: string;
     };
-    query?: never;
+    query?: {
+        /**
+         * Maximum number of records to return.
+         */
+        limit?: number;
+        /**
+         * Number of records to skip.
+         */
+        offset?: number;
+        /**
+         * ISO 8601 lower bound.
+         */
+        since?: string;
+        /**
+         * Exact audit action filter.
+         */
+        action?: string;
+        /**
+         * Exact actor filter.
+         */
+        actor?: string;
+        /**
+         * Exact entity type filter.
+         */
+        entityType?: string;
+    };
     url: '/api/v1/projects/{name}/history';
 };
 
@@ -4352,7 +4402,32 @@ export type GetApiV1ProjectsByNameHistoryResponse = GetApiV1ProjectsByNameHistor
 export type GetApiV1HistoryData = {
     body?: never;
     path?: never;
-    query?: never;
+    query?: {
+        /**
+         * Maximum number of records to return.
+         */
+        limit?: number;
+        /**
+         * Number of records to skip.
+         */
+        offset?: number;
+        /**
+         * ISO 8601 lower bound.
+         */
+        since?: string;
+        /**
+         * Exact audit action filter.
+         */
+        action?: string;
+        /**
+         * Exact actor filter.
+         */
+        actor?: string;
+        /**
+         * Exact entity type filter.
+         */
+        entityType?: string;
+    };
     url: '/api/v1/history';
 };
 
@@ -4412,6 +4487,10 @@ export type GetApiV1ProjectsByNameTimelineData = {
          * Filter by location label. Use an empty value to request locationless results.
          */
         location?: string;
+        /**
+         * Restrict each query timeline to snapshots from the most recent N project runs. Omit for full history.
+         */
+        limit?: number;
     };
     url: '/api/v1/projects/{name}/timeline';
 };
@@ -8737,9 +8816,7 @@ export type GetApiV1ProjectsByNameHealthLatestResponses = {
     /**
      * Health snapshot or no-data sentinel returned.
      */
-    200: {
-        [key: string]: unknown;
-    };
+    200: HealthSnapshotDto;
 };
 
 export type GetApiV1ProjectsByNameHealthLatestResponse = GetApiV1ProjectsByNameHealthLatestResponses[keyof GetApiV1ProjectsByNameHealthLatestResponses];
@@ -8756,7 +8833,7 @@ export type GetApiV1ProjectsByNameHealthHistoryData = {
         /**
          * Max results.
          */
-        limit?: string;
+        limit?: number;
     };
     url: '/api/v1/projects/{name}/health/history';
 };
@@ -8774,9 +8851,7 @@ export type GetApiV1ProjectsByNameHealthHistoryResponses = {
     /**
      * Health history returned.
      */
-    200: Array<{
-        [key: string]: unknown;
-    }>;
+    200: Array<HealthSnapshotDto>;
 };
 
 export type GetApiV1ProjectsByNameHealthHistoryResponse = GetApiV1ProjectsByNameHealthHistoryResponses[keyof GetApiV1ProjectsByNameHealthHistoryResponses];
@@ -10482,13 +10557,18 @@ export type GetApiV1ProjectsByNameTechnicalAeoData = {
          */
         name: string;
     };
-    query?: never;
+    query?: {
+        /**
+         * Historical site-audit run ID. Omit for the latest audit.
+         */
+        runId?: string;
+    };
     url: '/api/v1/projects/{name}/technical-aeo';
 };
 
 export type GetApiV1ProjectsByNameTechnicalAeoErrors = {
     /**
-     * Project not found.
+     * Project or site-audit run not found.
      */
     404: ErrorEnvelope;
 };
@@ -10514,6 +10594,10 @@ export type GetApiV1ProjectsByNameTechnicalAeoPagesData = {
     };
     query?: {
         /**
+         * Historical site-audit run ID. Omit for the latest audit.
+         */
+        runId?: string;
+        /**
          * Filter by page audit status: `success` or `error`.
          */
         status?: 'success' | 'error';
@@ -10535,7 +10619,7 @@ export type GetApiV1ProjectsByNameTechnicalAeoPagesData = {
 
 export type GetApiV1ProjectsByNameTechnicalAeoPagesErrors = {
     /**
-     * Project not found.
+     * Project or site-audit run not found.
      */
     404: ErrorEnvelope;
 };

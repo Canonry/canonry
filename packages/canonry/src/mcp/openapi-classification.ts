@@ -50,7 +50,7 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'POST /api/v1/runs/{id}/cancel': 'included',
   'POST /api/v1/apply': 'included',
   'GET /api/v1/projects/{name}/history': 'included',
-  'GET /api/v1/history': 'deferred',
+  'GET /api/v1/history': 'included',
   'GET /api/v1/projects/{name}/snapshots': 'included',
   'GET /api/v1/projects/{name}/timeline': 'included',
   'GET /api/v1/projects/{name}/analytics/metrics': 'included',

@@ -104,7 +104,7 @@ test('embed project overview only issues reads covered by the overview server al
       if (path === '/api/v1/projects/citypoint/runs?kind=answer-visibility') return jsonResponse([])
       if (path === '/api/v1/projects/citypoint/queries') return jsonResponse([])
       if (path === '/api/v1/projects/citypoint/competitors') return jsonResponse([])
-      if (path === '/api/v1/projects/citypoint/timeline') return jsonResponse([])
+      if (path === '/api/v1/projects/citypoint/timeline?limit=20') return jsonResponse([])
       if (path === '/api/v1/projects/citypoint/google/gsc/coverage') return jsonResponse(null)
       if (path === '/api/v1/projects/citypoint/bing/coverage') return jsonResponse(null)
       if (path === '/api/v1/projects/citypoint/insights') return jsonResponse([])

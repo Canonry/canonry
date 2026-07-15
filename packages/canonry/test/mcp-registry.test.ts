@@ -27,6 +27,7 @@ const expectedToolNames = [
   'canonry_doctor',
   'canonry_project_export',
   'canonry_project_history',
+  'canonry_history_global',
   'canonry_runs_list',
   'canonry_runs_latest',
   'canonry_run_get',
@@ -135,8 +136,8 @@ const expectedToolNames = [
 
 describe('MCP tool registry', () => {
   it('ships the curated v1 surface', () => {
-    expect(CANONRY_MCP_TOOL_COUNT).toBe(115)
-    expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(78)
+    expect(CANONRY_MCP_TOOL_COUNT).toBe(116)
+    expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(79)
     expect(canonryMcpTools.map(tool => tool.name)).toEqual(expectedToolNames)
     const readNames = canonryMcpTools.filter(tool => tool.access === 'read').map(tool => tool.name)
     expect(getCanonryMcpTools('read-only').map(tool => tool.name)).toEqual(readNames)
@@ -172,7 +173,7 @@ describe('MCP tool registry', () => {
     for (const tool of canonryMcpTools) {
       counts.set(tool.tier, (counts.get(tool.tier) ?? 0) + 1)
     }
-    expect(counts.get('monitoring')).toBe(26)
+    expect(counts.get('monitoring')).toBe(27)
     expect(counts.get('setup')).toBe(24)
     expect(counts.get('gsc')).toBe(8)
     expect(counts.get('ga')).toBe(8)
@@ -500,11 +501,22 @@ const handlerCases: HandlerCase[] = [
   { tool: 'canonry_analytics_metrics', input: { project: 'acme', window: '30d' }, methods: ['getAnalyticsMetrics'] },
   { tool: 'canonry_search', input: { project: 'acme', q: 'rival' }, methods: ['searchProject'] },
   { tool: 'canonry_project_export', input: projectInput, methods: ['getExport'] },
-  { tool: 'canonry_project_history', input: projectInput, methods: ['getHistory'] },
+  {
+    tool: 'canonry_project_history',
+    input: projectInput,
+    methods: ['getHistory'],
+    expectedArgs: [['acme', { limit: undefined, offset: undefined, since: undefined, action: undefined, actor: undefined, entityType: undefined }]],
+  },
+  { tool: 'canonry_history_global', input: { limit: 50 }, methods: ['getGlobalHistory'], expectedArgs: [[{ limit: 50 }]] },
   { tool: 'canonry_runs_list', input: { project: 'acme', limit: 5 }, methods: ['listRuns'] },
   { tool: 'canonry_runs_latest', input: projectInput, methods: ['getLatestRun'] },
   { tool: 'canonry_run_get', input: { runId: 'run-1' }, methods: ['getRun'] },
-  { tool: 'canonry_timeline_get', input: { project: 'acme', location: 'nyc' }, methods: ['getTimeline'] },
+  {
+    tool: 'canonry_timeline_get',
+    input: { project: 'acme', location: 'nyc', limit: 20 },
+    methods: ['getTimeline'],
+    expectedArgs: [['acme', 'nyc', 20]],
+  },
   {
     tool: 'canonry_visibility_stats',
     input: { project: 'acme', month: '2026-06', groupBy: 'provider', shareOfVoice: true },

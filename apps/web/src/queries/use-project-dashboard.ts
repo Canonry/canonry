@@ -19,7 +19,9 @@ import { buildProjectCommandCenter } from '../build-dashboard.js'
 import type { ProjectData } from '../build-dashboard.js'
 import type { ProjectCommandCenterVm } from '../view-models.js'
 import { useInitialDashboard } from '../contexts/dashboard-context.js'
-import { PROJECT_DETAIL_REFRESH_MS, RUNS_STALE_MS, STATIC_VISIBILITY_STALE_MS } from './query-client.js'
+import { RUNS_STALE_MS, STATIC_VISIBILITY_STALE_MS } from './query-client.js'
+
+const DASHBOARD_TIMELINE_RUN_LIMIT = 20
 
 /**
  * Heavy dashboard hook scoped to a single project. Fetches everything
@@ -130,7 +132,7 @@ export function useProjectDashboard(projectName: string | null | undefined) {
       const [qs, comps, timeline, latestRunDetails, previousRunDetails, gscCoverage, bingCoverage, dbInsights, overview] = await Promise.all([
         fetchQueries(projectName).catch(() => []),
         fetchCompetitors(projectName).catch(() => []),
-        fetchTimeline(projectName).catch(() => []),
+        fetchTimeline(projectName, undefined, DASHBOARD_TIMELINE_RUN_LIMIT).catch(() => []),
         latestRunIds.length
           ? Promise.all(latestRunIds.map(id => fetchRunDetail(id).catch(() => null)))
               .then(results => results.filter((r): r is NonNullable<typeof r> => r != null))
@@ -161,14 +163,9 @@ export function useProjectDashboard(projectName: string | null | undefined) {
     enabled: !!project && !!projectName && runsQuery.isSuccess,
     staleTime: STATIC_VISIBILITY_STALE_MS,
     refetchOnWindowFocus: 'always',
-    // Poll so CLI-driven writes (`canonry query add`, `canonry competitor
-    // add`, etc.) surface on the open project page within a few seconds
-    // without the user having to refresh. The slim portfolio hook polls
-    // `/projects` every 2s for the same reason — the per-project detail
-    // got missed when `useProjectDashboard` was split out. Background
-    // tabs pause polling (React Query default behavior) so idle pages
-    // don't keep pulling.
-    refetchInterval: PROJECT_DETAIL_REFRESH_MS,
+    // This is a nine-endpoint fan-out, including evidence snapshots and
+    // integration summaries. Refetch on focus and when the latest run id
+    // changes; do not poll the full historical payload on a timer.
   })
 
   const commandCenter = useMemo<ProjectCommandCenterVm | null>(() => {

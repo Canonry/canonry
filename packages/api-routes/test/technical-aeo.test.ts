@@ -82,6 +82,10 @@ function buildCtx(): Ctx {
     aggregateScore: 60, aggregateGrade: 'D-', pagesDiscovered: 2, pagesAudited: 2, pagesSkipped: 0, pagesErrored: 0,
     factorAverages: [], crossCuttingIssues: [], prioritizedFixes: [], createdAt: tA,
   }).run()
+  db.insert(siteAuditPages).values({
+    id: crypto.randomUUID(), projectId, runId: runA, url: 'https://example.com/old',
+    overallScore: 60, overallGrade: 'D-', status: 'success', error: null, factors: [], createdAt: tA,
+  }).run()
 
   // Run B — newer real audit, score 72 (+12 vs A → trend up). This is the surfaceable latest.
   const runB = seedRun('completed', 'manual', tB)
@@ -154,6 +158,19 @@ describe('GET /technical-aeo (score)', () => {
     expect(body.factors).toEqual([])
   })
 
+  it('returns a selected historical audit and computes its delta against the audit before it', async () => {
+    const { body } = await get<SiteAuditScoreDto>(`/api/v1/projects/tech-aeo/technical-aeo?runId=${ctx.runA}`)
+    expect(body.runId).toBe(ctx.runA)
+    expect(body.aggregateScore).toBe(60)
+    expect(body.deltaScore).toBeNull()
+    expect(body.previousScore).toBeNull()
+  })
+
+  it('404s a run that is not a surfaceable audit for this project', async () => {
+    const { status } = await get(`/api/v1/projects/tech-aeo/technical-aeo?runId=${ctx.probeRun}`)
+    expect(status).toBe(404)
+  })
+
   it('404s an unknown project', async () => {
     const { status } = await get('/api/v1/projects/nope/technical-aeo')
     expect(status).toBe(404)
@@ -181,6 +198,13 @@ describe('GET /technical-aeo/pages', () => {
     expect(body.total).toBe(3)
     expect(body.pages).toHaveLength(1)
     expect(body.pages[0]!.overallScore).toBe(80)
+  })
+
+  it('returns pages from a selected historical audit', async () => {
+    const { body } = await get<SiteAuditPagesResponseDto>(`/api/v1/projects/tech-aeo/technical-aeo/pages?runId=${ctx.runA}`)
+    expect(body.runId).toBe(ctx.runA)
+    expect(body.total).toBe(1)
+    expect(body.pages[0]?.url).toBe('https://example.com/old')
   })
 })
 

@@ -1,5 +1,5 @@
 import crypto from 'node:crypto'
-import { and, asc, count, desc, eq, inArray } from 'drizzle-orm'
+import { and, asc, count, desc, eq, inArray, lt } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { runs, siteAuditPages, siteAuditSnapshots } from '@ainyc/canonry-db'
 import {
@@ -7,6 +7,7 @@ import {
   RunStatuses,
   RunTriggers,
   SiteAuditTrendDirections,
+  notFound,
   siteAuditRunRequestSchema,
   validationError,
   type RunStatus,
@@ -58,29 +59,44 @@ function parsePositiveInt(value: unknown, fallback: number, max: number): number
 }
 
 export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAeoRoutesOptions) {
-  // GET /projects/:name/technical-aeo — latest scorecard + delta vs prior run.
-  app.get<{ Params: { name: string } }>('/projects/:name/technical-aeo', async (request): Promise<SiteAuditScoreDto> => {
+  // GET /projects/:name/technical-aeo — latest scorecard, or one historical run, + delta vs prior run.
+  app.get<{
+    Params: { name: string }
+    Querystring: { runId?: string }
+  }>('/projects/:name/technical-aeo', async (request): Promise<SiteAuditScoreDto> => {
     const project = resolveProject(app.db, request.params.name)
-
-    const rows = app.db
+    const baseFilters = [
+      eq(siteAuditSnapshots.projectId, project.id),
+      eq(runs.kind, RunKinds['site-audit']),
+      inArray(runs.status, SURFACEABLE_STATUSES),
+      notProbeRun(),
+    ]
+    const targetFilters = request.query.runId
+      ? [...baseFilters, eq(siteAuditSnapshots.runId, request.query.runId)]
+      : baseFilters
+    const latest = app.db
       .select({ snap: siteAuditSnapshots, runStatus: runs.status })
       .from(siteAuditSnapshots)
       .innerJoin(runs, eq(siteAuditSnapshots.runId, runs.id))
-      .where(and(
-        eq(siteAuditSnapshots.projectId, project.id),
-        eq(runs.kind, RunKinds['site-audit']),
-        inArray(runs.status, SURFACEABLE_STATUSES),
-        notProbeRun(),
-      ))
+      .where(and(...targetFilters))
       .orderBy(desc(siteAuditSnapshots.createdAt))
-      .limit(2)
-      .all()
+      .limit(1)
+      .get()
 
-    const latest = rows[0]
-    if (!latest) return emptyScore(project.name)
+    if (!latest) {
+      if (request.query.runId) throw notFound('Site audit run', request.query.runId)
+      return emptyScore(project.name)
+    }
 
     const snap = latest.snap
-    const previous = rows[1]?.snap ?? null
+    const previous = app.db
+      .select({ snap: siteAuditSnapshots })
+      .from(siteAuditSnapshots)
+      .innerJoin(runs, eq(siteAuditSnapshots.runId, runs.id))
+      .where(and(...baseFilters, lt(siteAuditSnapshots.createdAt, snap.createdAt)))
+      .orderBy(desc(siteAuditSnapshots.createdAt))
+      .limit(1)
+      .get()?.snap ?? null
     const deltaScore = previous ? snap.aggregateScore - previous.aggregateScore : null
     const trend = deltaScore == null
       ? null
@@ -112,28 +128,33 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
     }
   })
 
-  // GET /projects/:name/technical-aeo/pages — per-page breakdown of the latest run.
+  // GET /projects/:name/technical-aeo/pages — per-page breakdown of the latest or selected run.
   app.get<{
     Params: { name: string }
-    Querystring: { status?: string; sort?: string; limit?: string; offset?: string }
+    Querystring: { runId?: string; status?: string; sort?: string; limit?: string; offset?: string }
   }>('/projects/:name/technical-aeo/pages', async (request): Promise<SiteAuditPagesResponseDto> => {
     const project = resolveProject(app.db, request.params.name)
 
-    // Latest surfaceable site-audit run for this project.
+    // Latest surfaceable site-audit run for this project, or the explicitly selected run.
+    const targetFilters = [
+      eq(siteAuditSnapshots.projectId, project.id),
+      eq(runs.kind, RunKinds['site-audit']),
+      inArray(runs.status, SURFACEABLE_STATUSES),
+      notProbeRun(),
+    ]
+    if (request.query.runId) targetFilters.push(eq(siteAuditSnapshots.runId, request.query.runId))
     const latest = app.db
       .select({ runId: siteAuditSnapshots.runId, auditedAt: siteAuditSnapshots.auditedAt })
       .from(siteAuditSnapshots)
       .innerJoin(runs, eq(siteAuditSnapshots.runId, runs.id))
-      .where(and(
-        eq(siteAuditSnapshots.projectId, project.id),
-        eq(runs.kind, RunKinds['site-audit']),
-        inArray(runs.status, SURFACEABLE_STATUSES),
-        notProbeRun(),
-      ))
+      .where(and(...targetFilters))
       .orderBy(desc(siteAuditSnapshots.createdAt))
       .limit(1)
       .get()
 
+    if (!latest && request.query.runId) {
+      throw notFound('Site audit run', request.query.runId)
+    }
     if (!latest) {
       return { project: project.name, runId: null, auditedAt: null, total: 0, pages: [] }
     }

@@ -26,6 +26,7 @@ import { getApiV1ProjectsQueryKey, getApiV1ProjectsOptions } from '@ainyc/canonr
 // its own Rollup chunk.
 const LazyProjectPage = lazyRouteComponent(() => import('../pages/ProjectPage.js'), 'ProjectPage')
 const LazyRunsPage = lazyRouteComponent(() => import('../pages/RunsPage.js'), 'RunsPage')
+const LazyHistoryPage = lazyRouteComponent(() => import('../pages/HistoryPage.js'), 'HistoryPage')
 const LazySettingsPage = lazyRouteComponent(() => import('../pages/SettingsPage.js'), 'SettingsPage')
 const LazyBacklinksPage = lazyRouteComponent(() => import('../pages/BacklinksPage.js'), 'BacklinksPage')
 const LazyTrafficPage = lazyRouteComponent(() => import('../pages/TrafficPage.js'), 'TrafficPage')
@@ -50,6 +51,7 @@ export async function preloadAllLazyRoutes(): Promise<void> {
   await Promise.all([
     LazyProjectPage.preload?.(),
     LazyRunsPage.preload?.(),
+    LazyHistoryPage.preload?.(),
     LazySettingsPage.preload?.(),
     LazyBacklinksPage.preload?.(),
     LazyTrafficPage.preload?.(),
@@ -64,6 +66,11 @@ export interface RouterContext {
 type SearchParams = {
   runId?: string
   evidenceId?: string
+  runStatus?: string
+  runKind?: string
+  runProject?: string
+  runWindow?: string
+  runQuery?: string
 }
 
 function RootLayoutWithErrorBoundary() {
@@ -79,6 +86,11 @@ export const rootRoute = createRootRouteWithContext<RouterContext>()({
   validateSearch: (search: Record<string, unknown>): SearchParams => ({
     runId: typeof search.runId === 'string' ? search.runId : undefined,
     evidenceId: typeof search.evidenceId === 'string' ? search.evidenceId : undefined,
+    runStatus: typeof search.runStatus === 'string' ? search.runStatus : undefined,
+    runKind: typeof search.runKind === 'string' ? search.runKind : undefined,
+    runProject: typeof search.runProject === 'string' ? search.runProject : undefined,
+    runWindow: typeof search.runWindow === 'string' ? search.runWindow : undefined,
+    runQuery: typeof search.runQuery === 'string' ? search.runQuery : undefined,
   }),
 })
 
@@ -194,6 +206,12 @@ export const projectTechnicalAeoRoute = createRoute({
   component: () => <LazyProjectPage tab="technical-aeo" />,
 })
 
+export const projectHistoryRoute = createRoute({
+  getParentRoute: () => projectLayoutRoute,
+  path: '/history',
+  component: () => <LazyProjectPage tab="history" />,
+})
+
 export const projectSettingsRoute = createRoute({
   getParentRoute: () => projectLayoutRoute,
   path: '/settings',
@@ -204,6 +222,12 @@ export const runsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/runs',
   component: LazyRunsPage,
+})
+
+export const historyRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/history',
+  component: LazyHistoryPage,
 })
 
 export const settingsRoute = createRoute({
@@ -263,9 +287,11 @@ export const routeTree = rootRoute.addChildren([
     projectActivityRoute,
     projectBacklinksRoute,
     projectTechnicalAeoRoute,
+    projectHistoryRoute,
     projectSettingsRoute,
   ]),
   runsRoute,
+  historyRoute,
   settingsRoute,
   setupRoute,
   backlinksRoute,

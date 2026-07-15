@@ -94,10 +94,18 @@ test('invalidates GBP operations for gbp-sync runs', () => {
   expect(predicateMatches('getApiV1ProjectsByNameGbpKeywords')).toBe(true)
 })
 
+test('invalidates Technical AEO operations for site-audit runs', () => {
+  invalidateQueriesForRunKind(queryClient, RunKinds['site-audit'], 'demo')
+  expect(predicateMatches('getApiV1ProjectsByNameTechnicalAeo')).toBe(true)
+  expect(predicateMatches('getApiV1ProjectsByNameTechnicalAeoPages')).toBe(true)
+  expect(predicateMatches('getApiV1ProjectsByNameTechnicalAeoTrend')).toBe(true)
+})
+
 test('does not invalidate domain-scoped operations for answer-visibility runs', () => {
   invalidateQueriesForRunKind(queryClient, RunKinds['answer-visibility'], 'demo')
   expect(predicateMatches('getApiV1ProjectsByNameGoogleGscCoverage')).toBe(false)
   expect(predicateMatches('getApiV1ProjectsByNameBingCoverage')).toBe(false)
   expect(predicateMatches('getApiV1ProjectsByNameGaTraffic')).toBe(false)
   expect(predicateMatches('getApiV1ProjectsByNameGbpSummary')).toBe(false)
+  expect(predicateMatches('getApiV1ProjectsByNameTechnicalAeo')).toBe(false)
 })

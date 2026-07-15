@@ -24,6 +24,7 @@ import { CitationVisibilitySection } from '../components/project/CitationVisibil
 import { VisibilityTrendSection } from '../components/project/VisibilityTrendSection.js'
 import { DiscoverySection } from '../components/project/DiscoverySection.js'
 import { TechnicalAeoSection } from '../components/project/TechnicalAeoSection.js'
+import { ProjectHistorySection } from '../components/project/ProjectHistorySection.js'
 import { ReportPage } from './ReportPage.js'
 import { formatTimestamp, SEARCH_METRIC_SHORT_LABELS, SearchMetric } from '../lib/format-helpers.js'
 import { METRIC_TONE_TEXT_CLASS } from '../lib/tone-helpers.js'
@@ -82,7 +83,7 @@ import { useInitialDashboard } from '../contexts/dashboard-context.js'
 import { useDrawer } from '../hooks/use-drawer.js'
 import type { ProjectCommandCenterVm, RunHistoryPoint } from '../view-models.js'
 
-export type ProjectPageTab = 'overview' | 'search-console' | 'local' | 'discovery' | 'report' | 'activity' | 'backlinks' | 'technical-aeo' | 'settings'
+export type ProjectPageTab = 'overview' | 'search-console' | 'local' | 'discovery' | 'report' | 'activity' | 'backlinks' | 'technical-aeo' | 'history' | 'settings'
 
 type SearchConsoleWorkspace = 'google' | 'bing'
 
@@ -1819,7 +1820,7 @@ function ProjectPageContent({
       return
     }
     setLocationTimelineLoading(true)
-    fetchTimeline(projectName, locationFilter)
+    fetchTimeline(projectName, locationFilter, 20)
       .then(tl => { setLocationTimeline(tl); setLocationTimelineLoading(false) })
       .catch(() => { setLocationTimeline(null); setLocationTimelineLoading(false) })
   }, [locationFilter, projectName])
@@ -2077,6 +2078,7 @@ function ProjectPageContent({
   ]
   const projectOverflowTabItemsAll: ProjectTabItem[] = [
     { key: 'report', label: 'Report', href: `${projectTabBase}/report` },
+    { key: 'history', label: 'Change History', href: `${projectTabBase}/history` },
   ]
   // The embed projectTabs allowlist (when set) narrows the subnav to the curated
   // client-facing tabs; with no allowlist every tab shows (today's behavior).
@@ -2573,7 +2575,9 @@ function ProjectPageContent({
       ) : tab === 'discovery' ? (
         <DiscoverySection projectName={projectName} />
       ) : tab === 'technical-aeo' ? (
-        <TechnicalAeoSection projectName={model.project.name} />
+        <TechnicalAeoSection projectName={model.project.name} projectId={model.project.id} />
+      ) : tab === 'history' ? (
+        <ProjectHistorySection projectName={model.project.name} />
       ) : tab === 'activity' ? (
         <ActivitySection projectName={model.project.name} />
       ) : tab === 'backlinks' ? (
