@@ -39,6 +39,11 @@ export function ProjectEngineSettingsSection({
   const [models, setModels] = useState<Record<string, string>>(() => copyModels(project.providerModels))
   const [saved, setSaved] = useState<EngineSave>({ providers: project.providers, providerModels: copyModels(project.providerModels) })
   const [saving, setSaving] = useState(false)
+  // Once the operator has touched the form, background dashboard refetches (which
+  // hand down a fresh `project` object identity even when the data is unchanged)
+  // must not reset their in-progress edits — mirror ProjectSettingsSection's
+  // `editing` guard.
+  const [editing, setEditing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const customInput = useRef<HTMLInputElement>(null)
@@ -69,7 +74,12 @@ export function ProjectEngineSettingsSection({
   const hasModelChange = !sameModels(models, saved.providerModels)
 
   useEffect(() => {
-    if (saving) return
+    // Re-sync from the prop only on a genuine project change, and never while the
+    // operator is mid-edit — a background dashboard refetch hands down a fresh
+    // `project` identity with unchanged data, and resetting then would wipe the
+    // in-progress selection. `editing`/`saving` are intentionally read but not in
+    // the dep list: their transitions must not themselves trigger a re-sync.
+    if (saving || editing) return
     const next = { providers: project.providers, providerModels: copyModels(project.providerModels) }
     setSaved(next)
     setAutomatic(next.providers.length === 0)
@@ -78,17 +88,22 @@ export function ProjectEngineSettingsSection({
   }, [project])
 
   function chooseEngines() {
+    setEditing(true)
     setAutomatic(false)
     // Preserve a previous explicit draft during this edit session. First entry
     // materializes from the currently configured catalogue.
     if (selected.length === 0) setSelected([...configured])
   }
 
-  function setModel(provider: string, value: string) {
+  function setModel(provider: string, value: string, currentIsKnown = false) {
+    setEditing(true)
     setModels(current => {
       const next = { ...current }
       if (value === '__inherit__') delete next[provider]
-      else if (value === '__custom__') next[provider] = next[provider] ?? ''
+      // Switching to custom from a known catalog id must actually enter custom
+      // mode. Keeping the known id would make `selectValue` recompute back to it,
+      // so the custom input would never render — clear it to an empty draft.
+      else if (value === '__custom__') next[provider] = currentIsKnown ? '' : (next[provider] ?? '')
       else next[provider] = value
       return next
     })
@@ -96,10 +111,12 @@ export function ProjectEngineSettingsSection({
   }
 
   function toggleProvider(provider: string, checked: boolean) {
+    setEditing(true)
     setSelected(current => checked ? [...new Set([...current, provider])] : current.filter(name => name !== provider))
   }
 
   function cancel() {
+    setEditing(false)
     setAutomatic(saved.providers.length === 0)
     setSelected(saved.providers)
     setModels(copyModels(saved.providerModels))
@@ -113,9 +130,17 @@ export function ProjectEngineSettingsSection({
     setError(null)
     setNotice(null)
     try {
-      const next = { providers: automatic ? [] : selected, providerModels: models }
+      // Only persist overrides the operator can actually manage: drop blank
+      // custom drafts and (in choose mode) overrides for unselected engines, so a
+      // deselected engine's model never lingers and silently re-applies later.
+      const providerModels = Object.fromEntries(
+        Object.entries(models).filter(([provider, model]) =>
+          model.trim() !== '' && (automatic || selected.includes(provider))),
+      )
+      const next = { providers: automatic ? [] : selected, providerModels }
       await onSave(next)
       setSaved({ providers: [...next.providers], providerModels: copyModels(next.providerModels) })
+      setEditing(false)
       setNotice('Engine settings saved. They apply on the next sweep.')
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause))
@@ -158,7 +183,7 @@ export function ProjectEngineSettingsSection({
       </div>
       <fieldset disabled={saving} className="project-engine-fieldset">
         <legend>Provider mode</legend>
-        <label><input type="radio" checked={automatic} onChange={() => setAutomatic(true)} /> All configured engines</label>
+        <label><input type="radio" checked={automatic} onChange={() => { setEditing(true); setAutomatic(true) }} /> All configured engines</label>
         <p className="project-engine-help">Includes engines configured later in global Settings.</p>
         <label><input type="radio" checked={!automatic} onChange={chooseEngines} /> Choose engines</label>
         {!automatic && (
@@ -176,12 +201,12 @@ export function ProjectEngineSettingsSection({
                   {checked && (provider.modelConfigurable ? (
                     <div className="project-engine-model">
                       <label htmlFor={`project-model-${provider.name}`}>Model</label>
-                      <select id={`project-model-${provider.name}`} value={selectValue} onChange={event => setModel(provider.name, event.target.value)}>
+                      <select id={`project-model-${provider.name}`} value={selectValue} onChange={event => setModel(provider.name, event.target.value, known)}>
                         <option value="__inherit__">Use instance setting: {provider.defaultModel || 'default'}</option>
                         {provider.knownModels.map(item => <option key={item.id} value={item.id}>{item.displayName}</option>)}
                         <option value="__custom__">Custom model ID…</option>
                       </select>
-                      {selectValue === '__custom__' && <input ref={customInput} aria-label={`${provider.displayName} custom model ID`} value={model ?? ''} onChange={event => setModels(current => ({ ...current, [provider.name]: event.target.value }))} aria-describedby={`project-model-hint-${provider.name}`} />}
+                      {selectValue === '__custom__' && <input ref={customInput} aria-label={`${provider.displayName} custom model ID`} value={model ?? ''} onChange={event => { setEditing(true); setModels(current => ({ ...current, [provider.name]: event.target.value })) }} aria-describedby={`project-model-hint-${provider.name}`} />}
                       <p id={`project-model-hint-${provider.name}`} className="project-engine-help">{model ? 'Project override' : 'Inherited from instance settings'}. {provider.modelValidationHint}</p>
                     </div>
                   ) : <p className="project-engine-help">Model is detected/fixed for this browser engine.</p>)}

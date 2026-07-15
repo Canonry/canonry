@@ -25,7 +25,7 @@ import { usageError } from '../cli-error.js'
 export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['project', 'create'],
-    usage: 'canonry project create <name> [--domain <domain>] [--provider <name>...] [--provider-model provider=model...] [--format json]',
+    usage: 'canonry project create <name> [--domain <domain>] [--owned-domain <domain>...] [--alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--provider-model provider=model...] [--format json]',
     options: {
       domain: { type: 'string', short: 'd' },
       'owned-domain': multiStringOption(),
@@ -40,7 +40,7 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
       const name = requireProject(
         input,
         'project.create',
-        'canonry project create <name> [--domain <domain>] [--provider <name>...] [--provider-model provider=model...] [--format json]',
+        'canonry project create <name> [--domain <domain>] [--owned-domain <domain>...] [--alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--provider-model provider=model...] [--format json]',
       )
       await createProject(name, {
         domain: getString(input.values, 'domain') ?? name,
@@ -57,7 +57,7 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['project', 'update'],
-    usage: 'canonry project update <name> [--provider <name>...] [--all-providers] [--provider-model provider=model...] [--clear-provider-model <provider>...] [--format json]',
+    usage: 'canonry project update <name> [--domain <domain>] [--owned-domain <domain>...] [--add-domain <domain>...] [--remove-domain <domain>...] [--alias <name>...] [--add-alias <name>...] [--remove-alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--all-providers] [--provider-model provider=model...] [--clear-provider-model <provider>...] [--format json]',
     options: {
       domain: { type: 'string', short: 'd' },
       'owned-domain': multiStringOption(),
@@ -78,7 +78,7 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
       const name = requireProject(
         input,
         'project.update',
-        'canonry project update <name> [--provider <name>...] [--all-providers] [--provider-model provider=model...] [--clear-provider-model <provider>...] [--format json]',
+        'canonry project update <name> [--domain <domain>] [--owned-domain <domain>...] [--add-domain <domain>...] [--remove-domain <domain>...] [--alias <name>...] [--add-alias <name>...] [--remove-alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--all-providers] [--provider-model provider=model...] [--clear-provider-model <provider>...] [--format json]',
       )
       const providers = getStringArray(input.values, 'provider')
       const allProviders = getBoolean(input.values, 'all-providers')

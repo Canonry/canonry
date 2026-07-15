@@ -50,3 +50,46 @@ test('inherit deletes only the selected provider override and custom models rema
   act(() => { fireEvent.click(screen.getByRole('button', { name: 'Save engines' })) })
   await waitFor(() => expect(onSave).toHaveBeenLastCalledWith({ providers: ['gemini'], providerModels: {} }))
 })
+
+test('choosing Custom for a known-model override enters custom mode with an empty draft', async () => {
+  renderSection(undefined, { name: 'demo', providers: ['gemini'], providerModels: { gemini: 'gemini-2.5-pro' } })
+  const select = await screen.findByLabelText('Model') as HTMLSelectElement
+  // A known override shows the catalog model, not the custom input.
+  expect(select.value).toBe('gemini-2.5-pro')
+  expect(screen.queryByLabelText('Gemini custom model ID')).toBeNull()
+  act(() => { fireEvent.change(select, { target: { value: '__custom__' } }) })
+  // Switching to custom must actually reveal an (empty) custom input, not snap back.
+  const input = await screen.findByLabelText('Gemini custom model ID') as HTMLInputElement
+  expect(input.value).toBe('')
+})
+
+test('save drops overrides for engines that are not selected', async () => {
+  const onSave = renderSection(undefined, { name: 'demo', providers: ['gemini'], providerModels: { gemini: 'gemini-2.5-pro', openai: 'gpt-5-mini' } })
+  await screen.findByLabelText('Model')
+  act(() => { fireEvent.click(screen.getByRole('button', { name: 'Save engines' })) })
+  // openai is not a selected engine, so its lingering override must not persist.
+  await waitFor(() => expect(onSave).toHaveBeenCalledWith({ providers: ['gemini'], providerModels: { gemini: 'gemini-2.5-pro' } }))
+})
+
+test('a background project refetch does not clobber in-progress edits', async () => {
+  const onSave = vi.fn().mockResolvedValue(undefined)
+  const restore = mockFetch(url => {
+    if (url.split('?')[0]!.endsWith('/settings')) return jsonResponse(settings)
+    throw new Error(`Unexpected fetch: ${url}`)
+  })
+  onTestFinished(restore)
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const { rerender } = render(
+    <QueryClientProvider client={client}><ProjectEngineSettingsSection project={{ name: 'demo', providers: [], providerModels: {} }} onSave={onSave} /></QueryClientProvider>,
+  )
+  await screen.findByLabelText('Choose engines')
+  act(() => { fireEvent.click(screen.getByLabelText('Choose engines')) })
+  expect((screen.getByLabelText('Gemini') as HTMLInputElement).checked).toBe(true)
+  // A dashboard poll hands down a fresh project object with identical data.
+  rerender(
+    <QueryClientProvider client={client}><ProjectEngineSettingsSection project={{ name: 'demo', providers: [], providerModels: {} }} onSave={onSave} /></QueryClientProvider>,
+  )
+  // The in-progress "Choose engines" selection must survive the refetch.
+  expect((screen.getByLabelText('Choose engines') as HTMLInputElement).checked).toBe(true)
+  expect((screen.getByLabelText('Gemini') as HTMLInputElement).checked).toBe(true)
+})
