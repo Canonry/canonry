@@ -10,7 +10,8 @@ layer. Public Canonry routes place lifecycle writes behind `ads.write`, force
 creates paused, omit archive and activation, and record durable receipts. The
 internal client implementation still mirrors the upstream activate primitives,
 but the package root intentionally does not export them. Package consumers can
-create, update, and pause entities; a human activates in Ads Manager.
+create paused entities, update non-lifecycle fields, and pause; a human
+activates in Ads Manager.
 
 ## Key Files
 

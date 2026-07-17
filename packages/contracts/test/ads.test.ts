@@ -93,15 +93,17 @@ describe('DTO schemas', () => {
 })
 
 describe('ads lifecycle contracts', () => {
-  test('campaign creation requires explicit locations and a lifetime budget, with no status input', () => {
-    const parsed = adsCampaignCreateRequestSchema.parse({
+  test('campaign creation requires locations and budget while stripping caller-controlled status', () => {
+    const input = {
       operationKey: 'weekend:campaign:1',
       name: 'AEO Audit Leads',
       startTime: 1_800_000_000,
       endTime: 1_800_086_400,
       lifetimeSpendLimitMicros: 25_000_000,
       locationIds: ['1000232'],
-    })
+      status: 'active',
+    }
+    const parsed = adsCampaignCreateRequestSchema.parse(input)
     expect(parsed.locationIds).toEqual(['1000232'])
     expect('status' in parsed).toBe(false)
     expect(adsCampaignCreateRequestSchema.safeParse({
@@ -112,12 +114,21 @@ describe('ads lifecycle contracts', () => {
     }).success).toBe(false)
   })
 
-  test('campaign update requires an optimistic timestamp and a real mutation', () => {
+  test('campaign update requires an optimistic timestamp, a real mutation, and non-empty geo targeting', () => {
     expect(adsCampaignUpdateRequestSchema.safeParse({
       operationKey: 'weekend:update:1', expectedUpdatedAt: 123,
     }).success).toBe(false)
     expect(adsCampaignUpdateRequestSchema.safeParse({
       operationKey: 'weekend:update:1', expectedUpdatedAt: 123, lifetimeSpendLimitMicros: 30_000_000,
+    }).success).toBe(true)
+    expect(adsCampaignUpdateRequestSchema.safeParse({
+      operationKey: 'weekend:update:geo:null', expectedUpdatedAt: 123, locationIds: null,
+    }).success).toBe(false)
+    expect(adsCampaignUpdateRequestSchema.safeParse({
+      operationKey: 'weekend:update:geo:empty', expectedUpdatedAt: 123, locationIds: [],
+    }).success).toBe(false)
+    expect(adsCampaignUpdateRequestSchema.safeParse({
+      operationKey: 'weekend:update:geo:valid', expectedUpdatedAt: 123, locationIds: ['3000001'],
     }).success).toBe(true)
   })
 

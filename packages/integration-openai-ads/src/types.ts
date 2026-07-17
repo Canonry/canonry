@@ -71,7 +71,7 @@ export interface OpenAiAdsCreateCampaignRequest {
   description?: string
   start_time?: number
   end_time?: number
-  status: OpenAiAdsWriteStatus
+  status: typeof OpenAiAdsWriteStatuses.paused
   budget: OpenAiAdsCampaignBudgetRequest
   targeting?: OpenAiAdsCampaignTargetingRequest
 }
@@ -81,9 +81,11 @@ export interface OpenAiAdsUpdateCampaignRequest {
   description?: string | null
   start_time?: number | null
   end_time?: number | null
-  status?: OpenAiAdsWriteStatus
+  /** Lifecycle transitions use explicit actions and are not accepted by public updates. */
+  status?: never
   budget?: OpenAiAdsCampaignBudgetRequest
-  targeting?: OpenAiAdsCampaignTargetingRequest | null
+  /** Updating locations is allowed, but clearing all targeting is not. */
+  targeting?: OpenAiAdsCampaignTargetingRequest
 }
 
 export interface OpenAiAdsLocationTarget {
@@ -133,7 +135,7 @@ export interface OpenAiAdsCreateAdGroupRequest {
   name: string
   description?: string
   context_hints?: string[]
-  status: OpenAiAdsWriteStatus
+  status: typeof OpenAiAdsWriteStatuses.paused
   bidding_config: OpenAiAdsBiddingConfigRequest
 }
 
@@ -141,7 +143,8 @@ export interface OpenAiAdsUpdateAdGroupRequest {
   name?: string
   description?: string | null
   context_hints?: string[]
-  status?: OpenAiAdsWriteStatus
+  /** Lifecycle transitions use explicit actions and are not accepted by public updates. */
+  status?: never
   bidding_config?: OpenAiAdsBiddingConfigRequest
 }
 
@@ -179,13 +182,14 @@ export interface OpenAiAdsCreateAdRequest {
   ad_group_id: string
   name: string
   creative: OpenAiAdsChatCardCreativeRequest
-  status: OpenAiAdsWriteStatus
+  status: typeof OpenAiAdsWriteStatuses.paused
 }
 
 export interface OpenAiAdsUpdateAdRequest {
   name?: string
   creative?: OpenAiAdsChatCardCreativeRequest
-  status?: OpenAiAdsWriteStatus
+  /** Lifecycle transitions use explicit actions and are not accepted by public updates. */
+  status?: never
 }
 
 export interface OpenAiAdsUploadImageRequest {

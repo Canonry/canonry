@@ -271,7 +271,6 @@ describe('campaign write primitives', () => {
   it('updates a campaign with POST and the supplied partial body', async () => {
     const request = {
       description: null,
-      status: OpenAiAdsWriteStatuses.paused,
       budget: { lifetime_spend_limit_micros: 30_000_000 },
     }
     const calls = mockFetchOnce({ ...FIXTURE_CAMPAIGN, ...request })

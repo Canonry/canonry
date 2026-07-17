@@ -267,7 +267,7 @@ export const adsCampaignUpdateRequestSchema = z
     startTime: adsTimestampSchema.nullable().optional(),
     endTime: adsTimestampSchema.nullable().optional(),
     lifetimeSpendLimitMicros: adsMicrosSchema.min(1_000_000).optional(),
-    locationIds: z.array(adsEntityIdSchema).min(1).max(100).nullable().optional(),
+    locationIds: z.array(adsEntityIdSchema).min(1).max(100).optional(),
   })
   .refine(hasMutationField, { message: 'At least one campaign field must be updated' })
 export type AdsCampaignUpdateRequest = z.infer<typeof adsCampaignUpdateRequestSchema>

@@ -596,6 +596,38 @@ already be paused and `expectedUpdatedAt` to equal the latest
 the kill switch but deliberately omits activation and archive; a human reviews
 and activates in Ads Manager.
 
+Campaign updates may omit `locationIds` to preserve current geo targeting or
+pass a non-empty list to replace it. The guarded operator cannot pass `null` or
+an empty list to clear targeting. OpenAI documents that clearing targeting can
+make the campaign eligible for all available locations, so an intentional
+all-location change remains a human action in Ads Manager. See
+[Campaign Targeting](https://developers.openai.com/ads/campaign-targeting) and
+the [campaign update contract](https://developers.openai.com/ads/api-reference/campaigns#update-a-campaign).
+
+### Guarded operator release gates
+
+Default external automation to a project-scoped API key with exactly `read`
+and `ads.write`; never hand an external operator an unscoped key:
+
+```bash
+canonry key create --name ads-operator --project <project> --scope read --scope ads.write
+```
+
+Before enabling spend on an advertiser account, run a paused,
+disposable live-provider smoke test and capture sanitized raw responses for
+campaign get, create, and pause. For every response, verify and record the exact
+case and type of `status`, plus the type and exact returned value of
+`updated_at`. The captured responses must agree with the typed client and
+fixtures without coercion.
+
+Keep the operator on one Canonry writer instance with human receipt
+reconciliation until both production gates pass:
+
+- A deterministic reconciler resolves `pending` and `unknown` receipts against
+  provider state, settles the original receipt, and prevents blind replays.
+- A multi-instance race test proves simultaneous inserts of the same
+  `(project, operationKey)` produce one upstream sender and a safe receipt
+  replay for every loser, with no double send or unhandled unique-key error.
 
 ## Backlinks (source-aware: Common Crawl + Bing Webmaster)
 

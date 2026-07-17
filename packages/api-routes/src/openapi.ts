@@ -2414,7 +2414,7 @@ const routeCatalog: OpenApiOperation[] = [
           startTime: { type: 'integer', nullable: true },
           endTime: { type: 'integer', nullable: true },
           lifetimeSpendLimitMicros: { type: 'integer', minimum: 1000000 },
-          locationIds: { type: 'array', nullable: true, minItems: 1, maxItems: 100, items: stringSchema },
+          locationIds: { type: 'array', minItems: 1, maxItems: 100, items: stringSchema },
         },
       } } },
     },

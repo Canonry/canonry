@@ -7155,7 +7155,7 @@ export type PostApiV1ProjectsByNameAdsCampaignsByIdData = {
         startTime?: number | null;
         endTime?: number | null;
         lifetimeSpendLimitMicros?: number;
-        locationIds?: Array<string> | null;
+        locationIds?: Array<string>;
     };
     path: {
         /**

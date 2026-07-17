@@ -64,6 +64,15 @@ function validateNonEmptyRequest(value: unknown, label: string): asserts value i
   }
 }
 
+function snapshotJsonRequest<T>(value: T, label: string): T {
+  try {
+    const serialized = JSON.stringify(value)
+    return JSON.parse(serialized) as T
+  } catch {
+    throw new OpenAiAdsApiError(`${label} must be JSON-serializable`, 400)
+  }
+}
+
 function validateEntityName(value: unknown, label: string): void {
   if (
     typeof value !== 'string' ||
@@ -77,9 +86,16 @@ function validateEntityName(value: unknown, label: string): void {
   }
 }
 
-function validateWriteStatus(value: unknown): void {
-  if (value !== OpenAiAdsWriteStatuses.active && value !== OpenAiAdsWriteStatuses.paused) {
-    throw new OpenAiAdsApiError('Status must be active or paused', 400)
+function validatePausedCreateStatus(value: unknown, label: string): void {
+  if (value !== OpenAiAdsWriteStatuses.paused) {
+    throw new OpenAiAdsApiError(`${label} status must be paused`, 400)
+  }
+}
+
+function validatePublicUpdateRequest(value: unknown, label: string): asserts value is Record<string, unknown> {
+  validateNonEmptyRequest(value, label)
+  if (Object.hasOwn(value, 'status')) {
+    throw new OpenAiAdsApiError(`${label} cannot include status; use an explicit lifecycle action`, 400)
   }
 }
 
@@ -109,7 +125,10 @@ function validateCampaignBudget(value: unknown): void {
 }
 
 function validateCampaignTargeting(value: unknown): void {
-  if (value === undefined || value === null) return
+  if (value === undefined) return
+  if (value === null) {
+    throw new OpenAiAdsApiError('Campaign targeting cannot be null; omit it to preserve existing targeting', 400)
+  }
   validateRequestObject(value, 'Campaign targeting')
   validateRequestObject(value.locations, 'Campaign targeting locations')
   const include = value.locations.include
@@ -182,7 +201,7 @@ function validateChatCardCreative(value: unknown): void {
 function validateCreateCampaignRequest(request: OpenAiAdsCreateCampaignRequest): void {
   validateRequestObject(request, 'Campaign create request')
   validateEntityName(request.name, 'Campaign name')
-  validateWriteStatus(request.status)
+  validatePausedCreateStatus(request.status, 'Campaign create request')
   validateCampaignBudget(request.budget)
   validateCampaignTimestamp(request.start_time, 'Campaign start_time')
   validateCampaignTimestamp(request.end_time, 'Campaign end_time')
@@ -190,9 +209,8 @@ function validateCreateCampaignRequest(request: OpenAiAdsCreateCampaignRequest):
 }
 
 function validateUpdateCampaignRequest(request: OpenAiAdsUpdateCampaignRequest): void {
-  validateNonEmptyRequest(request, 'Campaign update request')
+  validatePublicUpdateRequest(request, 'Campaign update request')
   if (request.name !== undefined) validateEntityName(request.name, 'Campaign name')
-  if (request.status !== undefined) validateWriteStatus(request.status)
   if (request.budget !== undefined) validateCampaignBudget(request.budget)
   validateCampaignTimestamp(request.start_time, 'Campaign start_time')
   validateCampaignTimestamp(request.end_time, 'Campaign end_time')
@@ -203,15 +221,14 @@ function validateCreateAdGroupRequest(request: OpenAiAdsCreateAdGroupRequest): v
   validateRequestObject(request, 'Ad group create request')
   validateId(request.campaign_id, 'Campaign id')
   validateEntityName(request.name, 'Ad group name')
-  validateWriteStatus(request.status)
+  validatePausedCreateStatus(request.status, 'Ad group create request')
   validateContextHints(request.context_hints)
   validateBiddingConfig(request.bidding_config)
 }
 
 function validateUpdateAdGroupRequest(request: OpenAiAdsUpdateAdGroupRequest): void {
-  validateNonEmptyRequest(request, 'Ad group update request')
+  validatePublicUpdateRequest(request, 'Ad group update request')
   if (request.name !== undefined) validateEntityName(request.name, 'Ad group name')
-  if (request.status !== undefined) validateWriteStatus(request.status)
   validateContextHints(request.context_hints)
   if (request.bidding_config !== undefined) validateBiddingConfig(request.bidding_config)
 }
@@ -220,14 +237,13 @@ function validateCreateAdRequest(request: OpenAiAdsCreateAdRequest): void {
   validateRequestObject(request, 'Ad create request')
   validateId(request.ad_group_id, 'Ad group id')
   validateEntityName(request.name, 'Ad name')
-  validateWriteStatus(request.status)
+  validatePausedCreateStatus(request.status, 'Ad create request')
   validateChatCardCreative(request.creative)
 }
 
 function validateUpdateAdRequest(request: OpenAiAdsUpdateAdRequest): void {
-  validateNonEmptyRequest(request, 'Ad update request')
+  validatePublicUpdateRequest(request, 'Ad update request')
   if (request.name !== undefined) validateEntityName(request.name, 'Ad name')
-  if (request.status !== undefined) validateWriteStatus(request.status)
   if (request.creative !== undefined) validateChatCardCreative(request.creative)
 }
 
@@ -347,8 +363,9 @@ export async function createCampaign(
   request: OpenAiAdsCreateCampaignRequest,
 ): Promise<OpenAiAdsCampaign> {
   validateApiKey(apiKey)
-  validateCreateCampaignRequest(request)
-  return adsFetch<OpenAiAdsCampaign>(apiKey, 'campaigns', [], 'POST', request)
+  const outbound = snapshotJsonRequest(request, 'Campaign create request')
+  validateCreateCampaignRequest(outbound)
+  return adsFetch<OpenAiAdsCampaign>(apiKey, 'campaigns', [], 'POST', outbound)
 }
 
 export async function updateCampaign(
@@ -358,8 +375,9 @@ export async function updateCampaign(
 ): Promise<OpenAiAdsCampaign> {
   validateApiKey(apiKey)
   validateId(campaignId, 'Campaign id')
-  validateUpdateCampaignRequest(request)
-  return adsFetch<OpenAiAdsCampaign>(apiKey, `campaigns/${encodeURIComponent(campaignId)}`, [], 'POST', request)
+  const outbound = snapshotJsonRequest(request, 'Campaign update request')
+  validateUpdateCampaignRequest(outbound)
+  return adsFetch<OpenAiAdsCampaign>(apiKey, `campaigns/${encodeURIComponent(campaignId)}`, [], 'POST', outbound)
 }
 
 export async function activateCampaign(apiKey: string, campaignId: string): Promise<OpenAiAdsCampaign> {
@@ -391,8 +409,9 @@ export async function createAdGroup(
   request: OpenAiAdsCreateAdGroupRequest,
 ): Promise<OpenAiAdsAdGroup> {
   validateApiKey(apiKey)
-  validateCreateAdGroupRequest(request)
-  return adsFetch<OpenAiAdsAdGroup>(apiKey, 'ad_groups', [], 'POST', request)
+  const outbound = snapshotJsonRequest(request, 'Ad group create request')
+  validateCreateAdGroupRequest(outbound)
+  return adsFetch<OpenAiAdsAdGroup>(apiKey, 'ad_groups', [], 'POST', outbound)
 }
 
 export async function updateAdGroup(
@@ -402,8 +421,9 @@ export async function updateAdGroup(
 ): Promise<OpenAiAdsAdGroup> {
   validateApiKey(apiKey)
   validateId(adGroupId, 'Ad group id')
-  validateUpdateAdGroupRequest(request)
-  return adsFetch<OpenAiAdsAdGroup>(apiKey, `ad_groups/${encodeURIComponent(adGroupId)}`, [], 'POST', request)
+  const outbound = snapshotJsonRequest(request, 'Ad group update request')
+  validateUpdateAdGroupRequest(outbound)
+  return adsFetch<OpenAiAdsAdGroup>(apiKey, `ad_groups/${encodeURIComponent(adGroupId)}`, [], 'POST', outbound)
 }
 
 export async function activateAdGroup(apiKey: string, adGroupId: string): Promise<OpenAiAdsAdGroup> {
@@ -432,8 +452,9 @@ export async function getAd(apiKey: string, adId: string): Promise<OpenAiAdsAd> 
 
 export async function createAd(apiKey: string, request: OpenAiAdsCreateAdRequest): Promise<OpenAiAdsAd> {
   validateApiKey(apiKey)
-  validateCreateAdRequest(request)
-  return adsFetch<OpenAiAdsAd>(apiKey, 'ads', [], 'POST', request)
+  const outbound = snapshotJsonRequest(request, 'Ad create request')
+  validateCreateAdRequest(outbound)
+  return adsFetch<OpenAiAdsAd>(apiKey, 'ads', [], 'POST', outbound)
 }
 
 export async function updateAd(
@@ -443,8 +464,9 @@ export async function updateAd(
 ): Promise<OpenAiAdsAd> {
   validateApiKey(apiKey)
   validateId(adId, 'Ad id')
-  validateUpdateAdRequest(request)
-  return adsFetch<OpenAiAdsAd>(apiKey, `ads/${encodeURIComponent(adId)}`, [], 'POST', request)
+  const outbound = snapshotJsonRequest(request, 'Ad update request')
+  validateUpdateAdRequest(outbound)
+  return adsFetch<OpenAiAdsAd>(apiKey, `ads/${encodeURIComponent(adId)}`, [], 'POST', outbound)
 }
 
 export async function activateAd(apiKey: string, adId: string): Promise<OpenAiAdsAd> {

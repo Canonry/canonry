@@ -794,7 +794,6 @@ export async function createServer(opts: {
       endTime?: number;
       lifetimeSpendLimitMicros: number;
       locationIds: string[];
-      status: typeof OpenAiAdsWriteStatuses.paused;
     }) => adsEntityResult(await createCampaign(apiKey, {
       name: input.name,
       description: input.description,
@@ -810,7 +809,7 @@ export async function createServer(opts: {
       startTime?: number | null;
       endTime?: number | null;
       lifetimeSpendLimitMicros?: number;
-      locationIds?: string[] | null;
+      locationIds?: string[];
     }) => adsEntityResult(await updateCampaign(apiKey, id, {
       name: input.name,
       description: input.description,
@@ -821,9 +820,7 @@ export async function createServer(opts: {
         : { lifetime_spend_limit_micros: input.lifetimeSpendLimitMicros },
       targeting: input.locationIds === undefined
         ? undefined
-        : input.locationIds === null
-          ? null
-          : { locations: { include: input.locationIds.map((locationId) => ({ id: locationId })) } },
+        : { locations: { include: input.locationIds.map((locationId) => ({ id: locationId })) } },
     })),
     pauseCampaign: async (apiKey: string, id: string) => adsEntityResult(await pauseCampaign(apiKey, id)),
     getAdGroup: async (apiKey: string, id: string) => adsEntityResult(await getAdGroup(apiKey, id)),
@@ -833,7 +830,6 @@ export async function createServer(opts: {
       description?: string;
       contextHints: string[];
       maxBidMicros: number;
-      status: typeof OpenAiAdsWriteStatuses.paused;
     }) => adsEntityResult(await createAdGroup(apiKey, {
       campaign_id: input.campaignId,
       name: input.name,
@@ -867,7 +863,6 @@ export async function createServer(opts: {
       adGroupId: string;
       name: string;
       creative: { title: string; body: string; targetUrl: string; fileId: string };
-      status: typeof OpenAiAdsWriteStatuses.paused;
     }) => adsEntityResult(await createAd(apiKey, {
       ad_group_id: input.adGroupId,
       name: input.name,

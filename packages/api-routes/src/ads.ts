@@ -91,6 +91,10 @@ export interface AdsOperatorEntityResult {
   reviewStatus?: string | null
 }
 
+/**
+ * Provider lifecycle adapter. Create methods must request paused entities; the
+ * route verifies that postcondition and emergency-pauses any mismatch.
+ */
 export interface AdsOperator {
   uploadImage(apiKey: string, imageUrl: string): Promise<{ fileId: string }>
   getCampaign(apiKey: string, id: string): Promise<AdsOperatorEntityResult>
@@ -101,7 +105,6 @@ export interface AdsOperator {
     endTime?: number
     lifetimeSpendLimitMicros: number
     locationIds: string[]
-    status: typeof AdsEntityStatuses.paused
   }): Promise<AdsOperatorEntityResult>
   updateCampaign(apiKey: string, id: string, input: {
     name?: string
@@ -109,7 +112,7 @@ export interface AdsOperator {
     startTime?: number | null
     endTime?: number | null
     lifetimeSpendLimitMicros?: number
-    locationIds?: string[] | null
+    locationIds?: string[]
   }): Promise<AdsOperatorEntityResult>
   pauseCampaign(apiKey: string, id: string): Promise<AdsOperatorEntityResult>
   getAdGroup(apiKey: string, id: string): Promise<AdsOperatorEntityResult>
@@ -119,7 +122,6 @@ export interface AdsOperator {
     description?: string
     contextHints: string[]
     maxBidMicros: number
-    status: typeof AdsEntityStatuses.paused
   }): Promise<AdsOperatorEntityResult>
   updateAdGroup(apiKey: string, id: string, input: {
     name?: string
@@ -133,7 +135,6 @@ export interface AdsOperator {
     adGroupId: string
     name: string
     creative: { title: string; body: string; targetUrl: string; fileId: string }
-    status: typeof AdsEntityStatuses.paused
   }): Promise<AdsOperatorEntityResult>
   updateAd(apiKey: string, id: string, input: {
     name?: string
@@ -545,8 +546,7 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
     requireScope(request, ADS_WRITE_SCOPE)
     const project = resolveProject(app.db, request.params.name)
     const body = parseBody(adsCampaignCreateRequestSchema, request.body)
-    const { operationKey, ...requested } = body
-    const providerInput = { ...requested, status: AdsEntityStatuses.paused }
+    const { operationKey, ...providerInput } = body
     const { apiKey, operator } = resolveAdsOperator(opts, project.name)
     return executeAdsOperation(app, request, {
       projectId: project.id,
@@ -564,8 +564,7 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
     requireScope(request, ADS_WRITE_SCOPE)
     const project = resolveProject(app.db, request.params.name)
     const body = parseBody(adsAdGroupCreateRequestSchema, request.body)
-    const { operationKey, ...requested } = body
-    const providerInput = { ...requested, status: AdsEntityStatuses.paused }
+    const { operationKey, ...providerInput } = body
     const { apiKey, operator } = resolveAdsOperator(opts, project.name)
     return executeAdsOperation(app, request, {
       projectId: project.id,
@@ -583,8 +582,7 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
     requireScope(request, ADS_WRITE_SCOPE)
     const project = resolveProject(app.db, request.params.name)
     const body = parseBody(adsAdCreateRequestSchema, request.body)
-    const { operationKey, ...requested } = body
-    const providerInput = { ...requested, status: AdsEntityStatuses.paused }
+    const { operationKey, ...providerInput } = body
     const { apiKey, operator } = resolveAdsOperator(opts, project.name)
     return executeAdsOperation(app, request, {
       projectId: project.id,

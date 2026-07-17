@@ -86,13 +86,17 @@ Some write tools compose existing API calls rather than using a native atomic en
 
 The built-in Aero agent consumes the same MCP-derived local tool registry, then may apply an agent profile. The `ads-operator` profile is intentionally narrower than the full MCP catalog and adds one Aero-only context-packing helper, `canonry_ads_operator_context`, that bundles existing public reads for long-session efficiency. It is not an MCP tool because it introduces no new public capability; agents that need the same data outside Aero should call the existing project overview, ads, doctor, and memory tools directly.
 
-For an external ads operator, mint a project-scoped key with `read` and
-`ads.write`. The auth layer confines a key whose only write grant is
+For an external ads operator, default to a project-scoped key with exactly
+`read` and `ads.write`. The auth layer confines a key whose only write grant is
 `ads.write` to that project's `/ads/*` mutations; unrelated project writes
-remain forbidden. Prefer the `ads-operator` Aero profile when operating inside
+remain forbidden. Do not hand an unscoped key to an external operator. Prefer
+the `ads-operator` Aero profile when operating inside
 Canonry because its visible tool catalog is narrower as well. All lifecycle
 creates are paused, all updates require the entity already be paused, and no
-activation or archive tool is exposed.
+activation or archive tool is exposed. Complete the live-provider and
+production-graduation checks in the
+[CLI operator reference](../skills/canonry/references/canonry-cli.md#guarded-operator-release-gates)
+before enabling spend.
 
 ## Progressive Tool Discovery
 

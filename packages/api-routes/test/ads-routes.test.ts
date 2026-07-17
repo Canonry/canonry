@@ -270,7 +270,7 @@ describe('ads routes', () => {
     expect(body.conversionTrackingConfigured).toBe(true)
   })
 
-  it('creates campaigns paused and replays the durable receipt without a second upstream call', async () => {
+  it('strips caller status, creates campaigns paused, and replays without a second upstream call', async () => {
     const projectId = ctx.seedProject()
     ctx.seedConnection(projectId)
     const payload = {
@@ -278,6 +278,7 @@ describe('ads routes', () => {
       name: 'AEO Audit Lead Generation',
       lifetimeSpendLimitMicros: 25_000_000,
       locationIds: ['1000232'],
+      status: 'active',
     }
 
     const first = await ctx.app.inject({
@@ -288,10 +289,16 @@ describe('ads routes', () => {
     expect(firstBody.replayed).toBe(false)
     expect(firstBody.operation.state).toBe('succeeded')
     expect(firstBody.operation.entityId).toBe('cmpn_new')
-    expect(ctx.operatorCalls).toEqual([{
-      method: 'createCampaign',
-      input: expect.objectContaining({ status: 'paused', lifetimeSpendLimitMicros: 25_000_000 }),
-    }])
+    expect(ctx.operatorCalls).toEqual([
+      {
+        method: 'createCampaign',
+        input: {
+          name: 'AEO Audit Lead Generation',
+          lifetimeSpendLimitMicros: 25_000_000,
+          locationIds: ['1000232'],
+        },
+      },
+    ])
 
     const replay = await ctx.app.inject({
       method: 'POST', url: '/projects/acme/ads/campaigns', payload,
@@ -393,7 +400,7 @@ describe('ads routes', () => {
     })
   })
 
-  it('creates paused ad groups and ads, then can pause each entity', async () => {
+  it('strips caller status, creates paused ad groups and ads, then can pause each entity', async () => {
     const projectId = ctx.seedProject()
     ctx.seedConnection(projectId)
 
@@ -404,12 +411,18 @@ describe('ads routes', () => {
         name: 'AEO audit discovery',
         contextHints: ['how do I improve visibility in ChatGPT'],
         maxBidMicros: 60_000,
+        status: 'active',
       },
     })
     expect(group.statusCode).toBe(200)
     expect(ctx.operatorCalls[0]).toEqual({
       method: 'createAdGroup',
-      input: expect.objectContaining({ status: 'paused', maxBidMicros: 60_000 }),
+      input: {
+        campaignId: 'cmpn_new',
+        name: 'AEO audit discovery',
+        contextHints: ['how do I improve visibility in ChatGPT'],
+        maxBidMicros: 60_000,
+      },
     })
 
     const ad = await ctx.app.inject({
@@ -423,12 +436,22 @@ describe('ads routes', () => {
           targetUrl: 'https://canonry.ai/audit?utm_source=chatgpt&utm_medium=paid',
           fileId: 'file_new',
         },
+        status: 'active',
       },
     })
     expect(ad.statusCode).toBe(200)
     expect(ctx.operatorCalls[1]).toEqual({
       method: 'createAd',
-      input: expect.objectContaining({ status: 'paused' }),
+      input: {
+        adGroupId: 'adgrp_new',
+        name: 'Free AEO audit card',
+        creative: {
+          title: 'See How AI Reads Your Site',
+          body: 'Run a free AEO audit and get your top fixes.',
+          targetUrl: 'https://canonry.ai/audit?utm_source=chatgpt&utm_medium=paid',
+          fileId: 'file_new',
+        },
+      },
     })
 
     for (const [url, method, key] of [
@@ -502,6 +525,39 @@ describe('ads routes', () => {
     expect(ctx.operatorCalls).toEqual([
       { method: 'getAd', input: undefined },
       { method: 'updateAd', input: { name: 'AEO audit card v2' } },
+    ])
+  })
+
+  it('rejects clearing campaign geo targeting and forwards a valid non-empty update', async () => {
+    const projectId = ctx.seedProject()
+    ctx.seedConnection(projectId)
+
+    for (const [operationKey, locationIds] of [
+      ['weekend:update:geo:null', null],
+      ['weekend:update:geo:empty', []],
+    ] as const) {
+      const res = await ctx.app.inject({
+        method: 'POST', url: '/projects/acme/ads/campaigns/cmpn_new', payload: {
+          operationKey,
+          expectedUpdatedAt: 123,
+          locationIds,
+        },
+      })
+      expect(res.statusCode).toBe(400)
+    }
+    expect(ctx.operatorCalls).toEqual([])
+
+    const valid = await ctx.app.inject({
+      method: 'POST', url: '/projects/acme/ads/campaigns/cmpn_new', payload: {
+        operationKey: 'weekend:update:geo:valid',
+        expectedUpdatedAt: 123,
+        locationIds: ['3000001'],
+      },
+    })
+    expect(valid.statusCode).toBe(200)
+    expect(ctx.operatorCalls).toEqual([
+      { method: 'getCampaign', input: undefined },
+      { method: 'updateCampaign', input: { locationIds: ['3000001'] } },
     ])
   })
 
