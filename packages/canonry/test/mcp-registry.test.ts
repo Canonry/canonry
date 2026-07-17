@@ -131,13 +131,24 @@ const expectedToolNames = [
   'canonry_ads_campaigns',
   'canonry_ads_insights',
   'canonry_ads_summary',
+  'canonry_ads_operation_get',
+  'canonry_ads_image_upload',
+  'canonry_ads_campaign_create',
+  'canonry_ads_campaign_update',
+  'canonry_ads_campaign_pause',
+  'canonry_ads_ad_group_create',
+  'canonry_ads_ad_group_update',
+  'canonry_ads_ad_group_pause',
+  'canonry_ads_ad_create',
+  'canonry_ads_ad_update',
+  'canonry_ads_ad_pause',
   'canonry_ads_sync',
 ] as const
 
 describe('MCP tool registry', () => {
   it('ships the curated v1 surface', () => {
-    expect(CANONRY_MCP_TOOL_COUNT).toBe(116)
-    expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(79)
+    expect(CANONRY_MCP_TOOL_COUNT).toBe(127)
+    expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(80)
     expect(canonryMcpTools.map(tool => tool.name)).toEqual(expectedToolNames)
     const readNames = canonryMcpTools.filter(tool => tool.access === 'read').map(tool => tool.name)
     expect(getCanonryMcpTools('read-only').map(tool => tool.name)).toEqual(readNames)

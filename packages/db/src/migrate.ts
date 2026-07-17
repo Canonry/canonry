@@ -2128,6 +2128,34 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       relinkOrphanedSnapshotQueryIds(tx)
     },
   },
+  {
+    version: 99,
+    name: 'ads-operator-lifecycle',
+    statements: [
+      `ALTER TABLE ads_campaigns ADD COLUMN description TEXT`,
+      `ALTER TABLE ads_campaigns ADD COLUMN start_time INTEGER`,
+      `ALTER TABLE ads_campaigns ADD COLUMN end_time INTEGER`,
+      `ALTER TABLE ads_ad_groups ADD COLUMN description TEXT`,
+      `CREATE TABLE IF NOT EXISTS ads_operations (
+        id                    TEXT PRIMARY KEY,
+        project_id            TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        operation_key         TEXT NOT NULL,
+        request_hash          TEXT NOT NULL,
+        kind                  TEXT NOT NULL,
+        state                 TEXT NOT NULL,
+        entity_type           TEXT,
+        entity_id             TEXT,
+        upstream_updated_at   INTEGER,
+        error_code            TEXT,
+        error_message         TEXT,
+        created_at            TEXT NOT NULL,
+        updated_at            TEXT NOT NULL
+      )`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_ads_operations_project_key ON ads_operations(project_id, operation_key)`,
+      `CREATE INDEX IF NOT EXISTS idx_ads_operations_project_created ON ads_operations(project_id, created_at)`,
+      `CREATE INDEX IF NOT EXISTS idx_ads_operations_project_state ON ads_operations(project_id, state)`,
+    ],
+  },
 ]
 
 /**

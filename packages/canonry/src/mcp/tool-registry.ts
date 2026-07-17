@@ -2,6 +2,14 @@ import type { ToolAnnotations } from '@modelcontextprotocol/sdk/types.js'
 import {
   AGENT_MEMORY_KEY_MAX_LENGTH,
   AGENT_MEMORY_VALUE_MAX_BYTES,
+  adsAdCreateRequestSchema,
+  adsAdGroupCreateRequestSchema,
+  adsAdGroupUpdateRequestSchema,
+  adsAdUpdateRequestSchema,
+  adsCampaignCreateRequestSchema,
+  adsCampaignUpdateRequestSchema,
+  adsImageUploadRequestSchema,
+  adsPauseRequestSchema,
   competitorBatchRequestSchema,
   DISCOVERY_MAX_PROBES_CAP,
   DISCOVERY_PROBE_CONCURRENCY_CAP,
@@ -236,6 +244,67 @@ const adsInsightsInputSchema = z.object({
   entityId: z.string().optional(),
   from: z.string().optional(),
   to: z.string().optional(),
+})
+
+const adsOperationInputSchema = z.object({
+  project: projectNameSchema,
+  operationKey: z.string().min(8).max(128),
+})
+
+const adsImageUploadInputSchema = z.object({
+  project: projectNameSchema,
+  request: adsImageUploadRequestSchema,
+})
+
+const adsCampaignCreateInputSchema = z.object({
+  project: projectNameSchema,
+  request: adsCampaignCreateRequestSchema,
+})
+
+const adsCampaignUpdateInputSchema = z.object({
+  project: projectNameSchema,
+  campaignId: z.string().min(1),
+  request: adsCampaignUpdateRequestSchema,
+})
+
+const adsCampaignPauseInputSchema = z.object({
+  project: projectNameSchema,
+  campaignId: z.string().min(1),
+  request: adsPauseRequestSchema,
+})
+
+const adsAdGroupCreateInputSchema = z.object({
+  project: projectNameSchema,
+  request: adsAdGroupCreateRequestSchema,
+})
+
+const adsAdGroupUpdateInputSchema = z.object({
+  project: projectNameSchema,
+  adGroupId: z.string().min(1),
+  request: adsAdGroupUpdateRequestSchema,
+})
+
+const adsAdGroupPauseInputSchema = z.object({
+  project: projectNameSchema,
+  adGroupId: z.string().min(1),
+  request: adsPauseRequestSchema,
+})
+
+const adsAdCreateInputSchema = z.object({
+  project: projectNameSchema,
+  request: adsAdCreateRequestSchema,
+})
+
+const adsAdUpdateInputSchema = z.object({
+  project: projectNameSchema,
+  adId: z.string().min(1),
+  request: adsAdUpdateRequestSchema,
+})
+
+const adsAdPauseInputSchema = z.object({
+  project: projectNameSchema,
+  adId: z.string().min(1),
+  request: adsPauseRequestSchema,
 })
 
 const keywordsInputSchema = z.object({
@@ -1904,6 +1973,136 @@ export const canonryMcpTools = [
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/ads/summary'],
     handler: (client, input) => client.getAdsSummary(input.project),
+  }),
+  defineTool({
+    name: 'canonry_ads_operation_get',
+    title: 'Get an ads mutation receipt',
+    description:
+      'Read the durable receipt for an OpenAI Ads mutation by its caller-supplied operation key. A pending or unknown receipt must be reconciled by a human; never retry it with a new key because the upstream request may already have succeeded.',
+    access: 'read',
+    tier: 'ads',
+    inputSchema: adsOperationInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/ads/operations/{operationKey}'],
+    handler: (client, input) => client.getAdsOperation(input.project, input.operationKey),
+  }),
+  defineTool({
+    name: 'canonry_ads_image_upload',
+    title: 'Upload an ads image from URL',
+    description:
+      'Upload a public HTTPS image URL to the connected OpenAI ad account. The operation key makes a repeated identical request replay its receipt without another upstream upload. Save the returned file entityId for chat-card creation.',
+    access: 'write',
+    tier: 'ads',
+    inputSchema: adsImageUploadInputSchema,
+    annotations: writeAnnotations({ idempotentHint: true, openWorldHint: true }),
+    openApiOperations: ['POST /api/v1/projects/{name}/ads/files'],
+    handler: (client, input) => client.uploadAdsImage(input.project, input.request),
+  }),
+  defineTool({
+    name: 'canonry_ads_campaign_create',
+    title: 'Create a paused ads campaign',
+    description:
+      'Create an OpenAI Ads campaign PAUSED with an explicit lifetime spend limit and location allowlist. The server ignores any status concept and always sends paused. Inspect the receipt, then create paused ad groups and ads. Activation is deliberately human-only for the beta.',
+    access: 'write',
+    tier: 'ads',
+    inputSchema: adsCampaignCreateInputSchema,
+    annotations: writeAnnotations({ idempotentHint: true, openWorldHint: true }),
+    openApiOperations: ['POST /api/v1/projects/{name}/ads/campaigns'],
+    handler: (client, input) => client.createAdsCampaign(input.project, input.request),
+  }),
+  defineTool({
+    name: 'canonry_ads_campaign_update',
+    title: 'Update an ads campaign',
+    description:
+      'Update a PAUSED campaign copy, dates, lifetime spend limit, or locations without changing status. Active campaigns fail closed: pause first, sync, and use the refreshed upstreamUpdatedAt. A human must reactivate after reviewing the change. Uses a durable operation key.',
+    access: 'write',
+    tier: 'ads',
+    inputSchema: adsCampaignUpdateInputSchema,
+    annotations: writeAnnotations({ idempotentHint: true, destructiveHint: true, openWorldHint: true }),
+    openApiOperations: ['POST /api/v1/projects/{name}/ads/campaigns/{id}'],
+    handler: (client, input) => client.updateAdsCampaign(input.project, input.campaignId, input.request),
+  }),
+  defineTool({
+    name: 'canonry_ads_campaign_pause',
+    title: 'Pause an ads campaign',
+    description:
+      'Pause a campaign immediately. Use this first when spend, conversion tracking, landing-page behavior, or policy status is unsafe. The operation is idempotent through its durable operation key.',
+    access: 'write',
+    tier: 'ads',
+    inputSchema: adsCampaignPauseInputSchema,
+    annotations: writeAnnotations({ idempotentHint: true, openWorldHint: true }),
+    openApiOperations: ['POST /api/v1/projects/{name}/ads/campaigns/{id}/pause'],
+    handler: (client, input) => client.pauseAdsCampaign(input.project, input.campaignId, input.request),
+  }),
+  defineTool({
+    name: 'canonry_ads_ad_group_create',
+    title: 'Create a paused ads ad group',
+    description:
+      'Create a PAUSED ad group under a reviewed campaign. Context hints describe when the audit offer is useful; maxBidMicros is an impression bid. The server fixes the billing event to impression.',
+    access: 'write',
+    tier: 'ads',
+    inputSchema: adsAdGroupCreateInputSchema,
+    annotations: writeAnnotations({ idempotentHint: true, openWorldHint: true }),
+    openApiOperations: ['POST /api/v1/projects/{name}/ads/ad-groups'],
+    handler: (client, input) => client.createAdsAdGroup(input.project, input.request),
+  }),
+  defineTool({
+    name: 'canonry_ads_ad_group_update',
+    title: 'Update an ads ad group',
+    description:
+      'Update a PAUSED ad group name, description, context hints, or impression bid without changing status. Active ad groups fail closed: pause first, sync, and use the refreshed upstreamUpdatedAt. A human must reactivate after review. Uses a durable operation key.',
+    access: 'write',
+    tier: 'ads',
+    inputSchema: adsAdGroupUpdateInputSchema,
+    annotations: writeAnnotations({ idempotentHint: true, destructiveHint: true, openWorldHint: true }),
+    openApiOperations: ['POST /api/v1/projects/{name}/ads/ad-groups/{id}'],
+    handler: (client, input) => client.updateAdsAdGroup(input.project, input.adGroupId, input.request),
+  }),
+  defineTool({
+    name: 'canonry_ads_ad_group_pause',
+    title: 'Pause an ads ad group',
+    description: 'Pause an ad group through a durable idempotent operation receipt.',
+    access: 'write',
+    tier: 'ads',
+    inputSchema: adsAdGroupPauseInputSchema,
+    annotations: writeAnnotations({ idempotentHint: true, openWorldHint: true }),
+    openApiOperations: ['POST /api/v1/projects/{name}/ads/ad-groups/{id}/pause'],
+    handler: (client, input) => client.pauseAdsAdGroup(input.project, input.adGroupId, input.request),
+  }),
+  defineTool({
+    name: 'canonry_ads_ad_create',
+    title: 'Create a paused chat-card ad',
+    description:
+      'Create a PAUSED ChatGPT chat-card ad using a previously uploaded file entityId and an HTTPS destination. Title is 3-50 characters and body is at most 100. Activation is deliberately human-only for the beta.',
+    access: 'write',
+    tier: 'ads',
+    inputSchema: adsAdCreateInputSchema,
+    annotations: writeAnnotations({ idempotentHint: true, openWorldHint: true }),
+    openApiOperations: ['POST /api/v1/projects/{name}/ads/ads'],
+    handler: (client, input) => client.createAdsAd(input.project, input.request),
+  }),
+  defineTool({
+    name: 'canonry_ads_ad_update',
+    title: 'Update a chat-card ad',
+    description:
+      'Update a PAUSED ad name or full chat-card creative without changing status. Active ads fail closed: pause first, sync, and use the refreshed upstreamUpdatedAt. A human must reactivate after review. Uses a durable operation key.',
+    access: 'write',
+    tier: 'ads',
+    inputSchema: adsAdUpdateInputSchema,
+    annotations: writeAnnotations({ idempotentHint: true, destructiveHint: true, openWorldHint: true }),
+    openApiOperations: ['POST /api/v1/projects/{name}/ads/ads/{id}'],
+    handler: (client, input) => client.updateAdsAd(input.project, input.adId, input.request),
+  }),
+  defineTool({
+    name: 'canonry_ads_ad_pause',
+    title: 'Pause a chat-card ad',
+    description: 'Pause an individual ad through a durable idempotent operation receipt.',
+    access: 'write',
+    tier: 'ads',
+    inputSchema: adsAdPauseInputSchema,
+    annotations: writeAnnotations({ idempotentHint: true, openWorldHint: true }),
+    openApiOperations: ['POST /api/v1/projects/{name}/ads/ads/{id}/pause'],
+    handler: (client, input) => client.pauseAdsAd(input.project, input.adId, input.request),
   }),
   defineTool({
     name: 'canonry_ads_sync',

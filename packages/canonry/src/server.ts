@@ -103,7 +103,25 @@ import {
   upsertOpenAiAdsConnection,
   removeOpenAiAdsConnection,
 } from "./ads-config.js";
-import { getAdAccount } from "@ainyc/canonry-integration-openai-ads";
+import {
+  OpenAiAdsBillingEventTypes,
+  OpenAiAdsCreativeTypes,
+  OpenAiAdsWriteStatuses,
+  createAd,
+  createAdGroup,
+  createCampaign,
+  getAd,
+  getAdAccount,
+  getAdGroup,
+  getCampaign,
+  pauseAd,
+  pauseAdGroup,
+  pauseCampaign,
+  updateAd,
+  updateAdGroup,
+  updateCampaign,
+  uploadImageFromUrl,
+} from "@ainyc/canonry-integration-openai-ads";
 import { executeInspectSitemap } from "./gsc-inspect-sitemap.js";
 import { executeBingInspectSitemap } from "./bing-inspect-sitemap.js";
 import { maybeRefreshGscCoverage } from "./coverage-refresh.js";
@@ -749,6 +767,135 @@ export async function createServer(opts: {
       currencyCode: account.currency_code ?? null,
       timezone: account.timezone ?? null,
     };
+  };
+
+  const adsEntityResult = (entity: {
+    id: string;
+    status: string;
+    updated_at: number;
+    review_status?: string;
+  }) => ({
+    id: entity.id,
+    status: entity.status,
+    updatedAt: entity.updated_at,
+    reviewStatus: entity.review_status ?? null,
+  });
+
+  const adsOperator = {
+    uploadImage: async (apiKey: string, imageUrl: string) => {
+      const result = await uploadImageFromUrl(apiKey, imageUrl);
+      return { fileId: result.file_id };
+    },
+    getCampaign: async (apiKey: string, id: string) => adsEntityResult(await getCampaign(apiKey, id)),
+    createCampaign: async (apiKey: string, input: {
+      name: string;
+      description?: string;
+      startTime?: number;
+      endTime?: number;
+      lifetimeSpendLimitMicros: number;
+      locationIds: string[];
+      status: typeof OpenAiAdsWriteStatuses.paused;
+    }) => adsEntityResult(await createCampaign(apiKey, {
+      name: input.name,
+      description: input.description,
+      start_time: input.startTime,
+      end_time: input.endTime,
+      status: OpenAiAdsWriteStatuses.paused,
+      budget: { lifetime_spend_limit_micros: input.lifetimeSpendLimitMicros },
+      targeting: { locations: { include: input.locationIds.map((id) => ({ id })) } },
+    })),
+    updateCampaign: async (apiKey: string, id: string, input: {
+      name?: string;
+      description?: string | null;
+      startTime?: number | null;
+      endTime?: number | null;
+      lifetimeSpendLimitMicros?: number;
+      locationIds?: string[] | null;
+    }) => adsEntityResult(await updateCampaign(apiKey, id, {
+      name: input.name,
+      description: input.description,
+      start_time: input.startTime,
+      end_time: input.endTime,
+      budget: input.lifetimeSpendLimitMicros === undefined
+        ? undefined
+        : { lifetime_spend_limit_micros: input.lifetimeSpendLimitMicros },
+      targeting: input.locationIds === undefined
+        ? undefined
+        : input.locationIds === null
+          ? null
+          : { locations: { include: input.locationIds.map((locationId) => ({ id: locationId })) } },
+    })),
+    pauseCampaign: async (apiKey: string, id: string) => adsEntityResult(await pauseCampaign(apiKey, id)),
+    getAdGroup: async (apiKey: string, id: string) => adsEntityResult(await getAdGroup(apiKey, id)),
+    createAdGroup: async (apiKey: string, input: {
+      campaignId: string;
+      name: string;
+      description?: string;
+      contextHints: string[];
+      maxBidMicros: number;
+      status: typeof OpenAiAdsWriteStatuses.paused;
+    }) => adsEntityResult(await createAdGroup(apiKey, {
+      campaign_id: input.campaignId,
+      name: input.name,
+      description: input.description,
+      context_hints: input.contextHints,
+      status: OpenAiAdsWriteStatuses.paused,
+      bidding_config: {
+        billing_event_type: OpenAiAdsBillingEventTypes.impression,
+        max_bid_micros: input.maxBidMicros,
+      },
+    })),
+    updateAdGroup: async (apiKey: string, id: string, input: {
+      name?: string;
+      description?: string | null;
+      contextHints?: string[];
+      maxBidMicros?: number;
+    }) => adsEntityResult(await updateAdGroup(apiKey, id, {
+      name: input.name,
+      description: input.description,
+      context_hints: input.contextHints,
+      bidding_config: input.maxBidMicros === undefined
+        ? undefined
+        : {
+            billing_event_type: OpenAiAdsBillingEventTypes.impression,
+            max_bid_micros: input.maxBidMicros,
+          },
+    })),
+    pauseAdGroup: async (apiKey: string, id: string) => adsEntityResult(await pauseAdGroup(apiKey, id)),
+    getAd: async (apiKey: string, id: string) => adsEntityResult(await getAd(apiKey, id)),
+    createAd: async (apiKey: string, input: {
+      adGroupId: string;
+      name: string;
+      creative: { title: string; body: string; targetUrl: string; fileId: string };
+      status: typeof OpenAiAdsWriteStatuses.paused;
+    }) => adsEntityResult(await createAd(apiKey, {
+      ad_group_id: input.adGroupId,
+      name: input.name,
+      status: OpenAiAdsWriteStatuses.paused,
+      creative: {
+        type: OpenAiAdsCreativeTypes.chatCard,
+        title: input.creative.title,
+        body: input.creative.body,
+        target_url: input.creative.targetUrl,
+        file_id: input.creative.fileId,
+      },
+    })),
+    updateAd: async (apiKey: string, id: string, input: {
+      name?: string;
+      creative?: { title: string; body: string; targetUrl: string; fileId: string };
+    }) => adsEntityResult(await updateAd(apiKey, id, {
+      name: input.name,
+      creative: input.creative
+        ? {
+            type: OpenAiAdsCreativeTypes.chatCard,
+            title: input.creative.title,
+            body: input.creative.body,
+            target_url: input.creative.targetUrl,
+            file_id: input.creative.fileId,
+          }
+        : undefined,
+    })),
+    pauseAd: async (apiKey: string, id: string) => adsEntityResult(await pauseAd(apiKey, id)),
   };
 
   const scheduler = new Scheduler(opts.db, {
@@ -1642,6 +1789,7 @@ export async function createServer(opts: {
     },
     adsCredentialStore,
     verifyAdsAccount,
+    adsOperator,
     onAdsSyncRequested: (runId: string, projectId: string) => {
       runAdsSync(runId, projectId);
     },

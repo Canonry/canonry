@@ -17,9 +17,10 @@ import {
   adsAdGroups,
   adsAds,
   adsInsightsDaily,
+  adsOperations,
 } from '@ainyc/canonry-db'
 import { adsRoutes } from '../src/ads.js'
-import type { AdsConnectionConfigEntryLike, VerifiedAdsAccount } from '../src/ads.js'
+import type { AdsConnectionConfigEntryLike, AdsOperator, VerifiedAdsAccount } from '../src/ads.js'
 
 const NOW = '2026-06-10T00:00:00.000Z'
 
@@ -31,22 +32,80 @@ const VERIFIED: VerifiedAdsAccount = {
   timezone: 'America/Denver',
 }
 
-function buildApp(overrides: { verifyShouldFail?: boolean } = {}) {
+function buildApp(overrides: {
+  verifyShouldFail?: boolean
+  operatorShouldFail?: boolean
+  scopes?: string[]
+  currentUpdatedAt?: number
+  currentStatus?: string
+  mutationStatus?: string
+  pauseStatus?: string
+  pauseShouldFail?: boolean
+} = {}) {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ads-routes-test-'))
   const db = createClient(path.join(tmpDir, 'test.db'))
   migrate(db)
 
   const configConnections: AdsConnectionConfigEntryLike[] = []
   const syncRequests: Array<{ runId: string; projectId: string }> = []
+  const operatorCalls: Array<{ method: string; input?: unknown }> = []
 
   const app = Fastify()
   app.decorate('db', db)
+  if (overrides.scopes) {
+    app.addHook('onRequest', async (request) => {
+      request.apiKey = { id: 'key_test', name: 'test', scopes: overrides.scopes! }
+    })
+  }
   app.setErrorHandler((error, _request, reply) => {
     if (error instanceof AppError) {
       return reply.status(error.statusCode).send(error.toJSON())
     }
     throw error
   })
+
+  const entity = (id: string, status: string) => ({
+    id,
+    status,
+    updatedAt: overrides.currentUpdatedAt ?? 123,
+    reviewStatus: id.startsWith('ad_') ? 'approved' : null,
+  })
+  const call = async (method: string, id: string, input?: unknown) => {
+    operatorCalls.push({ method, input })
+    if (overrides.operatorShouldFail) {
+      throw new Error('socket closed after request write with sk-test and https://secret.example/token')
+    }
+    if (overrides.pauseShouldFail && method.startsWith('pause')) {
+      throw new Error('socket closed while confirming emergency pause')
+    }
+    const status = method.startsWith('get')
+      ? overrides.currentStatus ?? 'paused'
+      : method.startsWith('pause')
+        ? overrides.pauseStatus ?? 'paused'
+        : overrides.mutationStatus ?? 'paused'
+    return entity(id, status)
+  }
+  const adsOperator: AdsOperator = {
+    uploadImage: async (_apiKey, imageUrl) => {
+      operatorCalls.push({ method: 'uploadImage', input: imageUrl })
+      if (overrides.operatorShouldFail) {
+        throw new Error('socket closed after request write with sk-test and https://secret.example/token')
+      }
+      return { fileId: 'file_new' }
+    },
+    getCampaign: async (_apiKey, id) => call('getCampaign', id),
+    createCampaign: async (_apiKey, input) => call('createCampaign', 'cmpn_new', input),
+    updateCampaign: async (_apiKey, id, input) => call('updateCampaign', id, input),
+    pauseCampaign: async (_apiKey, id) => call('pauseCampaign', id),
+    getAdGroup: async (_apiKey, id) => call('getAdGroup', id),
+    createAdGroup: async (_apiKey, input) => call('createAdGroup', 'adgrp_new', input),
+    updateAdGroup: async (_apiKey, id, input) => call('updateAdGroup', id, input),
+    pauseAdGroup: async (_apiKey, id) => call('pauseAdGroup', id),
+    getAd: async (_apiKey, id) => call('getAd', id),
+    createAd: async (_apiKey, input) => call('createAd', 'ad_new', input),
+    updateAd: async (_apiKey, id, input) => call('updateAd', id, input),
+    pauseAd: async (_apiKey, id) => call('pauseAd', id),
+  }
 
   void app.register(adsRoutes, {
     adsCredentialStore: {
@@ -73,6 +132,7 @@ function buildApp(overrides: { verifyShouldFail?: boolean } = {}) {
     onAdsSyncRequested: (runId, projectId) => {
       syncRequests.push({ runId, projectId })
     },
+    adsOperator,
   })
 
   function seedProject(name = 'acme'): string {
@@ -90,23 +150,34 @@ function buildApp(overrides: { verifyShouldFail?: boolean } = {}) {
       displayName: 'Acme Exteriors, Inc', currencyCode: 'USD', timezone: 'America/Denver',
       status: 'active', conversionTrackingConfigured: true, lastSyncedAt: NOW, createdAt: NOW, updatedAt: NOW,
     }).run()
+    if (!configConnections.some((entry) => entry.projectName === 'acme')) {
+      configConnections.push({
+        projectName: 'acme', apiKey: 'sk-test', adAccountId: 'adacct_aaa', createdAt: NOW, updatedAt: NOW,
+      })
+    }
   }
 
   function seedSnapshots(projectId: string) {
     db.insert(adsCampaigns).values({
       id: 'cmpn_bbb', projectId, name: 'Homeowners Free Estimate', status: 'active',
       biddingType: 'clicks', dailySpendLimitMicros: 150_000_000, syncedAt: NOW,
+      description: 'Homeowner lead generation', startTime: 1_765_843_200, endTime: 1_768_521_600,
+      targeting: { locations: { include: [{ id: '3000001' }] } }, upstreamUpdatedAt: 123,
     }).run()
     db.insert(adsAdGroups).values({
       id: 'adgrp_ddd', projectId, campaignId: 'cmpn_bbb', name: 'Deck Project Planning',
       status: 'active', billingEventType: 'click', maxBidMicros: 2_000_000,
-      contextHints: ['how much does a new deck cost', 'measure my yard'], syncedAt: NOW,
+      description: 'Deck demand', contextHints: ['how much does a new deck cost', 'measure my yard'],
+      upstreamUpdatedAt: 124, syncedAt: NOW,
     }).run()
     db.insert(adsAds).values({
       id: 'ad_eee', projectId, adGroupId: 'adgrp_ddd', name: 'HO Deck - Materials',
       status: 'active', reviewStatus: 'approved',
-      creative: { type: 'chat_card', title: 'Free Estimate', body: 'b', target_url: 'https://lp.example/x' },
-      syncedAt: NOW,
+      creative: {
+        type: 'chat_card', title: 'Free Estimate', body: 'b',
+        target_url: 'https://lp.example/x', file_id: 'file_eee',
+      },
+      upstreamUpdatedAt: 125, syncedAt: NOW,
     }).run()
   }
 
@@ -124,7 +195,10 @@ function buildApp(overrides: { verifyShouldFail?: boolean } = {}) {
     }
   }
 
-  return { app, db, tmpDir, configConnections, syncRequests, seedProject, seedConnection, seedSnapshots, seedInsights }
+  return {
+    app, db, tmpDir, configConnections, syncRequests, operatorCalls,
+    seedProject, seedConnection, seedSnapshots, seedInsights,
+  }
 }
 
 describe('ads routes', () => {
@@ -196,6 +270,307 @@ describe('ads routes', () => {
     expect(body.conversionTrackingConfigured).toBe(true)
   })
 
+  it('creates campaigns paused and replays the durable receipt without a second upstream call', async () => {
+    const projectId = ctx.seedProject()
+    ctx.seedConnection(projectId)
+    const payload = {
+      operationKey: 'weekend:campaign:1',
+      name: 'AEO Audit Lead Generation',
+      lifetimeSpendLimitMicros: 25_000_000,
+      locationIds: ['1000232'],
+    }
+
+    const first = await ctx.app.inject({
+      method: 'POST', url: '/projects/acme/ads/campaigns', payload,
+    })
+    expect(first.statusCode).toBe(200)
+    const firstBody = JSON.parse(first.body) as { operation: Record<string, unknown>; replayed: boolean }
+    expect(firstBody.replayed).toBe(false)
+    expect(firstBody.operation.state).toBe('succeeded')
+    expect(firstBody.operation.entityId).toBe('cmpn_new')
+    expect(ctx.operatorCalls).toEqual([{
+      method: 'createCampaign',
+      input: expect.objectContaining({ status: 'paused', lifetimeSpendLimitMicros: 25_000_000 }),
+    }])
+
+    const replay = await ctx.app.inject({
+      method: 'POST', url: '/projects/acme/ads/campaigns', payload,
+    })
+    expect(replay.statusCode).toBe(200)
+    expect(JSON.parse(replay.body).replayed).toBe(true)
+    expect(ctx.operatorCalls).toHaveLength(1)
+
+    const conflict = await ctx.app.inject({
+      method: 'POST', url: '/projects/acme/ads/campaigns', payload: { ...payload, name: 'Different campaign' },
+    })
+    expect(conflict.statusCode).toBe(409)
+    expect(ctx.operatorCalls).toHaveLength(1)
+
+    const rows = ctx.db.select().from(adsOperations).where(eq(adsOperations.projectId, projectId)).all()
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({ state: 'succeeded', entityId: 'cmpn_new' })
+  })
+
+  it('emergency-pauses a create when the provider does not return the required paused state', async () => {
+    await ctx.app.close()
+    fs.rmSync(ctx.tmpDir, { recursive: true, force: true })
+    ctx = buildApp({ mutationStatus: 'active' })
+    await ctx.app.ready()
+    const projectId = ctx.seedProject()
+    ctx.seedConnection(projectId)
+
+    const res = await ctx.app.inject({
+      method: 'POST', url: '/projects/acme/ads/campaigns', payload: {
+        operationKey: 'weekend:campaign:emergency-pause',
+        name: 'AEO Audit Lead Generation',
+        lifetimeSpendLimitMicros: 25_000_000,
+        locationIds: ['3000001'],
+      },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(ctx.operatorCalls.map((entry) => entry.method)).toEqual([
+      'createCampaign',
+      'pauseCampaign',
+    ])
+    expect(JSON.parse(res.body)).toMatchObject({
+      operation: { state: 'succeeded', entityId: 'cmpn_new' },
+    })
+  })
+
+  it('records an unknown receipt with the entity id when emergency pause is not confirmed', async () => {
+    await ctx.app.close()
+    fs.rmSync(ctx.tmpDir, { recursive: true, force: true })
+    ctx = buildApp({ mutationStatus: 'active', pauseStatus: 'active' })
+    await ctx.app.ready()
+    const projectId = ctx.seedProject()
+    ctx.seedConnection(projectId)
+
+    const res = await ctx.app.inject({
+      method: 'POST', url: '/projects/acme/ads/campaigns', payload: {
+        operationKey: 'weekend:campaign:pause-unconfirmed',
+        name: 'AEO Audit Lead Generation',
+        lifetimeSpendLimitMicros: 25_000_000,
+        locationIds: ['3000001'],
+      },
+    })
+    expect(res.statusCode).toBe(502)
+    const receipt = ctx.db.select().from(adsOperations)
+      .where(eq(adsOperations.operationKey, 'weekend:campaign:pause-unconfirmed')).get()
+    expect(receipt).toMatchObject({
+      state: 'unknown',
+      entityId: 'cmpn_new',
+      errorCode: 'ADS_PAUSED_POSTCONDITION_FAILED',
+    })
+  })
+
+  it('preserves the created entity id when emergency pause throws', async () => {
+    await ctx.app.close()
+    fs.rmSync(ctx.tmpDir, { recursive: true, force: true })
+    ctx = buildApp({ mutationStatus: 'active', pauseShouldFail: true })
+    await ctx.app.ready()
+    const projectId = ctx.seedProject()
+    ctx.seedConnection(projectId)
+
+    const res = await ctx.app.inject({
+      method: 'POST', url: '/projects/acme/ads/campaigns', payload: {
+        operationKey: 'weekend:campaign:pause-threw',
+        name: 'AEO Audit Lead Generation',
+        lifetimeSpendLimitMicros: 25_000_000,
+        locationIds: ['3000001'],
+      },
+    })
+    expect(res.statusCode).toBe(502)
+    expect(ctx.operatorCalls.map((entry) => entry.method)).toEqual([
+      'createCampaign',
+      'pauseCampaign',
+    ])
+    const receipt = ctx.db.select().from(adsOperations)
+      .where(eq(adsOperations.operationKey, 'weekend:campaign:pause-threw')).get()
+    expect(receipt).toMatchObject({
+      state: 'unknown',
+      entityId: 'cmpn_new',
+      errorCode: 'upstream_error',
+    })
+  })
+
+  it('creates paused ad groups and ads, then can pause each entity', async () => {
+    const projectId = ctx.seedProject()
+    ctx.seedConnection(projectId)
+
+    const group = await ctx.app.inject({
+      method: 'POST', url: '/projects/acme/ads/ad-groups', payload: {
+        operationKey: 'weekend:group:1',
+        campaignId: 'cmpn_new',
+        name: 'AEO audit discovery',
+        contextHints: ['how do I improve visibility in ChatGPT'],
+        maxBidMicros: 60_000,
+      },
+    })
+    expect(group.statusCode).toBe(200)
+    expect(ctx.operatorCalls[0]).toEqual({
+      method: 'createAdGroup',
+      input: expect.objectContaining({ status: 'paused', maxBidMicros: 60_000 }),
+    })
+
+    const ad = await ctx.app.inject({
+      method: 'POST', url: '/projects/acme/ads/ads', payload: {
+        operationKey: 'weekend:ad:1',
+        adGroupId: 'adgrp_new',
+        name: 'Free AEO audit card',
+        creative: {
+          title: 'See How AI Reads Your Site',
+          body: 'Run a free AEO audit and get your top fixes.',
+          targetUrl: 'https://canonry.ai/audit?utm_source=chatgpt&utm_medium=paid',
+          fileId: 'file_new',
+        },
+      },
+    })
+    expect(ad.statusCode).toBe(200)
+    expect(ctx.operatorCalls[1]).toEqual({
+      method: 'createAd',
+      input: expect.objectContaining({ status: 'paused' }),
+    })
+
+    for (const [url, method, key] of [
+      ['/projects/acme/ads/campaigns/cmpn_new/pause', 'pauseCampaign', 'pause:campaign:1'],
+      ['/projects/acme/ads/ad-groups/adgrp_new/pause', 'pauseAdGroup', 'pause:group:1'],
+      ['/projects/acme/ads/ads/ad_new/pause', 'pauseAd', 'pause:ad:1'],
+    ] as const) {
+      const res = await ctx.app.inject({ method: 'POST', url, payload: { operationKey: key } })
+      expect(res.statusCode).toBe(200)
+      expect(ctx.operatorCalls.some((entry) => entry.method === method)).toBe(true)
+    }
+  })
+
+  it('fails a stale update closed before calling the upstream update', async () => {
+    await ctx.app.close()
+    fs.rmSync(ctx.tmpDir, { recursive: true, force: true })
+    ctx = buildApp({ currentUpdatedAt: 456 })
+    await ctx.app.ready()
+    const projectId = ctx.seedProject()
+    ctx.seedConnection(projectId)
+
+    const res = await ctx.app.inject({
+      method: 'POST', url: '/projects/acme/ads/campaigns/cmpn_new', payload: {
+        operationKey: 'weekend:update:1',
+        expectedUpdatedAt: 123,
+        lifetimeSpendLimitMicros: 30_000_000,
+      },
+    })
+    expect(res.statusCode).toBe(400)
+    expect(res.body).toContain('changed since it was reviewed')
+    expect(ctx.operatorCalls.map((entry) => entry.method)).toEqual(['getCampaign'])
+    const receipt = ctx.db.select().from(adsOperations).where(eq(adsOperations.operationKey, 'weekend:update:1')).get()
+    expect(receipt?.state).toBe('failed')
+  })
+
+  it('requires an upstream entity to be paused before updating it', async () => {
+    await ctx.app.close()
+    fs.rmSync(ctx.tmpDir, { recursive: true, force: true })
+    ctx = buildApp({ currentStatus: 'active' })
+    await ctx.app.ready()
+    const projectId = ctx.seedProject()
+    ctx.seedConnection(projectId)
+
+    const res = await ctx.app.inject({
+      method: 'POST', url: '/projects/acme/ads/ad-groups/adgrp_live', payload: {
+        operationKey: 'weekend:update:active',
+        expectedUpdatedAt: 123,
+        maxBidMicros: 50_000,
+      },
+    })
+    expect(res.statusCode).toBe(400)
+    expect(res.body).toContain('Pause the upstream ad entity before updating it')
+    expect(ctx.operatorCalls.map((entry) => entry.method)).toEqual(['getAdGroup'])
+    const receipt = ctx.db.select().from(adsOperations)
+      .where(eq(adsOperations.operationKey, 'weekend:update:active')).get()
+    expect(receipt).toMatchObject({ state: 'failed', errorCode: 'VALIDATION_ERROR' })
+  })
+
+  it('updates a paused entity only after the optimistic concurrency check passes', async () => {
+    const projectId = ctx.seedProject()
+    ctx.seedConnection(projectId)
+
+    const res = await ctx.app.inject({
+      method: 'POST', url: '/projects/acme/ads/ads/ad_paused', payload: {
+        operationKey: 'weekend:update:paused',
+        expectedUpdatedAt: 123,
+        name: 'AEO audit card v2',
+      },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(ctx.operatorCalls).toEqual([
+      { method: 'getAd', input: undefined },
+      { method: 'updateAd', input: { name: 'AEO audit card v2' } },
+    ])
+  })
+
+  it('marks an ambiguous upstream outcome unknown and never retries it blindly', async () => {
+    await ctx.app.close()
+    fs.rmSync(ctx.tmpDir, { recursive: true, force: true })
+    ctx = buildApp({ operatorShouldFail: true })
+    await ctx.app.ready()
+    const projectId = ctx.seedProject()
+    ctx.seedConnection(projectId)
+    const payload = {
+      operationKey: 'weekend:unknown:1',
+      name: 'AEO Audit Lead Generation',
+      lifetimeSpendLimitMicros: 25_000_000,
+      locationIds: ['1000232'],
+    }
+
+    const first = await ctx.app.inject({ method: 'POST', url: '/projects/acme/ads/campaigns', payload })
+    expect(first.statusCode).toBe(502)
+    expect(first.body).toContain('unknown')
+    expect(ctx.operatorCalls).toHaveLength(1)
+
+    const replay = await ctx.app.inject({ method: 'POST', url: '/projects/acme/ads/campaigns', payload })
+    expect(replay.statusCode).toBe(200)
+    expect(JSON.parse(replay.body)).toMatchObject({ replayed: true, operation: { state: 'unknown' } })
+    expect(ctx.operatorCalls).toHaveLength(1)
+
+    const read = await ctx.app.inject({
+      method: 'GET', url: '/projects/acme/ads/operations/weekend%3Aunknown%3A1',
+    })
+    expect(read.statusCode).toBe(200)
+    expect(JSON.parse(read.body).operation.errorMessage).toBe('OpenAI Ads API outcome could not be confirmed')
+    expect(read.body).not.toContain('sk-test')
+    expect(read.body).not.toContain('secret.example')
+  })
+
+  it('requires the ads.write scope for every lifecycle mutation', async () => {
+    await ctx.app.close()
+    fs.rmSync(ctx.tmpDir, { recursive: true, force: true })
+    ctx = buildApp({ scopes: ['read'] })
+    await ctx.app.ready()
+    const projectId = ctx.seedProject()
+    ctx.seedConnection(projectId)
+    const payload = {
+      operationKey: 'weekend:scope:1',
+      name: 'AEO Audit Lead Generation',
+      lifetimeSpendLimitMicros: 25_000_000,
+      locationIds: ['1000232'],
+    }
+    const denied = await ctx.app.inject({ method: 'POST', url: '/projects/acme/ads/campaigns', payload })
+    expect(denied.statusCode).toBe(403)
+    expect(ctx.operatorCalls).toHaveLength(0)
+    const deniedSync = await ctx.app.inject({ method: 'POST', url: '/projects/acme/ads/sync' })
+    expect(deniedSync.statusCode).toBe(403)
+    const deniedConnect = await ctx.app.inject({
+      method: 'POST', url: '/projects/acme/ads/connect', payload: { apiKey: 'sk-good' },
+    })
+    expect(deniedConnect.statusCode).toBe(403)
+
+    await ctx.app.close()
+    fs.rmSync(ctx.tmpDir, { recursive: true, force: true })
+    ctx = buildApp({ scopes: ['ads.write'] })
+    await ctx.app.ready()
+    const allowedProjectId = ctx.seedProject()
+    ctx.seedConnection(allowedProjectId)
+    const allowed = await ctx.app.inject({ method: 'POST', url: '/projects/acme/ads/campaigns', payload })
+    expect(allowed.statusCode).toBe(200)
+  })
+
   it('POST /ads/sync requires a connection, creates the run row, and fires the host callback', async () => {
     const projectId = ctx.seedProject()
     let res = await ctx.app.inject({ method: 'POST', url: '/projects/acme/ads/sync' })
@@ -243,9 +618,14 @@ describe('ads routes', () => {
     expect(body.campaigns.length).toBe(1)
     const campaign = body.campaigns[0]!
     expect(campaign.dailySpendLimitMicros).toBe(150_000_000)
+    expect(campaign.upstreamUpdatedAt).toBe(123)
+    expect(campaign.locationIds).toEqual(['3000001'])
     expect(campaign.adGroups.length).toBe(1)
+    expect(campaign.adGroups[0].upstreamUpdatedAt).toBe(124)
     expect(campaign.adGroups[0].contextHints).toEqual(['how much does a new deck cost', 'measure my yard'])
     expect(campaign.adGroups[0].ads[0].creative.targetUrl).toBe('https://lp.example/x')
+    expect(campaign.adGroups[0].ads[0].creative.fileId).toBe('file_eee')
+    expect(campaign.adGroups[0].ads[0].upstreamUpdatedAt).toBe(125)
   })
 
   it('GET /ads/insights derives ctr and cpcMicros exactly, with nulls for zero denominators', async () => {

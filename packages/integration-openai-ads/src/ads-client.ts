@@ -4,11 +4,36 @@ import type {
   OpenAiAdsAd,
   OpenAiAdsAdGroup,
   OpenAiAdsCampaign,
+  OpenAiAdsCreateAdGroupRequest,
+  OpenAiAdsCreateAdRequest,
+  OpenAiAdsCreateCampaignRequest,
   OpenAiAdsInsightRow,
   OpenAiAdsInsightsOptions,
   OpenAiAdsListResponse,
+  OpenAiAdsUpdateAdGroupRequest,
+  OpenAiAdsUpdateAdRequest,
+  OpenAiAdsUpdateCampaignRequest,
+  OpenAiAdsUploadImageRequest,
+  OpenAiAdsUploadImageResponse,
 } from './types.js'
-import { OpenAiAdsApiError, parseErrorEnvelope } from './types.js'
+import {
+  OpenAiAdsApiError,
+  OpenAiAdsBillingEventTypes,
+  OpenAiAdsCreativeTypes,
+  OpenAiAdsWriteStatuses,
+  parseErrorEnvelope,
+} from './types.js'
+
+const MIN_ENTITY_NAME_LENGTH = 3
+const MAX_ENTITY_NAME_LENGTH = 1_000
+const MIN_CAMPAIGN_TIMESTAMP = 946_684_800
+const MAX_CAMPAIGN_TIMESTAMP = 4_102_444_800
+const MIN_LIFETIME_BUDGET_MICROS = 1_000_000
+const MIN_BID_MICROS = 1
+const MAX_BID_MICROS = 100_000_000
+const MIN_AD_TITLE_LENGTH = 3
+const MAX_AD_TITLE_LENGTH = 50
+const MAX_AD_BODY_LENGTH = 100
 
 function validateApiKey(apiKey: string): void {
   if (!apiKey || typeof apiKey !== 'string' || apiKey.trim().length === 0) {
@@ -20,6 +45,190 @@ function validateId(value: string, label: string): void {
   if (!value || typeof value !== 'string' || value.trim().length === 0) {
     throw new OpenAiAdsApiError(`${label} is required and must be a non-empty string`, 400)
   }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function validateRequestObject(value: unknown, label: string): asserts value is Record<string, unknown> {
+  if (!isRecord(value)) {
+    throw new OpenAiAdsApiError(`${label} must be a JSON object`, 400)
+  }
+}
+
+function validateNonEmptyRequest(value: unknown, label: string): asserts value is Record<string, unknown> {
+  validateRequestObject(value, label)
+  if (Object.keys(value).length === 0) {
+    throw new OpenAiAdsApiError(`${label} must include at least one field`, 400)
+  }
+}
+
+function validateEntityName(value: unknown, label: string): void {
+  if (
+    typeof value !== 'string' ||
+    value.trim().length < MIN_ENTITY_NAME_LENGTH ||
+    value.length > MAX_ENTITY_NAME_LENGTH
+  ) {
+    throw new OpenAiAdsApiError(
+      `${label} must be ${MIN_ENTITY_NAME_LENGTH}-${MAX_ENTITY_NAME_LENGTH} characters and include a non-space character`,
+      400,
+    )
+  }
+}
+
+function validateWriteStatus(value: unknown): void {
+  if (value !== OpenAiAdsWriteStatuses.active && value !== OpenAiAdsWriteStatuses.paused) {
+    throw new OpenAiAdsApiError('Status must be active or paused', 400)
+  }
+}
+
+function validateCampaignTimestamp(value: unknown, label: string): void {
+  if (value === undefined || value === null) return
+  if (
+    !Number.isInteger(value) ||
+    (value as number) < MIN_CAMPAIGN_TIMESTAMP ||
+    (value as number) > MAX_CAMPAIGN_TIMESTAMP
+  ) {
+    throw new OpenAiAdsApiError(
+      `${label} must be a Unix timestamp between ${MIN_CAMPAIGN_TIMESTAMP} and ${MAX_CAMPAIGN_TIMESTAMP}`,
+      400,
+    )
+  }
+}
+
+function validateCampaignBudget(value: unknown): void {
+  validateRequestObject(value, 'Campaign budget')
+  const limit = value.lifetime_spend_limit_micros
+  if (!Number.isInteger(limit) || (limit as number) < MIN_LIFETIME_BUDGET_MICROS) {
+    throw new OpenAiAdsApiError(
+      `Campaign budget lifetime_spend_limit_micros must be an integer of at least ${MIN_LIFETIME_BUDGET_MICROS}`,
+      400,
+    )
+  }
+}
+
+function validateCampaignTargeting(value: unknown): void {
+  if (value === undefined || value === null) return
+  validateRequestObject(value, 'Campaign targeting')
+  validateRequestObject(value.locations, 'Campaign targeting locations')
+  const include = value.locations.include
+  if (!Array.isArray(include) || include.length === 0) {
+    throw new OpenAiAdsApiError('Campaign targeting locations include must be a non-empty array', 400)
+  }
+  for (const target of include) {
+    validateRequestObject(target, 'Campaign location target')
+    validateId(target.id as string, 'Campaign location id')
+  }
+}
+
+function validateBiddingConfig(value: unknown): void {
+  validateRequestObject(value, 'Ad group bidding_config')
+  if (value.billing_event_type !== OpenAiAdsBillingEventTypes.impression) {
+    throw new OpenAiAdsApiError('Ad group billing_event_type must be impression', 400)
+  }
+  const maxBid = value.max_bid_micros
+  if (!Number.isInteger(maxBid) || (maxBid as number) < MIN_BID_MICROS || (maxBid as number) > MAX_BID_MICROS) {
+    throw new OpenAiAdsApiError(
+      `Ad group max_bid_micros must be an integer between ${MIN_BID_MICROS} and ${MAX_BID_MICROS}`,
+      400,
+    )
+  }
+}
+
+function validateContextHints(value: unknown): void {
+  if (value === undefined) return
+  if (!Array.isArray(value) || value.some((hint) => typeof hint !== 'string' || hint.trim().length === 0)) {
+    throw new OpenAiAdsApiError('Ad group context_hints must be an array of non-empty strings', 400)
+  }
+}
+
+function validateHttpUrl(value: unknown, label: string): void {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new OpenAiAdsApiError(`${label} is required and must be a non-empty URL`, 400)
+  }
+  try {
+    const parsed = new URL(value)
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      throw new Error('unsupported protocol')
+    }
+  } catch {
+    throw new OpenAiAdsApiError(`${label} must be an absolute HTTP or HTTPS URL`, 400)
+  }
+}
+
+function validateChatCardCreative(value: unknown): void {
+  validateRequestObject(value, 'Ad creative')
+  if (value.type !== OpenAiAdsCreativeTypes.chatCard) {
+    throw new OpenAiAdsApiError('Ad creative type must be chat_card', 400)
+  }
+  if (
+    typeof value.title !== 'string' ||
+    value.title.trim().length < MIN_AD_TITLE_LENGTH ||
+    value.title.length > MAX_AD_TITLE_LENGTH
+  ) {
+    throw new OpenAiAdsApiError(
+      `Ad creative title must be ${MIN_AD_TITLE_LENGTH}-${MAX_AD_TITLE_LENGTH} characters`,
+      400,
+    )
+  }
+  if (typeof value.body !== 'string' || value.body.trim().length === 0 || value.body.length > MAX_AD_BODY_LENGTH) {
+    throw new OpenAiAdsApiError(`Ad creative body must be 1-${MAX_AD_BODY_LENGTH} characters`, 400)
+  }
+  validateId(value.file_id as string, 'Ad creative file id')
+  validateHttpUrl(value.target_url, 'Ad creative target URL')
+}
+
+function validateCreateCampaignRequest(request: OpenAiAdsCreateCampaignRequest): void {
+  validateRequestObject(request, 'Campaign create request')
+  validateEntityName(request.name, 'Campaign name')
+  validateWriteStatus(request.status)
+  validateCampaignBudget(request.budget)
+  validateCampaignTimestamp(request.start_time, 'Campaign start_time')
+  validateCampaignTimestamp(request.end_time, 'Campaign end_time')
+  validateCampaignTargeting(request.targeting)
+}
+
+function validateUpdateCampaignRequest(request: OpenAiAdsUpdateCampaignRequest): void {
+  validateNonEmptyRequest(request, 'Campaign update request')
+  if (request.name !== undefined) validateEntityName(request.name, 'Campaign name')
+  if (request.status !== undefined) validateWriteStatus(request.status)
+  if (request.budget !== undefined) validateCampaignBudget(request.budget)
+  validateCampaignTimestamp(request.start_time, 'Campaign start_time')
+  validateCampaignTimestamp(request.end_time, 'Campaign end_time')
+  validateCampaignTargeting(request.targeting)
+}
+
+function validateCreateAdGroupRequest(request: OpenAiAdsCreateAdGroupRequest): void {
+  validateRequestObject(request, 'Ad group create request')
+  validateId(request.campaign_id, 'Campaign id')
+  validateEntityName(request.name, 'Ad group name')
+  validateWriteStatus(request.status)
+  validateContextHints(request.context_hints)
+  validateBiddingConfig(request.bidding_config)
+}
+
+function validateUpdateAdGroupRequest(request: OpenAiAdsUpdateAdGroupRequest): void {
+  validateNonEmptyRequest(request, 'Ad group update request')
+  if (request.name !== undefined) validateEntityName(request.name, 'Ad group name')
+  if (request.status !== undefined) validateWriteStatus(request.status)
+  validateContextHints(request.context_hints)
+  if (request.bidding_config !== undefined) validateBiddingConfig(request.bidding_config)
+}
+
+function validateCreateAdRequest(request: OpenAiAdsCreateAdRequest): void {
+  validateRequestObject(request, 'Ad create request')
+  validateId(request.ad_group_id, 'Ad group id')
+  validateEntityName(request.name, 'Ad name')
+  validateWriteStatus(request.status)
+  validateChatCardCreative(request.creative)
+}
+
+function validateUpdateAdRequest(request: OpenAiAdsUpdateAdRequest): void {
+  validateNonEmptyRequest(request, 'Ad update request')
+  if (request.name !== undefined) validateEntityName(request.name, 'Ad name')
+  if (request.status !== undefined) validateWriteStatus(request.status)
+  if (request.creative !== undefined) validateChatCardCreative(request.creative)
 }
 
 function adsClientLog(level: 'info' | 'error', action: string, ctx?: Record<string, unknown>): void {
@@ -44,15 +253,22 @@ function buildUrl(path: string, queryPairs: readonly string[]): string {
   return qs ? `${OPENAI_ADS_API_BASE}/${path}?${qs}` : `${OPENAI_ADS_API_BASE}/${path}`
 }
 
-async function adsFetch<T>(apiKey: string, path: string, queryPairs: readonly string[] = []): Promise<T> {
+async function adsFetch<T>(
+  apiKey: string,
+  path: string,
+  queryPairs: readonly string[] = [],
+  method: 'GET' | 'POST' = 'GET',
+  body?: unknown,
+): Promise<T> {
   const url = buildUrl(path, queryPairs)
 
   const res = await fetch(url, {
-    method: 'GET',
+    method,
     headers: {
       Authorization: `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
     },
+    body: body === undefined ? undefined : JSON.stringify(body),
     signal: AbortSignal.timeout(OPENAI_ADS_REQUEST_TIMEOUT_MS),
   })
 
@@ -120,16 +336,134 @@ export async function listCampaigns(apiKey: string): Promise<OpenAiAdsCampaign[]
   return fetchAllPages<OpenAiAdsCampaign>(apiKey, 'campaigns', [])
 }
 
+export async function getCampaign(apiKey: string, campaignId: string): Promise<OpenAiAdsCampaign> {
+  validateApiKey(apiKey)
+  validateId(campaignId, 'Campaign id')
+  return adsFetch<OpenAiAdsCampaign>(apiKey, `campaigns/${encodeURIComponent(campaignId)}`)
+}
+
+export async function createCampaign(
+  apiKey: string,
+  request: OpenAiAdsCreateCampaignRequest,
+): Promise<OpenAiAdsCampaign> {
+  validateApiKey(apiKey)
+  validateCreateCampaignRequest(request)
+  return adsFetch<OpenAiAdsCampaign>(apiKey, 'campaigns', [], 'POST', request)
+}
+
+export async function updateCampaign(
+  apiKey: string,
+  campaignId: string,
+  request: OpenAiAdsUpdateCampaignRequest,
+): Promise<OpenAiAdsCampaign> {
+  validateApiKey(apiKey)
+  validateId(campaignId, 'Campaign id')
+  validateUpdateCampaignRequest(request)
+  return adsFetch<OpenAiAdsCampaign>(apiKey, `campaigns/${encodeURIComponent(campaignId)}`, [], 'POST', request)
+}
+
+export async function activateCampaign(apiKey: string, campaignId: string): Promise<OpenAiAdsCampaign> {
+  validateApiKey(apiKey)
+  validateId(campaignId, 'Campaign id')
+  return adsFetch<OpenAiAdsCampaign>(apiKey, `campaigns/${encodeURIComponent(campaignId)}/activate`, [], 'POST')
+}
+
+export async function pauseCampaign(apiKey: string, campaignId: string): Promise<OpenAiAdsCampaign> {
+  validateApiKey(apiKey)
+  validateId(campaignId, 'Campaign id')
+  return adsFetch<OpenAiAdsCampaign>(apiKey, `campaigns/${encodeURIComponent(campaignId)}/pause`, [], 'POST')
+}
+
 export async function listAdGroups(apiKey: string, campaignId: string): Promise<OpenAiAdsAdGroup[]> {
   validateApiKey(apiKey)
   validateId(campaignId, 'Campaign id')
   return fetchAllPages<OpenAiAdsAdGroup>(apiKey, 'ad_groups', [`campaign_id=${encodeURIComponent(campaignId)}`])
 }
 
+export async function getAdGroup(apiKey: string, adGroupId: string): Promise<OpenAiAdsAdGroup> {
+  validateApiKey(apiKey)
+  validateId(adGroupId, 'Ad group id')
+  return adsFetch<OpenAiAdsAdGroup>(apiKey, `ad_groups/${encodeURIComponent(adGroupId)}`)
+}
+
+export async function createAdGroup(
+  apiKey: string,
+  request: OpenAiAdsCreateAdGroupRequest,
+): Promise<OpenAiAdsAdGroup> {
+  validateApiKey(apiKey)
+  validateCreateAdGroupRequest(request)
+  return adsFetch<OpenAiAdsAdGroup>(apiKey, 'ad_groups', [], 'POST', request)
+}
+
+export async function updateAdGroup(
+  apiKey: string,
+  adGroupId: string,
+  request: OpenAiAdsUpdateAdGroupRequest,
+): Promise<OpenAiAdsAdGroup> {
+  validateApiKey(apiKey)
+  validateId(adGroupId, 'Ad group id')
+  validateUpdateAdGroupRequest(request)
+  return adsFetch<OpenAiAdsAdGroup>(apiKey, `ad_groups/${encodeURIComponent(adGroupId)}`, [], 'POST', request)
+}
+
+export async function activateAdGroup(apiKey: string, adGroupId: string): Promise<OpenAiAdsAdGroup> {
+  validateApiKey(apiKey)
+  validateId(adGroupId, 'Ad group id')
+  return adsFetch<OpenAiAdsAdGroup>(apiKey, `ad_groups/${encodeURIComponent(adGroupId)}/activate`, [], 'POST')
+}
+
+export async function pauseAdGroup(apiKey: string, adGroupId: string): Promise<OpenAiAdsAdGroup> {
+  validateApiKey(apiKey)
+  validateId(adGroupId, 'Ad group id')
+  return adsFetch<OpenAiAdsAdGroup>(apiKey, `ad_groups/${encodeURIComponent(adGroupId)}/pause`, [], 'POST')
+}
+
 export async function listAds(apiKey: string, adGroupId: string): Promise<OpenAiAdsAd[]> {
   validateApiKey(apiKey)
   validateId(adGroupId, 'Ad group id')
   return fetchAllPages<OpenAiAdsAd>(apiKey, 'ads', [`ad_group_id=${encodeURIComponent(adGroupId)}`])
+}
+
+export async function getAd(apiKey: string, adId: string): Promise<OpenAiAdsAd> {
+  validateApiKey(apiKey)
+  validateId(adId, 'Ad id')
+  return adsFetch<OpenAiAdsAd>(apiKey, `ads/${encodeURIComponent(adId)}`)
+}
+
+export async function createAd(apiKey: string, request: OpenAiAdsCreateAdRequest): Promise<OpenAiAdsAd> {
+  validateApiKey(apiKey)
+  validateCreateAdRequest(request)
+  return adsFetch<OpenAiAdsAd>(apiKey, 'ads', [], 'POST', request)
+}
+
+export async function updateAd(
+  apiKey: string,
+  adId: string,
+  request: OpenAiAdsUpdateAdRequest,
+): Promise<OpenAiAdsAd> {
+  validateApiKey(apiKey)
+  validateId(adId, 'Ad id')
+  validateUpdateAdRequest(request)
+  return adsFetch<OpenAiAdsAd>(apiKey, `ads/${encodeURIComponent(adId)}`, [], 'POST', request)
+}
+
+export async function activateAd(apiKey: string, adId: string): Promise<OpenAiAdsAd> {
+  validateApiKey(apiKey)
+  validateId(adId, 'Ad id')
+  return adsFetch<OpenAiAdsAd>(apiKey, `ads/${encodeURIComponent(adId)}/activate`, [], 'POST')
+}
+
+export async function pauseAd(apiKey: string, adId: string): Promise<OpenAiAdsAd> {
+  validateApiKey(apiKey)
+  validateId(adId, 'Ad id')
+  return adsFetch<OpenAiAdsAd>(apiKey, `ads/${encodeURIComponent(adId)}/pause`, [], 'POST')
+}
+
+export async function uploadImageFromUrl(apiKey: string, imageUrl: string): Promise<OpenAiAdsUploadImageResponse> {
+  validateApiKey(apiKey)
+  validateHttpUrl(imageUrl, 'Image URL')
+  const request: OpenAiAdsUploadImageRequest = { image_url: imageUrl }
+  return adsFetch<OpenAiAdsUploadImageResponse>(apiKey, 'upload', [], 'POST', request)
 }
 
 export async function getAdAccountInsights(

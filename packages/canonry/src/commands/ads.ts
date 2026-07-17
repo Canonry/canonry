@@ -1,3 +1,4 @@
+import fs from 'node:fs'
 import type {
   AdsCampaignListResponse,
   AdsConnectionStatusDto,
@@ -5,14 +6,72 @@ import type {
   AdsInsightsResponse,
   AdsSummaryDto,
   AdsSyncResponse,
+  AdsOperationResponse,
+  AdsImageUploadRequest,
+  AdsCampaignCreateRequest,
+  AdsCampaignUpdateRequest,
+  AdsAdGroupCreateRequest,
+  AdsAdGroupUpdateRequest,
+  AdsAdCreateRequest,
+  AdsAdUpdateRequest,
+  AdsPauseRequest,
 } from '@ainyc/canonry-contracts'
-import { formatMicros } from '@ainyc/canonry-contracts'
+import {
+  adsAdCreateRequestSchema,
+  adsAdGroupCreateRequestSchema,
+  adsAdGroupUpdateRequestSchema,
+  adsAdUpdateRequestSchema,
+  adsCampaignCreateRequestSchema,
+  adsCampaignUpdateRequestSchema,
+  adsImageUploadRequestSchema,
+  adsPauseRequestSchema,
+  formatMicros,
+} from '@ainyc/canonry-contracts'
+import type { z } from 'zod'
 import { createApiClient } from '../client.js'
 import { CliError, isMachineFormat } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
 
 function getClient() {
   return createApiClient()
+}
+
+function readRequest<TSchema extends z.ZodTypeAny>(inputPath: string | undefined, schema: TSchema): z.infer<TSchema> {
+  if (!inputPath) {
+    throw new CliError({
+      code: 'ADS_INPUT_REQUIRED',
+      message: 'A JSON input file is required',
+      displayMessage: 'Error: --input <json-file> is required (use --input - for stdin)',
+    })
+  }
+  try {
+    const raw = fs.readFileSync(inputPath === '-' ? 0 : inputPath, 'utf8')
+    return schema.parse(JSON.parse(raw))
+  } catch (err) {
+    if (err instanceof CliError) throw err
+    throw new CliError({
+      code: 'ADS_INPUT_INVALID',
+      message: err instanceof Error ? err.message : String(err),
+      displayMessage: `Error: invalid ads JSON input (${err instanceof Error ? err.message : String(err)})`,
+      details: { inputPath },
+    })
+  }
+}
+
+function printOperation(result: AdsOperationResponse, format?: string): void {
+  if (isMachineFormat(format)) {
+    console.log(JSON.stringify(result, null, 2))
+    return
+  }
+  const operation = result.operation
+  console.log(`${result.replayed ? 'Replayed' : 'Recorded'} ${operation.kind}: ${operation.state}`)
+  console.log(`Operation: ${operation.operationKey}`)
+  if (operation.entityId) console.log(`Entity:    ${operation.entityType ?? 'unknown'} ${operation.entityId}`)
+  if (operation.upstreamUpdatedAt != null) console.log(`Updated:   ${operation.upstreamUpdatedAt}`)
+  if (operation.errorCode) console.log(`Error:     ${operation.errorCode}: ${operation.errorMessage ?? ''}`)
+  if (operation.state === 'unknown') {
+    console.log('Do not retry with a new operation key. Reconcile this outcome with a human first.')
+  }
 }
 
 function describeConnection(status: AdsConnectionStatusDto): string[] {
@@ -73,6 +132,99 @@ export async function adsStatus(project: string, opts?: { format?: string }): Pr
   if (!result.connected) {
     console.log('Connect with: canonry ads connect ' + project + ' --api-key <sdk-key>')
   }
+}
+
+export async function adsOperationGet(
+  project: string,
+  opts: { operationKey: string; format?: string },
+): Promise<void> {
+  printOperation(await getClient().getAdsOperation(project, opts.operationKey), opts.format)
+}
+
+export async function adsImageUpload(
+  project: string,
+  opts: { input?: string; format?: string },
+): Promise<void> {
+  const request: AdsImageUploadRequest = readRequest(opts.input, adsImageUploadRequestSchema)
+  printOperation(await getClient().uploadAdsImage(project, request), opts.format)
+}
+
+export async function adsCampaignCreate(
+  project: string,
+  opts: { input?: string; format?: string },
+): Promise<void> {
+  const request: AdsCampaignCreateRequest = readRequest(opts.input, adsCampaignCreateRequestSchema)
+  printOperation(await getClient().createAdsCampaign(project, request), opts.format)
+}
+
+export async function adsCampaignUpdate(
+  project: string,
+  campaignId: string,
+  opts: { input?: string; format?: string },
+): Promise<void> {
+  const request: AdsCampaignUpdateRequest = readRequest(opts.input, adsCampaignUpdateRequestSchema)
+  printOperation(await getClient().updateAdsCampaign(project, campaignId, request), opts.format)
+}
+
+export async function adsCampaignPause(
+  project: string,
+  campaignId: string,
+  opts: { input?: string; format?: string },
+): Promise<void> {
+  const request: AdsPauseRequest = readRequest(opts.input, adsPauseRequestSchema)
+  printOperation(await getClient().pauseAdsCampaign(project, campaignId, request), opts.format)
+}
+
+export async function adsAdGroupCreate(
+  project: string,
+  opts: { input?: string; format?: string },
+): Promise<void> {
+  const request: AdsAdGroupCreateRequest = readRequest(opts.input, adsAdGroupCreateRequestSchema)
+  printOperation(await getClient().createAdsAdGroup(project, request), opts.format)
+}
+
+export async function adsAdGroupUpdate(
+  project: string,
+  adGroupId: string,
+  opts: { input?: string; format?: string },
+): Promise<void> {
+  const request: AdsAdGroupUpdateRequest = readRequest(opts.input, adsAdGroupUpdateRequestSchema)
+  printOperation(await getClient().updateAdsAdGroup(project, adGroupId, request), opts.format)
+}
+
+export async function adsAdGroupPause(
+  project: string,
+  adGroupId: string,
+  opts: { input?: string; format?: string },
+): Promise<void> {
+  const request: AdsPauseRequest = readRequest(opts.input, adsPauseRequestSchema)
+  printOperation(await getClient().pauseAdsAdGroup(project, adGroupId, request), opts.format)
+}
+
+export async function adsAdCreate(
+  project: string,
+  opts: { input?: string; format?: string },
+): Promise<void> {
+  const request: AdsAdCreateRequest = readRequest(opts.input, adsAdCreateRequestSchema)
+  printOperation(await getClient().createAdsAd(project, request), opts.format)
+}
+
+export async function adsAdUpdate(
+  project: string,
+  adId: string,
+  opts: { input?: string; format?: string },
+): Promise<void> {
+  const request: AdsAdUpdateRequest = readRequest(opts.input, adsAdUpdateRequestSchema)
+  printOperation(await getClient().updateAdsAd(project, adId, request), opts.format)
+}
+
+export async function adsAdPause(
+  project: string,
+  adId: string,
+  opts: { input?: string; format?: string },
+): Promise<void> {
+  const request: AdsPauseRequest = readRequest(opts.input, adsPauseRequestSchema)
+  printOperation(await getClient().pauseAdsAd(project, adId, request), opts.format)
 }
 
 export async function adsSync(project: string, opts?: { format?: string }): Promise<void> {

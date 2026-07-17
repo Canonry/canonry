@@ -2,18 +2,21 @@
 
 ## Purpose
 
-OpenAI Advertiser API (ChatGPT ads) integration — typed read client for ad
-account, campaigns, ad groups, ads, and insights. The paid-surface counterpart
+OpenAI Advertiser API (ChatGPT ads) integration — typed client for ad account,
+campaigns, ad groups, ads, insights, image upload, and lifecycle mutations. The paid-surface counterpart
 to the organic answer-visibility data: ads render only in the ChatGPT consumer
 UI (never in API answers), so this client is the only window into the paid
-layer. Lane shape: read-only insights ingestion (`ads-sync`) first, lifecycle
-management behind an `ads.write` scope later, then paid-vs-organic overlap insights.
+layer. Public Canonry routes place lifecycle writes behind `ads.write`, force
+creates paused, omit archive and activation, and record durable receipts. The
+internal client implementation still mirrors the upstream activate primitives,
+but the package root intentionally does not export them. Package consumers can
+create, update, and pause entities; a human activates in Ads Manager.
 
 ## Key Files
 
 | File | Role |
 |------|------|
-| `src/ads-client.ts` | API client — account, campaigns, ad groups, ads, insights |
+| `src/ads-client.ts` | API client — account, campaigns, ad groups, ads, insights, upload, and lifecycle actions |
 | `src/types.ts` | Response types (mirrored from captured live responses) and `OpenAiAdsApiError` |
 | `src/constants.ts` | API base URL, timeouts, pagination cap |
 | `src/index.ts` | Re-exports public API |
@@ -36,6 +39,12 @@ management behind an `ads.write` scope later, then paid-vs-organic overlap insig
   (`daily_spend_limit_micros`, `max_bid_micros`) but insights `spend`/`cpc`
   are decimal dollars. Consumers must normalize at ingest — this client
   returns values as the API sends them.
+- **Provider writes are not idempotent by contract**: callers must establish a
+  durable operation receipt before the network call and never blindly retry an
+  ambiguous outcome. Canonry's route layer owns that receipt policy.
+- **Activation and archive are policy decisions**: archive is irreversible;
+  the beta public surface exposes neither archive nor activation. Creates are
+  paused, updates require a paused entity, and a human activates in Ads Manager.
 - **Vocabulary**: paid metrics are `paid` / `sponsored` — never reuse
   `mentioned` / `cited` (those mean answer-text and source-list presence).
 
@@ -46,3 +55,5 @@ management behind an `ads.write` scope later, then paid-vs-organic overlap insig
   live response (sanitized identifiers). When the API surface grows, capture
   the real response first.
 - **Treating insights `spend` as micros** — it is decimal dollars.
+- **Retrying a timed-out mutation** — reconcile the entity in Ads Manager or
+  through a fresh sync; the first request may already have succeeded.
