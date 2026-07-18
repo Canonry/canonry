@@ -566,8 +566,19 @@ Paid-surface data for the project's connected OpenAI ad account. Ads render only
 ```
 cnry ads connect <project> --api-key <sdk-key>   # mint the key in OpenAI Ads Manager; validated upstream, stored in ~/.canonry/config.yaml
 cnry ads status <project>
+cnry ads image upload <project> --input image.json
+cnry ads campaign create <project> --input campaign.json
+cnry ads campaign update <project> <campaign-id> --input update.json
+cnry ads campaign pause <project> <campaign-id> --input pause.json
+cnry ads ad-group create <project> --input group.json
+cnry ads ad-group update <project> <ad-group-id> --input update.json
+cnry ads ad-group pause <project> <ad-group-id> --input pause.json
+cnry ads ad create <project> --input ad.json
+cnry ads ad update <project> <ad-id> --input update.json
+cnry ads ad pause <project> <ad-id> --input pause.json
+cnry ads operation <project> <operation-key>     # inspect/reconcile a durable mutation receipt
 cnry ads sync <project>                          # ads-sync run: entity snapshots + daily rollups
-cnry ads campaigns <project> --format jsonl      # snapshots incl. context hints (newline-separated example queries)
+cnry ads campaigns <project> --format jsonl      # lifecycle timestamps, location IDs, context hints, creative file IDs
 cnry ads insights <project> --level campaign --from 2026-06-01 --format jsonl
 cnry ads summary <project>                       # campaign-level totals only (no double counting)
 cnry ads disconnect <project>
@@ -576,6 +587,47 @@ cnry schedule set <project> --kind ads-sync --preset daily
 
 `ads sync` runs report `completed` / `partial` (some campaigns failed; per-campaign errors on the run) / `failed`. Doctor checks: `ads.auth.connection`, `ads.data.recent-sync` (both skipped when not connected).
 
+Lifecycle inputs are JSON files, or `--input -` for stdin. Every request carries
+a unique `operationKey`. Identical replays return the stored receipt without a
+second upstream request; if a receipt is `pending` or `unknown`, do not retry
+with a different key. Creates are always paused. Updates require the entity to
+already be paused and `expectedUpdatedAt` to equal the latest
+`upstreamUpdatedAt` from `ads campaigns` after a sync. Canonry exposes pause as
+the kill switch but deliberately omits activation and archive; a human reviews
+and activates in Ads Manager.
+
+Campaign updates may omit `locationIds` to preserve current geo targeting or
+pass a non-empty list to replace it. The guarded operator cannot pass `null` or
+an empty list to clear targeting. OpenAI documents that clearing targeting can
+make the campaign eligible for all available locations, so an intentional
+all-location change remains a human action in Ads Manager. See
+[Campaign Targeting](https://developers.openai.com/ads/campaign-targeting) and
+the [campaign update contract](https://developers.openai.com/ads/api-reference/campaigns#update-a-campaign).
+
+### Guarded operator release gates
+
+Default external automation to a project-scoped API key with exactly `read`
+and `ads.write`; never hand an external operator an unscoped key:
+
+```bash
+canonry key create --name ads-operator --project <project> --scope read --scope ads.write
+```
+
+Before enabling spend on an advertiser account, run a paused,
+disposable live-provider smoke test and capture sanitized raw responses for
+campaign get, create, and pause. For every response, verify and record the exact
+case and type of `status`, plus the type and exact returned value of
+`updated_at`. The captured responses must agree with the typed client and
+fixtures without coercion.
+
+Keep the operator on one Canonry writer instance with human receipt
+reconciliation until both production gates pass:
+
+- A deterministic reconciler resolves `pending` and `unknown` receipts against
+  provider state, settles the original receipt, and prevents blind replays.
+- A multi-instance race test proves simultaneous inserts of the same
+  `(project, operationKey)` produce one upstream sender and a safe receipt
+  replay for every loser, with no double send or unhandled unique-key error.
 
 ## Backlinks (source-aware: Common Crawl + Bing Webmaster)
 

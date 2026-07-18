@@ -13,6 +13,7 @@ import {
   adsAdGroups,
   adsAds,
   adsInsightsDaily,
+  adsOperations,
 } from '../src/index.js'
 
 function createTempDb() {
@@ -131,6 +132,24 @@ test('one connection per project is enforced', () => {
   ).toThrow(/UNIQUE/i)
 })
 
+test('ads operation receipts enforce one operation key per project and round-trip unknown outcomes', () => {
+  const { db, tmpDir } = createTempDb()
+  onTestFinished(() => cleanup(tmpDir))
+  seedProject(db)
+  db.insert(adsOperations).values({
+    id: 'op_1', projectId: 'proj_1', operationKey: 'weekend:campaign:1', requestHash: 'abc',
+    kind: 'campaign_create', state: 'unknown', entityType: 'campaign', errorCode: 'socket_closed',
+    errorMessage: 'socket closed after request write', createdAt: NOW, updatedAt: NOW,
+  }).run()
+
+  const row = db.select().from(adsOperations).where(eq(adsOperations.operationKey, 'weekend:campaign:1')).get()
+  expect(row).toMatchObject({ state: 'unknown', entityType: 'campaign', entityId: null })
+  expect(() => db.insert(adsOperations).values({
+    id: 'op_2', projectId: 'proj_1', operationKey: 'weekend:campaign:1', requestHash: 'def',
+    kind: 'campaign_create', state: 'pending', createdAt: NOW, updatedAt: NOW,
+  }).run()).toThrow(/UNIQUE/i)
+})
+
 test('insights upsert on (project, level, entity, date) replaces instead of duplicating', () => {
   const { db, tmpDir } = createTempDb()
   onTestFinished(() => cleanup(tmpDir))
@@ -174,6 +193,7 @@ test('deleting a project cascades through connection, entities, and insights', (
   expect(db.select().from(adsAdGroups).all().length).toBe(0)
   expect(db.select().from(adsAds).all().length).toBe(0)
   expect(db.select().from(adsInsightsDaily).all().length).toBe(0)
+  expect(db.select().from(adsOperations).all().length).toBe(0)
 })
 
 test('deleting a campaign cascades to its ad groups and ads', () => {

@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { apiKeys, projects, runs } from '@ainyc/canonry-db'
 import {
+  ADS_WRITE_SCOPE,
   authRequired,
   authInvalid,
   forbidden,
@@ -18,6 +19,17 @@ import {
  * CORS preflight — are never blocked.
  */
 const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
+
+function isAdsWriteOnlyKey(scopes: readonly string[]): boolean {
+  const writeGrants = scopes.filter((scope) =>
+    scope === '*' || scope === 'write' || scope.endsWith('.write'))
+  return writeGrants.length === 1 && writeGrants[0] === ADS_WRITE_SCOPE
+}
+
+function isAdsWriteRoute(url: string): boolean {
+  const rest = projectRouteRest(url)
+  return rest !== null && rest.startsWith('ads/')
+}
 
 /**
  * Resolved API key attached to every authenticated request. Used by scope
@@ -308,6 +320,20 @@ export async function authPlugin(app: FastifyInstance, opts: AuthPluginOptions =
     // the `last_used_at` write above (infrastructural usage tracking).
     if (isReadOnlyKey(scopes) && WRITE_METHODS.has(request.method)) {
       throw forbidden('This API key is read-only and cannot perform write operations.')
+    }
+
+    // `ads.write` is the first delegated operator scope used by an autonomous
+    // external client. Keep a key whose only write grant is ads.write inside
+    // the project's `/ads/*` surface even though older write routes still rely
+    // on the historical read-only-vs-write classifier. Every ads mutation also
+    // calls requireScope(), so the route and the key must agree in both
+    // directions. Wildcard/root keys retain the existing full-instance access.
+    if (
+      isAdsWriteOnlyKey(scopes) &&
+      WRITE_METHODS.has(request.method) &&
+      !isAdsWriteRoute(url)
+    ) {
+      throw forbidden('This API key can only perform OpenAI Ads write operations.')
     }
 
     enforceEmbedProjectTabs(request, opts.embedProjectTabs)

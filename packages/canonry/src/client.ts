@@ -53,6 +53,15 @@ import type {
   AdsSyncResponse,
   AdsCampaignListResponse,
   AdsInsightsResponse,
+  AdsOperationResponse,
+  AdsImageUploadRequest,
+  AdsCampaignCreateRequest,
+  AdsCampaignUpdateRequest,
+  AdsAdGroupCreateRequest,
+  AdsAdGroupUpdateRequest,
+  AdsAdCreateRequest,
+  AdsAdUpdateRequest,
+  AdsPauseRequest,
   AdsSummaryDto,
   GbpSyncResponse,
   GbpDailyMetricListResponse,
@@ -218,6 +227,17 @@ import {
   getApiV1ProjectsByNameAdsCampaigns,
   getApiV1ProjectsByNameAdsInsights,
   getApiV1ProjectsByNameAdsSummary,
+  getApiV1ProjectsByNameAdsOperationsByOperationKey,
+  postApiV1ProjectsByNameAdsFiles,
+  postApiV1ProjectsByNameAdsCampaigns,
+  postApiV1ProjectsByNameAdsCampaignsById,
+  postApiV1ProjectsByNameAdsCampaignsByIdPause,
+  postApiV1ProjectsByNameAdsAdGroups,
+  postApiV1ProjectsByNameAdsAdGroupsById,
+  postApiV1ProjectsByNameAdsAdGroupsByIdPause,
+  postApiV1ProjectsByNameAdsAds,
+  postApiV1ProjectsByNameAdsAdsById,
+  postApiV1ProjectsByNameAdsAdsByIdPause,
   postApiV1ProjectsByNameGbpSync,
   getApiV1ProjectsByNameGbpMetrics,
   getApiV1ProjectsByNameGbpKeywords,
@@ -1401,6 +1421,119 @@ export class ApiClient {
   async getAdsSummary(project: string): Promise<AdsSummaryDto> {
     return this.invoke<AdsSummaryDto>(() =>
       getApiV1ProjectsByNameAdsSummary({ client: this.heyClient, path: { name: project } }),
+    )
+  }
+
+  async getAdsOperation(project: string, operationKey: string): Promise<AdsOperationResponse> {
+    return this.invoke<AdsOperationResponse>(() =>
+      getApiV1ProjectsByNameAdsOperationsByOperationKey({
+        client: this.heyClient,
+        path: { name: project, operationKey },
+      }),
+    )
+  }
+
+  async uploadAdsImage(project: string, body: AdsImageUploadRequest): Promise<AdsOperationResponse> {
+    return this.invoke<AdsOperationResponse>(() =>
+      postApiV1ProjectsByNameAdsFiles({ client: this.heyClient, path: { name: project }, body }),
+    )
+  }
+
+  async createAdsCampaign(project: string, body: AdsCampaignCreateRequest): Promise<AdsOperationResponse> {
+    return this.invoke<AdsOperationResponse>(() =>
+      postApiV1ProjectsByNameAdsCampaigns({ client: this.heyClient, path: { name: project }, body }),
+    )
+  }
+
+  async updateAdsCampaign(
+    project: string,
+    campaignId: string,
+    body: AdsCampaignUpdateRequest,
+  ): Promise<AdsOperationResponse> {
+    return this.invoke<AdsOperationResponse>(() =>
+      postApiV1ProjectsByNameAdsCampaignsById({
+        client: this.heyClient,
+        path: { name: project, id: campaignId },
+        body,
+      }),
+    )
+  }
+
+  async pauseAdsCampaign(
+    project: string,
+    campaignId: string,
+    body: AdsPauseRequest,
+  ): Promise<AdsOperationResponse> {
+    return this.invoke<AdsOperationResponse>(() =>
+      postApiV1ProjectsByNameAdsCampaignsByIdPause({
+        client: this.heyClient,
+        path: { name: project, id: campaignId },
+        body,
+      }),
+    )
+  }
+
+  async createAdsAdGroup(project: string, body: AdsAdGroupCreateRequest): Promise<AdsOperationResponse> {
+    return this.invoke<AdsOperationResponse>(() =>
+      postApiV1ProjectsByNameAdsAdGroups({ client: this.heyClient, path: { name: project }, body }),
+    )
+  }
+
+  async updateAdsAdGroup(
+    project: string,
+    adGroupId: string,
+    body: AdsAdGroupUpdateRequest,
+  ): Promise<AdsOperationResponse> {
+    return this.invoke<AdsOperationResponse>(() =>
+      postApiV1ProjectsByNameAdsAdGroupsById({
+        client: this.heyClient,
+        path: { name: project, id: adGroupId },
+        body,
+      }),
+    )
+  }
+
+  async pauseAdsAdGroup(
+    project: string,
+    adGroupId: string,
+    body: AdsPauseRequest,
+  ): Promise<AdsOperationResponse> {
+    return this.invoke<AdsOperationResponse>(() =>
+      postApiV1ProjectsByNameAdsAdGroupsByIdPause({
+        client: this.heyClient,
+        path: { name: project, id: adGroupId },
+        body,
+      }),
+    )
+  }
+
+  async createAdsAd(project: string, body: AdsAdCreateRequest): Promise<AdsOperationResponse> {
+    return this.invoke<AdsOperationResponse>(() =>
+      postApiV1ProjectsByNameAdsAds({ client: this.heyClient, path: { name: project }, body }),
+    )
+  }
+
+  async updateAdsAd(
+    project: string,
+    adId: string,
+    body: AdsAdUpdateRequest,
+  ): Promise<AdsOperationResponse> {
+    return this.invoke<AdsOperationResponse>(() =>
+      postApiV1ProjectsByNameAdsAdsById({
+        client: this.heyClient,
+        path: { name: project, id: adId },
+        body,
+      }),
+    )
+  }
+
+  async pauseAdsAd(project: string, adId: string, body: AdsPauseRequest): Promise<AdsOperationResponse> {
+    return this.invoke<AdsOperationResponse>(() =>
+      postApiV1ProjectsByNameAdsAdsByIdPause({
+        client: this.heyClient,
+        path: { name: project, id: adId },
+        body,
+      }),
     )
   }
 

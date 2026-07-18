@@ -19,6 +19,9 @@ export const READ_ONLY_SCOPE = 'read'
 /** Full access. The default `canonry init` root key carries this. */
 export const WILDCARD_SCOPE = '*'
 
+/** Grants access to OpenAI Ads campaign mutations. */
+export const ADS_WRITE_SCOPE = 'ads.write'
+
 /** A scope grants write capability when it is the wildcard, the bare `write`, or any `*.write`. */
 function grantsWrite(scope: string): boolean {
   return scope === WILDCARD_SCOPE || scope === 'write' || scope.endsWith('.write')

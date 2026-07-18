@@ -80,6 +80,17 @@ export const AERO_ADS_OPERATOR_MCP_TOOL_NAMES: ReadonlySet<CanonryMcpToolName> =
   CanonryMcpToolNames.canonry_ads_campaigns,
   CanonryMcpToolNames.canonry_ads_insights,
   CanonryMcpToolNames.canonry_ads_summary,
+  CanonryMcpToolNames.canonry_ads_operation_get,
+  CanonryMcpToolNames.canonry_ads_image_upload,
+  CanonryMcpToolNames.canonry_ads_campaign_create,
+  CanonryMcpToolNames.canonry_ads_campaign_update,
+  CanonryMcpToolNames.canonry_ads_campaign_pause,
+  CanonryMcpToolNames.canonry_ads_ad_group_create,
+  CanonryMcpToolNames.canonry_ads_ad_group_update,
+  CanonryMcpToolNames.canonry_ads_ad_group_pause,
+  CanonryMcpToolNames.canonry_ads_ad_create,
+  CanonryMcpToolNames.canonry_ads_ad_update,
+  CanonryMcpToolNames.canonry_ads_ad_pause,
   CanonryMcpToolNames.canonry_ads_sync,
 ])
 
@@ -168,6 +179,7 @@ function compactCampaigns(response: AdsCampaignListResponse, limit: number) {
       adGroups: campaign.adGroups.slice(0, 8).map((group) => ({
         id: group.id,
         name: group.name,
+        description: group.description,
         status: group.status,
         billingEventType: group.billingEventType,
         maxBidMicros: group.maxBidMicros,
@@ -179,16 +191,27 @@ function compactCampaigns(response: AdsCampaignListResponse, limit: number) {
           name: ad.name,
           status: ad.status,
           reviewStatus: ad.reviewStatus,
+          upstreamUpdatedAt: ad.upstreamUpdatedAt,
+          syncedAt: ad.syncedAt,
           creative: ad.creative
             ? {
                 type: ad.creative.type,
                 title: ad.creative.title,
                 body: ad.creative.body,
                 targetUrl: ad.creative.targetUrl,
+                fileId: ad.creative.fileId,
               }
             : ad.creative,
         })),
+        upstreamUpdatedAt: group.upstreamUpdatedAt,
+        syncedAt: group.syncedAt,
       })),
+      description: campaign.description,
+      startTime: campaign.startTime,
+      endTime: campaign.endTime,
+      locationIds: campaign.locationIds ?? [],
+      upstreamUpdatedAt: campaign.upstreamUpdatedAt,
+      syncedAt: campaign.syncedAt,
     })),
   }
 }

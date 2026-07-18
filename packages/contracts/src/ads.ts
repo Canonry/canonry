@@ -43,6 +43,7 @@ export const adsCreativeDtoSchema = z.object({
   title: z.string().nullable().optional(),
   body: z.string().nullable().optional(),
   targetUrl: z.string().nullable().optional(),
+  fileId: z.string().nullable().optional(),
 })
 export type AdsCreativeDto = z.infer<typeof adsCreativeDtoSchema>
 
@@ -53,6 +54,8 @@ export const adsAdDtoSchema = z.object({
   status: z.string(),
   reviewStatus: z.string().nullable().optional(),
   creative: adsCreativeDtoSchema.nullable().optional(),
+  upstreamUpdatedAt: z.number().int().nullable().optional(),
+  syncedAt: z.string().optional(),
 })
 export type AdsAdDto = z.infer<typeof adsAdDtoSchema>
 
@@ -60,6 +63,7 @@ export const adsAdGroupDtoSchema = z.object({
   id: z.string(),
   campaignId: z.string(),
   name: z.string(),
+  description: z.string().nullable().optional(),
   status: z.string(),
   billingEventType: z.string().nullable().optional(),
   maxBidMicros: z.number().int().nullable().optional(),
@@ -69,17 +73,25 @@ export const adsAdGroupDtoSchema = z.object({
    */
   contextHints: z.array(z.string()).default([]),
   ads: z.array(adsAdDtoSchema).default([]),
+  upstreamUpdatedAt: z.number().int().nullable().optional(),
+  syncedAt: z.string().optional(),
 })
 export type AdsAdGroupDto = z.infer<typeof adsAdGroupDtoSchema>
 
 export const adsCampaignDtoSchema = z.object({
   id: z.string(),
   name: z.string(),
+  description: z.string().nullable().optional(),
   status: z.string(),
+  startTime: z.number().int().nullable().optional(),
+  endTime: z.number().int().nullable().optional(),
   biddingType: z.string().nullable().optional(),
   dailySpendLimitMicros: z.number().int().nullable().optional(),
   lifetimeSpendLimitMicros: z.number().int().nullable().optional(),
+  locationIds: z.array(z.string()).optional(),
   adGroups: z.array(adsAdGroupDtoSchema).default([]),
+  upstreamUpdatedAt: z.number().int().nullable().optional(),
+  syncedAt: z.string().optional(),
 })
 export type AdsCampaignDto = z.infer<typeof adsCampaignDtoSchema>
 
@@ -148,6 +160,165 @@ export const adsSummaryDtoSchema = z.object({
   totals: adsTotalsDtoSchema,
 })
 export type AdsSummaryDto = z.infer<typeof adsSummaryDtoSchema>
+
+// Campaign lifecycle writes are intentionally narrower than the upstream API:
+// creates are always paused, status is never accepted on update, and archive is
+// omitted because it is irreversible. The route layer injects the safe status.
+const adsOperationKeySchema = z
+  .string()
+  .min(8)
+  .max(128)
+  .regex(/^[\w.:-]+$/, 'operationKey may contain letters, numbers, dot, underscore, colon, and hyphen')
+
+const adsEntityIdSchema = z.string().min(1).max(200)
+const adsNameSchema = z.string().min(3).max(1000).refine((value) => value.trim().length > 0)
+const adsTimestampSchema = z.number().int().min(946684800).max(4102444800)
+const adsMicrosSchema = z.number().int().positive().max(Number.MAX_SAFE_INTEGER)
+const adsHttpsUrlSchema = z.string().url().refine((value) => new URL(value).protocol === 'https:', {
+  message: 'URL must use https',
+})
+
+export const adsOperationKindSchema = z.enum([
+  'image_upload',
+  'campaign_create',
+  'campaign_update',
+  'campaign_pause',
+  'ad_group_create',
+  'ad_group_update',
+  'ad_group_pause',
+  'ad_create',
+  'ad_update',
+  'ad_pause',
+])
+export type AdsOperationKind = z.infer<typeof adsOperationKindSchema>
+export const AdsOperationKinds = adsOperationKindSchema.enum
+
+export const adsOperationStateSchema = z.enum(['pending', 'succeeded', 'failed', 'unknown'])
+export type AdsOperationState = z.infer<typeof adsOperationStateSchema>
+export const AdsOperationStates = adsOperationStateSchema.enum
+
+export const adsEntityStatusSchema = z.enum(['active', 'paused', 'archived'])
+export type AdsEntityStatus = z.infer<typeof adsEntityStatusSchema>
+export const AdsEntityStatuses = adsEntityStatusSchema.enum
+
+export const adsEntityTypeSchema = z.enum(['file', 'campaign', 'ad_group', 'ad'])
+export type AdsEntityType = z.infer<typeof adsEntityTypeSchema>
+export const AdsEntityTypes = adsEntityTypeSchema.enum
+
+export const adsImageUploadRequestSchema = z.object({
+  operationKey: adsOperationKeySchema,
+  imageUrl: adsHttpsUrlSchema,
+})
+export type AdsImageUploadRequest = z.infer<typeof adsImageUploadRequestSchema>
+
+export const adsCampaignCreateRequestSchema = z
+  .object({
+    operationKey: adsOperationKeySchema,
+    name: adsNameSchema,
+    description: z.string().max(4000).optional(),
+    startTime: adsTimestampSchema.optional(),
+    endTime: adsTimestampSchema.optional(),
+    lifetimeSpendLimitMicros: adsMicrosSchema.min(1_000_000),
+    locationIds: z.array(adsEntityIdSchema).min(1).max(100),
+  })
+  .superRefine((value, ctx) => {
+    if (value.startTime !== undefined && value.endTime !== undefined && value.endTime <= value.startTime) {
+      ctx.addIssue({ code: 'custom', path: ['endTime'], message: 'endTime must be after startTime' })
+    }
+  })
+export type AdsCampaignCreateRequest = z.infer<typeof adsCampaignCreateRequestSchema>
+
+export const adsAdGroupCreateRequestSchema = z.object({
+  operationKey: adsOperationKeySchema,
+  campaignId: adsEntityIdSchema,
+  name: adsNameSchema,
+  description: z.string().max(4000).optional(),
+  contextHints: z.array(z.string().min(1).max(1000)).min(1).max(100),
+  maxBidMicros: adsMicrosSchema.max(100_000_000),
+})
+export type AdsAdGroupCreateRequest = z.infer<typeof adsAdGroupCreateRequestSchema>
+
+export const adsChatCardCreativeRequestSchema = z.object({
+  title: z.string().min(3).max(50),
+  body: z.string().min(1).max(100),
+  targetUrl: adsHttpsUrlSchema,
+  fileId: adsEntityIdSchema,
+})
+export type AdsChatCardCreativeRequest = z.infer<typeof adsChatCardCreativeRequestSchema>
+
+export const adsAdCreateRequestSchema = z.object({
+  operationKey: adsOperationKeySchema,
+  adGroupId: adsEntityIdSchema,
+  name: adsNameSchema,
+  creative: adsChatCardCreativeRequestSchema,
+})
+export type AdsAdCreateRequest = z.infer<typeof adsAdCreateRequestSchema>
+
+function hasMutationField(value: Record<string, unknown>): boolean {
+  return Object.keys(value).some((key) => key !== 'operationKey' && key !== 'expectedUpdatedAt')
+}
+
+export const adsCampaignUpdateRequestSchema = z
+  .object({
+    operationKey: adsOperationKeySchema,
+    expectedUpdatedAt: z.number().int().nonnegative(),
+    name: adsNameSchema.optional(),
+    description: z.string().max(4000).nullable().optional(),
+    startTime: adsTimestampSchema.nullable().optional(),
+    endTime: adsTimestampSchema.nullable().optional(),
+    lifetimeSpendLimitMicros: adsMicrosSchema.min(1_000_000).optional(),
+    locationIds: z.array(adsEntityIdSchema).min(1).max(100).optional(),
+  })
+  .refine(hasMutationField, { message: 'At least one campaign field must be updated' })
+export type AdsCampaignUpdateRequest = z.infer<typeof adsCampaignUpdateRequestSchema>
+
+export const adsAdGroupUpdateRequestSchema = z
+  .object({
+    operationKey: adsOperationKeySchema,
+    expectedUpdatedAt: z.number().int().nonnegative(),
+    name: adsNameSchema.optional(),
+    description: z.string().max(4000).nullable().optional(),
+    contextHints: z.array(z.string().min(1).max(1000)).min(1).max(100).optional(),
+    maxBidMicros: adsMicrosSchema.max(100_000_000).optional(),
+  })
+  .refine(hasMutationField, { message: 'At least one ad group field must be updated' })
+export type AdsAdGroupUpdateRequest = z.infer<typeof adsAdGroupUpdateRequestSchema>
+
+export const adsAdUpdateRequestSchema = z
+  .object({
+    operationKey: adsOperationKeySchema,
+    expectedUpdatedAt: z.number().int().nonnegative(),
+    name: adsNameSchema.optional(),
+    creative: adsChatCardCreativeRequestSchema.optional(),
+  })
+  .refine(hasMutationField, { message: 'At least one ad field must be updated' })
+export type AdsAdUpdateRequest = z.infer<typeof adsAdUpdateRequestSchema>
+
+export const adsPauseRequestSchema = z.object({
+  operationKey: adsOperationKeySchema,
+})
+export type AdsPauseRequest = z.infer<typeof adsPauseRequestSchema>
+
+export const adsOperationDtoSchema = z.object({
+  id: z.string(),
+  operationKey: z.string(),
+  kind: adsOperationKindSchema,
+  state: adsOperationStateSchema,
+  entityType: adsEntityTypeSchema.nullable(),
+  entityId: z.string().nullable(),
+  upstreamUpdatedAt: z.number().int().nullable(),
+  errorCode: z.string().nullable(),
+  errorMessage: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+})
+export type AdsOperationDto = z.infer<typeof adsOperationDtoSchema>
+
+export const adsOperationResponseSchema = z.object({
+  operation: adsOperationDtoSchema,
+  replayed: z.boolean(),
+})
+export type AdsOperationResponse = z.infer<typeof adsOperationResponseSchema>
 
 /** clicks / impressions; null when impressions is 0 (never divide by zero). */
 export function adsCtr(clicks: number, impressions: number): number | null {

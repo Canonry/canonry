@@ -1319,6 +1319,30 @@ export const adsConnections = sqliteTable('ads_connections', {
   uniqueIndex('idx_ads_conn_project').on(table.projectId),
 ])
 
+// Durable receipts for upstream Ads API mutations. The upstream API does not
+// document an idempotency key, so the operation row is inserted before the
+// network call. A repeated (project, operation_key) is never sent upstream a
+// second time; unknown outcomes require operator reconciliation.
+export const adsOperations = sqliteTable('ads_operations', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  operationKey: text('operation_key').notNull(),
+  requestHash: text('request_hash').notNull(),
+  kind: text('kind').notNull(),
+  state: text('state').notNull(),
+  entityType: text('entity_type'),
+  entityId: text('entity_id'),
+  upstreamUpdatedAt: integer('upstream_updated_at'),
+  errorCode: text('error_code'),
+  errorMessage: text('error_message'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_ads_operations_project_key').on(table.projectId, table.operationKey),
+  index('idx_ads_operations_project_created').on(table.projectId, table.createdAt),
+  index('idx_ads_operations_project_state').on(table.projectId, table.state),
+])
+
 // Entity snapshots refreshed on every ads-sync (range-replaced per project) so
 // dashboards and the paid/organic overlap can read campaign structure without
 // live API calls. Ids are the upstream ids (cmpn_… / adgrp_… / ad_…). Money
@@ -1327,7 +1351,10 @@ export const adsCampaigns = sqliteTable('ads_campaigns', {
   id: text('id').primaryKey(),
   projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
   name: text('name').notNull(),
+  description: text('description'),
   status: text('status').notNull(),
+  startTime: integer('start_time'),
+  endTime: integer('end_time'),
   biddingType: text('bidding_type'),
   dailySpendLimitMicros: integer('daily_spend_limit_micros'),
   lifetimeSpendLimitMicros: integer('lifetime_spend_limit_micros'),
@@ -1348,6 +1375,7 @@ export const adsAdGroups = sqliteTable('ads_ad_groups', {
   projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
   campaignId: text('campaign_id').notNull().references(() => adsCampaigns.id, { onDelete: 'cascade' }),
   name: text('name').notNull(),
+  description: text('description'),
   status: text('status').notNull(),
   billingEventType: text('billing_event_type'),
   maxBidMicros: integer('max_bid_micros'),

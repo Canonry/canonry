@@ -32,6 +32,62 @@ export interface OpenAiAdsCampaignBudget {
   lifetime_spend_limit_micros?: number
 }
 
+export const OpenAiAdsWriteStatuses = {
+  active: 'active',
+  paused: 'paused',
+} as const
+
+export type OpenAiAdsWriteStatus = (typeof OpenAiAdsWriteStatuses)[keyof typeof OpenAiAdsWriteStatuses]
+
+export const OpenAiAdsBillingEventTypes = {
+  impression: 'impression',
+} as const
+
+export type OpenAiAdsBillingEventType =
+  (typeof OpenAiAdsBillingEventTypes)[keyof typeof OpenAiAdsBillingEventTypes]
+
+export const OpenAiAdsCreativeTypes = {
+  chatCard: 'chat_card',
+} as const
+
+export type OpenAiAdsCreativeType = (typeof OpenAiAdsCreativeTypes)[keyof typeof OpenAiAdsCreativeTypes]
+
+export interface OpenAiAdsCampaignBudgetRequest {
+  lifetime_spend_limit_micros: number
+}
+
+export interface OpenAiAdsLocationTargetRequest {
+  id: string
+}
+
+export interface OpenAiAdsCampaignTargetingRequest {
+  locations: {
+    include: OpenAiAdsLocationTargetRequest[]
+  }
+}
+
+export interface OpenAiAdsCreateCampaignRequest {
+  name: string
+  description?: string
+  start_time?: number
+  end_time?: number
+  status: typeof OpenAiAdsWriteStatuses.paused
+  budget: OpenAiAdsCampaignBudgetRequest
+  targeting?: OpenAiAdsCampaignTargetingRequest
+}
+
+export interface OpenAiAdsUpdateCampaignRequest {
+  name?: string
+  description?: string | null
+  start_time?: number | null
+  end_time?: number | null
+  /** Lifecycle transitions use explicit actions and are not accepted by public updates. */
+  status?: never
+  budget?: OpenAiAdsCampaignBudgetRequest
+  /** Updating locations is allowed, but clearing all targeting is not. */
+  targeting?: OpenAiAdsCampaignTargetingRequest
+}
+
 export interface OpenAiAdsLocationTarget {
   id: string
   type: string
@@ -69,6 +125,29 @@ export interface OpenAiAdsBiddingConfig {
   max_bid_micros: number | null
 }
 
+export interface OpenAiAdsBiddingConfigRequest {
+  billing_event_type: OpenAiAdsBillingEventType
+  max_bid_micros: number
+}
+
+export interface OpenAiAdsCreateAdGroupRequest {
+  campaign_id: string
+  name: string
+  description?: string
+  context_hints?: string[]
+  status: typeof OpenAiAdsWriteStatuses.paused
+  bidding_config: OpenAiAdsBiddingConfigRequest
+}
+
+export interface OpenAiAdsUpdateAdGroupRequest {
+  name?: string
+  description?: string | null
+  context_hints?: string[]
+  /** Lifecycle transitions use explicit actions and are not accepted by public updates. */
+  status?: never
+  bidding_config?: OpenAiAdsBiddingConfigRequest
+}
+
 export interface OpenAiAdsAdGroup {
   id: string
   name: string
@@ -89,6 +168,36 @@ export interface OpenAiAdsCreative {
   body?: string | null
   file_id?: string | null
   target_url?: string | null
+}
+
+export interface OpenAiAdsChatCardCreativeRequest {
+  type: OpenAiAdsCreativeType
+  title: string
+  body: string
+  file_id: string
+  target_url: string
+}
+
+export interface OpenAiAdsCreateAdRequest {
+  ad_group_id: string
+  name: string
+  creative: OpenAiAdsChatCardCreativeRequest
+  status: typeof OpenAiAdsWriteStatuses.paused
+}
+
+export interface OpenAiAdsUpdateAdRequest {
+  name?: string
+  creative?: OpenAiAdsChatCardCreativeRequest
+  /** Lifecycle transitions use explicit actions and are not accepted by public updates. */
+  status?: never
+}
+
+export interface OpenAiAdsUploadImageRequest {
+  image_url: string
+}
+
+export interface OpenAiAdsUploadImageResponse {
+  file_id: string
 }
 
 export interface OpenAiAdsAd {

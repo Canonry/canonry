@@ -8,6 +8,7 @@ import {
   adsCampaignDtoSchema,
   adsConnectionStatusDtoSchema,
   adsInsightRowDtoSchema,
+  adsOperationDtoSchema,
   backlinkDomainDtoSchema,
   backlinkSummaryDtoSchema,
   bingConnectionDtoSchema,
@@ -220,16 +221,22 @@ const COVERAGE: Record<string, CoverageEntry> = {
       updatedAt: 'Internal bookkeeping.',
     },
   },
+  adsOperations: {
+    kind: 'dto',
+    dto: adsOperationDtoSchema,
+    internal: {
+      projectId: 'Implied by the route scope.',
+      requestHash: 'Internal idempotency guard; never exposed on the operation receipt.',
+    },
+  },
   adsCampaigns: {
     kind: 'dto',
     dto: adsCampaignDtoSchema,
     internal: {
       projectId: 'Implied by the route scope.',
-      targeting: 'Raw upstream geo-targeting JSON; surfaced with the management PR.',
+      targeting: 'Raw upstream geo-targeting JSON; projected to locationIds on the DTO.',
       upstreamCreatedAt: 'Upstream bookkeeping epoch; not part of the read DTO.',
-      upstreamUpdatedAt: 'Upstream bookkeeping epoch; not part of the read DTO.',
       syncRunId: 'Internal join key.',
-      syncedAt: 'Internal bookkeeping.',
     },
   },
   adsAdGroups: {
@@ -238,9 +245,7 @@ const COVERAGE: Record<string, CoverageEntry> = {
     internal: {
       projectId: 'Implied by the route scope.',
       upstreamCreatedAt: 'Upstream bookkeeping epoch; not part of the read DTO.',
-      upstreamUpdatedAt: 'Upstream bookkeeping epoch; not part of the read DTO.',
       syncRunId: 'Internal join key.',
-      syncedAt: 'Internal bookkeeping.',
     },
   },
   adsAds: {
@@ -249,9 +254,7 @@ const COVERAGE: Record<string, CoverageEntry> = {
     internal: {
       projectId: 'Implied by the route scope.',
       upstreamCreatedAt: 'Upstream bookkeeping epoch; not part of the read DTO.',
-      upstreamUpdatedAt: 'Upstream bookkeeping epoch; not part of the read DTO.',
       syncRunId: 'Internal join key.',
-      syncedAt: 'Internal bookkeeping.',
     },
   },
   adsInsightsDaily: {

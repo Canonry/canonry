@@ -6,7 +6,13 @@ import {
   adsSummaryDtoSchema,
   adsCampaignDtoSchema,
   adsConnectionStatusDtoSchema,
+  adsCampaignCreateRequestSchema,
+  adsCampaignUpdateRequestSchema,
+  adsAdCreateRequestSchema,
+  adsOperationDtoSchema,
 } from '../src/ads.js'
+
+const NOW = '2026-07-17T00:00:00.000Z'
 
 describe('adsCtr', () => {
   test('computes clicks over impressions', () => {
@@ -83,5 +89,76 @@ describe('DTO schemas', () => {
     // Present when connected.
     const parsed = adsConnectionStatusDtoSchema.parse({ connected: true, conversionTrackingConfigured: true })
     expect(parsed.conversionTrackingConfigured).toBe(true)
+  })
+})
+
+describe('ads lifecycle contracts', () => {
+  test('campaign creation requires locations and budget while stripping caller-controlled status', () => {
+    const input = {
+      operationKey: 'weekend:campaign:1',
+      name: 'AEO Audit Leads',
+      startTime: 1_800_000_000,
+      endTime: 1_800_086_400,
+      lifetimeSpendLimitMicros: 25_000_000,
+      locationIds: ['1000232'],
+      status: 'active',
+    }
+    const parsed = adsCampaignCreateRequestSchema.parse(input)
+    expect(parsed.locationIds).toEqual(['1000232'])
+    expect('status' in parsed).toBe(false)
+    expect(adsCampaignCreateRequestSchema.safeParse({
+      operationKey: 'weekend:campaign:2',
+      name: 'AEO Audit Leads',
+      lifetimeSpendLimitMicros: 999_999,
+      locationIds: [],
+    }).success).toBe(false)
+  })
+
+  test('campaign update requires an optimistic timestamp, a real mutation, and non-empty geo targeting', () => {
+    expect(adsCampaignUpdateRequestSchema.safeParse({
+      operationKey: 'weekend:update:1', expectedUpdatedAt: 123,
+    }).success).toBe(false)
+    expect(adsCampaignUpdateRequestSchema.safeParse({
+      operationKey: 'weekend:update:1', expectedUpdatedAt: 123, lifetimeSpendLimitMicros: 30_000_000,
+    }).success).toBe(true)
+    expect(adsCampaignUpdateRequestSchema.safeParse({
+      operationKey: 'weekend:update:geo:null', expectedUpdatedAt: 123, locationIds: null,
+    }).success).toBe(false)
+    expect(adsCampaignUpdateRequestSchema.safeParse({
+      operationKey: 'weekend:update:geo:empty', expectedUpdatedAt: 123, locationIds: [],
+    }).success).toBe(false)
+    expect(adsCampaignUpdateRequestSchema.safeParse({
+      operationKey: 'weekend:update:geo:valid', expectedUpdatedAt: 123, locationIds: ['3000001'],
+    }).success).toBe(true)
+  })
+
+  test('chat-card creation enforces HTTPS and the upstream copy limits', () => {
+    const base = {
+      operationKey: 'weekend:ad:1', adGroupId: 'adgrp_1', name: 'Audit card',
+      creative: {
+        title: 'See How AI Reads Your Site',
+        body: 'Run a free AEO audit and get your top fixes.',
+        targetUrl: 'https://canonry.ai/audit',
+        fileId: 'file_1',
+      },
+    }
+    expect(adsAdCreateRequestSchema.safeParse(base).success).toBe(true)
+    expect(adsAdCreateRequestSchema.safeParse({
+      ...base, creative: { ...base.creative, targetUrl: 'http://canonry.ai/audit' },
+    }).success).toBe(false)
+    expect(adsAdCreateRequestSchema.safeParse({
+      ...base, creative: { ...base.creative, body: 'x'.repeat(101) },
+    }).success).toBe(false)
+  })
+
+  test('operation receipts reject unknown states and kinds', () => {
+    const base = {
+      id: 'op_1', operationKey: 'weekend:campaign:1', kind: 'campaign_create',
+      state: 'succeeded', entityType: 'campaign', entityId: 'cmpn_1', upstreamUpdatedAt: 123,
+      errorCode: null, errorMessage: null, createdAt: NOW, updatedAt: NOW,
+    }
+    expect(adsOperationDtoSchema.safeParse(base).success).toBe(true)
+    expect(adsOperationDtoSchema.safeParse({ ...base, state: 'maybe' }).success).toBe(false)
+    expect(adsOperationDtoSchema.safeParse({ ...base, kind: 'campaign_archive' }).success).toBe(false)
   })
 })
