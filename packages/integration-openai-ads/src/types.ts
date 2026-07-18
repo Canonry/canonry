@@ -1,6 +1,8 @@
-// Types mirror OpenAI Advertiser API responses captured live on 2026-06-10.
-// Money units are mixed upstream and preserved as-is here: budgets/bids are
-// integer micros, insights spend/cpc are decimal dollars. Normalize at ingest.
+// Types mirror OpenAI Advertiser API responses captured live on 2026-06-10,
+// except where a type-level comment identifies a provider-documented contract
+// awaiting a non-empty live capture. Money units are mixed upstream and
+// preserved as-is here: budgets/bids are integer micros, insights spend/cpc are
+// decimal dollars. Normalize at ingest.
 
 export interface OpenAiAdsListResponse<T> {
   object: 'list'
@@ -15,6 +17,17 @@ export interface OpenAiAdsReviewState {
   status: string
 }
 
+export interface OpenAiAdsAccountIntegrityReviewDetails {
+  decision?: string
+  reason?: string
+  status_updated_at?: string
+}
+
+export interface OpenAiAdsAccountIntegrityReview {
+  details?: OpenAiAdsAccountIntegrityReviewDetails
+  review?: OpenAiAdsReviewState
+}
+
 export interface OpenAiAdsAccount {
   id: string
   status: string
@@ -23,8 +36,59 @@ export interface OpenAiAdsAccount {
   timezone: string
   url: string | null
   review?: OpenAiAdsReviewState
-  account_integrity_review?: unknown
+  account_integrity_review?: OpenAiAdsAccountIntegrityReview
   preview_url?: string | null
+}
+
+export interface OpenAiAdsGeoLocation {
+  id: string
+  type: string
+  canonical_name: string
+  country_code: string
+  name: string
+  region_code: string | null
+}
+
+export interface OpenAiAdsGeoSearchResponse {
+  count: number
+  query: string
+  results: OpenAiAdsGeoLocation[]
+}
+
+/**
+ * Fields documented on the conversion-pixel create response. The list endpoint
+ * has only been captured empty, so fields other than identity remain optional
+ * until a non-empty live response can tighten this contract.
+ */
+export interface OpenAiAdsConversionPixel {
+  id: string
+  client_type?: string
+  name?: string
+  pixel_id?: string
+}
+
+export interface OpenAiAdsConversionEventSource {
+  id: string
+  name: string
+}
+
+/**
+ * Conversion event setting fields documented by the provider. `campaigns`
+ * remains opaque because the documented example is empty and no non-empty
+ * campaign entry has been captured yet.
+ */
+export interface OpenAiAdsConversionEventSetting {
+  id: string
+  name: string
+  event_type: string
+  custom_event_name: string | null
+  attribution_window_days: number
+  ad_account_id: string
+  source_ids: string[]
+  sources: OpenAiAdsConversionEventSource[]
+  campaigns: unknown[]
+  archived: boolean
+  version: number
 }
 
 export interface OpenAiAdsCampaignBudget {

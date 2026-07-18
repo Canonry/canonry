@@ -25,6 +25,15 @@ function installFetchTrap(): unknown[] {
 }
 
 describe('public package API', () => {
+  it('exposes the read-only account, geo, and conversion planning surface', () => {
+    expect(publicApi).toMatchObject({
+      getAdAccount: expect.any(Function),
+      searchGeoLocations: expect.any(Function),
+      listConversionPixels: expect.any(Function),
+      listConversionEventSettings: expect.any(Function),
+    })
+  })
+
   it('exposes pause but not activation primitives', () => {
     expect(publicApi).toMatchObject({
       pauseCampaign: expect.any(Function),

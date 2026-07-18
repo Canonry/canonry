@@ -20,7 +20,7 @@ import {
   adsOperations,
 } from '@ainyc/canonry-db'
 import { adsRoutes } from '../src/ads.js'
-import type { AdsConnectionConfigEntryLike, AdsOperator, VerifiedAdsAccount } from '../src/ads.js'
+import type { AdsConnectionConfigEntryLike, AdsOperator, AdsReader, VerifiedAdsAccount } from '../src/ads.js'
 
 const NOW = '2026-06-10T00:00:00.000Z'
 
@@ -30,11 +30,15 @@ const VERIFIED: VerifiedAdsAccount = {
   status: 'active',
   currencyCode: 'USD',
   timezone: 'America/Denver',
+  reviewStatus: 'in_review',
+  integrityReviewStatus: 'approved',
+  integrityDecision: 'allowed',
 }
 
 function buildApp(overrides: {
   verifyShouldFail?: boolean
   operatorShouldFail?: boolean
+  readerError?: unknown
   scopes?: string[]
   currentUpdatedAt?: number
   currentStatus?: string
@@ -49,6 +53,7 @@ function buildApp(overrides: {
   const configConnections: AdsConnectionConfigEntryLike[] = []
   const syncRequests: Array<{ runId: string; projectId: string }> = []
   const operatorCalls: Array<{ method: string; input?: unknown }> = []
+  const readerCalls: Array<{ method: string; apiKey: string; input?: unknown }> = []
 
   const app = Fastify()
   app.decorate('db', db)
@@ -106,6 +111,69 @@ function buildApp(overrides: {
     updateAd: async (_apiKey, id, input) => call('updateAd', id, input),
     pauseAd: async (_apiKey, id) => call('pauseAd', id),
   }
+  const adsReader: AdsReader = {
+    getAccount: async (apiKey) => {
+      readerCalls.push({ method: 'getAccount', apiKey })
+      if (overrides.readerError) throw overrides.readerError
+      return {
+        id: 'adacct_aaa',
+        name: 'Acme Exteriors, Inc',
+        status: 'active',
+        currencyCode: 'USD',
+        timezone: 'America/Denver',
+        url: 'https://acme.example',
+        reviewStatus: 'in_review',
+        integrityReviewStatus: 'approved',
+        integrityDecision: 'allowed',
+      }
+    },
+    searchGeo: async (apiKey, input) => {
+      readerCalls.push({ method: 'searchGeo', apiKey, input })
+      if (overrides.readerError) throw overrides.readerError
+      return {
+        count: 1,
+        query: input.q,
+        results: [{
+          id: '1014221',
+          type: 'city',
+          canonicalName: 'San Francisco, California, United States',
+          countryCode: 'US',
+          name: 'San Francisco',
+          regionCode: 'CA',
+        }],
+      }
+    },
+    listConversionPixels: async (apiKey) => {
+      readerCalls.push({ method: 'listConversionPixels', apiKey })
+      if (overrides.readerError) throw overrides.readerError
+      return {
+        pixels: [{
+          id: 'pixel_aaa',
+          clientType: 'web',
+          name: 'Canonry audit pixel',
+          pixelId: 'px_aaa',
+        }],
+      }
+    },
+    listConversionEventSettings: async (apiKey) => {
+      readerCalls.push({ method: 'listConversionEventSettings', apiKey })
+      if (overrides.readerError) throw overrides.readerError
+      return {
+        eventSettings: [{
+          id: 'cevent_1111',
+          name: 'Audit booked',
+          eventType: 'custom',
+          customEventName: 'audit_booked',
+          attributionWindowDays: 30,
+          adAccountId: 'adacct_aaa',
+          sourceIds: ['pixel_aaa'],
+          sources: [{ id: 'pixel_aaa', name: 'Canonry audit pixel' }],
+          archived: false,
+          version: 1,
+        }],
+      }
+    },
+  }
 
   void app.register(adsRoutes, {
     adsCredentialStore: {
@@ -132,6 +200,7 @@ function buildApp(overrides: {
     onAdsSyncRequested: (runId, projectId) => {
       syncRequests.push({ runId, projectId })
     },
+    adsReader,
     adsOperator,
   })
 
@@ -144,15 +213,17 @@ function buildApp(overrides: {
     return id
   }
 
-  function seedConnection(projectId: string) {
+  function seedConnection(projectId: string, projectName = 'acme', apiKey = 'sk-test') {
+    const adAccountId = projectName === 'acme' ? 'adacct_aaa' : `adacct_${projectName}`
     db.insert(adsConnections).values({
-      id: crypto.randomUUID(), projectId, adAccountId: 'adacct_aaa',
+      id: crypto.randomUUID(), projectId, adAccountId,
       displayName: 'Acme Exteriors, Inc', currencyCode: 'USD', timezone: 'America/Denver',
-      status: 'active', conversionTrackingConfigured: true, lastSyncedAt: NOW, createdAt: NOW, updatedAt: NOW,
+      status: 'active', reviewStatus: 'in_review', integrityReviewStatus: 'approved', integrityDecision: 'allowed',
+      conversionTrackingConfigured: true, lastSyncedAt: NOW, createdAt: NOW, updatedAt: NOW,
     }).run()
-    if (!configConnections.some((entry) => entry.projectName === 'acme')) {
+    if (!configConnections.some((entry) => entry.projectName === projectName)) {
       configConnections.push({
-        projectName: 'acme', apiKey: 'sk-test', adAccountId: 'adacct_aaa', createdAt: NOW, updatedAt: NOW,
+        projectName, apiKey, adAccountId, createdAt: NOW, updatedAt: NOW,
       })
     }
   }
@@ -161,6 +232,7 @@ function buildApp(overrides: {
     db.insert(adsCampaigns).values({
       id: 'cmpn_bbb', projectId, name: 'Homeowners Free Estimate', status: 'active',
       biddingType: 'clicks', dailySpendLimitMicros: 150_000_000, syncedAt: NOW,
+      conversionEventSettingIds: ['cevent_1111'],
       description: 'Homeowner lead generation', startTime: 1_765_843_200, endTime: 1_768_521_600,
       targeting: { locations: { include: [{ id: '3000001' }] } }, upstreamUpdatedAt: 123,
     }).run()
@@ -196,7 +268,7 @@ function buildApp(overrides: {
   }
 
   return {
-    app, db, tmpDir, configConnections, syncRequests, operatorCalls,
+    app, db, tmpDir, configConnections, syncRequests, operatorCalls, readerCalls,
     seedProject, seedConnection, seedSnapshots, seedInsights,
   }
 }
@@ -224,12 +296,18 @@ describe('ads routes', () => {
     expect(body.connected).toBe(true)
     expect(body.adAccountId).toBe('adacct_aaa')
     expect(body.currencyCode).toBe('USD')
+    expect(body.reviewStatus).toBe('in_review')
+    expect(body.integrityReviewStatus).toBe('approved')
+    expect(body.integrityDecision).toBe('allowed')
 
     // credential landed in the config store, NOT the DB
     expect(ctx.configConnections.length).toBe(1)
     expect(ctx.configConnections[0]!.apiKey).toBe('sk-good')
     const row = ctx.db.select().from(adsConnections).where(eq(adsConnections.projectId, projectId)).get()
     expect(row?.displayName).toBe('Acme Exteriors, Inc')
+    expect(row?.reviewStatus).toBe('in_review')
+    expect(row?.integrityReviewStatus).toBe('approved')
+    expect(row?.integrityDecision).toBe('allowed')
 
     const audit = ctx.db.select().from(auditLog).all()
     expect(audit.some((entry) => entry.action === 'ads.connected')).toBe(true)
@@ -266,8 +344,149 @@ describe('ads routes', () => {
     const body = JSON.parse(res.body) as Record<string, unknown>
     expect(body.connected).toBe(true)
     expect(body.lastSyncedAt).toBe(NOW)
+    expect(body.reviewStatus).toBe('in_review')
+    expect(body.integrityReviewStatus).toBe('approved')
+    expect(body.integrityDecision).toBe('allowed')
     // the seeded connection has conversion tracking configured
     expect(body.conversionTrackingConfigured).toBe(true)
+  })
+
+  it('serves the live account, geo, pixel, and conversion-event planning reads', async () => {
+    const projectId = ctx.seedProject()
+    ctx.seedConnection(projectId)
+
+    const account = await ctx.app.inject({ method: 'GET', url: '/projects/acme/ads/account' })
+    expect(account.statusCode).toBe(200)
+    expect(JSON.parse(account.body)).toMatchObject({
+      id: 'adacct_aaa',
+      reviewStatus: 'in_review',
+      integrityReviewStatus: 'approved',
+      integrityDecision: 'allowed',
+    })
+
+    const geo = await ctx.app.inject({
+      method: 'GET',
+      url: '/projects/acme/ads/geo/search?q=San%20Francisco&limit=7',
+    })
+    expect(geo.statusCode).toBe(200)
+    expect(JSON.parse(geo.body)).toMatchObject({
+      count: 1,
+      query: 'San Francisco',
+      results: [{ id: '1014221', canonicalName: 'San Francisco, California, United States' }],
+    })
+
+    const pixels = await ctx.app.inject({ method: 'GET', url: '/projects/acme/ads/conversions/pixels' })
+    expect(pixels.statusCode).toBe(200)
+    expect(JSON.parse(pixels.body)).toEqual({
+      pixels: [{ id: 'pixel_aaa', clientType: 'web', name: 'Canonry audit pixel', pixelId: 'px_aaa' }],
+    })
+
+    const eventSettings = await ctx.app.inject({
+      method: 'GET',
+      url: '/projects/acme/ads/conversions/event-settings',
+    })
+    expect(eventSettings.statusCode).toBe(200)
+    expect(JSON.parse(eventSettings.body)).toEqual({
+      eventSettings: [{
+        id: 'cevent_1111',
+        name: 'Audit booked',
+        eventType: 'custom',
+        customEventName: 'audit_booked',
+        attributionWindowDays: 30,
+        adAccountId: 'adacct_aaa',
+        sourceIds: ['pixel_aaa'],
+        sources: [{ id: 'pixel_aaa', name: 'Canonry audit pixel' }],
+        archived: false,
+        version: 1,
+      }],
+    })
+
+    expect(ctx.readerCalls).toEqual([
+      { method: 'getAccount', apiKey: 'sk-test' },
+      { method: 'searchGeo', apiKey: 'sk-test', input: { q: 'San Francisco', limit: 7 } },
+      { method: 'listConversionPixels', apiKey: 'sk-test' },
+      { method: 'listConversionEventSettings', apiKey: 'sk-test' },
+    ])
+  })
+
+  it('fails planning reads closed when the project has no ads credential', async () => {
+    ctx.seedProject()
+
+    for (const url of [
+      '/projects/acme/ads/account',
+      '/projects/acme/ads/geo/search?q=San%20Francisco',
+      '/projects/acme/ads/conversions/pixels',
+      '/projects/acme/ads/conversions/event-settings',
+    ]) {
+      const response = await ctx.app.inject({ method: 'GET', url })
+      expect(response.statusCode).toBe(400)
+      expect(response.body).toContain('No OpenAI Ads API key configured for this project')
+    }
+    expect(ctx.readerCalls).toEqual([])
+  })
+
+  it.each([
+    { status: 401, code: 'invalid_api_key' },
+    { status: 404, code: 'not_found' },
+    { status: 429, code: 'rate_limit_exceeded' },
+    { status: 503, code: 'provider_unavailable' },
+  ])('maps an upstream $status planning-read failure to a sanitized provider error', async ({ status, code }) => {
+    await ctx.app.close()
+    fs.rmSync(ctx.tmpDir, { recursive: true, force: true })
+    ctx = buildApp({ readerError: Object.assign(new Error('secret-bearing provider failure'), { status, code }) })
+    await ctx.app.ready()
+    const projectId = ctx.seedProject()
+    ctx.seedConnection(projectId)
+
+    const response = await ctx.app.inject({ method: 'GET', url: '/projects/acme/ads/account' })
+
+    expect(response.statusCode).toBe(502)
+    expect(JSON.parse(response.body)).toEqual({
+      error: {
+        code: 'PROVIDER_ERROR',
+        message: 'OpenAI Ads API account read failed',
+        details: { upstreamStatus: status, upstreamCode: code },
+      },
+    })
+    expect(response.body).not.toContain('secret-bearing')
+  })
+
+  it('maps malformed or otherwise unclassified planning-read failures to a provider error', async () => {
+    await ctx.app.close()
+    fs.rmSync(ctx.tmpDir, { recursive: true, force: true })
+    ctx = buildApp({ readerError: new Error('invalid JSON containing sk-secret') })
+    await ctx.app.ready()
+    const projectId = ctx.seedProject()
+    ctx.seedConnection(projectId)
+
+    const response = await ctx.app.inject({ method: 'GET', url: '/projects/acme/ads/conversions/pixels' })
+
+    expect(response.statusCode).toBe(502)
+    expect(JSON.parse(response.body)).toEqual({
+      error: {
+        code: 'PROVIDER_ERROR',
+        message: 'OpenAI Ads API conversion pixel list read failed',
+        details: {},
+      },
+    })
+    expect(response.body).not.toContain('sk-secret')
+  })
+
+  it('resolves every planning read credential from the requested project', async () => {
+    const acmeId = ctx.seedProject('acme')
+    const betaId = ctx.seedProject('beta')
+    ctx.seedConnection(acmeId, 'acme', 'sk-acme')
+    ctx.seedConnection(betaId, 'beta', 'sk-beta')
+
+    const acme = await ctx.app.inject({ method: 'GET', url: '/projects/acme/ads/account' })
+    const beta = await ctx.app.inject({ method: 'GET', url: '/projects/beta/ads/account' })
+
+    expect(acme.statusCode).toBe(200)
+    expect(beta.statusCode).toBe(200)
+    expect(ctx.readerCalls).toEqual([
+      { method: 'getAccount', apiKey: 'sk-acme' },
+      { method: 'getAccount', apiKey: 'sk-beta' },
+    ])
   })
 
   it('strips caller status, creates campaigns paused, and replays without a second upstream call', async () => {
@@ -674,6 +893,7 @@ describe('ads routes', () => {
     expect(body.campaigns.length).toBe(1)
     const campaign = body.campaigns[0]!
     expect(campaign.dailySpendLimitMicros).toBe(150_000_000)
+    expect(campaign.conversionEventSettingIds).toEqual(['cevent_1111'])
     expect(campaign.upstreamUpdatedAt).toBe(123)
     expect(campaign.locationIds).toEqual(['3000001'])
     expect(campaign.adGroups.length).toBe(1)

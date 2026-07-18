@@ -5,6 +5,11 @@ import {
   adsInsightRowDtoSchema,
   adsSummaryDtoSchema,
   adsCampaignDtoSchema,
+  adsAccountDtoSchema,
+  adsGeoSearchQuerySchema,
+  adsGeoSearchResponseSchema,
+  adsConversionPixelListResponseSchema,
+  adsConversionEventSettingListResponseSchema,
   adsConnectionStatusDtoSchema,
   adsCampaignCreateRequestSchema,
   adsCampaignUpdateRequestSchema,
@@ -39,6 +44,68 @@ describe('adsCpcMicros', () => {
 })
 
 describe('DTO schemas', () => {
+  test('normalizes account review and integrity state without exposing provider nesting', () => {
+    const parsed = adsAccountDtoSchema.parse({
+      id: 'adacct_1',
+      name: 'Canonry',
+      status: 'active',
+      currencyCode: 'USD',
+      timezone: 'America/New_York',
+      url: 'https://canonry.ai',
+      reviewStatus: 'in_review',
+      integrityReviewStatus: 'approved',
+      integrityDecision: 'allowed',
+    })
+    expect(parsed.reviewStatus).toBe('in_review')
+    expect(parsed.integrityDecision).toBe('allowed')
+  })
+
+  test('validates normalized geo search inputs and output', () => {
+    expect(adsGeoSearchQuerySchema.parse({ q: '  San Francisco  ' })).toEqual({
+      q: 'San Francisco',
+      limit: 20,
+    })
+    expect(adsGeoSearchQuerySchema.safeParse({ q: '', limit: 20 }).success).toBe(false)
+    expect(adsGeoSearchQuerySchema.safeParse({ q: 'US', limit: 101 }).success).toBe(false)
+
+    const parsed = adsGeoSearchResponseSchema.parse({
+      count: 1,
+      query: 'San Francisco',
+      results: [{
+        id: '3000194',
+        type: 'dma',
+        canonicalName: 'San Francisco - Oakland - San Jose, United States',
+        countryCode: 'US',
+        name: 'San Francisco - Oakland - San Jose',
+        regionCode: '807',
+      }],
+    })
+    expect(parsed.results[0]?.id).toBe('3000194')
+  })
+
+  test('validates normalized pixel and conversion event setting lists', () => {
+    const pixels = adsConversionPixelListResponseSchema.parse({
+      pixels: [{ id: 'clidsrc_123', clientType: 'web', name: 'Canonry website', pixelId: '134534' }],
+    })
+    expect(pixels.pixels[0]?.pixelId).toBe('134534')
+
+    const settings = adsConversionEventSettingListResponseSchema.parse({
+      eventSettings: [{
+        id: 'ces_123',
+        name: 'Audit leads',
+        eventType: 'lead_created',
+        customEventName: null,
+        attributionWindowDays: 30,
+        adAccountId: 'adacct_1',
+        sourceIds: ['clidsrc_123'],
+        sources: [{ id: 'clidsrc_123', name: 'Canonry website' }],
+        archived: false,
+        version: 1,
+      }],
+    })
+    expect(settings.eventSettings[0]?.sourceIds).toEqual(['clidsrc_123'])
+  })
+
   test('insight row accepts derived nulls for zero denominators', () => {
     const parsed = adsInsightRowDtoSchema.parse({
       level: 'campaign', entityId: 'cmpn_x', date: '2026-06-10',
@@ -64,6 +131,7 @@ describe('DTO schemas', () => {
   test('campaign DTO defaults nested collections', () => {
     const parsed = adsCampaignDtoSchema.parse({ id: 'cmpn_x', name: 'C', status: 'active' })
     expect(parsed.adGroups).toEqual([])
+    expect(parsed.conversionEventSettingIds).toEqual([])
   })
 
   test('summary requires window and totals incl. conversions', () => {
@@ -89,6 +157,16 @@ describe('DTO schemas', () => {
     // Present when connected.
     const parsed = adsConnectionStatusDtoSchema.parse({ connected: true, conversionTrackingConfigured: true })
     expect(parsed.conversionTrackingConfigured).toBe(true)
+    expect(adsConnectionStatusDtoSchema.parse({
+      connected: true,
+      reviewStatus: 'in_review',
+      integrityReviewStatus: 'approved',
+      integrityDecision: 'allowed',
+    })).toMatchObject({
+      reviewStatus: 'in_review',
+      integrityReviewStatus: 'approved',
+      integrityDecision: 'allowed',
+    })
   })
 })
 

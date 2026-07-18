@@ -7,6 +7,7 @@ import { sql } from 'drizzle-orm'
 import {
   createClient,
   migrate,
+  MIGRATION_VERSIONS,
   projects,
   adsConnections,
   adsCampaigns,
@@ -53,6 +54,9 @@ function seedAdsRows(db: ReturnType<typeof createTempDb>['db'], projectId = 'pro
     currencyCode: 'USD',
     timezone: 'America/Denver',
     status: 'active',
+    reviewStatus: 'in_review',
+    integrityReviewStatus: 'approved',
+    integrityDecision: 'allowed',
     lastSyncedAt: null,
     createdAt: NOW,
     updatedAt: NOW,
@@ -64,6 +68,7 @@ function seedAdsRows(db: ReturnType<typeof createTempDb>['db'], projectId = 'pro
     status: 'active',
     biddingType: 'clicks',
     dailySpendLimitMicros: 150_000_000,
+    conversionEventSettingIds: ['ces_123'],
     targeting: { locations: { include: [{ id: '1000232', type: 'country', country_code: 'US' }] } },
     upstreamCreatedAt: 1780770653,
     upstreamUpdatedAt: 1780868842,
@@ -105,6 +110,12 @@ test('migration creates the ads tables and rows round-trip with typed JSON colum
   const conn = db.select().from(adsConnections).where(eq(adsConnections.projectId, 'proj_1')).get()
   expect(conn?.adAccountId).toBe('adacct_aaa')
   expect(conn?.currencyCode).toBe('USD')
+  expect(conn?.reviewStatus).toBe('in_review')
+  expect(conn?.integrityReviewStatus).toBe('approved')
+  expect(conn?.integrityDecision).toBe('allowed')
+
+  const campaign = db.select().from(adsCampaigns).where(eq(adsCampaigns.id, 'cmpn_bbb')).get()
+  expect(campaign?.conversionEventSettingIds).toEqual(['ces_123'])
 
   const group = db.select().from(adsAdGroups).where(eq(adsAdGroups.id, 'adgrp_ddd')).get()
   // native JSON mode: direct property access returns the typed array
@@ -113,6 +124,32 @@ test('migration creates the ads tables and rows round-trip with typed JSON colum
 
   const ad = db.select().from(adsAds).where(eq(adsAds.id, 'ad_eee')).get()
   expect((ad?.creative as { type?: string } | null)?.type).toBe('chat_card')
+})
+
+test('migration 100 preserves existing ads rows and defaults conversion settings to an empty list', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-ads-v100-test-'))
+  onTestFinished(() => cleanup(tmpDir))
+  const db = createClient(path.join(tmpDir, 'test.db'))
+  migrate(db, MIGRATION_VERSIONS.filter((migration) => migration.version <= 99))
+  seedProject(db)
+
+  db.run(sql.raw(`INSERT INTO ads_connections
+    (id, project_id, ad_account_id, created_at, updated_at)
+    VALUES ('conn_legacy', 'proj_1', 'adacct_legacy', '${NOW}', '${NOW}')`))
+  db.run(sql.raw(`INSERT INTO ads_campaigns
+    (id, project_id, name, status, synced_at)
+    VALUES ('cmpn_legacy', 'proj_1', 'Legacy campaign', 'paused', '${NOW}')`))
+
+  migrate(db)
+
+  const connection = db.select().from(adsConnections).where(eq(adsConnections.id, 'conn_legacy')).get()
+  expect(connection).toMatchObject({
+    reviewStatus: null,
+    integrityReviewStatus: null,
+    integrityDecision: null,
+  })
+  const campaign = db.select().from(adsCampaigns).where(eq(adsCampaigns.id, 'cmpn_legacy')).get()
+  expect(campaign?.conversionEventSettingIds).toEqual([])
 })
 
 test('one connection per project is enforced', () => {

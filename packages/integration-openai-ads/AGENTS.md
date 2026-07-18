@@ -3,7 +3,8 @@
 ## Purpose
 
 OpenAI Advertiser API (ChatGPT ads) integration — typed client for ad account,
-campaigns, ad groups, ads, insights, image upload, and lifecycle mutations. The paid-surface counterpart
+geo lookup, conversion setup reads, campaigns, ad groups, ads, insights, image
+upload, and lifecycle mutations. The paid-surface counterpart
 to the organic answer-visibility data: ads render only in the ChatGPT consumer
 UI (never in API answers), so this client is the only window into the paid
 layer. Public Canonry routes place lifecycle writes behind `ads.write`, force
@@ -17,8 +18,8 @@ activates in Ads Manager.
 
 | File | Role |
 |------|------|
-| `src/ads-client.ts` | API client — account, campaigns, ad groups, ads, insights, upload, and lifecycle actions |
-| `src/types.ts` | Response types (mirrored from captured live responses) and `OpenAiAdsApiError` |
+| `src/ads-client.ts` | API client — account, geo lookup, conversion setup, campaigns, ad groups, ads, insights, upload, and lifecycle actions |
+| `src/types.ts` | Response types (live-captured unless explicitly documented otherwise) and `OpenAiAdsApiError` |
 | `src/constants.ts` | API base URL, timeouts, pagination cap |
 | `src/index.ts` | Re-exports public API |
 | `test/fixtures.ts` | Sanitized copies of real captured responses — never invent shapes |
@@ -32,6 +33,10 @@ activates in Ads Manager.
   last_id, has_more }`. The client auto-paginates; the `after=` request param
   follows the OpenAI list convention but has not been exercised against a
   multi-page dataset yet — revisit if pagination misbehaves on large accounts.
+- **Conversion setup fixtures**: the pixels and event-settings endpoints have
+  been confirmed live only with empty list envelopes. Do not add a non-empty
+  fixture or tighten list item fields until a real response is captured; that
+  capture is a beta smoke-test gate.
 - **`fields[]` selection**: insights default to impressions only; richer
   metrics require literal `fields[]=` query pairs with namespaced names
   (`campaign.clicks`, `ad_group.spend`, `metadata.readable_time`, …). A wrong

@@ -128,6 +128,10 @@ const expectedToolNames = [
   'canonry_technical_aeo_trend',
   'canonry_technical_aeo_run',
   'canonry_ads_status',
+  'canonry_ads_account',
+  'canonry_ads_geo_search',
+  'canonry_ads_conversion_pixels',
+  'canonry_ads_conversion_event_settings',
   'canonry_ads_campaigns',
   'canonry_ads_insights',
   'canonry_ads_summary',
@@ -147,8 +151,8 @@ const expectedToolNames = [
 
 describe('MCP tool registry', () => {
   it('ships the curated v1 surface', () => {
-    expect(CANONRY_MCP_TOOL_COUNT).toBe(127)
-    expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(80)
+    expect(CANONRY_MCP_TOOL_COUNT).toBe(131)
+    expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(84)
     expect(canonryMcpTools.map(tool => tool.name)).toEqual(expectedToolNames)
     const readNames = canonryMcpTools.filter(tool => tool.access === 'read').map(tool => tool.name)
     expect(getCanonryMcpTools('read-only').map(tool => tool.name)).toEqual(readNames)
@@ -189,6 +193,7 @@ describe('MCP tool registry', () => {
     expect(counts.get('gsc')).toBe(8)
     expect(counts.get('ga')).toBe(8)
     expect(counts.get('gbp')).toBe(13)
+    expect(counts.get('ads')).toBe(20)
     expect(counts.get('traffic')).toBe(10)
     expect(counts.get('agent')).toBe(5)
     expect(counts.get('discovery')).toBe(6)
@@ -231,6 +236,14 @@ describe('MCP tool registry', () => {
     const visibilityStatsSchema = inputSchemaFor('canonry_visibility_stats')
     expect(schemaProperty(visibilityStatsSchema, 'month')).toMatchObject({ type: 'string' })
     expect(schemaProperty(visibilityStatsSchema, 'shareOfVoice')).toMatchObject({ type: 'boolean' })
+
+    const adsGeoSearch = canonryMcpTools.find(candidate => candidate.name === 'canonry_ads_geo_search')
+    expect(adsGeoSearch?.inputSchema.parse({ project: 'acme', q: '  New York  ' })).toEqual({
+      project: 'acme',
+      q: 'New York',
+      limit: 20,
+    })
+    expect(() => adsGeoSearch?.inputSchema.parse({ project: 'acme', q: 'New York', limit: 101 })).toThrow()
   })
 
   it('limits MCP run trigger input to manual answer-visibility runs', () => {
@@ -573,6 +586,15 @@ const handlerCases: HandlerCase[] = [
   { tool: 'canonry_ga_social_referral_trend', input: projectInput, methods: ['gaSocialReferralTrend'] },
   { tool: 'canonry_ga_attribution_trend', input: projectInput, methods: ['gaAttributionTrend'] },
   { tool: 'canonry_ga_session_history', input: { project: 'acme', window: '7d' }, methods: ['gaSessionHistory'] },
+  { tool: 'canonry_ads_account', input: projectInput, methods: ['getAdsAccount'] },
+  {
+    tool: 'canonry_ads_geo_search',
+    input: { project: 'acme', q: 'New York', limit: 20 },
+    methods: ['searchAdsGeo'],
+    expectedArgs: [['acme', { q: 'New York', limit: 20 }]],
+  },
+  { tool: 'canonry_ads_conversion_pixels', input: projectInput, methods: ['getAdsConversionPixels'] },
+  { tool: 'canonry_ads_conversion_event_settings', input: projectInput, methods: ['getAdsConversionEventSettings'] },
   { tool: 'canonry_traffic_sources_list', input: projectInput, methods: ['trafficListSources'] },
   { tool: 'canonry_traffic_source_get', input: { project: 'acme', sourceId: 'src-1' }, methods: ['trafficGetSource'] },
   { tool: 'canonry_traffic_status', input: projectInput, methods: ['trafficStatus'] },

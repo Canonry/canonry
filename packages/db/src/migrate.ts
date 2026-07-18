@@ -2156,6 +2156,16 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `CREATE INDEX IF NOT EXISTS idx_ads_operations_project_state ON ads_operations(project_id, state)`,
     ],
   },
+  {
+    version: 100,
+    name: 'ads-planning-read-model',
+    statements: [
+      `ALTER TABLE ads_connections ADD COLUMN review_status TEXT`,
+      `ALTER TABLE ads_connections ADD COLUMN integrity_review_status TEXT`,
+      `ALTER TABLE ads_connections ADD COLUMN integrity_decision TEXT`,
+      `ALTER TABLE ads_campaigns ADD COLUMN conversion_event_setting_ids TEXT NOT NULL DEFAULT '[]'`,
+    ],
+  },
 ]
 
 /**

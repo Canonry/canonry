@@ -1311,6 +1311,9 @@ export const adsConnections = sqliteTable('ads_connections', {
   currencyCode: text('currency_code'),
   timezone: text('timezone'),
   status: text('status'),
+  reviewStatus: text('review_status'),
+  integrityReviewStatus: text('integrity_review_status'),
+  integrityDecision: text('integrity_decision'),
   lastSyncedAt: text('last_synced_at'),
   conversionTrackingConfigured: integer('conversion_tracking_configured', { mode: 'boolean' }).notNull().default(false),
   createdAt: text('created_at').notNull(),
@@ -1358,6 +1361,10 @@ export const adsCampaigns = sqliteTable('ads_campaigns', {
   biddingType: text('bidding_type'),
   dailySpendLimitMicros: integer('daily_spend_limit_micros'),
   lifetimeSpendLimitMicros: integer('lifetime_spend_limit_micros'),
+  conversionEventSettingIds: text('conversion_event_setting_ids', { mode: 'json' })
+    .$type<string[]>()
+    .notNull()
+    .default([]),
   targeting: text('targeting', { mode: 'json' }).$type<unknown>(),
   upstreamCreatedAt: integer('upstream_created_at'),
   upstreamUpdatedAt: integer('upstream_updated_at'),

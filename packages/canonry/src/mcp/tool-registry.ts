@@ -8,6 +8,7 @@ import {
   adsAdUpdateRequestSchema,
   adsCampaignCreateRequestSchema,
   adsCampaignUpdateRequestSchema,
+  adsGeoSearchQuerySchema,
   adsImageUploadRequestSchema,
   adsPauseRequestSchema,
   competitorBatchRequestSchema,
@@ -244,6 +245,10 @@ const adsInsightsInputSchema = z.object({
   entityId: z.string().optional(),
   from: z.string().optional(),
   to: z.string().optional(),
+})
+
+const adsGeoSearchInputSchema = adsGeoSearchQuerySchema.extend({
+  project: projectNameSchema,
 })
 
 const adsOperationInputSchema = z.object({
@@ -1940,6 +1945,54 @@ export const canonryMcpTools = [
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/ads/status'],
     handler: (client, input) => client.getAdsStatus(input.project),
+  }),
+  defineTool({
+    name: 'canonry_ads_account',
+    title: 'Read the live OpenAI ads account',
+    description:
+      'Read live OpenAI Ads account metadata, currency, timezone, status, and account-integrity review state. Use before planning or launch to confirm the connected advertiser account is the intended one and is eligible to serve.',
+    access: 'read',
+    tier: 'ads',
+    inputSchema: projectInputSchema,
+    annotations: readAnnotations(true),
+    openApiOperations: ['GET /api/v1/projects/{name}/ads/account'],
+    handler: (client, input) => client.getAdsAccount(input.project),
+  }),
+  defineTool({
+    name: 'canonry_ads_geo_search',
+    title: 'Search OpenAI ads locations',
+    description:
+      'Search the live OpenAI Ads geo catalog by place name. Returns provider location IDs and canonical labels; use those IDs in campaign locationIds instead of inventing or guessing targeting identifiers.',
+    access: 'read',
+    tier: 'ads',
+    inputSchema: adsGeoSearchInputSchema,
+    annotations: readAnnotations(true),
+    openApiOperations: ['GET /api/v1/projects/{name}/ads/geo/search'],
+    handler: (client, input) => client.searchAdsGeo(input.project, { q: input.q, limit: input.limit }),
+  }),
+  defineTool({
+    name: 'canonry_ads_conversion_pixels',
+    title: 'List OpenAI ads conversion pixels',
+    description:
+      'List conversion pixels from the live OpenAI ad account. Use with conversion event settings to verify that measurable conversion infrastructure exists before recommending activation or budget changes.',
+    access: 'read',
+    tier: 'ads',
+    inputSchema: projectInputSchema,
+    annotations: readAnnotations(true),
+    openApiOperations: ['GET /api/v1/projects/{name}/ads/conversions/pixels'],
+    handler: (client, input) => client.getAdsConversionPixels(input.project),
+  }),
+  defineTool({
+    name: 'canonry_ads_conversion_event_settings',
+    title: 'List OpenAI ads conversion event settings',
+    description:
+      'List live OpenAI Ads conversion event settings, attribution windows, and attached pixel or CAPI sources. Use to select and verify the conversion goal before launch.',
+    access: 'read',
+    tier: 'ads',
+    inputSchema: projectInputSchema,
+    annotations: readAnnotations(true),
+    openApiOperations: ['GET /api/v1/projects/{name}/ads/conversions/event-settings'],
+    handler: (client, input) => client.getAdsConversionEventSettings(input.project),
   }),
   defineTool({
     name: 'canonry_ads_campaigns',

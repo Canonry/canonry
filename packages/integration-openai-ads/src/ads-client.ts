@@ -4,9 +4,12 @@ import type {
   OpenAiAdsAd,
   OpenAiAdsAdGroup,
   OpenAiAdsCampaign,
+  OpenAiAdsConversionEventSetting,
+  OpenAiAdsConversionPixel,
   OpenAiAdsCreateAdGroupRequest,
   OpenAiAdsCreateAdRequest,
   OpenAiAdsCreateCampaignRequest,
+  OpenAiAdsGeoSearchResponse,
   OpenAiAdsInsightRow,
   OpenAiAdsInsightsOptions,
   OpenAiAdsListResponse,
@@ -34,6 +37,8 @@ const MAX_BID_MICROS = 100_000_000
 const MIN_AD_TITLE_LENGTH = 3
 const MAX_AD_TITLE_LENGTH = 50
 const MAX_AD_BODY_LENGTH = 100
+const MIN_GEO_SEARCH_LIMIT = 1
+const MAX_GEO_SEARCH_LIMIT = 500
 
 function validateApiKey(apiKey: string): void {
   if (!apiKey || typeof apiKey !== 'string' || apiKey.trim().length === 0) {
@@ -44,6 +49,16 @@ function validateApiKey(apiKey: string): void {
 function validateId(value: string, label: string): void {
   if (!value || typeof value !== 'string' || value.trim().length === 0) {
     throw new OpenAiAdsApiError(`${label} is required and must be a non-empty string`, 400)
+  }
+}
+
+function validateGeoSearchLimit(limit: number | undefined): void {
+  if (limit === undefined) return
+  if (!Number.isInteger(limit) || limit < MIN_GEO_SEARCH_LIMIT || limit > MAX_GEO_SEARCH_LIMIT) {
+    throw new OpenAiAdsApiError(
+      `Geo search limit must be an integer between ${MIN_GEO_SEARCH_LIMIT} and ${MAX_GEO_SEARCH_LIMIT}`,
+      400,
+    )
   }
 }
 
@@ -345,6 +360,29 @@ function insightsPairs(opts?: OpenAiAdsInsightsOptions): string[] {
 export async function getAdAccount(apiKey: string): Promise<OpenAiAdsAccount> {
   validateApiKey(apiKey)
   return adsFetch<OpenAiAdsAccount>(apiKey, 'ad_account')
+}
+
+export async function searchGeoLocations(
+  apiKey: string,
+  query: string,
+  limit?: number,
+): Promise<OpenAiAdsGeoSearchResponse> {
+  validateApiKey(apiKey)
+  validateId(query, 'Geo search query')
+  validateGeoSearchLimit(limit)
+  const queryPairs = [`q=${encodeURIComponent(query)}`]
+  if (limit !== undefined) queryPairs.push(`limit=${limit}`)
+  return adsFetch<OpenAiAdsGeoSearchResponse>(apiKey, 'geo_lookup/search', queryPairs)
+}
+
+export async function listConversionPixels(apiKey: string): Promise<OpenAiAdsConversionPixel[]> {
+  validateApiKey(apiKey)
+  return fetchAllPages<OpenAiAdsConversionPixel>(apiKey, 'conversions/pixels', [])
+}
+
+export async function listConversionEventSettings(apiKey: string): Promise<OpenAiAdsConversionEventSetting[]> {
+  validateApiKey(apiKey)
+  return fetchAllPages<OpenAiAdsConversionEventSetting>(apiKey, 'conversions/event_settings', [])
 }
 
 export async function listCampaigns(apiKey: string): Promise<OpenAiAdsCampaign[]> {

@@ -2,6 +2,10 @@ import {
   adsConnect,
   adsDisconnect,
   adsStatus,
+  adsAccount,
+  adsGeoSearch,
+  adsConversionPixels,
+  adsConversionEventSettings,
   adsSync,
   adsCampaigns,
   adsInsights,
@@ -19,7 +23,7 @@ import {
   adsAdPause,
 } from '../commands/ads.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
-import { getString, requirePositional, requireProject, stringOption } from '../cli-command-helpers.js'
+import { getString, parseIntegerOption, requirePositional, requireProject, stringOption } from '../cli-command-helpers.js'
 
 export const ADS_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
@@ -50,6 +54,51 @@ export const ADS_CLI_COMMANDS: readonly CliCommandSpec[] = [
     run: async (input) => {
       const project = requireProject(input, 'ads.status', 'canonry ads status <project> [--format json]')
       await adsStatus(project, { format: input.format })
+    },
+  },
+  {
+    path: ['ads', 'account'],
+    usage: 'canonry ads account <project> [--format json]',
+    run: async (input) => {
+      const project = requireProject(input, 'ads.account', 'canonry ads account <project> [--format json]')
+      await adsAccount(project, { format: input.format })
+    },
+  },
+  {
+    path: ['ads', 'geo', 'search'],
+    usage: 'canonry ads geo search <project> --query <text> [--limit <n>] [--format json|jsonl]',
+    options: {
+      query: stringOption(),
+      limit: stringOption(),
+    },
+    run: async (input) => {
+      const usage = 'canonry ads geo search <project> --query <text> [--limit <n>] [--format json|jsonl]'
+      const project = requireProject(input, 'ads.geo.search', usage)
+      await adsGeoSearch(project, {
+        q: getString(input.values, 'query'),
+        limit: parseIntegerOption(input, 'limit', {
+          command: 'ads.geo.search',
+          message: '--limit must be an integer from 1 to 100',
+          usage,
+        }),
+        format: input.format,
+      })
+    },
+  },
+  {
+    path: ['ads', 'conversions', 'pixels'],
+    usage: 'canonry ads conversions pixels <project> [--format json|jsonl]',
+    run: async (input) => {
+      const project = requireProject(input, 'ads.conversions.pixels', 'canonry ads conversions pixels <project> [--format json|jsonl]')
+      await adsConversionPixels(project, { format: input.format })
+    },
+  },
+  {
+    path: ['ads', 'conversions', 'event-settings'],
+    usage: 'canonry ads conversions event-settings <project> [--format json|jsonl]',
+    run: async (input) => {
+      const project = requireProject(input, 'ads.conversions.event-settings', 'canonry ads conversions event-settings <project> [--format json|jsonl]')
+      await adsConversionEventSettings(project, { format: input.format })
     },
   },
   {

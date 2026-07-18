@@ -16,6 +16,7 @@ import {
   adsCampaignUpdateRequestSchema,
   adsConnectRequestSchema,
   adsImageUploadRequestSchema,
+  adsGeoSearchQuerySchema,
   adsInsightLevelSchema,
   adsPauseRequestSchema,
   adsCtr,
@@ -46,6 +47,11 @@ import type {
   AdsOperationDto,
   AdsOperationKind,
   AdsOperationResponse,
+  AdsAccountDto,
+  AdsGeoSearchQuery,
+  AdsGeoSearchResponse,
+  AdsConversionPixelListResponse,
+  AdsConversionEventSettingListResponse,
 } from '@ainyc/canonry-contracts'
 import { adsConnections, adsCampaigns, adsAdGroups, adsAds, adsInsightsDaily, adsOperations, runs } from '@ainyc/canonry-db'
 import { requireScope } from './auth.js'
@@ -72,12 +78,25 @@ export interface VerifiedAdsAccount {
   status: string
   currencyCode: string | null
   timezone: string | null
+  reviewStatus: string | null
+  integrityReviewStatus: string | null
+  integrityDecision: string | null
+}
+
+/** Read-only live provider surfaces used to plan a valid campaign. */
+export interface AdsReader {
+  getAccount(apiKey: string): Promise<AdsAccountDto>
+  searchGeo(apiKey: string, query: AdsGeoSearchQuery): Promise<AdsGeoSearchResponse>
+  listConversionPixels(apiKey: string): Promise<AdsConversionPixelListResponse>
+  listConversionEventSettings(apiKey: string): Promise<AdsConversionEventSettingListResponse>
 }
 
 export interface AdsRoutesOptions {
   adsCredentialStore?: AdsCredentialStore
   /** Validates an SDK key against the upstream ad account (host wires this to the integration client). */
   verifyAdsAccount?: (apiKey: string) => Promise<VerifiedAdsAccount>
+  /** Optional read adapter. The host resolves the project credential server-side. */
+  adsReader?: AdsReader
   /** Fired after a manual sync run row is created; host runs the ads-sync worker. */
   onAdsSyncRequested?: (runId: string, projectId: string) => void
   /** Optional lifecycle adapter. The host resolves the project credential and calls the upstream Ads API. */
@@ -165,6 +184,9 @@ function statusDto(row: ConnectionRow | undefined): AdsConnectionStatusDto {
     currencyCode: row.currencyCode,
     timezone: row.timezone,
     status: row.status,
+    reviewStatus: row.reviewStatus,
+    integrityReviewStatus: row.integrityReviewStatus,
+    integrityDecision: row.integrityDecision,
     lastSyncedAt: row.lastSyncedAt,
     conversionTrackingConfigured: row.conversionTrackingConfigured,
   }
@@ -268,6 +290,44 @@ function resolveAdsOperator(
     throw validationError('Ads lifecycle operations are not configured for this deployment')
   }
   return { apiKey, operator: opts.adsOperator }
+}
+
+function resolveAdsReader(
+  opts: AdsRoutesOptions,
+  projectName: string,
+): { apiKey: string; reader: AdsReader } {
+  const apiKey = opts.adsCredentialStore?.getConnection(projectName)?.apiKey
+  if (!apiKey) {
+    throw validationError('No OpenAI Ads API key configured for this project')
+  }
+  if (!opts.adsReader) {
+    throw validationError('Ads planning reads are not configured for this deployment')
+  }
+  return { apiKey, reader: opts.adsReader }
+}
+
+async function executeAdsRead<T>(surface: string, read: () => Promise<T>): Promise<T> {
+  try {
+    return await read()
+  } catch (error) {
+    const upstreamStatus = typeof error === 'object'
+      && error !== null
+      && 'status' in error
+      && typeof error.status === 'number'
+      && Number.isInteger(error.status)
+      ? error.status
+      : undefined
+    const upstreamCode = typeof error === 'object'
+      && error !== null
+      && 'code' in error
+      && typeof error.code === 'string'
+      ? error.code
+      : undefined
+    throw providerError(`OpenAI Ads API ${surface} read failed`, {
+      ...(upstreamStatus === undefined ? {} : { upstreamStatus }),
+      ...(upstreamCode === undefined ? {} : { upstreamCode }),
+    })
+  }
 }
 
 async function executeAdsOperation(
@@ -445,6 +505,9 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
             currencyCode: account.currencyCode,
             timezone: account.timezone,
             status: account.status,
+            reviewStatus: account.reviewStatus,
+            integrityReviewStatus: account.integrityReviewStatus,
+            integrityDecision: account.integrityDecision,
             updatedAt: now,
           }).where(eq(adsConnections.id, existingRow.id)).run()
         } else {
@@ -456,6 +519,9 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
             currencyCode: account.currencyCode,
             timezone: account.timezone,
             status: account.status,
+            reviewStatus: account.reviewStatus,
+            integrityReviewStatus: account.integrityReviewStatus,
+            integrityDecision: account.integrityDecision,
             createdAt: now,
             updatedAt: now,
           }).run()
@@ -505,6 +571,46 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
       .where(eq(adsConnections.projectId, project.id)).get()
     return statusDto(row)
   })
+
+  app.get<{ Params: { name: string } }>('/projects/:name/ads/account', async (request) => {
+    const project = resolveProject(app.db, request.params.name)
+    const { apiKey, reader } = resolveAdsReader(opts, project.name)
+    return executeAdsRead('account', () => reader.getAccount(apiKey))
+  })
+
+  app.get<{
+    Params: { name: string }
+    Querystring: { q?: string; limit?: string | number }
+  }>('/projects/:name/ads/geo/search', async (request) => {
+    const project = resolveProject(app.db, request.params.name)
+    const parsed = adsGeoSearchQuerySchema.safeParse({
+      q: request.query.q,
+      limit: request.query.limit === undefined ? undefined : Number(request.query.limit),
+    })
+    if (!parsed.success) {
+      throw validationError('Invalid ads geo search query', { issues: parsed.error.issues })
+    }
+    const { apiKey, reader } = resolveAdsReader(opts, project.name)
+    return executeAdsRead('geo search', () => reader.searchGeo(apiKey, parsed.data))
+  })
+
+  app.get<{ Params: { name: string } }>('/projects/:name/ads/conversions/pixels', async (request) => {
+    const project = resolveProject(app.db, request.params.name)
+    const { apiKey, reader } = resolveAdsReader(opts, project.name)
+    return executeAdsRead('conversion pixel list', () => reader.listConversionPixels(apiKey))
+  })
+
+  app.get<{ Params: { name: string } }>(
+    '/projects/:name/ads/conversions/event-settings',
+    async (request) => {
+      const project = resolveProject(app.db, request.params.name)
+      const { apiKey, reader } = resolveAdsReader(opts, project.name)
+      return executeAdsRead(
+        'conversion event setting list',
+        () => reader.listConversionEventSettings(apiKey),
+      )
+    },
+  )
 
   app.get<{ Params: { name: string; operationKey: string } }>(
     '/projects/:name/ads/operations/:operationKey',
@@ -831,6 +937,7 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
       startTime: campaign.startTime,
       endTime: campaign.endTime,
       biddingType: campaign.biddingType,
+      conversionEventSettingIds: campaign.conversionEventSettingIds,
       dailySpendLimitMicros: campaign.dailySpendLimitMicros,
       lifetimeSpendLimitMicros: campaign.lifetimeSpendLimitMicros,
       locationIds: locationIdsDto(campaign.targeting),
