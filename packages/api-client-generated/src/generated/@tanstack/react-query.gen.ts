@@ -2332,7 +2332,7 @@ export const getApiV1ProjectsByNameAdsCampaignsOptions = (options: Options<GetAp
 /**
  * Create a paused OpenAI Ads campaign
  *
- * The server always creates the campaign paused. Status is not accepted from the caller.
+ * The server always creates the campaign paused. Click bidding requires at least one unique conversion event-setting ID. Omit both bidding fields for legacy impressions mode. Status is not accepted from the caller.
  */
 export const postApiV1ProjectsByNameAdsCampaignsMutation = (options?: Partial<Options<PostApiV1ProjectsByNameAdsCampaignsData>>): UseMutationOptions<PostApiV1ProjectsByNameAdsCampaignsResponse, PostApiV1ProjectsByNameAdsCampaignsError, Options<PostApiV1ProjectsByNameAdsCampaignsData>> => {
     const mutationOptions: UseMutationOptions<PostApiV1ProjectsByNameAdsCampaignsResponse, PostApiV1ProjectsByNameAdsCampaignsError, Options<PostApiV1ProjectsByNameAdsCampaignsData>> = {
@@ -2351,7 +2351,7 @@ export const postApiV1ProjectsByNameAdsCampaignsMutation = (options?: Partial<Op
 /**
  * Create a paused OpenAI Ads ad group
  *
- * The server fixes billing to impressions and always creates the ad group paused.
+ * The server always creates the ad group paused and verifies its billing event against the live parent campaign before mutation. Omit billingEventType for legacy impression billing.
  */
 export const postApiV1ProjectsByNameAdsAdGroupsMutation = (options?: Partial<Options<PostApiV1ProjectsByNameAdsAdGroupsData>>): UseMutationOptions<PostApiV1ProjectsByNameAdsAdGroupsResponse, PostApiV1ProjectsByNameAdsAdGroupsError, Options<PostApiV1ProjectsByNameAdsAdGroupsData>> => {
     const mutationOptions: UseMutationOptions<PostApiV1ProjectsByNameAdsAdGroupsResponse, PostApiV1ProjectsByNameAdsAdGroupsError, Options<PostApiV1ProjectsByNameAdsAdGroupsData>> = {

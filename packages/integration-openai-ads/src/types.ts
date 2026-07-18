@@ -1,3 +1,10 @@
+import {
+  AdsAdGroupBillingEventTypes,
+  AdsCampaignBiddingTypes,
+  type AdsAdGroupBillingEventType,
+  type AdsCampaignBiddingType,
+} from '@ainyc/canonry-contracts'
+
 // Types mirror OpenAI Advertiser API responses captured live on 2026-06-10,
 // except where a type-level comment identifies a provider-documented contract
 // awaiting a non-empty live capture. Money units are mixed upstream and
@@ -105,12 +112,13 @@ export const OpenAiAdsWriteStatuses = {
 
 export type OpenAiAdsWriteStatus = (typeof OpenAiAdsWriteStatuses)[keyof typeof OpenAiAdsWriteStatuses]
 
-export const OpenAiAdsBillingEventTypes = {
-  impression: 'impression',
-} as const
+export const OpenAiAdsBiddingTypes = AdsCampaignBiddingTypes
 
-export type OpenAiAdsBillingEventType =
-  (typeof OpenAiAdsBillingEventTypes)[keyof typeof OpenAiAdsBillingEventTypes]
+export type OpenAiAdsBiddingType = AdsCampaignBiddingType
+
+export const OpenAiAdsBillingEventTypes = AdsAdGroupBillingEventTypes
+
+export type OpenAiAdsBillingEventType = AdsAdGroupBillingEventType
 
 export const OpenAiAdsCreativeTypes = {
   chatCard: 'chat_card',
@@ -139,6 +147,8 @@ export interface OpenAiAdsCreateCampaignRequest {
   end_time?: number
   status: typeof OpenAiAdsWriteStatuses.paused
   budget: OpenAiAdsCampaignBudgetRequest
+  bidding_type?: OpenAiAdsBiddingType
+  conversion_event_setting_ids?: string[]
   targeting?: OpenAiAdsCampaignTargetingRequest
 }
 
@@ -173,7 +183,7 @@ export interface OpenAiAdsCampaign {
   id: string
   name: string
   status: string
-  bidding_type: string | null
+  bidding_type: OpenAiAdsBiddingType | null
   budget: OpenAiAdsCampaignBudget | null
   conversion_event_setting_ids: string[] | null
   description: string | null
@@ -187,7 +197,7 @@ export interface OpenAiAdsCampaign {
 }
 
 export interface OpenAiAdsBiddingConfig {
-  billing_event_type: string | null
+  billing_event_type: OpenAiAdsBillingEventType | null
   max_bid_micros: number | null
 }
 

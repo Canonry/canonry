@@ -50,6 +50,8 @@ import {
   adsGeoSearchResponseSchema,
   adsConversionPixelListResponseSchema,
   adsConversionEventSettingListResponseSchema,
+  type AdsCampaignBiddingType,
+  type AdsAdGroupBillingEventType,
   type ProviderAdapter,
 } from "@ainyc/canonry-contracts";
 import type { CanonryConfig, ProviderConfigEntry } from "./config.js";
@@ -108,7 +110,6 @@ import {
   removeOpenAiAdsConnection,
 } from "./ads-config.js";
 import {
-  OpenAiAdsBillingEventTypes,
   OpenAiAdsCreativeTypes,
   OpenAiAdsWriteStatuses,
   createAd,
@@ -128,6 +129,7 @@ import {
   updateAdGroup,
   updateCampaign,
   uploadImageFromUrl,
+  type OpenAiAdsBiddingConfigRequest,
 } from "@ainyc/canonry-integration-openai-ads";
 import { executeInspectSitemap } from "./gsc-inspect-sitemap.js";
 import { executeBingInspectSitemap } from "./bing-inspect-sitemap.js";
@@ -851,12 +853,23 @@ export async function createServer(opts: {
     reviewStatus: entity.review_status ?? null,
   });
 
+  const adsCampaignEntityResult = (entity: Awaited<ReturnType<typeof getCampaign>>) => ({
+    ...adsEntityResult(entity),
+    biddingType: entity.bidding_type,
+    conversionEventSettingIds: entity.conversion_event_setting_ids,
+  });
+
+  const adsAdGroupEntityResult = (entity: Awaited<ReturnType<typeof getAdGroup>>) => ({
+    ...adsEntityResult(entity),
+    billingEventType: entity.bidding_config?.billing_event_type ?? null,
+  });
+
   const adsOperator = {
     uploadImage: async (apiKey: string, imageUrl: string) => {
       const result = await uploadImageFromUrl(apiKey, imageUrl);
       return { fileId: result.file_id };
     },
-    getCampaign: async (apiKey: string, id: string) => adsEntityResult(await getCampaign(apiKey, id)),
+    getCampaign: async (apiKey: string, id: string) => adsCampaignEntityResult(await getCampaign(apiKey, id)),
     createCampaign: async (apiKey: string, input: {
       name: string;
       description?: string;
@@ -864,13 +877,17 @@ export async function createServer(opts: {
       endTime?: number;
       lifetimeSpendLimitMicros: number;
       locationIds: string[];
-    }) => adsEntityResult(await createCampaign(apiKey, {
+      biddingType: AdsCampaignBiddingType;
+      conversionEventSettingIds?: string[];
+    }) => adsCampaignEntityResult(await createCampaign(apiKey, {
       name: input.name,
       description: input.description,
       start_time: input.startTime,
       end_time: input.endTime,
       status: OpenAiAdsWriteStatuses.paused,
       budget: { lifetime_spend_limit_micros: input.lifetimeSpendLimitMicros },
+      bidding_type: input.biddingType,
+      conversion_event_setting_ids: input.conversionEventSettingIds,
       targeting: { locations: { include: input.locationIds.map((id) => ({ id })) } },
     })),
     updateCampaign: async (apiKey: string, id: string, input: {
@@ -880,7 +897,7 @@ export async function createServer(opts: {
       endTime?: number | null;
       lifetimeSpendLimitMicros?: number;
       locationIds?: string[];
-    }) => adsEntityResult(await updateCampaign(apiKey, id, {
+    }) => adsCampaignEntityResult(await updateCampaign(apiKey, id, {
       name: input.name,
       description: input.description,
       start_time: input.startTime,
@@ -892,22 +909,23 @@ export async function createServer(opts: {
         ? undefined
         : { locations: { include: input.locationIds.map((locationId) => ({ id: locationId })) } },
     })),
-    pauseCampaign: async (apiKey: string, id: string) => adsEntityResult(await pauseCampaign(apiKey, id)),
-    getAdGroup: async (apiKey: string, id: string) => adsEntityResult(await getAdGroup(apiKey, id)),
+    pauseCampaign: async (apiKey: string, id: string) => adsCampaignEntityResult(await pauseCampaign(apiKey, id)),
+    getAdGroup: async (apiKey: string, id: string) => adsAdGroupEntityResult(await getAdGroup(apiKey, id)),
     createAdGroup: async (apiKey: string, input: {
       campaignId: string;
       name: string;
       description?: string;
       contextHints: string[];
       maxBidMicros: number;
-    }) => adsEntityResult(await createAdGroup(apiKey, {
+      billingEventType: AdsAdGroupBillingEventType;
+    }) => adsAdGroupEntityResult(await createAdGroup(apiKey, {
       campaign_id: input.campaignId,
       name: input.name,
       description: input.description,
       context_hints: input.contextHints,
       status: OpenAiAdsWriteStatuses.paused,
       bidding_config: {
-        billing_event_type: OpenAiAdsBillingEventTypes.impression,
+        billing_event_type: input.billingEventType,
         max_bid_micros: input.maxBidMicros,
       },
     })),
@@ -916,18 +934,26 @@ export async function createServer(opts: {
       description?: string | null;
       contextHints?: string[];
       maxBidMicros?: number;
-    }) => adsEntityResult(await updateAdGroup(apiKey, id, {
-      name: input.name,
-      description: input.description,
-      context_hints: input.contextHints,
-      bidding_config: input.maxBidMicros === undefined
-        ? undefined
-        : {
-            billing_event_type: OpenAiAdsBillingEventTypes.impression,
-            max_bid_micros: input.maxBidMicros,
-          },
-    })),
-    pauseAdGroup: async (apiKey: string, id: string) => adsEntityResult(await pauseAdGroup(apiKey, id)),
+      billingEventType?: AdsAdGroupBillingEventType;
+    }) => {
+      let biddingConfig: OpenAiAdsBiddingConfigRequest | undefined;
+      if (input.maxBidMicros !== undefined) {
+        if (input.billingEventType === undefined) {
+          throw new Error('Ad group max-bid updates require the current billing event type');
+        }
+        biddingConfig = {
+          billing_event_type: input.billingEventType,
+          max_bid_micros: input.maxBidMicros,
+        };
+      }
+      return adsAdGroupEntityResult(await updateAdGroup(apiKey, id, {
+        name: input.name,
+        description: input.description,
+        context_hints: input.contextHints,
+        bidding_config: biddingConfig,
+      }));
+    },
+    pauseAdGroup: async (apiKey: string, id: string) => adsAdGroupEntityResult(await pauseAdGroup(apiKey, id)),
     getAd: async (apiKey: string, id: string) => adsEntityResult(await getAd(apiKey, id)),
     createAd: async (apiKey: string, input: {
       adGroupId: string;

@@ -5,6 +5,7 @@ import {
   adsInsightRowDtoSchema,
   adsSummaryDtoSchema,
   adsCampaignDtoSchema,
+  adsAdGroupDtoSchema,
   adsAccountDtoSchema,
   adsGeoSearchQuerySchema,
   adsGeoSearchResponseSchema,
@@ -12,9 +13,12 @@ import {
   adsConversionEventSettingListResponseSchema,
   adsConnectionStatusDtoSchema,
   adsCampaignCreateRequestSchema,
+  adsAdGroupCreateRequestSchema,
   adsCampaignUpdateRequestSchema,
   adsAdCreateRequestSchema,
   adsOperationDtoSchema,
+  AdsCampaignBiddingTypes,
+  AdsAdGroupBillingEventTypes,
 } from '../src/ads.js'
 
 const NOW = '2026-07-17T00:00:00.000Z'
@@ -144,6 +148,29 @@ describe('DTO schemas', () => {
     expect(parsed.conversionEventSettingIds).toEqual([])
   })
 
+  test('campaign and ad-group DTOs accept only the closed bidding vocabularies', () => {
+    expect(Object.values(AdsCampaignBiddingTypes)).toEqual(['impressions', 'clicks'])
+    expect(Object.values(AdsAdGroupBillingEventTypes)).toEqual(['impression', 'click'])
+
+    for (const biddingType of Object.values(AdsCampaignBiddingTypes)) {
+      expect(adsCampaignDtoSchema.safeParse({
+        id: 'cmpn_x', name: 'Campaign', status: 'paused', biddingType,
+      }).success).toBe(true)
+    }
+    expect(adsCampaignDtoSchema.safeParse({
+      id: 'cmpn_x', name: 'Campaign', status: 'paused', biddingType: 'conversions',
+    }).success).toBe(false)
+
+    for (const billingEventType of Object.values(AdsAdGroupBillingEventTypes)) {
+      expect(adsAdGroupDtoSchema.safeParse({
+        id: 'adgrp_x', campaignId: 'cmpn_x', name: 'Group', status: 'paused', billingEventType,
+      }).success).toBe(true)
+    }
+    expect(adsAdGroupDtoSchema.safeParse({
+      id: 'adgrp_x', campaignId: 'cmpn_x', name: 'Group', status: 'paused', billingEventType: 'conversion',
+    }).success).toBe(false)
+  })
+
   test('summary requires window and totals incl. conversions', () => {
     const ok = adsSummaryDtoSchema.safeParse({
       connected: true, campaignCount: 2, adGroupCount: 16, adCount: 20,
@@ -199,6 +226,74 @@ describe('ads lifecycle contracts', () => {
       name: 'AEO Audit Leads',
       lifetimeSpendLimitMicros: 999_999,
       locationIds: [],
+    }).success).toBe(false)
+  })
+
+  test('campaign creation preserves legacy omissions and supports both bidding modes', () => {
+    const base = {
+      operationKey: 'weekend:campaign:bidding',
+      name: 'AEO Audit Leads',
+      lifetimeSpendLimitMicros: 25_000_000,
+      locationIds: ['1000232'],
+    }
+
+    expect(adsCampaignCreateRequestSchema.parse(base)).not.toHaveProperty('biddingType')
+    expect(adsCampaignCreateRequestSchema.safeParse({
+      ...base,
+      biddingType: AdsCampaignBiddingTypes.impressions,
+    }).success).toBe(true)
+    expect(adsCampaignCreateRequestSchema.safeParse({
+      ...base,
+      biddingType: AdsCampaignBiddingTypes.clicks,
+      conversionEventSettingIds: ['ces_lead'],
+    }).success).toBe(true)
+    expect(adsCampaignCreateRequestSchema.safeParse({
+      ...base,
+      biddingType: 'conversions',
+      conversionEventSettingIds: ['ces_lead'],
+    }).success).toBe(false)
+  })
+
+  test('click bidding requires non-empty unique conversion event setting IDs', () => {
+    const base = {
+      operationKey: 'weekend:campaign:clicks',
+      name: 'AEO Audit Leads',
+      lifetimeSpendLimitMicros: 25_000_000,
+      locationIds: ['1000232'],
+      biddingType: AdsCampaignBiddingTypes.clicks,
+    }
+
+    expect(adsCampaignCreateRequestSchema.safeParse(base).success).toBe(false)
+    expect(adsCampaignCreateRequestSchema.safeParse({
+      ...base,
+      conversionEventSettingIds: [],
+    }).success).toBe(false)
+    expect(adsCampaignCreateRequestSchema.safeParse({
+      ...base,
+      conversionEventSettingIds: ['ces_lead', 'ces_lead'],
+    }).success).toBe(false)
+    expect(adsCampaignCreateRequestSchema.safeParse({
+      ...base,
+      conversionEventSettingIds: ['ces_lead', 'ces_booked'],
+    }).success).toBe(true)
+  })
+
+  test('ad-group creation preserves the legacy billing omission and accepts both billing events', () => {
+    const base = {
+      operationKey: 'weekend:ad-group:billing',
+      campaignId: 'cmpn_1',
+      name: 'Audit intent',
+      contextHints: ['best AEO audit service'],
+      maxBidMicros: 2_000_000,
+    }
+
+    expect(adsAdGroupCreateRequestSchema.parse(base)).not.toHaveProperty('billingEventType')
+    for (const billingEventType of Object.values(AdsAdGroupBillingEventTypes)) {
+      expect(adsAdGroupCreateRequestSchema.safeParse({ ...base, billingEventType }).success).toBe(true)
+    }
+    expect(adsAdGroupCreateRequestSchema.safeParse({
+      ...base,
+      billingEventType: 'conversion',
     }).success).toBe(false)
   })
 

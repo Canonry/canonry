@@ -2055,7 +2055,7 @@ export const canonryMcpTools = [
     name: 'canonry_ads_campaign_create',
     title: 'Create a paused ads campaign',
     description:
-      'Create an OpenAI Ads campaign PAUSED with an explicit lifetime spend limit and location allowlist. The server ignores any status concept and always sends paused. Inspect the receipt, then create paused ad groups and ads. Activation is deliberately human-only for the beta.',
+      'Create an OpenAI Ads campaign PAUSED with an explicit lifetime spend limit and location allowlist. Set biddingType=clicks with one or more provider-issued conversionEventSettingIds for conversion-optimized delivery; omit both for legacy impressions bidding. The server ignores any status concept and always sends paused. Inspect the receipt, then create matching paused ad groups and ads. Activation is deliberately human-only for the beta.',
     access: 'write',
     tier: 'ads',
     inputSchema: adsCampaignCreateInputSchema,
@@ -2091,7 +2091,7 @@ export const canonryMcpTools = [
     name: 'canonry_ads_ad_group_create',
     title: 'Create a paused ads ad group',
     description:
-      'Create a PAUSED ad group under a reviewed campaign. Context hints describe when the audit offer is useful; maxBidMicros is an impression bid. The server fixes the billing event to impression.',
+      'Create a PAUSED ad group under a reviewed campaign. Context hints describe when the audit offer is useful. Set billingEventType=click under a clicks campaign; omit it for the legacy impression mode. Canonry reads the live parent and rejects a billing/bidding mismatch before mutation.',
     access: 'write',
     tier: 'ads',
     inputSchema: adsAdGroupCreateInputSchema,
@@ -2103,7 +2103,7 @@ export const canonryMcpTools = [
     name: 'canonry_ads_ad_group_update',
     title: 'Update an ads ad group',
     description:
-      'Update a PAUSED ad group name, description, context hints, or impression bid without changing status. Active ad groups fail closed: pause first, sync, and use the refreshed upstreamUpdatedAt. A human must reactivate after review. Uses a durable operation key.',
+      'Update a PAUSED ad group name, description, context hints, or max bid without changing its billing event or status. Active ad groups fail closed: pause first, sync, and use the refreshed upstreamUpdatedAt. A human must reactivate after review. Uses a durable operation key.',
     access: 'write',
     tier: 'ads',
     inputSchema: adsAdGroupUpdateInputSchema,

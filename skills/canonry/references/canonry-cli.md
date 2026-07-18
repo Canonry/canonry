@@ -609,6 +609,13 @@ already be paused and `expectedUpdatedAt` to equal the latest
 the kill switch but deliberately omits activation and archive; a human reviews
 and activates in Ads Manager.
 
+For a conversion-optimized campaign, set `biddingType` to `clicks` and pass at
+least one exact `conversionEventSettingIds` value returned by `ads conversions
+event-settings`. Each child ad group must set `billingEventType` to `click`.
+Canonry rejects missing or duplicate conversion IDs and rejects any ad-group
+billing mode that does not match its live parent campaign before writing to the
+provider. Omit these fields to preserve the legacy impressions/impression mode.
+
 Campaign updates may omit `locationIds` to preserve current geo targeting or
 pass a non-empty list to replace it. The guarded operator cannot pass `null` or
 an empty list to clear targeting. OpenAI documents that clearing targeting can

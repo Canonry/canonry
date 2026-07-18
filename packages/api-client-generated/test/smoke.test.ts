@@ -1,5 +1,6 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, expectTypeOf, it, vi } from 'vitest'
 import { createClient, getApiV1Projects } from '../src/index.js'
+import type { AdsCampaignListResponse } from '../src/index.js'
 
 /**
  * Smoke tests for the generated SDK + the `createClient` factory.
@@ -9,6 +10,16 @@ import { createClient, getApiV1Projects } from '../src/index.js'
  * if hey-api ever changes its config shape, the test fails locally.
  */
 describe('canonry-api-client', () => {
+  it('retains nullable ads bidding and billing values in generated response types', () => {
+    type Campaign = AdsCampaignListResponse['campaigns'][number]
+    type AdGroup = Campaign['adGroups'][number]
+
+    expectTypeOf<Campaign['biddingType']>()
+      .toEqualTypeOf<'impressions' | 'clicks' | null | undefined>()
+    expectTypeOf<AdGroup['billingEventType']>()
+      .toEqualTypeOf<'impression' | 'click' | null | undefined>()
+  })
+
   it('createClient applies bearer auth + base URL to generated operations', async () => {
     const fakeFetch = vi.fn(async () =>
       new Response(JSON.stringify([]), {

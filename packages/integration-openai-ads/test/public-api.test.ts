@@ -34,6 +34,17 @@ describe('public package API', () => {
     })
   })
 
+  it('exports the closed click and impression bidding vocabulary', () => {
+    expect(publicApi.OpenAiAdsBiddingTypes).toEqual({
+      impressions: 'impressions',
+      clicks: 'clicks',
+    })
+    expect(publicApi.OpenAiAdsBillingEventTypes).toEqual({
+      impression: 'impression',
+      click: 'click',
+    })
+  })
+
   it('exposes pause but not activation primitives', () => {
     expect(publicApi).toMatchObject({
       pauseCampaign: expect.any(Function),

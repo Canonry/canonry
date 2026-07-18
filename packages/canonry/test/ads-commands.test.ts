@@ -131,6 +131,8 @@ describe('ads lifecycle commands', () => {
       name: 'AEO Audit Lead Generation',
       lifetimeSpendLimitMicros: 25_000_000,
       locationIds: ['3000001'],
+      biddingType: 'clicks',
+      conversionEventSettingIds: ['cevent_audit_booked'],
     }))
     mockCreateAdsCampaign.mockResolvedValue(RECEIPT)
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
@@ -142,6 +144,8 @@ describe('ads lifecycle commands', () => {
       name: 'AEO Audit Lead Generation',
       lifetimeSpendLimitMicros: 25_000_000,
       locationIds: ['3000001'],
+      biddingType: 'clicks',
+      conversionEventSettingIds: ['cevent_audit_booked'],
     })
     expect(JSON.parse(log.mock.calls[0]![0] as string)).toEqual(RECEIPT)
   })

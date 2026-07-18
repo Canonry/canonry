@@ -42,6 +42,9 @@ function buildApp(overrides: {
   scopes?: string[]
   currentUpdatedAt?: number
   currentStatus?: string
+  currentCampaignBiddingType?: 'impressions' | 'clicks' | null
+  currentCampaignConversionEventSettingIds?: string[] | null
+  currentAdGroupBillingEventType?: 'impression' | 'click' | null
   mutationStatus?: string
   pauseStatus?: string
   pauseShouldFail?: boolean
@@ -69,11 +72,28 @@ function buildApp(overrides: {
     throw error
   })
 
-  const entity = (id: string, status: string) => ({
+  const entity = (method: string, id: string, status: string) => ({
     id,
     status,
     updatedAt: overrides.currentUpdatedAt ?? 123,
     reviewStatus: id.startsWith('ad_') ? 'approved' : null,
+    ...(method === 'getCampaign'
+      ? {
+          biddingType: overrides.currentCampaignBiddingType === undefined
+            ? 'impressions' as const
+            : overrides.currentCampaignBiddingType,
+          conversionEventSettingIds: overrides.currentCampaignConversionEventSettingIds === undefined
+            ? []
+            : overrides.currentCampaignConversionEventSettingIds,
+        }
+      : {}),
+    ...(method === 'getAdGroup'
+      ? {
+          billingEventType: overrides.currentAdGroupBillingEventType === undefined
+            ? 'impression' as const
+            : overrides.currentAdGroupBillingEventType,
+        }
+      : {}),
   })
   const call = async (method: string, id: string, input?: unknown) => {
     operatorCalls.push({ method, input })
@@ -88,7 +108,7 @@ function buildApp(overrides: {
       : method.startsWith('pause')
         ? overrides.pauseStatus ?? 'paused'
         : overrides.mutationStatus ?? 'paused'
-    return entity(id, status)
+    return entity(method, id, status)
   }
   const adsOperator: AdsOperator = {
     uploadImage: async (_apiKey, imageUrl) => {
@@ -515,6 +535,7 @@ describe('ads routes', () => {
           name: 'AEO Audit Lead Generation',
           lifetimeSpendLimitMicros: 25_000_000,
           locationIds: ['1000232'],
+          biddingType: 'impressions',
         },
       },
     ])
@@ -535,6 +556,38 @@ describe('ads routes', () => {
     const rows = ctx.db.select().from(adsOperations).where(eq(adsOperations.projectId, projectId)).all()
     expect(rows).toHaveLength(1)
     expect(rows[0]).toMatchObject({ state: 'succeeded', entityId: 'cmpn_new' })
+  })
+
+  it('forwards click bidding and conversion settings when creating a paused campaign', async () => {
+    const projectId = ctx.seedProject()
+    ctx.seedConnection(projectId)
+
+    const response = await ctx.app.inject({
+      method: 'POST',
+      url: '/projects/acme/ads/campaigns',
+      payload: {
+        operationKey: 'weekend:campaign:clicks',
+        name: 'AEO Audit Click Leads',
+        lifetimeSpendLimitMicros: 25_000_000,
+        locationIds: ['1000232'],
+        biddingType: 'clicks',
+        conversionEventSettingIds: ['cevent_audit_booked'],
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(ctx.operatorCalls).toEqual([
+      {
+        method: 'createCampaign',
+        input: {
+          name: 'AEO Audit Click Leads',
+          lifetimeSpendLimitMicros: 25_000_000,
+          locationIds: ['1000232'],
+          biddingType: 'clicks',
+          conversionEventSettingIds: ['cevent_audit_booked'],
+        },
+      },
+    ])
   })
 
   it('emergency-pauses a create when the provider does not return the required paused state', async () => {
@@ -634,15 +687,19 @@ describe('ads routes', () => {
       },
     })
     expect(group.statusCode).toBe(200)
-    expect(ctx.operatorCalls[0]).toEqual({
-      method: 'createAdGroup',
-      input: {
-        campaignId: 'cmpn_new',
-        name: 'AEO audit discovery',
-        contextHints: ['how do I improve visibility in ChatGPT'],
-        maxBidMicros: 60_000,
+    expect(ctx.operatorCalls.slice(0, 2)).toEqual([
+      { method: 'getCampaign', input: undefined },
+      {
+        method: 'createAdGroup',
+        input: {
+          campaignId: 'cmpn_new',
+          name: 'AEO audit discovery',
+          contextHints: ['how do I improve visibility in ChatGPT'],
+          maxBidMicros: 60_000,
+          billingEventType: 'impression',
+        },
       },
-    })
+    ])
 
     const ad = await ctx.app.inject({
       method: 'POST', url: '/projects/acme/ads/ads', payload: {
@@ -659,7 +716,7 @@ describe('ads routes', () => {
       },
     })
     expect(ad.statusCode).toBe(200)
-    expect(ctx.operatorCalls[1]).toEqual({
+    expect(ctx.operatorCalls[2]).toEqual({
       method: 'createAd',
       input: {
         adGroupId: 'adgrp_new',
@@ -682,6 +739,65 @@ describe('ads routes', () => {
       expect(res.statusCode).toBe(200)
       expect(ctx.operatorCalls.some((entry) => entry.method === method)).toBe(true)
     }
+  })
+
+  it('rejects an ad-group billing event that does not match the live parent campaign before create', async () => {
+    await ctx.app.close()
+    fs.rmSync(ctx.tmpDir, { recursive: true, force: true })
+    ctx = buildApp({
+      currentCampaignBiddingType: 'clicks',
+      currentCampaignConversionEventSettingIds: ['cevent_audit_booked'],
+    })
+    await ctx.app.ready()
+    const projectId = ctx.seedProject()
+    ctx.seedConnection(projectId)
+
+    const mismatch = await ctx.app.inject({
+      method: 'POST',
+      url: '/projects/acme/ads/ad-groups',
+      payload: {
+        operationKey: 'weekend:group:billing-mismatch',
+        campaignId: 'cmpn_clicks',
+        name: 'AEO audit click demand',
+        contextHints: ['book an AEO audit'],
+        maxBidMicros: 60_000,
+      },
+    })
+
+    expect(mismatch.statusCode).toBe(400)
+    expect(mismatch.body).toContain('must match the parent campaign bidding type')
+    expect(ctx.operatorCalls).toEqual([{ method: 'getCampaign', input: undefined }])
+    const receipt = ctx.db.select().from(adsOperations)
+      .where(eq(adsOperations.operationKey, 'weekend:group:billing-mismatch')).get()
+    expect(receipt).toMatchObject({ state: 'failed', errorCode: 'VALIDATION_ERROR' })
+
+    const matching = await ctx.app.inject({
+      method: 'POST',
+      url: '/projects/acme/ads/ad-groups',
+      payload: {
+        operationKey: 'weekend:group:billing-click',
+        campaignId: 'cmpn_clicks',
+        name: 'AEO audit click demand',
+        contextHints: ['book an AEO audit'],
+        maxBidMicros: 60_000,
+        billingEventType: 'click',
+      },
+    })
+
+    expect(matching.statusCode).toBe(200)
+    expect(ctx.operatorCalls.slice(-2)).toEqual([
+      { method: 'getCampaign', input: undefined },
+      {
+        method: 'createAdGroup',
+        input: {
+          campaignId: 'cmpn_clicks',
+          name: 'AEO audit click demand',
+          contextHints: ['book an AEO audit'],
+          maxBidMicros: 60_000,
+          billingEventType: 'click',
+        },
+      },
+    ])
   })
 
   it('fails a stale update closed before calling the upstream update', async () => {
@@ -744,6 +860,34 @@ describe('ads routes', () => {
     expect(ctx.operatorCalls).toEqual([
       { method: 'getAd', input: undefined },
       { method: 'updateAd', input: { name: 'AEO audit card v2' } },
+    ])
+  })
+
+  it('preserves the live ad-group billing event when updating its max bid', async () => {
+    await ctx.app.close()
+    fs.rmSync(ctx.tmpDir, { recursive: true, force: true })
+    ctx = buildApp({ currentAdGroupBillingEventType: 'click' })
+    await ctx.app.ready()
+    const projectId = ctx.seedProject()
+    ctx.seedConnection(projectId)
+
+    const response = await ctx.app.inject({
+      method: 'POST',
+      url: '/projects/acme/ads/ad-groups/adgrp_clicks',
+      payload: {
+        operationKey: 'weekend:update:click-bid',
+        expectedUpdatedAt: 123,
+        maxBidMicros: 75_000,
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(ctx.operatorCalls).toEqual([
+      { method: 'getAdGroup', input: undefined },
+      {
+        method: 'updateAdGroup',
+        input: { maxBidMicros: 75_000, billingEventType: 'click' },
+      },
     ])
   })
 
@@ -892,16 +1036,29 @@ describe('ads routes', () => {
     const body = JSON.parse(res.body) as { campaigns: Array<Record<string, unknown>> }
     expect(body.campaigns.length).toBe(1)
     const campaign = body.campaigns[0]!
+    expect(campaign.biddingType).toBe('clicks')
     expect(campaign.dailySpendLimitMicros).toBe(150_000_000)
     expect(campaign.conversionEventSettingIds).toEqual(['cevent_1111'])
     expect(campaign.upstreamUpdatedAt).toBe(123)
     expect(campaign.locationIds).toEqual(['3000001'])
     expect(campaign.adGroups.length).toBe(1)
+    expect(campaign.adGroups[0].billingEventType).toBe('click')
     expect(campaign.adGroups[0].upstreamUpdatedAt).toBe(124)
     expect(campaign.adGroups[0].contextHints).toEqual(['how much does a new deck cost', 'measure my yard'])
     expect(campaign.adGroups[0].ads[0].creative.targetUrl).toBe('https://lp.example/x')
     expect(campaign.adGroups[0].ads[0].creative.fileId).toBe('file_eee')
     expect(campaign.adGroups[0].ads[0].upstreamUpdatedAt).toBe(125)
+
+    ctx.db.update(adsCampaigns).set({ biddingType: 'future_provider_value' })
+      .where(eq(adsCampaigns.id, 'cmpn_bbb')).run()
+    ctx.db.update(adsAdGroups).set({ billingEventType: 'future_provider_value' })
+      .where(eq(adsAdGroups.id, 'adgrp_ddd')).run()
+    const drifted = await ctx.app.inject({ method: 'GET', url: '/projects/acme/ads/campaigns' })
+    const driftedCampaign = (JSON.parse(drifted.body) as {
+      campaigns: Array<{ biddingType: string | null; adGroups: Array<{ billingEventType: string | null }> }>
+    }).campaigns[0]!
+    expect(driftedCampaign.biddingType).toBeNull()
+    expect(driftedCampaign.adGroups[0]?.billingEventType).toBeNull()
   })
 
   it('GET /ads/insights derives ctr and cpcMicros exactly, with nulls for zero denominators', async () => {

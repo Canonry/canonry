@@ -35,7 +35,7 @@ export type AdsCampaignListResponse = {
         status: string;
         startTime?: number | null;
         endTime?: number | null;
-        biddingType?: string | null;
+        biddingType?: 'impressions' | 'clicks' | null;
         dailySpendLimitMicros?: number | null;
         lifetimeSpendLimitMicros?: number | null;
         conversionEventSettingIds: Array<string>;
@@ -46,7 +46,7 @@ export type AdsCampaignListResponse = {
             name: string;
             description?: string | null;
             status: string;
-            billingEventType?: string | null;
+            billingEventType?: 'impression' | 'click' | null;
             maxBidMicros?: number | null;
             contextHints: Array<string>;
             ads: Array<{
@@ -7209,6 +7209,11 @@ export type PostApiV1ProjectsByNameAdsCampaignsData = {
         endTime?: number;
         lifetimeSpendLimitMicros: number;
         locationIds: Array<string>;
+        biddingType?: 'impressions' | 'clicks';
+        /**
+         * Required and non-empty when biddingType is clicks.
+         */
+        conversionEventSettingIds?: Array<string>;
     };
     path: {
         /**
@@ -7262,6 +7267,7 @@ export type PostApiV1ProjectsByNameAdsAdGroupsData = {
         description?: string;
         contextHints: Array<string>;
         maxBidMicros: number;
+        billingEventType?: 'impression' | 'click';
     };
     path: {
         /**

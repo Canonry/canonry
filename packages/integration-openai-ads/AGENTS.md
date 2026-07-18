@@ -45,6 +45,17 @@ activates in Ads Manager.
   (`daily_spend_limit_micros`, `max_bid_micros`) but insights `spend`/`cpc`
   are decimal dollars. Consumers must normalize at ingest — this client
   returns values as the API sends them.
+- **Bidding and billing vocabularies are closed**: campaign `bidding_type` is
+  `impressions` or `clicks`; ad-group `billing_event_type` is `impression` or
+  `click`. A click campaign requires at least one unique
+  `conversion_event_setting_id`, and its ad groups must use click billing.
+  Omitted campaign bidding fields still use the provider's documented legacy
+  `impressions` default. Canonry's route adapter materializes its own legacy
+  defaults without changing the parsed operation payload.
+- **Ad-group bid updates are full-object writes**: the provider requires both
+  `billing_event_type` and `max_bid_micros` when `bidding_config` is updated.
+  Preserve the existing billing event when changing only the maximum bid;
+  never inject impression billing into a click campaign.
 - **Provider writes are not idempotent by contract**: callers must establish a
   durable operation receipt before the network call and never blindly retry an
   ambiguous outcome. Canonry's route layer owns that receipt policy.

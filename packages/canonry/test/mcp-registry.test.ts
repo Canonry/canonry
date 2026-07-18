@@ -244,6 +244,41 @@ describe('MCP tool registry', () => {
       limit: 20,
     })
     expect(() => adsGeoSearch?.inputSchema.parse({ project: 'acme', q: 'New York', limit: 101 })).toThrow()
+
+    const adsCampaignCreate = canonryMcpTools.find(
+      candidate => candidate.name === 'canonry_ads_campaign_create',
+    )
+    const clickCampaign = {
+      project: 'acme',
+      request: {
+        operationKey: 'weekend:campaign:clicks',
+        name: 'AEO Audit Leads',
+        lifetimeSpendLimitMicros: 25_000_000,
+        locationIds: ['1000232'],
+        biddingType: 'clicks',
+        conversionEventSettingIds: ['cevent_audit_booked'],
+      },
+    }
+    expect(adsCampaignCreate?.inputSchema.parse(clickCampaign)).toEqual(clickCampaign)
+    expect(() => adsCampaignCreate?.inputSchema.parse({
+      ...clickCampaign,
+      request: { ...clickCampaign.request, conversionEventSettingIds: [] },
+    })).toThrow()
+
+    const adsAdGroupCreate = canonryMcpTools.find(
+      candidate => candidate.name === 'canonry_ads_ad_group_create',
+    )
+    expect(adsAdGroupCreate?.inputSchema.parse({
+      project: 'acme',
+      request: {
+        operationKey: 'weekend:group:clicks',
+        campaignId: 'cmpn_clicks',
+        name: 'AEO audit demand',
+        contextHints: ['book an AEO audit'],
+        maxBidMicros: 60_000,
+        billingEventType: 'click',
+      },
+    })).toMatchObject({ request: { billingEventType: 'click' } })
   })
 
   it('limits MCP run trigger input to manual answer-visibility runs', () => {
