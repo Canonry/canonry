@@ -1,5 +1,9 @@
 import type { FastifyInstance } from 'fastify'
-import { AGENT_PROVIDER_IDS } from '@ainyc/canonry-contracts'
+import {
+  AGENT_PROVIDER_IDS,
+  AdsAdGroupBillingEventTypes,
+  AdsCampaignBiddingTypes,
+} from '@ainyc/canonry-contracts'
 import {
   buildComponentSchemas,
   errorResponse,
@@ -2362,7 +2366,7 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'post',
     path: '/api/v1/projects/{name}/ads/campaigns',
     summary: 'Create a paused OpenAI Ads campaign',
-    description: 'The server always creates the campaign paused. Status is not accepted from the caller.',
+    description: 'The server always creates the campaign paused. Click bidding requires at least one unique conversion event-setting ID. Omit both bidding fields for legacy impressions mode. Status is not accepted from the caller.',
     tags: ['ads'],
     parameters: [nameParameter],
     requestBody: {
@@ -2378,6 +2382,13 @@ const routeCatalog: OpenApiOperation[] = [
           endTime: integerSchema,
           lifetimeSpendLimitMicros: { type: 'integer', minimum: 1000000 },
           locationIds: { type: 'array', minItems: 1, maxItems: 100, items: stringSchema },
+          biddingType: { type: 'string', enum: Object.values(AdsCampaignBiddingTypes) },
+          conversionEventSettingIds: {
+            type: 'array',
+            uniqueItems: true,
+            items: stringSchema,
+            description: 'Required and non-empty when biddingType is clicks.',
+          },
         },
       } } },
     },
@@ -2394,7 +2405,7 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'post',
     path: '/api/v1/projects/{name}/ads/ad-groups',
     summary: 'Create a paused OpenAI Ads ad group',
-    description: 'The server fixes billing to impressions and always creates the ad group paused.',
+    description: 'The server always creates the ad group paused and verifies its billing event against the live parent campaign before mutation. Omit billingEventType for legacy impression billing.',
     tags: ['ads'],
     parameters: [nameParameter],
     requestBody: {
@@ -2409,6 +2420,7 @@ const routeCatalog: OpenApiOperation[] = [
           description: stringSchema,
           contextHints: { type: 'array', minItems: 1, maxItems: 100, items: stringSchema },
           maxBidMicros: { type: 'integer', minimum: 1, maximum: 100000000 },
+          billingEventType: { type: 'string', enum: Object.values(AdsAdGroupBillingEventTypes) },
         },
       } } },
     },

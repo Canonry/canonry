@@ -25,6 +25,7 @@ export {
 } from './ads-client.js'
 export {
   OpenAiAdsApiError,
+  OpenAiAdsBiddingTypes,
   OpenAiAdsBillingEventTypes,
   OpenAiAdsCreativeTypes,
   OpenAiAdsWriteStatuses,
@@ -36,6 +37,7 @@ export type {
   OpenAiAdsAccountIntegrityReviewDetails,
   OpenAiAdsAd,
   OpenAiAdsAdGroup,
+  OpenAiAdsBiddingType,
   OpenAiAdsBiddingConfig,
   OpenAiAdsBiddingConfigRequest,
   OpenAiAdsBillingEventType,

@@ -3,16 +3,20 @@ import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { eq, and, asc, gte, lte, inArray } from 'drizzle-orm'
 import {
   ADS_WRITE_SCOPE,
+  AdsAdGroupBillingEventTypes,
+  AdsCampaignBiddingTypes,
   AdsEntityTypes,
   AdsEntityStatuses,
   AdsOperationKinds,
   AdsOperationStates,
   AppError,
   adsAdCreateRequestSchema,
+  adsAdGroupBillingEventTypeSchema,
   adsAdGroupCreateRequestSchema,
   adsAdGroupUpdateRequestSchema,
   adsAdUpdateRequestSchema,
   adsCampaignCreateRequestSchema,
+  adsCampaignBiddingTypeSchema,
   adsCampaignUpdateRequestSchema,
   adsConnectRequestSchema,
   adsImageUploadRequestSchema,
@@ -32,6 +36,8 @@ import {
 import type {
   AdsAdDto,
   AdsAdGroupDto,
+  AdsAdGroupBillingEventType,
+  AdsCampaignBiddingType,
   AdsCampaignDto,
   AdsCampaignListResponse,
   AdsConnectionStatusDto,
@@ -108,6 +114,9 @@ export interface AdsOperatorEntityResult {
   status: string
   updatedAt: number
   reviewStatus?: string | null
+  biddingType?: AdsCampaignBiddingType | null
+  conversionEventSettingIds?: string[] | null
+  billingEventType?: AdsAdGroupBillingEventType | null
 }
 
 /**
@@ -124,6 +133,8 @@ export interface AdsOperator {
     endTime?: number
     lifetimeSpendLimitMicros: number
     locationIds: string[]
+    biddingType: AdsCampaignBiddingType
+    conversionEventSettingIds?: string[]
   }): Promise<AdsOperatorEntityResult>
   updateCampaign(apiKey: string, id: string, input: {
     name?: string
@@ -141,12 +152,14 @@ export interface AdsOperator {
     description?: string
     contextHints: string[]
     maxBidMicros: number
+    billingEventType: AdsAdGroupBillingEventType
   }): Promise<AdsOperatorEntityResult>
   updateAdGroup(apiKey: string, id: string, input: {
     name?: string
     description?: string | null
     contextHints?: string[]
     maxBidMicros?: number
+    billingEventType?: AdsAdGroupBillingEventType
   }): Promise<AdsOperatorEntityResult>
   pauseAdGroup(apiKey: string, id: string): Promise<AdsOperatorEntityResult>
   getAd(apiKey: string, id: string): Promise<AdsOperatorEntityResult>
@@ -462,6 +475,45 @@ function assertPausedForUpdate(entity: AdsOperatorEntityResult): void {
   }
 }
 
+const BILLING_EVENT_BY_CAMPAIGN_BIDDING_TYPE: Record<
+  AdsCampaignBiddingType,
+  AdsAdGroupBillingEventType
+> = {
+  [AdsCampaignBiddingTypes.impressions]: AdsAdGroupBillingEventTypes.impression,
+  [AdsCampaignBiddingTypes.clicks]: AdsAdGroupBillingEventTypes.click,
+}
+
+function assertAdGroupBillingMatchesCampaign(
+  campaign: AdsOperatorEntityResult,
+  requestedBillingEventType: AdsAdGroupBillingEventType,
+): void {
+  if (!campaign.biddingType) {
+    throw validationError('The upstream campaign did not report a supported bidding type', {
+      campaignId: campaign.id,
+    })
+  }
+
+  const expectedBillingEventType = BILLING_EVENT_BY_CAMPAIGN_BIDDING_TYPE[campaign.biddingType]
+  if (requestedBillingEventType !== expectedBillingEventType) {
+    throw validationError('The ad group billing event must match the parent campaign bidding type', {
+      campaignId: campaign.id,
+      campaignBiddingType: campaign.biddingType,
+      requestedBillingEventType,
+      expectedBillingEventType,
+    })
+  }
+}
+
+function campaignBiddingTypeDto(value: string | null): AdsCampaignBiddingType | null {
+  const parsed = adsCampaignBiddingTypeSchema.safeParse(value)
+  return parsed.success ? parsed.data : null
+}
+
+function adGroupBillingEventTypeDto(value: string | null): AdsAdGroupBillingEventType | null {
+  const parsed = adsAdGroupBillingEventTypeSchema.safeParse(value)
+  return parsed.success ? parsed.data : null
+}
+
 export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): Promise<void> {
   app.post<{ Params: { name: string }; Body: { apiKey?: string } }>(
     '/projects/:name/ads/connect',
@@ -653,6 +705,7 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
     const project = resolveProject(app.db, request.params.name)
     const body = parseBody(adsCampaignCreateRequestSchema, request.body)
     const { operationKey, ...providerInput } = body
+    const biddingType = providerInput.biddingType ?? AdsCampaignBiddingTypes.impressions
     const { apiKey, operator } = resolveAdsOperator(opts, project.name)
     return executeAdsOperation(app, request, {
       projectId: project.id,
@@ -662,7 +715,7 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
       payload: providerInput,
       expectedStatus: AdsEntityStatuses.paused,
       remediateStatus: (result) => operator.pauseCampaign(apiKey, result.id),
-      run: async () => operator.createCampaign(apiKey, providerInput),
+      run: async () => operator.createCampaign(apiKey, { ...providerInput, biddingType }),
     })
   })
 
@@ -671,6 +724,7 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
     const project = resolveProject(app.db, request.params.name)
     const body = parseBody(adsAdGroupCreateRequestSchema, request.body)
     const { operationKey, ...providerInput } = body
+    const requestedBillingEventType = providerInput.billingEventType ?? AdsAdGroupBillingEventTypes.impression
     const { apiKey, operator } = resolveAdsOperator(opts, project.name)
     return executeAdsOperation(app, request, {
       projectId: project.id,
@@ -680,7 +734,14 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
       payload: providerInput,
       expectedStatus: AdsEntityStatuses.paused,
       remediateStatus: (result) => operator.pauseAdGroup(apiKey, result.id),
-      run: async () => operator.createAdGroup(apiKey, providerInput),
+      run: async () => {
+        const campaign = await operator.getCampaign(apiKey, providerInput.campaignId)
+        assertAdGroupBillingMatchesCampaign(campaign, requestedBillingEventType)
+        return operator.createAdGroup(apiKey, {
+          ...providerInput,
+          billingEventType: requestedBillingEventType,
+        })
+      },
     })
   })
 
@@ -748,7 +809,18 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
           const current = await operator.getAdGroup(apiKey, request.params.id)
           assertExpectedUpdatedAt(current, expectedUpdatedAt)
           assertPausedForUpdate(current)
-          return operator.updateAdGroup(apiKey, request.params.id, update)
+          if (update.maxBidMicros === undefined) {
+            return operator.updateAdGroup(apiKey, request.params.id, update)
+          }
+          if (!current.billingEventType) {
+            throw validationError('The upstream ad group did not report a supported billing event', {
+              adGroupId: current.id,
+            })
+          }
+          return operator.updateAdGroup(apiKey, request.params.id, {
+            ...update,
+            billingEventType: current.billingEventType,
+          })
         },
       })
     },
@@ -917,7 +989,7 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
         name: group.name,
         description: group.description,
         status: group.status,
-        billingEventType: group.billingEventType,
+        billingEventType: adGroupBillingEventTypeDto(group.billingEventType),
         maxBidMicros: group.maxBidMicros,
         contextHints: group.contextHints,
         ads: adsByGroup.get(group.id) ?? [],
@@ -936,7 +1008,7 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
       status: campaign.status,
       startTime: campaign.startTime,
       endTime: campaign.endTime,
-      biddingType: campaign.biddingType,
+      biddingType: campaignBiddingTypeDto(campaign.biddingType),
       conversionEventSettingIds: campaign.conversionEventSettingIds,
       dailySpendLimitMicros: campaign.dailySpendLimitMicros,
       lifetimeSpendLimitMicros: campaign.lifetimeSpendLimitMicros,

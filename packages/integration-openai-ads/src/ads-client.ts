@@ -21,6 +21,7 @@ import type {
 } from './types.js'
 import {
   OpenAiAdsApiError,
+  OpenAiAdsBiddingTypes,
   OpenAiAdsBillingEventTypes,
   OpenAiAdsCreativeTypes,
   OpenAiAdsWriteStatuses,
@@ -156,10 +157,47 @@ function validateCampaignTargeting(value: unknown): void {
   }
 }
 
+function validateCampaignBidding(request: OpenAiAdsCreateCampaignRequest): void {
+  const biddingType: unknown = request.bidding_type
+  if (
+    biddingType !== undefined &&
+    biddingType !== OpenAiAdsBiddingTypes.impressions &&
+    biddingType !== OpenAiAdsBiddingTypes.clicks
+  ) {
+    throw new OpenAiAdsApiError('Campaign bidding_type must be impressions or clicks', 400)
+  }
+
+  const conversionIds: unknown = request.conversion_event_setting_ids
+  if (conversionIds !== undefined) {
+    if (!Array.isArray(conversionIds)) {
+      throw new OpenAiAdsApiError('Campaign conversion_event_setting_ids must be an array of unique IDs', 400)
+    }
+    for (const conversionId of conversionIds) {
+      validateId(conversionId as string, 'Campaign conversion event setting id')
+    }
+    if (new Set(conversionIds).size !== conversionIds.length) {
+      throw new OpenAiAdsApiError('Campaign conversion_event_setting_ids must contain unique IDs', 400)
+    }
+  }
+
+  if (
+    biddingType === OpenAiAdsBiddingTypes.clicks &&
+    (!Array.isArray(conversionIds) || conversionIds.length === 0)
+  ) {
+    throw new OpenAiAdsApiError(
+      'Click campaigns require at least one conversion_event_setting_id',
+      400,
+    )
+  }
+}
+
 function validateBiddingConfig(value: unknown): void {
   validateRequestObject(value, 'Ad group bidding_config')
-  if (value.billing_event_type !== OpenAiAdsBillingEventTypes.impression) {
-    throw new OpenAiAdsApiError('Ad group billing_event_type must be impression', 400)
+  if (
+    value.billing_event_type !== OpenAiAdsBillingEventTypes.impression &&
+    value.billing_event_type !== OpenAiAdsBillingEventTypes.click
+  ) {
+    throw new OpenAiAdsApiError('Ad group billing_event_type must be impression or click', 400)
   }
   const maxBid = value.max_bid_micros
   if (!Number.isInteger(maxBid) || (maxBid as number) < MIN_BID_MICROS || (maxBid as number) > MAX_BID_MICROS) {
@@ -220,6 +258,7 @@ function validateCreateCampaignRequest(request: OpenAiAdsCreateCampaignRequest):
   validateCampaignBudget(request.budget)
   validateCampaignTimestamp(request.start_time, 'Campaign start_time')
   validateCampaignTimestamp(request.end_time, 'Campaign end_time')
+  validateCampaignBidding(request)
   validateCampaignTargeting(request.targeting)
 }
 

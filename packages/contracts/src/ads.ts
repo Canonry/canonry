@@ -121,6 +121,16 @@ export const adsCreativeDtoSchema = z.object({
 })
 export type AdsCreativeDto = z.infer<typeof adsCreativeDtoSchema>
 
+/** Campaign-level optimization objective accepted by the OpenAI Advertiser API. */
+export const adsCampaignBiddingTypeSchema = z.enum(['impressions', 'clicks'])
+export type AdsCampaignBiddingType = z.infer<typeof adsCampaignBiddingTypeSchema>
+export const AdsCampaignBiddingTypes = adsCampaignBiddingTypeSchema.enum
+
+/** Ad-group event used to bill the campaign's configured bid. */
+export const adsAdGroupBillingEventTypeSchema = z.enum(['impression', 'click'])
+export type AdsAdGroupBillingEventType = z.infer<typeof adsAdGroupBillingEventTypeSchema>
+export const AdsAdGroupBillingEventTypes = adsAdGroupBillingEventTypeSchema.enum
+
 export const adsAdDtoSchema = z.object({
   id: z.string(),
   adGroupId: z.string(),
@@ -139,7 +149,7 @@ export const adsAdGroupDtoSchema = z.object({
   name: z.string(),
   description: z.string().nullable().optional(),
   status: z.string(),
-  billingEventType: z.string().nullable().optional(),
+  billingEventType: z.union([adsAdGroupBillingEventTypeSchema, z.null()]).optional(),
   maxBidMicros: z.number().int().nullable().optional(),
   /**
    * The targeting primitive: entries are multi-line strings of
@@ -159,7 +169,7 @@ export const adsCampaignDtoSchema = z.object({
   status: z.string(),
   startTime: z.number().int().nullable().optional(),
   endTime: z.number().int().nullable().optional(),
-  biddingType: z.string().nullable().optional(),
+  biddingType: z.union([adsCampaignBiddingTypeSchema, z.null()]).optional(),
   dailySpendLimitMicros: z.number().int().nullable().optional(),
   lifetimeSpendLimitMicros: z.number().int().nullable().optional(),
   conversionEventSettingIds: z.array(z.string()).default([]),
@@ -249,6 +259,9 @@ const adsEntityIdSchema = z.string().min(1).max(200)
 const adsNameSchema = z.string().min(3).max(1000).refine((value) => value.trim().length > 0)
 const adsTimestampSchema = z.number().int().min(946684800).max(4102444800)
 const adsMicrosSchema = z.number().int().positive().max(Number.MAX_SAFE_INTEGER)
+const adsConversionEventSettingIdsSchema = z
+  .array(adsEntityIdSchema)
+  .refine((ids) => new Set(ids).size === ids.length, 'conversionEventSettingIds must be unique')
 const adsHttpsUrlSchema = z.string().url().refine((value) => new URL(value).protocol === 'https:', {
   message: 'URL must use https',
 })
@@ -295,10 +308,22 @@ export const adsCampaignCreateRequestSchema = z
     endTime: adsTimestampSchema.optional(),
     lifetimeSpendLimitMicros: adsMicrosSchema.min(1_000_000),
     locationIds: z.array(adsEntityIdSchema).min(1).max(100),
+    biddingType: adsCampaignBiddingTypeSchema.optional(),
+    conversionEventSettingIds: adsConversionEventSettingIdsSchema.optional(),
   })
   .superRefine((value, ctx) => {
     if (value.startTime !== undefined && value.endTime !== undefined && value.endTime <= value.startTime) {
       ctx.addIssue({ code: 'custom', path: ['endTime'], message: 'endTime must be after startTime' })
+    }
+    if (
+      value.biddingType === AdsCampaignBiddingTypes.clicks &&
+      (value.conversionEventSettingIds === undefined || value.conversionEventSettingIds.length === 0)
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['conversionEventSettingIds'],
+        message: 'conversionEventSettingIds must be non-empty when biddingType is clicks',
+      })
     }
   })
 export type AdsCampaignCreateRequest = z.infer<typeof adsCampaignCreateRequestSchema>
@@ -310,6 +335,7 @@ export const adsAdGroupCreateRequestSchema = z.object({
   description: z.string().max(4000).optional(),
   contextHints: z.array(z.string().min(1).max(1000)).min(1).max(100),
   maxBidMicros: adsMicrosSchema.max(100_000_000),
+  billingEventType: adsAdGroupBillingEventTypeSchema.optional(),
 })
 export type AdsAdGroupCreateRequest = z.infer<typeof adsAdGroupCreateRequestSchema>
 

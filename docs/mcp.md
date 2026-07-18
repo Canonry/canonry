@@ -93,7 +93,10 @@ remain forbidden. Do not hand an unscoped key to an external operator. Prefer
 the `ads-operator` Aero profile when operating inside
 Canonry because its visible tool catalog is narrower as well. All lifecycle
 creates are paused, all updates require the entity already be paused, and no
-activation or archive tool is exposed. Complete the live-provider and
+activation or archive tool is exposed. Click campaigns must name at least one
+provider-issued conversion event-setting ID and their ad groups must use click
+billing; Canonry rejects a parent/child bidding mismatch before any mutation.
+Complete the live-provider and
 production-graduation checks in the
 [CLI operator reference](../skills/canonry/references/canonry-cli.md#guarded-operator-release-gates)
 before enabling spend.

@@ -29,6 +29,7 @@ import {
 } from '../src/ads-client.js'
 import { OPENAI_ADS_API_BASE } from '../src/constants.js'
 import {
+  OpenAiAdsBiddingTypes,
   OpenAiAdsBillingEventTypes,
   OpenAiAdsCreativeTypes,
   OpenAiAdsWriteStatuses,
@@ -91,6 +92,15 @@ const CREATE_CAMPAIGN_REQUEST: OpenAiAdsCreateCampaignRequest = {
   status: OpenAiAdsWriteStatuses.paused,
   budget: { lifetime_spend_limit_micros: 25_000_000 },
   targeting: { locations: { include: [{ id: '1000232' }] } },
+}
+
+const CLICK_CONVERSION_EVENT_SETTING_ID = 'cnvset_0000000000000000000000000001'
+
+const CREATE_CLICK_CAMPAIGN_REQUEST: OpenAiAdsCreateCampaignRequest = {
+  ...CREATE_CAMPAIGN_REQUEST,
+  name: 'AEO audit conversion leads',
+  bidding_type: OpenAiAdsBiddingTypes.clicks,
+  conversion_event_setting_ids: [CLICK_CONVERSION_EVENT_SETTING_ID],
 }
 
 const CREATE_AD_GROUP_REQUEST: OpenAiAdsCreateAdGroupRequest = {
@@ -316,13 +326,43 @@ describe('campaign write primitives', () => {
     expect(campaign.id).toBe(FIXTURE_CAMPAIGN.id)
   })
 
-  it('creates a campaign with a typed JSON POST body', async () => {
+  it('preserves the legacy provider default when bidding fields are omitted', async () => {
     const calls = mockFetchOnce({ ...FIXTURE_CAMPAIGN, status: OpenAiAdsWriteStatuses.paused })
 
     const campaign = await createCampaign('test-key', CREATE_CAMPAIGN_REQUEST)
 
     expectJsonPost(calls[0]!, 'campaigns', CREATE_CAMPAIGN_REQUEST)
     expect(campaign.status).toBe(OpenAiAdsWriteStatuses.paused)
+  })
+
+  it('creates an explicit impression campaign with the exact typed JSON POST body', async () => {
+    const request: OpenAiAdsCreateCampaignRequest = {
+      ...CREATE_CAMPAIGN_REQUEST,
+      bidding_type: OpenAiAdsBiddingTypes.impressions,
+    }
+    const calls = mockFetchOnce({
+      ...FIXTURE_CAMPAIGN,
+      bidding_type: OpenAiAdsBiddingTypes.impressions,
+      conversion_event_setting_ids: [],
+      status: OpenAiAdsWriteStatuses.paused,
+    })
+
+    await createCampaign('test-key', request)
+
+    expectJsonPost(calls[0]!, 'campaigns', request)
+  })
+
+  it('creates a click campaign with conversion event settings in the exact JSON POST body', async () => {
+    const calls = mockFetchOnce({
+      ...FIXTURE_CAMPAIGN,
+      bidding_type: OpenAiAdsBiddingTypes.clicks,
+      conversion_event_setting_ids: [CLICK_CONVERSION_EVENT_SETTING_ID],
+      status: OpenAiAdsWriteStatuses.paused,
+    })
+
+    await createCampaign('test-key', CREATE_CLICK_CAMPAIGN_REQUEST)
+
+    expectJsonPost(calls[0]!, 'campaigns', CREATE_CLICK_CAMPAIGN_REQUEST)
   })
 
   it('updates a campaign with POST and the supplied partial body', async () => {
@@ -353,6 +393,39 @@ describe('campaign write primitives', () => {
       ...CREATE_CAMPAIGN_REQUEST,
       budget: { lifetime_spend_limit_micros: 999_999 },
     }
+
+    await expect(() => createCampaign('test-key', request)).rejects.toMatchObject({ status: 400 })
+    expect(calls).toHaveLength(0)
+  })
+
+  it('rejects click campaigns without non-empty unique conversion event setting IDs', async () => {
+    const calls = mockFetchOnce(FIXTURE_CAMPAIGN)
+    const invalidConversionIds: unknown[] = [
+      undefined,
+      'cnvset_1',
+      [],
+      [''],
+      ['cnvset_1', 'cnvset_1'],
+    ]
+
+    for (const conversionIds of invalidConversionIds) {
+      const request = {
+        ...CREATE_CAMPAIGN_REQUEST,
+        bidding_type: OpenAiAdsBiddingTypes.clicks,
+        ...(conversionIds === undefined ? {} : { conversion_event_setting_ids: conversionIds }),
+      } as OpenAiAdsCreateCampaignRequest
+      await expect(() => createCampaign('test-key', request)).rejects.toMatchObject({ status: 400 })
+    }
+
+    expect(calls).toHaveLength(0)
+  })
+
+  it('rejects unknown campaign bidding types before calling fetch', async () => {
+    const calls = mockFetchOnce(FIXTURE_CAMPAIGN)
+    const request = {
+      ...CREATE_CAMPAIGN_REQUEST,
+      bidding_type: 'conversions',
+    } as unknown as OpenAiAdsCreateCampaignRequest
 
     await expect(() => createCampaign('test-key', request)).rejects.toMatchObject({ status: 400 })
     expect(calls).toHaveLength(0)
@@ -402,6 +475,31 @@ describe('ad group write primitives', () => {
     expectJsonPost(calls[0]!, `ad_groups/${FIXTURE_AD_GROUP.id}`, request)
   })
 
+  it('creates and updates click-billed ad groups without imposing impression billing', async () => {
+    const createRequest: OpenAiAdsCreateAdGroupRequest = {
+      ...CREATE_AD_GROUP_REQUEST,
+      bidding_config: {
+        billing_event_type: OpenAiAdsBillingEventTypes.click,
+        max_bid_micros: 2_000_000,
+      },
+    }
+    let calls = mockFetchOnce({ ...FIXTURE_AD_GROUP, status: OpenAiAdsWriteStatuses.paused })
+
+    await createAdGroup('test-key', createRequest)
+    expectJsonPost(calls[0]!, 'ad_groups', createRequest)
+
+    const updateRequest = {
+      bidding_config: {
+        billing_event_type: OpenAiAdsBillingEventTypes.click,
+        max_bid_micros: 2_500_000,
+      },
+    }
+    calls = mockFetchOnce({ ...FIXTURE_AD_GROUP, bidding_config: updateRequest.bidding_config })
+
+    await updateAdGroup('test-key', FIXTURE_AD_GROUP.id, updateRequest)
+    expectJsonPost(calls[0]!, `ad_groups/${FIXTURE_AD_GROUP.id}`, updateRequest)
+  })
+
   it('uses explicit activate and pause actions without a request body', async () => {
     let calls = mockFetchOnce({ ...FIXTURE_AD_GROUP, status: OpenAiAdsWriteStatuses.active })
     await activateAdGroup('test-key', FIXTURE_AD_GROUP.id)
@@ -412,13 +510,13 @@ describe('ad group write primitives', () => {
     expectJsonPost(calls[0]!, `ad_groups/${FIXTURE_AD_GROUP.id}/pause`)
   })
 
-  it('rejects unsupported billing events before calling fetch', async () => {
+  it('rejects unknown billing events before calling fetch', async () => {
     const calls = mockFetchOnce(FIXTURE_AD_GROUP)
     const request = {
       ...CREATE_AD_GROUP_REQUEST,
       bidding_config: {
         ...CREATE_AD_GROUP_REQUEST.bidding_config,
-        billing_event_type: 'click',
+        billing_event_type: 'conversion',
       },
     }
 
