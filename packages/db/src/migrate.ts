@@ -2166,6 +2166,22 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `ALTER TABLE ads_campaigns ADD COLUMN conversion_event_setting_ids TEXT NOT NULL DEFAULT '[]'`,
     ],
   },
+  {
+    version: 101,
+    name: 'ads-operation-reconciliation',
+    statements: [
+      `ALTER TABLE ads_operations ADD COLUMN ad_account_id TEXT`,
+      `ALTER TABLE ads_operations ADD COLUMN reconcile_strategy TEXT`,
+      `ALTER TABLE ads_operations ADD COLUMN reconcile_parent_id TEXT`,
+      `ALTER TABLE ads_operations ADD COLUMN reconcile_fingerprint TEXT`,
+      `ALTER TABLE ads_operations ADD COLUMN reconcile_fields TEXT`,
+      `ALTER TABLE ads_operations ADD COLUMN reconcile_attempts INTEGER NOT NULL DEFAULT 0`,
+      `ALTER TABLE ads_operations ADD COLUMN last_reconciled_at TEXT`,
+      `ALTER TABLE ads_operations ADD COLUMN lease_owner TEXT`,
+      `ALTER TABLE ads_operations ADD COLUMN lease_expires_at TEXT`,
+      `CREATE INDEX IF NOT EXISTS idx_ads_operations_reconcile_lease ON ads_operations(state, lease_expires_at, updated_at)`,
+    ],
+  },
 ]
 
 /**

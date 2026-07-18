@@ -389,7 +389,11 @@ async function fetchAllPages<T>(apiKey: string, path: string, queryPairs: readon
   }
 
   adsClientLog('error', 'pagination.cap-reached', { path, pages: OPENAI_ADS_MAX_PAGES, items: items.length })
-  return items
+  throw new OpenAiAdsApiError(
+    `OpenAI Ads API collection remained incomplete after the ${OPENAI_ADS_MAX_PAGES}-page safety cap`,
+    502,
+    'pagination_limit_exceeded',
+  )
 }
 
 function insightsPairs(opts?: OpenAiAdsInsightsOptions): string[] {

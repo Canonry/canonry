@@ -1,5 +1,5 @@
 import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
-import type { BacklinkSource, ContentBriefDto, DiscoveryCompetitorMapEntry, DiscoveryCompetitorType, AiReferralTrafficClass, LocationContext, ProviderName, SiteAuditCrossCuttingIssueDto, SiteAuditFactorSummaryDto, SiteAuditPageFactorDto } from '@ainyc/canonry-contracts'
+import type { AdsReconcileFields, BacklinkSource, ContentBriefDto, DiscoveryCompetitorMapEntry, DiscoveryCompetitorType, AiReferralTrafficClass, LocationContext, ProviderName, SiteAuditCrossCuttingIssueDto, SiteAuditFactorSummaryDto, SiteAuditPageFactorDto } from '@ainyc/canonry-contracts'
 
 export const projects = sqliteTable('projects', {
   id: text('id').primaryKey(),
@@ -1329,6 +1329,9 @@ export const adsConnections = sqliteTable('ads_connections', {
 export const adsOperations = sqliteTable('ads_operations', {
   id: text('id').primaryKey(),
   projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  // Bound to the verified account attached to the credential at mutation time.
+  // Reconciliation refuses to inspect a different account after reconnect.
+  adAccountId: text('ad_account_id'),
   operationKey: text('operation_key').notNull(),
   requestHash: text('request_hash').notNull(),
   kind: text('kind').notNull(),
@@ -1338,12 +1341,21 @@ export const adsOperations = sqliteTable('ads_operations', {
   upstreamUpdatedAt: integer('upstream_updated_at'),
   errorCode: text('error_code'),
   errorMessage: text('error_message'),
+  reconcileStrategy: text('reconcile_strategy'),
+  reconcileParentId: text('reconcile_parent_id'),
+  reconcileFingerprint: text('reconcile_fingerprint'),
+  reconcileFields: text('reconcile_fields', { mode: 'json' }).$type<AdsReconcileFields | null>(),
+  reconcileAttempts: integer('reconcile_attempts').notNull().default(0),
+  lastReconciledAt: text('last_reconciled_at'),
+  leaseOwner: text('lease_owner'),
+  leaseExpiresAt: text('lease_expires_at'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 }, (table) => [
   uniqueIndex('idx_ads_operations_project_key').on(table.projectId, table.operationKey),
   index('idx_ads_operations_project_created').on(table.projectId, table.createdAt),
   index('idx_ads_operations_project_state').on(table.projectId, table.state),
+  index('idx_ads_operations_reconcile_lease').on(table.state, table.leaseExpiresAt, table.updatedAt),
 ])
 
 // Entity snapshots refreshed on every ads-sync (range-replaced per project) so

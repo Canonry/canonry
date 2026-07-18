@@ -227,6 +227,8 @@ const COVERAGE: Record<string, CoverageEntry> = {
     internal: {
       projectId: 'Implied by the route scope.',
       requestHash: 'Internal idempotency guard; never exposed on the operation receipt.',
+      leaseOwner: 'Internal worker token used to prevent stale reconciler writes.',
+      leaseExpiresAt: 'Internal lease boundary used by the bounded receipt sweeper.',
     },
   },
   adsCampaigns: {

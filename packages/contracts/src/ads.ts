@@ -259,6 +259,7 @@ const adsEntityIdSchema = z.string().min(1).max(200)
 const adsNameSchema = z.string().min(3).max(1000).refine((value) => value.trim().length > 0)
 const adsTimestampSchema = z.number().int().min(946684800).max(4102444800)
 const adsMicrosSchema = z.number().int().positive().max(Number.MAX_SAFE_INTEGER)
+const adsSha256Schema = z.string().regex(/^[a-f0-9]{64}$/)
 const adsConversionEventSettingIdsSchema = z
   .array(adsEntityIdSchema)
   .max(100)
@@ -282,9 +283,21 @@ export const adsOperationKindSchema = z.enum([
 export type AdsOperationKind = z.infer<typeof adsOperationKindSchema>
 export const AdsOperationKinds = adsOperationKindSchema.enum
 
-export const adsOperationStateSchema = z.enum(['pending', 'succeeded', 'failed', 'unknown'])
+export const adsOperationStateSchema = z.enum(['pending', 'reconciling', 'succeeded', 'failed', 'unknown'])
 export type AdsOperationState = z.infer<typeof adsOperationStateSchema>
 export const AdsOperationStates = adsOperationStateSchema.enum
+
+export const adsReconcileStrategySchema = z.enum(['known_entity', 'create_fingerprint', 'manual_only'])
+export type AdsReconcileStrategy = z.infer<typeof adsReconcileStrategySchema>
+export const AdsReconcileStrategies = adsReconcileStrategySchema.enum
+
+export const adsUnresolvedOperationStateSchema = z.enum([
+  AdsOperationStates.pending,
+  AdsOperationStates.unknown,
+  AdsOperationStates.reconciling,
+])
+export type AdsUnresolvedOperationState = z.infer<typeof adsUnresolvedOperationStateSchema>
+export const AdsUnresolvedOperationStates = adsUnresolvedOperationStateSchema.enum
 
 export const adsEntityStatusSchema = z.enum(['active', 'paused', 'archived'])
 export type AdsEntityStatus = z.infer<typeof adsEntityStatusSchema>
@@ -293,6 +306,32 @@ export const AdsEntityStatuses = adsEntityStatusSchema.enum
 export const adsEntityTypeSchema = z.enum(['file', 'campaign', 'ad_group', 'ad'])
 export type AdsEntityType = z.infer<typeof adsEntityTypeSchema>
 export const AdsEntityTypes = adsEntityTypeSchema.enum
+
+/**
+ * Deliberately narrow projection used to verify an upstream entity after an
+ * ambiguous mutation. It excludes request payloads, credentials, and URLs;
+ * create matching uses the separate one-way fingerprint.
+ */
+export const adsReconcileFieldsSchema = z
+  .object({
+    name: adsNameSchema.optional(),
+    description: z.string().max(4000).nullable().optional(),
+    status: adsEntityStatusSchema.optional(),
+    startTime: adsTimestampSchema.nullable().optional(),
+    endTime: adsTimestampSchema.nullable().optional(),
+    lifetimeSpendLimitMicros: adsMicrosSchema.min(1_000_000).optional(),
+    locationIds: z.array(adsEntityIdSchema).max(100).optional(),
+    biddingType: adsCampaignBiddingTypeSchema.optional(),
+    conversionEventSettingIds: adsConversionEventSettingIdsSchema.optional(),
+    campaignId: adsEntityIdSchema.optional(),
+    contextHints: z.array(z.string().min(1).max(1000)).max(100).optional(),
+    maxBidMicros: adsMicrosSchema.max(100_000_000).optional(),
+    billingEventType: adsAdGroupBillingEventTypeSchema.optional(),
+    adGroupId: adsEntityIdSchema.optional(),
+    creativeFingerprint: adsSha256Schema.optional(),
+  })
+  .strict()
+export type AdsReconcileFields = z.infer<typeof adsReconcileFieldsSchema>
 
 export const adsImageUploadRequestSchema = z.object({
   operationKey: adsOperationKeySchema,
@@ -403,14 +442,21 @@ export type AdsPauseRequest = z.infer<typeof adsPauseRequestSchema>
 
 export const adsOperationDtoSchema = z.object({
   id: z.string(),
+  adAccountId: z.string().nullable(),
   operationKey: z.string(),
   kind: adsOperationKindSchema,
   state: adsOperationStateSchema,
-  entityType: adsEntityTypeSchema.nullable(),
+  entityType: z.union([adsEntityTypeSchema, z.null()]),
   entityId: z.string().nullable(),
   upstreamUpdatedAt: z.number().int().nullable(),
   errorCode: z.string().nullable(),
   errorMessage: z.string().nullable(),
+  reconcileStrategy: z.union([adsReconcileStrategySchema, z.null()]),
+  reconcileParentId: adsEntityIdSchema.nullable(),
+  reconcileFingerprint: adsSha256Schema.nullable(),
+  reconcileFields: adsReconcileFieldsSchema.nullable(),
+  reconcileAttempts: z.number().int().nonnegative(),
+  lastReconciledAt: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
 })
@@ -421,6 +467,53 @@ export const adsOperationResponseSchema = z.object({
   replayed: z.boolean(),
 })
 export type AdsOperationResponse = z.infer<typeof adsOperationResponseSchema>
+
+const adsUnresolvedOperationStatesDefault = [
+  AdsOperationStates.pending,
+  AdsOperationStates.unknown,
+  AdsOperationStates.reconciling,
+] satisfies AdsUnresolvedOperationState[]
+
+function parseUnresolvedOperationStates(value: unknown): unknown {
+  if (value === undefined || value === '') return adsUnresolvedOperationStatesDefault
+  if (Array.isArray(value)) {
+    const states: unknown[] = []
+    for (const item of value as unknown[]) {
+      if (typeof item === 'string') states.push(...item.split(','))
+      else states.push(item)
+    }
+    return states
+  }
+  return typeof value === 'string' ? value.split(',').filter(Boolean) : value
+}
+
+export const adsUnresolvedOperationListQuerySchema = z.object({
+  state: z.preprocess(
+    parseUnresolvedOperationStates,
+    z
+      .array(adsUnresolvedOperationStateSchema)
+      .min(1)
+      .max(3)
+      .refine((states) => new Set(states).size === states.length, 'state values must be unique'),
+  ),
+  limit: z.coerce.number().int().min(1).max(200).default(100),
+})
+export type AdsUnresolvedOperationListQuery = z.infer<typeof adsUnresolvedOperationListQuerySchema>
+
+export const adsUnresolvedOperationListResponseSchema = z.object({
+  operations: z.array(adsOperationDtoSchema),
+  count: z.number().int().nonnegative(),
+})
+export type AdsUnresolvedOperationListResponse = z.infer<typeof adsUnresolvedOperationListResponseSchema>
+
+export const adsOperationReconcileRequestSchema = z.object({}).strict()
+export type AdsOperationReconcileRequest = z.infer<typeof adsOperationReconcileRequestSchema>
+
+export const adsOperationReconcileResponseSchema = z.object({
+  operation: adsOperationDtoSchema,
+  resolved: z.boolean(),
+})
+export type AdsOperationReconcileResponse = z.infer<typeof adsOperationReconcileResponseSchema>
 
 /** clicks / impressions; null when impressions is 0 (never divide by zero). */
 export function adsCtr(clicks: number, impressions: number): number | null {

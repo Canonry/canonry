@@ -58,7 +58,10 @@ import type {
   AdsSyncResponse,
   AdsCampaignListResponse,
   AdsInsightsResponse,
+  AdsOperationReconcileResponse,
   AdsOperationResponse,
+  AdsUnresolvedOperationListQuery,
+  AdsUnresolvedOperationListResponse,
   AdsImageUploadRequest,
   AdsCampaignCreateRequest,
   AdsCampaignUpdateRequest,
@@ -236,7 +239,9 @@ import {
   getApiV1ProjectsByNameAdsCampaigns,
   getApiV1ProjectsByNameAdsInsights,
   getApiV1ProjectsByNameAdsSummary,
+  getApiV1ProjectsByNameAdsOperations,
   getApiV1ProjectsByNameAdsOperationsByOperationKey,
+  postApiV1ProjectsByNameAdsOperationsByOperationKeyReconcile,
   postApiV1ProjectsByNameAdsFiles,
   postApiV1ProjectsByNameAdsCampaigns,
   postApiV1ProjectsByNameAdsCampaignsById,
@@ -1460,6 +1465,36 @@ export class ApiClient {
   async getAdsOperation(project: string, operationKey: string): Promise<AdsOperationResponse> {
     return this.invoke<AdsOperationResponse>(() =>
       getApiV1ProjectsByNameAdsOperationsByOperationKey({
+        client: this.heyClient,
+        path: { name: project, operationKey },
+      }),
+    )
+  }
+
+  async getUnresolvedAdsOperations(
+    project: string,
+    query?: Partial<AdsUnresolvedOperationListQuery>,
+  ): Promise<AdsUnresolvedOperationListResponse> {
+    return this.invoke<AdsUnresolvedOperationListResponse>(() =>
+      getApiV1ProjectsByNameAdsOperations({
+        client: this.heyClient,
+        path: { name: project },
+        query: query
+          ? {
+              state: query.state?.join(','),
+              limit: query.limit,
+            }
+          : undefined,
+      }),
+    )
+  }
+
+  async reconcileAdsOperation(
+    project: string,
+    operationKey: string,
+  ): Promise<AdsOperationReconcileResponse> {
+    return this.invoke<AdsOperationReconcileResponse>(() =>
+      postApiV1ProjectsByNameAdsOperationsByOperationKeyReconcile({
         client: this.heyClient,
         path: { name: project, operationKey },
       }),

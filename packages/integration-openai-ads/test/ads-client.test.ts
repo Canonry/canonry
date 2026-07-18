@@ -27,7 +27,7 @@ import {
   updateCampaign,
   uploadImageFromUrl,
 } from '../src/ads-client.js'
-import { OPENAI_ADS_API_BASE } from '../src/constants.js'
+import { OPENAI_ADS_API_BASE, OPENAI_ADS_MAX_PAGES } from '../src/constants.js'
 import {
   OpenAiAdsBiddingTypes,
   OpenAiAdsBillingEventTypes,
@@ -269,6 +269,25 @@ describe('listCampaigns', () => {
     await listCampaigns('test-key')
 
     expect(calls.length).toBe(1)
+  })
+
+  it('fails closed when the collection is still incomplete at the pagination safety cap', async () => {
+    let calls = 0
+    globalThis.fetch = async () => {
+      calls += 1
+      const id = `cmpn_page_${calls}`
+      return new Response(JSON.stringify(makeListResponse(
+        [{ ...FIXTURE_CAMPAIGN, id }],
+        { has_more: true, last_id: id },
+      )), { status: 200 })
+    }
+
+    await expect(() => listCampaigns('test-key')).rejects.toMatchObject({
+      name: 'OpenAiAdsApiError',
+      status: 502,
+      code: 'pagination_limit_exceeded',
+    })
+    expect(calls).toBe(OPENAI_ADS_MAX_PAGES)
   })
 })
 

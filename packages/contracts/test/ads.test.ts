@@ -17,8 +17,15 @@ import {
   adsCampaignUpdateRequestSchema,
   adsAdCreateRequestSchema,
   adsOperationDtoSchema,
+  adsOperationReconcileRequestSchema,
+  adsOperationReconcileResponseSchema,
+  adsReconcileFieldsSchema,
+  adsUnresolvedOperationListQuerySchema,
+  adsUnresolvedOperationListResponseSchema,
   AdsCampaignBiddingTypes,
   AdsAdGroupBillingEventTypes,
+  AdsOperationStates,
+  AdsReconcileStrategies,
 } from '../src/ads.js'
 
 const NOW = '2026-07-17T00:00:00.000Z'
@@ -344,12 +351,71 @@ describe('ads lifecycle contracts', () => {
 
   test('operation receipts reject unknown states and kinds', () => {
     const base = {
-      id: 'op_1', operationKey: 'weekend:campaign:1', kind: 'campaign_create',
+      id: 'op_1', adAccountId: 'adacct_aaa', operationKey: 'weekend:campaign:1', kind: 'campaign_create',
       state: 'succeeded', entityType: 'campaign', entityId: 'cmpn_1', upstreamUpdatedAt: 123,
       errorCode: null, errorMessage: null, createdAt: NOW, updatedAt: NOW,
+      reconcileStrategy: 'create_fingerprint', reconcileParentId: null,
+      reconcileFingerprint: 'a'.repeat(64), reconcileFields: { name: 'AEO Audit Leads', status: 'paused' },
+      reconcileAttempts: 0, lastReconciledAt: null,
     }
     expect(adsOperationDtoSchema.safeParse(base).success).toBe(true)
+    expect(adsOperationDtoSchema.safeParse({ ...base, state: AdsOperationStates.reconciling }).success).toBe(true)
     expect(adsOperationDtoSchema.safeParse({ ...base, state: 'maybe' }).success).toBe(false)
     expect(adsOperationDtoSchema.safeParse({ ...base, kind: 'campaign_archive' }).success).toBe(false)
+  })
+
+  test('reconciliation strategies and fields are closed and exclude raw requests or secrets', () => {
+    expect(Object.values(AdsReconcileStrategies)).toEqual([
+      'known_entity',
+      'create_fingerprint',
+      'manual_only',
+    ])
+    expect(adsReconcileFieldsSchema.safeParse({
+      name: 'AEO Audit Leads',
+      status: 'paused',
+      lifetimeSpendLimitMicros: 25_000_000,
+      locationIds: ['1000232'],
+      biddingType: AdsCampaignBiddingTypes.clicks,
+      conversionEventSettingIds: ['ces_lead'],
+    }).success).toBe(true)
+    expect(adsReconcileFieldsSchema.safeParse({
+      name: 'AEO Audit Leads',
+      apiKey: 'sdk-secret',
+    }).success).toBe(false)
+    expect(adsReconcileFieldsSchema.safeParse({
+      name: 'Audit card',
+      targetUrl: 'https://canonry.ai/audit',
+    }).success).toBe(false)
+  })
+
+  test('unresolved operation queries parse comma-separated closed states and bounded limits', () => {
+    expect(adsUnresolvedOperationListQuerySchema.parse({})).toEqual({
+      state: [AdsOperationStates.pending, AdsOperationStates.unknown, AdsOperationStates.reconciling],
+      limit: 100,
+    })
+    expect(adsUnresolvedOperationListQuerySchema.parse({
+      state: 'unknown,reconciling',
+      limit: '25',
+    })).toEqual({ state: ['unknown', 'reconciling'], limit: 25 })
+    expect(adsUnresolvedOperationListQuerySchema.safeParse({ state: 'succeeded' }).success).toBe(false)
+    expect(adsUnresolvedOperationListQuerySchema.safeParse({ state: 'unknown,unknown' }).success).toBe(false)
+    expect(adsUnresolvedOperationListQuerySchema.safeParse({ limit: 201 }).success).toBe(false)
+  })
+
+  test('reconciliation request is empty and the response exposes only the durable result', () => {
+    expect(adsOperationReconcileRequestSchema.parse({})).toEqual({})
+    expect(adsOperationReconcileRequestSchema.safeParse({ candidateEntityId: 'cmpn_1' }).success).toBe(false)
+    expect(adsOperationReconcileRequestSchema.safeParse({ retryMutation: true }).success).toBe(false)
+
+    const operation = adsOperationDtoSchema.parse({
+      id: 'op_1', adAccountId: null, operationKey: 'weekend:campaign:1', kind: 'campaign_create',
+      state: 'succeeded', entityType: 'campaign', entityId: 'cmpn_1', upstreamUpdatedAt: 123,
+      errorCode: null, errorMessage: null, reconcileStrategy: 'create_fingerprint',
+      reconcileParentId: null, reconcileFingerprint: 'a'.repeat(64),
+      reconcileFields: { name: 'AEO Audit Leads', status: 'paused' },
+      reconcileAttempts: 1, lastReconciledAt: NOW, createdAt: NOW, updatedAt: NOW,
+    })
+    expect(adsOperationReconcileResponseSchema.parse({ operation, resolved: true }).resolved).toBe(true)
+    expect(adsUnresolvedOperationListResponseSchema.parse({ operations: [operation], count: 1 }).count).toBe(1)
   })
 })

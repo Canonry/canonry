@@ -11,7 +11,10 @@ import type {
   AdsInsightsResponse,
   AdsSummaryDto,
   AdsSyncResponse,
+  AdsOperationDto,
+  AdsOperationReconcileResponse,
   AdsOperationResponse,
+  AdsUnresolvedOperationListResponse,
   AdsImageUploadRequest,
   AdsCampaignCreateRequest,
   AdsCampaignUpdateRequest,
@@ -31,6 +34,7 @@ import {
   adsCampaignUpdateRequestSchema,
   adsImageUploadRequestSchema,
   adsPauseRequestSchema,
+  AdsOperationStates,
   formatMicros,
 } from '@ainyc/canonry-contracts'
 import type { z } from 'zod'
@@ -64,20 +68,36 @@ function readRequest<TSchema extends z.ZodTypeAny>(inputPath: string | undefined
   }
 }
 
+function printOperationDetails(operation: AdsOperationDto): void {
+  console.log(`Operation: ${operation.operationKey}`)
+  if (operation.entityId) console.log(`Entity:    ${operation.entityType ?? 'unknown'} ${operation.entityId}`)
+  if (operation.upstreamUpdatedAt != null) console.log(`Updated:   ${operation.upstreamUpdatedAt}`)
+  if (operation.errorCode) console.log(`Error:     ${operation.errorCode}: ${operation.errorMessage ?? ''}`)
+  if (
+    operation.state === AdsOperationStates.pending ||
+    operation.state === AdsOperationStates.unknown ||
+    operation.state === AdsOperationStates.reconciling
+  ) {
+    console.log('Do not retry with a new operation key. Reconcile the original receipt instead.')
+  }
+}
+
 function printOperation(result: AdsOperationResponse, format?: string): void {
   if (isMachineFormat(format)) {
     console.log(JSON.stringify(result, null, 2))
     return
   }
-  const operation = result.operation
-  console.log(`${result.replayed ? 'Replayed' : 'Recorded'} ${operation.kind}: ${operation.state}`)
-  console.log(`Operation: ${operation.operationKey}`)
-  if (operation.entityId) console.log(`Entity:    ${operation.entityType ?? 'unknown'} ${operation.entityId}`)
-  if (operation.upstreamUpdatedAt != null) console.log(`Updated:   ${operation.upstreamUpdatedAt}`)
-  if (operation.errorCode) console.log(`Error:     ${operation.errorCode}: ${operation.errorMessage ?? ''}`)
-  if (operation.state === 'unknown') {
-    console.log('Do not retry with a new operation key. Reconcile this outcome with a human first.')
+  console.log(`${result.replayed ? 'Replayed' : 'Recorded'} ${result.operation.kind}: ${result.operation.state}`)
+  printOperationDetails(result.operation)
+}
+
+function printReconciliation(result: AdsOperationReconcileResponse, format?: string): void {
+  if (isMachineFormat(format)) {
+    console.log(JSON.stringify(result, null, 2))
+    return
   }
+  console.log(`${result.resolved ? 'Resolved' : 'Still unresolved'} ${result.operation.kind}: ${result.operation.state}`)
+  printOperationDetails(result.operation)
 }
 
 function describeConnection(status: AdsConnectionStatusDto): string[] {
@@ -259,6 +279,38 @@ export async function adsOperationGet(
   opts: { operationKey: string; format?: string },
 ): Promise<void> {
   printOperation(await getClient().getAdsOperation(project, opts.operationKey), opts.format)
+}
+
+export async function adsOperationsUnresolved(project: string, opts?: { format?: string }): Promise<void> {
+  const result: AdsUnresolvedOperationListResponse = await getClient().getUnresolvedAdsOperations(project)
+
+  if (opts?.format === 'jsonl') {
+    emitJsonl(result.operations.map((operation) => ({ project, ...operation })))
+    return
+  }
+  if (isMachineFormat(opts?.format)) {
+    console.log(JSON.stringify(result, null, 2))
+    return
+  }
+
+  if (result.operations.length === 0) {
+    console.log('No unresolved OpenAI Ads mutation receipts.')
+    return
+  }
+  console.log('STATE         KIND                  OPERATION KEY')
+  for (const operation of result.operations) {
+    console.log(`${operation.state.padEnd(13)} ${operation.kind.padEnd(21)} ${operation.operationKey}`)
+  }
+}
+
+export async function adsOperationReconcile(
+  project: string,
+  opts: { operationKey: string; format?: string },
+): Promise<void> {
+  printReconciliation(
+    await getClient().reconcileAdsOperation(project, opts.operationKey),
+    opts.format,
+  )
 }
 
 export async function adsImageUpload(

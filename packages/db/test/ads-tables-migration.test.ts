@@ -169,22 +169,62 @@ test('one connection per project is enforced', () => {
   ).toThrow(/UNIQUE/i)
 })
 
-test('ads operation receipts enforce one operation key per project and round-trip unknown outcomes', () => {
+test('ads operation receipts enforce one key and round-trip typed reconciliation metadata', () => {
   const { db, tmpDir } = createTempDb()
   onTestFinished(() => cleanup(tmpDir))
   seedProject(db)
   db.insert(adsOperations).values({
     id: 'op_1', projectId: 'proj_1', operationKey: 'weekend:campaign:1', requestHash: 'abc',
     kind: 'campaign_create', state: 'unknown', entityType: 'campaign', errorCode: 'socket_closed',
-    errorMessage: 'socket closed after request write', createdAt: NOW, updatedAt: NOW,
+    errorMessage: 'socket closed after request write', reconcileStrategy: 'create_fingerprint',
+    reconcileFingerprint: 'a'.repeat(64), reconcileFields: {
+      name: 'AEO Audit Leads', status: 'paused', lifetimeSpendLimitMicros: 25_000_000,
+      locationIds: ['1000232'],
+    }, reconcileAttempts: 1, lastReconciledAt: NOW, leaseOwner: 'sweeper-1',
+    leaseExpiresAt: '2026-06-10T00:01:00.000Z', createdAt: NOW, updatedAt: NOW,
   }).run()
 
   const row = db.select().from(adsOperations).where(eq(adsOperations.operationKey, 'weekend:campaign:1')).get()
-  expect(row).toMatchObject({ state: 'unknown', entityType: 'campaign', entityId: null })
+  expect(row).toMatchObject({
+    state: 'unknown', entityType: 'campaign', entityId: null,
+    reconcileStrategy: 'create_fingerprint', reconcileAttempts: 1, leaseOwner: 'sweeper-1',
+    reconcileFields: {
+      name: 'AEO Audit Leads', status: 'paused', lifetimeSpendLimitMicros: 25_000_000,
+      locationIds: ['1000232'],
+    },
+  })
   expect(() => db.insert(adsOperations).values({
     id: 'op_2', projectId: 'proj_1', operationKey: 'weekend:campaign:1', requestHash: 'def',
     kind: 'campaign_create', state: 'pending', createdAt: NOW, updatedAt: NOW,
   }).run()).toThrow(/UNIQUE/i)
+})
+
+test('migration 101 preserves operation receipts and defaults reconciliation state safely', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-ads-v101-test-'))
+  onTestFinished(() => cleanup(tmpDir))
+  const db = createClient(path.join(tmpDir, 'test.db'))
+  migrate(db, MIGRATION_VERSIONS.filter((migration) => migration.version <= 100))
+  seedProject(db)
+
+  db.run(sql.raw(`INSERT INTO ads_operations
+    (id, project_id, operation_key, request_hash, kind, state, entity_type, created_at, updated_at)
+    VALUES ('op_legacy', 'proj_1', 'weekend:campaign:legacy', 'abc', 'campaign_create',
+      'unknown', 'campaign', '${NOW}', '${NOW}')`))
+
+  migrate(db)
+
+  const row = db.select().from(adsOperations).where(eq(adsOperations.id, 'op_legacy')).get()
+  expect(row).toMatchObject({
+    state: 'unknown',
+    reconcileStrategy: null,
+    reconcileParentId: null,
+    reconcileFingerprint: null,
+    reconcileFields: null,
+    reconcileAttempts: 0,
+    lastReconciledAt: null,
+    leaseOwner: null,
+    leaseExpiresAt: null,
+  })
 })
 
 test('insights upsert on (project, level, entity, date) replaces instead of duplicating', () => {

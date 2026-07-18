@@ -1,6 +1,6 @@
 import crypto from 'node:crypto'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
-import { eq, and, asc, gte, lte, inArray } from 'drizzle-orm'
+import { eq, and, asc, gte, lte, inArray, or, isNull, isNotNull, sql } from 'drizzle-orm'
 import {
   ADS_WRITE_SCOPE,
   AdsAdGroupBillingEventTypes,
@@ -9,6 +9,7 @@ import {
   AdsEntityStatuses,
   AdsOperationKinds,
   AdsOperationStates,
+  AdsReconcileStrategies,
   AppError,
   adsAdCreateRequestSchema,
   adsAdGroupBillingEventTypeSchema,
@@ -23,6 +24,7 @@ import {
   adsGeoSearchQuerySchema,
   adsInsightLevelSchema,
   adsPauseRequestSchema,
+  adsUnresolvedOperationListQuerySchema,
   adsCtr,
   adsCpcMicros,
   alreadyExists,
@@ -53,13 +55,17 @@ import type {
   AdsOperationDto,
   AdsOperationKind,
   AdsOperationResponse,
+  AdsOperationReconcileResponse,
+  AdsReconcileFields,
+  AdsReconcileStrategy,
+  AdsUnresolvedOperationListResponse,
   AdsAccountDto,
   AdsGeoSearchQuery,
   AdsGeoSearchResponse,
   AdsConversionPixelListResponse,
   AdsConversionEventSettingListResponse,
 } from '@ainyc/canonry-contracts'
-import { adsConnections, adsCampaigns, adsAdGroups, adsAds, adsInsightsDaily, adsOperations, runs } from '@ainyc/canonry-db'
+import { adsConnections, adsCampaigns, adsAdGroups, adsAds, adsInsightsDaily, adsOperations, projects, runs } from '@ainyc/canonry-db'
 import { requireScope } from './auth.js'
 import { resolveProject, writeAuditLog, auditFromRequest } from './helpers.js'
 
@@ -107,6 +113,14 @@ export interface AdsRoutesOptions {
   onAdsSyncRequested?: (runId: string, projectId: string) => void
   /** Optional lifecycle adapter. The host resolves the project credential and calls the upstream Ads API. */
   adsOperator?: AdsOperator
+  /** Receipt reconciler cadence. Set to 0 to disable the background sweeper. */
+  adsReconcileSweepIntervalMs?: number
+  /** A pending receipt is not swept until it has been idle this long. */
+  adsReconcilePendingStaleMs?: number
+  /** Upper bound on receipts inspected per sweep. */
+  adsReconcileBatchSize?: number
+  /** Exclusive lease duration for one reconciliation attempt. */
+  adsReconcileLeaseMs?: number
 }
 
 export interface AdsOperatorEntityResult {
@@ -117,6 +131,17 @@ export interface AdsOperatorEntityResult {
   biddingType?: AdsCampaignBiddingType | null
   conversionEventSettingIds?: string[] | null
   billingEventType?: AdsAdGroupBillingEventType | null
+  name?: string | null
+  description?: string | null
+  startTime?: number | null
+  endTime?: number | null
+  lifetimeSpendLimitMicros?: number | null
+  locationIds?: string[] | null
+  campaignId?: string | null
+  contextHints?: string[] | null
+  maxBidMicros?: number | null
+  adGroupId?: string | null
+  creative?: { title: string; body: string; targetUrl: string; fileId: string } | null
 }
 
 /**
@@ -126,6 +151,7 @@ export interface AdsOperatorEntityResult {
 export interface AdsOperator {
   uploadImage(apiKey: string, imageUrl: string): Promise<{ fileId: string }>
   getCampaign(apiKey: string, id: string): Promise<AdsOperatorEntityResult>
+  listCampaigns(apiKey: string): Promise<AdsOperatorEntityResult[]>
   createCampaign(apiKey: string, input: {
     name: string
     description?: string
@@ -146,6 +172,7 @@ export interface AdsOperator {
   }): Promise<AdsOperatorEntityResult>
   pauseCampaign(apiKey: string, id: string): Promise<AdsOperatorEntityResult>
   getAdGroup(apiKey: string, id: string): Promise<AdsOperatorEntityResult>
+  listAdGroups(apiKey: string, campaignId: string): Promise<AdsOperatorEntityResult[]>
   createAdGroup(apiKey: string, input: {
     campaignId: string
     name: string
@@ -163,6 +190,7 @@ export interface AdsOperator {
   }): Promise<AdsOperatorEntityResult>
   pauseAdGroup(apiKey: string, id: string): Promise<AdsOperatorEntityResult>
   getAd(apiKey: string, id: string): Promise<AdsOperatorEntityResult>
+  listAds(apiKey: string, adGroupId: string): Promise<AdsOperatorEntityResult[]>
   createAd(apiKey: string, input: {
     adGroupId: string
     name: string
@@ -177,6 +205,22 @@ export interface AdsOperator {
 
 type ConnectionRow = typeof adsConnections.$inferSelect
 type OperationRow = typeof adsOperations.$inferSelect
+
+const DEFAULT_RECONCILE_SWEEP_INTERVAL_MS = 60_000
+const DEFAULT_RECONCILE_PENDING_STALE_MS = 5 * 60_000
+const DEFAULT_RECONCILE_BATCH_SIZE = 10
+const DEFAULT_RECONCILE_LEASE_MS = 30_000
+
+interface AdsReconciliationPlan {
+  strategy: AdsReconcileStrategy
+  parentId?: string
+  fields?: AdsReconcileFields
+}
+
+interface ReconcileAuditContext {
+  request?: FastifyRequest
+  actor: 'api' | 'system'
+}
 
 class AdsPausedPostconditionError extends Error {
   readonly code = 'ADS_PAUSED_POSTCONDITION_FAILED'
@@ -233,6 +277,7 @@ function locationIdsDto(raw: unknown): string[] {
 function operationDto(row: OperationRow): AdsOperationDto {
   return {
     id: row.id,
+    adAccountId: row.adAccountId,
     operationKey: row.operationKey,
     kind: row.kind as AdsOperationKind,
     state: row.state as AdsOperationDto['state'],
@@ -241,6 +286,12 @@ function operationDto(row: OperationRow): AdsOperationDto {
     upstreamUpdatedAt: row.upstreamUpdatedAt,
     errorCode: row.errorCode,
     errorMessage: row.errorMessage,
+    reconcileStrategy: row.reconcileStrategy as AdsReconcileStrategy | null,
+    reconcileParentId: row.reconcileParentId,
+    reconcileFingerprint: row.reconcileFingerprint,
+    reconcileFields: row.reconcileFields,
+    reconcileAttempts: row.reconcileAttempts,
+    lastReconciledAt: row.lastReconciledAt,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   }
@@ -259,6 +310,182 @@ function canonicalize(value: unknown): unknown {
 
 function requestHash(value: unknown): string {
   return crypto.createHash('sha256').update(JSON.stringify(canonicalize(value))).digest('hex')
+}
+
+function normalizeString(value: string): string {
+  return value.trim()
+}
+
+function normalizeStringSet(values: readonly string[]): string[] {
+  return [...new Set(values.map(normalizeString))].sort()
+}
+
+function creativeFingerprint(creative: {
+  title: string
+  body: string
+  targetUrl: string
+  fileId: string
+}): string {
+  // The target URL can contain signed query parameters. Persist only this
+  // one-way digest, never the URL or the original mutation payload.
+  return requestHash({
+    title: normalizeString(creative.title),
+    body: normalizeString(creative.body),
+    targetUrlHash: requestHash(creative.targetUrl),
+    fileId: normalizeString(creative.fileId),
+  })
+}
+
+function campaignCreateReconcileFields(input: {
+  name: string
+  description?: string
+  startTime?: number
+  endTime?: number
+  lifetimeSpendLimitMicros: number
+  locationIds: string[]
+  biddingType: AdsCampaignBiddingType
+  conversionEventSettingIds?: string[]
+}): AdsReconcileFields {
+  return {
+    name: normalizeString(input.name),
+    description: input.description === undefined ? null : normalizeString(input.description),
+    status: AdsEntityStatuses.paused,
+    startTime: input.startTime ?? null,
+    endTime: input.endTime ?? null,
+    lifetimeSpendLimitMicros: input.lifetimeSpendLimitMicros,
+    locationIds: normalizeStringSet(input.locationIds),
+    biddingType: input.biddingType,
+    conversionEventSettingIds: normalizeStringSet(input.conversionEventSettingIds ?? []),
+  }
+}
+
+function adGroupCreateReconcileFields(input: {
+  campaignId: string
+  name: string
+  description?: string
+  contextHints: string[]
+  maxBidMicros: number
+  billingEventType: AdsAdGroupBillingEventType
+}): AdsReconcileFields {
+  return {
+    campaignId: input.campaignId,
+    name: normalizeString(input.name),
+    description: input.description === undefined ? null : normalizeString(input.description),
+    status: AdsEntityStatuses.paused,
+    contextHints: normalizeStringSet(input.contextHints),
+    maxBidMicros: input.maxBidMicros,
+    billingEventType: input.billingEventType,
+  }
+}
+
+function adCreateReconcileFields(input: {
+  adGroupId: string
+  name: string
+  creative: { title: string; body: string; targetUrl: string; fileId: string }
+}): AdsReconcileFields {
+  return {
+    adGroupId: input.adGroupId,
+    name: normalizeString(input.name),
+    status: AdsEntityStatuses.paused,
+    creativeFingerprint: creativeFingerprint(input.creative),
+  }
+}
+
+function updateReconcileFields(
+  entityType: AdsEntityType,
+  update: Record<string, unknown>,
+): AdsReconcileFields {
+  const fields: AdsReconcileFields = { status: AdsEntityStatuses.paused }
+  if (typeof update.name === 'string') fields.name = normalizeString(update.name)
+  if (update.description === null) fields.description = null
+  else if (typeof update.description === 'string') fields.description = normalizeString(update.description)
+
+  if (entityType === AdsEntityTypes.campaign) {
+    if (update.startTime === null || typeof update.startTime === 'number') fields.startTime = update.startTime
+    if (update.endTime === null || typeof update.endTime === 'number') fields.endTime = update.endTime
+    if (typeof update.lifetimeSpendLimitMicros === 'number') {
+      fields.lifetimeSpendLimitMicros = update.lifetimeSpendLimitMicros
+    }
+    if (Array.isArray(update.locationIds)) {
+      fields.locationIds = normalizeStringSet(update.locationIds as string[])
+    }
+  } else if (entityType === AdsEntityTypes.ad_group) {
+    if (Array.isArray(update.contextHints)) {
+      fields.contextHints = normalizeStringSet(update.contextHints as string[])
+    }
+    if (typeof update.maxBidMicros === 'number') fields.maxBidMicros = update.maxBidMicros
+  } else if (entityType === AdsEntityTypes.ad) {
+    if (update.creative && typeof update.creative === 'object') {
+      fields.creativeFingerprint = creativeFingerprint(update.creative as {
+        title: string
+        body: string
+        targetUrl: string
+        fileId: string
+      })
+    }
+  }
+  return fields
+}
+
+function entityReconcileFields(entity: AdsOperatorEntityResult): AdsReconcileFields {
+  const fields: AdsReconcileFields = {}
+  if (typeof entity.name === 'string') fields.name = normalizeString(entity.name)
+  if (entity.description === null) fields.description = null
+  else if (typeof entity.description === 'string') fields.description = normalizeString(entity.description)
+  if (entity.status === AdsEntityStatuses.active
+    || entity.status === AdsEntityStatuses.paused
+    || entity.status === AdsEntityStatuses.archived) {
+    fields.status = entity.status
+  }
+  if (entity.startTime === null || typeof entity.startTime === 'number') fields.startTime = entity.startTime
+  if (entity.endTime === null || typeof entity.endTime === 'number') fields.endTime = entity.endTime
+  if (typeof entity.lifetimeSpendLimitMicros === 'number') {
+    fields.lifetimeSpendLimitMicros = entity.lifetimeSpendLimitMicros
+  }
+  if (Array.isArray(entity.locationIds)) fields.locationIds = normalizeStringSet(entity.locationIds)
+  if (entity.biddingType) fields.biddingType = entity.biddingType
+  if (entity.conversionEventSettingIds === null) {
+    fields.conversionEventSettingIds = []
+  } else if (Array.isArray(entity.conversionEventSettingIds)) {
+    fields.conversionEventSettingIds = normalizeStringSet(entity.conversionEventSettingIds)
+  }
+  if (typeof entity.campaignId === 'string') fields.campaignId = entity.campaignId
+  if (Array.isArray(entity.contextHints)) fields.contextHints = normalizeStringSet(entity.contextHints)
+  if (typeof entity.maxBidMicros === 'number') fields.maxBidMicros = entity.maxBidMicros
+  if (entity.billingEventType) fields.billingEventType = entity.billingEventType
+  if (typeof entity.adGroupId === 'string') fields.adGroupId = entity.adGroupId
+  if (entity.creative) fields.creativeFingerprint = creativeFingerprint(entity.creative)
+  return fields
+}
+
+function selectReconcileFields(
+  fields: AdsReconcileFields,
+  desired: AdsReconcileFields,
+): AdsReconcileFields {
+  const selected: AdsReconcileFields = {}
+  for (const key of Object.keys(desired) as Array<keyof AdsReconcileFields>) {
+    // The indexed assignment is safe because both objects share the exact
+    // AdsReconcileFields schema; this helper never introduces a new key.
+    Object.assign(selected, { [key]: fields[key] })
+  }
+  return selected
+}
+
+function entityMatchesReconcileFields(
+  entity: AdsOperatorEntityResult,
+  desired: AdsReconcileFields,
+  fingerprint: string | null,
+): boolean {
+  const selected = selectReconcileFields(entityReconcileFields(entity), desired)
+  const candidateFingerprint = requestHash(selected)
+  return fingerprint === null
+    ? candidateFingerprint === requestHash(desired)
+    : candidateFingerprint === fingerprint
+}
+
+function reconcileFieldsWithoutParent(fields: AdsReconcileFields): AdsReconcileFields {
+  const { campaignId: _campaignId, adGroupId: _adGroupId, ...withoutParent } = fields
+  return withoutParent
 }
 
 function errorDetails(err: unknown): {
@@ -291,18 +518,37 @@ function errorDetails(err: unknown): {
   }
 }
 
-function resolveAdsOperator(
+async function resolveAdsOperator(
+  app: FastifyInstance,
   opts: AdsRoutesOptions,
-  projectName: string,
-): { apiKey: string; operator: AdsOperator } {
-  const apiKey = opts.adsCredentialStore?.getConnection(projectName)?.apiKey
-  if (!apiKey) {
+  project: { id: string; name: string },
+): Promise<{ apiKey: string; adAccountId: string; operator: AdsOperator }> {
+  const connection = opts.adsCredentialStore?.getConnection(project.name)
+  if (!connection?.apiKey) {
     throw validationError('No ads connection for this project. Run "canonry ads connect" first.')
+  }
+  if (!connection.adAccountId) {
+    throw validationError('Reconnect this project to bind its verified OpenAI ad account before mutating ads')
   }
   if (!opts.adsOperator) {
     throw validationError('Ads lifecycle operations are not configured for this deployment')
   }
-  return { apiKey, operator: opts.adsOperator }
+  if (!opts.verifyAdsAccount) {
+    throw validationError('Ads account verification is not configured for this deployment')
+  }
+  const stored = app.db.select({ adAccountId: adsConnections.adAccountId }).from(adsConnections)
+    .where(eq(adsConnections.projectId, project.id)).get()
+  if (!stored?.adAccountId || stored.adAccountId !== connection.adAccountId) {
+    throw validationError('Reconnect this project because its stored OpenAI ad account identity is inconsistent')
+  }
+  const verified = await executeAdsRead(
+    'account identity',
+    () => opts.verifyAdsAccount!(connection.apiKey),
+  )
+  if (verified.id !== connection.adAccountId) {
+    throw validationError('The configured key belongs to a different OpenAI ad account; reconnect this project')
+  }
+  return { apiKey: connection.apiKey, adAccountId: verified.id, operator: opts.adsOperator }
 }
 
 function resolveAdsReader(
@@ -348,12 +594,15 @@ async function executeAdsOperation(
   request: FastifyRequest,
   input: {
     projectId: string
+    adAccountId: string
     operationKey: string
     kind: AdsOperationKind
     entityType: AdsEntityType
     payload: unknown
     /** Read-only checks that must succeed before a durable mutation receipt is claimed. */
     preflight?: () => Promise<void>
+    reconciliation: AdsReconciliationPlan
+    knownEntityId?: string
     expectedStatus?: AdsEntityStatus
     remediateStatus?: (
       result: { id: string; status?: string; updatedAt?: number | null },
@@ -361,8 +610,40 @@ async function executeAdsOperation(
     run: () => Promise<{ id: string; status?: string; updatedAt?: number | null }>
   },
 ): Promise<AdsOperationResponse> {
+  // A receipt marks the boundary after which an upstream write may have been
+  // attempted. Keep provider reads before it so a transient read failure can
+  // be retried with the same operation key without manufacturing ambiguity.
+  await input.preflight?.()
+
   const hash = requestHash({ kind: input.kind, entityType: input.entityType, payload: input.payload })
-  const existing = app.db
+  const id = crypto.randomUUID()
+  const createdAt = new Date().toISOString()
+  const reconcileFields = input.reconciliation.fields ?? null
+  const inserted = app.db.insert(adsOperations).values({
+    id,
+    projectId: input.projectId,
+    adAccountId: input.adAccountId,
+    operationKey: input.operationKey,
+    requestHash: hash,
+    kind: input.kind,
+    state: AdsOperationStates.pending,
+    entityType: input.entityType,
+    entityId: input.knownEntityId,
+    reconcileStrategy: input.reconciliation.strategy,
+    reconcileParentId: input.reconciliation.parentId,
+    reconcileFingerprint: reconcileFields === null ? null : requestHash(reconcileFields),
+    reconcileFields,
+    createdAt,
+    updatedAt: createdAt,
+  }).onConflictDoNothing({
+    target: [adsOperations.projectId, adsOperations.operationKey],
+  }).returning({ id: adsOperations.id }).all()
+
+  // The unique row is the concurrency primitive. Every process attempts the
+  // insert, then reads the canonical receipt; only the insert winner may call
+  // the provider. This turns the former unique-violation 500 into a clean
+  // replay or hash conflict under multi-instance contention.
+  const canonical = app.db
     .select()
     .from(adsOperations)
     .where(and(
@@ -370,35 +651,31 @@ async function executeAdsOperation(
       eq(adsOperations.operationKey, input.operationKey),
     ))
     .get()
-  if (existing) {
-    if (existing.requestHash !== hash) {
-      throw alreadyExists('Ads operation key', input.operationKey)
-    }
-    return { operation: operationDto(existing), replayed: true }
+  if (!canonical) {
+    throw providerError('Ads operation receipt could not be claimed')
   }
-
-  // A receipt marks the boundary after which an upstream write may have been
-  // attempted. Keep provider reads before it so a transient read failure can
-  // be retried with the same operation key without manufacturing ambiguity.
-  await input.preflight?.()
-
-  const id = crypto.randomUUID()
-  const createdAt = new Date().toISOString()
-  app.db.insert(adsOperations).values({
-    id,
-    projectId: input.projectId,
-    operationKey: input.operationKey,
-    requestHash: hash,
-    kind: input.kind,
-    state: AdsOperationStates.pending,
-    entityType: input.entityType,
-    createdAt,
-    updatedAt: createdAt,
-  }).run()
+  if (canonical.requestHash !== hash) {
+    throw alreadyExists('Ads operation key', input.operationKey)
+  }
+  if (inserted.length === 0) {
+    return { operation: operationDto(canonical), replayed: true }
+  }
 
   let result: Awaited<ReturnType<typeof input.run>> | undefined
   try {
     result = await input.run()
+    // Checkpoint the confirmed upstream id before any remediation/readback.
+    // A crash after create but before the final outcome write can therefore be
+    // recovered by inspection without re-sending the mutation.
+    app.db.update(adsOperations).set({
+      entityId: result.id,
+      upstreamUpdatedAt: result.updatedAt ?? null,
+      updatedAt: new Date().toISOString(),
+    }).where(and(
+      eq(adsOperations.id, id),
+      eq(adsOperations.state, AdsOperationStates.pending),
+      isNull(adsOperations.leaseOwner),
+    )).run()
     if (input.expectedStatus !== undefined && result.status !== input.expectedStatus) {
       if (input.remediateStatus) result = await input.remediateStatus(result)
       if (result.status !== input.expectedStatus) {
@@ -408,22 +685,33 @@ async function executeAdsOperation(
     const succeededResult = result
     const updatedAt = new Date().toISOString()
     app.db.transaction((tx) => {
-      tx.update(adsOperations).set({
+      const update = tx.update(adsOperations).set({
         state: AdsOperationStates.succeeded,
         entityId: succeededResult.id,
         upstreamUpdatedAt: succeededResult.updatedAt ?? null,
+        errorCode: null,
+        errorMessage: null,
         updatedAt,
-      }).where(eq(adsOperations.id, id)).run()
-      writeAuditLog(tx, auditFromRequest(request, {
-        projectId: input.projectId,
-        actor: 'api',
-        action: `ads.${input.kind}.succeeded`,
-        entityType: input.entityType,
-        entityId: succeededResult.id,
-        diff: { operationId: id, operationKey: input.operationKey },
-      }))
+      }).where(and(
+        eq(adsOperations.id, id),
+        eq(adsOperations.state, AdsOperationStates.pending),
+        isNull(adsOperations.leaseOwner),
+      )).run()
+      if (update.changes > 0) {
+        writeAuditLog(tx, auditFromRequest(request, {
+          projectId: input.projectId,
+          actor: 'api',
+          action: `ads.${input.kind}.succeeded`,
+          entityType: input.entityType,
+          entityId: succeededResult.id,
+          diff: { operationId: id, operationKey: input.operationKey },
+        }))
+      }
     })
     const row = app.db.select().from(adsOperations).where(eq(adsOperations.id, id)).get()!
+    // A stale original request can finish after a sweeper has claimed the
+    // receipt. It must not invalidate that lease or overwrite its canonical
+    // result; return whatever the lease owner persisted.
     return { operation: operationDto(row), replayed: false }
   } catch (err) {
     const failure = errorDetails(err)
@@ -432,29 +720,420 @@ async function executeAdsOperation(
     // can be reconciled without blindly retrying the mutation.
     const entityId = failure.entityId ?? result?.id
     const updatedAt = new Date().toISOString()
-    app.db.transaction((tx) => {
-      tx.update(adsOperations).set({
+    const finalized = app.db.transaction((tx) => {
+      const update = tx.update(adsOperations).set({
         state: failure.state,
         entityId,
         errorCode: failure.code,
         errorMessage: failure.message,
         updatedAt,
-      }).where(eq(adsOperations.id, id)).run()
-      writeAuditLog(tx, auditFromRequest(request, {
-        projectId: input.projectId,
-        actor: 'api',
-        action: `ads.${input.kind}.${failure.state}`,
-        entityType: input.entityType,
-        entityId: entityId ?? id,
-        diff: { operationId: id, operationKey: input.operationKey, errorCode: failure.code },
-      }))
+      }).where(and(
+        eq(adsOperations.id, id),
+        eq(adsOperations.state, AdsOperationStates.pending),
+        isNull(adsOperations.leaseOwner),
+      )).run()
+      if (update.changes > 0) {
+        writeAuditLog(tx, auditFromRequest(request, {
+          projectId: input.projectId,
+          actor: 'api',
+          action: `ads.${input.kind}.${failure.state}`,
+          entityType: input.entityType,
+          entityId: entityId ?? id,
+          diff: { operationId: id, operationKey: input.operationKey, errorCode: failure.code },
+        }))
+      }
+      return update.changes > 0
     })
+    if (!finalized) {
+      const canonical = app.db.select().from(adsOperations).where(and(
+        eq(adsOperations.id, id),
+        eq(adsOperations.projectId, input.projectId),
+      )).get()
+      if (!canonical) throw notFound('Ads operation', input.operationKey)
+      return { operation: operationDto(canonical), replayed: false }
+    }
     if (err instanceof AppError) throw err
     throw providerError('OpenAI Ads API mutation failed', {
       operationId: id,
       operationKey: input.operationKey,
       state: failure.state,
       code: failure.code,
+    })
+  }
+}
+
+function readOperationByKey(
+  app: FastifyInstance,
+  projectId: string,
+  operationKey: string,
+): OperationRow | undefined {
+  return app.db.select().from(adsOperations).where(and(
+    eq(adsOperations.projectId, projectId),
+    eq(adsOperations.operationKey, operationKey),
+  )).get()
+}
+
+function claimOperationForReconciliation(
+  app: FastifyInstance,
+  row: OperationRow,
+  leaseOwner: string,
+  now: Date,
+  leaseMs: number,
+): OperationRow | undefined {
+  const nowIso = now.toISOString()
+  const leaseExpiresAt = new Date(now.getTime() + leaseMs).toISOString()
+  const claimed = app.db.update(adsOperations).set({
+    state: AdsOperationStates.reconciling,
+    leaseOwner,
+    leaseExpiresAt,
+    reconcileAttempts: sql`${adsOperations.reconcileAttempts} + 1`,
+    updatedAt: nowIso,
+  }).where(and(
+    eq(adsOperations.id, row.id),
+    eq(adsOperations.projectId, row.projectId),
+    or(
+      inArray(adsOperations.state, [AdsOperationStates.pending, AdsOperationStates.unknown]),
+      and(
+        eq(adsOperations.state, AdsOperationStates.reconciling),
+        or(isNull(adsOperations.leaseExpiresAt), lte(adsOperations.leaseExpiresAt, nowIso)),
+      ),
+    ),
+  )).returning({ id: adsOperations.id }).all()
+  if (claimed.length === 0) return undefined
+  return app.db.select().from(adsOperations).where(eq(adsOperations.id, row.id)).get()
+}
+
+async function getEntityForReconciliation(
+  operator: AdsOperator,
+  apiKey: string,
+  entityType: AdsEntityType,
+  entityId: string,
+): Promise<AdsOperatorEntityResult> {
+  switch (entityType) {
+    case AdsEntityTypes.campaign:
+      return operator.getCampaign(apiKey, entityId)
+    case AdsEntityTypes.ad_group:
+      return operator.getAdGroup(apiKey, entityId)
+    case AdsEntityTypes.ad:
+      return operator.getAd(apiKey, entityId)
+    case AdsEntityTypes.file:
+      throw validationError('Image upload receipts require manual reconciliation')
+  }
+}
+
+function reconciliationAuditEntry(
+  row: OperationRow,
+  state: 'succeeded' | 'unknown',
+  context: ReconcileAuditContext,
+  details: { entityId?: string | null; errorCode?: string | null },
+) {
+  const entry = {
+    projectId: row.projectId,
+    actor: context.actor,
+    action: `ads.${row.kind}.reconciled.${state}`,
+    entityType: row.entityType ?? 'ads-operation',
+    entityId: details.entityId ?? row.id,
+    diff: {
+      operationId: row.id,
+      operationKey: row.operationKey,
+      ...(details.errorCode ? { errorCode: details.errorCode } : {}),
+    },
+  }
+  return context.request ? auditFromRequest(context.request, entry) : entry
+}
+
+function finishReconciliation(
+  app: FastifyInstance,
+  row: OperationRow,
+  leaseOwner: string,
+  context: ReconcileAuditContext,
+  outcome: {
+    state: 'succeeded' | 'unknown'
+    entity?: AdsOperatorEntityResult
+    errorCode?: string
+    errorMessage?: string
+  },
+): OperationRow {
+  const now = new Date().toISOString()
+  const entityId = outcome.entity?.id ?? row.entityId
+  app.db.transaction((tx) => {
+    const result = tx.update(adsOperations).set({
+      state: outcome.state,
+      entityId,
+      upstreamUpdatedAt: outcome.entity?.updatedAt ?? row.upstreamUpdatedAt,
+      errorCode: outcome.errorCode ?? null,
+      errorMessage: outcome.errorMessage ?? null,
+      lastReconciledAt: now,
+      leaseOwner: null,
+      leaseExpiresAt: null,
+      updatedAt: now,
+    }).where(and(
+      eq(adsOperations.id, row.id),
+      eq(adsOperations.projectId, row.projectId),
+      eq(adsOperations.leaseOwner, leaseOwner),
+      eq(adsOperations.state, AdsOperationStates.reconciling),
+    )).run()
+    if (result.changes > 0) {
+      writeAuditLog(tx, reconciliationAuditEntry(row, outcome.state, context, {
+        entityId,
+        errorCode: outcome.errorCode,
+      }))
+    }
+  })
+
+  // A slow read may outlive its lease. Never let the stale worker overwrite a
+  // newer attempt; return the canonical row owned by the current lease holder.
+  const canonical = app.db.select().from(adsOperations).where(and(
+    eq(adsOperations.id, row.id),
+    eq(adsOperations.projectId, row.projectId),
+  )).get()
+  if (!canonical) throw notFound('Ads operation', row.operationKey)
+  return canonical
+}
+
+function unknownReconciliation(
+  app: FastifyInstance,
+  row: OperationRow,
+  leaseOwner: string,
+  context: ReconcileAuditContext,
+  code: string,
+  message: string,
+): OperationRow {
+  return finishReconciliation(app, row, leaseOwner, context, {
+    state: AdsOperationStates.unknown,
+    errorCode: code,
+    errorMessage: message,
+  })
+}
+
+function reconcileResponse(row: OperationRow): AdsOperationReconcileResponse {
+  return {
+    operation: operationDto(row),
+    resolved: row.state === AdsOperationStates.succeeded,
+  }
+}
+
+/**
+ * Reconcile at most one durable receipt by inspecting upstream state. This
+ * helper never invokes a create, update, or pause method.
+ */
+export async function reconcileOneAdsOperation(
+  app: FastifyInstance,
+  input: {
+    projectId: string
+    adAccountId: string
+    operationKey: string
+    apiKey: string
+    operator: AdsOperator
+    leaseMs?: number
+    now?: Date
+    audit?: ReconcileAuditContext
+  },
+): Promise<AdsOperationReconcileResponse> {
+  const existing = readOperationByKey(app, input.projectId, input.operationKey)
+  if (!existing) throw notFound('Ads operation', input.operationKey)
+  if (existing.state === AdsOperationStates.succeeded) {
+    return { operation: operationDto(existing), resolved: true }
+  }
+  if (existing.state === AdsOperationStates.failed) {
+    return { operation: operationDto(existing), resolved: false }
+  }
+  if (!existing.entityType) {
+    throw validationError('Ads operation receipt is missing its entity type')
+  }
+
+  const leaseOwner = `ads-reconcile:${crypto.randomUUID()}`
+  const claimed = claimOperationForReconciliation(
+    app,
+    existing,
+    leaseOwner,
+    input.now ?? new Date(),
+    input.leaseMs ?? DEFAULT_RECONCILE_LEASE_MS,
+  )
+  if (!claimed) {
+    const canonical = readOperationByKey(app, input.projectId, input.operationKey)
+    if (!canonical) throw notFound('Ads operation', input.operationKey)
+    return {
+      operation: operationDto(canonical),
+      resolved: canonical.state === AdsOperationStates.succeeded,
+    }
+  }
+
+  const context = input.audit ?? { actor: 'system' }
+  if (!claimed.adAccountId || claimed.adAccountId !== input.adAccountId) {
+    const row = unknownReconciliation(
+      app,
+      claimed,
+      leaseOwner,
+      context,
+      claimed.adAccountId
+        ? 'ADS_RECONCILIATION_ACCOUNT_MISMATCH'
+        : 'ADS_RECONCILIATION_ACCOUNT_UNBOUND',
+      claimed.adAccountId
+        ? 'The current credential is connected to a different OpenAI ad account'
+        : 'This legacy receipt is not bound to a verified OpenAI ad account',
+    )
+    return reconcileResponse(row)
+  }
+  const strategy = claimed.reconcileStrategy as AdsReconcileStrategy | null
+  const desired = claimed.reconcileFields
+  if (strategy === AdsReconcileStrategies.manual_only
+    || claimed.entityType === AdsEntityTypes.file
+    || !strategy
+    || !desired) {
+    const row = unknownReconciliation(
+      app,
+      claimed,
+      leaseOwner,
+      context,
+      'ADS_RECONCILIATION_MANUAL_ONLY',
+      'This operation cannot be reconciled automatically',
+    )
+    return reconcileResponse(row)
+  }
+
+  try {
+    let match: AdsOperatorEntityResult | undefined
+    const checkpointedId = claimed.entityId
+    // The provider does not accept an idempotency/provenance key on creates.
+    // Mutable-field equality, even when unique in a list, cannot prove that an
+    // uncheckpointed create produced that entity. Fail closed until a provider
+    // id was durably checkpointed; never bind a pre-existing lookalike.
+    if (strategy === AdsReconcileStrategies.create_fingerprint && !checkpointedId) {
+      const row = unknownReconciliation(
+        app,
+        claimed,
+        leaseOwner,
+        context,
+        'ADS_RECONCILIATION_UNCHECKPOINTED_CREATE',
+        'The create outcome has no checkpointed provider id and cannot be resolved automatically',
+      )
+      return reconcileResponse(row)
+    }
+    if (checkpointedId) {
+      const entity = await getEntityForReconciliation(
+        input.operator,
+        input.apiKey,
+        claimed.entityType as AdsEntityType,
+        checkpointedId,
+      )
+      const checkpointDesired = strategy === AdsReconcileStrategies.create_fingerprint
+        ? reconcileFieldsWithoutParent(desired)
+        : desired
+      if (entityMatchesReconcileFields(entity, checkpointDesired, null)) match = entity
+    }
+
+    if (!match) {
+      const row = unknownReconciliation(
+        app,
+        claimed,
+        leaseOwner,
+        context,
+        'ADS_RECONCILIATION_MISMATCH',
+        'The upstream entity did not match the requested safe state',
+      )
+      return reconcileResponse(row)
+    }
+
+    const row = finishReconciliation(app, claimed, leaseOwner, context, {
+      state: AdsOperationStates.succeeded,
+      entity: match,
+    })
+    return reconcileResponse(row)
+  } catch (error) {
+    const failure = errorDetails(error)
+    const row = unknownReconciliation(
+      app,
+      claimed,
+      leaseOwner,
+      context,
+      `ADS_RECONCILIATION_${failure.code}`.slice(0, 100),
+      'OpenAI Ads API outcome could not be reconciled',
+    )
+    return reconcileResponse(row)
+  }
+}
+
+async function sweepAdsOperationsOnce(
+  app: FastifyInstance,
+  opts: AdsRoutesOptions,
+  config: { pendingStaleMs: number; batchSize: number; leaseMs: number },
+): Promise<void> {
+  if (!opts.adsOperator || !opts.adsCredentialStore) return
+  const now = new Date()
+  const nowIso = now.toISOString()
+  const pendingCutoff = new Date(now.getTime() - config.pendingStaleMs).toISOString()
+  const staleReconcileWhere = and(
+    or(
+      eq(adsOperations.reconcileStrategy, AdsReconcileStrategies.known_entity),
+      and(
+        eq(adsOperations.reconcileStrategy, AdsReconcileStrategies.create_fingerprint),
+        or(
+          isNotNull(adsOperations.entityId),
+          inArray(adsOperations.state, [
+            AdsOperationStates.pending,
+            AdsOperationStates.reconciling,
+          ]),
+        ),
+      ),
+    ),
+    or(
+      and(
+        eq(adsOperations.state, AdsOperationStates.pending),
+        lte(adsOperations.updatedAt, pendingCutoff),
+      ),
+      and(
+        eq(adsOperations.state, AdsOperationStates.unknown),
+        lte(adsOperations.updatedAt, pendingCutoff),
+      ),
+      and(
+        eq(adsOperations.state, AdsOperationStates.reconciling),
+        or(isNull(adsOperations.leaseExpiresAt), lte(adsOperations.leaseExpiresAt, nowIso)),
+      ),
+    ),
+  )
+
+  // Apply the batch limit only after excluding projects that cannot currently
+  // prove their credential/account binding. Otherwise the same oldest
+  // disconnected or misbound receipts can consume every bounded sweep and
+  // permanently starve later eligible work. Verify only projects that actually
+  // have a stale, safely reconcilable receipt.
+  const credentialsByProjectId = new Map<
+    string,
+    { apiKey: string; adAccountId: string }
+  >()
+  const projectRows = app.db.selectDistinct({ id: projects.id, name: projects.name })
+    .from(projects)
+    .innerJoin(adsOperations, eq(adsOperations.projectId, projects.id))
+    .where(staleReconcileWhere)
+    .all()
+  for (const project of projectRows) {
+    try {
+      const { apiKey, adAccountId } = await resolveAdsOperator(app, opts, project)
+      credentialsByProjectId.set(project.id, { apiKey, adAccountId })
+    } catch {
+      app.log.warn({ projectId: project.id }, 'Skipping ads receipt sweep for an unverified account binding')
+    }
+  }
+  const eligibleProjectIds = [...credentialsByProjectId.keys()]
+  if (eligibleProjectIds.length === 0) return
+
+  const rows = app.db.select().from(adsOperations).where(and(
+    inArray(adsOperations.projectId, eligibleProjectIds),
+    staleReconcileWhere,
+  )).orderBy(asc(adsOperations.updatedAt)).limit(config.batchSize).all()
+
+  for (const row of rows) {
+    const credential = credentialsByProjectId.get(row.projectId)
+    if (!credential) continue
+    await reconcileOneAdsOperation(app, {
+      projectId: row.projectId,
+      operationKey: row.operationKey,
+      apiKey: credential.apiKey,
+      adAccountId: credential.adAccountId,
+      operator: opts.adsOperator,
+      leaseMs: config.leaseMs,
+      audit: { actor: 'system' },
     })
   }
 }
@@ -520,6 +1199,34 @@ function adGroupBillingEventTypeDto(value: string | null): AdsAdGroupBillingEven
 }
 
 export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): Promise<void> {
+  const sweepIntervalMs = opts.adsReconcileSweepIntervalMs ?? DEFAULT_RECONCILE_SWEEP_INTERVAL_MS
+  const pendingStaleMs = Math.max(1, opts.adsReconcilePendingStaleMs ?? DEFAULT_RECONCILE_PENDING_STALE_MS)
+  const batchSize = Math.min(100, Math.max(1, opts.adsReconcileBatchSize ?? DEFAULT_RECONCILE_BATCH_SIZE))
+  const leaseMs = Math.max(1, opts.adsReconcileLeaseMs ?? DEFAULT_RECONCILE_LEASE_MS)
+  let sweepTimer: ReturnType<typeof setInterval> | undefined
+  let sweepPromise: Promise<void> | undefined
+  if (sweepIntervalMs > 0 && opts.adsOperator && opts.adsCredentialStore) {
+    app.addHook('onReady', async () => {
+      sweepTimer = setInterval(() => {
+        if (sweepPromise) return
+        sweepPromise = sweepAdsOperationsOnce(app, opts, { pendingStaleMs, batchSize, leaseMs })
+          .catch(() => {
+            // Provider details can contain credentials or signed URLs. Keep the
+            // process-level log generic; the receipt records a sanitized code.
+            app.log.error('Ads receipt reconciliation sweep failed')
+          })
+          .finally(() => {
+            sweepPromise = undefined
+          })
+      }, sweepIntervalMs)
+      sweepTimer.unref()
+    })
+    app.addHook('onClose', async () => {
+      if (sweepTimer) clearInterval(sweepTimer)
+      await sweepPromise
+    })
+  }
+
   app.post<{ Params: { name: string }; Body: { apiKey?: string } }>(
     '/projects/:name/ads/connect',
     async (request) => {
@@ -669,6 +1376,55 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
     },
   )
 
+  app.get<{
+    Params: { name: string }
+    Querystring: { state?: string; limit?: string | number }
+  }>('/projects/:name/ads/operations', async (request) => {
+    const project = resolveProject(app.db, request.params.name)
+    const parsed = adsUnresolvedOperationListQuerySchema.safeParse(request.query)
+    if (!parsed.success) {
+      throw validationError('Invalid ads operation list query', { issues: parsed.error.issues })
+    }
+    const rows = app.db.select().from(adsOperations).where(and(
+      eq(adsOperations.projectId, project.id),
+      inArray(adsOperations.state, parsed.data.state),
+    )).orderBy(asc(adsOperations.createdAt)).limit(parsed.data.limit).all()
+    const response: AdsUnresolvedOperationListResponse = {
+      operations: rows.map(operationDto),
+      count: rows.length,
+    }
+    return response
+  })
+
+  app.post<{
+    Params: { name: string; operationKey: string }
+    Body: unknown
+  }>('/projects/:name/ads/operations/:operationKey/reconcile', async (request) => {
+    requireScope(request, ADS_WRITE_SCOPE)
+    const project = resolveProject(app.db, request.params.name)
+    if (!readOperationByKey(app, project.id, request.params.operationKey)) {
+      throw notFound('Ads operation', request.params.operationKey)
+    }
+    if (request.body !== undefined && (
+      request.body === null
+      || typeof request.body !== 'object'
+      || Array.isArray(request.body)
+      || Object.keys(request.body).length > 0
+    )) {
+      throw validationError('Ads operation reconciliation does not accept a request body')
+    }
+    const { apiKey, adAccountId, operator } = await resolveAdsOperator(app, opts, project)
+    return reconcileOneAdsOperation(app, {
+      projectId: project.id,
+      adAccountId,
+      operationKey: request.params.operationKey,
+      apiKey,
+      operator,
+      leaseMs,
+      audit: { request, actor: 'api' },
+    })
+  })
+
   app.get<{ Params: { name: string; operationKey: string } }>(
     '/projects/:name/ads/operations/:operationKey',
     async (request) => {
@@ -691,13 +1447,15 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
     requireScope(request, ADS_WRITE_SCOPE)
     const project = resolveProject(app.db, request.params.name)
     const body = parseBody(adsImageUploadRequestSchema, request.body)
-    const { apiKey, operator } = resolveAdsOperator(opts, project.name)
+    const { apiKey, adAccountId, operator } = await resolveAdsOperator(app, opts, project)
     return executeAdsOperation(app, request, {
       projectId: project.id,
+      adAccountId,
       operationKey: body.operationKey,
       kind: AdsOperationKinds.image_upload,
       entityType: AdsEntityTypes.file,
       payload: { imageUrl: body.imageUrl },
+      reconciliation: { strategy: AdsReconcileStrategies.manual_only },
       run: async () => {
         const result = await operator.uploadImage(apiKey, body.imageUrl)
         return { id: result.fileId }
@@ -711,13 +1469,18 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
     const body = parseBody(adsCampaignCreateRequestSchema, request.body)
     const { operationKey, ...providerInput } = body
     const biddingType = providerInput.biddingType ?? AdsCampaignBiddingTypes.impressions
-    const { apiKey, operator } = resolveAdsOperator(opts, project.name)
+    const { apiKey, adAccountId, operator } = await resolveAdsOperator(app, opts, project)
     return executeAdsOperation(app, request, {
       projectId: project.id,
+      adAccountId,
       operationKey,
       kind: AdsOperationKinds.campaign_create,
       entityType: AdsEntityTypes.campaign,
       payload: providerInput,
+      reconciliation: {
+        strategy: AdsReconcileStrategies.create_fingerprint,
+        fields: campaignCreateReconcileFields({ ...providerInput, biddingType }),
+      },
       expectedStatus: AdsEntityStatuses.paused,
       remediateStatus: (result) => operator.pauseCampaign(apiKey, result.id),
       run: async () => operator.createCampaign(apiKey, { ...providerInput, biddingType }),
@@ -730,9 +1493,10 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
     const body = parseBody(adsAdGroupCreateRequestSchema, request.body)
     const { operationKey, ...providerInput } = body
     const requestedBillingEventType = providerInput.billingEventType ?? AdsAdGroupBillingEventTypes.impression
-    const { apiKey, operator } = resolveAdsOperator(opts, project.name)
+    const { apiKey, adAccountId, operator } = await resolveAdsOperator(app, opts, project)
     return executeAdsOperation(app, request, {
       projectId: project.id,
+      adAccountId,
       operationKey,
       kind: AdsOperationKinds.ad_group_create,
       entityType: AdsEntityTypes.ad_group,
@@ -743,6 +1507,14 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
           () => operator.getCampaign(apiKey, providerInput.campaignId),
         )
         assertAdGroupBillingMatchesCampaign(campaign, requestedBillingEventType)
+      },
+      reconciliation: {
+        strategy: AdsReconcileStrategies.create_fingerprint,
+        parentId: providerInput.campaignId,
+        fields: adGroupCreateReconcileFields({
+          ...providerInput,
+          billingEventType: requestedBillingEventType,
+        }),
       },
       expectedStatus: AdsEntityStatuses.paused,
       remediateStatus: (result) => operator.pauseAdGroup(apiKey, result.id),
@@ -758,13 +1530,19 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
     const project = resolveProject(app.db, request.params.name)
     const body = parseBody(adsAdCreateRequestSchema, request.body)
     const { operationKey, ...providerInput } = body
-    const { apiKey, operator } = resolveAdsOperator(opts, project.name)
+    const { apiKey, adAccountId, operator } = await resolveAdsOperator(app, opts, project)
     return executeAdsOperation(app, request, {
       projectId: project.id,
+      adAccountId,
       operationKey,
       kind: AdsOperationKinds.ad_create,
       entityType: AdsEntityTypes.ad,
       payload: providerInput,
+      reconciliation: {
+        strategy: AdsReconcileStrategies.create_fingerprint,
+        parentId: providerInput.adGroupId,
+        fields: adCreateReconcileFields(providerInput),
+      },
       expectedStatus: AdsEntityStatuses.paused,
       remediateStatus: (result) => operator.pauseAd(apiKey, result.id),
       run: async () => operator.createAd(apiKey, providerInput),
@@ -778,13 +1556,19 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
       const project = resolveProject(app.db, request.params.name)
       const body = parseBody(adsCampaignUpdateRequestSchema, request.body)
       const { operationKey, expectedUpdatedAt, ...update } = body
-      const { apiKey, operator } = resolveAdsOperator(opts, project.name)
+      const { apiKey, adAccountId, operator } = await resolveAdsOperator(app, opts, project)
       return executeAdsOperation(app, request, {
         projectId: project.id,
+        adAccountId,
         operationKey,
         kind: AdsOperationKinds.campaign_update,
         entityType: AdsEntityTypes.campaign,
         payload: { id: request.params.id, expectedUpdatedAt, update },
+        knownEntityId: request.params.id,
+        reconciliation: {
+          strategy: AdsReconcileStrategies.known_entity,
+          fields: updateReconcileFields(AdsEntityTypes.campaign, update),
+        },
         expectedStatus: AdsEntityStatuses.paused,
         remediateStatus: (result) => operator.pauseCampaign(apiKey, result.id),
         run: async () => {
@@ -804,13 +1588,19 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
       const project = resolveProject(app.db, request.params.name)
       const body = parseBody(adsAdGroupUpdateRequestSchema, request.body)
       const { operationKey, expectedUpdatedAt, ...update } = body
-      const { apiKey, operator } = resolveAdsOperator(opts, project.name)
+      const { apiKey, adAccountId, operator } = await resolveAdsOperator(app, opts, project)
       return executeAdsOperation(app, request, {
         projectId: project.id,
+        adAccountId,
         operationKey,
         kind: AdsOperationKinds.ad_group_update,
         entityType: AdsEntityTypes.ad_group,
         payload: { id: request.params.id, expectedUpdatedAt, update },
+        knownEntityId: request.params.id,
+        reconciliation: {
+          strategy: AdsReconcileStrategies.known_entity,
+          fields: updateReconcileFields(AdsEntityTypes.ad_group, update),
+        },
         expectedStatus: AdsEntityStatuses.paused,
         remediateStatus: (result) => operator.pauseAdGroup(apiKey, result.id),
         run: async () => {
@@ -841,13 +1631,19 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
       const project = resolveProject(app.db, request.params.name)
       const body = parseBody(adsAdUpdateRequestSchema, request.body)
       const { operationKey, expectedUpdatedAt, ...update } = body
-      const { apiKey, operator } = resolveAdsOperator(opts, project.name)
+      const { apiKey, adAccountId, operator } = await resolveAdsOperator(app, opts, project)
       return executeAdsOperation(app, request, {
         projectId: project.id,
+        adAccountId,
         operationKey,
         kind: AdsOperationKinds.ad_update,
         entityType: AdsEntityTypes.ad,
         payload: { id: request.params.id, expectedUpdatedAt, update },
+        knownEntityId: request.params.id,
+        reconciliation: {
+          strategy: AdsReconcileStrategies.known_entity,
+          fields: updateReconcileFields(AdsEntityTypes.ad, update),
+        },
         expectedStatus: AdsEntityStatuses.paused,
         remediateStatus: (result) => operator.pauseAd(apiKey, result.id),
         run: async () => {
@@ -866,13 +1662,19 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
       requireScope(request, ADS_WRITE_SCOPE)
       const project = resolveProject(app.db, request.params.name)
       const body = parseBody(adsPauseRequestSchema, request.body)
-      const { apiKey, operator } = resolveAdsOperator(opts, project.name)
+      const { apiKey, adAccountId, operator } = await resolveAdsOperator(app, opts, project)
       return executeAdsOperation(app, request, {
         projectId: project.id,
+        adAccountId,
         operationKey: body.operationKey,
         kind: AdsOperationKinds.campaign_pause,
         entityType: AdsEntityTypes.campaign,
         payload: { id: request.params.id },
+        knownEntityId: request.params.id,
+        reconciliation: {
+          strategy: AdsReconcileStrategies.known_entity,
+          fields: { status: AdsEntityStatuses.paused },
+        },
         expectedStatus: AdsEntityStatuses.paused,
         remediateStatus: (result) => operator.pauseCampaign(apiKey, result.id),
         run: async () => operator.pauseCampaign(apiKey, request.params.id),
@@ -886,13 +1688,19 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
       requireScope(request, ADS_WRITE_SCOPE)
       const project = resolveProject(app.db, request.params.name)
       const body = parseBody(adsPauseRequestSchema, request.body)
-      const { apiKey, operator } = resolveAdsOperator(opts, project.name)
+      const { apiKey, adAccountId, operator } = await resolveAdsOperator(app, opts, project)
       return executeAdsOperation(app, request, {
         projectId: project.id,
+        adAccountId,
         operationKey: body.operationKey,
         kind: AdsOperationKinds.ad_group_pause,
         entityType: AdsEntityTypes.ad_group,
         payload: { id: request.params.id },
+        knownEntityId: request.params.id,
+        reconciliation: {
+          strategy: AdsReconcileStrategies.known_entity,
+          fields: { status: AdsEntityStatuses.paused },
+        },
         expectedStatus: AdsEntityStatuses.paused,
         remediateStatus: (result) => operator.pauseAdGroup(apiKey, result.id),
         run: async () => operator.pauseAdGroup(apiKey, request.params.id),
@@ -906,13 +1714,19 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
       requireScope(request, ADS_WRITE_SCOPE)
       const project = resolveProject(app.db, request.params.name)
       const body = parseBody(adsPauseRequestSchema, request.body)
-      const { apiKey, operator } = resolveAdsOperator(opts, project.name)
+      const { apiKey, adAccountId, operator } = await resolveAdsOperator(app, opts, project)
       return executeAdsOperation(app, request, {
         projectId: project.id,
+        adAccountId,
         operationKey: body.operationKey,
         kind: AdsOperationKinds.ad_pause,
         entityType: AdsEntityTypes.ad,
         payload: { id: request.params.id },
+        knownEntityId: request.params.id,
+        reconciliation: {
+          strategy: AdsReconcileStrategies.known_entity,
+          fields: { status: AdsEntityStatuses.paused },
+        },
         expectedStatus: AdsEntityStatuses.paused,
         remediateStatus: (result) => operator.pauseAd(apiKey, result.id),
         run: async () => operator.pauseAd(apiKey, request.params.id),

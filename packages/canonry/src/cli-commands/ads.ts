@@ -11,6 +11,8 @@ import {
   adsInsights,
   adsSummary,
   adsOperationGet,
+  adsOperationReconcile,
+  adsOperationsUnresolved,
   adsImageUpload,
   adsCampaignCreate,
   adsCampaignUpdate,
@@ -23,7 +25,14 @@ import {
   adsAdPause,
 } from '../commands/ads.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
-import { getString, parseIntegerOption, requirePositional, requireProject, stringOption } from '../cli-command-helpers.js'
+import {
+  getString,
+  parseIntegerOption,
+  requirePositional,
+  requireProject,
+  requireStringOption,
+  stringOption,
+} from '../cli-command-helpers.js'
 
 export const ADS_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
@@ -102,6 +111,18 @@ export const ADS_CLI_COMMANDS: readonly CliCommandSpec[] = [
     },
   },
   {
+    path: ['ads', 'operations', 'unresolved'],
+    usage: 'canonry ads operations unresolved <project> [--format json|jsonl]',
+    run: async (input) => {
+      const project = requireProject(
+        input,
+        'ads.operations.unresolved',
+        'canonry ads operations unresolved <project> [--format json|jsonl]',
+      )
+      await adsOperationsUnresolved(project, { format: input.format })
+    },
+  },
+  {
     path: ['ads', 'operation'],
     usage: 'canonry ads operation <project> <operation-key> [--format json]',
     run: async (input) => {
@@ -111,6 +132,26 @@ export const ADS_CLI_COMMANDS: readonly CliCommandSpec[] = [
         command: 'ads.operation', usage, message: 'operation key is required',
       })
       await adsOperationGet(project, { operationKey, format: input.format })
+    },
+  },
+  {
+    path: ['ads', 'operation', 'reconcile'],
+    usage: 'canonry ads operation reconcile <project> --operation-key <key> [--format json]',
+    options: {
+      'operation-key': stringOption(),
+    },
+    run: async (input) => {
+      const usage = 'canonry ads operation reconcile <project> --operation-key <key> [--format json]'
+      const project = requireProject(input, 'ads.operation.reconcile', usage)
+      const operationKey = requireStringOption(input, 'operation-key', {
+        command: 'ads.operation.reconcile',
+        usage,
+        message: '--operation-key is required',
+      })
+      await adsOperationReconcile(project, {
+        operationKey,
+        format: input.format,
+      })
     },
   },
   {

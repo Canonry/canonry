@@ -10,7 +10,9 @@ import {
   adsCampaignUpdateRequestSchema,
   adsGeoSearchQuerySchema,
   adsImageUploadRequestSchema,
+  adsOperationReconcileRequestSchema,
   adsPauseRequestSchema,
+  adsUnresolvedOperationListQuerySchema,
   competitorBatchRequestSchema,
   DISCOVERY_MAX_PROBES_CAP,
   DISCOVERY_PROBE_CONCURRENCY_CAP,
@@ -252,6 +254,15 @@ const adsGeoSearchInputSchema = adsGeoSearchQuerySchema.extend({
 })
 
 const adsOperationInputSchema = z.object({
+  project: projectNameSchema,
+  operationKey: z.string().min(8).max(128),
+})
+
+const adsUnresolvedOperationsInputSchema = adsUnresolvedOperationListQuerySchema.extend({
+  project: projectNameSchema,
+})
+
+const adsOperationReconcileInputSchema = adsOperationReconcileRequestSchema.extend({
   project: projectNameSchema,
   operationKey: z.string().min(8).max(128),
 })
@@ -2028,6 +2039,21 @@ export const canonryMcpTools = [
     handler: (client, input) => client.getAdsSummary(input.project),
   }),
   defineTool({
+    name: 'canonry_ads_operations_unresolved',
+    title: 'List unresolved ads mutation receipts',
+    description:
+      'List pending, unknown, or actively reconciling OpenAI Ads mutation receipts that need recovery. Use this before new lifecycle work so an ambiguous earlier outcome is settled instead of retried under another key.',
+    access: 'read',
+    tier: 'ads',
+    inputSchema: adsUnresolvedOperationsInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/ads/operations'],
+    handler: (client, input) => client.getUnresolvedAdsOperations(input.project, {
+      state: input.state,
+      limit: input.limit,
+    }),
+  }),
+  defineTool({
     name: 'canonry_ads_operation_get',
     title: 'Get an ads mutation receipt',
     description:
@@ -2038,6 +2064,18 @@ export const canonryMcpTools = [
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/ads/operations/{operationKey}'],
     handler: (client, input) => client.getAdsOperation(input.project, input.operationKey),
+  }),
+  defineTool({
+    name: 'canonry_ads_operation_reconcile',
+    title: 'Reconcile an ads mutation receipt',
+    description:
+      'Verify a checkpointed provider entity against the receipt-bound OpenAI ad account without retrying the original mutation. Uncheckpointed creates remain unresolved because mutable-field matching cannot prove provenance.',
+    access: 'write',
+    tier: 'ads',
+    inputSchema: adsOperationReconcileInputSchema,
+    annotations: writeAnnotations({ idempotentHint: true, openWorldHint: true }),
+    openApiOperations: ['POST /api/v1/projects/{name}/ads/operations/{operationKey}/reconcile'],
+    handler: (client, input) => client.reconcileAdsOperation(input.project, input.operationKey),
   }),
   defineTool({
     name: 'canonry_ads_image_upload',
