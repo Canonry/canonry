@@ -5,7 +5,7 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 import Fastify from 'fastify'
 import { eq } from 'drizzle-orm'
-import { AppError } from '@ainyc/canonry-contracts'
+import { AdsOperationKinds, AdsOperationStates, AppError } from '@ainyc/canonry-contracts'
 import type { AdsUnresolvedOperationListResponse } from '@ainyc/canonry-contracts'
 import {
   createClient,
@@ -1719,6 +1719,46 @@ describe('ads routes', () => {
       resolved: true, operation: { state: 'succeeded', reconcileAttempts: 1 },
     })
     expect(ctx.operatorCalls).toEqual([{ method: 'getCampaign', input: undefined }])
+  })
+
+  it('never lets the generic reconciler claim a campaign tree activation receipt', async () => {
+    const projectId = ctx.seedProject()
+    ctx.seedConnection(projectId)
+    const operationKey = 'activate:tree:dedicated-recovery'
+    ctx.db.insert(adsOperations).values({
+      id: 'op_activation_dedicated_recovery',
+      projectId,
+      adAccountId: 'adacct_aaa',
+      operationKey,
+      requestHash: 'a'.repeat(64),
+      kind: AdsOperationKinds.campaign_tree_activate,
+      state: AdsOperationStates.pending,
+      entityType: 'campaign',
+      entityId: 'cmpn_activation',
+      reconcileStrategy: null,
+      createdAt: NOW,
+      updatedAt: NOW,
+    }).run()
+
+    const response = await ctx.app.inject({
+      method: 'POST',
+      url: `/projects/acme/ads/operations/${encodeURIComponent(operationKey)}/reconcile`,
+    })
+
+    expect(response.statusCode).toBe(400)
+    expect(JSON.parse(response.body)).toMatchObject({
+      error: {
+        code: 'VALIDATION_ERROR',
+        message: 'Campaign tree activation receipts must be resumed through the activation route',
+      },
+    })
+    expect(ctx.db.select().from(adsOperations)
+      .where(eq(adsOperations.operationKey, operationKey)).get()).toMatchObject({
+      state: AdsOperationStates.pending,
+      leaseOwner: null,
+      reconcileAttempts: 0,
+    })
+    expect(ctx.operatorCalls).toEqual([])
   })
 
   it('sweeps a stale pending receipt with the leased inspection-only reconciler', async () => {

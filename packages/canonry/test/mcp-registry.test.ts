@@ -138,9 +138,11 @@ const expectedToolNames = [
   'canonry_ads_operations_unresolved',
   'canonry_ads_operation_get',
   'canonry_ads_operation_reconcile',
+  'canonry_ads_operation_resume_activation',
   'canonry_ads_image_upload',
   'canonry_ads_campaign_create',
   'canonry_ads_campaign_update',
+  'canonry_ads_campaign_activate_tree',
   'canonry_ads_campaign_pause',
   'canonry_ads_ad_group_create',
   'canonry_ads_ad_group_update',
@@ -153,7 +155,7 @@ const expectedToolNames = [
 
 describe('MCP tool registry', () => {
   it('ships the curated v1 surface', () => {
-    expect(CANONRY_MCP_TOOL_COUNT).toBe(133)
+    expect(CANONRY_MCP_TOOL_COUNT).toBe(135)
     expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(85)
     expect(canonryMcpTools.map(tool => tool.name)).toEqual(expectedToolNames)
     const readNames = canonryMcpTools.filter(tool => tool.access === 'read').map(tool => tool.name)
@@ -195,7 +197,7 @@ describe('MCP tool registry', () => {
     expect(counts.get('gsc')).toBe(8)
     expect(counts.get('ga')).toBe(8)
     expect(counts.get('gbp')).toBe(13)
-    expect(counts.get('ads')).toBe(22)
+    expect(counts.get('ads')).toBe(24)
     expect(counts.get('traffic')).toBe(10)
     expect(counts.get('agent')).toBe(5)
     expect(counts.get('discovery')).toBe(6)
@@ -276,6 +278,22 @@ describe('MCP tool registry', () => {
       candidateEntityId: 'cmpn_1',
     })).toThrow()
 
+    const adsOperationResumeActivation = canonryMcpTools.find(
+      candidate => candidate.name === 'canonry_ads_operation_resume_activation',
+    )
+    expect(adsOperationResumeActivation?.inputSchema.parse({
+      project: 'acme',
+      operationKey: 'weekend:campaign:activate:1',
+    })).toEqual({
+      project: 'acme',
+      operationKey: 'weekend:campaign:activate:1',
+    })
+    expect(() => adsOperationResumeActivation?.inputSchema.parse({
+      project: 'acme',
+      operationKey: 'weekend:campaign:activate:1',
+      grantId: 'grant_override',
+    })).toThrow()
+
     const adsCampaignCreate = canonryMcpTools.find(
       candidate => candidate.name === 'canonry_ads_campaign_create',
     )
@@ -294,6 +312,24 @@ describe('MCP tool registry', () => {
     expect(() => adsCampaignCreate?.inputSchema.parse({
       ...clickCampaign,
       request: { ...clickCampaign.request, conversionEventSettingIds: [] },
+    })).toThrow()
+
+    const adsCampaignActivateTree = canonryMcpTools.find(
+      candidate => candidate.name === 'canonry_ads_campaign_activate_tree',
+    )
+    const activation = {
+      project: 'acme',
+      campaignId: 'cmpn_approved',
+      request: {
+        operationKey: 'weekend:campaign:activate:1',
+        grantId: 'grant_approved',
+        manifestHash: 'a'.repeat(64),
+      },
+    }
+    expect(adsCampaignActivateTree?.inputSchema.parse(activation)).toEqual(activation)
+    expect(() => adsCampaignActivateTree?.inputSchema.parse({
+      ...activation,
+      request: { ...activation.request, manifestHash: 'not-a-hash' },
     })).toThrow()
 
     const adsAdGroupCreate = canonryMcpTools.find(
@@ -384,6 +420,11 @@ describe('MCP tool registry', () => {
     expect(annotations.canonry_insight_dismiss).toMatchObject({ idempotentHint: true, destructiveHint: false })
     expect(annotations.canonry_agent_webhook_attach).toMatchObject({ idempotentHint: true, destructiveHint: false })
     expect(annotations.canonry_agent_webhook_detach).toMatchObject({ idempotentHint: true, destructiveHint: true })
+    expect(annotations.canonry_ads_operation_resume_activation).toMatchObject({
+      idempotentHint: true,
+      destructiveHint: true,
+      openWorldHint: true,
+    })
   })
 
   it('classifies every OpenAPI operation for MCP coverage drift', () => {
@@ -680,6 +721,34 @@ const handlerCases: HandlerCase[] = [
     input: { project: 'acme', operationKey: 'weekend:campaign:pending' },
     methods: ['reconcileAdsOperation'],
     expectedArgs: [['acme', 'weekend:campaign:pending']],
+  },
+  {
+    tool: 'canonry_ads_operation_resume_activation',
+    input: { project: 'acme', operationKey: 'weekend:campaign:activate:1' },
+    methods: ['resumeAdsActivation'],
+    expectedArgs: [['acme', 'weekend:campaign:activate:1']],
+  },
+  {
+    tool: 'canonry_ads_campaign_activate_tree',
+    input: {
+      project: 'acme',
+      campaignId: 'cmpn_approved',
+      request: {
+        operationKey: 'weekend:campaign:activate:1',
+        grantId: 'grant_approved',
+        manifestHash: 'a'.repeat(64),
+      },
+    },
+    methods: ['activateAdsCampaignTree'],
+    expectedArgs: [[
+      'acme',
+      'cmpn_approved',
+      {
+        operationKey: 'weekend:campaign:activate:1',
+        grantId: 'grant_approved',
+        manifestHash: 'a'.repeat(64),
+      },
+    ]],
   },
   { tool: 'canonry_traffic_sources_list', input: projectInput, methods: ['trafficListSources'] },
   { tool: 'canonry_traffic_source_get', input: { project: 'acme', sourceId: 'src-1' }, methods: ['trafficGetSource'] },

@@ -68,6 +68,7 @@ import type {
 } from '@ainyc/canonry-contracts'
 import { adsConnections, adsCampaigns, adsAdGroups, adsAds, adsInsightsDaily, adsOperations, projects, runs } from '@ainyc/canonry-db'
 import { requireScope } from './auth.js'
+import { registerAdsActivationRoutes } from './ads-activation-routes.js'
 import { resolveProject, writeAuditLog, auditFromRequest } from './helpers.js'
 
 export interface AdsConnectionConfigEntryLike {
@@ -178,6 +179,7 @@ export interface AdsOperator {
     locationIds?: string[]
   }): Promise<AdsOperatorEntityResult>
   pauseCampaign(apiKey: string, id: string): Promise<AdsOperatorEntityResult>
+  activateCampaign?(apiKey: string, id: string): Promise<AdsOperatorEntityResult>
   getAdGroup(apiKey: string, id: string): Promise<AdsOperatorEntityResult>
   listAdGroups(apiKey: string, campaignId: string): Promise<AdsOperatorEntityResult[]>
   createAdGroup(apiKey: string, input: {
@@ -196,6 +198,7 @@ export interface AdsOperator {
     billingEventType?: AdsAdGroupBillingEventType
   }): Promise<AdsOperatorEntityResult>
   pauseAdGroup(apiKey: string, id: string): Promise<AdsOperatorEntityResult>
+  activateAdGroup?(apiKey: string, id: string): Promise<AdsOperatorEntityResult>
   getAd(apiKey: string, id: string): Promise<AdsOperatorEntityResult>
   listAds(apiKey: string, adGroupId: string): Promise<AdsOperatorEntityResult[]>
   createAd(apiKey: string, input: {
@@ -208,6 +211,7 @@ export interface AdsOperator {
     creative?: { title: string; body: string; targetUrl: string; fileId: string }
   }): Promise<AdsOperatorEntityResult>
   pauseAd(apiKey: string, id: string): Promise<AdsOperatorEntityResult>
+  activateAd?(apiKey: string, id: string): Promise<AdsOperatorEntityResult>
 }
 
 type ConnectionRow = typeof adsConnections.$inferSelect
@@ -604,7 +608,12 @@ async function resolveAdsOperator(
     ttlMs: number
     nowMs?: number
   },
-): Promise<{ apiKey: string; adAccountId: string; operator: AdsOperator }> {
+): Promise<{
+  apiKey: string
+  adAccountId: string
+  refreshAccount: () => Promise<VerifiedAdsAccount>
+  operator: AdsOperator
+}> {
   const connection = opts.adsCredentialStore?.getConnection(project.name)
   if (!connection?.apiKey) {
     throw validationError('No ads connection for this project. Run "canonry ads connect" first.')
@@ -615,7 +624,8 @@ async function resolveAdsOperator(
   if (!opts.adsOperator) {
     throw validationError('Ads lifecycle operations are not configured for this deployment')
   }
-  if (!opts.verifyAdsAccount) {
+  const verifyAdsAccount = opts.verifyAdsAccount
+  if (!verifyAdsAccount) {
     throw validationError('Ads account verification is not configured for this deployment')
   }
   const stored = app.db.select({ adAccountId: adsConnections.adAccountId }).from(adsConnections)
@@ -633,11 +643,16 @@ async function resolveAdsOperator(
     && cached.expiresAtMs > nowMs
     && cached.credentialFingerprint === credentialFingerprint
     && cached.adAccountId === connection.adAccountId) {
-    return { apiKey: connection.apiKey, adAccountId: cached.adAccountId, operator: opts.adsOperator }
+    return {
+      apiKey: connection.apiKey,
+      adAccountId: cached.adAccountId,
+      refreshAccount: () => verifyAdsAccount(connection.apiKey),
+      operator: opts.adsOperator,
+    }
   }
   const verified = await executeAdsRead(
     'account identity',
-    () => opts.verifyAdsAccount!(connection.apiKey),
+    () => verifyAdsAccount(connection.apiKey),
   )
   if (verified.id !== connection.adAccountId) {
     verification?.cache.delete(project.id)
@@ -650,7 +665,12 @@ async function resolveAdsOperator(
       expiresAtMs: nowMs + verification.ttlMs,
     })
   }
-  return { apiKey: connection.apiKey, adAccountId: verified.id, operator: opts.adsOperator }
+  return {
+    apiKey: connection.apiKey,
+    adAccountId: verified.id,
+    refreshAccount: () => verifyAdsAccount(connection.apiKey),
+    operator: opts.adsOperator,
+  }
 }
 
 function resolveAdsReader(
@@ -891,6 +911,14 @@ function readOperationByKey(
     eq(adsOperations.projectId, projectId),
     eq(adsOperations.operationKey, operationKey),
   )).get()
+}
+
+function assertGenericReconciliationKind(row: OperationRow): void {
+  if (row.kind === AdsOperationKinds.campaign_tree_activate) {
+    throw validationError(
+      'Campaign tree activation receipts must be resumed through the activation route',
+    )
+  }
 }
 
 function claimOperationForReconciliation(
@@ -1151,6 +1179,7 @@ export async function reconcileOneAdsOperation(
 ): Promise<AdsOperationReconcileResponse> {
   const existing = readOperationByKey(app, input.projectId, input.operationKey)
   if (!existing) throw notFound('Ads operation', input.operationKey)
+  assertGenericReconciliationKind(existing)
   if (existing.state === AdsOperationStates.succeeded) {
     return { operation: operationDto(existing), resolved: true }
   }
@@ -1378,6 +1407,7 @@ async function sweepAdsOperationsOnce(
   )
   const staleReconcileWhere = and(
     lt(adsOperations.reconcileAttempts, config.policy.maxAttempts),
+    ne(adsOperations.kind, AdsOperationKinds.campaign_tree_activate),
     or(
       eq(adsOperations.reconcileStrategy, AdsReconcileStrategies.known_entity),
       and(
@@ -1399,6 +1429,7 @@ async function sweepAdsOperationsOnce(
   // recovery posture once. It stays unknown for operator visibility but is no
   // longer eligible for automatic or manual provider inspection.
   const exhaustedRows = app.db.select().from(adsOperations).where(and(
+    ne(adsOperations.kind, AdsOperationKinds.campaign_tree_activate),
     gte(adsOperations.reconcileAttempts, config.policy.maxAttempts),
     or(
       and(
@@ -1586,6 +1617,34 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
       await sweepPromise
     })
   }
+
+  registerAdsActivationRoutes(app, {
+    resolveRuntime: async (project) => {
+      const { apiKey, adAccountId, refreshAccount, operator } = await resolveAdsOperator(app, opts, project)
+      const activateCampaign = operator.activateCampaign?.bind(operator)
+      const activateAdGroup = operator.activateAdGroup?.bind(operator)
+      const activateAd = operator.activateAd?.bind(operator)
+      if (!activateCampaign || !activateAdGroup || !activateAd) {
+        throw validationError('Ads activation is not configured for this deployment')
+      }
+      return {
+        adAccountId,
+        provider: {
+          getAccount: refreshAccount,
+          getCampaign: (id) => operator.getCampaign(apiKey, id),
+          getAdGroup: (id) => operator.getAdGroup(apiKey, id),
+          getAd: (id) => operator.getAd(apiKey, id),
+          activateCampaign: (id) => activateCampaign(apiKey, id),
+          activateAdGroup: (id) => activateAdGroup(apiKey, id),
+          activateAd: (id) => activateAd(apiKey, id),
+          pauseCampaign: (id) => operator.pauseCampaign(apiKey, id),
+          pauseAdGroup: (id) => operator.pauseAdGroup(apiKey, id),
+          pauseAd: (id) => operator.pauseAd(apiKey, id),
+        },
+      }
+    },
+    toOperationDto: operationDto,
+  })
 
   app.post<{ Params: { name: string }; Body: { apiKey?: string } }>(
     '/projects/:name/ads/connect',
@@ -1782,9 +1841,11 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
   }>('/projects/:name/ads/operations/:operationKey/reconcile', async (request) => {
     requireScope(request, ADS_WRITE_SCOPE)
     const project = resolveProject(app.db, request.params.name)
-    if (!readOperationByKey(app, project.id, request.params.operationKey)) {
+    const existing = readOperationByKey(app, project.id, request.params.operationKey)
+    if (!existing) {
       throw notFound('Ads operation', request.params.operationKey)
     }
+    assertGenericReconciliationKind(existing)
     if (request.body !== undefined && (
       request.body === null
       || typeof request.body !== 'object'

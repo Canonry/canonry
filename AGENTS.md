@@ -137,7 +137,11 @@ canonry ads geo search <project> --query <text> [--limit <n>] [--format json|jso
 canonry ads conversions pixels <project> [--format json|jsonl]
 canonry ads conversions event-settings <project> [--format json|jsonl]
 canonry ads operations unresolved <project> [--limit <n>] [--cursor <opaque>] [--format json|jsonl] # page pending/unknown/reconciling mutation receipts
-canonry ads operation reconcile <project> --operation-key <key> # verify receipt-bound provider state; never retries the mutation
+canonry ads operation reconcile <project> --operation-key <key> # verify nonactivation receipt state; never retries the mutation
+canonry ads operation resume-activation <project> --operation-key <key> # exact-executor recovery for an existing activation receipt
+canonry ads activation-grant create <project> --input <json-file|-> # human approval: exact tree + advertiser account + executor key id + expiry
+canonry ads activation-grant revoke <project> <grant-id>            # revoke an unused grant
+canonry ads campaign activate-tree <project> <campaign-id> --input <json-file|-> # grant-bound agent execution
 canonry ads sync <project>                            # trigger an ads-sync run
 canonry ads campaigns <project> [--format json|jsonl] # snapshots incl. context hints
 canonry ads insights <project> [--level campaign|ad_group] [--entity <id>] [--from <d>] [--to <d>] [--format json|jsonl]
@@ -284,7 +288,7 @@ Each check returns `status: ok | warn | fail | skipped`, a stable machine-readab
 For MCP clients such as Claude Desktop, Codex, or custom agent shells that
 prefer a typed tool catalog over shell or HTTP, the package ships a separate
 `canonry-mcp` bin. It is a thin stdio adapter over `createApiClient()` — not
-a parallel surface. v1 exposes 133 curated API tools (85 read, 48 write) — including
+a parallel surface. v1 exposes 135 curated API tools (85 read, 50 write) — including
 the `canonry_project_overview` and `canonry_search` core composites; the
 catalog is split across a small **core tier** (always loaded) and five
 **toolkits** (`monitoring`, `setup`, `gsc`, `ga`, `agent`) that the client
@@ -298,7 +302,7 @@ from `~/.canonry/config.yaml`.
 Key files:
 - `packages/canonry/src/mcp/server.ts` — `createCanonryMcpServer` (one client per server instance, registers core tier + meta tools)
 - `packages/canonry/src/mcp/cli.ts` — stdio entrypoint + scope/eager flag parsing
-- `packages/canonry/src/mcp/tool-registry.ts` — single source of truth for all 133 API tools, each tagged with a `tier`
+- `packages/canonry/src/mcp/tool-registry.ts` — single source of truth for all 135 API tools, each tagged with a `tier`
 - `packages/canonry/src/mcp/toolkits.ts` — toolkit catalog (`monitoring`, `setup`, `gsc`, `ga`, `agent`) consumed by `canonry_help`
 - `packages/canonry/src/mcp/dynamic-catalog.ts` — `DynamicToolCatalog`: enables tools on `canonry_load_toolkit`, drives `canonry_help`
 - `packages/canonry/src/mcp/openapi-classification.ts` — drift table; every published OpenAPI op is `included`, `deferred`, or `excluded-protocol`

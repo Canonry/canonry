@@ -1,5 +1,5 @@
 import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
-import type { AdsReconcileFields, BacklinkSource, ContentBriefDto, DiscoveryCompetitorMapEntry, DiscoveryCompetitorType, AiReferralTrafficClass, LocationContext, ProviderName, SiteAuditCrossCuttingIssueDto, SiteAuditFactorSummaryDto, SiteAuditPageFactorDto } from '@ainyc/canonry-contracts'
+import type { AdsActivationEntityType, AdsActivationGrantState, AdsActivationManifest, AdsOperationStepState, AdsReconcileFields, BacklinkSource, ContentBriefDto, DiscoveryCompetitorMapEntry, DiscoveryCompetitorType, AiReferralTrafficClass, LocationContext, ProviderName, SiteAuditCrossCuttingIssueDto, SiteAuditFactorSummaryDto, SiteAuditPageFactorDto } from '@ainyc/canonry-contracts'
 
 export const projects = sqliteTable('projects', {
   id: text('id').primaryKey(),
@@ -1356,6 +1356,60 @@ export const adsOperations = sqliteTable('ads_operations', {
   index('idx_ads_operations_project_created').on(table.projectId, table.createdAt),
   index('idx_ads_operations_project_state').on(table.projectId, table.state),
   index('idx_ads_operations_reconcile_lease').on(table.state, table.leaseExpiresAt, table.updatedAt),
+])
+
+// A human approval is bound to one canonical campaign-tree manifest, one
+// advertiser account, and one executor API key. The grant never stores a
+// plaintext credential. Approver and executor key rows are retained/revoked
+// rather than deleted, so NO ACTION FKs preserve the durable audit identity.
+export const adsActivationGrants = sqliteTable('ads_activation_grants', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  adAccountId: text('ad_account_id').notNull(),
+  manifestHash: text('manifest_hash').notNull(),
+  manifest: text('manifest', { mode: 'json' }).$type<AdsActivationManifest>().notNull(),
+  executorApiKeyId: text('executor_api_key_id').notNull().references(() => apiKeys.id),
+  approverApiKeyId: text('approver_api_key_id').notNull().references(() => apiKeys.id),
+  state: text('state').$type<AdsActivationGrantState>().notNull(),
+  expiresAt: text('expires_at').notNull(),
+  operationId: text('operation_id').references(() => adsOperations.id),
+  approvedAt: text('approved_at').notNull(),
+  executionStartedAt: text('execution_started_at'),
+  consumedAt: text('consumed_at'),
+  revokedAt: text('revoked_at'),
+  expiredAt: text('expired_at'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  index('idx_ads_activation_grants_project').on(table.projectId),
+  index('idx_ads_activation_grants_project_state_expiry').on(table.projectId, table.state, table.expiresAt),
+  index('idx_ads_activation_grants_project_manifest').on(table.projectId, table.manifestHash),
+  uniqueIndex('idx_ads_activation_grants_operation').on(table.operationId),
+])
+
+// Durable, ordered checkpoints for one campaign-tree activation. Every state
+// transition writes only sanitized errors/remediation; raw provider responses
+// and credentials never enter this table.
+export const adsOperationSteps = sqliteTable('ads_operation_steps', {
+  id: text('id').primaryKey(),
+  operationId: text('operation_id').notNull().references(() => adsOperations.id, { onDelete: 'cascade' }),
+  ordinal: integer('ordinal').notNull(),
+  entityType: text('entity_type').$type<AdsActivationEntityType>().notNull(),
+  entityId: text('entity_id').notNull(),
+  expectedUpdatedAt: integer('expected_updated_at').notNull(),
+  state: text('state').$type<AdsOperationStepState>().notNull(),
+  providerUpdatedAt: integer('provider_updated_at'),
+  errorCode: text('error_code'),
+  errorMessage: text('error_message'),
+  remediation: text('remediation'),
+  startedAt: text('started_at'),
+  finishedAt: text('finished_at'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  index('idx_ads_operation_steps_operation_state').on(table.operationId, table.state),
+  uniqueIndex('idx_ads_operation_steps_operation_ordinal').on(table.operationId, table.ordinal),
+  uniqueIndex('idx_ads_operation_steps_operation_entity').on(table.operationId, table.entityType, table.entityId),
 ])
 
 // Entity snapshots refreshed on every ads-sync (range-replaced per project) so

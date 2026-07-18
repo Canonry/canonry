@@ -45,17 +45,15 @@ describe('public package API', () => {
     })
   })
 
-  it('exposes pause but not activation primitives', () => {
+  it('exposes pause and activation primitives', () => {
     expect(publicApi).toMatchObject({
+      activateCampaign: expect.any(Function),
+      activateAdGroup: expect.any(Function),
+      activateAd: expect.any(Function),
       pauseCampaign: expect.any(Function),
       pauseAdGroup: expect.any(Function),
       pauseAd: expect.any(Function),
     })
-    expect(Object.keys(publicApi)).not.toEqual(expect.arrayContaining([
-      'activateCampaign',
-      'activateAdGroup',
-      'activateAd',
-    ]))
   })
 
   it('rejects lifecycle status smuggled into public updates before fetch', async () => {

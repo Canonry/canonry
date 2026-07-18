@@ -2182,6 +2182,77 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `CREATE INDEX IF NOT EXISTS idx_ads_operations_reconcile_lease ON ads_operations(state, lease_expires_at, updated_at)`,
     ],
   },
+  {
+    version: 102,
+    name: 'ads-approval-bound-activation',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS ads_activation_grants (
+        id                       TEXT PRIMARY KEY,
+        project_id               TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        ad_account_id            TEXT NOT NULL,
+        manifest_hash            TEXT NOT NULL,
+        manifest                 TEXT NOT NULL,
+        executor_api_key_id      TEXT NOT NULL REFERENCES api_keys(id),
+        approver_api_key_id      TEXT NOT NULL REFERENCES api_keys(id),
+        state                    TEXT NOT NULL CHECK (state IN ('approved', 'executing', 'consumed', 'revoked', 'expired', 'unknown')),
+        expires_at               TEXT NOT NULL,
+        operation_id             TEXT REFERENCES ads_operations(id),
+        approved_at              TEXT NOT NULL,
+        execution_started_at     TEXT,
+        consumed_at              TEXT,
+        revoked_at               TEXT,
+        expired_at               TEXT,
+        created_at               TEXT NOT NULL,
+        updated_at               TEXT NOT NULL,
+        CHECK (executor_api_key_id <> approver_api_key_id),
+        CHECK (length(manifest_hash) = 64 AND manifest_hash NOT GLOB '*[^0-9a-f]*'),
+        CHECK (json_valid(manifest)),
+        CHECK (
+          (state = 'approved' AND operation_id IS NULL AND execution_started_at IS NULL AND consumed_at IS NULL AND revoked_at IS NULL AND expired_at IS NULL)
+          OR (state = 'executing' AND operation_id IS NOT NULL AND execution_started_at IS NOT NULL AND consumed_at IS NULL AND revoked_at IS NULL AND expired_at IS NULL)
+          OR (state = 'consumed' AND operation_id IS NOT NULL AND execution_started_at IS NOT NULL AND consumed_at IS NOT NULL AND revoked_at IS NULL AND expired_at IS NULL)
+          OR (state = 'revoked' AND operation_id IS NULL AND execution_started_at IS NULL AND consumed_at IS NULL AND revoked_at IS NOT NULL AND expired_at IS NULL)
+          OR (state = 'expired' AND operation_id IS NULL AND execution_started_at IS NULL AND consumed_at IS NULL AND revoked_at IS NULL AND expired_at IS NOT NULL)
+          OR (state = 'unknown' AND operation_id IS NOT NULL AND execution_started_at IS NOT NULL AND consumed_at IS NULL AND revoked_at IS NULL AND expired_at IS NULL)
+        )
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_ads_activation_grants_project ON ads_activation_grants(project_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_ads_activation_grants_project_state_expiry ON ads_activation_grants(project_id, state, expires_at)`,
+      `CREATE INDEX IF NOT EXISTS idx_ads_activation_grants_project_manifest ON ads_activation_grants(project_id, manifest_hash)`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_ads_activation_grants_operation ON ads_activation_grants(operation_id)`,
+      `CREATE TABLE IF NOT EXISTS ads_operation_steps (
+        id                       TEXT PRIMARY KEY,
+        operation_id             TEXT NOT NULL REFERENCES ads_operations(id) ON DELETE CASCADE,
+        ordinal                  INTEGER NOT NULL CHECK (ordinal >= 0),
+        entity_type              TEXT NOT NULL CHECK (entity_type IN ('campaign', 'ad_group', 'ad')),
+        entity_id                TEXT NOT NULL,
+        expected_updated_at      INTEGER NOT NULL CHECK (expected_updated_at >= 0),
+        state                    TEXT NOT NULL CHECK (state IN ('pending', 'executing', 'active', 'failed', 'rollback_executing', 'rolled_back', 'rollback_failed', 'unknown')),
+        provider_updated_at      INTEGER,
+        error_code               TEXT,
+        error_message            TEXT,
+        remediation              TEXT,
+        started_at               TEXT,
+        finished_at              TEXT,
+        created_at               TEXT NOT NULL,
+        updated_at               TEXT NOT NULL,
+        CHECK (provider_updated_at IS NULL OR provider_updated_at >= 0),
+        CHECK (
+          (state = 'pending' AND provider_updated_at IS NULL AND error_code IS NULL AND error_message IS NULL AND remediation IS NULL AND started_at IS NULL AND finished_at IS NULL)
+          OR (state = 'executing' AND provider_updated_at IS NULL AND error_code IS NULL AND error_message IS NULL AND remediation IS NULL AND started_at IS NOT NULL AND finished_at IS NULL)
+          OR (state = 'active' AND provider_updated_at IS NOT NULL AND error_code IS NULL AND error_message IS NULL AND remediation IS NULL AND started_at IS NOT NULL AND finished_at IS NOT NULL)
+          OR (state = 'failed' AND error_code IS NOT NULL AND error_message IS NOT NULL AND remediation IS NOT NULL AND started_at IS NOT NULL AND finished_at IS NOT NULL)
+          OR (state = 'rollback_executing' AND provider_updated_at IS NOT NULL AND error_code IS NULL AND error_message IS NULL AND remediation IS NOT NULL AND started_at IS NOT NULL AND finished_at IS NULL)
+          OR (state = 'rolled_back' AND provider_updated_at IS NOT NULL AND error_code IS NULL AND error_message IS NULL AND remediation IS NOT NULL AND started_at IS NOT NULL AND finished_at IS NOT NULL)
+          OR (state = 'rollback_failed' AND provider_updated_at IS NOT NULL AND error_code IS NOT NULL AND error_message IS NOT NULL AND remediation IS NOT NULL AND started_at IS NOT NULL AND finished_at IS NOT NULL)
+          OR (state = 'unknown' AND error_code IS NOT NULL AND error_message IS NOT NULL AND remediation IS NOT NULL AND started_at IS NOT NULL AND finished_at IS NOT NULL)
+        )
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_ads_operation_steps_operation_state ON ads_operation_steps(operation_id, state)`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_ads_operation_steps_operation_ordinal ON ads_operation_steps(operation_id, ordinal)`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_ads_operation_steps_operation_entity ON ads_operation_steps(operation_id, entity_type, entity_id)`,
+    ],
+  },
 ]
 
 /**

@@ -69,7 +69,54 @@ const booleanSchema = { type: 'boolean' }
 const integerSchema = { type: 'integer' }
 const objectSchema = { type: 'object', additionalProperties: true }
 const stringArraySchema = { type: 'array', items: stringSchema }
-const adsOperationKeySchema = { type: 'string', minLength: 8, maxLength: 128 }
+const adsOperationKeySchema = {
+  type: 'string',
+  minLength: 8,
+  maxLength: 128,
+  pattern: '^[\\w.:-]+$',
+}
+const adsEntityIdSchema = { type: 'string', minLength: 1, maxLength: 200 }
+const adsActivationEntityRefSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['id', 'expectedUpdatedAt'],
+  properties: {
+    id: adsEntityIdSchema,
+    expectedUpdatedAt: { type: 'integer', minimum: 0 },
+  },
+}
+const adsActivationManifestSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['campaign'],
+  properties: {
+    campaign: {
+      ...adsActivationEntityRefSchema,
+      required: ['id', 'expectedUpdatedAt', 'adGroups'],
+      properties: {
+        ...adsActivationEntityRefSchema.properties,
+        adGroups: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 1000,
+          items: {
+            ...adsActivationEntityRefSchema,
+            required: ['id', 'expectedUpdatedAt', 'ads'],
+            properties: {
+              ...adsActivationEntityRefSchema.properties,
+              ads: {
+                type: 'array',
+                minItems: 1,
+                maxItems: 1000,
+                items: adsActivationEntityRefSchema,
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+}
 const adsCreativeRequestSchema = {
   type: 'object',
   required: ['title', 'body', 'targetUrl', 'fileId'],
@@ -2386,7 +2433,7 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/ads/operations/{operationKey}/reconcile',
     summary: 'Reconcile an unresolved OpenAI Ads mutation receipt',
     description:
-      'Verifies a checkpointed provider entity against the receipt-bound ad account without retrying the mutation. A fresh pending receipt is rejected for the configured minimum idle window because the original mutation may still be in flight. Automatic inspections use bounded exponential backoff and every inspection path is quarantined after the configured attempt cap. An uncheckpointed create remains unresolved because mutable-field matching cannot prove provenance; if another lease already owns reconciliation, the canonical reconciling receipt is returned with resolved=false.',
+      'Verifies a checkpointed provider entity against the receipt-bound ad account without retrying the mutation. A fresh pending receipt is rejected for the configured minimum idle window because the original mutation may still be in flight. Automatic inspections use bounded exponential backoff and every inspection path is quarantined after the configured attempt cap. An uncheckpointed create remains unresolved because mutable-field matching cannot prove provenance; if another lease already owns reconciliation, the canonical reconciling receipt is returned with resolved=false. Campaign-tree activation receipts are rejected here and must use resume-activation so their approval grant, exact executor, and ordered step ledger remain authoritative.',
     tags: ['ads'],
     parameters: [
       nameParameter,
@@ -2405,6 +2452,120 @@ const routeCatalog: OpenApiOperation[] = [
       403: errorResponse('The key lacks ads.write.'),
       404: errorResponse('Project or operation not found.'),
       502: errorResponse('OpenAI Ads state verification failed.'),
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/projects/{name}/ads/operations/{operationKey}/resume-activation',
+    summary: 'Resume recovery for an approval-bound OpenAI Ads activation',
+    description:
+      'Bodyless recovery surface for an existing campaign_tree_activate receipt. Requires ads.activate on the exact executor key already bound to the approval grant. Canonry resumes from the durable ordered step ledger and current provider state; it cannot select a different grant, manifest, campaign, account, or operation, and it never blindly resends an ambiguous activation mutation.',
+    tags: ['ads'],
+    parameters: [
+      nameParameter,
+      {
+        name: 'operationKey',
+        in: 'path',
+        required: true,
+        description: 'Operation key of the existing campaign-tree activation receipt.',
+        schema: adsOperationKeySchema,
+      },
+    ],
+    responses: {
+      200: jsonResponse('Canonical activation grant, receipt, and ordered step ledger.', 'AdsActivateTreeResponse'),
+      400: errorResponse('A request body was supplied or activation recovery is not configured.'),
+      403: errorResponse('The key lacks ads.activate or is not the grant-bound executor.'),
+      404: errorResponse('Project, activation operation, or bound grant not found.'),
+      409: errorResponse('The grant expired, its account/manifest binding changed, or its receipt conflicts.'),
+      500: errorResponse('The activation receipt and approval grant binding is invalid.'),
+      502: errorResponse('Activation or rollback recovery failed closed.'),
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/projects/{name}/ads/activation-grants',
+    summary: 'Approve one exact paused OpenAI Ads campaign tree for activation',
+    description:
+      'Human-only approval surface. The authenticated ads.approve key is recorded as approver and must differ from the named executor key. Canonry verifies account eligibility, exact parent-child membership, paused state, upstream timestamps, and ad review approval before issuing a short-lived single-use grant.',
+    tags: ['ads'],
+    parameters: [nameParameter],
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['manifest', 'executorApiKeyId', 'expiresAt'],
+            properties: {
+              manifest: adsActivationManifestSchema,
+              executorApiKeyId: adsEntityIdSchema,
+              expiresAt: { type: 'string', format: 'date-time' },
+            },
+          },
+        },
+      },
+    },
+    responses: {
+      200: jsonResponse('Approval grant created.', 'AdsActivationGrantResponse'),
+      400: errorResponse('Invalid, stale, ineligible, or non-paused campaign tree.'),
+      403: errorResponse('The key lacks ads.approve.'),
+      404: errorResponse('Project or executor API key not found.'),
+      502: errorResponse('OpenAI Ads preflight read failed.'),
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/projects/{name}/ads/activation-grants/{grantId}/revoke',
+    summary: 'Revoke an unused OpenAI Ads activation grant',
+    description: 'Human-only approval surface. Revocation is idempotent while the grant is unused and cannot interrupt an execution that already claimed the grant.',
+    tags: ['ads'],
+    parameters: [
+      nameParameter,
+      { name: 'grantId', in: 'path', required: true, description: 'Activation grant ID.', schema: adsEntityIdSchema },
+    ],
+    responses: {
+      200: jsonResponse('Unused grant revoked.', 'AdsActivationGrantResponse'),
+      400: errorResponse('Grant has already started or been consumed.'),
+      403: errorResponse('The key lacks ads.approve.'),
+      404: errorResponse('Project or activation grant not found.'),
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/projects/{name}/ads/campaigns/{id}/activate-tree',
+    summary: 'Execute a grant-bound OpenAI Ads campaign-tree activation',
+    description:
+      'Requires ads.activate and a nonexpired single-use grant bound to the exact executor key, project, advertiser account, manifest hash, campaign, entity IDs, and upstream timestamps. Canonry activates ads first, then ad groups, then the campaign; every step is durably checkpointed and verified. Failure rolls back the campaign before children and ambiguous outcomes fail closed as unknown.',
+    tags: ['ads'],
+    parameters: [
+      nameParameter,
+      { name: 'id', in: 'path', required: true, description: 'Approved campaign ID.', schema: adsEntityIdSchema },
+    ],
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['operationKey', 'grantId', 'manifestHash'],
+            properties: {
+              operationKey: adsOperationKeySchema,
+              grantId: adsEntityIdSchema,
+              manifestHash: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+            },
+          },
+        },
+      },
+    },
+    responses: {
+      200: jsonResponse('Canonical activation grant, receipt, and ordered step ledger.', 'AdsActivateTreeResponse'),
+      400: errorResponse('Malformed request or campaign path mismatch.'),
+      403: errorResponse('The key lacks ads.activate or is not the grant-bound executor.'),
+      404: errorResponse('Project, campaign, or activation grant not found.'),
+      409: errorResponse('Grant expired, account/manifest/entity state changed, operation key conflicted, or the grant was already used.'),
+      502: errorResponse('Activation or rollback outcome failed closed.'),
     },
   },
   {

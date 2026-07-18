@@ -55,6 +55,10 @@ import type {
   AdsConversionEventSettingListResponse,
   AdsConnectionStatusDto,
   AdsDisconnectResponse,
+  AdsActivationGrantCreateRequest,
+  AdsActivationGrantResponse,
+  AdsActivateTreeRequest,
+  AdsActivateTreeResponse,
   AdsSyncResponse,
   AdsCampaignListResponse,
   AdsInsightsResponse,
@@ -242,9 +246,13 @@ import {
   getApiV1ProjectsByNameAdsOperations,
   getApiV1ProjectsByNameAdsOperationsByOperationKey,
   postApiV1ProjectsByNameAdsOperationsByOperationKeyReconcile,
+  postApiV1ProjectsByNameAdsOperationsByOperationKeyResumeActivation,
+  postApiV1ProjectsByNameAdsActivationGrants,
+  postApiV1ProjectsByNameAdsActivationGrantsByGrantIdRevoke,
   postApiV1ProjectsByNameAdsFiles,
   postApiV1ProjectsByNameAdsCampaigns,
   postApiV1ProjectsByNameAdsCampaignsById,
+  postApiV1ProjectsByNameAdsCampaignsByIdActivateTree,
   postApiV1ProjectsByNameAdsCampaignsByIdPause,
   postApiV1ProjectsByNameAdsAdGroups,
   postApiV1ProjectsByNameAdsAdGroupsById,
@@ -1502,6 +1510,43 @@ export class ApiClient {
     )
   }
 
+  async resumeAdsActivation(
+    project: string,
+    operationKey: string,
+  ): Promise<AdsActivateTreeResponse> {
+    return this.invoke<AdsActivateTreeResponse>(() =>
+      postApiV1ProjectsByNameAdsOperationsByOperationKeyResumeActivation({
+        client: this.heyClient,
+        path: { name: project, operationKey },
+      }),
+    )
+  }
+
+  async createAdsActivationGrant(
+    project: string,
+    body: AdsActivationGrantCreateRequest,
+  ): Promise<AdsActivationGrantResponse> {
+    return this.invoke<AdsActivationGrantResponse>(() =>
+      postApiV1ProjectsByNameAdsActivationGrants({
+        client: this.heyClient,
+        path: { name: project },
+        body,
+      }),
+    )
+  }
+
+  async revokeAdsActivationGrant(
+    project: string,
+    grantId: string,
+  ): Promise<AdsActivationGrantResponse> {
+    return this.invoke<AdsActivationGrantResponse>(() =>
+      postApiV1ProjectsByNameAdsActivationGrantsByGrantIdRevoke({
+        client: this.heyClient,
+        path: { name: project, grantId },
+      }),
+    )
+  }
+
   async uploadAdsImage(project: string, body: AdsImageUploadRequest): Promise<AdsOperationResponse> {
     return this.invoke<AdsOperationResponse>(() =>
       postApiV1ProjectsByNameAdsFiles({ client: this.heyClient, path: { name: project }, body }),
@@ -1535,6 +1580,20 @@ export class ApiClient {
   ): Promise<AdsOperationResponse> {
     return this.invoke<AdsOperationResponse>(() =>
       postApiV1ProjectsByNameAdsCampaignsByIdPause({
+        client: this.heyClient,
+        path: { name: project, id: campaignId },
+        body,
+      }),
+    )
+  }
+
+  async activateAdsCampaignTree(
+    project: string,
+    campaignId: string,
+    body: AdsActivateTreeRequest,
+  ): Promise<AdsActivateTreeResponse> {
+    return this.invoke<AdsActivateTreeResponse>(() =>
+      postApiV1ProjectsByNameAdsCampaignsByIdActivateTree({
         client: this.heyClient,
         path: { name: project, id: campaignId },
         body,

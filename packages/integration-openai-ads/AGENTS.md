@@ -7,12 +7,12 @@ geo lookup, conversion setup reads, campaigns, ad groups, ads, insights, image
 upload, and lifecycle mutations. The paid-surface counterpart
 to the organic answer-visibility data: ads render only in the ChatGPT consumer
 UI (never in API answers), so this client is the only window into the paid
-layer. Public Canonry routes place lifecycle writes behind `ads.write`, force
-creates paused, omit archive and activation, and record durable receipts. The
-internal client implementation still mirrors the upstream activate primitives,
-but the package root intentionally does not export them. Package consumers can
-create paused entities, update non-lifecycle fields, and pause; a human
-activates in Ads Manager.
+layer. Public Canonry routes place lifecycle preparation behind `ads.write`,
+force creates paused, omit archive, and record durable receipts. Activation
+uses the exported upstream primitives only after a separate `ads.approve` key
+issues a short-lived grant for an exact campaign tree and a distinct
+`ads.activate` executor key. Canonry checkpoints each step, activates children
+before parents, and rolls back parents before children on failure.
 
 ## Key Files
 
@@ -59,9 +59,10 @@ activates in Ads Manager.
 - **Provider writes are not idempotent by contract**: callers must establish a
   durable operation receipt before the network call and never blindly retry an
   ambiguous outcome. Canonry's route layer owns that receipt policy.
-- **Activation and archive are policy decisions**: archive is irreversible;
-  the beta public surface exposes neither archive nor activation. Creates are
-  paused, updates require a paused entity, and a human activates in Ads Manager.
+- **Activation and archive are policy decisions**: archive is irreversible and
+  remains absent. Activation is available only through the exact tree,
+  advertiser-account, and executor-bound approval-grant route; direct entity activation is never exposed. Creates are paused and
+  updates require a paused entity.
 - **Vocabulary**: paid metrics are `paid` / `sponsored` — never reuse
   `mentioned` / `cited` (those mean answer-text and source-list presence).
 

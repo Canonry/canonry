@@ -12,10 +12,14 @@ import {
   adsSummary,
   adsOperationGet,
   adsOperationReconcile,
+  adsOperationResumeActivation,
   adsOperationsUnresolved,
+  adsActivationGrantCreate,
+  adsActivationGrantRevoke,
   adsImageUpload,
   adsCampaignCreate,
   adsCampaignUpdate,
+  adsCampaignActivateTree,
   adsCampaignPause,
   adsAdGroupCreate,
   adsAdGroupUpdate,
@@ -183,6 +187,50 @@ export const ADS_CLI_COMMANDS: readonly CliCommandSpec[] = [
     },
   },
   {
+    path: ['ads', 'operation', 'resume-activation'],
+    usage: 'canonry ads operation resume-activation <project> --operation-key <key> [--format json]',
+    options: { 'operation-key': stringOption() },
+    run: async (input) => {
+      const usage = 'canonry ads operation resume-activation <project> --operation-key <key> [--format json]'
+      const project = requireProject(input, 'ads.operation.resume-activation', usage)
+      await adsOperationResumeActivation(project, {
+        operationKey: requireStringOption(input, 'operation-key', {
+          command: 'ads.operation.resume-activation',
+          message: '--operation-key is required',
+          usage,
+        }),
+        format: input.format,
+      })
+    },
+  },
+  {
+    path: ['ads', 'activation-grant', 'create'],
+    usage: 'canonry ads activation-grant create <project> --input <json-file|-> [--format json]',
+    options: { input: stringOption() },
+    run: async (input) => {
+      const usage = 'canonry ads activation-grant create <project> --input <json-file|-> [--format json]'
+      const project = requireProject(input, 'ads.activation-grant.create', usage)
+      await adsActivationGrantCreate(project, {
+        input: getString(input.values, 'input'),
+        format: input.format,
+      })
+    },
+  },
+  {
+    path: ['ads', 'activation-grant', 'revoke'],
+    usage: 'canonry ads activation-grant revoke <project> <grant-id> [--format json]',
+    run: async (input) => {
+      const usage = 'canonry ads activation-grant revoke <project> <grant-id> [--format json]'
+      const project = requireProject(input, 'ads.activation-grant.revoke', usage)
+      const grantId = requirePositional(input, 1, {
+        command: 'ads.activation-grant.revoke',
+        usage,
+        message: 'activation grant id is required',
+      })
+      await adsActivationGrantRevoke(project, grantId, { format: input.format })
+    },
+  },
+  {
     path: ['ads', 'image', 'upload'],
     usage: 'canonry ads image upload <project> --input <json-file|-> [--format json]',
     options: { input: stringOption() },
@@ -209,6 +257,24 @@ export const ADS_CLI_COMMANDS: readonly CliCommandSpec[] = [
       const project = requireProject(input, 'ads.campaign.update', usage)
       const id = requirePositional(input, 1, { command: 'ads.campaign.update', usage, message: 'campaign id is required' })
       await adsCampaignUpdate(project, id, { input: getString(input.values, 'input'), format: input.format })
+    },
+  },
+  {
+    path: ['ads', 'campaign', 'activate-tree'],
+    usage: 'canonry ads campaign activate-tree <project> <campaign-id> --input <json-file|-> [--format json]',
+    options: { input: stringOption() },
+    run: async (input) => {
+      const usage = 'canonry ads campaign activate-tree <project> <campaign-id> --input <json-file|-> [--format json]'
+      const project = requireProject(input, 'ads.campaign.activate-tree', usage)
+      const id = requirePositional(input, 1, {
+        command: 'ads.campaign.activate-tree',
+        usage,
+        message: 'campaign id is required',
+      })
+      await adsCampaignActivateTree(project, id, {
+        input: getString(input.values, 'input'),
+        format: input.format,
+      })
     },
   },
   {

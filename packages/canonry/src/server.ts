@@ -112,6 +112,9 @@ import {
 import {
   OpenAiAdsCreativeTypes,
   OpenAiAdsWriteStatuses,
+  activateAd,
+  activateAdGroup,
+  activateCampaign,
   createAd,
   createAdGroup,
   createCampaign,
@@ -953,6 +956,8 @@ export async function createServer(opts: {
         ? undefined
         : { locations: { include: input.locationIds.map((locationId) => ({ id: locationId })) } },
     })),
+    activateCampaign: async (apiKey: string, id: string) =>
+      adsCampaignEntityResult(await activateCampaign(apiKey, id)),
     pauseCampaign: async (apiKey: string, id: string) => adsCampaignEntityResult(await pauseCampaign(apiKey, id)),
     getAdGroup: async (apiKey: string, id: string) => adsAdGroupEntityResult(await getAdGroup(apiKey, id)),
     listAdGroups: async (apiKey: string, campaignId: string) =>
@@ -999,6 +1004,8 @@ export async function createServer(opts: {
         bidding_config: biddingConfig,
       }));
     },
+    activateAdGroup: async (apiKey: string, id: string) =>
+      adsAdGroupEntityResult(await activateAdGroup(apiKey, id)),
     pauseAdGroup: async (apiKey: string, id: string) => adsAdGroupEntityResult(await pauseAdGroup(apiKey, id)),
     getAd: async (apiKey: string, id: string) => adsAdEntityResult(await getAd(apiKey, id)),
     listAds: async (apiKey: string, adGroupId: string) =>
@@ -1034,6 +1041,7 @@ export async function createServer(opts: {
           }
         : undefined,
     })),
+    activateAd: async (apiKey: string, id: string) => adsAdEntityResult(await activateAd(apiKey, id)),
     pauseAd: async (apiKey: string, id: string) => adsAdEntityResult(await pauseAd(apiKey, id)),
   };
 

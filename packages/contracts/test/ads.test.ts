@@ -22,13 +22,93 @@ import {
   adsReconcileFieldsSchema,
   adsUnresolvedOperationListQuerySchema,
   adsUnresolvedOperationListResponseSchema,
+  adsActivationManifestSchema,
+  canonicalizeAdsActivationManifest,
+  adsActivationGrantDtoSchema,
+  adsOperationStepDtoSchema,
+  adsActivationGrantCreateRequestSchema,
+  adsActivationGrantResponseSchema,
+  adsActivationGrantRevokeRequestSchema,
+  adsActivateTreeRequestSchema,
+  adsActivateTreeResponseSchema,
   AdsCampaignBiddingTypes,
   AdsAdGroupBillingEventTypes,
+  AdsOperationKinds,
   AdsOperationStates,
   AdsReconcileStrategies,
+  AdsActivationGrantStates,
+  AdsOperationStepStates,
 } from '../src/ads.js'
 
 const NOW = '2026-07-17T00:00:00.000Z'
+
+const ACTIVATION_MANIFEST = {
+  campaign: {
+    id: 'cmpn_1',
+    expectedUpdatedAt: 101,
+    adGroups: [
+      {
+        id: 'adgrp_1',
+        expectedUpdatedAt: 201,
+        ads: [{ id: 'ad_1', expectedUpdatedAt: 301 }],
+      },
+      {
+        id: 'adgrp_2',
+        expectedUpdatedAt: 202,
+        ads: [
+          { id: 'ad_2', expectedUpdatedAt: 302 },
+          { id: 'ad_3', expectedUpdatedAt: 303 },
+        ],
+      },
+    ],
+  },
+}
+
+const ACTIVATION_GRANT_BASE = {
+  id: 'grant_1',
+  projectId: 'proj_1',
+  adAccountId: 'adacct_1',
+  manifestHash: 'a'.repeat(64),
+  manifest: ACTIVATION_MANIFEST,
+  executorApiKeyId: 'key_executor',
+  approverApiKeyId: 'key_approver',
+  expiresAt: '2026-07-18T00:00:00.000Z',
+  approvedAt: NOW,
+  createdAt: NOW,
+  updatedAt: NOW,
+}
+
+const ACTIVATION_OPERATION = {
+  id: 'op_activate_1',
+  adAccountId: 'adacct_1',
+  operationKey: 'weekend:activate:1',
+  kind: 'campaign_tree_activate',
+  state: 'succeeded',
+  entityType: 'campaign',
+  entityId: 'cmpn_1',
+  upstreamUpdatedAt: 101,
+  errorCode: null,
+  errorMessage: null,
+  reconcileStrategy: null,
+  reconcileParentId: null,
+  reconcileFingerprint: null,
+  reconcileFields: null,
+  reconcileAttempts: 0,
+  lastReconciledAt: null,
+  createdAt: NOW,
+  updatedAt: NOW,
+}
+
+const ACTIVATION_STEP_BASE = {
+  id: 'step_1',
+  operationId: 'op_activate_1',
+  ordinal: 0,
+  entityType: 'campaign',
+  entityId: 'cmpn_1',
+  expectedUpdatedAt: 101,
+  createdAt: NOW,
+  updatedAt: NOW,
+}
 
 describe('adsCtr', () => {
   test('computes clicks over impressions', () => {
@@ -420,5 +500,373 @@ describe('ads lifecycle contracts', () => {
     expect(adsUnresolvedOperationListResponseSchema.parse({
       operations: [operation], count: 1, nextCursor: 'next-page',
     }).nextCursor).toBe('next-page')
+  })
+})
+
+describe('approval-bound campaign-tree activation contracts', () => {
+  test('defines a strict canonical manifest and a deterministic canonicalizer', () => {
+    expect(adsActivationManifestSchema.parse(ACTIVATION_MANIFEST)).toEqual(ACTIVATION_MANIFEST)
+
+    const unsortedManifest = {
+      campaign: {
+        ...ACTIVATION_MANIFEST.campaign,
+        adGroups: [
+          {
+            ...ACTIVATION_MANIFEST.campaign.adGroups[1]!,
+            ads: [...ACTIVATION_MANIFEST.campaign.adGroups[1]!.ads].reverse(),
+          },
+          ACTIVATION_MANIFEST.campaign.adGroups[0]!,
+        ],
+      },
+    }
+    expect(adsActivationManifestSchema.safeParse(unsortedManifest).success).toBe(false)
+    const canonical = canonicalizeAdsActivationManifest(unsortedManifest)
+    expect(canonical).toEqual(ACTIVATION_MANIFEST)
+    expect(adsActivationManifestSchema.safeParse(canonical).success).toBe(true)
+
+    expect(adsActivationManifestSchema.safeParse({
+      ...ACTIVATION_MANIFEST,
+      campaign: { ...ACTIVATION_MANIFEST.campaign, unexpected: true },
+    }).success).toBe(false)
+    expect(adsActivationManifestSchema.safeParse({
+      campaign: { ...ACTIVATION_MANIFEST.campaign, adGroups: [] },
+    }).success).toBe(false)
+    expect(adsActivationManifestSchema.safeParse({
+      campaign: {
+        ...ACTIVATION_MANIFEST.campaign,
+        adGroups: [{ ...ACTIVATION_MANIFEST.campaign.adGroups[0]!, ads: [] }],
+      },
+    }).success).toBe(false)
+  })
+
+  test('rejects duplicate ad groups, duplicate ads, and cross-group duplicate ads', () => {
+    const firstGroup = ACTIVATION_MANIFEST.campaign.adGroups[0]!
+    const secondGroup = ACTIVATION_MANIFEST.campaign.adGroups[1]!
+
+    expect(adsActivationManifestSchema.safeParse({
+      campaign: {
+        ...ACTIVATION_MANIFEST.campaign,
+        adGroups: [firstGroup, firstGroup],
+      },
+    }).success).toBe(false)
+    expect(adsActivationManifestSchema.safeParse({
+      campaign: {
+        ...ACTIVATION_MANIFEST.campaign,
+        adGroups: [{ ...firstGroup, ads: [firstGroup.ads[0]!, firstGroup.ads[0]!] }],
+      },
+    }).success).toBe(false)
+    expect(adsActivationManifestSchema.safeParse({
+      campaign: {
+        ...ACTIVATION_MANIFEST.campaign,
+        adGroups: [
+          firstGroup,
+          { ...secondGroup, ads: [firstGroup.ads[0]!, ...secondGroup.ads] },
+        ],
+      },
+    }).success).toBe(false)
+  })
+
+  test('models every grant state with exact terminal timestamps', () => {
+    expect(Object.values(AdsActivationGrantStates)).toEqual([
+      'approved',
+      'executing',
+      'consumed',
+      'revoked',
+      'expired',
+      'unknown',
+    ])
+
+    const variants = [
+      {
+        ...ACTIVATION_GRANT_BASE,
+        state: 'approved',
+        operationId: null,
+        executionStartedAt: null,
+        consumedAt: null,
+        revokedAt: null,
+        expiredAt: null,
+      },
+      {
+        ...ACTIVATION_GRANT_BASE,
+        state: 'executing',
+        operationId: 'op_activate_1',
+        executionStartedAt: NOW,
+        consumedAt: null,
+        revokedAt: null,
+        expiredAt: null,
+      },
+      {
+        ...ACTIVATION_GRANT_BASE,
+        state: 'consumed',
+        operationId: 'op_activate_1',
+        executionStartedAt: NOW,
+        consumedAt: NOW,
+        revokedAt: null,
+        expiredAt: null,
+      },
+      {
+        ...ACTIVATION_GRANT_BASE,
+        state: 'revoked',
+        operationId: null,
+        executionStartedAt: null,
+        consumedAt: null,
+        revokedAt: NOW,
+        expiredAt: null,
+      },
+      {
+        ...ACTIVATION_GRANT_BASE,
+        state: 'expired',
+        operationId: null,
+        executionStartedAt: null,
+        consumedAt: null,
+        revokedAt: null,
+        expiredAt: NOW,
+      },
+      {
+        ...ACTIVATION_GRANT_BASE,
+        state: 'unknown',
+        operationId: 'op_activate_1',
+        executionStartedAt: NOW,
+        consumedAt: null,
+        revokedAt: null,
+        expiredAt: null,
+      },
+    ]
+
+    for (const grant of variants) {
+      expect(adsActivationGrantDtoSchema.safeParse(grant).success, grant.state).toBe(true)
+    }
+
+    expect(adsActivationGrantDtoSchema.safeParse({
+      ...variants[0],
+      executorApiKeyId: 'key_approver',
+    }).success).toBe(false)
+    expect(adsActivationGrantDtoSchema.safeParse({
+      ...variants[0],
+      operationId: 'op_activate_1',
+    }).success).toBe(false)
+    expect(adsActivationGrantDtoSchema.safeParse({
+      ...variants[1],
+      executionStartedAt: null,
+    }).success).toBe(false)
+    expect(adsActivationGrantDtoSchema.safeParse({
+      ...variants[2],
+      consumedAt: null,
+    }).success).toBe(false)
+    expect(adsActivationGrantDtoSchema.safeParse({
+      ...variants[3],
+      revokedAt: null,
+    }).success).toBe(false)
+    expect(adsActivationGrantDtoSchema.safeParse({
+      ...variants[4],
+      expiredAt: null,
+    }).success).toBe(false)
+    expect(adsActivationGrantDtoSchema.safeParse({
+      ...variants[5],
+      operationId: null,
+    }).success).toBe(false)
+  })
+
+  test('models every durable activation step and rollback state', () => {
+    expect(Object.values(AdsOperationStepStates)).toEqual([
+      'pending',
+      'executing',
+      'active',
+      'failed',
+      'rollback_executing',
+      'rolled_back',
+      'rollback_failed',
+      'unknown',
+    ])
+
+    const variants = [
+      {
+        ...ACTIVATION_STEP_BASE,
+        state: 'pending',
+        providerUpdatedAt: null,
+        errorCode: null,
+        errorMessage: null,
+        remediation: null,
+        startedAt: null,
+        finishedAt: null,
+      },
+      {
+        ...ACTIVATION_STEP_BASE,
+        state: 'executing',
+        providerUpdatedAt: null,
+        errorCode: null,
+        errorMessage: null,
+        remediation: null,
+        startedAt: NOW,
+        finishedAt: null,
+      },
+      {
+        ...ACTIVATION_STEP_BASE,
+        state: 'active',
+        providerUpdatedAt: 102,
+        errorCode: null,
+        errorMessage: null,
+        remediation: null,
+        startedAt: NOW,
+        finishedAt: NOW,
+      },
+      {
+        ...ACTIVATION_STEP_BASE,
+        state: 'failed',
+        providerUpdatedAt: null,
+        errorCode: 'version_conflict',
+        errorMessage: 'The campaign changed after approval',
+        remediation: 'Review and approve a new activation manifest',
+        startedAt: NOW,
+        finishedAt: NOW,
+      },
+      {
+        ...ACTIVATION_STEP_BASE,
+        state: 'rollback_executing',
+        providerUpdatedAt: 102,
+        errorCode: null,
+        errorMessage: null,
+        remediation: 'Pausing the entity after a later step failed',
+        startedAt: NOW,
+        finishedAt: null,
+      },
+      {
+        ...ACTIVATION_STEP_BASE,
+        state: 'rolled_back',
+        providerUpdatedAt: 103,
+        errorCode: null,
+        errorMessage: null,
+        remediation: 'Entity paused after a later step failed',
+        startedAt: NOW,
+        finishedAt: NOW,
+      },
+      {
+        ...ACTIVATION_STEP_BASE,
+        state: 'rollback_failed',
+        providerUpdatedAt: 102,
+        errorCode: 'rollback_failed',
+        errorMessage: 'The provider did not confirm a paused state',
+        remediation: 'Pause the entity manually before retrying',
+        startedAt: NOW,
+        finishedAt: NOW,
+      },
+      {
+        ...ACTIVATION_STEP_BASE,
+        state: 'unknown',
+        providerUpdatedAt: null,
+        errorCode: 'ambiguous_outcome',
+        errorMessage: 'The provider response was interrupted',
+        remediation: 'Reconcile provider state before retrying',
+        startedAt: NOW,
+        finishedAt: NOW,
+      },
+    ]
+
+    for (const step of variants) {
+      expect(adsOperationStepDtoSchema.safeParse(step).success, step.state).toBe(true)
+    }
+
+    expect(adsOperationStepDtoSchema.safeParse({
+      ...variants[0],
+      providerUpdatedAt: 102,
+    }).success).toBe(false)
+    expect(adsOperationStepDtoSchema.safeParse({
+      ...variants[1],
+      finishedAt: NOW,
+    }).success).toBe(false)
+    expect(adsOperationStepDtoSchema.safeParse({
+      ...variants[2],
+      providerUpdatedAt: null,
+    }).success).toBe(false)
+    expect(adsOperationStepDtoSchema.safeParse({
+      ...variants[3],
+      remediation: null,
+    }).success).toBe(false)
+    expect(adsOperationStepDtoSchema.safeParse({
+      ...variants[4],
+      finishedAt: NOW,
+    }).success).toBe(false)
+    expect(adsOperationStepDtoSchema.safeParse({
+      ...variants[5],
+      providerUpdatedAt: null,
+    }).success).toBe(false)
+    expect(adsOperationStepDtoSchema.safeParse({
+      ...variants[6],
+      errorCode: null,
+    }).success).toBe(false)
+    expect(adsOperationStepDtoSchema.safeParse({
+      ...variants[7],
+      startedAt: null,
+    }).success).toBe(false)
+  })
+
+  test('binds approval and activation requests to exact strict payloads', () => {
+    expect(AdsOperationKinds.campaign_tree_activate).toBe('campaign_tree_activate')
+
+    expect(adsActivationGrantCreateRequestSchema.parse({
+      manifest: ACTIVATION_MANIFEST,
+      executorApiKeyId: 'key_executor',
+      expiresAt: '2026-07-18T00:00:00.000Z',
+    })).toMatchObject({ executorApiKeyId: 'key_executor' })
+    expect(adsActivationGrantCreateRequestSchema.safeParse({
+      manifest: ACTIVATION_MANIFEST,
+      executorApiKeyId: 'key_executor',
+      expiresAt: '2026-07-18T00:00:00.000Z',
+      operationKey: 'must:not:be:approved',
+    }).success).toBe(false)
+
+    expect(adsActivationGrantRevokeRequestSchema.parse({})).toEqual({})
+    expect(adsActivationGrantRevokeRequestSchema.safeParse({ reason: 'changed my mind' }).success).toBe(false)
+
+    expect(adsActivateTreeRequestSchema.parse({
+      operationKey: 'weekend:activate:1',
+      grantId: 'grant_1',
+      manifestHash: 'a'.repeat(64),
+    })).toEqual({
+      operationKey: 'weekend:activate:1',
+      grantId: 'grant_1',
+      manifestHash: 'a'.repeat(64),
+    })
+    expect(adsActivateTreeRequestSchema.safeParse({
+      operationKey: 'weekend:activate:1',
+      grantId: 'grant_1',
+      manifestHash: 'not-a-sha256',
+    }).success).toBe(false)
+  })
+
+  test('returns the durable grant, operation receipt, and ordered step ledger', () => {
+    const consumedGrant = adsActivationGrantDtoSchema.parse({
+      ...ACTIVATION_GRANT_BASE,
+      state: 'consumed',
+      operationId: 'op_activate_1',
+      executionStartedAt: NOW,
+      consumedAt: NOW,
+      revokedAt: null,
+      expiredAt: null,
+    })
+    const { adAccountId: _adAccountId, ...unboundGrant } = consumedGrant
+    expect(adsActivationGrantDtoSchema.safeParse(unboundGrant).success).toBe(false)
+    const activeStep = adsOperationStepDtoSchema.parse({
+      ...ACTIVATION_STEP_BASE,
+      state: 'active',
+      providerUpdatedAt: 102,
+      errorCode: null,
+      errorMessage: null,
+      remediation: null,
+      startedAt: NOW,
+      finishedAt: NOW,
+    })
+
+    expect(adsActivationGrantResponseSchema.parse({ grant: consumedGrant }).grant).toMatchObject({
+      state: 'consumed',
+      adAccountId: 'adacct_1',
+    })
+    const response = adsActivateTreeResponseSchema.parse({
+      grant: consumedGrant,
+      operation: ACTIVATION_OPERATION,
+      steps: [activeStep],
+    })
+    expect(response.operation.kind).toBe(AdsOperationKinds.campaign_tree_activate)
+    expect(response.steps.map((step) => step.state)).toEqual(['active'])
   })
 })

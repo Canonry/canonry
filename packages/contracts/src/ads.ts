@@ -273,6 +273,7 @@ export const adsOperationKindSchema = z.enum([
   'campaign_create',
   'campaign_update',
   'campaign_pause',
+  'campaign_tree_activate',
   'ad_group_create',
   'ad_group_update',
   'ad_group_pause',
@@ -306,6 +307,127 @@ export const AdsEntityStatuses = adsEntityStatusSchema.enum
 export const adsEntityTypeSchema = z.enum(['file', 'campaign', 'ad_group', 'ad'])
 export type AdsEntityType = z.infer<typeof adsEntityTypeSchema>
 export const AdsEntityTypes = adsEntityTypeSchema.enum
+
+/** Entity types that participate in an exact campaign-tree activation. */
+export const adsActivationEntityTypeSchema = z.enum(['campaign', 'ad_group', 'ad'])
+export type AdsActivationEntityType = z.infer<typeof adsActivationEntityTypeSchema>
+export const AdsActivationEntityTypes = adsActivationEntityTypeSchema.enum
+
+const adsActivationEntityRefSchema = z.object({
+  id: adsEntityIdSchema,
+  expectedUpdatedAt: z.number().int().nonnegative(),
+}).strict()
+
+const adsActivationAdSchema = adsActivationEntityRefSchema
+
+const adsActivationAdGroupSchema = adsActivationEntityRefSchema.extend({
+  ads: z.array(adsActivationAdSchema).min(1).max(1_000),
+}).strict()
+
+const adsActivationCampaignSchema = adsActivationEntityRefSchema.extend({
+  adGroups: z.array(adsActivationAdGroupSchema).min(1).max(1_000),
+}).strict()
+
+function compareAdsActivationEntityIds(left: string, right: string): number {
+  if (left < right) return -1
+  if (left > right) return 1
+  return 0
+}
+
+function addCanonicalEntityOrderIssue(
+  items: readonly { id: string }[],
+  path: Array<string | number>,
+  ctx: z.RefinementCtx,
+): void {
+  for (let index = 1; index < items.length; index += 1) {
+    if (compareAdsActivationEntityIds(items[index - 1]!.id, items[index]!.id) >= 0) {
+      ctx.addIssue({
+        code: 'custom',
+        path,
+        message: 'Activation manifest entities must be uniquely sorted by id',
+      })
+      return
+    }
+  }
+}
+
+/**
+ * Exact immutable campaign tree approved by a human. Arrays are required to
+ * be uniquely sorted by provider id so JSON serialization has one canonical
+ * representation for manifest hashing.
+ */
+export const adsActivationManifestSchema = z.object({
+  campaign: adsActivationCampaignSchema,
+}).strict().superRefine((manifest, ctx) => {
+  addCanonicalEntityOrderIssue(manifest.campaign.adGroups, ['campaign', 'adGroups'], ctx)
+  const allAdIds = new Set<string>()
+  for (let groupIndex = 0; groupIndex < manifest.campaign.adGroups.length; groupIndex += 1) {
+    const group = manifest.campaign.adGroups[groupIndex]!
+    addCanonicalEntityOrderIssue(group.ads, ['campaign', 'adGroups', groupIndex, 'ads'], ctx)
+    for (let adIndex = 0; adIndex < group.ads.length; adIndex += 1) {
+      const ad = group.ads[adIndex]!
+      if (allAdIds.has(ad.id)) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['campaign', 'adGroups', groupIndex, 'ads', adIndex, 'id'],
+          message: 'An ad may appear only once in an activation manifest',
+        })
+      }
+      allAdIds.add(ad.id)
+    }
+  }
+})
+export type AdsActivationManifest = z.infer<typeof adsActivationManifestSchema>
+
+/**
+ * Return a defensive, canonically ordered copy before validating and hashing
+ * a caller-assembled activation tree.
+ */
+export function canonicalizeAdsActivationManifest(
+  manifest: AdsActivationManifest,
+): AdsActivationManifest {
+  return {
+    campaign: {
+      id: manifest.campaign.id,
+      expectedUpdatedAt: manifest.campaign.expectedUpdatedAt,
+      adGroups: manifest.campaign.adGroups
+        .map((group) => ({
+          id: group.id,
+          expectedUpdatedAt: group.expectedUpdatedAt,
+          ads: group.ads
+            .map((ad) => ({ id: ad.id, expectedUpdatedAt: ad.expectedUpdatedAt }))
+            .sort((left, right) => compareAdsActivationEntityIds(left.id, right.id)),
+        }))
+        .sort((left, right) => compareAdsActivationEntityIds(left.id, right.id)),
+    },
+  }
+}
+
+export const adsActivationManifestHashSchema = adsSha256Schema
+
+export const adsActivationGrantStateSchema = z.enum([
+  'approved',
+  'executing',
+  'consumed',
+  'revoked',
+  'expired',
+  'unknown',
+])
+export type AdsActivationGrantState = z.infer<typeof adsActivationGrantStateSchema>
+export const AdsActivationGrantStates = adsActivationGrantStateSchema.enum
+
+export const adsOperationStepStateSchema = z.enum([
+  'pending',
+  'executing',
+  'active',
+  'failed',
+  'rollback_executing',
+  'rolled_back',
+  'rollback_failed',
+  'unknown',
+])
+export type AdsOperationStepState = z.infer<typeof adsOperationStepStateSchema>
+export const AdsOperationStepStates = adsOperationStepStateSchema.enum
 
 /**
  * Deliberately narrow projection used to verify an upstream entity after an
@@ -467,6 +589,246 @@ export const adsOperationResponseSchema = z.object({
   replayed: z.boolean(),
 })
 export type AdsOperationResponse = z.infer<typeof adsOperationResponseSchema>
+
+const adsActivationIsoTimestampSchema = z.iso.datetime({ offset: true })
+
+const adsActivationGrantBaseShape = {
+  id: adsEntityIdSchema,
+  projectId: adsEntityIdSchema,
+  adAccountId: adsEntityIdSchema,
+  manifestHash: adsActivationManifestHashSchema,
+  manifest: adsActivationManifestSchema,
+  executorApiKeyId: adsEntityIdSchema,
+  approverApiKeyId: adsEntityIdSchema,
+  expiresAt: adsActivationIsoTimestampSchema,
+  approvedAt: adsActivationIsoTimestampSchema,
+  createdAt: adsActivationIsoTimestampSchema,
+  updatedAt: adsActivationIsoTimestampSchema,
+}
+
+const adsActivationGrantApprovedDtoSchema = z.object({
+  ...adsActivationGrantBaseShape,
+  state: z.literal(AdsActivationGrantStates.approved),
+  operationId: z.null(),
+  executionStartedAt: z.null(),
+  consumedAt: z.null(),
+  revokedAt: z.null(),
+  expiredAt: z.null(),
+}).strict()
+
+const adsActivationGrantExecutingDtoSchema = z.object({
+  ...adsActivationGrantBaseShape,
+  state: z.literal(AdsActivationGrantStates.executing),
+  operationId: adsEntityIdSchema,
+  executionStartedAt: adsActivationIsoTimestampSchema,
+  consumedAt: z.null(),
+  revokedAt: z.null(),
+  expiredAt: z.null(),
+}).strict()
+
+const adsActivationGrantConsumedDtoSchema = z.object({
+  ...adsActivationGrantBaseShape,
+  state: z.literal(AdsActivationGrantStates.consumed),
+  operationId: adsEntityIdSchema,
+  executionStartedAt: adsActivationIsoTimestampSchema,
+  consumedAt: adsActivationIsoTimestampSchema,
+  revokedAt: z.null(),
+  expiredAt: z.null(),
+}).strict()
+
+const adsActivationGrantRevokedDtoSchema = z.object({
+  ...adsActivationGrantBaseShape,
+  state: z.literal(AdsActivationGrantStates.revoked),
+  operationId: z.null(),
+  executionStartedAt: z.null(),
+  consumedAt: z.null(),
+  revokedAt: adsActivationIsoTimestampSchema,
+  expiredAt: z.null(),
+}).strict()
+
+const adsActivationGrantExpiredDtoSchema = z.object({
+  ...adsActivationGrantBaseShape,
+  state: z.literal(AdsActivationGrantStates.expired),
+  operationId: z.null(),
+  executionStartedAt: z.null(),
+  consumedAt: z.null(),
+  revokedAt: z.null(),
+  expiredAt: adsActivationIsoTimestampSchema,
+}).strict()
+
+const adsActivationGrantUnknownDtoSchema = z.object({
+  ...adsActivationGrantBaseShape,
+  state: z.literal(AdsActivationGrantStates.unknown),
+  operationId: adsEntityIdSchema,
+  executionStartedAt: adsActivationIsoTimestampSchema,
+  consumedAt: z.null(),
+  revokedAt: z.null(),
+  expiredAt: z.null(),
+}).strict()
+
+/**
+ * Durable approval grant. The approver and executor are always different API
+ * keys, so an execution credential can never approve its own activation.
+ */
+export const adsActivationGrantDtoSchema = z.discriminatedUnion('state', [
+  adsActivationGrantApprovedDtoSchema,
+  adsActivationGrantExecutingDtoSchema,
+  adsActivationGrantConsumedDtoSchema,
+  adsActivationGrantRevokedDtoSchema,
+  adsActivationGrantExpiredDtoSchema,
+  adsActivationGrantUnknownDtoSchema,
+]).superRefine((grant, ctx) => {
+  if (grant.executorApiKeyId === grant.approverApiKeyId) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['executorApiKeyId'],
+      message: 'The activation executor must use a different API key from the approver',
+    })
+  }
+})
+export type AdsActivationGrantDto = z.infer<typeof adsActivationGrantDtoSchema>
+
+const adsOperationStepBaseShape = {
+  id: adsEntityIdSchema,
+  operationId: adsEntityIdSchema,
+  ordinal: z.number().int().nonnegative(),
+  entityType: adsActivationEntityTypeSchema,
+  entityId: adsEntityIdSchema,
+  expectedUpdatedAt: z.number().int().nonnegative(),
+  createdAt: adsActivationIsoTimestampSchema,
+  updatedAt: adsActivationIsoTimestampSchema,
+}
+
+const adsOperationStepNoErrorShape = {
+  errorCode: z.null(),
+  errorMessage: z.null(),
+}
+
+const adsOperationStepErrorShape = {
+  errorCode: z.string().min(1).max(100),
+  errorMessage: z.string().min(1).max(500),
+  remediation: z.string().min(1).max(500),
+}
+
+const adsOperationStepPendingDtoSchema = z.object({
+  ...adsOperationStepBaseShape,
+  ...adsOperationStepNoErrorShape,
+  state: z.literal(AdsOperationStepStates.pending),
+  providerUpdatedAt: z.null(),
+  remediation: z.null(),
+  startedAt: z.null(),
+  finishedAt: z.null(),
+}).strict()
+
+const adsOperationStepExecutingDtoSchema = z.object({
+  ...adsOperationStepBaseShape,
+  ...adsOperationStepNoErrorShape,
+  state: z.literal(AdsOperationStepStates.executing),
+  providerUpdatedAt: z.null(),
+  remediation: z.null(),
+  startedAt: adsActivationIsoTimestampSchema,
+  finishedAt: z.null(),
+}).strict()
+
+const adsOperationStepActiveDtoSchema = z.object({
+  ...adsOperationStepBaseShape,
+  ...adsOperationStepNoErrorShape,
+  state: z.literal(AdsOperationStepStates.active),
+  providerUpdatedAt: z.number().int().nonnegative(),
+  remediation: z.null(),
+  startedAt: adsActivationIsoTimestampSchema,
+  finishedAt: adsActivationIsoTimestampSchema,
+}).strict()
+
+const adsOperationStepFailedDtoSchema = z.object({
+  ...adsOperationStepBaseShape,
+  ...adsOperationStepErrorShape,
+  state: z.literal(AdsOperationStepStates.failed),
+  providerUpdatedAt: z.union([z.number().int().nonnegative(), z.null()]),
+  startedAt: adsActivationIsoTimestampSchema,
+  finishedAt: adsActivationIsoTimestampSchema,
+}).strict()
+
+const adsOperationStepRollbackExecutingDtoSchema = z.object({
+  ...adsOperationStepBaseShape,
+  ...adsOperationStepNoErrorShape,
+  state: z.literal(AdsOperationStepStates.rollback_executing),
+  providerUpdatedAt: z.number().int().nonnegative(),
+  remediation: z.string().min(1).max(500),
+  startedAt: adsActivationIsoTimestampSchema,
+  finishedAt: z.null(),
+}).strict()
+
+const adsOperationStepRolledBackDtoSchema = z.object({
+  ...adsOperationStepBaseShape,
+  ...adsOperationStepNoErrorShape,
+  state: z.literal(AdsOperationStepStates.rolled_back),
+  providerUpdatedAt: z.number().int().nonnegative(),
+  remediation: z.string().min(1).max(500),
+  startedAt: adsActivationIsoTimestampSchema,
+  finishedAt: adsActivationIsoTimestampSchema,
+}).strict()
+
+const adsOperationStepRollbackFailedDtoSchema = z.object({
+  ...adsOperationStepBaseShape,
+  ...adsOperationStepErrorShape,
+  state: z.literal(AdsOperationStepStates.rollback_failed),
+  providerUpdatedAt: z.number().int().nonnegative(),
+  startedAt: adsActivationIsoTimestampSchema,
+  finishedAt: adsActivationIsoTimestampSchema,
+}).strict()
+
+const adsOperationStepUnknownDtoSchema = z.object({
+  ...adsOperationStepBaseShape,
+  ...adsOperationStepErrorShape,
+  state: z.literal(AdsOperationStepStates.unknown),
+  providerUpdatedAt: z.union([z.number().int().nonnegative(), z.null()]),
+  startedAt: adsActivationIsoTimestampSchema,
+  finishedAt: adsActivationIsoTimestampSchema,
+}).strict()
+
+export const adsOperationStepDtoSchema = z.discriminatedUnion('state', [
+  adsOperationStepPendingDtoSchema,
+  adsOperationStepExecutingDtoSchema,
+  adsOperationStepActiveDtoSchema,
+  adsOperationStepFailedDtoSchema,
+  adsOperationStepRollbackExecutingDtoSchema,
+  adsOperationStepRolledBackDtoSchema,
+  adsOperationStepRollbackFailedDtoSchema,
+  adsOperationStepUnknownDtoSchema,
+])
+export type AdsOperationStepDto = z.infer<typeof adsOperationStepDtoSchema>
+
+/** Human approval request. The authenticated key becomes the approver. */
+export const adsActivationGrantCreateRequestSchema = z.object({
+  manifest: adsActivationManifestSchema,
+  executorApiKeyId: adsEntityIdSchema,
+  expiresAt: adsActivationIsoTimestampSchema,
+}).strict()
+export type AdsActivationGrantCreateRequest = z.infer<typeof adsActivationGrantCreateRequestSchema>
+
+export const adsActivationGrantResponseSchema = z.object({
+  grant: adsActivationGrantDtoSchema,
+}).strict()
+export type AdsActivationGrantResponse = z.infer<typeof adsActivationGrantResponseSchema>
+
+export const adsActivationGrantRevokeRequestSchema = z.object({}).strict()
+export type AdsActivationGrantRevokeRequest = z.infer<typeof adsActivationGrantRevokeRequestSchema>
+
+/** Execution request bound to the exact approved manifest hash and executor key. */
+export const adsActivateTreeRequestSchema = z.object({
+  operationKey: adsOperationKeySchema,
+  grantId: adsEntityIdSchema,
+  manifestHash: adsActivationManifestHashSchema,
+}).strict()
+export type AdsActivateTreeRequest = z.infer<typeof adsActivateTreeRequestSchema>
+
+export const adsActivateTreeResponseSchema = z.object({
+  grant: adsActivationGrantDtoSchema,
+  operation: adsOperationDtoSchema,
+  steps: z.array(adsOperationStepDtoSchema),
+}).strict()
+export type AdsActivateTreeResponse = z.infer<typeof adsActivateTreeResponseSchema>
 
 const adsUnresolvedOperationStatesDefault = [
   AdsOperationStates.pending,
