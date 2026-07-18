@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -21,6 +21,7 @@ import {
 } from '@ainyc/canonry-db'
 import { adsRoutes } from '../src/ads.js'
 import type { AdsConnectionConfigEntryLike, AdsOperator, AdsReader, VerifiedAdsAccount } from '../src/ads.js'
+import type { AdsOperatorEntityResult } from '../src/ads.js'
 
 const NOW = '2026-06-10T00:00:00.000Z'
 
@@ -49,9 +50,20 @@ function buildApp(overrides: {
   mutationStatus?: string
   pauseStatus?: string
   pauseShouldFail?: boolean
+  currentEntity?: Partial<AdsOperatorEntityResult>
+  campaignCandidates?: AdsOperatorEntityResult[]
+  adGroupCandidates?: AdsOperatorEntityResult[]
+  adCandidates?: AdsOperatorEntityResult[]
+  adsReconcileSweepIntervalMs?: number
+  adsReconcilePendingStaleMs?: number
+  adsReconcileBatchSize?: number
+  beforeCreateCampaign?: () => Promise<void>
+  verifiedAccountIdForKey?: (apiKey: string) => string
+  databasePath?: string
+  tmpDir?: string
 } = {}) {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ads-routes-test-'))
-  const db = createClient(path.join(tmpDir, 'test.db'))
+  const tmpDir = overrides.tmpDir ?? fs.mkdtempSync(path.join(os.tmpdir(), 'ads-routes-test-'))
+  const db = createClient(overrides.databasePath ?? path.join(tmpDir, 'test.db'))
   migrate(db)
 
   const configConnections: AdsConnectionConfigEntryLike[] = []
@@ -74,7 +86,7 @@ function buildApp(overrides: {
     throw error
   })
 
-  const entity = (method: string, id: string, status: string) => ({
+  const entity = (method: string, id: string, status: string): AdsOperatorEntityResult => ({
     id,
     status,
     updatedAt: overrides.currentUpdatedAt ?? 123,
@@ -96,6 +108,7 @@ function buildApp(overrides: {
             : overrides.currentAdGroupBillingEventType,
         }
       : {}),
+    ...overrides.currentEntity,
   })
   const call = async (method: string, id: string, input?: unknown) => {
     operatorCalls.push({ method, input })
@@ -125,14 +138,29 @@ function buildApp(overrides: {
       return { fileId: 'file_new' }
     },
     getCampaign: async (_apiKey, id) => call('getCampaign', id),
-    createCampaign: async (_apiKey, input) => call('createCampaign', 'cmpn_new', input),
+    listCampaigns: async () => {
+      operatorCalls.push({ method: 'listCampaigns' })
+      return overrides.campaignCandidates ?? []
+    },
+    createCampaign: async (_apiKey, input) => {
+      await overrides.beforeCreateCampaign?.()
+      return call('createCampaign', 'cmpn_new', input)
+    },
     updateCampaign: async (_apiKey, id, input) => call('updateCampaign', id, input),
     pauseCampaign: async (_apiKey, id) => call('pauseCampaign', id),
     getAdGroup: async (_apiKey, id) => call('getAdGroup', id),
+    listAdGroups: async (_apiKey, campaignId) => {
+      operatorCalls.push({ method: 'listAdGroups', input: campaignId })
+      return overrides.adGroupCandidates ?? []
+    },
     createAdGroup: async (_apiKey, input) => call('createAdGroup', 'adgrp_new', input),
     updateAdGroup: async (_apiKey, id, input) => call('updateAdGroup', id, input),
     pauseAdGroup: async (_apiKey, id) => call('pauseAdGroup', id),
     getAd: async (_apiKey, id) => call('getAd', id),
+    listAds: async (_apiKey, adGroupId) => {
+      operatorCalls.push({ method: 'listAds', input: adGroupId })
+      return overrides.adCandidates ?? []
+    },
     createAd: async (_apiKey, input) => call('createAd', 'ad_new', input),
     updateAd: async (_apiKey, id, input) => call('updateAd', id, input),
     pauseAd: async (_apiKey, id) => call('pauseAd', id),
@@ -221,13 +249,19 @@ function buildApp(overrides: {
       if (overrides.verifyShouldFail || apiKey === 'bad-key') {
         throw new Error('OpenAI Ads API key is invalid or unauthorized')
       }
-      return VERIFIED
+      return {
+        ...VERIFIED,
+        id: overrides.verifiedAccountIdForKey?.(apiKey) ?? VERIFIED.id,
+      }
     },
     onAdsSyncRequested: (runId, projectId) => {
       syncRequests.push({ runId, projectId })
     },
     adsReader,
     adsOperator,
+    adsReconcileSweepIntervalMs: overrides.adsReconcileSweepIntervalMs ?? 0,
+    adsReconcilePendingStaleMs: overrides.adsReconcilePendingStaleMs,
+    adsReconcileBatchSize: overrides.adsReconcileBatchSize,
   })
 
   function seedProject(name = 'acme'): string {
@@ -564,6 +598,192 @@ describe('ads routes', () => {
     expect(rows[0]).toMatchObject({ state: 'succeeded', entityId: 'cmpn_new' })
   })
 
+  it('atomically claims one operation across two SQLite connections so only one request reaches the provider', async () => {
+    await ctx.app.close()
+    fs.rmSync(ctx.tmpDir, { recursive: true, force: true })
+    const sharedTmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ads-routes-multi-instance-'))
+    const databasePath = path.join(sharedTmpDir, 'shared.db')
+    ctx = buildApp({ tmpDir: sharedTmpDir, databasePath })
+    const peer = buildApp({ tmpDir: sharedTmpDir, databasePath })
+    await Promise.all([ctx.app.ready(), peer.app.ready()])
+    const projectId = ctx.seedProject()
+    ctx.seedConnection(projectId)
+    peer.configConnections.push({
+      projectName: 'acme', apiKey: 'sk-test', adAccountId: 'adacct_aaa',
+      createdAt: NOW, updatedAt: NOW,
+    })
+    const payload = {
+      operationKey: 'weekend:campaign:atomic',
+      name: 'AEO Audit Atomic Claim',
+      lifetimeSpendLimitMicros: 25_000_000,
+      locationIds: ['1000232'],
+    }
+
+    try {
+      const [first, second] = await Promise.all([
+        ctx.app.inject({ method: 'POST', url: '/projects/acme/ads/campaigns', payload }),
+        peer.app.inject({ method: 'POST', url: '/projects/acme/ads/campaigns', payload }),
+      ])
+
+      expect(first.statusCode).toBe(200)
+      expect(second.statusCode).toBe(200)
+      const providerCalls = [...ctx.operatorCalls, ...peer.operatorCalls]
+        .filter((entry) => entry.method === 'createCampaign')
+      expect(providerCalls).toHaveLength(1)
+      expect(ctx.db.select().from(adsOperations)
+        .where(eq(adsOperations.operationKey, payload.operationKey)).all()).toHaveLength(1)
+      expect([JSON.parse(first.body).replayed, JSON.parse(second.body).replayed].sort()).toEqual([false, true])
+    } finally {
+      await peer.app.close()
+    }
+  })
+
+  it('returns a hash conflict under simultaneous different payloads without a unique-violation 500', async () => {
+    const projectId = ctx.seedProject()
+    ctx.seedConnection(projectId)
+    const base = {
+      operationKey: 'weekend:campaign:atomic-conflict',
+      lifetimeSpendLimitMicros: 25_000_000,
+      locationIds: ['1000232'],
+    }
+
+    const responses = await Promise.all([
+      ctx.app.inject({
+        method: 'POST', url: '/projects/acme/ads/campaigns', payload: { ...base, name: 'Atomic A' },
+      }),
+      ctx.app.inject({
+        method: 'POST', url: '/projects/acme/ads/campaigns', payload: { ...base, name: 'Atomic B' },
+      }),
+    ])
+
+    expect(responses.map((response) => response.statusCode).sort()).toEqual([200, 409])
+    expect(ctx.operatorCalls.filter((entry) => entry.method === 'createCampaign')).toHaveLength(1)
+    expect(ctx.db.select().from(adsOperations)
+      .where(eq(adsOperations.operationKey, base.operationKey)).all()).toHaveLength(1)
+  })
+
+  it('does not let a late original provider success overwrite a reconciled canonical receipt', async () => {
+    await ctx.app.close()
+    fs.rmSync(ctx.tmpDir, { recursive: true, force: true })
+    let signalStarted!: () => void
+    let releaseProvider!: () => void
+    const started = new Promise<void>((resolve) => { signalStarted = resolve })
+    const providerGate = new Promise<void>((resolve) => { releaseProvider = resolve })
+    ctx = buildApp({
+      campaignCandidates: [],
+      beforeCreateCampaign: async () => {
+        signalStarted()
+        await providerGate
+      },
+    })
+    await ctx.app.ready()
+    const projectId = ctx.seedProject()
+    ctx.seedConnection(projectId)
+    const operationKey = 'weekend:campaign:late-success'
+    const mutation = ctx.app.inject({
+      method: 'POST', url: '/projects/acme/ads/campaigns', payload: {
+        operationKey,
+        name: 'Slow AEO Audit Campaign',
+        lifetimeSpendLimitMicros: 25_000_000,
+        locationIds: ['1000232'],
+      },
+    })
+    await started
+    expect(ctx.db.select().from(adsOperations)
+      .where(eq(adsOperations.operationKey, operationKey)).get()).toMatchObject({ state: 'pending' })
+
+    const reconciliation = await ctx.app.inject({
+      method: 'POST',
+      url: `/projects/acme/ads/operations/${encodeURIComponent(operationKey)}/reconcile`,
+    })
+    expect(JSON.parse(reconciliation.body)).toMatchObject({
+      resolved: false,
+      operation: { state: 'unknown', errorCode: 'ADS_RECONCILIATION_UNCHECKPOINTED_CREATE' },
+    })
+
+    releaseProvider()
+    const late = await mutation
+    expect(late.statusCode).toBe(200)
+    expect(JSON.parse(late.body)).toMatchObject({
+      replayed: false,
+      operation: { state: 'unknown', errorCode: 'ADS_RECONCILIATION_UNCHECKPOINTED_CREATE' },
+    })
+    expect(ctx.db.select().from(adsOperations)
+      .where(eq(adsOperations.operationKey, operationKey)).get()).toMatchObject({
+      state: 'unknown',
+      entityId: null,
+      reconcileAttempts: 1,
+    })
+    const actions = ctx.db.select().from(auditLog).where(eq(auditLog.projectId, projectId)).all()
+      .map((entry) => entry.action)
+    expect(actions).toContain('ads.campaign_create.reconciled.unknown')
+    expect(actions).not.toContain('ads.campaign_create.succeeded')
+  })
+
+  it('does not let a late original provider error overwrite a fail-closed uncheckpointed create', async () => {
+    await ctx.app.close()
+    fs.rmSync(ctx.tmpDir, { recursive: true, force: true })
+    let signalStarted!: () => void
+    let releaseProvider!: () => void
+    const started = new Promise<void>((resolve) => { signalStarted = resolve })
+    const providerGate = new Promise<void>((resolve) => { releaseProvider = resolve })
+    ctx = buildApp({
+      campaignCandidates: [{
+        id: 'cmpn_existing_match', status: 'paused', updatedAt: 999,
+        name: 'Slow Failing AEO Campaign', description: null,
+        startTime: null, endTime: null, lifetimeSpendLimitMicros: 25_000_000,
+        locationIds: ['1000232'], biddingType: 'impressions', conversionEventSettingIds: null,
+      }],
+      operatorShouldFail: true,
+      beforeCreateCampaign: async () => {
+        signalStarted()
+        await providerGate
+      },
+    })
+    await ctx.app.ready()
+    const projectId = ctx.seedProject()
+    ctx.seedConnection(projectId)
+    const operationKey = 'weekend:campaign:late-error'
+    const mutation = ctx.app.inject({
+      method: 'POST', url: '/projects/acme/ads/campaigns', payload: {
+        operationKey,
+        name: 'Slow Failing AEO Campaign',
+        lifetimeSpendLimitMicros: 25_000_000,
+        locationIds: ['1000232'],
+      },
+    })
+    await started
+
+    const reconciliation = await ctx.app.inject({
+      method: 'POST',
+      url: `/projects/acme/ads/operations/${encodeURIComponent(operationKey)}/reconcile`,
+    })
+    expect(JSON.parse(reconciliation.body)).toMatchObject({
+      resolved: false,
+      operation: {
+        state: 'unknown',
+        entityId: null,
+        errorCode: 'ADS_RECONCILIATION_UNCHECKPOINTED_CREATE',
+      },
+    })
+
+    releaseProvider()
+    const late = await mutation
+    expect(late.statusCode).toBe(200)
+    expect(JSON.parse(late.body)).toMatchObject({
+      operation: {
+        state: 'unknown',
+        entityId: null,
+        errorCode: 'ADS_RECONCILIATION_UNCHECKPOINTED_CREATE',
+      },
+    })
+    const actions = ctx.db.select().from(auditLog).where(eq(auditLog.projectId, projectId)).all()
+      .map((entry) => entry.action)
+    expect(actions).toContain('ads.campaign_create.reconciled.unknown')
+    expect(actions).not.toContain('ads.campaign_create.unknown')
+    expect(late.body).not.toContain('secret.example')
+  })
+
   it('forwards click bidding and conversion settings when creating a paused campaign', async () => {
     const projectId = ctx.seedProject()
     ctx.seedConnection(projectId)
@@ -735,6 +955,15 @@ describe('ads routes', () => {
         },
       },
     })
+    const adReceipt = ctx.db.select().from(adsOperations)
+      .where(eq(adsOperations.operationKey, 'weekend:ad:1')).get()
+    expect(adReceipt?.reconcileFields).toMatchObject({
+      adGroupId: 'adgrp_new',
+      name: 'Free AEO audit card',
+      status: 'paused',
+      creativeFingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
+    })
+    expect(JSON.stringify(adReceipt?.reconcileFields)).not.toContain('canonry.ai/audit')
 
     for (const [url, method, key] of [
       ['/projects/acme/ads/campaigns/cmpn_new/pause', 'pauseCampaign', 'pause:campaign:1'],
@@ -1064,6 +1293,496 @@ describe('ads routes', () => {
     expect(JSON.parse(read.body).operation.errorMessage).toBe('OpenAI Ads API outcome could not be confirmed')
     expect(read.body).not.toContain('sk-test')
     expect(read.body).not.toContain('secret.example')
+  })
+
+  it('checkpoints a known update entity id before the first provider read', async () => {
+    await ctx.app.close()
+    fs.rmSync(ctx.tmpDir, { recursive: true, force: true })
+    ctx = buildApp({ operatorShouldFail: true })
+    await ctx.app.ready()
+    const projectId = ctx.seedProject()
+    ctx.seedConnection(projectId)
+
+    const response = await ctx.app.inject({
+      method: 'POST', url: '/projects/acme/ads/campaigns/cmpn_checkpoint', payload: {
+        operationKey: 'reconcile:update:checkpoint',
+        expectedUpdatedAt: 123,
+        name: 'Checkpoint before I/O',
+      },
+    })
+
+    expect(response.statusCode).toBe(502)
+    const receipt = ctx.db.select().from(adsOperations)
+      .where(eq(adsOperations.operationKey, 'reconcile:update:checkpoint')).get()
+    expect(receipt).toMatchObject({
+      state: 'unknown',
+      entityId: 'cmpn_checkpoint',
+      reconcileStrategy: 'known_entity',
+    })
+    expect(ctx.operatorCalls).toEqual([{ method: 'getCampaign', input: undefined }])
+  })
+
+  it('keeps uncheckpointed creates unresolved even when exactly one provider entity has matching mutable fields', async () => {
+    await ctx.app.close()
+    fs.rmSync(ctx.tmpDir, { recursive: true, force: true })
+    ctx = buildApp({ campaignCandidates: [{
+      id: 'cmpn_preexisting', status: 'paused', updatedAt: 999,
+      name: 'AEO Audit Candidate', description: null,
+      startTime: null, endTime: null, lifetimeSpendLimitMicros: 25_000_000,
+      locationIds: ['1000232'], biddingType: 'impressions', conversionEventSettingIds: null,
+    }] })
+    await ctx.app.ready()
+    const projectId = ctx.seedProject()
+    ctx.seedConnection(projectId)
+    const operationKey = 'reconcile:campaign:no-provider-id'
+    await ctx.app.inject({
+      method: 'POST', url: '/projects/acme/ads/campaigns', payload: {
+        operationKey,
+        name: 'AEO Audit Candidate',
+        lifetimeSpendLimitMicros: 25_000_000,
+        locationIds: ['1000232'],
+      },
+    })
+    ctx.db.update(adsOperations).set({ state: 'unknown', entityId: null })
+      .where(eq(adsOperations.operationKey, operationKey)).run()
+    ctx.operatorCalls.length = 0
+
+    const rejectedCandidate = await ctx.app.inject({
+      method: 'POST',
+      url: `/projects/acme/ads/operations/${encodeURIComponent(operationKey)}/reconcile`,
+      payload: { candidateEntityId: 'cmpn_preexisting' },
+    })
+    expect(rejectedCandidate.statusCode).toBe(400)
+    expect(rejectedCandidate.body).toContain('does not accept a request body')
+    expect(ctx.operatorCalls).toEqual([])
+
+    const response = await ctx.app.inject({
+      method: 'POST',
+      url: `/projects/acme/ads/operations/${encodeURIComponent(operationKey)}/reconcile`,
+    })
+
+    expect(JSON.parse(response.body)).toMatchObject({
+      resolved: false,
+      operation: {
+        state: 'unknown',
+        entityId: null,
+        errorCode: 'ADS_RECONCILIATION_UNCHECKPOINTED_CREATE',
+      },
+    })
+    expect(ctx.operatorCalls).toEqual([])
+  })
+
+  it('reconciles a create by GET when its provider id was durably checkpointed', async () => {
+    await ctx.app.close()
+    fs.rmSync(ctx.tmpDir, { recursive: true, force: true })
+    ctx = buildApp({ currentEntity: {
+      name: 'Checkpointed campaign', description: null,
+      startTime: null, endTime: null, lifetimeSpendLimitMicros: 25_000_000,
+      locationIds: ['1000232'], biddingType: 'impressions', conversionEventSettingIds: null,
+    } })
+    await ctx.app.ready()
+    const projectId = ctx.seedProject()
+    ctx.seedConnection(projectId)
+    const operationKey = 'reconcile:campaign:checkpointed'
+    await ctx.app.inject({
+      method: 'POST', url: '/projects/acme/ads/campaigns', payload: {
+        operationKey,
+        name: 'Checkpointed campaign',
+        lifetimeSpendLimitMicros: 25_000_000,
+        locationIds: ['1000232'],
+      },
+    })
+    ctx.db.update(adsOperations).set({ state: 'unknown', errorCode: 'upstream_error' })
+      .where(eq(adsOperations.operationKey, operationKey)).run()
+    ctx.operatorCalls.length = 0
+
+    const response = await ctx.app.inject({
+      method: 'POST',
+      url: `/projects/acme/ads/operations/${encodeURIComponent(operationKey)}/reconcile`,
+      payload: {},
+    })
+
+    expect(JSON.parse(response.body)).toMatchObject({
+      resolved: true,
+      operation: { state: 'succeeded', entityId: 'cmpn_new' },
+    })
+    expect(ctx.operatorCalls).toEqual([{ method: 'getCampaign', input: undefined }])
+  })
+
+  it('keeps an account-A receipt unresolved after the project reconnects to account B', async () => {
+    await ctx.app.close()
+    fs.rmSync(ctx.tmpDir, { recursive: true, force: true })
+    ctx = buildApp({
+      verifiedAccountIdForKey: (apiKey) => apiKey === 'sk-account-b' ? 'adacct_bbb' : 'adacct_aaa',
+    })
+    await ctx.app.ready()
+    const projectId = ctx.seedProject()
+    ctx.seedConnection(projectId)
+    const operationKey = 'reconcile:account:a-to-b'
+    await ctx.app.inject({
+      method: 'POST', url: '/projects/acme/ads/campaigns/cmpn_account_a/pause',
+      payload: { operationKey },
+    })
+    ctx.db.update(adsOperations).set({ state: 'unknown' })
+      .where(eq(adsOperations.operationKey, operationKey)).run()
+    ctx.configConnections[0] = {
+      ...ctx.configConnections[0]!, apiKey: 'sk-account-b', adAccountId: 'adacct_bbb',
+    }
+    ctx.db.update(adsConnections).set({ adAccountId: 'adacct_bbb' })
+      .where(eq(adsConnections.projectId, projectId)).run()
+    ctx.operatorCalls.length = 0
+
+    const response = await ctx.app.inject({
+      method: 'POST',
+      url: `/projects/acme/ads/operations/${encodeURIComponent(operationKey)}/reconcile`,
+      payload: {},
+    })
+
+    expect(JSON.parse(response.body)).toMatchObject({
+      resolved: false,
+      operation: {
+        adAccountId: 'adacct_aaa',
+        state: 'unknown',
+        errorCode: 'ADS_RECONCILIATION_ACCOUNT_MISMATCH',
+      },
+    })
+    expect(ctx.operatorCalls).toEqual([])
+  })
+
+  it('accepts same-account key rotation but rejects a manually swapped cross-account key', async () => {
+    await ctx.app.close()
+    fs.rmSync(ctx.tmpDir, { recursive: true, force: true })
+    ctx = buildApp({
+      verifiedAccountIdForKey: (apiKey) => apiKey === 'sk-account-b' ? 'adacct_bbb' : 'adacct_aaa',
+    })
+    await ctx.app.ready()
+    const projectId = ctx.seedProject()
+    ctx.seedConnection(projectId)
+    const operationKey = 'reconcile:account:key-rotation'
+    await ctx.app.inject({
+      method: 'POST', url: '/projects/acme/ads/campaigns/cmpn_rotated/pause',
+      payload: { operationKey },
+    })
+    ctx.db.update(adsOperations).set({ state: 'unknown' })
+      .where(eq(adsOperations.operationKey, operationKey)).run()
+    ctx.configConnections[0] = { ...ctx.configConnections[0]!, apiKey: 'sk-rotated-a' }
+    ctx.operatorCalls.length = 0
+
+    const rotated = await ctx.app.inject({
+      method: 'POST',
+      url: `/projects/acme/ads/operations/${encodeURIComponent(operationKey)}/reconcile`,
+      payload: {},
+    })
+    expect(JSON.parse(rotated.body)).toMatchObject({ resolved: true, operation: { state: 'succeeded' } })
+    expect(ctx.operatorCalls).toEqual([{ method: 'getCampaign', input: undefined }])
+
+    const secondKey = 'reconcile:account:manual-key-swap'
+    await ctx.app.inject({
+      method: 'POST', url: '/projects/acme/ads/campaigns/cmpn_swapped/pause',
+      payload: { operationKey: secondKey },
+    })
+    ctx.db.update(adsOperations).set({ state: 'unknown' })
+      .where(eq(adsOperations.operationKey, secondKey)).run()
+    ctx.configConnections[0] = { ...ctx.configConnections[0]!, apiKey: 'sk-account-b' }
+    ctx.operatorCalls.length = 0
+
+    const swapped = await ctx.app.inject({
+      method: 'POST',
+      url: `/projects/acme/ads/operations/${encodeURIComponent(secondKey)}/reconcile`,
+      payload: {},
+    })
+    expect(swapped.statusCode).toBe(400)
+    expect(swapped.body).toContain('configured key belongs to a different OpenAI ad account')
+    expect(ctx.operatorCalls).toEqual([])
+    expect(ctx.db.select().from(adsOperations)
+      .where(eq(adsOperations.operationKey, secondKey)).get()).toMatchObject({
+      state: 'unknown', reconcileAttempts: 0,
+    })
+  })
+
+  it('keeps a legacy receipt without an account binding unresolved', async () => {
+    const projectId = ctx.seedProject()
+    ctx.seedConnection(projectId)
+    const operationKey = 'reconcile:account:legacy-unbound'
+    await ctx.app.inject({
+      method: 'POST', url: '/projects/acme/ads/campaigns/cmpn_legacy/pause',
+      payload: { operationKey },
+    })
+    ctx.db.update(adsOperations).set({ state: 'unknown', adAccountId: null })
+      .where(eq(adsOperations.operationKey, operationKey)).run()
+    ctx.operatorCalls.length = 0
+
+    const response = await ctx.app.inject({
+      method: 'POST',
+      url: `/projects/acme/ads/operations/${encodeURIComponent(operationKey)}/reconcile`,
+      payload: {},
+    })
+
+    expect(JSON.parse(response.body)).toMatchObject({
+      resolved: false,
+      operation: { state: 'unknown', errorCode: 'ADS_RECONCILIATION_ACCOUNT_UNBOUND' },
+    })
+    expect(ctx.operatorCalls).toEqual([])
+  })
+
+  it('reconciles checkpointed update and pause receipts by GET without replaying either mutation', async () => {
+    await ctx.app.close()
+    fs.rmSync(ctx.tmpDir, { recursive: true, force: true })
+    ctx = buildApp({ currentEntity: { name: 'AEO audit card v2' } })
+    await ctx.app.ready()
+    const projectId = ctx.seedProject()
+    ctx.seedConnection(projectId)
+
+    const updateKey = 'reconcile:update:known'
+    await ctx.app.inject({
+      method: 'POST', url: '/projects/acme/ads/ads/ad_known', payload: {
+        operationKey: updateKey, expectedUpdatedAt: 123, name: 'AEO audit card v2',
+      },
+    })
+    ctx.db.update(adsOperations).set({ state: 'unknown', errorCode: 'upstream_error' })
+      .where(eq(adsOperations.operationKey, updateKey)).run()
+    ctx.operatorCalls.length = 0
+    const update = await ctx.app.inject({
+      method: 'POST',
+      url: `/projects/acme/ads/operations/${encodeURIComponent(updateKey)}/reconcile`,
+      payload: {},
+    })
+    expect(JSON.parse(update.body)).toMatchObject({
+      resolved: true, operation: { state: 'succeeded', entityId: 'ad_known' },
+    })
+    expect(ctx.operatorCalls).toEqual([{ method: 'getAd', input: undefined }])
+
+    const pauseKey = 'reconcile:pause:known'
+    await ctx.app.inject({
+      method: 'POST', url: '/projects/acme/ads/campaigns/cmpn_known/pause',
+      payload: { operationKey: pauseKey },
+    })
+    ctx.db.update(adsOperations).set({ state: 'pending', updatedAt: '2020-01-01T00:00:00.000Z' })
+      .where(eq(adsOperations.operationKey, pauseKey)).run()
+    ctx.operatorCalls.length = 0
+    const pause = await ctx.app.inject({
+      method: 'POST',
+      url: `/projects/acme/ads/operations/${encodeURIComponent(pauseKey)}/reconcile`,
+      payload: {},
+    })
+    expect(JSON.parse(pause.body)).toMatchObject({ resolved: true, operation: { state: 'succeeded' } })
+    expect(ctx.operatorCalls).toEqual([{ method: 'getCampaign', input: undefined }])
+  })
+
+  it('keeps image upload receipts manual-only and makes no provider call while reconciling', async () => {
+    const projectId = ctx.seedProject()
+    ctx.seedConnection(projectId)
+    const operationKey = 'reconcile:image:manual'
+    await ctx.app.inject({
+      method: 'POST', url: '/projects/acme/ads/files', payload: {
+        operationKey, imageUrl: 'https://cdn.example/creative.png',
+      },
+    })
+    ctx.db.update(adsOperations).set({ state: 'unknown' })
+      .where(eq(adsOperations.operationKey, operationKey)).run()
+    ctx.operatorCalls.length = 0
+
+    const response = await ctx.app.inject({
+      method: 'POST',
+      url: `/projects/acme/ads/operations/${encodeURIComponent(operationKey)}/reconcile`,
+    })
+
+    expect(JSON.parse(response.body)).toMatchObject({
+      resolved: false,
+      operation: {
+        state: 'unknown', reconcileStrategy: 'manual_only',
+        errorCode: 'ADS_RECONCILIATION_MANUAL_ONLY',
+      },
+    })
+    expect(ctx.operatorCalls).toEqual([])
+  })
+
+  it('honors active leases, then reclaims an expired lease and increments the attempt counter', async () => {
+    const projectId = ctx.seedProject()
+    ctx.seedConnection(projectId)
+    const operationKey = 'reconcile:lease:pause'
+    await ctx.app.inject({
+      method: 'POST', url: '/projects/acme/ads/campaigns/cmpn_lease/pause',
+      payload: { operationKey },
+    })
+    ctx.db.update(adsOperations).set({
+      state: 'reconciling', leaseOwner: 'other-worker',
+      leaseExpiresAt: '2099-01-01T00:00:00.000Z',
+    }).where(eq(adsOperations.operationKey, operationKey)).run()
+    ctx.operatorCalls.length = 0
+
+    const leased = await ctx.app.inject({
+      method: 'POST',
+      url: `/projects/acme/ads/operations/${encodeURIComponent(operationKey)}/reconcile`,
+      payload: {},
+    })
+    expect(JSON.parse(leased.body)).toMatchObject({
+      resolved: false, operation: { state: 'reconciling', reconcileAttempts: 0 },
+    })
+    expect(ctx.operatorCalls).toEqual([])
+
+    ctx.db.update(adsOperations).set({ leaseExpiresAt: '2020-01-01T00:00:00.000Z' })
+      .where(eq(adsOperations.operationKey, operationKey)).run()
+    const reclaimed = await ctx.app.inject({
+      method: 'POST',
+      url: `/projects/acme/ads/operations/${encodeURIComponent(operationKey)}/reconcile`,
+      payload: {},
+    })
+    expect(JSON.parse(reclaimed.body)).toMatchObject({
+      resolved: true, operation: { state: 'succeeded', reconcileAttempts: 1 },
+    })
+    expect(ctx.operatorCalls).toEqual([{ method: 'getCampaign', input: undefined }])
+  })
+
+  it('sweeps a stale pending receipt with the leased inspection-only reconciler', async () => {
+    await ctx.app.close()
+    fs.rmSync(ctx.tmpDir, { recursive: true, force: true })
+    ctx = buildApp({ adsReconcileSweepIntervalMs: 5, adsReconcilePendingStaleMs: 1 })
+    await ctx.app.ready()
+    const projectId = ctx.seedProject()
+    ctx.seedConnection(projectId)
+    const operationKey = 'reconcile:sweep:pending'
+    await ctx.app.inject({
+      method: 'POST', url: '/projects/acme/ads/campaigns/cmpn_sweep/pause',
+      payload: { operationKey },
+    })
+    ctx.db.update(adsOperations).set({ state: 'pending', updatedAt: '2020-01-01T00:00:00.000Z' })
+      .where(eq(adsOperations.operationKey, operationKey)).run()
+    ctx.operatorCalls.length = 0
+
+    await vi.waitFor(() => {
+      const receipt = ctx.db.select().from(adsOperations)
+        .where(eq(adsOperations.operationKey, operationKey)).get()
+      expect(receipt).toMatchObject({ state: 'succeeded', reconcileAttempts: 1 })
+    }, { timeout: 500, interval: 10 })
+    expect(ctx.operatorCalls).toEqual([{ method: 'getCampaign', input: undefined }])
+  })
+
+  it('marks an uncheckpointed create unknown once and does not sweep it repeatedly', async () => {
+    await ctx.app.close()
+    fs.rmSync(ctx.tmpDir, { recursive: true, force: true })
+    ctx = buildApp({ adsReconcileSweepIntervalMs: 5, adsReconcilePendingStaleMs: 1 })
+    await ctx.app.ready()
+    const projectId = ctx.seedProject()
+    ctx.seedConnection(projectId)
+    const operationKey = 'reconcile:sweep:uncheckpointed-create'
+    await ctx.app.inject({
+      method: 'POST', url: '/projects/acme/ads/campaigns', payload: {
+        operationKey,
+        name: 'Uncheckpointed create',
+        lifetimeSpendLimitMicros: 25_000_000,
+        locationIds: ['1000232'],
+      },
+    })
+    ctx.db.update(adsOperations).set({
+      state: 'pending', entityId: null, updatedAt: '2020-01-01T00:00:00.000Z',
+    }).where(eq(adsOperations.operationKey, operationKey)).run()
+    ctx.operatorCalls.length = 0
+
+    await vi.waitFor(() => {
+      const receipt = ctx.db.select().from(adsOperations)
+        .where(eq(adsOperations.operationKey, operationKey)).get()
+      expect(receipt).toMatchObject({
+        state: 'unknown',
+        errorCode: 'ADS_RECONCILIATION_UNCHECKPOINTED_CREATE',
+        reconcileAttempts: 1,
+      })
+    }, { timeout: 500, interval: 10 })
+    await new Promise((resolve) => setTimeout(resolve, 25))
+    expect(ctx.db.select().from(adsOperations)
+      .where(eq(adsOperations.operationKey, operationKey)).get()).toMatchObject({
+      state: 'unknown', reconcileAttempts: 1,
+    })
+    expect(ctx.operatorCalls).toEqual([])
+  })
+
+  it('does not let older credential-less receipts starve a bounded reconciliation sweep', async () => {
+    await ctx.app.close()
+    fs.rmSync(ctx.tmpDir, { recursive: true, force: true })
+    ctx = buildApp({
+      adsReconcileSweepIntervalMs: 5,
+      adsReconcilePendingStaleMs: 1,
+      adsReconcileBatchSize: 1,
+      verifiedAccountIdForKey: (apiKey) => apiKey === 'sk-connected'
+        ? 'adacct_connected'
+        : 'adacct_aaa',
+    })
+    const disconnectedProjectId = ctx.seedProject('disconnected')
+    const connectedProjectId = ctx.seedProject('connected')
+    ctx.seedConnection(connectedProjectId, 'connected', 'sk-connected')
+
+    const receiptValues = {
+      requestHash: 'a'.repeat(64),
+      kind: 'campaign_pause',
+      state: 'pending',
+      entityType: 'campaign',
+      reconcileStrategy: 'known_entity',
+      reconcileFields: { status: 'paused' as const },
+    }
+    ctx.db.insert(adsOperations).values({
+      ...receiptValues,
+      id: 'op_disconnected',
+      projectId: disconnectedProjectId,
+      operationKey: 'reconcile:sweep:disconnected',
+      entityId: 'cmpn_disconnected',
+      createdAt: '2019-01-01T00:00:00.000Z',
+      updatedAt: '2019-01-01T00:00:00.000Z',
+    }).run()
+    ctx.db.insert(adsOperations).values({
+      ...receiptValues,
+      id: 'op_connected',
+      projectId: connectedProjectId,
+      adAccountId: 'adacct_connected',
+      operationKey: 'reconcile:sweep:connected',
+      entityId: 'cmpn_connected',
+      createdAt: '2020-01-01T00:00:00.000Z',
+      updatedAt: '2020-01-01T00:00:00.000Z',
+    }).run()
+    await ctx.app.ready()
+
+    await vi.waitFor(() => {
+      const connected = ctx.db.select().from(adsOperations)
+        .where(eq(adsOperations.id, 'op_connected')).get()
+      expect(connected).toMatchObject({ state: 'succeeded', reconcileAttempts: 1 })
+    }, { timeout: 500, interval: 10 })
+
+    const disconnected = ctx.db.select().from(adsOperations)
+      .where(eq(adsOperations.id, 'op_disconnected')).get()
+    expect(disconnected).toMatchObject({ state: 'pending', reconcileAttempts: 0 })
+    expect(ctx.operatorCalls).toEqual([{ method: 'getCampaign', input: undefined }])
+  })
+
+  it('lists and reconciles unresolved operations within the requested project only', async () => {
+    const acmeId = ctx.seedProject('acme')
+    const betaId = ctx.seedProject('beta')
+    ctx.seedConnection(acmeId, 'acme', 'sk-acme')
+    ctx.seedConnection(betaId, 'beta', 'sk-beta')
+    const operationKey = 'reconcile:project:acme'
+    await ctx.app.inject({
+      method: 'POST', url: '/projects/acme/ads/campaigns/cmpn_acme/pause',
+      payload: { operationKey },
+    })
+    ctx.db.update(adsOperations).set({ state: 'unknown', updatedAt: NOW })
+      .where(eq(adsOperations.operationKey, operationKey)).run()
+    ctx.operatorCalls.length = 0
+
+    const acmeList = await ctx.app.inject({ method: 'GET', url: '/projects/acme/ads/operations' })
+    expect(JSON.parse(acmeList.body)).toMatchObject({ count: 1 })
+    const betaList = await ctx.app.inject({ method: 'GET', url: '/projects/beta/ads/operations' })
+    expect(JSON.parse(betaList.body)).toEqual({ operations: [], count: 0 })
+
+    const betaReconcile = await ctx.app.inject({
+      method: 'POST',
+      url: `/projects/beta/ads/operations/${encodeURIComponent(operationKey)}/reconcile`,
+      payload: {},
+    })
+    expect(betaReconcile.statusCode).toBe(404)
+    expect(ctx.operatorCalls).toEqual([])
+
+    const filtered = await ctx.app.inject({
+      method: 'GET', url: '/projects/acme/ads/operations?state=pending,reconciling',
+    })
+    expect(JSON.parse(filtered.body)).toEqual({ operations: [], count: 0 })
   })
 
   it('requires the ads.write scope for every lifecycle mutation', async () => {

@@ -117,6 +117,9 @@ import {
   createCampaign,
   getAd,
   getAdAccount,
+  listAds,
+  listAdGroups,
+  listCampaigns,
   listConversionEventSettings,
   listConversionPixels,
   getAdGroup,
@@ -843,25 +846,65 @@ export async function createServer(opts: {
 
   const adsEntityResult = (entity: {
     id: string;
+    name: string;
     status: string;
     updated_at: number;
     review_status?: string;
+    creative?: {
+      title?: string | null;
+      body?: string | null;
+      target_url?: string | null;
+      file_id?: string | null;
+    } | null;
   }) => ({
     id: entity.id,
+    name: entity.name,
     status: entity.status,
     updatedAt: entity.updated_at,
     reviewStatus: entity.review_status ?? null,
+    creative:
+      typeof entity.creative?.title === "string" &&
+      typeof entity.creative.body === "string" &&
+      typeof entity.creative.target_url === "string" &&
+      typeof entity.creative.file_id === "string"
+        ? {
+            title: entity.creative.title,
+            body: entity.creative.body,
+            targetUrl: entity.creative.target_url,
+            fileId: entity.creative.file_id,
+          }
+        : null,
   });
 
   const adsCampaignEntityResult = (entity: Awaited<ReturnType<typeof getCampaign>>) => ({
     ...adsEntityResult(entity),
+    description: entity.description,
+    startTime: entity.start_time,
+    endTime: entity.end_time,
+    lifetimeSpendLimitMicros: entity.budget?.lifetime_spend_limit_micros ?? null,
+    locationIds: entity.targeting?.locations?.include?.map((location) => location.id) ?? [],
     biddingType: entity.bidding_type,
     conversionEventSettingIds: entity.conversion_event_setting_ids,
   });
 
-  const adsAdGroupEntityResult = (entity: Awaited<ReturnType<typeof getAdGroup>>) => ({
+  const adsAdGroupEntityResult = (
+    entity: Awaited<ReturnType<typeof getAdGroup>>,
+    campaignId?: string,
+  ) => ({
     ...adsEntityResult(entity),
+    description: entity.description,
+    campaignId: campaignId ?? null,
+    contextHints: entity.context_hints,
+    maxBidMicros: entity.bidding_config?.max_bid_micros ?? null,
     billingEventType: entity.bidding_config?.billing_event_type ?? null,
+  });
+
+  const adsAdEntityResult = (
+    entity: Awaited<ReturnType<typeof getAd>>,
+    adGroupId?: string,
+  ) => ({
+    ...adsEntityResult(entity),
+    adGroupId: adGroupId ?? null,
   });
 
   const adsOperator = {
@@ -870,6 +913,7 @@ export async function createServer(opts: {
       return { fileId: result.file_id };
     },
     getCampaign: async (apiKey: string, id: string) => adsCampaignEntityResult(await getCampaign(apiKey, id)),
+    listCampaigns: async (apiKey: string) => (await listCampaigns(apiKey)).map(adsCampaignEntityResult),
     createCampaign: async (apiKey: string, input: {
       name: string;
       description?: string;
@@ -911,6 +955,8 @@ export async function createServer(opts: {
     })),
     pauseCampaign: async (apiKey: string, id: string) => adsCampaignEntityResult(await pauseCampaign(apiKey, id)),
     getAdGroup: async (apiKey: string, id: string) => adsAdGroupEntityResult(await getAdGroup(apiKey, id)),
+    listAdGroups: async (apiKey: string, campaignId: string) =>
+      (await listAdGroups(apiKey, campaignId)).map((entity) => adsAdGroupEntityResult(entity, campaignId)),
     createAdGroup: async (apiKey: string, input: {
       campaignId: string;
       name: string;
@@ -954,12 +1000,14 @@ export async function createServer(opts: {
       }));
     },
     pauseAdGroup: async (apiKey: string, id: string) => adsAdGroupEntityResult(await pauseAdGroup(apiKey, id)),
-    getAd: async (apiKey: string, id: string) => adsEntityResult(await getAd(apiKey, id)),
+    getAd: async (apiKey: string, id: string) => adsAdEntityResult(await getAd(apiKey, id)),
+    listAds: async (apiKey: string, adGroupId: string) =>
+      (await listAds(apiKey, adGroupId)).map((entity) => adsAdEntityResult(entity, adGroupId)),
     createAd: async (apiKey: string, input: {
       adGroupId: string;
       name: string;
       creative: { title: string; body: string; targetUrl: string; fileId: string };
-    }) => adsEntityResult(await createAd(apiKey, {
+    }) => adsAdEntityResult(await createAd(apiKey, {
       ad_group_id: input.adGroupId,
       name: input.name,
       status: OpenAiAdsWriteStatuses.paused,
@@ -974,7 +1022,7 @@ export async function createServer(opts: {
     updateAd: async (apiKey: string, id: string, input: {
       name?: string;
       creative?: { title: string; body: string; targetUrl: string; fileId: string };
-    }) => adsEntityResult(await updateAd(apiKey, id, {
+    }) => adsAdEntityResult(await updateAd(apiKey, id, {
       name: input.name,
       creative: input.creative
         ? {
@@ -986,7 +1034,7 @@ export async function createServer(opts: {
           }
         : undefined,
     })),
-    pauseAd: async (apiKey: string, id: string) => adsEntityResult(await pauseAd(apiKey, id)),
+    pauseAd: async (apiKey: string, id: string) => adsAdEntityResult(await pauseAd(apiKey, id)),
   };
 
   const scheduler = new Scheduler(opts.db, {

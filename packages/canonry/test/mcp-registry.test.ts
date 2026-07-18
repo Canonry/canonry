@@ -135,7 +135,9 @@ const expectedToolNames = [
   'canonry_ads_campaigns',
   'canonry_ads_insights',
   'canonry_ads_summary',
+  'canonry_ads_operations_unresolved',
   'canonry_ads_operation_get',
+  'canonry_ads_operation_reconcile',
   'canonry_ads_image_upload',
   'canonry_ads_campaign_create',
   'canonry_ads_campaign_update',
@@ -151,8 +153,8 @@ const expectedToolNames = [
 
 describe('MCP tool registry', () => {
   it('ships the curated v1 surface', () => {
-    expect(CANONRY_MCP_TOOL_COUNT).toBe(131)
-    expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(84)
+    expect(CANONRY_MCP_TOOL_COUNT).toBe(133)
+    expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(85)
     expect(canonryMcpTools.map(tool => tool.name)).toEqual(expectedToolNames)
     const readNames = canonryMcpTools.filter(tool => tool.access === 'read').map(tool => tool.name)
     expect(getCanonryMcpTools('read-only').map(tool => tool.name)).toEqual(readNames)
@@ -193,7 +195,7 @@ describe('MCP tool registry', () => {
     expect(counts.get('gsc')).toBe(8)
     expect(counts.get('ga')).toBe(8)
     expect(counts.get('gbp')).toBe(13)
-    expect(counts.get('ads')).toBe(20)
+    expect(counts.get('ads')).toBe(22)
     expect(counts.get('traffic')).toBe(10)
     expect(counts.get('agent')).toBe(5)
     expect(counts.get('discovery')).toBe(6)
@@ -244,6 +246,35 @@ describe('MCP tool registry', () => {
       limit: 20,
     })
     expect(() => adsGeoSearch?.inputSchema.parse({ project: 'acme', q: 'New York', limit: 101 })).toThrow()
+
+    const adsOperationsUnresolved = canonryMcpTools.find(
+      candidate => candidate.name === 'canonry_ads_operations_unresolved',
+    )
+    expect(adsOperationsUnresolved?.inputSchema.parse({
+      project: 'acme',
+      state: ['unknown', 'pending'],
+      limit: 25,
+    })).toEqual({ project: 'acme', state: ['unknown', 'pending'], limit: 25 })
+    expect(() => adsOperationsUnresolved?.inputSchema.parse({
+      project: 'acme',
+      state: ['succeeded'],
+    })).toThrow()
+
+    const adsOperationReconcile = canonryMcpTools.find(
+      candidate => candidate.name === 'canonry_ads_operation_reconcile',
+    )
+    expect(adsOperationReconcile?.inputSchema.parse({
+      project: 'acme',
+      operationKey: 'weekend:campaign:pending',
+    })).toEqual({
+      project: 'acme',
+      operationKey: 'weekend:campaign:pending',
+    })
+    expect(() => adsOperationReconcile?.inputSchema.parse({
+      project: 'acme',
+      operationKey: 'weekend:campaign:pending',
+      candidateEntityId: 'cmpn_1',
+    })).toThrow()
 
     const adsCampaignCreate = canonryMcpTools.find(
       candidate => candidate.name === 'canonry_ads_campaign_create',
@@ -630,6 +661,18 @@ const handlerCases: HandlerCase[] = [
   },
   { tool: 'canonry_ads_conversion_pixels', input: projectInput, methods: ['getAdsConversionPixels'] },
   { tool: 'canonry_ads_conversion_event_settings', input: projectInput, methods: ['getAdsConversionEventSettings'] },
+  {
+    tool: 'canonry_ads_operations_unresolved',
+    input: { project: 'acme', state: ['pending', 'unknown', 'reconciling'], limit: 100 },
+    methods: ['getUnresolvedAdsOperations'],
+    expectedArgs: [['acme', { state: ['pending', 'unknown', 'reconciling'], limit: 100 }]],
+  },
+  {
+    tool: 'canonry_ads_operation_reconcile',
+    input: { project: 'acme', operationKey: 'weekend:campaign:pending' },
+    methods: ['reconcileAdsOperation'],
+    expectedArgs: [['acme', 'weekend:campaign:pending']],
+  },
   { tool: 'canonry_traffic_sources_list', input: projectInput, methods: ['trafficListSources'] },
   { tool: 'canonry_traffic_source_get', input: { project: 'acme', sourceId: 'src-1' }, methods: ['trafficGetSource'] },
   { tool: 'canonry_traffic_status', input: projectInput, methods: ['trafficStatus'] },

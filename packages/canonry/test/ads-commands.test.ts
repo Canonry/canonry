@@ -7,7 +7,9 @@ import type {
   AdsConversionEventSettingListResponse,
   AdsConversionPixelListResponse,
   AdsGeoSearchResponse,
+  AdsOperationReconcileResponse,
   AdsOperationResponse,
+  AdsUnresolvedOperationListResponse,
 } from '@ainyc/canonry-contracts'
 
 const mockCreateAdsCampaign = vi.fn()
@@ -16,6 +18,8 @@ const mockGetAdsAccount = vi.fn()
 const mockSearchAdsGeo = vi.fn()
 const mockGetAdsConversionPixels = vi.fn()
 const mockGetAdsConversionEventSettings = vi.fn()
+const mockGetUnresolvedAdsOperations = vi.fn()
+const mockReconcileAdsOperation = vi.fn()
 
 function captureStdout(fn: () => Promise<void>): { run: Promise<void>; lines: () => string[] } {
   let output = ''
@@ -37,6 +41,8 @@ vi.mock('../src/client.js', () => ({
     searchAdsGeo: mockSearchAdsGeo,
     getAdsConversionPixels: mockGetAdsConversionPixels,
     getAdsConversionEventSettings: mockGetAdsConversionEventSettings,
+    getUnresolvedAdsOperations: mockGetUnresolvedAdsOperations,
+    reconcileAdsOperation: mockReconcileAdsOperation,
   }),
 }))
 
@@ -47,6 +53,8 @@ const {
   adsConversionEventSettings,
   adsConversionPixels,
   adsGeoSearch,
+  adsOperationReconcile,
+  adsOperationsUnresolved,
 } = await import('../src/commands/ads.js')
 const { ADS_CLI_COMMANDS } = await import('../src/cli-commands/ads.js')
 
@@ -54,6 +62,7 @@ const RECEIPT: AdsOperationResponse = {
   replayed: false,
   operation: {
     id: 'op_1',
+    adAccountId: 'adacct_aaa',
     operationKey: 'weekend:campaign:1',
     kind: 'campaign_create',
     state: 'succeeded',
@@ -62,9 +71,43 @@ const RECEIPT: AdsOperationResponse = {
     upstreamUpdatedAt: 123,
     errorCode: null,
     errorMessage: null,
+    reconcileStrategy: 'create_fingerprint',
+    reconcileParentId: null,
+    reconcileFingerprint: 'a'.repeat(64),
+    reconcileFields: { name: 'AEO Audit Lead Generation', status: 'paused' },
+    reconcileAttempts: 0,
+    lastReconciledAt: null,
     createdAt: '2026-07-17T00:00:00.000Z',
     updatedAt: '2026-07-17T00:00:01.000Z',
   },
+}
+
+const UNRESOLVED: AdsUnresolvedOperationListResponse = {
+  operations: [{
+    ...RECEIPT.operation,
+    id: 'op_pending',
+    operationKey: 'weekend:campaign:pending',
+    state: 'unknown',
+    entityId: null,
+    upstreamUpdatedAt: null,
+    errorCode: 'ADS_UPSTREAM_OUTCOME_UNKNOWN',
+    errorMessage: 'Provider outcome requires verification',
+  }],
+  count: 1,
+}
+
+const RECONCILED: AdsOperationReconcileResponse = {
+  operation: {
+    ...UNRESOLVED.operations[0]!,
+    state: 'succeeded',
+    entityId: 'cmpn_1',
+    upstreamUpdatedAt: 456,
+    errorCode: null,
+    errorMessage: null,
+    reconcileAttempts: 1,
+    lastReconciledAt: '2026-07-17T00:01:00.000Z',
+  },
+  resolved: true,
 }
 
 const ACCOUNT: AdsAccountDto = {
@@ -232,6 +275,35 @@ describe('ads lifecycle commands', () => {
     ])
   })
 
+  it('streams unresolved operation receipts as JSONL', async () => {
+    mockGetUnresolvedAdsOperations.mockResolvedValue(UNRESOLVED)
+    const output = captureStdout(() => adsOperationsUnresolved('canonry-audit', { format: 'jsonl' }))
+
+    await output.run
+
+    expect(mockGetUnresolvedAdsOperations).toHaveBeenCalledWith('canonry-audit')
+    expect(JSON.parse(output.lines()[0]!)).toEqual({
+      project: 'canonry-audit',
+      ...UNRESOLVED.operations[0],
+    })
+  })
+
+  it('reconciles the original operation without caller-selected provider candidates', async () => {
+    mockReconcileAdsOperation.mockResolvedValue(RECONCILED)
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+
+    await adsOperationReconcile('canonry-audit', {
+      operationKey: 'weekend:campaign:pending',
+      format: 'json',
+    })
+
+    expect(mockReconcileAdsOperation).toHaveBeenCalledWith(
+      'canonry-audit',
+      'weekend:campaign:pending',
+    )
+    expect(JSON.parse(log.mock.calls[0]![0] as string)).toEqual(RECONCILED)
+  })
+
   it('registers the planning reads and complete lifecycle CLI surface', () => {
     const paths = new Set(ADS_CLI_COMMANDS.map((command) => command.path.join(' ')))
     for (const command of [
@@ -239,7 +311,9 @@ describe('ads lifecycle commands', () => {
       'ads geo search',
       'ads conversions pixels',
       'ads conversions event-settings',
+      'ads operations unresolved',
       'ads operation',
+      'ads operation reconcile',
       'ads image upload',
       'ads campaign create',
       'ads campaign update',

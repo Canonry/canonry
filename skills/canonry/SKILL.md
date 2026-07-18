@@ -49,12 +49,14 @@ Agent-first open-source AEO (Answer Engine Optimization) operating platform. Tra
 - Optimizing `llms.txt`, sitemaps, robots.txt for AI crawlers
 - Submitting URLs to Google Indexing API and Bing IndexNow
 - Analyzing competitor citation patterns
+- Operating guarded ChatGPT ads lifecycle changes and reconciling unresolved mutation receipts
 
 ## Core Philosophy
 
 - **Measure outcomes** — AI models are black boxes; track mentions + citations, don't assume causality
 - **Signal over noise** — Focus on high‑intent queries; avoid granular targeting until base visibility exists
 - **CLI‑native** — API‑driven changes over manual CMS clicks; faster, repeatable, auditable
+- **Recover before retrying ads writes** — List `pending`, `unknown`, and `reconciling` receipts, then reconcile the original operation key by verifying its checkpointed provider ID on the receipt-bound account. Never resend the mutation under a different key; an uncheckpointed create remains unresolved.
 
 ## What Canonry Measures (Vocabulary)
 

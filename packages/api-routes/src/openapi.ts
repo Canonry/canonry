@@ -3,6 +3,7 @@ import {
   AGENT_PROVIDER_IDS,
   AdsAdGroupBillingEventTypes,
   AdsCampaignBiddingTypes,
+  AdsOperationStates,
 } from '@ainyc/canonry-contracts'
 import {
   buildComponentSchemas,
@@ -2327,6 +2328,41 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'get',
+    path: '/api/v1/projects/{name}/ads/operations',
+    summary: 'List unresolved OpenAI Ads mutation receipts',
+    description:
+      'Lists bounded pending, unknown, or actively reconciling receipts for operator recovery. The state filter is a comma-separated set and defaults to every unresolved state. This read never retries the original mutation.',
+    tags: ['ads'],
+    parameters: [
+      nameParameter,
+      {
+        name: 'state',
+        in: 'query',
+        description: 'Comma-separated unresolved states.',
+        schema: {
+          type: 'string',
+          default: [
+            AdsOperationStates.pending,
+            AdsOperationStates.unknown,
+            AdsOperationStates.reconciling,
+          ].join(','),
+        },
+      },
+      {
+        name: 'limit',
+        in: 'query',
+        description: 'Maximum receipts to return.',
+        schema: { type: 'integer', minimum: 1, maximum: 200, default: 100 },
+      },
+    ],
+    responses: {
+      200: jsonResponse('Unresolved operation receipts.', 'AdsUnresolvedOperationListResponse'),
+      400: errorResponse('Invalid unresolved-state filter.'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
+    method: 'get',
     path: '/api/v1/projects/{name}/ads/operations/{operationKey}',
     summary: 'Read a durable OpenAI Ads mutation receipt by operation key',
     tags: ['ads'],
@@ -2337,6 +2373,31 @@ const routeCatalog: OpenApiOperation[] = [
     responses: {
       200: jsonResponse('Operation receipt.', 'AdsOperationResponse'),
       404: errorResponse('Project or operation not found.'),
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/projects/{name}/ads/operations/{operationKey}/reconcile',
+    summary: 'Reconcile an unresolved OpenAI Ads mutation receipt',
+    description:
+      'Verifies a checkpointed provider entity against the receipt-bound ad account without retrying the mutation. An uncheckpointed create remains unresolved because mutable-field matching cannot prove provenance; if another lease already owns reconciliation, the canonical reconciling receipt is returned with resolved=false.',
+    tags: ['ads'],
+    parameters: [
+      nameParameter,
+      {
+        name: 'operationKey',
+        in: 'path',
+        required: true,
+        description: 'Caller-supplied idempotency key.',
+        schema: adsOperationKeySchema,
+      },
+    ],
+    responses: {
+      200: jsonResponse('Reconciliation result and updated receipt.', 'AdsOperationReconcileResponse'),
+      400: errorResponse('Receipt is not reconcilable.'),
+      403: errorResponse('The key lacks ads.write.'),
+      404: errorResponse('Project or operation not found.'),
+      502: errorResponse('OpenAI Ads state verification failed.'),
     },
   },
   {

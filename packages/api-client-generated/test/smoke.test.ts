@@ -1,6 +1,10 @@
 import { describe, expect, expectTypeOf, it, vi } from 'vitest'
 import { createClient, getApiV1Projects } from '../src/index.js'
-import type { AdsCampaignListResponse } from '../src/index.js'
+import type {
+  AdsCampaignListResponse,
+  AdsOperationReconcileResponse,
+  AdsUnresolvedOperationListResponse,
+} from '../src/index.js'
 
 /**
  * Smoke tests for the generated SDK + the `createClient` factory.
@@ -18,6 +22,18 @@ describe('canonry-api-client', () => {
       .toEqualTypeOf<'impressions' | 'clicks' | null | undefined>()
     expectTypeOf<AdGroup['billingEventType']>()
       .toEqualTypeOf<'impression' | 'click' | null | undefined>()
+  })
+
+  it('generates the typed ads recovery operation surface', () => {
+    type Operation = AdsUnresolvedOperationListResponse['operations'][number]
+
+    expectTypeOf<Operation['state']>()
+      .toEqualTypeOf<'pending' | 'reconciling' | 'succeeded' | 'failed' | 'unknown'>()
+    expectTypeOf<Operation['entityType']>()
+      .toEqualTypeOf<'file' | 'campaign' | 'ad_group' | 'ad' | null>()
+    expectTypeOf<Operation['reconcileStrategy']>()
+      .toEqualTypeOf<'known_entity' | 'create_fingerprint' | 'manual_only' | null>()
+    expectTypeOf<AdsOperationReconcileResponse['resolved']>().toEqualTypeOf<boolean>()
   })
 
   it('createClient applies bearer auth + base URL to generated operations', async () => {

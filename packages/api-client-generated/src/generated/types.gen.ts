@@ -146,17 +146,80 @@ export type AdsInsightsResponse = {
     currencyCode?: string | null;
 };
 
-export type AdsOperationResponse = {
+export type AdsOperationReconcileResponse = {
     operation: {
         id: string;
+        adAccountId: string | null;
         operationKey: string;
         kind: 'image_upload' | 'campaign_create' | 'campaign_update' | 'campaign_pause' | 'ad_group_create' | 'ad_group_update' | 'ad_group_pause' | 'ad_create' | 'ad_update' | 'ad_pause';
-        state: 'pending' | 'succeeded' | 'failed' | 'unknown';
-        entityType: 'file' | 'campaign' | 'ad_group' | 'ad';
+        state: 'pending' | 'reconciling' | 'succeeded' | 'failed' | 'unknown';
+        entityType: 'file' | 'campaign' | 'ad_group' | 'ad' | null;
         entityId: string | null;
         upstreamUpdatedAt: number | null;
         errorCode: string | null;
         errorMessage: string | null;
+        reconcileStrategy: 'known_entity' | 'create_fingerprint' | 'manual_only' | null;
+        reconcileParentId: string | null;
+        reconcileFingerprint: string | null;
+        reconcileFields: {
+            name?: string;
+            description?: string | null;
+            status?: 'active' | 'paused' | 'archived';
+            startTime?: number | null;
+            endTime?: number | null;
+            lifetimeSpendLimitMicros?: number;
+            locationIds?: Array<string>;
+            biddingType?: 'impressions' | 'clicks';
+            conversionEventSettingIds?: Array<string>;
+            campaignId?: string;
+            contextHints?: Array<string>;
+            maxBidMicros?: number;
+            billingEventType?: 'impression' | 'click';
+            adGroupId?: string;
+            creativeFingerprint?: string;
+        } | null;
+        reconcileAttempts: number;
+        lastReconciledAt: string | null;
+        createdAt: string;
+        updatedAt: string;
+    };
+    resolved: boolean;
+};
+
+export type AdsOperationResponse = {
+    operation: {
+        id: string;
+        adAccountId: string | null;
+        operationKey: string;
+        kind: 'image_upload' | 'campaign_create' | 'campaign_update' | 'campaign_pause' | 'ad_group_create' | 'ad_group_update' | 'ad_group_pause' | 'ad_create' | 'ad_update' | 'ad_pause';
+        state: 'pending' | 'reconciling' | 'succeeded' | 'failed' | 'unknown';
+        entityType: 'file' | 'campaign' | 'ad_group' | 'ad' | null;
+        entityId: string | null;
+        upstreamUpdatedAt: number | null;
+        errorCode: string | null;
+        errorMessage: string | null;
+        reconcileStrategy: 'known_entity' | 'create_fingerprint' | 'manual_only' | null;
+        reconcileParentId: string | null;
+        reconcileFingerprint: string | null;
+        reconcileFields: {
+            name?: string;
+            description?: string | null;
+            status?: 'active' | 'paused' | 'archived';
+            startTime?: number | null;
+            endTime?: number | null;
+            lifetimeSpendLimitMicros?: number;
+            locationIds?: Array<string>;
+            biddingType?: 'impressions' | 'clicks';
+            conversionEventSettingIds?: Array<string>;
+            campaignId?: string;
+            contextHints?: Array<string>;
+            maxBidMicros?: number;
+            billingEventType?: 'impression' | 'click';
+            adGroupId?: string;
+            creativeFingerprint?: string;
+        } | null;
+        reconcileAttempts: number;
+        lastReconciledAt: string | null;
         createdAt: string;
         updatedAt: string;
     };
@@ -188,6 +251,46 @@ export type AdsSummaryDto = {
 export type AdsSyncResponse = {
     runId: string;
     status: string;
+};
+
+export type AdsUnresolvedOperationListResponse = {
+    operations: Array<{
+        id: string;
+        adAccountId: string | null;
+        operationKey: string;
+        kind: 'image_upload' | 'campaign_create' | 'campaign_update' | 'campaign_pause' | 'ad_group_create' | 'ad_group_update' | 'ad_group_pause' | 'ad_create' | 'ad_update' | 'ad_pause';
+        state: 'pending' | 'reconciling' | 'succeeded' | 'failed' | 'unknown';
+        entityType: 'file' | 'campaign' | 'ad_group' | 'ad' | null;
+        entityId: string | null;
+        upstreamUpdatedAt: number | null;
+        errorCode: string | null;
+        errorMessage: string | null;
+        reconcileStrategy: 'known_entity' | 'create_fingerprint' | 'manual_only' | null;
+        reconcileParentId: string | null;
+        reconcileFingerprint: string | null;
+        reconcileFields: {
+            name?: string;
+            description?: string | null;
+            status?: 'active' | 'paused' | 'archived';
+            startTime?: number | null;
+            endTime?: number | null;
+            lifetimeSpendLimitMicros?: number;
+            locationIds?: Array<string>;
+            biddingType?: 'impressions' | 'clicks';
+            conversionEventSettingIds?: Array<string>;
+            campaignId?: string;
+            contextHints?: Array<string>;
+            maxBidMicros?: number;
+            billingEventType?: 'impression' | 'click';
+            adGroupId?: string;
+            creativeFingerprint?: string;
+        } | null;
+        reconcileAttempts: number;
+        lastReconciledAt: string | null;
+        createdAt: string;
+        updatedAt: string;
+    }>;
+    count: number;
 };
 
 export type ApiKeyDto = {
@@ -7087,6 +7190,49 @@ export type GetApiV1ProjectsByNameAdsConversionsEventSettingsResponses = {
 
 export type GetApiV1ProjectsByNameAdsConversionsEventSettingsResponse = GetApiV1ProjectsByNameAdsConversionsEventSettingsResponses[keyof GetApiV1ProjectsByNameAdsConversionsEventSettingsResponses];
 
+export type GetApiV1ProjectsByNameAdsOperationsData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Comma-separated unresolved states.
+         */
+        state?: string;
+        /**
+         * Maximum receipts to return.
+         */
+        limit?: number;
+    };
+    url: '/api/v1/projects/{name}/ads/operations';
+};
+
+export type GetApiV1ProjectsByNameAdsOperationsErrors = {
+    /**
+     * Invalid unresolved-state filter.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAdsOperationsError = GetApiV1ProjectsByNameAdsOperationsErrors[keyof GetApiV1ProjectsByNameAdsOperationsErrors];
+
+export type GetApiV1ProjectsByNameAdsOperationsResponses = {
+    /**
+     * Unresolved operation receipts.
+     */
+    200: AdsUnresolvedOperationListResponse;
+};
+
+export type GetApiV1ProjectsByNameAdsOperationsResponse = GetApiV1ProjectsByNameAdsOperationsResponses[keyof GetApiV1ProjectsByNameAdsOperationsResponses];
+
 export type GetApiV1ProjectsByNameAdsOperationsByOperationKeyData = {
     body?: never;
     path: {
@@ -7120,6 +7266,52 @@ export type GetApiV1ProjectsByNameAdsOperationsByOperationKeyResponses = {
 };
 
 export type GetApiV1ProjectsByNameAdsOperationsByOperationKeyResponse = GetApiV1ProjectsByNameAdsOperationsByOperationKeyResponses[keyof GetApiV1ProjectsByNameAdsOperationsByOperationKeyResponses];
+
+export type PostApiV1ProjectsByNameAdsOperationsByOperationKeyReconcileData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+        /**
+         * Caller-supplied idempotency key.
+         */
+        operationKey: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/ads/operations/{operationKey}/reconcile';
+};
+
+export type PostApiV1ProjectsByNameAdsOperationsByOperationKeyReconcileErrors = {
+    /**
+     * Receipt is not reconcilable.
+     */
+    400: ErrorEnvelope;
+    /**
+     * The key lacks ads.write.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project or operation not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * OpenAI Ads state verification failed.
+     */
+    502: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameAdsOperationsByOperationKeyReconcileError = PostApiV1ProjectsByNameAdsOperationsByOperationKeyReconcileErrors[keyof PostApiV1ProjectsByNameAdsOperationsByOperationKeyReconcileErrors];
+
+export type PostApiV1ProjectsByNameAdsOperationsByOperationKeyReconcileResponses = {
+    /**
+     * Reconciliation result and updated receipt.
+     */
+    200: AdsOperationReconcileResponse;
+};
+
+export type PostApiV1ProjectsByNameAdsOperationsByOperationKeyReconcileResponse = PostApiV1ProjectsByNameAdsOperationsByOperationKeyReconcileResponses[keyof PostApiV1ProjectsByNameAdsOperationsByOperationKeyReconcileResponses];
 
 export type PostApiV1ProjectsByNameAdsFilesData = {
     body: {

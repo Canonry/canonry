@@ -580,7 +580,11 @@ cnry ads ad-group pause <project> <ad-group-id> --input pause.json
 cnry ads ad create <project> --input ad.json
 cnry ads ad update <project> <ad-id> --input update.json
 cnry ads ad pause <project> <ad-id> --input pause.json
-cnry ads operation <project> <operation-key>     # inspect/reconcile a durable mutation receipt
+cnry ads operation <project> <operation-key>     # inspect one durable mutation receipt
+cnry ads operations unresolved <project> --format jsonl
+                                                   # list pending/unknown/reconciling receipts before new writes
+cnry ads operation reconcile <project> --operation-key <key>
+                                                   # verify provider state; never retries the original mutation
 cnry ads sync <project>                          # ads-sync run: entity snapshots + daily rollups
 cnry ads campaigns <project> --format jsonl      # lifecycle timestamps, location IDs, context hints, creative file IDs
 cnry ads insights <project> --level campaign --from 2026-06-01 --format jsonl
@@ -602,8 +606,16 @@ rows carry `{ project, query, ...location }`; conversion rows carry
 
 Lifecycle inputs are JSON files, or `--input -` for stdin. Every request carries
 a unique `operationKey`. Identical replays return the stored receipt without a
-second upstream request; if a receipt is `pending` or `unknown`, do not retry
-with a different key. Creates are always paused. Updates require the entity to
+second upstream request. Before issuing new lifecycle writes, run `ads
+operations unresolved`; if a receipt is `pending`, `unknown`, or `reconciling`,
+do not retry with a different key. Reconcile the original operation key instead.
+Reconciliation only reads and verifies provider state. It never re-sends the
+mutation or accepts a caller-selected provider entity. Canonry resolves a
+receipt only when the provider ID was durably checkpointed and its live state
+matches the stored safe fields on the receipt-bound account. An uncheckpointed
+create remains unresolved because mutable-field equality cannot prove which
+request created an entity.
+Creates are always paused. Updates require the entity to
 already be paused and `expectedUpdatedAt` to equal the latest
 `upstreamUpdatedAt` from `ads campaigns` after a sync. Canonry exposes pause as
 the kill switch but deliberately omits activation and archive; a human reviews
@@ -640,14 +652,12 @@ case and type of `status`, plus the type and exact returned value of
 `updated_at`. The captured responses must agree with the typed client and
 fixtures without coercion.
 
-Keep the operator on one Canonry writer instance with human receipt
-reconciliation until both production gates pass:
-
-- A deterministic reconciler resolves `pending` and `unknown` receipts against
-  provider state, settles the original receipt, and prevents blind replays.
-- A multi-instance race test proves simultaneous inserts of the same
-  `(project, operationKey)` produce one upstream sender and a safe receipt
-  replay for every loser, with no double send or unhandled unique-key error.
+The receipt lifecycle is safe across concurrent writers: an atomic claim picks
+one upstream sender, losers replay the canonical receipt, and a leased
+reconciler settles stale `pending` / `unknown` rows by verifying provider state.
+When another worker owns reconciliation, the route returns the canonical
+`reconciling` receipt with `resolved: false`; callers wait and read it again
+instead of starting a second verification pass.
 
 ## Backlinks (source-aware: Common Crawl + Bing Webmaster)
 
