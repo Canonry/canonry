@@ -148,6 +148,7 @@ export interface ApiRoutesOptions {
   onGbpSyncRequested?: GoogleRoutesOptions['onGbpSyncRequested']
   adsCredentialStore?: AdsRoutesOptions['adsCredentialStore']
   verifyAdsAccount?: AdsRoutesOptions['verifyAdsAccount']
+  adsReader?: AdsRoutesOptions['adsReader']
   onAdsSyncRequested?: AdsRoutesOptions['onAdsSyncRequested']
   adsOperator?: AdsRoutesOptions['adsOperator']
   /** Bing Webmaster Tools connection store */
@@ -390,6 +391,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     await api.register(adsRoutes, {
       adsCredentialStore: opts.adsCredentialStore,
       verifyAdsAccount: opts.verifyAdsAccount,
+      adsReader: opts.adsReader,
       onAdsSyncRequested: opts.onAdsSyncRequested,
       adsOperator: opts.adsOperator,
     } satisfies AdsRoutesOptions)

@@ -10,6 +10,8 @@ import {
   getAdAccount,
   getAdGroup,
   getCampaign,
+  listConversionEventSettings,
+  listConversionPixels,
   listCampaigns,
   listAdGroups,
   listAds,
@@ -19,6 +21,7 @@ import {
   pauseAd,
   pauseAdGroup,
   pauseCampaign,
+  searchGeoLocations,
   updateAd,
   updateAdGroup,
   updateCampaign,
@@ -40,11 +43,14 @@ import {
   FIXTURE_AD_GROUP,
   FIXTURE_AD,
   FIXTURE_CAMPAIGN,
+  FIXTURE_EMPTY_CONVERSION_EVENT_SETTINGS,
+  FIXTURE_EMPTY_CONVERSION_PIXELS,
   FIXTURE_ERROR_401,
   FIXTURE_ERROR_BAD_FIELDS,
   FIXTURE_ERROR_MISSING_PARAM,
   FIXTURE_INSIGHT_ROW_DEFAULT,
   FIXTURE_INSIGHT_ROW_FULL,
+  FIXTURE_GEO_SEARCH,
   makeListResponse,
 } from './fixtures.js'
 
@@ -125,6 +131,8 @@ describe('getAdAccount', () => {
     expect(account.id).toBe(FIXTURE_AD_ACCOUNT.id)
     expect(account.currency_code).toBe('USD')
     expect(account.timezone).toBe('America/Denver')
+    expect(account.account_integrity_review?.details?.decision).toBe('allowed')
+    expect(account.account_integrity_review?.review?.status).toBe('approved')
   })
 
   it('throws OpenAiAdsApiError with the upstream code on 401', async () => {
@@ -158,6 +166,55 @@ describe('getAdAccount', () => {
 
     await expect(() => getAdAccount('')).rejects.toMatchObject({ status: 400 })
     expect(calls.length).toBe(0)
+  })
+})
+
+describe('planning reads', () => {
+  it('searches geo locations with an encoded query and bounded limit', async () => {
+    const calls = mockFetchOnce(FIXTURE_GEO_SEARCH)
+
+    const response = await searchGeoLocations('test-key', 'San Francisco, CA', 5)
+
+    expect(calls[0]!.url).toBe(`${OPENAI_ADS_API_BASE}/geo_lookup/search?q=San%20Francisco%2C%20CA&limit=5`)
+    expect(response.results[0]).toMatchObject({
+      canonical_name: 'San Francisco, California, United States',
+      country_code: 'US',
+      region_code: 'CA',
+    })
+  })
+
+  it('rejects a blank geo query before calling fetch', async () => {
+    const calls = mockFetchOnce(FIXTURE_GEO_SEARCH)
+
+    await expect(() => searchGeoLocations('test-key', '   ')).rejects.toMatchObject({ status: 400 })
+    expect(calls).toHaveLength(0)
+  })
+
+  it('rejects an out-of-range geo limit before calling fetch', async () => {
+    const calls = mockFetchOnce(FIXTURE_GEO_SEARCH)
+
+    await expect(() => searchGeoLocations('test-key', 'San Francisco', 0)).rejects.toMatchObject({ status: 400 })
+    await expect(() => searchGeoLocations('test-key', 'San Francisco', 501)).rejects.toMatchObject({ status: 400 })
+    await expect(() => searchGeoLocations('test-key', 'San Francisco', 1.5)).rejects.toMatchObject({ status: 400 })
+    expect(calls).toHaveLength(0)
+  })
+
+  it('lists conversion pixels using the confirmed empty live envelope', async () => {
+    const calls = mockFetchOnce(FIXTURE_EMPTY_CONVERSION_PIXELS)
+
+    const pixels = await listConversionPixels('test-key')
+
+    expect(calls[0]!.url).toBe(`${OPENAI_ADS_API_BASE}/conversions/pixels`)
+    expect(pixels).toEqual([])
+  })
+
+  it('lists conversion event settings using the confirmed empty live envelope', async () => {
+    const calls = mockFetchOnce(FIXTURE_EMPTY_CONVERSION_EVENT_SETTINGS)
+
+    const settings = await listConversionEventSettings('test-key')
+
+    expect(calls[0]!.url).toBe(`${OPENAI_ADS_API_BASE}/conversions/event_settings`)
+    expect(settings).toEqual([])
   })
 })
 

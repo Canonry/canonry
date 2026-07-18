@@ -15,6 +15,18 @@ export type AgentProvidersResponseDto = {
     defaultProvider: 'claude' | 'openai' | 'gemini' | 'zai' | 'deepinfra';
 };
 
+export type AdsAccountDto = {
+    id: string;
+    name: string;
+    status: string;
+    currencyCode: string | null;
+    timezone: string | null;
+    url: string | null;
+    reviewStatus: string | null;
+    integrityReviewStatus: string | null;
+    integrityDecision: string | null;
+};
+
 export type AdsCampaignListResponse = {
     campaigns: Array<{
         id: string;
@@ -26,6 +38,7 @@ export type AdsCampaignListResponse = {
         biddingType?: string | null;
         dailySpendLimitMicros?: number | null;
         lifetimeSpendLimitMicros?: number | null;
+        conversionEventSettingIds: Array<string>;
         locationIds?: Array<string>;
         adGroups: Array<{
             id: string;
@@ -67,12 +80,55 @@ export type AdsConnectionStatusDto = {
     currencyCode?: string | null;
     timezone?: string | null;
     status?: string | null;
+    reviewStatus?: string | null;
+    integrityReviewStatus?: string | null;
+    integrityDecision?: string | null;
     lastSyncedAt?: string | null;
     conversionTrackingConfigured?: boolean;
 };
 
+export type AdsConversionEventSettingListResponse = {
+    eventSettings: Array<{
+        id: string;
+        name: string;
+        eventType: string;
+        customEventName: string | null;
+        attributionWindowDays: number;
+        adAccountId: string;
+        sourceIds: Array<string>;
+        sources: Array<{
+            id: string;
+            name: string;
+        }>;
+        archived: boolean;
+        version: number;
+    }>;
+};
+
+export type AdsConversionPixelListResponse = {
+    pixels: Array<{
+        id: string;
+        clientType: string;
+        name: string;
+        pixelId: string;
+    }>;
+};
+
 export type AdsDisconnectResponse = {
     disconnected: boolean;
+};
+
+export type AdsGeoSearchResponse = {
+    count: number;
+    query: string;
+    results: Array<{
+        id: string;
+        type: string;
+        canonicalName: string;
+        countryCode: string;
+        name: string;
+        regionCode: string | null;
+    }>;
 };
 
 export type AdsInsightsResponse = {
@@ -6869,6 +6925,167 @@ export type GetApiV1ProjectsByNameAdsStatusResponses = {
 };
 
 export type GetApiV1ProjectsByNameAdsStatusResponse = GetApiV1ProjectsByNameAdsStatusResponses[keyof GetApiV1ProjectsByNameAdsStatusResponses];
+
+export type GetApiV1ProjectsByNameAdsAccountData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/ads/account';
+};
+
+export type GetApiV1ProjectsByNameAdsAccountErrors = {
+    /**
+     * Ads connection or live reader unavailable.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * OpenAI Ads API read failed.
+     */
+    502: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAdsAccountError = GetApiV1ProjectsByNameAdsAccountErrors[keyof GetApiV1ProjectsByNameAdsAccountErrors];
+
+export type GetApiV1ProjectsByNameAdsAccountResponses = {
+    /**
+     * Live ad-account metadata and review state.
+     */
+    200: AdsAccountDto;
+};
+
+export type GetApiV1ProjectsByNameAdsAccountResponse = GetApiV1ProjectsByNameAdsAccountResponses[keyof GetApiV1ProjectsByNameAdsAccountResponses];
+
+export type GetApiV1ProjectsByNameAdsGeoSearchData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query: {
+        /**
+         * Location name or code.
+         */
+        q: string;
+        /**
+         * Maximum results.
+         */
+        limit?: number;
+    };
+    url: '/api/v1/projects/{name}/ads/geo/search';
+};
+
+export type GetApiV1ProjectsByNameAdsGeoSearchErrors = {
+    /**
+     * Invalid query or ads connection unavailable.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * OpenAI Ads API read failed.
+     */
+    502: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAdsGeoSearchError = GetApiV1ProjectsByNameAdsGeoSearchErrors[keyof GetApiV1ProjectsByNameAdsGeoSearchErrors];
+
+export type GetApiV1ProjectsByNameAdsGeoSearchResponses = {
+    /**
+     * Targetable geographic locations.
+     */
+    200: AdsGeoSearchResponse;
+};
+
+export type GetApiV1ProjectsByNameAdsGeoSearchResponse = GetApiV1ProjectsByNameAdsGeoSearchResponses[keyof GetApiV1ProjectsByNameAdsGeoSearchResponses];
+
+export type GetApiV1ProjectsByNameAdsConversionsPixelsData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/ads/conversions/pixels';
+};
+
+export type GetApiV1ProjectsByNameAdsConversionsPixelsErrors = {
+    /**
+     * Ads connection or live reader unavailable.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * OpenAI Ads API read failed.
+     */
+    502: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAdsConversionsPixelsError = GetApiV1ProjectsByNameAdsConversionsPixelsErrors[keyof GetApiV1ProjectsByNameAdsConversionsPixelsErrors];
+
+export type GetApiV1ProjectsByNameAdsConversionsPixelsResponses = {
+    /**
+     * Conversion pixels.
+     */
+    200: AdsConversionPixelListResponse;
+};
+
+export type GetApiV1ProjectsByNameAdsConversionsPixelsResponse = GetApiV1ProjectsByNameAdsConversionsPixelsResponses[keyof GetApiV1ProjectsByNameAdsConversionsPixelsResponses];
+
+export type GetApiV1ProjectsByNameAdsConversionsEventSettingsData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/ads/conversions/event-settings';
+};
+
+export type GetApiV1ProjectsByNameAdsConversionsEventSettingsErrors = {
+    /**
+     * Ads connection or live reader unavailable.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * OpenAI Ads API read failed.
+     */
+    502: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAdsConversionsEventSettingsError = GetApiV1ProjectsByNameAdsConversionsEventSettingsErrors[keyof GetApiV1ProjectsByNameAdsConversionsEventSettingsErrors];
+
+export type GetApiV1ProjectsByNameAdsConversionsEventSettingsResponses = {
+    /**
+     * Conversion event settings.
+     */
+    200: AdsConversionEventSettingListResponse;
+};
+
+export type GetApiV1ProjectsByNameAdsConversionsEventSettingsResponse = GetApiV1ProjectsByNameAdsConversionsEventSettingsResponses[keyof GetApiV1ProjectsByNameAdsConversionsEventSettingsResponses];
 
 export type GetApiV1ProjectsByNameAdsOperationsByOperationKeyData = {
     body?: never;

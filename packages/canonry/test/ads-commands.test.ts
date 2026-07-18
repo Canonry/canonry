@@ -2,19 +2,52 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AdsOperationResponse } from '@ainyc/canonry-contracts'
+import type {
+  AdsAccountDto,
+  AdsConversionEventSettingListResponse,
+  AdsConversionPixelListResponse,
+  AdsGeoSearchResponse,
+  AdsOperationResponse,
+} from '@ainyc/canonry-contracts'
 
 const mockCreateAdsCampaign = vi.fn()
 const mockUpdateAdsCampaign = vi.fn()
+const mockGetAdsAccount = vi.fn()
+const mockSearchAdsGeo = vi.fn()
+const mockGetAdsConversionPixels = vi.fn()
+const mockGetAdsConversionEventSettings = vi.fn()
+
+function captureStdout(fn: () => Promise<void>): { run: Promise<void>; lines: () => string[] } {
+  let output = ''
+  const spy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: unknown) => {
+    output += String(chunk)
+    return true
+  })
+  return {
+    run: fn().finally(() => spy.mockRestore()),
+    lines: () => output.split('\n').filter(Boolean),
+  }
+}
 
 vi.mock('../src/client.js', () => ({
   createApiClient: () => ({
     createAdsCampaign: mockCreateAdsCampaign,
     updateAdsCampaign: mockUpdateAdsCampaign,
+    getAdsAccount: mockGetAdsAccount,
+    searchAdsGeo: mockSearchAdsGeo,
+    getAdsConversionPixels: mockGetAdsConversionPixels,
+    getAdsConversionEventSettings: mockGetAdsConversionEventSettings,
   }),
 }))
 
-const { adsCampaignCreate, adsCampaignUpdate } = await import('../src/commands/ads.js')
+const {
+  adsAccount,
+  adsCampaignCreate,
+  adsCampaignUpdate,
+  adsConversionEventSettings,
+  adsConversionPixels,
+  adsGeoSearch,
+} = await import('../src/commands/ads.js')
 const { ADS_CLI_COMMANDS } = await import('../src/cli-commands/ads.js')
 
 const RECEIPT: AdsOperationResponse = {
@@ -32,6 +65,50 @@ const RECEIPT: AdsOperationResponse = {
     createdAt: '2026-07-17T00:00:00.000Z',
     updatedAt: '2026-07-17T00:00:01.000Z',
   },
+}
+
+const ACCOUNT: AdsAccountDto = {
+  id: 'acct_1',
+  name: 'Canonry',
+  status: 'active',
+  currencyCode: 'USD',
+  timezone: 'America/New_York',
+  url: 'https://ads.openai.com/accounts/acct_1',
+  reviewStatus: 'approved',
+  integrityReviewStatus: 'approved',
+  integrityDecision: 'approved',
+}
+
+const GEO_RESULTS: AdsGeoSearchResponse = {
+  count: 1,
+  query: 'New York',
+  results: [{
+    id: 'geo_501',
+    type: 'city',
+    canonicalName: 'New York, New York, United States',
+    countryCode: 'US',
+    name: 'New York',
+    regionCode: 'NY',
+  }],
+}
+
+const PIXELS: AdsConversionPixelListResponse = {
+  pixels: [{ id: 'source_1', clientType: 'pixel', name: 'Audit lead pixel', pixelId: 'px_1' }],
+}
+
+const EVENT_SETTINGS: AdsConversionEventSettingListResponse = {
+  eventSettings: [{
+    id: 'event_1',
+    name: 'Audit booked',
+    eventType: 'custom',
+    customEventName: 'audit_booked',
+    attributionWindowDays: 30,
+    adAccountId: 'acct_1',
+    sourceIds: ['source_1'],
+    sources: [{ id: 'source_1', name: 'Audit lead pixel' }],
+    archived: false,
+    version: 1,
+  }],
 }
 
 describe('ads lifecycle commands', () => {
@@ -83,9 +160,66 @@ describe('ads lifecycle commands', () => {
     expect(mockUpdateAdsCampaign).not.toHaveBeenCalled()
   })
 
-  it('registers the complete create, update, pause, and receipt CLI surface', () => {
+  it('reads live account metadata as JSON', async () => {
+    mockGetAdsAccount.mockResolvedValue(ACCOUNT)
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+
+    await adsAccount('canonry-audit', { format: 'json' })
+
+    expect(mockGetAdsAccount).toHaveBeenCalledWith('canonry-audit')
+    expect(JSON.parse(log.mock.calls[0]![0] as string)).toEqual(ACCOUNT)
+  })
+
+  it('normalizes geo search input and streams location context as JSONL', async () => {
+    mockSearchAdsGeo.mockResolvedValue(GEO_RESULTS)
+    const output = captureStdout(() =>
+      adsGeoSearch('canonry-audit', { q: '  New York  ', format: 'jsonl' }),
+    )
+
+    await output.run
+
+    expect(mockSearchAdsGeo).toHaveBeenCalledWith('canonry-audit', { q: 'New York', limit: 20 })
+    expect(JSON.parse(output.lines()[0]!)).toEqual({
+      project: 'canonry-audit',
+      query: 'New York',
+      ...GEO_RESULTS.results[0],
+    })
+  })
+
+  it('rejects missing and out-of-range geo search input before an API call', async () => {
+    await expect(adsGeoSearch('canonry-audit', { q: ' ', limit: 101 })).rejects.toMatchObject({
+      code: 'ADS_GEO_QUERY_INVALID',
+    })
+    expect(mockSearchAdsGeo).not.toHaveBeenCalled()
+  })
+
+  it('streams conversion planning collections as JSONL', async () => {
+    mockGetAdsConversionPixels.mockResolvedValue(PIXELS)
+    mockGetAdsConversionEventSettings.mockResolvedValue(EVENT_SETTINGS)
+    const pixelOutput = captureStdout(() => adsConversionPixels('canonry-audit', { format: 'jsonl' }))
+
+    await pixelOutput.run
+    const eventOutput = captureStdout(() =>
+      adsConversionEventSettings('canonry-audit', { format: 'jsonl' }),
+    )
+    await eventOutput.run
+
+    expect(mockGetAdsConversionPixels).toHaveBeenCalledWith('canonry-audit')
+    expect(mockGetAdsConversionEventSettings).toHaveBeenCalledWith('canonry-audit')
+    expect(JSON.parse(pixelOutput.lines()[0]!)).toEqual({ project: 'canonry-audit', ...PIXELS.pixels[0] })
+    expect(JSON.parse(eventOutput.lines()[0]!)).toEqual({
+      project: 'canonry-audit',
+      ...EVENT_SETTINGS.eventSettings[0],
+    })
+  })
+
+  it('registers the planning reads and complete lifecycle CLI surface', () => {
     const paths = new Set(ADS_CLI_COMMANDS.map((command) => command.path.join(' ')))
     for (const command of [
+      'ads account',
+      'ads geo search',
+      'ads conversions pixels',
+      'ads conversions event-settings',
       'ads operation',
       'ads image upload',
       'ads campaign create',

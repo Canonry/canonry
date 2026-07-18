@@ -46,6 +46,10 @@ import {
   RunKinds,
   RunStatuses,
   RunTriggers,
+  adsAccountDtoSchema,
+  adsGeoSearchResponseSchema,
+  adsConversionPixelListResponseSchema,
+  adsConversionEventSettingListResponseSchema,
   type ProviderAdapter,
 } from "@ainyc/canonry-contracts";
 import type { CanonryConfig, ProviderConfigEntry } from "./config.js";
@@ -112,8 +116,11 @@ import {
   createCampaign,
   getAd,
   getAdAccount,
+  listConversionEventSettings,
+  listConversionPixels,
   getAdGroup,
   getCampaign,
+  searchGeoLocations,
   pauseAd,
   pauseAdGroup,
   pauseCampaign,
@@ -757,16 +764,79 @@ export async function createServer(opts: {
     },
   };
 
-  // Validates an SDK key by reading its own ad account from the upstream API.
-  const verifyAdsAccount = async (apiKey: string) => {
-    const account = await getAdAccount(apiKey);
-    return {
+  const normalizeAdsAccount = (account: Awaited<ReturnType<typeof getAdAccount>>) =>
+    adsAccountDtoSchema.parse({
       id: account.id,
       name: account.name,
       status: account.status,
       currencyCode: account.currency_code ?? null,
       timezone: account.timezone ?? null,
+      url: account.url ?? null,
+      reviewStatus: account.review?.status ?? null,
+      integrityReviewStatus: account.account_integrity_review?.review?.status ?? null,
+      integrityDecision: account.account_integrity_review?.details?.decision ?? null,
+    });
+
+  // Validates an SDK key by reading its own ad account from the upstream API.
+  const verifyAdsAccount = async (apiKey: string) => {
+    const account = normalizeAdsAccount(await getAdAccount(apiKey));
+    return {
+      id: account.id,
+      name: account.name,
+      status: account.status,
+      currencyCode: account.currencyCode,
+      timezone: account.timezone,
+      reviewStatus: account.reviewStatus,
+      integrityReviewStatus: account.integrityReviewStatus,
+      integrityDecision: account.integrityDecision,
     };
+  };
+
+  const adsReader = {
+    getAccount: async (apiKey: string) => normalizeAdsAccount(await getAdAccount(apiKey)),
+    searchGeo: async (apiKey: string, input: { q: string; limit: number }) => {
+      const response = await searchGeoLocations(apiKey, input.q, input.limit);
+      return adsGeoSearchResponseSchema.parse({
+        count: response.count,
+        query: response.query,
+        results: response.results.map((location) => ({
+          id: location.id,
+          type: location.type,
+          canonicalName: location.canonical_name,
+          countryCode: location.country_code,
+          name: location.name,
+          regionCode: location.region_code,
+        })),
+      });
+    },
+    listConversionPixels: async (apiKey: string) => {
+      const pixels = await listConversionPixels(apiKey);
+      return adsConversionPixelListResponseSchema.parse({
+        pixels: pixels.map((pixel) => ({
+          id: pixel.id,
+          clientType: pixel.client_type,
+          name: pixel.name,
+          pixelId: pixel.pixel_id,
+        })),
+      });
+    },
+    listConversionEventSettings: async (apiKey: string) => {
+      const eventSettings = await listConversionEventSettings(apiKey);
+      return adsConversionEventSettingListResponseSchema.parse({
+        eventSettings: eventSettings.map((eventSetting) => ({
+          id: eventSetting.id,
+          name: eventSetting.name,
+          eventType: eventSetting.event_type,
+          customEventName: eventSetting.custom_event_name,
+          attributionWindowDays: eventSetting.attribution_window_days,
+          adAccountId: eventSetting.ad_account_id,
+          sourceIds: eventSetting.source_ids,
+          sources: eventSetting.sources,
+          archived: eventSetting.archived,
+          version: eventSetting.version,
+        })),
+      });
+    },
   };
 
   const adsEntityResult = (entity: {
@@ -1784,6 +1854,7 @@ export async function createServer(opts: {
     },
     adsCredentialStore,
     verifyAdsAccount,
+    adsReader,
     adsOperator,
     onAdsSyncRequested: (runId: string, projectId: string) => {
       runAdsSync(runId, projectId);

@@ -12,6 +12,77 @@ export const adsConnectRequestSchema = z.object({
 })
 export type AdsConnectRequest = z.infer<typeof adsConnectRequestSchema>
 
+/** Normalized current-account metadata returned by the OpenAI Ads API. */
+export const adsAccountDtoSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  status: z.string(),
+  currencyCode: z.string().nullable(),
+  timezone: z.string().nullable(),
+  url: z.string().nullable(),
+  reviewStatus: z.string().nullable(),
+  integrityReviewStatus: z.string().nullable(),
+  integrityDecision: z.string().nullable(),
+})
+export type AdsAccountDto = z.infer<typeof adsAccountDtoSchema>
+
+export const adsGeoSearchQuerySchema = z.object({
+  q: z.string().trim().min(1).max(200),
+  limit: z.number().int().min(1).max(100).default(20),
+})
+export type AdsGeoSearchQuery = z.infer<typeof adsGeoSearchQuerySchema>
+
+const adsGeoLocationDtoSchema = z.object({
+  id: z.string(),
+  type: z.string(),
+  canonicalName: z.string(),
+  countryCode: z.string(),
+  name: z.string(),
+  regionCode: z.string().nullable(),
+})
+
+export const adsGeoSearchResponseSchema = z.object({
+  count: z.number().int().nonnegative(),
+  query: z.string(),
+  results: z.array(adsGeoLocationDtoSchema),
+})
+export type AdsGeoSearchResponse = z.infer<typeof adsGeoSearchResponseSchema>
+
+const adsConversionPixelDtoSchema = z.object({
+  id: z.string(),
+  clientType: z.string(),
+  name: z.string(),
+  pixelId: z.string(),
+})
+
+export const adsConversionPixelListResponseSchema = z.object({
+  pixels: z.array(adsConversionPixelDtoSchema),
+})
+export type AdsConversionPixelListResponse = z.infer<typeof adsConversionPixelListResponseSchema>
+
+const adsConversionEventSettingSourceDtoSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+})
+
+const adsConversionEventSettingDtoSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  eventType: z.string(),
+  customEventName: z.string().nullable(),
+  attributionWindowDays: z.number().int().positive(),
+  adAccountId: z.string(),
+  sourceIds: z.array(z.string()),
+  sources: z.array(adsConversionEventSettingSourceDtoSchema),
+  archived: z.boolean(),
+  version: z.number().int().nonnegative(),
+})
+
+export const adsConversionEventSettingListResponseSchema = z.object({
+  eventSettings: z.array(adsConversionEventSettingDtoSchema),
+})
+export type AdsConversionEventSettingListResponse = z.infer<typeof adsConversionEventSettingListResponseSchema>
+
 export const adsConnectionStatusDtoSchema = z.object({
   connected: z.boolean(),
   adAccountId: z.string().nullable().optional(),
@@ -19,6 +90,9 @@ export const adsConnectionStatusDtoSchema = z.object({
   currencyCode: z.string().nullable().optional(),
   timezone: z.string().nullable().optional(),
   status: z.string().nullable().optional(),
+  reviewStatus: z.string().nullable().optional(),
+  integrityReviewStatus: z.string().nullable().optional(),
+  integrityDecision: z.string().nullable().optional(),
   lastSyncedAt: z.string().nullable().optional(),
   /** Whether the ad account has OpenAI conversion tracking (pixel or CAPI) configured,
    *  detected from synced campaigns carrying conversion_event_setting_ids. Optional:
@@ -88,6 +162,7 @@ export const adsCampaignDtoSchema = z.object({
   biddingType: z.string().nullable().optional(),
   dailySpendLimitMicros: z.number().int().nullable().optional(),
   lifetimeSpendLimitMicros: z.number().int().nullable().optional(),
+  conversionEventSettingIds: z.array(z.string()).default([]),
   locationIds: z.array(z.string()).optional(),
   adGroups: z.array(adsAdGroupDtoSchema).default([]),
   upstreamUpdatedAt: z.number().int().nullable().optional(),

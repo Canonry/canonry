@@ -1,8 +1,13 @@
 import fs from 'node:fs'
 import type {
+  AdsAccountDto,
   AdsCampaignListResponse,
   AdsConnectionStatusDto,
+  AdsConversionEventSettingListResponse,
+  AdsConversionPixelListResponse,
   AdsDisconnectResponse,
+  AdsGeoSearchQuery,
+  AdsGeoSearchResponse,
   AdsInsightsResponse,
   AdsSummaryDto,
   AdsSyncResponse,
@@ -17,6 +22,7 @@ import type {
   AdsPauseRequest,
 } from '@ainyc/canonry-contracts'
 import {
+  adsGeoSearchQuerySchema,
   adsAdCreateRequestSchema,
   adsAdGroupCreateRequestSchema,
   adsAdGroupUpdateRequestSchema,
@@ -131,6 +137,110 @@ export async function adsStatus(project: string, opts?: { format?: string }): Pr
   for (const line of describeConnection(result)) console.log(line)
   if (!result.connected) {
     console.log('Connect with: canonry ads connect ' + project + ' --api-key <sdk-key>')
+  }
+}
+
+export async function adsAccount(project: string, opts?: { format?: string }): Promise<void> {
+  const result: AdsAccountDto = await getClient().getAdsAccount(project)
+
+  if (isMachineFormat(opts?.format)) {
+    console.log(JSON.stringify(result, null, 2))
+    return
+  }
+
+  console.log(`Account:    ${result.name}`)
+  console.log(`ID:         ${result.id}`)
+  console.log(`Status:     ${result.status}`)
+  console.log(`Currency:   ${result.currencyCode ?? 'unknown'}`)
+  console.log(`Timezone:   ${result.timezone ?? 'unknown'}`)
+  console.log(`Review:     ${result.reviewStatus ?? 'unknown'}`)
+  console.log(`Integrity:  ${result.integrityReviewStatus ?? 'unknown'}`)
+  if (result.integrityDecision) console.log(`Decision:   ${result.integrityDecision}`)
+  if (result.url) console.log(`Ads Manager: ${result.url}`)
+}
+
+export async function adsGeoSearch(
+  project: string,
+  opts: { q?: string; limit?: number; format?: string },
+): Promise<void> {
+  const parsed = adsGeoSearchQuerySchema.safeParse({ q: opts.q, limit: opts.limit })
+  if (!parsed.success) {
+    throw new CliError({
+      code: 'ADS_GEO_QUERY_INVALID',
+      message: 'A valid geo search query is required',
+      displayMessage: 'Error: --query is required and --limit must be an integer from 1 to 100',
+      details: {
+        project,
+        issues: parsed.error.issues.map((issue) => ({ path: issue.path.join('.'), message: issue.message })),
+      },
+    })
+  }
+
+  const query: AdsGeoSearchQuery = parsed.data
+  const result: AdsGeoSearchResponse = await getClient().searchAdsGeo(project, query)
+
+  if (opts.format === 'jsonl') {
+    emitJsonl(result.results.map((location) => ({ project, query: result.query, ...location })))
+    return
+  }
+  if (isMachineFormat(opts.format)) {
+    console.log(JSON.stringify(result, null, 2))
+    return
+  }
+
+  if (result.results.length === 0) {
+    console.log(`No OpenAI Ads locations matched "${result.query}".`)
+    return
+  }
+  for (const location of result.results) {
+    const region = location.regionCode ? `, ${location.regionCode}` : ''
+    console.log(`${location.canonicalName} (${location.type}, ${location.countryCode}${region}) [${location.id}]`)
+  }
+}
+
+export async function adsConversionPixels(project: string, opts?: { format?: string }): Promise<void> {
+  const result: AdsConversionPixelListResponse = await getClient().getAdsConversionPixels(project)
+
+  if (opts?.format === 'jsonl') {
+    emitJsonl(result.pixels.map((pixel) => ({ project, ...pixel })))
+    return
+  }
+  if (isMachineFormat(opts?.format)) {
+    console.log(JSON.stringify(result, null, 2))
+    return
+  }
+
+  if (result.pixels.length === 0) {
+    console.log('No OpenAI Ads conversion pixels are configured.')
+    return
+  }
+  for (const pixel of result.pixels) {
+    console.log(`${pixel.name} (${pixel.clientType}) [${pixel.id}] pixel ${pixel.pixelId}`)
+  }
+}
+
+export async function adsConversionEventSettings(project: string, opts?: { format?: string }): Promise<void> {
+  const result: AdsConversionEventSettingListResponse = await getClient().getAdsConversionEventSettings(project)
+
+  if (opts?.format === 'jsonl') {
+    emitJsonl(result.eventSettings.map((eventSetting) => ({ project, ...eventSetting })))
+    return
+  }
+  if (isMachineFormat(opts?.format)) {
+    console.log(JSON.stringify(result, null, 2))
+    return
+  }
+
+  if (result.eventSettings.length === 0) {
+    console.log('No OpenAI Ads conversion event settings are configured.')
+    return
+  }
+  for (const eventSetting of result.eventSettings) {
+    const sources = eventSetting.sources.map((source) => source.name).join(', ') || 'no sources'
+    const archived = eventSetting.archived ? ' [archived]' : ''
+    console.log(
+      `${eventSetting.name}${archived}: ${eventSetting.eventType}, ${eventSetting.attributionWindowDays}d attribution, ${sources} [${eventSetting.id}]`,
+    )
   }
 }
 

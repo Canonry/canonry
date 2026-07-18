@@ -2,6 +2,10 @@ import type {
   OpenAiAdsCreateAdGroupRequest,
   OpenAiAdsCreateAdRequest,
   OpenAiAdsCreateCampaignRequest,
+  OpenAiAdsConversionEventSetting,
+  OpenAiAdsConversionPixel,
+  OpenAiAdsGeoLocation,
+  OpenAiAdsGeoSearchResponse,
   OpenAiAdsUpdateAdGroupRequest,
   OpenAiAdsUpdateAdRequest,
   OpenAiAdsUpdateCampaignRequest,
@@ -24,4 +28,13 @@ export type AdGroupUpdateRejectsActive = AssertFalse<AcceptsActiveStatus<OpenAiA
 export type AdUpdateRejectsActive = AssertFalse<AcceptsActiveStatus<OpenAiAdsUpdateAdRequest>>
 export type CampaignUpdateRejectsNullTargeting = AssertFalse<
   { targeting: null } extends OpenAiAdsUpdateCampaignRequest ? true : false
+>
+export type GeoSearchResultsUseGeoLocations = Assert<
+  Equal<OpenAiAdsGeoSearchResponse['results'][number], OpenAiAdsGeoLocation>
+>
+export type ConversionPixelFieldsStayConservative = Assert<
+  Equal<OpenAiAdsConversionPixel['pixel_id'], string | undefined>
+>
+export type ConversionEventSourceIdsAreStrings = Assert<
+  Equal<OpenAiAdsConversionEventSetting['source_ids'], string[]>
 >

@@ -132,6 +132,10 @@ canonry discover eval [--baseline <path>] [--update-baseline] [--shape <slug>...
 # OpenAI ads (ChatGPT ads) — paid-surface data for the connected ad account
 canonry ads connect <project> --api-key <sdk-key>     # validate + store the Ads Manager SDK key (config.yaml)
 canonry ads status <project>
+canonry ads account <project>                         # live account identity + integrity review state
+canonry ads geo search <project> --query <text> [--limit <n>] [--format json|jsonl] # resolve provider location IDs
+canonry ads conversions pixels <project> [--format json|jsonl]
+canonry ads conversions event-settings <project> [--format json|jsonl]
 canonry ads sync <project>                            # trigger an ads-sync run
 canonry ads campaigns <project> [--format json|jsonl] # snapshots incl. context hints
 canonry ads insights <project> [--level campaign|ad_group] [--entity <id>] [--from <d>] [--to <d>] [--format json|jsonl]
@@ -152,7 +156,7 @@ canonry-mcp --eager                                  # register all API tools at
 
 # MCP client install helpers (operate on local client config files)
 canonry mcp install --client claude-desktop          # merges a canonry entry into the config
-canonry mcp install --client cursor --read-only      # scope to the 69 read API tools
+canonry mcp install --client cursor --read-only      # scope to the 84 read API tools
 canonry mcp config  --client codex                   # print snippet for clients without auto-install
 
 # Skills — install canonry's agent playbook into a user's project

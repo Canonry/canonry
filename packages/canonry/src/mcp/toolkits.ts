@@ -45,8 +45,8 @@ export const CANONRY_MCP_TOOLKITS: readonly CanonryMcpToolkit[] = [
   {
     name: 'ads',
     title: 'OpenAI ads (ChatGPT ads)',
-    description: 'Paid-surface data for the connected OpenAI ad account: connection status, campaign/ad-group snapshots (context hints), daily paid-performance rollups (spend in integer micros), and the composite summary. Trigger ads-sync runs.',
-    whenToLoad: 'Load when the project runs ChatGPT ads and you need paid performance, campaign structure, or to trigger an ads sync.',
+    description: 'Live OpenAI ad-account review state, targetable geo IDs, conversion pixels/event settings, synced campaign structure, paid-performance rollups, and guarded lifecycle operations.',
+    whenToLoad: 'Load when planning, creating, reviewing, or measuring ChatGPT ads, including geo and conversion-readiness checks before launch.',
   },
   {
     name: 'traffic',

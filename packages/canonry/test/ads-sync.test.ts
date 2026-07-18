@@ -57,6 +57,11 @@ function testConfig(): CanonryConfig {
 const ACCOUNT = {
   id: 'adacct_aaa', status: 'active', name: 'Acme Exteriors, Inc',
   currency_code: 'USD', timezone: 'America/Denver', url: 'https://acme-exteriors.example/',
+  review: { status: 'in_review' },
+  account_integrity_review: {
+    review: { status: 'approved' },
+    details: { decision: 'allowed', reason: 'Low risk', status_updated_at: '2026-06-03T18:57:34.397908+00:00' },
+  },
 }
 const CAMPAIGN = {
   id: 'cmpn_bbb', created_at: 1780770653, status: 'active', bidding_type: 'clicks',
@@ -122,6 +127,7 @@ describe('executeAdsSync', () => {
     const campaign = db.select().from(adsCampaigns).where(eq(adsCampaigns.id, 'cmpn_bbb')).get()
     expect(campaign?.name).toBe('Homeowners Free Estimate')
     expect(campaign?.dailySpendLimitMicros).toBe(150_000_000)
+    expect(campaign?.conversionEventSettingIds).toEqual([])
 
     const group = db.select().from(adsAdGroups).where(eq(adsAdGroups.id, 'adgrp_ddd')).get()
     expect(group?.campaignId).toBe('cmpn_bbb')
@@ -151,6 +157,9 @@ describe('executeAdsSync', () => {
     expect(conn?.displayName).toBe('Acme Exteriors, Inc')
     expect(conn?.currencyCode).toBe('USD')
     expect(conn?.status).toBe('active')
+    expect(conn?.reviewStatus).toBe('in_review')
+    expect(conn?.integrityReviewStatus).toBe('approved')
+    expect(conn?.integrityDecision).toBe('allowed')
     expect(conn?.lastSyncedAt).toBeTruthy()
     // CAMPAIGN carries an empty conversion_event_setting_ids → tracking off.
     expect(conn?.conversionTrackingConfigured).toBe(false)
@@ -196,6 +205,8 @@ describe('executeAdsSync', () => {
 
     const conn = db.select().from(adsConnections).where(eq(adsConnections.projectId, 'proj_1')).get()
     expect(conn?.conversionTrackingConfigured).toBe(true)
+    const campaign = db.select().from(adsCampaigns).where(eq(adsCampaigns.id, 'cmpn_bbb')).get()
+    expect(campaign?.conversionEventSettingIds).toEqual(['cevent_1111'])
   })
 
   it('is idempotent: a re-sync replaces snapshots and upserts insights without duplicating', async () => {

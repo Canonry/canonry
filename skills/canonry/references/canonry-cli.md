@@ -566,6 +566,10 @@ Paid-surface data for the project's connected OpenAI ad account. Ads render only
 ```
 cnry ads connect <project> --api-key <sdk-key>   # mint the key in OpenAI Ads Manager; validated upstream, stored in ~/.canonry/config.yaml
 cnry ads status <project>
+cnry ads account <project>                        # live account identity, currency/timezone, status, and integrity review
+cnry ads geo search <project> --query "New York" --limit 20 --format jsonl
+cnry ads conversions pixels <project> --format jsonl
+cnry ads conversions event-settings <project> --format jsonl
 cnry ads image upload <project> --input image.json
 cnry ads campaign create <project> --input campaign.json
 cnry ads campaign update <project> <campaign-id> --input update.json
@@ -586,6 +590,15 @@ cnry schedule set <project> --kind ads-sync --preset daily
 ```
 
 `ads sync` runs report `completed` / `partial` (some campaigns failed; per-campaign errors on the run) / `failed`. Doctor checks: `ads.auth.connection`, `ads.data.recent-sync` (both skipped when not connected).
+
+`ads account`, `ads geo search`, and both `ads conversions` commands read the
+live OpenAI Advertiser API rather than the local synced snapshot. Use `account`
+to verify the connected advertiser and review state, `geo search` to resolve
+campaign `locationIds` from provider-issued IDs, and the conversion reads to
+verify the available pixel/CAPI sources, event goal, and attribution window
+before launch. Geo search defaults to 20 results and accepts 1-100. Its JSONL
+rows carry `{ project, query, ...location }`; conversion rows carry
+`{ project, ...pixel }` or `{ project, ...eventSetting }`.
 
 Lifecycle inputs are JSON files, or `--input -` for stdin. Every request carries
 a unique `operationKey`. Identical replays return the stored receipt without a
@@ -765,7 +778,7 @@ Every command takes `--format`:
 - **`json`** — one pretty-printed JSON document (the full envelope). Stable contract.
 - **`jsonl`** — newline-delimited JSON: the command's **primary collection**, one self-contained record per line. The agent-friendly machine format — no envelope key to guess (`.checks` vs `.results` vs `.rows`), no `jq` flattening, greppable line by line.
 
-`jsonl` is supported by every **collection** command — one whose primary output is a list: `insights`, `runs`, `evidence`, `history`, `query/keyword/competitor list`, `notify list/events`, `google` reads (`performance`, `performance-daily`, `inspections`, `coverage-history`, `deindexed`, `status`, `properties`, `list-sitemaps`), `bing` reads (`coverage-history`, `inspections`, `performance`, `sites`), `ga` reads (`ai-referral-history`, `social-referral-history`, `session-history`, `coverage`), `traffic events/sources/status`, `discover list/show`, `content targets/sources/gaps/map`, `backlinks list/releases`, `project list/locations`, `key list`, `agent memory list`, `agent providers`, `sources` (streams the ranked cited-domain list), and `doctor`. (`content brief` is an object command — `jsonl` degrades to its JSON document.)
+`jsonl` is supported by every **collection** command — one whose primary output is a list: `insights`, `runs`, `evidence`, `history`, `query/keyword/competitor list`, `notify list/events`, `google` reads (`performance`, `performance-daily`, `inspections`, `coverage-history`, `deindexed`, `status`, `properties`, `list-sitemaps`), `bing` reads (`coverage-history`, `inspections`, `performance`, `sites`), `ga` reads (`ai-referral-history`, `social-referral-history`, `session-history`, `coverage`), `ads geo search` and `ads conversions` reads, `traffic events/sources/status`, `discover list/show`, `content targets/sources/gaps/map`, `backlinks list/releases`, `project list/locations`, `key list`, `agent memory list`, `agent providers`, `sources` (streams the ranked cited-domain list), and `doctor`. (`content brief` is an object command — `jsonl` degrades to its JSON document.)
 
 Each `jsonl` line re-injects the envelope context it would otherwise lose, so a line lifted out still self-describes:
 
@@ -792,3 +805,6 @@ Compact reference for the composite / keyed commands agents read most (shapes ca
 | `cnry ga attribution <p> [--trend]` | Object — a **renamed projection** of `GaTrafficResponse` (⚠️ field names differ from the DTO): `aiSessions`(←`aiSessionsDeduped`), `organicSessions`(←`totalOrganicSessions`), `directSessions`(←`totalDirectSessions`), plus `totalSessions, totalUsers, aiUsers, aiSessionsBySession, aiUsersBySession, socialSessions, socialUsers, {ai,social,organic,direct}SharePct (+ `*Display`), otherSessions, otherSharePct, channelBreakdown, aiReferrals[], aiReferralLandingPages[], socialReferrals[], periodStart, periodEnd`. With `--trend`: drops `periodStart/End`, adds `trend` (`GaAttributionTrendResponse`). Assembled inline in `commands/ga.ts`. | → degrades to the `json` document |
 | `cnry key list` / `key create` / `key revoke <id>` | `list`: `{ keys[] }` — each `ApiKeyDto{ id, name, keyPrefix, scopes[], createdAt, lastUsedAt, revokedAt }` (SAFE metadata, never the hash or plaintext). `create`: `CreatedApiKeyDto` = `ApiKeyDto` **plus a one-time `key`** (the plaintext `cnry_…` token, shown once). `revoke`: the `ApiKeyDto` with `revokedAt` set. @ `contracts/api-keys.ts` | `key list` streams one key / line; `create` / `revoke` degrade to the `json` document |
 | `cnry gbp summary <p> [--location …]` | `{ scope{locationName,locationCount}, performance{totals,recent7d,prior7d,deltaPct} (metric-keyed maps; keys are raw `BUSINESS_*` / `WEBSITE_CLICKS` tokens — label via `formatGbpMetricLabel`), freshness{dataThroughDate,latestStoredDate,pendingDays}, timeseries[], keywords{total,thresholdedCount,thresholdedPct}, placeActions{total,hasReservationCta,hasBookingCta,hasDirectMerchantCta}, lodging{lodgingLocationCount,populatedLodgingCount,emptyLodgingCount}, profileCompleteness{locationCount,withSecondaryCategories,secondaryCategoryTotal,withDescription,withServiceArea,withHours,withPrimaryPhone,permanentlyClosed,temporarilyClosed} }` — `GbpSummaryDto` @ `contracts/gbp.ts`; `emptyLodgingCount` means 0 readable Lodging API groups, a verify signal rather than proof the Hotel details panel is empty. `timeseries[]`=`{date,pending,metrics}`. | → degrades to the `json` document |
+| `cnry ads account <p>` | `AdsAccountDto{ id, name, status, currencyCode, timezone, url, reviewStatus, integrityReviewStatus, integrityDecision }` @ `contracts/ads.ts`. This is live provider state, not a synced snapshot. | → degrades to the `json` document |
+| `cnry ads geo search <p> --query <text>` | `AdsGeoSearchResponse{ count, query, results[] }` @ `contracts/ads.ts`; each location has `{ id, type, canonicalName, countryCode, name, regionCode }`. | ✅ one result / line as `{project, query, …location}` |
+| `cnry ads conversions pixels <p>` / `event-settings <p>` | `{ pixels[] }` / `{ eventSettings[] }` @ `contracts/ads.ts`. Event settings include the conversion event, attribution window, source IDs/details, archive state, and version. | ✅ one pixel/event setting / line as `{project, …row}` |

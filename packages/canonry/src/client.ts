@@ -48,6 +48,11 @@ import type {
   GbpAccountListResponse,
   GbpLocationDto,
   GbpLocationListResponse,
+  AdsAccountDto,
+  AdsGeoSearchQuery,
+  AdsGeoSearchResponse,
+  AdsConversionPixelListResponse,
+  AdsConversionEventSettingListResponse,
   AdsConnectionStatusDto,
   AdsDisconnectResponse,
   AdsSyncResponse,
@@ -224,6 +229,10 @@ import {
   postApiV1ProjectsByNameAdsSync,
   deleteApiV1ProjectsByNameAdsConnection,
   getApiV1ProjectsByNameAdsStatus,
+  getApiV1ProjectsByNameAdsAccount,
+  getApiV1ProjectsByNameAdsGeoSearch,
+  getApiV1ProjectsByNameAdsConversionsPixels,
+  getApiV1ProjectsByNameAdsConversionsEventSettings,
   getApiV1ProjectsByNameAdsCampaigns,
   getApiV1ProjectsByNameAdsInsights,
   getApiV1ProjectsByNameAdsSummary,
@@ -1394,6 +1403,30 @@ export class ApiClient {
   async getAdsStatus(project: string): Promise<AdsConnectionStatusDto> {
     return this.invoke<AdsConnectionStatusDto>(() =>
       getApiV1ProjectsByNameAdsStatus({ client: this.heyClient, path: { name: project } }),
+    )
+  }
+
+  async getAdsAccount(project: string): Promise<AdsAccountDto> {
+    return this.invoke<AdsAccountDto>(() =>
+      getApiV1ProjectsByNameAdsAccount({ client: this.heyClient, path: { name: project } }),
+    )
+  }
+
+  async searchAdsGeo(project: string, query: AdsGeoSearchQuery): Promise<AdsGeoSearchResponse> {
+    return this.invoke<AdsGeoSearchResponse>(() =>
+      getApiV1ProjectsByNameAdsGeoSearch({ client: this.heyClient, path: { name: project }, query }),
+    )
+  }
+
+  async getAdsConversionPixels(project: string): Promise<AdsConversionPixelListResponse> {
+    return this.invoke<AdsConversionPixelListResponse>(() =>
+      getApiV1ProjectsByNameAdsConversionsPixels({ client: this.heyClient, path: { name: project } }),
+    )
+  }
+
+  async getAdsConversionEventSettings(project: string): Promise<AdsConversionEventSettingListResponse> {
+    return this.invoke<AdsConversionEventSettingListResponse>(() =>
+      getApiV1ProjectsByNameAdsConversionsEventSettings({ client: this.heyClient, path: { name: project } }),
     )
   }
 

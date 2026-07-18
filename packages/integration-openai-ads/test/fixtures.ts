@@ -1,14 +1,18 @@
-// Fixtures mirror REAL OpenAI Advertiser API responses captured live on
-// 2026-06-10 (curl against an active ad account). Identifiers, names, URLs,
-// and copy are sanitized; field names, nesting, envelope shape, value types,
-// and unit quirks (micros vs decimal dollars) are verbatim from production.
-// Never add a field here that has not been observed in a captured response.
+// Unless a fixture-specific comment says otherwise, fixtures mirror REAL
+// OpenAI Advertiser API responses captured live on 2026-06-10 (curl against an
+// active ad account). Identifiers, names, URLs, and copy are sanitized; field
+// names, nesting, envelope shape, value types, and unit quirks (micros vs
+// decimal dollars) are verbatim from production. Never add an undocumented or
+// unobserved field here.
 
 import type {
   OpenAiAdsAccount,
   OpenAiAdsAd,
   OpenAiAdsAdGroup,
   OpenAiAdsCampaign,
+  OpenAiAdsConversionEventSetting,
+  OpenAiAdsConversionPixel,
+  OpenAiAdsGeoSearchResponse,
   OpenAiAdsInsightRow,
   OpenAiAdsListResponse,
 } from '../src/types.js'
@@ -137,6 +141,31 @@ export function makeListResponse<T>(
     ...overrides,
   }
 }
+
+// Shape and value types mirror the provider's official geo-search response
+// example. The identifier is sanitized because no beta-account geo response
+// was retained with the live fixture capture.
+export const FIXTURE_GEO_SEARCH: OpenAiAdsGeoSearchResponse = {
+  count: 1,
+  query: 'San Francisco',
+  results: [
+    {
+      id: '1014221',
+      type: 'city',
+      canonical_name: 'San Francisco, California, United States',
+      country_code: 'US',
+      name: 'San Francisco',
+      region_code: 'CA',
+    },
+  ],
+}
+
+// These empty list envelopes were confirmed against the live beta account.
+// They prove endpoint/envelope compatibility without inventing non-empty item
+// shapes. A non-empty live capture remains a merge/smoke gate before consumers
+// rely on pixel or event-setting item fields.
+export const FIXTURE_EMPTY_CONVERSION_PIXELS = makeListResponse<OpenAiAdsConversionPixel>([])
+export const FIXTURE_EMPTY_CONVERSION_EVENT_SETTINGS = makeListResponse<OpenAiAdsConversionEventSetting>([])
 
 // Real 401 body (no/invalid Authorization), captured verbatim.
 export const FIXTURE_ERROR_401 = {
