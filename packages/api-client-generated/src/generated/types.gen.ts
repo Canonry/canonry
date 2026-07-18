@@ -27,6 +27,551 @@ export type AdsAccountDto = {
     integrityDecision: string | null;
 };
 
+export type AdsActivateTreeResponse = {
+    grant: {
+        id: string;
+        projectId: string;
+        adAccountId: string;
+        manifestHash: string;
+        manifest: {
+            campaign: {
+                id: string;
+                expectedUpdatedAt: number;
+                adGroups: Array<{
+                    id: string;
+                    expectedUpdatedAt: number;
+                    ads: Array<{
+                        id: string;
+                        expectedUpdatedAt: number;
+                    }>;
+                }>;
+            };
+        };
+        executorApiKeyId: string;
+        approverApiKeyId: string;
+        expiresAt: string;
+        approvedAt: string;
+        createdAt: string;
+        updatedAt: string;
+        state: 'approved';
+        operationId: null;
+        executionStartedAt: null;
+        consumedAt: null;
+        revokedAt: null;
+        expiredAt: null;
+    } | {
+        id: string;
+        projectId: string;
+        adAccountId: string;
+        manifestHash: string;
+        manifest: {
+            campaign: {
+                id: string;
+                expectedUpdatedAt: number;
+                adGroups: Array<{
+                    id: string;
+                    expectedUpdatedAt: number;
+                    ads: Array<{
+                        id: string;
+                        expectedUpdatedAt: number;
+                    }>;
+                }>;
+            };
+        };
+        executorApiKeyId: string;
+        approverApiKeyId: string;
+        expiresAt: string;
+        approvedAt: string;
+        createdAt: string;
+        updatedAt: string;
+        state: 'executing';
+        operationId: string;
+        executionStartedAt: string;
+        consumedAt: null;
+        revokedAt: null;
+        expiredAt: null;
+    } | {
+        id: string;
+        projectId: string;
+        adAccountId: string;
+        manifestHash: string;
+        manifest: {
+            campaign: {
+                id: string;
+                expectedUpdatedAt: number;
+                adGroups: Array<{
+                    id: string;
+                    expectedUpdatedAt: number;
+                    ads: Array<{
+                        id: string;
+                        expectedUpdatedAt: number;
+                    }>;
+                }>;
+            };
+        };
+        executorApiKeyId: string;
+        approverApiKeyId: string;
+        expiresAt: string;
+        approvedAt: string;
+        createdAt: string;
+        updatedAt: string;
+        state: 'consumed';
+        operationId: string;
+        executionStartedAt: string;
+        consumedAt: string;
+        revokedAt: null;
+        expiredAt: null;
+    } | {
+        id: string;
+        projectId: string;
+        adAccountId: string;
+        manifestHash: string;
+        manifest: {
+            campaign: {
+                id: string;
+                expectedUpdatedAt: number;
+                adGroups: Array<{
+                    id: string;
+                    expectedUpdatedAt: number;
+                    ads: Array<{
+                        id: string;
+                        expectedUpdatedAt: number;
+                    }>;
+                }>;
+            };
+        };
+        executorApiKeyId: string;
+        approverApiKeyId: string;
+        expiresAt: string;
+        approvedAt: string;
+        createdAt: string;
+        updatedAt: string;
+        state: 'revoked';
+        operationId: null;
+        executionStartedAt: null;
+        consumedAt: null;
+        revokedAt: string;
+        expiredAt: null;
+    } | {
+        id: string;
+        projectId: string;
+        adAccountId: string;
+        manifestHash: string;
+        manifest: {
+            campaign: {
+                id: string;
+                expectedUpdatedAt: number;
+                adGroups: Array<{
+                    id: string;
+                    expectedUpdatedAt: number;
+                    ads: Array<{
+                        id: string;
+                        expectedUpdatedAt: number;
+                    }>;
+                }>;
+            };
+        };
+        executorApiKeyId: string;
+        approverApiKeyId: string;
+        expiresAt: string;
+        approvedAt: string;
+        createdAt: string;
+        updatedAt: string;
+        state: 'expired';
+        operationId: null;
+        executionStartedAt: null;
+        consumedAt: null;
+        revokedAt: null;
+        expiredAt: string;
+    } | {
+        id: string;
+        projectId: string;
+        adAccountId: string;
+        manifestHash: string;
+        manifest: {
+            campaign: {
+                id: string;
+                expectedUpdatedAt: number;
+                adGroups: Array<{
+                    id: string;
+                    expectedUpdatedAt: number;
+                    ads: Array<{
+                        id: string;
+                        expectedUpdatedAt: number;
+                    }>;
+                }>;
+            };
+        };
+        executorApiKeyId: string;
+        approverApiKeyId: string;
+        expiresAt: string;
+        approvedAt: string;
+        createdAt: string;
+        updatedAt: string;
+        state: 'unknown';
+        operationId: string;
+        executionStartedAt: string;
+        consumedAt: null;
+        revokedAt: null;
+        expiredAt: null;
+    };
+    operation: {
+        id: string;
+        adAccountId: string | null;
+        operationKey: string;
+        kind: 'image_upload' | 'campaign_create' | 'campaign_update' | 'campaign_pause' | 'campaign_tree_activate' | 'ad_group_create' | 'ad_group_update' | 'ad_group_pause' | 'ad_create' | 'ad_update' | 'ad_pause';
+        state: 'pending' | 'reconciling' | 'succeeded' | 'failed' | 'unknown';
+        entityType: 'file' | 'campaign' | 'ad_group' | 'ad' | null;
+        entityId: string | null;
+        upstreamUpdatedAt: number | null;
+        errorCode: string | null;
+        errorMessage: string | null;
+        reconcileStrategy: 'known_entity' | 'create_fingerprint' | 'manual_only' | null;
+        reconcileParentId: string | null;
+        reconcileFingerprint: string | null;
+        reconcileFields: {
+            name?: string;
+            description?: string | null;
+            status?: 'active' | 'paused' | 'archived';
+            startTime?: number | null;
+            endTime?: number | null;
+            lifetimeSpendLimitMicros?: number;
+            locationIds?: Array<string>;
+            biddingType?: 'impressions' | 'clicks';
+            conversionEventSettingIds?: Array<string>;
+            campaignId?: string;
+            contextHints?: Array<string>;
+            maxBidMicros?: number;
+            billingEventType?: 'impression' | 'click';
+            adGroupId?: string;
+            creativeFingerprint?: string;
+        } | null;
+        reconcileAttempts: number;
+        lastReconciledAt: string | null;
+        createdAt: string;
+        updatedAt: string;
+    };
+    steps: Array<{
+        id: string;
+        operationId: string;
+        ordinal: number;
+        entityType: 'campaign' | 'ad_group' | 'ad';
+        entityId: string;
+        expectedUpdatedAt: number;
+        createdAt: string;
+        updatedAt: string;
+        errorCode: null;
+        errorMessage: null;
+        state: 'pending';
+        providerUpdatedAt: null;
+        remediation: null;
+        startedAt: null;
+        finishedAt: null;
+    } | {
+        id: string;
+        operationId: string;
+        ordinal: number;
+        entityType: 'campaign' | 'ad_group' | 'ad';
+        entityId: string;
+        expectedUpdatedAt: number;
+        createdAt: string;
+        updatedAt: string;
+        errorCode: null;
+        errorMessage: null;
+        state: 'executing';
+        providerUpdatedAt: null;
+        remediation: null;
+        startedAt: string;
+        finishedAt: null;
+    } | {
+        id: string;
+        operationId: string;
+        ordinal: number;
+        entityType: 'campaign' | 'ad_group' | 'ad';
+        entityId: string;
+        expectedUpdatedAt: number;
+        createdAt: string;
+        updatedAt: string;
+        errorCode: null;
+        errorMessage: null;
+        state: 'active';
+        providerUpdatedAt: number;
+        remediation: null;
+        startedAt: string;
+        finishedAt: string;
+    } | {
+        id: string;
+        operationId: string;
+        ordinal: number;
+        entityType: 'campaign' | 'ad_group' | 'ad';
+        entityId: string;
+        expectedUpdatedAt: number;
+        createdAt: string;
+        updatedAt: string;
+        errorCode: string;
+        errorMessage: string;
+        remediation: string;
+        state: 'failed';
+        providerUpdatedAt: number | null;
+        startedAt: string;
+        finishedAt: string;
+    } | {
+        id: string;
+        operationId: string;
+        ordinal: number;
+        entityType: 'campaign' | 'ad_group' | 'ad';
+        entityId: string;
+        expectedUpdatedAt: number;
+        createdAt: string;
+        updatedAt: string;
+        errorCode: null;
+        errorMessage: null;
+        state: 'rollback_executing';
+        providerUpdatedAt: number;
+        remediation: string;
+        startedAt: string;
+        finishedAt: null;
+    } | {
+        id: string;
+        operationId: string;
+        ordinal: number;
+        entityType: 'campaign' | 'ad_group' | 'ad';
+        entityId: string;
+        expectedUpdatedAt: number;
+        createdAt: string;
+        updatedAt: string;
+        errorCode: null;
+        errorMessage: null;
+        state: 'rolled_back';
+        providerUpdatedAt: number;
+        remediation: string;
+        startedAt: string;
+        finishedAt: string;
+    } | {
+        id: string;
+        operationId: string;
+        ordinal: number;
+        entityType: 'campaign' | 'ad_group' | 'ad';
+        entityId: string;
+        expectedUpdatedAt: number;
+        createdAt: string;
+        updatedAt: string;
+        errorCode: string;
+        errorMessage: string;
+        remediation: string;
+        state: 'rollback_failed';
+        providerUpdatedAt: number;
+        startedAt: string;
+        finishedAt: string;
+    } | {
+        id: string;
+        operationId: string;
+        ordinal: number;
+        entityType: 'campaign' | 'ad_group' | 'ad';
+        entityId: string;
+        expectedUpdatedAt: number;
+        createdAt: string;
+        updatedAt: string;
+        errorCode: string;
+        errorMessage: string;
+        remediation: string;
+        state: 'unknown';
+        providerUpdatedAt: number | null;
+        startedAt: string;
+        finishedAt: string;
+    }>;
+};
+
+export type AdsActivationGrantResponse = {
+    grant: {
+        id: string;
+        projectId: string;
+        adAccountId: string;
+        manifestHash: string;
+        manifest: {
+            campaign: {
+                id: string;
+                expectedUpdatedAt: number;
+                adGroups: Array<{
+                    id: string;
+                    expectedUpdatedAt: number;
+                    ads: Array<{
+                        id: string;
+                        expectedUpdatedAt: number;
+                    }>;
+                }>;
+            };
+        };
+        executorApiKeyId: string;
+        approverApiKeyId: string;
+        expiresAt: string;
+        approvedAt: string;
+        createdAt: string;
+        updatedAt: string;
+        state: 'approved';
+        operationId: null;
+        executionStartedAt: null;
+        consumedAt: null;
+        revokedAt: null;
+        expiredAt: null;
+    } | {
+        id: string;
+        projectId: string;
+        adAccountId: string;
+        manifestHash: string;
+        manifest: {
+            campaign: {
+                id: string;
+                expectedUpdatedAt: number;
+                adGroups: Array<{
+                    id: string;
+                    expectedUpdatedAt: number;
+                    ads: Array<{
+                        id: string;
+                        expectedUpdatedAt: number;
+                    }>;
+                }>;
+            };
+        };
+        executorApiKeyId: string;
+        approverApiKeyId: string;
+        expiresAt: string;
+        approvedAt: string;
+        createdAt: string;
+        updatedAt: string;
+        state: 'executing';
+        operationId: string;
+        executionStartedAt: string;
+        consumedAt: null;
+        revokedAt: null;
+        expiredAt: null;
+    } | {
+        id: string;
+        projectId: string;
+        adAccountId: string;
+        manifestHash: string;
+        manifest: {
+            campaign: {
+                id: string;
+                expectedUpdatedAt: number;
+                adGroups: Array<{
+                    id: string;
+                    expectedUpdatedAt: number;
+                    ads: Array<{
+                        id: string;
+                        expectedUpdatedAt: number;
+                    }>;
+                }>;
+            };
+        };
+        executorApiKeyId: string;
+        approverApiKeyId: string;
+        expiresAt: string;
+        approvedAt: string;
+        createdAt: string;
+        updatedAt: string;
+        state: 'consumed';
+        operationId: string;
+        executionStartedAt: string;
+        consumedAt: string;
+        revokedAt: null;
+        expiredAt: null;
+    } | {
+        id: string;
+        projectId: string;
+        adAccountId: string;
+        manifestHash: string;
+        manifest: {
+            campaign: {
+                id: string;
+                expectedUpdatedAt: number;
+                adGroups: Array<{
+                    id: string;
+                    expectedUpdatedAt: number;
+                    ads: Array<{
+                        id: string;
+                        expectedUpdatedAt: number;
+                    }>;
+                }>;
+            };
+        };
+        executorApiKeyId: string;
+        approverApiKeyId: string;
+        expiresAt: string;
+        approvedAt: string;
+        createdAt: string;
+        updatedAt: string;
+        state: 'revoked';
+        operationId: null;
+        executionStartedAt: null;
+        consumedAt: null;
+        revokedAt: string;
+        expiredAt: null;
+    } | {
+        id: string;
+        projectId: string;
+        adAccountId: string;
+        manifestHash: string;
+        manifest: {
+            campaign: {
+                id: string;
+                expectedUpdatedAt: number;
+                adGroups: Array<{
+                    id: string;
+                    expectedUpdatedAt: number;
+                    ads: Array<{
+                        id: string;
+                        expectedUpdatedAt: number;
+                    }>;
+                }>;
+            };
+        };
+        executorApiKeyId: string;
+        approverApiKeyId: string;
+        expiresAt: string;
+        approvedAt: string;
+        createdAt: string;
+        updatedAt: string;
+        state: 'expired';
+        operationId: null;
+        executionStartedAt: null;
+        consumedAt: null;
+        revokedAt: null;
+        expiredAt: string;
+    } | {
+        id: string;
+        projectId: string;
+        adAccountId: string;
+        manifestHash: string;
+        manifest: {
+            campaign: {
+                id: string;
+                expectedUpdatedAt: number;
+                adGroups: Array<{
+                    id: string;
+                    expectedUpdatedAt: number;
+                    ads: Array<{
+                        id: string;
+                        expectedUpdatedAt: number;
+                    }>;
+                }>;
+            };
+        };
+        executorApiKeyId: string;
+        approverApiKeyId: string;
+        expiresAt: string;
+        approvedAt: string;
+        createdAt: string;
+        updatedAt: string;
+        state: 'unknown';
+        operationId: string;
+        executionStartedAt: string;
+        consumedAt: null;
+        revokedAt: null;
+        expiredAt: null;
+    };
+};
+
 export type AdsCampaignListResponse = {
     campaigns: Array<{
         id: string;
@@ -151,7 +696,7 @@ export type AdsOperationReconcileResponse = {
         id: string;
         adAccountId: string | null;
         operationKey: string;
-        kind: 'image_upload' | 'campaign_create' | 'campaign_update' | 'campaign_pause' | 'ad_group_create' | 'ad_group_update' | 'ad_group_pause' | 'ad_create' | 'ad_update' | 'ad_pause';
+        kind: 'image_upload' | 'campaign_create' | 'campaign_update' | 'campaign_pause' | 'campaign_tree_activate' | 'ad_group_create' | 'ad_group_update' | 'ad_group_pause' | 'ad_create' | 'ad_update' | 'ad_pause';
         state: 'pending' | 'reconciling' | 'succeeded' | 'failed' | 'unknown';
         entityType: 'file' | 'campaign' | 'ad_group' | 'ad' | null;
         entityId: string | null;
@@ -191,7 +736,7 @@ export type AdsOperationResponse = {
         id: string;
         adAccountId: string | null;
         operationKey: string;
-        kind: 'image_upload' | 'campaign_create' | 'campaign_update' | 'campaign_pause' | 'ad_group_create' | 'ad_group_update' | 'ad_group_pause' | 'ad_create' | 'ad_update' | 'ad_pause';
+        kind: 'image_upload' | 'campaign_create' | 'campaign_update' | 'campaign_pause' | 'campaign_tree_activate' | 'ad_group_create' | 'ad_group_update' | 'ad_group_pause' | 'ad_create' | 'ad_update' | 'ad_pause';
         state: 'pending' | 'reconciling' | 'succeeded' | 'failed' | 'unknown';
         entityType: 'file' | 'campaign' | 'ad_group' | 'ad' | null;
         entityId: string | null;
@@ -258,7 +803,7 @@ export type AdsUnresolvedOperationListResponse = {
         id: string;
         adAccountId: string | null;
         operationKey: string;
-        kind: 'image_upload' | 'campaign_create' | 'campaign_update' | 'campaign_pause' | 'ad_group_create' | 'ad_group_update' | 'ad_group_pause' | 'ad_create' | 'ad_update' | 'ad_pause';
+        kind: 'image_upload' | 'campaign_create' | 'campaign_update' | 'campaign_pause' | 'campaign_tree_activate' | 'ad_group_create' | 'ad_group_update' | 'ad_group_pause' | 'ad_create' | 'ad_update' | 'ad_pause';
         state: 'pending' | 'reconciling' | 'succeeded' | 'failed' | 'unknown';
         entityType: 'file' | 'campaign' | 'ad_group' | 'ad' | null;
         entityId: string | null;
@@ -7321,6 +7866,215 @@ export type PostApiV1ProjectsByNameAdsOperationsByOperationKeyReconcileResponses
 };
 
 export type PostApiV1ProjectsByNameAdsOperationsByOperationKeyReconcileResponse = PostApiV1ProjectsByNameAdsOperationsByOperationKeyReconcileResponses[keyof PostApiV1ProjectsByNameAdsOperationsByOperationKeyReconcileResponses];
+
+export type PostApiV1ProjectsByNameAdsOperationsByOperationKeyResumeActivationData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+        /**
+         * Operation key of the existing campaign-tree activation receipt.
+         */
+        operationKey: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/ads/operations/{operationKey}/resume-activation';
+};
+
+export type PostApiV1ProjectsByNameAdsOperationsByOperationKeyResumeActivationErrors = {
+    /**
+     * A request body was supplied or activation recovery is not configured.
+     */
+    400: ErrorEnvelope;
+    /**
+     * The key lacks ads.activate or is not the grant-bound executor.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project, activation operation, or bound grant not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * The grant expired, its account/manifest binding changed, or its receipt conflicts.
+     */
+    409: ErrorEnvelope;
+    /**
+     * The activation receipt and approval grant binding is invalid.
+     */
+    500: ErrorEnvelope;
+    /**
+     * Activation or rollback recovery failed closed.
+     */
+    502: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameAdsOperationsByOperationKeyResumeActivationError = PostApiV1ProjectsByNameAdsOperationsByOperationKeyResumeActivationErrors[keyof PostApiV1ProjectsByNameAdsOperationsByOperationKeyResumeActivationErrors];
+
+export type PostApiV1ProjectsByNameAdsOperationsByOperationKeyResumeActivationResponses = {
+    /**
+     * Canonical activation grant, receipt, and ordered step ledger.
+     */
+    200: AdsActivateTreeResponse;
+};
+
+export type PostApiV1ProjectsByNameAdsOperationsByOperationKeyResumeActivationResponse = PostApiV1ProjectsByNameAdsOperationsByOperationKeyResumeActivationResponses[keyof PostApiV1ProjectsByNameAdsOperationsByOperationKeyResumeActivationResponses];
+
+export type PostApiV1ProjectsByNameAdsActivationGrantsData = {
+    body: {
+        manifest: {
+            campaign: {
+                id: string;
+                expectedUpdatedAt: number;
+                adGroups: Array<{
+                    id: string;
+                    expectedUpdatedAt: number;
+                    ads: Array<{
+                        id: string;
+                        expectedUpdatedAt: number;
+                    }>;
+                }>;
+            };
+        };
+        executorApiKeyId: string;
+        expiresAt: string;
+    };
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/ads/activation-grants';
+};
+
+export type PostApiV1ProjectsByNameAdsActivationGrantsErrors = {
+    /**
+     * Invalid, stale, ineligible, or non-paused campaign tree.
+     */
+    400: ErrorEnvelope;
+    /**
+     * The key lacks ads.approve.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project or executor API key not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * OpenAI Ads preflight read failed.
+     */
+    502: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameAdsActivationGrantsError = PostApiV1ProjectsByNameAdsActivationGrantsErrors[keyof PostApiV1ProjectsByNameAdsActivationGrantsErrors];
+
+export type PostApiV1ProjectsByNameAdsActivationGrantsResponses = {
+    /**
+     * Approval grant created.
+     */
+    200: AdsActivationGrantResponse;
+};
+
+export type PostApiV1ProjectsByNameAdsActivationGrantsResponse = PostApiV1ProjectsByNameAdsActivationGrantsResponses[keyof PostApiV1ProjectsByNameAdsActivationGrantsResponses];
+
+export type PostApiV1ProjectsByNameAdsActivationGrantsByGrantIdRevokeData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+        /**
+         * Activation grant ID.
+         */
+        grantId: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/ads/activation-grants/{grantId}/revoke';
+};
+
+export type PostApiV1ProjectsByNameAdsActivationGrantsByGrantIdRevokeErrors = {
+    /**
+     * Grant has already started or been consumed.
+     */
+    400: ErrorEnvelope;
+    /**
+     * The key lacks ads.approve.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project or activation grant not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameAdsActivationGrantsByGrantIdRevokeError = PostApiV1ProjectsByNameAdsActivationGrantsByGrantIdRevokeErrors[keyof PostApiV1ProjectsByNameAdsActivationGrantsByGrantIdRevokeErrors];
+
+export type PostApiV1ProjectsByNameAdsActivationGrantsByGrantIdRevokeResponses = {
+    /**
+     * Unused grant revoked.
+     */
+    200: AdsActivationGrantResponse;
+};
+
+export type PostApiV1ProjectsByNameAdsActivationGrantsByGrantIdRevokeResponse = PostApiV1ProjectsByNameAdsActivationGrantsByGrantIdRevokeResponses[keyof PostApiV1ProjectsByNameAdsActivationGrantsByGrantIdRevokeResponses];
+
+export type PostApiV1ProjectsByNameAdsCampaignsByIdActivateTreeData = {
+    body: {
+        operationKey: string;
+        grantId: string;
+        manifestHash: string;
+    };
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+        /**
+         * Approved campaign ID.
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/ads/campaigns/{id}/activate-tree';
+};
+
+export type PostApiV1ProjectsByNameAdsCampaignsByIdActivateTreeErrors = {
+    /**
+     * Malformed request or campaign path mismatch.
+     */
+    400: ErrorEnvelope;
+    /**
+     * The key lacks ads.activate or is not the grant-bound executor.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project, campaign, or activation grant not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Grant expired, account/manifest/entity state changed, operation key conflicted, or the grant was already used.
+     */
+    409: ErrorEnvelope;
+    /**
+     * Activation or rollback outcome failed closed.
+     */
+    502: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameAdsCampaignsByIdActivateTreeError = PostApiV1ProjectsByNameAdsCampaignsByIdActivateTreeErrors[keyof PostApiV1ProjectsByNameAdsCampaignsByIdActivateTreeErrors];
+
+export type PostApiV1ProjectsByNameAdsCampaignsByIdActivateTreeResponses = {
+    /**
+     * Canonical activation grant, receipt, and ordered step ledger.
+     */
+    200: AdsActivateTreeResponse;
+};
+
+export type PostApiV1ProjectsByNameAdsCampaignsByIdActivateTreeResponse = PostApiV1ProjectsByNameAdsCampaignsByIdActivateTreeResponses[keyof PostApiV1ProjectsByNameAdsCampaignsByIdActivateTreeResponses];
 
 export type PostApiV1ProjectsByNameAdsFilesData = {
     body: {

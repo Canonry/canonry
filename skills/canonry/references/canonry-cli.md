@@ -586,7 +586,15 @@ cnry ads operations unresolved <project> --limit 100 --format json
 cnry ads operations unresolved <project> --cursor <nextCursor> --limit 100 --format json
                                                    # advance past permanent rows with the opaque keyset cursor
 cnry ads operation reconcile <project> --operation-key <key>
-                                                   # verify provider state; never retries the original mutation
+                                                   # verify nonactivation provider state; never retries the mutation
+cnry ads operation resume-activation <project> --operation-key <key>
+                                                   # exact-executor recovery for an existing activation receipt; no body
+cnry ads activation-grant create <project> --input grant.json
+                                                   # human approval for one exact tree + executor key + expiry
+cnry ads activation-grant revoke <project> <grant-id>
+                                                   # revoke only while the grant is unused
+cnry ads campaign activate-tree <project> <campaign-id> --input activate.json
+                                                   # executor consumes the exact approved grant
 cnry ads sync <project>                          # ads-sync run: entity snapshots + daily rollups
 cnry ads campaigns <project> --format jsonl      # lifecycle timestamps, location IDs, context hints, creative file IDs
 cnry ads insights <project> --level campaign --from 2026-06-01 --format jsonl
@@ -610,25 +618,32 @@ Lifecycle inputs are JSON files, or `--input -` for stdin. Every request carries
 a unique `operationKey`. Identical replays return the stored receipt without a
 second upstream request. Before issuing new lifecycle writes, run `ads
 operations unresolved`; if a receipt is `pending`, `unknown`, or `reconciling`,
-do not retry with a different key. Reconcile the original operation key instead.
-Reconciliation only reads and verifies provider state. It never re-sends the
-mutation or accepts a caller-selected provider entity. Canonry resolves a
-receipt only when the provider ID was durably checkpointed and its live state
-matches the stored safe fields on the receipt-bound account. An uncheckpointed
-create remains unresolved because mutable-field equality cannot prove which
-request created an entity. A pending receipt must be idle for five minutes
-before either a human or the sweeper may claim it, so recovery cannot race a
-request that is still returning from the provider. Automatic inconclusive
-inspections back off from a five-minute base; explicit operator requests may
-inspect sooner, but every path stops after five attempts. The receipt then
-remains visible as `unknown` with `ADS_RECONCILIATION_QUARANTINED` and requires
-manual provider remediation. JSON list responses return `nextCursor`; pass it
-back unchanged with the same project and state filter to continue.
+do not retry with a different key. Branch on `kind`: use `ads operation
+resume-activation` for `campaign_tree_activate`, and generic `ads operation
+reconcile` for other supported receipts. Generic reconciliation only reads and
+verifies provider state. It never re-sends the mutation or accepts a
+caller-selected provider entity. Canonry resolves a generic receipt only when
+the provider ID was durably checkpointed and its live state matches the stored
+safe fields on the receipt-bound account. An uncheckpointed create remains
+unresolved because mutable-field equality cannot prove which request created an
+entity. A pending generic receipt must be idle for five minutes before either a
+human or the sweeper may claim it, so recovery cannot race a request that is
+still returning from the provider. Automatic inconclusive inspections back off
+from a five-minute base; explicit operator requests may inspect sooner, but
+every generic path stops after five attempts. The receipt then remains visible
+as `unknown` with `ADS_RECONCILIATION_QUARANTINED` and requires manual provider
+remediation. JSON list responses return `nextCursor`; pass it back unchanged
+with the same project and state filter to continue.
 Creates are always paused. Updates require the entity to
 already be paused and `expectedUpdatedAt` to equal the latest
 `upstreamUpdatedAt` from `ads campaigns` after a sync. Canonry exposes pause as
-the kill switch but deliberately omits activation and archive; a human reviews
-and activates in Ads Manager.
+the kill switch and deliberately omits archive and direct entity activation.
+A human can instead approve one exact campaign tree for a different executor
+key. The short-lived grant pins every campaign/ad-group/ad ID and
+`expectedUpdatedAt`; execution rechecks the account and ad review gates, then
+activates ads first, ad groups second, and the campaign last. Each step is
+durably checkpointed. A failure rolls back the campaign before its children,
+and an ambiguous outcome fails closed for manual remediation.
 
 For a conversion-optimized campaign, set `biddingType` to `clicks` and pass at
 least one exact `conversionEventSettingIds` value returned by `ads conversions
@@ -647,29 +662,76 @@ the [campaign update contract](https://developers.openai.com/ads/api-reference/c
 
 ### Guarded operator release gates
 
-Default external automation to a project-scoped API key with exactly `read`
-and `ads.write`; never hand an external operator an unscoped key:
+Default external automation to a project-scoped API key with exactly `read`,
+`ads.write`, and `ads.activate`; never hand an external operator an unscoped
+key:
 
 ```bash
-canonry key create --name ads-operator --project <project> --scope read --scope ads.write
+canonry key create --name ads-operator --project <project> \
+  --scope read --scope ads.write --scope ads.activate
+canonry key create --name ads-approver --project <project> \
+  --scope read --scope ads.approve
 ```
 
-Before enabling spend on an advertiser account, run a paused,
-disposable live-provider smoke test and capture sanitized raw responses for
-campaign get, create, and pause. For every response, verify and record the exact
-case and type of `status`, plus the type and exact returned value of
-`updated_at`. The captured responses must agree with the typed client and
-fixtures without coercion.
+Keep the plaintext keys separate. The human approval request must authenticate
+with the `ads-approver` key and name the operator key's ID as
+`executorApiKeyId`; Canonry refuses a grant whose approver and executor IDs are
+the same. Approval create/revoke exist in REST and CLI only. MCP and Aero expose
+`activate-tree` plus bodyless recovery of its existing receipt, so the ads
+operator cannot mint, replace, or widen its own grant.
+
+The grant request is strict JSON. Its entity arrays must be uniquely sorted by
+provider ID so the manifest has one canonical hash:
+
+```json
+{
+  "manifest": {
+    "campaign": {
+      "id": "cmpn_...",
+      "expectedUpdatedAt": 1780868842,
+      "adGroups": [{
+        "id": "adgrp_...",
+        "expectedUpdatedAt": 1780864410,
+        "ads": [{ "id": "ad_...", "expectedUpdatedAt": 1781139491 }]
+      }]
+    }
+  },
+  "executorApiKeyId": "key_...",
+  "expiresAt": "2026-07-18T18:00:00.000Z"
+}
+```
+
+The approval response returns `grant.id` and `grant.manifestHash`. Pass those
+unchanged to the operator:
+
+```json
+{
+  "operationKey": "launch:campaign:2026-07-18:1",
+  "grantId": "grant_...",
+  "manifestHash": "64-lowercase-hex-characters"
+}
+```
+
+Before enabling spend on an advertiser account, run a paused, disposable
+live-provider smoke test and capture sanitized raw responses for campaign get,
+create, and pause. For every response, verify and record the exact case and type
+of `status`, plus the type and exact returned value of `updated_at`. The
+captured responses must agree with the typed client and fixtures without
+coercion. After explicit budget approval, repeat the check through one minimal
+grant-bound activate-tree execution and immediate campaign pause; verify every
+activation response reports exact `active` plus an integer `updated_at`.
 
 The receipt lifecycle is safe across concurrent writers: an atomic claim picks
-one upstream sender, losers replay the canonical receipt, and a leased
-reconciler settles stale `pending` / `unknown` rows by verifying provider state.
-Exact credential/account verification is cached for five minutes, keyed by a
-one-way credential fingerprint plus the project and stored account identity;
-credential rotation or account rebinding misses the cache immediately.
-When another worker owns reconciliation, the route returns the canonical
-`reconciling` receipt with `resolved: false`; callers wait and read it again
-instead of starting a second verification pass.
+one upstream sender and losers replay the canonical receipt. A leased generic
+reconciler settles supported stale `pending` / `unknown` rows by verifying
+provider state. Exact credential/account verification is cached for five
+minutes, keyed by a one-way credential fingerprint plus the project and stored
+account identity; credential rotation or account rebinding misses the cache
+immediately. Activation receipts keep their grant and ordered step ledger
+authoritative: only the exact bound executor may call the bodyless resume route,
+which cannot substitute a manifest, grant, account, or campaign. When another
+worker owns reconciliation or activation recovery, callers wait and read the
+canonical receipt instead of starting a second pass.
 
 ## Backlinks (source-aware: Common Crawl + Bing Webmaster)
 

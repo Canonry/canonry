@@ -7,6 +7,7 @@ import {
   adsAdGroupUpdateRequestSchema,
   adsAdUpdateRequestSchema,
   adsCampaignCreateRequestSchema,
+  adsActivateTreeRequestSchema,
   adsCampaignUpdateRequestSchema,
   adsGeoSearchQuerySchema,
   adsImageUploadRequestSchema,
@@ -258,6 +259,8 @@ const adsOperationInputSchema = z.object({
   operationKey: z.string().min(8).max(128),
 })
 
+const adsOperationResumeActivationInputSchema = adsOperationInputSchema.strict()
+
 const adsUnresolvedOperationsInputSchema = adsUnresolvedOperationListQuerySchema.extend({
   project: projectNameSchema,
 })
@@ -281,6 +284,12 @@ const adsCampaignUpdateInputSchema = z.object({
   project: projectNameSchema,
   campaignId: z.string().min(1),
   request: adsCampaignUpdateRequestSchema,
+})
+
+const adsCampaignActivateTreeInputSchema = z.object({
+  project: projectNameSchema,
+  campaignId: z.string().min(1),
+  request: adsActivateTreeRequestSchema,
 })
 
 const adsCampaignPauseInputSchema = z.object({
@@ -2042,7 +2051,7 @@ export const canonryMcpTools = [
     name: 'canonry_ads_operations_unresolved',
     title: 'List unresolved ads mutation receipts',
     description:
-      'List pending, unknown, or actively reconciling OpenAI Ads mutation receipts that need recovery. Pass nextCursor back as cursor to advance past permanent rows. Use this before new lifecycle work so an ambiguous earlier outcome is settled instead of retried under another key.',
+      'List pending, unknown, or actively reconciling OpenAI Ads mutation receipts that need recovery. Pass nextCursor back as cursor to advance past permanent rows. Use this before new lifecycle work so an ambiguous earlier outcome is settled instead of retried under another key. Route campaign_tree_activate receipts to canonry_ads_operation_resume_activation; use generic reconciliation only for other supported receipt kinds.',
     access: 'read',
     tier: 'ads',
     inputSchema: adsUnresolvedOperationsInputSchema,
@@ -2058,7 +2067,7 @@ export const canonryMcpTools = [
     name: 'canonry_ads_operation_get',
     title: 'Get an ads mutation receipt',
     description:
-      'Read the durable receipt for an OpenAI Ads mutation by its caller-supplied operation key. A pending or unknown receipt must be reconciled by a human; never retry it with a new key because the upstream request may already have succeeded.',
+      'Read the durable receipt for an OpenAI Ads mutation by its caller-supplied operation key. Never retry a pending or unknown receipt with a new key because the upstream request may already have succeeded. Resume campaign_tree_activate receipts through canonry_ads_operation_resume_activation; send other supported receipt kinds to generic reconciliation.',
     access: 'read',
     tier: 'ads',
     inputSchema: adsOperationInputSchema,
@@ -2070,13 +2079,25 @@ export const canonryMcpTools = [
     name: 'canonry_ads_operation_reconcile',
     title: 'Reconcile an ads mutation receipt',
     description:
-      'Verify a checkpointed provider entity against the receipt-bound OpenAI ad account without retrying the original mutation. Uncheckpointed creates remain unresolved because mutable-field matching cannot prove provenance.',
+      'Verify a checkpointed provider entity against the receipt-bound OpenAI ad account without retrying the original mutation. Uncheckpointed creates remain unresolved because mutable-field matching cannot prove provenance. This generic tool rejects campaign_tree_activate receipts; use canonry_ads_operation_resume_activation for those.',
     access: 'write',
     tier: 'ads',
     inputSchema: adsOperationReconcileInputSchema,
     annotations: writeAnnotations({ idempotentHint: true, openWorldHint: true }),
     openApiOperations: ['POST /api/v1/projects/{name}/ads/operations/{operationKey}/reconcile'],
     handler: (client, input) => client.reconcileAdsOperation(input.project, input.operationKey),
+  }),
+  defineTool({
+    name: 'canonry_ads_operation_resume_activation',
+    title: 'Resume an ads activation receipt',
+    description:
+      'Resume recovery for an existing campaign_tree_activate receipt using its durable approval grant and ordered step ledger. The request is bodyless, requires ads.activate on the exact executor key already bound to the grant, and cannot replace the operation, grant, manifest, campaign, or account. Canonry inspects provider state and never blindly resends an ambiguous activation mutation.',
+    access: 'write',
+    tier: 'ads',
+    inputSchema: adsOperationResumeActivationInputSchema,
+    annotations: writeAnnotations({ idempotentHint: true, destructiveHint: true, openWorldHint: true }),
+    openApiOperations: ['POST /api/v1/projects/{name}/ads/operations/{operationKey}/resume-activation'],
+    handler: (client, input) => client.resumeAdsActivation(input.project, input.operationKey),
   }),
   defineTool({
     name: 'canonry_ads_image_upload',
@@ -2094,7 +2115,7 @@ export const canonryMcpTools = [
     name: 'canonry_ads_campaign_create',
     title: 'Create a paused ads campaign',
     description:
-      'Create an OpenAI Ads campaign PAUSED with an explicit lifetime spend limit and location allowlist. Set biddingType=clicks with one or more provider-issued conversionEventSettingIds for conversion-optimized delivery; omit both for legacy impressions bidding. The server ignores any status concept and always sends paused. Inspect the receipt, then create matching paused ad groups and ads. Activation is deliberately human-only for the beta.',
+      'Create an OpenAI Ads campaign PAUSED with an explicit lifetime spend limit and location allowlist. Set biddingType=clicks with one or more provider-issued conversionEventSettingIds for conversion-optimized delivery; omit both for legacy impressions bidding. The server ignores any status concept and always sends paused. Inspect the receipt, then create matching paused ad groups and ads. A human must separately approve the exact tree before this operator can activate it.',
     access: 'write',
     tier: 'ads',
     inputSchema: adsCampaignCreateInputSchema,
@@ -2106,13 +2127,25 @@ export const canonryMcpTools = [
     name: 'canonry_ads_campaign_update',
     title: 'Update an ads campaign',
     description:
-      'Update a PAUSED campaign copy, dates, lifetime spend limit, or locations without changing status. Active campaigns fail closed: pause first, sync, and use the refreshed upstreamUpdatedAt. A human must reactivate after reviewing the change. Uses a durable operation key.',
+      'Update a PAUSED campaign copy, dates, lifetime spend limit, or locations without changing status. Active campaigns fail closed: pause first, sync, and use the refreshed upstreamUpdatedAt. A human must approve the exact updated tree before this operator can reactivate it. Uses a durable operation key.',
     access: 'write',
     tier: 'ads',
     inputSchema: adsCampaignUpdateInputSchema,
     annotations: writeAnnotations({ idempotentHint: true, destructiveHint: true, openWorldHint: true }),
     openApiOperations: ['POST /api/v1/projects/{name}/ads/campaigns/{id}'],
     handler: (client, input) => client.updateAdsCampaign(input.project, input.campaignId, input.request),
+  }),
+  defineTool({
+    name: 'canonry_ads_campaign_activate_tree',
+    title: 'Activate an approved ads campaign tree',
+    description:
+      'Execute one short-lived human approval grant for the exact paused campaign, ad groups, and reviewed ads named by its manifest. The grant is bound to this executor key and manifest hash. Canonry checkpoints every step, activates ads before parents, verifies active state, and rolls back parent-first on failure. This tool cannot create or widen an approval.',
+    access: 'write',
+    tier: 'ads',
+    inputSchema: adsCampaignActivateTreeInputSchema,
+    annotations: writeAnnotations({ idempotentHint: true, destructiveHint: true, openWorldHint: true }),
+    openApiOperations: ['POST /api/v1/projects/{name}/ads/campaigns/{id}/activate-tree'],
+    handler: (client, input) => client.activateAdsCampaignTree(input.project, input.campaignId, input.request),
   }),
   defineTool({
     name: 'canonry_ads_campaign_pause',

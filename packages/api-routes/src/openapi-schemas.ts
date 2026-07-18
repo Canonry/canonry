@@ -105,6 +105,8 @@ import {
   runDetailDtoSchema,
   adsCampaignListResponseSchema,
   adsAccountDtoSchema,
+  adsActivateTreeResponseSchema,
+  adsActivationGrantResponseSchema,
   adsConnectionStatusDtoSchema,
   adsConversionEventSettingListResponseSchema,
   adsConversionPixelListResponseSchema,
@@ -158,6 +160,8 @@ import {
 const SCHEMA_TABLE = {
   AgentProvidersResponseDto: agentProvidersResponseDtoSchema,
   AdsAccountDto: adsAccountDtoSchema,
+  AdsActivateTreeResponse: adsActivateTreeResponseSchema,
+  AdsActivationGrantResponse: adsActivationGrantResponseSchema,
   AdsCampaignListResponse: adsCampaignListResponseSchema,
   AdsConnectionStatusDto: adsConnectionStatusDtoSchema,
   AdsConversionEventSettingListResponse: adsConversionEventSettingListResponseSchema,

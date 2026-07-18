@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { getTableColumns, getTableName, is, Table } from 'drizzle-orm'
-import type { z } from 'zod'
+import { z } from 'zod'
 import * as dbSchema from '@ainyc/canonry-db'
 import {
   adsAdDtoSchema,
@@ -8,7 +8,9 @@ import {
   adsCampaignDtoSchema,
   adsConnectionStatusDtoSchema,
   adsInsightRowDtoSchema,
+  adsActivationGrantDtoSchema,
   adsOperationDtoSchema,
+  adsOperationStepDtoSchema,
   backlinkDomainDtoSchema,
   backlinkSummaryDtoSchema,
   bingConnectionDtoSchema,
@@ -98,7 +100,7 @@ import {
 type CoverageEntry =
   | {
       kind: 'dto'
-      dto: z.ZodObject<z.ZodRawShape>
+      dto: z.ZodType
       /** DB column property → one-line reason it's not on the DTO. */
       internal: Record<string, string>
     }
@@ -230,6 +232,16 @@ const COVERAGE: Record<string, CoverageEntry> = {
       leaseOwner: 'Internal worker token used to prevent stale reconciler writes.',
       leaseExpiresAt: 'Internal lease boundary used by the bounded receipt sweeper.',
     },
+  },
+  adsActivationGrants: {
+    kind: 'dto',
+    dto: adsActivationGrantDtoSchema,
+    internal: {},
+  },
+  adsOperationSteps: {
+    kind: 'dto',
+    dto: adsOperationStepDtoSchema,
+    internal: {},
   },
   adsCampaigns: {
     kind: 'dto',
@@ -589,6 +601,14 @@ interface DiscoveredTable {
   table: Parameters<typeof getTableColumns>[0]
 }
 
+function dtoFieldNames(schema: z.ZodType): string[] {
+  if (schema instanceof z.ZodObject) return Object.keys(schema.shape)
+  if (schema instanceof z.ZodDiscriminatedUnion) {
+    return [...new Set(schema.options.flatMap((option) => dtoFieldNames(option)))]
+  }
+  throw new Error(`Unsupported public DTO schema in DB coverage: ${schema.constructor.name}`)
+}
+
 const ALL_TABLES: DiscoveredTable[] = Object.entries(dbSchema)
   .filter(([, v]) => is(v as unknown, Table))
   .map(([prop, v]) => ({
@@ -621,7 +641,7 @@ describe('DB ↔ DTO coverage (dynamic)', () => {
 
       it(`${t.prop}: every column is on the DTO or in internal`, () => {
         const dbColumns = Object.keys(getTableColumns(t.table))
-        const dtoFields = Object.keys(entry.dto.shape)
+        const dtoFields = dtoFieldNames(entry.dto)
         const internalCols = Object.keys(entry.internal)
 
         const orphaned = dbColumns.filter(

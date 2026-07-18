@@ -3,6 +3,8 @@ import { eq } from 'drizzle-orm'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { apiKeys, projects, runs } from '@ainyc/canonry-db'
 import {
+  ADS_ACTIVATE_SCOPE,
+  ADS_APPROVE_SCOPE,
   ADS_WRITE_SCOPE,
   authRequired,
   authInvalid,
@@ -20,10 +22,20 @@ import {
  */
 const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
 
-function isAdsWriteOnlyKey(scopes: readonly string[]): boolean {
+const ADS_MUTATION_SCOPES: ReadonlySet<string> = new Set([
+  ADS_WRITE_SCOPE,
+  ADS_APPROVE_SCOPE,
+  ADS_ACTIVATE_SCOPE,
+])
+
+function isAdsMutationOnlyKey(scopes: readonly string[]): boolean {
   const writeGrants = scopes.filter((scope) =>
-    scope === '*' || scope === 'write' || scope.endsWith('.write'))
-  return writeGrants.length === 1 && writeGrants[0] === ADS_WRITE_SCOPE
+    scope === '*'
+    || scope === 'write'
+    || scope.endsWith('.write')
+    || scope === ADS_APPROVE_SCOPE
+    || scope === ADS_ACTIVATE_SCOPE)
+  return writeGrants.length > 0 && writeGrants.every((scope) => ADS_MUTATION_SCOPES.has(scope))
 }
 
 function isAdsWriteRoute(url: string): boolean {
@@ -322,14 +334,14 @@ export async function authPlugin(app: FastifyInstance, opts: AuthPluginOptions =
       throw forbidden('This API key is read-only and cannot perform write operations.')
     }
 
-    // `ads.write` is the first delegated operator scope used by an autonomous
-    // external client. Keep a key whose only write grant is ads.write inside
-    // the project's `/ads/*` surface even though older write routes still rely
-    // on the historical read-only-vs-write classifier. Every ads mutation also
+    // The named ads scopes are delegated operator/approver grants. Keep a key
+    // whose write capabilities are exclusively ads-related inside the
+    // project's `/ads/*` surface even though older write routes still rely on
+    // the historical read-only-vs-write classifier. Every ads mutation also
     // calls requireScope(), so the route and the key must agree in both
     // directions. Wildcard/root keys retain the existing full-instance access.
     if (
-      isAdsWriteOnlyKey(scopes) &&
+      isAdsMutationOnlyKey(scopes) &&
       WRITE_METHODS.has(request.method) &&
       !isAdsWriteRoute(url)
     ) {

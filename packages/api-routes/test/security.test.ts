@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import Fastify from 'fastify'
 import { expect, test } from 'vitest'
-import { ADS_WRITE_SCOPE } from '@ainyc/canonry-contracts'
+import { ADS_ACTIVATE_SCOPE, ADS_APPROVE_SCOPE, ADS_WRITE_SCOPE } from '@ainyc/canonry-contracts'
 import { createClient, migrate, apiKeys, notifications, projects } from '@ainyc/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import type { ApiRoutesOptions } from '../src/index.js'
@@ -226,7 +226,9 @@ test('a read-only key is blocked on every write method but passes reads', async 
   }
 })
 
-test('a project-scoped ads.write key cannot mutate non-ads state', async () => {
+test.each([ADS_WRITE_SCOPE, ADS_APPROVE_SCOPE, ADS_ACTIVATE_SCOPE])(
+  'a project-scoped %s key cannot mutate non-ads state',
+  async (adsScope) => {
   const { app, db, tmpDir } = buildApp()
   const rootKey = insertApiKey(db)
   await app.ready()
@@ -253,7 +255,7 @@ test('a project-scoped ads.write key cannot mutate non-ads state', async () => {
       name: 'ads-delegate',
       keyHash: crypto.createHash('sha256').update(adsKey).digest('hex'),
       keyPrefix: adsKey.slice(0, 9),
-      scopes: ['read', ADS_WRITE_SCOPE],
+      scopes: ['read', adsScope],
       projectId: project.id,
       createdAt: new Date().toISOString(),
     }).run()
@@ -273,8 +275,13 @@ test('a project-scoped ads.write key cannot mutate non-ads state', async () => {
       url: '/api/v1/projects/ads-delegate-test/ads/sync',
       headers,
     })
-    expect(adsWrite.statusCode).toBe(400)
-    expect(JSON.parse(adsWrite.body).error.code).toBe('VALIDATION_ERROR')
+    if (adsScope === ADS_WRITE_SCOPE) {
+      expect(adsWrite.statusCode).toBe(400)
+      expect(JSON.parse(adsWrite.body).error.code).toBe('VALIDATION_ERROR')
+    } else {
+      expect(adsWrite.statusCode).toBe(403)
+      expect(JSON.parse(adsWrite.body).error.code).toBe('FORBIDDEN')
+    }
   } finally {
     await app.close()
     fs.rmSync(tmpDir, { recursive: true, force: true })

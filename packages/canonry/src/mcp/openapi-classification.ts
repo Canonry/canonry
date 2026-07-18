@@ -130,10 +130,16 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'GET /api/v1/projects/{name}/ads/operations': 'included',
   'GET /api/v1/projects/{name}/ads/operations/{operationKey}': 'included',
   'POST /api/v1/projects/{name}/ads/operations/{operationKey}/reconcile': 'included',
+  'POST /api/v1/projects/{name}/ads/operations/{operationKey}/resume-activation': 'included',
+  // Approval and revoke remain human API/CLI surfaces. The agent receives only
+  // the separately scoped, exact-grant execution operation.
+  'POST /api/v1/projects/{name}/ads/activation-grants': 'deferred',
+  'POST /api/v1/projects/{name}/ads/activation-grants/{grantId}/revoke': 'deferred',
   'POST /api/v1/projects/{name}/ads/files': 'included',
   'POST /api/v1/projects/{name}/ads/campaigns': 'included',
   'POST /api/v1/projects/{name}/ads/campaigns/{id}': 'included',
   'POST /api/v1/projects/{name}/ads/campaigns/{id}/pause': 'included',
+  'POST /api/v1/projects/{name}/ads/campaigns/{id}/activate-tree': 'included',
   'POST /api/v1/projects/{name}/ads/ad-groups': 'included',
   'POST /api/v1/projects/{name}/ads/ad-groups/{id}': 'included',
   'POST /api/v1/projects/{name}/ads/ad-groups/{id}/pause': 'included',

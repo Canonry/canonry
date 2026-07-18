@@ -6,6 +6,10 @@ import type {
   AdsConversionEventSettingListResponse,
   AdsConversionPixelListResponse,
   AdsDisconnectResponse,
+  AdsActivationGrantCreateRequest,
+  AdsActivationGrantResponse,
+  AdsActivateTreeRequest,
+  AdsActivateTreeResponse,
   AdsGeoSearchQuery,
   AdsGeoSearchResponse,
   AdsInsightsResponse,
@@ -32,9 +36,13 @@ import {
   adsAdUpdateRequestSchema,
   adsCampaignCreateRequestSchema,
   adsCampaignUpdateRequestSchema,
+  adsActivationGrantCreateRequestSchema,
+  adsActivateTreeRequestSchema,
   adsImageUploadRequestSchema,
   adsPauseRequestSchema,
+  AdsOperationKinds,
   AdsOperationStates,
+  AdsOperationStepStates,
   formatMicros,
 } from '@ainyc/canonry-contracts'
 import type { z } from 'zod'
@@ -78,7 +86,11 @@ function printOperationDetails(operation: AdsOperationDto): void {
     operation.state === AdsOperationStates.unknown ||
     operation.state === AdsOperationStates.reconciling
   ) {
-    console.log('Do not retry with a new operation key. Reconcile the original receipt instead.')
+    if (operation.kind === AdsOperationKinds.campaign_tree_activate) {
+      console.log('Do not retry with a new operation key. Resume activation recovery for the original receipt instead.')
+    } else {
+      console.log('Do not retry with a new operation key. Reconcile the original receipt instead.')
+    }
   }
 }
 
@@ -98,6 +110,30 @@ function printReconciliation(result: AdsOperationReconcileResponse, format?: str
   }
   console.log(`${result.resolved ? 'Resolved' : 'Still unresolved'} ${result.operation.kind}: ${result.operation.state}`)
   printOperationDetails(result.operation)
+}
+
+function printActivationGrant(
+  result: AdsActivationGrantResponse,
+  verb: 'Approved' | 'Revoked',
+  format?: string,
+): void {
+  if (isMachineFormat(format)) {
+    console.log(JSON.stringify(result, null, 2))
+    return
+  }
+  console.log(`${verb} activation grant ${result.grant.id}: ${result.grant.state}`)
+  console.log(`Manifest: ${result.grant.manifestHash}`)
+  console.log(`Expires:  ${result.grant.expiresAt}`)
+}
+
+function printActivation(result: AdsActivateTreeResponse, format?: string): void {
+  if (isMachineFormat(format)) {
+    console.log(JSON.stringify(result, null, 2))
+    return
+  }
+  const activeSteps = result.steps.filter((step) => step.state === AdsOperationStepStates.active).length
+  console.log(`Activation ${result.operation.operationKey}: ${result.operation.state}`)
+  console.log(`Steps:      ${activeSteps}/${result.steps.length} active`)
 }
 
 function describeConnection(status: AdsConnectionStatusDto): string[] {
@@ -326,6 +362,39 @@ export async function adsOperationReconcile(
   )
 }
 
+export async function adsOperationResumeActivation(
+  project: string,
+  opts: { operationKey: string; format?: string },
+): Promise<void> {
+  printActivation(
+    await getClient().resumeAdsActivation(project, opts.operationKey),
+    opts.format,
+  )
+}
+
+export async function adsActivationGrantCreate(
+  project: string,
+  opts: { input?: string; format?: string },
+): Promise<void> {
+  const request: AdsActivationGrantCreateRequest = readRequest(
+    opts.input,
+    adsActivationGrantCreateRequestSchema,
+  )
+  printActivationGrant(await getClient().createAdsActivationGrant(project, request), 'Approved', opts.format)
+}
+
+export async function adsActivationGrantRevoke(
+  project: string,
+  grantId: string,
+  opts?: { format?: string },
+): Promise<void> {
+  printActivationGrant(
+    await getClient().revokeAdsActivationGrant(project, grantId),
+    'Revoked',
+    opts?.format,
+  )
+}
+
 export async function adsImageUpload(
   project: string,
   opts: { input?: string; format?: string },
@@ -358,6 +427,15 @@ export async function adsCampaignPause(
 ): Promise<void> {
   const request: AdsPauseRequest = readRequest(opts.input, adsPauseRequestSchema)
   printOperation(await getClient().pauseAdsCampaign(project, campaignId, request), opts.format)
+}
+
+export async function adsCampaignActivateTree(
+  project: string,
+  campaignId: string,
+  opts: { input?: string; format?: string },
+): Promise<void> {
+  const request: AdsActivateTreeRequest = readRequest(opts.input, adsActivateTreeRequestSchema)
+  printActivation(await getClient().activateAdsCampaignTree(project, campaignId, request), opts.format)
 }
 
 export async function adsAdGroupCreate(
