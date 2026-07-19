@@ -45,6 +45,7 @@ function buildApp(overrides: {
   currentCampaignBiddingType?: 'impressions' | 'clicks' | null
   currentCampaignConversionEventSettingIds?: string[] | null
   currentAdGroupBillingEventType?: 'impression' | 'click' | null
+  getCampaignFailures?: number
   mutationStatus?: string
   pauseStatus?: string
   pauseShouldFail?: boolean
@@ -57,6 +58,7 @@ function buildApp(overrides: {
   const syncRequests: Array<{ runId: string; projectId: string }> = []
   const operatorCalls: Array<{ method: string; input?: unknown }> = []
   const readerCalls: Array<{ method: string; apiKey: string; input?: unknown }> = []
+  let remainingGetCampaignFailures = overrides.getCampaignFailures ?? 0
 
   const app = Fastify()
   app.decorate('db', db)
@@ -97,6 +99,10 @@ function buildApp(overrides: {
   })
   const call = async (method: string, id: string, input?: unknown) => {
     operatorCalls.push({ method, input })
+    if (method === 'getCampaign' && remainingGetCampaignFailures > 0) {
+      remainingGetCampaignFailures -= 1
+      throw new Error('socket closed during campaign read with sk-test')
+    }
     if (overrides.operatorShouldFail) {
       throw new Error('socket closed after request write with sk-test and https://secret.example/token')
     }
@@ -769,7 +775,7 @@ describe('ads routes', () => {
     expect(ctx.operatorCalls).toEqual([{ method: 'getCampaign', input: undefined }])
     const receipt = ctx.db.select().from(adsOperations)
       .where(eq(adsOperations.operationKey, 'weekend:group:billing-mismatch')).get()
-    expect(receipt).toMatchObject({ state: 'failed', errorCode: 'VALIDATION_ERROR' })
+    expect(receipt).toBeUndefined()
 
     const matching = await ctx.app.inject({
       method: 'POST',
@@ -798,6 +804,109 @@ describe('ads routes', () => {
         },
       },
     ])
+  })
+
+  it('keeps an ad-group operation key retryable when the campaign preflight read fails', async () => {
+    await ctx.app.close()
+    fs.rmSync(ctx.tmpDir, { recursive: true, force: true })
+    ctx = buildApp({ getCampaignFailures: 1 })
+    await ctx.app.ready()
+    const projectId = ctx.seedProject()
+    ctx.seedConnection(projectId)
+    const payload = {
+      operationKey: 'weekend:group:preflight-retry',
+      campaignId: 'cmpn_new',
+      name: 'AEO audit discovery',
+      contextHints: ['book an AEO audit'],
+      maxBidMicros: 60_000,
+    }
+
+    const first = await ctx.app.inject({
+      method: 'POST',
+      url: '/projects/acme/ads/ad-groups',
+      payload,
+    })
+
+    expect(first.statusCode).toBe(502)
+    expect(first.body).not.toContain('sk-test')
+    expect(ctx.operatorCalls).toEqual([{ method: 'getCampaign', input: undefined }])
+    expect(ctx.db.select().from(adsOperations)
+      .where(eq(adsOperations.operationKey, payload.operationKey)).get()).toBeUndefined()
+
+    const retry = await ctx.app.inject({
+      method: 'POST',
+      url: '/projects/acme/ads/ad-groups',
+      payload,
+    })
+
+    expect(retry.statusCode).toBe(200)
+    expect(ctx.operatorCalls.slice(1)).toEqual([
+      { method: 'getCampaign', input: undefined },
+      {
+        method: 'createAdGroup',
+        input: {
+          campaignId: 'cmpn_new',
+          name: 'AEO audit discovery',
+          contextHints: ['book an AEO audit'],
+          maxBidMicros: 60_000,
+          billingEventType: 'impression',
+        },
+      },
+    ])
+    expect(ctx.db.select().from(adsOperations)
+      .where(eq(adsOperations.operationKey, payload.operationKey)).get()).toMatchObject({
+      state: 'succeeded',
+      entityId: 'adgrp_new',
+    })
+
+    const callsAfterSuccess = ctx.operatorCalls.length
+    const replay = await ctx.app.inject({
+      method: 'POST',
+      url: '/projects/acme/ads/ad-groups',
+      payload,
+    })
+    expect(replay.statusCode).toBe(200)
+    expect(replay.json()).toMatchObject({ replayed: true })
+    expect(ctx.operatorCalls).toHaveLength(callsAfterSuccess)
+  })
+
+  it('treats a null campaign bidding type as impressions and still rejects click billing', async () => {
+    await ctx.app.close()
+    fs.rmSync(ctx.tmpDir, { recursive: true, force: true })
+    ctx = buildApp({ currentCampaignBiddingType: null })
+    await ctx.app.ready()
+    const projectId = ctx.seedProject()
+    ctx.seedConnection(projectId)
+    const base = {
+      campaignId: 'cmpn_legacy',
+      name: 'Legacy impressions campaign',
+      contextHints: ['learn about AEO audits'],
+      maxBidMicros: 60_000,
+    }
+
+    const impressions = await ctx.app.inject({
+      method: 'POST',
+      url: '/projects/acme/ads/ad-groups',
+      payload: { ...base, operationKey: 'weekend:group:null-impressions' },
+    })
+    expect(impressions.statusCode).toBe(200)
+    expect(ctx.operatorCalls.slice(-1)).toEqual([{
+      method: 'createAdGroup',
+      input: { ...base, billingEventType: 'impression' },
+    }])
+
+    const clicks = await ctx.app.inject({
+      method: 'POST',
+      url: '/projects/acme/ads/ad-groups',
+      payload: {
+        ...base,
+        operationKey: 'weekend:group:null-clicks',
+        billingEventType: 'click',
+      },
+    })
+    expect(clicks.statusCode).toBe(400)
+    expect(clicks.body).toContain('must match the parent campaign bidding type')
+    expect(ctx.operatorCalls.slice(-1)).toEqual([{ method: 'getCampaign', input: undefined }])
   })
 
   it('fails a stale update closed before calling the upstream update', async () => {

@@ -276,6 +276,14 @@ describe('ads lifecycle contracts', () => {
       ...base,
       conversionEventSettingIds: ['ces_lead', 'ces_booked'],
     }).success).toBe(true)
+    expect(adsCampaignCreateRequestSchema.safeParse({
+      ...base,
+      conversionEventSettingIds: Array.from({ length: 100 }, (_, index) => `ces_${index}`),
+    }).success).toBe(true)
+    expect(adsCampaignCreateRequestSchema.safeParse({
+      ...base,
+      conversionEventSettingIds: Array.from({ length: 101 }, (_, index) => `ces_${index}`),
+    }).success).toBe(false)
   })
 
   test('ad-group creation preserves the legacy billing omission and accepts both billing events', () => {
