@@ -2517,16 +2517,16 @@ const routeCatalog: OpenApiOperation[] = [
   {
     method: 'post',
     path: '/api/v1/projects/{name}/ads/activation-grants/{grantId}/revoke',
-    summary: 'Revoke an unused OpenAI Ads activation grant',
-    description: 'Human-only approval surface. Revocation is idempotent while the grant is unused and cannot interrupt an execution that already claimed the grant.',
+    summary: 'Revoke or cancel an OpenAI Ads activation grant',
+    description: 'Human-only kill switch. Before execution, the grant becomes revoked. After execution starts, or while an activation outcome is unknown, revocationRequestedAt is recorded atomically. Subsequent activation steps are blocked, and the recovery worker rolls back confirmed active entities. Unknown outcomes remain explicitly unknown while the watchdog repeatedly issues exact-tree safety pauses. A provider request already authorized or in flight may still settle before containment. Verified rollback leaves the single-use grant consumed and the operation failed.',
     tags: ['ads'],
     parameters: [
       nameParameter,
       { name: 'grantId', in: 'path', required: true, description: 'Activation grant ID.', schema: adsEntityIdSchema },
     ],
     responses: {
-      200: jsonResponse('Unused grant revoked.', 'AdsActivationGrantResponse'),
-      400: errorResponse('Grant has already started or been consumed.'),
+      200: jsonResponse('Grant revoked, cancellation requested, or prior cancellation replayed.', 'AdsActivationGrantResponse'),
+      400: errorResponse('A completed grant cannot accept a new cancellation request.'),
       403: errorResponse('The key lacks ads.approve.'),
       404: errorResponse('Project or activation grant not found.'),
     },

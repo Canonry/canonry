@@ -158,6 +158,7 @@ const APPROVED_GRANT: AdsActivationGrantResponse = {
     executionStartedAt: null,
     consumedAt: null,
     revokedAt: null,
+    revocationRequestedAt: null,
     expiredAt: null,
   },
 }
@@ -166,6 +167,16 @@ const REVOKED_GRANT: AdsActivationGrantResponse = {
     ...APPROVED_GRANT.grant,
     state: 'revoked',
     revokedAt: '2026-07-18T20:15:00.000Z',
+    updatedAt: '2026-07-18T20:15:00.000Z',
+  },
+}
+const CANCELLATION_REQUESTED_GRANT: AdsActivationGrantResponse = {
+  grant: {
+    ...APPROVED_GRANT.grant,
+    state: 'executing',
+    operationId: 'op_activate_1',
+    executionStartedAt: '2026-07-18T20:10:00.000Z',
+    revocationRequestedAt: '2026-07-18T20:15:00.000Z',
     updatedAt: '2026-07-18T20:15:00.000Z',
   },
 }
@@ -477,6 +488,20 @@ describe('ads lifecycle commands', () => {
     expect(mockRevokeAdsActivationGrant).toHaveBeenCalledWith('canonry-audit', 'grant_1')
     expect(log.mock.calls.map(([line]) => line)).toEqual([
       'Revoked activation grant grant_1: revoked',
+      `Manifest: ${ACTIVATION_MANIFEST_HASH}`,
+      'Expires:  2026-07-19T00:00:00.000Z',
+    ])
+  })
+
+  it('reports an in-flight activation cancellation without claiming it is already revoked', async () => {
+    mockRevokeAdsActivationGrant.mockResolvedValue(CANCELLATION_REQUESTED_GRANT)
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+
+    await adsActivationGrantRevoke('canonry-audit', 'grant_1')
+
+    expect(log.mock.calls.map(([line]) => line)).toEqual([
+      'Cancellation requested for activation grant grant_1: executing',
+      'Requested: 2026-07-18T20:15:00.000Z',
       `Manifest: ${ACTIVATION_MANIFEST_HASH}`,
       'Expires:  2026-07-19T00:00:00.000Z',
     ])
