@@ -2331,7 +2331,7 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/ads/operations',
     summary: 'List unresolved OpenAI Ads mutation receipts',
     description:
-      'Lists bounded pending, unknown, or actively reconciling receipts for operator recovery. The state filter is a comma-separated set and defaults to every unresolved state. This read never retries the original mutation.',
+      'Lists bounded pending, unknown, or actively reconciling receipts for operator recovery in stable creation order. The state filter is a comma-separated set and defaults to every unresolved state. Pass nextCursor back unchanged to advance beyond permanently unresolved rows. A cursor is bound to its project and state filter. This read never retries the original mutation.',
     tags: ['ads'],
     parameters: [
       nameParameter,
@@ -2353,6 +2353,12 @@ const routeCatalog: OpenApiOperation[] = [
         in: 'query',
         description: 'Maximum receipts to return.',
         schema: { type: 'integer', minimum: 1, maximum: 200, default: 100 },
+      },
+      {
+        name: 'cursor',
+        in: 'query',
+        description: 'Opaque keyset cursor returned as nextCursor by the previous page.',
+        schema: { type: 'string', minLength: 1, maxLength: 1000 },
       },
     ],
     responses: {
@@ -2380,7 +2386,7 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/ads/operations/{operationKey}/reconcile',
     summary: 'Reconcile an unresolved OpenAI Ads mutation receipt',
     description:
-      'Verifies a checkpointed provider entity against the receipt-bound ad account without retrying the mutation. An uncheckpointed create remains unresolved because mutable-field matching cannot prove provenance; if another lease already owns reconciliation, the canonical reconciling receipt is returned with resolved=false.',
+      'Verifies a checkpointed provider entity against the receipt-bound ad account without retrying the mutation. A fresh pending receipt is rejected for the configured minimum idle window because the original mutation may still be in flight. Automatic inspections use bounded exponential backoff and every inspection path is quarantined after the configured attempt cap. An uncheckpointed create remains unresolved because mutable-field matching cannot prove provenance; if another lease already owns reconciliation, the canonical reconciling receipt is returned with resolved=false.',
     tags: ['ads'],
     parameters: [
       nameParameter,
@@ -2395,6 +2401,7 @@ const routeCatalog: OpenApiOperation[] = [
     responses: {
       200: jsonResponse('Reconciliation result and updated receipt.', 'AdsOperationReconcileResponse'),
       400: errorResponse('Receipt is not reconcilable.'),
+      409: errorResponse('The original mutation may still be in flight.'),
       403: errorResponse('The key lacks ads.write.'),
       404: errorResponse('Project or operation not found.'),
       502: errorResponse('OpenAI Ads state verification failed.'),

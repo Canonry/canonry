@@ -151,6 +151,13 @@ export interface ApiRoutesOptions {
   adsReader?: AdsRoutesOptions['adsReader']
   onAdsSyncRequested?: AdsRoutesOptions['onAdsSyncRequested']
   adsOperator?: AdsRoutesOptions['adsOperator']
+  adsReconcileSweepIntervalMs?: AdsRoutesOptions['adsReconcileSweepIntervalMs']
+  adsReconcilePendingStaleMs?: AdsRoutesOptions['adsReconcilePendingStaleMs']
+  adsReconcileBackoffBaseMs?: AdsRoutesOptions['adsReconcileBackoffBaseMs']
+  adsReconcileMaxAttempts?: AdsRoutesOptions['adsReconcileMaxAttempts']
+  adsReconcileBatchSize?: AdsRoutesOptions['adsReconcileBatchSize']
+  adsReconcileLeaseMs?: AdsRoutesOptions['adsReconcileLeaseMs']
+  adsAccountVerificationCacheTtlMs?: AdsRoutesOptions['adsAccountVerificationCacheTtlMs']
   /** Bing Webmaster Tools connection store */
   bingConnectionStore?: BingRoutesOptions['bingConnectionStore']
   /** Bing settings summary for settings endpoint */
@@ -394,6 +401,13 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       adsReader: opts.adsReader,
       onAdsSyncRequested: opts.onAdsSyncRequested,
       adsOperator: opts.adsOperator,
+      adsReconcileSweepIntervalMs: opts.adsReconcileSweepIntervalMs,
+      adsReconcilePendingStaleMs: opts.adsReconcilePendingStaleMs,
+      adsReconcileBackoffBaseMs: opts.adsReconcileBackoffBaseMs,
+      adsReconcileMaxAttempts: opts.adsReconcileMaxAttempts,
+      adsReconcileBatchSize: opts.adsReconcileBatchSize,
+      adsReconcileLeaseMs: opts.adsReconcileLeaseMs,
+      adsAccountVerificationCacheTtlMs: opts.adsAccountVerificationCacheTtlMs,
     } satisfies AdsRoutesOptions)
     await api.register(bingRoutes, {
       bingConnectionStore: opts.bingConnectionStore,

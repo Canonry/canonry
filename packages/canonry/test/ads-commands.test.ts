@@ -94,6 +94,7 @@ const UNRESOLVED: AdsUnresolvedOperationListResponse = {
     errorMessage: 'Provider outcome requires verification',
   }],
   count: 1,
+  nextCursor: 'next-page-cursor',
 }
 
 const RECONCILED: AdsOperationReconcileResponse = {

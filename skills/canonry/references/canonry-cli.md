@@ -581,8 +581,10 @@ cnry ads ad create <project> --input ad.json
 cnry ads ad update <project> <ad-id> --input update.json
 cnry ads ad pause <project> <ad-id> --input pause.json
 cnry ads operation <project> <operation-key>     # inspect one durable mutation receipt
-cnry ads operations unresolved <project> --format jsonl
+cnry ads operations unresolved <project> --limit 100 --format json
                                                    # list pending/unknown/reconciling receipts before new writes
+cnry ads operations unresolved <project> --cursor <nextCursor> --limit 100 --format json
+                                                   # advance past permanent rows with the opaque keyset cursor
 cnry ads operation reconcile <project> --operation-key <key>
                                                    # verify provider state; never retries the original mutation
 cnry ads sync <project>                          # ads-sync run: entity snapshots + daily rollups
@@ -614,7 +616,14 @@ mutation or accepts a caller-selected provider entity. Canonry resolves a
 receipt only when the provider ID was durably checkpointed and its live state
 matches the stored safe fields on the receipt-bound account. An uncheckpointed
 create remains unresolved because mutable-field equality cannot prove which
-request created an entity.
+request created an entity. A pending receipt must be idle for five minutes
+before either a human or the sweeper may claim it, so recovery cannot race a
+request that is still returning from the provider. Automatic inconclusive
+inspections back off from a five-minute base; explicit operator requests may
+inspect sooner, but every path stops after five attempts. The receipt then
+remains visible as `unknown` with `ADS_RECONCILIATION_QUARANTINED` and requires
+manual provider remediation. JSON list responses return `nextCursor`; pass it
+back unchanged with the same project and state filter to continue.
 Creates are always paused. Updates require the entity to
 already be paused and `expectedUpdatedAt` to equal the latest
 `upstreamUpdatedAt` from `ads campaigns` after a sync. Canonry exposes pause as
@@ -655,6 +664,9 @@ fixtures without coercion.
 The receipt lifecycle is safe across concurrent writers: an atomic claim picks
 one upstream sender, losers replay the canonical receipt, and a leased
 reconciler settles stale `pending` / `unknown` rows by verifying provider state.
+Exact credential/account verification is cached for five minutes, keyed by a
+one-way credential fingerprint plus the project and stored account identity;
+credential rotation or account rebinding misses the cache immediately.
 When another worker owns reconciliation, the route returns the canonical
 `reconciling` receipt with `resolved: false`; callers wait and read it again
 instead of starting a second verification pass.

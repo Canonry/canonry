@@ -25,6 +25,7 @@ import {
   adsAdPause,
 } from '../commands/ads.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
+import { usageError } from '../cli-error.js'
 import {
   getString,
   parseIntegerOption,
@@ -112,14 +113,41 @@ export const ADS_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['ads', 'operations', 'unresolved'],
-    usage: 'canonry ads operations unresolved <project> [--format json|jsonl]',
+    usage: 'canonry ads operations unresolved <project> [--state <csv>] [--limit <n>] [--cursor <opaque>] [--format json|jsonl]',
+    options: {
+      state: stringOption(),
+      limit: stringOption(),
+      cursor: stringOption(),
+    },
     run: async (input) => {
+      const usage = 'canonry ads operations unresolved <project> [--state <csv>] [--limit <n>] [--cursor <opaque>] [--format json|jsonl]'
       const project = requireProject(
         input,
         'ads.operations.unresolved',
-        'canonry ads operations unresolved <project> [--format json|jsonl]',
+        usage,
       )
-      await adsOperationsUnresolved(project, { format: input.format })
+      const rawState = getString(input.values, 'state')
+      const state = rawState === undefined
+        ? undefined
+        : rawState.split(',').filter((value): value is 'pending' | 'unknown' | 'reconciling' => (
+            value === 'pending' || value === 'unknown' || value === 'reconciling'
+          ))
+      if (rawState !== undefined && state?.length !== rawState.split(',').length) {
+        throw usageError(`Error: --state must contain only pending, unknown, or reconciling\nUsage: ${usage}`, {
+          message: '--state must contain only pending, unknown, or reconciling',
+          details: { command: 'ads.operations.unresolved', usage },
+        })
+      }
+      await adsOperationsUnresolved(project, {
+        state,
+        limit: parseIntegerOption(input, 'limit', {
+          command: 'ads.operations.unresolved',
+          message: '--limit must be an integer from 1 to 200',
+          usage,
+        }),
+        cursor: getString(input.values, 'cursor'),
+        format: input.format,
+      })
     },
   },
   {

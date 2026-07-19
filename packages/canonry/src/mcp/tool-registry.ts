@@ -2042,7 +2042,7 @@ export const canonryMcpTools = [
     name: 'canonry_ads_operations_unresolved',
     title: 'List unresolved ads mutation receipts',
     description:
-      'List pending, unknown, or actively reconciling OpenAI Ads mutation receipts that need recovery. Use this before new lifecycle work so an ambiguous earlier outcome is settled instead of retried under another key.',
+      'List pending, unknown, or actively reconciling OpenAI Ads mutation receipts that need recovery. Pass nextCursor back as cursor to advance past permanent rows. Use this before new lifecycle work so an ambiguous earlier outcome is settled instead of retried under another key.',
     access: 'read',
     tier: 'ads',
     inputSchema: adsUnresolvedOperationsInputSchema,
@@ -2051,6 +2051,7 @@ export const canonryMcpTools = [
     handler: (client, input) => client.getUnresolvedAdsOperations(input.project, {
       state: input.state,
       limit: input.limit,
+      cursor: input.cursor,
     }),
   }),
   defineTool({

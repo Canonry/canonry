@@ -663,9 +663,17 @@ const handlerCases: HandlerCase[] = [
   { tool: 'canonry_ads_conversion_event_settings', input: projectInput, methods: ['getAdsConversionEventSettings'] },
   {
     tool: 'canonry_ads_operations_unresolved',
-    input: { project: 'acme', state: ['pending', 'unknown', 'reconciling'], limit: 100 },
+    input: {
+      project: 'acme',
+      state: ['pending', 'unknown', 'reconciling'],
+      limit: 100,
+      cursor: 'next-page',
+    },
     methods: ['getUnresolvedAdsOperations'],
-    expectedArgs: [['acme', { state: ['pending', 'unknown', 'reconciling'], limit: 100 }]],
+    expectedArgs: [[
+      'acme',
+      { state: ['pending', 'unknown', 'reconciling'], limit: 100, cursor: 'next-page' },
+    ]],
   },
   {
     tool: 'canonry_ads_operation_reconcile',

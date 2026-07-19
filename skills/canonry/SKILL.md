@@ -56,7 +56,7 @@ Agent-first open-source AEO (Answer Engine Optimization) operating platform. Tra
 - **Measure outcomes** — AI models are black boxes; track mentions + citations, don't assume causality
 - **Signal over noise** — Focus on high‑intent queries; avoid granular targeting until base visibility exists
 - **CLI‑native** — API‑driven changes over manual CMS clicks; faster, repeatable, auditable
-- **Recover before retrying ads writes** — List `pending`, `unknown`, and `reconciling` receipts, then reconcile the original operation key by verifying its checkpointed provider ID on the receipt-bound account. Never resend the mutation under a different key; an uncheckpointed create remains unresolved.
+- **Recover before retrying ads writes** — Page through `pending`, `unknown`, and `reconciling` receipts, then reconcile the original operation key by verifying its checkpointed provider ID on the receipt-bound account. Never resend the mutation under a different key. A fresh pending receipt waits for its minimum-idle window, inconclusive reads back off, and a quarantined receipt requires human remediation.
 
 ## What Canonry Measures (Vocabulary)
 

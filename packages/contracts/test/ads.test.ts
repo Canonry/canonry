@@ -396,7 +396,8 @@ describe('ads lifecycle contracts', () => {
     expect(adsUnresolvedOperationListQuerySchema.parse({
       state: 'unknown,reconciling',
       limit: '25',
-    })).toEqual({ state: ['unknown', 'reconciling'], limit: 25 })
+      cursor: 'opaque-cursor',
+    })).toEqual({ state: ['unknown', 'reconciling'], limit: 25, cursor: 'opaque-cursor' })
     expect(adsUnresolvedOperationListQuerySchema.safeParse({ state: 'succeeded' }).success).toBe(false)
     expect(adsUnresolvedOperationListQuerySchema.safeParse({ state: 'unknown,unknown' }).success).toBe(false)
     expect(adsUnresolvedOperationListQuerySchema.safeParse({ limit: 201 }).success).toBe(false)
@@ -416,6 +417,8 @@ describe('ads lifecycle contracts', () => {
       reconcileAttempts: 1, lastReconciledAt: NOW, createdAt: NOW, updatedAt: NOW,
     })
     expect(adsOperationReconcileResponseSchema.parse({ operation, resolved: true }).resolved).toBe(true)
-    expect(adsUnresolvedOperationListResponseSchema.parse({ operations: [operation], count: 1 }).count).toBe(1)
+    expect(adsUnresolvedOperationListResponseSchema.parse({
+      operations: [operation], count: 1, nextCursor: 'next-page',
+    }).nextCursor).toBe('next-page')
   })
 })
