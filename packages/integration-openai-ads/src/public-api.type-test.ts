@@ -35,6 +35,6 @@ export type GeoSearchResultsUseGeoLocations = Assert<
 export type ConversionPixelFieldsStayConservative = Assert<
   Equal<OpenAiAdsConversionPixel['pixel_id'], string | undefined>
 >
-export type ConversionEventSourceIdsAreStrings = Assert<
-  Equal<OpenAiAdsConversionEventSetting['source_ids'], string[]>
+export type ConversionEventFieldsStayConservative = Assert<
+  Equal<OpenAiAdsConversionEventSetting['source_ids'], string[] | undefined>
 >

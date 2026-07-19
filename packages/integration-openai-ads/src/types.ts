@@ -69,26 +69,28 @@ export interface OpenAiAdsConversionPixel {
 
 export interface OpenAiAdsConversionEventSource {
   id: string
-  name: string
+  name?: string
 }
 
 /**
- * Conversion event setting fields documented by the provider. `campaigns`
- * remains opaque because the documented example is empty and no non-empty
- * campaign entry has been captured yet.
+ * Conversion event setting fields documented by the provider. The list
+ * endpoint has only been captured empty, so fields other than identity remain
+ * optional until a non-empty live response can tighten this contract.
+ * `campaigns` remains opaque because the documented example is empty and no
+ * non-empty campaign entry has been captured yet.
  */
 export interface OpenAiAdsConversionEventSetting {
   id: string
-  name: string
-  event_type: string
-  custom_event_name: string | null
-  attribution_window_days: number
-  ad_account_id: string
-  source_ids: string[]
-  sources: OpenAiAdsConversionEventSource[]
-  campaigns: unknown[]
-  archived: boolean
-  version: number
+  name?: string
+  event_type?: string
+  custom_event_name?: string | null
+  attribution_window_days?: number
+  ad_account_id?: string
+  source_ids?: string[]
+  sources?: OpenAiAdsConversionEventSource[]
+  campaigns?: unknown[]
+  archived?: boolean
+  version?: number
 }
 
 export interface OpenAiAdsCampaignBudget {

@@ -213,6 +213,21 @@ describe('ads lifecycle commands', () => {
     })
   })
 
+  it('renders partial conversion rows safely for humans', async () => {
+    mockGetAdsConversionPixels.mockResolvedValue({ pixels: [{ id: 'source_partial' }] })
+    mockGetAdsConversionEventSettings.mockResolvedValue({ eventSettings: [{ id: 'event_partial' }] })
+    const lines: string[] = []
+    vi.spyOn(console, 'log').mockImplementation((line) => lines.push(String(line)))
+
+    await adsConversionPixels('canonry-audit')
+    await adsConversionEventSettings('canonry-audit')
+
+    expect(lines).toEqual([
+      'Unnamed conversion pixel (unknown client) [source_partial]',
+      'Unnamed conversion event: unknown event, unknown attribution window, no source details [event_partial]',
+    ])
+  })
+
   it('registers the planning reads and complete lifecycle CLI surface', () => {
     const paths = new Set(ADS_CLI_COMMANDS.map((command) => command.path.join(' ')))
     for (const command of [
