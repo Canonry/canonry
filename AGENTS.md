@@ -136,7 +136,7 @@ canonry ads account <project>                         # live account identity + 
 canonry ads geo search <project> --query <text> [--limit <n>] [--format json|jsonl] # resolve provider location IDs
 canonry ads conversions pixels <project> [--format json|jsonl]
 canonry ads conversions event-settings <project> [--format json|jsonl]
-canonry ads operations unresolved <project> [--format json|jsonl] # list pending/unknown/reconciling mutation receipts
+canonry ads operations unresolved <project> [--limit <n>] [--cursor <opaque>] [--format json|jsonl] # page pending/unknown/reconciling mutation receipts
 canonry ads operation reconcile <project> --operation-key <key> # verify receipt-bound provider state; never retries the mutation
 canonry ads sync <project>                            # trigger an ads-sync run
 canonry ads campaigns <project> [--format json|jsonl] # snapshots incl. context hints

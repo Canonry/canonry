@@ -497,12 +497,14 @@ export const adsUnresolvedOperationListQuerySchema = z.object({
       .refine((states) => new Set(states).size === states.length, 'state values must be unique'),
   ),
   limit: z.coerce.number().int().min(1).max(200).default(100),
+  cursor: z.string().min(1).max(1000).optional(),
 })
 export type AdsUnresolvedOperationListQuery = z.infer<typeof adsUnresolvedOperationListQuerySchema>
 
 export const adsUnresolvedOperationListResponseSchema = z.object({
   operations: z.array(adsOperationDtoSchema),
   count: z.number().int().nonnegative(),
+  nextCursor: z.string().nullable(),
 })
 export type AdsUnresolvedOperationListResponse = z.infer<typeof adsUnresolvedOperationListResponseSchema>
 

@@ -96,7 +96,9 @@ creates are paused, all updates require the entity already be paused, and no
 activation or archive tool is exposed. The ads toolkit lists unresolved
 receipts and reconciles checkpointed provider IDs only by verifying live state
 on the receipt-bound account; it never retries the original mutation or binds
-an uncheckpointed create by mutable-field similarity. Click campaigns must name at least one
+an uncheckpointed create by mutable-field similarity. The unresolved list is
+keyset-paged, fresh pending receipts cannot be manually claimed, and
+inconclusive inspections back off before a five-attempt quarantine. Click campaigns must name at least one
 provider-issued conversion event-setting ID and their ad groups must use click
 billing; Canonry rejects a parent/child bidding mismatch before any mutation.
 Complete the live-provider and

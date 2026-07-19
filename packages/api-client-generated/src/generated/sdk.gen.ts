@@ -1955,7 +1955,7 @@ export const getApiV1ProjectsByNameAdsConversionsEventSettings = <ThrowOnError e
 /**
  * List unresolved OpenAI Ads mutation receipts
  *
- * Lists bounded pending, unknown, or actively reconciling receipts for operator recovery. The state filter is a comma-separated set and defaults to every unresolved state. This read never retries the original mutation.
+ * Lists bounded pending, unknown, or actively reconciling receipts for operator recovery in stable creation order. The state filter is a comma-separated set and defaults to every unresolved state. Pass nextCursor back unchanged to advance beyond permanently unresolved rows. A cursor is bound to its project and state filter. This read never retries the original mutation.
  */
 export const getApiV1ProjectsByNameAdsOperations = <ThrowOnError extends boolean = false>(options: Options<GetApiV1ProjectsByNameAdsOperationsData, ThrowOnError>) => {
     return (options.client ?? client).get<GetApiV1ProjectsByNameAdsOperationsResponses, GetApiV1ProjectsByNameAdsOperationsErrors, ThrowOnError>({
@@ -1989,7 +1989,7 @@ export const getApiV1ProjectsByNameAdsOperationsByOperationKey = <ThrowOnError e
 /**
  * Reconcile an unresolved OpenAI Ads mutation receipt
  *
- * Verifies a checkpointed provider entity against the receipt-bound ad account without retrying the mutation. An uncheckpointed create remains unresolved because mutable-field matching cannot prove provenance; if another lease already owns reconciliation, the canonical reconciling receipt is returned with resolved=false.
+ * Verifies a checkpointed provider entity against the receipt-bound ad account without retrying the mutation. A fresh pending receipt is rejected for the configured minimum idle window because the original mutation may still be in flight. Automatic inspections use bounded exponential backoff and every inspection path is quarantined after the configured attempt cap. An uncheckpointed create remains unresolved because mutable-field matching cannot prove provenance; if another lease already owns reconciliation, the canonical reconciling receipt is returned with resolved=false.
  */
 export const postApiV1ProjectsByNameAdsOperationsByOperationKeyReconcile = <ThrowOnError extends boolean = false>(options: Options<PostApiV1ProjectsByNameAdsOperationsByOperationKeyReconcileData, ThrowOnError>) => {
     return (options.client ?? client).post<PostApiV1ProjectsByNameAdsOperationsByOperationKeyReconcileResponses, PostApiV1ProjectsByNameAdsOperationsByOperationKeyReconcileErrors, ThrowOnError>({

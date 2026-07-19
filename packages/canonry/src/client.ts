@@ -1483,6 +1483,7 @@ export class ApiClient {
           ? {
               state: query.state?.join(','),
               limit: query.limit,
+              cursor: query.cursor,
             }
           : undefined,
       }),

@@ -8,6 +8,7 @@ export type ErrorCode =
   | 'QUOTA_EXCEEDED'
   | 'PROVIDER_ERROR'
   | 'RUN_IN_PROGRESS'
+  | 'OPERATION_IN_PROGRESS'
   | 'UNSUPPORTED_KIND'
   | 'RUN_NOT_CANCELLABLE'
   | 'NOT_IMPLEMENTED'
@@ -80,6 +81,13 @@ export function providerError(message: string, details?: Record<string, unknown>
 
 export function runInProgress(projectName: string): AppError {
   return new AppError('RUN_IN_PROGRESS', `A run is already in progress for '${projectName}'`, 409)
+}
+
+export function operationInProgress(
+  message: string,
+  details?: Record<string, unknown>,
+): AppError {
+  return new AppError('OPERATION_IN_PROGRESS', message, 409, details)
 }
 
 export function runNotCancellable(runId: string, status: string): AppError {

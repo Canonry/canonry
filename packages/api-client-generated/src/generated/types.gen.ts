@@ -291,6 +291,7 @@ export type AdsUnresolvedOperationListResponse = {
         updatedAt: string;
     }>;
     count: number;
+    nextCursor: string | null;
 };
 
 export type ApiKeyDto = {
@@ -7207,6 +7208,10 @@ export type GetApiV1ProjectsByNameAdsOperationsData = {
          * Maximum receipts to return.
          */
         limit?: number;
+        /**
+         * Opaque keyset cursor returned as nextCursor by the previous page.
+         */
+        cursor?: string;
     };
     url: '/api/v1/projects/{name}/ads/operations';
 };
@@ -7296,6 +7301,10 @@ export type PostApiV1ProjectsByNameAdsOperationsByOperationKeyReconcileErrors = 
      * Project or operation not found.
      */
     404: ErrorEnvelope;
+    /**
+     * The original mutation may still be in flight.
+     */
+    409: ErrorEnvelope;
     /**
      * OpenAI Ads state verification failed.
      */

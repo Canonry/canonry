@@ -281,8 +281,20 @@ export async function adsOperationGet(
   printOperation(await getClient().getAdsOperation(project, opts.operationKey), opts.format)
 }
 
-export async function adsOperationsUnresolved(project: string, opts?: { format?: string }): Promise<void> {
-  const result: AdsUnresolvedOperationListResponse = await getClient().getUnresolvedAdsOperations(project)
+export async function adsOperationsUnresolved(
+  project: string,
+  opts?: { state?: Array<'pending' | 'unknown' | 'reconciling'>; limit?: number; cursor?: string; format?: string },
+): Promise<void> {
+  const query = {
+    state: opts?.state,
+    limit: opts?.limit,
+    cursor: opts?.cursor,
+  }
+  const client = getClient()
+  const result: AdsUnresolvedOperationListResponse = Object.values(query)
+    .some((value) => value !== undefined)
+    ? await client.getUnresolvedAdsOperations(project, query)
+    : await client.getUnresolvedAdsOperations(project)
 
   if (opts?.format === 'jsonl') {
     emitJsonl(result.operations.map((operation) => ({ project, ...operation })))
@@ -301,6 +313,7 @@ export async function adsOperationsUnresolved(project: string, opts?: { format?:
   for (const operation of result.operations) {
     console.log(`${operation.state.padEnd(13)} ${operation.kind.padEnd(21)} ${operation.operationKey}`)
   }
+  if (result.nextCursor) console.log(`Next cursor: ${result.nextCursor}`)
 }
 
 export async function adsOperationReconcile(

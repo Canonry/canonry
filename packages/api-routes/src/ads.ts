@@ -1,6 +1,6 @@
 import crypto from 'node:crypto'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
-import { eq, and, asc, gte, lte, inArray, or, isNull, isNotNull, sql } from 'drizzle-orm'
+import { eq, and, asc, gt, gte, lt, lte, ne, inArray, or, isNull, isNotNull, sql } from 'drizzle-orm'
 import {
   ADS_WRITE_SCOPE,
   AdsAdGroupBillingEventTypes,
@@ -29,6 +29,7 @@ import {
   adsCpcMicros,
   alreadyExists,
   notFound,
+  operationInProgress,
   providerError,
   validationError,
   RunKinds,
@@ -115,12 +116,18 @@ export interface AdsRoutesOptions {
   adsOperator?: AdsOperator
   /** Receipt reconciler cadence. Set to 0 to disable the background sweeper. */
   adsReconcileSweepIntervalMs?: number
-  /** A pending receipt is not swept until it has been idle this long. */
+  /** A pending receipt cannot be manually or automatically claimed until it has been idle this long. */
   adsReconcilePendingStaleMs?: number
+  /** Base delay for exponential retries after an inconclusive reconciliation. */
+  adsReconcileBackoffBaseMs?: number
+  /** Maximum inspection attempts before a receipt is quarantined. */
+  adsReconcileMaxAttempts?: number
   /** Upper bound on receipts inspected per sweep. */
   adsReconcileBatchSize?: number
   /** Exclusive lease duration for one reconciliation attempt. */
   adsReconcileLeaseMs?: number
+  /** TTL for an exact credential/account verification result. Set to 0 to disable. */
+  adsAccountVerificationCacheTtlMs?: number
 }
 
 export interface AdsOperatorEntityResult {
@@ -208,8 +215,26 @@ type OperationRow = typeof adsOperations.$inferSelect
 
 const DEFAULT_RECONCILE_SWEEP_INTERVAL_MS = 60_000
 const DEFAULT_RECONCILE_PENDING_STALE_MS = 5 * 60_000
+const DEFAULT_RECONCILE_BACKOFF_BASE_MS = 5 * 60_000
+const DEFAULT_RECONCILE_MAX_ATTEMPTS = 5
 const DEFAULT_RECONCILE_BATCH_SIZE = 10
 const DEFAULT_RECONCILE_LEASE_MS = 30_000
+const DEFAULT_ADS_ACCOUNT_VERIFICATION_CACHE_TTL_MS = 5 * 60_000
+const ADS_RECONCILIATION_QUARANTINED = 'ADS_RECONCILIATION_QUARANTINED'
+
+interface AdsAccountVerificationCacheEntry {
+  credentialFingerprint: string
+  adAccountId: string
+  expiresAtMs: number
+}
+
+type AdsAccountVerificationCache = Map<string, AdsAccountVerificationCacheEntry>
+
+interface ReconcilePolicy {
+  pendingMinIdleMs: number
+  backoffBaseMs: number
+  maxAttempts: number
+}
 
 interface AdsReconciliationPlan {
   strategy: AdsReconcileStrategy
@@ -310,6 +335,58 @@ function canonicalize(value: unknown): unknown {
 
 function requestHash(value: unknown): string {
   return crypto.createHash('sha256').update(JSON.stringify(canonicalize(value))).digest('hex')
+}
+
+interface AdsOperationCursor {
+  v: 1
+  projectId: string
+  states: string[]
+  createdAt: string
+  id: string
+}
+
+function normalizedOperationStates(states: readonly string[]): string[] {
+  return [...states].sort()
+}
+
+function encodeAdsOperationCursor(
+  projectId: string,
+  states: readonly string[],
+  row: OperationRow,
+): string {
+  const cursor: AdsOperationCursor = {
+    v: 1,
+    projectId,
+    states: normalizedOperationStates(states),
+    createdAt: row.createdAt,
+    id: row.id,
+  }
+  return Buffer.from(JSON.stringify(cursor)).toString('base64url')
+}
+
+function decodeAdsOperationCursor(
+  encoded: string,
+  projectId: string,
+  states: readonly string[],
+): AdsOperationCursor {
+  try {
+    const parsed = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8')) as Partial<AdsOperationCursor>
+    const stateIdentity = normalizedOperationStates(states)
+    if (parsed.v !== 1
+      || parsed.projectId !== projectId
+      || !Array.isArray(parsed.states)
+      || parsed.states.some((state) => typeof state !== 'string')
+      || JSON.stringify(parsed.states) !== JSON.stringify(stateIdentity)
+      || typeof parsed.createdAt !== 'string'
+      || !Number.isFinite(Date.parse(parsed.createdAt))
+      || typeof parsed.id !== 'string'
+      || parsed.id.length === 0) {
+      throw new Error('cursor identity mismatch')
+    }
+    return parsed as AdsOperationCursor
+  } catch {
+    throw validationError('Invalid ads operation cursor for this project and state filter')
+  }
 }
 
 function normalizeString(value: string): string {
@@ -522,6 +599,11 @@ async function resolveAdsOperator(
   app: FastifyInstance,
   opts: AdsRoutesOptions,
   project: { id: string; name: string },
+  verification?: {
+    cache: AdsAccountVerificationCache
+    ttlMs: number
+    nowMs?: number
+  },
 ): Promise<{ apiKey: string; adAccountId: string; operator: AdsOperator }> {
   const connection = opts.adsCredentialStore?.getConnection(project.name)
   if (!connection?.apiKey) {
@@ -541,12 +623,32 @@ async function resolveAdsOperator(
   if (!stored?.adAccountId || stored.adAccountId !== connection.adAccountId) {
     throw validationError('Reconnect this project because its stored OpenAI ad account identity is inconsistent')
   }
+  const nowMs = verification?.nowMs ?? Date.now()
+  const credentialFingerprint = requestHash({
+    apiKey: connection.apiKey,
+    adAccountId: connection.adAccountId,
+  })
+  const cached = verification?.cache.get(project.id)
+  if (cached
+    && cached.expiresAtMs > nowMs
+    && cached.credentialFingerprint === credentialFingerprint
+    && cached.adAccountId === connection.adAccountId) {
+    return { apiKey: connection.apiKey, adAccountId: cached.adAccountId, operator: opts.adsOperator }
+  }
   const verified = await executeAdsRead(
     'account identity',
     () => opts.verifyAdsAccount!(connection.apiKey),
   )
   if (verified.id !== connection.adAccountId) {
+    verification?.cache.delete(project.id)
     throw validationError('The configured key belongs to a different OpenAI ad account; reconnect this project')
+  }
+  if (verification && verification.ttlMs > 0) {
+    verification.cache.set(project.id, {
+      credentialFingerprint,
+      adAccountId: verified.id,
+      expiresAtMs: nowMs + verification.ttlMs,
+    })
   }
   return { apiKey: connection.apiKey, adAccountId: verified.id, operator: opts.adsOperator }
 }
@@ -610,15 +712,28 @@ async function executeAdsOperation(
     run: () => Promise<{ id: string; status?: string; updatedAt?: number | null }>
   },
 ): Promise<AdsOperationResponse> {
+  const hash = requestHash({ kind: input.kind, entityType: input.entityType, payload: input.payload })
+  const existing = readOperationByKey(app, input.projectId, input.operationKey)
+  if (existing) {
+    if (existing.requestHash !== hash) {
+      throw alreadyExists('Ads operation key', input.operationKey)
+    }
+    return { operation: operationDto(existing), replayed: true }
+  }
+
   // A receipt marks the boundary after which an upstream write may have been
   // attempted. Keep provider reads before it so a transient read failure can
   // be retried with the same operation key without manufacturing ambiguity.
   await input.preflight?.()
 
-  const hash = requestHash({ kind: input.kind, entityType: input.entityType, payload: input.payload })
   const id = crypto.randomUUID()
   const createdAt = new Date().toISOString()
   const reconcileFields = input.reconciliation.fields ?? null
+  const reconcileFingerprintFields = reconcileFields === null
+    ? null
+    : input.reconciliation.strategy === AdsReconcileStrategies.create_fingerprint
+      ? reconcileFieldsWithoutParent(reconcileFields)
+      : reconcileFields
   const inserted = app.db.insert(adsOperations).values({
     id,
     projectId: input.projectId,
@@ -631,7 +746,12 @@ async function executeAdsOperation(
     entityId: input.knownEntityId,
     reconcileStrategy: input.reconciliation.strategy,
     reconcileParentId: input.reconciliation.parentId,
-    reconcileFingerprint: reconcileFields === null ? null : requestHash(reconcileFields),
+    // Parent identity has its own exact column. The fingerprint covers only
+    // fields the provider GET can return consistently, so both bindings are
+    // independently checked during recovery.
+    reconcileFingerprint: reconcileFingerprintFields === null
+      ? null
+      : requestHash(reconcileFingerprintFields),
     reconcileFields,
     createdAt,
     updatedAt: createdAt,
@@ -779,9 +899,28 @@ function claimOperationForReconciliation(
   leaseOwner: string,
   now: Date,
   leaseMs: number,
+  policy: ReconcilePolicy,
+  enforceBackoff: boolean,
 ): OperationRow | undefined {
   const nowIso = now.toISOString()
   const leaseExpiresAt = new Date(now.getTime() + leaseMs).toISOString()
+  const pendingCutoff = new Date(now.getTime() - policy.pendingMinIdleMs).toISOString()
+  const backoffMs = policy.backoffBaseMs * (2 ** Math.max(0, row.reconcileAttempts - 1))
+  const unknownCutoff = new Date(now.getTime() - backoffMs).toISOString()
+  const claimableState = row.state === AdsOperationStates.pending
+    ? and(
+        eq(adsOperations.state, AdsOperationStates.pending),
+        lte(adsOperations.updatedAt, pendingCutoff),
+      )
+    : row.state === AdsOperationStates.unknown
+      ? and(
+          eq(adsOperations.state, AdsOperationStates.unknown),
+          enforceBackoff ? lte(adsOperations.updatedAt, unknownCutoff) : undefined,
+        )
+      : and(
+          eq(adsOperations.state, AdsOperationStates.reconciling),
+          or(isNull(adsOperations.leaseExpiresAt), lte(adsOperations.leaseExpiresAt, nowIso)),
+        )
   const claimed = app.db.update(adsOperations).set({
     state: AdsOperationStates.reconciling,
     leaseOwner,
@@ -791,13 +930,9 @@ function claimOperationForReconciliation(
   }).where(and(
     eq(adsOperations.id, row.id),
     eq(adsOperations.projectId, row.projectId),
-    or(
-      inArray(adsOperations.state, [AdsOperationStates.pending, AdsOperationStates.unknown]),
-      and(
-        eq(adsOperations.state, AdsOperationStates.reconciling),
-        or(isNull(adsOperations.leaseExpiresAt), lte(adsOperations.leaseExpiresAt, nowIso)),
-      ),
-    ),
+    eq(adsOperations.reconcileAttempts, row.reconcileAttempts),
+    lt(adsOperations.reconcileAttempts, policy.maxAttempts),
+    claimableState,
   )).returning({ id: adsOperations.id }).all()
   if (claimed.length === 0) return undefined
   return app.db.select().from(adsOperations).where(eq(adsOperations.id, row.id)).get()
@@ -853,16 +988,23 @@ function finishReconciliation(
     errorCode?: string
     errorMessage?: string
   },
+  maxAttempts: number,
 ): OperationRow {
   const now = new Date().toISOString()
   const entityId = outcome.entity?.id ?? row.entityId
+  const exhausted = outcome.state === AdsOperationStates.unknown
+    && row.reconcileAttempts >= maxAttempts
+  const errorCode = exhausted ? ADS_RECONCILIATION_QUARANTINED : outcome.errorCode ?? null
+  const errorMessage = exhausted
+    ? `Reconciliation stopped after ${maxAttempts} inconclusive attempts; manual remediation is required`
+    : outcome.errorMessage ?? null
   app.db.transaction((tx) => {
     const result = tx.update(adsOperations).set({
       state: outcome.state,
       entityId,
       upstreamUpdatedAt: outcome.entity?.updatedAt ?? row.upstreamUpdatedAt,
-      errorCode: outcome.errorCode ?? null,
-      errorMessage: outcome.errorMessage ?? null,
+      errorCode,
+      errorMessage,
       lastReconciledAt: now,
       leaseOwner: null,
       leaseExpiresAt: null,
@@ -876,7 +1018,7 @@ function finishReconciliation(
     if (result.changes > 0) {
       writeAuditLog(tx, reconciliationAuditEntry(row, outcome.state, context, {
         entityId,
-        errorCode: outcome.errorCode,
+        errorCode,
       }))
     }
   })
@@ -898,12 +1040,84 @@ function unknownReconciliation(
   context: ReconcileAuditContext,
   code: string,
   message: string,
+  maxAttempts: number,
 ): OperationRow {
   return finishReconciliation(app, row, leaseOwner, context, {
     state: AdsOperationStates.unknown,
     errorCode: code,
     errorMessage: message,
+  }, maxAttempts)
+}
+
+function pendingIdleRemainingMs(row: OperationRow, now: Date, minimumIdleMs: number): number {
+  const updatedAtMs = Date.parse(row.updatedAt)
+  if (!Number.isFinite(updatedAtMs)) return minimumIdleMs
+  return Math.max(0, updatedAtMs + minimumIdleMs - now.getTime())
+}
+
+function quarantineExhaustedReconciliation(
+  app: FastifyInstance,
+  row: OperationRow,
+  now: Date,
+  policy: ReconcilePolicy,
+  context: ReconcileAuditContext,
+): OperationRow {
+  if (row.reconcileAttempts < policy.maxAttempts
+    || row.state === AdsOperationStates.succeeded
+    || row.state === AdsOperationStates.failed) {
+    return row
+  }
+  if (row.state === AdsOperationStates.unknown
+    && row.errorCode === ADS_RECONCILIATION_QUARANTINED) {
+    return row
+  }
+  if (row.state === AdsOperationStates.pending
+    && pendingIdleRemainingMs(row, now, policy.pendingMinIdleMs) > 0) {
+    return row
+  }
+  if (row.state === AdsOperationStates.reconciling
+    && row.leaseExpiresAt
+    && row.leaseExpiresAt > now.toISOString()) {
+    return row
+  }
+
+  const nowIso = now.toISOString()
+  app.db.transaction((tx) => {
+    const result = tx.update(adsOperations).set({
+      state: AdsOperationStates.unknown,
+      errorCode: ADS_RECONCILIATION_QUARANTINED,
+      errorMessage: `Reconciliation stopped after ${policy.maxAttempts} inconclusive attempts; manual remediation is required`,
+      lastReconciledAt: nowIso,
+      leaseOwner: null,
+      leaseExpiresAt: null,
+      updatedAt: nowIso,
+    }).where(and(
+      eq(adsOperations.id, row.id),
+      eq(adsOperations.projectId, row.projectId),
+      gte(adsOperations.reconcileAttempts, policy.maxAttempts),
+      inArray(adsOperations.state, [
+        AdsOperationStates.pending,
+        AdsOperationStates.unknown,
+        AdsOperationStates.reconciling,
+      ]),
+    )).run()
+    if (result.changes > 0) {
+      const entry = {
+        projectId: row.projectId,
+        actor: context.actor,
+        action: `ads.${row.kind}.reconciliation.quarantined`,
+        entityType: row.entityType ?? 'ads-operation',
+        entityId: row.entityId ?? row.id,
+        diff: {
+          operationId: row.id,
+          operationKey: row.operationKey,
+          reconcileAttempts: row.reconcileAttempts,
+        },
+      }
+      writeAuditLog(tx, context.request ? auditFromRequest(context.request, entry) : entry)
+    }
   })
+  return app.db.select().from(adsOperations).where(eq(adsOperations.id, row.id)).get() ?? row
 }
 
 function reconcileResponse(row: OperationRow): AdsOperationReconcileResponse {
@@ -926,6 +1140,11 @@ export async function reconcileOneAdsOperation(
     apiKey: string
     operator: AdsOperator
     leaseMs?: number
+    pendingMinIdleMs?: number
+    backoffBaseMs?: number
+    maxAttempts?: number
+    /** Background workers honor exponential delay; an explicit operator request may inspect immediately. */
+    enforceBackoff?: boolean
     now?: Date
     audit?: ReconcileAuditContext
   },
@@ -942,24 +1161,62 @@ export async function reconcileOneAdsOperation(
     throw validationError('Ads operation receipt is missing its entity type')
   }
 
+  const now = input.now ?? new Date()
+  const policy: ReconcilePolicy = {
+    pendingMinIdleMs: Math.max(1, input.pendingMinIdleMs ?? DEFAULT_RECONCILE_PENDING_STALE_MS),
+    backoffBaseMs: Math.max(1, input.backoffBaseMs ?? DEFAULT_RECONCILE_BACKOFF_BASE_MS),
+    maxAttempts: Math.min(20, Math.max(1, input.maxAttempts ?? DEFAULT_RECONCILE_MAX_ATTEMPTS)),
+  }
+  const context = input.audit ?? { actor: 'system' }
+  const pendingWaitMs = existing.state === AdsOperationStates.pending
+    ? pendingIdleRemainingMs(existing, now, policy.pendingMinIdleMs)
+    : 0
+  if (pendingWaitMs > 0) {
+    throw operationInProgress(
+      'The ads mutation may still be in flight; reconciliation is blocked until the receipt is idle',
+      {
+        operationKey: existing.operationKey,
+        minimumIdleMs: policy.pendingMinIdleMs,
+        retryAfterMs: pendingWaitMs,
+      },
+    )
+  }
+  if (existing.reconcileAttempts >= policy.maxAttempts) {
+    return reconcileResponse(quarantineExhaustedReconciliation(app, existing, now, policy, context))
+  }
+
   const leaseOwner = `ads-reconcile:${crypto.randomUUID()}`
   const claimed = claimOperationForReconciliation(
     app,
     existing,
     leaseOwner,
-    input.now ?? new Date(),
+    now,
     input.leaseMs ?? DEFAULT_RECONCILE_LEASE_MS,
+    policy,
+    input.enforceBackoff ?? false,
   )
   if (!claimed) {
     const canonical = readOperationByKey(app, input.projectId, input.operationKey)
     if (!canonical) throw notFound('Ads operation', input.operationKey)
+    if (canonical.state === AdsOperationStates.pending) {
+      const retryAfterMs = pendingIdleRemainingMs(canonical, now, policy.pendingMinIdleMs)
+      if (retryAfterMs > 0) {
+        throw operationInProgress(
+          'The ads mutation may still be in flight; reconciliation is blocked until the receipt is idle',
+          {
+            operationKey: canonical.operationKey,
+            minimumIdleMs: policy.pendingMinIdleMs,
+            retryAfterMs,
+          },
+        )
+      }
+    }
     return {
       operation: operationDto(canonical),
       resolved: canonical.state === AdsOperationStates.succeeded,
     }
   }
 
-  const context = input.audit ?? { actor: 'system' }
   if (!claimed.adAccountId || claimed.adAccountId !== input.adAccountId) {
     const row = unknownReconciliation(
       app,
@@ -972,6 +1229,7 @@ export async function reconcileOneAdsOperation(
       claimed.adAccountId
         ? 'The current credential is connected to a different OpenAI ad account'
         : 'This legacy receipt is not bound to a verified OpenAI ad account',
+      policy.maxAttempts,
     )
     return reconcileResponse(row)
   }
@@ -988,6 +1246,7 @@ export async function reconcileOneAdsOperation(
       context,
       'ADS_RECONCILIATION_MANUAL_ONLY',
       'This operation cannot be reconciled automatically',
+      policy.maxAttempts,
     )
     return reconcileResponse(row)
   }
@@ -1007,6 +1266,7 @@ export async function reconcileOneAdsOperation(
         context,
         'ADS_RECONCILIATION_UNCHECKPOINTED_CREATE',
         'The create outcome has no checkpointed provider id and cannot be resolved automatically',
+        policy.maxAttempts,
       )
       return reconcileResponse(row)
     }
@@ -1020,7 +1280,25 @@ export async function reconcileOneAdsOperation(
       const checkpointDesired = strategy === AdsReconcileStrategies.create_fingerprint
         ? reconcileFieldsWithoutParent(desired)
         : desired
-      if (entityMatchesReconcileFields(entity, checkpointDesired, null)) match = entity
+      const desiredParentId = claimed.entityType === AdsEntityTypes.ad_group
+        ? desired.campaignId
+        : claimed.entityType === AdsEntityTypes.ad
+          ? desired.adGroupId
+          : undefined
+      const entityParentId = claimed.entityType === AdsEntityTypes.ad_group
+        ? entity.campaignId
+        : claimed.entityType === AdsEntityTypes.ad
+          ? entity.adGroupId
+          : undefined
+      const parentMatches = strategy !== AdsReconcileStrategies.create_fingerprint || (
+        (desiredParentId ?? null) === claimed.reconcileParentId
+        && (entityParentId == null || entityParentId === claimed.reconcileParentId)
+      )
+      if (parentMatches && entityMatchesReconcileFields(
+        entity,
+        checkpointDesired,
+        claimed.reconcileFingerprint,
+      )) match = entity
     }
 
     if (!match) {
@@ -1031,6 +1309,7 @@ export async function reconcileOneAdsOperation(
         context,
         'ADS_RECONCILIATION_MISMATCH',
         'The upstream entity did not match the requested safe state',
+        policy.maxAttempts,
       )
       return reconcileResponse(row)
     }
@@ -1038,7 +1317,7 @@ export async function reconcileOneAdsOperation(
     const row = finishReconciliation(app, claimed, leaseOwner, context, {
       state: AdsOperationStates.succeeded,
       entity: match,
-    })
+    }, policy.maxAttempts)
     return reconcileResponse(row)
   } catch (error) {
     const failure = errorDetails(error)
@@ -1049,6 +1328,7 @@ export async function reconcileOneAdsOperation(
       context,
       `ADS_RECONCILIATION_${failure.code}`.slice(0, 100),
       'OpenAI Ads API outcome could not be reconciled',
+      policy.maxAttempts,
     )
     return reconcileResponse(row)
   }
@@ -1057,13 +1337,47 @@ export async function reconcileOneAdsOperation(
 async function sweepAdsOperationsOnce(
   app: FastifyInstance,
   opts: AdsRoutesOptions,
-  config: { pendingStaleMs: number; batchSize: number; leaseMs: number },
+  config: {
+    policy: ReconcilePolicy
+    batchSize: number
+    leaseMs: number
+    verificationCache: AdsAccountVerificationCache
+    verificationCacheTtlMs: number
+  },
 ): Promise<void> {
   if (!opts.adsOperator || !opts.adsCredentialStore) return
   const now = new Date()
   const nowIso = now.toISOString()
-  const pendingCutoff = new Date(now.getTime() - config.pendingStaleMs).toISOString()
+  const pendingCutoff = new Date(
+    now.getTime() - config.policy.pendingMinIdleMs,
+  ).toISOString()
+  const unknownRetryWindows = Array.from(
+    { length: config.policy.maxAttempts },
+    (_, reconcileAttempts) => {
+      const backoffMs = config.policy.backoffBaseMs
+        * (2 ** Math.max(0, reconcileAttempts - 1))
+      return and(
+        eq(adsOperations.reconcileAttempts, reconcileAttempts),
+        lte(adsOperations.updatedAt, new Date(now.getTime() - backoffMs).toISOString()),
+      )
+    },
+  )
+  const retryableStateWhere = or(
+    and(
+      eq(adsOperations.state, AdsOperationStates.pending),
+      lte(adsOperations.updatedAt, pendingCutoff),
+    ),
+    and(
+      eq(adsOperations.state, AdsOperationStates.unknown),
+      or(...unknownRetryWindows),
+    ),
+    and(
+      eq(adsOperations.state, AdsOperationStates.reconciling),
+      or(isNull(adsOperations.leaseExpiresAt), lte(adsOperations.leaseExpiresAt, nowIso)),
+    ),
+  )
   const staleReconcileWhere = and(
+    lt(adsOperations.reconcileAttempts, config.policy.maxAttempts),
     or(
       eq(adsOperations.reconcileStrategy, AdsReconcileStrategies.known_entity),
       and(
@@ -1077,21 +1391,34 @@ async function sweepAdsOperationsOnce(
         ),
       ),
     ),
+    retryableStateWhere,
+  )
+
+  // A worker can die after claiming its last permitted attempt. Convert that
+  // expired lease, and any legacy exhausted row, into an explicit terminal
+  // recovery posture once. It stays unknown for operator visibility but is no
+  // longer eligible for automatic or manual provider inspection.
+  const exhaustedRows = app.db.select().from(adsOperations).where(and(
+    gte(adsOperations.reconcileAttempts, config.policy.maxAttempts),
     or(
       and(
         eq(adsOperations.state, AdsOperationStates.pending),
         lte(adsOperations.updatedAt, pendingCutoff),
       ),
-      and(
-        eq(adsOperations.state, AdsOperationStates.unknown),
-        lte(adsOperations.updatedAt, pendingCutoff),
-      ),
+      eq(adsOperations.state, AdsOperationStates.unknown),
       and(
         eq(adsOperations.state, AdsOperationStates.reconciling),
         or(isNull(adsOperations.leaseExpiresAt), lte(adsOperations.leaseExpiresAt, nowIso)),
       ),
     ),
-  )
+    or(
+      isNull(adsOperations.errorCode),
+      ne(adsOperations.errorCode, ADS_RECONCILIATION_QUARANTINED),
+    ),
+  )).orderBy(asc(adsOperations.updatedAt)).limit(config.batchSize).all()
+  for (const row of exhaustedRows) {
+    quarantineExhaustedReconciliation(app, row, now, config.policy, { actor: 'system' })
+  }
 
   // Apply the batch limit only after excluding projects that cannot currently
   // prove their credential/account binding. Otherwise the same oldest
@@ -1109,7 +1436,11 @@ async function sweepAdsOperationsOnce(
     .all()
   for (const project of projectRows) {
     try {
-      const { apiKey, adAccountId } = await resolveAdsOperator(app, opts, project)
+      const { apiKey, adAccountId } = await resolveAdsOperator(app, opts, project, {
+        cache: config.verificationCache,
+        ttlMs: config.verificationCacheTtlMs,
+        nowMs: now.getTime(),
+      })
       credentialsByProjectId.set(project.id, { apiKey, adAccountId })
     } catch {
       app.log.warn({ projectId: project.id }, 'Skipping ads receipt sweep for an unverified account binding')
@@ -1133,6 +1464,11 @@ async function sweepAdsOperationsOnce(
       adAccountId: credential.adAccountId,
       operator: opts.adsOperator,
       leaseMs: config.leaseMs,
+      pendingMinIdleMs: config.policy.pendingMinIdleMs,
+      backoffBaseMs: config.policy.backoffBaseMs,
+      maxAttempts: config.policy.maxAttempts,
+      enforceBackoff: true,
+      now,
       audit: { actor: 'system' },
     })
   }
@@ -1201,15 +1537,39 @@ function adGroupBillingEventTypeDto(value: string | null): AdsAdGroupBillingEven
 export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): Promise<void> {
   const sweepIntervalMs = opts.adsReconcileSweepIntervalMs ?? DEFAULT_RECONCILE_SWEEP_INTERVAL_MS
   const pendingStaleMs = Math.max(1, opts.adsReconcilePendingStaleMs ?? DEFAULT_RECONCILE_PENDING_STALE_MS)
+  const backoffBaseMs = Math.max(1, opts.adsReconcileBackoffBaseMs ?? DEFAULT_RECONCILE_BACKOFF_BASE_MS)
+  const maxAttempts = Math.min(20, Math.max(1, opts.adsReconcileMaxAttempts ?? DEFAULT_RECONCILE_MAX_ATTEMPTS))
   const batchSize = Math.min(100, Math.max(1, opts.adsReconcileBatchSize ?? DEFAULT_RECONCILE_BATCH_SIZE))
   const leaseMs = Math.max(1, opts.adsReconcileLeaseMs ?? DEFAULT_RECONCILE_LEASE_MS)
+  const verificationCacheTtlMs = Math.max(
+    0,
+    opts.adsAccountVerificationCacheTtlMs ?? DEFAULT_ADS_ACCOUNT_VERIFICATION_CACHE_TTL_MS,
+  )
+  const verificationCache: AdsAccountVerificationCache = new Map()
+  const reconcilePolicy: ReconcilePolicy = {
+    pendingMinIdleMs: pendingStaleMs,
+    backoffBaseMs,
+    maxAttempts,
+  }
+  const resolveOperatorForProject = (project: { id: string; name: string }) => resolveAdsOperator(
+    app,
+    opts,
+    project,
+    { cache: verificationCache, ttlMs: verificationCacheTtlMs },
+  )
   let sweepTimer: ReturnType<typeof setInterval> | undefined
   let sweepPromise: Promise<void> | undefined
   if (sweepIntervalMs > 0 && opts.adsOperator && opts.adsCredentialStore) {
     app.addHook('onReady', async () => {
       sweepTimer = setInterval(() => {
         if (sweepPromise) return
-        sweepPromise = sweepAdsOperationsOnce(app, opts, { pendingStaleMs, batchSize, leaseMs })
+        sweepPromise = sweepAdsOperationsOnce(app, opts, {
+          policy: reconcilePolicy,
+          batchSize,
+          leaseMs,
+          verificationCache,
+          verificationCacheTtlMs,
+        })
           .catch(() => {
             // Provider details can contain credentials or signed URLs. Keep the
             // process-level log generic; the receipt records a sanitized code.
@@ -1250,6 +1610,7 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
       }
 
       const now = new Date().toISOString()
+      verificationCache.delete(project.id)
       const existingCfg = opts.adsCredentialStore.getConnection(project.name)
       opts.adsCredentialStore.upsertConnection({
         projectName: project.name,
@@ -1324,6 +1685,7 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
       })
     }
     const removedFromConfig = opts.adsCredentialStore?.removeConnection(project.name) ?? false
+    verificationCache.delete(project.id)
 
     const response: AdsDisconnectResponse = { disconnected: Boolean(row) || removedFromConfig }
     return response
@@ -1378,20 +1740,38 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
 
   app.get<{
     Params: { name: string }
-    Querystring: { state?: string; limit?: string | number }
+    Querystring: { state?: string; limit?: string | number; cursor?: string }
   }>('/projects/:name/ads/operations', async (request) => {
     const project = resolveProject(app.db, request.params.name)
     const parsed = adsUnresolvedOperationListQuerySchema.safeParse(request.query)
     if (!parsed.success) {
       throw validationError('Invalid ads operation list query', { issues: parsed.error.issues })
     }
+    const cursor = parsed.data.cursor
+      ? decodeAdsOperationCursor(parsed.data.cursor, project.id, parsed.data.state)
+      : undefined
     const rows = app.db.select().from(adsOperations).where(and(
       eq(adsOperations.projectId, project.id),
       inArray(adsOperations.state, parsed.data.state),
-    )).orderBy(asc(adsOperations.createdAt)).limit(parsed.data.limit).all()
+      cursor
+        ? or(
+            gt(adsOperations.createdAt, cursor.createdAt),
+            and(
+              eq(adsOperations.createdAt, cursor.createdAt),
+              gt(adsOperations.id, cursor.id),
+            ),
+          )
+        : undefined,
+    )).orderBy(asc(adsOperations.createdAt), asc(adsOperations.id))
+      .limit(parsed.data.limit + 1).all()
+    const hasMore = rows.length > parsed.data.limit
+    const page = hasMore ? rows.slice(0, parsed.data.limit) : rows
     const response: AdsUnresolvedOperationListResponse = {
-      operations: rows.map(operationDto),
-      count: rows.length,
+      operations: page.map(operationDto),
+      count: page.length,
+      nextCursor: hasMore && page.length > 0
+        ? encodeAdsOperationCursor(project.id, parsed.data.state, page[page.length - 1]!)
+        : null,
     }
     return response
   })
@@ -1413,7 +1793,7 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
     )) {
       throw validationError('Ads operation reconciliation does not accept a request body')
     }
-    const { apiKey, adAccountId, operator } = await resolveAdsOperator(app, opts, project)
+    const { apiKey, adAccountId, operator } = await resolveOperatorForProject(project)
     return reconcileOneAdsOperation(app, {
       projectId: project.id,
       adAccountId,
@@ -1421,6 +1801,9 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
       apiKey,
       operator,
       leaseMs,
+      pendingMinIdleMs: reconcilePolicy.pendingMinIdleMs,
+      backoffBaseMs: reconcilePolicy.backoffBaseMs,
+      maxAttempts: reconcilePolicy.maxAttempts,
       audit: { request, actor: 'api' },
     })
   })
@@ -1447,7 +1830,7 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
     requireScope(request, ADS_WRITE_SCOPE)
     const project = resolveProject(app.db, request.params.name)
     const body = parseBody(adsImageUploadRequestSchema, request.body)
-    const { apiKey, adAccountId, operator } = await resolveAdsOperator(app, opts, project)
+    const { apiKey, adAccountId, operator } = await resolveOperatorForProject(project)
     return executeAdsOperation(app, request, {
       projectId: project.id,
       adAccountId,
@@ -1469,7 +1852,7 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
     const body = parseBody(adsCampaignCreateRequestSchema, request.body)
     const { operationKey, ...providerInput } = body
     const biddingType = providerInput.biddingType ?? AdsCampaignBiddingTypes.impressions
-    const { apiKey, adAccountId, operator } = await resolveAdsOperator(app, opts, project)
+    const { apiKey, adAccountId, operator } = await resolveOperatorForProject(project)
     return executeAdsOperation(app, request, {
       projectId: project.id,
       adAccountId,
@@ -1493,7 +1876,7 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
     const body = parseBody(adsAdGroupCreateRequestSchema, request.body)
     const { operationKey, ...providerInput } = body
     const requestedBillingEventType = providerInput.billingEventType ?? AdsAdGroupBillingEventTypes.impression
-    const { apiKey, adAccountId, operator } = await resolveAdsOperator(app, opts, project)
+    const { apiKey, adAccountId, operator } = await resolveOperatorForProject(project)
     return executeAdsOperation(app, request, {
       projectId: project.id,
       adAccountId,
@@ -1530,7 +1913,7 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
     const project = resolveProject(app.db, request.params.name)
     const body = parseBody(adsAdCreateRequestSchema, request.body)
     const { operationKey, ...providerInput } = body
-    const { apiKey, adAccountId, operator } = await resolveAdsOperator(app, opts, project)
+    const { apiKey, adAccountId, operator } = await resolveOperatorForProject(project)
     return executeAdsOperation(app, request, {
       projectId: project.id,
       adAccountId,
@@ -1556,7 +1939,7 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
       const project = resolveProject(app.db, request.params.name)
       const body = parseBody(adsCampaignUpdateRequestSchema, request.body)
       const { operationKey, expectedUpdatedAt, ...update } = body
-      const { apiKey, adAccountId, operator } = await resolveAdsOperator(app, opts, project)
+      const { apiKey, adAccountId, operator } = await resolveOperatorForProject(project)
       return executeAdsOperation(app, request, {
         projectId: project.id,
         adAccountId,
@@ -1588,7 +1971,7 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
       const project = resolveProject(app.db, request.params.name)
       const body = parseBody(adsAdGroupUpdateRequestSchema, request.body)
       const { operationKey, expectedUpdatedAt, ...update } = body
-      const { apiKey, adAccountId, operator } = await resolveAdsOperator(app, opts, project)
+      const { apiKey, adAccountId, operator } = await resolveOperatorForProject(project)
       return executeAdsOperation(app, request, {
         projectId: project.id,
         adAccountId,
@@ -1631,7 +2014,7 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
       const project = resolveProject(app.db, request.params.name)
       const body = parseBody(adsAdUpdateRequestSchema, request.body)
       const { operationKey, expectedUpdatedAt, ...update } = body
-      const { apiKey, adAccountId, operator } = await resolveAdsOperator(app, opts, project)
+      const { apiKey, adAccountId, operator } = await resolveOperatorForProject(project)
       return executeAdsOperation(app, request, {
         projectId: project.id,
         adAccountId,
@@ -1662,7 +2045,7 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
       requireScope(request, ADS_WRITE_SCOPE)
       const project = resolveProject(app.db, request.params.name)
       const body = parseBody(adsPauseRequestSchema, request.body)
-      const { apiKey, adAccountId, operator } = await resolveAdsOperator(app, opts, project)
+      const { apiKey, adAccountId, operator } = await resolveOperatorForProject(project)
       return executeAdsOperation(app, request, {
         projectId: project.id,
         adAccountId,
@@ -1688,7 +2071,7 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
       requireScope(request, ADS_WRITE_SCOPE)
       const project = resolveProject(app.db, request.params.name)
       const body = parseBody(adsPauseRequestSchema, request.body)
-      const { apiKey, adAccountId, operator } = await resolveAdsOperator(app, opts, project)
+      const { apiKey, adAccountId, operator } = await resolveOperatorForProject(project)
       return executeAdsOperation(app, request, {
         projectId: project.id,
         adAccountId,
@@ -1714,7 +2097,7 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
       requireScope(request, ADS_WRITE_SCOPE)
       const project = resolveProject(app.db, request.params.name)
       const body = parseBody(adsPauseRequestSchema, request.body)
-      const { apiKey, adAccountId, operator } = await resolveAdsOperator(app, opts, project)
+      const { apiKey, adAccountId, operator } = await resolveOperatorForProject(project)
       return executeAdsOperation(app, request, {
         projectId: project.id,
         adAccountId,
