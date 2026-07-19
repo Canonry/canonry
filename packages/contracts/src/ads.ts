@@ -261,6 +261,7 @@ const adsTimestampSchema = z.number().int().min(946684800).max(4102444800)
 const adsMicrosSchema = z.number().int().positive().max(Number.MAX_SAFE_INTEGER)
 const adsConversionEventSettingIdsSchema = z
   .array(adsEntityIdSchema)
+  .max(100)
   .refine((ids) => new Set(ids).size === ids.length, 'conversionEventSettingIds must be unique')
 const adsHttpsUrlSchema = z.string().url().refine((value) => new URL(value).protocol === 'https:', {
   message: 'URL must use https',

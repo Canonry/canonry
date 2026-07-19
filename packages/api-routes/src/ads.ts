@@ -352,6 +352,8 @@ async function executeAdsOperation(
     kind: AdsOperationKind
     entityType: AdsEntityType
     payload: unknown
+    /** Read-only checks that must succeed before a durable mutation receipt is claimed. */
+    preflight?: () => Promise<void>
     expectedStatus?: AdsEntityStatus
     remediateStatus?: (
       result: { id: string; status?: string; updatedAt?: number | null },
@@ -374,6 +376,11 @@ async function executeAdsOperation(
     }
     return { operation: operationDto(existing), replayed: true }
   }
+
+  // A receipt marks the boundary after which an upstream write may have been
+  // attempted. Keep provider reads before it so a transient read failure can
+  // be retried with the same operation key without manufacturing ambiguity.
+  await input.preflight?.()
 
   const id = crypto.randomUUID()
   const createdAt = new Date().toISOString()
@@ -487,17 +494,15 @@ function assertAdGroupBillingMatchesCampaign(
   campaign: AdsOperatorEntityResult,
   requestedBillingEventType: AdsAdGroupBillingEventType,
 ): void {
-  if (!campaign.biddingType) {
-    throw validationError('The upstream campaign did not report a supported bidding type', {
-      campaignId: campaign.id,
-    })
-  }
-
-  const expectedBillingEventType = BILLING_EVENT_BY_CAMPAIGN_BIDDING_TYPE[campaign.biddingType]
+  // The provider documents a missing/null bidding_type as the legacy
+  // impressions default. Materialize that default before enforcing the
+  // campaign/ad-group compatibility invariant.
+  const campaignBiddingType = campaign.biddingType ?? AdsCampaignBiddingTypes.impressions
+  const expectedBillingEventType = BILLING_EVENT_BY_CAMPAIGN_BIDDING_TYPE[campaignBiddingType]
   if (requestedBillingEventType !== expectedBillingEventType) {
     throw validationError('The ad group billing event must match the parent campaign bidding type', {
       campaignId: campaign.id,
-      campaignBiddingType: campaign.biddingType,
+      campaignBiddingType,
       requestedBillingEventType,
       expectedBillingEventType,
     })
@@ -732,16 +737,19 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
       kind: AdsOperationKinds.ad_group_create,
       entityType: AdsEntityTypes.ad_group,
       payload: providerInput,
+      preflight: async () => {
+        const campaign = await executeAdsRead(
+          'campaign billing preflight',
+          () => operator.getCampaign(apiKey, providerInput.campaignId),
+        )
+        assertAdGroupBillingMatchesCampaign(campaign, requestedBillingEventType)
+      },
       expectedStatus: AdsEntityStatuses.paused,
       remediateStatus: (result) => operator.pauseAdGroup(apiKey, result.id),
-      run: async () => {
-        const campaign = await operator.getCampaign(apiKey, providerInput.campaignId)
-        assertAdGroupBillingMatchesCampaign(campaign, requestedBillingEventType)
-        return operator.createAdGroup(apiKey, {
-          ...providerInput,
-          billingEventType: requestedBillingEventType,
-        })
-      },
+      run: async () => operator.createAdGroup(apiKey, {
+        ...providerInput,
+        billingEventType: requestedBillingEventType,
+      }),
     })
   })
 
