@@ -106,6 +106,16 @@ describe('DTO schemas', () => {
     expect(settings.eventSettings[0]?.sourceIds).toEqual(['clidsrc_123'])
   })
 
+  test('keeps unconfirmed conversion-list metadata optional', () => {
+    expect(adsConversionPixelListResponseSchema.parse({
+      pixels: [{ id: 'clidsrc_partial' }],
+    })).toEqual({ pixels: [{ id: 'clidsrc_partial' }] })
+
+    expect(adsConversionEventSettingListResponseSchema.parse({
+      eventSettings: [{ id: 'ces_partial' }],
+    })).toEqual({ eventSettings: [{ id: 'ces_partial' }] })
+  })
+
   test('insight row accepts derived nulls for zero denominators', () => {
     const parsed = adsInsightRowDtoSchema.parse({
       level: 'campaign', entityId: 'cmpn_x', date: '2026-06-10',

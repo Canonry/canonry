@@ -90,27 +90,27 @@ export type AdsConnectionStatusDto = {
 export type AdsConversionEventSettingListResponse = {
     eventSettings: Array<{
         id: string;
-        name: string;
-        eventType: string;
-        customEventName: string | null;
-        attributionWindowDays: number;
-        adAccountId: string;
-        sourceIds: Array<string>;
-        sources: Array<{
+        name?: string;
+        eventType?: string;
+        customEventName?: string | null;
+        attributionWindowDays?: number;
+        adAccountId?: string;
+        sourceIds?: Array<string>;
+        sources?: Array<{
             id: string;
-            name: string;
+            name?: string;
         }>;
-        archived: boolean;
-        version: number;
+        archived?: boolean;
+        version?: number;
     }>;
 };
 
 export type AdsConversionPixelListResponse = {
     pixels: Array<{
         id: string;
-        clientType: string;
-        name: string;
-        pixelId: string;
+        clientType?: string;
+        name?: string;
+        pixelId?: string;
     }>;
 };
 

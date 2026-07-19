@@ -50,9 +50,9 @@ export type AdsGeoSearchResponse = z.infer<typeof adsGeoSearchResponseSchema>
 
 const adsConversionPixelDtoSchema = z.object({
   id: z.string(),
-  clientType: z.string(),
-  name: z.string(),
-  pixelId: z.string(),
+  clientType: z.string().optional(),
+  name: z.string().optional(),
+  pixelId: z.string().optional(),
 })
 
 export const adsConversionPixelListResponseSchema = z.object({
@@ -62,20 +62,20 @@ export type AdsConversionPixelListResponse = z.infer<typeof adsConversionPixelLi
 
 const adsConversionEventSettingSourceDtoSchema = z.object({
   id: z.string(),
-  name: z.string(),
+  name: z.string().optional(),
 })
 
 const adsConversionEventSettingDtoSchema = z.object({
   id: z.string(),
-  name: z.string(),
-  eventType: z.string(),
-  customEventName: z.string().nullable(),
-  attributionWindowDays: z.number().int().positive(),
-  adAccountId: z.string(),
-  sourceIds: z.array(z.string()),
-  sources: z.array(adsConversionEventSettingSourceDtoSchema),
-  archived: z.boolean(),
-  version: z.number().int().nonnegative(),
+  name: z.string().optional(),
+  eventType: z.string().optional(),
+  customEventName: z.string().nullable().optional(),
+  attributionWindowDays: z.number().int().positive().optional(),
+  adAccountId: z.string().optional(),
+  sourceIds: z.array(z.string()).optional(),
+  sources: z.array(adsConversionEventSettingSourceDtoSchema).optional(),
+  archived: z.boolean().optional(),
+  version: z.number().int().nonnegative().optional(),
 })
 
 export const adsConversionEventSettingListResponseSchema = z.object({

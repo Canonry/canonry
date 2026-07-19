@@ -215,7 +215,10 @@ export async function adsConversionPixels(project: string, opts?: { format?: str
     return
   }
   for (const pixel of result.pixels) {
-    console.log(`${pixel.name} (${pixel.clientType}) [${pixel.id}] pixel ${pixel.pixelId}`)
+    const name = pixel.name ?? 'Unnamed conversion pixel'
+    const clientType = pixel.clientType ?? 'unknown client'
+    const pixelId = pixel.pixelId ? ` pixel ${pixel.pixelId}` : ''
+    console.log(`${name} (${clientType}) [${pixel.id}]${pixelId}`)
   }
 }
 
@@ -236,10 +239,17 @@ export async function adsConversionEventSettings(project: string, opts?: { forma
     return
   }
   for (const eventSetting of result.eventSettings) {
-    const sources = eventSetting.sources.map((source) => source.name).join(', ') || 'no sources'
-    const archived = eventSetting.archived ? ' [archived]' : ''
+    const name = eventSetting.name ?? 'Unnamed conversion event'
+    const eventType = eventSetting.eventType ?? 'unknown event'
+    const attribution = eventSetting.attributionWindowDays === undefined
+      ? 'unknown attribution window'
+      : `${eventSetting.attributionWindowDays}d attribution`
+    const sources = eventSetting.sources
+      ?.map((source) => source.name ?? source.id)
+      .join(', ') || 'no source details'
+    const archived = eventSetting.archived === true ? ' [archived]' : ''
     console.log(
-      `${eventSetting.name}${archived}: ${eventSetting.eventType}, ${eventSetting.attributionWindowDays}d attribution, ${sources} [${eventSetting.id}]`,
+      `${name}${archived}: ${eventType}, ${attribution}, ${sources} [${eventSetting.id}]`,
     )
   }
 }
