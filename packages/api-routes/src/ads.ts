@@ -129,6 +129,12 @@ export interface AdsRoutesOptions {
   adsReconcileLeaseMs?: number
   /** TTL for an exact credential/account verification result. Set to 0 to disable. */
   adsAccountVerificationCacheTtlMs?: number
+  /** Live-spend activation recovery cadence. Independent from receipt reconciliation. */
+  adsActivationWatchdogIntervalMs?: number
+  /** Upper bound on activation receipts contained or resumed per watchdog sweep. */
+  adsActivationWatchdogBatchSize?: number
+  /** Activation execution lease; heartbeats renew it during provider I/O. */
+  adsActivationLeaseMs?: number
 }
 
 export interface AdsOperatorEntityResult {
@@ -1619,6 +1625,9 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
   }
 
   registerAdsActivationRoutes(app, {
+    watchdogIntervalMs: opts.adsActivationWatchdogIntervalMs,
+    watchdogBatchSize: opts.adsActivationWatchdogBatchSize,
+    leaseMs: opts.adsActivationLeaseMs,
     resolveRuntime: async (project) => {
       const { apiKey, adAccountId, refreshAccount, operator } = await resolveAdsOperator(app, opts, project)
       const activateCampaign = operator.activateCampaign?.bind(operator)
@@ -1632,8 +1641,20 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
         provider: {
           getAccount: refreshAccount,
           getCampaign: (id) => operator.getCampaign(apiKey, id),
-          getAdGroup: (id) => operator.getAdGroup(apiKey, id),
-          getAd: (id) => operator.getAd(apiKey, id),
+          getAdGroup: async (id, campaignId) => {
+            const entity = (await operator.listAdGroups(apiKey, campaignId))
+              .find((candidate) => candidate.id === id)
+            if (!entity) throw new Error('OpenAI Ads ad group was not found under the approved campaign')
+            return entity
+          },
+          listAdGroups: (campaignId) => operator.listAdGroups(apiKey, campaignId),
+          getAd: async (id, adGroupId) => {
+            const entity = (await operator.listAds(apiKey, adGroupId))
+              .find((candidate) => candidate.id === id)
+            if (!entity) throw new Error('OpenAI Ads ad was not found under the approved ad group')
+            return entity
+          },
+          listAds: (adGroupId) => operator.listAds(apiKey, adGroupId),
           activateCampaign: (id) => activateCampaign(apiKey, id),
           activateAdGroup: (id) => activateAdGroup(apiKey, id),
           activateAd: (id) => activateAd(apiKey, id),

@@ -121,7 +121,11 @@ function printActivationGrant(
     console.log(JSON.stringify(result, null, 2))
     return
   }
-  console.log(`${verb} activation grant ${result.grant.id}: ${result.grant.state}`)
+  const cancellationRequested = verb === 'Revoked' && result.grant.revocationRequestedAt !== null
+  console.log(cancellationRequested
+    ? `Cancellation requested for activation grant ${result.grant.id}: ${result.grant.state}`
+    : `${verb} activation grant ${result.grant.id}: ${result.grant.state}`)
+  if (cancellationRequested) console.log(`Requested: ${result.grant.revocationRequestedAt}`)
   console.log(`Manifest: ${result.grant.manifestHash}`)
   console.log(`Expires:  ${result.grant.expiresAt}`)
 }

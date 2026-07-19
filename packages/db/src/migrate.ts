@@ -2253,6 +2253,16 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `CREATE UNIQUE INDEX IF NOT EXISTS idx_ads_operation_steps_operation_entity ON ads_operation_steps(operation_id, entity_type, entity_id)`,
     ],
   },
+  {
+    version: 103,
+    name: 'ads-activation-revocation-control',
+    // Keep the existing grant-state CHECK downgrade-safe. This nullable control
+    // flag lets a human stop an executing receipt. Verified rollback consumes
+    // the one-shot grant, while ambiguous rollback remains unknown.
+    statements: [
+      `ALTER TABLE ads_activation_grants ADD COLUMN revocation_requested_at TEXT`,
+    ],
+  },
 ]
 
 /**

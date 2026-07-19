@@ -6,9 +6,11 @@ import {
   canonicalizeAdsActivationManifest,
   AdsActivationEntityTypes,
   AdsActivationGrantStates,
+  AdsIntegrityDecisions,
   AdsOperationKinds,
   AdsOperationStates,
   AdsOperationStepStates,
+  AdsReviewStatuses,
   type AdsActivationEntityType,
   type AdsActivationGrantDto,
   type AdsActivationManifest,
@@ -145,6 +147,29 @@ export interface AdsActivationStepTransitionResult {
   operation: AdsActivationOperationRecord
 }
 
+export type AdsActivationAuthorizationRejection = 'expired' | 'revoked'
+
+export interface AdsActivationStepAuthorizationInput extends AdsActivationStepTransitionInput {
+  grantId: string
+  now: string
+}
+
+export type AdsActivationStepAuthorizationResult = AdsActivationStepTransitionResult & {
+  rejection?: AdsActivationAuthorizationRejection
+}
+
+export interface AdsActivationLeaseInput {
+  operationId: string
+  leaseOwner: string
+  now: string
+  leaseExpiresAt: string
+}
+
+export interface AdsActivationLeaseResult {
+  applied: boolean
+  operation: AdsActivationOperationRecord
+}
+
 export interface AdsActivationFinishInput {
   operationId: string
   grantId: string
@@ -171,6 +196,10 @@ export interface AdsActivationStore {
   /** Claiming the grant, inserting/replaying the receipt, binding the grant,
    * creating steps, and acquiring the lease are one database transaction. */
   claimGrantAndOperation(input: AdsActivationClaimInput): Promise<AdsActivationClaimResult>
+  loadGrant(grantId: string): Promise<AdsActivationGrantRecord | undefined>
+  renewLease(input: AdsActivationLeaseInput): Promise<AdsActivationLeaseResult>
+  releaseLease(input: Omit<AdsActivationLeaseInput, 'leaseExpiresAt'>): Promise<AdsActivationLeaseResult>
+  authorizeStep(input: AdsActivationStepAuthorizationInput): Promise<AdsActivationStepAuthorizationResult>
   transitionStep(input: AdsActivationStepTransitionInput): Promise<AdsActivationStepTransitionResult>
   finishOperation(input: AdsActivationFinishInput): Promise<AdsActivationFinishResult>
 }
@@ -194,8 +223,10 @@ export interface AdsActivationEntitySnapshot {
 export interface AdsActivationProvider {
   getAccount(): Promise<AdsActivationAccountSnapshot>
   getCampaign(id: string): Promise<AdsActivationEntitySnapshot>
-  getAdGroup(id: string): Promise<AdsActivationEntitySnapshot>
-  getAd(id: string): Promise<AdsActivationEntitySnapshot>
+  getAdGroup(id: string, campaignId: string): Promise<AdsActivationEntitySnapshot>
+  listAdGroups(campaignId: string): Promise<AdsActivationEntitySnapshot[]>
+  getAd(id: string, adGroupId: string): Promise<AdsActivationEntitySnapshot>
+  listAds(adGroupId: string): Promise<AdsActivationEntitySnapshot[]>
   activateCampaign(id: string): Promise<unknown>
   activateAdGroup(id: string): Promise<unknown>
   activateAd(id: string): Promise<unknown>
@@ -221,6 +252,12 @@ export interface AdsActivationResult {
   manualRemediationRequired: boolean
 }
 
+export interface AdsActivationSafetyPauseResult {
+  attempted: number
+  verifiedPaused: number
+  fullyVerified: boolean
+}
+
 interface ActivationTarget {
   entityType: AdsActivationEntityType
   entityId: string
@@ -240,8 +277,6 @@ interface ActivationContext {
 }
 
 const DEFAULT_LEASE_MS = 5 * 60_000
-const ACCOUNT_APPROVED = 'approved'
-const INTEGRITY_ALLOWED = 'allowed'
 const PROVIDER_PAUSED = 'paused'
 const PROVIDER_ACTIVE = 'active'
 
@@ -393,11 +428,87 @@ async function readTarget(
     case AdsActivationEntityTypes.campaign:
       return provider.getCampaign(target.entityId)
     case AdsActivationEntityTypes.ad_group:
-      return provider.getAdGroup(target.entityId)
+      return provider.getAdGroup(target.entityId, target.parentId!)
     case AdsActivationEntityTypes.ad:
-      return provider.getAd(target.entityId)
+      return provider.getAd(target.entityId, target.parentId!)
     default:
       return assertNever(target.entityType)
+  }
+}
+
+function assertExactEntityIds(
+  expected: readonly string[],
+  actual: readonly AdsActivationEntitySnapshot[],
+  target: ActivationTarget,
+): void {
+  const expectedIds = [...expected].sort()
+  const actualIds = actual.map((entity) => entity.id).sort()
+  if (
+    expectedIds.length !== actualIds.length
+    || expectedIds.some((id, index) => id !== actualIds[index])
+  ) {
+    throw targetError(
+      AdsActivationErrorCodes.entityMismatch,
+      'Provider campaign descendants did not match the exact approved manifest',
+      409,
+      target,
+    )
+  }
+}
+
+async function validateExactDescendants(
+  provider: AdsActivationProvider,
+  manifest: AdsActivationManifest,
+  parent: ActivationTarget,
+  beforeRead: () => Promise<void> = async () => undefined,
+): Promise<void> {
+  if (parent.entityType === AdsActivationEntityTypes.ad) return
+  if (parent.entityType === AdsActivationEntityTypes.ad_group) {
+    const group = manifest.campaign.adGroups.find((candidate) => candidate.id === parent.entityId)
+    if (!group) {
+      throw targetError(AdsActivationErrorCodes.entityMismatch, 'Approved ad group is missing', 409, parent)
+    }
+    let actualAds: AdsActivationEntitySnapshot[]
+    try {
+      await beforeRead()
+      actualAds = await provider.listAds(parent.entityId)
+    } catch {
+      throw targetError(AdsActivationErrorCodes.providerReadFailed, 'Approved ads could not be enumerated', 502, parent)
+    }
+    assertExactEntityIds(group.ads.map((ad) => ad.id), actualAds, parent)
+    for (const entity of actualAds) {
+      if (entity.adGroupId !== parent.entityId) {
+        throw targetError(AdsActivationErrorCodes.entityMismatch, 'Provider ad parent did not match the approved manifest', 409, parent)
+      }
+    }
+    return
+  }
+
+  let actualGroups: AdsActivationEntitySnapshot[]
+  try {
+    await beforeRead()
+    actualGroups = await provider.listAdGroups(parent.entityId)
+  } catch {
+    throw targetError(AdsActivationErrorCodes.providerReadFailed, 'Approved ad groups could not be enumerated', 502, parent)
+  }
+  assertExactEntityIds(manifest.campaign.adGroups.map((group) => group.id), actualGroups, parent)
+  for (const entity of actualGroups) {
+    if (entity.campaignId !== parent.entityId) {
+      throw targetError(AdsActivationErrorCodes.entityMismatch, 'Provider ad group parent did not match the approved manifest', 409, parent)
+    }
+  }
+  for (const group of manifest.campaign.adGroups) {
+    await validateExactDescendants(
+      provider,
+      manifest,
+      {
+        entityType: AdsActivationEntityTypes.ad_group,
+        entityId: group.id,
+        parentId: parent.entityId,
+        expectedUpdatedAt: group.expectedUpdatedAt,
+      },
+      beforeRead,
+    )
   }
 }
 
@@ -433,6 +544,137 @@ async function pauseTarget(provider: AdsActivationProvider, target: ActivationTa
   }
 }
 
+/**
+ * Apply the cheapest provider-side spend boundary. This deliberately does no
+ * descendant work so the watchdog can contain every urgent campaign in its
+ * bounded fleet batch before starting slower tree cleanup.
+ */
+export async function enforceAdsActivationCampaignBoundarySafety(
+  provider: AdsActivationProvider,
+  campaignId: string,
+): Promise<boolean> {
+  const target: ActivationTarget = {
+    entityType: AdsActivationEntityTypes.campaign,
+    entityId: campaignId,
+    parentId: null,
+    expectedUpdatedAt: 0,
+  }
+  try {
+    await pauseTarget(provider, target)
+  } catch {
+    // A lost mutation response is followed by an authoritative read.
+  }
+  try {
+    const entity = await readTarget(provider, target)
+    validateIdentity(target, entity)
+    return entity.status === PROVIDER_PAUSED
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Unknown activation receipts cannot prove whether a provider mutation landed.
+ * Reissuing activation is forbidden, but reissuing the reducing action (pause)
+ * is safe. The watchdog uses this for recurring best-effort containment while
+ * the receipt remains explicitly unknown for human remediation.
+ */
+export async function enforceUnknownAdsActivationSafety(
+  provider: AdsActivationProvider,
+  manifestInput: AdsActivationManifest,
+): Promise<AdsActivationSafetyPauseResult> {
+  const manifest = canonicalManifest(manifestInput)
+  const rank: Record<AdsActivationEntityType, number> = {
+    [AdsActivationEntityTypes.campaign]: 0,
+    [AdsActivationEntityTypes.ad_group]: 1,
+    [AdsActivationEntityTypes.ad]: 2,
+  }
+  const manifestTargets = activationTargets(manifest)
+  const campaignTarget = manifestTargets.find(
+    (target) => target.entityType === AdsActivationEntityTypes.campaign,
+  )!
+  const targetsByKey = new Map<string, ActivationTarget>(
+    manifestTargets
+      .filter((target) => target.entityType !== AdsActivationEntityTypes.campaign)
+      .map((target) => [`${target.entityType}:${target.entityId}`, target]),
+  )
+  let enumerationComplete = true
+  let verifiedPaused = await enforceAdsActivationCampaignBoundarySafety(
+    provider,
+    campaignTarget.entityId,
+  ) ? 1 : 0
+
+  // The manifest is the durable minimum containment set, but it is not an
+  // authoritative description of the provider tree after an ambiguous
+  // activation. Enumerate the campaign's current descendants so an entity
+  // omitted from the approval cannot remain live indefinitely. Parent ids are
+  // checked before issuing a reducing mutation outside the campaign boundary.
+  let actualGroups: AdsActivationEntitySnapshot[] = []
+  try {
+    actualGroups = await provider.listAdGroups(campaignTarget.entityId)
+  } catch {
+    enumerationComplete = false
+  }
+  for (const group of actualGroups) {
+    if (group.campaignId !== campaignTarget.entityId) {
+      enumerationComplete = false
+      continue
+    }
+    const groupTarget: ActivationTarget = {
+      entityType: AdsActivationEntityTypes.ad_group,
+      entityId: group.id,
+      parentId: campaignTarget.entityId,
+      expectedUpdatedAt: group.updatedAt ?? 0,
+    }
+    targetsByKey.set(`${groupTarget.entityType}:${groupTarget.entityId}`, groupTarget)
+    let actualAds: AdsActivationEntitySnapshot[] = []
+    try {
+      actualAds = await provider.listAds(group.id)
+    } catch {
+      enumerationComplete = false
+    }
+    for (const ad of actualAds) {
+      if (ad.adGroupId !== group.id) {
+        enumerationComplete = false
+        continue
+      }
+      const adTarget: ActivationTarget = {
+        entityType: AdsActivationEntityTypes.ad,
+        entityId: ad.id,
+        parentId: group.id,
+        expectedUpdatedAt: ad.updatedAt ?? 0,
+      }
+      targetsByKey.set(`${adTarget.entityType}:${adTarget.entityId}`, adTarget)
+    }
+  }
+
+  const targets = [...targetsByKey.values()]
+    .sort((left, right) => rank[left.entityType] - rank[right.entityType])
+
+  for (const target of targets) {
+    try {
+      await pauseTarget(provider, target)
+    } catch {
+      // A lost pause response is still followed by an authoritative read. The
+      // next watchdog sweep retries the idempotent reducing action if needed.
+    }
+    try {
+      const entity = await readTarget(provider, target)
+      validateIdentity(target, entity)
+      if (entity.status === PROVIDER_PAUSED) verifiedPaused += 1
+    } catch {
+      // Keep the receipt unknown. Provider details are intentionally not
+      // returned or logged from this safety path.
+    }
+  }
+
+  return {
+    attempted: targets.length + 1,
+    verifiedPaused,
+    fullyVerified: enumerationComplete && verifiedPaused === targets.length + 1,
+  }
+}
+
 function targetError(
   code: AdsActivationErrorCode,
   message: string,
@@ -458,7 +700,10 @@ function validateIdentity(target: ActivationTarget, entity: AdsActivationEntityS
 }
 
 function validateAdApproval(target: ActivationTarget, entity: AdsActivationEntitySnapshot): void {
-  if (target.entityType === AdsActivationEntityTypes.ad && entity.reviewStatus !== ACCOUNT_APPROVED) {
+  if (
+    target.entityType === AdsActivationEntityTypes.ad
+    && entity.reviewStatus !== AdsReviewStatuses.approved
+  ) {
     throw targetError(AdsActivationErrorCodes.adNotApproved, 'Every ad must be approved before activation', 409, target)
   }
 }
@@ -476,9 +721,9 @@ async function validateAccount(provider: AdsActivationProvider, adAccountId: str
   }
   if (
     account.id !== adAccountId
-    || account.reviewStatus !== ACCOUNT_APPROVED
-    || account.integrityReviewStatus !== ACCOUNT_APPROVED
-    || account.integrityDecision !== INTEGRITY_ALLOWED
+    || account.reviewStatus !== AdsReviewStatuses.approved
+    || account.integrityReviewStatus !== AdsReviewStatuses.approved
+    || account.integrityDecision !== AdsIntegrityDecisions.allowed
   ) {
     throw new AdsActivationError(
       AdsActivationErrorCodes.accountNotApproved,
@@ -548,6 +793,12 @@ export async function preflightAdsActivationApproval(
 ): Promise<AdsActivationApprovalPreflightResult> {
   const manifest = canonicalManifest(request.manifest)
   await validateAccount(provider, request.adAccountId)
+  await validateExactDescendants(provider, manifest, {
+    entityType: AdsActivationEntityTypes.campaign,
+    entityId: manifest.campaign.id,
+    parentId: null,
+    expectedUpdatedAt: manifest.campaign.expectedUpdatedAt,
+  })
   for (const target of activationTargets(manifest)) {
     await readAndValidatePaused(provider, target)
   }
@@ -732,19 +983,142 @@ function leaseExpiry(ctx: ActivationContext, now: Date): string {
   return new Date(now.getTime() + ctx.deps.leaseMs).toISOString()
 }
 
-function grantExpiredError(): AdsActivationError {
-  return new AdsActivationError(
-    AdsActivationErrorCodes.grantExpired,
-    'Ads activation grant expired before execution completed',
-    409,
-  )
+async function renewLease(ctx: ActivationContext): Promise<void> {
+  const now = ctx.deps.now()
+  const result = await ctx.deps.store.renewLease({
+    operationId: ctx.operation.id,
+    leaseOwner: ctx.leaseOwner,
+    now: now.toISOString(),
+    leaseExpiresAt: leaseExpiry(ctx, now),
+  })
+  if (!result.applied) {
+    throw new AdsActivationError(
+      AdsActivationErrorCodes.persistenceFailed,
+      'Ads activation lease was lost before provider I/O',
+      409,
+      operationRef(result.operation),
+    )
+  }
+  ctx.operation = result.operation
 }
 
-function assertGrantUnexpired(ctx: ActivationContext): void {
-  const expiresAt = Date.parse(ctx.grant.expiresAt)
-  if (!Number.isFinite(expiresAt) || expiresAt <= ctx.deps.now().getTime()) {
-    throw grantExpiredError()
+async function withLeaseHeartbeat<T>(
+  ctx: ActivationContext,
+  work: () => Promise<T>,
+): Promise<T> {
+  const heartbeatIntervalMs = Math.max(
+    25,
+    Math.min(30_000, Math.floor(ctx.deps.leaseMs / 3)),
+  )
+  let stopped = false
+  let timer: ReturnType<typeof setTimeout> | undefined
+  let heartbeatPromise: Promise<void> | undefined
+  let heartbeatFailure: AdsActivationError | undefined
+
+  const schedule = (): void => {
+    if (stopped || heartbeatFailure) return
+    timer = setTimeout(() => {
+      const now = ctx.deps.now()
+      heartbeatPromise = ctx.deps.store.renewLease({
+        operationId: ctx.operation.id,
+        leaseOwner: ctx.leaseOwner,
+        now: now.toISOString(),
+        leaseExpiresAt: leaseExpiry(ctx, now),
+      }).then((result) => {
+        if (
+          !result.applied
+          && result.operation.state === AdsOperationStates.pending
+        ) {
+          throw new AdsActivationError(
+            AdsActivationErrorCodes.persistenceFailed,
+            'Ads activation lease heartbeat was lost',
+            409,
+            operationRef(result.operation),
+          )
+        }
+      }).catch((cause: unknown) => {
+        heartbeatFailure = cause instanceof AdsActivationError
+          ? cause
+          : new AdsActivationError(
+              AdsActivationErrorCodes.persistenceFailed,
+              'Ads activation lease heartbeat failed',
+              500,
+              operationRef(ctx.operation),
+            )
+      }).finally(() => {
+        heartbeatPromise = undefined
+        schedule()
+      })
+    }, heartbeatIntervalMs)
+    timer.unref()
   }
+
+  schedule()
+  let outcome: { ok: true; value: T } | { ok: false; error: unknown }
+  try {
+    outcome = { ok: true, value: await work() }
+  } catch (error) {
+    outcome = { ok: false, error }
+  } finally {
+    stopped = true
+    if (timer) clearTimeout(timer)
+    await heartbeatPromise
+  }
+  if (!outcome.ok) throw outcome.error
+  if (heartbeatFailure) throw heartbeatFailure
+  return outcome.value
+}
+
+async function refreshGrant(ctx: ActivationContext): Promise<void> {
+  const grant = await ctx.deps.store.loadGrant(ctx.grant.id)
+  if (!grant) {
+    throw new AdsActivationError(
+      AdsActivationErrorCodes.persistenceFailed,
+      'Ads activation grant could not be reloaded',
+      500,
+      operationRef(ctx.operation),
+    )
+  }
+  ctx.grant = grant
+  if (grant.state === AdsActivationGrantStates.revoked) {
+    throw claimError('revoked')
+  }
+  if (grant.revocationRequestedAt !== null) {
+    throw claimError('revoked')
+  }
+  if (grant.state !== AdsActivationGrantStates.executing) {
+    throw new AdsActivationError(
+      AdsActivationErrorCodes.persistenceFailed,
+      'Ads activation grant is no longer executable',
+      409,
+      operationRef(ctx.operation),
+    )
+  }
+  const expiresAt = Date.parse(grant.expiresAt)
+  if (!Number.isFinite(expiresAt) || expiresAt <= ctx.deps.now().getTime()) {
+    throw new AdsActivationError(
+      AdsActivationErrorCodes.grantExpired,
+      'Ads activation grant expired before the next forward step was authorized',
+      409,
+      operationRef(ctx.operation),
+    )
+  }
+}
+
+async function releaseForRetry(ctx: ActivationContext, error: AdsActivationError): Promise<never> {
+  const result = await ctx.deps.store.releaseLease({
+    operationId: ctx.operation.id,
+    leaseOwner: ctx.leaseOwner,
+    now: ctx.deps.now().toISOString(),
+  })
+  ctx.operation = result.operation
+  throw new AdsActivationError(
+    error.code,
+    'Ads activation was interrupted before the next provider mutation and can be resumed safely',
+    error.statusCode,
+    operationRef(ctx.operation),
+    error.entity,
+  )
 }
 
 async function transitionStep(
@@ -761,6 +1135,41 @@ async function transitionStep(
     leaseExpiresAt: leaseExpiry(ctx, now),
   })
   ctx.operation = result.operation
+  return result.applied
+}
+
+async function authorizeStep(
+  ctx: ActivationContext,
+  current: AdsActivationStepRecord,
+  next: AdsActivationStepRecord,
+): Promise<boolean> {
+  const now = ctx.deps.now()
+  const result = await ctx.deps.store.authorizeStep({
+    operationId: ctx.operation.id,
+    grantId: ctx.grant.id,
+    leaseOwner: ctx.leaseOwner,
+    fromState: current.state,
+    next,
+    now: now.toISOString(),
+    leaseExpiresAt: leaseExpiry(ctx, now),
+  })
+  ctx.operation = result.operation
+  if (result.rejection === 'expired') {
+    throw new AdsActivationError(
+      AdsActivationErrorCodes.grantExpired,
+      'Ads activation grant expired before the next forward step was authorized',
+      409,
+      operationRef(ctx.operation),
+    )
+  }
+  if (result.rejection === 'revoked') {
+    throw new AdsActivationError(
+      AdsActivationErrorCodes.grantRevoked,
+      'Ads activation was revoked before the next forward step was authorized',
+      409,
+      operationRef(ctx.operation),
+    )
+  }
   return result.applied
 }
 
@@ -877,9 +1286,22 @@ async function failBeforeMutation(ctx: ActivationContext, error: AdsActivationEr
 }
 
 async function recoverAndPreflight(ctx: ActivationContext): Promise<void> {
+  await renewLease(ctx)
   await validateAccount(ctx.deps.provider, ctx.request.adAccountId)
+  await validateExactDescendants(
+    ctx.deps.provider,
+    ctx.manifest,
+    {
+      entityType: AdsActivationEntityTypes.campaign,
+      entityId: ctx.manifest.campaign.id,
+      parentId: null,
+      expectedUpdatedAt: ctx.manifest.campaign.expectedUpdatedAt,
+    },
+    () => renewLease(ctx),
+  )
   for (const step of [...ctx.operation.steps].sort((left, right) => left.ordinal - right.ordinal)) {
     const target = stepTarget(ctx.manifest, step)
+    await renewLease(ctx)
     if (step.state === AdsOperationStepStates.pending) {
       await readAndValidatePaused(ctx.deps.provider, target)
       continue
@@ -936,6 +1358,7 @@ async function validateActiveDescendants(
     if (step.state !== AdsOperationStepStates.active) continue
     const candidate = stepTarget(ctx.manifest, step)
     if (!isActivationDescendant(candidate, parent)) continue
+    await renewLease(ctx)
     await readAndValidateActiveCheckpoint(
       ctx.deps.provider,
       candidate,
@@ -946,7 +1369,23 @@ async function validateActiveDescendants(
 
 async function activateOne(ctx: ActivationContext, original: AdsActivationStepRecord): Promise<void> {
   let step = currentStep(ctx, original.id)
-  if (step.state === AdsOperationStepStates.active) return
+  if (step.state === AdsOperationStepStates.active) {
+    const target = stepTarget(ctx.manifest, step)
+    await validateExactDescendants(
+      ctx.deps.provider,
+      ctx.manifest,
+      target,
+      () => renewLease(ctx),
+    )
+    await validateActiveDescendants(ctx, target)
+    await renewLease(ctx)
+    await readAndValidateActiveCheckpoint(
+      ctx.deps.provider,
+      target,
+      step.providerUpdatedAt,
+    )
+    return
+  }
   if (step.state !== AdsOperationStepStates.pending) {
     throw new AdsActivationError(
       AdsActivationErrorCodes.manualRemediationRequired,
@@ -956,22 +1395,35 @@ async function activateOne(ctx: ActivationContext, original: AdsActivationStepRe
     )
   }
   const target = stepTarget(ctx.manifest, step)
-  await validateAccount(ctx.deps.provider, ctx.request.adAccountId)
+  await renewLease(ctx)
+  await validateExactDescendants(
+    ctx.deps.provider,
+    ctx.manifest,
+    target,
+    () => renewLease(ctx),
+  )
+  await refreshGrant(ctx)
   await validateActiveDescendants(ctx, target)
+  await renewLease(ctx)
+  await validateAccount(ctx.deps.provider, ctx.request.adAccountId)
+  await renewLease(ctx)
   await readAndValidatePaused(ctx.deps.provider, target)
-  assertGrantUnexpired(ctx)
   const now = ctx.deps.now().toISOString()
-  if (!await transitionStep(ctx, step, executingStep(step, now))) {
+  if (!await authorizeStep(ctx, step, executingStep(step, now))) {
     throw new AdsActivationError(AdsActivationErrorCodes.persistenceFailed, 'Activation step could not be claimed', 409)
   }
   step = currentStep(ctx, step.id)
-  assertGrantUnexpired(ctx)
 
   try {
     await activateTarget(ctx.deps.provider, target)
   } catch {
     // The request may have reached the provider; the GET below is authoritative.
   }
+
+  // Keep the lease fenced across the activation request and its verification
+  // read. The activation lease is deliberately longer than two provider
+  // request timeouts, and this renewal gives the read a fresh full window.
+  await renewLease(ctx)
 
   let entity: AdsActivationEntitySnapshot
   try {
@@ -994,6 +1446,19 @@ async function activateOne(ctx: ActivationContext, original: AdsActivationStepRe
     await transitionStep(ctx, step, unknownStep(step, error, entity.updatedAt, ctx.deps.now().toISOString()))
     throw error
   }
+  await validateExactDescendants(
+    ctx.deps.provider,
+    ctx.manifest,
+    target,
+    () => renewLease(ctx),
+  )
+  await validateActiveDescendants(ctx, target)
+  await renewLease(ctx)
+  await readAndValidateActiveCheckpoint(
+    ctx.deps.provider,
+    target,
+    entity.updatedAt,
+  )
   if (!await transitionStep(ctx, step, activeStep(step, entity.updatedAt, ctx.deps.now().toISOString()))) {
     throw targetError(AdsActivationErrorCodes.persistenceFailed, 'Confirmed activation could not be checkpointed', 502, target)
   }
@@ -1019,6 +1484,7 @@ async function rollbackOne(ctx: ActivationContext, original: AdsActivationStepRe
   if (step.state === AdsOperationStepStates.unknown) return false
   let entity: AdsActivationEntitySnapshot
   try {
+    await renewLease(ctx)
     entity = await readTarget(ctx.deps.provider, target)
   } catch {
     const error = targetError(AdsActivationErrorCodes.manualRemediationRequired, 'Provider state could not be read during rollback', 502, target)
@@ -1071,11 +1537,13 @@ async function rollbackOne(ctx: ActivationContext, original: AdsActivationStepRe
   if (!await transitionStep(ctx, step, rollbackExecutingStep(step, entity.updatedAt, now))) return false
   step = currentStep(ctx, step.id)
   try {
+    await renewLease(ctx)
     await pauseTarget(ctx.deps.provider, target)
   } catch {
     // Verify with GET; never blindly resend this pause on replay.
   }
   try {
+    await renewLease(ctx)
     entity = await readTarget(ctx.deps.provider, target)
   } catch {
     const error = targetError(AdsActivationErrorCodes.manualRemediationRequired, 'Provider rollback outcome could not be verified', 502, target)
@@ -1101,7 +1569,12 @@ async function rollback(ctx: ActivationContext, cause: AdsActivationError): Prom
     if (!await rollbackOne(ctx, step)) complete = false
   }
   if (complete) {
-    await finish(ctx, AdsOperationStates.failed, AdsActivationGrantStates.consumed, cause)
+    await finish(
+      ctx,
+      AdsOperationStates.failed,
+      AdsActivationGrantStates.consumed,
+      cause,
+    )
     throw new AdsActivationError(cause.code, 'Ads activation failed and was rolled back', cause.statusCode, operationRef(ctx.operation))
   }
   const unknown = new AdsActivationError(
@@ -1112,6 +1585,65 @@ async function rollback(ctx: ActivationContext, cause: AdsActivationError): Prom
   )
   await finish(ctx, AdsOperationStates.unknown, AdsActivationGrantStates.unknown, unknown)
   throw unknown
+}
+
+async function executeClaimedActivation(ctx: ActivationContext): Promise<AdsActivationResult> {
+  try {
+    await refreshGrant(ctx)
+  } catch (cause) {
+    const error = cause as AdsActivationError
+    if (hasMutationEvidence(ctx.operation)) return rollback(ctx, error)
+    return failBeforeMutation(ctx, error)
+  }
+
+  try {
+    await recoverAndPreflight(ctx)
+  } catch (cause) {
+    const error = cause instanceof AdsActivationError
+      ? cause
+      : new AdsActivationError(AdsActivationErrorCodes.providerReadFailed, 'Ads activation preflight failed', 502)
+    if (error.code === AdsActivationErrorCodes.providerReadFailed && !hasMutationEvidence(ctx.operation)) {
+      return releaseForRetry(ctx, error)
+    }
+    if (hasMutationEvidence(ctx.operation)) return rollback(ctx, error)
+    return failBeforeMutation(ctx, error)
+  }
+
+  for (const original of [...ctx.operation.steps].sort((left, right) => left.ordinal - right.ordinal)) {
+    try {
+      await activateOne(ctx, original)
+    } catch (cause) {
+      const error = cause instanceof AdsActivationError
+        ? cause
+        : new AdsActivationError(AdsActivationErrorCodes.providerMutationFailed, 'Ads activation failed', 502)
+      if (error.code === AdsActivationErrorCodes.providerReadFailed && !hasMutationEvidence(ctx.operation)) {
+        return releaseForRetry(ctx, error)
+      }
+      return rollback(ctx, error)
+    }
+  }
+
+  try {
+    await refreshGrant(ctx)
+  } catch (cause) {
+    return rollback(ctx, cause as AdsActivationError)
+  }
+  let finished: AdsActivationFinishResult
+  try {
+    finished = await finish(ctx, AdsOperationStates.succeeded, AdsActivationGrantStates.consumed, undefined)
+  } catch (cause) {
+    if (
+      cause instanceof AdsActivationError
+      && (
+        cause.code === AdsActivationErrorCodes.grantRevoked
+        || cause.code === AdsActivationErrorCodes.grantExpired
+      )
+    ) {
+      return rollback(ctx, cause)
+    }
+    throw cause
+  }
+  return activationResult(finished.grant, finished.operation, ctx.replayed || !finished.applied)
 }
 
 /**
@@ -1180,36 +1712,5 @@ export async function executeApprovedAdsActivation(
   if (ctx.operation.state !== AdsOperationStates.pending) {
     return activationResult(ctx.grant, ctx.operation, true)
   }
-
-  try {
-    assertGrantUnexpired(ctx)
-  } catch (cause) {
-    const error = cause as AdsActivationError
-    if (hasMutationEvidence(ctx.operation)) return rollback(ctx, error)
-    return failBeforeMutation(ctx, error)
-  }
-
-  try {
-    await recoverAndPreflight(ctx)
-  } catch (cause) {
-    const error = cause instanceof AdsActivationError
-      ? cause
-      : new AdsActivationError(AdsActivationErrorCodes.providerReadFailed, 'Ads activation preflight failed', 502)
-    if (hasMutationEvidence(ctx.operation)) return rollback(ctx, error)
-    return failBeforeMutation(ctx, error)
-  }
-
-  for (const original of [...ctx.operation.steps].sort((left, right) => left.ordinal - right.ordinal)) {
-    try {
-      await activateOne(ctx, original)
-    } catch (cause) {
-      const error = cause instanceof AdsActivationError
-        ? cause
-        : new AdsActivationError(AdsActivationErrorCodes.providerMutationFailed, 'Ads activation failed', 502)
-      return rollback(ctx, error)
-    }
-  }
-
-  const finished = await finish(ctx, AdsOperationStates.succeeded, AdsActivationGrantStates.consumed, undefined)
-  return activationResult(finished.grant, finished.operation, ctx.replayed || !finished.applied)
+  return withLeaseHeartbeat(ctx, () => executeClaimedActivation(ctx))
 }

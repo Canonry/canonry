@@ -53,6 +53,7 @@ export type AdsActivateTreeResponse = {
         approvedAt: string;
         createdAt: string;
         updatedAt: string;
+        revocationRequestedAt: string | null;
         state: 'approved';
         operationId: null;
         executionStartedAt: null;
@@ -84,6 +85,7 @@ export type AdsActivateTreeResponse = {
         approvedAt: string;
         createdAt: string;
         updatedAt: string;
+        revocationRequestedAt: string | null;
         state: 'executing';
         operationId: string;
         executionStartedAt: string;
@@ -115,6 +117,7 @@ export type AdsActivateTreeResponse = {
         approvedAt: string;
         createdAt: string;
         updatedAt: string;
+        revocationRequestedAt: string | null;
         state: 'consumed';
         operationId: string;
         executionStartedAt: string;
@@ -146,6 +149,7 @@ export type AdsActivateTreeResponse = {
         approvedAt: string;
         createdAt: string;
         updatedAt: string;
+        revocationRequestedAt: string | null;
         state: 'revoked';
         operationId: null;
         executionStartedAt: null;
@@ -177,6 +181,7 @@ export type AdsActivateTreeResponse = {
         approvedAt: string;
         createdAt: string;
         updatedAt: string;
+        revocationRequestedAt: string | null;
         state: 'expired';
         operationId: null;
         executionStartedAt: null;
@@ -208,6 +213,7 @@ export type AdsActivateTreeResponse = {
         approvedAt: string;
         createdAt: string;
         updatedAt: string;
+        revocationRequestedAt: string | null;
         state: 'unknown';
         operationId: string;
         executionStartedAt: string;
@@ -408,6 +414,7 @@ export type AdsActivationGrantResponse = {
         approvedAt: string;
         createdAt: string;
         updatedAt: string;
+        revocationRequestedAt: string | null;
         state: 'approved';
         operationId: null;
         executionStartedAt: null;
@@ -439,6 +446,7 @@ export type AdsActivationGrantResponse = {
         approvedAt: string;
         createdAt: string;
         updatedAt: string;
+        revocationRequestedAt: string | null;
         state: 'executing';
         operationId: string;
         executionStartedAt: string;
@@ -470,6 +478,7 @@ export type AdsActivationGrantResponse = {
         approvedAt: string;
         createdAt: string;
         updatedAt: string;
+        revocationRequestedAt: string | null;
         state: 'consumed';
         operationId: string;
         executionStartedAt: string;
@@ -501,6 +510,7 @@ export type AdsActivationGrantResponse = {
         approvedAt: string;
         createdAt: string;
         updatedAt: string;
+        revocationRequestedAt: string | null;
         state: 'revoked';
         operationId: null;
         executionStartedAt: null;
@@ -532,6 +542,7 @@ export type AdsActivationGrantResponse = {
         approvedAt: string;
         createdAt: string;
         updatedAt: string;
+        revocationRequestedAt: string | null;
         state: 'expired';
         operationId: null;
         executionStartedAt: null;
@@ -563,6 +574,7 @@ export type AdsActivationGrantResponse = {
         approvedAt: string;
         createdAt: string;
         updatedAt: string;
+        revocationRequestedAt: string | null;
         state: 'unknown';
         operationId: string;
         executionStartedAt: string;
@@ -7998,7 +8010,7 @@ export type PostApiV1ProjectsByNameAdsActivationGrantsByGrantIdRevokeData = {
 
 export type PostApiV1ProjectsByNameAdsActivationGrantsByGrantIdRevokeErrors = {
     /**
-     * Grant has already started or been consumed.
+     * A completed grant cannot accept a new cancellation request.
      */
     400: ErrorEnvelope;
     /**
@@ -8015,7 +8027,7 @@ export type PostApiV1ProjectsByNameAdsActivationGrantsByGrantIdRevokeError = Pos
 
 export type PostApiV1ProjectsByNameAdsActivationGrantsByGrantIdRevokeResponses = {
     /**
-     * Unused grant revoked.
+     * Grant revoked, cancellation requested, or prior cancellation replayed.
      */
     200: AdsActivationGrantResponse;
 };

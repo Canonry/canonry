@@ -1377,6 +1377,7 @@ export const adsActivationGrants = sqliteTable('ads_activation_grants', {
   executionStartedAt: text('execution_started_at'),
   consumedAt: text('consumed_at'),
   revokedAt: text('revoked_at'),
+  revocationRequestedAt: text('revocation_requested_at'),
   expiredAt: text('expired_at'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),

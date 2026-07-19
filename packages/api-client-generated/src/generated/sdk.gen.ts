@@ -2045,9 +2045,9 @@ export const postApiV1ProjectsByNameAdsActivationGrants = <ThrowOnError extends 
 };
 
 /**
- * Revoke an unused OpenAI Ads activation grant
+ * Revoke or cancel an OpenAI Ads activation grant
  *
- * Human-only approval surface. Revocation is idempotent while the grant is unused and cannot interrupt an execution that already claimed the grant.
+ * Human-only kill switch. Before execution, the grant becomes revoked. After execution starts, or while an activation outcome is unknown, revocationRequestedAt is recorded atomically. Subsequent activation steps are blocked, and the recovery worker rolls back confirmed active entities. Unknown outcomes remain explicitly unknown while the watchdog repeatedly issues exact-tree safety pauses. A provider request already authorized or in flight may still settle before containment. Verified rollback leaves the single-use grant consumed and the operation failed.
  */
 export const postApiV1ProjectsByNameAdsActivationGrantsByGrantIdRevoke = <ThrowOnError extends boolean = false>(options: Options<PostApiV1ProjectsByNameAdsActivationGrantsByGrantIdRevokeData, ThrowOnError>) => {
     return (options.client ?? client).post<PostApiV1ProjectsByNameAdsActivationGrantsByGrantIdRevokeResponses, PostApiV1ProjectsByNameAdsActivationGrantsByGrantIdRevokeErrors, ThrowOnError>({

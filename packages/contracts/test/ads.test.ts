@@ -37,6 +37,7 @@ import {
   AdsOperationStates,
   AdsReconcileStrategies,
   AdsActivationGrantStates,
+  ADS_ACTIVATION_MAX_ENTITIES,
   AdsOperationStepStates,
 } from '../src/ads.js'
 
@@ -76,6 +77,7 @@ const ACTIVATION_GRANT_BASE = {
   approvedAt: NOW,
   createdAt: NOW,
   updatedAt: NOW,
+  revocationRequestedAt: null,
 }
 
 const ACTIVATION_OPERATION = {
@@ -564,6 +566,29 @@ describe('approval-bound campaign-tree activation contracts', () => {
         ],
       },
     }).success).toBe(false)
+  })
+
+  test('bounds one activation manifest to a safe provider and SQLite workload', () => {
+    const manifestWithAds = (adCount: number) => ({
+      campaign: {
+        id: 'cmpn_bounded',
+        expectedUpdatedAt: 1,
+        adGroups: [{
+          id: 'adgrp_bounded',
+          expectedUpdatedAt: 2,
+          ads: Array.from({ length: adCount }, (_, index) => ({
+            id: `ad_${String(index).padStart(3, '0')}`,
+            expectedUpdatedAt: index + 3,
+          })),
+        }],
+      },
+    })
+    expect(adsActivationManifestSchema.safeParse(
+      manifestWithAds(ADS_ACTIVATION_MAX_ENTITIES - 2),
+    ).success).toBe(true)
+    expect(adsActivationManifestSchema.safeParse(
+      manifestWithAds(ADS_ACTIVATION_MAX_ENTITIES - 1),
+    ).success).toBe(false)
   })
 
   test('models every grant state with exact terminal timestamps', () => {

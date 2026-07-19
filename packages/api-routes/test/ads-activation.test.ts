@@ -11,8 +11,10 @@ import {
   type AdsActivationManifest,
 } from '@ainyc/canonry-contracts'
 import {
+  AdsActivationError,
   AdsActivationErrorCodes,
   buildAdsActivationSteps,
+  enforceUnknownAdsActivationSafety,
   executeApprovedAdsActivation,
   hashAdsActivationManifest,
   hashAdsActivationOperationRequest,
@@ -121,12 +123,26 @@ class FakeProvider implements AdsActivationProvider {
     return this.read(AdsActivationEntityTypes.campaign, id)
   }
 
-  async getAdGroup(id: string) {
+  async getAdGroup(id: string, _campaignId: string) {
     return this.read(AdsActivationEntityTypes.ad_group, id)
   }
 
-  async getAd(id: string) {
+  async listAdGroups(campaignId: string) {
+    this.calls.push(`list:ad_groups:${campaignId}`)
+    return [...this.entities.values()]
+      .filter((entity) => entity.campaignId === campaignId)
+      .map((entity) => ({ ...entity }))
+  }
+
+  async getAd(id: string, _adGroupId: string) {
     return this.read(AdsActivationEntityTypes.ad, id)
+  }
+
+  async listAds(adGroupId: string) {
+    this.calls.push(`list:ads:${adGroupId}`)
+    return [...this.entities.values()]
+      .filter((entity) => entity.adGroupId === adGroupId)
+      .map((entity) => ({ ...entity }))
   }
 
   async activateCampaign(id: string) {
@@ -200,6 +216,7 @@ class MemoryActivationStore implements AdsActivationStore {
   operation: AdsActivationOperationRecord | undefined
   readonly transitions: AdsActivationStepRecord[] = []
   readonly finishes: AdsActivationFinishInput[] = []
+  beforeFinish?: () => void
 
   constructor(
     private readonly claimKind: 'claimed' | 'resumed' = 'claimed',
@@ -224,6 +241,7 @@ class MemoryActivationStore implements AdsActivationStore {
       executionStartedAt: input.now,
       consumedAt: null,
       revokedAt: null,
+      revocationRequestedAt: null,
       expiredAt: null,
       createdAt: NOW,
       updatedAt: input.now,
@@ -256,6 +274,58 @@ class MemoryActivationStore implements AdsActivationStore {
     return { kind: this.claimKind, grant: this.grant, operation: this.operation }
   }
 
+  async loadGrant(grantId: string): Promise<AdsActivationGrantRecord | undefined> {
+    return this.grant?.id === grantId ? this.grant : undefined
+  }
+
+  async renewLease(input: {
+    operationId: string
+    leaseOwner: string
+    now: string
+    leaseExpiresAt: string
+  }) {
+    const operation = this.requireOperation()
+    const applied = operation.id === input.operationId
+      && operation.leaseOwner === input.leaseOwner
+      && operation.state === AdsOperationStates.pending
+    if (applied) {
+      this.operation = {
+        ...operation,
+        leaseExpiresAt: input.leaseExpiresAt,
+        updatedAt: input.now,
+      }
+    }
+    return { applied, operation: this.requireOperation() }
+  }
+
+  async releaseLease(input: { operationId: string; leaseOwner: string; now: string }) {
+    const operation = this.requireOperation()
+    const applied = operation.id === input.operationId
+      && operation.leaseOwner === input.leaseOwner
+      && operation.state === AdsOperationStates.pending
+    if (applied) {
+      this.operation = {
+        ...operation,
+        leaseOwner: null,
+        leaseExpiresAt: null,
+        updatedAt: input.now,
+      }
+    }
+    return { applied, operation: this.requireOperation() }
+  }
+
+  async authorizeStep(input: AdsActivationStepTransitionInput & { grantId: string; now: string }) {
+    const grant = this.requireGrant()
+    const operation = this.requireOperation()
+    if (grant.revocationRequestedAt !== null || grant.state === AdsActivationGrantStates.revoked) {
+      return { applied: false, operation, rejection: 'revoked' as const }
+    }
+    if (Date.parse(grant.expiresAt) <= Date.parse(input.now)) {
+      return { applied: false, operation, rejection: 'expired' as const }
+    }
+    return this.transitionStep(input)
+  }
+
   async transitionStep(input: AdsActivationStepTransitionInput): Promise<AdsActivationStepTransitionResult> {
     const operation = this.requireOperation()
     if (this.rejectTransition(input)) return { applied: false, operation }
@@ -275,8 +345,29 @@ class MemoryActivationStore implements AdsActivationStore {
   }
 
   async finishOperation(input: AdsActivationFinishInput): Promise<AdsActivationFinishResult> {
+    this.beforeFinish?.()
     const operation = this.requireOperation()
     const grant = this.requireGrant()
+    if (
+      grant.revocationRequestedAt !== null
+      && input.operationState === AdsOperationStates.succeeded
+    ) {
+      throw new AdsActivationError(
+        AdsActivationErrorCodes.grantRevoked,
+        'Ads activation grant was revoked before execution completed',
+        409,
+      )
+    }
+    if (
+      Date.parse(grant.expiresAt) <= Date.parse(input.now)
+      && input.operationState === AdsOperationStates.succeeded
+    ) {
+      throw new AdsActivationError(
+        AdsActivationErrorCodes.grantExpired,
+        'Ads activation grant expired before execution completed',
+        409,
+      )
+    }
     this.finishes.push(input)
     this.operation = {
       ...operation,
@@ -367,6 +458,8 @@ describe('approval-bound ads activation core', () => {
     })).resolves.toEqual({ manifest: MANIFEST, manifestHash: MANIFEST_HASH })
     expect(provider.calls).toEqual([
       'get:account',
+      'list:ad_groups:cmpn_1',
+      'list:ads:adgrp_1',
       'get:ad:ad_1',
       'get:ad_group:adgrp_1',
       'get:campaign:cmpn_1',
@@ -394,6 +487,20 @@ describe('approval-bound ads activation core', () => {
       manifest: MANIFEST,
     })).rejects.toMatchObject({ code: AdsActivationErrorCodes.entityMismatch })
     expect(mutationCalls(wrongParent)).toEqual([])
+
+    const omittedActiveDescendant = new FakeProvider()
+    omittedActiveDescendant.setEntity(AdsActivationEntityTypes.ad, {
+      id: 'ad_unapproved',
+      adGroupId: 'adgrp_1',
+      reviewStatus: 'approved',
+      status: 'active',
+      updatedAt: 999,
+    })
+    await expect(preflightAdsActivationApproval(omittedActiveDescendant, {
+      adAccountId: 'adacct_1',
+      manifest: MANIFEST,
+    })).rejects.toMatchObject({ code: AdsActivationErrorCodes.entityMismatch })
+    expect(mutationCalls(omittedActiveDescendant)).toEqual([])
   })
 
   it('activates ads, then ad groups, then the campaign with durable checkpoints', async () => {
@@ -457,7 +564,7 @@ describe('approval-bound ads activation core', () => {
       randomId: deterministicIds(),
     }, activationRequest())
 
-    expect(provider.calls.filter((call) => call === 'get:ad:ad_1')).toHaveLength(3)
+    expect(provider.calls.filter((call) => call === 'get:ad:ad_1')).toHaveLength(6)
     expect(mutationCalls(provider)).toEqual([
       'activate:ad_group:adgrp_1',
       'activate:campaign:cmpn_1',
@@ -508,6 +615,7 @@ describe('approval-bound ads activation core', () => {
       'cmpn_1',
       { id: 'cmpn_1', status: 'paused', updatedAt: 100 },
       { id: 'cmpn_1', status: 'paused', updatedAt: 100 },
+      { id: 'cmpn_1', status: 'active', updatedAt: 101 },
       { id: 'cmpn_1', status: 'active', updatedAt: 101 },
       { id: 'cmpn_1', status: 'active', updatedAt: 101 },
       new Error('Connection dropped while verifying pause'),
@@ -576,7 +684,7 @@ describe('approval-bound ads activation core', () => {
     expect(store.grant?.state).toBe(AdsActivationGrantStates.consumed)
   })
 
-  it('stops issuing new mutations when the grant expires between steps', async () => {
+  it('stops before the next atomic step authorization when a grant expires', async () => {
     const provider = new FakeProvider()
     const store = new MemoryActivationStore()
     let clock = new Date(NOW)
@@ -598,6 +706,42 @@ describe('approval-bound ads activation core', () => {
       'pause:ad:ad_1',
     ])
     expect(store.operation?.state).toBe(AdsOperationStates.failed)
+    expect(store.grant?.state).toBe(AdsActivationGrantStates.consumed)
+  })
+
+  it('lets a revocation win the finalization race and rolls the active tree back', async () => {
+    const provider = new FakeProvider()
+    const store = new MemoryActivationStore()
+    store.beforeFinish = () => {
+      store.beforeFinish = undefined
+      store.grant = adsActivationGrantDtoSchema.parse({
+        ...store.grant!,
+        revocationRequestedAt: NOW,
+      })
+    }
+
+    await expect(executeApprovedAdsActivation({
+      provider,
+      store,
+      now: fixedNow,
+      randomId: deterministicIds(),
+    }, activationRequest())).rejects.toMatchObject({
+      code: AdsActivationErrorCodes.grantRevoked,
+    })
+
+    expect(mutationCalls(provider)).toEqual([
+      'activate:ad:ad_1',
+      'activate:ad_group:adgrp_1',
+      'activate:campaign:cmpn_1',
+      'pause:campaign:cmpn_1',
+      'pause:ad_group:adgrp_1',
+      'pause:ad:ad_1',
+    ])
+    expect(store.operation?.state).toBe(AdsOperationStates.failed)
+    expect(store.grant).toMatchObject({
+      state: AdsActivationGrantStates.consumed,
+      revocationRequestedAt: NOW,
+    })
   })
 
   it('rechecks account approval before each new provider mutation', async () => {
@@ -655,6 +799,41 @@ describe('approval-bound ads activation core', () => {
       'pause:ad_group:adgrp_1',
     ])
     expect(mutationCalls(provider)).not.toContain('activate:campaign:cmpn_1')
+    expect(store.operation?.state).toBe(AdsOperationStates.failed)
+  })
+
+  it('re-enumerates descendants after campaign activation and rolls back an omitted child', async () => {
+    const provider = new FakeProvider()
+    const store = new MemoryActivationStore()
+    provider.afterActivate = (entityType) => {
+      if (entityType === AdsActivationEntityTypes.campaign) {
+        provider.setEntity(AdsActivationEntityTypes.ad_group, {
+          id: 'adgrp_omitted',
+          campaignId: 'cmpn_1',
+          status: 'active',
+          updatedAt: 400,
+        })
+      }
+    }
+
+    await expect(executeApprovedAdsActivation({
+      provider,
+      store,
+      now: fixedNow,
+      randomId: deterministicIds(),
+    }, activationRequest())).rejects.toMatchObject({
+      code: AdsActivationErrorCodes.entityMismatch,
+    })
+
+    expect(mutationCalls(provider)).toEqual([
+      'activate:ad:ad_1',
+      'activate:ad_group:adgrp_1',
+      'activate:campaign:cmpn_1',
+      'pause:campaign:cmpn_1',
+      'pause:ad_group:adgrp_1',
+      'pause:ad:ad_1',
+    ])
+    expect(provider.entities.get('campaign:cmpn_1')?.status).toBe('paused')
     expect(store.operation?.state).toBe(AdsOperationStates.failed)
   })
 
@@ -799,6 +978,33 @@ describe('approval-bound ads activation core', () => {
     expect(mutationCalls(provider)).toEqual([])
     expect(store.operation?.state).toBe(AdsOperationStates.unknown)
     expect(store.grant?.state).toBe(AdsActivationGrantStates.unknown)
+  })
+
+  it('safety-pauses provider descendants that were omitted from the approved manifest', async () => {
+    const provider = new FakeProvider()
+    provider.setEntity(AdsActivationEntityTypes.ad_group, {
+      id: 'adgrp_omitted',
+      campaignId: MANIFEST.campaign.id,
+      status: 'active',
+      updatedAt: 401,
+    })
+    provider.setEntity(AdsActivationEntityTypes.ad, {
+      id: 'ad_omitted',
+      adGroupId: 'adgrp_omitted',
+      reviewStatus: 'approved',
+      status: 'active',
+      updatedAt: 402,
+    })
+
+    const result = await enforceUnknownAdsActivationSafety(provider, MANIFEST)
+
+    expect(result).toEqual({ attempted: 5, verifiedPaused: 5, fullyVerified: true })
+    expect(provider.calls.indexOf('pause:campaign:cmpn_1'))
+      .toBeLessThan(provider.calls.indexOf('list:ad_groups:cmpn_1'))
+    expect(provider.calls).toContain('pause:ad_group:adgrp_omitted')
+    expect(provider.calls).toContain('pause:ad:ad_omitted')
+    expect(provider.entities.get('ad_group:adgrp_omitted')?.status).toBe('paused')
+    expect(provider.entities.get('ad:ad_omitted')?.status).toBe('paused')
   })
 
   it('builds stable ad-first ordinals for the durable step ledger', () => {

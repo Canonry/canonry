@@ -1,5 +1,14 @@
 import { z } from 'zod'
 
+/** Provider review values that gate any live-spend transition. Unknown values remain strings on reads and fail closed. */
+export const AdsReviewStatuses = {
+  approved: 'approved',
+} as const
+
+export const AdsIntegrityDecisions = {
+  allowed: 'allowed',
+} as const
+
 // OpenAI Advertiser API (ChatGPT ads) DTOs. Money is integer micros
 // everywhere (spendMicros, cpcMicros, budget/bid micros) — the upstream
 // insights API's decimal dollars are normalized at ingest. Vocabulary:
@@ -320,12 +329,19 @@ const adsActivationEntityRefSchema = z.object({
 
 const adsActivationAdSchema = adsActivationEntityRefSchema
 
+/**
+ * Keep one approval/execution inside a bounded provider and SQLite workload.
+ * The campaign itself counts toward this limit, so callers can approve at
+ * most 99 descendants in one activation manifest.
+ */
+export const ADS_ACTIVATION_MAX_ENTITIES = 100
+
 const adsActivationAdGroupSchema = adsActivationEntityRefSchema.extend({
-  ads: z.array(adsActivationAdSchema).min(1).max(1_000),
+  ads: z.array(adsActivationAdSchema).min(1).max(ADS_ACTIVATION_MAX_ENTITIES - 1),
 }).strict()
 
 const adsActivationCampaignSchema = adsActivationEntityRefSchema.extend({
-  adGroups: z.array(adsActivationAdGroupSchema).min(1).max(1_000),
+  adGroups: z.array(adsActivationAdGroupSchema).min(1).max(ADS_ACTIVATION_MAX_ENTITIES - 1),
 }).strict()
 
 function compareAdsActivationEntityIds(left: string, right: string): number {
@@ -359,6 +375,17 @@ function addCanonicalEntityOrderIssue(
 export const adsActivationManifestSchema = z.object({
   campaign: adsActivationCampaignSchema,
 }).strict().superRefine((manifest, ctx) => {
+  const entityCount = 1 + manifest.campaign.adGroups.reduce(
+    (count, group) => count + 1 + group.ads.length,
+    0,
+  )
+  if (entityCount > ADS_ACTIVATION_MAX_ENTITIES) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['campaign'],
+      message: `Activation manifests may contain at most ${ADS_ACTIVATION_MAX_ENTITIES} entities`,
+    })
+  }
   addCanonicalEntityOrderIssue(manifest.campaign.adGroups, ['campaign', 'adGroups'], ctx)
   const allAdIds = new Set<string>()
   for (let groupIndex = 0; groupIndex < manifest.campaign.adGroups.length; groupIndex += 1) {
@@ -604,6 +631,7 @@ const adsActivationGrantBaseShape = {
   approvedAt: adsActivationIsoTimestampSchema,
   createdAt: adsActivationIsoTimestampSchema,
   updatedAt: adsActivationIsoTimestampSchema,
+  revocationRequestedAt: adsActivationIsoTimestampSchema.nullable(),
 }
 
 const adsActivationGrantApprovedDtoSchema = z.object({
@@ -683,6 +711,18 @@ export const adsActivationGrantDtoSchema = z.discriminatedUnion('state', [
       code: 'custom',
       path: ['executorApiKeyId'],
       message: 'The activation executor must use a different API key from the approver',
+    })
+  }
+  if (
+    grant.revocationRequestedAt !== null
+    && grant.state !== AdsActivationGrantStates.executing
+    && grant.state !== AdsActivationGrantStates.unknown
+    && grant.state !== AdsActivationGrantStates.consumed
+  ) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['revocationRequestedAt'],
+      message: 'Only an executing, cancelled, or unresolved activation can carry a cancellation request',
     })
   }
 })
