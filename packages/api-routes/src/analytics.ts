@@ -1,19 +1,24 @@
-import { and, eq, desc, inArray } from 'drizzle-orm'
+import { and, desc, eq, gte, inArray, lt } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { filterTrackedSnapshots, groupRunsByCreatedAt, pickGroupRepresentative, querySnapshots, runs, queries, competitors, domainClassifications, parseJsonColumn } from '@ainyc/canonry-db'
 import {
   AI_PROVIDER_INFRA_DOMAINS, brandLabelFromDomain, categorizeSource, categoryLabel, CitationStates,
   classifySurfaceFromCategory, surfaceClassFromCompetitorType, surfaceClassLabel,
-  effectiveDomains, normalizeProjectDomain, parseWindow, RunKinds, windowCutoff, validationError,
+  effectiveDomains, normalizeProjectDomain, parseWindow, RunKinds, RunStatuses, windowCutoff, validationError,
 } from '@ainyc/canonry-contracts'
 import type {
   BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto,
   TimeBucket, TrendDirection, GapQuery, GapCategory,
   SourceCategory, SourceCategoryCount, ProviderMetric, QueryChangeEvent,
-  RankedSourceList, SourceRankEntry, SurfaceClass, SurfaceClassCount,
+  RankedSourceList, SourceRankEntry, SurfaceClass, SurfaceClassCount, ModelEvidenceState,
+  ModelServiceMismatch,
 } from '@ainyc/canonry-contracts'
 import { buildMentionShare } from '@ainyc/canonry-intelligence'
 import { notProbeRun, resolveProject, resolveSnapshotAnswerMentioned } from './helpers.js'
+import { buildModelAttribution, buildServedModelAttribution } from './analytics-model-attribution.js'
+import {
+  classifyModelEvidence, classifyServedModelEvidence, modelEvidenceMismatched, type ModelEvidenceValue,
+} from './model-evidence.js'
 
 export async function analyticsRoutes(app: FastifyInstance) {
   // GET /projects/:name/analytics/metrics — citation rate trends
@@ -29,11 +34,16 @@ export async function analyticsRoutes(app: FastifyInstance) {
     const projectRuns = app.db
       .select()
       .from(runs)
-      .where(and(eq(runs.projectId, project.id), eq(runs.kind, RunKinds['answer-visibility']), notProbeRun()))
-      .orderBy(runs.createdAt)
+      .where(and(
+        eq(runs.projectId, project.id),
+        eq(runs.kind, RunKinds['answer-visibility']),
+        inArray(runs.status, [RunStatuses.completed, RunStatuses.partial]),
+        notProbeRun(),
+        cutoff ? gte(runs.createdAt, cutoff) : undefined,
+      ))
+      .orderBy(desc(runs.createdAt))
       .all()
-      .filter(r => r.status === 'completed' || r.status === 'partial')
-      .filter(r => !cutoff || r.createdAt >= cutoff)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
 
     if (projectRuns.length === 0) {
       return reply.send({
@@ -44,6 +54,9 @@ export async function analyticsRoutes(app: FastifyInstance) {
         trend: 'stable',
         mentionTrend: 'stable',
         queryChanges: [],
+        modelAttribution: {},
+        servedModelAttribution: {},
+        modelServiceMismatch: {},
       } satisfies BrandMetricsDto)
     }
 
@@ -56,18 +69,21 @@ export async function analyticsRoutes(app: FastifyInstance) {
         runId: querySnapshots.runId,
         queryId: querySnapshots.queryId,
         provider: querySnapshots.provider,
+        model: querySnapshots.model,
+        servedModel: querySnapshots.servedModel,
         citationState: querySnapshots.citationState,
         answerMentioned: querySnapshots.answerMentioned,
         answerText: querySnapshots.answerText,
-        createdAt: querySnapshots.createdAt,
       })
       .from(querySnapshots)
       .where(inArray(querySnapshots.runId, runIds))
       .all())
 
     // Resolve answerMentioned for each snapshot (handles null/legacy data)
+    const runCreatedAt = new Map(projectRuns.map(run => [run.id, run.createdAt]))
     const allSnapshots = rawSnapshots.map(s => ({
       ...s,
+      runCreatedAt: runCreatedAt.get(s.runId)!,
       resolvedMentioned: resolveSnapshotAnswerMentioned(s, project),
     }))
 
@@ -105,6 +121,188 @@ export async function analyticsRoutes(app: FastifyInstance) {
     const bucketSize = bucketSizeForSpan(spanDays)
     const buckets = computeBuckets(allSnapshots, projectRuns, bucketSize, queryCreatedAt, mentionShareCompetitors)
 
+    // Model observations are evidence, not configuration. To avoid a false
+    // "first seen" transition at the start of a bounded window, anchor each
+    // in-window provider to its latest pre-cutoff logical sweep. Provider
+    // absence remains absent evidence rather than a fabricated unknown state,
+    // and an anchor-derived transition is reported with the anchor's own
+    // observation time so a consumer dates it to the range between the two
+    // sweeps instead of claiming it happened inside the window.
+    const anchors: Record<string, ModelEvidenceState> = {}
+    const anchorObservedAt: Record<string, string> = {}
+    const anchorUnavailable = new Set<string>()
+    // The served series anchors independently: a pre-window sweep can observe a
+    // provider while carrying no served id at all (it predates capture), and
+    // that is an absent observation, not an anchor.
+    const servedAnchors: Record<string, ModelEvidenceState> = {}
+    const servedAnchorObservedAt: Record<string, string> = {}
+    const servedAnchorUnavailable = new Set<string>()
+    const windowProviders = new Set(allSnapshots.map(snapshot => snapshot.provider))
+    if (cutoff && windowProviders.size > 0) {
+      // Narrow to this project's runs FIRST (`idx_runs_project`), then read
+      // snapshots by run id (`idx_snapshots_run`). Selecting snapshots by
+      // provider instead makes SQLite scan the whole `idx_snapshots_provider_model`
+      // partition — every project, all history — plus a temp b-tree sort, which
+      // blocks the synchronous driver for hundreds of ms per provider. This
+      // shape is index-driven by construction, so it does not depend on the
+      // planner having ANALYZE statistics.
+      const anchorRunPredicate = and(
+        eq(runs.projectId, project.id),
+        eq(runs.kind, RunKinds['answer-visibility']),
+        inArray(runs.status, [RunStatuses.completed, RunStatuses.partial]),
+        notProbeRun(),
+        lt(runs.createdAt, cutoff),
+      )
+      // Walk pre-window logical sweeps newest-first and stop as soon as every
+      // in-window provider is anchored — normally the first sweep. The bound is
+      // a sweep count, not a calendar span, so it scales with the project's own
+      // cadence instead of silently dropping a real change on a slow-sweeping
+      // project. Reading every pre-cutoff run's snapshots up front would be
+      // read amplification: only the newest sweep observing a provider matters.
+      const anchorSweepTimes = app.db
+        .selectDistinct({ createdAt: runs.createdAt })
+        .from(runs)
+        .where(anchorRunPredicate)
+        .orderBy(desc(runs.createdAt))
+        // One past the bound: the extra row only answers "is there more history
+        // beyond the bound?", so a project with exactly the bound's worth of
+        // sweeps is reported as conclusive rather than as maybe-truncated.
+        .limit(ANCHOR_SWEEP_SCAN_LIMIT + 1)
+        .all()
+        .map(row => row.createdAt)
+      const anchorScanTruncated = anchorSweepTimes.length > ANCHOR_SWEEP_SCAN_LIMIT
+      if (anchorScanTruncated) anchorSweepTimes.length = ANCHOR_SWEEP_SCAN_LIMIT
+
+      if (anchorSweepTimes.length > 0) {
+        const anchorRuns = app.db
+          .select({ id: runs.id, createdAt: runs.createdAt })
+          .from(runs)
+          .where(and(anchorRunPredicate, gte(runs.createdAt, anchorSweepTimes[anchorSweepTimes.length - 1]!)))
+          .all()
+        // Same-timestamp `--all-locations` runs collapse into one logical sweep.
+        const runIdsBySweep = new Map<string, string[]>()
+        for (const run of anchorRuns) {
+          const ids = runIdsBySweep.get(run.createdAt) ?? []
+          ids.push(run.id)
+          runIdsBySweep.set(run.createdAt, ids)
+        }
+
+        const pending = new Set(windowProviders)
+        const servedPending = new Set(windowProviders)
+        // The served anchor rides the sweeps the configured search already
+        // visits — it never extends the scan. Widening the walk until every
+        // provider has a SERVED anchor would make each request read all
+        // `ANCHOR_SWEEP_SCAN_LIMIT` sweeps for the whole rollout period, since
+        // pre-capture sweeps can never satisfy it. A served anchor the visited
+        // sweeps did not supply is reported as unavailable, not invented.
+        let visitedSweeps = 0
+        for (const observedAt of anchorSweepTimes) {
+          if (pending.size === 0) break
+          visitedSweeps += 1
+          const runIds = runIdsBySweep.get(observedAt)
+          if (!runIds || runIds.length === 0) continue
+
+          const modelsByProvider = new Map<string, ModelEvidenceValue[]>()
+          const servedByProvider = new Map<string, string[]>()
+          for (const snapshot of filterTrackedSnapshots(app.db
+            .select({
+              queryId: querySnapshots.queryId,
+              provider: querySnapshots.provider,
+              model: querySnapshots.model,
+              servedModel: querySnapshots.servedModel,
+            })
+            .from(querySnapshots)
+            .where(inArray(querySnapshots.runId, runIds))
+            .all())) {
+            if (pending.has(snapshot.provider)) {
+              const models = modelsByProvider.get(snapshot.provider) ?? []
+              models.push(snapshot.model)
+              modelsByProvider.set(snapshot.provider, models)
+            }
+            const servedModel = snapshot.servedModel?.trim()
+            if (servedModel && servedPending.has(snapshot.provider)) {
+              const servedModels = servedByProvider.get(snapshot.provider) ?? []
+              servedModels.push(servedModel)
+              servedByProvider.set(snapshot.provider, servedModels)
+            }
+          }
+
+          for (const [provider, models] of modelsByProvider) {
+            anchors[provider] = classifyModelEvidence(models)
+            anchorObservedAt[provider] = observedAt
+            pending.delete(provider)
+          }
+          for (const [provider, servedModels] of servedByProvider) {
+            servedAnchors[provider] = classifyServedModelEvidence(servedModels)
+            servedAnchorObservedAt[provider] = observedAt
+            servedPending.delete(provider)
+          }
+        }
+
+        // Only a bound we actually hit is inconclusive. Exhausting a project's
+        // shorter history means the provider truly has no pre-window evidence.
+        if (anchorScanTruncated) {
+          for (const provider of pending) anchorUnavailable.add(provider)
+        }
+        // Served history is inconclusive whenever pre-window sweeps remained
+        // unread — either the scan bound cut them off, or the configured search
+        // stopped early and never looked at them.
+        if (anchorScanTruncated || visitedSweeps < anchorSweepTimes.length) {
+          for (const provider of servedPending) servedAnchorUnavailable.add(provider)
+        }
+      }
+    }
+    const modelAttribution = buildModelAttribution({
+      observations: allSnapshots.map(snapshot => ({
+        runId: snapshot.runId,
+        runCreatedAt: snapshot.runCreatedAt,
+        provider: snapshot.provider,
+        model: snapshot.model,
+      })),
+      anchors,
+      anchorObservedAt,
+      anchorUnavailable,
+      bucketStartFor: observedAt => bucketStartDateFor(observedAt, earliest, bucketSize),
+    })
+
+    // The served series is built from the SAME sweeps but only from snapshots
+    // that carry a served id. Dropping the rest before grouping is what makes
+    // the two series independent: a window entirely predating capture produces
+    // `{}` here and leaves `modelAttribution` byte-identical to what it was
+    // before served capture existed.
+    const servedModelAttribution = buildServedModelAttribution({
+      observations: allSnapshots.flatMap(snapshot => {
+        const servedModel = snapshot.servedModel?.trim()
+        if (!servedModel) return []
+        return [{
+          runId: snapshot.runId,
+          runCreatedAt: snapshot.runCreatedAt,
+          provider: snapshot.provider,
+          model: servedModel,
+        }]
+      }),
+      anchors: servedAnchors,
+      anchorObservedAt: servedAnchorObservedAt,
+      anchorUnavailable: servedAnchorUnavailable,
+      bucketStartFor: observedAt => bucketStartDateFor(observedAt, earliest, bucketSize),
+    })
+
+    // Where both series have a known latest state and they name different
+    // top-level models, the provider substituted something else for what the
+    // project configured. A dated snapshot of the configured model is
+    // agreement and never lands here.
+    const modelServiceMismatch: Record<string, ModelServiceMismatch> = {}
+    for (const [provider, served] of Object.entries(servedModelAttribution)) {
+      const configured = modelAttribution[provider]?.latestObservation
+      if (!configured) continue
+      if (!modelEvidenceMismatched(configured.state, served.latestObservation.state)) continue
+      modelServiceMismatch[provider] = {
+        observedAt: served.latestObservation.observedAt,
+        configured: configured.state,
+        served: served.latestObservation.state,
+      }
+    }
+
     // Trends
     const trend = computeTrend(buckets, 'citationRate')
     const mentionTrend = computeTrend(buckets, 'mentionRate')
@@ -112,7 +310,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
     // Query change annotations
     const queryChanges = computeQueryChanges(projectQueries, cutoff)
 
-    return reply.send({ window, buckets, overall, byProvider, trend, mentionTrend, queryChanges } satisfies BrandMetricsDto)
+    return reply.send({ window, buckets, overall, byProvider, trend, mentionTrend, queryChanges, modelAttribution, servedModelAttribution, modelServiceMismatch } satisfies BrandMetricsDto)
   })
 
   // GET /projects/:name/analytics/gaps — brand gap analysis
@@ -459,6 +657,17 @@ interface DomainAgg {
 
 // --- Helpers ---
 
+/**
+ * How many pre-window logical sweeps the model-evidence anchor search may walk
+ * before giving up on a provider. This bounds reads, not semantics: the search
+ * stops at the first sweep observing each provider, so the common case is one
+ * sweep. A calendar cap here would be wrong — it would silently delete a real
+ * model change from a project that sweeps weekly or paused for a month, which
+ * is worst on the shortest windows. A sweep count scales with the project's own
+ * cadence, and any provider the bound cuts off is reported via
+ * `anchorUnavailable` rather than being dropped without a trace.
+ */
+const ANCHOR_SWEEP_SCAN_LIMIT = 60
 
 function isProviderInfraDomain(uri: string): boolean {
   try {
@@ -493,10 +702,12 @@ function bucketSizeForSpan(spanDays: number): number {
 interface SnapshotLike {
   queryId: string
   provider: string
+  model: string | null
   citationState: string
   resolvedMentioned: boolean
   answerText: string | null
-  createdAt: string
+  /** Canonical observation time: the parent run's logical sweep timestamp. */
+  runCreatedAt: string
 }
 
 interface MentionShareCompetitorInput {
@@ -530,10 +741,10 @@ function computeBuckets(
   const latest = new Date(projectRuns[projectRuns.length - 1]!.createdAt)
   const buckets: TimeBucket[] = []
 
-  // Snapshot `createdAt` is stored as UTC ISO, so align bucket boundaries to
-  // UTC midnight (not the server's local midnight) — otherwise a near-midnight
-  // snapshot lands in the wrong bucket on any non-UTC server, and the day-step
-  // would shift across DST transitions.
+  // Run `createdAt` is the canonical sweep time. Align its bucket boundaries
+  // to UTC midnight (not the server's local midnight) so a near-midnight run
+  // never shifts across DST transitions. Snapshot persistence time is not an
+  // observation time and must not drive analytics membership.
   let start = new Date(earliest)
   start.setUTCHours(0, 0, 0, 0)
 
@@ -543,7 +754,7 @@ function computeBuckets(
 
     const startISO = start.toISOString()
     const endISO = end.toISOString()
-    const inBucket = snapshots.filter(s => s.createdAt >= startISO && s.createdAt < endISO)
+    const inBucket = snapshots.filter(s => s.runCreatedAt >= startISO && s.runCreatedAt < endISO)
 
     // Only emit buckets that contain actual sweep data
     if (inBucket.length > 0) {
@@ -565,12 +776,25 @@ function computeBuckets(
       // computeProviderMetric inherits the 4dp rounding and probe exclusion,
       // so a provider line can never drift from the bucket overall.
       const byProvider: Record<string, ProviderMetric> = {}
+      const modelEvidenceByProvider: TimeBucket['modelEvidenceByProvider'] = {}
       for (const provider of new Set(usable.map(s => s.provider))) {
-        byProvider[provider] = computeProviderMetric(usable.filter(s => s.provider === provider))
+        const providerSnapshots = usable.filter(s => s.provider === provider)
+        byProvider[provider] = computeProviderMetric(providerSnapshots)
+        modelEvidenceByProvider[provider] = classifyModelEvidence(providerSnapshots.map(s => s.model))
       }
+      // The REAL observation times inside this bucket. The boundaries above are
+      // an internal grouping key anchored to the window's earliest run — a
+      // sweep can sit many days into its bucket, so the boundary is not a date
+      // any reader should ever be shown. These two are, and they are emitted
+      // as stored: pure UTC, no timezone applied. Localizing (if wanted) is the
+      // viewer's job, on the frontend.
+      const observedAt = usable.map(s => s.runCreatedAt).sort()
       buckets.push({
         startDate: startISO,
         endDate: endISO,
+        dataStartDate: observedAt[0]!,
+        dataEndDate: observedAt[observedAt.length - 1]!,
+        sweepCount: new Set(observedAt).size,
         citationRate: metric.citationRate,
         cited: metric.cited,
         total: metric.total,
@@ -579,6 +803,7 @@ function computeBuckets(
         mentionedCount: metric.mentionedCount,
         mentionShare: computeMentionShareBucketMetric(usable, mentionShareCompetitors),
         byProvider,
+        modelEvidenceByProvider,
       })
     }
 
@@ -586,6 +811,17 @@ function computeBuckets(
   }
 
   return buckets
+}
+
+/** Return the emitted trend bucket key containing an in-window sweep. */
+function bucketStartDateFor(observedAt: string, earliest: Date, bucketDays: number): string {
+  const firstBucketStart = new Date(earliest)
+  firstBucketStart.setUTCHours(0, 0, 0, 0)
+  const observationDay = new Date(observedAt)
+  observationDay.setUTCHours(0, 0, 0, 0)
+  const bucketMilliseconds = bucketDays * 86_400_000
+  const offset = Math.max(0, Math.floor((observationDay.getTime() - firstBucketStart.getTime()) / bucketMilliseconds))
+  return new Date(firstBucketStart.getTime() + offset * bucketMilliseconds).toISOString()
 }
 
 function computeMentionShareBucketMetric(

@@ -24,11 +24,11 @@ vi.mock('recharts', () => {
     BarChart: passthrough,
     Cell: nul,
     ReferenceArea: nul,
+    ReferenceLine: nul,
   }
 })
 
 import { VisibilityTrendSection } from '../src/components/project/VisibilityTrendSection.js'
-import type { CitationInsightVm } from '../src/view-models.js'
 import { mockFetch, jsonResponse } from './mock-fetch.js'
 
 function provider(citationRate: number, mentionRate: number) {
@@ -44,21 +44,49 @@ function metricsDto(buckets: unknown[]) {
     trend: 'improving',
     mentionTrend: 'stable',
     queryChanges: [],
+    modelAttribution: {
+      gemini: {
+        latestObservation: {
+          observedAt: '2026-04-08T00:00:00.000Z',
+          state: { status: 'mixed', models: ['gemini-2.0-flash', 'gemini-2.5-flash'], includesUnknown: false },
+        },
+        events: [{
+          observedAt: '2026-04-08T00:00:00.000Z',
+          bucketStartDate: '2026-04-08T00:00:00.000Z',
+          from: { status: 'known', model: 'gemini-2.0-flash' },
+          to: { status: 'mixed', models: ['gemini-2.0-flash', 'gemini-2.5-flash'], includesUnknown: false },
+        }],
+      },
+    },
   }
 }
 
+// Shaped like the API actually emits: FULL ISO everywhere (the route stamps
+// `toISOString()`), with the synthetic bucket boundary deliberately NOT equal to
+// the sweep times inside it — that gap is what production looks like and what a
+// date-only fixture cannot reproduce. Date rendering itself is pinned in
+// `visibility-trend-dates.test.tsx`, which also pins a non-UTC timezone.
 const TWO_BUCKETS = [
   {
-    startDate: '2026-04-01', endDate: '2026-04-08',
+    startDate: '2026-04-01T00:00:00.000Z', endDate: '2026-04-08T00:00:00.000Z',
+    dataStartDate: '2026-04-03T14:20:00.000Z', dataEndDate: '2026-04-03T14:20:00.000Z', sweepCount: 1,
     citationRate: 0.25, cited: 1, total: 4, queryCount: 4, mentionRate: 0.5, mentionedCount: 2,
     mentionShare: { rate: 0.25, projectMentionSnapshots: 1, competitorMentionSnapshots: 3 },
     byProvider: { gemini: provider(0.25, 0.5), openai: provider(0.5, 0.25) },
+    modelEvidenceByProvider: {
+      gemini: { status: 'known', model: 'gemini-2.0-flash' },
+      openai: { status: 'unknown' },
+    },
   },
   {
-    startDate: '2026-04-08', endDate: '2026-04-15',
+    startDate: '2026-04-08T00:00:00.000Z', endDate: '2026-04-15T00:00:00.000Z',
+    dataStartDate: '2026-04-11T08:05:00.000Z', dataEndDate: '2026-04-11T08:05:00.000Z', sweepCount: 1,
     citationRate: 0.75, cited: 3, total: 4, queryCount: 4, mentionRate: 0.5, mentionedCount: 2,
     mentionShare: { rate: 0.75, projectMentionSnapshots: 3, competitorMentionSnapshots: 1 },
     byProvider: { gemini: provider(0.75, 0.5) },
+    modelEvidenceByProvider: {
+      gemini: { status: 'mixed', models: ['gemini-2.0-flash', 'gemini-2.5-flash'], includesUnknown: false },
+    },
   },
 ]
 
@@ -69,41 +97,6 @@ function renderSection(competitorDomains: readonly string[] = []) {
       <VisibilityTrendSection projectName="test-project" competitorDomains={competitorDomains} />
     </QueryClientProvider>,
   )
-}
-
-function renderSectionWithEvidence(visibilityEvidence: readonly CitationInsightVm[]) {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return render(
-    <QueryClientProvider client={queryClient}>
-      <VisibilityTrendSection projectName="test-project" visibilityEvidence={visibilityEvidence} />
-    </QueryClientProvider>,
-  )
-}
-
-function evidence(providerName: string, models: string[]): CitationInsightVm {
-  return {
-    id: `${providerName}-evidence`,
-    query: `${providerName} query`,
-    provider: providerName,
-    model: models.at(-1) ?? null,
-    location: null,
-    citationState: 'cited',
-    visibilityState: 'visible',
-    changeLabel: 'Stable',
-    answerSnippet: '',
-    citedDomains: [],
-    evidenceUrls: [],
-    competitorDomains: [],
-    relatedTechnicalSignals: [],
-    groundingSources: [],
-    summary: '',
-    runHistory: models.map((model, index) => ({
-      runId: `${providerName}-${index}`,
-      citationState: 'cited',
-      createdAt: `2026-04-${String(index + 1).padStart(2, '0')}T00:00:00.000Z`,
-      model,
-    })),
-  }
 }
 
 test('defaults to the by-engine view with a per-engine legend, and toggles to all-engines', async () => {
@@ -163,7 +156,7 @@ test('defaults to the by-engine view with a per-engine legend, and toggles to al
   expect(screen.queryByText('avg')).toBeNull()
 })
 
-test('labels per-engine legend entries with model versions and model changes', async () => {
+test('labels per-engine legend entries from analytics bucket evidence and surfaces categorical model changes', async () => {
   const restore = mockFetch((url) => {
     const path = url.split('?')[0]!
     if (path.endsWith('/projects/test-project/analytics/metrics')) {
@@ -173,19 +166,43 @@ test('labels per-engine legend entries with model versions and model changes', a
   })
   onTestFinished(restore)
 
-  renderSectionWithEvidence([
-    evidence('gemini', ['gemini-1.5-flash', 'gemini-2.0-flash', 'gemini-2.5-flash']),
-    evidence('openai', ['gpt-5.4']),
-  ])
+  renderSection()
 
   const legend = await screen.findByRole('list', { name: 'Engines' })
   expect(within(legend).getByText('Gemini')).toBeTruthy()
-  expect(within(legend).getByText('gemini-2.5-flash')).toBeTruthy()
-  expect(within(legend).getByText('gemini-2.0-flash')).toBeTruthy()
-  expect(within(legend).queryByText('gemini-1.5-flash')).toBeNull()
-  expect(within(legend).getByText('+1')).toBeTruthy()
+  expect(within(legend).getByText('Mixed: gemini-2.0-flash, gemini-2.5-flash')).toBeTruthy()
   expect(within(legend).getByText('OpenAI')).toBeTruthy()
-  expect(within(legend).getByText('gpt-5.4')).toBeTruthy()
+  expect(within(legend).getByText('Unknown model')).toBeTruthy()
+  expect(screen.getByText('Model evidence changes')).toBeTruthy()
+  expect(screen.getByText(/Gemini: gemini-2.0-flash → Mixed: gemini-2.0-flash, gemini-2.5-flash/)).toBeTruthy()
+  // Neither optional field is present on this DTO, so the change is dated
+  // plainly and no partial-history note appears.
+  expect(screen.queryByText(/on or before/)).toBeNull()
+  expect(screen.queryByText(/Showing the/)).toBeNull()
+})
+
+test('dates an anchored change "on or before" and says how much history is shown', async () => {
+  const anchored = metricsDto(TWO_BUCKETS)
+  Object.assign(anchored.modelAttribution.gemini.events[0]!, { fromPreWindowAnchor: true })
+  Object.assign(anchored.modelAttribution.gemini, { eventTotal: 84 })
+
+  const restore = mockFetch((url) => {
+    const path = url.split('?')[0]!
+    if (path.endsWith('/projects/test-project/analytics/metrics')) {
+      return jsonResponse(anchored)
+    }
+    throw new Error(`Unexpected fetch: ${url}`)
+  })
+  onTestFinished(restore)
+
+  renderSection()
+
+  // The change can only be dated to the last sweep BEFORE the window, so the
+  // row must not read as an event that happened on that bucket's date.
+  expect(await screen.findByText(/on or before/)).toBeTruthy()
+  // The server caps per provider, so the note must name the engine whose
+  // history is clipped rather than implying every engine's list is partial.
+  expect(screen.getByText(/^Gemini: showing the most recent 1 of 84 changes\.$/)).toBeTruthy()
 })
 
 test('shows an empty state when there are no buckets yet', async () => {
@@ -281,4 +298,82 @@ test('refetches mention-share metrics when the competitor frame changes', async 
   await waitFor(() => {
     expect(requests).toHaveLength(2)
   })
+})
+
+test('files a change inherited from before the window under its own heading, not among the dated changes', async () => {
+  const anchored = metricsDto(TWO_BUCKETS)
+  Object.assign(anchored.modelAttribution.gemini.events[0]!, {
+    fromPreWindowAnchor: true,
+    anchorObservedAt: '2026-03-25T00:00:00.000Z',
+  })
+
+  const restore = mockFetch((url) => {
+    const path = url.split('?')[0]!
+    if (path.endsWith('/projects/test-project/analytics/metrics')) {
+      return jsonResponse(anchored)
+    }
+    throw new Error(`Unexpected fetch: ${url}`)
+  })
+  onTestFinished(restore)
+
+  renderSection()
+
+  // Grouped separately, so nothing places it on a date inside the chart…
+  expect(await screen.findByText('Changed before this date range')).toBeTruthy()
+  // …and the lower bound is surfaced, so the operator gets a closed range.
+  expect(screen.getByText(/last seen gemini-2\.0-flash on/)).toBeTruthy()
+})
+
+test('says what the engines actually answered with and flags a substitution in plain language', async () => {
+  const withServed = metricsDto(TWO_BUCKETS)
+  Object.assign(withServed, {
+    servedModelAttribution: {
+      openai: {
+        latestObservation: {
+          observedAt: '2026-04-08T00:00:00.000Z',
+          state: { status: 'known', model: 'gpt-5.6-sol' },
+        },
+        events: [],
+        eventTotal: 0,
+        latestServedModelIds: ['gpt-5.6-sol'],
+      },
+    },
+    modelServiceMismatch: {
+      openai: {
+        observedAt: '2026-04-08T00:00:00.000Z',
+        configured: { status: 'known', model: 'gpt-5.6' },
+        served: { status: 'known', model: 'gpt-5.6-sol' },
+      },
+    },
+  })
+
+  const restore = mockFetch((url) => {
+    const path = url.split('?')[0]!
+    if (path.endsWith('/projects/test-project/analytics/metrics')) {
+      return jsonResponse(withServed)
+    }
+    throw new Error(`Unexpected fetch: ${url}`)
+  })
+  onTestFinished(restore)
+
+  renderSection()
+
+  expect(await screen.findByText('What the engines answered with')).toBeTruthy()
+  expect(screen.getByText(/OpenAI: gpt-5\.6-sol — not the gpt-5\.6 you selected/)).toBeTruthy()
+})
+
+test('says nothing about served models when the API omits them', async () => {
+  const restore = mockFetch((url) => {
+    const path = url.split('?')[0]!
+    if (path.endsWith('/projects/test-project/analytics/metrics')) {
+      return jsonResponse(metricsDto(TWO_BUCKETS))
+    }
+    throw new Error(`Unexpected fetch: ${url}`)
+  })
+  onTestFinished(restore)
+
+  renderSection()
+
+  await screen.findByText('Model evidence changes')
+  expect(screen.queryByText('What the engines answered with')).toBeNull()
 })

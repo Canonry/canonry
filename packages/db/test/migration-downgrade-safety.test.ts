@@ -60,6 +60,16 @@ const RUN_HOOK_ALLOWLIST: ReadonlySet<number> = new Set([
   // an older engine reads the relinked rows the same way it reads rows that
   // were never orphaned. Idempotent via the `query_id IS NULL` guard.
   98,
+  // v105 adds a nullable column in statements[] and uses run() only to POPULATE
+  // it, recovering the served model from each row's already-stored
+  // `raw_response.$.apiResponse.model`. Downgrade-safe: `served_model` is
+  // unknown to any binary older than v105, so an older engine neither reads nor
+  // writes it, and the column is nullable so an older writer's INSERT that
+  // omits it still succeeds. The backfill only reads a JSON field that was
+  // already persisted — it invents nothing and touches no other column.
+  // Idempotent via the `served_model IS NULL` guard, which also stops it
+  // overwriting a value the live insert path recorded.
+  105,
 ])
 
 test(`migrations after v${DOWNGRADE_BASELINE} define no run() hook unless explicitly allowlisted`, () => {

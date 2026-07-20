@@ -1,5 +1,5 @@
 import OpenAI from 'openai'
-import { AI_ENGINE_SELF_DOMAINS } from '@ainyc/canonry-contracts'
+import { AI_ENGINE_SELF_DOMAINS, normalizeServedModel } from '@ainyc/canonry-contracts'
 import { withRetry } from './utils.js'
 import type {
   PerplexityConfig,
@@ -75,6 +75,7 @@ export async function executeTrackedQuery(input: PerplexityTrackedQueryInput): P
       provider: 'perplexity',
       rawResponse,
       model,
+      servedModel: extractServedModel(rawResponse),
       groundingSources: parsed.groundingSources,
       searchQueries: parsed.searchQueries,
     }
@@ -111,6 +112,14 @@ function hasParsedResponseContent(rawResponse: Record<string, unknown>): boolean
     || (Array.isArray(nestedResponse.search_results) && nestedResponse.search_results.length > 0)
     || (Array.isArray(nestedResponse.citations) && nestedResponse.citations.length > 0)
   )
+}
+
+/**
+ * Read the model Perplexity reported serving off a stored raw response. A response
+ * that omits `model` yields undefined rather than the configured model.
+ */
+export function extractServedModel(rawResponse: Record<string, unknown>): string | undefined {
+  return normalizeServedModel(rawResponse.model)
 }
 
 export function reparseStoredResult(rawResponse: Record<string, unknown>): PerplexityNormalizedResult {

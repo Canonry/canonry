@@ -52,6 +52,31 @@ export async function showAnalytics(
   }
 }
 
+/** Widest `bucketDates` output ("YYYY-MM-DD → YYYY-MM-DD (NN sweeps)"), so the rate column lines up. */
+const BUCKET_DATE_WIDTH = 35
+
+/**
+ * The dates a bucket's numbers actually come from. `startDate` is a synthetic
+ * grouping boundary anchored to the window's earliest run — a sweep can fall
+ * many days inside its own bucket — so printing it would date the reading to a
+ * day nothing ran on. These are the real sweep timestamps, left in UTC: the CLI
+ * has no viewer timezone to convert to, and the caller is told so in the header
+ * rather than left to assume local time.
+ */
+function bucketDates(bucket: BrandMetricsDto['buckets'][number]): string {
+  // A newer CLI can be pointed at an older server that predates these fields.
+  const legacyCompatible = bucket as { dataStartDate?: string; dataEndDate?: string; sweepCount?: number }
+  const start = legacyCompatible.dataStartDate?.slice(0, 10)
+  const end = legacyCompatible.dataEndDate?.slice(0, 10)
+  if (!start || !end) return 'date unavailable'
+  // A bucket can pool several sweeps into one row. Say so — otherwise an
+  // averaged multi-week reading is indistinguishable from a single run.
+  const sweeps = legacyCompatible.sweepCount ?? 1
+  const pooled = sweeps > 1 ? ` (${sweeps} sweeps)` : ''
+  if (start === end) return `${start}${pooled}`
+  return `${start} → ${end}${pooled}`
+}
+
 function printMetrics(data: BrandMetricsDto): void {
   console.log(`\nCitation Rate Trends (${data.window})`)
   console.log('─'.repeat(50))
@@ -69,11 +94,10 @@ function printMetrics(data: BrandMetricsDto): void {
   }
 
   if (data.buckets.length > 0) {
-    console.log(`\n  Timeline:`)
+    console.log(`\n  Timeline (dates in UTC):`)
     for (const bucket of data.buckets) {
-      const start = bucket.startDate.slice(0, 10)
       const bar = bucket.total > 0 ? '█'.repeat(Math.round(bucket.citationRate * 20)) : ''
-      console.log(`    ${start}  ${pct(bucket.citationRate).padStart(6)}  ${bar}`)
+      console.log(`    ${bucketDates(bucket).padEnd(BUCKET_DATE_WIDTH)}  ${pct(bucket.citationRate).padStart(6)}  ${bar}`)
     }
   }
 
@@ -81,17 +105,91 @@ function printMetrics(data: BrandMetricsDto): void {
   // `?? {}` guards legacy/partial rows that predate the per-bucket breakdown.
   const providersInBuckets = [...new Set(data.buckets.flatMap(b => Object.keys(b.byProvider ?? {})))].sort()
   if (data.buckets.length > 0 && providersInBuckets.length > 0) {
-    console.log(`\n  By Provider Timeline:`)
+    console.log(`\n  By Provider Timeline (dates in UTC):`)
     for (const provider of providersInBuckets) {
       console.log(`    ${provider}:`)
       for (const bucket of data.buckets) {
         const metric = bucket.byProvider?.[provider]
         if (!metric) continue // provider absent from this bucket
-        const start = bucket.startDate.slice(0, 10)
         const bar = metric.total > 0 ? '█'.repeat(Math.round(metric.citationRate * 20)) : ''
-        console.log(`      ${start}  ${pct(metric.citationRate).padStart(6)}  ${bar}`)
+        console.log(`      ${bucketDates(bucket).padEnd(BUCKET_DATE_WIDTH)}  ${pct(metric.citationRate).padStart(6)}  ${bar}`)
       }
     }
+  }
+
+  const attributionEntries = Object.entries(readModelAttribution(data))
+    .sort(([a], [b]) => a.localeCompare(b))
+  if (attributionEntries.length > 0) {
+    console.log(`\n  Model Evidence:`)
+    for (const [provider, attribution] of attributionEntries) {
+      const latest = attribution.latestObservation
+      console.log(`    ${provider}: latest ${formatModelEvidence(latest.state)} at ${latest.observedAt}`)
+      for (const event of attribution.events) {
+        // An anchored change happened somewhere between the last sweep before
+        // this window and `observedAt` — it cannot be dated to the window. Say
+        // so, and print the lower bound when we have one so the operator gets a
+        // closed range instead of an open-ended "sometime earlier".
+        const dating = event.fromPreWindowAnchor ? ' (on or before)' : ''
+        const priorSweep = event.fromPreWindowAnchor && event.anchorObservedAt
+          ? `  [last seen ${formatModelEvidence(event.from)} on ${event.anchorObservedAt}]`
+          : ''
+        console.log(`      ${event.observedAt}${dating}  ${formatModelEvidence(event.from)} → ${formatModelEvidence(event.to)}${priorSweep}`)
+      }
+      const eventTotal = attribution.eventTotal ?? attribution.events.length
+      if (eventTotal > attribution.events.length) {
+        console.log(`      Showing the latest ${attribution.events.length} of ${eventTotal} model changes.`)
+      }
+      if (attribution.anchorUnavailable) {
+        console.log(`      We did not look far enough back to be sure this is every change.`)
+      }
+    }
+  }
+
+  const servedEntries = Object.entries(readServedModelAttribution(data))
+    .sort(([a], [b]) => a.localeCompare(b))
+  if (servedEntries.length > 0) {
+    const mismatch = readModelServiceMismatch(data)
+    console.log(`\n  What the Engines Answered With:`)
+    for (const [provider, served] of servedEntries) {
+      const rawIds = served.latestServedModelIds.length > 0
+        ? served.latestServedModelIds.join(', ')
+        : formatModelEvidence(served.latestObservation.state)
+      const substituted = mismatch[provider]
+      const note = substituted ? ` — not the ${formatModelEvidence(substituted.configured)} you selected` : ''
+      console.log(`    ${provider}: ${rawIds} at ${served.latestObservation.observedAt}${note}`)
+      for (const event of served.events) {
+        const dating = event.fromPreWindowAnchor ? ' (on or before)' : ''
+        console.log(`      ${event.observedAt}${dating}  ${formatModelEvidence(event.from)} → ${formatModelEvidence(event.to)}`)
+      }
+    }
+  }
+}
+
+/** A newer CLI can be pointed at an older server during a rolling upgrade. */
+function readServedModelAttribution(data: BrandMetricsDto): BrandMetricsDto['servedModelAttribution'] {
+  const legacyCompatible = data as unknown as { servedModelAttribution?: BrandMetricsDto['servedModelAttribution'] }
+  return legacyCompatible.servedModelAttribution ?? {}
+}
+
+function readModelServiceMismatch(data: BrandMetricsDto): BrandMetricsDto['modelServiceMismatch'] {
+  const legacyCompatible = data as unknown as { modelServiceMismatch?: BrandMetricsDto['modelServiceMismatch'] }
+  return legacyCompatible.modelServiceMismatch ?? {}
+}
+
+/** A newer CLI can be pointed at an older server during a rolling upgrade. */
+function readModelAttribution(data: BrandMetricsDto): BrandMetricsDto['modelAttribution'] {
+  const legacyCompatible = data as unknown as { modelAttribution?: BrandMetricsDto['modelAttribution'] }
+  return legacyCompatible.modelAttribution ?? {}
+}
+
+function formatModelEvidence(state: BrandMetricsDto['modelAttribution'][string]['latestObservation']['state']): string {
+  switch (state.status) {
+    case 'known':
+      return `known ${state.model}`
+    case 'unknown':
+      return 'unknown'
+    case 'mixed':
+      return `mixed ${state.models.join(', ')}${state.includesUnknown ? ' + unknown' : ''}`
   }
 }
 

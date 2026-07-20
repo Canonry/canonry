@@ -1,5 +1,5 @@
 import OpenAI from 'openai'
-import { AI_ENGINE_SELF_DOMAINS } from '@ainyc/canonry-contracts'
+import { AI_ENGINE_SELF_DOMAINS, normalizeServedModel } from '@ainyc/canonry-contracts'
 import { withRetry } from './utils.js'
 import type {
   OpenAIConfig,
@@ -97,6 +97,7 @@ export async function executeTrackedQuery(input: OpenAITrackedQueryInput): Promi
       provider: 'openai',
       rawResponse,
       model,
+      servedModel: extractServedModel(rawResponse),
       groundingSources: parsed.groundingSources,
       searchQueries: parsed.searchQueries,
     }
@@ -124,6 +125,14 @@ export function normalizeResult(raw: OpenAIRawResult): OpenAINormalizedResult {
 
 function hasParsedResponseContent(rawResponse: Record<string, unknown>): boolean {
   return Array.isArray(rawResponse.output) && rawResponse.output.length > 0
+}
+
+/**
+ * Read the model OpenAI reported serving off a stored raw response. A response that
+ * omits `model` yields undefined rather than the configured model.
+ */
+export function extractServedModel(rawResponse: Record<string, unknown>): string | undefined {
+  return normalizeServedModel(rawResponse.model)
 }
 
 export function reparseStoredResult(rawResponse: Record<string, unknown>): OpenAINormalizedResult {

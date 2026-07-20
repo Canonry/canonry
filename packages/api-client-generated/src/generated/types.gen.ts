@@ -1086,6 +1086,9 @@ export type BrandMetricsDto = {
     buckets: Array<{
         startDate: string;
         endDate: string;
+        dataStartDate: string;
+        dataEndDate: string;
+        sweepCount: number;
         citationRate: number;
         cited: number;
         total: number;
@@ -1104,6 +1107,18 @@ export type BrandMetricsDto = {
                 total: number;
                 mentionRate: number;
                 mentionedCount: number;
+            };
+        };
+        modelEvidenceByProvider: {
+            [key: string]: {
+                status: 'known';
+                model: string;
+            } | {
+                status: 'unknown';
+            } | {
+                status: 'mixed';
+                models: Array<string>;
+                includesUnknown: boolean;
             };
         };
     }>;
@@ -1130,6 +1145,122 @@ export type BrandMetricsDto = {
         delta: number;
         label: string;
     }>;
+    modelAttribution: {
+        [key: string]: {
+            latestObservation: {
+                observedAt: string;
+                state: {
+                    status: 'known';
+                    model: string;
+                } | {
+                    status: 'unknown';
+                } | {
+                    status: 'mixed';
+                    models: Array<string>;
+                    includesUnknown: boolean;
+                };
+            };
+            events: Array<{
+                observedAt: string;
+                bucketStartDate: string;
+                from: {
+                    status: 'known';
+                    model: string;
+                } | {
+                    status: 'unknown';
+                } | {
+                    status: 'mixed';
+                    models: Array<string>;
+                    includesUnknown: boolean;
+                };
+                to: {
+                    status: 'known';
+                    model: string;
+                } | {
+                    status: 'unknown';
+                } | {
+                    status: 'mixed';
+                    models: Array<string>;
+                    includesUnknown: boolean;
+                };
+                fromPreWindowAnchor?: boolean;
+                anchorObservedAt?: string;
+            }>;
+            eventTotal?: number;
+            anchorUnavailable?: boolean;
+        };
+    };
+    servedModelAttribution: {
+        [key: string]: {
+            latestObservation: {
+                observedAt: string;
+                state: {
+                    status: 'known';
+                    model: string;
+                } | {
+                    status: 'unknown';
+                } | {
+                    status: 'mixed';
+                    models: Array<string>;
+                    includesUnknown: boolean;
+                };
+            };
+            events: Array<{
+                observedAt: string;
+                bucketStartDate: string;
+                from: {
+                    status: 'known';
+                    model: string;
+                } | {
+                    status: 'unknown';
+                } | {
+                    status: 'mixed';
+                    models: Array<string>;
+                    includesUnknown: boolean;
+                };
+                to: {
+                    status: 'known';
+                    model: string;
+                } | {
+                    status: 'unknown';
+                } | {
+                    status: 'mixed';
+                    models: Array<string>;
+                    includesUnknown: boolean;
+                };
+                fromPreWindowAnchor?: boolean;
+                anchorObservedAt?: string;
+            }>;
+            eventTotal?: number;
+            anchorUnavailable?: boolean;
+            latestServedModelIds: Array<string>;
+        };
+    };
+    modelServiceMismatch: {
+        [key: string]: {
+            observedAt: string;
+            configured: {
+                status: 'known';
+                model: string;
+            } | {
+                status: 'unknown';
+            } | {
+                status: 'mixed';
+                models: Array<string>;
+                includesUnknown: boolean;
+            };
+            served: {
+                status: 'known';
+                model: string;
+            } | {
+                status: 'unknown';
+            } | {
+                status: 'mixed';
+                models: Array<string>;
+                includesUnknown: boolean;
+            };
+        };
+    };
 };
 
 export type CcAvailableRelease = {
@@ -2080,6 +2211,7 @@ export type LatestProjectRunDto = {
             }>;
             searchQueries: Array<string>;
             model?: string | null;
+            servedModel?: string | null;
             location?: string | null;
             createdAt: string;
         }>;
@@ -2123,6 +2255,9 @@ export type ProjectDto = {
         [key: string]: string;
     };
     providers: Array<string>;
+    providerModels: {
+        [key: string]: string;
+    };
     locations: Array<{
         label: string;
         city: string;
@@ -2136,6 +2271,88 @@ export type ProjectDto = {
     configRevision: number;
     createdAt?: string;
     updatedAt?: string;
+};
+
+export type ProjectUpsertRequest = {
+    displayName: string;
+    canonicalDomain: string;
+    ownedDomains?: Array<string>;
+    aliases?: Array<string>;
+    country: string;
+    language: string;
+    tags?: Array<string>;
+    labels?: {
+        [key: string]: string;
+    };
+    providers?: Array<string>;
+    providerModels?: {
+        [key: string]: string;
+    };
+    locations?: Array<{
+        label: string;
+        city: string;
+        region: string;
+        country: string;
+        timezone?: string;
+    }>;
+    defaultLocation?: string | null;
+    autoExtractBacklinks?: boolean;
+    configSource?: 'cli' | 'api' | 'config-file';
+};
+
+export type ProjectConfig = {
+    apiVersion: 'canonry/v1';
+    kind: 'Project';
+    metadata: {
+        name: string;
+        labels: {
+            [key: string]: string;
+        };
+    };
+    spec: {
+        displayName: string;
+        canonicalDomain: string;
+        ownedDomains: Array<string>;
+        aliases: Array<string>;
+        country: string;
+        language: string;
+        queries?: Array<string>;
+        keywords?: Array<string>;
+        competitors: Array<string>;
+        providers: Array<string>;
+        providerModels: {
+            [key: string]: string;
+        };
+        locations: Array<{
+            label: string;
+            city: string;
+            region: string;
+            country: string;
+            timezone?: string;
+        }>;
+        defaultLocation?: string;
+        schedule?: {
+            preset?: string;
+            cron?: string;
+            timezone: string;
+            providers: Array<string>;
+        };
+        notifications: Array<{
+            channel: 'webhook';
+            url: string;
+            events: Array<'citation.lost' | 'citation.gained' | 'run.completed' | 'run.failed' | 'insight.critical' | 'insight.high'>;
+        }>;
+        google?: {
+            gsc?: {
+                propertyUrl: string;
+            };
+            syncSchedule?: {
+                preset?: string;
+                cron?: string;
+            };
+        };
+        autoExtractBacklinks: boolean;
+    };
 };
 
 export type ProjectOverviewDto = {
@@ -2153,6 +2370,9 @@ export type ProjectOverviewDto = {
             [key: string]: string;
         };
         providers: Array<string>;
+        providerModels: {
+            [key: string]: string;
+        };
         locations: Array<{
             label: string;
             city: string;
@@ -2211,6 +2431,7 @@ export type ProjectOverviewDto = {
                 }>;
                 searchQueries: Array<string>;
                 model?: string | null;
+                servedModel?: string | null;
                 location?: string | null;
                 createdAt: string;
             }>;
@@ -3066,6 +3287,7 @@ export type RunDetailDto = {
         }>;
         searchQueries: Array<string>;
         model?: string | null;
+        servedModel?: string | null;
         location?: string | null;
         createdAt: string;
     }>;
@@ -3126,6 +3348,23 @@ export type SettingsDto = {
             maxRequestsPerDay: number;
         };
         vertexConfigured?: boolean;
+    }>;
+    providerCatalog: Array<{
+        name: string;
+        displayName: string;
+        mode: 'api' | 'browser';
+        modelConfigurable: boolean;
+        defaultModel: string;
+        knownModels: Array<{
+            id: string;
+            displayName: string;
+            tier: 'flagship' | 'standard' | 'fast' | 'economy';
+        }>;
+        modelValidationPattern: {
+            source: string;
+            flags: string;
+        };
+        modelValidationHint: string;
     }>;
     google: {
         configured: boolean;
@@ -3249,6 +3488,7 @@ export type SnapshotListResponse = {
         }>;
         searchQueries: Array<string>;
         model?: string | null;
+        servedModel?: string | null;
         location?: string | null;
         createdAt: string;
     }>;
@@ -4062,28 +4302,7 @@ export type GetApiV1ProjectsByNameResponses = {
 export type GetApiV1ProjectsByNameResponse = GetApiV1ProjectsByNameResponses[keyof GetApiV1ProjectsByNameResponses];
 
 export type PutApiV1ProjectsByNameData = {
-    body: {
-        displayName: string;
-        canonicalDomain: string;
-        ownedDomains?: Array<string>;
-        aliases?: Array<string>;
-        country: string;
-        language: string;
-        tags?: Array<string>;
-        labels?: {
-            [key: string]: unknown;
-        };
-        providers?: Array<string>;
-        locations?: Array<{
-            label: string;
-            city: string;
-            region: string;
-            country: string;
-            timezone?: string;
-        }>;
-        defaultLocation?: string;
-        configSource?: string;
-    };
+    body: ProjectUpsertRequest;
     path: {
         /**
          * Project name.
@@ -4326,9 +4545,7 @@ export type GetApiV1ProjectsByNameExportResponses = {
     /**
      * Project configuration returned.
      */
-    200: {
-        [key: string]: unknown;
-    };
+    200: ProjectConfig;
 };
 
 export type GetApiV1ProjectsByNameExportResponse = GetApiV1ProjectsByNameExportResponses[keyof GetApiV1ProjectsByNameExportResponses];
@@ -5073,9 +5290,7 @@ export type PostApiV1ApplyData = {
     /**
      * Canonry project configuration as JSON.
      */
-    body: {
-        [key: string]: unknown;
-    };
+    body: ProjectConfig;
     path?: never;
     query?: never;
     url: '/api/v1/apply';

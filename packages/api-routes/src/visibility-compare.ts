@@ -13,6 +13,7 @@ import {
   type VisibilityStatsShareCompetitor,
 } from '@ainyc/canonry-contracts'
 import { buildQueryAttribution, resolveCurrentQuery } from './visibility-stats.js'
+import { classifyModelEvidence } from './model-evidence.js'
 
 /** Runs below this many sweeps in a month make every interval too wide to resolve a move. */
 export const VISIBILITY_COMPARE_MIN_RUNS = 5
@@ -173,11 +174,8 @@ interface PeriodCounts {
   competitorCited: number // sum over competitors of snapshots citing that competitor
   queriesMentioned: number // distinct basket queries mentioned by >= 1 provider
   perProvider: Map<string, { checked: number; mentioned: number; cited: number }>
-  models: Map<string, Set<string>> // provider -> distinct non-null model ids
-  // Providers with >= 1 snapshot whose model id was null/empty in this period.
-  // Such a period carries unattributable model evidence — even alongside a known
-  // id — so the continuity gate must treat it as unknown, not silently drop it.
-  modelUnknownProviders: Set<string>
+  /** Raw provider evidence; classification stays shared with analytics trends. */
+  modelEvidence: Map<string, Array<string | null>>
   mentionShare: ReturnType<typeof buildMentionShare>
   competitors: VisibilityStatsShareCompetitor[]
 }
@@ -188,8 +186,7 @@ function countPeriod(snaps: Attributed[], competitors: VisibilityCompareCompetit
   let cited = 0
   let competitorCited = 0
   const perProvider = new Map<string, { checked: number; mentioned: number; cited: number }>()
-  const models = new Map<string, Set<string>>()
-  const modelUnknownProviders = new Set<string>()
+  const modelEvidence = new Map<string, Array<string | null>>()
   const mentionedQueries = new Set<string>()
 
   // Normalize competitor hosts once; a competitor with an unparseable domain
@@ -214,13 +211,9 @@ function countPeriod(snaps: Attributed[], competitors: VisibilityCompareCompetit
     if (isCited) pp.cited += 1
     perProvider.set(snap.provider, pp)
 
-    if (snap.model) {
-      const set = models.get(snap.provider) ?? new Set<string>()
-      set.add(snap.model)
-      models.set(snap.provider, set)
-    } else {
-      modelUnknownProviders.add(snap.provider)
-    }
+    const models = modelEvidence.get(snap.provider) ?? []
+    models.push(snap.model)
+    modelEvidence.set(snap.provider, models)
 
     // Competitor citation, per-snapshot per-competitor (mirrors buildMentionShare's
     // competitor counting: a snapshot citing two competitors adds two).
@@ -248,11 +241,21 @@ function countPeriod(snaps: Attributed[], competitors: VisibilityCompareCompetit
     competitorCited,
     queriesMentioned: mentionedQueries.size,
     perProvider,
-    models,
-    modelUnknownProviders,
+    modelEvidence,
     mentionShare,
     competitors: mentionShare.breakdown.perCompetitor.map((c) => ({ domain: c.domain, mentions: c.mentionSnapshots })),
   }
+}
+
+function modelIds(evidence: ReturnType<typeof classifyModelEvidence>): string[] {
+  if (evidence.status === 'known') return [evidence.model]
+  if (evidence.status === 'mixed') return evidence.models
+  return []
+}
+
+/** Unknown or partially legacy evidence cannot support a continuity verdict. */
+function isUnknownModelEvidence(evidence: ReturnType<typeof classifyModelEvidence>): boolean {
+  return evidence.status === 'unknown' || (evidence.status === 'mixed' && evidence.includesUnknown)
 }
 
 /**
@@ -283,19 +286,14 @@ export function computeVisibilityCompare(input: ComputeVisibilityCompareInput): 
   const continuityProviders = [...candidateProviders]
     .sort((a, b) => a.localeCompare(b))
     .map((provider) => {
-      const fromModels = [...(fromCandidateCounts.models.get(provider) ?? new Set<string>())].sort((a, b) => a.localeCompare(b))
-      const toModels = [...(toCandidateCounts.models.get(provider) ?? new Set<string>())].sort((a, b) => a.localeCompare(b))
-      // A period with ANY null-model snapshot carries unattributable evidence —
-      // even when it also has a known id (e.g. legacy `null` rows sitting beside
-      // `gpt-5.4`). Counting only the known ids would mark such a period
-      // comparable and let a directional verdict ride on unknown-model data, so
-      // unknown dominates: null presence (or zero known ids) -> model-unknown.
-      const fromModelUnknown = fromCandidateCounts.modelUnknownProviders.has(provider) || fromModels.length === 0
-      const toModelUnknown = toCandidateCounts.modelUnknownProviders.has(provider) || toModels.length === 0
+      const fromEvidence = classifyModelEvidence(fromCandidateCounts.modelEvidence.get(provider) ?? [])
+      const toEvidence = classifyModelEvidence(toCandidateCounts.modelEvidence.get(provider) ?? [])
+      const fromModels = modelIds(fromEvidence)
+      const toModels = modelIds(toEvidence)
       const status: VisibilityCompareProviderContinuityStatus =
-        fromModelUnknown || toModelUnknown
+        isUnknownModelEvidence(fromEvidence) || isUnknownModelEvidence(toEvidence)
           ? 'model-unknown'
-          : fromModels.length === 1 && toModels.length === 1 && fromModels[0] === toModels[0]
+          : fromEvidence.status === 'known' && toEvidence.status === 'known' && fromEvidence.model === toEvidence.model
             ? 'included'
             : 'model-discontinuous'
       return { provider, status, fromModels, toModels }
@@ -384,8 +382,8 @@ export function computeVisibilityCompare(input: ComputeVisibilityCompareInput): 
   const modelChanges = [...candidateProviders]
     .sort((a, b) => a.localeCompare(b))
     .map((provider) => {
-      const fromModels = [...(fromCandidateCounts.models.get(provider) ?? new Set<string>())].sort((a, b) => a.localeCompare(b))
-      const toModels = [...(toCandidateCounts.models.get(provider) ?? new Set<string>())].sort((a, b) => a.localeCompare(b))
+      const fromModels = modelIds(classifyModelEvidence(fromCandidateCounts.modelEvidence.get(provider) ?? []))
+      const toModels = modelIds(classifyModelEvidence(toCandidateCounts.modelEvidence.get(provider) ?? []))
       return { provider, fromModels, toModels }
     })
     .filter(

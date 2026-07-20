@@ -73,6 +73,7 @@ export const perplexityAdapter: ProviderAdapter = {
       provider: 'perplexity',
       rawResponse: raw.rawResponse,
       model: raw.model,
+      servedModel: raw.servedModel,
       groundingSources: raw.groundingSources,
       searchQueries: raw.searchQueries,
     }

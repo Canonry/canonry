@@ -1,5 +1,20 @@
-import type { BrandMetricsDto, MetricsWindow, QueryChangeEvent, TrendDirection } from '@ainyc/canonry-contracts'
-import type { CitationInsightVm, MetricTone } from '../view-models.js'
+import type {
+  BrandMetricsDto,
+  ModelAttribution,
+  ModelAttributionEvent,
+  ModelEvidenceState,
+  ModelServiceMismatch,
+  QueryChangeEvent,
+  ServedModelAttribution,
+  TrendDirection,
+} from '@ainyc/canonry-contracts'
+import type { MetricTone } from '../view-models.js'
+import {
+  formatObservedInstantLabel,
+  formatObservedInstantTick,
+  observedInstant,
+  type ObservedInstant,
+} from '../components/shared/ChartPrimitives.js'
 
 /**
  * Pure reshaping of `BrandMetricsDto` into Recharts-ready rows for the
@@ -34,10 +49,86 @@ export interface TrendData {
   singleBucket: boolean
 }
 
-export type ProviderModelHints = Record<string, string[]>
 type BucketProviderMetric = BrandMetricsDto['buckets'][number]['byProvider'][string]
 type BucketWithOptionalProviders = Omit<BrandMetricsDto['buckets'][number], 'byProvider'> & {
   byProvider?: Record<string, BucketProviderMetric | undefined>
+}
+type BucketWithOptionalModelEvidence = BrandMetricsDto['buckets'][number] & {
+  modelEvidenceByProvider?: Record<string, ModelEvidenceState>
+}
+type MetricsWithOptionalModelAttribution = BrandMetricsDto & {
+  modelAttribution?: ModelAttribution
+  servedModelAttribution?: ServedModelAttribution
+  modelServiceMismatch?: Record<string, ModelServiceMismatch>
+}
+
+export interface GroupedModelAttributionEvent {
+  provider: string
+  event: ModelAttributionEvent
+}
+
+export interface ModelAttributionEventBucket {
+  bucketStartDate: string
+  events: GroupedModelAttributionEvent[]
+}
+
+/**
+ * The real observation window a bucket actually covers. `bucket.startDate` is a
+ * synthetic boundary anchored to the window's earliest run — a sweep can sit a
+ * week or more inside its own bucket — so it is a grouping key, never a date to
+ * show. These are the sweep timestamps themselves.
+ */
+export interface BucketObservedRange {
+  start: ObservedInstant
+  end: ObservedInstant
+  /** Distinct sweeps pooled into this one plotted point. */
+  sweepCount: number
+}
+
+/** Standalone (not an intersection) so the optionality survives — an older API omits all three. */
+interface OptionalObservedRangeFields {
+  dataStartDate?: string
+  dataEndDate?: string
+  sweepCount?: number
+}
+
+/**
+ * A newer bundle can run against an older API that predates the real-range
+ * fields. Missing is NOT an excuse to fall back to `startDate`: that boundary
+ * is exactly the wrong date. Return null and let the caller say so plainly.
+ */
+export function readBucketObservedRange(
+  bucket: BrandMetricsDto['buckets'][number],
+): BucketObservedRange | null {
+  const candidate = bucket as unknown as OptionalObservedRangeFields
+  const { dataStartDate, dataEndDate } = candidate
+  if (typeof dataStartDate !== 'string' || typeof dataEndDate !== 'string') return null
+  return {
+    start: observedInstant(dataStartDate),
+    end: observedInstant(dataEndDate),
+    sweepCount: candidate.sweepCount ?? 1,
+  }
+}
+
+/**
+ * The date a bucket's point is really about, in the viewer's own timezone. When
+ * the bucket pools several sweeps it reads as a range plus the count — today
+ * that pooling is invisible and a multi-week average looks like a single
+ * reading.
+ */
+export function formatBucketDateLabel(bucket: BrandMetricsDto['buckets'][number]): string {
+  const range = readBucketObservedRange(bucket)
+  if (!range) return 'Sweep date unavailable'
+  const start = formatObservedInstantLabel(range.start)
+  const end = formatObservedInstantLabel(range.end)
+  if (start === end) return start
+  return `${start} – ${end} · ${range.sweepCount} sweeps combined`
+}
+
+/** Compact axis tick for a bucket — the first sweep it actually contains, in the viewer's timezone. */
+export function formatBucketDateTick(bucket: BrandMetricsDto['buckets'][number]): string {
+  const range = readBucketObservedRange(bucket)
+  return range ? formatObservedInstantTick(range.start) : ''
 }
 
 export function normalizeProviderKey(provider: string): string {
@@ -91,68 +182,180 @@ export function buildTrendRows(
   return { rows, series, hasData, singleBucket }
 }
 
-function cutoffMsForWindow(window: MetricsWindow, now: Date): number | null {
-  if (window === 'all') return null
-  const days = window === '7d' ? 7 : window === '30d' ? 30 : 90
-  return now.getTime() - days * 24 * 60 * 60 * 1000
+/**
+ * The web app can be served by a newer static bundle against an older API.
+ * Keep a missing property distinct from the API's observed `unknown` state:
+ * the former means attribution is unavailable, the latter means the sampled
+ * snapshots did not record a model.
+ */
+export function readBucketModelEvidence(
+  bucket: BrandMetricsDto['buckets'][number],
+): Record<string, ModelEvidenceState> | null {
+  const candidate = bucket as BucketWithOptionalModelEvidence
+  if (!Object.hasOwn(candidate, 'modelEvidenceByProvider')) return null
+  return candidate.modelEvidenceByProvider ?? {}
 }
 
-function touchModel(
-  byProvider: Map<string, Map<string, number>>,
+export function readModelAttribution(dto: BrandMetricsDto): ModelAttribution | null {
+  const candidate = dto as MetricsWithOptionalModelAttribution
+  if (!Object.hasOwn(candidate, 'modelAttribution')) return null
+  return candidate.modelAttribution ?? {}
+}
+
+/**
+ * What the engines reported actually answering with. An older API omits the
+ * field entirely and a project whose window predates served capture returns
+ * `{}` — both render as "nothing to say", never as a change.
+ */
+export function readServedModelAttribution(dto: BrandMetricsDto): ServedModelAttribution {
+  return (dto as MetricsWithOptionalModelAttribution).servedModelAttribution ?? {}
+}
+
+export function readModelServiceMismatch(dto: BrandMetricsDto): Record<string, ModelServiceMismatch> {
+  return (dto as MetricsWithOptionalModelAttribution).modelServiceMismatch ?? {}
+}
+
+/** The raw ids an engine reported, joined for display. Empty → the normalized label stands alone. */
+export function formatServedModelIds(ids: readonly string[]): string | null {
+  return ids.length > 0 ? ids.join(', ') : null
+}
+
+function findNormalizedProvider<T>(byProvider: Record<string, T | undefined>, provider: string): T | undefined {
+  const target = normalizeProviderKey(provider)
+  return Object.entries(byProvider).find(([key]) => normalizeProviderKey(key) === target)?.[1]
+}
+
+/** Human-readable, categorical evidence label. This never turns mixed data into a single model. */
+export function formatModelEvidence(state: ModelEvidenceState): string {
+  switch (state.status) {
+    case 'known':
+      return state.model
+    case 'unknown':
+      return 'Unknown model'
+    case 'mixed':
+      return `Mixed: ${state.models.join(', ')}${state.includesUnknown ? ' + unknown' : ''}`
+  }
+}
+
+/**
+ * Read the evidence from the same last bucket that draws a provider's plotted
+ * point. Do not use run-detail/citation history: it can include a different
+ * window, a probe, or a partial sweep that the analytics response excluded.
+ */
+export function latestPlottedProviderModelEvidence(
+  buckets: readonly BrandMetricsDto['buckets'][number][],
   provider: string,
-  model: string | null | undefined,
-  timestamp: number,
-) {
-  const normalized = model?.trim()
-  if (!normalized) return
-  let models = byProvider.get(provider)
-  if (!models) {
-    models = new Map<string, number>()
-    byProvider.set(provider, models)
+): ModelEvidenceState | null {
+  for (let index = buckets.length - 1; index >= 0; index -= 1) {
+    const bucket = buckets[index]!
+    if (!findNormalizedProvider(bucketProviders(bucket), provider)) continue
+    const evidence = readBucketModelEvidence(bucket)
+    return evidence ? findNormalizedProvider(evidence, provider) ?? null : null
   }
-  models.set(normalized, Math.max(models.get(normalized) ?? Number.NEGATIVE_INFINITY, timestamp))
+  return null
 }
 
-export function buildProviderModelHints(
-  evidence: readonly CitationInsightVm[],
-  window: MetricsWindow,
-  now = new Date(),
-): ProviderModelHints {
-  const cutoffMs = cutoffMsForWindow(window, now)
-  const byProvider = new Map<string, Map<string, number>>()
-
-  for (const row of evidence) {
-    const providerKey = normalizeProviderKey(row.provider)
-    if (!providerKey) continue
-    let sawWindowedHistoryModel = false
-
-    for (const point of row.runHistory) {
-      if (!point.model) continue
-      const createdAt = Date.parse(point.createdAt)
-      if (cutoffMs !== null && (!Number.isFinite(createdAt) || createdAt < cutoffMs)) continue
-      sawWindowedHistoryModel = true
-      touchModel(byProvider, providerKey, point.model, Number.isFinite(createdAt) ? createdAt : 0)
-    }
-
-    // Narrow windows intentionally require an in-window run with model data.
-    // Falling back to all-time `modelsSeen` would make a 7d/30d legend imply
-    // model coverage that is older than the plotted window.
-    if (!sawWindowedHistoryModel && window === 'all') {
-      for (const model of row.modelsSeen ?? []) {
-        touchModel(byProvider, providerKey, model, 0)
-      }
-      touchModel(byProvider, providerKey, row.model, Number.MAX_SAFE_INTEGER)
+/** Group categorical changes by the existing plotted bucket; no false-precision timestamp markers. */
+export function groupModelAttributionEvents(
+  attribution: ModelAttribution,
+): ModelAttributionEventBucket[] {
+  const byBucket = new Map<string, GroupedModelAttributionEvent[]>()
+  for (const [provider, entry] of Object.entries(attribution)) {
+    for (const event of entry.events) {
+      const rows = byBucket.get(event.bucketStartDate) ?? []
+      rows.push({ provider, event })
+      byBucket.set(event.bucketStartDate, rows)
     }
   }
+  return [...byBucket.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([bucketStartDate, events]) => ({
+      bucketStartDate,
+      events: [...events].sort((a, b) => a.provider.localeCompare(b.provider) || a.event.observedAt.localeCompare(b.event.observedAt)),
+    }))
+}
 
-  return Object.fromEntries(
-    [...byProvider.entries()].map(([provider, models]) => [
-      provider,
-      [...models.entries()]
-        .sort(([modelA, seenA], [modelB, seenB]) => seenB - seenA || modelA.localeCompare(modelB))
-        .map(([model]) => model),
-    ]),
-  )
+/**
+ * An event whose `from` state is the pre-window anchor did NOT necessarily
+ * happen inside the window — it happened somewhere between the last sweep
+ * before the window and the first sweep inside it. Its `bucketStartDate` is
+ * therefore the bucket where the new state was first SEEN, not where the change
+ * occurred, and drawing a chart marker there tells the operator a change
+ * happened on a date it may well not have.
+ *
+ * So the two kinds are separated at the source: only `buckets` may become chart
+ * markers, and `beforeWindow` still renders in the written summary (dated "on
+ * or before", with its lower bound) so a real change is never dropped — it is
+ * just never placed inside the window.
+ */
+export interface ModelAttributionEventPartition {
+  /** Changes datable to a plotted bucket. Safe to mark on the chart. */
+  buckets: ModelAttributionEventBucket[]
+  /** Changes that happened before the window opened. Never marked on the chart. */
+  beforeWindow: GroupedModelAttributionEvent[]
+}
+
+export function partitionModelAttributionEvents(
+  attribution: ModelAttribution,
+): ModelAttributionEventPartition {
+  const inWindow: ModelAttribution = {}
+  const beforeWindow: GroupedModelAttributionEvent[] = []
+  for (const [provider, entry] of Object.entries(attribution)) {
+    const datable = entry.events.filter(event => !event.fromPreWindowAnchor)
+    for (const event of entry.events) {
+      if (event.fromPreWindowAnchor) beforeWindow.push({ provider, event })
+    }
+    if (datable.length > 0) inWindow[provider] = { ...entry, events: datable }
+  }
+  return {
+    buckets: groupModelAttributionEvents(inWindow),
+    beforeWindow: beforeWindow.sort((a, b) =>
+      a.event.observedAt.localeCompare(b.event.observedAt) || a.provider.localeCompare(b.provider)),
+  }
+}
+
+/**
+ * How many changes the response actually carries vs how many it observed,
+ * pooled across providers. Honest as a whole-list summary — it matches what
+ * `groupModelAttributionEvents` renders — and that is all it is used for now
+ * (the assistive-tech description). It must NOT drive the truncation note: the
+ * server's cap is per provider, so a pooled pair cannot say WHOSE history is
+ * clipped and reads as if every engine's were. Use `truncatedProviderCounts`
+ * for anything the operator reads as a claim about a specific engine.
+ */
+export function countModelAttributionEvents(
+  attribution: ModelAttribution,
+): { shown: number; total: number } {
+  let shown = 0
+  let total = 0
+  for (const entry of Object.values(attribution)) {
+    shown += entry.events.length
+    // An older server omits `eventTotal`; its list is the whole history.
+    total += entry.eventTotal ?? entry.events.length
+  }
+  return { shown, total }
+}
+
+export interface ProviderEventCount {
+  provider: string
+  shown: number
+  total: number
+}
+
+/**
+ * Exactly the providers whose own event list the server capped, each with its
+ * own pair. This is what the truncation note must be built from: with gemini at
+ * 2 of 40 and openai complete at 1 of 1, a pooled "showing 3 of 41" invites the
+ * operator to distrust openai's history too, which is a false statement about
+ * that engine.
+ */
+export function truncatedProviderCounts(attribution: ModelAttribution): ProviderEventCount[] {
+  const truncated: ProviderEventCount[] = []
+  for (const [provider, entry] of Object.entries(attribution)) {
+    const total = entry.eventTotal ?? entry.events.length
+    if (total > entry.events.length) truncated.push({ provider, shown: entry.events.length, total })
+  }
+  return truncated.sort((a, b) => a.provider.localeCompare(b.provider))
 }
 
 export function buildMentionShareTrendRows(dto: BrandMetricsDto): TrendData {

@@ -38,6 +38,8 @@ export interface GeminiRawResult {
   provider: 'gemini'
   rawResponse: Record<string, unknown>
   model: string
+  /** Verbatim `modelVersion` from the response; undefined when Gemini disclosed none. */
+  servedModel?: string
   groundingSources: GroundingSource[]
   searchQueries: string[]
 }

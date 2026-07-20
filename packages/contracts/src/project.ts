@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { validationError } from './errors.js'
-import { locationContextSchema, providerNameSchema, type LocationContext } from './provider.js'
+import { locationContextSchema, providerModelsSchema, providerNameSchema, type LocationContext } from './provider.js'
 
 export const configSourceSchema = z.enum(['cli', 'api', 'config-file'])
 export type ConfigSource = z.infer<typeof configSourceSchema>
@@ -93,6 +93,7 @@ export const projectUpsertRequestSchema = z.object({
   tags: z.array(z.string()).optional(),
   labels: z.record(z.string(), z.string()).optional(),
   providers: z.array(providerNameSchema).optional(),
+  providerModels: providerModelsSchema.optional(),
   locations: z.array(locationContextSchema).optional(),
   defaultLocation: z.string().nullable().optional(),
   autoExtractBacklinks: z.boolean().optional(),
@@ -119,6 +120,8 @@ export const projectDtoSchema = z.object({
   // ProjectDto consumers (web + CLI ApiClient) typecheck against the real
   // response surface.
   providers: z.array(z.string()).default([]),
+  /** Per-project model overrides; an empty map inherits instance settings. */
+  providerModels: providerModelsSchema.default({}),
   locations: z.array(locationContextSchema).default([]),
   defaultLocation: z.string().nullable().optional(),
   autoExtractBacklinks: z.boolean().default(false),

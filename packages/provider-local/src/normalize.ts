@@ -1,4 +1,5 @@
 import OpenAI from 'openai'
+import { normalizeServedModel } from '@ainyc/canonry-contracts'
 import { withRetry } from './utils.js'
 import type {
   GroundingSource,
@@ -81,10 +82,13 @@ export async function executeTrackedQuery(input: LocalTrackedQueryInput): Promis
       }),
     )
 
+    const rawResponse = responseToRecord(response)
+
     return {
       provider: 'local',
-      rawResponse: responseToRecord(response),
+      rawResponse,
       model,
+      servedModel: extractServedModel(rawResponse),
       groundingSources: [],
       searchQueries: [],
     }
@@ -166,6 +170,15 @@ export function extractDomainMentions(text: string): string[] {
   }
 
   return [...domains]
+}
+
+/**
+ * Read the model the local server reported serving off a stored raw response. A
+ * response that omits `model` yields undefined rather than the configured model —
+ * local servers routinely echo back a different tag than the one requested.
+ */
+export function extractServedModel(rawResponse: Record<string, unknown>): string | undefined {
+  return normalizeServedModel(rawResponse.model)
 }
 
 function responseToRecord(response: OpenAI.Chat.Completions.ChatCompletion): Record<string, unknown> {

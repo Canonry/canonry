@@ -1,10 +1,17 @@
 import { describe, it, expect } from 'vitest'
-import type { BrandMetricsDto } from '@ainyc/canonry-contracts'
+import type { BrandMetricsDto, ModelAttribution, ModelEvidenceState } from '@ainyc/canonry-contracts'
 import {
-  buildProviderModelHints,
   buildMentionShareTrendRows,
   buildSelectedTrendRows,
   buildTrendRows,
+  countModelAttributionEvents,
+  partitionModelAttributionEvents,
+  truncatedProviderCounts,
+  formatModelEvidence,
+  groupModelAttributionEvents,
+  latestPlottedProviderModelEvidence,
+  readBucketModelEvidence,
+  readModelAttribution,
   trendToTone,
   formatQueryChangeCaption,
   latestSeriesValue,
@@ -13,7 +20,6 @@ import {
   MENTIONED_KEY,
   normalizeProviderKey,
 } from '../src/lib/visibility-trend-helpers.js'
-import type { CitationInsightVm } from '../src/view-models.js'
 
 function provider(citationRate: number, mentionRate: number) {
   return { citationRate, cited: 0, total: 4, mentionRate, mentionedCount: 0 }
@@ -43,32 +49,6 @@ function dto(buckets: BrandMetricsDto['buckets']): BrandMetricsDto {
     trend: 'stable',
     mentionTrend: 'stable',
     queryChanges: [],
-  }
-}
-
-function evidence(providerName: string, models: string[]): CitationInsightVm {
-  return {
-    id: `${providerName}-evidence`,
-    query: `${providerName} query`,
-    provider: providerName,
-    model: models.at(-1) ?? null,
-    location: null,
-    citationState: 'cited',
-    visibilityState: 'visible',
-    changeLabel: 'Stable',
-    answerSnippet: '',
-    citedDomains: [],
-    evidenceUrls: [],
-    competitorDomains: [],
-    relatedTechnicalSignals: [],
-    groundingSources: [],
-    summary: '',
-    runHistory: models.map((model, index) => ({
-      runId: `${providerName}-${index}`,
-      citationState: 'cited',
-      createdAt: `2026-04-${String(index + 1).padStart(2, '0')}T00:00:00.000Z`,
-      model,
-    })),
   }
 }
 
@@ -159,28 +139,131 @@ describe('buildTrendRows — data flags', () => {
   })
 })
 
-describe('buildProviderModelHints', () => {
-  it('normalizes provider keys so metrics series can join evidence hints safely', () => {
+describe('model attribution helpers', () => {
+  it('normalizes provider keys so trend series can join analytics evidence safely', () => {
     expect(normalizeProviderKey(' Gemini ')).toBe('gemini')
-    const hints = buildProviderModelHints([
-      evidence(' Gemini ', ['gemini-2.5-flash']),
-    ], 'all')
+  })
 
-    expect(hints).toEqual({
-      gemini: ['gemini-2.5-flash'],
+  it('formats known, unknown, and mixed evidence without pretending mixed evidence is a selected model', () => {
+    expect(formatModelEvidence({ status: 'known', model: 'gemini-2.5-flash' })).toBe('gemini-2.5-flash')
+    expect(formatModelEvidence({ status: 'unknown' })).toBe('Unknown model')
+    expect(formatModelEvidence({ status: 'mixed', models: ['gpt-5', 'gpt-5-mini'], includesUnknown: true }))
+      .toBe('Mixed: gpt-5, gpt-5-mini + unknown')
+  })
+
+  it('uses the last plotted provider bucket, not detail-view history, for a legend model label', () => {
+    const buckets = [
+      {
+        ...bucket('2026-04-01', { gemini: provider(0.25, 0.1) }),
+        modelEvidenceByProvider: { gemini: { status: 'known', model: 'gemini-2.0-flash' } },
+      },
+      {
+        ...bucket('2026-04-08', { gemini: provider(0.75, 0.5) }),
+        modelEvidenceByProvider: { gemini: { status: 'mixed', models: ['gemini-2.0-flash', 'gemini-2.5-flash'], includesUnknown: false } },
+      },
+    ] as BrandMetricsDto['buckets']
+
+    expect(latestPlottedProviderModelEvidence(buckets, ' Gemini ')).toEqual({
+      status: 'mixed', models: ['gemini-2.0-flash', 'gemini-2.5-flash'], includesUnknown: false,
     })
   })
 
-  it('returns model versions by provider, latest model first', () => {
-    const hints = buildProviderModelHints([
-      evidence('gemini', ['gemini-2.0-flash', 'gemini-2.5-flash']),
-      evidence('openai', ['gpt-5.4']),
-    ], 'all')
+  it('distinguishes an older analytics payload from an observed unknown model', () => {
+    const legacy = bucket('2026-04-01', { gemini: provider(0.25, 0.1) }) as unknown as BrandMetricsDto['buckets'][number]
+    expect(readBucketModelEvidence(legacy)).toBeNull()
 
-    expect(hints).toEqual({
-      gemini: ['gemini-2.5-flash', 'gemini-2.0-flash'],
-      openai: ['gpt-5.4'],
+    const observed = {
+      ...legacy,
+      modelEvidenceByProvider: { gemini: { status: 'unknown' } satisfies ModelEvidenceState },
+    }
+    expect(readBucketModelEvidence(observed)).toEqual({ gemini: { status: 'unknown' } })
+
+    const legacyDto = dto([legacy]) as unknown as BrandMetricsDto
+    expect(readModelAttribution(legacyDto)).toBeNull()
+    const currentDto = { ...legacyDto, modelAttribution: {} satisfies ModelAttribution }
+    expect(readModelAttribution(currentDto)).toEqual({})
+  })
+
+  it('groups categorical evidence changes by existing trend bucket for chart markers and summaries', () => {
+    const events = groupModelAttributionEvents({
+      gemini: {
+        latestObservation: { observedAt: '2026-04-08T09:00:00.000Z', state: { status: 'known', model: 'gemini-2.5-flash' } },
+        events: [{
+          observedAt: '2026-04-08T09:00:00.000Z',
+          bucketStartDate: '2026-04-08',
+          from: { status: 'known', model: 'gemini-2.0-flash' },
+          to: { status: 'known', model: 'gemini-2.5-flash' },
+        }],
+      },
     })
+
+    expect(events).toEqual([{
+      bucketStartDate: '2026-04-08',
+      events: [{ provider: 'gemini', event: {
+        observedAt: '2026-04-08T09:00:00.000Z',
+        bucketStartDate: '2026-04-08',
+        from: { status: 'known', model: 'gemini-2.0-flash' },
+        to: { status: 'known', model: 'gemini-2.5-flash' },
+      } }],
+    }])
+  })
+
+  it('counts shown vs observed changes so a capped list can say how much it is hiding', () => {
+    const event = {
+      observedAt: '2026-04-08T09:00:00.000Z',
+      bucketStartDate: '2026-04-08',
+      from: { status: 'known', model: 'a' },
+      to: { status: 'known', model: 'b' },
+    } as const
+    const latestObservation = { observedAt: '2026-04-08T09:00:00.000Z', state: { status: 'known', model: 'b' } } as const
+
+    // gemini is truncated (2 of 40), openai is complete, and claude predates
+    // `eventTotal` entirely — an older server's list IS its whole history.
+    expect(countModelAttributionEvents({
+      gemini: { latestObservation, events: [event, event], eventTotal: 40 },
+      openai: { latestObservation, events: [event], eventTotal: 1 },
+      claude: { latestObservation, events: [event, event, event] },
+    })).toEqual({ shown: 6, total: 44 })
+
+    expect(countModelAttributionEvents({})).toEqual({ shown: 0, total: 0 })
+  })
+
+  it('summed `shown` equals the events the grouped view actually renders', () => {
+    // The cap is applied PER PROVIDER server-side, but the UI renders one
+    // merged, bucket-grouped list and so reports one summed pair. That is only
+    // honest if the sum matches what grouping emits — if grouping ever starts
+    // dropping events (an unparsable bucket, a dedupe), `shown` would overstate
+    // the visible history and "showing N of M" would lie in the safe-looking
+    // direction. Cross-check the two helpers against the same input.
+    const eventAt = (observedAt: string, bucketStartDate: string) => ({
+      observedAt,
+      bucketStartDate,
+      from: { status: 'known', model: 'a' },
+      to: { status: 'known', model: 'b' },
+    } as const)
+    const latestObservation = { observedAt: '2026-04-15T09:00:00.000Z', state: { status: 'known', model: 'b' } } as const
+
+    // Two providers, overlapping buckets, one of them truncated.
+    const attribution = {
+      gemini: {
+        latestObservation,
+        events: [eventAt('2026-04-08T09:00:00.000Z', '2026-04-08'), eventAt('2026-04-15T09:00:00.000Z', '2026-04-15')],
+        eventTotal: 40,
+      },
+      openai: {
+        latestObservation,
+        events: [eventAt('2026-04-08T10:00:00.000Z', '2026-04-08')],
+        eventTotal: 1,
+      },
+    }
+
+    const counts = countModelAttributionEvents(attribution)
+    const rendered = groupModelAttributionEvents(attribution)
+      .reduce((sum, bucket) => sum + bucket.events.length, 0)
+
+    expect(counts.shown).toBe(rendered)
+    // …and the truncation is still visible in the summed pair.
+    expect(counts).toEqual({ shown: 3, total: 41 })
   })
 })
 
@@ -299,5 +382,102 @@ describe('formatQueryChangeCaption', () => {
   it('renders a negative delta (queries removed)', () => {
     expect(formatQueryChangeCaption([{ date: '2026-06-02', delta: -4, label: '-4 kp' }]))
       .toBe('Query set changed: -4 on 06/02')
+  })
+})
+
+describe('partitionModelAttributionEvents', () => {
+  const latestObservation = {
+    observedAt: '2026-04-08T09:00:00.000Z',
+    state: { status: 'known', model: 'gemini-2.5-flash' },
+  } as const
+
+  it('keeps a change inherited from before the window OUT of the plotted buckets', () => {
+    // The 7d window is the worst case: every bucket is one day, so an anchored
+    // change lands on the very first plotted day and a chart marker there tells
+    // the operator the model changed on a date it may not have.
+    const partition = partitionModelAttributionEvents({
+      gemini: {
+        latestObservation,
+        events: [{
+          observedAt: '2026-04-02T09:00:00.000Z',
+          bucketStartDate: '2026-04-02',
+          from: { status: 'known', model: 'gemini-2.0-flash' },
+          to: { status: 'known', model: 'gemini-2.5-flash' },
+          fromPreWindowAnchor: true,
+          anchorObservedAt: '2026-03-20T09:00:00.000Z',
+        }],
+      },
+    })
+
+    // Nothing to mark on the chart…
+    expect(partition.buckets).toEqual([])
+    // …but the change is NOT lost: it is listed with its closed date range.
+    expect(partition.beforeWindow).toHaveLength(1)
+    expect(partition.beforeWindow[0]!.provider).toBe('gemini')
+    expect(partition.beforeWindow[0]!.event.anchorObservedAt).toBe('2026-03-20T09:00:00.000Z')
+  })
+
+  it('separates the two kinds when a provider has both', () => {
+    const partition = partitionModelAttributionEvents({
+      gemini: {
+        latestObservation,
+        events: [
+          {
+            observedAt: '2026-04-02T09:00:00.000Z',
+            bucketStartDate: '2026-04-02',
+            from: { status: 'known', model: 'gemini-2.0-flash' },
+            to: { status: 'known', model: 'gemini-2.5-flash' },
+            fromPreWindowAnchor: true,
+          },
+          {
+            observedAt: '2026-04-08T09:00:00.000Z',
+            bucketStartDate: '2026-04-08',
+            from: { status: 'known', model: 'gemini-2.5-flash' },
+            to: { status: 'unknown' },
+          },
+        ],
+      },
+    })
+
+    expect(partition.buckets.map(bucket => bucket.bucketStartDate)).toEqual(['2026-04-08'])
+    expect(partition.beforeWindow.map(row => row.event.observedAt)).toEqual(['2026-04-02T09:00:00.000Z'])
+  })
+
+  it('leaves an all-in-window attribution grouped exactly as before', () => {
+    const attribution = {
+      gemini: {
+        latestObservation,
+        events: [{
+          observedAt: '2026-04-08T09:00:00.000Z',
+          bucketStartDate: '2026-04-08',
+          from: { status: 'known', model: 'gemini-2.0-flash' },
+          to: { status: 'known', model: 'gemini-2.5-flash' },
+        }],
+      },
+    } as const
+    expect(partitionModelAttributionEvents(attribution).buckets)
+      .toEqual(groupModelAttributionEvents(attribution))
+    expect(partitionModelAttributionEvents(attribution).beforeWindow).toEqual([])
+  })
+})
+
+describe('truncatedProviderCounts', () => {
+  it('names only the providers whose own list the server capped', () => {
+    const event = {
+      observedAt: '2026-04-08T09:00:00.000Z',
+      bucketStartDate: '2026-04-08',
+      from: { status: 'known', model: 'a' },
+      to: { status: 'known', model: 'b' },
+    } as const
+    const latestObservation = { observedAt: '2026-04-08T09:00:00.000Z', state: { status: 'known', model: 'b' } } as const
+
+    // A pooled "showing 6 of 44" would imply openai and claude are clipped too.
+    expect(truncatedProviderCounts({
+      gemini: { latestObservation, events: [event, event], eventTotal: 40 },
+      openai: { latestObservation, events: [event], eventTotal: 1 },
+      claude: { latestObservation, events: [event, event, event] },
+    })).toEqual([{ provider: 'gemini', shown: 2, total: 40 }])
+
+    expect(truncatedProviderCounts({})).toEqual([])
   })
 })

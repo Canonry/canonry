@@ -28,6 +28,23 @@ export const providerSummaryEntryDtoSchema = z.object({
 })
 export type ProviderSummaryEntryDto = z.infer<typeof providerSummaryEntryDtoSchema>
 
+/** Credential-free adapter metadata used for project-scoped model controls. */
+export const providerCatalogEntryDtoSchema = z.object({
+  name: z.string(),
+  displayName: z.string(),
+  mode: z.enum(['api', 'browser']),
+  modelConfigurable: z.boolean(),
+  defaultModel: z.string(),
+  knownModels: z.array(z.object({
+    id: z.string(),
+    displayName: z.string(),
+    tier: z.enum(['flagship', 'standard', 'fast', 'economy']),
+  })).default([]),
+  modelValidationPattern: z.object({ source: z.string(), flags: z.string() }),
+  modelValidationHint: z.string(),
+})
+export type ProviderCatalogEntryDto = z.infer<typeof providerCatalogEntryDtoSchema>
+
 /**
  * Lightweight Google/Bing settings summary — both currently expose only
  * `configured`, but the wrapper object exists so the spec can grow new
@@ -44,6 +61,7 @@ export type IntegrationSettingsSummaryDto = z.infer<typeof integrationSettingsSu
  */
 export const settingsDtoSchema = z.object({
   providers: z.array(providerSummaryEntryDtoSchema).default([]),
+  providerCatalog: z.array(providerCatalogEntryDtoSchema).default([]),
   google: integrationSettingsSummaryDtoSchema,
   bing: integrationSettingsSummaryDtoSchema,
 })

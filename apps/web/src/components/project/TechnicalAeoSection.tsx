@@ -24,8 +24,9 @@ import {
   CHART_GRID_STROKE,
   CHART_TOOLTIP_STYLE,
   CHART_TONE,
-  formatChartDateLabel,
-  formatChartDateTick,
+  formatObservedInstantLabel,
+  formatObservedInstantTick,
+  observedInstant,
 } from '../shared/ChartPrimitives.js'
 import { addToast } from '../../lib/toast-store.js'
 import { Button } from '../ui/button.js'
@@ -55,6 +56,24 @@ function factorTone(status: SiteAuditFactorSummaryDto['status']): MetricTone {
 // aeo-audit v3 is gradeless; canonry bands the 0–100 score into pass/partial/fail.
 function statusLabel(score: number): string {
   return score >= 70 ? 'Pass' : score >= 40 ? 'Partial' : 'Fail'
+}
+
+/**
+ * The x value on the site-score trend is a trend point's `auditedAt` — the
+ * moment the audit ran (`new Date().toISOString()` when the snapshot is
+ * written), not a day stamp. It is a real instant, so it localizes to the
+ * viewer: an audit at 2026-07-20T01:52Z reads "Jul 19" in New York, the day
+ * that viewer was actually on. Recharts hands its formatters the raw axis
+ * value, so the brand is restored here, at the one place an `auditedAt` enters
+ * a date formatter.
+ */
+function formatAuditedAtTick(value: string): string {
+  return formatObservedInstantTick(observedInstant(String(value)))
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function formatAuditedAtLabel(value: any): string {
+  return formatObservedInstantLabel(observedInstant(String(value)))
 }
 
 export function TechnicalAeoSection({ projectName, projectId }: { projectName: string; projectId: string }) {
@@ -337,7 +356,7 @@ export function TechnicalAeoSection({ projectName, projectId }: { projectName: s
                   tick={CHART_AXIS_TICK}
                   tickLine={false}
                   axisLine={{ stroke: CHART_AXIS_STROKE }}
-                  tickFormatter={formatChartDateTick}
+                  tickFormatter={formatAuditedAtTick}
                   minTickGap={24}
                 />
                 <YAxis
@@ -351,7 +370,7 @@ export function TechnicalAeoSection({ projectName, projectId }: { projectName: s
                 <RechartsTooltip
                   {...CHART_TOOLTIP_STYLE}
                   cursor={{ stroke: CHART_AXIS_STROKE, strokeWidth: 1 }}
-                  labelFormatter={formatChartDateLabel}
+                  labelFormatter={formatAuditedAtLabel}
                   formatter={(value) => [`${value}/100`, 'Site score']}
                 />
                 <Line

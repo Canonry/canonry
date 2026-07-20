@@ -11,6 +11,7 @@ import {
 } from '../commands/project.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
 import {
+  getBoolean,
   getString,
   getStringArray,
   multiStringOption,
@@ -24,7 +25,7 @@ import { usageError } from '../cli-error.js'
 export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['project', 'create'],
-    usage: 'canonry project create <name> [--domain <domain>] [--owned-domain <domain>...] [--alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--format json]',
+    usage: 'canonry project create <name> [--domain <domain>] [--owned-domain <domain>...] [--alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--provider-model provider=model...] [--format json]',
     options: {
       domain: { type: 'string', short: 'd' },
       'owned-domain': multiStringOption(),
@@ -32,12 +33,14 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
       country: stringOption(),
       language: stringOption(),
       'display-name': stringOption(),
+      provider: multiStringOption(),
+      'provider-model': multiStringOption(),
     },
     run: async (input) => {
       const name = requireProject(
         input,
         'project.create',
-        'canonry project create <name> [--domain <domain>] [--owned-domain <domain>...] [--alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--format json]',
+        'canonry project create <name> [--domain <domain>] [--owned-domain <domain>...] [--alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--provider-model provider=model...] [--format json]',
       )
       await createProject(name, {
         domain: getString(input.values, 'domain') ?? name,
@@ -46,13 +49,15 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
         country: getString(input.values, 'country') ?? 'US',
         language: getString(input.values, 'language') ?? 'en',
         displayName: getString(input.values, 'display-name') ?? name,
+        providers: getStringArray(input.values, 'provider') ?? [],
+        providerModels: parseProviderModelAssignments(getStringArray(input.values, 'provider-model')),
         format: input.format,
       })
     },
   },
   {
     path: ['project', 'update'],
-    usage: 'canonry project update <name> [--domain <domain>] [--owned-domain <domain>...] [--add-domain <domain>...] [--remove-domain <domain>...] [--alias <name>...] [--add-alias <name>...] [--remove-alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--format json]',
+    usage: 'canonry project update <name> [--domain <domain>] [--owned-domain <domain>...] [--add-domain <domain>...] [--remove-domain <domain>...] [--alias <name>...] [--add-alias <name>...] [--remove-alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--all-providers] [--provider-model provider=model...] [--clear-provider-model <provider>...] [--format json]',
     options: {
       domain: { type: 'string', short: 'd' },
       'owned-domain': multiStringOption(),
@@ -64,13 +69,25 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
       country: stringOption(),
       language: stringOption(),
       'display-name': stringOption(),
+      provider: multiStringOption(),
+      'all-providers': { type: 'boolean' },
+      'provider-model': multiStringOption(),
+      'clear-provider-model': multiStringOption(),
     },
     run: async (input) => {
       const name = requireProject(
         input,
         'project.update',
-        'canonry project update <name> [--domain <domain>] [--owned-domain <domain>...] [--add-domain <domain>...] [--remove-domain <domain>...] [--alias <name>...] [--add-alias <name>...] [--remove-alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--format json]',
+        'canonry project update <name> [--domain <domain>] [--owned-domain <domain>...] [--add-domain <domain>...] [--remove-domain <domain>...] [--alias <name>...] [--add-alias <name>...] [--remove-alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--all-providers] [--provider-model provider=model...] [--clear-provider-model <provider>...] [--format json]',
       )
+      const providers = getStringArray(input.values, 'provider')
+      const allProviders = getBoolean(input.values, 'all-providers')
+      if (allProviders && providers?.length) throw usageError('Error: --all-providers conflicts with --provider')
+      const providerModels = parseProviderModelAssignments(getStringArray(input.values, 'provider-model'))
+      const clearProviderModels = getStringArray(input.values, 'clear-provider-model') ?? []
+      for (const provider of clearProviderModels) {
+        if (provider in providerModels) throw usageError(`Error: --provider-model and --clear-provider-model conflict for ${provider}`)
+      }
       await updateProjectSettings(name, {
         displayName: getString(input.values, 'display-name'),
         domain: getString(input.values, 'domain'),
@@ -82,6 +99,9 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
         removeAlias: getStringArray(input.values, 'remove-alias'),
         country: getString(input.values, 'country'),
         language: getString(input.values, 'language'),
+        providers: allProviders ? [] : providers,
+        providerModels,
+        clearProviderModels,
         format: input.format,
       })
     },
@@ -197,3 +217,17 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
     },
   },
 ]
+
+/** Parse repeatable provider=model flags before any API call. */
+export function parseProviderModelAssignments(assignments: readonly string[] | undefined): Record<string, string> {
+  const result: Record<string, string> = {}
+  for (const assignment of assignments ?? []) {
+    const separator = assignment.indexOf('=')
+    const provider = separator === -1 ? '' : assignment.slice(0, separator).trim()
+    const model = separator === -1 ? '' : assignment.slice(separator + 1).trim()
+    if (!provider || !model) throw usageError(`Error: --provider-model must use provider=model (received ${assignment})`)
+    if (provider in result) throw usageError(`Error: duplicate --provider-model assignment for ${provider}`)
+    result[provider] = model
+  }
+  return result
+}

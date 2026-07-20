@@ -69,6 +69,7 @@ describe('drizzle-zod derived row schemas', () => {
       tags: ['saas', 'b2b'],
       labels: { team: 'growth', tier: 'enterprise' },
       providers: ['gemini', 'openai'],
+      providerModels: {},
       locations: [{ label: 'us-east', city: 'New York', region: 'NY', country: 'US' }],
       defaultLocation: 'us-east',
       autoExtractBacklinks: true,

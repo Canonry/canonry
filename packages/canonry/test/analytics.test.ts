@@ -1,4 +1,4 @@
-import { describe, it, beforeEach, afterEach, expect } from 'vitest'
+import { describe, it, beforeEach, afterEach, expect, vi } from 'vitest'
 import os from 'node:os'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -6,6 +6,7 @@ import crypto from 'node:crypto'
 import { createClient, migrate, apiKeys } from '@ainyc/canonry-db'
 import { createServer } from '../src/server.js'
 import { ApiClient } from '../src/client.js'
+import type { BrandMetricsDto } from '@ainyc/canonry-contracts'
 
 function captureOutput(fn: () => Promise<void>): Promise<{ stdout: string; stderr: string }> {
   const logs: string[] = []
@@ -85,6 +86,154 @@ describe('analytics command', () => {
     const { stdout } = await captureOutput(() => showAnalytics('test-proj', { feature: 'metrics' }))
     expect(stdout).toMatch(/Citation Rate Trends/)
     expect(stdout).toMatch(/Overall:/)
+  })
+
+  it('prints latest model evidence and ordered attribution events', async () => {
+    const metricsSpy = vi.spyOn(ApiClient.prototype, 'getAnalyticsMetrics').mockResolvedValue({
+      window: '30d',
+      buckets: [],
+      overall: { citationRate: 0, cited: 0, total: 0, mentionRate: 0, mentionedCount: 0 },
+      byProvider: {},
+      trend: 'stable',
+      mentionTrend: 'stable',
+      queryChanges: [],
+      modelAttribution: {
+        claude: {
+          latestObservation: {
+            observedAt: '2026-07-14T12:00:00.000Z',
+            state: { status: 'known', model: 'claude-sonnet-5' },
+          },
+          events: [{
+            observedAt: '2026-07-10T12:00:00.000Z',
+            bucketStartDate: '2026-07-10T00:00:00.000Z',
+            from: { status: 'known', model: 'claude-opus-5' },
+            to: { status: 'known', model: 'claude-sonnet-5' },
+          }],
+        },
+      },
+    })
+    try {
+      const { showAnalytics } = await import('../src/commands/analytics.js')
+      const { stdout } = await captureOutput(() => showAnalytics('test-proj', { feature: 'metrics' }))
+      expect(stdout).toContain('Model Evidence:')
+      expect(stdout).toContain('claude: latest known claude-sonnet-5 at 2026-07-14T12:00:00.000Z')
+      expect(stdout).toContain('2026-07-10T12:00:00.000Z  known claude-opus-5 → known claude-sonnet-5')
+      // Neither optional field is set, so neither annotation appears.
+      expect(stdout).not.toContain('(on or before)')
+      expect(stdout).not.toContain('Showing the latest')
+    } finally {
+      metricsSpy.mockRestore()
+    }
+  })
+
+  it('dates an anchored change as "on or before" and reports a capped event list', async () => {
+    const metricsSpy = vi.spyOn(ApiClient.prototype, 'getAnalyticsMetrics').mockResolvedValue({
+      window: '30d',
+      buckets: [],
+      overall: { citationRate: 0, cited: 0, total: 0, mentionRate: 0, mentionedCount: 0 },
+      byProvider: {},
+      trend: 'stable',
+      mentionTrend: 'stable',
+      queryChanges: [],
+      modelAttribution: {
+        perplexity: {
+          latestObservation: {
+            observedAt: '2026-07-15T12:00:00.000Z',
+            state: { status: 'known', model: 'sonar-pro' },
+          },
+          events: [
+            {
+              observedAt: '2026-07-02T12:00:00.000Z',
+              bucketStartDate: '2026-07-02T00:00:00.000Z',
+              from: { status: 'known', model: 'sonar' },
+              to: { status: 'known', model: 'sonar-pro' },
+              fromPreWindowAnchor: true,
+            },
+            {
+              observedAt: '2026-07-15T12:00:00.000Z',
+              bucketStartDate: '2026-07-15T00:00:00.000Z',
+              from: { status: 'known', model: 'sonar' },
+              to: { status: 'known', model: 'sonar-pro' },
+            },
+          ],
+          eventTotal: 84,
+        },
+      },
+    })
+    try {
+      const { showAnalytics } = await import('../src/commands/analytics.js')
+      const { stdout } = await captureOutput(() => showAnalytics('test-proj', { feature: 'metrics' }))
+      expect(stdout).toContain('2026-07-02T12:00:00.000Z (on or before)  known sonar → known sonar-pro')
+      // The in-window transition keeps its exact date.
+      expect(stdout).toContain('2026-07-15T12:00:00.000Z  known sonar → known sonar-pro')
+      expect(stdout).toContain('Showing the latest 2 of 84 model changes.')
+    } finally {
+      metricsSpy.mockRestore()
+    }
+  })
+
+  it('reports what the engines answered with, the substitution, and an incomplete history', async () => {
+    const metricsSpy = vi.spyOn(ApiClient.prototype, 'getAnalyticsMetrics').mockResolvedValue({
+      window: '30d',
+      buckets: [],
+      overall: { citationRate: 0, cited: 0, total: 0, mentionRate: 0, mentionedCount: 0 },
+      byProvider: {},
+      trend: 'stable',
+      mentionTrend: 'stable',
+      queryChanges: [],
+      modelAttribution: {
+        openai: {
+          latestObservation: {
+            observedAt: '2026-07-15T12:00:00.000Z',
+            state: { status: 'known', model: 'gpt-5.6' },
+          },
+          events: [
+            {
+              observedAt: '2026-07-02T12:00:00.000Z',
+              bucketStartDate: '2026-07-02T00:00:00.000Z',
+              from: { status: 'known', model: 'gpt-5.4' },
+              to: { status: 'known', model: 'gpt-5.6' },
+              fromPreWindowAnchor: true,
+              anchorObservedAt: '2026-06-20T12:00:00.000Z',
+            },
+          ],
+          eventTotal: 1,
+          anchorUnavailable: true,
+        },
+      },
+      servedModelAttribution: {
+        openai: {
+          latestObservation: {
+            observedAt: '2026-07-15T12:00:00.000Z',
+            state: { status: 'known', model: 'gpt-5.6-sol' },
+          },
+          events: [],
+          eventTotal: 0,
+          latestServedModelIds: ['gpt-5.6-sol'],
+        },
+      },
+      modelServiceMismatch: {
+        openai: {
+          observedAt: '2026-07-15T12:00:00.000Z',
+          configured: { status: 'known', model: 'gpt-5.6' },
+          served: { status: 'known', model: 'gpt-5.6-sol' },
+        },
+      },
+    })
+    try {
+      const { showAnalytics } = await import('../src/commands/analytics.js')
+      const { stdout } = await captureOutput(() => showAnalytics('test-proj', { feature: 'metrics' }))
+      // An anchored change now carries its lower bound, so the operator reads a
+      // closed range instead of an open-ended "sometime earlier".
+      expect(stdout).toContain('(on or before)')
+      expect(stdout).toContain('[last seen known gpt-5.4 on 2026-06-20T12:00:00.000Z]')
+      expect(stdout).toContain('We did not look far enough back to be sure this is every change.')
+      // The served lane, in plain language.
+      expect(stdout).toContain('What the Engines Answered With:')
+      expect(stdout).toContain('openai: gpt-5.6-sol at 2026-07-15T12:00:00.000Z — not the known gpt-5.6 you selected')
+    } finally {
+      metricsSpy.mockRestore()
+    }
   })
 
   it('prints gap analysis section for empty project', async () => {
@@ -173,5 +322,84 @@ describe('analytics command', () => {
     }
     const parsed = JSON.parse(logs.join('\n'))
     expect((parsed.metrics as { window: string }).window).toBe('7d')
+  })
+  it('dates the timeline from the real sweeps and says the dates are UTC', async () => {
+    // A bucket whose synthetic boundary (2026-07-10) is 10 days away from the
+    // sweeps it actually contains — the production shape. Printing the boundary
+    // would date the reading to a day nothing ran on.
+    const metricsSpy = vi.spyOn(ApiClient.prototype, 'getAnalyticsMetrics').mockResolvedValue({
+      window: 'all',
+      buckets: [
+        {
+          startDate: '2026-05-15T00:00:00.000Z', endDate: '2026-05-29T00:00:00.000Z',
+          dataStartDate: '2026-05-15T19:38:00.000Z', dataEndDate: '2026-05-15T19:38:00.000Z', sweepCount: 1,
+          citationRate: 0.25, cited: 1, total: 4, queryCount: 4, mentionRate: 0.5, mentionedCount: 2,
+          mentionShare: { rate: null, projectMentionSnapshots: 0, competitorMentionSnapshots: 0 },
+          byProvider: { gemini: { citationRate: 0.25, cited: 1, total: 4, mentionRate: 0.5, mentionedCount: 2 } },
+          modelEvidenceByProvider: {},
+        },
+        {
+          startDate: '2026-07-10T00:00:00.000Z', endDate: '2026-07-24T00:00:00.000Z',
+          dataStartDate: '2026-07-14T09:00:00.000Z', dataEndDate: '2026-07-20T01:52:51.000Z', sweepCount: 2,
+          citationRate: 0.75, cited: 3, total: 4, queryCount: 4, mentionRate: 0.5, mentionedCount: 2,
+          mentionShare: { rate: null, projectMentionSnapshots: 0, competitorMentionSnapshots: 0 },
+          byProvider: { gemini: { citationRate: 0.75, cited: 3, total: 4, mentionRate: 0.5, mentionedCount: 2 } },
+          modelEvidenceByProvider: {},
+        },
+      ],
+      overall: { citationRate: 0.5, cited: 4, total: 8, mentionRate: 0.5, mentionedCount: 4 },
+      byProvider: {},
+      trend: 'improving',
+      mentionTrend: 'stable',
+      queryChanges: [],
+      modelAttribution: {},
+    })
+    try {
+      const { showAnalytics } = await import('../src/commands/analytics.js')
+      const { stdout } = await captureOutput(() => showAnalytics('test-proj', { feature: 'metrics' }))
+
+      // The CLI has no viewer timezone, so it stays UTC — and says so rather
+      // than letting the reader assume local time.
+      expect(stdout).toContain('Timeline (dates in UTC):')
+      expect(stdout).toContain('By Provider Timeline (dates in UTC):')
+
+      // Real sweep dates, and pooling is stated instead of hidden.
+      expect(stdout).toContain('2026-05-15')
+      expect(stdout).toContain('2026-07-14 \u2192 2026-07-20 (2 sweeps)')
+
+      // Never the synthetic boundary.
+      expect(stdout).not.toContain('2026-07-10')
+    } finally {
+      metricsSpy.mockRestore()
+    }
+  })
+
+  it('says so plainly when an older server omits the real sweep dates', async () => {
+    const legacyBucket = {
+      startDate: '2026-07-10T00:00:00.000Z', endDate: '2026-07-24T00:00:00.000Z',
+      citationRate: 0.5, cited: 2, total: 4, queryCount: 4, mentionRate: 0.5, mentionedCount: 2,
+      mentionShare: { rate: null, projectMentionSnapshots: 0, competitorMentionSnapshots: 0 },
+      byProvider: {},
+      modelEvidenceByProvider: {},
+    }
+    const metricsSpy = vi.spyOn(ApiClient.prototype, 'getAnalyticsMetrics').mockResolvedValue({
+      window: 'all',
+      buckets: [legacyBucket as unknown as BrandMetricsDto['buckets'][number]],
+      overall: { citationRate: 0.5, cited: 2, total: 4, mentionRate: 0.5, mentionedCount: 2 },
+      byProvider: {},
+      trend: 'stable',
+      mentionTrend: 'stable',
+      queryChanges: [],
+      modelAttribution: {},
+    })
+    try {
+      const { showAnalytics } = await import('../src/commands/analytics.js')
+      const { stdout } = await captureOutput(() => showAnalytics('test-proj', { feature: 'metrics' }))
+      expect(stdout).toContain('date unavailable')
+      // Falling back to the boundary would be worse than saying nothing.
+      expect(stdout).not.toContain('2026-07-10')
+    } finally {
+      metricsSpy.mockRestore()
+    }
   })
 })

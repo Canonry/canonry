@@ -31,6 +31,7 @@ import { METRIC_TONE_TEXT_CLASS } from '../lib/tone-helpers.js'
 import { addToast } from '../lib/toast-store.js'
 import { asyncHandler } from '../lib/async-handler.js'
 import { ProjectSettingsSection } from '../components/project/ProjectSettingsSection.js'
+import { ProjectEngineSettingsSection } from '../components/project/ProjectEngineSettingsSection.js'
 import { ScheduleSection } from '../components/project/ScheduleSection.js'
 import { NotificationsSection } from '../components/project/NotificationsSection.js'
 import {
@@ -61,6 +62,7 @@ import {
   type ApiBingKeywordStats,
   type ApiGoogleConnection,
   type ApiGscCoverageSummary,
+  type ApiProject,
 } from '../api.js'
 import { isEmbedProjectTabAllowed, resolveEmbedProjectTab } from '../embed.js'
 import {
@@ -72,6 +74,7 @@ import {
   getApiV1ProjectsByNameGoogleConnectionsOptions,
   getApiV1ProjectsByNameGoogleGscCoverageOptions,
   getApiV1ProjectsQueryKey,
+  getApiV1ProjectsByNameQueryKey,
   getApiV1SettingsOptions,
 } from '@ainyc/canonry-api-client/react-query'
 import { useAppendQueries, useTriggerRun } from '../queries/mutations.js'
@@ -100,6 +103,29 @@ function invalidateByOpPrefix(queryClient: ReturnType<typeof useQueryClient>, pr
       const head = query.queryKey[0] as { _id?: string } | undefined
       return typeof head?._id === 'string' && head._id.startsWith(prefix)
     },
+  })
+}
+
+/**
+ * Patch the cached `useProjectDashboard` detail entries for a single project
+ * with a freshly-saved project object.
+ *
+ * The detail key is `['project-dashboard-full', projectId, latestRunIdsKey]`
+ * (see `use-project-dashboard.ts`), so a project has one entry per run-ids
+ * revision and the id MUST be part of the match. A head-only predicate wrote
+ * the saved project into every other project's cached entry; because
+ * `commandCenter` is built from that entry, the settings form on a
+ * previously-visited project then rendered — and saved to — the wrong project.
+ */
+export function patchProjectDashboardCache(
+  queryClient: ReturnType<typeof useQueryClient>,
+  updated: ApiProject,
+): void {
+  queryClient.setQueriesData({
+    predicate: query => query.queryKey[0] === 'project-dashboard-full' && query.queryKey[1] === updated.id,
+  }, (current: unknown) => {
+    if (!current || typeof current !== 'object' || !('project' in current)) return current
+    return { ...current, project: updated }
   })
 }
 
@@ -1612,6 +1638,7 @@ export function ProjectPage(props: { tab: ProjectPageTab }) {
   const {
     commandCenter: model,
     isLoading: dashboardLoading,
+    latestVisibilityRevision,
     refetch,
   } = useProjectDashboard(lookupProjectName)
   const isLoading = (!nameFromContext && projectsListQuery.isLoading) || dashboardLoading
@@ -1666,7 +1693,12 @@ export function ProjectPage(props: { tab: ProjectPageTab }) {
     )
   }
 
-  return <ProjectPageContent model={model} refetch={refetch} {...props} />
+  return <ProjectPageContent
+    model={model}
+    refetch={refetch}
+    latestVisibilityRevision={latestVisibilityRevision}
+    {...props}
+  />
 }
 
 type ProjectTabItem = { key: ProjectPageTab; label: string; href: string }
@@ -1736,10 +1768,12 @@ function ProjectPageContent({
   tab: requestedTab,
   model,
   refetch,
+  latestVisibilityRevision,
 }: {
   tab: ProjectPageTab
   model: ProjectCommandCenterVm
   refetch: () => Promise<void>
+  latestVisibilityRevision: string
 }) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -1950,7 +1984,16 @@ function ProjectPageContent({
     setCompetitorSaving(true)
     try {
       await apiAppendCompetitors(projectName, [domain])
-      await queryClient.invalidateQueries({ queryKey: ['analytics-metrics', projectName] })
+      // No `['analytics-metrics', projectName]` invalidation — same mechanism
+      // as the answer-visibility case in `queries/run-invalidations.ts`. The
+      // trend key's `metricsFrameKey` segment is `competitorFrameKey(...)` of
+      // `model.competitors`, i.e. the exact DB list the server builds the
+      // mention-share denominator from. `refetch()` reloads that list, the
+      // frame key rotates, and the chart mounts a new key — one fetch.
+      // Invalidating first refetched the outgoing key too: a second
+      // full-history analytics scan whose result is unreachable once the
+      // frame key moves. If `refetch()` fails, the project detail query polls
+      // every PROJECT_DETAIL_REFRESH_MS, so the rotation still lands.
       void refetch()
       setNewCompetitorDomain('')
       setAddingCompetitor(false)
@@ -1974,7 +2017,7 @@ function ProjectPageContent({
 
     try {
       await apiRemoveCompetitorById(projectName, competitor.id)
-      await queryClient.invalidateQueries({ queryKey: ['analytics-metrics', projectName] })
+      // See handleAddCompetitor: the frame key rotation is the refetch.
       void refetch()
     } catch (err) {
       addToast({
@@ -2047,8 +2090,8 @@ function ProjectPageContent({
     }
   }
 
-  async function handleUpdateProject(pName: string, updates: { displayName?: string; canonicalDomain?: string; ownedDomains?: string[]; aliases?: string[]; country?: string; language?: string; locations?: Array<{ label: string; city: string; region: string; country: string; timezone?: string }>; defaultLocation?: string | null }) {
-    await apiUpdateProject(pName, updates)
+  async function handleUpdateProject(pName: string, updates: { displayName?: string; canonicalDomain?: string; ownedDomains?: string[]; aliases?: string[]; country?: string; language?: string; locations?: Array<{ label: string; city: string; region: string; country: string; timezone?: string }>; defaultLocation?: string | null; providers?: string[]; providerModels?: Record<string, string> }) {
+    const updated = await apiUpdateProject(pName, updates)
     // Invalidate the whole 'projects' branch (prefix match) so every consumer
     // — sidebar, project page, per-project detail queries — refetches the new
     // displayName before the user sees the next render. `refetch()` alone only
@@ -2059,6 +2102,10 @@ function ProjectPageContent({
     // (not a prefix) so we don't churn every Bing/GSC/GA cache under the
     // project's sub-tree.
     await queryClient.invalidateQueries({ queryKey: getApiV1ProjectsQueryKey({ client: heyClient }) })
+    queryClient.setQueryData(getApiV1ProjectsByNameQueryKey({ client: heyClient, path: { name: pName } }), updated)
+    // Scoped to the edited project's own cache entries — see the helper.
+    patchProjectDashboardCache(queryClient, updated)
+    return updated
   }
 
   // Quiet underline tabs (Vercel/Linear lineage), not a pill rack. Section nav
@@ -2296,7 +2343,7 @@ function ProjectPageContent({
             <VisibilityTrendSection
               projectName={model.project.name}
               competitorDomains={competitorDomains}
-              visibilityEvidence={model.visibilityEvidence}
+              analyticsRevision={latestVisibilityRevision}
             />
           </section>
 
@@ -2566,7 +2613,8 @@ function ProjectPageContent({
         </>
       ) : tab === 'settings' ? (
         <>
-          <ProjectSettingsSection project={{ ...model.project, displayName: model.project.displayName ?? model.project.name, defaultLocation: model.project.defaultLocation ?? null }} onUpdateProject={handleUpdateProject} onRefresh={() => void refetch()} />
+          <ProjectSettingsSection project={{ ...model.project, displayName: model.project.displayName ?? model.project.name, defaultLocation: model.project.defaultLocation ?? null }} onUpdateProject={async (name, updates) => { await handleUpdateProject(name, updates) }} onRefresh={() => void refetch()} />
+          <ProjectEngineSettingsSection project={model.project} onSave={async next => { await handleUpdateProject(model.project.name, next) }} />
           <ScheduleSection projectName={model.project.name} />
           <NotificationsSection projectName={model.project.name} />
         </>

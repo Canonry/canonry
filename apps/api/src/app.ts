@@ -21,6 +21,96 @@ export function buildApp(env: PlatformEnv) {
     configured: !!env.providers[name],
     quota: env.providers[name]?.quota,
   }))
+  // Cloud validates the same public model-id conventions as local serve
+  // without importing execution adapters (and their provider SDK graphs).
+  //
+  // This list is not only a catalog: `apiRoutes` fans its NAMES out as the
+  // provider allowlist for project, query, run, apply, and schedule writes. A
+  // missing entry is therefore not a cosmetic gap — the provider stops being
+  // writable on Cloud while local `canonry serve` still accepts it. It must
+  // name EVERY registered adapter (`API_ADAPTERS` + `BROWSER_ADAPTERS` in
+  // packages/canonry/src/server.ts), which is what `PROVIDER_NAMES` in
+  // contracts enumerates; `app.test.ts` pins that invariant.
+  //
+  // KEEP IN SYNC with each adapter's `modelRegistry` in
+  // packages/provider-*/src/adapter.ts (defaultModel / knownModels /
+  // validationPattern / validationHint). This is a deliberate hand-mirrored copy
+  // because apps/api must not pull the provider SDK graphs; a stale copy makes
+  // the cloud /settings catalog advertise a wrong "inherited default" and a
+  // truncated model list versus what the worker actually runs. Durable fix
+  // (deferred): move each registry into an SDK-free module shared by the adapter
+  // and this list so they cannot drift.
+  const providerAdapters = [
+    {
+      name: 'gemini', displayName: 'Gemini', mode: 'api' as const, modelConfigurable: true,
+      defaultModel: 'gemini-2.5-flash',
+      knownModels: [
+        { id: 'gemini-2.5-pro', displayName: 'Gemini 2.5 Pro', tier: 'flagship' as const },
+        { id: 'gemini-2.5-flash', displayName: 'Gemini 2.5 Flash', tier: 'standard' as const },
+        { id: 'gemini-2.5-flash-lite', displayName: 'Gemini 2.5 Flash-Lite', tier: 'economy' as const },
+        { id: 'gemini-2.0-flash', displayName: 'Gemini 2.0 Flash', tier: 'standard' as const },
+      ],
+      modelValidationPattern: /./,
+      modelValidationHint: 'any valid Google model name (e.g. gemini-2.5-flash, learnlm-1.5-pro-experimental)',
+    },
+    {
+      name: 'openai', displayName: 'OpenAI', mode: 'api' as const, modelConfigurable: true,
+      defaultModel: 'gpt-5.4',
+      knownModels: [
+        { id: 'gpt-5.4', displayName: 'GPT-5.4', tier: 'flagship' as const },
+        { id: 'gpt-5.4-pro', displayName: 'GPT-5.4 Pro', tier: 'flagship' as const },
+        { id: 'gpt-5-mini', displayName: 'GPT-5 Mini', tier: 'fast' as const },
+        { id: 'gpt-5-nano', displayName: 'GPT-5 Nano', tier: 'economy' as const },
+        { id: 'gpt-5', displayName: 'GPT-5', tier: 'standard' as const },
+        { id: 'gpt-4.1', displayName: 'GPT-4.1', tier: 'standard' as const },
+      ],
+      modelValidationPattern: /./,
+      modelValidationHint: 'any valid OpenAI model name (e.g. gpt-5.4, o3, chatgpt-4o-latest)',
+    },
+    {
+      name: 'claude', displayName: 'Claude', mode: 'api' as const, modelConfigurable: true,
+      defaultModel: 'claude-sonnet-4-6',
+      knownModels: [
+        { id: 'claude-opus-4-6', displayName: 'Claude Opus 4.6', tier: 'flagship' as const },
+        { id: 'claude-sonnet-4-6', displayName: 'Claude Sonnet 4.6', tier: 'standard' as const },
+        { id: 'claude-haiku-4-5', displayName: 'Claude Haiku 4.5', tier: 'fast' as const },
+      ],
+      modelValidationPattern: /^claude-/,
+      modelValidationHint: 'model name must start with "claude-" (e.g. claude-sonnet-4-6)',
+    },
+    {
+      name: 'perplexity', displayName: 'Perplexity', mode: 'api' as const, modelConfigurable: true,
+      defaultModel: 'sonar',
+      knownModels: [
+        { id: 'sonar', displayName: 'Sonar', tier: 'standard' as const },
+        { id: 'sonar-pro', displayName: 'Sonar Pro', tier: 'flagship' as const },
+        { id: 'sonar-reasoning', displayName: 'Sonar Reasoning', tier: 'flagship' as const },
+        { id: 'sonar-reasoning-pro', displayName: 'Sonar Reasoning Pro', tier: 'flagship' as const },
+      ],
+      modelValidationPattern: /^sonar/,
+      modelValidationHint: 'expected a sonar model (e.g. sonar, sonar-pro, sonar-reasoning)',
+    },
+    {
+      name: 'local', displayName: 'Local', mode: 'api' as const, modelConfigurable: true,
+      defaultModel: 'llama3',
+      knownModels: [
+        { id: 'llama3', displayName: 'Llama 3', tier: 'standard' as const },
+      ],
+      modelValidationPattern: /./,
+      modelValidationHint: 'any model name accepted',
+    },
+    {
+      // Browser adapter — the model is detected from the ChatGPT web UI, so it
+      // is visible in the catalog but not project-overridable (mode !== 'api').
+      name: 'cdp:chatgpt', displayName: 'ChatGPT (Browser)', mode: 'browser' as const, modelConfigurable: false,
+      defaultModel: 'chatgpt-web',
+      knownModels: [
+        { id: 'chatgpt-web', displayName: 'ChatGPT (Web UI)', tier: 'standard' as const },
+      ],
+      modelValidationPattern: /./,
+      modelValidationHint: 'model is detected from the ChatGPT web UI',
+    },
+  ]
 
   app.register(apiRoutes, {
     db,
@@ -31,6 +121,7 @@ export function buildApp(env: PlatformEnv) {
       version: '0.1.0',
     },
     providerSummary,
+    providerAdapters,
     googleStateSecret: env.googleStateSecret,
   })
 

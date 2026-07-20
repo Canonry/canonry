@@ -13,13 +13,32 @@ import {
   CHART_AXIS_TICK,
   CHART_AXIS_STROKE,
   CHART_SERIES_COLORS,
-  formatChartDateLabel,
-  formatChartDateTick,
+  formatObservedInstantLabel,
+  formatObservedInstantTick,
+  observedInstant,
 } from '../shared/ChartPrimitives.js'
 import { Button } from '../ui/button.js'
 import { Card } from '../ui/card.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
 import { asyncHandler } from '../../lib/async-handler.js'
+
+/**
+ * The x value on the referring-domains chart is a history entry's `queriedAt` —
+ * the moment the backlink sync actually ran (`deps.now().toISOString()` in
+ * `commoncrawl-sync` / `bing-backlinks-sync`), not a day stamp. It is a real
+ * instant, so it localizes to the viewer: a sync at 2026-07-20T01:52Z reads
+ * "Jul 19" in New York, the day that viewer was actually on when it ran.
+ * Recharts hands its formatters the raw axis value, so the brand is restored
+ * here, at the one place a `queriedAt` enters a date formatter.
+ */
+function formatQueriedAtTick(value: string): string {
+  return formatObservedInstantTick(observedInstant(String(value)))
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function formatQueriedAtLabel(value: any): string {
+  return formatObservedInstantLabel(observedInstant(String(value)))
+}
 
 function Hint({
   children,
@@ -824,13 +843,13 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
                       <stop offset="100%" stopColor={CHART_SERIES_COLORS[0]} stopOpacity={0} />
                     </linearGradient>
                   </defs>
-                  <XAxis dataKey="date" tick={CHART_AXIS_TICK} stroke={CHART_AXIS_STROKE} tickFormatter={formatChartDateTick} />
+                  <XAxis dataKey="date" tick={CHART_AXIS_TICK} stroke={CHART_AXIS_STROKE} tickFormatter={formatQueriedAtTick} />
                   <YAxis tick={CHART_AXIS_TICK} stroke={CHART_AXIS_STROKE} allowDecimals={false} />
                   <RechartsTooltip
                     contentStyle={CHART_TOOLTIP_STYLE.contentStyle}
                     labelStyle={CHART_TOOLTIP_STYLE.labelStyle}
                     itemStyle={CHART_TOOLTIP_STYLE.itemStyle}
-                    labelFormatter={formatChartDateLabel}
+                    labelFormatter={formatQueriedAtLabel}
                   />
                   <Area
                     type="monotone"

@@ -413,24 +413,7 @@ const routeCatalog: OpenApiOperation[] = [
       required: true,
       content: {
         'application/json': {
-          schema: {
-            type: 'object',
-            required: ['displayName', 'canonicalDomain', 'country', 'language'],
-            properties: {
-              displayName: stringSchema,
-              canonicalDomain: stringSchema,
-              ownedDomains: stringArraySchema,
-              aliases: stringArraySchema,
-              country: stringSchema,
-              language: stringSchema,
-              tags: stringArraySchema,
-              labels: objectSchema,
-              providers: stringArraySchema,
-              locations: { type: 'array', items: locationSchema },
-              defaultLocation: stringSchema,
-              configSource: stringSchema,
-            },
-          },
+          schema: { $ref: '#/components/schemas/ProjectUpsertRequest' },
         },
       },
     },
@@ -560,8 +543,7 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['projects'],
     parameters: [nameParameter],
     responses: {
-      // TODO: Define an `ExportedProjectConfig` Zod schema in contracts (mirrors canonry.yaml shape).
-      200: rawJsonResponse('Project configuration returned.', looseObjectSchema),
+      200: jsonResponse('Project configuration returned.', 'ProjectConfig'),
       404: errorResponse('Project not found.'),
     },
   },
@@ -1094,7 +1076,7 @@ const routeCatalog: OpenApiOperation[] = [
       description: 'Canonry project configuration as JSON.',
       content: {
         'application/json': {
-          schema: objectSchema,
+          schema: { $ref: '#/components/schemas/ProjectConfig' },
         },
       },
     },

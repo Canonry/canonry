@@ -1,6 +1,6 @@
 import { test, expect } from 'vitest'
 
-import { validateConfig, normalizeResult, buildPrompt, reparseStoredResult } from '../src/index.js'
+import { validateConfig, normalizeResult, buildPrompt, reparseStoredResult, extractServedModel } from '../src/index.js'
 import type { OpenAIRawResult } from '../src/index.js'
 
 const validConfig = {
@@ -324,4 +324,71 @@ test('normalizeResult prefers reparsed citations over stale extracted fields whe
   ])
   expect(result.citedDomains).toEqual(['canonry.ai'])
   expect(result.searchQueries).toEqual([])
+})
+
+// --- servedModel capture ---
+//
+// Fixtures below are trimmed from real OpenAI Responses API captures taken 2026-07-20
+// (scratchpad probe-gpt-5.6-*.json / probe-chat-latest-*.json).
+
+// Configured model was `gpt-5.6`; OpenAI served the `gpt-5.6-sol` tier.
+const gpt56SolResponse: Record<string, unknown> = {
+  id: 'resp_0e7d62cd783fd44a006a5d830171d48193b9d91617de68aa7a',
+  object: 'response',
+  status: 'completed',
+  model: 'gpt-5.6-sol',
+  output: [
+    {
+      id: 'ws_0e7d62cd783fd44a006a5d830677c881938d213e19bc529d27',
+      type: 'web_search_call',
+      status: 'completed',
+      action: {
+        type: 'search',
+        query: 'best boutique hotels Venice Beach Los Angeles 2026',
+      },
+    },
+  ],
+}
+
+// Configured model was `chat-latest`; OpenAI echoed the same alias back, disclosing
+// nothing more specific about the snapshot it actually ran.
+const chatLatestResponse: Record<string, unknown> = {
+  id: 'resp_04a2bee500c8f641006a5d835517cc81909d09da16d7bd3133',
+  object: 'response',
+  status: 'completed',
+  model: 'chat-latest',
+  output: [
+    {
+      id: 'ws_04a2bee500c8f641006a5d835661c48190b981dfb3452a9b02',
+      type: 'web_search_call',
+      status: 'completed',
+      action: {
+        type: 'search',
+        query: 'best boutique hotels Venice Beach Los Angeles recommendations',
+      },
+    },
+  ],
+}
+
+test('extractServedModel captures the tier OpenAI actually served, not the configured alias', () => {
+  const configuredModel = 'gpt-5.6'
+  expect(extractServedModel(gpt56SolResponse)).toBe('gpt-5.6-sol')
+  expect(extractServedModel(gpt56SolResponse)).not.toBe(configuredModel)
+})
+
+test('extractServedModel returns the alias unchanged when OpenAI disclosed nothing more specific', () => {
+  const configuredModel = 'chat-latest'
+  expect(extractServedModel(chatLatestResponse)).toBe(configuredModel)
+})
+
+test('extractServedModel returns undefined when the response carries no model field', () => {
+  const { model: _model, ...withoutModel } = gpt56SolResponse
+  const servedModel = extractServedModel(withoutModel)
+  expect(servedModel).toBeUndefined()
+  expect(servedModel).not.toBe('')
+  expect(servedModel).not.toBe('gpt-5.6')
+})
+
+test('extractServedModel returns undefined for a whitespace-only model field', () => {
+  expect(extractServedModel({ ...gpt56SolResponse, model: '   ' })).toBeUndefined()
 })

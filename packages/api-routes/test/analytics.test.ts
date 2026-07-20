@@ -283,6 +283,463 @@ describe('analytics routes', () => {
         expect(sumMentioned).toBe(bucket.mentionedCount)
       }
     })
+
+    it('attributes model evidence by logical sweep, including a pre-window anchor', async () => {
+      const attributionProjectId = crypto.randomUUID()
+      const now = new Date()
+      const anchorAt = new Date(now)
+      anchorAt.setUTCDate(anchorAt.getUTCDate() - 10)
+      const mixedAt = new Date(now)
+      mixedAt.setUTCDate(mixedAt.getUTCDate() - 2)
+      const knownAt = new Date(now)
+      knownAt.setUTCDate(knownAt.getUTCDate() - 1)
+
+      db.insert(projects).values({
+        id: attributionProjectId,
+        name: 'model-attribution-project',
+        displayName: 'Model Attribution',
+        canonicalDomain: 'attribution.example',
+        ownedDomains: '[]',
+        country: 'US',
+        language: 'en',
+        tags: '[]',
+        labels: '{}',
+        providers: '["claude"]',
+        locations: '[]',
+        defaultLocation: null,
+        configSource: 'api',
+        configRevision: 1,
+        createdAt: anchorAt.toISOString(),
+        updatedAt: anchorAt.toISOString(),
+      }).run()
+      const queryId = crypto.randomUUID()
+      db.insert(queries).values({
+        id: queryId,
+        projectId: attributionProjectId,
+        query: 'model attribution query',
+        createdAt: anchorAt.toISOString(),
+      }).run()
+
+      const insertRun = (
+        createdAt: string,
+        location: string | null,
+        kind: 'answer-visibility' | 'traffic-sync' = 'answer-visibility',
+      ) => {
+        const id = crypto.randomUUID()
+        db.insert(runs).values({
+          id,
+          projectId: attributionProjectId,
+          kind,
+          status: 'completed',
+          trigger: 'manual',
+          location,
+          startedAt: createdAt,
+          finishedAt: createdAt,
+          error: null,
+          createdAt,
+        }).run()
+        return id
+      }
+      const insertSnapshot = (runId: string, model: string | null) => {
+        db.insert(querySnapshots).values({
+          id: crypto.randomUUID(),
+          runId,
+          queryId,
+          provider: 'claude',
+          model,
+          citationState: 'not-cited',
+          answerText: '',
+          citedDomains: [],
+          competitorOverlap: [],
+          location: null,
+          rawResponse: '{}',
+          // Deliberately later than the run: buckets and attribution follow
+          // the canonical sweep time, never persistence timing.
+          createdAt: now.toISOString(),
+        }).run()
+      }
+
+      insertSnapshot(insertRun(anchorAt.toISOString(), null), 'claude-opus-5')
+      const mixedFirstRun = insertRun(mixedAt.toISOString(), 'US')
+      const mixedSecondRun = insertRun(mixedAt.toISOString(), 'EU')
+      insertSnapshot(mixedFirstRun, 'claude-sonnet-5')
+      insertSnapshot(mixedSecondRun, null)
+      insertSnapshot(insertRun(knownAt.toISOString(), null), 'claude-sonnet-5')
+      // Non-answer runs are operational activity, not answer-engine evidence.
+      insertSnapshot(insertRun(now.toISOString(), null, 'traffic-sync'), 'claude-ignored')
+
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/v1/projects/model-attribution-project/analytics/metrics?window=7d',
+      })
+      expect(res.statusCode).toBe(200)
+      const body = JSON.parse(res.payload)
+
+      expect(body.modelAttribution.claude.latestObservation).toEqual({
+        observedAt: knownAt.toISOString(),
+        state: { status: 'known', model: 'claude-sonnet-5' },
+      })
+      expect(body.modelAttribution.claude.events).toEqual([
+        {
+          observedAt: mixedAt.toISOString(),
+          bucketStartDate: new Date(Date.UTC(
+            mixedAt.getUTCFullYear(), mixedAt.getUTCMonth(), mixedAt.getUTCDate(),
+          )).toISOString(),
+          from: { status: 'known', model: 'claude-opus-5' },
+          to: { status: 'mixed', models: ['claude-sonnet-5'], includesUnknown: true },
+          // `from` is the pre-window anchor sweep, not an in-window observation.
+          // `anchorObservedAt` closes the range so a consumer can say the change
+          // happened between the anchor sweep and this one — never "in-window".
+          fromPreWindowAnchor: true,
+          anchorObservedAt: anchorAt.toISOString(),
+        },
+        {
+          observedAt: knownAt.toISOString(),
+          bucketStartDate: new Date(Date.UTC(
+            knownAt.getUTCFullYear(), knownAt.getUTCMonth(), knownAt.getUTCDate(),
+          )).toISOString(),
+          from: { status: 'mixed', models: ['claude-sonnet-5'], includesUnknown: true },
+          to: { status: 'known', model: 'claude-sonnet-5' },
+        },
+      ])
+      const mixedBucket = body.buckets.find((bucket: { startDate: string }) =>
+        bucket.startDate === new Date(Date.UTC(
+          mixedAt.getUTCFullYear(), mixedAt.getUTCMonth(), mixedAt.getUTCDate(),
+        )).toISOString(),
+      )
+      expect(mixedBucket.modelEvidenceByProvider).toEqual({
+        claude: { status: 'mixed', models: ['claude-sonnet-5'], includesUnknown: true },
+      })
+    })
+
+    // --- served-model series (#818 follow-up) ---
+
+    const seedServedProject = (
+      name: string,
+      provider: string,
+      sweeps: ReadonlyArray<{ daysAgo: number; model: string | null; servedModel: string | null }>,
+    ) => {
+      const projectId = crypto.randomUUID()
+      const now = new Date()
+      const at = (daysAgo: number) => new Date(now.getTime() - daysAgo * 86_400_000).toISOString()
+      const oldest = at(Math.max(...sweeps.map(sweep => sweep.daysAgo)))
+
+      db.insert(projects).values({
+        id: projectId,
+        name,
+        displayName: name,
+        canonicalDomain: `${name}.example`,
+        ownedDomains: '[]',
+        country: 'US',
+        language: 'en',
+        tags: '[]',
+        labels: '{}',
+        providers: JSON.stringify([provider]),
+        locations: '[]',
+        defaultLocation: null,
+        configSource: 'api',
+        configRevision: 1,
+        createdAt: oldest,
+        updatedAt: oldest,
+      }).run()
+      const queryId = crypto.randomUUID()
+      db.insert(queries).values({ id: queryId, projectId, query: `${name} query`, createdAt: oldest }).run()
+
+      for (const sweep of sweeps) {
+        const createdAt = at(sweep.daysAgo)
+        const runId = crypto.randomUUID()
+        db.insert(runs).values({
+          id: runId,
+          projectId,
+          kind: 'answer-visibility',
+          status: 'completed',
+          trigger: 'manual',
+          location: null,
+          startedAt: createdAt,
+          finishedAt: createdAt,
+          error: null,
+          createdAt,
+        }).run()
+        db.insert(querySnapshots).values({
+          id: crypto.randomUUID(),
+          runId,
+          queryId,
+          provider,
+          model: sweep.model,
+          servedModel: sweep.servedModel,
+          citationState: 'not-cited',
+          answerText: '',
+          citedDomains: [],
+          competitorOverlap: [],
+          location: null,
+          rawResponse: '{}',
+          createdAt,
+        }).run()
+      }
+      return { at }
+    }
+
+    const metricsFor = async (name: string, window: string) => {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/api/v1/projects/${name}/analytics/metrics?window=${window}`,
+      })
+      expect(res.statusCode).toBe(200)
+      return JSON.parse(res.payload)
+    }
+
+    it('leaves the configured series untouched when no sweep recorded a served model', async () => {
+      // The invariant for the whole served lane: a project that predates served
+      // capture must read EXACTLY as it did before the lane existed. An absent
+      // served id is no observation — never `unknown`, never a bootstrap event.
+      const { at } = seedServedProject('served-null-project', 'openai', [
+        { daysAgo: 6, model: 'gpt-5.4', servedModel: null },
+        { daysAgo: 2, model: 'gpt-5.6', servedModel: null },
+      ])
+
+      const body = await metricsFor('served-null-project', '30d')
+
+      expect(body.servedModelAttribution).toEqual({})
+      expect(body.modelServiceMismatch).toEqual({})
+      expect(body.modelAttribution.openai.latestObservation).toEqual({
+        observedAt: at(2),
+        state: { status: 'known', model: 'gpt-5.6' },
+      })
+      expect(body.modelAttribution.openai.events).toHaveLength(1)
+      expect(body.modelAttribution.openai.events[0].from).toEqual({ status: 'known', model: 'gpt-5.4' })
+      expect(body.modelAttribution.openai.events[0].to).toEqual({ status: 'known', model: 'gpt-5.6' })
+    })
+
+    it('emits no served change when capture starts mid-window or only the snapshot date moves', async () => {
+      // Sweep 1 predates capture; sweeps 2 and 3 are the same model on two
+      // different dated snapshots. Neither the capture boundary nor the
+      // redeploy is a model change.
+      const { at } = seedServedProject('served-rollout-project', 'openai', [
+        { daysAgo: 6, model: 'gpt-5.4', servedModel: null },
+        { daysAgo: 4, model: 'gpt-5.4', servedModel: 'gpt-5.4-2026-01-09' },
+        { daysAgo: 2, model: 'gpt-5.4', servedModel: 'gpt-5.4-2026-03-05' },
+      ])
+
+      const body = await metricsFor('served-rollout-project', '30d')
+
+      expect(body.servedModelAttribution.openai.events).toEqual([])
+      expect(body.servedModelAttribution.openai.latestObservation).toEqual({
+        observedAt: at(2),
+        state: { status: 'known', model: 'gpt-5.4' },
+      })
+      expect(body.servedModelAttribution.openai.latestServedModelIds).toEqual(['gpt-5.4-2026-03-05'])
+      // A dated snapshot of the configured model is agreement, not a swap.
+      expect(body.modelServiceMismatch).toEqual({})
+      expect(body.modelAttribution.openai.events).toEqual([])
+    })
+
+    it('reports a real served swap and the substitution, leaving the configured series silent', async () => {
+      const { at } = seedServedProject('served-swap-project', 'openai', [
+        { daysAgo: 6, model: 'gpt-5.6', servedModel: 'gpt-5.6' },
+        { daysAgo: 2, model: 'gpt-5.6', servedModel: 'gpt-5.6-sol' },
+      ])
+
+      const body = await metricsFor('served-swap-project', '30d')
+
+      // Configuration never changed, so the configured series says nothing —
+      // which is exactly the blind spot the served lane exists to close.
+      expect(body.modelAttribution.openai.events).toEqual([])
+      expect(body.servedModelAttribution.openai.events).toHaveLength(1)
+      const [event] = body.servedModelAttribution.openai.events
+      expect(event.observedAt).toBe(at(2))
+      expect(event.from).toEqual({ status: 'known', model: 'gpt-5.6' })
+      expect(event.to).toEqual({ status: 'known', model: 'gpt-5.6-sol' })
+      expect(event.fromPreWindowAnchor).toBeUndefined()
+      expect(body.modelServiceMismatch.openai).toEqual({
+        observedAt: at(2),
+        configured: { status: 'known', model: 'gpt-5.6' },
+        served: { status: 'known', model: 'gpt-5.6-sol' },
+      })
+    })
+
+    it('keeps a change whose anchor predates the window, dated to the anchor range', async () => {
+      // A provider paused for months and came back on a different model. The
+      // change is real and must not be dropped, but it is only datable to the
+      // gap between the two sweeps — so it is reported with the anchor's own
+      // observation time rather than as something that happened in-window.
+      const staleProjectId = crypto.randomUUID()
+      const now = new Date()
+      const pausedAt = new Date(now)
+      pausedAt.setUTCDate(pausedAt.getUTCDate() - 120)
+      const resumedAt = new Date(now)
+      resumedAt.setUTCDate(resumedAt.getUTCDate() - 5)
+
+      db.insert(projects).values({
+        id: staleProjectId,
+        name: 'stale-anchor-project',
+        displayName: 'Stale Anchor',
+        canonicalDomain: 'stale.example',
+        ownedDomains: '[]',
+        country: 'US',
+        language: 'en',
+        tags: '[]',
+        labels: '{}',
+        providers: '["perplexity"]',
+        locations: '[]',
+        defaultLocation: null,
+        configSource: 'api',
+        configRevision: 1,
+        createdAt: pausedAt.toISOString(),
+        updatedAt: pausedAt.toISOString(),
+      }).run()
+      const queryId = crypto.randomUUID()
+      db.insert(queries).values({
+        id: queryId,
+        projectId: staleProjectId,
+        query: 'stale anchor query',
+        createdAt: pausedAt.toISOString(),
+      }).run()
+
+      const insertSweep = (createdAt: string, model: string) => {
+        const id = crypto.randomUUID()
+        db.insert(runs).values({
+          id,
+          projectId: staleProjectId,
+          kind: 'answer-visibility',
+          status: 'completed',
+          trigger: 'manual',
+          location: null,
+          startedAt: createdAt,
+          finishedAt: createdAt,
+          error: null,
+          createdAt,
+        }).run()
+        db.insert(querySnapshots).values({
+          id: crypto.randomUUID(),
+          runId: id,
+          queryId,
+          provider: 'perplexity',
+          model,
+          citationState: 'not-cited',
+          answerText: '',
+          citedDomains: [],
+          competitorOverlap: [],
+          location: null,
+          rawResponse: '{}',
+          createdAt,
+        }).run()
+      }
+
+      insertSweep(pausedAt.toISOString(), 'sonar')
+      insertSweep(resumedAt.toISOString(), 'sonar-pro')
+
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/v1/projects/stale-anchor-project/analytics/metrics?window=30d',
+      })
+      expect(res.statusCode).toBe(200)
+      const body = JSON.parse(res.payload)
+
+      expect(body.modelAttribution.perplexity.latestObservation).toEqual({
+        observedAt: resumedAt.toISOString(),
+        state: { status: 'known', model: 'sonar-pro' },
+      })
+      // A 120-day-old anchor is far outside any absolute lookback cap. Capping
+      // it would silently delete this transition from the trend; the flag plus
+      // `anchorObservedAt` keep it visible AND honestly dated.
+      expect(body.modelAttribution.perplexity.events).toHaveLength(1)
+      const [event] = body.modelAttribution.perplexity.events
+      expect(event.from).toEqual({ status: 'known', model: 'sonar' })
+      expect(event.to).toEqual({ status: 'known', model: 'sonar-pro' })
+      expect(event.fromPreWindowAnchor).toBe(true)
+      expect(event.anchorObservedAt).toBe(pausedAt.toISOString())
+      expect(body.modelAttribution.perplexity.eventTotal).toBe(1)
+      // The search reached the project's whole pre-window history, so the
+      // absence of anything earlier is a real answer, not a truncated one.
+      expect(body.modelAttribution.perplexity.anchorUnavailable).toBeUndefined()
+    })
+
+    it('reports anchorUnavailable when the pre-window scan bound is reached', async () => {
+      // A provider that appears in-window but only ever swept beyond the scan
+      // bound: the response must say "we did not look far enough" instead of
+      // presenting an unchanged history as settled fact.
+      const boundedProjectId = crypto.randomUUID()
+      const now = new Date()
+      const at = (daysAgo: number) => new Date(now.getTime() - daysAgo * 86_400_000).toISOString()
+
+      db.insert(projects).values({
+        id: boundedProjectId,
+        name: 'anchor-bound-project',
+        displayName: 'Anchor Bound',
+        canonicalDomain: 'bound.example',
+        ownedDomains: '[]',
+        country: 'US',
+        language: 'en',
+        tags: '[]',
+        labels: '{}',
+        providers: '["openai","gemini"]',
+        locations: '[]',
+        defaultLocation: null,
+        configSource: 'api',
+        configRevision: 1,
+        createdAt: at(400),
+        updatedAt: at(0),
+      }).run()
+      const queryId = crypto.randomUUID()
+      db.insert(queries).values({
+        id: queryId,
+        projectId: boundedProjectId,
+        query: 'anchor bound query',
+        createdAt: at(400),
+      }).run()
+
+      const insertSweep = (createdAt: string, provider: string, model: string) => {
+        const id = crypto.randomUUID()
+        db.insert(runs).values({
+          id,
+          projectId: boundedProjectId,
+          kind: 'answer-visibility',
+          status: 'completed',
+          trigger: 'manual',
+          location: null,
+          startedAt: createdAt,
+          finishedAt: createdAt,
+          error: null,
+          createdAt,
+        }).run()
+        db.insert(querySnapshots).values({
+          id: crypto.randomUUID(),
+          runId: id,
+          queryId,
+          provider,
+          model,
+          citationState: 'not-cited',
+          answerText: '',
+          citedDomains: [],
+          competitorOverlap: [],
+          location: null,
+          rawResponse: '{}',
+          createdAt,
+        }).run()
+      }
+
+      // `gemini` last swept 300 days ago, then 80 openai-only sweeps sit
+      // between it and the window — more than the 60-sweep scan bound.
+      insertSweep(at(300), 'gemini', 'gemini-2.0-flash')
+      for (let day = 90; day > 10; day--) insertSweep(at(day), 'openai', 'gpt-5')
+      insertSweep(at(2), 'openai', 'gpt-5')
+      insertSweep(at(2), 'gemini', 'gemini-2.5-flash')
+
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/v1/projects/anchor-bound-project/analytics/metrics?window=7d',
+      })
+      expect(res.statusCode).toBe(200)
+      const body = JSON.parse(res.payload)
+
+      // openai is anchored by the sweep immediately before the window, so its
+      // history is conclusive and no caveat is attached.
+      expect(body.modelAttribution.openai.anchorUnavailable).toBeUndefined()
+      // gemini's only pre-window sweep is past the bound. Rather than claiming
+      // "no model change", the response marks the history as incomplete.
+      expect(body.modelAttribution.gemini.events).toEqual([])
+      expect(body.modelAttribution.gemini.anchorUnavailable).toBe(true)
+    })
   })
 
   describe('GET /projects/:name/analytics/gaps', () => {
@@ -577,11 +1034,11 @@ describe('analytics routes', () => {
         error: null, createdAt: day2ISO,
       }).run()
       db.insert(querySnapshots).values([
-        { id: crypto.randomUUID(), runId: run2Id, queryId: origQ1, provider: 'gemini', citationState: 'cited', answerText: '', citedDomains: [], competitorOverlap: [], location: null, rawResponse: '{}', createdAt: day2ISO },
-        { id: crypto.randomUUID(), runId: run2Id, queryId: origQ2, provider: 'gemini', citationState: 'cited', answerText: '', citedDomains: [], competitorOverlap: [], location: null, rawResponse: '{}', createdAt: day2ISO },
-        { id: crypto.randomUUID(), runId: run2Id, queryId: newQ1, provider: 'gemini', citationState: 'not-cited', answerText: '', citedDomains: [], competitorOverlap: [], location: null, rawResponse: '{}', createdAt: day2ISO },
-        { id: crypto.randomUUID(), runId: run2Id, queryId: newQ2, provider: 'gemini', citationState: 'not-cited', answerText: '', citedDomains: [], competitorOverlap: [], location: null, rawResponse: '{}', createdAt: day2ISO },
-        { id: crypto.randomUUID(), runId: run2Id, queryId: newQ3, provider: 'gemini', citationState: 'not-cited', answerText: '', citedDomains: [], competitorOverlap: [], location: null, rawResponse: '{}', createdAt: day2ISO },
+        { id: crypto.randomUUID(), runId: run2Id, queryId: origQ1, provider: 'gemini', model: 'gemini-2.5-flash', citationState: 'cited', answerText: '', citedDomains: [], competitorOverlap: [], location: null, rawResponse: '{}', createdAt: day2ISO },
+        { id: crypto.randomUUID(), runId: run2Id, queryId: origQ2, provider: 'gemini', model: 'gemini-2.5-flash', citationState: 'cited', answerText: '', citedDomains: [], competitorOverlap: [], location: null, rawResponse: '{}', createdAt: day2ISO },
+        { id: crypto.randomUUID(), runId: run2Id, queryId: newQ1, provider: 'gemini', model: 'gemini-2.5-pro', citationState: 'not-cited', answerText: '', citedDomains: [], competitorOverlap: [], location: null, rawResponse: '{}', createdAt: day2ISO },
+        { id: crypto.randomUUID(), runId: run2Id, queryId: newQ2, provider: 'gemini', model: 'gemini-2.5-pro', citationState: 'not-cited', answerText: '', citedDomains: [], competitorOverlap: [], location: null, rawResponse: '{}', createdAt: day2ISO },
+        { id: crypto.randomUUID(), runId: run2Id, queryId: newQ3, provider: 'gemini', model: 'gemini-2.5-pro', citationState: 'not-cited', answerText: '', citedDomains: [], competitorOverlap: [], location: null, rawResponse: '{}', createdAt: day2ISO },
       ]).run()
 
       const res = await app.inject({ method: 'GET', url: '/api/v1/projects/norm-project/analytics/metrics' })
@@ -597,6 +1054,10 @@ describe('analytics routes', () => {
       // slice excludes the 3 newly-added queries too (total 2, not 5).
       expect(lastBucket.byProvider.gemini.total).toBe(2)
       expect(lastBucket.byProvider.gemini.citationRate).toBe(1)
+      expect(lastBucket.modelEvidenceByProvider.gemini).toEqual({
+        status: 'known',
+        model: 'gemini-2.5-flash',
+      })
     })
 
     it('returns queryChanges annotations', async () => {
@@ -653,6 +1114,7 @@ describe('analytics routes', () => {
     expect(metricsBody.overall.mentionRate).toBe(0)
     expect(metricsBody.overall.mentionedCount).toBe(0)
     expect(metricsBody.mentionTrend).toBe('stable')
+    expect(metricsBody.modelAttribution).toEqual({})
 
     const gapsRes = await app.inject({ method: 'GET', url: '/api/v1/projects/empty-project/analytics/gaps' })
     expect(gapsRes.statusCode).toBe(200)
@@ -1238,5 +1700,119 @@ describe('analytics ignores non-sweep run kinds', () => {
     // which collapses both sweeps into a single bucket.
     const res = await app.inject({ method: 'GET', url: '/api/v1/projects/kind-filter/analytics/metrics?window=all' })
     expect(JSON.parse(res.payload).buckets).toHaveLength(2)
+  })
+})
+
+/**
+ * Every other fixture in this file stamps `new Date().toISOString()`, so the
+ * sweep span is always ~0 days, `bucketSizeForSpan` always returns 1, and each
+ * bucket boundary lands on the same day as its data. That makes the bucket
+ * boundary indistinguishable from the observation time — the drift these tests
+ * exist to catch is literally unobservable at a 1-day bucket size.
+ *
+ * This fixture is deliberately SPARSE and dated: two months of span with a gap
+ * in the middle, which is what the four production projects look like and what
+ * pushes `bucketSizeForSpan` to 14-day buckets.
+ */
+describe('analytics metrics — bucket dates vs real observation dates', () => {
+  let app: ReturnType<typeof Fastify>
+  let tmpDir: string
+  // Reproduces the reported case exactly: a sweep at 2026-07-20T01:52:51Z that
+  // rendered as an early-July date.
+  const FIRST_SWEEP = '2026-05-15T19:38:00.000Z'
+  const POOLED_SWEEP = '2026-07-14T09:00:00.000Z'
+  const LATEST_SWEEP = '2026-07-20T01:52:51.000Z'
+  const SWEEP_TIMES = [FIRST_SWEEP, POOLED_SWEEP, LATEST_SWEEP]
+
+  beforeAll(async () => {
+    const ctx = buildApp()
+    app = ctx.app
+    tmpDir = ctx.tmpDir
+    await app.ready()
+
+    const projectId = crypto.randomUUID()
+    ctx.db.insert(projects).values({
+      id: projectId, name: 'sparse-history', displayName: 'Sparse History',
+      canonicalDomain: 'sparse.example', ownedDomains: '[]', country: 'US', language: 'en',
+      tags: '[]', labels: '{}', providers: '["gemini"]', locations: '[]', defaultLocation: null,
+      configSource: 'api', configRevision: 1,
+      createdAt: '2026-05-01T00:00:00.000Z', updatedAt: '2026-05-01T00:00:00.000Z',
+    }).run()
+
+    const queryId = crypto.randomUUID()
+    ctx.db.insert(queries).values({
+      id: queryId, projectId, query: 'sparse query', createdAt: '2026-05-01T00:00:00.000Z',
+    }).run()
+
+    for (const at of SWEEP_TIMES) {
+      const runId = crypto.randomUUID()
+      ctx.db.insert(runs).values({
+        id: runId, projectId, kind: 'answer-visibility', status: 'completed', trigger: 'manual',
+        location: null, startedAt: at, finishedAt: at, error: null, createdAt: at,
+      }).run()
+      ctx.db.insert(querySnapshots).values({
+        id: crypto.randomUUID(), runId, queryId, provider: 'gemini', citationState: 'cited',
+        answerMentioned: true, answerText: 'sparse.example is great', citedDomains: ['sparse.example'],
+        competitorOverlap: [], location: null, rawResponse: '{}', createdAt: at,
+      }).run()
+    }
+  })
+
+  afterAll(async () => {
+    await app.close()
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  async function fetchBuckets() {
+    const res = await app.inject({ method: 'GET', url: '/api/v1/projects/sparse-history/analytics/metrics?window=all' })
+    return JSON.parse(res.payload).buckets as Array<{
+      startDate: string; endDate: string
+      dataStartDate: string; dataEndDate: string; sweepCount: number
+    }>
+  }
+
+  it('the synthetic bucket boundary really does drift days away from the sweep', async () => {
+    // 66-day span → 14-day buckets anchored at UTC midnight of the EARLIEST run
+    // (2026-05-15), so the last boundary is 2026-07-10 while its only sweeps ran
+    // on 07-14 and 07-20. This asserts the drift exists, which is why the
+    // boundary must never be shown to a reader.
+    const buckets = await fetchBuckets()
+    expect(buckets).toHaveLength(2)
+    expect(buckets[0]!.startDate).toBe('2026-05-15T00:00:00.000Z')
+    expect(buckets[1]!.startDate).toBe('2026-07-10T00:00:00.000Z')
+  })
+
+  it('reports the real first and last sweep times inside each bucket', async () => {
+    const buckets = await fetchBuckets()
+    expect(buckets[0]!.dataStartDate).toBe(FIRST_SWEEP)
+    expect(buckets[0]!.dataEndDate).toBe(FIRST_SWEEP)
+    expect(buckets[0]!.sweepCount).toBe(1)
+
+    // The bucket labelled 2026-07-10 by its boundary actually covers 07-14..07-20.
+    expect(buckets[1]!.dataStartDate).toBe(POOLED_SWEEP)
+    expect(buckets[1]!.dataEndDate).toBe(LATEST_SWEEP)
+    expect(buckets[1]!.sweepCount).toBe(2)
+  })
+
+  it('no emitted bucket claims a date on which no snapshot exists', async () => {
+    const buckets = await fetchBuckets()
+    expect(buckets.length).toBeGreaterThan(0)
+    for (const bucket of buckets) {
+      // The reported dates are real observations, not derived instants.
+      expect(SWEEP_TIMES).toContain(bucket.dataStartDate)
+      expect(SWEEP_TIMES).toContain(bucket.dataEndDate)
+      // And they are genuinely inside the bucket they are reported for.
+      expect(bucket.dataStartDate >= bucket.startDate).toBe(true)
+      expect(bucket.dataEndDate < bucket.endDate).toBe(true)
+      expect(bucket.dataStartDate <= bucket.dataEndDate).toBe(true)
+    }
+  })
+
+  it('leaves every emitted timestamp in UTC — the backend never localizes', async () => {
+    const buckets = await fetchBuckets()
+    for (const bucket of buckets) {
+      expect(bucket.dataStartDate.endsWith('Z')).toBe(true)
+      expect(bucket.dataEndDate.endsWith('Z')).toBe(true)
+    }
   })
 })

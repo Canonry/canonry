@@ -1,6 +1,9 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { WebSearchTool20250305 } from "@anthropic-ai/sdk/resources/messages/messages.js";
-import { AI_ENGINE_SELF_DOMAINS } from "@ainyc/canonry-contracts";
+import {
+  AI_ENGINE_SELF_DOMAINS,
+  normalizeServedModel,
+} from "@ainyc/canonry-contracts";
 import { withRetry } from "./utils.js";
 import type {
   ClaudeConfig,
@@ -125,6 +128,7 @@ export async function executeTrackedQuery(
       provider: "claude",
       rawResponse,
       model,
+      servedModel: extractServedModel(rawResponse),
       groundingSources: parsed.groundingSources,
       searchQueries: parsed.searchQueries,
     };
@@ -156,6 +160,16 @@ function hasParsedResponseContent(
   rawResponse: Record<string, unknown>,
 ): boolean {
   return Array.isArray(rawResponse.content) && rawResponse.content.length > 0;
+}
+
+/**
+ * Read the model Claude reported serving off a stored raw response. A response that
+ * omits `model` yields undefined rather than the configured model.
+ */
+export function extractServedModel(
+  rawResponse: Record<string, unknown>,
+): string | undefined {
+  return normalizeServedModel(rawResponse.model);
 }
 
 export function reparseStoredResult(

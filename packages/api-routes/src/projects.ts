@@ -1,6 +1,6 @@
 import crypto from 'node:crypto'
 import { eq, sql } from 'drizzle-orm'
-import type { FastifyInstance } from 'fastify'
+import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { projects, queries, competitors, schedules, notifications, runs, querySnapshots, insights, auditLog } from '@ainyc/canonry-db'
 import type { InferSelectModel } from 'drizzle-orm'
 import {
@@ -11,8 +11,12 @@ import {
   findDuplicateLocationLabels,
   hasLocationLabel,
 } from '@ainyc/canonry-contracts'
-import type { LocationContext } from '@ainyc/canonry-contracts'
+import type { LocationContext, ProviderModels } from '@ainyc/canonry-contracts'
+import { requireScope } from './auth.js'
 import { resolveProject, writeAuditLog } from './helpers.js'
+import { SETTINGS_WRITE_SCOPE } from './settings.js'
+import type { ProviderAdapterInfo } from './settings.js'
+import { pruneProviderModelsForProviders, validateProviderModels } from './provider-models.js'
 
 export interface ProjectRoutesOptions {
   onProjectDeleted?: (projectId: string) => void
@@ -24,8 +28,8 @@ export interface ProjectRoutesOptions {
    * Skipped when only other fields change.
    */
   onAliasesChanged?: (projectId: string, projectName: string) => void
-  /** Valid provider names from registered adapters — used to reject unknown providers */
-  validProviderNames?: string[]
+  /** Full descriptors from registered adapters — validate names and model overrides. */
+  providerAdapters?: ProviderAdapterInfo[]
 }
 
 export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOptions) {
@@ -46,6 +50,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
       defaultLocation?: string | null
       autoExtractBacklinks?: boolean
       configSource?: string
+      providerModels?: Record<string, string>
     }
   }>('/projects/:name', async (request, reply) => {
     const { name } = request.params
@@ -61,7 +66,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
     const body = parsedBody.data
 
     // Validate provider names against registered adapters
-    const validNames = opts.validProviderNames ?? []
+    const validNames = opts.providerAdapters?.map(adapter => adapter.name) ?? []
     if (validNames.length && body.providers?.length) {
       const invalid = body.providers.filter(p => !validNames.includes(p))
       if (invalid.length) {
@@ -71,9 +76,15 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
         })
       }
     }
+    const nextProviders = body.providers ?? []
+    const providerModels = pruneProviderModelsForProviders(
+      validateProviderModels(body.providerModels ?? {}, opts.providerAdapters),
+      nextProviders,
+    )
 
     const now = new Date().toISOString()
     const existing = app.db.select().from(projects).where(eq(projects.name, name)).get()
+    assertProviderModelScope(request, existing?.providerModels ?? {}, providerModels, nextProviders)
     const existingLocations = existing ? existing.locations : []
     const nextLocations = body.locations ?? existingLocations
     const duplicateLabels = findDuplicateLocationLabels(nextLocations)
@@ -113,6 +124,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
           tags: body.tags ?? [],
           labels: body.labels ?? {},
           providers: body.providers ?? [],
+          providerModels,
           locations: nextLocations,
           defaultLocation: nextDefaultLocation,
           autoExtractBacklinks: nextAutoExtractBacklinks,
@@ -151,6 +163,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
         tags: body.tags ?? [],
         labels: body.labels ?? {},
         providers: body.providers ?? [],
+        providerModels,
         locations: nextLocations,
         defaultLocation: nextDefaultLocation,
         autoExtractBacklinks: nextAutoExtractBacklinks,
@@ -401,6 +414,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
         queries: qs.map(q => q.query),
         competitors: comps.map(c => c.domain),
         providers: project.providers,
+        ...(Object.keys(project.providerModels).length > 0 ? { providerModels: project.providerModels } : {}),
         locations: project.locations,
         ...(project.defaultLocation ? { defaultLocation: project.defaultLocation } : {}),
         ...(project.autoExtractBacklinks ? { autoExtractBacklinks: true } : {}),
@@ -426,7 +440,54 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
   })
 }
 
-function formatProject(row: InferSelectModel<typeof projects>) {
+/**
+ * Choosing which model a provider executes with is an INSTANCE-level
+ * capability — `PUT /settings/providers/:name` carries `SETTINGS_WRITE_SCOPE`
+ * for exactly that reason (cost, availability, and what a measurement even
+ * means all follow the model). The per-project override is the same capability
+ * at a finer grain, so a delegate key with plain `write` and no `settings.write`
+ * must not gain it through a project write.
+ *
+ * The gate keys off the selection actually CHANGING, not off the field's
+ * presence in the payload: a rename or query edit that echoes the project's
+ * current overrides back (or carries none on a project that has none) stays
+ * ungated. Shared with `POST /apply`, which applies the same declarative
+ * semantics — clearing an override for an engine the project still runs is a
+ * change too.
+ *
+ * Both sides are compared through `pruneProviderModelsForProviders` against the
+ * INCOMING engine set, so the gate asks exactly one question: does this write
+ * change the model any engine the project will run executes with? Deselecting
+ * an engine removes its override — that is removing a choice, not making one,
+ * and it rides plain `write` like the rest of the engine-set edit. Choosing or
+ * changing a value for a selected engine still requires `settings.write`,
+ * including when the write also narrows the engine set (the surviving engine's
+ * value is compared under the new provider list either way).
+ *
+ * Consequence worth naming: on a legacy row that still stores an override for
+ * an unselected engine, re-selecting that engine is ungated, because no VALUE
+ * changed — the value was already stored by a caller that had the authority to
+ * store it. Any write normalizes the row, so orphans do not accumulate.
+ */
+export function assertProviderModelScope(
+  request: FastifyRequest,
+  current: ProviderModels,
+  next: ProviderModels,
+  nextProviders: readonly string[],
+): void {
+  const effectiveCurrent = pruneProviderModelsForProviders(current, nextProviders)
+  const effectiveNext = pruneProviderModelsForProviders(next, nextProviders)
+  if (providerModelsEqual(effectiveCurrent, effectiveNext)) return
+  requireScope(request, SETTINGS_WRITE_SCOPE)
+}
+
+function providerModelsEqual(a: ProviderModels, b: ProviderModels): boolean {
+  const aKeys = Object.keys(a)
+  if (aKeys.length !== Object.keys(b).length) return false
+  return aKeys.every(key => a[key] === b[key])
+}
+
+export function formatProject(row: InferSelectModel<typeof projects>) {
   return {
     id: row.id,
     name: row.name,
@@ -439,6 +500,7 @@ function formatProject(row: InferSelectModel<typeof projects>) {
     tags: row.tags,
     labels: row.labels,
     providers: row.providers,
+    providerModels: row.providerModels,
     locations: row.locations,
     defaultLocation: row.defaultLocation,
     autoExtractBacklinks: row.autoExtractBacklinks,

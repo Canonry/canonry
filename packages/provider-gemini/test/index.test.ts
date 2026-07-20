@@ -1,6 +1,6 @@
 import { test, expect } from 'vitest'
 
-import { validateConfig, normalizeResult, reparseStoredResult } from '../src/index.js'
+import { validateConfig, normalizeResult, reparseStoredResult, responseToRecord, extractServedModel } from '../src/index.js'
 import type { GeminiRawResult } from '../src/index.js'
 
 const validConfig = {
@@ -301,4 +301,83 @@ test('normalizeResult prefers reparsed grounding metadata over stale extracted f
   ])
   expect(result.citedDomains).toEqual(['canonry.ai'])
   expect(result.searchQueries).toEqual(['answer visibility software'])
+})
+
+// --- servedModel capture ---
+//
+// PART CAPTURED, PART CONSTRUCTED — read before trusting any field here.
+//
+// Captured, from a real live Gemini call made 2026-07-20 with `gemini-3.5-flash`
+// configured: `modelVersion` came back as `gemini-3.5-flash` and `responseId` as the
+// opaque string below. Those two fields are the reason this fixture exists — before
+// this change `responseToRecord` dropped both, so no stored snapshot in the repo could
+// prove what Gemini reports.
+//
+// Constructed: everything else. The `candidates` / `groundingMetadata` block is a
+// hand-written minimal shape (Gjelina Hotel answer text, one grounding chunk, one
+// support span) and `usageMetadata` is invented — the live call's answer body was not
+// captured. It is shaped after the Gemini response schema so `reparseStoredResult` has
+// something to read, and it is NOT evidence of what Gemini returned for any query.
+const geminiResponseFixture = {
+  candidates: [
+    {
+      content: { role: 'model', parts: [{ text: 'Gjelina Hotel is a Venice Beach boutique hotel.' }] },
+      finishReason: 'STOP',
+      groundingMetadata: {
+        webSearchQueries: ['"Gjelina Hotel" Venice Beach'],
+        groundingChunks: [{ web: { uri: 'https://gjelinahotel.com/', title: 'gjelinahotel.com' } }],
+        groundingSupports: [{ segment: { startIndex: 0, endIndex: 46 }, groundingChunkIndices: [0] }],
+      },
+    },
+  ],
+  usageMetadata: { promptTokenCount: 12, candidatesTokenCount: 34, totalTokenCount: 46 },
+  modelVersion: 'gemini-3.5-flash',
+  responseId: 'hY1dasuhNuSf-8YP0Jfm8QM',
+} as unknown as Parameters<typeof responseToRecord>[0]
+
+test('responseToRecord preserves modelVersion and responseId', () => {
+  const record = responseToRecord(geminiResponseFixture)
+  expect(record.modelVersion).toBe('gemini-3.5-flash')
+  expect(record.responseId).toBe('hY1dasuhNuSf-8YP0Jfm8QM')
+})
+
+test('responseToRecord still carries candidates that reparseStoredResult can read', () => {
+  const record = responseToRecord(geminiResponseFixture)
+  const parsed = reparseStoredResult(record)
+  expect(parsed.provider).toBe('gemini')
+  expect(parsed.answerText).toBe('Gjelina Hotel is a Venice Beach boutique hotel.')
+  expect(parsed.searchQueries).toEqual(['"Gjelina Hotel" Venice Beach'])
+  expect(parsed.groundingSources).toEqual([
+    { uri: 'https://gjelinahotel.com/', title: 'gjelinahotel.com' },
+  ])
+  expect(parsed.citedDomains).toEqual(['gjelinahotel.com'])
+})
+
+test('extractServedModel reads the modelVersion Gemini reported', () => {
+  expect(extractServedModel(responseToRecord(geminiResponseFixture))).toBe('gemini-3.5-flash')
+})
+
+// Synthetic input, not a capture: the one live call we made returned a modelVersion
+// identical to the configured model, so we have no captured Gemini divergence. This
+// pins the extraction behaviour for when one occurs — it does not claim Gemini has.
+test('extractServedModel keeps a divergent modelVersion verbatim', () => {
+  const configuredModel = 'gemini-2.5-flash'
+  const servedModel = extractServedModel({ modelVersion: 'gemini-2.5-flash-preview-05-20' })
+  expect(servedModel).toBe('gemini-2.5-flash-preview-05-20')
+  expect(servedModel).not.toBe(configuredModel)
+})
+
+test('extractServedModel returns undefined when the response carries no modelVersion', () => {
+  const servedModel = extractServedModel({ candidates: [], usageMetadata: null, responseId: 'abc' })
+  expect(servedModel).toBeUndefined()
+  expect(servedModel).not.toBe('')
+  expect(servedModel).not.toBe('gemini-2.5-flash')
+})
+
+test('extractServedModel returns undefined for a whitespace-only modelVersion', () => {
+  expect(extractServedModel({ modelVersion: '   ' })).toBeUndefined()
+})
+
+test('extractServedModel returns undefined when responseToRecord stored a null modelVersion', () => {
+  expect(extractServedModel({ candidates: [], usageMetadata: null, modelVersion: null })).toBeUndefined()
 })

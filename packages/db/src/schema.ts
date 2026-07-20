@@ -1,5 +1,5 @@
 import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
-import type { AdsActivationEntityType, AdsActivationGrantState, AdsActivationManifest, AdsOperationStepState, AdsReconcileFields, BacklinkSource, ContentBriefDto, DiscoveryCompetitorMapEntry, DiscoveryCompetitorType, AiReferralTrafficClass, LocationContext, ProviderName, SiteAuditCrossCuttingIssueDto, SiteAuditFactorSummaryDto, SiteAuditPageFactorDto } from '@ainyc/canonry-contracts'
+import type { AdsActivationEntityType, AdsActivationGrantState, AdsActivationManifest, AdsOperationStepState, AdsReconcileFields, BacklinkSource, ContentBriefDto, DiscoveryCompetitorMapEntry, DiscoveryCompetitorType, AiReferralTrafficClass, LocationContext, ProviderModels, ProviderName, SiteAuditCrossCuttingIssueDto, SiteAuditFactorSummaryDto, SiteAuditPageFactorDto } from '@ainyc/canonry-contracts'
 
 export const projects = sqliteTable('projects', {
   id: text('id').primaryKey(),
@@ -13,6 +13,7 @@ export const projects = sqliteTable('projects', {
   tags: text('tags', { mode: 'json' }).$type<string[]>().notNull().default([]),
   labels: text('labels', { mode: 'json' }).$type<Record<string, string>>().notNull().default({}),
   providers: text('providers', { mode: 'json' }).$type<string[]>().notNull().default([]),
+  providerModels: text('provider_models', { mode: 'json' }).$type<ProviderModels>().notNull().default({}),
   locations: text('locations', { mode: 'json' }).$type<LocationContext[]>().notNull().default([]),
   defaultLocation: text('default_location'),
   autoExtractBacklinks: integer('auto_extract_backlinks', { mode: 'boolean' }).notNull().default(false),
@@ -77,6 +78,12 @@ export const querySnapshots = sqliteTable('query_snapshots', {
   queryText: text('query_text'),
   provider: text('provider').notNull().default('gemini'),
   model: text('model'),
+  // The model string the PROVIDER reported serving, as distinct from `model`
+  // (what we REQUESTED). They diverge routinely: a request for `gpt-5.4` is
+  // served by the dated snapshot `gpt-5.4-2026-03-05`. Nullable — historical
+  // rows and providers that disclose no model identity (CDP scrapes the web
+  // UI) legitimately have none.
+  servedModel: text('served_model'),
   citationState: text('citation_state').notNull(),
   answerMentioned: integer('answer_mentioned', { mode: 'boolean' }),
   answerText: text('answer_text'),

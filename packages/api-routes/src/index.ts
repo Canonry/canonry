@@ -334,7 +334,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       onProjectDeleted: opts.onProjectDeleted,
       onProjectUpserted: opts.onProjectUpserted,
       onAliasesChanged: opts.onAliasesChanged,
-      validProviderNames: opts.providerAdapters?.map(a => a.name),
+      providerAdapters: opts.providerAdapters,
     } satisfies ProjectRoutesOptions)
     await api.register(queryRoutes, {
       onGenerateQueries: opts.onGenerateQueries,
@@ -349,7 +349,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       onScheduleUpdated: opts.onScheduleUpdated,
       onProjectUpserted: opts.onProjectUpserted,
       onAliasesChanged: opts.onAliasesChanged,
-      validProviderNames: opts.providerAdapters?.map(a => a.name),
+      providerAdapters: opts.providerAdapters,
       allowLoopbackWebhooks: opts.allowLoopbackWebhooks,
       onGoogleConnectionPropertyUpdated: (domain, connectionType, propertyId) => {
         opts.googleConnectionStore?.updateConnection(domain, connectionType, {

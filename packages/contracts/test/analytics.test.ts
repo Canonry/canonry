@@ -1,6 +1,11 @@
 import { describe, it, expect } from 'vitest'
 import {
+  MODEL_ATTRIBUTION_EVENT_LIMIT,
+  modelIdsEquivalent,
+  normalizeModelId,
   mentionShareBucketMetricSchema,
+  modelEvidenceStateSchema,
+  modelAttributionSchema,
   providerMetricSchema,
   timeBucketSchema,
   brandMetricsDtoSchema,
@@ -19,9 +24,15 @@ const providerMetric = {
   mentionedCount: 2,
 }
 
+// The synthetic boundary is deliberately NOT one of the sweep times inside it:
+// that gap is the production shape, and it is what `dataStartDate`/`dataEndDate`
+// exist to carry.
 const bucket = {
   startDate: '2026-04-01T00:00:00.000Z',
   endDate: '2026-04-08T00:00:00.000Z',
+  dataStartDate: '2026-04-03T14:20:00.000Z',
+  dataEndDate: '2026-04-05T09:11:00.000Z',
+  sweepCount: 2,
   citationRate: 0.5,
   cited: 2,
   total: 4,
@@ -43,6 +54,145 @@ describe('providerMetricSchema', () => {
   it('rejects a missing field', () => {
     const { mentionRate: _mentionRate, ...partial } = providerMetric
     expect(() => providerMetricSchema.parse(partial)).toThrow()
+  })
+})
+
+describe('model attribution schemas', () => {
+  it('represents known, unknown, and canonical mixed evidence', () => {
+    expect(modelEvidenceStateSchema.parse({ status: 'known', model: 'gpt-5.5' })).toEqual({
+      status: 'known',
+      model: 'gpt-5.5',
+    })
+    expect(modelEvidenceStateSchema.parse({ status: 'unknown' })).toEqual({ status: 'unknown' })
+    expect(modelEvidenceStateSchema.parse({
+      status: 'mixed',
+      models: ['claude-opus-5', 'claude-sonnet-5'],
+      includesUnknown: false,
+    })).toEqual({
+      status: 'mixed',
+      models: ['claude-opus-5', 'claude-sonnet-5'],
+      includesUnknown: false,
+    })
+  })
+
+  it('rejects non-canonical mixed evidence', () => {
+    expect(() => modelEvidenceStateSchema.parse({
+      status: 'mixed',
+      models: ['claude-sonnet-5', 'claude-opus-5'],
+      includesUnknown: false,
+    })).toThrow()
+    expect(() => modelEvidenceStateSchema.parse({
+      status: 'mixed',
+      models: ['claude-sonnet-5', 'claude-sonnet-5'],
+      includesUnknown: false,
+    })).toThrow()
+  })
+
+  it('round-trips window-scoped observations and first-observed events', () => {
+    expect(modelAttributionSchema.parse({
+      claude: {
+        latestObservation: {
+          observedAt: '2026-07-14T12:00:00.000Z',
+          state: { status: 'known', model: 'claude-sonnet-5' },
+        },
+        events: [{
+          observedAt: '2026-03-20T12:00:00.000Z',
+          bucketStartDate: '2026-03-01T00:00:00.000Z',
+          from: { status: 'known', model: 'claude-opus-5' },
+          to: { status: 'known', model: 'claude-sonnet-5' },
+        }],
+      },
+    })).toEqual({
+      claude: {
+        latestObservation: {
+          observedAt: '2026-07-14T12:00:00.000Z',
+          state: { status: 'known', model: 'claude-sonnet-5' },
+        },
+        events: [{
+          observedAt: '2026-03-20T12:00:00.000Z',
+          bucketStartDate: '2026-03-01T00:00:00.000Z',
+          from: { status: 'known', model: 'claude-opus-5' },
+          to: { status: 'known', model: 'claude-sonnet-5' },
+        }],
+      },
+    })
+  })
+
+  it('carries the anchor flag and the pre-truncation event total', () => {
+    const parsed = modelAttributionSchema.parse({
+      perplexity: {
+        latestObservation: {
+          observedAt: '2026-07-15T12:00:00.000Z',
+          state: { status: 'known', model: 'sonar-pro' },
+        },
+        events: [{
+          observedAt: '2026-07-15T12:00:00.000Z',
+          bucketStartDate: '2026-07-15T00:00:00.000Z',
+          from: { status: 'known', model: 'sonar' },
+          to: { status: 'known', model: 'sonar-pro' },
+          fromPreWindowAnchor: true,
+        }],
+        eventTotal: 84,
+      },
+    })
+    expect(parsed.perplexity!.events[0]!.fromPreWindowAnchor).toBe(true)
+    // The total outruns the returned list, so a consumer can report the gap.
+    expect(parsed.perplexity!.eventTotal).toBe(84)
+    expect(MODEL_ATTRIBUTION_EVENT_LIMIT).toBeGreaterThan(0)
+  })
+
+  it('accepts an older server response with neither field', () => {
+    const parsed = modelAttributionSchema.parse({
+      claude: {
+        latestObservation: {
+          observedAt: '2026-07-14T12:00:00.000Z',
+          state: { status: 'unknown' },
+        },
+        events: [],
+      },
+    })
+    expect(parsed.claude!.eventTotal).toBeUndefined()
+    expect(parsed.claude!.anchorUnavailable).toBeUndefined()
+  })
+
+  it('closes the date range on an anchor-derived transition', () => {
+    const parsed = modelAttributionSchema.parse({
+      perplexity: {
+        latestObservation: {
+          observedAt: '2026-07-15T12:00:00.000Z',
+          state: { status: 'known', model: 'sonar-pro' },
+        },
+        events: [{
+          observedAt: '2026-07-15T12:00:00.000Z',
+          bucketStartDate: '2026-07-15T00:00:00.000Z',
+          from: { status: 'known', model: 'sonar' },
+          to: { status: 'known', model: 'sonar-pro' },
+          fromPreWindowAnchor: true,
+          anchorObservedAt: '2026-03-17T12:00:00.000Z',
+        }],
+        eventTotal: 1,
+      },
+    })
+    // Bounded on both sides: the change happened after the anchor sweep and on
+    // or before `observedAt`, so it is never presented as an in-window event.
+    expect(parsed.perplexity!.events[0]!.anchorObservedAt).toBe('2026-03-17T12:00:00.000Z')
+  })
+
+  it('marks a provider whose pre-window history could not be resolved', () => {
+    const parsed = modelAttributionSchema.parse({
+      gemini: {
+        latestObservation: {
+          observedAt: '2026-07-15T12:00:00.000Z',
+          state: { status: 'known', model: 'gemini-2.5-flash' },
+        },
+        events: [],
+        eventTotal: 0,
+        anchorUnavailable: true,
+      },
+    })
+    // An empty event list plus this flag means "we did not look far enough",
+    // which a consumer must not render as "no model change".
+    expect(parsed.gemini!.anchorUnavailable).toBe(true)
   })
 })
 
@@ -205,5 +355,37 @@ describe('sources DTO schemas', () => {
       limit: null,
     })
     expect(parsed.limit).toBeNull()
+  })
+})
+
+describe('normalizeModelId', () => {
+  it('strips a dated snapshot suffix — a dated snapshot IS the same model', () => {
+    expect(normalizeModelId('gpt-5.4-2026-03-05')).toBe('gpt-5.4')
+    expect(normalizeModelId('gpt-4o-2024-08-06')).toBe('gpt-4o')
+    // The compact form providers also ship.
+    expect(normalizeModelId('claude-3-5-sonnet-20241022')).toBe('claude-3-5-sonnet')
+  })
+
+  it('preserves a capability tier — a different model at a different price', () => {
+    expect(normalizeModelId('gpt-5.6-sol')).toBe('gpt-5.6-sol')
+    expect(normalizeModelId('gpt-5.6-terra')).toBe('gpt-5.6-terra')
+    expect(normalizeModelId('gpt-5.6-luna')).toBe('gpt-5.6-luna')
+  })
+
+  it('preserves an UNKNOWN suffix rather than silently swallowing it', () => {
+    // The rule is derived from the date shape, not an allow-list of tier names,
+    // so a tier nobody has seen yet survives and shows up as a real change.
+    expect(normalizeModelId('gpt-6-quasar')).toBe('gpt-6-quasar')
+    expect(normalizeModelId('gpt-6-2026')).toBe('gpt-6-2026')
+    expect(normalizeModelId('gpt-6-v2')).toBe('gpt-6-v2')
+    // Date-SHAPED but not a plausible date.
+    expect(normalizeModelId('gpt-6-2026-13-45')).toBe('gpt-6-2026-13-45')
+    // Never normalize an id away to nothing.
+    expect(normalizeModelId('-2026-03-05')).toBe('-2026-03-05')
+  })
+
+  it('treats a dated snapshot as equivalent and a tier as different', () => {
+    expect(modelIdsEquivalent('gpt-5.4', 'gpt-5.4-2026-03-05')).toBe(true)
+    expect(modelIdsEquivalent('gpt-5.6', 'gpt-5.6-sol')).toBe(false)
   })
 })

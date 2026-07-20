@@ -32,6 +32,8 @@ export interface OpenAIRawResult {
   provider: 'openai'
   rawResponse: Record<string, unknown>
   model: string
+  /** Verbatim `model` from the response; undefined when OpenAI disclosed none. */
+  servedModel?: string
   groundingSources: GroundingSource[]
   searchQueries: string[]
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { extractCitations, extractCitedDomains, validateConfig, normalizeResult, reparseStoredResult } from '../src/normalize.js'
+import { extractCitations, extractCitedDomains, validateConfig, normalizeResult, reparseStoredResult, extractServedModel } from '../src/normalize.js'
 import type { PerplexityRawResult, GroundingSource } from '../src/types.js'
 
 describe('extractCitations', () => {
@@ -260,5 +260,38 @@ describe('reparseStoredResult', () => {
     expect(result.groundingSources).toEqual([
       { uri: 'https://docs.perplexity.ai/guides', title: 'Perplexity Guides' },
     ])
+  })
+})
+
+describe('extractServedModel', () => {
+  // Perplexity returns an OpenAI-shaped ChatCompletion; `model` is the served identity.
+  // Constructed, not captured — no live Perplexity call was made for this change, so
+  // these cases pin extraction behaviour, not an observed divergence.
+  const sonarResponse: Record<string, unknown> = {
+    id: 'chatcmpl-perplexity-1',
+    object: 'chat.completion',
+    model: 'sonar-pro',
+    choices: [
+      { index: 0, finish_reason: 'stop', message: { role: 'assistant', content: 'Answer.' } },
+    ],
+  }
+
+  it('captures the model Perplexity reported serving, not the configured alias', () => {
+    const configuredModel = 'sonar'
+    const servedModel = extractServedModel(sonarResponse)
+    expect(servedModel).toBe('sonar-pro')
+    expect(servedModel).not.toBe(configuredModel)
+  })
+
+  it('returns undefined when the response carries no model field', () => {
+    const { model: _model, ...withoutModel } = sonarResponse
+    const servedModel = extractServedModel(withoutModel)
+    expect(servedModel).toBeUndefined()
+    expect(servedModel).not.toBe('')
+    expect(servedModel).not.toBe('sonar')
+  })
+
+  it('returns undefined for a whitespace-only model field', () => {
+    expect(extractServedModel({ ...sonarResponse, model: ' \t ' })).toBeUndefined()
   })
 })

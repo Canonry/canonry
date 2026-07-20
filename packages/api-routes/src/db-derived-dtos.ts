@@ -73,6 +73,7 @@ export const projectRowSchema = createSelectSchema(projects, {
   tags: z.array(z.string()),
   labels: z.record(z.string(), z.string()),
   providers: z.array(z.string()),
+  providerModels: z.record(z.string(), z.string()),
   locations: z.array(locationContextSchema),
   // text column → narrow to the configSource enum
   configSource: configSourceSchema,

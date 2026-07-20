@@ -1,6 +1,6 @@
 import { test, expect } from 'vitest'
 
-import { validateConfig, normalizeResult, reparseStoredResult } from '../src/index.js'
+import { validateConfig, normalizeResult, reparseStoredResult, extractServedModel } from '../src/index.js'
 import type { ClaudeRawResult } from '../src/index.js'
 
 const validConfig = {
@@ -330,4 +330,52 @@ test('normalizeResult prefers reparsed citations over stale extracted fields whe
   ])
   expect(result.citedDomains).toEqual(['canonry.ai'])
   expect(result.searchQueries).toEqual(['canonry reviews'])
+})
+
+// --- servedModel capture ---
+//
+// Trimmed from a real Anthropic Messages API capture taken 2026-07-20
+// (scratchpad claude-raw-claude-sonnet-5.json).
+const claudeSonnet5Response: Record<string, unknown> = {
+  model: 'claude-sonnet-5',
+  id: 'msg_011CdCTuzJohRLz3CQVgc6BY',
+  type: 'message',
+  role: 'assistant',
+  stop_reason: 'end_turn',
+  content: [
+    {
+      type: 'server_tool_use',
+      id: 'srvtoolu_011USZRBBfog9hQyQC8iDSrY',
+      name: 'web_search',
+      input: { query: 'best boutique hotels in Venice Beach Los Angeles' },
+    },
+  ],
+}
+
+test('extractServedModel captures the model Claude reported serving', () => {
+  expect(extractServedModel(claudeSonnet5Response)).toBe('claude-sonnet-5')
+})
+
+// Synthetic model string on the captured envelope: the capture itself showed no
+// divergence, so this pins extraction behaviour rather than claiming an observed case.
+test('extractServedModel keeps a dated snapshot verbatim', () => {
+  const configuredModel = 'claude-sonnet-4-6'
+  const servedModel = extractServedModel({
+    ...claudeSonnet5Response,
+    model: 'claude-sonnet-4-6-20260214',
+  })
+  expect(servedModel).toBe('claude-sonnet-4-6-20260214')
+  expect(servedModel).not.toBe(configuredModel)
+})
+
+test('extractServedModel returns undefined when the response carries no model field', () => {
+  const { model: _model, ...withoutModel } = claudeSonnet5Response
+  const servedModel = extractServedModel(withoutModel)
+  expect(servedModel).toBeUndefined()
+  expect(servedModel).not.toBe('')
+  expect(servedModel).not.toBe('claude-sonnet-4-6')
+})
+
+test('extractServedModel returns undefined for a whitespace-only model field', () => {
+  expect(extractServedModel({ ...claudeSonnet5Response, model: '  ' })).toBeUndefined()
 })

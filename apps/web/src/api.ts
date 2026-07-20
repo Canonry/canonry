@@ -1,4 +1,4 @@
-import type { EmbedClientConfig, ErrorCode, GroundingSource, ProjectOverviewDto, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto, GscPerformanceDailyDto, IndexingRequestResultDto, MetricsWindow, BrandMetricsDto, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry, InsightDto, ProjectReportDto, ReportAudience, ResultsExportFormat, CitationVisibilityResponse, BacklinkSource, BacklinkSourcesResponseDto, BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinkHistoryEntry, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcAvailableRelease, CcCachedRelease, CcReleaseSyncDto, TrafficSourceDto, TrafficSourceDetailDto, TrafficSourceListResponse, TrafficStatusResponse, TrafficEventsResponse, TrafficConnectCloudRunRequest, TrafficConnectWordpressRequest, TrafficConnectVercelRequest, TrafficSyncResponse, TrafficBackfillResponse, DiscoveryRunRequest, DiscoverySessionDto, DiscoverySessionDetailDto, DiscoveryPromotePreview, DiscoveryPromoteRequest, DiscoveryPromoteResult, ProjectDto, QueryDto, CompetitorDto, LocationContext, GoogleConnectionDto, GscUrlInspectionDto, GscDeindexedRowDto, BingUrlInspectionDto, BingCoverageSummaryDto, BingKeywordStatsDto, BingStatusDto, BingConnectResponseDto, BingSetSiteResponseDto, BingSitesResponseDto, GscSearchDataDto, ContentTargetDismissalDto, ContentTargetDismissRequest, SiteAuditRunResponseDto } from '@ainyc/canonry-contracts'
+import type { EmbedClientConfig, ErrorCode, GroundingSource, ProjectOverviewDto, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto, GscPerformanceDailyDto, IndexingRequestResultDto, MetricsWindow, BrandMetricsDto, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry, InsightDto, ProjectReportDto, ReportAudience, ResultsExportFormat, CitationVisibilityResponse, BacklinkSource, BacklinkSourcesResponseDto, BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinkHistoryEntry, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcAvailableRelease, CcCachedRelease, CcReleaseSyncDto, TrafficSourceDto, TrafficSourceDetailDto, TrafficSourceListResponse, TrafficStatusResponse, TrafficEventsResponse, TrafficConnectCloudRunRequest, TrafficConnectWordpressRequest, TrafficConnectVercelRequest, TrafficSyncResponse, TrafficBackfillResponse, DiscoveryRunRequest, DiscoverySessionDto, DiscoverySessionDetailDto, DiscoveryPromotePreview, DiscoveryPromoteRequest, DiscoveryPromoteResult, ProjectDto, ProjectUpsertRequest, QueryDto, CompetitorDto, LocationContext, GoogleConnectionDto, GscUrlInspectionDto, GscDeindexedRowDto, BingUrlInspectionDto, BingCoverageSummaryDto, BingKeywordStatsDto, BingStatusDto, BingConnectResponseDto, BingSetSiteResponseDto, BingSitesResponseDto, GscSearchDataDto, ContentTargetDismissalDto, ContentTargetDismissRequest, SiteAuditRunResponseDto } from '@ainyc/canonry-contracts'
 import {
   createClient as createHeyClient,
   // Projects + queries + competitors + locations + runs + apply + settings + telemetry
@@ -630,20 +630,7 @@ export function fetchProjectOverview(
   )
 }
 
-export function createProject(name: string, body: {
-  displayName: string
-  canonicalDomain: string
-  ownedDomains?: string[]
-  aliases?: string[]
-  country: string
-  language: string
-  tags?: string[]
-  labels?: Record<string, string>
-  providers?: string[]
-  locations?: ApiLocation[]
-  defaultLocation?: string | null
-  autoExtractBacklinks?: boolean
-}): Promise<ApiProject> {
+export function createProject(name: string, body: ProjectUpsertRequest): Promise<ApiProject> {
   return invokeWeb<ApiProject>(() =>
     putApiV1ProjectsByName({ client: heyClient, path: { name }, body: body as never }),
   )
@@ -742,8 +729,10 @@ export async function updateOwnedDomains(projectName: string, ownedDomains: stri
     tags: project.tags,
     labels: project.labels,
     providers: project.providers,
+    providerModels: project.providerModels ?? {},
     locations: project.locations,
     defaultLocation: project.defaultLocation,
+    autoExtractBacklinks: project.autoExtractBacklinks,
   })
 }
 
@@ -759,8 +748,10 @@ export async function updateAliases(projectName: string, aliases: string[]): Pro
     tags: project.tags,
     labels: project.labels,
     providers: project.providers,
+    providerModels: project.providerModels ?? {},
     locations: project.locations,
     defaultLocation: project.defaultLocation,
+    autoExtractBacklinks: project.autoExtractBacklinks,
   })
 }
 
@@ -773,6 +764,8 @@ export async function updateProject(projectName: string, updates: {
   language?: string
   locations?: ApiLocation[]
   defaultLocation?: string | null
+  providers?: string[]
+  providerModels?: Record<string, string>
 }): Promise<ApiProject> {
   const project = await fetchProject(projectName)
   return createProject(projectName, {
@@ -784,9 +777,11 @@ export async function updateProject(projectName: string, updates: {
     language: updates.language ?? project.language,
     tags: project.tags,
     labels: project.labels,
-    providers: project.providers,
+    providers: updates.providers ?? project.providers,
+    providerModels: updates.providerModels ?? project.providerModels ?? {},
     locations: updates.locations ?? project.locations,
     defaultLocation: updates.defaultLocation !== undefined ? updates.defaultLocation : project.defaultLocation,
+    autoExtractBacklinks: project.autoExtractBacklinks,
   })
 }
 
@@ -845,6 +840,16 @@ export interface ApiProviderSummary {
 
 export interface ApiSettings {
   providers: ApiProviderSummary[]
+  providerCatalog: Array<{
+    name: string
+    displayName: string
+    mode: 'api' | 'browser'
+    modelConfigurable: boolean
+    defaultModel: string
+    knownModels: Array<{ id: string; displayName: string; tier: 'flagship' | 'standard' | 'fast' | 'economy' }>
+    modelValidationPattern: { source: string; flags: string }
+    modelValidationHint: string
+  }>
   google: {
     configured: boolean
   }
