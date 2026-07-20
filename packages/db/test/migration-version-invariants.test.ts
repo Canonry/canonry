@@ -24,16 +24,12 @@ import { createClient, migrate, MIGRATION_VERSIONS } from '../src/index.js'
  * being a gap is stale — both fail.
  */
 const JUSTIFIED_GAPS: ReadonlyArray<{ versions: number[]; reason: string }> = [
-  {
-    versions: [99, 100, 101, 102, 103],
-    reason:
-      'Reserved for the ads-operator migrations already shipped on main ' +
-      '(ads-operator-lifecycle … ads-activation-revocation-control). This branch\'s ' +
-      'migrations were renumbered up to 104/105 so they land ABOVE them: reusing 99 ' +
-      'here would give two different migrations the same version, and an install that ' +
-      'had already recorded 99 from main would silently skip this branch\'s. Delete ' +
-      'this entry once the branch merges and 99-103 are present in the list.',
-  },
+  // Empty on purpose. The list is contiguous today: 99-103 (the ads-operator
+  // migrations) were reserved here while they were still only on main, and this
+  // branch's migrations were renumbered to 104/105 so they land ABOVE them.
+  // Merging main brought 99-103 into MIGRATION_VERSIONS, so the reservation is
+  // no longer a gap and the stale-entry check below correctly demanded it go.
+  // Add an entry back only when a version is genuinely reserved-but-absent.
 ]
 
 /** Every problem with a candidate version list, as human-readable strings. */

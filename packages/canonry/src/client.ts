@@ -50,11 +50,32 @@ import type {
   GbpAccountListResponse,
   GbpLocationDto,
   GbpLocationListResponse,
+  AdsAccountDto,
+  AdsGeoSearchQuery,
+  AdsGeoSearchResponse,
+  AdsConversionPixelListResponse,
+  AdsConversionEventSettingListResponse,
   AdsConnectionStatusDto,
   AdsDisconnectResponse,
+  AdsActivationGrantCreateRequest,
+  AdsActivationGrantResponse,
+  AdsActivateTreeRequest,
+  AdsActivateTreeResponse,
   AdsSyncResponse,
   AdsCampaignListResponse,
   AdsInsightsResponse,
+  AdsOperationReconcileResponse,
+  AdsOperationResponse,
+  AdsUnresolvedOperationListQuery,
+  AdsUnresolvedOperationListResponse,
+  AdsImageUploadRequest,
+  AdsCampaignCreateRequest,
+  AdsCampaignUpdateRequest,
+  AdsAdGroupCreateRequest,
+  AdsAdGroupUpdateRequest,
+  AdsAdCreateRequest,
+  AdsAdUpdateRequest,
+  AdsPauseRequest,
   AdsSummaryDto,
   GbpSyncResponse,
   GbpDailyMetricListResponse,
@@ -169,6 +190,7 @@ import {
   postApiV1RunsByIdCancel,
   getApiV1ProjectsByNameTimeline,
   getApiV1ProjectsByNameHistory,
+  getApiV1History,
   getApiV1ProjectsByNameSnapshots,
   getApiV1ProjectsByNameSnapshotsDiff,
   // Analytics
@@ -216,9 +238,30 @@ import {
   postApiV1ProjectsByNameAdsSync,
   deleteApiV1ProjectsByNameAdsConnection,
   getApiV1ProjectsByNameAdsStatus,
+  getApiV1ProjectsByNameAdsAccount,
+  getApiV1ProjectsByNameAdsGeoSearch,
+  getApiV1ProjectsByNameAdsConversionsPixels,
+  getApiV1ProjectsByNameAdsConversionsEventSettings,
   getApiV1ProjectsByNameAdsCampaigns,
   getApiV1ProjectsByNameAdsInsights,
   getApiV1ProjectsByNameAdsSummary,
+  getApiV1ProjectsByNameAdsOperations,
+  getApiV1ProjectsByNameAdsOperationsByOperationKey,
+  postApiV1ProjectsByNameAdsOperationsByOperationKeyReconcile,
+  postApiV1ProjectsByNameAdsOperationsByOperationKeyResumeActivation,
+  postApiV1ProjectsByNameAdsActivationGrants,
+  postApiV1ProjectsByNameAdsActivationGrantsByGrantIdRevoke,
+  postApiV1ProjectsByNameAdsFiles,
+  postApiV1ProjectsByNameAdsCampaigns,
+  postApiV1ProjectsByNameAdsCampaignsById,
+  postApiV1ProjectsByNameAdsCampaignsByIdActivateTree,
+  postApiV1ProjectsByNameAdsCampaignsByIdPause,
+  postApiV1ProjectsByNameAdsAdGroups,
+  postApiV1ProjectsByNameAdsAdGroupsById,
+  postApiV1ProjectsByNameAdsAdGroupsByIdPause,
+  postApiV1ProjectsByNameAdsAds,
+  postApiV1ProjectsByNameAdsAdsById,
+  postApiV1ProjectsByNameAdsAdsByIdPause,
   postApiV1ProjectsByNameGbpSync,
   getApiV1ProjectsByNameGbpMetrics,
   getApiV1ProjectsByNameGbpKeywords,
@@ -1008,15 +1051,26 @@ export class ApiClient {
     return this.invoke<RunDto>(() => postApiV1RunsByIdCancel({ client: this.heyClient, path: { id } }))
   }
 
-  async getTimeline(project: string, location?: string): Promise<TimelineDto[]> {
+  async getTimeline(project: string, location?: string, limit?: number): Promise<TimelineDto[]> {
     return this.invoke<TimelineDto[]>(() =>
-      getApiV1ProjectsByNameTimeline({ client: this.heyClient, path: { name: project }, query: { location } }),
+      getApiV1ProjectsByNameTimeline({ client: this.heyClient, path: { name: project }, query: { location, limit } }),
     )
   }
 
-  async getHistory(project: string): Promise<AuditLogEntry[]> {
+  async getHistory(
+    project: string,
+    opts?: { limit?: number; offset?: number; since?: string; action?: string; actor?: string; entityType?: string },
+  ): Promise<AuditLogEntry[]> {
     return this.invoke<AuditLogEntry[]>(() =>
-      getApiV1ProjectsByNameHistory({ client: this.heyClient, path: { name: project } }),
+      getApiV1ProjectsByNameHistory({ client: this.heyClient, path: { name: project }, query: opts }),
+    )
+  }
+
+  async getGlobalHistory(
+    opts?: { limit?: number; offset?: number; since?: string; action?: string; actor?: string; entityType?: string },
+  ): Promise<AuditLogEntry[]> {
+    return this.invoke<AuditLogEntry[]>(() =>
+      getApiV1History({ client: this.heyClient, query: opts }),
     )
   }
 
@@ -1363,6 +1417,30 @@ export class ApiClient {
     )
   }
 
+  async getAdsAccount(project: string): Promise<AdsAccountDto> {
+    return this.invoke<AdsAccountDto>(() =>
+      getApiV1ProjectsByNameAdsAccount({ client: this.heyClient, path: { name: project } }),
+    )
+  }
+
+  async searchAdsGeo(project: string, query: AdsGeoSearchQuery): Promise<AdsGeoSearchResponse> {
+    return this.invoke<AdsGeoSearchResponse>(() =>
+      getApiV1ProjectsByNameAdsGeoSearch({ client: this.heyClient, path: { name: project }, query }),
+    )
+  }
+
+  async getAdsConversionPixels(project: string): Promise<AdsConversionPixelListResponse> {
+    return this.invoke<AdsConversionPixelListResponse>(() =>
+      getApiV1ProjectsByNameAdsConversionsPixels({ client: this.heyClient, path: { name: project } }),
+    )
+  }
+
+  async getAdsConversionEventSettings(project: string): Promise<AdsConversionEventSettingListResponse> {
+    return this.invoke<AdsConversionEventSettingListResponse>(() =>
+      getApiV1ProjectsByNameAdsConversionsEventSettings({ client: this.heyClient, path: { name: project } }),
+    )
+  }
+
   async triggerAdsSync(project: string): Promise<AdsSyncResponse> {
     return this.invoke<AdsSyncResponse>(() =>
       postApiV1ProjectsByNameAdsSync({ client: this.heyClient, path: { name: project } }),
@@ -1387,6 +1465,201 @@ export class ApiClient {
   async getAdsSummary(project: string): Promise<AdsSummaryDto> {
     return this.invoke<AdsSummaryDto>(() =>
       getApiV1ProjectsByNameAdsSummary({ client: this.heyClient, path: { name: project } }),
+    )
+  }
+
+  async getAdsOperation(project: string, operationKey: string): Promise<AdsOperationResponse> {
+    return this.invoke<AdsOperationResponse>(() =>
+      getApiV1ProjectsByNameAdsOperationsByOperationKey({
+        client: this.heyClient,
+        path: { name: project, operationKey },
+      }),
+    )
+  }
+
+  async getUnresolvedAdsOperations(
+    project: string,
+    query?: Partial<AdsUnresolvedOperationListQuery>,
+  ): Promise<AdsUnresolvedOperationListResponse> {
+    return this.invoke<AdsUnresolvedOperationListResponse>(() =>
+      getApiV1ProjectsByNameAdsOperations({
+        client: this.heyClient,
+        path: { name: project },
+        query: query
+          ? {
+              state: query.state?.join(','),
+              limit: query.limit,
+              cursor: query.cursor,
+            }
+          : undefined,
+      }),
+    )
+  }
+
+  async reconcileAdsOperation(
+    project: string,
+    operationKey: string,
+  ): Promise<AdsOperationReconcileResponse> {
+    return this.invoke<AdsOperationReconcileResponse>(() =>
+      postApiV1ProjectsByNameAdsOperationsByOperationKeyReconcile({
+        client: this.heyClient,
+        path: { name: project, operationKey },
+      }),
+    )
+  }
+
+  async resumeAdsActivation(
+    project: string,
+    operationKey: string,
+  ): Promise<AdsActivateTreeResponse> {
+    return this.invoke<AdsActivateTreeResponse>(() =>
+      postApiV1ProjectsByNameAdsOperationsByOperationKeyResumeActivation({
+        client: this.heyClient,
+        path: { name: project, operationKey },
+      }),
+    )
+  }
+
+  async createAdsActivationGrant(
+    project: string,
+    body: AdsActivationGrantCreateRequest,
+  ): Promise<AdsActivationGrantResponse> {
+    return this.invoke<AdsActivationGrantResponse>(() =>
+      postApiV1ProjectsByNameAdsActivationGrants({
+        client: this.heyClient,
+        path: { name: project },
+        body,
+      }),
+    )
+  }
+
+  async revokeAdsActivationGrant(
+    project: string,
+    grantId: string,
+  ): Promise<AdsActivationGrantResponse> {
+    return this.invoke<AdsActivationGrantResponse>(() =>
+      postApiV1ProjectsByNameAdsActivationGrantsByGrantIdRevoke({
+        client: this.heyClient,
+        path: { name: project, grantId },
+      }),
+    )
+  }
+
+  async uploadAdsImage(project: string, body: AdsImageUploadRequest): Promise<AdsOperationResponse> {
+    return this.invoke<AdsOperationResponse>(() =>
+      postApiV1ProjectsByNameAdsFiles({ client: this.heyClient, path: { name: project }, body }),
+    )
+  }
+
+  async createAdsCampaign(project: string, body: AdsCampaignCreateRequest): Promise<AdsOperationResponse> {
+    return this.invoke<AdsOperationResponse>(() =>
+      postApiV1ProjectsByNameAdsCampaigns({ client: this.heyClient, path: { name: project }, body }),
+    )
+  }
+
+  async updateAdsCampaign(
+    project: string,
+    campaignId: string,
+    body: AdsCampaignUpdateRequest,
+  ): Promise<AdsOperationResponse> {
+    return this.invoke<AdsOperationResponse>(() =>
+      postApiV1ProjectsByNameAdsCampaignsById({
+        client: this.heyClient,
+        path: { name: project, id: campaignId },
+        body,
+      }),
+    )
+  }
+
+  async pauseAdsCampaign(
+    project: string,
+    campaignId: string,
+    body: AdsPauseRequest,
+  ): Promise<AdsOperationResponse> {
+    return this.invoke<AdsOperationResponse>(() =>
+      postApiV1ProjectsByNameAdsCampaignsByIdPause({
+        client: this.heyClient,
+        path: { name: project, id: campaignId },
+        body,
+      }),
+    )
+  }
+
+  async activateAdsCampaignTree(
+    project: string,
+    campaignId: string,
+    body: AdsActivateTreeRequest,
+  ): Promise<AdsActivateTreeResponse> {
+    return this.invoke<AdsActivateTreeResponse>(() =>
+      postApiV1ProjectsByNameAdsCampaignsByIdActivateTree({
+        client: this.heyClient,
+        path: { name: project, id: campaignId },
+        body,
+      }),
+    )
+  }
+
+  async createAdsAdGroup(project: string, body: AdsAdGroupCreateRequest): Promise<AdsOperationResponse> {
+    return this.invoke<AdsOperationResponse>(() =>
+      postApiV1ProjectsByNameAdsAdGroups({ client: this.heyClient, path: { name: project }, body }),
+    )
+  }
+
+  async updateAdsAdGroup(
+    project: string,
+    adGroupId: string,
+    body: AdsAdGroupUpdateRequest,
+  ): Promise<AdsOperationResponse> {
+    return this.invoke<AdsOperationResponse>(() =>
+      postApiV1ProjectsByNameAdsAdGroupsById({
+        client: this.heyClient,
+        path: { name: project, id: adGroupId },
+        body,
+      }),
+    )
+  }
+
+  async pauseAdsAdGroup(
+    project: string,
+    adGroupId: string,
+    body: AdsPauseRequest,
+  ): Promise<AdsOperationResponse> {
+    return this.invoke<AdsOperationResponse>(() =>
+      postApiV1ProjectsByNameAdsAdGroupsByIdPause({
+        client: this.heyClient,
+        path: { name: project, id: adGroupId },
+        body,
+      }),
+    )
+  }
+
+  async createAdsAd(project: string, body: AdsAdCreateRequest): Promise<AdsOperationResponse> {
+    return this.invoke<AdsOperationResponse>(() =>
+      postApiV1ProjectsByNameAdsAds({ client: this.heyClient, path: { name: project }, body }),
+    )
+  }
+
+  async updateAdsAd(
+    project: string,
+    adId: string,
+    body: AdsAdUpdateRequest,
+  ): Promise<AdsOperationResponse> {
+    return this.invoke<AdsOperationResponse>(() =>
+      postApiV1ProjectsByNameAdsAdsById({
+        client: this.heyClient,
+        path: { name: project, id: adId },
+        body,
+      }),
+    )
+  }
+
+  async pauseAdsAd(project: string, adId: string, body: AdsPauseRequest): Promise<AdsOperationResponse> {
+    return this.invoke<AdsOperationResponse>(() =>
+      postApiV1ProjectsByNameAdsAdsByIdPause({
+        client: this.heyClient,
+        path: { name: project, id: adId },
+        body,
+      }),
     )
   }
 
@@ -1965,21 +2238,22 @@ export class ApiClient {
 
   // ── Technical AEO (site-audit) ──────────────────────────────────────────
 
-  async getTechnicalAeoScore(project: string): Promise<SiteAuditScoreDto> {
+  async getTechnicalAeoScore(project: string, opts?: { runId?: string }): Promise<SiteAuditScoreDto> {
     return this.invoke<SiteAuditScoreDto>(() =>
-      getApiV1ProjectsByNameTechnicalAeo({ client: this.heyClient, path: { name: project } }),
+      getApiV1ProjectsByNameTechnicalAeo({ client: this.heyClient, path: { name: project }, query: { runId: opts?.runId } }),
     )
   }
 
   async getTechnicalAeoPages(
     project: string,
-    opts?: { status?: 'success' | 'error'; sort?: string; limit?: number; offset?: number },
+    opts?: { runId?: string; status?: 'success' | 'error'; sort?: string; limit?: number; offset?: number },
   ): Promise<SiteAuditPagesResponseDto> {
     return this.invoke<SiteAuditPagesResponseDto>(() =>
       getApiV1ProjectsByNameTechnicalAeoPages({
         client: this.heyClient,
         path: { name: project },
         query: {
+          runId: opts?.runId,
           status: opts?.status,
           sort: opts?.sort,
           limit: opts?.limit !== undefined ? String(opts.limit) : undefined,

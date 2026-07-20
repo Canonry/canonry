@@ -15,20 +15,595 @@ export type AgentProvidersResponseDto = {
     defaultProvider: 'claude' | 'openai' | 'gemini' | 'zai' | 'deepinfra';
 };
 
+export type AdsAccountDto = {
+    id: string;
+    name: string;
+    status: string;
+    currencyCode: string | null;
+    timezone: string | null;
+    url: string | null;
+    reviewStatus: string | null;
+    integrityReviewStatus: string | null;
+    integrityDecision: string | null;
+};
+
+export type AdsActivateTreeResponse = {
+    grant: {
+        id: string;
+        projectId: string;
+        adAccountId: string;
+        manifestHash: string;
+        manifest: {
+            campaign: {
+                id: string;
+                expectedUpdatedAt: number;
+                adGroups: Array<{
+                    id: string;
+                    expectedUpdatedAt: number;
+                    ads: Array<{
+                        id: string;
+                        expectedUpdatedAt: number;
+                    }>;
+                }>;
+            };
+        };
+        executorApiKeyId: string;
+        approverApiKeyId: string;
+        expiresAt: string;
+        approvedAt: string;
+        createdAt: string;
+        updatedAt: string;
+        revocationRequestedAt: string | null;
+        state: 'approved';
+        operationId: null;
+        executionStartedAt: null;
+        consumedAt: null;
+        revokedAt: null;
+        expiredAt: null;
+    } | {
+        id: string;
+        projectId: string;
+        adAccountId: string;
+        manifestHash: string;
+        manifest: {
+            campaign: {
+                id: string;
+                expectedUpdatedAt: number;
+                adGroups: Array<{
+                    id: string;
+                    expectedUpdatedAt: number;
+                    ads: Array<{
+                        id: string;
+                        expectedUpdatedAt: number;
+                    }>;
+                }>;
+            };
+        };
+        executorApiKeyId: string;
+        approverApiKeyId: string;
+        expiresAt: string;
+        approvedAt: string;
+        createdAt: string;
+        updatedAt: string;
+        revocationRequestedAt: string | null;
+        state: 'executing';
+        operationId: string;
+        executionStartedAt: string;
+        consumedAt: null;
+        revokedAt: null;
+        expiredAt: null;
+    } | {
+        id: string;
+        projectId: string;
+        adAccountId: string;
+        manifestHash: string;
+        manifest: {
+            campaign: {
+                id: string;
+                expectedUpdatedAt: number;
+                adGroups: Array<{
+                    id: string;
+                    expectedUpdatedAt: number;
+                    ads: Array<{
+                        id: string;
+                        expectedUpdatedAt: number;
+                    }>;
+                }>;
+            };
+        };
+        executorApiKeyId: string;
+        approverApiKeyId: string;
+        expiresAt: string;
+        approvedAt: string;
+        createdAt: string;
+        updatedAt: string;
+        revocationRequestedAt: string | null;
+        state: 'consumed';
+        operationId: string;
+        executionStartedAt: string;
+        consumedAt: string;
+        revokedAt: null;
+        expiredAt: null;
+    } | {
+        id: string;
+        projectId: string;
+        adAccountId: string;
+        manifestHash: string;
+        manifest: {
+            campaign: {
+                id: string;
+                expectedUpdatedAt: number;
+                adGroups: Array<{
+                    id: string;
+                    expectedUpdatedAt: number;
+                    ads: Array<{
+                        id: string;
+                        expectedUpdatedAt: number;
+                    }>;
+                }>;
+            };
+        };
+        executorApiKeyId: string;
+        approverApiKeyId: string;
+        expiresAt: string;
+        approvedAt: string;
+        createdAt: string;
+        updatedAt: string;
+        revocationRequestedAt: string | null;
+        state: 'revoked';
+        operationId: null;
+        executionStartedAt: null;
+        consumedAt: null;
+        revokedAt: string;
+        expiredAt: null;
+    } | {
+        id: string;
+        projectId: string;
+        adAccountId: string;
+        manifestHash: string;
+        manifest: {
+            campaign: {
+                id: string;
+                expectedUpdatedAt: number;
+                adGroups: Array<{
+                    id: string;
+                    expectedUpdatedAt: number;
+                    ads: Array<{
+                        id: string;
+                        expectedUpdatedAt: number;
+                    }>;
+                }>;
+            };
+        };
+        executorApiKeyId: string;
+        approverApiKeyId: string;
+        expiresAt: string;
+        approvedAt: string;
+        createdAt: string;
+        updatedAt: string;
+        revocationRequestedAt: string | null;
+        state: 'expired';
+        operationId: null;
+        executionStartedAt: null;
+        consumedAt: null;
+        revokedAt: null;
+        expiredAt: string;
+    } | {
+        id: string;
+        projectId: string;
+        adAccountId: string;
+        manifestHash: string;
+        manifest: {
+            campaign: {
+                id: string;
+                expectedUpdatedAt: number;
+                adGroups: Array<{
+                    id: string;
+                    expectedUpdatedAt: number;
+                    ads: Array<{
+                        id: string;
+                        expectedUpdatedAt: number;
+                    }>;
+                }>;
+            };
+        };
+        executorApiKeyId: string;
+        approverApiKeyId: string;
+        expiresAt: string;
+        approvedAt: string;
+        createdAt: string;
+        updatedAt: string;
+        revocationRequestedAt: string | null;
+        state: 'unknown';
+        operationId: string;
+        executionStartedAt: string;
+        consumedAt: null;
+        revokedAt: null;
+        expiredAt: null;
+    };
+    operation: {
+        id: string;
+        adAccountId: string | null;
+        operationKey: string;
+        kind: 'image_upload' | 'campaign_create' | 'campaign_update' | 'campaign_pause' | 'campaign_tree_activate' | 'ad_group_create' | 'ad_group_update' | 'ad_group_pause' | 'ad_create' | 'ad_update' | 'ad_pause';
+        state: 'pending' | 'reconciling' | 'succeeded' | 'failed' | 'unknown';
+        entityType: 'file' | 'campaign' | 'ad_group' | 'ad' | null;
+        entityId: string | null;
+        upstreamUpdatedAt: number | null;
+        errorCode: string | null;
+        errorMessage: string | null;
+        reconcileStrategy: 'known_entity' | 'create_fingerprint' | 'manual_only' | null;
+        reconcileParentId: string | null;
+        reconcileFingerprint: string | null;
+        reconcileFields: {
+            name?: string;
+            description?: string | null;
+            status?: 'active' | 'paused' | 'archived';
+            startTime?: number | null;
+            endTime?: number | null;
+            lifetimeSpendLimitMicros?: number;
+            locationIds?: Array<string>;
+            biddingType?: 'impressions' | 'clicks';
+            conversionEventSettingIds?: Array<string>;
+            campaignId?: string;
+            contextHints?: Array<string>;
+            maxBidMicros?: number;
+            billingEventType?: 'impression' | 'click';
+            adGroupId?: string;
+            creativeFingerprint?: string;
+        } | null;
+        reconcileAttempts: number;
+        lastReconciledAt: string | null;
+        createdAt: string;
+        updatedAt: string;
+    };
+    steps: Array<{
+        id: string;
+        operationId: string;
+        ordinal: number;
+        entityType: 'campaign' | 'ad_group' | 'ad';
+        entityId: string;
+        expectedUpdatedAt: number;
+        createdAt: string;
+        updatedAt: string;
+        errorCode: null;
+        errorMessage: null;
+        state: 'pending';
+        providerUpdatedAt: null;
+        remediation: null;
+        startedAt: null;
+        finishedAt: null;
+    } | {
+        id: string;
+        operationId: string;
+        ordinal: number;
+        entityType: 'campaign' | 'ad_group' | 'ad';
+        entityId: string;
+        expectedUpdatedAt: number;
+        createdAt: string;
+        updatedAt: string;
+        errorCode: null;
+        errorMessage: null;
+        state: 'executing';
+        providerUpdatedAt: null;
+        remediation: null;
+        startedAt: string;
+        finishedAt: null;
+    } | {
+        id: string;
+        operationId: string;
+        ordinal: number;
+        entityType: 'campaign' | 'ad_group' | 'ad';
+        entityId: string;
+        expectedUpdatedAt: number;
+        createdAt: string;
+        updatedAt: string;
+        errorCode: null;
+        errorMessage: null;
+        state: 'active';
+        providerUpdatedAt: number;
+        remediation: null;
+        startedAt: string;
+        finishedAt: string;
+    } | {
+        id: string;
+        operationId: string;
+        ordinal: number;
+        entityType: 'campaign' | 'ad_group' | 'ad';
+        entityId: string;
+        expectedUpdatedAt: number;
+        createdAt: string;
+        updatedAt: string;
+        errorCode: string;
+        errorMessage: string;
+        remediation: string;
+        state: 'failed';
+        providerUpdatedAt: number | null;
+        startedAt: string;
+        finishedAt: string;
+    } | {
+        id: string;
+        operationId: string;
+        ordinal: number;
+        entityType: 'campaign' | 'ad_group' | 'ad';
+        entityId: string;
+        expectedUpdatedAt: number;
+        createdAt: string;
+        updatedAt: string;
+        errorCode: null;
+        errorMessage: null;
+        state: 'rollback_executing';
+        providerUpdatedAt: number;
+        remediation: string;
+        startedAt: string;
+        finishedAt: null;
+    } | {
+        id: string;
+        operationId: string;
+        ordinal: number;
+        entityType: 'campaign' | 'ad_group' | 'ad';
+        entityId: string;
+        expectedUpdatedAt: number;
+        createdAt: string;
+        updatedAt: string;
+        errorCode: null;
+        errorMessage: null;
+        state: 'rolled_back';
+        providerUpdatedAt: number;
+        remediation: string;
+        startedAt: string;
+        finishedAt: string;
+    } | {
+        id: string;
+        operationId: string;
+        ordinal: number;
+        entityType: 'campaign' | 'ad_group' | 'ad';
+        entityId: string;
+        expectedUpdatedAt: number;
+        createdAt: string;
+        updatedAt: string;
+        errorCode: string;
+        errorMessage: string;
+        remediation: string;
+        state: 'rollback_failed';
+        providerUpdatedAt: number;
+        startedAt: string;
+        finishedAt: string;
+    } | {
+        id: string;
+        operationId: string;
+        ordinal: number;
+        entityType: 'campaign' | 'ad_group' | 'ad';
+        entityId: string;
+        expectedUpdatedAt: number;
+        createdAt: string;
+        updatedAt: string;
+        errorCode: string;
+        errorMessage: string;
+        remediation: string;
+        state: 'unknown';
+        providerUpdatedAt: number | null;
+        startedAt: string;
+        finishedAt: string;
+    }>;
+};
+
+export type AdsActivationGrantResponse = {
+    grant: {
+        id: string;
+        projectId: string;
+        adAccountId: string;
+        manifestHash: string;
+        manifest: {
+            campaign: {
+                id: string;
+                expectedUpdatedAt: number;
+                adGroups: Array<{
+                    id: string;
+                    expectedUpdatedAt: number;
+                    ads: Array<{
+                        id: string;
+                        expectedUpdatedAt: number;
+                    }>;
+                }>;
+            };
+        };
+        executorApiKeyId: string;
+        approverApiKeyId: string;
+        expiresAt: string;
+        approvedAt: string;
+        createdAt: string;
+        updatedAt: string;
+        revocationRequestedAt: string | null;
+        state: 'approved';
+        operationId: null;
+        executionStartedAt: null;
+        consumedAt: null;
+        revokedAt: null;
+        expiredAt: null;
+    } | {
+        id: string;
+        projectId: string;
+        adAccountId: string;
+        manifestHash: string;
+        manifest: {
+            campaign: {
+                id: string;
+                expectedUpdatedAt: number;
+                adGroups: Array<{
+                    id: string;
+                    expectedUpdatedAt: number;
+                    ads: Array<{
+                        id: string;
+                        expectedUpdatedAt: number;
+                    }>;
+                }>;
+            };
+        };
+        executorApiKeyId: string;
+        approverApiKeyId: string;
+        expiresAt: string;
+        approvedAt: string;
+        createdAt: string;
+        updatedAt: string;
+        revocationRequestedAt: string | null;
+        state: 'executing';
+        operationId: string;
+        executionStartedAt: string;
+        consumedAt: null;
+        revokedAt: null;
+        expiredAt: null;
+    } | {
+        id: string;
+        projectId: string;
+        adAccountId: string;
+        manifestHash: string;
+        manifest: {
+            campaign: {
+                id: string;
+                expectedUpdatedAt: number;
+                adGroups: Array<{
+                    id: string;
+                    expectedUpdatedAt: number;
+                    ads: Array<{
+                        id: string;
+                        expectedUpdatedAt: number;
+                    }>;
+                }>;
+            };
+        };
+        executorApiKeyId: string;
+        approverApiKeyId: string;
+        expiresAt: string;
+        approvedAt: string;
+        createdAt: string;
+        updatedAt: string;
+        revocationRequestedAt: string | null;
+        state: 'consumed';
+        operationId: string;
+        executionStartedAt: string;
+        consumedAt: string;
+        revokedAt: null;
+        expiredAt: null;
+    } | {
+        id: string;
+        projectId: string;
+        adAccountId: string;
+        manifestHash: string;
+        manifest: {
+            campaign: {
+                id: string;
+                expectedUpdatedAt: number;
+                adGroups: Array<{
+                    id: string;
+                    expectedUpdatedAt: number;
+                    ads: Array<{
+                        id: string;
+                        expectedUpdatedAt: number;
+                    }>;
+                }>;
+            };
+        };
+        executorApiKeyId: string;
+        approverApiKeyId: string;
+        expiresAt: string;
+        approvedAt: string;
+        createdAt: string;
+        updatedAt: string;
+        revocationRequestedAt: string | null;
+        state: 'revoked';
+        operationId: null;
+        executionStartedAt: null;
+        consumedAt: null;
+        revokedAt: string;
+        expiredAt: null;
+    } | {
+        id: string;
+        projectId: string;
+        adAccountId: string;
+        manifestHash: string;
+        manifest: {
+            campaign: {
+                id: string;
+                expectedUpdatedAt: number;
+                adGroups: Array<{
+                    id: string;
+                    expectedUpdatedAt: number;
+                    ads: Array<{
+                        id: string;
+                        expectedUpdatedAt: number;
+                    }>;
+                }>;
+            };
+        };
+        executorApiKeyId: string;
+        approverApiKeyId: string;
+        expiresAt: string;
+        approvedAt: string;
+        createdAt: string;
+        updatedAt: string;
+        revocationRequestedAt: string | null;
+        state: 'expired';
+        operationId: null;
+        executionStartedAt: null;
+        consumedAt: null;
+        revokedAt: null;
+        expiredAt: string;
+    } | {
+        id: string;
+        projectId: string;
+        adAccountId: string;
+        manifestHash: string;
+        manifest: {
+            campaign: {
+                id: string;
+                expectedUpdatedAt: number;
+                adGroups: Array<{
+                    id: string;
+                    expectedUpdatedAt: number;
+                    ads: Array<{
+                        id: string;
+                        expectedUpdatedAt: number;
+                    }>;
+                }>;
+            };
+        };
+        executorApiKeyId: string;
+        approverApiKeyId: string;
+        expiresAt: string;
+        approvedAt: string;
+        createdAt: string;
+        updatedAt: string;
+        revocationRequestedAt: string | null;
+        state: 'unknown';
+        operationId: string;
+        executionStartedAt: string;
+        consumedAt: null;
+        revokedAt: null;
+        expiredAt: null;
+    };
+};
+
 export type AdsCampaignListResponse = {
     campaigns: Array<{
         id: string;
         name: string;
+        description?: string | null;
         status: string;
-        biddingType?: string | null;
+        startTime?: number | null;
+        endTime?: number | null;
+        biddingType?: 'impressions' | 'clicks' | null;
         dailySpendLimitMicros?: number | null;
         lifetimeSpendLimitMicros?: number | null;
+        conversionEventSettingIds: Array<string>;
+        locationIds?: Array<string>;
         adGroups: Array<{
             id: string;
             campaignId: string;
             name: string;
+            description?: string | null;
             status: string;
-            billingEventType?: string | null;
+            billingEventType?: 'impression' | 'click' | null;
             maxBidMicros?: number | null;
             contextHints: Array<string>;
             ads: Array<{
@@ -42,9 +617,16 @@ export type AdsCampaignListResponse = {
                     title?: string | null;
                     body?: string | null;
                     targetUrl?: string | null;
+                    fileId?: string | null;
                 } | null;
+                upstreamUpdatedAt?: number | null;
+                syncedAt?: string;
             }>;
+            upstreamUpdatedAt?: number | null;
+            syncedAt?: string;
         }>;
+        upstreamUpdatedAt?: number | null;
+        syncedAt?: string;
     }>;
 };
 
@@ -55,12 +637,55 @@ export type AdsConnectionStatusDto = {
     currencyCode?: string | null;
     timezone?: string | null;
     status?: string | null;
+    reviewStatus?: string | null;
+    integrityReviewStatus?: string | null;
+    integrityDecision?: string | null;
     lastSyncedAt?: string | null;
     conversionTrackingConfigured?: boolean;
 };
 
+export type AdsConversionEventSettingListResponse = {
+    eventSettings: Array<{
+        id: string;
+        name?: string;
+        eventType?: string;
+        customEventName?: string | null;
+        attributionWindowDays?: number;
+        adAccountId?: string;
+        sourceIds?: Array<string>;
+        sources?: Array<{
+            id: string;
+            name?: string;
+        }>;
+        archived?: boolean;
+        version?: number;
+    }>;
+};
+
+export type AdsConversionPixelListResponse = {
+    pixels: Array<{
+        id: string;
+        clientType?: string;
+        name?: string;
+        pixelId?: string;
+    }>;
+};
+
 export type AdsDisconnectResponse = {
     disconnected: boolean;
+};
+
+export type AdsGeoSearchResponse = {
+    count: number;
+    query: string;
+    results: Array<{
+        id: string;
+        type: string;
+        canonicalName: string;
+        countryCode: string;
+        name: string;
+        regionCode: string | null;
+    }>;
 };
 
 export type AdsInsightsResponse = {
@@ -76,6 +701,86 @@ export type AdsInsightsResponse = {
         cpcMicros: number | null;
     }>;
     currencyCode?: string | null;
+};
+
+export type AdsOperationReconcileResponse = {
+    operation: {
+        id: string;
+        adAccountId: string | null;
+        operationKey: string;
+        kind: 'image_upload' | 'campaign_create' | 'campaign_update' | 'campaign_pause' | 'campaign_tree_activate' | 'ad_group_create' | 'ad_group_update' | 'ad_group_pause' | 'ad_create' | 'ad_update' | 'ad_pause';
+        state: 'pending' | 'reconciling' | 'succeeded' | 'failed' | 'unknown';
+        entityType: 'file' | 'campaign' | 'ad_group' | 'ad' | null;
+        entityId: string | null;
+        upstreamUpdatedAt: number | null;
+        errorCode: string | null;
+        errorMessage: string | null;
+        reconcileStrategy: 'known_entity' | 'create_fingerprint' | 'manual_only' | null;
+        reconcileParentId: string | null;
+        reconcileFingerprint: string | null;
+        reconcileFields: {
+            name?: string;
+            description?: string | null;
+            status?: 'active' | 'paused' | 'archived';
+            startTime?: number | null;
+            endTime?: number | null;
+            lifetimeSpendLimitMicros?: number;
+            locationIds?: Array<string>;
+            biddingType?: 'impressions' | 'clicks';
+            conversionEventSettingIds?: Array<string>;
+            campaignId?: string;
+            contextHints?: Array<string>;
+            maxBidMicros?: number;
+            billingEventType?: 'impression' | 'click';
+            adGroupId?: string;
+            creativeFingerprint?: string;
+        } | null;
+        reconcileAttempts: number;
+        lastReconciledAt: string | null;
+        createdAt: string;
+        updatedAt: string;
+    };
+    resolved: boolean;
+};
+
+export type AdsOperationResponse = {
+    operation: {
+        id: string;
+        adAccountId: string | null;
+        operationKey: string;
+        kind: 'image_upload' | 'campaign_create' | 'campaign_update' | 'campaign_pause' | 'campaign_tree_activate' | 'ad_group_create' | 'ad_group_update' | 'ad_group_pause' | 'ad_create' | 'ad_update' | 'ad_pause';
+        state: 'pending' | 'reconciling' | 'succeeded' | 'failed' | 'unknown';
+        entityType: 'file' | 'campaign' | 'ad_group' | 'ad' | null;
+        entityId: string | null;
+        upstreamUpdatedAt: number | null;
+        errorCode: string | null;
+        errorMessage: string | null;
+        reconcileStrategy: 'known_entity' | 'create_fingerprint' | 'manual_only' | null;
+        reconcileParentId: string | null;
+        reconcileFingerprint: string | null;
+        reconcileFields: {
+            name?: string;
+            description?: string | null;
+            status?: 'active' | 'paused' | 'archived';
+            startTime?: number | null;
+            endTime?: number | null;
+            lifetimeSpendLimitMicros?: number;
+            locationIds?: Array<string>;
+            biddingType?: 'impressions' | 'clicks';
+            conversionEventSettingIds?: Array<string>;
+            campaignId?: string;
+            contextHints?: Array<string>;
+            maxBidMicros?: number;
+            billingEventType?: 'impression' | 'click';
+            adGroupId?: string;
+            creativeFingerprint?: string;
+        } | null;
+        reconcileAttempts: number;
+        lastReconciledAt: string | null;
+        createdAt: string;
+        updatedAt: string;
+    };
+    replayed: boolean;
 };
 
 export type AdsSummaryDto = {
@@ -103,6 +808,47 @@ export type AdsSummaryDto = {
 export type AdsSyncResponse = {
     runId: string;
     status: string;
+};
+
+export type AdsUnresolvedOperationListResponse = {
+    operations: Array<{
+        id: string;
+        adAccountId: string | null;
+        operationKey: string;
+        kind: 'image_upload' | 'campaign_create' | 'campaign_update' | 'campaign_pause' | 'campaign_tree_activate' | 'ad_group_create' | 'ad_group_update' | 'ad_group_pause' | 'ad_create' | 'ad_update' | 'ad_pause';
+        state: 'pending' | 'reconciling' | 'succeeded' | 'failed' | 'unknown';
+        entityType: 'file' | 'campaign' | 'ad_group' | 'ad' | null;
+        entityId: string | null;
+        upstreamUpdatedAt: number | null;
+        errorCode: string | null;
+        errorMessage: string | null;
+        reconcileStrategy: 'known_entity' | 'create_fingerprint' | 'manual_only' | null;
+        reconcileParentId: string | null;
+        reconcileFingerprint: string | null;
+        reconcileFields: {
+            name?: string;
+            description?: string | null;
+            status?: 'active' | 'paused' | 'archived';
+            startTime?: number | null;
+            endTime?: number | null;
+            lifetimeSpendLimitMicros?: number;
+            locationIds?: Array<string>;
+            biddingType?: 'impressions' | 'clicks';
+            conversionEventSettingIds?: Array<string>;
+            campaignId?: string;
+            contextHints?: Array<string>;
+            maxBidMicros?: number;
+            billingEventType?: 'impression' | 'click';
+            adGroupId?: string;
+            creativeFingerprint?: string;
+        } | null;
+        reconcileAttempts: number;
+        lastReconciledAt: string | null;
+        createdAt: string;
+        updatedAt: string;
+    }>;
+    count: number;
+    nextCursor: string | null;
 };
 
 export type ApiKeyDto = {
@@ -139,6 +885,8 @@ export type AuditLogEntry = {
     entityType: string;
     entityId?: string | null;
     diff?: unknown;
+    userAgent?: string | null;
+    actorSession?: string | null;
     createdAt: string;
 };
 
@@ -1373,6 +2121,29 @@ export type GscUrlInspectionDto = {
     richResults: Array<string>;
     referringUrls: Array<string>;
     inspectedAt: string;
+};
+
+export type HealthSnapshotDto = {
+    id: string;
+    projectId: string;
+    runId: string | null;
+    overallCitedRate: number;
+    overallMentionRate: number;
+    totalPairs: number;
+    citedPairs: number;
+    mentionedPairs: number;
+    providerBreakdown: {
+        [key: string]: {
+            citedRate: number;
+            mentionRate: number;
+            cited: number;
+            mentioned: number;
+            total: number;
+        };
+    };
+    createdAt: string;
+    status: 'ready' | 'no-data';
+    reason?: 'no-runs-yet';
 };
 
 export type IndexingRequestResponseDto = {
@@ -4551,7 +5322,32 @@ export type GetApiV1ProjectsByNameHistoryData = {
          */
         name: string;
     };
-    query?: never;
+    query?: {
+        /**
+         * Maximum number of records to return.
+         */
+        limit?: number;
+        /**
+         * Number of records to skip.
+         */
+        offset?: number;
+        /**
+         * ISO 8601 lower bound.
+         */
+        since?: string;
+        /**
+         * Exact audit action filter.
+         */
+        action?: string;
+        /**
+         * Exact actor filter.
+         */
+        actor?: string;
+        /**
+         * Exact entity type filter.
+         */
+        entityType?: string;
+    };
     url: '/api/v1/projects/{name}/history';
 };
 
@@ -4567,7 +5363,32 @@ export type GetApiV1ProjectsByNameHistoryResponse = GetApiV1ProjectsByNameHistor
 export type GetApiV1HistoryData = {
     body?: never;
     path?: never;
-    query?: never;
+    query?: {
+        /**
+         * Maximum number of records to return.
+         */
+        limit?: number;
+        /**
+         * Number of records to skip.
+         */
+        offset?: number;
+        /**
+         * ISO 8601 lower bound.
+         */
+        since?: string;
+        /**
+         * Exact audit action filter.
+         */
+        action?: string;
+        /**
+         * Exact actor filter.
+         */
+        actor?: string;
+        /**
+         * Exact entity type filter.
+         */
+        entityType?: string;
+    };
     url: '/api/v1/history';
 };
 
@@ -4627,6 +5448,10 @@ export type GetApiV1ProjectsByNameTimelineData = {
          * Filter by location label. Use an empty value to request locationless results.
          */
         location?: string;
+        /**
+         * Restrict each query timeline to snapshots from the most recent N project runs. Omit for full history.
+         */
+        limit?: number;
     };
     url: '/api/v1/projects/{name}/timeline';
 };
@@ -6893,6 +7718,10 @@ export type PostApiV1ProjectsByNameAdsConnectErrors = {
      */
     400: ErrorEnvelope;
     /**
+     * The key lacks ads.write.
+     */
+    403: ErrorEnvelope;
+    /**
      * Project not found.
      */
     404: ErrorEnvelope;
@@ -6922,6 +7751,10 @@ export type DeleteApiV1ProjectsByNameAdsConnectionData = {
 };
 
 export type DeleteApiV1ProjectsByNameAdsConnectionErrors = {
+    /**
+     * The key lacks ads.write.
+     */
+    403: ErrorEnvelope;
     /**
      * Project not found.
      */
@@ -6969,7 +7802,7 @@ export type GetApiV1ProjectsByNameAdsStatusResponses = {
 
 export type GetApiV1ProjectsByNameAdsStatusResponse = GetApiV1ProjectsByNameAdsStatusResponses[keyof GetApiV1ProjectsByNameAdsStatusResponses];
 
-export type PostApiV1ProjectsByNameAdsSyncData = {
+export type GetApiV1ProjectsByNameAdsAccountData = {
     body?: never;
     path: {
         /**
@@ -6978,12 +7811,186 @@ export type PostApiV1ProjectsByNameAdsSyncData = {
         name: string;
     };
     query?: never;
-    url: '/api/v1/projects/{name}/ads/sync';
+    url: '/api/v1/projects/{name}/ads/account';
 };
 
-export type PostApiV1ProjectsByNameAdsSyncErrors = {
+export type GetApiV1ProjectsByNameAdsAccountErrors = {
     /**
-     * No ads connection for this project.
+     * Ads connection or live reader unavailable.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * OpenAI Ads API read failed.
+     */
+    502: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAdsAccountError = GetApiV1ProjectsByNameAdsAccountErrors[keyof GetApiV1ProjectsByNameAdsAccountErrors];
+
+export type GetApiV1ProjectsByNameAdsAccountResponses = {
+    /**
+     * Live ad-account metadata and review state.
+     */
+    200: AdsAccountDto;
+};
+
+export type GetApiV1ProjectsByNameAdsAccountResponse = GetApiV1ProjectsByNameAdsAccountResponses[keyof GetApiV1ProjectsByNameAdsAccountResponses];
+
+export type GetApiV1ProjectsByNameAdsGeoSearchData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query: {
+        /**
+         * Location name or code.
+         */
+        q: string;
+        /**
+         * Maximum results.
+         */
+        limit?: number;
+    };
+    url: '/api/v1/projects/{name}/ads/geo/search';
+};
+
+export type GetApiV1ProjectsByNameAdsGeoSearchErrors = {
+    /**
+     * Invalid query or ads connection unavailable.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * OpenAI Ads API read failed.
+     */
+    502: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAdsGeoSearchError = GetApiV1ProjectsByNameAdsGeoSearchErrors[keyof GetApiV1ProjectsByNameAdsGeoSearchErrors];
+
+export type GetApiV1ProjectsByNameAdsGeoSearchResponses = {
+    /**
+     * Targetable geographic locations.
+     */
+    200: AdsGeoSearchResponse;
+};
+
+export type GetApiV1ProjectsByNameAdsGeoSearchResponse = GetApiV1ProjectsByNameAdsGeoSearchResponses[keyof GetApiV1ProjectsByNameAdsGeoSearchResponses];
+
+export type GetApiV1ProjectsByNameAdsConversionsPixelsData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/ads/conversions/pixels';
+};
+
+export type GetApiV1ProjectsByNameAdsConversionsPixelsErrors = {
+    /**
+     * Ads connection or live reader unavailable.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * OpenAI Ads API read failed.
+     */
+    502: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAdsConversionsPixelsError = GetApiV1ProjectsByNameAdsConversionsPixelsErrors[keyof GetApiV1ProjectsByNameAdsConversionsPixelsErrors];
+
+export type GetApiV1ProjectsByNameAdsConversionsPixelsResponses = {
+    /**
+     * Conversion pixels.
+     */
+    200: AdsConversionPixelListResponse;
+};
+
+export type GetApiV1ProjectsByNameAdsConversionsPixelsResponse = GetApiV1ProjectsByNameAdsConversionsPixelsResponses[keyof GetApiV1ProjectsByNameAdsConversionsPixelsResponses];
+
+export type GetApiV1ProjectsByNameAdsConversionsEventSettingsData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/ads/conversions/event-settings';
+};
+
+export type GetApiV1ProjectsByNameAdsConversionsEventSettingsErrors = {
+    /**
+     * Ads connection or live reader unavailable.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * OpenAI Ads API read failed.
+     */
+    502: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAdsConversionsEventSettingsError = GetApiV1ProjectsByNameAdsConversionsEventSettingsErrors[keyof GetApiV1ProjectsByNameAdsConversionsEventSettingsErrors];
+
+export type GetApiV1ProjectsByNameAdsConversionsEventSettingsResponses = {
+    /**
+     * Conversion event settings.
+     */
+    200: AdsConversionEventSettingListResponse;
+};
+
+export type GetApiV1ProjectsByNameAdsConversionsEventSettingsResponse = GetApiV1ProjectsByNameAdsConversionsEventSettingsResponses[keyof GetApiV1ProjectsByNameAdsConversionsEventSettingsResponses];
+
+export type GetApiV1ProjectsByNameAdsOperationsData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Comma-separated unresolved states.
+         */
+        state?: string;
+        /**
+         * Maximum receipts to return.
+         */
+        limit?: number;
+        /**
+         * Opaque keyset cursor returned as nextCursor by the previous page.
+         */
+        cursor?: string;
+    };
+    url: '/api/v1/projects/{name}/ads/operations';
+};
+
+export type GetApiV1ProjectsByNameAdsOperationsErrors = {
+    /**
+     * Invalid unresolved-state filter.
      */
     400: ErrorEnvelope;
     /**
@@ -6992,16 +7999,358 @@ export type PostApiV1ProjectsByNameAdsSyncErrors = {
     404: ErrorEnvelope;
 };
 
-export type PostApiV1ProjectsByNameAdsSyncError = PostApiV1ProjectsByNameAdsSyncErrors[keyof PostApiV1ProjectsByNameAdsSyncErrors];
+export type GetApiV1ProjectsByNameAdsOperationsError = GetApiV1ProjectsByNameAdsOperationsErrors[keyof GetApiV1ProjectsByNameAdsOperationsErrors];
 
-export type PostApiV1ProjectsByNameAdsSyncResponses = {
+export type GetApiV1ProjectsByNameAdsOperationsResponses = {
     /**
-     * Sync run queued.
+     * Unresolved operation receipts.
      */
-    200: AdsSyncResponse;
+    200: AdsUnresolvedOperationListResponse;
 };
 
-export type PostApiV1ProjectsByNameAdsSyncResponse = PostApiV1ProjectsByNameAdsSyncResponses[keyof PostApiV1ProjectsByNameAdsSyncResponses];
+export type GetApiV1ProjectsByNameAdsOperationsResponse = GetApiV1ProjectsByNameAdsOperationsResponses[keyof GetApiV1ProjectsByNameAdsOperationsResponses];
+
+export type GetApiV1ProjectsByNameAdsOperationsByOperationKeyData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+        /**
+         * Caller-supplied idempotency key.
+         */
+        operationKey: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/ads/operations/{operationKey}';
+};
+
+export type GetApiV1ProjectsByNameAdsOperationsByOperationKeyErrors = {
+    /**
+     * Project or operation not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAdsOperationsByOperationKeyError = GetApiV1ProjectsByNameAdsOperationsByOperationKeyErrors[keyof GetApiV1ProjectsByNameAdsOperationsByOperationKeyErrors];
+
+export type GetApiV1ProjectsByNameAdsOperationsByOperationKeyResponses = {
+    /**
+     * Operation receipt.
+     */
+    200: AdsOperationResponse;
+};
+
+export type GetApiV1ProjectsByNameAdsOperationsByOperationKeyResponse = GetApiV1ProjectsByNameAdsOperationsByOperationKeyResponses[keyof GetApiV1ProjectsByNameAdsOperationsByOperationKeyResponses];
+
+export type PostApiV1ProjectsByNameAdsOperationsByOperationKeyReconcileData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+        /**
+         * Caller-supplied idempotency key.
+         */
+        operationKey: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/ads/operations/{operationKey}/reconcile';
+};
+
+export type PostApiV1ProjectsByNameAdsOperationsByOperationKeyReconcileErrors = {
+    /**
+     * Receipt is not reconcilable.
+     */
+    400: ErrorEnvelope;
+    /**
+     * The key lacks ads.write.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project or operation not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * The original mutation may still be in flight.
+     */
+    409: ErrorEnvelope;
+    /**
+     * OpenAI Ads state verification failed.
+     */
+    502: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameAdsOperationsByOperationKeyReconcileError = PostApiV1ProjectsByNameAdsOperationsByOperationKeyReconcileErrors[keyof PostApiV1ProjectsByNameAdsOperationsByOperationKeyReconcileErrors];
+
+export type PostApiV1ProjectsByNameAdsOperationsByOperationKeyReconcileResponses = {
+    /**
+     * Reconciliation result and updated receipt.
+     */
+    200: AdsOperationReconcileResponse;
+};
+
+export type PostApiV1ProjectsByNameAdsOperationsByOperationKeyReconcileResponse = PostApiV1ProjectsByNameAdsOperationsByOperationKeyReconcileResponses[keyof PostApiV1ProjectsByNameAdsOperationsByOperationKeyReconcileResponses];
+
+export type PostApiV1ProjectsByNameAdsOperationsByOperationKeyResumeActivationData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+        /**
+         * Operation key of the existing campaign-tree activation receipt.
+         */
+        operationKey: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/ads/operations/{operationKey}/resume-activation';
+};
+
+export type PostApiV1ProjectsByNameAdsOperationsByOperationKeyResumeActivationErrors = {
+    /**
+     * A request body was supplied or activation recovery is not configured.
+     */
+    400: ErrorEnvelope;
+    /**
+     * The key lacks ads.activate or is not the grant-bound executor.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project, activation operation, or bound grant not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * The grant expired, its account/manifest binding changed, or its receipt conflicts.
+     */
+    409: ErrorEnvelope;
+    /**
+     * The activation receipt and approval grant binding is invalid.
+     */
+    500: ErrorEnvelope;
+    /**
+     * Activation or rollback recovery failed closed.
+     */
+    502: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameAdsOperationsByOperationKeyResumeActivationError = PostApiV1ProjectsByNameAdsOperationsByOperationKeyResumeActivationErrors[keyof PostApiV1ProjectsByNameAdsOperationsByOperationKeyResumeActivationErrors];
+
+export type PostApiV1ProjectsByNameAdsOperationsByOperationKeyResumeActivationResponses = {
+    /**
+     * Canonical activation grant, receipt, and ordered step ledger.
+     */
+    200: AdsActivateTreeResponse;
+};
+
+export type PostApiV1ProjectsByNameAdsOperationsByOperationKeyResumeActivationResponse = PostApiV1ProjectsByNameAdsOperationsByOperationKeyResumeActivationResponses[keyof PostApiV1ProjectsByNameAdsOperationsByOperationKeyResumeActivationResponses];
+
+export type PostApiV1ProjectsByNameAdsActivationGrantsData = {
+    body: {
+        manifest: {
+            campaign: {
+                id: string;
+                expectedUpdatedAt: number;
+                adGroups: Array<{
+                    id: string;
+                    expectedUpdatedAt: number;
+                    ads: Array<{
+                        id: string;
+                        expectedUpdatedAt: number;
+                    }>;
+                }>;
+            };
+        };
+        executorApiKeyId: string;
+        expiresAt: string;
+    };
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/ads/activation-grants';
+};
+
+export type PostApiV1ProjectsByNameAdsActivationGrantsErrors = {
+    /**
+     * Invalid, stale, ineligible, or non-paused campaign tree.
+     */
+    400: ErrorEnvelope;
+    /**
+     * The key lacks ads.approve.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project or executor API key not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * OpenAI Ads preflight read failed.
+     */
+    502: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameAdsActivationGrantsError = PostApiV1ProjectsByNameAdsActivationGrantsErrors[keyof PostApiV1ProjectsByNameAdsActivationGrantsErrors];
+
+export type PostApiV1ProjectsByNameAdsActivationGrantsResponses = {
+    /**
+     * Approval grant created.
+     */
+    200: AdsActivationGrantResponse;
+};
+
+export type PostApiV1ProjectsByNameAdsActivationGrantsResponse = PostApiV1ProjectsByNameAdsActivationGrantsResponses[keyof PostApiV1ProjectsByNameAdsActivationGrantsResponses];
+
+export type PostApiV1ProjectsByNameAdsActivationGrantsByGrantIdRevokeData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+        /**
+         * Activation grant ID.
+         */
+        grantId: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/ads/activation-grants/{grantId}/revoke';
+};
+
+export type PostApiV1ProjectsByNameAdsActivationGrantsByGrantIdRevokeErrors = {
+    /**
+     * A completed grant cannot accept a new cancellation request.
+     */
+    400: ErrorEnvelope;
+    /**
+     * The key lacks ads.approve.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project or activation grant not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameAdsActivationGrantsByGrantIdRevokeError = PostApiV1ProjectsByNameAdsActivationGrantsByGrantIdRevokeErrors[keyof PostApiV1ProjectsByNameAdsActivationGrantsByGrantIdRevokeErrors];
+
+export type PostApiV1ProjectsByNameAdsActivationGrantsByGrantIdRevokeResponses = {
+    /**
+     * Grant revoked, cancellation requested, or prior cancellation replayed.
+     */
+    200: AdsActivationGrantResponse;
+};
+
+export type PostApiV1ProjectsByNameAdsActivationGrantsByGrantIdRevokeResponse = PostApiV1ProjectsByNameAdsActivationGrantsByGrantIdRevokeResponses[keyof PostApiV1ProjectsByNameAdsActivationGrantsByGrantIdRevokeResponses];
+
+export type PostApiV1ProjectsByNameAdsCampaignsByIdActivateTreeData = {
+    body: {
+        operationKey: string;
+        grantId: string;
+        manifestHash: string;
+    };
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+        /**
+         * Approved campaign ID.
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/ads/campaigns/{id}/activate-tree';
+};
+
+export type PostApiV1ProjectsByNameAdsCampaignsByIdActivateTreeErrors = {
+    /**
+     * Malformed request or campaign path mismatch.
+     */
+    400: ErrorEnvelope;
+    /**
+     * The key lacks ads.activate or is not the grant-bound executor.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project, campaign, or activation grant not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Grant expired, account/manifest/entity state changed, operation key conflicted, or the grant was already used.
+     */
+    409: ErrorEnvelope;
+    /**
+     * Activation or rollback outcome failed closed.
+     */
+    502: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameAdsCampaignsByIdActivateTreeError = PostApiV1ProjectsByNameAdsCampaignsByIdActivateTreeErrors[keyof PostApiV1ProjectsByNameAdsCampaignsByIdActivateTreeErrors];
+
+export type PostApiV1ProjectsByNameAdsCampaignsByIdActivateTreeResponses = {
+    /**
+     * Canonical activation grant, receipt, and ordered step ledger.
+     */
+    200: AdsActivateTreeResponse;
+};
+
+export type PostApiV1ProjectsByNameAdsCampaignsByIdActivateTreeResponse = PostApiV1ProjectsByNameAdsCampaignsByIdActivateTreeResponses[keyof PostApiV1ProjectsByNameAdsCampaignsByIdActivateTreeResponses];
+
+export type PostApiV1ProjectsByNameAdsFilesData = {
+    body: {
+        operationKey: string;
+        imageUrl: string;
+    };
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/ads/files';
+};
+
+export type PostApiV1ProjectsByNameAdsFilesErrors = {
+    /**
+     * Invalid request or ads connection unavailable.
+     */
+    400: ErrorEnvelope;
+    /**
+     * The key lacks ads.write.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Operation key was already used for a different request.
+     */
+    409: ErrorEnvelope;
+    /**
+     * Upstream outcome failed or is unknown.
+     */
+    502: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameAdsFilesError = PostApiV1ProjectsByNameAdsFilesErrors[keyof PostApiV1ProjectsByNameAdsFilesErrors];
+
+export type PostApiV1ProjectsByNameAdsFilesResponses = {
+    /**
+     * Upload receipt.
+     */
+    200: AdsOperationResponse;
+};
+
+export type PostApiV1ProjectsByNameAdsFilesResponse = PostApiV1ProjectsByNameAdsFilesResponses[keyof PostApiV1ProjectsByNameAdsFilesResponses];
 
 export type GetApiV1ProjectsByNameAdsCampaignsData = {
     body?: never;
@@ -7032,6 +8381,545 @@ export type GetApiV1ProjectsByNameAdsCampaignsResponses = {
 };
 
 export type GetApiV1ProjectsByNameAdsCampaignsResponse = GetApiV1ProjectsByNameAdsCampaignsResponses[keyof GetApiV1ProjectsByNameAdsCampaignsResponses];
+
+export type PostApiV1ProjectsByNameAdsCampaignsData = {
+    body: {
+        operationKey: string;
+        name: string;
+        description?: string;
+        startTime?: number;
+        endTime?: number;
+        lifetimeSpendLimitMicros: number;
+        locationIds: Array<string>;
+        biddingType?: 'impressions' | 'clicks';
+        /**
+         * Required and non-empty when biddingType is clicks.
+         */
+        conversionEventSettingIds?: Array<string>;
+    };
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/ads/campaigns';
+};
+
+export type PostApiV1ProjectsByNameAdsCampaignsErrors = {
+    /**
+     * Invalid request or ads connection unavailable.
+     */
+    400: ErrorEnvelope;
+    /**
+     * The key lacks ads.write.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Operation key was already used for a different request.
+     */
+    409: ErrorEnvelope;
+    /**
+     * Upstream outcome failed or is unknown.
+     */
+    502: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameAdsCampaignsError = PostApiV1ProjectsByNameAdsCampaignsErrors[keyof PostApiV1ProjectsByNameAdsCampaignsErrors];
+
+export type PostApiV1ProjectsByNameAdsCampaignsResponses = {
+    /**
+     * Paused campaign creation receipt.
+     */
+    200: AdsOperationResponse;
+};
+
+export type PostApiV1ProjectsByNameAdsCampaignsResponse = PostApiV1ProjectsByNameAdsCampaignsResponses[keyof PostApiV1ProjectsByNameAdsCampaignsResponses];
+
+export type PostApiV1ProjectsByNameAdsAdGroupsData = {
+    body: {
+        operationKey: string;
+        campaignId: string;
+        name: string;
+        description?: string;
+        contextHints: Array<string>;
+        maxBidMicros: number;
+        billingEventType?: 'impression' | 'click';
+    };
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/ads/ad-groups';
+};
+
+export type PostApiV1ProjectsByNameAdsAdGroupsErrors = {
+    /**
+     * Invalid request or ads connection unavailable.
+     */
+    400: ErrorEnvelope;
+    /**
+     * The key lacks ads.write.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Operation key was already used for a different request.
+     */
+    409: ErrorEnvelope;
+    /**
+     * Upstream outcome failed or is unknown.
+     */
+    502: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameAdsAdGroupsError = PostApiV1ProjectsByNameAdsAdGroupsErrors[keyof PostApiV1ProjectsByNameAdsAdGroupsErrors];
+
+export type PostApiV1ProjectsByNameAdsAdGroupsResponses = {
+    /**
+     * Paused ad-group creation receipt.
+     */
+    200: AdsOperationResponse;
+};
+
+export type PostApiV1ProjectsByNameAdsAdGroupsResponse = PostApiV1ProjectsByNameAdsAdGroupsResponses[keyof PostApiV1ProjectsByNameAdsAdGroupsResponses];
+
+export type PostApiV1ProjectsByNameAdsAdsData = {
+    body: {
+        operationKey: string;
+        adGroupId: string;
+        name: string;
+        creative: {
+            title: string;
+            body: string;
+            targetUrl: string;
+            fileId: string;
+        };
+    };
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/ads/ads';
+};
+
+export type PostApiV1ProjectsByNameAdsAdsErrors = {
+    /**
+     * Invalid request or ads connection unavailable.
+     */
+    400: ErrorEnvelope;
+    /**
+     * The key lacks ads.write.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Operation key was already used for a different request.
+     */
+    409: ErrorEnvelope;
+    /**
+     * Upstream outcome failed or is unknown.
+     */
+    502: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameAdsAdsError = PostApiV1ProjectsByNameAdsAdsErrors[keyof PostApiV1ProjectsByNameAdsAdsErrors];
+
+export type PostApiV1ProjectsByNameAdsAdsResponses = {
+    /**
+     * Paused ad creation receipt.
+     */
+    200: AdsOperationResponse;
+};
+
+export type PostApiV1ProjectsByNameAdsAdsResponse = PostApiV1ProjectsByNameAdsAdsResponses[keyof PostApiV1ProjectsByNameAdsAdsResponses];
+
+export type PostApiV1ProjectsByNameAdsCampaignsByIdData = {
+    body: {
+        operationKey: string;
+        expectedUpdatedAt: number;
+        name?: string;
+        description?: string | null;
+        startTime?: number | null;
+        endTime?: number | null;
+        lifetimeSpendLimitMicros?: number;
+        locationIds?: Array<string>;
+    };
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+        /**
+         * Campaign ID.
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/ads/campaigns/{id}';
+};
+
+export type PostApiV1ProjectsByNameAdsCampaignsByIdErrors = {
+    /**
+     * Invalid request, active entity, or stale expectedUpdatedAt.
+     */
+    400: ErrorEnvelope;
+    /**
+     * The key lacks ads.write.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Operation key was already used for a different request.
+     */
+    409: ErrorEnvelope;
+    /**
+     * Upstream outcome failed or is unknown.
+     */
+    502: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameAdsCampaignsByIdError = PostApiV1ProjectsByNameAdsCampaignsByIdErrors[keyof PostApiV1ProjectsByNameAdsCampaignsByIdErrors];
+
+export type PostApiV1ProjectsByNameAdsCampaignsByIdResponses = {
+    /**
+     * Campaign update receipt.
+     */
+    200: AdsOperationResponse;
+};
+
+export type PostApiV1ProjectsByNameAdsCampaignsByIdResponse = PostApiV1ProjectsByNameAdsCampaignsByIdResponses[keyof PostApiV1ProjectsByNameAdsCampaignsByIdResponses];
+
+export type PostApiV1ProjectsByNameAdsAdGroupsByIdData = {
+    body: {
+        operationKey: string;
+        expectedUpdatedAt: number;
+        name?: string;
+        description?: string | null;
+        contextHints?: Array<string>;
+        maxBidMicros?: number;
+    };
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+        /**
+         * Ad group ID.
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/ads/ad-groups/{id}';
+};
+
+export type PostApiV1ProjectsByNameAdsAdGroupsByIdErrors = {
+    /**
+     * Invalid request, active entity, or stale expectedUpdatedAt.
+     */
+    400: ErrorEnvelope;
+    /**
+     * The key lacks ads.write.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Operation key was already used for a different request.
+     */
+    409: ErrorEnvelope;
+    /**
+     * Upstream outcome failed or is unknown.
+     */
+    502: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameAdsAdGroupsByIdError = PostApiV1ProjectsByNameAdsAdGroupsByIdErrors[keyof PostApiV1ProjectsByNameAdsAdGroupsByIdErrors];
+
+export type PostApiV1ProjectsByNameAdsAdGroupsByIdResponses = {
+    /**
+     * Ad-group update receipt.
+     */
+    200: AdsOperationResponse;
+};
+
+export type PostApiV1ProjectsByNameAdsAdGroupsByIdResponse = PostApiV1ProjectsByNameAdsAdGroupsByIdResponses[keyof PostApiV1ProjectsByNameAdsAdGroupsByIdResponses];
+
+export type PostApiV1ProjectsByNameAdsAdsByIdData = {
+    body: {
+        operationKey: string;
+        expectedUpdatedAt: number;
+        name?: string;
+        creative?: {
+            title: string;
+            body: string;
+            targetUrl: string;
+            fileId: string;
+        };
+    };
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+        /**
+         * Ad ID.
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/ads/ads/{id}';
+};
+
+export type PostApiV1ProjectsByNameAdsAdsByIdErrors = {
+    /**
+     * Invalid request, active entity, or stale expectedUpdatedAt.
+     */
+    400: ErrorEnvelope;
+    /**
+     * The key lacks ads.write.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Operation key was already used for a different request.
+     */
+    409: ErrorEnvelope;
+    /**
+     * Upstream outcome failed or is unknown.
+     */
+    502: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameAdsAdsByIdError = PostApiV1ProjectsByNameAdsAdsByIdErrors[keyof PostApiV1ProjectsByNameAdsAdsByIdErrors];
+
+export type PostApiV1ProjectsByNameAdsAdsByIdResponses = {
+    /**
+     * Ad update receipt.
+     */
+    200: AdsOperationResponse;
+};
+
+export type PostApiV1ProjectsByNameAdsAdsByIdResponse = PostApiV1ProjectsByNameAdsAdsByIdResponses[keyof PostApiV1ProjectsByNameAdsAdsByIdResponses];
+
+export type PostApiV1ProjectsByNameAdsCampaignsByIdPauseData = {
+    body: {
+        operationKey: string;
+    };
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+        /**
+         * Campaign ID.
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/ads/campaigns/{id}/pause';
+};
+
+export type PostApiV1ProjectsByNameAdsCampaignsByIdPauseErrors = {
+    /**
+     * Invalid request or ads connection unavailable.
+     */
+    400: ErrorEnvelope;
+    /**
+     * The key lacks ads.write.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Operation key was already used for a different request.
+     */
+    409: ErrorEnvelope;
+    /**
+     * Upstream outcome failed or is unknown.
+     */
+    502: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameAdsCampaignsByIdPauseError = PostApiV1ProjectsByNameAdsCampaignsByIdPauseErrors[keyof PostApiV1ProjectsByNameAdsCampaignsByIdPauseErrors];
+
+export type PostApiV1ProjectsByNameAdsCampaignsByIdPauseResponses = {
+    /**
+     * Campaign pause receipt.
+     */
+    200: AdsOperationResponse;
+};
+
+export type PostApiV1ProjectsByNameAdsCampaignsByIdPauseResponse = PostApiV1ProjectsByNameAdsCampaignsByIdPauseResponses[keyof PostApiV1ProjectsByNameAdsCampaignsByIdPauseResponses];
+
+export type PostApiV1ProjectsByNameAdsAdGroupsByIdPauseData = {
+    body: {
+        operationKey: string;
+    };
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+        /**
+         * Ad group ID.
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/ads/ad-groups/{id}/pause';
+};
+
+export type PostApiV1ProjectsByNameAdsAdGroupsByIdPauseErrors = {
+    /**
+     * Invalid request or ads connection unavailable.
+     */
+    400: ErrorEnvelope;
+    /**
+     * The key lacks ads.write.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Operation key was already used for a different request.
+     */
+    409: ErrorEnvelope;
+    /**
+     * Upstream outcome failed or is unknown.
+     */
+    502: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameAdsAdGroupsByIdPauseError = PostApiV1ProjectsByNameAdsAdGroupsByIdPauseErrors[keyof PostApiV1ProjectsByNameAdsAdGroupsByIdPauseErrors];
+
+export type PostApiV1ProjectsByNameAdsAdGroupsByIdPauseResponses = {
+    /**
+     * Ad-group pause receipt.
+     */
+    200: AdsOperationResponse;
+};
+
+export type PostApiV1ProjectsByNameAdsAdGroupsByIdPauseResponse = PostApiV1ProjectsByNameAdsAdGroupsByIdPauseResponses[keyof PostApiV1ProjectsByNameAdsAdGroupsByIdPauseResponses];
+
+export type PostApiV1ProjectsByNameAdsAdsByIdPauseData = {
+    body: {
+        operationKey: string;
+    };
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+        /**
+         * Ad ID.
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/ads/ads/{id}/pause';
+};
+
+export type PostApiV1ProjectsByNameAdsAdsByIdPauseErrors = {
+    /**
+     * Invalid request or ads connection unavailable.
+     */
+    400: ErrorEnvelope;
+    /**
+     * The key lacks ads.write.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Operation key was already used for a different request.
+     */
+    409: ErrorEnvelope;
+    /**
+     * Upstream outcome failed or is unknown.
+     */
+    502: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameAdsAdsByIdPauseError = PostApiV1ProjectsByNameAdsAdsByIdPauseErrors[keyof PostApiV1ProjectsByNameAdsAdsByIdPauseErrors];
+
+export type PostApiV1ProjectsByNameAdsAdsByIdPauseResponses = {
+    /**
+     * Ad pause receipt.
+     */
+    200: AdsOperationResponse;
+};
+
+export type PostApiV1ProjectsByNameAdsAdsByIdPauseResponse = PostApiV1ProjectsByNameAdsAdsByIdPauseResponses[keyof PostApiV1ProjectsByNameAdsAdsByIdPauseResponses];
+
+export type PostApiV1ProjectsByNameAdsSyncData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/ads/sync';
+};
+
+export type PostApiV1ProjectsByNameAdsSyncErrors = {
+    /**
+     * No ads connection for this project.
+     */
+    400: ErrorEnvelope;
+    /**
+     * The key lacks ads.write.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameAdsSyncError = PostApiV1ProjectsByNameAdsSyncErrors[keyof PostApiV1ProjectsByNameAdsSyncErrors];
+
+export type PostApiV1ProjectsByNameAdsSyncResponses = {
+    /**
+     * Sync run queued.
+     */
+    200: AdsSyncResponse;
+};
+
+export type PostApiV1ProjectsByNameAdsSyncResponse = PostApiV1ProjectsByNameAdsSyncResponses[keyof PostApiV1ProjectsByNameAdsSyncResponses];
 
 export type GetApiV1ProjectsByNameAdsInsightsData = {
     body?: never;
@@ -8952,9 +10840,7 @@ export type GetApiV1ProjectsByNameHealthLatestResponses = {
     /**
      * Health snapshot or no-data sentinel returned.
      */
-    200: {
-        [key: string]: unknown;
-    };
+    200: HealthSnapshotDto;
 };
 
 export type GetApiV1ProjectsByNameHealthLatestResponse = GetApiV1ProjectsByNameHealthLatestResponses[keyof GetApiV1ProjectsByNameHealthLatestResponses];
@@ -8971,7 +10857,7 @@ export type GetApiV1ProjectsByNameHealthHistoryData = {
         /**
          * Max results.
          */
-        limit?: string;
+        limit?: number;
     };
     url: '/api/v1/projects/{name}/health/history';
 };
@@ -8989,9 +10875,7 @@ export type GetApiV1ProjectsByNameHealthHistoryResponses = {
     /**
      * Health history returned.
      */
-    200: Array<{
-        [key: string]: unknown;
-    }>;
+    200: Array<HealthSnapshotDto>;
 };
 
 export type GetApiV1ProjectsByNameHealthHistoryResponse = GetApiV1ProjectsByNameHealthHistoryResponses[keyof GetApiV1ProjectsByNameHealthHistoryResponses];
@@ -10697,13 +12581,18 @@ export type GetApiV1ProjectsByNameTechnicalAeoData = {
          */
         name: string;
     };
-    query?: never;
+    query?: {
+        /**
+         * Historical site-audit run ID. Omit for the latest audit.
+         */
+        runId?: string;
+    };
     url: '/api/v1/projects/{name}/technical-aeo';
 };
 
 export type GetApiV1ProjectsByNameTechnicalAeoErrors = {
     /**
-     * Project not found.
+     * Project or site-audit run not found.
      */
     404: ErrorEnvelope;
 };
@@ -10729,6 +12618,10 @@ export type GetApiV1ProjectsByNameTechnicalAeoPagesData = {
     };
     query?: {
         /**
+         * Historical site-audit run ID. Omit for the latest audit.
+         */
+        runId?: string;
+        /**
          * Filter by page audit status: `success` or `error`.
          */
         status?: 'success' | 'error';
@@ -10750,7 +12643,7 @@ export type GetApiV1ProjectsByNameTechnicalAeoPagesData = {
 
 export type GetApiV1ProjectsByNameTechnicalAeoPagesErrors = {
     /**
-     * Project not found.
+     * Project or site-audit run not found.
      */
     404: ErrorEnvelope;
 };

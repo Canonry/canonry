@@ -472,7 +472,11 @@ importers:
         specifier: workspace:*
         version: link:../contracts
 
-  packages/integration-openai-ads: {}
+  packages/integration-openai-ads:
+    dependencies:
+      '@ainyc/canonry-contracts':
+        specifier: workspace:*
+        version: link:../contracts
 
   packages/integration-traffic:
     dependencies:

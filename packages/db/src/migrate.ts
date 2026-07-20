@@ -2163,6 +2163,141 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
     },
   },
   {
+    version: 99,
+    name: 'ads-operator-lifecycle',
+    statements: [
+      `ALTER TABLE ads_campaigns ADD COLUMN description TEXT`,
+      `ALTER TABLE ads_campaigns ADD COLUMN start_time INTEGER`,
+      `ALTER TABLE ads_campaigns ADD COLUMN end_time INTEGER`,
+      `ALTER TABLE ads_ad_groups ADD COLUMN description TEXT`,
+      `CREATE TABLE IF NOT EXISTS ads_operations (
+        id                    TEXT PRIMARY KEY,
+        project_id            TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        operation_key         TEXT NOT NULL,
+        request_hash          TEXT NOT NULL,
+        kind                  TEXT NOT NULL,
+        state                 TEXT NOT NULL,
+        entity_type           TEXT,
+        entity_id             TEXT,
+        upstream_updated_at   INTEGER,
+        error_code            TEXT,
+        error_message         TEXT,
+        created_at            TEXT NOT NULL,
+        updated_at            TEXT NOT NULL
+      )`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_ads_operations_project_key ON ads_operations(project_id, operation_key)`,
+      `CREATE INDEX IF NOT EXISTS idx_ads_operations_project_created ON ads_operations(project_id, created_at)`,
+      `CREATE INDEX IF NOT EXISTS idx_ads_operations_project_state ON ads_operations(project_id, state)`,
+    ],
+  },
+  {
+    version: 100,
+    name: 'ads-planning-read-model',
+    statements: [
+      `ALTER TABLE ads_connections ADD COLUMN review_status TEXT`,
+      `ALTER TABLE ads_connections ADD COLUMN integrity_review_status TEXT`,
+      `ALTER TABLE ads_connections ADD COLUMN integrity_decision TEXT`,
+      `ALTER TABLE ads_campaigns ADD COLUMN conversion_event_setting_ids TEXT NOT NULL DEFAULT '[]'`,
+    ],
+  },
+  {
+    version: 101,
+    name: 'ads-operation-reconciliation',
+    statements: [
+      `ALTER TABLE ads_operations ADD COLUMN ad_account_id TEXT`,
+      `ALTER TABLE ads_operations ADD COLUMN reconcile_strategy TEXT`,
+      `ALTER TABLE ads_operations ADD COLUMN reconcile_parent_id TEXT`,
+      `ALTER TABLE ads_operations ADD COLUMN reconcile_fingerprint TEXT`,
+      `ALTER TABLE ads_operations ADD COLUMN reconcile_fields TEXT`,
+      `ALTER TABLE ads_operations ADD COLUMN reconcile_attempts INTEGER NOT NULL DEFAULT 0`,
+      `ALTER TABLE ads_operations ADD COLUMN last_reconciled_at TEXT`,
+      `ALTER TABLE ads_operations ADD COLUMN lease_owner TEXT`,
+      `ALTER TABLE ads_operations ADD COLUMN lease_expires_at TEXT`,
+      `CREATE INDEX IF NOT EXISTS idx_ads_operations_reconcile_lease ON ads_operations(state, lease_expires_at, updated_at)`,
+    ],
+  },
+  {
+    version: 102,
+    name: 'ads-approval-bound-activation',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS ads_activation_grants (
+        id                       TEXT PRIMARY KEY,
+        project_id               TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        ad_account_id            TEXT NOT NULL,
+        manifest_hash            TEXT NOT NULL,
+        manifest                 TEXT NOT NULL,
+        executor_api_key_id      TEXT NOT NULL REFERENCES api_keys(id),
+        approver_api_key_id      TEXT NOT NULL REFERENCES api_keys(id),
+        state                    TEXT NOT NULL CHECK (state IN ('approved', 'executing', 'consumed', 'revoked', 'expired', 'unknown')),
+        expires_at               TEXT NOT NULL,
+        operation_id             TEXT REFERENCES ads_operations(id),
+        approved_at              TEXT NOT NULL,
+        execution_started_at     TEXT,
+        consumed_at              TEXT,
+        revoked_at               TEXT,
+        expired_at               TEXT,
+        created_at               TEXT NOT NULL,
+        updated_at               TEXT NOT NULL,
+        CHECK (executor_api_key_id <> approver_api_key_id),
+        CHECK (length(manifest_hash) = 64 AND manifest_hash NOT GLOB '*[^0-9a-f]*'),
+        CHECK (json_valid(manifest)),
+        CHECK (
+          (state = 'approved' AND operation_id IS NULL AND execution_started_at IS NULL AND consumed_at IS NULL AND revoked_at IS NULL AND expired_at IS NULL)
+          OR (state = 'executing' AND operation_id IS NOT NULL AND execution_started_at IS NOT NULL AND consumed_at IS NULL AND revoked_at IS NULL AND expired_at IS NULL)
+          OR (state = 'consumed' AND operation_id IS NOT NULL AND execution_started_at IS NOT NULL AND consumed_at IS NOT NULL AND revoked_at IS NULL AND expired_at IS NULL)
+          OR (state = 'revoked' AND operation_id IS NULL AND execution_started_at IS NULL AND consumed_at IS NULL AND revoked_at IS NOT NULL AND expired_at IS NULL)
+          OR (state = 'expired' AND operation_id IS NULL AND execution_started_at IS NULL AND consumed_at IS NULL AND revoked_at IS NULL AND expired_at IS NOT NULL)
+          OR (state = 'unknown' AND operation_id IS NOT NULL AND execution_started_at IS NOT NULL AND consumed_at IS NULL AND revoked_at IS NULL AND expired_at IS NULL)
+        )
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_ads_activation_grants_project ON ads_activation_grants(project_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_ads_activation_grants_project_state_expiry ON ads_activation_grants(project_id, state, expires_at)`,
+      `CREATE INDEX IF NOT EXISTS idx_ads_activation_grants_project_manifest ON ads_activation_grants(project_id, manifest_hash)`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_ads_activation_grants_operation ON ads_activation_grants(operation_id)`,
+      `CREATE TABLE IF NOT EXISTS ads_operation_steps (
+        id                       TEXT PRIMARY KEY,
+        operation_id             TEXT NOT NULL REFERENCES ads_operations(id) ON DELETE CASCADE,
+        ordinal                  INTEGER NOT NULL CHECK (ordinal >= 0),
+        entity_type              TEXT NOT NULL CHECK (entity_type IN ('campaign', 'ad_group', 'ad')),
+        entity_id                TEXT NOT NULL,
+        expected_updated_at      INTEGER NOT NULL CHECK (expected_updated_at >= 0),
+        state                    TEXT NOT NULL CHECK (state IN ('pending', 'executing', 'active', 'failed', 'rollback_executing', 'rolled_back', 'rollback_failed', 'unknown')),
+        provider_updated_at      INTEGER,
+        error_code               TEXT,
+        error_message            TEXT,
+        remediation              TEXT,
+        started_at               TEXT,
+        finished_at              TEXT,
+        created_at               TEXT NOT NULL,
+        updated_at               TEXT NOT NULL,
+        CHECK (provider_updated_at IS NULL OR provider_updated_at >= 0),
+        CHECK (
+          (state = 'pending' AND provider_updated_at IS NULL AND error_code IS NULL AND error_message IS NULL AND remediation IS NULL AND started_at IS NULL AND finished_at IS NULL)
+          OR (state = 'executing' AND provider_updated_at IS NULL AND error_code IS NULL AND error_message IS NULL AND remediation IS NULL AND started_at IS NOT NULL AND finished_at IS NULL)
+          OR (state = 'active' AND provider_updated_at IS NOT NULL AND error_code IS NULL AND error_message IS NULL AND remediation IS NULL AND started_at IS NOT NULL AND finished_at IS NOT NULL)
+          OR (state = 'failed' AND error_code IS NOT NULL AND error_message IS NOT NULL AND remediation IS NOT NULL AND started_at IS NOT NULL AND finished_at IS NOT NULL)
+          OR (state = 'rollback_executing' AND provider_updated_at IS NOT NULL AND error_code IS NULL AND error_message IS NULL AND remediation IS NOT NULL AND started_at IS NOT NULL AND finished_at IS NULL)
+          OR (state = 'rolled_back' AND provider_updated_at IS NOT NULL AND error_code IS NULL AND error_message IS NULL AND remediation IS NOT NULL AND started_at IS NOT NULL AND finished_at IS NOT NULL)
+          OR (state = 'rollback_failed' AND provider_updated_at IS NOT NULL AND error_code IS NOT NULL AND error_message IS NOT NULL AND remediation IS NOT NULL AND started_at IS NOT NULL AND finished_at IS NOT NULL)
+          OR (state = 'unknown' AND error_code IS NOT NULL AND error_message IS NOT NULL AND remediation IS NOT NULL AND started_at IS NOT NULL AND finished_at IS NOT NULL)
+        )
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_ads_operation_steps_operation_state ON ads_operation_steps(operation_id, state)`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_ads_operation_steps_operation_ordinal ON ads_operation_steps(operation_id, ordinal)`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_ads_operation_steps_operation_entity ON ads_operation_steps(operation_id, entity_type, entity_id)`,
+    ],
+  },
+  {
+    version: 103,
+    name: 'ads-activation-revocation-control',
+    // Keep the existing grant-state CHECK downgrade-safe. This nullable control
+    // flag lets a human stop an executing receipt. Verified rollback consumes
+    // the one-shot grant, while ambiguous rollback remains unknown.
+    statements: [
+      `ALTER TABLE ads_activation_grants ADD COLUMN revocation_requested_at TEXT`,
+    ],
+  },
+  {
     version: 104,
     name: 'project-provider-models',
     // Additive JSON text default keeps older binaries fully functional after a

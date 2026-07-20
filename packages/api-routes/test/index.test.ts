@@ -669,6 +669,17 @@ describe('api-routes', () => {
     const body = JSON.parse(res.payload)
     expect(body).toBeInstanceOf(Array)
     expect(body.length).toBeGreaterThan(0)
+    expect(body[0]).toHaveProperty('userAgent')
+    expect(body[0]).toHaveProperty('actorSession')
+
+    const limited = await app.inject({ method: 'GET', url: '/api/v1/projects/my-site/history?limit=1' })
+    expect(limited.statusCode).toBe(200)
+    expect(JSON.parse(limited.payload)).toHaveLength(1)
+
+    const action = body[0]!.action
+    const filtered = await app.inject({ method: 'GET', url: `/api/v1/projects/my-site/history?action=${encodeURIComponent(action)}` })
+    expect(filtered.statusCode).toBe(200)
+    expect((JSON.parse(filtered.payload) as Array<{ action: string }>).every((entry) => entry.action === action)).toBe(true)
   })
 
   it('run detail and project snapshot history expose recommendedCompetitors', async () => {
@@ -852,6 +863,12 @@ describe('api-routes', () => {
       visibilityState: 'visible',
       visibilityTransition: 'emerging',
     }))
+
+    const limitedRes = await app.inject({ method: 'GET', url: '/api/v1/projects/timeline-visibility-project/timeline?limit=1' })
+    expect(limitedRes.statusCode).toBe(200)
+    const limitedBody = JSON.parse(limitedRes.payload) as Array<{ runs: Array<{ runId: string }> }>
+    expect(limitedBody[0]?.runs).toHaveLength(1)
+    expect(limitedBody[0]?.runs[0]?.runId).toBe(run2Id)
   })
 
   it('GET /api/v1/projects/:name/timeline?location=X returns only that location and exposes location on run entries', async () => {
@@ -1027,6 +1044,20 @@ describe('api-routes', () => {
         rawResponse: '{"groundingSources":[],"searchQueries":[]}',
         createdAt: run2At,
       },
+      {
+        id: crypto.randomUUID(),
+        runId: run2Id,
+        queryId,
+        provider: 'openai',
+        citationState: 'cited',
+        answerMentioned: false,
+        answerText: 'Here are several vendors to consider.',
+        citedDomains: ['example.com'],
+        competitorOverlap: [],
+        recommendedCompetitors: [],
+        rawResponse: '{"groundingSources":[],"searchQueries":[]}',
+        createdAt: run2At,
+      },
     ]).run()
 
     const res = await app.inject({
@@ -1050,12 +1081,12 @@ describe('api-routes', () => {
     expect(body.diff).toEqual([
       expect.objectContaining({
         run1State: 'not-cited',
-        run2State: 'not-cited',
+        run2State: 'cited',
         run1AnswerMentioned: false,
         run2AnswerMentioned: true,
         run1VisibilityState: 'not-visible',
         run2VisibilityState: 'visible',
-        changed: false,
+        changed: true,
         visibilityChanged: true,
       }),
     ])

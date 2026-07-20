@@ -3,6 +3,9 @@ import { eq } from 'drizzle-orm'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { apiKeys, projects, runs } from '@ainyc/canonry-db'
 import {
+  ADS_ACTIVATE_SCOPE,
+  ADS_APPROVE_SCOPE,
+  ADS_WRITE_SCOPE,
   authRequired,
   authInvalid,
   forbidden,
@@ -18,6 +21,27 @@ import {
  * CORS preflight — are never blocked.
  */
 const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
+
+const ADS_MUTATION_SCOPES: ReadonlySet<string> = new Set([
+  ADS_WRITE_SCOPE,
+  ADS_APPROVE_SCOPE,
+  ADS_ACTIVATE_SCOPE,
+])
+
+function isAdsMutationOnlyKey(scopes: readonly string[]): boolean {
+  const writeGrants = scopes.filter((scope) =>
+    scope === '*'
+    || scope === 'write'
+    || scope.endsWith('.write')
+    || scope === ADS_APPROVE_SCOPE
+    || scope === ADS_ACTIVATE_SCOPE)
+  return writeGrants.length > 0 && writeGrants.every((scope) => ADS_MUTATION_SCOPES.has(scope))
+}
+
+function isAdsWriteRoute(url: string): boolean {
+  const rest = projectRouteRest(url)
+  return rest !== null && rest.startsWith('ads/')
+}
 
 /**
  * Resolved API key attached to every authenticated request. Used by scope
@@ -308,6 +332,20 @@ export async function authPlugin(app: FastifyInstance, opts: AuthPluginOptions =
     // the `last_used_at` write above (infrastructural usage tracking).
     if (isReadOnlyKey(scopes) && WRITE_METHODS.has(request.method)) {
       throw forbidden('This API key is read-only and cannot perform write operations.')
+    }
+
+    // The named ads scopes are delegated operator/approver grants. Keep a key
+    // whose write capabilities are exclusively ads-related inside the
+    // project's `/ads/*` surface even though older write routes still rely on
+    // the historical read-only-vs-write classifier. Every ads mutation also
+    // calls requireScope(), so the route and the key must agree in both
+    // directions. Wildcard/root keys retain the existing full-instance access.
+    if (
+      isAdsMutationOnlyKey(scopes) &&
+      WRITE_METHODS.has(request.method) &&
+      !isAdsWriteRoute(url)
+    ) {
+      throw forbidden('This API key can only perform OpenAI Ads write operations.')
     }
 
     enforceEmbedProjectTabs(request, opts.embedProjectTabs)

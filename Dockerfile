@@ -34,6 +34,12 @@ RUN chmod +x /usr/local/bin/canonry-entrypoint \
 
 EXPOSE 4100
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s CMD ["node", "-e", "const port = process.env.CANONRY_PORT || process.env.PORT || '4100'; fetch('http://127.0.0.1:' + port + '/health').then((res) => process.exit(res.ok ? 0 : 1)).catch(() => process.exit(1))"]
+# Liveness probe. Deliberately NOT `node -e`: booting a second Node runtime costs
+# ~51 MiB RSS and ~106 ms EVERY interval, in EVERY container (measured on a live
+# 20-bookworm-slim engine container). bash's /dev/tcp does the same HTTP GET for
+# ~1.6 MiB and ~3 ms with no added packages: the slim base ships bash but has no
+# curl, wget, or netcat.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
+  CMD ["bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/${CANONRY_PORT:-${PORT:-4100}} && printf 'GET /health HTTP/1.0\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && head -1 <&3 | grep -q '^HTTP/1\\.[01] 200'"]
 
 ENTRYPOINT ["canonry-entrypoint"]

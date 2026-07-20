@@ -611,9 +611,9 @@ export function fetchCompetitors(name: string): Promise<ApiCompetitor[]> {
   return invokeWeb<ApiCompetitor[]>(() => getApiV1ProjectsByNameCompetitors({ client: heyClient, path: { name } }))
 }
 
-export function fetchTimeline(name: string, location?: string): Promise<ApiTimelineEntry[]> {
+export function fetchTimeline(name: string, location?: string, limit?: number): Promise<ApiTimelineEntry[]> {
   return invokeWeb<ApiTimelineEntry[]>(() =>
-    getApiV1ProjectsByNameTimeline({ client: heyClient, path: { name }, query: { location } }),
+    getApiV1ProjectsByNameTimeline({ client: heyClient, path: { name }, query: { location, limit } }),
   )
 }
 

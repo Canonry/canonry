@@ -89,8 +89,10 @@ export function invalidateQueriesForRunKind(
       // is accepted rather than paying an extra full-history scan on every
       // sweep completion, which is the hot path here.
       return
-    case RunKinds['site-audit']:
     case RunKinds['backlink-extract']:
+      return
+    case RunKinds['site-audit']:
+      invalidateByOpPrefix(queryClient, 'getApiV1ProjectsByNameTechnicalAeo')
       return
     case RunKinds['gsc-sync']:
     case RunKinds['inspect-sitemap']:

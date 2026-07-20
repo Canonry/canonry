@@ -1,0 +1,53 @@
+import type {
+  OpenAiAdsBiddingConfigRequest,
+  OpenAiAdsBiddingType,
+  OpenAiAdsBillingEventType,
+  OpenAiAdsCreateAdGroupRequest,
+  OpenAiAdsCreateAdRequest,
+  OpenAiAdsCreateCampaignRequest,
+  OpenAiAdsConversionEventSetting,
+  OpenAiAdsConversionPixel,
+  OpenAiAdsGeoLocation,
+  OpenAiAdsGeoSearchResponse,
+  OpenAiAdsUpdateAdGroupRequest,
+  OpenAiAdsUpdateAdRequest,
+  OpenAiAdsUpdateCampaignRequest,
+} from './index.js'
+
+type Assert<T extends true> = T
+type AssertFalse<T extends false> = T
+type Equal<A, B> =
+  (<T>() => T extends A ? 1 : 2) extends
+    (<T>() => T extends B ? 1 : 2)
+    ? true
+    : false
+type AcceptsActiveStatus<T> = { name: string; status: 'active' } extends T ? true : false
+
+export type CampaignCreateIsPausedOnly = Assert<Equal<OpenAiAdsCreateCampaignRequest['status'], 'paused'>>
+export type CampaignCreateBiddingIsOptionalAndClosed = Assert<
+  Equal<OpenAiAdsCreateCampaignRequest['bidding_type'], OpenAiAdsBiddingType | undefined>
+>
+export type CampaignCreateConversionIdsAreOptional = Assert<
+  Equal<OpenAiAdsCreateCampaignRequest['conversion_event_setting_ids'], string[] | undefined>
+>
+export type AdGroupCreateIsPausedOnly = Assert<Equal<OpenAiAdsCreateAdGroupRequest['status'], 'paused'>>
+export type AdGroupBillingEventsAreClosed = Assert<
+  Equal<OpenAiAdsBiddingConfigRequest['billing_event_type'], OpenAiAdsBillingEventType>
+>
+export type ClickBillingIsSupported = Assert<'click' extends OpenAiAdsBillingEventType ? true : false>
+export type AdCreateIsPausedOnly = Assert<Equal<OpenAiAdsCreateAdRequest['status'], 'paused'>>
+export type CampaignUpdateRejectsActive = AssertFalse<AcceptsActiveStatus<OpenAiAdsUpdateCampaignRequest>>
+export type AdGroupUpdateRejectsActive = AssertFalse<AcceptsActiveStatus<OpenAiAdsUpdateAdGroupRequest>>
+export type AdUpdateRejectsActive = AssertFalse<AcceptsActiveStatus<OpenAiAdsUpdateAdRequest>>
+export type CampaignUpdateRejectsNullTargeting = AssertFalse<
+  { targeting: null } extends OpenAiAdsUpdateCampaignRequest ? true : false
+>
+export type GeoSearchResultsUseGeoLocations = Assert<
+  Equal<OpenAiAdsGeoSearchResponse['results'][number], OpenAiAdsGeoLocation>
+>
+export type ConversionPixelFieldsStayConservative = Assert<
+  Equal<OpenAiAdsConversionPixel['pixel_id'], string | undefined>
+>
+export type ConversionEventFieldsStayConservative = Assert<
+  Equal<OpenAiAdsConversionEventSetting['source_ids'], string[] | undefined>
+>

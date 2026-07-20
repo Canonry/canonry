@@ -7,9 +7,9 @@ function getClient() {
 }
 
 /** `canonry technical-aeo score <project>` — site-level scorecard. Composite → json (not jsonl). */
-export async function technicalAeoScore(project: string, opts: { format?: string }): Promise<void> {
+export async function technicalAeoScore(project: string, opts: { runId?: string; format?: string }): Promise<void> {
   const client = getClient()
-  const score = await client.getTechnicalAeoScore(project)
+  const score = await client.getTechnicalAeoScore(project, { runId: opts.runId })
 
   if (isMachineFormat(opts.format)) {
     console.log(JSON.stringify(score, null, 2))
@@ -50,11 +50,11 @@ export async function technicalAeoScore(project: string, opts: { format?: string
 /** `canonry technical-aeo pages <project>` — per-page breakdown. Collection → supports jsonl. */
 export async function technicalAeoPages(
   project: string,
-  opts: { status?: string; sort?: string; limit?: number; format?: string },
+  opts: { runId?: string; status?: string; sort?: string; limit?: number; format?: string },
 ): Promise<void> {
   const client = getClient()
   const status = opts.status === 'success' || opts.status === 'error' ? opts.status : undefined
-  const res = await client.getTechnicalAeoPages(project, { status, sort: opts.sort, limit: opts.limit })
+  const res = await client.getTechnicalAeoPages(project, { runId: opts.runId, status, sort: opts.sort, limit: opts.limit })
 
   if (opts.format === 'jsonl') {
     emitJsonl(res.pages.map((p) => ({ project, runId: res.runId, ...p })))

@@ -4,7 +4,14 @@ import os from 'node:os'
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import { createClient, migrate, apiKeys, auditLog } from '@ainyc/canonry-db'
+import {
+  adsActivationGrants,
+  apiKeys,
+  auditLog,
+  createClient,
+  migrate,
+  projects,
+} from '@ainyc/canonry-db'
 import { bootstrapCommand } from '../src/commands/bootstrap.js'
 import { initCommand } from '../src/commands/init.js'
 import { getConfigDir, loadConfig } from '../src/config.js'
@@ -209,6 +216,92 @@ describe('canonry', () => {
       expect(config.apiKey).toBe('cnry_rotated_key')
       expect(config.providers?.openai?.apiKey).toBe('test-openai-key')
       expect(config.providers?.gemini?.apiKey).toBe('test-gemini-key')
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  it('bootstrapCommand rotates a grant-referenced default API key in place', async () => {
+    const tmpDir = path.join(os.tmpdir(), `canonry-bootstrap-key-fk-${crypto.randomUUID()}`)
+    vi.stubEnv('CANONRY_CONFIG_DIR', tmpDir)
+    vi.stubEnv('GEMINI_API_KEY', 'test-gemini-key')
+    vi.stubEnv('CANONRY_API_KEY', 'cnry_original_key')
+
+    try {
+      await bootstrapCommand({ force: true })
+
+      const config = loadConfig()
+      const db = createClient(config.database)
+      const defaultKey = db.select().from(apiKeys).all().find(key => key.name === 'default')!
+      const now = new Date().toISOString()
+      const approverKeyId = crypto.randomUUID()
+      db.insert(apiKeys).values({
+        id: 'legacy-duplicate-default-key',
+        name: 'default',
+        keyHash: crypto.createHash('sha256').update('cnry_legacy_duplicate').digest('hex'),
+        keyPrefix: 'cnry_lega',
+        scopes: ['*'],
+        createdAt: now,
+      }).run()
+      db.insert(projects).values({
+        id: 'project-bootstrap-key-fk',
+        name: 'bootstrap-key-fk',
+        displayName: 'Bootstrap key FK',
+        canonicalDomain: 'example.com',
+        country: 'US',
+        language: 'en',
+        createdAt: now,
+        updatedAt: now,
+      }).run()
+      db.insert(apiKeys).values({
+        id: approverKeyId,
+        name: 'activation-approver',
+        keyHash: crypto.createHash('sha256').update('cnry_activation_approver').digest('hex'),
+        keyPrefix: 'cnry_acti',
+        scopes: ['ads.approve'],
+        projectId: 'project-bootstrap-key-fk',
+        createdAt: now,
+      }).run()
+      db.insert(adsActivationGrants).values({
+        id: 'grant-bootstrap-key-fk',
+        projectId: 'project-bootstrap-key-fk',
+        adAccountId: 'adacct_bootstrap',
+        manifestHash: 'a'.repeat(64),
+        manifest: {
+          campaign: {
+            id: 'cmpn_bootstrap',
+            expectedUpdatedAt: 1,
+            adGroups: [{
+              id: 'adgrp_bootstrap',
+              expectedUpdatedAt: 2,
+              ads: [{ id: 'ad_bootstrap', expectedUpdatedAt: 3 }],
+            }],
+          },
+        },
+        executorApiKeyId: defaultKey.id,
+        approverApiKeyId: approverKeyId,
+        state: 'approved',
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        approvedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      }).run()
+
+      vi.stubEnv('CANONRY_API_KEY', 'cnry_rotated_key')
+      await bootstrapCommand({ force: true })
+
+      const defaultKeys = db.select().from(apiKeys).all().filter(key => key.name === 'default')
+      expect(defaultKeys).toHaveLength(2)
+      expect(defaultKeys.find(key => key.id === defaultKey.id)).toMatchObject({
+        id: defaultKey.id,
+        keyPrefix: 'cnry_rota',
+        createdAt: defaultKey.createdAt,
+        revokedAt: null,
+      })
+      expect(defaultKeys.find(key => key.id === 'legacy-duplicate-default-key')).toMatchObject({
+        revokedAt: expect.any(String),
+      })
+      expect(db.select().from(adsActivationGrants).all()[0]?.executorApiKeyId).toBe(defaultKey.id)
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true })
     }

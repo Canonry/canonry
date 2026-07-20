@@ -1,6 +1,15 @@
-// Types mirror OpenAI Advertiser API responses captured live on 2026-06-10.
-// Money units are mixed upstream and preserved as-is here: budgets/bids are
-// integer micros, insights spend/cpc are decimal dollars. Normalize at ingest.
+import {
+  AdsAdGroupBillingEventTypes,
+  AdsCampaignBiddingTypes,
+  type AdsAdGroupBillingEventType,
+  type AdsCampaignBiddingType,
+} from '@ainyc/canonry-contracts'
+
+// Types mirror OpenAI Advertiser API responses captured live on 2026-06-10,
+// except where a type-level comment identifies a provider-documented contract
+// awaiting a non-empty live capture. Money units are mixed upstream and
+// preserved as-is here: budgets/bids are integer micros, insights spend/cpc are
+// decimal dollars. Normalize at ingest.
 
 export interface OpenAiAdsListResponse<T> {
   object: 'list'
@@ -15,6 +24,17 @@ export interface OpenAiAdsReviewState {
   status: string
 }
 
+export interface OpenAiAdsAccountIntegrityReviewDetails {
+  decision?: string
+  reason?: string
+  status_updated_at?: string
+}
+
+export interface OpenAiAdsAccountIntegrityReview {
+  details?: OpenAiAdsAccountIntegrityReviewDetails
+  review?: OpenAiAdsReviewState
+}
+
 export interface OpenAiAdsAccount {
   id: string
   status: string
@@ -23,13 +43,125 @@ export interface OpenAiAdsAccount {
   timezone: string
   url: string | null
   review?: OpenAiAdsReviewState
-  account_integrity_review?: unknown
+  account_integrity_review?: OpenAiAdsAccountIntegrityReview
   preview_url?: string | null
+}
+
+export interface OpenAiAdsGeoLocation {
+  id: string
+  type: string
+  canonical_name: string
+  country_code: string
+  name: string
+  region_code: string | null
+}
+
+export interface OpenAiAdsGeoSearchResponse {
+  count: number
+  query: string
+  results: OpenAiAdsGeoLocation[]
+}
+
+/**
+ * Fields documented on the conversion-pixel create response. The list endpoint
+ * has only been captured empty, so fields other than identity remain optional
+ * until a non-empty live response can tighten this contract.
+ */
+export interface OpenAiAdsConversionPixel {
+  id: string
+  client_type?: string
+  name?: string
+  pixel_id?: string
+}
+
+export interface OpenAiAdsConversionEventSource {
+  id: string
+  name?: string
+}
+
+/**
+ * Conversion event setting fields documented by the provider. The list
+ * endpoint has only been captured empty, so fields other than identity remain
+ * optional until a non-empty live response can tighten this contract.
+ * `campaigns` remains opaque because the documented example is empty and no
+ * non-empty campaign entry has been captured yet.
+ */
+export interface OpenAiAdsConversionEventSetting {
+  id: string
+  name?: string
+  event_type?: string
+  custom_event_name?: string | null
+  attribution_window_days?: number
+  ad_account_id?: string
+  source_ids?: string[]
+  sources?: OpenAiAdsConversionEventSource[]
+  campaigns?: unknown[]
+  archived?: boolean
+  version?: number
 }
 
 export interface OpenAiAdsCampaignBudget {
   daily_spend_limit_micros?: number
   lifetime_spend_limit_micros?: number
+}
+
+export const OpenAiAdsWriteStatuses = {
+  active: 'active',
+  paused: 'paused',
+} as const
+
+export type OpenAiAdsWriteStatus = (typeof OpenAiAdsWriteStatuses)[keyof typeof OpenAiAdsWriteStatuses]
+
+export const OpenAiAdsBiddingTypes = AdsCampaignBiddingTypes
+
+export type OpenAiAdsBiddingType = AdsCampaignBiddingType
+
+export const OpenAiAdsBillingEventTypes = AdsAdGroupBillingEventTypes
+
+export type OpenAiAdsBillingEventType = AdsAdGroupBillingEventType
+
+export const OpenAiAdsCreativeTypes = {
+  chatCard: 'chat_card',
+} as const
+
+export type OpenAiAdsCreativeType = (typeof OpenAiAdsCreativeTypes)[keyof typeof OpenAiAdsCreativeTypes]
+
+export interface OpenAiAdsCampaignBudgetRequest {
+  lifetime_spend_limit_micros: number
+}
+
+export interface OpenAiAdsLocationTargetRequest {
+  id: string
+}
+
+export interface OpenAiAdsCampaignTargetingRequest {
+  locations: {
+    include: OpenAiAdsLocationTargetRequest[]
+  }
+}
+
+export interface OpenAiAdsCreateCampaignRequest {
+  name: string
+  description?: string
+  start_time?: number
+  end_time?: number
+  status: typeof OpenAiAdsWriteStatuses.paused
+  budget: OpenAiAdsCampaignBudgetRequest
+  bidding_type?: OpenAiAdsBiddingType
+  conversion_event_setting_ids?: string[]
+  targeting?: OpenAiAdsCampaignTargetingRequest
+}
+
+export interface OpenAiAdsUpdateCampaignRequest {
+  name?: string
+  description?: string | null
+  start_time?: number | null
+  end_time?: number | null
+  /** Lifecycle transitions use explicit actions and are not accepted by public updates. */
+  status?: never
+  budget?: OpenAiAdsCampaignBudgetRequest
+  /** Updating locations is allowed, but clearing all targeting is not. */
+  targeting?: OpenAiAdsCampaignTargetingRequest
 }
 
 export interface OpenAiAdsLocationTarget {
@@ -51,7 +183,7 @@ export interface OpenAiAdsCampaign {
   id: string
   name: string
   status: string
-  bidding_type: string | null
+  bidding_type: OpenAiAdsBiddingType | null
   budget: OpenAiAdsCampaignBudget | null
   conversion_event_setting_ids: string[] | null
   description: string | null
@@ -65,8 +197,31 @@ export interface OpenAiAdsCampaign {
 }
 
 export interface OpenAiAdsBiddingConfig {
-  billing_event_type: string | null
+  billing_event_type: OpenAiAdsBillingEventType | null
   max_bid_micros: number | null
+}
+
+export interface OpenAiAdsBiddingConfigRequest {
+  billing_event_type: OpenAiAdsBillingEventType
+  max_bid_micros: number
+}
+
+export interface OpenAiAdsCreateAdGroupRequest {
+  campaign_id: string
+  name: string
+  description?: string
+  context_hints?: string[]
+  status: typeof OpenAiAdsWriteStatuses.paused
+  bidding_config: OpenAiAdsBiddingConfigRequest
+}
+
+export interface OpenAiAdsUpdateAdGroupRequest {
+  name?: string
+  description?: string | null
+  context_hints?: string[]
+  /** Lifecycle transitions use explicit actions and are not accepted by public updates. */
+  status?: never
+  bidding_config?: OpenAiAdsBiddingConfigRequest
 }
 
 export interface OpenAiAdsAdGroup {
@@ -89,6 +244,36 @@ export interface OpenAiAdsCreative {
   body?: string | null
   file_id?: string | null
   target_url?: string | null
+}
+
+export interface OpenAiAdsChatCardCreativeRequest {
+  type: OpenAiAdsCreativeType
+  title: string
+  body: string
+  file_id: string
+  target_url: string
+}
+
+export interface OpenAiAdsCreateAdRequest {
+  ad_group_id: string
+  name: string
+  creative: OpenAiAdsChatCardCreativeRequest
+  status: typeof OpenAiAdsWriteStatuses.paused
+}
+
+export interface OpenAiAdsUpdateAdRequest {
+  name?: string
+  creative?: OpenAiAdsChatCardCreativeRequest
+  /** Lifecycle transitions use explicit actions and are not accepted by public updates. */
+  status?: never
+}
+
+export interface OpenAiAdsUploadImageRequest {
+  image_url: string
+}
+
+export interface OpenAiAdsUploadImageResponse {
+  file_id: string
 }
 
 export interface OpenAiAdsAd {

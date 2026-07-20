@@ -60,19 +60,45 @@ export async function bootstrapCommand(_opts?: { force?: boolean; format?: CliFo
 
   const keyHash = crypto.createHash('sha256').update(rawApiKey).digest('hex')
   const keyPrefix = rawApiKey.slice(0, 9)
+  const existingConfigKeyHash = existingConfig
+    ? crypto.createHash('sha256').update(existingConfig.apiKey).digest('hex')
+    : undefined
 
   const db = createClient(databasePath)
   migrate(db)
   db.transaction((tx) => {
-    tx.delete(apiKeys).where(eq(apiKeys.name, 'default')).run()
-    tx.insert(apiKeys).values({
-      id: crypto.randomUUID(),
-      name: 'default',
-      keyHash,
-      keyPrefix,
-      scopes: ['*'],
-      createdAt: new Date().toISOString(),
-    }).run()
+    const rotatedAt = new Date().toISOString()
+    const existingDefaults = tx.select({ id: apiKeys.id, keyHash: apiKeys.keyHash }).from(apiKeys)
+      .where(eq(apiKeys.name, 'default')).all()
+    const existingDefault = existingDefaults.find(key => key.keyHash === existingConfigKeyHash)
+      ?? existingDefaults.at(0)
+    if (existingDefault) {
+      // Activation grants retain the approving/executing API-key ids as durable
+      // audit identity. Rotate the default credential in place so bootstrap can
+      // be repeated without violating those foreign keys or orphaning receipts.
+      tx.update(apiKeys).set({
+        keyHash,
+        keyPrefix,
+        scopes: ['*'],
+        projectId: null,
+        lastUsedAt: null,
+        revokedAt: null,
+      }).where(eq(apiKeys.id, existingDefault.id)).run()
+      for (const duplicate of existingDefaults) {
+        if (duplicate.id === existingDefault.id) continue
+        tx.update(apiKeys).set({ revokedAt: rotatedAt })
+          .where(eq(apiKeys.id, duplicate.id)).run()
+      }
+    } else {
+      tx.insert(apiKeys).values({
+        id: crypto.randomUUID(),
+        name: 'default',
+        keyHash,
+        keyPrefix,
+        scopes: ['*'],
+        createdAt: rotatedAt,
+      }).run()
+    }
   })
 
   saveConfig({
