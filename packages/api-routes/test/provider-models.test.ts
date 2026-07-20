@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { AppError } from '@ainyc/canonry-contracts'
-import { validateProviderModels } from '../src/provider-models.js'
+import { assertProviderModelsMatchProviders, validateProviderModels } from '../src/provider-models.js'
 
 const adapters = [
   {
@@ -41,5 +41,24 @@ describe('validateProviderModels', () => {
     expect(validationMessage(() => validateProviderModels({ 'cdp:chatgpt': 'x' }, adapters))).toContain('does not support')
     expect(validationMessage(() => validateProviderModels({ gemini: 'gpt-5' }, adapters)))
       .toContain('use a Gemini model ID')
+  })
+})
+
+describe('assertProviderModelsMatchProviders', () => {
+  it('rejects an override for an engine the project does not run', () => {
+    const message = validationMessage(() =>
+      assertProviderModelsMatchProviders({ gemini: 'gemini-2.5-pro', openai: 'gpt-5' }, ['gemini']))
+    expect(message).toContain('openai')
+    // The kept engine is not named as a problem.
+    expect(message).not.toContain('gemini,')
+  })
+
+  it('keeps every override when the provider list is empty (= all configured engines)', () => {
+    expect(() => assertProviderModelsMatchProviders({ gemini: 'gemini-2.5-pro' }, [])).not.toThrow()
+  })
+
+  it('accepts overrides that all name a selected engine, and an empty map', () => {
+    expect(() => assertProviderModelsMatchProviders({ gemini: 'gemini-2.5-pro' }, ['gemini', 'openai'])).not.toThrow()
+    expect(() => assertProviderModelsMatchProviders({}, ['gemini'])).not.toThrow()
   })
 })

@@ -60,12 +60,38 @@ test('invalidates the project-scoped runs list so the project page refreshes aft
   expect(predicateMatches('getApiV1ProjectsByNameRuns')).toBe(true)
 })
 
-test('invalidates the project analytics trend after an answer-visibility run completes', () => {
+test('does not prefix-invalidate the analytics trend after an answer-visibility run', () => {
+  // The trend key ends in the latest completed-sweep revision
+  // (`['analytics-metrics', project, window, frameKey, analyticsRevision]`),
+  // derived from the same run set the endpoint aggregates. Refetching the
+  // project-scoped runs list (asserted above) rotates that revision and the
+  // chart mounts a new key — one fetch. A prefix invalidation here refetched
+  // the OLD revision key first, so every sweep completion cost two
+  // full-history analytics scans (the queryFn ignores the AbortSignal, so
+  // the first was never cancelled).
   invalidateQueriesForRunKind(queryClient, RunKinds['answer-visibility'], 'demo')
   const analyticsKey = invalidateSpy.mock.calls
     .map(([arg]) => (arg as { queryKey?: unknown[] })?.queryKey)
     .find(key => Array.isArray(key) && key[0] === 'analytics-metrics')
-  expect(analyticsKey).toEqual(['analytics-metrics', 'demo'])
+  expect(analyticsKey).toBeUndefined()
+})
+
+test('an answer-visibility completion refetches the analytics trend exactly once, via the revision key', () => {
+  // End-to-end shape of the mechanism the deletion above relies on: the
+  // mounted chart's key carries the revision, so the only entry the old
+  // prefix match could have hit is the one that is about to be replaced.
+  const oldRevision = '2026-07-19T00:00:00.000Z:run-1'
+  const newRevision = '2026-07-20T00:00:00.000Z:run-2'
+  const trendKey = (revision: string) => ['analytics-metrics', 'demo', 'all', 'frame', revision]
+  queryClient.setQueryData(trendKey(oldRevision), { buckets: [] })
+
+  invalidateQueriesForRunKind(queryClient, RunKinds['answer-visibility'], 'demo')
+
+  // Nothing marked the mounted (old-revision) entry stale, so it does not refetch…
+  expect(queryClient.getQueryState(trendKey(oldRevision))?.isInvalidated).toBeFalsy()
+  // …and the revision the runs refetch produces is a cache miss, which is the
+  // single fetch the chart performs.
+  expect(queryClient.getQueryData(trendKey(newRevision))).toBeUndefined()
 })
 
 test('invalidates GSC operations for gsc-sync runs', () => {

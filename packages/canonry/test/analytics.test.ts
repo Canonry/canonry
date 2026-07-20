@@ -117,6 +117,55 @@ describe('analytics command', () => {
       expect(stdout).toContain('Model Evidence:')
       expect(stdout).toContain('claude: latest known claude-sonnet-5 at 2026-07-14T12:00:00.000Z')
       expect(stdout).toContain('2026-07-10T12:00:00.000Z  known claude-opus-5 → known claude-sonnet-5')
+      // Neither optional field is set, so neither annotation appears.
+      expect(stdout).not.toContain('(on or before)')
+      expect(stdout).not.toContain('Showing the latest')
+    } finally {
+      metricsSpy.mockRestore()
+    }
+  })
+
+  it('dates an anchored change as "on or before" and reports a capped event list', async () => {
+    const metricsSpy = vi.spyOn(ApiClient.prototype, 'getAnalyticsMetrics').mockResolvedValue({
+      window: '30d',
+      buckets: [],
+      overall: { citationRate: 0, cited: 0, total: 0, mentionRate: 0, mentionedCount: 0 },
+      byProvider: {},
+      trend: 'stable',
+      mentionTrend: 'stable',
+      queryChanges: [],
+      modelAttribution: {
+        perplexity: {
+          latestObservation: {
+            observedAt: '2026-07-15T12:00:00.000Z',
+            state: { status: 'known', model: 'sonar-pro' },
+          },
+          events: [
+            {
+              observedAt: '2026-07-02T12:00:00.000Z',
+              bucketStartDate: '2026-07-02T00:00:00.000Z',
+              from: { status: 'known', model: 'sonar' },
+              to: { status: 'known', model: 'sonar-pro' },
+              fromPreWindowAnchor: true,
+            },
+            {
+              observedAt: '2026-07-15T12:00:00.000Z',
+              bucketStartDate: '2026-07-15T00:00:00.000Z',
+              from: { status: 'known', model: 'sonar' },
+              to: { status: 'known', model: 'sonar-pro' },
+            },
+          ],
+          eventTotal: 84,
+        },
+      },
+    })
+    try {
+      const { showAnalytics } = await import('../src/commands/analytics.js')
+      const { stdout } = await captureOutput(() => showAnalytics('test-proj', { feature: 'metrics' }))
+      expect(stdout).toContain('2026-07-02T12:00:00.000Z (on or before)  known sonar → known sonar-pro')
+      // The in-window transition keeps its exact date.
+      expect(stdout).toContain('2026-07-15T12:00:00.000Z  known sonar → known sonar-pro')
+      expect(stdout).toContain('Showing the latest 2 of 84 model changes.')
     } finally {
       metricsSpy.mockRestore()
     }

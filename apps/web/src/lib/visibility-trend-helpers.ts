@@ -188,6 +188,24 @@ export function groupModelAttributionEvents(
     }))
 }
 
+/**
+ * How many changes the response actually carries vs how many it observed. The
+ * server caps the per-provider list, so `total > shown` means the operator is
+ * looking at a partial history and the UI has to say so.
+ */
+export function countModelAttributionEvents(
+  attribution: ModelAttribution,
+): { shown: number; total: number } {
+  let shown = 0
+  let total = 0
+  for (const entry of Object.values(attribution)) {
+    shown += entry.events.length
+    // An older server omits `eventTotal`; its list is the whole history.
+    total += entry.eventTotal ?? entry.events.length
+  }
+  return { shown, total }
+}
+
 export function buildMentionShareTrendRows(dto: BrandMetricsDto): TrendData {
   const rows: TrendRow[] = dto.buckets.map(b => {
     const mentionShare = (b as { mentionShare?: BrandMetricsDto['buckets'][number]['mentionShare'] }).mentionShare

@@ -387,6 +387,8 @@ describe('analytics routes', () => {
           )).toISOString(),
           from: { status: 'known', model: 'claude-opus-5' },
           to: { status: 'mixed', models: ['claude-sonnet-5'], includesUnknown: true },
+          // `from` is the pre-window anchor sweep, not an in-window observation.
+          fromPreWindowAnchor: true,
         },
         {
           observedAt: knownAt.toISOString(),
@@ -405,6 +407,91 @@ describe('analytics routes', () => {
       expect(mixedBucket.modelEvidenceByProvider).toEqual({
         claude: { status: 'mixed', models: ['claude-sonnet-5'], includesUnknown: true },
       })
+    })
+
+    it('does not anchor a change marker to a sweep from long before the window', async () => {
+      // A provider paused for months and came back on a different model: the
+      // change happened outside the window, so the window must not show it as
+      // an in-window model change.
+      const staleProjectId = crypto.randomUUID()
+      const now = new Date()
+      const pausedAt = new Date(now)
+      pausedAt.setUTCDate(pausedAt.getUTCDate() - 120)
+      const resumedAt = new Date(now)
+      resumedAt.setUTCDate(resumedAt.getUTCDate() - 5)
+
+      db.insert(projects).values({
+        id: staleProjectId,
+        name: 'stale-anchor-project',
+        displayName: 'Stale Anchor',
+        canonicalDomain: 'stale.example',
+        ownedDomains: '[]',
+        country: 'US',
+        language: 'en',
+        tags: '[]',
+        labels: '{}',
+        providers: '["perplexity"]',
+        locations: '[]',
+        defaultLocation: null,
+        configSource: 'api',
+        configRevision: 1,
+        createdAt: pausedAt.toISOString(),
+        updatedAt: pausedAt.toISOString(),
+      }).run()
+      const queryId = crypto.randomUUID()
+      db.insert(queries).values({
+        id: queryId,
+        projectId: staleProjectId,
+        query: 'stale anchor query',
+        createdAt: pausedAt.toISOString(),
+      }).run()
+
+      const insertSweep = (createdAt: string, model: string) => {
+        const id = crypto.randomUUID()
+        db.insert(runs).values({
+          id,
+          projectId: staleProjectId,
+          kind: 'answer-visibility',
+          status: 'completed',
+          trigger: 'manual',
+          location: null,
+          startedAt: createdAt,
+          finishedAt: createdAt,
+          error: null,
+          createdAt,
+        }).run()
+        db.insert(querySnapshots).values({
+          id: crypto.randomUUID(),
+          runId: id,
+          queryId,
+          provider: 'perplexity',
+          model,
+          citationState: 'not-cited',
+          answerText: '',
+          citedDomains: [],
+          competitorOverlap: [],
+          location: null,
+          rawResponse: '{}',
+          createdAt,
+        }).run()
+      }
+
+      insertSweep(pausedAt.toISOString(), 'sonar')
+      insertSweep(resumedAt.toISOString(), 'sonar-pro')
+
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/v1/projects/stale-anchor-project/analytics/metrics?window=30d',
+      })
+      expect(res.statusCode).toBe(200)
+      const body = JSON.parse(res.payload)
+
+      expect(body.modelAttribution.perplexity.latestObservation).toEqual({
+        observedAt: resumedAt.toISOString(),
+        state: { status: 'known', model: 'sonar-pro' },
+      })
+      expect(body.modelAttribution.perplexity.events).toEqual([])
+      expect(body.modelAttribution.perplexity.eventTotal).toBe(0)
     })
   })
 

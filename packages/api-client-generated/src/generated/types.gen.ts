@@ -432,7 +432,9 @@ export type BrandMetricsDto = {
                     models: Array<string>;
                     includesUnknown: boolean;
                 };
+                fromPreWindowAnchor?: boolean;
             }>;
+            eventTotal?: number;
         };
     };
 };

@@ -36,6 +36,11 @@ function invalidateByOpPrefix(queryClient: QueryClient, prefix: string) {
  * surfaces it touched should be marked stale so the UI re-fetches. Adding a
  * new `RunKind` variant requires extending this switch — TypeScript will
  * fail compilation at the `_exhaustive` line if a case is ever missed.
+ *
+ * `_projectName` is unused today (every invalidation is either an exact
+ * top-level key or an op-id prefix, neither of which is project-scoped) but
+ * stays on the signature: it is what a future per-project hand-authored key
+ * would need, and all four call sites already pass it.
  */
 export function invalidateQueriesForRunKind(
   queryClient: QueryClient,
@@ -57,10 +62,17 @@ export function invalidateQueriesForRunKind(
 
   switch (kind) {
     case RunKinds['answer-visibility']:
-      // The trend uses a hand-authored key rather than an SDK operation key.
-      // Completion events arrive independently of the chart, so invalidate
-      // every window/frame revision for this project immediately.
-      void queryClient.invalidateQueries({ queryKey: ['analytics-metrics', _projectName] })
+      // No explicit `['analytics-metrics', project]` invalidation here. That
+      // key carries the latest completed-sweep revision as its last segment
+      // (`analyticsRevision` in `VisibilityTrendSection`, fed by
+      // `latestVisibilityRevision` in `use-project-dashboard.ts`), derived
+      // from exactly the run set `GET /analytics/metrics` aggregates
+      // (answer-visibility, completed|partial, non-probe). The project-scoped
+      // runs list invalidated above refetches, the revision rotates, and the
+      // chart mounts a brand-new key — one fetch. A prefix invalidation on
+      // top of that refetched the OLD revision key first, so every sweep
+      // completion cost two full-history analytics scans; the old entries it
+      // marked stale are unreachable anyway once the revision moves.
       return
     case RunKinds['site-audit']:
     case RunKinds['backlink-extract']:

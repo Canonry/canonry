@@ -1,6 +1,7 @@
-import type {
-  ModelAttribution,
-  ModelEvidenceState,
+import {
+  MODEL_ATTRIBUTION_EVENT_LIMIT,
+  type ModelAttribution,
+  type ModelEvidenceState,
 } from '@ainyc/canonry-contracts'
 
 import { classifyModelEvidence, modelEvidenceStatesEqual, type ModelEvidenceValue } from './model-evidence.js'
@@ -56,6 +57,9 @@ export function buildModelAttribution(input: BuildModelAttributionInput): ModelA
   const attribution: ModelAttribution = {}
   for (const provider of [...providerNames].sort((a, b) => a.localeCompare(b))) {
     let previous = input.anchors?.[provider]
+    // The first comparison uses the pre-window anchor, so its transition can't
+    // be dated inside the window. Every later one compares two in-window sweeps.
+    let previousIsAnchor = previous !== undefined
     let latestObservation: ModelAttribution[string]['latestObservation'] | undefined
     const events: ModelAttribution[string]['events'] = []
 
@@ -70,14 +74,22 @@ export function buildModelAttribution(input: BuildModelAttributionInput): ModelA
           bucketStartDate: input.bucketStartFor(sweep.observedAt),
           from: previous,
           to: state,
+          ...(previousIsAnchor ? { fromPreWindowAnchor: true } : {}),
         })
       }
       previous = state
+      previousIsAnchor = false
       latestObservation = { observedAt: sweep.observedAt, state }
     }
 
     if (latestObservation) {
-      attribution[provider] = { latestObservation, events }
+      // Keep the most recent transitions: the oldest retained event's `from` is
+      // still a real observed state, so truncation never invents a jump.
+      attribution[provider] = {
+        latestObservation,
+        events: events.length > MODEL_ATTRIBUTION_EVENT_LIMIT ? events.slice(-MODEL_ATTRIBUTION_EVENT_LIMIT) : events,
+        eventTotal: events.length,
+      }
     }
   }
 

@@ -102,7 +102,14 @@ function printMetrics(data: BrandMetricsDto): void {
       const latest = attribution.latestObservation
       console.log(`    ${provider}: latest ${formatModelEvidence(latest.state)} at ${latest.observedAt}`)
       for (const event of attribution.events) {
-        console.log(`      ${event.observedAt}  ${formatModelEvidence(event.from)} → ${formatModelEvidence(event.to)}`)
+        // An anchored change happened somewhere between the last sweep before
+        // this window and `observedAt` — it cannot be dated to the window.
+        const dating = event.fromPreWindowAnchor ? ' (on or before)' : ''
+        console.log(`      ${event.observedAt}${dating}  ${formatModelEvidence(event.from)} → ${formatModelEvidence(event.to)}`)
+      }
+      const eventTotal = attribution.eventTotal ?? attribution.events.length
+      if (eventTotal > attribution.events.length) {
+        console.log(`      Showing the latest ${attribution.events.length} of ${eventTotal} model changes.`)
       }
     }
   }

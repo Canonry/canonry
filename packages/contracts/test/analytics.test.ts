@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
+  MODEL_ATTRIBUTION_EVENT_LIMIT,
   mentionShareBucketMetricSchema,
   modelEvidenceStateSchema,
   modelAttributionSchema,
@@ -107,6 +108,42 @@ describe('model attribution schemas', () => {
         }],
       },
     })
+  })
+
+  it('carries the anchor flag and the pre-truncation event total', () => {
+    const parsed = modelAttributionSchema.parse({
+      perplexity: {
+        latestObservation: {
+          observedAt: '2026-07-15T12:00:00.000Z',
+          state: { status: 'known', model: 'sonar-pro' },
+        },
+        events: [{
+          observedAt: '2026-07-15T12:00:00.000Z',
+          bucketStartDate: '2026-07-15T00:00:00.000Z',
+          from: { status: 'known', model: 'sonar' },
+          to: { status: 'known', model: 'sonar-pro' },
+          fromPreWindowAnchor: true,
+        }],
+        eventTotal: 84,
+      },
+    })
+    expect(parsed.perplexity!.events[0]!.fromPreWindowAnchor).toBe(true)
+    // The total outruns the returned list, so a consumer can report the gap.
+    expect(parsed.perplexity!.eventTotal).toBe(84)
+    expect(MODEL_ATTRIBUTION_EVENT_LIMIT).toBeGreaterThan(0)
+  })
+
+  it('accepts an older server response with neither field', () => {
+    const parsed = modelAttributionSchema.parse({
+      claude: {
+        latestObservation: {
+          observedAt: '2026-07-14T12:00:00.000Z',
+          state: { status: 'unknown' },
+        },
+        events: [],
+      },
+    })
+    expect(parsed.claude!.eventTotal).toBeUndefined()
   })
 })
 

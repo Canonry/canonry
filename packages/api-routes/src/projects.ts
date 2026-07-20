@@ -1,6 +1,6 @@
 import crypto from 'node:crypto'
 import { eq, sql } from 'drizzle-orm'
-import type { FastifyInstance } from 'fastify'
+import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { projects, queries, competitors, schedules, notifications, runs, querySnapshots, insights, auditLog } from '@ainyc/canonry-db'
 import type { InferSelectModel } from 'drizzle-orm'
 import {
@@ -11,10 +11,12 @@ import {
   findDuplicateLocationLabels,
   hasLocationLabel,
 } from '@ainyc/canonry-contracts'
-import type { LocationContext } from '@ainyc/canonry-contracts'
+import type { LocationContext, ProviderModels } from '@ainyc/canonry-contracts'
+import { requireScope } from './auth.js'
 import { resolveProject, writeAuditLog } from './helpers.js'
+import { SETTINGS_WRITE_SCOPE } from './settings.js'
 import type { ProviderAdapterInfo } from './settings.js'
-import { validateProviderModels } from './provider-models.js'
+import { assertProviderModelsMatchProviders, validateProviderModels } from './provider-models.js'
 
 export interface ProjectRoutesOptions {
   onProjectDeleted?: (projectId: string) => void
@@ -75,9 +77,11 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
       }
     }
     const providerModels = validateProviderModels(body.providerModels ?? {}, opts.providerAdapters)
+    assertProviderModelsMatchProviders(providerModels, body.providers ?? [])
 
     const now = new Date().toISOString()
     const existing = app.db.select().from(projects).where(eq(projects.name, name)).get()
+    assertProviderModelScope(request, existing?.providerModels ?? {}, providerModels)
     const existingLocations = existing ? existing.locations : []
     const nextLocations = body.locations ?? existingLocations
     const duplicateLabels = findDuplicateLocationLabels(nextLocations)
@@ -431,6 +435,35 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
 
     return reply.send(config)
   })
+}
+
+/**
+ * Choosing which model a provider executes with is an INSTANCE-level
+ * capability — `PUT /settings/providers/:name` carries `SETTINGS_WRITE_SCOPE`
+ * for exactly that reason (cost, availability, and what a measurement even
+ * means all follow the model). The per-project override is the same capability
+ * at a finer grain, so a delegate key with plain `write` and no `settings.write`
+ * must not gain it through a project write.
+ *
+ * The gate keys off the selection actually CHANGING, not off the field's
+ * presence in the payload: a rename or query edit that echoes the project's
+ * current overrides back (or carries none on a project that has none) stays
+ * ungated. Shared with `POST /apply`, which applies the same declarative
+ * semantics — clearing an override is a change too.
+ */
+export function assertProviderModelScope(
+  request: FastifyRequest,
+  current: ProviderModels,
+  next: ProviderModels,
+): void {
+  if (providerModelsEqual(current, next)) return
+  requireScope(request, SETTINGS_WRITE_SCOPE)
+}
+
+function providerModelsEqual(a: ProviderModels, b: ProviderModels): boolean {
+  const aKeys = Object.keys(a)
+  if (aKeys.length !== Object.keys(b).length) return false
+  return aKeys.every(key => a[key] === b[key])
 }
 
 export function formatProject(row: InferSelectModel<typeof projects>) {

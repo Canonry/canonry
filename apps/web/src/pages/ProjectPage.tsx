@@ -61,6 +61,7 @@ import {
   type ApiBingKeywordStats,
   type ApiGoogleConnection,
   type ApiGscCoverageSummary,
+  type ApiProject,
 } from '../api.js'
 import { isEmbedProjectTabAllowed, resolveEmbedProjectTab } from '../embed.js'
 import {
@@ -101,6 +102,29 @@ function invalidateByOpPrefix(queryClient: ReturnType<typeof useQueryClient>, pr
       const head = query.queryKey[0] as { _id?: string } | undefined
       return typeof head?._id === 'string' && head._id.startsWith(prefix)
     },
+  })
+}
+
+/**
+ * Patch the cached `useProjectDashboard` detail entries for a single project
+ * with a freshly-saved project object.
+ *
+ * The detail key is `['project-dashboard-full', projectId, latestRunIdsKey]`
+ * (see `use-project-dashboard.ts`), so a project has one entry per run-ids
+ * revision and the id MUST be part of the match. A head-only predicate wrote
+ * the saved project into every other project's cached entry; because
+ * `commandCenter` is built from that entry, the settings form on a
+ * previously-visited project then rendered — and saved to — the wrong project.
+ */
+export function patchProjectDashboardCache(
+  queryClient: ReturnType<typeof useQueryClient>,
+  updated: ApiProject,
+): void {
+  queryClient.setQueriesData({
+    predicate: query => query.queryKey[0] === 'project-dashboard-full' && query.queryKey[1] === updated.id,
+  }, (current: unknown) => {
+    if (!current || typeof current !== 'object' || !('project' in current)) return current
+    return { ...current, project: updated }
   })
 }
 
@@ -2069,12 +2093,8 @@ function ProjectPageContent({
     // project's sub-tree.
     await queryClient.invalidateQueries({ queryKey: getApiV1ProjectsQueryKey({ client: heyClient }) })
     queryClient.setQueryData(getApiV1ProjectsByNameQueryKey({ client: heyClient, path: { name: pName } }), updated)
-    queryClient.setQueriesData({
-      predicate: query => query.queryKey[0] === 'project-dashboard-full',
-    }, (current: unknown) => {
-      if (!current || typeof current !== 'object' || !('project' in current)) return current
-      return { ...current, project: updated }
-    })
+    // Scoped to the edited project's own cache entries — see the helper.
+    patchProjectDashboardCache(queryClient, updated)
     return updated
   }
 

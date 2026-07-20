@@ -225,6 +225,128 @@ test('a read-only key is blocked on every write method but passes reads', async 
   }
 })
 
+test('per-project model overrides need settings.write, but ordinary project writes do not', async () => {
+  // Choosing the execution model is an instance-level capability — `PUT
+  // /settings/providers/:name` is gated on `settings.write` for that reason.
+  // The per-project override is the same capability at a finer grain, so a
+  // delegate key with plain `write` (a shape keys.ts explicitly supports: it
+  // must opt into `settings.write`) must not pick the model. The gate keys off
+  // the selection CHANGING, so a rename or an echo of the current overrides
+  // stays ungated.
+  const { app, db, tmpDir } = buildApp({
+    providerAdapters: [
+      {
+        name: 'openai', displayName: 'OpenAI', mode: 'api', modelConfigurable: true,
+        defaultModel: 'gpt-5.4', knownModels: [],
+        modelValidationPattern: /./, modelValidationHint: 'any valid OpenAI model name',
+      },
+    ],
+  })
+
+  function seedKey(name: string, scopes: string[]): string {
+    const raw = `cnry_${crypto.randomBytes(16).toString('hex')}`
+    db.insert(apiKeys).values({
+      id: crypto.randomUUID(),
+      name,
+      keyHash: crypto.createHash('sha256').update(raw).digest('hex'),
+      keyPrefix: raw.slice(0, 9),
+      scopes,
+      createdAt: new Date().toISOString(),
+    }).run()
+    return raw
+  }
+
+  const writeRaw = seedKey('delegate-write', ['read', 'write'])
+  const settingsRaw = seedKey('delegate-settings', ['read', 'write', 'settings.write'])
+  const writeHeaders = { authorization: `Bearer ${writeRaw}` }
+  const settingsHeaders = { authorization: `Bearer ${settingsRaw}` }
+  const baseProject = { displayName: 'Model Gate', canonicalDomain: 'example.com', country: 'US', language: 'en' }
+
+  await app.ready()
+  try {
+    // A plain project create with no overrides is ungated.
+    const created = await app.inject({
+      method: 'PUT', url: '/api/v1/projects/model-gate', headers: writeHeaders, payload: baseProject,
+    })
+    expect(created.statusCode).toBe(201)
+    expect(created.json().providerModels).toEqual({})
+
+    // Choosing a model is not.
+    const blocked = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/projects/model-gate',
+      headers: writeHeaders,
+      payload: { ...baseProject, providerModels: { openai: 'gpt-5-nano' } },
+    })
+    expect(blocked.statusCode).toBe(403)
+    expect(JSON.parse(blocked.body).error.code).toBe('FORBIDDEN')
+    expect(JSON.parse(blocked.body).error.message).toContain('settings.write')
+
+    // …and the same key can still do ordinary project work (a rename).
+    const renamed = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/projects/model-gate',
+      headers: writeHeaders,
+      payload: { ...baseProject, displayName: 'Renamed' },
+    })
+    expect(renamed.statusCode).toBe(200)
+    expect(renamed.json().displayName).toBe('Renamed')
+
+    // A settings.write key may choose the model.
+    const allowed = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/projects/model-gate',
+      headers: settingsHeaders,
+      payload: { ...baseProject, providerModels: { openai: 'gpt-5-nano' } },
+    })
+    expect(allowed.statusCode).toBe(200)
+    expect(allowed.json().providerModels).toEqual({ openai: 'gpt-5-nano' })
+
+    // Echoing the stored overrides back is not a change — still ungated.
+    const echoed = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/projects/model-gate',
+      headers: writeHeaders,
+      payload: { ...baseProject, displayName: 'Echoed', providerModels: { openai: ' gpt-5-nano ' } },
+    })
+    expect(echoed.statusCode).toBe(200)
+    expect(echoed.json().providerModels).toEqual({ openai: 'gpt-5-nano' })
+
+    // POST /apply is the same capability through another door — blocked when it
+    // would change the selection (here: clear it), allowed when it echoes.
+    const applyBody = (providerModels?: Record<string, string>) => ({
+      apiVersion: 'canonry/v1',
+      kind: 'Project',
+      metadata: { name: 'model-gate' },
+      spec: { ...baseProject, ...(providerModels ? { providerModels } : {}) },
+    })
+
+    const applyBlocked = await app.inject({
+      method: 'POST', url: '/api/v1/apply', headers: writeHeaders, payload: applyBody(),
+    })
+    expect(applyBlocked.statusCode).toBe(403)
+    expect(JSON.parse(applyBlocked.body).error.code).toBe('FORBIDDEN')
+
+    const applyEchoed = await app.inject({
+      method: 'POST', url: '/api/v1/apply', headers: writeHeaders, payload: applyBody({ openai: 'gpt-5-nano' }),
+    })
+    expect(applyEchoed.statusCode).toBe(200)
+
+    const applyAllowed = await app.inject({
+      method: 'POST', url: '/api/v1/apply', headers: settingsHeaders, payload: applyBody({ openai: 'gpt-5-mini' }),
+    })
+    expect(applyAllowed.statusCode).toBe(200)
+
+    const stored = await app.inject({
+      method: 'GET', url: '/api/v1/projects/model-gate', headers: writeHeaders,
+    })
+    expect(stored.json().providerModels).toEqual({ openai: 'gpt-5-mini' })
+  } finally {
+    await app.close()
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  }
+})
+
 test('notification APIs and history redact webhook secrets while keeping stored delivery config intact', async () => {
   const { app, db, tmpDir } = buildApp()
   const rawKey = insertApiKey(db)

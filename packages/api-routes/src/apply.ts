@@ -4,8 +4,9 @@ import type { FastifyInstance } from 'fastify'
 import { projects, competitors, schedules, notifications } from '@ainyc/canonry-db'
 import { forbidden, normalizeProjectAliases, normalizeProjectDomain, projectConfigSchema, registrableDomain, resolveConfigSpecQueries, SchedulableRunKinds, validationError } from '@ainyc/canonry-contracts'
 import type { ProviderAdapterInfo } from './settings.js'
-import { validateProviderModels } from './provider-models.js'
+import { assertProviderModelsMatchProviders, validateProviderModels } from './provider-models.js'
 import { writeAuditLog } from './helpers.js'
+import { assertProviderModelScope } from './projects.js'
 import { replaceProjectQueries } from './query-replace.js'
 import { resolvePreset, validateCron, isValidTimezone } from './schedule-utils.js'
 import { resolveWebhookTarget } from './webhooks.js'
@@ -53,6 +54,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
       }
     }
     const providerModels = validateProviderModels(config.spec.providerModels ?? {}, opts?.providerAdapters)
+    assertProviderModelsMatchProviders(providerModels, config.spec.providers ?? [])
 
     // Validate schedule before entering transaction
     let resolvedSchedule: { cronExpr: string; preset: string | null; timezone: string } | null = null
@@ -99,17 +101,26 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
     const name = config.metadata.name
     const configQueries = resolveConfigSpecQueries(config.spec)
 
+    const target = app.db
+      .select({ id: projects.id, providerModels: projects.providerModels })
+      .from(projects)
+      .where(eq(projects.name, name))
+      .get()
+
     // A project-scoped key may only apply to ITS OWN project — never create a
     // new project or overwrite a sibling. The target must already exist and
     // resolve to the key's project (this global route is not under the
     // /projects/:name auth gate).
     const scopedProjectId = request.apiKey?.projectId
     if (scopedProjectId) {
-      const target = app.db.select({ id: projects.id }).from(projects).where(eq(projects.name, name)).get()
       if (!target || target.id !== scopedProjectId) {
         throw forbidden('This API key is scoped to a single project and cannot apply this config.')
       }
     }
+
+    // Same instance-level gate as PUT /projects/:name — apply may not be a
+    // back door into choosing the execution model.
+    assertProviderModelScope(request, target?.providerModels ?? {}, providerModels)
 
     // All validation done — wrap all writes in a single transaction
     let projectId: string

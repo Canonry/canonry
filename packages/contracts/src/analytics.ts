@@ -67,8 +67,23 @@ export const modelAttributionEventSchema = z.object({
   bucketStartDate: z.string(),
   from: modelEvidenceStateSchema,
   to: modelEvidenceStateSchema,
+  /**
+   * True when `from` is the pre-window anchor rather than an in-window sweep,
+   * so the change happened at some point between the last pre-window sweep and
+   * `observedAt` — not necessarily inside the window. Omitted when false.
+   * Consumers should date these "on or before", never as an in-window event.
+   */
+  fromPreWindowAnchor: z.boolean().optional(),
 })
 export type ModelAttributionEvent = z.infer<typeof modelAttributionEventSchema>
+
+/**
+ * Cap on the transitions returned per provider. A provider that oscillates
+ * between two model ids sweep after sweep would otherwise emit an unbounded
+ * list; `eventTotal` keeps the real count visible so a consumer can say how
+ * many of how many it is showing.
+ */
+export const MODEL_ATTRIBUTION_EVENT_LIMIT = 50
 
 export const providerModelAttributionSchema = z.object({
   /** Most recent logical sweep in the selected analytics window for this provider. */
@@ -76,7 +91,14 @@ export const providerModelAttributionSchema = z.object({
     observedAt: z.string(),
     state: modelEvidenceStateSchema,
   }),
+  /** At most the most recent `MODEL_ATTRIBUTION_EVENT_LIMIT` transitions, oldest first. */
   events: z.array(modelAttributionEventSchema),
+  /**
+   * Every transition observed in the window, including any the cap dropped.
+   * `eventTotal > events.length` means the list is truncated. Optional so a
+   * newer client can still read an older server's response.
+   */
+  eventTotal: z.number().int().nonnegative().optional(),
 })
 export type ProviderModelAttribution = z.infer<typeof providerModelAttributionSchema>
 

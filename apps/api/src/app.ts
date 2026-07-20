@@ -24,6 +24,14 @@ export function buildApp(env: PlatformEnv) {
   // Cloud validates the same public model-id conventions as local serve
   // without importing execution adapters (and their provider SDK graphs).
   //
+  // This list is not only a catalog: `apiRoutes` fans its NAMES out as the
+  // provider allowlist for project, query, run, apply, and schedule writes. A
+  // missing entry is therefore not a cosmetic gap — the provider stops being
+  // writable on Cloud while local `canonry serve` still accepts it. It must
+  // name EVERY registered adapter (`API_ADAPTERS` + `BROWSER_ADAPTERS` in
+  // packages/canonry/src/server.ts), which is what `PROVIDER_NAMES` in
+  // contracts enumerates; `app.test.ts` pins that invariant.
+  //
   // KEEP IN SYNC with each adapter's `modelRegistry` in
   // packages/provider-*/src/adapter.ts (defaultModel / knownModels /
   // validationPattern / validationHint). This is a deliberate hand-mirrored copy
@@ -81,6 +89,26 @@ export function buildApp(env: PlatformEnv) {
       ],
       modelValidationPattern: /^sonar/,
       modelValidationHint: 'expected a sonar model (e.g. sonar, sonar-pro, sonar-reasoning)',
+    },
+    {
+      name: 'local', displayName: 'Local', mode: 'api' as const, modelConfigurable: true,
+      defaultModel: 'llama3',
+      knownModels: [
+        { id: 'llama3', displayName: 'Llama 3', tier: 'standard' as const },
+      ],
+      modelValidationPattern: /./,
+      modelValidationHint: 'any model name accepted',
+    },
+    {
+      // Browser adapter — the model is detected from the ChatGPT web UI, so it
+      // is visible in the catalog but not project-overridable (mode !== 'api').
+      name: 'cdp:chatgpt', displayName: 'ChatGPT (Browser)', mode: 'browser' as const, modelConfigurable: false,
+      defaultModel: 'chatgpt-web',
+      knownModels: [
+        { id: 'chatgpt-web', displayName: 'ChatGPT (Web UI)', tier: 'standard' as const },
+      ],
+      modelValidationPattern: /./,
+      modelValidationHint: 'model is detected from the ChatGPT web UI',
     },
   ]
 

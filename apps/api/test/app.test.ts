@@ -1,10 +1,12 @@
 import { test, expect, onTestFinished } from 'vitest'
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
 import { getPlatformEnv } from '@ainyc/canonry-config'
-import { createClient, migrate } from '@ainyc/canonry-db'
+import { PROVIDER_NAMES } from '@ainyc/canonry-contracts'
+import { createClient, migrate, apiKeys } from '@ainyc/canonry-db'
 
 import { buildApp } from '../src/app.js'
 import { loadApiEnv } from '../src/plugins/env.js'
@@ -64,6 +66,70 @@ test('buildApp registers health and API routes', async () => {
   })
   expect(openApiResponse.statusCode).toBe(200)
   expect(openApiResponse.json().info.version).toBe('0.1.0')
+})
+
+test('cloud accepts every registered provider name', async () => {
+  // The cloud provider catalog is hand-mirrored (apps/api must not pull the
+  // provider SDK graphs), and `apiRoutes` turns its NAMES into the allowlist
+  // enforced on project / query / run / apply / schedule writes. A name missing
+  // here silently makes that provider unwritable on Cloud while local `canonry
+  // serve` — which validates against all registered adapters — still accepts
+  // it. Pin the invariant so a future hand-edit cannot reintroduce the drift.
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'api-providers-test-'))
+  const dbPath = path.join(tmpDir, 'test.db')
+
+  onTestFinished(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  const db = createClient(dbPath)
+  migrate(db)
+
+  const rawKey = `cnry_${crypto.randomBytes(16).toString('hex')}`
+  db.insert(apiKeys).values({
+    id: crypto.randomUUID(),
+    name: 'test',
+    keyHash: crypto.createHash('sha256').update(rawKey).digest('hex'),
+    keyPrefix: rawKey.slice(0, 9),
+    scopes: ['*'],
+    createdAt: new Date().toISOString(),
+  }).run()
+
+  const app = buildApp(getPlatformEnv({
+    DATABASE_URL: dbPath,
+    API_PORT: '3000',
+    WORKER_PORT: '3001',
+    GOOGLE_STATE_SECRET: 'test-only-google-state-secret-32b',
+  }))
+
+  onTestFinished(async () => {
+    await app.close()
+  })
+
+  const settings = await app.inject({
+    method: 'GET',
+    url: '/api/v1/settings',
+    headers: { authorization: `Bearer ${rawKey}` },
+  })
+  expect(settings.statusCode).toBe(200)
+  const catalogNames = settings.json().providerCatalog.map((entry: { name: string }) => entry.name)
+  expect([...catalogNames].sort()).toEqual([...PROVIDER_NAMES].sort())
+
+  // The allowlist is what actually 400s a write, so exercise it end to end.
+  const upsert = await app.inject({
+    method: 'PUT',
+    url: '/api/v1/projects/acme',
+    headers: { authorization: `Bearer ${rawKey}` },
+    payload: {
+      displayName: 'Acme',
+      canonicalDomain: 'acme.example',
+      country: 'US',
+      language: 'en',
+      providers: [...PROVIDER_NAMES],
+    },
+  })
+  expect(upsert.statusCode).toBe(201)
+  expect(upsert.json().providers).toEqual([...PROVIDER_NAMES])
 })
 
 test('loadApiEnv delegates to shared platform config', () => {

@@ -1,7 +1,7 @@
 import type { ProjectDto } from '@ainyc/canonry-contracts'
 import { effectiveDomains, normalizeProjectAliases } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
-import { isMachineFormat } from '../cli-error.js'
+import { isMachineFormat, usageError } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
 
 function getClient() {
@@ -152,6 +152,27 @@ export async function updateProjectSettings(
   }
   const providerModels = { ...(project.providerModels ?? {}), ...(opts.providerModels ?? {}) }
   for (const provider of opts.clearProviderModels ?? []) delete providerModels[provider]
+  // A model override only means something for an engine the project actually
+  // runs. Narrowing the engine set must not leave the dropped engine's override
+  // behind, or it silently re-applies the day that engine is added back. Mirrors
+  // the dashboard's engine-settings guard: an empty provider list means "all
+  // configured engines", so nothing is orphaned there and every override stays.
+  const nextProviders = opts.providers ?? project.providers ?? []
+  if (nextProviders.length > 0) {
+    const requested = Object.keys(opts.providerModels ?? {}).filter(p => !nextProviders.includes(p))
+    if (requested.length > 0) {
+      throw usageError(
+        `Error: --provider-model set for ${requested.join(', ')}, which ${requested.length > 1 ? 'are' : 'is'} not a selected engine for "${name}"`,
+        {
+          message: 'provider-model set for a provider the project does not run',
+          details: { command: 'project.update', project: name, providers: nextProviders, unselected: requested },
+        },
+      )
+    }
+    for (const provider of Object.keys(providerModels)) {
+      if (!nextProviders.includes(provider)) delete providerModels[provider]
+    }
+  }
 
   const result: ProjectDto = await client.putProject(name, {
     displayName: nextDisplayName,

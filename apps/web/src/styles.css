@@ -1129,6 +1129,10 @@
     @apply mt-1 text-[11px] text-muted;
   }
 
+  .trend-model-evidence-note {
+    @apply mt-1.5 text-[11px] text-muted;
+  }
+
   .trend-model-evidence-list {
     @apply mt-1.5 space-y-1;
   }

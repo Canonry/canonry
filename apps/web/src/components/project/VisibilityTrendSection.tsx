@@ -26,6 +26,7 @@ import { STATIC_VISIBILITY_STALE_MS } from '../../queries/query-client.js'
 import {
   buildSelectedTrendRows,
   CITED_KEY,
+  countModelAttributionEvents,
   formatModelEvidence,
   formatQueryChangeCaption,
   groupModelAttributionEvents,
@@ -187,9 +188,11 @@ function modelEventMarkerColor(events: ReturnType<typeof groupModelAttributionEv
 function ModelEvidenceSummary({
   events,
   available,
+  counts,
 }: {
   events: ReturnType<typeof groupModelAttributionEvents>
   available: boolean
+  counts: { shown: number; total: number }
 }) {
   const descriptionId = useId()
   return (
@@ -206,14 +209,25 @@ function ModelEvidenceSummary({
       ) : events.length === 0 ? (
         <p className="trend-model-evidence-empty">No model evidence changes in this window.</p>
       ) : (
-        <ul className="trend-model-evidence-list">
-          {events.flatMap(({ bucketStartDate, events: bucketEvents }) => bucketEvents.map(({ provider, event }) => (
-            <li key={`${provider}-${event.observedAt}-${event.bucketStartDate}`} className="trend-model-evidence-item">
-              <span className="trend-model-evidence-date">{formatChartDateLabel(bucketStartDate)}</span>
-              <span>{providerDisplayName(provider)}: {formatModelEvidence(event.from)} → {formatModelEvidence(event.to)}</span>
-            </li>
-          )))}
-        </ul>
+        <>
+          <ul className="trend-model-evidence-list">
+            {events.flatMap(({ bucketStartDate, events: bucketEvents }) => bucketEvents.map(({ provider, event }) => (
+              <li key={`${provider}-${event.observedAt}-${event.bucketStartDate}`} className="trend-model-evidence-item">
+                {/* An anchored change is only datable to the last sweep before this
+                    window, so it must not read as having happened on that day. */}
+                <span className="trend-model-evidence-date">
+                  {event.fromPreWindowAnchor ? 'on or before ' : ''}{formatChartDateLabel(bucketStartDate)}
+                </span>
+                <span>{providerDisplayName(provider)}: {formatModelEvidence(event.from)} → {formatModelEvidence(event.to)}</span>
+              </li>
+            )))}
+          </ul>
+          {counts.total > counts.shown && (
+            <p className="trend-model-evidence-note">
+              Showing the most recent {counts.shown} of {counts.total} changes.
+            </p>
+          )}
+        </>
       )}
     </aside>
   )
@@ -440,6 +454,10 @@ export function VisibilityTrendSection({
     () => groupModelAttributionEvents(modelAttribution ?? {}),
     [modelAttribution],
   )
+  const modelEventCounts = useMemo(
+    () => countModelAttributionEvents(modelAttribution ?? {}),
+    [modelAttribution],
+  )
 
   // Headline readout: the selected metric's latest bucket value plus its change
   // across the visible window. Quantifies "where it sits now, which way it
@@ -634,7 +652,7 @@ export function VisibilityTrendSection({
               </ComposedChart>
             </ResponsiveContainer>
           </div>
-          <ModelEvidenceSummary events={modelEvents} available={modelAttribution !== null} />
+          <ModelEvidenceSummary events={modelEvents} available={modelAttribution !== null} counts={modelEventCounts} />
           {singleBucket && (
             <p className="visibility-trend-note">
               {metric === 'mentionShare'

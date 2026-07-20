@@ -168,6 +168,32 @@ test('labels per-engine legend entries from analytics bucket evidence and surfac
   expect(within(legend).getByText('Unknown model')).toBeTruthy()
   expect(screen.getByText('Model evidence changes')).toBeTruthy()
   expect(screen.getByText(/Gemini: gemini-2.0-flash → Mixed: gemini-2.0-flash, gemini-2.5-flash/)).toBeTruthy()
+  // Neither optional field is present on this DTO, so the change is dated
+  // plainly and no partial-history note appears.
+  expect(screen.queryByText(/on or before/)).toBeNull()
+  expect(screen.queryByText(/Showing the/)).toBeNull()
+})
+
+test('dates an anchored change "on or before" and says how much history is shown', async () => {
+  const anchored = metricsDto(TWO_BUCKETS)
+  Object.assign(anchored.modelAttribution.gemini.events[0]!, { fromPreWindowAnchor: true })
+  Object.assign(anchored.modelAttribution.gemini, { eventTotal: 84 })
+
+  const restore = mockFetch((url) => {
+    const path = url.split('?')[0]!
+    if (path.endsWith('/projects/test-project/analytics/metrics')) {
+      return jsonResponse(anchored)
+    }
+    throw new Error(`Unexpected fetch: ${url}`)
+  })
+  onTestFinished(restore)
+
+  renderSection()
+
+  // The change can only be dated to the last sweep BEFORE the window, so the
+  // row must not read as an event that happened on that bucket's date.
+  expect(await screen.findByText(/on or before/)).toBeTruthy()
+  expect(screen.getByText('Showing the most recent 1 of 84 changes.')).toBeTruthy()
 })
 
 test('shows an empty state when there are no buckets yet', async () => {

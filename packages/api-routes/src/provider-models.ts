@@ -49,3 +49,28 @@ export function validateProviderModels(
   }
   return normalized
 }
+
+/**
+ * A model override only means something for an engine the project actually
+ * runs. An override for an unselected engine is inert but stored, and it
+ * silently takes effect the day that engine is added back — so reject it at the
+ * boundary rather than stripping it: `apply` is expected to be idempotent, and
+ * quietly dropping an operator-supplied key would make its output diverge from
+ * its input with nothing said.
+ *
+ * An EMPTY provider list means "every configured engine" (both routes persist
+ * `providers ?? []` and read it that way), so nothing is orphaned there and
+ * every override is kept.
+ */
+export function assertProviderModelsMatchProviders(
+  models: ProviderModels,
+  providers: readonly string[],
+): void {
+  if (providers.length === 0) return
+  const orphaned = Object.keys(models).filter(provider => !providers.includes(provider))
+  if (orphaned.length === 0) return
+  throw validationError(
+    `Model override set for provider(s) the project does not run: ${orphaned.join(', ')}. Add them to "providers" or drop the override.`,
+    { orphanedProviders: orphaned, providers: [...providers] },
+  )
+}

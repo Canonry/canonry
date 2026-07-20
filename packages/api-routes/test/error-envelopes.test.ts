@@ -118,4 +118,55 @@ describe('api error envelopes', () => {
     await app.close()
     fs.rmSync(tmpDir, { recursive: true, force: true })
   })
+
+  it('rejects a model override for an engine the project does not run, but keeps every override when providers is empty', async () => {
+    const { app, tmpDir } = buildApp({
+      providerAdapters: [
+        {
+          name: 'gemini', displayName: 'Gemini', mode: 'api', modelConfigurable: true,
+          defaultModel: 'gemini-2.5-flash', knownModels: [], modelValidationPattern: /^gemini-/,
+          modelValidationHint: 'use a Gemini model ID',
+        },
+        {
+          name: 'openai', displayName: 'OpenAI', mode: 'api', modelConfigurable: true,
+          defaultModel: 'gpt-5', knownModels: [], modelValidationPattern: /^gpt-/,
+          modelValidationHint: 'use a GPT model ID',
+        },
+      ],
+    })
+    await app.ready()
+    const body = { displayName: 'Demo', canonicalDomain: 'example.com', country: 'US', language: 'en' }
+
+    // A stored override for an unselected engine is inert until that engine is
+    // added back, at which point it silently changes what executes.
+    const orphaned = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/projects/demo',
+      payload: { ...body, providers: ['gemini'], providerModels: { gemini: 'gemini-2.5-pro', openai: 'gpt-5-mini' } },
+    })
+    expect(orphaned.statusCode).toBe(400)
+    expect(orphaned.json().error.code).toBe('VALIDATION_ERROR')
+    expect(orphaned.json().error.details.orphanedProviders).toEqual(['openai'])
+
+    // An empty provider list means "all configured engines" — nothing is orphaned.
+    const all = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/projects/demo',
+      payload: { ...body, providerModels: { gemini: 'gemini-2.5-pro', openai: 'gpt-5-mini' } },
+    })
+    expect(all.statusCode).toBe(201)
+    expect(all.json().providerModels).toEqual({ gemini: 'gemini-2.5-pro', openai: 'gpt-5-mini' })
+
+    // Narrowing the engine set must drop the override in the same write.
+    const narrowed = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/projects/demo',
+      payload: { ...body, providers: ['gemini'], providerModels: { gemini: 'gemini-2.5-pro' } },
+    })
+    expect(narrowed.statusCode).toBe(200)
+    expect(narrowed.json().providerModels).toEqual({ gemini: 'gemini-2.5-pro' })
+
+    await app.close()
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
 })

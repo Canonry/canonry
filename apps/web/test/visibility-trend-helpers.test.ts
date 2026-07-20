@@ -4,6 +4,7 @@ import {
   buildMentionShareTrendRows,
   buildSelectedTrendRows,
   buildTrendRows,
+  countModelAttributionEvents,
   formatModelEvidence,
   groupModelAttributionEvents,
   latestPlottedProviderModelEvidence,
@@ -203,6 +204,26 @@ describe('model attribution helpers', () => {
         to: { status: 'known', model: 'gemini-2.5-flash' },
       } }],
     }])
+  })
+
+  it('counts shown vs observed changes so a capped list can say how much it is hiding', () => {
+    const event = {
+      observedAt: '2026-04-08T09:00:00.000Z',
+      bucketStartDate: '2026-04-08',
+      from: { status: 'known', model: 'a' },
+      to: { status: 'known', model: 'b' },
+    } as const
+    const latestObservation = { observedAt: '2026-04-08T09:00:00.000Z', state: { status: 'known', model: 'b' } } as const
+
+    // gemini is truncated (2 of 40), openai is complete, and claude predates
+    // `eventTotal` entirely — an older server's list IS its whole history.
+    expect(countModelAttributionEvents({
+      gemini: { latestObservation, events: [event, event], eventTotal: 40 },
+      openai: { latestObservation, events: [event], eventTotal: 1 },
+      claude: { latestObservation, events: [event, event, event] },
+    })).toEqual({ shown: 6, total: 44 })
+
+    expect(countModelAttributionEvents({})).toEqual({ shown: 0, total: 0 })
   })
 })
 

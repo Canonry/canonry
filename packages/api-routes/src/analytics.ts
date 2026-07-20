@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, isNotNull, lt } from 'drizzle-orm'
+import { and, desc, eq, gte, inArray, lt } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { filterTrackedSnapshots, groupRunsByCreatedAt, pickGroupRepresentative, querySnapshots, runs, queries, competitors, domainClassifications, parseJsonColumn } from '@ainyc/canonry-db'
 import {
@@ -117,50 +117,60 @@ export async function analyticsRoutes(app: FastifyInstance) {
 
     // Model observations are evidence, not configuration. To avoid a false
     // "first seen" transition at the start of a bounded window, fetch one
-    // latest pre-cutoff logical sweep per in-window provider. This never loads
-    // an unbounded pre-window history, and provider absence remains absent
-    // evidence rather than a fabricated unknown state.
+    // latest pre-cutoff logical sweep per in-window provider. The lookback is
+    // bounded (see ANCHOR_LOOKBACK_DAYS) so a provider that was last swept
+    // months ago cannot anchor a change marker inside this window, and provider
+    // absence remains absent evidence rather than a fabricated unknown state.
     const anchors: Record<string, ModelEvidenceState> = {}
-    if (cutoff) {
-      for (const provider of [...new Set(allSnapshots.map(snapshot => snapshot.provider))].sort()) {
-        const latestAnchorSweep = app.db
-          .select({
-            createdAt: runs.createdAt,
-          })
-          .from(querySnapshots)
-          .innerJoin(runs, eq(querySnapshots.runId, runs.id))
-          .where(and(
-            eq(runs.projectId, project.id),
-            eq(runs.kind, RunKinds['answer-visibility']),
-            inArray(runs.status, [RunStatuses.completed, RunStatuses.partial]),
-            notProbeRun(),
-            lt(runs.createdAt, cutoff),
-            eq(querySnapshots.provider, provider),
-            isNotNull(querySnapshots.queryId),
-          ))
-          .orderBy(desc(runs.createdAt))
-          .limit(1)
-          .get()
-        if (!latestAnchorSweep) continue
+    const windowProviders = new Set(allSnapshots.map(snapshot => snapshot.provider))
+    if (cutoff && windowProviders.size > 0) {
+      // Narrow to this project's runs FIRST (`idx_runs_project`), then read
+      // snapshots by run id (`idx_snapshots_run`). Selecting snapshots by
+      // provider instead makes SQLite scan the whole `idx_snapshots_provider_model`
+      // partition — every project, all history — plus a temp b-tree sort, which
+      // blocks the synchronous driver for hundreds of ms per provider. This
+      // shape is index-driven by construction, so it does not depend on the
+      // planner having ANALYZE statistics.
+      const anchorRuns = app.db
+        .select({ id: runs.id, createdAt: runs.createdAt })
+        .from(runs)
+        .where(and(
+          eq(runs.projectId, project.id),
+          eq(runs.kind, RunKinds['answer-visibility']),
+          inArray(runs.status, [RunStatuses.completed, RunStatuses.partial]),
+          notProbeRun(),
+          lt(runs.createdAt, cutoff),
+          gte(runs.createdAt, anchorLookbackFloor(cutoff)),
+        ))
+        .all()
 
+      if (anchorRuns.length > 0) {
+        const anchorRunCreatedAt = new Map(anchorRuns.map(run => [run.id, run.createdAt]))
         const anchorSnapshots = filterTrackedSnapshots(app.db
           .select({
+            runId: querySnapshots.runId,
             queryId: querySnapshots.queryId,
             provider: querySnapshots.provider,
             model: querySnapshots.model,
           })
           .from(querySnapshots)
-          .innerJoin(runs, eq(querySnapshots.runId, runs.id))
-          .where(and(
-            eq(runs.projectId, project.id),
-            eq(runs.kind, RunKinds['answer-visibility']),
-            inArray(runs.status, [RunStatuses.completed, RunStatuses.partial]),
-            notProbeRun(),
-            eq(runs.createdAt, latestAnchorSweep.createdAt),
-            eq(querySnapshots.provider, provider),
-          ))
+          .where(inArray(querySnapshots.runId, anchorRuns.map(run => run.id)))
           .all())
-        anchors[provider] = classifyModelEvidence(anchorSnapshots.map(snapshot => snapshot.model))
+          .filter(snapshot => windowProviders.has(snapshot.provider))
+
+        // One anchor per provider: the latest pre-window logical sweep that
+        // actually observed it. Same-timestamp location runs collapse into it.
+        const anchorSweepAt = new Map<string, string>()
+        for (const snapshot of anchorSnapshots) {
+          const observedAt = anchorRunCreatedAt.get(snapshot.runId)!
+          const current = anchorSweepAt.get(snapshot.provider)
+          if (!current || observedAt > current) anchorSweepAt.set(snapshot.provider, observedAt)
+        }
+        for (const [provider, observedAt] of [...anchorSweepAt].sort(([a], [b]) => a.localeCompare(b))) {
+          anchors[provider] = classifyModelEvidence(anchorSnapshots
+            .filter(snapshot => snapshot.provider === provider && anchorRunCreatedAt.get(snapshot.runId) === observedAt)
+            .map(snapshot => snapshot.model))
+        }
       }
     }
     const modelAttribution = buildModelAttribution({
@@ -528,6 +538,20 @@ interface DomainAgg {
 
 // --- Helpers ---
 
+/**
+ * How far before a bounded window's cutoff the model-evidence anchor may look.
+ * The anchor only makes sense as the sweep immediately preceding the window, so
+ * it is capped at roughly two weekly cadences: a provider whose last sweep is
+ * older than that has no continuous evidence chain into the window, and its
+ * first in-window observation is a fresh first-seen, not a transition. Without
+ * the cap an anchor from months earlier renders a model-change marker inside a
+ * window where nothing changed.
+ */
+const ANCHOR_LOOKBACK_DAYS = 14
+
+function anchorLookbackFloor(cutoff: string): string {
+  return new Date(new Date(cutoff).getTime() - ANCHOR_LOOKBACK_DAYS * 86_400_000).toISOString()
+}
 
 function isProviderInfraDomain(uri: string): boolean {
   try {
