@@ -6,6 +6,7 @@ import {
   CitationStates,
   mentionStateFromAnswerMentioned,
   notFound,
+  RunKinds,
   validationError,
   visibilityStateFromAnswerMentioned,
 } from '@ainyc/canonry-contracts'
@@ -143,19 +144,39 @@ export async function historyRoutes(app: FastifyInstance) {
       .where(eq(queries.projectId, project.id))
       .all()
 
-    // Get project runs ordered by creation time
+    // Get project runs ordered by creation time.
+    //
+    // Restricted to `answer-visibility` runs — the only kind that writes
+    // `query_snapshots` (the sole snapshot writer is the sweep path in
+    // `job-runner.executeRun`, and `POST /projects/:name/runs` pins that
+    // path's `kind` to the `answer-visibility` literal). Every field this
+    // route returns is derived from snapshots, so including other kinds adds
+    // nothing to the response — but it does consume the `limit` window.
+    // Projects sync traffic every ~30 minutes while sweeps run roughly twice
+    // a month, so an unfiltered `limit=20` selects ~10 hours of integration
+    // syncs and zero sweeps, and every entry comes back with `runs: []`
+    // (issue: "Query evidence" panel stuck on "Awaiting first run").
+    // With the filter, `limit` means "the last N sweeps", which is what every
+    // caller intends. `visibility-stats` filters on the same run kind, but also
+    // narrows to completed/partial runs; this route deliberately does not, so a
+    // failed sweep still appears in the timeline.
+    const runKindFilter = and(
+      eq(runs.projectId, project.id),
+      notProbeRun(),
+      eq(runs.kind, RunKinds['answer-visibility']),
+    )
     const requestedLimit = parseOptionalPositiveInt(request.query.limit, 100)
     const projectRuns = requestedLimit == null
       ? app.db
         .select()
         .from(runs)
-        .where(and(eq(runs.projectId, project.id), notProbeRun()))
+        .where(runKindFilter)
         .orderBy(asc(runs.createdAt))
         .all()
       : app.db
         .select()
         .from(runs)
-        .where(and(eq(runs.projectId, project.id), notProbeRun()))
+        .where(runKindFilter)
         .orderBy(desc(runs.createdAt))
         .limit(requestedLimit)
         .all()
