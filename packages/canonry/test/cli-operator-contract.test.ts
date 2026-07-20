@@ -247,6 +247,18 @@ describe('operator CLI contract', () => {
     expect(parsed.some(entry => entry.action === 'location.added')).toBe(true)
   })
 
+  it('prints filtered instance audit history with --all', async () => {
+    await client.addLocation('test-proj', { label: 'nyc', city: 'New York', region: 'NY', country: 'US' })
+
+    const result = await invokeCli(['history', '--all', '--action', 'location.added', '--limit', '1', '--format', 'json'])
+
+    expect(result.exitCode).toBe(undefined)
+    expect(result.stderr).toBe('')
+    const parsed = JSON.parse(result.stdout) as Array<{ action: string }>
+    expect(parsed).toHaveLength(1)
+    expect(parsed[0]?.action).toBe('location.added')
+  })
+
   it('prints a JSON usage error for history with missing project', async () => {
     const result = await invokeCli(['history', '--format', 'json'])
 

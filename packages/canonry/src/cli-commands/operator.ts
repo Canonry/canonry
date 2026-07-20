@@ -57,10 +57,25 @@ export const OPERATOR_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['history'],
-    usage: 'canonry history <project> [--format json]',
+    usage: 'canonry history <project> [--limit <n>] [--since <ISO>] [--action <action>] [--actor <actor>] [--entity-type <type>] [--format json|jsonl]\n       canonry history --all [same filters]',
+    options: {
+      all: { type: 'boolean', default: false },
+      limit: stringOption(),
+      since: stringOption(),
+      action: stringOption(),
+      actor: stringOption(),
+      'entity-type': stringOption(),
+    },
     run: async (input) => {
-      const project = requireProject(input, 'history', 'canonry history <project> [--format json]')
-      await showHistory(project, input.format)
+      const usage = 'canonry history <project> [--limit <n>] [--since <ISO>] [--action <action>] [--actor <actor>] [--entity-type <type>] [--format json|jsonl]\n       canonry history --all [same filters]'
+      const project = getBoolean(input.values, 'all') ? undefined : requireProject(input, 'history', usage)
+      await showHistory(project, input.format, {
+        limit: parseIntegerOption(input, 'limit', { command: 'history', usage, message: '--limit must be an integer' }),
+        since: getString(input.values, 'since'),
+        action: getString(input.values, 'action'),
+        actor: getString(input.values, 'actor'),
+        entityType: getString(input.values, 'entity-type'),
+      })
     },
   },
   {

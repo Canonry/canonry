@@ -1,10 +1,20 @@
 import { describe, expect, it } from 'vitest'
-import { READ_ONLY_SCOPE, WILDCARD_SCOPE, isReadOnlyKey } from '../src/scopes.js'
+import {
+  ADS_ACTIVATE_SCOPE,
+  ADS_APPROVE_SCOPE,
+  ADS_WRITE_SCOPE,
+  READ_ONLY_SCOPE,
+  WILDCARD_SCOPE,
+  isReadOnlyKey,
+} from '../src/scopes.js'
 
 describe('scope constants', () => {
   it('exposes the canonical tokens', () => {
     expect(READ_ONLY_SCOPE).toBe('read')
     expect(WILDCARD_SCOPE).toBe('*')
+    expect(ADS_WRITE_SCOPE).toBe('ads.write')
+    expect(ADS_APPROVE_SCOPE).toBe('ads.approve')
+    expect(ADS_ACTIVATE_SCOPE).toBe('ads.activate')
   })
 })
 
@@ -24,6 +34,11 @@ describe('isReadOnlyKey', () => {
   it('is false when a named *.write scope is present alongside read', () => {
     expect(isReadOnlyKey(['read', 'keys.write'])).toBe(false)
     expect(isReadOnlyKey(['read', 'settings.write'])).toBe(false)
+  })
+
+  it('is false when an approval or activation scope is present alongside read', () => {
+    expect(isReadOnlyKey(['read', ADS_APPROVE_SCOPE])).toBe(false)
+    expect(isReadOnlyKey(['read', ADS_ACTIVATE_SCOPE])).toBe(false)
   })
 
   it('is false for the bare write scope alongside read', () => {

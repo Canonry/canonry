@@ -732,6 +732,8 @@ describe('SessionRegistry', () => {
     const fullNames = agent.state.tools.map((t) => t.name)
     expect(fullNames).toContain(AERO_ADS_OPERATOR_CONTEXT_TOOL_NAME)
     expect(fullNames).toContain(CanonryMcpToolNames.canonry_ads_sync)
+    expect(fullNames).toContain(CanonryMcpToolNames.canonry_ads_campaign_activate_tree)
+    expect(fullNames).toContain(CanonryMcpToolNames.canonry_ads_operation_resume_activation)
     expect(fullNames).not.toContain(CanonryMcpToolNames.canonry_schedule_set)
     expect(agent.state.tools.length).toBe(AERO_ADS_OPERATOR_ALL_TOOL_COUNT)
   })

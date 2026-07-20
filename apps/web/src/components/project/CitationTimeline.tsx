@@ -10,18 +10,28 @@ export function CitationTimeline({ history, maxDots = 12 }: { history: RunHistor
     lost: 'bg-negative-400',
     emerging: 'bg-caution-400 ring-1 ring-caution-300/60',
   }
+  const shapeMap: Record<string, string> = {
+    cited: 'rounded-full',
+    'not-cited': 'rounded-sm',
+    lost: 'rotate-45 rounded-[1px]',
+    emerging: 'rounded-full',
+  }
 
   const firstDate = new Date(dots[0].createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
   const lastDate = new Date(dots[dots.length - 1].createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+  const timelineLabel = dots.map((dot) => {
+    const date = new Date(dot.createdAt).toLocaleDateString()
+    return `${date}: ${dot.citationState}${dot.model ? `, model ${dot.model}` : ''}`
+  }).join('; ')
 
   return (
-    <div className="flex items-center gap-1">
-      <span className="text-[9px] text-faint shrink-0">{firstDate}</span>
-      <div className="flex items-center gap-[3px]" title={`${dots.length} runs`}>
+    <div className="flex items-center gap-1" role="img" aria-label={`Citation history across ${dots.length} runs. ${timelineLabel}`}>
+      <span className="text-[9px] text-faint shrink-0" aria-hidden="true">{firstDate}</span>
+      <div className="flex items-center gap-[3px]" title={`${dots.length} runs`} aria-hidden="true">
         {dots.map((d, i) => (
-          <div
-            key={i}
-            className={`h-2.5 w-2.5 rounded-sm ${colorMap[d.citationState] ?? 'bg-mono-700'} ${
+          <span
+            key={`${d.runId}:${d.createdAt}`}
+            className={`h-2.5 w-2.5 ${shapeMap[d.citationState] ?? 'rounded-sm'} ${colorMap[d.citationState] ?? 'bg-mono-700'} ${
               d.model && i > 0 && dots[i - 1]?.model && dots[i - 1]!.model !== d.model
                 ? 'ring-1 ring-caution-300/80 ring-offset-1 ring-offset-bg'
                 : ''
@@ -31,11 +41,11 @@ export function CitationTimeline({ history, maxDots = 12 }: { history: RunHistor
               new Date(d.createdAt).toLocaleDateString(),
               d.model ? `model ${d.model}` : null,
               d.model && i > 0 && dots[i - 1]?.model && dots[i - 1]!.model !== d.model ? 'model changed' : null,
-            ].filter(Boolean).join(' — ')}
+            ].filter(Boolean).join(' · ')}
           />
         ))}
       </div>
-      <span className="text-[9px] text-faint shrink-0">{lastDate}</span>
+      <span className="text-[9px] text-faint shrink-0" aria-hidden="true">{lastDate}</span>
     </div>
   )
 }

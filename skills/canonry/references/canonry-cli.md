@@ -566,8 +566,37 @@ Paid-surface data for the project's connected OpenAI ad account. Ads render only
 ```
 cnry ads connect <project> --api-key <sdk-key>   # mint the key in OpenAI Ads Manager; validated upstream, stored in ~/.canonry/config.yaml
 cnry ads status <project>
+cnry ads account <project>                        # live account identity, currency/timezone, status, and integrity review
+cnry ads geo search <project> --query "New York" --limit 20 --format jsonl
+cnry ads conversions pixels <project> --format jsonl
+cnry ads conversions event-settings <project> --format jsonl
+cnry ads image upload <project> --input image.json
+cnry ads campaign create <project> --input campaign.json
+cnry ads campaign update <project> <campaign-id> --input update.json
+cnry ads campaign pause <project> <campaign-id> --input pause.json
+cnry ads ad-group create <project> --input group.json
+cnry ads ad-group update <project> <ad-group-id> --input update.json
+cnry ads ad-group pause <project> <ad-group-id> --input pause.json
+cnry ads ad create <project> --input ad.json
+cnry ads ad update <project> <ad-id> --input update.json
+cnry ads ad pause <project> <ad-id> --input pause.json
+cnry ads operation <project> <operation-key>     # inspect one durable mutation receipt
+cnry ads operations unresolved <project> --limit 100 --format json
+                                                   # list pending/unknown/reconciling receipts before new writes
+cnry ads operations unresolved <project> --cursor <nextCursor> --limit 100 --format json
+                                                   # advance past permanent rows with the opaque keyset cursor
+cnry ads operation reconcile <project> --operation-key <key>
+                                                   # verify nonactivation provider state; never retries the mutation
+cnry ads operation resume-activation <project> --operation-key <key>
+                                                   # exact-executor recovery for an existing activation receipt; no body
+cnry ads activation-grant create <project> --input grant.json
+                                                   # human approval for one exact tree + executor key + expiry
+cnry ads activation-grant revoke <project> <grant-id>
+                                                   # revoke only while the grant is unused
+cnry ads campaign activate-tree <project> <campaign-id> --input activate.json
+                                                   # executor consumes the exact approved grant
 cnry ads sync <project>                          # ads-sync run: entity snapshots + daily rollups
-cnry ads campaigns <project> --format jsonl      # snapshots incl. context hints (newline-separated example queries)
+cnry ads campaigns <project> --format jsonl      # lifecycle timestamps, location IDs, context hints, creative file IDs
 cnry ads insights <project> --level campaign --from 2026-06-01 --format jsonl
 cnry ads summary <project>                       # campaign-level totals only (no double counting)
 cnry ads disconnect <project>
@@ -576,6 +605,133 @@ cnry schedule set <project> --kind ads-sync --preset daily
 
 `ads sync` runs report `completed` / `partial` (some campaigns failed; per-campaign errors on the run) / `failed`. Doctor checks: `ads.auth.connection`, `ads.data.recent-sync` (both skipped when not connected).
 
+`ads account`, `ads geo search`, and both `ads conversions` commands read the
+live OpenAI Advertiser API rather than the local synced snapshot. Use `account`
+to verify the connected advertiser and review state, `geo search` to resolve
+campaign `locationIds` from provider-issued IDs, and the conversion reads to
+verify the available pixel/CAPI sources, event goal, and attribution window
+before launch. Geo search defaults to 20 results and accepts 1-100. Its JSONL
+rows carry `{ project, query, ...location }`; conversion rows carry
+`{ project, ...pixel }` or `{ project, ...eventSetting }`.
+
+Lifecycle inputs are JSON files, or `--input -` for stdin. Every request carries
+a unique `operationKey`. Identical replays return the stored receipt without a
+second upstream request. Before issuing new lifecycle writes, run `ads
+operations unresolved`; if a receipt is `pending`, `unknown`, or `reconciling`,
+do not retry with a different key. Branch on `kind`: use `ads operation
+resume-activation` for `campaign_tree_activate`, and generic `ads operation
+reconcile` for other supported receipts. Generic reconciliation only reads and
+verifies provider state. It never re-sends the mutation or accepts a
+caller-selected provider entity. Canonry resolves a generic receipt only when
+the provider ID was durably checkpointed and its live state matches the stored
+safe fields on the receipt-bound account. An uncheckpointed create remains
+unresolved because mutable-field equality cannot prove which request created an
+entity. A pending generic receipt must be idle for five minutes before either a
+human or the sweeper may claim it, so recovery cannot race a request that is
+still returning from the provider. Automatic inconclusive inspections back off
+from a five-minute base; explicit operator requests may inspect sooner, but
+every generic path stops after five attempts. The receipt then remains visible
+as `unknown` with `ADS_RECONCILIATION_QUARANTINED` and requires manual provider
+remediation. JSON list responses return `nextCursor`; pass it back unchanged
+with the same project and state filter to continue.
+Creates are always paused. Updates require the entity to
+already be paused and `expectedUpdatedAt` to equal the latest
+`upstreamUpdatedAt` from `ads campaigns` after a sync. Canonry exposes pause as
+the kill switch and deliberately omits archive and direct entity activation.
+A human can instead approve one exact campaign tree for a different executor
+key. The short-lived grant pins every campaign/ad-group/ad ID and
+`expectedUpdatedAt`; execution rechecks the account and ad review gates, then
+activates ads first, ad groups second, and the campaign last. Each step is
+durably checkpointed. A failure rolls back the campaign before its children,
+and an ambiguous outcome fails closed for manual remediation.
+
+For a conversion-optimized campaign, set `biddingType` to `clicks` and pass at
+least one exact `conversionEventSettingIds` value returned by `ads conversions
+event-settings`. Each child ad group must set `billingEventType` to `click`.
+Canonry rejects missing or duplicate conversion IDs and rejects any ad-group
+billing mode that does not match its live parent campaign before writing to the
+provider. Omit these fields to preserve the legacy impressions/impression mode.
+
+Campaign updates may omit `locationIds` to preserve current geo targeting or
+pass a non-empty list to replace it. The guarded operator cannot pass `null` or
+an empty list to clear targeting. OpenAI documents that clearing targeting can
+make the campaign eligible for all available locations, so an intentional
+all-location change remains a human action in Ads Manager. See
+[Campaign Targeting](https://developers.openai.com/ads/campaign-targeting) and
+the [campaign update contract](https://developers.openai.com/ads/api-reference/campaigns#update-a-campaign).
+
+### Guarded operator release gates
+
+Default external automation to a project-scoped API key with exactly `read`,
+`ads.write`, and `ads.activate`; never hand an external operator an unscoped
+key:
+
+```bash
+canonry key create --name ads-operator --project <project> \
+  --scope read --scope ads.write --scope ads.activate
+canonry key create --name ads-approver --project <project> \
+  --scope read --scope ads.approve
+```
+
+Keep the plaintext keys separate. The human approval request must authenticate
+with the `ads-approver` key and name the operator key's ID as
+`executorApiKeyId`; Canonry refuses a grant whose approver and executor IDs are
+the same. Approval create/revoke exist in REST and CLI only. MCP and Aero expose
+`activate-tree` plus bodyless recovery of its existing receipt, so the ads
+operator cannot mint, replace, or widen its own grant.
+
+The grant request is strict JSON. Its entity arrays must be uniquely sorted by
+provider ID so the manifest has one canonical hash:
+
+```json
+{
+  "manifest": {
+    "campaign": {
+      "id": "cmpn_...",
+      "expectedUpdatedAt": 1780868842,
+      "adGroups": [{
+        "id": "adgrp_...",
+        "expectedUpdatedAt": 1780864410,
+        "ads": [{ "id": "ad_...", "expectedUpdatedAt": 1781139491 }]
+      }]
+    }
+  },
+  "executorApiKeyId": "key_...",
+  "expiresAt": "2026-07-18T18:00:00.000Z"
+}
+```
+
+The approval response returns `grant.id` and `grant.manifestHash`. Pass those
+unchanged to the operator:
+
+```json
+{
+  "operationKey": "launch:campaign:2026-07-18:1",
+  "grantId": "grant_...",
+  "manifestHash": "64-lowercase-hex-characters"
+}
+```
+
+Before enabling spend on an advertiser account, run a paused, disposable
+live-provider smoke test and capture sanitized raw responses for campaign get,
+create, and pause. For every response, verify and record the exact case and type
+of `status`, plus the type and exact returned value of `updated_at`. The
+captured responses must agree with the typed client and fixtures without
+coercion. After explicit budget approval, repeat the check through one minimal
+grant-bound activate-tree execution and immediate campaign pause; verify every
+activation response reports exact `active` plus an integer `updated_at`.
+
+The receipt lifecycle is safe across concurrent writers: an atomic claim picks
+one upstream sender and losers replay the canonical receipt. A leased generic
+reconciler settles supported stale `pending` / `unknown` rows by verifying
+provider state. Exact credential/account verification is cached for five
+minutes, keyed by a one-way credential fingerprint plus the project and stored
+account identity; credential rotation or account rebinding misses the cache
+immediately. Activation receipts keep their grant and ordered step ledger
+authoritative: only the exact bound executor may call the bodyless resume route,
+which cannot substitute a manifest, grant, account, or campaign. When another
+worker owns reconciliation or activation recovery, callers wait and read the
+canonical receipt instead of starting a second pass.
 
 ## Backlinks (source-aware: Common Crawl + Bing Webmaster)
 
@@ -713,7 +869,7 @@ Every command takes `--format`:
 - **`json`** — one pretty-printed JSON document (the full envelope). Stable contract.
 - **`jsonl`** — newline-delimited JSON: the command's **primary collection**, one self-contained record per line. The agent-friendly machine format — no envelope key to guess (`.checks` vs `.results` vs `.rows`), no `jq` flattening, greppable line by line.
 
-`jsonl` is supported by every **collection** command — one whose primary output is a list: `insights`, `runs`, `evidence`, `history`, `query/keyword/competitor list`, `notify list/events`, `google` reads (`performance`, `performance-daily`, `inspections`, `coverage-history`, `deindexed`, `status`, `properties`, `list-sitemaps`), `bing` reads (`coverage-history`, `inspections`, `performance`, `sites`), `ga` reads (`ai-referral-history`, `social-referral-history`, `session-history`, `coverage`), `traffic events/sources/status`, `discover list/show`, `content targets/sources/gaps/map`, `backlinks list/releases`, `project list/locations`, `key list`, `agent memory list`, `agent providers`, `sources` (streams the ranked cited-domain list), and `doctor`. (`content brief` is an object command — `jsonl` degrades to its JSON document.)
+`jsonl` is supported by every **collection** command — one whose primary output is a list: `insights`, `runs`, `evidence`, `history`, `query/keyword/competitor list`, `notify list/events`, `google` reads (`performance`, `performance-daily`, `inspections`, `coverage-history`, `deindexed`, `status`, `properties`, `list-sitemaps`), `bing` reads (`coverage-history`, `inspections`, `performance`, `sites`), `ga` reads (`ai-referral-history`, `social-referral-history`, `session-history`, `coverage`), `ads geo search` and `ads conversions` reads, `traffic events/sources/status`, `discover list/show`, `content targets/sources/gaps/map`, `backlinks list/releases`, `project list/locations`, `key list`, `agent memory list`, `agent providers`, `sources` (streams the ranked cited-domain list), and `doctor`. (`content brief` is an object command — `jsonl` degrades to its JSON document.)
 
 Each `jsonl` line re-injects the envelope context it would otherwise lose, so a line lifted out still self-describes:
 
@@ -740,3 +896,6 @@ Compact reference for the composite / keyed commands agents read most (shapes ca
 | `cnry ga attribution <p> [--trend]` | Object — a **renamed projection** of `GaTrafficResponse` (⚠️ field names differ from the DTO): `aiSessions`(←`aiSessionsDeduped`), `organicSessions`(←`totalOrganicSessions`), `directSessions`(←`totalDirectSessions`), plus `totalSessions, totalUsers, aiUsers, aiSessionsBySession, aiUsersBySession, socialSessions, socialUsers, {ai,social,organic,direct}SharePct (+ `*Display`), otherSessions, otherSharePct, channelBreakdown, aiReferrals[], aiReferralLandingPages[], socialReferrals[], periodStart, periodEnd`. With `--trend`: drops `periodStart/End`, adds `trend` (`GaAttributionTrendResponse`). Assembled inline in `commands/ga.ts`. | → degrades to the `json` document |
 | `cnry key list` / `key create` / `key revoke <id>` | `list`: `{ keys[] }` — each `ApiKeyDto{ id, name, keyPrefix, scopes[], createdAt, lastUsedAt, revokedAt }` (SAFE metadata, never the hash or plaintext). `create`: `CreatedApiKeyDto` = `ApiKeyDto` **plus a one-time `key`** (the plaintext `cnry_…` token, shown once). `revoke`: the `ApiKeyDto` with `revokedAt` set. @ `contracts/api-keys.ts` | `key list` streams one key / line; `create` / `revoke` degrade to the `json` document |
 | `cnry gbp summary <p> [--location …]` | `{ scope{locationName,locationCount}, performance{totals,recent7d,prior7d,deltaPct} (metric-keyed maps; keys are raw `BUSINESS_*` / `WEBSITE_CLICKS` tokens — label via `formatGbpMetricLabel`), freshness{dataThroughDate,latestStoredDate,pendingDays}, timeseries[], keywords{total,thresholdedCount,thresholdedPct}, placeActions{total,hasReservationCta,hasBookingCta,hasDirectMerchantCta}, lodging{lodgingLocationCount,populatedLodgingCount,emptyLodgingCount}, profileCompleteness{locationCount,withSecondaryCategories,secondaryCategoryTotal,withDescription,withServiceArea,withHours,withPrimaryPhone,permanentlyClosed,temporarilyClosed} }` — `GbpSummaryDto` @ `contracts/gbp.ts`; `emptyLodgingCount` means 0 readable Lodging API groups, a verify signal rather than proof the Hotel details panel is empty. `timeseries[]`=`{date,pending,metrics}`. | → degrades to the `json` document |
+| `cnry ads account <p>` | `AdsAccountDto{ id, name, status, currencyCode, timezone, url, reviewStatus, integrityReviewStatus, integrityDecision }` @ `contracts/ads.ts`. This is live provider state, not a synced snapshot. | → degrades to the `json` document |
+| `cnry ads geo search <p> --query <text>` | `AdsGeoSearchResponse{ count, query, results[] }` @ `contracts/ads.ts`; each location has `{ id, type, canonicalName, countryCode, name, regionCode }`. | ✅ one result / line as `{project, query, …location}` |
+| `cnry ads conversions pixels <p>` / `event-settings <p>` | `{ pixels[] }` / `{ eventSettings[] }` @ `contracts/ads.ts`. Event settings include the conversion event, attribution window, source IDs/details, archive state, and version. | ✅ one pixel/event setting / line as `{project, …row}` |

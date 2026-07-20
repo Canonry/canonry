@@ -7,6 +7,7 @@ import {
   FileText,
   Github,
   Globe,
+  History as HistoryIcon,
   LayoutDashboard,
   Link2,
   Menu,
@@ -18,7 +19,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 
-import { CitationStates, RunKinds, formatRunErrorOneLine, type RunKind } from '@ainyc/canonry-contracts'
+import { CitationStates, formatRunErrorOneLine } from '@ainyc/canonry-contracts'
 
 import { formatErrorLog } from './lib/format-helpers.js'
 import { getEmbedConfig, heyClient, type ApiProject, type ApiRun } from './api.js'
@@ -54,9 +55,12 @@ import { useRunDetail } from './queries/use-run-detail.js'
 import { useDrawer } from './hooks/use-drawer.js'
 import { useInitialDashboard } from './contexts/dashboard-context.js'
 import { Toaster } from './components/layout/Toaster.js'
+import { TaskCenter } from './components/layout/TaskCenter.js'
 import { AeroBarHost } from './components/shared/AeroBar.js'
 import { RUNS_STALE_MS } from './queries/query-client.js'
 import { invalidateQueriesForRunKind } from './queries/run-invalidations.js'
+import { formatTrackedRunKind } from './lib/run-labels.js'
+import { toRunListItem } from './build-dashboard.js'
 import type {
   HealthSnapshot,
   ServiceStatus,
@@ -79,24 +83,6 @@ const checkingStatus = (label: string): ServiceStatus => ({
 const defaultHealthSnapshot: HealthSnapshot = {
   apiStatus: checkingStatus('API'),
   workerStatus: checkingStatus('Worker'),
-}
-
-function formatTrackedRunKind(kind: RunKind): string {
-  switch (kind) {
-    case RunKinds['answer-visibility']: return 'Visibility sweep'
-    case RunKinds['gsc-sync']: return 'GSC sync'
-    case RunKinds['inspect-sitemap']: return 'Sitemap inspection'
-    case RunKinds['ga-sync']: return 'GA sync'
-    case RunKinds['traffic-sync']: return 'Traffic sync'
-    case RunKinds['bing-inspect']: return 'Bing URL inspection'
-    case RunKinds['bing-inspect-sitemap']: return 'Bing sitemap inspection'
-    case RunKinds['site-audit']: return 'Site audit'
-    case RunKinds['backlink-extract']: return 'Backlink extract'
-    case RunKinds['aeo-discover-seed']: return 'Discovery (seed phase)'
-    case RunKinds['aeo-discover-probe']: return 'Discovery (probe phase)'
-    case RunKinds['gbp-sync']: return 'Business Profile sync'
-    case RunKinds['ads-sync']: return 'ChatGPT ads sync'
-  }
 }
 
 function terminalToneForRun(status: string): ToastTone {
@@ -401,7 +387,17 @@ export function RootLayout() {
     && safeDashboard !== null
     && safeDashboard.portfolioOverview.projects.length === 0
 
-  const selectedRun = runId && safeDashboard ? findRunById(safeDashboard, runId) : undefined
+  const selectedRun = runId
+    ? (safeDashboard ? findRunById(safeDashboard, runId) : undefined)
+      ?? (runDetail
+        ? toRunListItem(
+            runDetail,
+            safeDashboard?.projects.find((project) => project.project.id === runDetail.projectId)?.project.displayName
+              ?? safeDashboard?.projects.find((project) => project.project.id === runDetail.projectId)?.project.name
+              ?? 'Unknown project',
+          )
+        : undefined)
+    : undefined
 
   // Evidence lookup spans two data sources because `useDashboard()` here is
   // the slim portfolio hook — its per-project `visibilityEvidence` is
@@ -431,6 +427,7 @@ export function RootLayout() {
     if (path === '/') return 'Portfolio'
     if (path === '/projects') return 'Projects'
     if (path === '/runs') return 'Runs'
+    if (path === '/history') return 'History'
     if (path === '/settings') return 'Settings'
     if (path === '/setup') return 'Setup'
     if (path === '/backlinks') return 'Backlinks'
@@ -536,6 +533,15 @@ export function RootLayout() {
           >
             <Play className="sidebar-icon" />
             <span>Runs</span>
+          </Link>
+          <Link
+            to="/history"
+            className="sidebar-link"
+            activeProps={{ className: 'sidebar-link sidebar-link-active' }}
+            activeOptions={{ exact: true }}
+          >
+            <HistoryIcon className="sidebar-icon" />
+            <span>History</span>
           </Link>
           <Link
             to="/traffic"
@@ -646,6 +652,7 @@ export function RootLayout() {
           </div>
 
           <div className="topbar-actions">
+            <TaskCenter />
             <div className="health-pill-row">
               <span
                 className={`health-pill health-pill-${healthSnapshot.apiStatus.state}`}
@@ -695,6 +702,9 @@ export function RootLayout() {
           </Link>
           <Link to="/runs" className="mobile-nav-link" activeProps={{ className: 'mobile-nav-link mobile-nav-link-active' }} activeOptions={{ exact: true }}>
             Runs
+          </Link>
+          <Link to="/history" className="mobile-nav-link" activeProps={{ className: 'mobile-nav-link mobile-nav-link-active' }} activeOptions={{ exact: true }}>
+            History
           </Link>
           <Link to="/traffic" className="mobile-nav-link" activeProps={{ className: 'mobile-nav-link mobile-nav-link-active' }} activeOptions={{ exact: false }}>
             Server traffic
@@ -780,6 +790,16 @@ export function RootLayout() {
       </div>
 
       {/* ── Drawers ── */}
+      {runId && !selectedRun && runDetailLoading ? (
+        <Drawer open title="Loading run details" subtitle="Fetching the durable run record" onClose={closeDrawer}>
+          <p className="text-sm text-muted" role="status">Loading run details…</p>
+        </Drawer>
+      ) : null}
+      {runId && !selectedRun && runDetailQuery.isError ? (
+        <Drawer open title="Run unavailable" subtitle="The run could not be loaded" onClose={closeDrawer}>
+          <p className="text-sm text-negative">{runDetailQuery.error instanceof Error ? runDetailQuery.error.message : 'Run details are unavailable.'}</p>
+        </Drawer>
+      ) : null}
       {selectedRun ? (
         <Drawer
           open

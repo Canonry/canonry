@@ -23,7 +23,7 @@ import {
   getApiV1RunsByIdQueryKey,
   getApiV1RunsQueryKey,
 } from '@ainyc/canonry-api-client/react-query'
-import { useTriggerGscSync, useTriggerRun } from '../src/queries/mutations.js'
+import { useTriggerGscSync, useTriggerRun, useTriggerSiteAudit } from '../src/queries/mutations.js'
 import { createQueryClient } from '../src/queries/query-client.js'
 
 const projectsCacheKey = getApiV1ProjectsQueryKey({ client: heyClient })
@@ -316,6 +316,42 @@ test('toast CTA opens the existing run drawer via router state', async () => {
   })
 })
 
+test('renders tracked work in the global task center across the app shell', async () => {
+  const fixture = createDashboardFixture()
+  const activeAudit = {
+    ...makeRun('running'),
+    id: 'audit_1',
+    kind: 'site-audit',
+  }
+  trackRun({
+    id: activeAudit.id,
+    projectId: activeAudit.projectId,
+    kind: 'site-audit',
+    projectLabel: 'Citypoint Dental NYC',
+    sourceAction: 'site-audit',
+    lastAnnouncedStatus: 'queued',
+  })
+
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } })
+  queryClient.setQueryData(runsCacheKey, [activeAudit])
+  queryClient.setQueryData(projectsCacheKey, [makeProject()])
+  const router = createAppRouter(queryClient, { initialEntries: ['/'] })
+  await router.load()
+
+  render(
+    <QueryClientProvider client={queryClient}>
+      <DashboardProvider value={{ dashboard: fixture.dashboard, health: fixture.health }}>
+        <RouterProvider router={router} />
+      </DashboardProvider>
+    </QueryClientProvider>,
+  )
+
+  expect(screen.getByText('Active tasks')).not.toBeNull()
+  expect(screen.getAllByText('Technical audit').length).toBeGreaterThanOrEqual(1)
+  expect(screen.getAllByText('Running').length).toBeGreaterThanOrEqual(1)
+  expect(screen.getAllByText('Citypoint Dental NYC').length).toBeGreaterThanOrEqual(1)
+})
+
 function TriggerRunButton() {
   const mutation = useTriggerRun()
 
@@ -424,6 +460,47 @@ function TriggerGscSyncButton() {
     </button>
   )
 }
+
+function TriggerSiteAuditButton() {
+  const mutation = useTriggerSiteAudit()
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        mutation.mutate({
+          projectName: 'citypoint',
+          projectId: 'proj_1',
+          projectLabel: 'Citypoint Dental NYC',
+        })
+      }}
+    >
+      Trigger technical audit
+    </button>
+  )
+}
+
+test('tracks a queued Technical AEO audit for the global task center', async () => {
+  const fetchMock = vi.fn(async () => jsonResponse({ runId: 'audit_1', status: 'queued' }))
+  vi.stubGlobal('fetch', fetchMock)
+
+  const queryClient = createQueryClient()
+  render(
+    <QueryClientProvider client={queryClient}>
+      <TriggerSiteAuditButton />
+    </QueryClientProvider>,
+  )
+
+  fireEvent.click(screen.getByRole('button', { name: 'Trigger technical audit' }))
+
+  await waitFor(() => {
+    expect(getRunTrackerState().runs.audit_1).toMatchObject({
+      projectId: 'proj_1',
+      kind: 'site-audit',
+      sourceAction: 'site-audit',
+    })
+  })
+  expect(getToasts().some((toast) => toast.title === 'Technical audit queued')).toBe(true)
+})
 
 test('useTriggerGscSync invalidates GSC project queries when the mutation succeeds', async () => {
   const fetchMock = vi.fn(async () => jsonResponse({

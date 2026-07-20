@@ -16,28 +16,33 @@ import {
 export const TECHNICAL_AEO_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['technical-aeo', 'score'],
-    usage: 'canonry technical-aeo score <project> [--format json]',
+    usage: 'canonry technical-aeo score <project> [--run-id <id>] [--format json]',
+    options: {
+      'run-id': stringOption(),
+    },
     run: async (input) => {
       const project = requireProject(
         input,
         'technical-aeo.score',
-        'canonry technical-aeo score <project> [--format json]',
+        'canonry technical-aeo score <project> [--run-id <id>] [--format json]',
       )
-      await technicalAeoScore(project, { format: input.format })
+      await technicalAeoScore(project, { runId: getString(input.values, 'run-id'), format: input.format })
     },
   },
   {
     path: ['technical-aeo', 'pages'],
-    usage: 'canonry technical-aeo pages <project> [--status success|error] [--sort score-asc|score-desc|url] [--limit <n>] [--format json|jsonl]',
+    usage: 'canonry technical-aeo pages <project> [--run-id <id>] [--status success|error] [--sort score-asc|score-desc|url] [--limit <n>] [--format json|jsonl]',
     options: {
+      'run-id': stringOption(),
       status: stringOption(),
       sort: stringOption(),
       limit: stringOption(),
     },
     run: async (input) => {
-      const usage = 'canonry technical-aeo pages <project> [--status success|error] [--sort score-asc|score-desc|url] [--limit <n>] [--format json|jsonl]'
+      const usage = 'canonry technical-aeo pages <project> [--run-id <id>] [--status success|error] [--sort score-asc|score-desc|url] [--limit <n>] [--format json|jsonl]'
       const project = requireProject(input, 'technical-aeo.pages', usage)
       await technicalAeoPages(project, {
+        runId: getString(input.values, 'run-id'),
         status: getString(input.values, 'status'),
         sort: getString(input.values, 'sort'),
         limit: parseIntegerOption(input, 'limit', {

@@ -1,5 +1,10 @@
 import type { FastifyInstance } from 'fastify'
-import { AGENT_PROVIDER_IDS } from '@ainyc/canonry-contracts'
+import {
+  AGENT_PROVIDER_IDS,
+  AdsAdGroupBillingEventTypes,
+  AdsCampaignBiddingTypes,
+  AdsOperationStates,
+} from '@ainyc/canonry-contracts'
 import {
   buildComponentSchemas,
   errorResponse,
@@ -64,6 +69,64 @@ const booleanSchema = { type: 'boolean' }
 const integerSchema = { type: 'integer' }
 const objectSchema = { type: 'object', additionalProperties: true }
 const stringArraySchema = { type: 'array', items: stringSchema }
+const adsOperationKeySchema = {
+  type: 'string',
+  minLength: 8,
+  maxLength: 128,
+  pattern: '^[\\w.:-]+$',
+}
+const adsEntityIdSchema = { type: 'string', minLength: 1, maxLength: 200 }
+const adsActivationEntityRefSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['id', 'expectedUpdatedAt'],
+  properties: {
+    id: adsEntityIdSchema,
+    expectedUpdatedAt: { type: 'integer', minimum: 0 },
+  },
+}
+const adsActivationManifestSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['campaign'],
+  properties: {
+    campaign: {
+      ...adsActivationEntityRefSchema,
+      required: ['id', 'expectedUpdatedAt', 'adGroups'],
+      properties: {
+        ...adsActivationEntityRefSchema.properties,
+        adGroups: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 1000,
+          items: {
+            ...adsActivationEntityRefSchema,
+            required: ['id', 'expectedUpdatedAt', 'ads'],
+            properties: {
+              ...adsActivationEntityRefSchema.properties,
+              ads: {
+                type: 'array',
+                minItems: 1,
+                maxItems: 1000,
+                items: adsActivationEntityRefSchema,
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+}
+const adsCreativeRequestSchema = {
+  type: 'object',
+  required: ['title', 'body', 'targetUrl', 'fileId'],
+  properties: {
+    title: { type: 'string', minLength: 3, maxLength: 50 },
+    body: { type: 'string', minLength: 1, maxLength: 100 },
+    targetUrl: { type: 'string', format: 'uri' },
+    fileId: stringSchema,
+  },
+}
 const googleConnectionTypeSchema = { type: 'string', enum: ['gsc', 'ga4', 'gbp'] }
 const locationSchema = {
   type: 'object',
@@ -1028,7 +1091,15 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/history',
     summary: 'Get project audit history',
     tags: ['history'],
-    parameters: [nameParameter],
+    parameters: [
+      nameParameter,
+      limitQueryParameter,
+      offsetQueryParameter,
+      { name: 'since', in: 'query', description: 'ISO 8601 lower bound.', schema: stringSchema },
+      { name: 'action', in: 'query', description: 'Exact audit action filter.', schema: stringSchema },
+      { name: 'actor', in: 'query', description: 'Exact actor filter.', schema: stringSchema },
+      { name: 'entityType', in: 'query', description: 'Exact entity type filter.', schema: stringSchema },
+    ],
     responses: {
       200: jsonArrayResponse('Audit history returned.', 'AuditLogEntry'),
     },
@@ -1038,6 +1109,14 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/history',
     summary: 'Get global audit history',
     tags: ['history'],
+    parameters: [
+      limitQueryParameter,
+      offsetQueryParameter,
+      { name: 'since', in: 'query', description: 'ISO 8601 lower bound.', schema: stringSchema },
+      { name: 'action', in: 'query', description: 'Exact audit action filter.', schema: stringSchema },
+      { name: 'actor', in: 'query', description: 'Exact actor filter.', schema: stringSchema },
+      { name: 'entityType', in: 'query', description: 'Exact entity type filter.', schema: stringSchema },
+    ],
     responses: {
       200: jsonArrayResponse('Audit history returned.', 'AuditLogEntry'),
     },
@@ -1062,7 +1141,11 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/timeline',
     summary: 'Get query timeline',
     tags: ['history'],
-    parameters: [nameParameter, locationQueryParameter],
+    parameters: [
+      nameParameter,
+      locationQueryParameter,
+      { name: 'limit', in: 'query', description: 'Restrict each query timeline to snapshots from the most recent N project runs. Omit for full history.', schema: { ...integerSchema, minimum: 1, maximum: 100 } },
+    ],
     responses: {
       // TODO: Add `ProjectTimelineDto` Zod schema in contracts.
       200: rawJsonResponse('Timeline returned.', looseObjectSchema),
@@ -2189,6 +2272,7 @@ const routeCatalog: OpenApiOperation[] = [
     responses: {
       200: jsonResponse('Connected; key validated against the upstream ad account.', 'AdsConnectionStatusDto'),
       400: errorResponse('Missing/invalid key or credential storage unavailable.'),
+      403: errorResponse('The key lacks ads.write.'),
       404: errorResponse('Project not found.'),
     },
   },
@@ -2200,6 +2284,7 @@ const routeCatalog: OpenApiOperation[] = [
     parameters: [nameParameter],
     responses: {
       200: jsonResponse('Disconnected (idempotent).', 'AdsDisconnectResponse'),
+      403: errorResponse('The key lacks ads.write.'),
       404: errorResponse('Project not found.'),
     },
   },
@@ -2215,6 +2300,527 @@ const routeCatalog: OpenApiOperation[] = [
     },
   },
   {
+    method: 'get',
+    path: '/api/v1/projects/{name}/ads/account',
+    summary: 'Read the connected OpenAI ad account and live review state',
+    tags: ['ads'],
+    parameters: [nameParameter],
+    responses: {
+      200: jsonResponse('Live ad-account metadata and review state.', 'AdsAccountDto'),
+      400: errorResponse('Ads connection or live reader unavailable.'),
+      404: errorResponse('Project not found.'),
+      502: errorResponse('OpenAI Ads API read failed.'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/ads/geo/search',
+    summary: 'Search OpenAI Ads targetable geographic locations',
+    tags: ['ads'],
+    parameters: [
+      nameParameter,
+      { in: 'query', name: 'q', required: true, description: 'Location name or code.', schema: { type: 'string', minLength: 1, maxLength: 200 } },
+      { in: 'query', name: 'limit', required: false, description: 'Maximum results.', schema: { type: 'integer', minimum: 1, maximum: 100, default: 20 } },
+    ],
+    responses: {
+      200: jsonResponse('Targetable geographic locations.', 'AdsGeoSearchResponse'),
+      400: errorResponse('Invalid query or ads connection unavailable.'),
+      404: errorResponse('Project not found.'),
+      502: errorResponse('OpenAI Ads API read failed.'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/ads/conversions/pixels',
+    summary: 'List OpenAI Ads conversion pixels',
+    tags: ['ads'],
+    parameters: [nameParameter],
+    responses: {
+      200: jsonResponse('Conversion pixels.', 'AdsConversionPixelListResponse'),
+      400: errorResponse('Ads connection or live reader unavailable.'),
+      404: errorResponse('Project not found.'),
+      502: errorResponse('OpenAI Ads API read failed.'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/ads/conversions/event-settings',
+    summary: 'List OpenAI Ads conversion event settings',
+    tags: ['ads'],
+    parameters: [nameParameter],
+    responses: {
+      200: jsonResponse('Conversion event settings.', 'AdsConversionEventSettingListResponse'),
+      400: errorResponse('Ads connection or live reader unavailable.'),
+      404: errorResponse('Project not found.'),
+      502: errorResponse('OpenAI Ads API read failed.'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/ads/operations',
+    summary: 'List unresolved OpenAI Ads mutation receipts',
+    description:
+      'Lists bounded pending, unknown, or actively reconciling receipts for operator recovery in stable creation order. The state filter is a comma-separated set and defaults to every unresolved state. Pass nextCursor back unchanged to advance beyond permanently unresolved rows. A cursor is bound to its project and state filter. This read never retries the original mutation.',
+    tags: ['ads'],
+    parameters: [
+      nameParameter,
+      {
+        name: 'state',
+        in: 'query',
+        description: 'Comma-separated unresolved states.',
+        schema: {
+          type: 'string',
+          default: [
+            AdsOperationStates.pending,
+            AdsOperationStates.unknown,
+            AdsOperationStates.reconciling,
+          ].join(','),
+        },
+      },
+      {
+        name: 'limit',
+        in: 'query',
+        description: 'Maximum receipts to return.',
+        schema: { type: 'integer', minimum: 1, maximum: 200, default: 100 },
+      },
+      {
+        name: 'cursor',
+        in: 'query',
+        description: 'Opaque keyset cursor returned as nextCursor by the previous page.',
+        schema: { type: 'string', minLength: 1, maxLength: 1000 },
+      },
+    ],
+    responses: {
+      200: jsonResponse('Unresolved operation receipts.', 'AdsUnresolvedOperationListResponse'),
+      400: errorResponse('Invalid unresolved-state filter.'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/ads/operations/{operationKey}',
+    summary: 'Read a durable OpenAI Ads mutation receipt by operation key',
+    tags: ['ads'],
+    parameters: [
+      nameParameter,
+      { name: 'operationKey', in: 'path', required: true, description: 'Caller-supplied idempotency key.', schema: adsOperationKeySchema },
+    ],
+    responses: {
+      200: jsonResponse('Operation receipt.', 'AdsOperationResponse'),
+      404: errorResponse('Project or operation not found.'),
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/projects/{name}/ads/operations/{operationKey}/reconcile',
+    summary: 'Reconcile an unresolved OpenAI Ads mutation receipt',
+    description:
+      'Verifies a checkpointed provider entity against the receipt-bound ad account without retrying the mutation. A fresh pending receipt is rejected for the configured minimum idle window because the original mutation may still be in flight. Automatic inspections use bounded exponential backoff and every inspection path is quarantined after the configured attempt cap. An uncheckpointed create remains unresolved because mutable-field matching cannot prove provenance; if another lease already owns reconciliation, the canonical reconciling receipt is returned with resolved=false. Campaign-tree activation receipts are rejected here and must use resume-activation so their approval grant, exact executor, and ordered step ledger remain authoritative.',
+    tags: ['ads'],
+    parameters: [
+      nameParameter,
+      {
+        name: 'operationKey',
+        in: 'path',
+        required: true,
+        description: 'Caller-supplied idempotency key.',
+        schema: adsOperationKeySchema,
+      },
+    ],
+    responses: {
+      200: jsonResponse('Reconciliation result and updated receipt.', 'AdsOperationReconcileResponse'),
+      400: errorResponse('Receipt is not reconcilable.'),
+      409: errorResponse('The original mutation may still be in flight.'),
+      403: errorResponse('The key lacks ads.write.'),
+      404: errorResponse('Project or operation not found.'),
+      502: errorResponse('OpenAI Ads state verification failed.'),
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/projects/{name}/ads/operations/{operationKey}/resume-activation',
+    summary: 'Resume recovery for an approval-bound OpenAI Ads activation',
+    description:
+      'Bodyless recovery surface for an existing campaign_tree_activate receipt. Requires ads.activate on the exact executor key already bound to the approval grant. Canonry resumes from the durable ordered step ledger and current provider state; it cannot select a different grant, manifest, campaign, account, or operation, and it never blindly resends an ambiguous activation mutation.',
+    tags: ['ads'],
+    parameters: [
+      nameParameter,
+      {
+        name: 'operationKey',
+        in: 'path',
+        required: true,
+        description: 'Operation key of the existing campaign-tree activation receipt.',
+        schema: adsOperationKeySchema,
+      },
+    ],
+    responses: {
+      200: jsonResponse('Canonical activation grant, receipt, and ordered step ledger.', 'AdsActivateTreeResponse'),
+      400: errorResponse('A request body was supplied or activation recovery is not configured.'),
+      403: errorResponse('The key lacks ads.activate or is not the grant-bound executor.'),
+      404: errorResponse('Project, activation operation, or bound grant not found.'),
+      409: errorResponse('The grant expired, its account/manifest binding changed, or its receipt conflicts.'),
+      500: errorResponse('The activation receipt and approval grant binding is invalid.'),
+      502: errorResponse('Activation or rollback recovery failed closed.'),
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/projects/{name}/ads/activation-grants',
+    summary: 'Approve one exact paused OpenAI Ads campaign tree for activation',
+    description:
+      'Human-only approval surface. The authenticated ads.approve key is recorded as approver and must differ from the named executor key. Canonry verifies account eligibility, exact parent-child membership, paused state, upstream timestamps, and ad review approval before issuing a short-lived single-use grant.',
+    tags: ['ads'],
+    parameters: [nameParameter],
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['manifest', 'executorApiKeyId', 'expiresAt'],
+            properties: {
+              manifest: adsActivationManifestSchema,
+              executorApiKeyId: adsEntityIdSchema,
+              expiresAt: { type: 'string', format: 'date-time' },
+            },
+          },
+        },
+      },
+    },
+    responses: {
+      200: jsonResponse('Approval grant created.', 'AdsActivationGrantResponse'),
+      400: errorResponse('Invalid, stale, ineligible, or non-paused campaign tree.'),
+      403: errorResponse('The key lacks ads.approve.'),
+      404: errorResponse('Project or executor API key not found.'),
+      502: errorResponse('OpenAI Ads preflight read failed.'),
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/projects/{name}/ads/activation-grants/{grantId}/revoke',
+    summary: 'Revoke or cancel an OpenAI Ads activation grant',
+    description: 'Human-only kill switch. Before execution, the grant becomes revoked. After execution starts, or while an activation outcome is unknown, revocationRequestedAt is recorded atomically. Subsequent activation steps are blocked, and the recovery worker rolls back confirmed active entities. Unknown outcomes remain explicitly unknown while the watchdog repeatedly issues exact-tree safety pauses. A provider request already authorized or in flight may still settle before containment. Verified rollback leaves the single-use grant consumed and the operation failed.',
+    tags: ['ads'],
+    parameters: [
+      nameParameter,
+      { name: 'grantId', in: 'path', required: true, description: 'Activation grant ID.', schema: adsEntityIdSchema },
+    ],
+    responses: {
+      200: jsonResponse('Grant revoked, cancellation requested, or prior cancellation replayed.', 'AdsActivationGrantResponse'),
+      400: errorResponse('A completed grant cannot accept a new cancellation request.'),
+      403: errorResponse('The key lacks ads.approve.'),
+      404: errorResponse('Project or activation grant not found.'),
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/projects/{name}/ads/campaigns/{id}/activate-tree',
+    summary: 'Execute a grant-bound OpenAI Ads campaign-tree activation',
+    description:
+      'Requires ads.activate and a nonexpired single-use grant bound to the exact executor key, project, advertiser account, manifest hash, campaign, entity IDs, and upstream timestamps. Canonry activates ads first, then ad groups, then the campaign; every step is durably checkpointed and verified. Failure rolls back the campaign before children and ambiguous outcomes fail closed as unknown.',
+    tags: ['ads'],
+    parameters: [
+      nameParameter,
+      { name: 'id', in: 'path', required: true, description: 'Approved campaign ID.', schema: adsEntityIdSchema },
+    ],
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['operationKey', 'grantId', 'manifestHash'],
+            properties: {
+              operationKey: adsOperationKeySchema,
+              grantId: adsEntityIdSchema,
+              manifestHash: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+            },
+          },
+        },
+      },
+    },
+    responses: {
+      200: jsonResponse('Canonical activation grant, receipt, and ordered step ledger.', 'AdsActivateTreeResponse'),
+      400: errorResponse('Malformed request or campaign path mismatch.'),
+      403: errorResponse('The key lacks ads.activate or is not the grant-bound executor.'),
+      404: errorResponse('Project, campaign, or activation grant not found.'),
+      409: errorResponse('Grant expired, account/manifest/entity state changed, operation key conflicted, or the grant was already used.'),
+      502: errorResponse('Activation or rollback outcome failed closed.'),
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/projects/{name}/ads/files',
+    summary: 'Upload an OpenAI Ads image from a public HTTPS URL',
+    tags: ['ads'],
+    parameters: [nameParameter],
+    requestBody: {
+      required: true,
+      content: { 'application/json': { schema: {
+        type: 'object',
+        required: ['operationKey', 'imageUrl'],
+        properties: { operationKey: adsOperationKeySchema, imageUrl: { type: 'string', format: 'uri' } },
+      } } },
+    },
+    responses: {
+      200: jsonResponse('Upload receipt.', 'AdsOperationResponse'),
+      400: errorResponse('Invalid request or ads connection unavailable.'),
+      403: errorResponse('The key lacks ads.write.'),
+      404: errorResponse('Project not found.'),
+      409: errorResponse('Operation key was already used for a different request.'),
+      502: errorResponse('Upstream outcome failed or is unknown.'),
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/projects/{name}/ads/campaigns',
+    summary: 'Create a paused OpenAI Ads campaign',
+    description: 'The server always creates the campaign paused. Click bidding requires at least one unique conversion event-setting ID. Omit both bidding fields for legacy impressions mode. Status is not accepted from the caller.',
+    tags: ['ads'],
+    parameters: [nameParameter],
+    requestBody: {
+      required: true,
+      content: { 'application/json': { schema: {
+        type: 'object',
+        required: ['operationKey', 'name', 'lifetimeSpendLimitMicros', 'locationIds'],
+        properties: {
+          operationKey: adsOperationKeySchema,
+          name: { type: 'string', minLength: 3, maxLength: 1000 },
+          description: stringSchema,
+          startTime: integerSchema,
+          endTime: integerSchema,
+          lifetimeSpendLimitMicros: { type: 'integer', minimum: 1000000 },
+          locationIds: { type: 'array', minItems: 1, maxItems: 100, items: stringSchema },
+          biddingType: { type: 'string', enum: Object.values(AdsCampaignBiddingTypes) },
+          conversionEventSettingIds: {
+            type: 'array',
+            uniqueItems: true,
+            items: stringSchema,
+            description: 'Required and non-empty when biddingType is clicks.',
+          },
+        },
+      } } },
+    },
+    responses: {
+      200: jsonResponse('Paused campaign creation receipt.', 'AdsOperationResponse'),
+      400: errorResponse('Invalid request or ads connection unavailable.'),
+      403: errorResponse('The key lacks ads.write.'),
+      404: errorResponse('Project not found.'),
+      409: errorResponse('Operation key was already used for a different request.'),
+      502: errorResponse('Upstream outcome failed or is unknown.'),
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/projects/{name}/ads/ad-groups',
+    summary: 'Create a paused OpenAI Ads ad group',
+    description: 'The server always creates the ad group paused and verifies its billing event against the live parent campaign before mutation. Omit billingEventType for legacy impression billing.',
+    tags: ['ads'],
+    parameters: [nameParameter],
+    requestBody: {
+      required: true,
+      content: { 'application/json': { schema: {
+        type: 'object',
+        required: ['operationKey', 'campaignId', 'name', 'contextHints', 'maxBidMicros'],
+        properties: {
+          operationKey: adsOperationKeySchema,
+          campaignId: stringSchema,
+          name: { type: 'string', minLength: 3, maxLength: 1000 },
+          description: stringSchema,
+          contextHints: { type: 'array', minItems: 1, maxItems: 100, items: stringSchema },
+          maxBidMicros: { type: 'integer', minimum: 1, maximum: 100000000 },
+          billingEventType: { type: 'string', enum: Object.values(AdsAdGroupBillingEventTypes) },
+        },
+      } } },
+    },
+    responses: {
+      200: jsonResponse('Paused ad-group creation receipt.', 'AdsOperationResponse'),
+      400: errorResponse('Invalid request or ads connection unavailable.'),
+      403: errorResponse('The key lacks ads.write.'),
+      404: errorResponse('Project not found.'),
+      409: errorResponse('Operation key was already used for a different request.'),
+      502: errorResponse('Upstream outcome failed or is unknown.'),
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/projects/{name}/ads/ads',
+    summary: 'Create a paused OpenAI Ads chat-card ad',
+    description: 'The server always creates the ad paused and fixes creative.type to chat_card.',
+    tags: ['ads'],
+    parameters: [nameParameter],
+    requestBody: {
+      required: true,
+      content: { 'application/json': { schema: {
+        type: 'object',
+        required: ['operationKey', 'adGroupId', 'name', 'creative'],
+        properties: {
+          operationKey: adsOperationKeySchema,
+          adGroupId: stringSchema,
+          name: { type: 'string', minLength: 3, maxLength: 1000 },
+          creative: adsCreativeRequestSchema,
+        },
+      } } },
+    },
+    responses: {
+      200: jsonResponse('Paused ad creation receipt.', 'AdsOperationResponse'),
+      400: errorResponse('Invalid request or ads connection unavailable.'),
+      403: errorResponse('The key lacks ads.write.'),
+      404: errorResponse('Project not found.'),
+      409: errorResponse('Operation key was already used for a different request.'),
+      502: errorResponse('Upstream outcome failed or is unknown.'),
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/projects/{name}/ads/campaigns/{id}',
+    summary: 'Update an OpenAI Ads campaign with optimistic concurrency',
+    description: 'The campaign must already be paused. Pause and sync first, then pass the refreshed upstreamUpdatedAt. Activation remains human-only.',
+    tags: ['ads'],
+    parameters: [nameParameter, { name: 'id', in: 'path', required: true, description: 'Campaign ID.', schema: stringSchema }],
+    requestBody: {
+      required: true,
+      content: { 'application/json': { schema: {
+        type: 'object',
+        required: ['operationKey', 'expectedUpdatedAt'],
+        properties: {
+          operationKey: adsOperationKeySchema,
+          expectedUpdatedAt: integerSchema,
+          name: { type: 'string', minLength: 3, maxLength: 1000 },
+          description: { type: 'string', nullable: true },
+          startTime: { type: 'integer', nullable: true },
+          endTime: { type: 'integer', nullable: true },
+          lifetimeSpendLimitMicros: { type: 'integer', minimum: 1000000 },
+          locationIds: { type: 'array', minItems: 1, maxItems: 100, items: stringSchema },
+        },
+      } } },
+    },
+    responses: {
+      200: jsonResponse('Campaign update receipt.', 'AdsOperationResponse'),
+      400: errorResponse('Invalid request, active entity, or stale expectedUpdatedAt.'),
+      403: errorResponse('The key lacks ads.write.'),
+      404: errorResponse('Project not found.'),
+      409: errorResponse('Operation key was already used for a different request.'),
+      502: errorResponse('Upstream outcome failed or is unknown.'),
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/projects/{name}/ads/ad-groups/{id}',
+    summary: 'Update an OpenAI Ads ad group with optimistic concurrency',
+    description: 'The ad group must already be paused. Pause and sync first, then pass the refreshed upstreamUpdatedAt. Activation remains human-only.',
+    tags: ['ads'],
+    parameters: [nameParameter, { name: 'id', in: 'path', required: true, description: 'Ad group ID.', schema: stringSchema }],
+    requestBody: {
+      required: true,
+      content: { 'application/json': { schema: {
+        type: 'object',
+        required: ['operationKey', 'expectedUpdatedAt'],
+        properties: {
+          operationKey: adsOperationKeySchema,
+          expectedUpdatedAt: integerSchema,
+          name: { type: 'string', minLength: 3, maxLength: 1000 },
+          description: { type: 'string', nullable: true },
+          contextHints: { type: 'array', minItems: 1, maxItems: 100, items: stringSchema },
+          maxBidMicros: { type: 'integer', minimum: 1, maximum: 100000000 },
+        },
+      } } },
+    },
+    responses: {
+      200: jsonResponse('Ad-group update receipt.', 'AdsOperationResponse'),
+      400: errorResponse('Invalid request, active entity, or stale expectedUpdatedAt.'),
+      403: errorResponse('The key lacks ads.write.'),
+      404: errorResponse('Project not found.'),
+      409: errorResponse('Operation key was already used for a different request.'),
+      502: errorResponse('Upstream outcome failed or is unknown.'),
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/projects/{name}/ads/ads/{id}',
+    summary: 'Update an OpenAI Ads chat-card ad with optimistic concurrency',
+    description: 'The ad must already be paused. Pause and sync first, then pass the refreshed upstreamUpdatedAt. Activation remains human-only.',
+    tags: ['ads'],
+    parameters: [nameParameter, { name: 'id', in: 'path', required: true, description: 'Ad ID.', schema: stringSchema }],
+    requestBody: {
+      required: true,
+      content: { 'application/json': { schema: {
+        type: 'object',
+        required: ['operationKey', 'expectedUpdatedAt'],
+        properties: {
+          operationKey: adsOperationKeySchema,
+          expectedUpdatedAt: integerSchema,
+          name: { type: 'string', minLength: 3, maxLength: 1000 },
+          creative: adsCreativeRequestSchema,
+        },
+      } } },
+    },
+    responses: {
+      200: jsonResponse('Ad update receipt.', 'AdsOperationResponse'),
+      400: errorResponse('Invalid request, active entity, or stale expectedUpdatedAt.'),
+      403: errorResponse('The key lacks ads.write.'),
+      404: errorResponse('Project not found.'),
+      409: errorResponse('Operation key was already used for a different request.'),
+      502: errorResponse('Upstream outcome failed or is unknown.'),
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/projects/{name}/ads/campaigns/{id}/pause',
+    summary: 'Pause an OpenAI Ads campaign',
+    tags: ['ads'],
+    parameters: [nameParameter, { name: 'id', in: 'path', required: true, description: 'Campaign ID.', schema: stringSchema }],
+    requestBody: { required: true, content: { 'application/json': { schema: {
+      type: 'object', required: ['operationKey'], properties: { operationKey: adsOperationKeySchema },
+    } } } },
+    responses: {
+      200: jsonResponse('Campaign pause receipt.', 'AdsOperationResponse'),
+      400: errorResponse('Invalid request or ads connection unavailable.'),
+      403: errorResponse('The key lacks ads.write.'),
+      404: errorResponse('Project not found.'),
+      409: errorResponse('Operation key was already used for a different request.'),
+      502: errorResponse('Upstream outcome failed or is unknown.'),
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/projects/{name}/ads/ad-groups/{id}/pause',
+    summary: 'Pause an OpenAI Ads ad group',
+    tags: ['ads'],
+    parameters: [nameParameter, { name: 'id', in: 'path', required: true, description: 'Ad group ID.', schema: stringSchema }],
+    requestBody: { required: true, content: { 'application/json': { schema: {
+      type: 'object', required: ['operationKey'], properties: { operationKey: adsOperationKeySchema },
+    } } } },
+    responses: {
+      200: jsonResponse('Ad-group pause receipt.', 'AdsOperationResponse'),
+      400: errorResponse('Invalid request or ads connection unavailable.'),
+      403: errorResponse('The key lacks ads.write.'),
+      404: errorResponse('Project not found.'),
+      409: errorResponse('Operation key was already used for a different request.'),
+      502: errorResponse('Upstream outcome failed or is unknown.'),
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/projects/{name}/ads/ads/{id}/pause',
+    summary: 'Pause an OpenAI Ads ad',
+    tags: ['ads'],
+    parameters: [nameParameter, { name: 'id', in: 'path', required: true, description: 'Ad ID.', schema: stringSchema }],
+    requestBody: { required: true, content: { 'application/json': { schema: {
+      type: 'object', required: ['operationKey'], properties: { operationKey: adsOperationKeySchema },
+    } } } },
+    responses: {
+      200: jsonResponse('Ad pause receipt.', 'AdsOperationResponse'),
+      400: errorResponse('Invalid request or ads connection unavailable.'),
+      403: errorResponse('The key lacks ads.write.'),
+      404: errorResponse('Project not found.'),
+      409: errorResponse('Operation key was already used for a different request.'),
+      502: errorResponse('Upstream outcome failed or is unknown.'),
+    },
+  },
+  {
     method: 'post',
     path: '/api/v1/projects/{name}/ads/sync',
     summary: 'Trigger an ads-sync run (entity snapshots + daily paid-performance rollups)',
@@ -2223,13 +2829,14 @@ const routeCatalog: OpenApiOperation[] = [
     responses: {
       200: jsonResponse('Sync run queued.', 'AdsSyncResponse'),
       400: errorResponse('No ads connection for this project.'),
+      403: errorResponse('The key lacks ads.write.'),
       404: errorResponse('Project not found.'),
     },
   },
   {
     method: 'get',
     path: '/api/v1/projects/{name}/ads/campaigns',
-    summary: 'Synced campaign snapshots with nested ad groups (context hints) and ads',
+    summary: 'Synced campaign snapshots with lifecycle timestamps, targeting, nested ad groups, and ads',
     tags: ['ads'],
     parameters: [nameParameter],
     responses: {
@@ -3143,8 +3750,7 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['intelligence'],
     parameters: [nameParameter],
     responses: {
-      // TODO: Add `HealthSnapshotDto` Zod schema in contracts.
-      200: rawJsonResponse('Health snapshot or no-data sentinel returned.', looseObjectSchema),
+      200: jsonResponse('Health snapshot or no-data sentinel returned.', 'HealthSnapshotDto'),
       404: errorResponse('Project not found.'),
     },
   },
@@ -3155,11 +3761,10 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['intelligence'],
     parameters: [
       nameParameter,
-      { name: 'limit', in: 'query', description: 'Max results.', schema: stringSchema },
+      { name: 'limit', in: 'query', description: 'Max results.', schema: { ...integerSchema, minimum: 1, maximum: 100 } },
     ],
     responses: {
-      // TODO: Add `HealthSnapshotDto` Zod schema in contracts.
-      200: rawJsonResponse('Health history returned.', { type: 'array', items: looseObjectSchema }),
+      200: jsonArrayResponse('Health history returned.', 'HealthSnapshotDto'),
       404: errorResponse('Project not found.'),
     },
   },
@@ -4097,23 +4702,27 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/technical-aeo',
     summary: 'Get the Technical AEO scorecard for a project',
     description:
-      'Returns the latest completed/partial site-audit: aggregate 0–100 score, page counts, the full per-factor scorecard (site-level averages with pass/partial/fail distribution), cross-cutting issues, prioritized fixes, and the delta vs the previous audit. When the project has never been audited, `hasData` is false and the numeric fields are zeroed — render an onboarding state.',
+      'Returns the latest completed/partial site-audit, or the historical audit selected by `runId`: aggregate 0–100 score, page counts, the full per-factor scorecard (site-level averages with pass/partial/fail distribution), cross-cutting issues, prioritized fixes, and the delta vs the audit immediately before it. When the project has never been audited, `hasData` is false and the numeric fields are zeroed — render an onboarding state.',
     tags: ['technical-aeo'],
-    parameters: [nameParameter],
+    parameters: [
+      nameParameter,
+      { name: 'runId', in: 'query', description: 'Historical site-audit run ID. Omit for the latest audit.', schema: stringSchema },
+    ],
     responses: {
       200: jsonResponse('Technical AEO scorecard returned.', 'SiteAuditScoreDto'),
-      404: errorResponse('Project not found.'),
+      404: errorResponse('Project or site-audit run not found.'),
     },
   },
   {
     method: 'get',
     path: '/api/v1/projects/{name}/technical-aeo/pages',
-    summary: 'List audited pages from the latest site-audit run',
+    summary: 'List audited pages from a site-audit run',
     description:
-      'Returns the per-page breakdown of the latest completed/partial site-audit run (paginated). Filter to `status=error` to surface unreachable pages; sort `score-asc` (default) to surface the worst-scoring pages first.',
+      'Returns the per-page breakdown of the latest completed/partial site-audit run, or the historical audit selected by `runId` (paginated). Filter to `status=error` to surface unreachable pages; sort `score-asc` (default) to surface the worst-scoring pages first.',
     tags: ['technical-aeo'],
     parameters: [
       nameParameter,
+      { name: 'runId', in: 'query', description: 'Historical site-audit run ID. Omit for the latest audit.', schema: stringSchema },
       { name: 'status', in: 'query', description: 'Filter by page audit status: `success` or `error`.', schema: { type: 'string', enum: ['success', 'error'] } },
       { name: 'sort', in: 'query', description: 'Sort order: `score-asc` (default), `score-desc`, or `url`.', schema: { type: 'string', enum: ['score-asc', 'score-desc', 'url'] } },
       limitQueryParameter,
@@ -4121,7 +4730,7 @@ const routeCatalog: OpenApiOperation[] = [
     ],
     responses: {
       200: jsonResponse('Audited pages returned.', 'SiteAuditPagesResponseDto'),
-      404: errorResponse('Project not found.'),
+      404: errorResponse('Project or site-audit run not found.'),
     },
   },
   {

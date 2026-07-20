@@ -4,6 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import Fastify from 'fastify'
 import { expect, test } from 'vitest'
+import { ADS_ACTIVATE_SCOPE, ADS_APPROVE_SCOPE, ADS_WRITE_SCOPE } from '@ainyc/canonry-contracts'
 import { createClient, migrate, apiKeys, notifications, projects } from '@ainyc/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import type { ApiRoutesOptions } from '../src/index.js'
@@ -346,6 +347,68 @@ test('per-project model overrides need settings.write, but ordinary project writ
       method: 'GET', url: '/api/v1/projects/model-gate', headers: writeHeaders,
     })
     expect(stored.json().providerModels).toEqual({ openai: 'gpt-5-mini' })
+  } finally {
+    await app.close()
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  }
+})
+
+test.each([ADS_WRITE_SCOPE, ADS_APPROVE_SCOPE, ADS_ACTIVATE_SCOPE])(
+  'a project-scoped %s key cannot mutate non-ads state',
+  async (adsScope) => {
+  const { app, db, tmpDir } = buildApp()
+  const rootKey = insertApiKey(db)
+  await app.ready()
+
+  try {
+    const seed = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/projects/ads-delegate-test',
+      headers: { authorization: `Bearer ${rootKey}` },
+      payload: {
+        displayName: 'Ads Delegate Test',
+        canonicalDomain: 'example.com',
+        country: 'US',
+        language: 'en',
+      },
+    })
+    expect(seed.statusCode).toBe(201)
+    const project = db.select().from(projects).all()
+      .find((row) => row.name === 'ads-delegate-test')!
+
+    const adsKey = `cnry_${crypto.randomBytes(16).toString('hex')}`
+    db.insert(apiKeys).values({
+      id: crypto.randomUUID(),
+      name: 'ads-delegate',
+      keyHash: crypto.createHash('sha256').update(adsKey).digest('hex'),
+      keyPrefix: adsKey.slice(0, 9),
+      scopes: ['read', adsScope],
+      projectId: project.id,
+      createdAt: new Date().toISOString(),
+    }).run()
+    const headers = { authorization: `Bearer ${adsKey}` }
+
+    const unrelated = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/ads-delegate-test/runs',
+      headers,
+      payload: {},
+    })
+    expect(unrelated.statusCode).toBe(403)
+    expect(JSON.parse(unrelated.body).error.message).toContain('only perform OpenAI Ads')
+
+    const adsWrite = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/ads-delegate-test/ads/sync',
+      headers,
+    })
+    if (adsScope === ADS_WRITE_SCOPE) {
+      expect(adsWrite.statusCode).toBe(400)
+      expect(JSON.parse(adsWrite.body).error.code).toBe('VALIDATION_ERROR')
+    } else {
+      expect(adsWrite.statusCode).toBe(403)
+      expect(JSON.parse(adsWrite.body).error.code).toBe('FORBIDDEN')
+    }
   } finally {
     await app.close()
     fs.rmSync(tmpDir, { recursive: true, force: true })

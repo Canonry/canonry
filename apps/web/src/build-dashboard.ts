@@ -95,7 +95,7 @@ function triggerLabel(trigger: string): string {
   return trigger === RunTriggers.manual ? 'Manual' : trigger === RunTriggers.scheduled ? 'Scheduled' : trigger === RunTriggers['config-apply'] ? 'Config apply' : trigger
 }
 
-function toRunListItem(run: ApiRun, projectName: string): RunListItemVm {
+export function toRunListItem(run: ApiRun, projectName: string): RunListItemVm {
   return {
     id: run.id,
     projectId: run.projectId,

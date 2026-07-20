@@ -13,6 +13,7 @@ import {
   dismissContentTarget,
   triggerRun,
   triggerAllRuns,
+  triggerSiteAudit,
   triggerGscSync,
   triggerDiscoverSitemaps,
   triggerInspectSitemap,
@@ -178,6 +179,44 @@ export function useTriggerAllRuns() {
       addToast({
         title: error instanceof Error ? error.message : 'Failed to queue runs',
         tone: 'negative',
+      })
+    },
+  })
+}
+
+export function useTriggerSiteAudit() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    meta: { skipGlobalErrorToast: true },
+    mutationFn: ({ projectName, body }: {
+      projectName: string
+      projectId: string
+      projectLabel?: string
+      body?: Parameters<typeof triggerSiteAudit>[1]
+    }) => triggerSiteAudit(projectName, body),
+    onSuccess: (result, variables) => {
+      invalidateProjectAndRunQueries(queryClient)
+      trackRun({
+        id: result.runId,
+        projectId: variables.projectId,
+        kind: RunKinds['site-audit'],
+        projectLabel: variables.projectLabel ?? variables.projectName,
+        sourceAction: 'site-audit',
+        lastAnnouncedStatus: result.status,
+      })
+      addToast({
+        title: result.status === 'running' ? 'Technical audit already running' : 'Technical audit queued',
+        detail: `${variables.projectLabel ?? variables.projectName} will refresh automatically when the audit finishes.`,
+        tone: 'neutral',
+        dedupeKey: `run:${result.runId}`,
+        dedupeMode: 'replace',
+      })
+    },
+    onError: (error, variables) => {
+      handleTrackedRunError(error, {
+        projectKey: variables.projectName,
+        projectLabel: variables.projectLabel ?? variables.projectName,
+        sourceAction: 'site-audit',
       })
     },
   })

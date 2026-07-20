@@ -49,12 +49,15 @@ Agent-first open-source AEO (Answer Engine Optimization) operating platform. Tra
 - Optimizing `llms.txt`, sitemaps, robots.txt for AI crawlers
 - Submitting URLs to Google Indexing API and Bing IndexNow
 - Analyzing competitor citation patterns
+- Operating guarded ChatGPT ads lifecycle changes and reconciling unresolved mutation receipts
 
 ## Core Philosophy
 
 - **Measure outcomes** — AI models are black boxes; track mentions + citations, don't assume causality
 - **Signal over noise** — Focus on high‑intent queries; avoid granular targeting until base visibility exists
 - **CLI‑native** — API‑driven changes over manual CMS clicks; faster, repeatable, auditable
+- **Recover before retrying ads writes** — Page through `pending`, `unknown`, and `reconciling` receipts. Resume `campaign_tree_activate` through its bodyless exact-executor recovery operation; reconcile other supported receipts by verifying the checkpointed provider ID on the receipt-bound account. Never resend a mutation under a different key; an uncheckpointed create remains unresolved. A fresh pending generic receipt waits for its minimum-idle window, inconclusive reads back off, and a quarantined receipt requires human remediation.
+- **Separate approval from ads execution** — A human with `ads.approve` creates a short-lived grant for the exact paused campaign tree and a different executor key. The operator may activate only that tree with `ads.activate`; it cannot mint or widen its own approval.
 
 ## What Canonry Measures (Vocabulary)
 

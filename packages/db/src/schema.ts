@@ -1,5 +1,5 @@
 import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
-import type { BacklinkSource, ContentBriefDto, DiscoveryCompetitorMapEntry, DiscoveryCompetitorType, AiReferralTrafficClass, LocationContext, ProviderModels, ProviderName, SiteAuditCrossCuttingIssueDto, SiteAuditFactorSummaryDto, SiteAuditPageFactorDto } from '@ainyc/canonry-contracts'
+import type { AdsActivationEntityType, AdsActivationGrantState, AdsActivationManifest, AdsOperationStepState, AdsReconcileFields, BacklinkSource, ContentBriefDto, DiscoveryCompetitorMapEntry, DiscoveryCompetitorType, AiReferralTrafficClass, LocationContext, ProviderModels, ProviderName, SiteAuditCrossCuttingIssueDto, SiteAuditFactorSummaryDto, SiteAuditPageFactorDto } from '@ainyc/canonry-contracts'
 
 export const projects = sqliteTable('projects', {
   id: text('id').primaryKey(),
@@ -1318,12 +1318,106 @@ export const adsConnections = sqliteTable('ads_connections', {
   currencyCode: text('currency_code'),
   timezone: text('timezone'),
   status: text('status'),
+  reviewStatus: text('review_status'),
+  integrityReviewStatus: text('integrity_review_status'),
+  integrityDecision: text('integrity_decision'),
   lastSyncedAt: text('last_synced_at'),
   conversionTrackingConfigured: integer('conversion_tracking_configured', { mode: 'boolean' }).notNull().default(false),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 }, (table) => [
   uniqueIndex('idx_ads_conn_project').on(table.projectId),
+])
+
+// Durable receipts for upstream Ads API mutations. The upstream API does not
+// document an idempotency key, so the operation row is inserted before the
+// network call. A repeated (project, operation_key) is never sent upstream a
+// second time; unknown outcomes require operator reconciliation.
+export const adsOperations = sqliteTable('ads_operations', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  // Bound to the verified account attached to the credential at mutation time.
+  // Reconciliation refuses to inspect a different account after reconnect.
+  adAccountId: text('ad_account_id'),
+  operationKey: text('operation_key').notNull(),
+  requestHash: text('request_hash').notNull(),
+  kind: text('kind').notNull(),
+  state: text('state').notNull(),
+  entityType: text('entity_type'),
+  entityId: text('entity_id'),
+  upstreamUpdatedAt: integer('upstream_updated_at'),
+  errorCode: text('error_code'),
+  errorMessage: text('error_message'),
+  reconcileStrategy: text('reconcile_strategy'),
+  reconcileParentId: text('reconcile_parent_id'),
+  reconcileFingerprint: text('reconcile_fingerprint'),
+  reconcileFields: text('reconcile_fields', { mode: 'json' }).$type<AdsReconcileFields | null>(),
+  reconcileAttempts: integer('reconcile_attempts').notNull().default(0),
+  lastReconciledAt: text('last_reconciled_at'),
+  leaseOwner: text('lease_owner'),
+  leaseExpiresAt: text('lease_expires_at'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_ads_operations_project_key').on(table.projectId, table.operationKey),
+  index('idx_ads_operations_project_created').on(table.projectId, table.createdAt),
+  index('idx_ads_operations_project_state').on(table.projectId, table.state),
+  index('idx_ads_operations_reconcile_lease').on(table.state, table.leaseExpiresAt, table.updatedAt),
+])
+
+// A human approval is bound to one canonical campaign-tree manifest, one
+// advertiser account, and one executor API key. The grant never stores a
+// plaintext credential. Approver and executor key rows are retained/revoked
+// rather than deleted, so NO ACTION FKs preserve the durable audit identity.
+export const adsActivationGrants = sqliteTable('ads_activation_grants', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  adAccountId: text('ad_account_id').notNull(),
+  manifestHash: text('manifest_hash').notNull(),
+  manifest: text('manifest', { mode: 'json' }).$type<AdsActivationManifest>().notNull(),
+  executorApiKeyId: text('executor_api_key_id').notNull().references(() => apiKeys.id),
+  approverApiKeyId: text('approver_api_key_id').notNull().references(() => apiKeys.id),
+  state: text('state').$type<AdsActivationGrantState>().notNull(),
+  expiresAt: text('expires_at').notNull(),
+  operationId: text('operation_id').references(() => adsOperations.id),
+  approvedAt: text('approved_at').notNull(),
+  executionStartedAt: text('execution_started_at'),
+  consumedAt: text('consumed_at'),
+  revokedAt: text('revoked_at'),
+  revocationRequestedAt: text('revocation_requested_at'),
+  expiredAt: text('expired_at'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  index('idx_ads_activation_grants_project').on(table.projectId),
+  index('idx_ads_activation_grants_project_state_expiry').on(table.projectId, table.state, table.expiresAt),
+  index('idx_ads_activation_grants_project_manifest').on(table.projectId, table.manifestHash),
+  uniqueIndex('idx_ads_activation_grants_operation').on(table.operationId),
+])
+
+// Durable, ordered checkpoints for one campaign-tree activation. Every state
+// transition writes only sanitized errors/remediation; raw provider responses
+// and credentials never enter this table.
+export const adsOperationSteps = sqliteTable('ads_operation_steps', {
+  id: text('id').primaryKey(),
+  operationId: text('operation_id').notNull().references(() => adsOperations.id, { onDelete: 'cascade' }),
+  ordinal: integer('ordinal').notNull(),
+  entityType: text('entity_type').$type<AdsActivationEntityType>().notNull(),
+  entityId: text('entity_id').notNull(),
+  expectedUpdatedAt: integer('expected_updated_at').notNull(),
+  state: text('state').$type<AdsOperationStepState>().notNull(),
+  providerUpdatedAt: integer('provider_updated_at'),
+  errorCode: text('error_code'),
+  errorMessage: text('error_message'),
+  remediation: text('remediation'),
+  startedAt: text('started_at'),
+  finishedAt: text('finished_at'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  index('idx_ads_operation_steps_operation_state').on(table.operationId, table.state),
+  uniqueIndex('idx_ads_operation_steps_operation_ordinal').on(table.operationId, table.ordinal),
+  uniqueIndex('idx_ads_operation_steps_operation_entity').on(table.operationId, table.entityType, table.entityId),
 ])
 
 // Entity snapshots refreshed on every ads-sync (range-replaced per project) so
@@ -1334,10 +1428,17 @@ export const adsCampaigns = sqliteTable('ads_campaigns', {
   id: text('id').primaryKey(),
   projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
   name: text('name').notNull(),
+  description: text('description'),
   status: text('status').notNull(),
+  startTime: integer('start_time'),
+  endTime: integer('end_time'),
   biddingType: text('bidding_type'),
   dailySpendLimitMicros: integer('daily_spend_limit_micros'),
   lifetimeSpendLimitMicros: integer('lifetime_spend_limit_micros'),
+  conversionEventSettingIds: text('conversion_event_setting_ids', { mode: 'json' })
+    .$type<string[]>()
+    .notNull()
+    .default([]),
   targeting: text('targeting', { mode: 'json' }).$type<unknown>(),
   upstreamCreatedAt: integer('upstream_created_at'),
   upstreamUpdatedAt: integer('upstream_updated_at'),
@@ -1355,6 +1456,7 @@ export const adsAdGroups = sqliteTable('ads_ad_groups', {
   projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
   campaignId: text('campaign_id').notNull().references(() => adsCampaigns.id, { onDelete: 'cascade' }),
   name: text('name').notNull(),
+  description: text('description'),
   status: text('status').notNull(),
   billingEventType: text('billing_event_type'),
   maxBidMicros: integer('max_bid_micros'),
