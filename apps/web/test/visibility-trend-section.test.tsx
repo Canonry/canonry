@@ -377,3 +377,83 @@ test('says nothing about served models when the API omits them', async () => {
   await screen.findByText('Model evidence changes')
   expect(screen.queryByText('What the engines answered with')).toBeNull()
 })
+
+const MODEL_CHANGE_NEXT_ACTION = 'Compare this period with earlier ones carefully.'
+
+const OPENAI_CHANGE = {
+  modelIds: ['chat-latest'],
+  changeCount: 1,
+  unverifiedChangeCount: 0,
+  firstChangeDate: '2026-06-24',
+  lastChangeDate: '2026-06-24',
+  summary: 'The model behind "chat-latest" changed on 2026-06-24, inside this reporting period. '
+    + 'Part of any movement in this number comes from that change and not from how often AI names you.',
+}
+
+const GEMINI_CHANGE = {
+  modelIds: ['gemini-flash-latest'],
+  changeCount: 2,
+  unverifiedChangeCount: 0,
+  firstChangeDate: '2026-06-02',
+  lastChangeDate: '2026-06-30',
+  summary: 'The model behind "gemini-flash-latest" changed more than once in this reporting period, '
+    + 'between 2026-06-02 and 2026-06-30. '
+    + 'Part of any movement in this number comes from those changes and not from how often AI names you.',
+}
+
+function mockMetrics(extra?: Record<string, unknown>) {
+  return mockFetch((url) => {
+    const path = url.split('?')[0]!
+    if (path.endsWith('/projects/test-project/analytics/metrics')) {
+      return jsonResponse({ ...metricsDto(TWO_BUCKETS), ...extra })
+    }
+    throw new Error(`Unexpected fetch: ${url}`)
+  })
+}
+
+test('discloses a single provider-side model change above the chart', async () => {
+  onTestFinished(mockMetrics({ modelPointerChanges: { openai: OPENAI_CHANGE } }))
+
+  renderSection()
+
+  const note = await screen.findByText(`${OPENAI_CHANGE.summary} ${MODEL_CHANGE_NEXT_ACTION}`)
+  // Above the chart, not buried in the model-evidence aside below it: whoever
+  // is about to send this number to a client meets the caveat first.
+  const chart = document.querySelector('.visibility-trend-chart')!
+  expect(note.compareDocumentPosition(chart) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+})
+
+test('discloses changes on several engines in one note with one closing line', async () => {
+  onTestFinished(mockMetrics({
+    modelPointerChanges: { openai: OPENAI_CHANGE, gemini: GEMINI_CHANGE },
+  }))
+
+  renderSection()
+
+  const note = await screen.findByText(/The model behind/)
+  expect(note.textContent).toBe(
+    `${GEMINI_CHANGE.summary} ${OPENAI_CHANGE.summary} ${MODEL_CHANGE_NEXT_ACTION}`,
+  )
+  expect(note.textContent!.split(MODEL_CHANGE_NEXT_ACTION)).toHaveLength(2)
+})
+
+test('renders no disclosure at all when the API omits the field or reports no change', async () => {
+  const restore = mockMetrics()
+  onTestFinished(restore)
+
+  renderSection()
+
+  // Wait for the loaded chart before asserting an absence, so this cannot pass
+  // merely because the DTO had not arrived yet.
+  await screen.findByRole('list', { name: 'Engines' })
+  expect(screen.queryByText(/The model behind/)).toBeNull()
+  expect(screen.queryByText(/Compare this period with earlier ones carefully/)).toBeNull()
+
+  cleanup()
+  restore()
+
+  onTestFinished(mockMetrics({ modelPointerChanges: {} }))
+  renderSection()
+  await screen.findByRole('list', { name: 'Engines' })
+  expect(screen.queryByText(/The model behind/)).toBeNull()
+})

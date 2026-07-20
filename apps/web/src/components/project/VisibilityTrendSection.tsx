@@ -1,6 +1,7 @@
 import { Fragment, useId, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import type { BrandMetricsDto, MetricsWindow } from '@ainyc/canonry-contracts'
+import { formatModelChangeDisclosure } from '@ainyc/canonry-contracts'
 import {
   CartesianGrid,
   CHART_AXIS_STROKE,
@@ -41,6 +42,7 @@ import {
   partitionModelAttributionEvents,
   readBucketModelEvidence,
   readModelAttribution,
+  readModelPointerChanges,
   readModelServiceMismatch,
   readServedModelAttribution,
   truncatedProviderCounts,
@@ -556,6 +558,12 @@ export function VisibilityTrendSection({
   )
   const servedAttribution = useMemo(() => (data ? readServedModelAttribution(data) : {}), [data])
   const serviceMismatch = useMemo(() => (data ? readModelServiceMismatch(data) : {}), [data])
+  // Null on an older API and on any window that spans no change — both render
+  // nothing at all, never a partial sentence.
+  const modelChangeDisclosure = useMemo(
+    () => (data ? formatModelChangeDisclosure(readModelPointerChanges(data)) : null),
+    [data],
+  )
 
   // Headline readout: the selected metric's latest bucket value plus its change
   // across the visible window. Quantifies "where it sits now, which way it
@@ -631,6 +639,15 @@ export function VisibilityTrendSection({
         )}
         <Segmented options={WINDOW_OPTIONS} value={window} onChange={setWindow} ariaLabel="Time window" className="sm:ml-auto" />
       </div>
+      {/* Sits above the chart rather than in the model-evidence aside below it:
+          whoever is about to send this number to a client has to meet the
+          caveat before they read the number, not after. Tinted, not alarming —
+          nothing is broken, the reading just needs care. */}
+      {modelChangeDisclosure && (
+        <p className="mt-3 rounded-lg border border-caution-800/60 bg-caution-950/20 px-3 py-2 text-[11px] leading-snug text-secondary">
+          {modelChangeDisclosure}
+        </p>
+      )}
     </>
   )
 

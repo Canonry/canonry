@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import type { BrandMetricsDto, ModelAttribution, ModelEvidenceState } from '@ainyc/canonry-contracts'
+import type { BrandMetricsDto, ModelAttribution, ModelEvidenceState, ModelPointerChangeDisclosure } from '@ainyc/canonry-contracts'
 import {
   buildMentionShareTrendRows,
   buildSelectedTrendRows,
@@ -9,6 +9,7 @@ import {
   truncatedProviderCounts,
   formatModelEvidence,
   groupModelAttributionEvents,
+  readModelPointerChanges,
   latestPlottedProviderModelEvidence,
   readBucketModelEvidence,
   readModelAttribution,
@@ -479,5 +480,37 @@ describe('truncatedProviderCounts', () => {
     })).toEqual([{ provider: 'gemini', shown: 2, total: 40 }])
 
     expect(truncatedProviderCounts({})).toEqual([])
+  })
+})
+
+/**
+ * The rendering itself (wording, ordering, the closing line, the plain-language
+ * guard) is shared with the CLI and tested at its home in
+ * `packages/contracts/test/model-pointers.test.ts`. What is web-specific, and
+ * all that is asserted here, is reading the field off a DTO that may not carry
+ * it: this dashboard build can be pointed at an older server.
+ */
+describe('readModelPointerChanges', () => {
+  const metrics = (extra?: Record<string, unknown>) =>
+    ({ ...dto([]), ...extra }) as unknown as BrandMetricsDto
+
+  const openaiChange = {
+    modelIds: ['chat-latest'],
+    changeCount: 1,
+    unverifiedChangeCount: 0,
+    firstChangeDate: '2026-06-24',
+    lastChangeDate: '2026-06-24',
+    summary: 'The model behind "chat-latest" changed on 2026-06-24, inside this reporting period. '
+      + 'Part of any movement in this number comes from that change and not from how often AI names you.',
+  } satisfies ModelPointerChangeDisclosure
+
+  it('reads nothing from an older API and nothing from a project on fixed model ids', () => {
+    expect(readModelPointerChanges(metrics())).toEqual({})
+    expect(readModelPointerChanges(metrics({ modelPointerChanges: {} }))).toEqual({})
+  })
+
+  it('passes the server disclosures through untouched', () => {
+    expect(readModelPointerChanges(metrics({ modelPointerChanges: { openai: openaiChange } })))
+      .toEqual({ openai: openaiChange })
   })
 })

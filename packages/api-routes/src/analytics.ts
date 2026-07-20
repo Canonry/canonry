@@ -4,14 +4,15 @@ import { filterTrackedSnapshots, groupRunsByCreatedAt, pickGroupRepresentative, 
 import {
   AI_PROVIDER_INFRA_DOMAINS, brandLabelFromDomain, categorizeSource, categoryLabel, CitationStates,
   classifySurfaceFromCategory, surfaceClassFromCompetitorType, surfaceClassLabel,
-  effectiveDomains, normalizeProjectDomain, parseWindow, RunKinds, RunStatuses, windowCutoff, validationError,
+  effectiveDomains, findModelPointerChanges, normalizeProjectDomain, parseWindow, RunKinds, RunStatuses,
+  windowCutoff, validationError,
 } from '@ainyc/canonry-contracts'
 import type {
   BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto,
   TimeBucket, TrendDirection, GapQuery, GapCategory,
   SourceCategory, SourceCategoryCount, ProviderMetric, QueryChangeEvent,
   RankedSourceList, SourceRankEntry, SurfaceClass, SurfaceClassCount, ModelEvidenceState,
-  ModelServiceMismatch,
+  ModelPointerChangeDisclosure, ModelServiceMismatch,
 } from '@ainyc/canonry-contracts'
 import { buildMentionShare } from '@ainyc/canonry-intelligence'
 import { notProbeRun, resolveProject, resolveSnapshotAnswerMentioned } from './helpers.js'
@@ -57,6 +58,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
         modelAttribution: {},
         servedModelAttribution: {},
         modelServiceMismatch: {},
+        modelPointerChanges: {},
       } satisfies BrandMetricsDto)
     }
 
@@ -303,6 +305,37 @@ export async function analyticsRoutes(app: FastifyInstance) {
       }
     }
 
+    // Some model ids are not models: the provider re-points them at whatever it
+    // is currently serving, and the response echoes the same id back on both
+    // sides of the swap. No amount of served-model capture can see that, so the
+    // only honest move is to check the sweeps that produced these numbers
+    // against a dated record of known changes and disclose the overlap.
+    //
+    // The period is per-provider and comes from the DATA, not the requested
+    // window: it is the span of sweeps that actually contributed, so a provider
+    // added halfway through the window is not caveated for a change that
+    // predates its first sweep.
+    const modelPointerChanges: Record<string, ModelPointerChangeDisclosure> = {}
+    const pointerScopeByProvider = new Map<string, { modelIds: Set<string>; start: string; end: string }>()
+    for (const snapshot of allSnapshots) {
+      const scope = pointerScopeByProvider.get(snapshot.provider)
+        ?? { modelIds: new Set<string>(), start: snapshot.runCreatedAt, end: snapshot.runCreatedAt }
+      if (snapshot.runCreatedAt < scope.start) scope.start = snapshot.runCreatedAt
+      if (snapshot.runCreatedAt > scope.end) scope.end = snapshot.runCreatedAt
+      // Configured AND served: a project can configure a pinned id while the
+      // provider serves a moving one, and either side being a pointer exposes
+      // the number.
+      const configured = snapshot.model?.trim()
+      if (configured) scope.modelIds.add(configured)
+      const served = snapshot.servedModel?.trim()
+      if (served) scope.modelIds.add(served)
+      pointerScopeByProvider.set(snapshot.provider, scope)
+    }
+    for (const [provider, scope] of pointerScopeByProvider) {
+      const disclosure = findModelPointerChanges({ modelIds: scope.modelIds, start: scope.start, end: scope.end })
+      if (disclosure) modelPointerChanges[provider] = disclosure
+    }
+
     // Trends
     const trend = computeTrend(buckets, 'citationRate')
     const mentionTrend = computeTrend(buckets, 'mentionRate')
@@ -310,7 +343,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
     // Query change annotations
     const queryChanges = computeQueryChanges(projectQueries, cutoff)
 
-    return reply.send({ window, buckets, overall, byProvider, trend, mentionTrend, queryChanges, modelAttribution, servedModelAttribution, modelServiceMismatch } satisfies BrandMetricsDto)
+    return reply.send({ window, buckets, overall, byProvider, trend, mentionTrend, queryChanges, modelAttribution, servedModelAttribution, modelServiceMismatch, modelPointerChanges } satisfies BrandMetricsDto)
   })
 
   // GET /projects/:name/analytics/gaps — brand gap analysis

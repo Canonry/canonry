@@ -1,3 +1,4 @@
+import { formatModelChangeDisclosure, type ModelPointerChangeDisclosure } from '@ainyc/canonry-contracts'
 import { createApiClient, type BrandMetricsDto, type GapAnalysisDto, type SourceBreakdownDto } from '../client.js'
 import { CliError, isMachineFormat } from '../cli-error.js'
 
@@ -117,6 +118,14 @@ function printMetrics(data: BrandMetricsDto): void {
     }
   }
 
+  // Printed BEFORE the model sections: it is the one note that changes how the
+  // numbers above should be read, so it must not sit at the bottom of the dump.
+  const modelChangeDisclosure = formatModelChangeDisclosure(readModelPointerChanges(data))
+  if (modelChangeDisclosure) {
+    console.log(`\n  Model Changes Behind These Numbers:`)
+    console.log(`    ${modelChangeDisclosure}`)
+  }
+
   const attributionEntries = Object.entries(readModelAttribution(data))
     .sort(([a], [b]) => a.localeCompare(b))
   if (attributionEntries.length > 0) {
@@ -174,6 +183,18 @@ function readServedModelAttribution(data: BrandMetricsDto): BrandMetricsDto['ser
 function readModelServiceMismatch(data: BrandMetricsDto): BrandMetricsDto['modelServiceMismatch'] {
   const legacyCompatible = data as unknown as { modelServiceMismatch?: BrandMetricsDto['modelServiceMismatch'] }
   return legacyCompatible.modelServiceMismatch ?? {}
+}
+
+/**
+ * Providers whose numbers span a known change to a moving model id — one the
+ * provider re-points at a different underlying model without the API response
+ * changing at all. Absent on an older server, empty for a project on fixed
+ * model ids. Rendering is `formatModelChangeDisclosure` from contracts, shared
+ * with the dashboard so neither surface can soften the caveat the other gives.
+ */
+function readModelPointerChanges(data: BrandMetricsDto): Record<string, ModelPointerChangeDisclosure> {
+  const legacyCompatible = data as unknown as { modelPointerChanges?: Record<string, ModelPointerChangeDisclosure> }
+  return legacyCompatible.modelPointerChanges ?? {}
 }
 
 /** A newer CLI can be pointed at an older server during a rolling upgrade. */
