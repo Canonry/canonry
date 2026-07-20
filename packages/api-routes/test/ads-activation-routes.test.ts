@@ -837,7 +837,7 @@ describe('ads approval-bound activation routes', () => {
     await ctx.app.close()
     fs.rmSync(ctx.tmpDir, { recursive: true, force: true })
     ctx = buildHarness({
-      activationLeaseMs: 90,
+      activationLeaseMs: 1_000,
       blockAdActivation: true,
     })
     await ctx.app.ready()
@@ -856,7 +856,7 @@ describe('ads approval-bound activation routes', () => {
 
     const firstPromise = ctx.app.inject(request)
     await ctx.activationStarted
-    await new Promise((resolve) => setTimeout(resolve, 140))
+    await new Promise((resolve) => setTimeout(resolve, 1_250))
 
     const concurrent = await ctx.app.inject(request)
     expect(concurrent.statusCode).toBe(200)
