@@ -77,6 +77,7 @@ export const geminiAdapter: ProviderAdapter = {
       provider: 'gemini',
       rawResponse: raw.rawResponse,
       model: raw.model,
+      servedModel: raw.servedModel,
       groundingSources: raw.groundingSources,
       searchQueries: raw.searchQueries,
     }

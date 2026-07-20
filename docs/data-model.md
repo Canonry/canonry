@@ -64,11 +64,6 @@ erDiagram
 | Table | Purpose | Key Constraints |
 |-------|---------|----------------|
 | **projects** | Root entity — domain, location config, provider list, per-project `provider_models` overrides, optional `icp_description` (free-text ICP used by discovery seed phase) | Unique: `name` |
-
-`projects.provider_models` is a JSON map of provider name to a model ID used
-for future sweeps. `{}` inherits the instance-level provider settings. It is
-not historical attribution: recorded snapshot `model` values remain the source
-of truth for model continuity and trend interpretation.
 | **queries** | Tracked queries per project. `provenance` tags where the entry came from (e.g. `cli`, `discovery:<session_id>`) so adopted basket entries can be traced back to a discovery run. | Unique: `(projectId, query)` |
 | **competitors** | Competitor domains per project. `provenance` tags origin (`cli`, `discovery:<session_id>`) for the same traceability reason. | Unique: `(projectId, domain)` |
 | **runs** | Visibility sweep executions | FK: projectId → projects |
@@ -76,6 +71,48 @@ of truth for model continuity and trend interpretation.
 | **schedules** | Cron schedules (1:1 with project) | Unique: projectId |
 | **notifications** | Alert configurations per project | FK: projectId → projects |
 | **audit_log** | Change tracking | FK: projectId → projects (optional) |
+
+#### `projects.provider_models`
+
+`projects.provider_models` is a JSON map of provider name to a model ID used
+for future sweeps. `{}` inherits the instance-level provider settings. It is
+not historical attribution — for that, see the two model columns on
+`query_snapshots` below.
+
+#### `query_snapshots.model` vs `served_model`
+
+Every snapshot records two model strings, and they answer different questions:
+
+| Column | Meaning |
+|--------|---------|
+| `model` | What we **requested** — the configured model ID resolved at sweep time. |
+| `served_model` | What the provider **reported serving**, read back off its own response. Nullable. |
+
+`model` is **not** the source of truth for model continuity or trend
+interpretation. It records our request, not the model that produced the answer,
+and the two diverge routinely: every OpenAI row in production requested
+`gpt-5.4` and was served the dated snapshot `gpt-5.4-2026-03-05`. Attribute a
+change in answers to `served_model`; use `model` only to describe configuration.
+
+Compare `served_model` at **top-level granularity** for attribution. A dated
+snapshot is the same model for our purposes, so `gpt-5.4` → `gpt-5.4-2026-03-05`
+is not a model change, while `gpt-5.6` → `gpt-5.6-sol` is (a tier suffix is a
+different model at a different price). Comparing the raw strings would also
+manufacture a fake model change at every provider deploy boundary.
+
+Known gaps — `served_model` is nullable because absence is common and honest:
+
+- **Gemini rows recorded before this column existed are NULL.** Gemini reports
+  its identity as `modelVersion`, which the adapter dropped before storage, so
+  no served value survives for those rows. It is captured going forward.
+- **Some models disclose nothing more specific than the alias requested.**
+  `chat-latest` echoes itself, so `served_model` equals `model` and reveals no
+  underlying snapshot.
+- **CDP snapshots have no model identity at all.** That provider scrapes the
+  web UI rather than calling an API, so it never sets `served_model`.
+
+Never fall back to `model` when `served_model` is NULL — that would launder a
+configuration value into an observation. Treat NULL as unknown.
 
 ### Integrations — Google
 

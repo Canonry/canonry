@@ -121,6 +121,76 @@ export type ProviderModelAttribution = z.infer<typeof providerModelAttributionSc
 export const modelAttributionSchema = z.record(z.string(), providerModelAttributionSchema)
 export type ModelAttribution = z.infer<typeof modelAttributionSchema>
 
+/**
+ * A trailing dated-snapshot suffix — `-2026-03-05` or the compact `-20260305`.
+ *
+ * Providers pin a release date onto the SAME model (`gpt-5.4` is served as
+ * `gpt-5.4-2026-03-05`, `gpt-4o` as `gpt-4o-2024-08-06`), so the suffix names
+ * WHEN, not WHAT. A capability tier (`gpt-5.6-sol`) is a different model at a
+ * different price and must survive normalization untouched.
+ *
+ * The rule is therefore derived from the date SHAPE, never from a list of known
+ * tier names: an unknown future tier (`-nova`, `-3`, `-2026`) is preserved
+ * rather than silently swallowed, which is the safe direction to fail — a
+ * preserved tier shows up as a real change the operator can dismiss, a
+ * swallowed one is a price change nobody ever sees.
+ */
+// `-YYYY<sep>MM<sep>DD` where the backreference forces ONE consistent
+// separator, so `-2026-0305` / `-202603-05` are not mistaken for stamps.
+const DATED_SNAPSHOT_SUFFIX = /-\d{4}(-?)(\d{2})\1(\d{2})$/
+
+/**
+ * Collapse a served model id to its top-level identity. A dated snapshot of a
+ * model IS that model for attribution purposes, so comparing normalized ids is
+ * what stops every provider-side redeploy reading as a model change.
+ * Comparison-only: the full served string is what gets stored and displayed.
+ */
+export function normalizeModelId(model: string): string {
+  const trimmed = model.trim()
+  const match = DATED_SNAPSHOT_SUFFIX.exec(trimmed)
+  if (!match) return trimmed
+  const month = Number(match[2])
+  const day = Number(match[3])
+  // A date-SHAPED suffix still has to be a plausible date. `-9999-99-99` is not
+  // a snapshot stamp, so it stays part of the identity.
+  if (month < 1 || month > 12 || day < 1 || day > 31) return trimmed
+  const base = trimmed.slice(0, match.index)
+  // Never normalize a model id away to nothing (`-2026-03-05` alone).
+  return base.length > 0 ? base : trimmed
+}
+
+/** True when two model ids name the same model, ignoring a dated-snapshot suffix. */
+export function modelIdsEquivalent(a: string, b: string): boolean {
+  return normalizeModelId(a) === normalizeModelId(b)
+}
+
+/**
+ * Evidence for what a provider ACTUALLY served, as opposed to what the project
+ * configured. Same shape as the configured series so both render through one
+ * code path, plus the full un-normalized ids behind the latest observation:
+ * change detection runs on normalized ids, forensics needs the raw ones.
+ */
+export const servedProviderModelAttributionSchema = providerModelAttributionSchema.extend({
+  /** Every distinct raw served id behind `latestObservation`, sorted. */
+  latestServedModelIds: z.array(modelIdSchema).default([]),
+})
+export type ServedProviderModelAttribution = z.infer<typeof servedProviderModelAttributionSchema>
+
+export const servedModelAttributionSchema = z.record(z.string(), servedProviderModelAttributionSchema)
+export type ServedModelAttribution = z.infer<typeof servedModelAttributionSchema>
+
+/**
+ * A provider whose latest configured and served evidence are both known and
+ * name DIFFERENT top-level models. A dated snapshot of the configured model is
+ * agreement, not a mismatch, so this only fires on a genuine substitution.
+ */
+export const modelServiceMismatchSchema = z.object({
+  observedAt: z.string(),
+  configured: modelEvidenceStateSchema,
+  served: modelEvidenceStateSchema,
+})
+export type ModelServiceMismatch = z.infer<typeof modelServiceMismatchSchema>
+
 /** Mention-share metric for one time bucket. Null rate means the competitive
  *  frame had no brand mentions in that bucket, so the share is undefined. */
 export const mentionShareBucketMetricSchema = z.object({
@@ -168,6 +238,17 @@ export const brandMetricsDtoSchema = z.object({
   queryChanges: z.array(queryChangeEventSchema),
   /** Window-scoped historical evidence, distinct from any configured provider model. */
   modelAttribution: modelAttributionSchema.default({}),
+  /**
+   * The PARALLEL series built from what the provider reported serving. It is
+   * deliberately not merged into `modelAttribution`: served capture starts at a
+   * deploy boundary, so coalescing the two would fabricate a model change on
+   * that date for every project. A snapshot with no served id is no observation
+   * at all here — same rule as an absent provider — so a window that predates
+   * capture is simply empty and `modelAttribution` is untouched.
+   */
+  servedModelAttribution: servedModelAttributionSchema.default({}),
+  /** Providers currently serving a different top-level model than the one configured. */
+  modelServiceMismatch: z.record(z.string(), modelServiceMismatchSchema).default({}),
 })
 export type BrandMetricsDto = z.infer<typeof brandMetricsDtoSchema>
 

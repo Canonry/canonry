@@ -171,6 +171,70 @@ describe('analytics command', () => {
     }
   })
 
+  it('reports what the engines answered with, the substitution, and an incomplete history', async () => {
+    const metricsSpy = vi.spyOn(ApiClient.prototype, 'getAnalyticsMetrics').mockResolvedValue({
+      window: '30d',
+      buckets: [],
+      overall: { citationRate: 0, cited: 0, total: 0, mentionRate: 0, mentionedCount: 0 },
+      byProvider: {},
+      trend: 'stable',
+      mentionTrend: 'stable',
+      queryChanges: [],
+      modelAttribution: {
+        openai: {
+          latestObservation: {
+            observedAt: '2026-07-15T12:00:00.000Z',
+            state: { status: 'known', model: 'gpt-5.6' },
+          },
+          events: [
+            {
+              observedAt: '2026-07-02T12:00:00.000Z',
+              bucketStartDate: '2026-07-02T00:00:00.000Z',
+              from: { status: 'known', model: 'gpt-5.4' },
+              to: { status: 'known', model: 'gpt-5.6' },
+              fromPreWindowAnchor: true,
+              anchorObservedAt: '2026-06-20T12:00:00.000Z',
+            },
+          ],
+          eventTotal: 1,
+          anchorUnavailable: true,
+        },
+      },
+      servedModelAttribution: {
+        openai: {
+          latestObservation: {
+            observedAt: '2026-07-15T12:00:00.000Z',
+            state: { status: 'known', model: 'gpt-5.6-sol' },
+          },
+          events: [],
+          eventTotal: 0,
+          latestServedModelIds: ['gpt-5.6-sol'],
+        },
+      },
+      modelServiceMismatch: {
+        openai: {
+          observedAt: '2026-07-15T12:00:00.000Z',
+          configured: { status: 'known', model: 'gpt-5.6' },
+          served: { status: 'known', model: 'gpt-5.6-sol' },
+        },
+      },
+    })
+    try {
+      const { showAnalytics } = await import('../src/commands/analytics.js')
+      const { stdout } = await captureOutput(() => showAnalytics('test-proj', { feature: 'metrics' }))
+      // An anchored change now carries its lower bound, so the operator reads a
+      // closed range instead of an open-ended "sometime earlier".
+      expect(stdout).toContain('(on or before)')
+      expect(stdout).toContain('[last seen known gpt-5.4 on 2026-06-20T12:00:00.000Z]')
+      expect(stdout).toContain('We did not look far enough back to be sure this is every change.')
+      // The served lane, in plain language.
+      expect(stdout).toContain('What the Engines Answered With:')
+      expect(stdout).toContain('openai: gpt-5.6-sol at 2026-07-15T12:00:00.000Z — not the known gpt-5.6 you selected')
+    } finally {
+      metricsSpy.mockRestore()
+    }
+  })
+
   it('prints gap analysis section for empty project', async () => {
     const { showAnalytics } = await import('../src/commands/analytics.js')
     const { stdout } = await captureOutput(() => showAnalytics('test-proj', { feature: 'gaps' }))

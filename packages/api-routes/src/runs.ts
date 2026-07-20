@@ -559,6 +559,7 @@ function loadRunDetail(app: FastifyInstance, run: typeof runs.$inferSelect) {
       query: queries.query,
       provider: querySnapshots.provider,
       model: querySnapshots.model,
+      servedModel: querySnapshots.servedModel,
       citationState: querySnapshots.citationState,
       answerMentioned: querySnapshots.answerMentioned,
       answerText: querySnapshots.answerText,
@@ -603,6 +604,10 @@ function loadRunDetail(app: FastifyInstance, run: typeof runs.$inferSelect) {
         recommendedCompetitors: s.recommendedCompetitors,
         matchedTerms: project ? resolveSnapshotMatchedTerms(s, project) : [],
         model: s.model ?? rawParsed.model,
+        // Column only. `model` may fall back to the stored envelope because both
+        // record the same requested value; a served id has no such equivalent —
+        // an unrecoverable one stays null rather than echoing configuration.
+        servedModel: s.servedModel,
         location: s.location,
         groundingSources: rawParsed.groundingSources,
         searchQueries: rawParsed.searchQueries,

@@ -27,6 +27,8 @@ export interface PerplexityRawResult {
   provider: 'perplexity'
   rawResponse: Record<string, unknown>
   model: string
+  /** Verbatim `model` from the response; undefined when Perplexity disclosed none. */
+  servedModel?: string
   groundingSources: GroundingSource[]
   searchQueries: string[]
 }

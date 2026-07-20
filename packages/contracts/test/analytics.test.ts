@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import {
   MODEL_ATTRIBUTION_EVENT_LIMIT,
+  modelIdsEquivalent,
+  normalizeModelId,
   mentionShareBucketMetricSchema,
   modelEvidenceStateSchema,
   modelAttributionSchema,
@@ -347,5 +349,37 @@ describe('sources DTO schemas', () => {
       limit: null,
     })
     expect(parsed.limit).toBeNull()
+  })
+})
+
+describe('normalizeModelId', () => {
+  it('strips a dated snapshot suffix — a dated snapshot IS the same model', () => {
+    expect(normalizeModelId('gpt-5.4-2026-03-05')).toBe('gpt-5.4')
+    expect(normalizeModelId('gpt-4o-2024-08-06')).toBe('gpt-4o')
+    // The compact form providers also ship.
+    expect(normalizeModelId('claude-3-5-sonnet-20241022')).toBe('claude-3-5-sonnet')
+  })
+
+  it('preserves a capability tier — a different model at a different price', () => {
+    expect(normalizeModelId('gpt-5.6-sol')).toBe('gpt-5.6-sol')
+    expect(normalizeModelId('gpt-5.6-terra')).toBe('gpt-5.6-terra')
+    expect(normalizeModelId('gpt-5.6-luna')).toBe('gpt-5.6-luna')
+  })
+
+  it('preserves an UNKNOWN suffix rather than silently swallowing it', () => {
+    // The rule is derived from the date shape, not an allow-list of tier names,
+    // so a tier nobody has seen yet survives and shows up as a real change.
+    expect(normalizeModelId('gpt-6-quasar')).toBe('gpt-6-quasar')
+    expect(normalizeModelId('gpt-6-2026')).toBe('gpt-6-2026')
+    expect(normalizeModelId('gpt-6-v2')).toBe('gpt-6-v2')
+    // Date-SHAPED but not a plausible date.
+    expect(normalizeModelId('gpt-6-2026-13-45')).toBe('gpt-6-2026-13-45')
+    // Never normalize an id away to nothing.
+    expect(normalizeModelId('-2026-03-05')).toBe('-2026-03-05')
+  })
+
+  it('treats a dated snapshot as equivalent and a tier as different', () => {
+    expect(modelIdsEquivalent('gpt-5.4', 'gpt-5.4-2026-03-05')).toBe(true)
+    expect(modelIdsEquivalent('gpt-5.6', 'gpt-5.6-sol')).toBe(false)
   })
 })

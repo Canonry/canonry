@@ -193,7 +193,9 @@ test('dates an anchored change "on or before" and says how much history is shown
   // The change can only be dated to the last sweep BEFORE the window, so the
   // row must not read as an event that happened on that bucket's date.
   expect(await screen.findByText(/on or before/)).toBeTruthy()
-  expect(screen.getByText('Showing the most recent 1 of 84 changes.')).toBeTruthy()
+  // The server caps per provider, so the note must name the engine whose
+  // history is clipped rather than implying every engine's list is partial.
+  expect(screen.getByText(/^Gemini: showing the most recent 1 of 84 changes\.$/)).toBeTruthy()
 })
 
 test('shows an empty state when there are no buckets yet', async () => {
@@ -289,4 +291,82 @@ test('refetches mention-share metrics when the competitor frame changes', async 
   await waitFor(() => {
     expect(requests).toHaveLength(2)
   })
+})
+
+test('files a change inherited from before the window under its own heading, not among the dated changes', async () => {
+  const anchored = metricsDto(TWO_BUCKETS)
+  Object.assign(anchored.modelAttribution.gemini.events[0]!, {
+    fromPreWindowAnchor: true,
+    anchorObservedAt: '2026-03-25T00:00:00.000Z',
+  })
+
+  const restore = mockFetch((url) => {
+    const path = url.split('?')[0]!
+    if (path.endsWith('/projects/test-project/analytics/metrics')) {
+      return jsonResponse(anchored)
+    }
+    throw new Error(`Unexpected fetch: ${url}`)
+  })
+  onTestFinished(restore)
+
+  renderSection()
+
+  // Grouped separately, so nothing places it on a date inside the chart…
+  expect(await screen.findByText('Changed before this date range')).toBeTruthy()
+  // …and the lower bound is surfaced, so the operator gets a closed range.
+  expect(screen.getByText(/last seen gemini-2\.0-flash on/)).toBeTruthy()
+})
+
+test('says what the engines actually answered with and flags a substitution in plain language', async () => {
+  const withServed = metricsDto(TWO_BUCKETS)
+  Object.assign(withServed, {
+    servedModelAttribution: {
+      openai: {
+        latestObservation: {
+          observedAt: '2026-04-08T00:00:00.000Z',
+          state: { status: 'known', model: 'gpt-5.6-sol' },
+        },
+        events: [],
+        eventTotal: 0,
+        latestServedModelIds: ['gpt-5.6-sol'],
+      },
+    },
+    modelServiceMismatch: {
+      openai: {
+        observedAt: '2026-04-08T00:00:00.000Z',
+        configured: { status: 'known', model: 'gpt-5.6' },
+        served: { status: 'known', model: 'gpt-5.6-sol' },
+      },
+    },
+  })
+
+  const restore = mockFetch((url) => {
+    const path = url.split('?')[0]!
+    if (path.endsWith('/projects/test-project/analytics/metrics')) {
+      return jsonResponse(withServed)
+    }
+    throw new Error(`Unexpected fetch: ${url}`)
+  })
+  onTestFinished(restore)
+
+  renderSection()
+
+  expect(await screen.findByText('What the engines answered with')).toBeTruthy()
+  expect(screen.getByText(/OpenAI: gpt-5\.6-sol — not the gpt-5\.6 you selected/)).toBeTruthy()
+})
+
+test('says nothing about served models when the API omits them', async () => {
+  const restore = mockFetch((url) => {
+    const path = url.split('?')[0]!
+    if (path.endsWith('/projects/test-project/analytics/metrics')) {
+      return jsonResponse(metricsDto(TWO_BUCKETS))
+    }
+    throw new Error(`Unexpected fetch: ${url}`)
+  })
+  onTestFinished(restore)
+
+  renderSection()
+
+  await screen.findByText('Model evidence changes')
+  expect(screen.queryByText('What the engines answered with')).toBeNull()
 })

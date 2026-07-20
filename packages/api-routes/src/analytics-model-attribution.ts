@@ -2,9 +2,16 @@ import {
   MODEL_ATTRIBUTION_EVENT_LIMIT,
   type ModelAttribution,
   type ModelEvidenceState,
+  type ServedModelAttribution,
 } from '@ainyc/canonry-contracts'
 
-import { classifyModelEvidence, modelEvidenceStatesEqual, type ModelEvidenceValue } from './model-evidence.js'
+import {
+  classifyModelEvidence,
+  classifyServedModelEvidence,
+  distinctServedModelIds,
+  modelEvidenceStatesEqual,
+  type ModelEvidenceValue,
+} from './model-evidence.js'
 
 /** One tracked snapshot with the run's canonical observation time attached. */
 export interface ModelAttributionObservation {
@@ -30,6 +37,12 @@ export interface BuildModelAttributionInput {
    * a sweep. Reported so a consumer can say the history may be incomplete.
    */
   anchorUnavailable?: ReadonlySet<string>
+  /**
+   * How a sweep's raw values collapse into one categorical state. Defaults to
+   * the configured-model classifier; the served series swaps in the top-level
+   * (dated-snapshot-insensitive) one. Anchors must be classified the same way.
+   */
+  classify?: (values: readonly ModelEvidenceValue[]) => ModelEvidenceState
 }
 
 interface LogicalSweep {
@@ -64,6 +77,8 @@ export function buildModelAttribution(input: BuildModelAttributionInput): ModelA
     for (const provider of sweep.byProvider.keys()) providerNames.add(provider)
   }
 
+  const classify = input.classify ?? classifyModelEvidence
+
   const attribution: ModelAttribution = {}
   for (const provider of [...providerNames].sort((a, b) => a.localeCompare(b))) {
     let previous = input.anchors?.[provider]
@@ -78,7 +93,7 @@ export function buildModelAttribution(input: BuildModelAttributionInput): ModelA
       const values = sweep.byProvider.get(provider)
       if (!values) continue // Provider absence is not unknown evidence.
 
-      const state = classifyModelEvidence(values)
+      const state = classify(values)
       if (previous && !modelEvidenceStatesEqual(previous, state)) {
         events.push({
           observedAt: sweep.observedAt,
@@ -111,4 +126,53 @@ export function buildModelAttribution(input: BuildModelAttributionInput): ModelA
   }
 
   return attribution
+}
+
+/** One tracked snapshot that actually reported which model answered it. */
+export interface ServedModelObservation extends ModelAttributionObservation {
+  model: string
+}
+
+export interface BuildServedModelAttributionInput extends Omit<BuildModelAttributionInput, 'observations' | 'classify'> {
+  /**
+   * ONLY snapshots carrying a served id. A snapshot the provider did not stamp
+   * is not an observation, so it must be filtered out by the caller rather than
+   * classified as `unknown`. That is what keeps the deploy boundary silent: a
+   * window with no captured ids yields an empty series and no bootstrap event,
+   * instead of an `unknown → known` transition on capture day.
+   */
+  observations: readonly ServedModelObservation[]
+}
+
+/**
+ * The served-model series. Structurally identical to the configured one, but
+ * classified at top-level granularity so a provider re-pinning the same model
+ * to a newer dated snapshot emits nothing, while a tier swap
+ * (`gpt-5.6` → `gpt-5.6-sol`) emits a real change.
+ */
+export function buildServedModelAttribution(
+  input: BuildServedModelAttributionInput,
+): ServedModelAttribution {
+  const base = buildModelAttribution({
+    ...input,
+    observations: input.observations,
+    classify: values => classifyServedModelEvidence(
+      values.filter((value): value is string => typeof value === 'string' && value.trim().length > 0),
+    ),
+  })
+
+  const served: ServedModelAttribution = {}
+  for (const [provider, entry] of Object.entries(base)) {
+    served[provider] = {
+      ...entry,
+      // The raw ids behind the latest state. `latestObservation.state` reports
+      // the normalized identity; this is what the provider literally said.
+      latestServedModelIds: distinctServedModelIds(
+        input.observations
+          .filter(o => o.provider === provider && o.runCreatedAt === entry.latestObservation.observedAt)
+          .map(o => o.model),
+      ),
+    }
+  }
+  return served
 }

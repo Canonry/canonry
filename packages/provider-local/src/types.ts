@@ -28,6 +28,8 @@ export interface LocalRawResult {
   provider: 'local'
   rawResponse: Record<string, unknown>
   model: string
+  /** Verbatim `model` from the response; undefined when the server disclosed none. */
+  servedModel?: string
   groundingSources: GroundingSource[]
   searchQueries: string[]
 }

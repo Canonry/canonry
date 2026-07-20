@@ -27,6 +27,8 @@ export interface ClaudeRawResult {
   provider: 'claude'
   rawResponse: Record<string, unknown>
   model: string
+  /** Verbatim `model` from the response; undefined when Claude disclosed none. */
+  servedModel?: string
   groundingSources: GroundingSource[]
   searchQueries: string[]
 }

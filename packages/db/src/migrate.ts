@@ -222,6 +222,39 @@ export function relinkOrphanedSnapshotQueryIds(tx: MigrationDb): void {
   }
 }
 
+/**
+ * Recover the served model from already-stored raw responses (v105).
+ * `query_snapshots.model` is the model we REQUESTED; the string the provider
+ * reported SERVING was already inside `raw_response` at `$.apiResponse.model`
+ * but was never promoted to a queryable column.
+ *
+ * Pure SQL is correct here (unlike v98): the value is a literal string at a
+ * fixed JSON path, so there is nothing for TS to normalize. The extract is
+ * naturally per-provider — openai / claude / perplexity / local all store an
+ * OpenAI- or Anthropic-shaped envelope carrying `model`, while Gemini's
+ * envelope carries `modelVersion`, which the pre-fix `responseToRecord`
+ * dropped before storage. Gemini rows therefore yield NULL from this path and
+ * stay NULL, which is the truth about them; a CDP row has no model identity at
+ * all for the same reason.
+ *
+ * Guards, in order: the `served_model IS NULL` predicate makes a re-run a
+ * no-op (idempotent, and it never overwrites a value written by the live
+ * insert path), `json_valid` skips rows whose `raw_response` is truncated or
+ * non-JSON rather than throwing, and the `IS NOT NULL` extract check leaves
+ * rows whose envelope predates the `apiResponse` wrapper untouched.
+ * Exported so the migration test can exercise it against seeded rows.
+ */
+export function backfillQuerySnapshotServedModel(tx: MigrationDb): void {
+  tx.run(sql.raw(`
+    UPDATE query_snapshots
+    SET served_model = json_extract(raw_response, '$.apiResponse.model')
+    WHERE served_model IS NULL
+      AND raw_response IS NOT NULL
+      AND json_valid(raw_response)
+      AND json_extract(raw_response, '$.apiResponse.model') IS NOT NULL
+  `))
+}
+
 export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
   {
     version: 2,
@@ -2130,13 +2163,41 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
     },
   },
   {
-    version: 99,
+    version: 104,
     name: 'project-provider-models',
     // Additive JSON text default keeps older binaries fully functional after a
     // downgrade; they simply ignore the new column.
     statements: [
       `ALTER TABLE projects ADD COLUMN provider_models TEXT NOT NULL DEFAULT '{}'`,
     ],
+  },
+  {
+    // `query_snapshots.model` records the model we REQUESTED, never what the
+    // provider actually served. The two diverge routinely — every stored
+    // OpenAI row asked for `gpt-5.4` and was served the dated snapshot
+    // `gpt-5.4-2026-03-05` — so `model` alone cannot answer "which model
+    // produced this answer".
+    //
+    // The served string was already being captured inside `raw_response`
+    // (`$.apiResponse.model`), just never promoted to a queryable column.
+    // The backfill below recovers it for the providers whose stored envelope
+    // carries it (openai / claude / perplexity, OpenAI- and Anthropic-shaped
+    // responses). Gemini rows stay NULL: it reports `modelVersion`, which the
+    // pre-fix `responseToRecord` dropped before storage, so no honest served
+    // value exists for those rows and inventing one from the configured model
+    // would launder a guess as an observation.
+    version: 105,
+    name: 'query-snapshot-served-model',
+    // Additive + nullable: an older binary after a downgrade neither reads nor
+    // writes the column, and its INSERTs that omit it still succeed.
+    statements: [
+      `ALTER TABLE query_snapshots ADD COLUMN served_model TEXT`,
+    ],
+    // The backfill lives in run(), not statements[], so the downgrade-safety
+    // additive check keeps inspecting only the schema change above.
+    run: (tx) => {
+      backfillQuerySnapshotServedModel(tx)
+    },
   },
 ]
 

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { MODEL_ATTRIBUTION_EVENT_LIMIT } from '@ainyc/canonry-contracts'
 
-import { buildModelAttribution } from '../src/analytics-model-attribution.js'
-import { classifyModelEvidence } from '../src/model-evidence.js'
+import { buildModelAttribution, buildServedModelAttribution } from '../src/analytics-model-attribution.js'
+import { classifyModelEvidence, modelEvidenceMismatched } from '../src/model-evidence.js'
 
 describe('classifyModelEvidence', () => {
   it('canonicalizes known, unknown, and mixed model evidence', () => {
@@ -216,5 +216,125 @@ describe('buildModelAttribution', () => {
     expect(entry.events.length < entry.eventTotal!).toBe(truncated)
     // The first transition survives untruncated and is lost at the boundary+1.
     expect(entry.events[0]!.observedAt === observations[1]!.runCreatedAt).toBe(!truncated)
+  })
+})
+
+describe('buildServedModelAttribution', () => {
+  const sweep = (runCreatedAt: string, model: string, provider = 'openai') => ({
+    runId: `run-${runCreatedAt}-${model}`,
+    runCreatedAt,
+    provider,
+    model,
+  })
+
+  it('emits NOTHING when the served id only changes its dated snapshot suffix', () => {
+    // The founder rule: a dated snapshot is the same model. Without this, every
+    // provider-side redeploy would read as a model change on every project.
+    const served = buildServedModelAttribution({
+      observations: [
+        sweep('2026-03-01T12:00:00.000Z', 'gpt-5.4-2026-01-09'),
+        sweep('2026-03-08T12:00:00.000Z', 'gpt-5.4-2026-03-05'),
+      ],
+      bucketStartFor: observedAt => observedAt.slice(0, 10),
+    })
+
+    expect(served.openai!.events).toEqual([])
+    expect(served.openai!.latestObservation.state).toEqual({ status: 'known', model: 'gpt-5.4' })
+    // The full served string is never lost — it is what forensics needs.
+    expect(served.openai!.latestServedModelIds).toEqual(['gpt-5.4-2026-03-05'])
+  })
+
+  it('emits a change when the served id swaps capability tier', () => {
+    const served = buildServedModelAttribution({
+      observations: [
+        sweep('2026-03-01T12:00:00.000Z', 'gpt-5.6'),
+        sweep('2026-03-08T12:00:00.000Z', 'gpt-5.6-sol'),
+      ],
+      bucketStartFor: observedAt => observedAt.slice(0, 10),
+    })
+
+    expect(served.openai!.events).toEqual([{
+      observedAt: '2026-03-08T12:00:00.000Z',
+      bucketStartDate: '2026-03-08',
+      from: { status: 'known', model: 'gpt-5.6' },
+      to: { status: 'known', model: 'gpt-5.6-sol' },
+    }])
+  })
+
+  it('collapses two dated snapshots inside one sweep instead of reporting mixed evidence', () => {
+    const served = buildServedModelAttribution({
+      observations: [
+        sweep('2026-03-08T12:00:00.000Z', 'gpt-5.4-2026-03-05'),
+        sweep('2026-03-08T12:00:00.000Z', 'gpt-5.4-2026-03-06'),
+      ],
+      bucketStartFor: observedAt => observedAt.slice(0, 10),
+    })
+
+    expect(served.openai!.latestObservation.state).toEqual({ status: 'known', model: 'gpt-5.4' })
+    expect(served.openai!.latestServedModelIds).toEqual(['gpt-5.4-2026-03-05', 'gpt-5.4-2026-03-06'])
+  })
+
+  it('is empty — with no bootstrap event — when nothing in the window was captured', () => {
+    // Capture starts at a deploy boundary. The caller drops uncaptured
+    // snapshots, so an all-null window is simply no observation.
+    expect(buildServedModelAttribution({
+      observations: [],
+      bucketStartFor: () => '2026-03-01',
+    })).toEqual({})
+  })
+
+  it('does not fabricate a change when capture starts mid-window', () => {
+    // Sweep 1 has no served ids at all (filtered out by the caller); sweep 2 is
+    // the first captured one. There is no prior served state to differ from, so
+    // the first captured observation must not emit a transition.
+    const served = buildServedModelAttribution({
+      observations: [sweep('2026-03-08T12:00:00.000Z', 'gpt-5.4-2026-03-05')],
+      bucketStartFor: observedAt => observedAt.slice(0, 10),
+    })
+
+    expect(served.openai!.events).toEqual([])
+    expect(served.openai!.latestObservation.observedAt).toBe('2026-03-08T12:00:00.000Z')
+  })
+
+  it('dates a served change inherited from a pre-window anchor outside the window', () => {
+    const served = buildServedModelAttribution({
+      observations: [sweep('2026-03-08T12:00:00.000Z', 'gpt-5.6-sol')],
+      anchors: { openai: { status: 'known', model: 'gpt-5.6' } },
+      anchorObservedAt: { openai: '2026-03-01T12:00:00.000Z' },
+      bucketStartFor: observedAt => observedAt.slice(0, 10),
+    })
+
+    expect(served.openai!.events).toEqual([{
+      observedAt: '2026-03-08T12:00:00.000Z',
+      bucketStartDate: '2026-03-08',
+      from: { status: 'known', model: 'gpt-5.6' },
+      to: { status: 'known', model: 'gpt-5.6-sol' },
+      fromPreWindowAnchor: true,
+      anchorObservedAt: '2026-03-01T12:00:00.000Z',
+    }])
+  })
+})
+
+describe('modelEvidenceMismatched', () => {
+  it('reads a dated snapshot of the configured model as agreement', () => {
+    expect(modelEvidenceMismatched(
+      { status: 'known', model: 'gpt-5.4' },
+      { status: 'known', model: 'gpt-5.4-2026-03-05' },
+    )).toBe(false)
+  })
+
+  it('reads a tier substitution as a real mismatch', () => {
+    expect(modelEvidenceMismatched(
+      { status: 'known', model: 'gpt-5.6' },
+      { status: 'known', model: 'gpt-5.6-sol' },
+    )).toBe(true)
+  })
+
+  it('never claims a mismatch from partial evidence', () => {
+    expect(modelEvidenceMismatched({ status: 'unknown' }, { status: 'known', model: 'gpt-5.6' })).toBe(false)
+    expect(modelEvidenceMismatched(
+      { status: 'known', model: 'gpt-5.6' },
+      { status: 'mixed', models: ['gpt-5.6', 'gpt-5.6-sol'], includesUnknown: false },
+    )).toBe(false)
   })
 })

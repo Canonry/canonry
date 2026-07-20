@@ -78,6 +78,12 @@ export const querySnapshots = sqliteTable('query_snapshots', {
   queryText: text('query_text'),
   provider: text('provider').notNull().default('gemini'),
   model: text('model'),
+  // The model string the PROVIDER reported serving, as distinct from `model`
+  // (what we REQUESTED). They diverge routinely: a request for `gpt-5.4` is
+  // served by the dated snapshot `gpt-5.4-2026-03-05`. Nullable — historical
+  // rows and providers that disclose no model identity (CDP scrapes the web
+  // UI) legitimately have none.
+  servedModel: text('served_model'),
   citationState: text('citation_state').notNull(),
   answerMentioned: integer('answer_mentioned', { mode: 'boolean' }),
   answerText: text('answer_text'),

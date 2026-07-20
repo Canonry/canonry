@@ -11,11 +11,14 @@ import type {
   TimeBucket, TrendDirection, GapQuery, GapCategory,
   SourceCategory, SourceCategoryCount, ProviderMetric, QueryChangeEvent,
   RankedSourceList, SourceRankEntry, SurfaceClass, SurfaceClassCount, ModelEvidenceState,
+  ModelServiceMismatch,
 } from '@ainyc/canonry-contracts'
 import { buildMentionShare } from '@ainyc/canonry-intelligence'
 import { notProbeRun, resolveProject, resolveSnapshotAnswerMentioned } from './helpers.js'
-import { buildModelAttribution } from './analytics-model-attribution.js'
-import { classifyModelEvidence, type ModelEvidenceValue } from './model-evidence.js'
+import { buildModelAttribution, buildServedModelAttribution } from './analytics-model-attribution.js'
+import {
+  classifyModelEvidence, classifyServedModelEvidence, modelEvidenceMismatched, type ModelEvidenceValue,
+} from './model-evidence.js'
 
 export async function analyticsRoutes(app: FastifyInstance) {
   // GET /projects/:name/analytics/metrics — citation rate trends
@@ -52,6 +55,8 @@ export async function analyticsRoutes(app: FastifyInstance) {
         mentionTrend: 'stable',
         queryChanges: [],
         modelAttribution: {},
+        servedModelAttribution: {},
+        modelServiceMismatch: {},
       } satisfies BrandMetricsDto)
     }
 
@@ -65,6 +70,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
         queryId: querySnapshots.queryId,
         provider: querySnapshots.provider,
         model: querySnapshots.model,
+        servedModel: querySnapshots.servedModel,
         citationState: querySnapshots.citationState,
         answerMentioned: querySnapshots.answerMentioned,
         answerText: querySnapshots.answerText,
@@ -125,6 +131,12 @@ export async function analyticsRoutes(app: FastifyInstance) {
     const anchors: Record<string, ModelEvidenceState> = {}
     const anchorObservedAt: Record<string, string> = {}
     const anchorUnavailable = new Set<string>()
+    // The served series anchors independently: a pre-window sweep can observe a
+    // provider while carrying no served id at all (it predates capture), and
+    // that is an absent observation, not an anchor.
+    const servedAnchors: Record<string, ModelEvidenceState> = {}
+    const servedAnchorObservedAt: Record<string, string> = {}
+    const servedAnchorUnavailable = new Set<string>()
     const windowProviders = new Set(allSnapshots.map(snapshot => snapshot.provider))
     if (cutoff && windowProviders.size > 0) {
       // Narrow to this project's runs FIRST (`idx_runs_project`), then read
@@ -176,25 +188,43 @@ export async function analyticsRoutes(app: FastifyInstance) {
         }
 
         const pending = new Set(windowProviders)
+        const servedPending = new Set(windowProviders)
+        // The served anchor rides the sweeps the configured search already
+        // visits — it never extends the scan. Widening the walk until every
+        // provider has a SERVED anchor would make each request read all
+        // `ANCHOR_SWEEP_SCAN_LIMIT` sweeps for the whole rollout period, since
+        // pre-capture sweeps can never satisfy it. A served anchor the visited
+        // sweeps did not supply is reported as unavailable, not invented.
+        let visitedSweeps = 0
         for (const observedAt of anchorSweepTimes) {
           if (pending.size === 0) break
+          visitedSweeps += 1
           const runIds = runIdsBySweep.get(observedAt)
           if (!runIds || runIds.length === 0) continue
 
           const modelsByProvider = new Map<string, ModelEvidenceValue[]>()
+          const servedByProvider = new Map<string, string[]>()
           for (const snapshot of filterTrackedSnapshots(app.db
             .select({
               queryId: querySnapshots.queryId,
               provider: querySnapshots.provider,
               model: querySnapshots.model,
+              servedModel: querySnapshots.servedModel,
             })
             .from(querySnapshots)
             .where(inArray(querySnapshots.runId, runIds))
             .all())) {
-            if (!pending.has(snapshot.provider)) continue
-            const models = modelsByProvider.get(snapshot.provider) ?? []
-            models.push(snapshot.model)
-            modelsByProvider.set(snapshot.provider, models)
+            if (pending.has(snapshot.provider)) {
+              const models = modelsByProvider.get(snapshot.provider) ?? []
+              models.push(snapshot.model)
+              modelsByProvider.set(snapshot.provider, models)
+            }
+            const servedModel = snapshot.servedModel?.trim()
+            if (servedModel && servedPending.has(snapshot.provider)) {
+              const servedModels = servedByProvider.get(snapshot.provider) ?? []
+              servedModels.push(servedModel)
+              servedByProvider.set(snapshot.provider, servedModels)
+            }
           }
 
           for (const [provider, models] of modelsByProvider) {
@@ -202,12 +232,23 @@ export async function analyticsRoutes(app: FastifyInstance) {
             anchorObservedAt[provider] = observedAt
             pending.delete(provider)
           }
+          for (const [provider, servedModels] of servedByProvider) {
+            servedAnchors[provider] = classifyServedModelEvidence(servedModels)
+            servedAnchorObservedAt[provider] = observedAt
+            servedPending.delete(provider)
+          }
         }
 
         // Only a bound we actually hit is inconclusive. Exhausting a project's
         // shorter history means the provider truly has no pre-window evidence.
         if (anchorScanTruncated) {
           for (const provider of pending) anchorUnavailable.add(provider)
+        }
+        // Served history is inconclusive whenever pre-window sweeps remained
+        // unread — either the scan bound cut them off, or the configured search
+        // stopped early and never looked at them.
+        if (anchorScanTruncated || visitedSweeps < anchorSweepTimes.length) {
+          for (const provider of servedPending) servedAnchorUnavailable.add(provider)
         }
       }
     }
@@ -224,6 +265,44 @@ export async function analyticsRoutes(app: FastifyInstance) {
       bucketStartFor: observedAt => bucketStartDateFor(observedAt, earliest, bucketSize),
     })
 
+    // The served series is built from the SAME sweeps but only from snapshots
+    // that carry a served id. Dropping the rest before grouping is what makes
+    // the two series independent: a window entirely predating capture produces
+    // `{}` here and leaves `modelAttribution` byte-identical to what it was
+    // before served capture existed.
+    const servedModelAttribution = buildServedModelAttribution({
+      observations: allSnapshots.flatMap(snapshot => {
+        const servedModel = snapshot.servedModel?.trim()
+        if (!servedModel) return []
+        return [{
+          runId: snapshot.runId,
+          runCreatedAt: snapshot.runCreatedAt,
+          provider: snapshot.provider,
+          model: servedModel,
+        }]
+      }),
+      anchors: servedAnchors,
+      anchorObservedAt: servedAnchorObservedAt,
+      anchorUnavailable: servedAnchorUnavailable,
+      bucketStartFor: observedAt => bucketStartDateFor(observedAt, earliest, bucketSize),
+    })
+
+    // Where both series have a known latest state and they name different
+    // top-level models, the provider substituted something else for what the
+    // project configured. A dated snapshot of the configured model is
+    // agreement and never lands here.
+    const modelServiceMismatch: Record<string, ModelServiceMismatch> = {}
+    for (const [provider, served] of Object.entries(servedModelAttribution)) {
+      const configured = modelAttribution[provider]?.latestObservation
+      if (!configured) continue
+      if (!modelEvidenceMismatched(configured.state, served.latestObservation.state)) continue
+      modelServiceMismatch[provider] = {
+        observedAt: served.latestObservation.observedAt,
+        configured: configured.state,
+        served: served.latestObservation.state,
+      }
+    }
+
     // Trends
     const trend = computeTrend(buckets, 'citationRate')
     const mentionTrend = computeTrend(buckets, 'mentionRate')
@@ -231,7 +310,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
     // Query change annotations
     const queryChanges = computeQueryChanges(projectQueries, cutoff)
 
-    return reply.send({ window, buckets, overall, byProvider, trend, mentionTrend, queryChanges, modelAttribution } satisfies BrandMetricsDto)
+    return reply.send({ window, buckets, overall, byProvider, trend, mentionTrend, queryChanges, modelAttribution, servedModelAttribution, modelServiceMismatch } satisfies BrandMetricsDto)
   })
 
   // GET /projects/:name/analytics/gaps — brand gap analysis

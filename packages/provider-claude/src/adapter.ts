@@ -72,6 +72,7 @@ export const claudeAdapter: ProviderAdapter = {
       provider: 'claude',
       rawResponse: raw.rawResponse,
       model: raw.model,
+      servedModel: raw.servedModel,
       groundingSources: raw.groundingSources,
       searchQueries: raw.searchQueries,
     }

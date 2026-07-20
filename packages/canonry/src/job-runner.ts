@@ -476,6 +476,7 @@ export class JobRunner {
                 queryText: q.query,
                 provider: providerName,
                 model: raw.model,
+                servedModel: raw.servedModel ?? null,
                 citationState,
                 answerMentioned,
                 answerText: normalized.answerText,
@@ -486,6 +487,7 @@ export class JobRunner {
                 screenshotPath: screenshotRelPath,
                 rawResponse: JSON.stringify({
                   model: raw.model,
+                  servedModel: raw.servedModel ?? null,
                   groundingSources: normalized.groundingSources,
                   searchQueries: normalized.searchQueries,
                   apiResponse: raw.rawResponse,
@@ -500,6 +502,7 @@ export class JobRunner {
                 queryText: q.query,
                 provider: providerName,
                 model: raw.model,
+                servedModel: raw.servedModel ?? null,
                 citationState,
                 answerMentioned,
                 answerText: normalized.answerText,
@@ -509,6 +512,7 @@ export class JobRunner {
                 location: runLocation?.label ?? null,
                 rawResponse: JSON.stringify({
                   model: raw.model,
+                  servedModel: raw.servedModel ?? null,
                   groundingSources: normalized.groundingSources,
                   searchQueries: normalized.searchQueries,
                   apiResponse: raw.rawResponse,

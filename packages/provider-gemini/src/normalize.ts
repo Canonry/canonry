@@ -1,5 +1,5 @@
 import { GoogleGenAI, type GenerateContentResponse } from '@google/genai'
-import { AI_ENGINE_SELF_DOMAINS, VERTEX_AI_SEARCH_PROXY_DOMAIN } from '@ainyc/canonry-contracts'
+import { AI_ENGINE_SELF_DOMAINS, VERTEX_AI_SEARCH_PROXY_DOMAIN, normalizeServedModel } from '@ainyc/canonry-contracts'
 import { withRetry } from './utils.js'
 import type {
   GeminiConfig,
@@ -135,6 +135,7 @@ export async function executeTrackedQuery(input: GeminiTrackedQueryInput): Promi
       provider: 'gemini',
       rawResponse,
       model,
+      servedModel: extractServedModel(rawResponse),
       groundingSources: parsed.groundingSources,
       searchQueries: parsed.searchQueries,
     }
@@ -162,6 +163,15 @@ export function normalizeResult(raw: GeminiRawResult): GeminiNormalizedResult {
 
 function hasParsedResponseContent(rawResponse: Record<string, unknown>): boolean {
   return Array.isArray(rawResponse.candidates) && rawResponse.candidates.length > 0
+}
+
+/**
+ * Read the model Gemini reported serving off a stored raw response. Gemini carries it
+ * as `modelVersion`; a response that omits it yields undefined rather than the
+ * configured model.
+ */
+export function extractServedModel(rawResponse: Record<string, unknown>): string | undefined {
+  return normalizeServedModel(rawResponse.modelVersion)
 }
 
 export function reparseStoredResult(rawResponse: Record<string, unknown>): GeminiNormalizedResult {
@@ -354,7 +364,7 @@ export async function generateText(prompt: string, config: GeminiConfig): Promis
   return result.text ?? ''
 }
 
-function responseToRecord(response: GenerateContentResponse): Record<string, unknown> {
+export function responseToRecord(response: GenerateContentResponse): Record<string, unknown> {
   try {
     const candidates = response.candidates?.map(c => ({
       content: c.content,
@@ -372,6 +382,10 @@ function responseToRecord(response: GenerateContentResponse): Record<string, unk
     return {
       candidates: candidates ?? [],
       usageMetadata: response.usageMetadata ?? null,
+      // Gemini reports the identity it actually served here — the only place it
+      // appears. Preserved so `servedModel` can be read back off a stored snapshot.
+      modelVersion: response.modelVersion ?? null,
+      responseId: response.responseId ?? null,
     }
   } catch {
     return { error: 'failed to serialize response' }

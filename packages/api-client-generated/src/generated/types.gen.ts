@@ -439,6 +439,77 @@ export type BrandMetricsDto = {
             anchorUnavailable?: boolean;
         };
     };
+    servedModelAttribution: {
+        [key: string]: {
+            latestObservation: {
+                observedAt: string;
+                state: {
+                    status: 'known';
+                    model: string;
+                } | {
+                    status: 'unknown';
+                } | {
+                    status: 'mixed';
+                    models: Array<string>;
+                    includesUnknown: boolean;
+                };
+            };
+            events: Array<{
+                observedAt: string;
+                bucketStartDate: string;
+                from: {
+                    status: 'known';
+                    model: string;
+                } | {
+                    status: 'unknown';
+                } | {
+                    status: 'mixed';
+                    models: Array<string>;
+                    includesUnknown: boolean;
+                };
+                to: {
+                    status: 'known';
+                    model: string;
+                } | {
+                    status: 'unknown';
+                } | {
+                    status: 'mixed';
+                    models: Array<string>;
+                    includesUnknown: boolean;
+                };
+                fromPreWindowAnchor?: boolean;
+                anchorObservedAt?: string;
+            }>;
+            eventTotal?: number;
+            anchorUnavailable?: boolean;
+            latestServedModelIds: Array<string>;
+        };
+    };
+    modelServiceMismatch: {
+        [key: string]: {
+            observedAt: string;
+            configured: {
+                status: 'known';
+                model: string;
+            } | {
+                status: 'unknown';
+            } | {
+                status: 'mixed';
+                models: Array<string>;
+                includesUnknown: boolean;
+            };
+            served: {
+                status: 'known';
+                model: string;
+            } | {
+                status: 'unknown';
+            } | {
+                status: 'mixed';
+                models: Array<string>;
+                includesUnknown: boolean;
+            };
+        };
+    };
 };
 
 export type CcAvailableRelease = {
@@ -1366,6 +1437,7 @@ export type LatestProjectRunDto = {
             }>;
             searchQueries: Array<string>;
             model?: string | null;
+            servedModel?: string | null;
             location?: string | null;
             createdAt: string;
         }>;
@@ -1585,6 +1657,7 @@ export type ProjectOverviewDto = {
                 }>;
                 searchQueries: Array<string>;
                 model?: string | null;
+                servedModel?: string | null;
                 location?: string | null;
                 createdAt: string;
             }>;
@@ -2440,6 +2513,7 @@ export type RunDetailDto = {
         }>;
         searchQueries: Array<string>;
         model?: string | null;
+        servedModel?: string | null;
         location?: string | null;
         createdAt: string;
     }>;
@@ -2640,6 +2714,7 @@ export type SnapshotListResponse = {
         }>;
         searchQueries: Array<string>;
         model?: string | null;
+        servedModel?: string | null;
         location?: string | null;
         createdAt: string;
     }>;

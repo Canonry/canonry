@@ -169,10 +169,33 @@ export interface RawQueryResult {
   provider: string
   rawResponse: Record<string, unknown>
   model: string
+  /**
+   * The model identity the provider reported serving, verbatim as it appeared in the
+   * response (e.g. `gpt-5.6-sol` when `model` was configured as `gpt-5.6`). Undefined
+   * when the response disclosed no model identity — CDP scrapes the web UI and has
+   * none. NEVER derived from config: `model` is what we asked for, `servedModel` is
+   * what we got, and the whole point of the field is that the two can disagree.
+   */
+  servedModel?: string
   groundingSources: GroundingSource[]
   searchQueries: string[]
   /** Filesystem path to cropped screenshot PNG (CDP providers only) */
   screenshotPath?: string
+}
+
+/**
+ * Normalize a provider-reported model identity for the `servedModel` field.
+ *
+ * Accepts only a non-empty string taken from the provider's own response: trims
+ * surrounding whitespace and returns undefined for a missing, non-string, empty, or
+ * whitespace-only value. Callers MUST pass the response field (`model`,
+ * `modelVersion`, …) and never the configured model — an absent disclosure has to
+ * stay absent rather than silently echo what we requested.
+ */
+export function normalizeServedModel(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined
+  const trimmed = value.trim()
+  return trimmed.length > 0 ? trimmed : undefined
 }
 
 export interface NormalizedQueryResult {

@@ -412,6 +412,151 @@ describe('analytics routes', () => {
       })
     })
 
+    // --- served-model series (#818 follow-up) ---
+
+    const seedServedProject = (
+      name: string,
+      provider: string,
+      sweeps: ReadonlyArray<{ daysAgo: number; model: string | null; servedModel: string | null }>,
+    ) => {
+      const projectId = crypto.randomUUID()
+      const now = new Date()
+      const at = (daysAgo: number) => new Date(now.getTime() - daysAgo * 86_400_000).toISOString()
+      const oldest = at(Math.max(...sweeps.map(sweep => sweep.daysAgo)))
+
+      db.insert(projects).values({
+        id: projectId,
+        name,
+        displayName: name,
+        canonicalDomain: `${name}.example`,
+        ownedDomains: '[]',
+        country: 'US',
+        language: 'en',
+        tags: '[]',
+        labels: '{}',
+        providers: JSON.stringify([provider]),
+        locations: '[]',
+        defaultLocation: null,
+        configSource: 'api',
+        configRevision: 1,
+        createdAt: oldest,
+        updatedAt: oldest,
+      }).run()
+      const queryId = crypto.randomUUID()
+      db.insert(queries).values({ id: queryId, projectId, query: `${name} query`, createdAt: oldest }).run()
+
+      for (const sweep of sweeps) {
+        const createdAt = at(sweep.daysAgo)
+        const runId = crypto.randomUUID()
+        db.insert(runs).values({
+          id: runId,
+          projectId,
+          kind: 'answer-visibility',
+          status: 'completed',
+          trigger: 'manual',
+          location: null,
+          startedAt: createdAt,
+          finishedAt: createdAt,
+          error: null,
+          createdAt,
+        }).run()
+        db.insert(querySnapshots).values({
+          id: crypto.randomUUID(),
+          runId,
+          queryId,
+          provider,
+          model: sweep.model,
+          servedModel: sweep.servedModel,
+          citationState: 'not-cited',
+          answerText: '',
+          citedDomains: [],
+          competitorOverlap: [],
+          location: null,
+          rawResponse: '{}',
+          createdAt,
+        }).run()
+      }
+      return { at }
+    }
+
+    const metricsFor = async (name: string, window: string) => {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/api/v1/projects/${name}/analytics/metrics?window=${window}`,
+      })
+      expect(res.statusCode).toBe(200)
+      return JSON.parse(res.payload)
+    }
+
+    it('leaves the configured series untouched when no sweep recorded a served model', async () => {
+      // The invariant for the whole served lane: a project that predates served
+      // capture must read EXACTLY as it did before the lane existed. An absent
+      // served id is no observation — never `unknown`, never a bootstrap event.
+      const { at } = seedServedProject('served-null-project', 'openai', [
+        { daysAgo: 6, model: 'gpt-5.4', servedModel: null },
+        { daysAgo: 2, model: 'gpt-5.6', servedModel: null },
+      ])
+
+      const body = await metricsFor('served-null-project', '30d')
+
+      expect(body.servedModelAttribution).toEqual({})
+      expect(body.modelServiceMismatch).toEqual({})
+      expect(body.modelAttribution.openai.latestObservation).toEqual({
+        observedAt: at(2),
+        state: { status: 'known', model: 'gpt-5.6' },
+      })
+      expect(body.modelAttribution.openai.events).toHaveLength(1)
+      expect(body.modelAttribution.openai.events[0].from).toEqual({ status: 'known', model: 'gpt-5.4' })
+      expect(body.modelAttribution.openai.events[0].to).toEqual({ status: 'known', model: 'gpt-5.6' })
+    })
+
+    it('emits no served change when capture starts mid-window or only the snapshot date moves', async () => {
+      // Sweep 1 predates capture; sweeps 2 and 3 are the same model on two
+      // different dated snapshots. Neither the capture boundary nor the
+      // redeploy is a model change.
+      const { at } = seedServedProject('served-rollout-project', 'openai', [
+        { daysAgo: 6, model: 'gpt-5.4', servedModel: null },
+        { daysAgo: 4, model: 'gpt-5.4', servedModel: 'gpt-5.4-2026-01-09' },
+        { daysAgo: 2, model: 'gpt-5.4', servedModel: 'gpt-5.4-2026-03-05' },
+      ])
+
+      const body = await metricsFor('served-rollout-project', '30d')
+
+      expect(body.servedModelAttribution.openai.events).toEqual([])
+      expect(body.servedModelAttribution.openai.latestObservation).toEqual({
+        observedAt: at(2),
+        state: { status: 'known', model: 'gpt-5.4' },
+      })
+      expect(body.servedModelAttribution.openai.latestServedModelIds).toEqual(['gpt-5.4-2026-03-05'])
+      // A dated snapshot of the configured model is agreement, not a swap.
+      expect(body.modelServiceMismatch).toEqual({})
+      expect(body.modelAttribution.openai.events).toEqual([])
+    })
+
+    it('reports a real served swap and the substitution, leaving the configured series silent', async () => {
+      const { at } = seedServedProject('served-swap-project', 'openai', [
+        { daysAgo: 6, model: 'gpt-5.6', servedModel: 'gpt-5.6' },
+        { daysAgo: 2, model: 'gpt-5.6', servedModel: 'gpt-5.6-sol' },
+      ])
+
+      const body = await metricsFor('served-swap-project', '30d')
+
+      // Configuration never changed, so the configured series says nothing —
+      // which is exactly the blind spot the served lane exists to close.
+      expect(body.modelAttribution.openai.events).toEqual([])
+      expect(body.servedModelAttribution.openai.events).toHaveLength(1)
+      const [event] = body.servedModelAttribution.openai.events
+      expect(event.observedAt).toBe(at(2))
+      expect(event.from).toEqual({ status: 'known', model: 'gpt-5.6' })
+      expect(event.to).toEqual({ status: 'known', model: 'gpt-5.6-sol' })
+      expect(event.fromPreWindowAnchor).toBeUndefined()
+      expect(body.modelServiceMismatch.openai).toEqual({
+        observedAt: at(2),
+        configured: { status: 'known', model: 'gpt-5.6' },
+        served: { status: 'known', model: 'gpt-5.6-sol' },
+      })
+    })
+
     it('keeps a change whose anchor predates the window, dated to the anchor range', async () => {
       // A provider paused for months and came back on a different model. The
       // change is real and must not be dropped, but it is only datable to the

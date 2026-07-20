@@ -103,16 +103,54 @@ function printMetrics(data: BrandMetricsDto): void {
       console.log(`    ${provider}: latest ${formatModelEvidence(latest.state)} at ${latest.observedAt}`)
       for (const event of attribution.events) {
         // An anchored change happened somewhere between the last sweep before
-        // this window and `observedAt` — it cannot be dated to the window.
+        // this window and `observedAt` — it cannot be dated to the window. Say
+        // so, and print the lower bound when we have one so the operator gets a
+        // closed range instead of an open-ended "sometime earlier".
         const dating = event.fromPreWindowAnchor ? ' (on or before)' : ''
-        console.log(`      ${event.observedAt}${dating}  ${formatModelEvidence(event.from)} → ${formatModelEvidence(event.to)}`)
+        const priorSweep = event.fromPreWindowAnchor && event.anchorObservedAt
+          ? `  [last seen ${formatModelEvidence(event.from)} on ${event.anchorObservedAt}]`
+          : ''
+        console.log(`      ${event.observedAt}${dating}  ${formatModelEvidence(event.from)} → ${formatModelEvidence(event.to)}${priorSweep}`)
       }
       const eventTotal = attribution.eventTotal ?? attribution.events.length
       if (eventTotal > attribution.events.length) {
         console.log(`      Showing the latest ${attribution.events.length} of ${eventTotal} model changes.`)
       }
+      if (attribution.anchorUnavailable) {
+        console.log(`      We did not look far enough back to be sure this is every change.`)
+      }
     }
   }
+
+  const servedEntries = Object.entries(readServedModelAttribution(data))
+    .sort(([a], [b]) => a.localeCompare(b))
+  if (servedEntries.length > 0) {
+    const mismatch = readModelServiceMismatch(data)
+    console.log(`\n  What the Engines Answered With:`)
+    for (const [provider, served] of servedEntries) {
+      const rawIds = served.latestServedModelIds.length > 0
+        ? served.latestServedModelIds.join(', ')
+        : formatModelEvidence(served.latestObservation.state)
+      const substituted = mismatch[provider]
+      const note = substituted ? ` — not the ${formatModelEvidence(substituted.configured)} you selected` : ''
+      console.log(`    ${provider}: ${rawIds} at ${served.latestObservation.observedAt}${note}`)
+      for (const event of served.events) {
+        const dating = event.fromPreWindowAnchor ? ' (on or before)' : ''
+        console.log(`      ${event.observedAt}${dating}  ${formatModelEvidence(event.from)} → ${formatModelEvidence(event.to)}`)
+      }
+    }
+  }
+}
+
+/** A newer CLI can be pointed at an older server during a rolling upgrade. */
+function readServedModelAttribution(data: BrandMetricsDto): BrandMetricsDto['servedModelAttribution'] {
+  const legacyCompatible = data as unknown as { servedModelAttribution?: BrandMetricsDto['servedModelAttribution'] }
+  return legacyCompatible.servedModelAttribution ?? {}
+}
+
+function readModelServiceMismatch(data: BrandMetricsDto): BrandMetricsDto['modelServiceMismatch'] {
+  const legacyCompatible = data as unknown as { modelServiceMismatch?: BrandMetricsDto['modelServiceMismatch'] }
+  return legacyCompatible.modelServiceMismatch ?? {}
 }
 
 /** A newer CLI can be pointed at an older server during a rolling upgrade. */

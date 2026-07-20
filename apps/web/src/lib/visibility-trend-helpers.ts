@@ -3,7 +3,9 @@ import type {
   ModelAttribution,
   ModelAttributionEvent,
   ModelEvidenceState,
+  ModelServiceMismatch,
   QueryChangeEvent,
+  ServedModelAttribution,
   TrendDirection,
 } from '@ainyc/canonry-contracts'
 import type { MetricTone } from '../view-models.js'
@@ -50,6 +52,8 @@ type BucketWithOptionalModelEvidence = BrandMetricsDto['buckets'][number] & {
 }
 type MetricsWithOptionalModelAttribution = BrandMetricsDto & {
   modelAttribution?: ModelAttribution
+  servedModelAttribution?: ServedModelAttribution
+  modelServiceMismatch?: Record<string, ModelServiceMismatch>
 }
 
 export interface GroupedModelAttributionEvent {
@@ -133,6 +137,24 @@ export function readModelAttribution(dto: BrandMetricsDto): ModelAttribution | n
   return candidate.modelAttribution ?? {}
 }
 
+/**
+ * What the engines reported actually answering with. An older API omits the
+ * field entirely and a project whose window predates served capture returns
+ * `{}` — both render as "nothing to say", never as a change.
+ */
+export function readServedModelAttribution(dto: BrandMetricsDto): ServedModelAttribution {
+  return (dto as MetricsWithOptionalModelAttribution).servedModelAttribution ?? {}
+}
+
+export function readModelServiceMismatch(dto: BrandMetricsDto): Record<string, ModelServiceMismatch> {
+  return (dto as MetricsWithOptionalModelAttribution).modelServiceMismatch ?? {}
+}
+
+/** The raw ids an engine reported, joined for display. Empty → the normalized label stands alone. */
+export function formatServedModelIds(ids: readonly string[]): string | null {
+  return ids.length > 0 ? ids.join(', ') : null
+}
+
 function findNormalizedProvider<T>(byProvider: Record<string, T | undefined>, provider: string): T | undefined {
   const target = normalizeProviderKey(provider)
   return Object.entries(byProvider).find(([key]) => normalizeProviderKey(key) === target)?.[1]
@@ -189,19 +211,52 @@ export function groupModelAttributionEvents(
 }
 
 /**
- * How many changes the response actually carries vs how many it observed. The
- * server caps the per-provider list, so `total > shown` means the operator is
- * looking at a partial history and the UI has to say so.
+ * An event whose `from` state is the pre-window anchor did NOT necessarily
+ * happen inside the window — it happened somewhere between the last sweep
+ * before the window and the first sweep inside it. Its `bucketStartDate` is
+ * therefore the bucket where the new state was first SEEN, not where the change
+ * occurred, and drawing a chart marker there tells the operator a change
+ * happened on a date it may well not have.
  *
- * Summing ACROSS providers is deliberate even though the server's cap is
- * per-provider. The only consumer renders one pooled, bucket-grouped list of
- * every provider's events (`groupModelAttributionEvents`, which drops nothing),
- * so the summed pair describes exactly the list on screen — "showing 55 of 65"
- * is a true statement about that list. What a summed pair cannot do is name
- * WHICH provider's history is clipped when only one of them is. That is a
- * presentational gap in `VisibilityTrendSection`, not an arithmetic one here;
- * closing it means rendering per-provider truncation copy, at which point this
- * helper should return a per-provider breakdown instead.
+ * So the two kinds are separated at the source: only `buckets` may become chart
+ * markers, and `beforeWindow` still renders in the written summary (dated "on
+ * or before", with its lower bound) so a real change is never dropped — it is
+ * just never placed inside the window.
+ */
+export interface ModelAttributionEventPartition {
+  /** Changes datable to a plotted bucket. Safe to mark on the chart. */
+  buckets: ModelAttributionEventBucket[]
+  /** Changes that happened before the window opened. Never marked on the chart. */
+  beforeWindow: GroupedModelAttributionEvent[]
+}
+
+export function partitionModelAttributionEvents(
+  attribution: ModelAttribution,
+): ModelAttributionEventPartition {
+  const inWindow: ModelAttribution = {}
+  const beforeWindow: GroupedModelAttributionEvent[] = []
+  for (const [provider, entry] of Object.entries(attribution)) {
+    const datable = entry.events.filter(event => !event.fromPreWindowAnchor)
+    for (const event of entry.events) {
+      if (event.fromPreWindowAnchor) beforeWindow.push({ provider, event })
+    }
+    if (datable.length > 0) inWindow[provider] = { ...entry, events: datable }
+  }
+  return {
+    buckets: groupModelAttributionEvents(inWindow),
+    beforeWindow: beforeWindow.sort((a, b) =>
+      a.event.observedAt.localeCompare(b.event.observedAt) || a.provider.localeCompare(b.provider)),
+  }
+}
+
+/**
+ * How many changes the response actually carries vs how many it observed,
+ * pooled across providers. Honest as a whole-list summary — it matches what
+ * `groupModelAttributionEvents` renders — and that is all it is used for now
+ * (the assistive-tech description). It must NOT drive the truncation note: the
+ * server's cap is per provider, so a pooled pair cannot say WHOSE history is
+ * clipped and reads as if every engine's were. Use `truncatedProviderCounts`
+ * for anything the operator reads as a claim about a specific engine.
  */
 export function countModelAttributionEvents(
   attribution: ModelAttribution,
@@ -214,6 +269,28 @@ export function countModelAttributionEvents(
     total += entry.eventTotal ?? entry.events.length
   }
   return { shown, total }
+}
+
+export interface ProviderEventCount {
+  provider: string
+  shown: number
+  total: number
+}
+
+/**
+ * Exactly the providers whose own event list the server capped, each with its
+ * own pair. This is what the truncation note must be built from: with gemini at
+ * 2 of 40 and openai complete at 1 of 1, a pooled "showing 3 of 41" invites the
+ * operator to distrust openai's history too, which is a false statement about
+ * that engine.
+ */
+export function truncatedProviderCounts(attribution: ModelAttribution): ProviderEventCount[] {
+  const truncated: ProviderEventCount[] = []
+  for (const [provider, entry] of Object.entries(attribution)) {
+    const total = entry.eventTotal ?? entry.events.length
+    if (total > entry.events.length) truncated.push({ provider, shown: entry.events.length, total })
+  }
+  return truncated.sort((a, b) => a.provider.localeCompare(b.provider))
 }
 
 export function buildMentionShareTrendRows(dto: BrandMetricsDto): TrendData {

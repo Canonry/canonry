@@ -244,7 +244,15 @@ export const querySnapshotDtoSchema = z.object({
   matchedTerms: z.array(z.string()).default([]),
   groundingSources: z.array(groundingSourceSchema).default([]),
   searchQueries: z.array(z.string()).default([]),
+  /** The model we REQUESTED for this snapshot. Configuration, not attribution. */
   model: z.string().nullable().optional(),
+  /**
+   * The model the provider reported SERVING, verbatim. Null when the response
+   * disclosed no identity (CDP scrapes the web UI) or when the row predates
+   * capture and nothing was recoverable from its stored envelope. Never falls
+   * back to `model` — that would launder configuration into an observation.
+   */
+  servedModel: z.string().nullable().optional(),
   location: z.string().nullable().optional(),
   createdAt: z.string(),
 })
