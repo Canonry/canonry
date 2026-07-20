@@ -483,26 +483,19 @@ describe('truncatedProviderCounts', () => {
   })
 })
 
-/**
- * The rendering itself (wording, ordering, the closing line, the plain-language
- * guard) is shared with the CLI and tested at its home in
- * `packages/contracts/test/model-pointers.test.ts`. What is web-specific, and
- * all that is asserted here, is reading the field off a DTO that may not carry
- * it: this dashboard build can be pointed at an older server.
- */
 describe('readModelPointerChanges', () => {
   const metrics = (extra?: Record<string, unknown>) =>
     ({ ...dto([]), ...extra }) as unknown as BrandMetricsDto
 
+  // Partial on purpose: this reader must pass through whatever the server sent,
+  // including a response from a build that predates some of these fields.
   const openaiChange = {
     modelIds: ['chat-latest'],
     changeCount: 1,
     unverifiedChangeCount: 0,
     firstChangeDate: '2026-06-24',
     lastChangeDate: '2026-06-24',
-    summary: 'The model behind "chat-latest" changed on 2026-06-24, inside this reporting period. '
-      + 'Part of any movement in this number comes from that change and not from how often AI names you.',
-  } satisfies ModelPointerChangeDisclosure
+  } as unknown as ModelPointerChangeDisclosure
 
   it('reads nothing from an older API and nothing from a project on fixed model ids', () => {
     expect(readModelPointerChanges(metrics())).toEqual({})

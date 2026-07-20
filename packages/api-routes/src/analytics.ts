@@ -4,7 +4,7 @@ import { filterTrackedSnapshots, groupRunsByCreatedAt, pickGroupRepresentative, 
 import {
   AI_PROVIDER_INFRA_DOMAINS, brandLabelFromDomain, categorizeSource, categoryLabel, CitationStates,
   classifySurfaceFromCategory, surfaceClassFromCompetitorType, surfaceClassLabel,
-  effectiveDomains, findModelPointerChanges, normalizeProjectDomain, parseWindow, RunKinds, RunStatuses,
+  effectiveDomains, evaluateModelPointerExposure, normalizeProjectDomain, parseWindow, RunKinds, RunStatuses,
   windowCutoff, validationError,
 } from '@ainyc/canonry-contracts'
 import type {
@@ -12,7 +12,7 @@ import type {
   TimeBucket, TrendDirection, GapQuery, GapCategory,
   SourceCategory, SourceCategoryCount, ProviderMetric, QueryChangeEvent,
   RankedSourceList, SourceRankEntry, SurfaceClass, SurfaceClassCount, ModelEvidenceState,
-  ModelPointerChangeDisclosure, ModelServiceMismatch,
+  ModelExposureWindow, ModelPointerChangeDisclosure, ModelServiceMismatch,
 } from '@ainyc/canonry-contracts'
 import { buildMentionShare } from '@ainyc/canonry-intelligence'
 import { notProbeRun, resolveProject, resolveSnapshotAnswerMentioned } from './helpers.js'
@@ -312,28 +312,51 @@ export async function analyticsRoutes(app: FastifyInstance) {
     // against a dated record of known changes and disclose the overlap.
     //
     // The period is per-provider and comes from the DATA, not the requested
-    // window: it is the span of sweeps that actually contributed, so a provider
-    // added halfway through the window is not caveated for a change that
-    // predates its first sweep.
+    // window: it is the span of sweeps that actually contributed, which is the
+    // same period `byProvider` is computed over, so the caveat and the number it
+    // sits under always describe the same stretch of time.
+    //
+    // Within that period each model id gets its OWN first/last-seen span, taken
+    // from the sweeps that observed it. Crossing "every id seen in the period"
+    // with "the period" would caveat a project for a change to an id it had
+    // already stopped running, and stay silent for the mirror case — a project
+    // is only affected by a change that happened while it was on that id.
     const modelPointerChanges: Record<string, ModelPointerChangeDisclosure> = {}
-    const pointerScopeByProvider = new Map<string, { modelIds: Set<string>; start: string; end: string }>()
+    interface PointerScope { exposures: Map<string, ModelExposureWindow>; start: string; end: string }
+    const pointerScopeByProvider = new Map<string, PointerScope>()
     for (const snapshot of allSnapshots) {
       const scope = pointerScopeByProvider.get(snapshot.provider)
-        ?? { modelIds: new Set<string>(), start: snapshot.runCreatedAt, end: snapshot.runCreatedAt }
+        ?? { exposures: new Map<string, ModelExposureWindow>(), start: snapshot.runCreatedAt, end: snapshot.runCreatedAt }
       if (snapshot.runCreatedAt < scope.start) scope.start = snapshot.runCreatedAt
       if (snapshot.runCreatedAt > scope.end) scope.end = snapshot.runCreatedAt
-      // Configured AND served: a project can configure a pinned id while the
-      // provider serves a moving one, and either side being a pointer exposes
-      // the number.
-      const configured = snapshot.model?.trim()
-      if (configured) scope.modelIds.add(configured)
-      const served = snapshot.servedModel?.trim()
-      if (served) scope.modelIds.add(served)
+      // Configured AND served: a project can configure a fixed id while the
+      // provider serves a moving one, and either side being a moving id exposes
+      // the number. Each is timestamped by the sweep that observed it.
+      for (const modelId of [snapshot.model?.trim(), snapshot.servedModel?.trim()]) {
+        if (!modelId) continue
+        const key = modelId.toLowerCase()
+        const seen = scope.exposures.get(key)
+        if (!seen) {
+          scope.exposures.set(key, { modelId, firstSeen: snapshot.runCreatedAt, lastSeen: snapshot.runCreatedAt })
+          continue
+        }
+        if (snapshot.runCreatedAt < seen.firstSeen) seen.firstSeen = snapshot.runCreatedAt
+        if (snapshot.runCreatedAt > seen.lastSeen) seen.lastSeen = snapshot.runCreatedAt
+      }
       pointerScopeByProvider.set(snapshot.provider, scope)
     }
     for (const [provider, scope] of pointerScopeByProvider) {
-      const disclosure = findModelPointerChanges({ modelIds: scope.modelIds, start: scope.start, end: scope.end })
-      if (disclosure) modelPointerChanges[provider] = disclosure
+      const exposure = evaluateModelPointerExposure({
+        exposures: scope.exposures.values(),
+        periodStart: scope.start,
+        periodEnd: scope.end,
+      })
+      // A provider on fixed model ids is omitted. The other two states are both
+      // carried: "we know of no change" is a different answer from "you are not
+      // exposed", and collapsing them is what would let a stale list read as
+      // safety on a surface.
+      if (exposure.status === 'not-exposed') continue
+      modelPointerChanges[provider] = exposure
     }
 
     // Trends
