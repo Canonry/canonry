@@ -305,11 +305,20 @@ test('normalizeResult prefers reparsed grounding metadata over stale extracted f
 
 // --- servedModel capture ---
 //
-// Shapes below come from a real live Gemini call made 2026-07-20 (configured
-// `gemini-3.5-flash`; `modelVersion` came back as `gemini-3.5-flash`, `responseId` as
-// an opaque string). Before this change `responseToRecord` dropped both fields, so no
-// stored snapshot in the repo could prove what Gemini reports.
-const liveGeminiResponse = {
+// PART CAPTURED, PART CONSTRUCTED — read before trusting any field here.
+//
+// Captured, from a real live Gemini call made 2026-07-20 with `gemini-3.5-flash`
+// configured: `modelVersion` came back as `gemini-3.5-flash` and `responseId` as the
+// opaque string below. Those two fields are the reason this fixture exists — before
+// this change `responseToRecord` dropped both, so no stored snapshot in the repo could
+// prove what Gemini reports.
+//
+// Constructed: everything else. The `candidates` / `groundingMetadata` block is a
+// hand-written minimal shape (Gjelina Hotel answer text, one grounding chunk, one
+// support span) and `usageMetadata` is invented — the live call's answer body was not
+// captured. It is shaped after the Gemini response schema so `reparseStoredResult` has
+// something to read, and it is NOT evidence of what Gemini returned for any query.
+const geminiResponseFixture = {
   candidates: [
     {
       content: { role: 'model', parts: [{ text: 'Gjelina Hotel is a Venice Beach boutique hotel.' }] },
@@ -327,13 +336,13 @@ const liveGeminiResponse = {
 } as unknown as Parameters<typeof responseToRecord>[0]
 
 test('responseToRecord preserves modelVersion and responseId', () => {
-  const record = responseToRecord(liveGeminiResponse)
+  const record = responseToRecord(geminiResponseFixture)
   expect(record.modelVersion).toBe('gemini-3.5-flash')
   expect(record.responseId).toBe('hY1dasuhNuSf-8YP0Jfm8QM')
 })
 
 test('responseToRecord still carries candidates that reparseStoredResult can read', () => {
-  const record = responseToRecord(liveGeminiResponse)
+  const record = responseToRecord(geminiResponseFixture)
   const parsed = reparseStoredResult(record)
   expect(parsed.provider).toBe('gemini')
   expect(parsed.answerText).toBe('Gjelina Hotel is a Venice Beach boutique hotel.')
@@ -345,7 +354,7 @@ test('responseToRecord still carries candidates that reparseStoredResult can rea
 })
 
 test('extractServedModel reads the modelVersion Gemini reported', () => {
-  expect(extractServedModel(responseToRecord(liveGeminiResponse))).toBe('gemini-3.5-flash')
+  expect(extractServedModel(responseToRecord(geminiResponseFixture))).toBe('gemini-3.5-flash')
 })
 
 // Synthetic input, not a capture: the one live call we made returned a modelVersion

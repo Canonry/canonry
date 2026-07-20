@@ -782,9 +782,19 @@ function computeBuckets(
         byProvider[provider] = computeProviderMetric(providerSnapshots)
         modelEvidenceByProvider[provider] = classifyModelEvidence(providerSnapshots.map(s => s.model))
       }
+      // The REAL observation times inside this bucket. The boundaries above are
+      // an internal grouping key anchored to the window's earliest run — a
+      // sweep can sit many days into its bucket, so the boundary is not a date
+      // any reader should ever be shown. These two are, and they are emitted
+      // as stored: pure UTC, no timezone applied. Localizing (if wanted) is the
+      // viewer's job, on the frontend.
+      const observedAt = usable.map(s => s.runCreatedAt).sort()
       buckets.push({
         startDate: startISO,
         endDate: endISO,
+        dataStartDate: observedAt[0]!,
+        dataEndDate: observedAt[observedAt.length - 1]!,
+        sweepCount: new Set(observedAt).size,
         citationRate: metric.citationRate,
         cited: metric.cited,
         total: metric.total,

@@ -24,9 +24,15 @@ const providerMetric = {
   mentionedCount: 2,
 }
 
+// The synthetic boundary is deliberately NOT one of the sweep times inside it:
+// that gap is the production shape, and it is what `dataStartDate`/`dataEndDate`
+// exist to carry.
 const bucket = {
   startDate: '2026-04-01T00:00:00.000Z',
   endDate: '2026-04-08T00:00:00.000Z',
+  dataStartDate: '2026-04-03T14:20:00.000Z',
+  dataEndDate: '2026-04-05T09:11:00.000Z',
+  sweepCount: 2,
   citationRate: 0.5,
   cited: 2,
   total: 4,

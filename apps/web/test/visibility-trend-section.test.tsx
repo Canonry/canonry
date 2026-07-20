@@ -52,7 +52,7 @@ function metricsDto(buckets: unknown[]) {
         },
         events: [{
           observedAt: '2026-04-08T00:00:00.000Z',
-          bucketStartDate: '2026-04-08',
+          bucketStartDate: '2026-04-08T00:00:00.000Z',
           from: { status: 'known', model: 'gemini-2.0-flash' },
           to: { status: 'mixed', models: ['gemini-2.0-flash', 'gemini-2.5-flash'], includesUnknown: false },
         }],
@@ -61,9 +61,15 @@ function metricsDto(buckets: unknown[]) {
   }
 }
 
+// Shaped like the API actually emits: FULL ISO everywhere (the route stamps
+// `toISOString()`), with the synthetic bucket boundary deliberately NOT equal to
+// the sweep times inside it — that gap is what production looks like and what a
+// date-only fixture cannot reproduce. Date rendering itself is pinned in
+// `visibility-trend-dates.test.tsx`, which also pins a non-UTC timezone.
 const TWO_BUCKETS = [
   {
-    startDate: '2026-04-01', endDate: '2026-04-08',
+    startDate: '2026-04-01T00:00:00.000Z', endDate: '2026-04-08T00:00:00.000Z',
+    dataStartDate: '2026-04-03T14:20:00.000Z', dataEndDate: '2026-04-03T14:20:00.000Z', sweepCount: 1,
     citationRate: 0.25, cited: 1, total: 4, queryCount: 4, mentionRate: 0.5, mentionedCount: 2,
     mentionShare: { rate: 0.25, projectMentionSnapshots: 1, competitorMentionSnapshots: 3 },
     byProvider: { gemini: provider(0.25, 0.5), openai: provider(0.5, 0.25) },
@@ -73,7 +79,8 @@ const TWO_BUCKETS = [
     },
   },
   {
-    startDate: '2026-04-08', endDate: '2026-04-15',
+    startDate: '2026-04-08T00:00:00.000Z', endDate: '2026-04-15T00:00:00.000Z',
+    dataStartDate: '2026-04-11T08:05:00.000Z', dataEndDate: '2026-04-11T08:05:00.000Z', sweepCount: 1,
     citationRate: 0.75, cited: 3, total: 4, queryCount: 4, mentionRate: 0.5, mentionedCount: 2,
     mentionShare: { rate: 0.75, projectMentionSnapshots: 3, competitorMentionSnapshots: 1 },
     byProvider: { gemini: provider(0.75, 0.5) },

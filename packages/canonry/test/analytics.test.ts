@@ -6,6 +6,7 @@ import crypto from 'node:crypto'
 import { createClient, migrate, apiKeys } from '@ainyc/canonry-db'
 import { createServer } from '../src/server.js'
 import { ApiClient } from '../src/client.js'
+import type { BrandMetricsDto } from '@ainyc/canonry-contracts'
 
 function captureOutput(fn: () => Promise<void>): Promise<{ stdout: string; stderr: string }> {
   const logs: string[] = []
@@ -321,5 +322,84 @@ describe('analytics command', () => {
     }
     const parsed = JSON.parse(logs.join('\n'))
     expect((parsed.metrics as { window: string }).window).toBe('7d')
+  })
+  it('dates the timeline from the real sweeps and says the dates are UTC', async () => {
+    // A bucket whose synthetic boundary (2026-07-10) is 10 days away from the
+    // sweeps it actually contains — the production shape. Printing the boundary
+    // would date the reading to a day nothing ran on.
+    const metricsSpy = vi.spyOn(ApiClient.prototype, 'getAnalyticsMetrics').mockResolvedValue({
+      window: 'all',
+      buckets: [
+        {
+          startDate: '2026-05-15T00:00:00.000Z', endDate: '2026-05-29T00:00:00.000Z',
+          dataStartDate: '2026-05-15T19:38:00.000Z', dataEndDate: '2026-05-15T19:38:00.000Z', sweepCount: 1,
+          citationRate: 0.25, cited: 1, total: 4, queryCount: 4, mentionRate: 0.5, mentionedCount: 2,
+          mentionShare: { rate: null, projectMentionSnapshots: 0, competitorMentionSnapshots: 0 },
+          byProvider: { gemini: { citationRate: 0.25, cited: 1, total: 4, mentionRate: 0.5, mentionedCount: 2 } },
+          modelEvidenceByProvider: {},
+        },
+        {
+          startDate: '2026-07-10T00:00:00.000Z', endDate: '2026-07-24T00:00:00.000Z',
+          dataStartDate: '2026-07-14T09:00:00.000Z', dataEndDate: '2026-07-20T01:52:51.000Z', sweepCount: 2,
+          citationRate: 0.75, cited: 3, total: 4, queryCount: 4, mentionRate: 0.5, mentionedCount: 2,
+          mentionShare: { rate: null, projectMentionSnapshots: 0, competitorMentionSnapshots: 0 },
+          byProvider: { gemini: { citationRate: 0.75, cited: 3, total: 4, mentionRate: 0.5, mentionedCount: 2 } },
+          modelEvidenceByProvider: {},
+        },
+      ],
+      overall: { citationRate: 0.5, cited: 4, total: 8, mentionRate: 0.5, mentionedCount: 4 },
+      byProvider: {},
+      trend: 'improving',
+      mentionTrend: 'stable',
+      queryChanges: [],
+      modelAttribution: {},
+    })
+    try {
+      const { showAnalytics } = await import('../src/commands/analytics.js')
+      const { stdout } = await captureOutput(() => showAnalytics('test-proj', { feature: 'metrics' }))
+
+      // The CLI has no viewer timezone, so it stays UTC — and says so rather
+      // than letting the reader assume local time.
+      expect(stdout).toContain('Timeline (dates in UTC):')
+      expect(stdout).toContain('By Provider Timeline (dates in UTC):')
+
+      // Real sweep dates, and pooling is stated instead of hidden.
+      expect(stdout).toContain('2026-05-15')
+      expect(stdout).toContain('2026-07-14 \u2192 2026-07-20 (2 sweeps)')
+
+      // Never the synthetic boundary.
+      expect(stdout).not.toContain('2026-07-10')
+    } finally {
+      metricsSpy.mockRestore()
+    }
+  })
+
+  it('says so plainly when an older server omits the real sweep dates', async () => {
+    const legacyBucket = {
+      startDate: '2026-07-10T00:00:00.000Z', endDate: '2026-07-24T00:00:00.000Z',
+      citationRate: 0.5, cited: 2, total: 4, queryCount: 4, mentionRate: 0.5, mentionedCount: 2,
+      mentionShare: { rate: null, projectMentionSnapshots: 0, competitorMentionSnapshots: 0 },
+      byProvider: {},
+      modelEvidenceByProvider: {},
+    }
+    const metricsSpy = vi.spyOn(ApiClient.prototype, 'getAnalyticsMetrics').mockResolvedValue({
+      window: 'all',
+      buckets: [legacyBucket as unknown as BrandMetricsDto['buckets'][number]],
+      overall: { citationRate: 0.5, cited: 2, total: 4, mentionRate: 0.5, mentionedCount: 2 },
+      byProvider: {},
+      trend: 'stable',
+      mentionTrend: 'stable',
+      queryChanges: [],
+      modelAttribution: {},
+    })
+    try {
+      const { showAnalytics } = await import('../src/commands/analytics.js')
+      const { stdout } = await captureOutput(() => showAnalytics('test-proj', { feature: 'metrics' }))
+      expect(stdout).toContain('date unavailable')
+      // Falling back to the boundary would be worse than saying nothing.
+      expect(stdout).not.toContain('2026-07-10')
+    } finally {
+      metricsSpy.mockRestore()
+    }
   })
 })

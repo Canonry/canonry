@@ -338,6 +338,9 @@ export type BrandMetricsDto = {
     buckets: Array<{
         startDate: string;
         endDate: string;
+        dataStartDate: string;
+        dataEndDate: string;
+        sweepCount: number;
         citationRate: number;
         cited: number;
         total: number;

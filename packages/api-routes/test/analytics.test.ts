@@ -1702,3 +1702,117 @@ describe('analytics ignores non-sweep run kinds', () => {
     expect(JSON.parse(res.payload).buckets).toHaveLength(2)
   })
 })
+
+/**
+ * Every other fixture in this file stamps `new Date().toISOString()`, so the
+ * sweep span is always ~0 days, `bucketSizeForSpan` always returns 1, and each
+ * bucket boundary lands on the same day as its data. That makes the bucket
+ * boundary indistinguishable from the observation time — the drift these tests
+ * exist to catch is literally unobservable at a 1-day bucket size.
+ *
+ * This fixture is deliberately SPARSE and dated: two months of span with a gap
+ * in the middle, which is what the four production projects look like and what
+ * pushes `bucketSizeForSpan` to 14-day buckets.
+ */
+describe('analytics metrics — bucket dates vs real observation dates', () => {
+  let app: ReturnType<typeof Fastify>
+  let tmpDir: string
+  // Reproduces the reported case exactly: a sweep at 2026-07-20T01:52:51Z that
+  // rendered as an early-July date.
+  const FIRST_SWEEP = '2026-05-15T19:38:00.000Z'
+  const POOLED_SWEEP = '2026-07-14T09:00:00.000Z'
+  const LATEST_SWEEP = '2026-07-20T01:52:51.000Z'
+  const SWEEP_TIMES = [FIRST_SWEEP, POOLED_SWEEP, LATEST_SWEEP]
+
+  beforeAll(async () => {
+    const ctx = buildApp()
+    app = ctx.app
+    tmpDir = ctx.tmpDir
+    await app.ready()
+
+    const projectId = crypto.randomUUID()
+    ctx.db.insert(projects).values({
+      id: projectId, name: 'sparse-history', displayName: 'Sparse History',
+      canonicalDomain: 'sparse.example', ownedDomains: '[]', country: 'US', language: 'en',
+      tags: '[]', labels: '{}', providers: '["gemini"]', locations: '[]', defaultLocation: null,
+      configSource: 'api', configRevision: 1,
+      createdAt: '2026-05-01T00:00:00.000Z', updatedAt: '2026-05-01T00:00:00.000Z',
+    }).run()
+
+    const queryId = crypto.randomUUID()
+    ctx.db.insert(queries).values({
+      id: queryId, projectId, query: 'sparse query', createdAt: '2026-05-01T00:00:00.000Z',
+    }).run()
+
+    for (const at of SWEEP_TIMES) {
+      const runId = crypto.randomUUID()
+      ctx.db.insert(runs).values({
+        id: runId, projectId, kind: 'answer-visibility', status: 'completed', trigger: 'manual',
+        location: null, startedAt: at, finishedAt: at, error: null, createdAt: at,
+      }).run()
+      ctx.db.insert(querySnapshots).values({
+        id: crypto.randomUUID(), runId, queryId, provider: 'gemini', citationState: 'cited',
+        answerMentioned: true, answerText: 'sparse.example is great', citedDomains: ['sparse.example'],
+        competitorOverlap: [], location: null, rawResponse: '{}', createdAt: at,
+      }).run()
+    }
+  })
+
+  afterAll(async () => {
+    await app.close()
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  async function fetchBuckets() {
+    const res = await app.inject({ method: 'GET', url: '/api/v1/projects/sparse-history/analytics/metrics?window=all' })
+    return JSON.parse(res.payload).buckets as Array<{
+      startDate: string; endDate: string
+      dataStartDate: string; dataEndDate: string; sweepCount: number
+    }>
+  }
+
+  it('the synthetic bucket boundary really does drift days away from the sweep', async () => {
+    // 66-day span → 14-day buckets anchored at UTC midnight of the EARLIEST run
+    // (2026-05-15), so the last boundary is 2026-07-10 while its only sweeps ran
+    // on 07-14 and 07-20. This asserts the drift exists, which is why the
+    // boundary must never be shown to a reader.
+    const buckets = await fetchBuckets()
+    expect(buckets).toHaveLength(2)
+    expect(buckets[0]!.startDate).toBe('2026-05-15T00:00:00.000Z')
+    expect(buckets[1]!.startDate).toBe('2026-07-10T00:00:00.000Z')
+  })
+
+  it('reports the real first and last sweep times inside each bucket', async () => {
+    const buckets = await fetchBuckets()
+    expect(buckets[0]!.dataStartDate).toBe(FIRST_SWEEP)
+    expect(buckets[0]!.dataEndDate).toBe(FIRST_SWEEP)
+    expect(buckets[0]!.sweepCount).toBe(1)
+
+    // The bucket labelled 2026-07-10 by its boundary actually covers 07-14..07-20.
+    expect(buckets[1]!.dataStartDate).toBe(POOLED_SWEEP)
+    expect(buckets[1]!.dataEndDate).toBe(LATEST_SWEEP)
+    expect(buckets[1]!.sweepCount).toBe(2)
+  })
+
+  it('no emitted bucket claims a date on which no snapshot exists', async () => {
+    const buckets = await fetchBuckets()
+    expect(buckets.length).toBeGreaterThan(0)
+    for (const bucket of buckets) {
+      // The reported dates are real observations, not derived instants.
+      expect(SWEEP_TIMES).toContain(bucket.dataStartDate)
+      expect(SWEEP_TIMES).toContain(bucket.dataEndDate)
+      // And they are genuinely inside the bucket they are reported for.
+      expect(bucket.dataStartDate >= bucket.startDate).toBe(true)
+      expect(bucket.dataEndDate < bucket.endDate).toBe(true)
+      expect(bucket.dataStartDate <= bucket.dataEndDate).toBe(true)
+    }
+  })
+
+  it('leaves every emitted timestamp in UTC — the backend never localizes', async () => {
+    const buckets = await fetchBuckets()
+    for (const bucket of buckets) {
+      expect(bucket.dataStartDate.endsWith('Z')).toBe(true)
+      expect(bucket.dataEndDate.endsWith('Z')).toBe(true)
+    }
+  })
+})

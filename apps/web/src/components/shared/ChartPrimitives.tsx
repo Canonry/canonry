@@ -133,23 +133,78 @@ export const CHART_TONE = {
   neutral: 'var(--chart-tone-neutral, #a1a1aa)',            // zinc-400
 } as const
 
-/** Parse a date string that may be a date-only ("2026-03-15") or full ISO timestamp. */
-function parseChartDate(value: string): Date {
-  const s = String(value)
-  // Date-only strings (no "T") need a time suffix to avoid UTC-midnight timezone shifts
-  if (!s.includes('T')) return new Date(s + 'T00:00:00')
-  return new Date(s)
+/**
+ * Two kinds of value reach a date formatter, and they are NOT the same thing.
+ * They look identical at runtime ("2026-07-10T00:00:00.000Z"), so only the
+ * type system can keep them apart — which is why the split below is a type,
+ * not a comment.
+ *
+ *  - A CALENDAR DATE ("2026-03-15", or a day-stamped API value): names a day,
+ *    not a moment. It has no clock reading, so converting it into a viewer's
+ *    timezone invents one and can shift it a day. `formatChartDateLabel` /
+ *    `formatChartDateTick` handle these and apply NO timezone conversion at
+ *    all — they read the calendar fields exactly as written.
+ *  - An OBSERVED INSTANT: a moment something actually happened (a sweep ran).
+ *    Localizing it for the viewer is correct and wanted. Only
+ *    `formatObservedInstantLabel` / `formatObservedInstantTick` do that, and
+ *    they accept only the branded type below.
+ *
+ * A synthetic value (a bucket boundary, a grouping key) is neither — nothing
+ * happened at it. It stays a plain `string`, so the compiler rejects it at the
+ * localizing formatters, and the calendar formatters cannot shift it. There is
+ * no longer any path from a synthetic boundary to a wrong day.
+ */
+export type ObservedInstant = string & { readonly __observedInstant: unique symbol }
+
+/**
+ * The ONLY constructor for an `ObservedInstant`. Call it exactly where a real
+ * timestamp enters the UI — a sweep time the API observed. Never call it on a
+ * bucket boundary or another derived key: that is the one remaining way to
+ * reintroduce the bug, and it is now a deliberate, greppable act rather than
+ * something a formatter does silently.
+ */
+export function observedInstant(iso: string): ObservedInstant {
+  return iso as ObservedInstant
 }
 
-/** Format a date label for chart tooltips (e.g. "Mar 15, 2026"). */
+/** `2026-03-15` / `2026-03-15T…` → the calendar fields exactly as written. */
+function calendarParts(value: string): { year: number; month: number; day: number } | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value)
+  if (!match) return null
+  return { year: Number(match[1]), month: Number(match[2]), day: Number(match[3]) }
+}
+
+/**
+ * Format a CALENDAR DATE for chart tooltips (e.g. "Mar 15, 2026"). No timezone
+ * is applied, so the day rendered is always the day written in the string.
+ */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function formatChartDateLabel(value: any): string {
-  const d = parseChartDate(String(value))
-  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+  const raw = String(value)
+  const parts = calendarParts(raw)
+  if (!parts) return raw
+  return new Date(Date.UTC(parts.year, parts.month - 1, parts.day)).toLocaleDateString(undefined, {
+    timeZone: 'UTC',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  })
 }
 
-/** Format a date tick for chart axes (e.g. "3/15"). */
+/** Format a CALENDAR DATE as a compact axis tick (e.g. "3/15"). No timezone applied. */
 export function formatChartDateTick(value: string): string {
-  const d = parseChartDate(value)
+  const parts = calendarParts(String(value))
+  if (!parts) return String(value)
+  return `${parts.month}/${parts.day}`
+}
+
+/** Format a real instant in the VIEWER's timezone (07-20T01:52Z reads "Jul 19, 2026" in New York). */
+export function formatObservedInstantLabel(instant: ObservedInstant): string {
+  return new Date(instant).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+/** Format a real instant as a compact axis tick in the viewer's timezone (e.g. "7/19"). */
+export function formatObservedInstantTick(instant: ObservedInstant): string {
+  const d = new Date(instant)
   return `${d.getMonth() + 1}/${d.getDate()}`
 }

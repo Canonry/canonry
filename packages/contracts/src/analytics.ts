@@ -206,8 +206,31 @@ export type MentionShareBucketMetric = z.infer<typeof mentionShareBucketMetricSc
  * set, so the dashboard can plot a line per provider over time.
  */
 export const timeBucketSchema = z.object({
+  /**
+   * SYNTHETIC bucket boundary — the grouping key and the chart's x-axis key.
+   * Nothing happened at this instant: it is an internal boundary derived from
+   * the window's earliest run, so it is not calendar-aligned and is usually
+   * days away from the sweeps it contains. It is monotonic and stable, which
+   * is all a key needs to be. NEVER render it as a date to a reader; use
+   * `dataStartDate` / `dataEndDate`, which are real observation times.
+   */
   startDate: z.string(),
+  /** The exclusive end of the same synthetic boundary. Also never a date to render. */
   endDate: z.string(),
+  /**
+   * Earliest REAL sweep timestamp among the snapshots this bucket aggregates.
+   * A moment something actually happened, so it is safe to localize for a
+   * viewer — and it is what any date label about this bucket must come from.
+   */
+  dataStartDate: z.string(),
+  /** Latest real sweep timestamp in the bucket. Equals `dataStartDate` when the bucket holds one sweep. */
+  dataEndDate: z.string(),
+  /**
+   * How many distinct sweeps this bucket pools. `> 1` means the plotted point
+   * is an aggregate of several runs spread over `dataStartDate`..`dataEndDate`
+   * — surface that rather than implying a single reading.
+   */
+  sweepCount: z.number().int().nonnegative(),
   citationRate: z.number(),
   cited: z.number().int(),
   total: z.number().int(),

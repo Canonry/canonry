@@ -52,6 +52,31 @@ export async function showAnalytics(
   }
 }
 
+/** Widest `bucketDates` output ("YYYY-MM-DD → YYYY-MM-DD (NN sweeps)"), so the rate column lines up. */
+const BUCKET_DATE_WIDTH = 35
+
+/**
+ * The dates a bucket's numbers actually come from. `startDate` is a synthetic
+ * grouping boundary anchored to the window's earliest run — a sweep can fall
+ * many days inside its own bucket — so printing it would date the reading to a
+ * day nothing ran on. These are the real sweep timestamps, left in UTC: the CLI
+ * has no viewer timezone to convert to, and the caller is told so in the header
+ * rather than left to assume local time.
+ */
+function bucketDates(bucket: BrandMetricsDto['buckets'][number]): string {
+  // A newer CLI can be pointed at an older server that predates these fields.
+  const legacyCompatible = bucket as { dataStartDate?: string; dataEndDate?: string; sweepCount?: number }
+  const start = legacyCompatible.dataStartDate?.slice(0, 10)
+  const end = legacyCompatible.dataEndDate?.slice(0, 10)
+  if (!start || !end) return 'date unavailable'
+  // A bucket can pool several sweeps into one row. Say so — otherwise an
+  // averaged multi-week reading is indistinguishable from a single run.
+  const sweeps = legacyCompatible.sweepCount ?? 1
+  const pooled = sweeps > 1 ? ` (${sweeps} sweeps)` : ''
+  if (start === end) return `${start}${pooled}`
+  return `${start} → ${end}${pooled}`
+}
+
 function printMetrics(data: BrandMetricsDto): void {
   console.log(`\nCitation Rate Trends (${data.window})`)
   console.log('─'.repeat(50))
@@ -69,11 +94,10 @@ function printMetrics(data: BrandMetricsDto): void {
   }
 
   if (data.buckets.length > 0) {
-    console.log(`\n  Timeline:`)
+    console.log(`\n  Timeline (dates in UTC):`)
     for (const bucket of data.buckets) {
-      const start = bucket.startDate.slice(0, 10)
       const bar = bucket.total > 0 ? '█'.repeat(Math.round(bucket.citationRate * 20)) : ''
-      console.log(`    ${start}  ${pct(bucket.citationRate).padStart(6)}  ${bar}`)
+      console.log(`    ${bucketDates(bucket).padEnd(BUCKET_DATE_WIDTH)}  ${pct(bucket.citationRate).padStart(6)}  ${bar}`)
     }
   }
 
@@ -81,15 +105,14 @@ function printMetrics(data: BrandMetricsDto): void {
   // `?? {}` guards legacy/partial rows that predate the per-bucket breakdown.
   const providersInBuckets = [...new Set(data.buckets.flatMap(b => Object.keys(b.byProvider ?? {})))].sort()
   if (data.buckets.length > 0 && providersInBuckets.length > 0) {
-    console.log(`\n  By Provider Timeline:`)
+    console.log(`\n  By Provider Timeline (dates in UTC):`)
     for (const provider of providersInBuckets) {
       console.log(`    ${provider}:`)
       for (const bucket of data.buckets) {
         const metric = bucket.byProvider?.[provider]
         if (!metric) continue // provider absent from this bucket
-        const start = bucket.startDate.slice(0, 10)
         const bar = metric.total > 0 ? '█'.repeat(Math.round(metric.citationRate * 20)) : ''
-        console.log(`      ${start}  ${pct(metric.citationRate).padStart(6)}  ${bar}`)
+        console.log(`      ${bucketDates(bucket).padEnd(BUCKET_DATE_WIDTH)}  ${pct(metric.citationRate).padStart(6)}  ${bar}`)
       }
     }
   }

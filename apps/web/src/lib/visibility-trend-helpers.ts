@@ -9,6 +9,12 @@ import type {
   TrendDirection,
 } from '@ainyc/canonry-contracts'
 import type { MetricTone } from '../view-models.js'
+import {
+  formatObservedInstantLabel,
+  formatObservedInstantTick,
+  observedInstant,
+  type ObservedInstant,
+} from '../components/shared/ChartPrimitives.js'
 
 /**
  * Pure reshaping of `BrandMetricsDto` into Recharts-ready rows for the
@@ -64,6 +70,65 @@ export interface GroupedModelAttributionEvent {
 export interface ModelAttributionEventBucket {
   bucketStartDate: string
   events: GroupedModelAttributionEvent[]
+}
+
+/**
+ * The real observation window a bucket actually covers. `bucket.startDate` is a
+ * synthetic boundary anchored to the window's earliest run — a sweep can sit a
+ * week or more inside its own bucket — so it is a grouping key, never a date to
+ * show. These are the sweep timestamps themselves.
+ */
+export interface BucketObservedRange {
+  start: ObservedInstant
+  end: ObservedInstant
+  /** Distinct sweeps pooled into this one plotted point. */
+  sweepCount: number
+}
+
+/** Standalone (not an intersection) so the optionality survives — an older API omits all three. */
+interface OptionalObservedRangeFields {
+  dataStartDate?: string
+  dataEndDate?: string
+  sweepCount?: number
+}
+
+/**
+ * A newer bundle can run against an older API that predates the real-range
+ * fields. Missing is NOT an excuse to fall back to `startDate`: that boundary
+ * is exactly the wrong date. Return null and let the caller say so plainly.
+ */
+export function readBucketObservedRange(
+  bucket: BrandMetricsDto['buckets'][number],
+): BucketObservedRange | null {
+  const candidate = bucket as unknown as OptionalObservedRangeFields
+  const { dataStartDate, dataEndDate } = candidate
+  if (typeof dataStartDate !== 'string' || typeof dataEndDate !== 'string') return null
+  return {
+    start: observedInstant(dataStartDate),
+    end: observedInstant(dataEndDate),
+    sweepCount: candidate.sweepCount ?? 1,
+  }
+}
+
+/**
+ * The date a bucket's point is really about, in the viewer's own timezone. When
+ * the bucket pools several sweeps it reads as a range plus the count — today
+ * that pooling is invisible and a multi-week average looks like a single
+ * reading.
+ */
+export function formatBucketDateLabel(bucket: BrandMetricsDto['buckets'][number]): string {
+  const range = readBucketObservedRange(bucket)
+  if (!range) return 'Sweep date unavailable'
+  const start = formatObservedInstantLabel(range.start)
+  const end = formatObservedInstantLabel(range.end)
+  if (start === end) return start
+  return `${start} – ${end} · ${range.sweepCount} sweeps combined`
+}
+
+/** Compact axis tick for a bucket — the first sweep it actually contains, in the viewer's timezone. */
+export function formatBucketDateTick(bucket: BrandMetricsDto['buckets'][number]): string {
+  const range = readBucketObservedRange(bucket)
+  return range ? formatObservedInstantTick(range.start) : ''
 }
 
 export function normalizeProviderKey(provider: string): string {

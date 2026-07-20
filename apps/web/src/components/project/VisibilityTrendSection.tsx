@@ -10,9 +10,9 @@ import {
   CHART_SERIES_COLORS,
   CHART_TONE,
   ComposedChart,
-  formatChartDateLabel,
-  formatChartDateTick,
+  formatObservedInstantLabel,
   Line,
+  observedInstant,
   providerSeriesColor,
   ReferenceLine,
   RechartsTooltip,
@@ -27,6 +27,8 @@ import {
   buildSelectedTrendRows,
   CITED_KEY,
   countModelAttributionEvents,
+  formatBucketDateLabel,
+  formatBucketDateTick,
   formatModelEvidence,
   formatQueryChangeCaption,
   formatServedModelIds,
@@ -192,6 +194,21 @@ function modelEventMarkerColor(events: ReturnType<typeof groupModelAttributionEv
   return CHART_TONE.positive
 }
 
+/**
+ * A model-evidence change is grouped by `bucketStartDate`, which is the
+ * synthetic grouping key — never a date to show. Resolve it back to the
+ * bucket's real sweep dates; if that bucket is no longer in the response, fall
+ * back to the event's own observation time, which is also a real instant.
+ */
+function modelEventDateLabel(
+  buckets: readonly MetricsBucket[],
+  bucketStartDate: string,
+  observedAt: string,
+): string {
+  const bucket = findBucket(buckets, bucketStartDate)
+  return bucket ? formatBucketDateLabel(bucket) : formatObservedInstantLabel(observedInstant(observedAt))
+}
+
 function ModelEvidenceSummary({
   partition,
   available,
@@ -200,6 +217,7 @@ function ModelEvidenceSummary({
   incompleteHistory,
   served,
   mismatch,
+  buckets,
 }: {
   partition: ModelAttributionEventPartition
   available: boolean
@@ -208,6 +226,7 @@ function ModelEvidenceSummary({
   incompleteHistory: string[]
   served: ReturnType<typeof readServedModelAttribution>
   mismatch: ReturnType<typeof readModelServiceMismatch>
+  buckets: readonly MetricsBucket[]
 }) {
   const descriptionId = useId()
   const servedEntries = Object.entries(served).sort(([a], [b]) => a.localeCompare(b))
@@ -232,7 +251,7 @@ function ModelEvidenceSummary({
             <ul className="trend-model-evidence-list">
               {partition.buckets.flatMap(({ bucketStartDate, events: bucketEvents }) => bucketEvents.map(({ provider, event }) => (
                 <li key={`${provider}-${event.observedAt}-${event.bucketStartDate}`} className="trend-model-evidence-item">
-                  <span className="trend-model-evidence-date">{formatChartDateLabel(bucketStartDate)}</span>
+                  <span className="trend-model-evidence-date">{modelEventDateLabel(buckets, bucketStartDate, event.observedAt)}</span>
                   <span>{providerDisplayName(provider)}: {formatModelEvidence(event.from)} → {formatModelEvidence(event.to)}</span>
                 </li>
               )))}
@@ -248,12 +267,12 @@ function ModelEvidenceSummary({
                 {partition.beforeWindow.map(({ provider, event }) => (
                   <li key={`before-${provider}-${event.observedAt}`} className="trend-model-evidence-item">
                     <span className="trend-model-evidence-date">
-                      on or before {formatChartDateLabel(event.observedAt)}
+                      on or before {formatObservedInstantLabel(observedInstant(event.observedAt))}
                     </span>
                     <span>
                       {providerDisplayName(provider)}: {formatModelEvidence(event.from)} → {formatModelEvidence(event.to)}
                       {event.anchorObservedAt
-                        ? ` (last seen ${formatModelEvidence(event.from)} on ${formatChartDateLabel(event.anchorObservedAt)})`
+                        ? ` (last seen ${formatModelEvidence(event.from)} on ${formatObservedInstantLabel(observedInstant(event.anchorObservedAt))})`
                         : ''}
                     </span>
                   </li>
@@ -282,7 +301,7 @@ function ModelEvidenceSummary({
               const substituted = mismatch[provider]
               return (
                 <li key={`served-${provider}`} className="trend-model-evidence-item">
-                  <span className="trend-model-evidence-date">{formatChartDateLabel(entry.latestObservation.observedAt)}</span>
+                  <span className="trend-model-evidence-date">{formatObservedInstantLabel(observedInstant(entry.latestObservation.observedAt))}</span>
                   <span>
                     {providerDisplayName(provider)}: {rawIds ?? formatModelEvidence(entry.latestObservation.state)}
                     {substituted ? ` — not the ${formatModelEvidence(substituted.configured)} you selected` : ''}
@@ -331,7 +350,7 @@ function TrendTooltip({
     const rate = bucket.mentionShare.rate == null ? null : round1(bucket.mentionShare.rate * 100)
     return (
       <div className="trend-tooltip">
-        <p className="trend-tooltip-label">{formatChartDateLabel(bucket.startDate)}</p>
+        <p className="trend-tooltip-label">{formatBucketDateLabel(bucket)}</p>
         <div className="trend-tooltip-row">
           <span className="trend-tooltip-swatch trend-tooltip-swatch-ring" style={{ borderColor: MENTION_SHARE_COLOR }} aria-hidden="true" />
           <span className="trend-tooltip-name">Mention share</span>
@@ -352,7 +371,7 @@ function TrendTooltip({
     : [{ dataKey: metric === 'cited' ? CITED_KEY : MENTIONED_KEY, value: round1(bucket[metricField(metric)] * 100) }]
   return (
     <div className="trend-tooltip">
-      <p className="trend-tooltip-label">{formatChartDateLabel(bucket.startDate)}</p>
+      <p className="trend-tooltip-label">{formatBucketDateLabel(bucket)}</p>
       {items.map((item, index) => {
         const key = String(item.dataKey ?? item.name ?? '')
         const providerCounts = mode === 'byProvider' ? providerMetricCount(bucket, key, metric) : null
@@ -424,7 +443,7 @@ function TrendDataSummary({
           valueText += `; ${formatBucketModelEvidence(bucket)}`
           return (
             <tr key={bucket.startDate}>
-              <th scope="row">{formatChartDateLabel(bucket.startDate)}</th>
+              <th scope="row">{formatBucketDateLabel(bucket)}</th>
               <td>{valueText}</td>
             </tr>
           )
@@ -553,6 +572,14 @@ export function VisibilityTrendSection({
   // doesn't read as one engine's color) and tag it "avg".
   const headlineDotColor = byProviderMode ? CHART_NEUTRAL.textDim : metricColor
   const buckets = data?.buckets ?? []
+  // The x-axis KEY stays `startDate` (monotonic, and what the model-evidence
+  // reference lines are positioned by), but the tick a reader sees is resolved
+  // back to the bucket's real first sweep. A key that has no bucket gets no
+  // label — better blank than a synthetic boundary printed as a date.
+  const bucketTickFormatter = useMemo(() => {
+    const labels = new Map(buckets.map(b => [b.startDate, formatBucketDateTick(b)]))
+    return (value: string) => labels.get(String(value)) ?? ''
+  }, [buckets])
   const latestPct = metric === 'mentionShare'
     ? (trend ? latestSeriesValue(trend.rows, MENTION_SHARE_KEY) : null)
     : buckets.length > 0
@@ -684,7 +711,7 @@ export function VisibilityTrendSection({
                   tick={CHART_AXIS_TICK}
                   tickLine={false}
                   axisLine={{ stroke: CHART_AXIS_STROKE }}
-                  tickFormatter={formatChartDateTick}
+                  tickFormatter={bucketTickFormatter}
                   minTickGap={24}
                 />
                 <YAxis
@@ -739,6 +766,7 @@ export function VisibilityTrendSection({
             incompleteHistory={incompleteHistoryProviders}
             served={servedAttribution}
             mismatch={serviceMismatch}
+            buckets={buckets}
           />
           {singleBucket && (
             <p className="visibility-trend-note">
