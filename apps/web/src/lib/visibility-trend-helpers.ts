@@ -218,10 +218,11 @@ export function readModelServiceMismatch(dto: BrandMetricsDto): Record<string, M
 }
 
 /**
- * Providers whose numbers span a known change to a moving model id. Absent on
- * an older API, empty for a project on fixed model ids. Rendering is
- * `formatModelChangeDisclosure` from contracts — the wording is shared with the
- * CLI so neither surface can soften the caveat the other gives.
+ * Providers whose numbers were produced by a model id the provider is free to
+ * move onto a different underlying model. Absent on an older API, empty for a
+ * project on fixed model ids. The sentence a reader sees is built from these
+ * facts by `buildModelChangeNotice` in contracts, which the CLI calls too, so
+ * neither surface can word this caveat more softly than the other.
  */
 export function readModelPointerChanges(dto: BrandMetricsDto): Record<string, ModelPointerChangeDisclosure> {
   return (dto as MetricsWithOptionalModelAttribution).modelPointerChanges ?? {}
