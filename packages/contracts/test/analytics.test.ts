@@ -144,6 +144,47 @@ describe('model attribution schemas', () => {
       },
     })
     expect(parsed.claude!.eventTotal).toBeUndefined()
+    expect(parsed.claude!.anchorUnavailable).toBeUndefined()
+  })
+
+  it('closes the date range on an anchor-derived transition', () => {
+    const parsed = modelAttributionSchema.parse({
+      perplexity: {
+        latestObservation: {
+          observedAt: '2026-07-15T12:00:00.000Z',
+          state: { status: 'known', model: 'sonar-pro' },
+        },
+        events: [{
+          observedAt: '2026-07-15T12:00:00.000Z',
+          bucketStartDate: '2026-07-15T00:00:00.000Z',
+          from: { status: 'known', model: 'sonar' },
+          to: { status: 'known', model: 'sonar-pro' },
+          fromPreWindowAnchor: true,
+          anchorObservedAt: '2026-03-17T12:00:00.000Z',
+        }],
+        eventTotal: 1,
+      },
+    })
+    // Bounded on both sides: the change happened after the anchor sweep and on
+    // or before `observedAt`, so it is never presented as an in-window event.
+    expect(parsed.perplexity!.events[0]!.anchorObservedAt).toBe('2026-03-17T12:00:00.000Z')
+  })
+
+  it('marks a provider whose pre-window history could not be resolved', () => {
+    const parsed = modelAttributionSchema.parse({
+      gemini: {
+        latestObservation: {
+          observedAt: '2026-07-15T12:00:00.000Z',
+          state: { status: 'known', model: 'gemini-2.5-flash' },
+        },
+        events: [],
+        eventTotal: 0,
+        anchorUnavailable: true,
+      },
+    })
+    // An empty event list plus this flag means "we did not look far enough",
+    // which a consumer must not render as "no model change".
+    expect(parsed.gemini!.anchorUnavailable).toBe(true)
   })
 })
 

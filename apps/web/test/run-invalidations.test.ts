@@ -61,14 +61,15 @@ test('invalidates the project-scoped runs list so the project page refreshes aft
 })
 
 test('does not prefix-invalidate the analytics trend after an answer-visibility run', () => {
-  // The trend key ends in the latest completed-sweep revision
-  // (`['analytics-metrics', project, window, frameKey, analyticsRevision]`),
-  // derived from the same run set the endpoint aggregates. Refetching the
-  // project-scoped runs list (asserted above) rotates that revision and the
-  // chart mounts a new key — one fetch. A prefix invalidation here refetched
-  // the OLD revision key first, so every sweep completion cost two
-  // full-history analytics scans (the queryFn ignores the AbortSignal, so
-  // the first was never cancelled).
+  // The trend key ends in the revision of the NEWEST completed|partial
+  // non-probe sweep (`['analytics-metrics', project, window, frameKey,
+  // analyticsRevision]`) — the newest member of the run set the endpoint
+  // aggregates, not the whole set. A sweep completing is a sweep becoming the
+  // newest one, so refetching the project-scoped runs list (asserted above)
+  // rotates the revision and the chart mounts a new key — one fetch. A prefix
+  // invalidation here refetched the OLD revision key first, so every sweep
+  // completion cost two full-history analytics scans (the queryFn ignores the
+  // AbortSignal, so the first was never cancelled).
   invalidateQueriesForRunKind(queryClient, RunKinds['answer-visibility'], 'demo')
   const analyticsKey = invalidateSpy.mock.calls
     .map(([arg]) => (arg as { queryKey?: unknown[] })?.queryKey)
@@ -92,6 +93,27 @@ test('an answer-visibility completion refetches the analytics trend exactly once
   // …and the revision the runs refetch produces is a cache miss, which is the
   // single fetch the chart performs.
   expect(queryClient.getQueryData(trendKey(newRevision))).toBeUndefined()
+})
+
+test('accepts the out-of-order-completion limit: an unrotated revision is not corrected here', () => {
+  // Documents the one case the revision mechanism does NOT cover, so a future
+  // reader hits a failing test (not a surprise) if they change the trade-off.
+  // A run that completes after a NEWER run already completed joins the set
+  // `GET /analytics/metrics` aggregates without changing `latestCreatedAt`,
+  // so `latestVisibilityRevision` — and therefore the mounted trend key —
+  // stays put. Nothing in this function marks that key stale; the chart keeps
+  // the pre-completion numbers until it remounts. The alternative is a
+  // prefix invalidation, i.e. a second full-history analytics scan on EVERY
+  // sweep completion, which is why this case is accepted rather than fixed.
+  // Multi-location siblings of one logical sweep share a createdAt, so they
+  // rotate normally and are not affected.
+  const unrotatedRevision = '2026-07-20T00:00:00.000Z:newer-run'
+  const trendKey = ['analytics-metrics', 'demo', 'all', 'frame', unrotatedRevision]
+  queryClient.setQueryData(trendKey, { buckets: [] })
+
+  invalidateQueriesForRunKind(queryClient, RunKinds['answer-visibility'], 'demo')
+
+  expect(queryClient.getQueryState(trendKey)?.isInvalidated).toBeFalsy()
 })
 
 test('invalidates GSC operations for gsc-sync runs', () => {

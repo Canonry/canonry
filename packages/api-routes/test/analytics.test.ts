@@ -388,7 +388,10 @@ describe('analytics routes', () => {
           from: { status: 'known', model: 'claude-opus-5' },
           to: { status: 'mixed', models: ['claude-sonnet-5'], includesUnknown: true },
           // `from` is the pre-window anchor sweep, not an in-window observation.
+          // `anchorObservedAt` closes the range so a consumer can say the change
+          // happened between the anchor sweep and this one — never "in-window".
           fromPreWindowAnchor: true,
+          anchorObservedAt: anchorAt.toISOString(),
         },
         {
           observedAt: knownAt.toISOString(),
@@ -409,10 +412,11 @@ describe('analytics routes', () => {
       })
     })
 
-    it('does not anchor a change marker to a sweep from long before the window', async () => {
-      // A provider paused for months and came back on a different model: the
-      // change happened outside the window, so the window must not show it as
-      // an in-window model change.
+    it('keeps a change whose anchor predates the window, dated to the anchor range', async () => {
+      // A provider paused for months and came back on a different model. The
+      // change is real and must not be dropped, but it is only datable to the
+      // gap between the two sweeps — so it is reported with the anchor's own
+      // observation time rather than as something that happened in-window.
       const staleProjectId = crypto.randomUUID()
       const now = new Date()
       const pausedAt = new Date(now)
@@ -490,8 +494,106 @@ describe('analytics routes', () => {
         observedAt: resumedAt.toISOString(),
         state: { status: 'known', model: 'sonar-pro' },
       })
-      expect(body.modelAttribution.perplexity.events).toEqual([])
-      expect(body.modelAttribution.perplexity.eventTotal).toBe(0)
+      // A 120-day-old anchor is far outside any absolute lookback cap. Capping
+      // it would silently delete this transition from the trend; the flag plus
+      // `anchorObservedAt` keep it visible AND honestly dated.
+      expect(body.modelAttribution.perplexity.events).toHaveLength(1)
+      const [event] = body.modelAttribution.perplexity.events
+      expect(event.from).toEqual({ status: 'known', model: 'sonar' })
+      expect(event.to).toEqual({ status: 'known', model: 'sonar-pro' })
+      expect(event.fromPreWindowAnchor).toBe(true)
+      expect(event.anchorObservedAt).toBe(pausedAt.toISOString())
+      expect(body.modelAttribution.perplexity.eventTotal).toBe(1)
+      // The search reached the project's whole pre-window history, so the
+      // absence of anything earlier is a real answer, not a truncated one.
+      expect(body.modelAttribution.perplexity.anchorUnavailable).toBeUndefined()
+    })
+
+    it('reports anchorUnavailable when the pre-window scan bound is reached', async () => {
+      // A provider that appears in-window but only ever swept beyond the scan
+      // bound: the response must say "we did not look far enough" instead of
+      // presenting an unchanged history as settled fact.
+      const boundedProjectId = crypto.randomUUID()
+      const now = new Date()
+      const at = (daysAgo: number) => new Date(now.getTime() - daysAgo * 86_400_000).toISOString()
+
+      db.insert(projects).values({
+        id: boundedProjectId,
+        name: 'anchor-bound-project',
+        displayName: 'Anchor Bound',
+        canonicalDomain: 'bound.example',
+        ownedDomains: '[]',
+        country: 'US',
+        language: 'en',
+        tags: '[]',
+        labels: '{}',
+        providers: '["openai","gemini"]',
+        locations: '[]',
+        defaultLocation: null,
+        configSource: 'api',
+        configRevision: 1,
+        createdAt: at(400),
+        updatedAt: at(0),
+      }).run()
+      const queryId = crypto.randomUUID()
+      db.insert(queries).values({
+        id: queryId,
+        projectId: boundedProjectId,
+        query: 'anchor bound query',
+        createdAt: at(400),
+      }).run()
+
+      const insertSweep = (createdAt: string, provider: string, model: string) => {
+        const id = crypto.randomUUID()
+        db.insert(runs).values({
+          id,
+          projectId: boundedProjectId,
+          kind: 'answer-visibility',
+          status: 'completed',
+          trigger: 'manual',
+          location: null,
+          startedAt: createdAt,
+          finishedAt: createdAt,
+          error: null,
+          createdAt,
+        }).run()
+        db.insert(querySnapshots).values({
+          id: crypto.randomUUID(),
+          runId: id,
+          queryId,
+          provider,
+          model,
+          citationState: 'not-cited',
+          answerText: '',
+          citedDomains: [],
+          competitorOverlap: [],
+          location: null,
+          rawResponse: '{}',
+          createdAt,
+        }).run()
+      }
+
+      // `gemini` last swept 300 days ago, then 80 openai-only sweeps sit
+      // between it and the window — more than the 60-sweep scan bound.
+      insertSweep(at(300), 'gemini', 'gemini-2.0-flash')
+      for (let day = 90; day > 10; day--) insertSweep(at(day), 'openai', 'gpt-5')
+      insertSweep(at(2), 'openai', 'gpt-5')
+      insertSweep(at(2), 'gemini', 'gemini-2.5-flash')
+
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/v1/projects/anchor-bound-project/analytics/metrics?window=7d',
+      })
+      expect(res.statusCode).toBe(200)
+      const body = JSON.parse(res.payload)
+
+      // openai is anchored by the sweep immediately before the window, so its
+      // history is conclusive and no caveat is attached.
+      expect(body.modelAttribution.openai.anchorUnavailable).toBeUndefined()
+      // gemini's only pre-window sweep is past the bound. Rather than claiming
+      // "no model change", the response marks the history as incomplete.
+      expect(body.modelAttribution.gemini.events).toEqual([])
+      expect(body.modelAttribution.gemini.anchorUnavailable).toBe(true)
     })
   })
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { AppError } from '@ainyc/canonry-contracts'
-import { assertProviderModelsMatchProviders, validateProviderModels } from '../src/provider-models.js'
+import { pruneProviderModelsForProviders, validateProviderModels } from '../src/provider-models.js'
 
 const adapters = [
   {
@@ -44,21 +44,31 @@ describe('validateProviderModels', () => {
   })
 })
 
-describe('assertProviderModelsMatchProviders', () => {
-  it('rejects an override for an engine the project does not run', () => {
-    const message = validationMessage(() =>
-      assertProviderModelsMatchProviders({ gemini: 'gemini-2.5-pro', openai: 'gpt-5' }, ['gemini']))
-    expect(message).toContain('openai')
-    // The kept engine is not named as a problem.
-    expect(message).not.toContain('gemini,')
+describe('pruneProviderModelsForProviders', () => {
+  it('drops overrides for engines the project does not run and keeps the rest', () => {
+    expect(pruneProviderModelsForProviders({ gemini: 'gemini-2.5-pro', openai: 'gpt-5' }, ['gemini']))
+      .toEqual({ gemini: 'gemini-2.5-pro' })
   })
 
   it('keeps every override when the provider list is empty (= all configured engines)', () => {
-    expect(() => assertProviderModelsMatchProviders({ gemini: 'gemini-2.5-pro' }, [])).not.toThrow()
+    expect(pruneProviderModelsForProviders({ gemini: 'gemini-2.5-pro' }, []))
+      .toEqual({ gemini: 'gemini-2.5-pro' })
   })
 
-  it('accepts overrides that all name a selected engine, and an empty map', () => {
-    expect(() => assertProviderModelsMatchProviders({ gemini: 'gemini-2.5-pro' }, ['gemini', 'openai'])).not.toThrow()
-    expect(() => assertProviderModelsMatchProviders({}, ['gemini'])).not.toThrow()
+  it('passes through overrides that all name a selected engine, and an empty map', () => {
+    expect(pruneProviderModelsForProviders({ gemini: 'gemini-2.5-pro' }, ['gemini', 'openai']))
+      .toEqual({ gemini: 'gemini-2.5-pro' })
+    expect(pruneProviderModelsForProviders({}, ['gemini'])).toEqual({})
+  })
+
+  it('does not mutate its input', () => {
+    const models = { gemini: 'gemini-2.5-pro', openai: 'gpt-5' }
+    pruneProviderModelsForProviders(models, ['gemini'])
+    expect(models).toEqual({ gemini: 'gemini-2.5-pro', openai: 'gpt-5' })
+  })
+
+  it('is idempotent — pruning the pruned map is a no-op (apply stays convergent)', () => {
+    const once = pruneProviderModelsForProviders({ gemini: 'gemini-2.5-pro', openai: 'gpt-5' }, ['gemini'])
+    expect(pruneProviderModelsForProviders(once, ['gemini'])).toEqual(once)
   })
 })

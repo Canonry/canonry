@@ -433,8 +433,10 @@ export type BrandMetricsDto = {
                     includesUnknown: boolean;
                 };
                 fromPreWindowAnchor?: boolean;
+                anchorObservedAt?: string;
             }>;
             eventTotal?: number;
+            anchorUnavailable?: boolean;
         };
     };
 };

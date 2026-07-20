@@ -134,6 +134,41 @@ describe('buildModelAttribution', () => {
     expect(events[1]!.fromPreWindowAnchor).toBeUndefined()
   })
 
+  it('dates an anchor-derived transition to the anchor sweep, not the window', () => {
+    const attribution = buildModelAttribution({
+      observations: [
+        { runId: 'run-1', runCreatedAt: '2026-07-15T12:00:00.000Z', provider: 'perplexity', model: 'sonar-pro' },
+        { runId: 'run-2', runCreatedAt: '2026-07-17T12:00:00.000Z', provider: 'perplexity', model: 'sonar-reasoning' },
+      ],
+      anchors: { perplexity: { status: 'known', model: 'sonar' } },
+      anchorObservedAt: { perplexity: '2026-03-01T12:00:00.000Z' },
+      bucketStartFor: observedAt => observedAt.slice(0, 10) + 'T00:00:00.000Z',
+    })
+
+    const events = attribution.perplexity!.events
+    // Closed range: the change happened after the anchor sweep and on or
+    // before the first in-window sweep. Only the anchor-derived event carries
+    // it — a sweep-to-sweep transition is already exactly dated.
+    expect(events[0]!.anchorObservedAt).toBe('2026-03-01T12:00:00.000Z')
+    expect(events[1]!.anchorObservedAt).toBeUndefined()
+  })
+
+  it('reports anchorUnavailable only for providers the anchor search could not resolve', () => {
+    const attribution = buildModelAttribution({
+      observations: [
+        { runId: 'run-1', runCreatedAt: '2026-07-15T12:00:00.000Z', provider: 'gemini', model: 'gemini-2.5-flash' },
+        { runId: 'run-1', runCreatedAt: '2026-07-15T12:00:00.000Z', provider: 'openai', model: 'gpt-5' },
+      ],
+      anchors: { openai: { status: 'known', model: 'gpt-5' } },
+      anchorUnavailable: new Set(['gemini']),
+      bucketStartFor: observedAt => observedAt,
+    })
+
+    expect(attribution.gemini!.anchorUnavailable).toBe(true)
+    // Omitted, not `false`, so an unchanged history stays a clean object.
+    expect(attribution.openai!.anchorUnavailable).toBeUndefined()
+  })
+
   it('caps events at the contract limit while reporting the true total', () => {
     // A provider serving two model ids during a rollout flips on every sweep.
     const flips = MODEL_ATTRIBUTION_EVENT_LIMIT + 20
@@ -157,5 +192,29 @@ describe('buildModelAttribution', () => {
     expect(entry.events[entry.events.length - 1]!.observedAt).toBe(observations[flips]!.runCreatedAt)
     expect(entry.events.map(event => event.observedAt))
       .toEqual([...entry.events.map(event => event.observedAt)].sort())
+  })
+
+  it.each([
+    { flips: MODEL_ATTRIBUTION_EVENT_LIMIT - 1, truncated: false },
+    { flips: MODEL_ATTRIBUTION_EVENT_LIMIT, truncated: false },
+    { flips: MODEL_ATTRIBUTION_EVENT_LIMIT + 1, truncated: true },
+  ])('slices at the cap boundary: $flips transitions', ({ flips, truncated }) => {
+    // The cap uses a strict `>`, so exactly the limit must be returned whole.
+    // Off-by-one here would make a full list report itself as truncated and
+    // drop the oldest real transition.
+    const observations = Array.from({ length: flips + 1 }, (_, index) => ({
+      runId: `run-${index}`,
+      runCreatedAt: new Date(Date.UTC(2026, 4, 1 + index)).toISOString(),
+      provider: 'openai',
+      model: index % 2 === 0 ? 'gpt-5' : 'gpt-5-mini',
+    }))
+
+    const entry = buildModelAttribution({ observations, bucketStartFor: observedAt => observedAt }).openai!
+
+    expect(entry.eventTotal).toBe(flips)
+    expect(entry.events).toHaveLength(truncated ? MODEL_ATTRIBUTION_EVENT_LIMIT : flips)
+    expect(entry.events.length < entry.eventTotal!).toBe(truncated)
+    // The first transition survives untruncated and is lost at the boundary+1.
+    expect(entry.events[0]!.observedAt === observations[1]!.runCreatedAt).toBe(!truncated)
   })
 })

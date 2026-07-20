@@ -1983,7 +1983,16 @@ function ProjectPageContent({
     setCompetitorSaving(true)
     try {
       await apiAppendCompetitors(projectName, [domain])
-      await queryClient.invalidateQueries({ queryKey: ['analytics-metrics', projectName] })
+      // No `['analytics-metrics', projectName]` invalidation — same mechanism
+      // as the answer-visibility case in `queries/run-invalidations.ts`. The
+      // trend key's `metricsFrameKey` segment is `competitorFrameKey(...)` of
+      // `model.competitors`, i.e. the exact DB list the server builds the
+      // mention-share denominator from. `refetch()` reloads that list, the
+      // frame key rotates, and the chart mounts a new key — one fetch.
+      // Invalidating first refetched the outgoing key too: a second
+      // full-history analytics scan whose result is unreachable once the
+      // frame key moves. If `refetch()` fails, the project detail query polls
+      // every PROJECT_DETAIL_REFRESH_MS, so the rotation still lands.
       void refetch()
       setNewCompetitorDomain('')
       setAddingCompetitor(false)
@@ -2007,7 +2016,7 @@ function ProjectPageContent({
 
     try {
       await apiRemoveCompetitorById(projectName, competitor.id)
-      await queryClient.invalidateQueries({ queryKey: ['analytics-metrics', projectName] })
+      // See handleAddCompetitor: the frame key rotation is the refetch.
       void refetch()
     } catch (err) {
       addToast({

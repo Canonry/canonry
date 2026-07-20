@@ -20,6 +20,16 @@ export interface BuildModelAttributionInput {
   bucketStartFor: (observedAt: string) => string
   /** Most recent pre-window state per in-window provider. Anchors are never emitted. */
   anchors?: Readonly<Record<string, ModelEvidenceState>>
+  /**
+   * Observation time of each anchor sweep, so an anchor-derived transition can
+   * be dated to a closed range instead of an open-ended "on or before".
+   */
+  anchorObservedAt?: Readonly<Record<string, string>>
+  /**
+   * Providers whose pre-window anchor search hit its scan bound without finding
+   * a sweep. Reported so a consumer can say the history may be incomplete.
+   */
+  anchorUnavailable?: ReadonlySet<string>
 }
 
 interface LogicalSweep {
@@ -60,6 +70,7 @@ export function buildModelAttribution(input: BuildModelAttributionInput): ModelA
     // The first comparison uses the pre-window anchor, so its transition can't
     // be dated inside the window. Every later one compares two in-window sweeps.
     let previousIsAnchor = previous !== undefined
+    const anchorObservedAt = previousIsAnchor ? input.anchorObservedAt?.[provider] : undefined
     let latestObservation: ModelAttribution[string]['latestObservation'] | undefined
     const events: ModelAttribution[string]['events'] = []
 
@@ -74,7 +85,12 @@ export function buildModelAttribution(input: BuildModelAttributionInput): ModelA
           bucketStartDate: input.bucketStartFor(sweep.observedAt),
           from: previous,
           to: state,
-          ...(previousIsAnchor ? { fromPreWindowAnchor: true } : {}),
+          ...(previousIsAnchor
+            ? {
+              fromPreWindowAnchor: true,
+              ...(anchorObservedAt ? { anchorObservedAt } : {}),
+            }
+            : {}),
         })
       }
       previous = state
@@ -89,6 +105,7 @@ export function buildModelAttribution(input: BuildModelAttributionInput): ModelA
         latestObservation,
         events: events.length > MODEL_ATTRIBUTION_EVENT_LIMIT ? events.slice(-MODEL_ATTRIBUTION_EVENT_LIMIT) : events,
         eventTotal: events.length,
+        ...(input.anchorUnavailable?.has(provider) ? { anchorUnavailable: true } : {}),
       }
     }
   }

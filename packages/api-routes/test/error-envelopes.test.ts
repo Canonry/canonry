@@ -119,7 +119,7 @@ describe('api error envelopes', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true })
   })
 
-  it('rejects a model override for an engine the project does not run, but keeps every override when providers is empty', async () => {
+  it('prunes a model override for an engine the project does not run, but keeps every override when providers is empty', async () => {
     const { app, tmpDir } = buildApp({
       providerAdapters: [
         {
@@ -138,15 +138,16 @@ describe('api error envelopes', () => {
     const body = { displayName: 'Demo', canonicalDomain: 'example.com', country: 'US', language: 'en' }
 
     // A stored override for an unselected engine is inert until that engine is
-    // added back, at which point it silently changes what executes.
+    // added back, at which point it silently changes what executes — so it is
+    // never persisted. The response carries the pruned map, which is how the
+    // caller learns what happened.
     const orphaned = await app.inject({
       method: 'PUT',
       url: '/api/v1/projects/demo',
       payload: { ...body, providers: ['gemini'], providerModels: { gemini: 'gemini-2.5-pro', openai: 'gpt-5-mini' } },
     })
-    expect(orphaned.statusCode).toBe(400)
-    expect(orphaned.json().error.code).toBe('VALIDATION_ERROR')
-    expect(orphaned.json().error.details.orphanedProviders).toEqual(['openai'])
+    expect(orphaned.statusCode).toBe(201)
+    expect(orphaned.json().providerModels).toEqual({ gemini: 'gemini-2.5-pro' })
 
     // An empty provider list means "all configured engines" — nothing is orphaned.
     const all = await app.inject({
@@ -154,17 +155,26 @@ describe('api error envelopes', () => {
       url: '/api/v1/projects/demo',
       payload: { ...body, providerModels: { gemini: 'gemini-2.5-pro', openai: 'gpt-5-mini' } },
     })
-    expect(all.statusCode).toBe(201)
+    expect(all.statusCode).toBe(200)
     expect(all.json().providerModels).toEqual({ gemini: 'gemini-2.5-pro', openai: 'gpt-5-mini' })
 
-    // Narrowing the engine set must drop the override in the same write.
+    // Narrowing the engine set drops the deselected engine's override in the
+    // same write, whether or not the caller echoed it back.
     const narrowed = await app.inject({
       method: 'PUT',
       url: '/api/v1/projects/demo',
-      payload: { ...body, providers: ['gemini'], providerModels: { gemini: 'gemini-2.5-pro' } },
+      payload: { ...body, providers: ['gemini'], providerModels: { gemini: 'gemini-2.5-pro', openai: 'gpt-5-mini' } },
     })
     expect(narrowed.statusCode).toBe(200)
     expect(narrowed.json().providerModels).toEqual({ gemini: 'gemini-2.5-pro' })
+
+    // Re-applying the same payload is a no-op — the prune converges.
+    const reapplied = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/projects/demo',
+      payload: { ...body, providers: ['gemini'], providerModels: { gemini: 'gemini-2.5-pro', openai: 'gpt-5-mini' } },
+    })
+    expect(reapplied.json().providerModels).toEqual({ gemini: 'gemini-2.5-pro' })
 
     await app.close()
     fs.rmSync(tmpDir, { recursive: true, force: true })

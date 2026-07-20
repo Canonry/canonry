@@ -15,7 +15,7 @@ import type {
 import { buildMentionShare } from '@ainyc/canonry-intelligence'
 import { notProbeRun, resolveProject, resolveSnapshotAnswerMentioned } from './helpers.js'
 import { buildModelAttribution } from './analytics-model-attribution.js'
-import { classifyModelEvidence } from './model-evidence.js'
+import { classifyModelEvidence, type ModelEvidenceValue } from './model-evidence.js'
 
 export async function analyticsRoutes(app: FastifyInstance) {
   // GET /projects/:name/analytics/metrics — citation rate trends
@@ -116,12 +116,15 @@ export async function analyticsRoutes(app: FastifyInstance) {
     const buckets = computeBuckets(allSnapshots, projectRuns, bucketSize, queryCreatedAt, mentionShareCompetitors)
 
     // Model observations are evidence, not configuration. To avoid a false
-    // "first seen" transition at the start of a bounded window, fetch one
-    // latest pre-cutoff logical sweep per in-window provider. The lookback is
-    // bounded (see ANCHOR_LOOKBACK_DAYS) so a provider that was last swept
-    // months ago cannot anchor a change marker inside this window, and provider
-    // absence remains absent evidence rather than a fabricated unknown state.
+    // "first seen" transition at the start of a bounded window, anchor each
+    // in-window provider to its latest pre-cutoff logical sweep. Provider
+    // absence remains absent evidence rather than a fabricated unknown state,
+    // and an anchor-derived transition is reported with the anchor's own
+    // observation time so a consumer dates it to the range between the two
+    // sweeps instead of claiming it happened inside the window.
     const anchors: Record<string, ModelEvidenceState> = {}
+    const anchorObservedAt: Record<string, string> = {}
+    const anchorUnavailable = new Set<string>()
     const windowProviders = new Set(allSnapshots.map(snapshot => snapshot.provider))
     if (cutoff && windowProviders.size > 0) {
       // Narrow to this project's runs FIRST (`idx_runs_project`), then read
@@ -131,45 +134,80 @@ export async function analyticsRoutes(app: FastifyInstance) {
       // blocks the synchronous driver for hundreds of ms per provider. This
       // shape is index-driven by construction, so it does not depend on the
       // planner having ANALYZE statistics.
-      const anchorRuns = app.db
-        .select({ id: runs.id, createdAt: runs.createdAt })
+      const anchorRunPredicate = and(
+        eq(runs.projectId, project.id),
+        eq(runs.kind, RunKinds['answer-visibility']),
+        inArray(runs.status, [RunStatuses.completed, RunStatuses.partial]),
+        notProbeRun(),
+        lt(runs.createdAt, cutoff),
+      )
+      // Walk pre-window logical sweeps newest-first and stop as soon as every
+      // in-window provider is anchored — normally the first sweep. The bound is
+      // a sweep count, not a calendar span, so it scales with the project's own
+      // cadence instead of silently dropping a real change on a slow-sweeping
+      // project. Reading every pre-cutoff run's snapshots up front would be
+      // read amplification: only the newest sweep observing a provider matters.
+      const anchorSweepTimes = app.db
+        .selectDistinct({ createdAt: runs.createdAt })
         .from(runs)
-        .where(and(
-          eq(runs.projectId, project.id),
-          eq(runs.kind, RunKinds['answer-visibility']),
-          inArray(runs.status, [RunStatuses.completed, RunStatuses.partial]),
-          notProbeRun(),
-          lt(runs.createdAt, cutoff),
-          gte(runs.createdAt, anchorLookbackFloor(cutoff)),
-        ))
+        .where(anchorRunPredicate)
+        .orderBy(desc(runs.createdAt))
+        // One past the bound: the extra row only answers "is there more history
+        // beyond the bound?", so a project with exactly the bound's worth of
+        // sweeps is reported as conclusive rather than as maybe-truncated.
+        .limit(ANCHOR_SWEEP_SCAN_LIMIT + 1)
         .all()
+        .map(row => row.createdAt)
+      const anchorScanTruncated = anchorSweepTimes.length > ANCHOR_SWEEP_SCAN_LIMIT
+      if (anchorScanTruncated) anchorSweepTimes.length = ANCHOR_SWEEP_SCAN_LIMIT
 
-      if (anchorRuns.length > 0) {
-        const anchorRunCreatedAt = new Map(anchorRuns.map(run => [run.id, run.createdAt]))
-        const anchorSnapshots = filterTrackedSnapshots(app.db
-          .select({
-            runId: querySnapshots.runId,
-            queryId: querySnapshots.queryId,
-            provider: querySnapshots.provider,
-            model: querySnapshots.model,
-          })
-          .from(querySnapshots)
-          .where(inArray(querySnapshots.runId, anchorRuns.map(run => run.id)))
-          .all())
-          .filter(snapshot => windowProviders.has(snapshot.provider))
-
-        // One anchor per provider: the latest pre-window logical sweep that
-        // actually observed it. Same-timestamp location runs collapse into it.
-        const anchorSweepAt = new Map<string, string>()
-        for (const snapshot of anchorSnapshots) {
-          const observedAt = anchorRunCreatedAt.get(snapshot.runId)!
-          const current = anchorSweepAt.get(snapshot.provider)
-          if (!current || observedAt > current) anchorSweepAt.set(snapshot.provider, observedAt)
+      if (anchorSweepTimes.length > 0) {
+        const anchorRuns = app.db
+          .select({ id: runs.id, createdAt: runs.createdAt })
+          .from(runs)
+          .where(and(anchorRunPredicate, gte(runs.createdAt, anchorSweepTimes[anchorSweepTimes.length - 1]!)))
+          .all()
+        // Same-timestamp `--all-locations` runs collapse into one logical sweep.
+        const runIdsBySweep = new Map<string, string[]>()
+        for (const run of anchorRuns) {
+          const ids = runIdsBySweep.get(run.createdAt) ?? []
+          ids.push(run.id)
+          runIdsBySweep.set(run.createdAt, ids)
         }
-        for (const [provider, observedAt] of [...anchorSweepAt].sort(([a], [b]) => a.localeCompare(b))) {
-          anchors[provider] = classifyModelEvidence(anchorSnapshots
-            .filter(snapshot => snapshot.provider === provider && anchorRunCreatedAt.get(snapshot.runId) === observedAt)
-            .map(snapshot => snapshot.model))
+
+        const pending = new Set(windowProviders)
+        for (const observedAt of anchorSweepTimes) {
+          if (pending.size === 0) break
+          const runIds = runIdsBySweep.get(observedAt)
+          if (!runIds || runIds.length === 0) continue
+
+          const modelsByProvider = new Map<string, ModelEvidenceValue[]>()
+          for (const snapshot of filterTrackedSnapshots(app.db
+            .select({
+              queryId: querySnapshots.queryId,
+              provider: querySnapshots.provider,
+              model: querySnapshots.model,
+            })
+            .from(querySnapshots)
+            .where(inArray(querySnapshots.runId, runIds))
+            .all())) {
+            if (!pending.has(snapshot.provider)) continue
+            const models = modelsByProvider.get(snapshot.provider) ?? []
+            models.push(snapshot.model)
+            modelsByProvider.set(snapshot.provider, models)
+          }
+
+          for (const [provider, models] of modelsByProvider) {
+            anchors[provider] = classifyModelEvidence(models)
+            anchorObservedAt[provider] = observedAt
+            pending.delete(provider)
+          }
+        }
+
+        // Only a bound we actually hit is inconclusive. Exhausting a project's
+        // shorter history means the provider truly has no pre-window evidence.
+        if (anchorScanTruncated) {
+          for (const provider of pending) anchorUnavailable.add(provider)
         }
       }
     }
@@ -181,6 +219,8 @@ export async function analyticsRoutes(app: FastifyInstance) {
         model: snapshot.model,
       })),
       anchors,
+      anchorObservedAt,
+      anchorUnavailable,
       bucketStartFor: observedAt => bucketStartDateFor(observedAt, earliest, bucketSize),
     })
 
@@ -539,19 +579,16 @@ interface DomainAgg {
 // --- Helpers ---
 
 /**
- * How far before a bounded window's cutoff the model-evidence anchor may look.
- * The anchor only makes sense as the sweep immediately preceding the window, so
- * it is capped at roughly two weekly cadences: a provider whose last sweep is
- * older than that has no continuous evidence chain into the window, and its
- * first in-window observation is a fresh first-seen, not a transition. Without
- * the cap an anchor from months earlier renders a model-change marker inside a
- * window where nothing changed.
+ * How many pre-window logical sweeps the model-evidence anchor search may walk
+ * before giving up on a provider. This bounds reads, not semantics: the search
+ * stops at the first sweep observing each provider, so the common case is one
+ * sweep. A calendar cap here would be wrong — it would silently delete a real
+ * model change from a project that sweeps weekly or paused for a month, which
+ * is worst on the shortest windows. A sweep count scales with the project's own
+ * cadence, and any provider the bound cuts off is reported via
+ * `anchorUnavailable` rather than being dropped without a trace.
  */
-const ANCHOR_LOOKBACK_DAYS = 14
-
-function anchorLookbackFloor(cutoff: string): string {
-  return new Date(new Date(cutoff).getTime() - ANCHOR_LOOKBACK_DAYS * 86_400_000).toISOString()
-}
+const ANCHOR_SWEEP_SCAN_LIMIT = 60
 
 function isProviderInfraDomain(uri: string): boolean {
   try {

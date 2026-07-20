@@ -74,6 +74,13 @@ export const modelAttributionEventSchema = z.object({
    * Consumers should date these "on or before", never as an in-window event.
    */
   fromPreWindowAnchor: z.boolean().optional(),
+  /**
+   * Observation time of the pre-window anchor sweep `from` came from. Present
+   * only alongside `fromPreWindowAnchor`, and it closes the date range: the
+   * change happened after `anchorObservedAt` and on or before `observedAt`.
+   * Without it a consumer can only say "on or before".
+   */
+  anchorObservedAt: z.string().optional(),
 })
 export type ModelAttributionEvent = z.infer<typeof modelAttributionEventSchema>
 
@@ -99,6 +106,14 @@ export const providerModelAttributionSchema = z.object({
    * newer client can still read an older server's response.
    */
   eventTotal: z.number().int().nonnegative().optional(),
+  /**
+   * True when the pre-window anchor search hit its scan bound before finding a
+   * sweep that observed this provider, so there may be an earlier change this
+   * response cannot see. Lets a consumer distinguish "no model change" from
+   * "we did not look far enough back". Omitted when the search was conclusive,
+   * including when the provider genuinely has no history before the window.
+   */
+  anchorUnavailable: z.boolean().optional(),
 })
 export type ProviderModelAttribution = z.infer<typeof providerModelAttributionSchema>
 

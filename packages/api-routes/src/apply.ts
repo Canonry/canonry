@@ -4,7 +4,7 @@ import type { FastifyInstance } from 'fastify'
 import { projects, competitors, schedules, notifications } from '@ainyc/canonry-db'
 import { forbidden, normalizeProjectAliases, normalizeProjectDomain, projectConfigSchema, registrableDomain, resolveConfigSpecQueries, SchedulableRunKinds, validationError } from '@ainyc/canonry-contracts'
 import type { ProviderAdapterInfo } from './settings.js'
-import { assertProviderModelsMatchProviders, validateProviderModels } from './provider-models.js'
+import { pruneProviderModelsForProviders, validateProviderModels } from './provider-models.js'
 import { writeAuditLog } from './helpers.js'
 import { assertProviderModelScope } from './projects.js'
 import { replaceProjectQueries } from './query-replace.js'
@@ -53,8 +53,11 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
         }
       }
     }
-    const providerModels = validateProviderModels(config.spec.providerModels ?? {}, opts?.providerAdapters)
-    assertProviderModelsMatchProviders(providerModels, config.spec.providers ?? [])
+    const specProviders = config.spec.providers ?? []
+    const providerModels = pruneProviderModelsForProviders(
+      validateProviderModels(config.spec.providerModels ?? {}, opts?.providerAdapters),
+      specProviders,
+    )
 
     // Validate schedule before entering transaction
     let resolvedSchedule: { cronExpr: string; preset: string | null; timezone: string } | null = null
@@ -120,7 +123,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
 
     // Same instance-level gate as PUT /projects/:name — apply may not be a
     // back door into choosing the execution model.
-    assertProviderModelScope(request, target?.providerModels ?? {}, providerModels)
+    assertProviderModelScope(request, target?.providerModels ?? {}, providerModels, specProviders)
 
     // All validation done — wrap all writes in a single transaction
     let projectId: string

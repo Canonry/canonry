@@ -16,7 +16,7 @@ import { requireScope } from './auth.js'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import { SETTINGS_WRITE_SCOPE } from './settings.js'
 import type { ProviderAdapterInfo } from './settings.js'
-import { assertProviderModelsMatchProviders, validateProviderModels } from './provider-models.js'
+import { pruneProviderModelsForProviders, validateProviderModels } from './provider-models.js'
 
 export interface ProjectRoutesOptions {
   onProjectDeleted?: (projectId: string) => void
@@ -76,12 +76,15 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
         })
       }
     }
-    const providerModels = validateProviderModels(body.providerModels ?? {}, opts.providerAdapters)
-    assertProviderModelsMatchProviders(providerModels, body.providers ?? [])
+    const nextProviders = body.providers ?? []
+    const providerModels = pruneProviderModelsForProviders(
+      validateProviderModels(body.providerModels ?? {}, opts.providerAdapters),
+      nextProviders,
+    )
 
     const now = new Date().toISOString()
     const existing = app.db.select().from(projects).where(eq(projects.name, name)).get()
-    assertProviderModelScope(request, existing?.providerModels ?? {}, providerModels)
+    assertProviderModelScope(request, existing?.providerModels ?? {}, providerModels, nextProviders)
     const existingLocations = existing ? existing.locations : []
     const nextLocations = body.locations ?? existingLocations
     const duplicateLabels = findDuplicateLocationLabels(nextLocations)
@@ -449,14 +452,32 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
  * presence in the payload: a rename or query edit that echoes the project's
  * current overrides back (or carries none on a project that has none) stays
  * ungated. Shared with `POST /apply`, which applies the same declarative
- * semantics — clearing an override is a change too.
+ * semantics — clearing an override for an engine the project still runs is a
+ * change too.
+ *
+ * Both sides are compared through `pruneProviderModelsForProviders` against the
+ * INCOMING engine set, so the gate asks exactly one question: does this write
+ * change the model any engine the project will run executes with? Deselecting
+ * an engine removes its override — that is removing a choice, not making one,
+ * and it rides plain `write` like the rest of the engine-set edit. Choosing or
+ * changing a value for a selected engine still requires `settings.write`,
+ * including when the write also narrows the engine set (the surviving engine's
+ * value is compared under the new provider list either way).
+ *
+ * Consequence worth naming: on a legacy row that still stores an override for
+ * an unselected engine, re-selecting that engine is ungated, because no VALUE
+ * changed — the value was already stored by a caller that had the authority to
+ * store it. Any write normalizes the row, so orphans do not accumulate.
  */
 export function assertProviderModelScope(
   request: FastifyRequest,
   current: ProviderModels,
   next: ProviderModels,
+  nextProviders: readonly string[],
 ): void {
-  if (providerModelsEqual(current, next)) return
+  const effectiveCurrent = pruneProviderModelsForProviders(current, nextProviders)
+  const effectiveNext = pruneProviderModelsForProviders(next, nextProviders)
+  if (providerModelsEqual(effectiveCurrent, effectiveNext)) return
   requireScope(request, SETTINGS_WRITE_SCOPE)
 }
 

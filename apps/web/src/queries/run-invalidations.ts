@@ -63,16 +63,31 @@ export function invalidateQueriesForRunKind(
   switch (kind) {
     case RunKinds['answer-visibility']:
       // No explicit `['analytics-metrics', project]` invalidation here. That
-      // key carries the latest completed-sweep revision as its last segment
-      // (`analyticsRevision` in `VisibilityTrendSection`, fed by
-      // `latestVisibilityRevision` in `use-project-dashboard.ts`), derived
-      // from exactly the run set `GET /analytics/metrics` aggregates
-      // (answer-visibility, completed|partial, non-probe). The project-scoped
-      // runs list invalidated above refetches, the revision rotates, and the
-      // chart mounts a brand-new key — one fetch. A prefix invalidation on
-      // top of that refetched the OLD revision key first, so every sweep
-      // completion cost two full-history analytics scans; the old entries it
-      // marked stale are unreachable anyway once the revision moves.
+      // key's last segment is `analyticsRevision` (`VisibilityTrendSection`,
+      // fed by `latestVisibilityRevision` in `use-project-dashboard.ts`).
+      //
+      // What the revision actually is: the createdAt + sibling run ids of the
+      // NEWEST completed|partial non-probe answer-visibility sweep. That is
+      // the newest member of the run set `GET /analytics/metrics` aggregates
+      // (same kind / status / non-probe filters), NOT the whole set — the
+      // endpoint scans all of them, the revision names only the latest.
+      //
+      // Why that is enough for this call site: a sweep completing is a sweep
+      // becoming the newest one, so the project-scoped runs refetch above
+      // rotates the revision and the chart mounts a brand-new key — one
+      // fetch. A prefix invalidation on top refetched the OLD revision key
+      // first, so every sweep completion cost two full-history analytics
+      // scans, and the entries it marked stale are unreachable once the
+      // revision moves.
+      //
+      // Known limit: a run that completes out of createdAt order (an older
+      // run finishing after a newer one already did) joins the aggregated set
+      // without changing `latestCreatedAt`, so the revision does not rotate
+      // and the chart keeps the pre-completion numbers until it remounts.
+      // Sibling runs of one logical multi-location sweep share a createdAt
+      // and so are covered; only genuinely overlapping sweeps are not. That
+      // is accepted rather than paying an extra full-history scan on every
+      // sweep completion, which is the hot path here.
       return
     case RunKinds['site-audit']:
     case RunKinds['backlink-extract']:

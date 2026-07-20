@@ -53,24 +53,32 @@ export function validateProviderModels(
 /**
  * A model override only means something for an engine the project actually
  * runs. An override for an unselected engine is inert but stored, and it
- * silently takes effect the day that engine is added back — so reject it at the
- * boundary rather than stripping it: `apply` is expected to be idempotent, and
- * quietly dropping an operator-supplied key would make its output diverge from
- * its input with nothing said.
+ * silently takes effect the day that engine is added back — so it must not be
+ * persisted. Both write paths (`PUT /projects/:name`, `POST /apply`) are FULL
+ * REPLACE, so the pruning happens SERVER-SIDE rather than at the boundary: the
+ * caller echoes the project's stored map back on every unrelated edit, and a
+ * boundary rejection would make narrowing the engine set impossible for any
+ * project (or `apply` file) that carries an override for a dropped engine —
+ * the client is told to drop the key, and dropping it is a change to the map.
+ *
+ * The prune is not silent. Both routes return the stored `providerModels` in
+ * their response, so the caller sees the persisted map; `canonry project
+ * update` diffs what it sent against what came back and names the drop.
+ * `apply` stays idempotent: applying a file whose overrides include a
+ * deselected engine converges on the pruned map and reapplying is a no-op.
  *
  * An EMPTY provider list means "every configured engine" (both routes persist
  * `providers ?? []` and read it that way), so nothing is orphaned there and
  * every override is kept.
  */
-export function assertProviderModelsMatchProviders(
+export function pruneProviderModelsForProviders(
   models: ProviderModels,
   providers: readonly string[],
-): void {
-  if (providers.length === 0) return
-  const orphaned = Object.keys(models).filter(provider => !providers.includes(provider))
-  if (orphaned.length === 0) return
-  throw validationError(
-    `Model override set for provider(s) the project does not run: ${orphaned.join(', ')}. Add them to "providers" or drop the override.`,
-    { orphanedProviders: orphaned, providers: [...providers] },
-  )
+): ProviderModels {
+  if (providers.length === 0) return { ...models }
+  const kept: ProviderModels = {}
+  for (const [provider, model] of Object.entries(models)) {
+    if (providers.includes(provider)) kept[provider] = model
+  }
+  return kept
 }

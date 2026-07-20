@@ -152,11 +152,15 @@ export async function updateProjectSettings(
   }
   const providerModels = { ...(project.providerModels ?? {}), ...(opts.providerModels ?? {}) }
   for (const provider of opts.clearProviderModels ?? []) delete providerModels[provider]
-  // A model override only means something for an engine the project actually
-  // runs. Narrowing the engine set must not leave the dropped engine's override
-  // behind, or it silently re-applies the day that engine is added back. Mirrors
-  // the dashboard's engine-settings guard: an empty provider list means "all
-  // configured engines", so nothing is orphaned there and every override stays.
+  // Two flags in the SAME invocation that contradict each other are a usage
+  // error: the operator explicitly typed a model for an engine this command
+  // does not select. Rejecting it before the request keeps a value the operator
+  // typed from being silently pruned server-side.
+  //
+  // Nothing else is filtered here. The stored map is echoed back untouched and
+  // the API normalizes it against the incoming engine set — one implementation,
+  // one semantics. Stripping it client-side too would put the same rule in two
+  // places, and the CLI cannot know what the server will keep.
   const nextProviders = opts.providers ?? project.providers ?? []
   if (nextProviders.length > 0) {
     const requested = Object.keys(opts.providerModels ?? {}).filter(p => !nextProviders.includes(p))
@@ -168,9 +172,6 @@ export async function updateProjectSettings(
           details: { command: 'project.update', project: name, providers: nextProviders, unselected: requested },
         },
       )
-    }
-    for (const provider of Object.keys(providerModels)) {
-      if (!nextProviders.includes(provider)) delete providerModels[provider]
     }
   }
 
@@ -196,6 +197,13 @@ export async function updateProjectSettings(
   }
 
   console.log(`Project updated: ${result.name}`)
+  // The server prunes overrides for engines the project no longer runs. Say so
+  // — the response is the record of what was persisted, and an operator who
+  // narrowed the engine set should not have to diff it by hand.
+  const dropped = Object.keys(providerModels).filter(provider => !(provider in result.providerModels))
+  if (dropped.length > 0) {
+    console.log(`  Dropped model override for deselected engine(s): ${dropped.join(', ')}`)
+  }
 }
 
 export async function deleteProject(name: string, opts?: { dryRun?: boolean; format?: string }): Promise<void> {

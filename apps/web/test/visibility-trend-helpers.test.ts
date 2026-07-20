@@ -225,6 +225,44 @@ describe('model attribution helpers', () => {
 
     expect(countModelAttributionEvents({})).toEqual({ shown: 0, total: 0 })
   })
+
+  it('summed `shown` equals the events the grouped view actually renders', () => {
+    // The cap is applied PER PROVIDER server-side, but the UI renders one
+    // merged, bucket-grouped list and so reports one summed pair. That is only
+    // honest if the sum matches what grouping emits — if grouping ever starts
+    // dropping events (an unparsable bucket, a dedupe), `shown` would overstate
+    // the visible history and "showing N of M" would lie in the safe-looking
+    // direction. Cross-check the two helpers against the same input.
+    const eventAt = (observedAt: string, bucketStartDate: string) => ({
+      observedAt,
+      bucketStartDate,
+      from: { status: 'known', model: 'a' },
+      to: { status: 'known', model: 'b' },
+    } as const)
+    const latestObservation = { observedAt: '2026-04-15T09:00:00.000Z', state: { status: 'known', model: 'b' } } as const
+
+    // Two providers, overlapping buckets, one of them truncated.
+    const attribution = {
+      gemini: {
+        latestObservation,
+        events: [eventAt('2026-04-08T09:00:00.000Z', '2026-04-08'), eventAt('2026-04-15T09:00:00.000Z', '2026-04-15')],
+        eventTotal: 40,
+      },
+      openai: {
+        latestObservation,
+        events: [eventAt('2026-04-08T10:00:00.000Z', '2026-04-08')],
+        eventTotal: 1,
+      },
+    }
+
+    const counts = countModelAttributionEvents(attribution)
+    const rendered = groupModelAttributionEvents(attribution)
+      .reduce((sum, bucket) => sum + bucket.events.length, 0)
+
+    expect(counts.shown).toBe(rendered)
+    // …and the truncation is still visible in the summed pair.
+    expect(counts).toEqual({ shown: 3, total: 41 })
+  })
 })
 
 describe('buildMentionShareTrendRows', () => {

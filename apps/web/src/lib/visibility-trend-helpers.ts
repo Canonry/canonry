@@ -192,6 +192,16 @@ export function groupModelAttributionEvents(
  * How many changes the response actually carries vs how many it observed. The
  * server caps the per-provider list, so `total > shown` means the operator is
  * looking at a partial history and the UI has to say so.
+ *
+ * Summing ACROSS providers is deliberate even though the server's cap is
+ * per-provider. The only consumer renders one pooled, bucket-grouped list of
+ * every provider's events (`groupModelAttributionEvents`, which drops nothing),
+ * so the summed pair describes exactly the list on screen — "showing 55 of 65"
+ * is a true statement about that list. What a summed pair cannot do is name
+ * WHICH provider's history is clipped when only one of them is. That is a
+ * presentational gap in `VisibilityTrendSection`, not an arithmetic one here;
+ * closing it means rendering per-provider truncation copy, at which point this
+ * helper should return a per-provider breakdown instead.
  */
 export function countModelAttributionEvents(
   attribution: ModelAttribution,
