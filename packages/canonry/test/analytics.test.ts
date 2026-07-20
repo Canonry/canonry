@@ -6,7 +6,7 @@ import crypto from 'node:crypto'
 import { createClient, migrate, apiKeys } from '@ainyc/canonry-db'
 import { createServer } from '../src/server.js'
 import { ApiClient } from '../src/client.js'
-import type { BrandMetricsDto } from '@ainyc/canonry-contracts'
+import type { BrandMetricsDto, ModelPointerChangeDisclosure } from '@ainyc/canonry-contracts'
 
 function captureOutput(fn: () => Promise<void>): Promise<{ stdout: string; stderr: string }> {
   const logs: string[] = []
@@ -19,6 +19,57 @@ function captureOutput(fn: () => Promise<void>): Promise<{ stdout: string; stder
     console.log = origLog
     console.error = origError
   }).then(() => ({ stdout: logs.join('\n'), stderr: errors.join('\n') }))
+}
+
+/**
+ * Deliberately a literal, not the imported constant: this pins the sentence a
+ * user actually reads, so editing the shared copy in contracts fails here
+ * instead of silently changing what the CLI prints.
+ */
+const MODEL_CHANGE_NEXT_ACTION = 'Compare this period with earlier ones carefully.'
+
+const OPENAI_CHANGE: ModelPointerChangeDisclosure = {
+  modelIds: ['chat-latest'],
+  changeCount: 1,
+  unverifiedChangeCount: 0,
+  firstChangeDate: '2026-06-24',
+  lastChangeDate: '2026-06-24',
+  summary: 'The model behind "chat-latest" changed on 2026-06-24, inside this reporting period. '
+    + 'Part of any movement in this number comes from that change and not from how often AI names you.',
+}
+
+const GEMINI_CHANGE: ModelPointerChangeDisclosure = {
+  modelIds: ['gemini-flash-latest'],
+  changeCount: 2,
+  unverifiedChangeCount: 0,
+  firstChangeDate: '2026-06-02',
+  lastChangeDate: '2026-06-30',
+  summary: 'The model behind "gemini-flash-latest" changed more than once in this reporting period, '
+    + 'between 2026-06-02 and 2026-06-30. '
+    + 'Part of any movement in this number comes from those changes and not from how often AI names you.',
+}
+
+/** Cast because the fixture omits the newer optional fields the CLI degrades over. */
+function metricsWith(modelPointerChanges?: Record<string, ModelPointerChangeDisclosure>): BrandMetricsDto {
+  return {
+    window: '30d',
+    buckets: [],
+    overall: { citationRate: 0, cited: 0, total: 0, mentionRate: 0, mentionedCount: 0 },
+    byProvider: {},
+    trend: 'stable',
+    mentionTrend: 'stable',
+    queryChanges: [],
+    modelAttribution: {
+      openai: {
+        latestObservation: {
+          observedAt: '2026-07-15T12:00:00.000Z',
+          state: { status: 'known', model: 'chat-latest' },
+        },
+        events: [],
+      },
+    },
+    ...(modelPointerChanges ? { modelPointerChanges } : {}),
+  } as unknown as BrandMetricsDto
 }
 
 describe('analytics command', () => {
@@ -231,6 +282,78 @@ describe('analytics command', () => {
       // The served lane, in plain language.
       expect(stdout).toContain('What the Engines Answered With:')
       expect(stdout).toContain('openai: gpt-5.6-sol at 2026-07-15T12:00:00.000Z — not the known gpt-5.6 you selected')
+    } finally {
+      metricsSpy.mockRestore()
+    }
+  })
+
+  it('discloses a single provider-side model change in plain language', async () => {
+    const metricsSpy = vi.spyOn(ApiClient.prototype, 'getAnalyticsMetrics')
+      .mockResolvedValue(metricsWith({ openai: OPENAI_CHANGE }))
+    try {
+      const { showAnalytics } = await import('../src/commands/analytics.js')
+      const { stdout } = await captureOutput(() => showAnalytics('test-proj', { feature: 'metrics' }))
+      expect(stdout).toContain('Model Changes Behind These Numbers:')
+      expect(stdout).toContain(`${OPENAI_CHANGE.summary} ${MODEL_CHANGE_NEXT_ACTION}`)
+      // Ahead of the model sections — it is the note that changes how the
+      // numbers above it should be read.
+      expect(stdout.indexOf('Model Changes Behind These Numbers:')).toBeLessThan(stdout.indexOf('Model Evidence:'))
+    } finally {
+      metricsSpy.mockRestore()
+    }
+  })
+
+  it('discloses several changes across engines with one shared caveat', async () => {
+    const metricsSpy = vi.spyOn(ApiClient.prototype, 'getAnalyticsMetrics')
+      .mockResolvedValue(metricsWith({ openai: OPENAI_CHANGE, gemini: GEMINI_CHANGE }))
+    try {
+      const { showAnalytics } = await import('../src/commands/analytics.js')
+      const { stdout } = await captureOutput(() => showAnalytics('test-proj', { feature: 'metrics' }))
+      expect(stdout).toContain(`${GEMINI_CHANGE.summary} ${OPENAI_CHANGE.summary} ${MODEL_CHANGE_NEXT_ACTION}`)
+      // One closing line however many engines are affected.
+      expect(stdout.split(MODEL_CHANGE_NEXT_ACTION)).toHaveLength(2)
+    } finally {
+      metricsSpy.mockRestore()
+    }
+  })
+
+  it('prints no disclosure when the server omits the field or reports no change', async () => {
+    const metricsSpy = vi.spyOn(ApiClient.prototype, 'getAnalyticsMetrics').mockResolvedValue(metricsWith())
+    try {
+      const { showAnalytics } = await import('../src/commands/analytics.js')
+      const older = await captureOutput(() => showAnalytics('test-proj', { feature: 'metrics' }))
+      expect(older.stdout).toContain('Model Evidence:')
+      expect(older.stdout).not.toContain('Model Changes Behind These Numbers:')
+      expect(older.stdout).not.toContain('The model behind')
+
+      metricsSpy.mockResolvedValue(metricsWith({}))
+      const unchanged = await captureOutput(() => showAnalytics('test-proj', { feature: 'metrics' }))
+      expect(unchanged.stdout).not.toContain('Model Changes Behind These Numbers:')
+      expect(unchanged.stdout).not.toContain('The model behind')
+    } finally {
+      metricsSpy.mockRestore()
+    }
+  })
+
+  /**
+   * The copy is the deliverable, and it must read identically here and on the
+   * dashboard. Pinned so a later edit cannot quietly reintroduce the internal
+   * words an agency owner does not speak.
+   */
+  it('keeps the disclosure free of internal vocabulary', async () => {
+    const metricsSpy = vi.spyOn(ApiClient.prototype, 'getAnalyticsMetrics')
+      .mockResolvedValue(metricsWith({ openai: OPENAI_CHANGE }))
+    try {
+      const { showAnalytics } = await import('../src/commands/analytics.js')
+      const { stdout } = await captureOutput(() => showAnalytics('test-proj', { feature: 'metrics' }))
+      const note = stdout.split('\n').find(line => line.includes('The model behind'))!
+      expect(note.trim()).toBe(`${OPENAI_CHANGE.summary} ${MODEL_CHANGE_NEXT_ACTION}`)
+      // What happened, what it means for the number, and what to do about it.
+      expect(note).toContain('changed on 2026-06-24, inside this reporting period')
+      expect(note).toContain('not from how often AI names you')
+      for (const banned of ['pointer', 'alias', 'snapshot', 'drift', 'attribution', 'divergence']) {
+        expect(note.toLowerCase()).not.toContain(banned)
+      }
     } finally {
       metricsSpy.mockRestore()
     }

@@ -3,6 +3,7 @@ import type {
   ModelAttribution,
   ModelAttributionEvent,
   ModelEvidenceState,
+  ModelPointerChangeDisclosure,
   ModelServiceMismatch,
   QueryChangeEvent,
   ServedModelAttribution,
@@ -60,6 +61,7 @@ type MetricsWithOptionalModelAttribution = BrandMetricsDto & {
   modelAttribution?: ModelAttribution
   servedModelAttribution?: ServedModelAttribution
   modelServiceMismatch?: Record<string, ModelServiceMismatch>
+  modelPointerChanges?: Record<string, ModelPointerChangeDisclosure>
 }
 
 export interface GroupedModelAttributionEvent {
@@ -213,6 +215,16 @@ export function readServedModelAttribution(dto: BrandMetricsDto): ServedModelAtt
 
 export function readModelServiceMismatch(dto: BrandMetricsDto): Record<string, ModelServiceMismatch> {
   return (dto as MetricsWithOptionalModelAttribution).modelServiceMismatch ?? {}
+}
+
+/**
+ * Providers whose numbers span a known change to a moving model id. Absent on
+ * an older API, empty for a project on fixed model ids. Rendering is
+ * `formatModelChangeDisclosure` from contracts — the wording is shared with the
+ * CLI so neither surface can soften the caveat the other gives.
+ */
+export function readModelPointerChanges(dto: BrandMetricsDto): Record<string, ModelPointerChangeDisclosure> {
+  return (dto as MetricsWithOptionalModelAttribution).modelPointerChanges ?? {}
 }
 
 /** The raw ids an engine reported, joined for display. Empty → the normalized label stands alone. */

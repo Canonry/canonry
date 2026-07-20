@@ -513,6 +513,16 @@ export type BrandMetricsDto = {
             };
         };
     };
+    modelPointerChanges: {
+        [key: string]: {
+            modelIds: Array<string>;
+            changeCount: number;
+            unverifiedChangeCount: number;
+            firstChangeDate: string;
+            lastChangeDate: string;
+            summary: string;
+        };
+    };
 };
 
 export type CcAvailableRelease = {

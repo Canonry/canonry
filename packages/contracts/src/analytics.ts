@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { modelPointerChangeDisclosureSchema } from './model-pointers.js'
 import { sourceCategorySchema } from './source-categories.js'
 import { surfaceClassSchema } from './surface-class.js'
 
@@ -272,6 +273,17 @@ export const brandMetricsDtoSchema = z.object({
   servedModelAttribution: servedModelAttributionSchema.default({}),
   /** Providers currently serving a different top-level model than the one configured. */
   modelServiceMismatch: z.record(z.string(), modelServiceMismatchSchema).default({}),
+  /**
+   * Providers where a model id the project RAN is one the provider re-points at
+   * a different underlying model, and a known re-point landed inside the span
+   * of sweeps these numbers come from. Sibling of `modelServiceMismatch`: same
+   * `.default({})` back-compat, and the same "this is evidence about the
+   * measurement, not project configuration" role. A mismatch is something we
+   * OBSERVED; this is something we could never observe from the response, which
+   * is exactly why it has to be disclosed from a dated record instead.
+   * Empty for every project on pinned model ids.
+   */
+  modelPointerChanges: z.record(z.string(), modelPointerChangeDisclosureSchema).default({}),
 })
 export type BrandMetricsDto = z.infer<typeof brandMetricsDtoSchema>
 
