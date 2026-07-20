@@ -1050,7 +1050,6 @@ async function withLeaseHeartbeat<T>(
         schedule()
       })
     }, heartbeatIntervalMs)
-    timer.unref()
   }
 
   schedule()
