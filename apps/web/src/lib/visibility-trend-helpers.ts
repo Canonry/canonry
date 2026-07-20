@@ -3,6 +3,7 @@ import type {
   ModelAttribution,
   ModelAttributionEvent,
   ModelEvidenceState,
+  ModelPointerChangeDisclosure,
   ModelServiceMismatch,
   QueryChangeEvent,
   ServedModelAttribution,
@@ -60,6 +61,7 @@ type MetricsWithOptionalModelAttribution = BrandMetricsDto & {
   modelAttribution?: ModelAttribution
   servedModelAttribution?: ServedModelAttribution
   modelServiceMismatch?: Record<string, ModelServiceMismatch>
+  modelPointerChanges?: Record<string, ModelPointerChangeDisclosure>
 }
 
 export interface GroupedModelAttributionEvent {
@@ -213,6 +215,17 @@ export function readServedModelAttribution(dto: BrandMetricsDto): ServedModelAtt
 
 export function readModelServiceMismatch(dto: BrandMetricsDto): Record<string, ModelServiceMismatch> {
   return (dto as MetricsWithOptionalModelAttribution).modelServiceMismatch ?? {}
+}
+
+/**
+ * Providers whose numbers were produced by a model id the provider is free to
+ * move onto a different underlying model. Absent on an older API, empty for a
+ * project on fixed model ids. The sentence a reader sees is built from these
+ * facts by `buildModelChangeNotice` in contracts, which the CLI calls too, so
+ * neither surface can word this caveat more softly than the other.
+ */
+export function readModelPointerChanges(dto: BrandMetricsDto): Record<string, ModelPointerChangeDisclosure> {
+  return (dto as MetricsWithOptionalModelAttribution).modelPointerChanges ?? {}
 }
 
 /** The raw ids an engine reported, joined for display. Empty → the normalized label stands alone. */

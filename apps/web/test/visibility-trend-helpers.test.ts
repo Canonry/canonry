@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import type { BrandMetricsDto, ModelAttribution, ModelEvidenceState } from '@ainyc/canonry-contracts'
+import type { BrandMetricsDto, ModelAttribution, ModelEvidenceState, ModelPointerChangeDisclosure } from '@ainyc/canonry-contracts'
 import {
   buildMentionShareTrendRows,
   buildSelectedTrendRows,
@@ -9,6 +9,7 @@ import {
   truncatedProviderCounts,
   formatModelEvidence,
   groupModelAttributionEvents,
+  readModelPointerChanges,
   latestPlottedProviderModelEvidence,
   readBucketModelEvidence,
   readModelAttribution,
@@ -479,5 +480,30 @@ describe('truncatedProviderCounts', () => {
     })).toEqual([{ provider: 'gemini', shown: 2, total: 40 }])
 
     expect(truncatedProviderCounts({})).toEqual([])
+  })
+})
+
+describe('readModelPointerChanges', () => {
+  const metrics = (extra?: Record<string, unknown>) =>
+    ({ ...dto([]), ...extra }) as unknown as BrandMetricsDto
+
+  // Partial on purpose: this reader must pass through whatever the server sent,
+  // including a response from a build that predates some of these fields.
+  const openaiChange = {
+    modelIds: ['chat-latest'],
+    changeCount: 1,
+    unverifiedChangeCount: 0,
+    firstChangeDate: '2026-06-24',
+    lastChangeDate: '2026-06-24',
+  } as unknown as ModelPointerChangeDisclosure
+
+  it('reads nothing from an older API and nothing from a project on fixed model ids', () => {
+    expect(readModelPointerChanges(metrics())).toEqual({})
+    expect(readModelPointerChanges(metrics({ modelPointerChanges: {} }))).toEqual({})
+  })
+
+  it('passes the server disclosures through untouched', () => {
+    expect(readModelPointerChanges(metrics({ modelPointerChanges: { openai: openaiChange } })))
+      .toEqual({ openai: openaiChange })
   })
 })

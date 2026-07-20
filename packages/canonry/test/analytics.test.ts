@@ -21,6 +21,71 @@ function captureOutput(fn: () => Promise<void>): Promise<{ stdout: string; stder
   }).then(() => ({ stdout: logs.join('\n'), stderr: errors.join('\n') }))
 }
 
+/**
+ * Deliberately literals, not imported constants: these pin the sentences a user
+ * actually reads. The same literals are pinned in
+ * `apps/web/test/visibility-trend-helpers.test.ts` — the CLI carries a mirrored
+ * copy of the dashboard's copy builder, and identical literals in both suites
+ * are what stops one surface softening the caveat the other gives.
+ */
+const CLOSING_LINE = 'rather than from a real change in how AI answers about you, so compare periods carefully.'
+
+/** `summary` is a LEGACY field an older server used to send, kept here
+ *  deliberately: it is the hostile wording this lane replaced, so a surface
+ *  that ever renders the server's sentence again instead of building its own
+ *  fails these tests loudly. Cast because these fixtures model what a server of
+ *  any vintage may put on the wire, not the current full shape. */
+const OPENAI_CHANGE = {
+  modelIds: ['chat-latest'],
+  changeCount: 1,
+  unverifiedChangeCount: 0,
+  firstChangeDate: '2026-06-24',
+  lastChangeDate: '2026-06-24',
+  summary: 'The model behind "chat-latest" changed on 2026-06-24, inside this reporting period. '
+    + 'Part of any movement in this number comes from that change and not from how often AI names you.',
+}
+
+const PERPLEXITY_CHANGE = {
+  modelIds: ['sonar-latest'],
+  changeCount: 1,
+  unverifiedChangeCount: 0,
+  firstChangeDate: '2026-06-10',
+  lastChangeDate: '2026-06-10',
+  summary: 'The model behind "sonar-latest" changed on 2026-06-10, inside this reporting period. '
+    + 'Part of any movement in this number comes from that change and not from how often AI names you.',
+}
+
+const OPENAI_UNCONFIRMED = {
+  modelIds: ['chat-latest'],
+  changeCount: 1,
+  unverifiedChangeCount: 1,
+  firstChangeDate: '2026-05-28',
+  lastChangeDate: '2026-05-28',
+}
+
+/** Cast because the fixture omits the newer optional fields the CLI degrades over. */
+function metricsWith(modelPointerChanges?: Record<string, unknown>): BrandMetricsDto {
+  return {
+    window: '30d',
+    buckets: [],
+    overall: { citationRate: 0, cited: 0, total: 0, mentionRate: 0, mentionedCount: 0 },
+    byProvider: {},
+    trend: 'stable',
+    mentionTrend: 'stable',
+    queryChanges: [],
+    modelAttribution: {
+      openai: {
+        latestObservation: {
+          observedAt: '2026-07-15T12:00:00.000Z',
+          state: { status: 'known', model: 'chat-latest' },
+        },
+        events: [],
+      },
+    },
+    ...(modelPointerChanges ? { modelPointerChanges } : {}),
+  } as unknown as BrandMetricsDto
+}
+
 describe('analytics command', () => {
   let tmpDir: string
   let origConfigDir: string | undefined
@@ -231,6 +296,161 @@ describe('analytics command', () => {
       // The served lane, in plain language.
       expect(stdout).toContain('What the Engines Answered With:')
       expect(stdout).toContain('openai: gpt-5.6-sol at 2026-07-15T12:00:00.000Z — not the known gpt-5.6 you selected')
+    } finally {
+      metricsSpy.mockRestore()
+    }
+  })
+
+  it('names the engine the reader knows and prints the caveat above the numbers', async () => {
+    const metricsSpy = vi.spyOn(ApiClient.prototype, 'getAnalyticsMetrics')
+      .mockResolvedValue(metricsWith({ openai: OPENAI_CHANGE }))
+    try {
+      const { showAnalytics } = await import('../src/commands/analytics.js')
+      const { stdout } = await captureOutput(() => showAnalytics('test-proj', { feature: 'metrics' }))
+      const note = stdout.split('\n').find(line => line.includes('The model behind'))!
+      expect(note.trim()).toBe(
+        'The model behind ChatGPT was updated on 2026-06-24, inside this period. '
+        + `Some of the movement in these numbers may come from this update ${CLOSING_LINE}`,
+      )
+      // "chat-latest" is an internal model id. An agency owner reads engines.
+      expect(note).not.toContain('chat-latest')
+      // Above the FIRST number, not merely above the model sections at the
+      // bottom: an operator who has already read the rates has already formed
+      // the reading this note exists to correct.
+      expect(stdout.indexOf('Model Updates Behind These Numbers:')).toBeLessThan(stdout.indexOf('Overall:'))
+    } finally {
+      metricsSpy.mockRestore()
+    }
+  })
+
+  it('states one fact per engine and closes with a single consequence', async () => {
+    const metricsSpy = vi.spyOn(ApiClient.prototype, 'getAnalyticsMetrics')
+      .mockResolvedValue(metricsWith({ openai: OPENAI_CHANGE, perplexity: PERPLEXITY_CHANGE }))
+    try {
+      const { showAnalytics } = await import('../src/commands/analytics.js')
+      const { stdout } = await captureOutput(() => showAnalytics('test-proj', { feature: 'metrics' }))
+      const note = stdout.split('\n').find(line => line.includes('The model behind'))!
+      expect(note.trim()).toBe(
+        'The model behind ChatGPT was updated on 2026-06-24, inside this period. '
+        + 'The model behind Perplexity was updated on 2026-06-10, inside this period. '
+        + `Some of the movement in these numbers may come from these updates ${CLOSING_LINE}`,
+      )
+      // Two engines are two facts and ONE warning; repeating the consequence
+      // per engine read as two separate alarms about the same numbers.
+      const sentences = note.trim().split('. ').map(s => s.trim())
+      expect(new Set(sentences).size).toBe(sentences.length)
+    } finally {
+      metricsSpy.mockRestore()
+    }
+  })
+
+  it('never states an unconfirmed update as fact, and never hides it either', async () => {
+    const metricsSpy = vi.spyOn(ApiClient.prototype, 'getAnalyticsMetrics')
+      .mockResolvedValue(metricsWith({ openai: OPENAI_UNCONFIRMED }))
+    try {
+      const { showAnalytics } = await import('../src/commands/analytics.js')
+      const { stdout } = await captureOutput(() => showAnalytics('test-proj', { feature: 'metrics' }))
+      const note = stdout.split('\n').find(line => line.includes('The model behind'))!
+      expect(note.trim()).toBe(
+        'The model behind ChatGPT may have been updated on 2026-05-28, inside this period, though that is not confirmed. '
+        + `If so, some of the movement in these numbers may come from this update ${CLOSING_LINE}`,
+      )
+      expect(note).not.toContain('was updated')
+    } finally {
+      metricsSpy.mockRestore()
+    }
+  })
+
+  it('says so quietly, and low in the output, when an engine can be updated but nothing is on record', async () => {
+    const metricsSpy = vi.spyOn(ApiClient.prototype, 'getAnalyticsMetrics')
+      .mockResolvedValue(metricsWith({ openai: { ...OPENAI_CHANGE, changeCount: 0, unverifiedChangeCount: 0 } }))
+    try {
+      const { showAnalytics } = await import('../src/commands/analytics.js')
+      const { stdout } = await captureOutput(() => showAnalytics('test-proj', { feature: 'metrics' }))
+      // Silence here is indistinguishable from a record nobody has updated in
+      // six months, so the common case still says something — just not above
+      // the numbers, where it would be noise on every single run.
+      expect(stdout).toContain('No model updates are on record for ChatGPT in this period.')
+      expect(stdout.indexOf('No model updates are on record')).toBeGreaterThan(stdout.indexOf('Overall:'))
+    } finally {
+      metricsSpy.mockRestore()
+    }
+  })
+
+  it('prints how recently the update record was checked, since a terminal has no tooltip', async () => {
+    // The dashboard hides this sentence in a tooltip. The CLI has nowhere to
+    // hide it, and dropping it is what makes "nothing on record" read as proof
+    // that nothing happened rather than as the age of our knowledge.
+    const metricsSpy = vi.spyOn(ApiClient.prototype, 'getAnalyticsMetrics')
+      .mockResolvedValue(metricsWith({
+        openai: {
+          modelIds: ['chat-latest'],
+          changeCount: 0,
+          unverifiedChangeCount: 0,
+          knownGoodAsOf: '2026-07-20',
+          checkedThroughPeriodEnd: true,
+        },
+      }))
+    try {
+      const { showAnalytics } = await import('../src/commands/analytics.js')
+      const { stdout } = await captureOutput(() => showAnalytics('test-proj', { feature: 'metrics' }))
+      expect(stdout).toContain('We last checked for model updates on 2026-07-20.')
+    } finally {
+      metricsSpy.mockRestore()
+    }
+  })
+
+  it('says out loud when the period runs past the last check', async () => {
+    const metricsSpy = vi.spyOn(ApiClient.prototype, 'getAnalyticsMetrics')
+      .mockResolvedValue(metricsWith({
+        openai: { ...OPENAI_CHANGE, knownGoodAsOf: '2026-07-20', checkedThroughPeriodEnd: false },
+      }))
+    try {
+      const { showAnalytics } = await import('../src/commands/analytics.js')
+      const { stdout } = await captureOutput(() => showAnalytics('test-proj', { feature: 'metrics' }))
+      // Finding one update must never imply we found all of them.
+      expect(stdout).toContain(
+        'We last checked for model updates on 2026-07-20, and this period runs past that date,'
+        + ' so there may be later updates we do not know about.',
+      )
+    } finally {
+      metricsSpy.mockRestore()
+    }
+  })
+
+  it('prints nothing when the server omits the field or reports no exposure', async () => {
+    const metricsSpy = vi.spyOn(ApiClient.prototype, 'getAnalyticsMetrics').mockResolvedValue(metricsWith())
+    try {
+      const { showAnalytics } = await import('../src/commands/analytics.js')
+      const older = await captureOutput(() => showAnalytics('test-proj', { feature: 'metrics' }))
+      expect(older.stdout).toContain('Model Evidence:')
+      expect(older.stdout).not.toContain('Model Updates Behind These Numbers:')
+      expect(older.stdout).not.toContain('The model behind')
+
+      metricsSpy.mockResolvedValue(metricsWith({}))
+      const unchanged = await captureOutput(() => showAnalytics('test-proj', { feature: 'metrics' }))
+      expect(unchanged.stdout).not.toContain('Model Updates Behind These Numbers:')
+      expect(unchanged.stdout).not.toContain('The model behind')
+    } finally {
+      metricsSpy.mockRestore()
+    }
+  })
+
+  /**
+   * The copy is the deliverable. Pinned so a later edit cannot quietly
+   * reintroduce the internal words an agency owner does not speak.
+   */
+  it('keeps the note free of internal vocabulary and em-dashes', async () => {
+    const metricsSpy = vi.spyOn(ApiClient.prototype, 'getAnalyticsMetrics')
+      .mockResolvedValue(metricsWith({ openai: OPENAI_CHANGE }))
+    try {
+      const { showAnalytics } = await import('../src/commands/analytics.js')
+      const { stdout } = await captureOutput(() => showAnalytics('test-proj', { feature: 'metrics' }))
+      const note = stdout.split('\n').find(line => line.includes('The model behind'))!
+      for (const banned of ['pointer', 'alias', 'snapshot', 'drift', 'attribution', 'divergence']) {
+        expect(note.toLowerCase()).not.toContain(banned)
+      }
+      expect(note).not.toContain('—')
     } finally {
       metricsSpy.mockRestore()
     }

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { modelPointerChangeDisclosureSchema } from './model-pointers.js'
 import { sourceCategorySchema } from './source-categories.js'
 import { surfaceClassSchema } from './surface-class.js'
 
@@ -272,6 +273,24 @@ export const brandMetricsDtoSchema = z.object({
   servedModelAttribution: servedModelAttributionSchema.default({}),
   /** Providers currently serving a different top-level model than the one configured. */
   modelServiceMismatch: z.record(z.string(), modelServiceMismatchSchema).default({}),
+  /**
+   * Providers where a model id the project RAN is one the provider can swap for
+   * a different underlying model without saying so. Sibling of
+   * `modelServiceMismatch`: same `.default({})` back-compat, and the same "this
+   * is evidence about the measurement, not project configuration" role. A
+   * mismatch is something we OBSERVED; this is something we could never observe
+   * from the response, which is exactly why it has to be disclosed from a dated
+   * record instead.
+   *
+   * A provider is present in BOTH exposed states — `known-change` (a dated
+   * change landed while the project was running the id) and `no-known-change`
+   * (it is on such an id and our hand-maintained list has nothing for its
+   * period). The second one carries `knownGoodAsOf` so a surface can say how
+   * fresh that knowledge is: a list that has fallen behind produces exactly
+   * that state, and letting it read as silence is the failure this field
+   * exists to prevent. Empty only for a project entirely on fixed model ids.
+   */
+  modelPointerChanges: z.record(z.string(), modelPointerChangeDisclosureSchema).default({}),
 })
 export type BrandMetricsDto = z.infer<typeof brandMetricsDtoSchema>
 

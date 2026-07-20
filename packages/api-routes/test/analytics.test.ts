@@ -5,6 +5,7 @@ import os from 'node:os'
 import crypto from 'node:crypto'
 import Fastify from 'fastify'
 import { createClient, migrate, projects, queries, runs, querySnapshots, competitors, domainClassifications } from '@ainyc/canonry-db'
+import { MODEL_POINTER_REGISTRY_CHECKED_THROUGH } from '@ainyc/canonry-contracts'
 import { apiRoutes } from '../src/index.js'
 
 function buildApp() {
@@ -1814,5 +1815,250 @@ describe('analytics metrics — bucket dates vs real observation dates', () => {
       expect(bucket.dataStartDate.endsWith('Z')).toBe(true)
       expect(bucket.dataEndDate.endsWith('Z')).toBe(true)
     }
+  })
+})
+
+// A model id like `chat-latest` is not a model — the provider re-points it at
+// whatever it is currently serving and the response echoes the same id back on
+// both sides of the swap. These use ABSOLUTE dates against `window=all` because
+// the whole check is a comparison with real published change dates; a
+// clock-relative seed would silently stop covering them.
+describe('analytics metrics — model changes we cannot see in the response', () => {
+  let app: ReturnType<typeof Fastify>
+  let db: ReturnType<typeof createClient>
+  let tmpDir: string
+
+  // 2026-06-24 is a known re-point of `chat-latest` in the seeded registry.
+  const BEFORE_CHANGE = '2026-06-10T09:00:00.000Z'
+  const AFTER_CHANGE = '2026-07-02T09:00:00.000Z'
+
+  const seed = (
+    name: string,
+    sweeps: ReadonlyArray<{ at: string; provider: string; model: string | null; servedModel: string | null }>,
+  ) => {
+    const projectId = crypto.randomUUID()
+    const oldest = sweeps.map(s => s.at).sort()[0]!
+    db.insert(projects).values({
+      id: projectId, name, displayName: name, canonicalDomain: `${name}.example`,
+      ownedDomains: '[]', country: 'US', language: 'en', tags: '[]', labels: '{}',
+      providers: JSON.stringify([...new Set(sweeps.map(s => s.provider))]),
+      locations: '[]', defaultLocation: null, configSource: 'api', configRevision: 1,
+      createdAt: oldest, updatedAt: oldest,
+    }).run()
+    const queryId = crypto.randomUUID()
+    db.insert(queries).values({ id: queryId, projectId, query: `${name} query`, createdAt: oldest }).run()
+
+    // One run per distinct sweep time; providers observed in the same sweep
+    // share it, exactly as a real multi-provider sweep does.
+    const runIdByTime = new Map<string, string>()
+    for (const sweep of sweeps) {
+      let runId = runIdByTime.get(sweep.at)
+      if (!runId) {
+        runId = crypto.randomUUID()
+        runIdByTime.set(sweep.at, runId)
+        db.insert(runs).values({
+          id: runId, projectId, kind: 'answer-visibility', status: 'completed', trigger: 'manual',
+          location: null, startedAt: sweep.at, finishedAt: sweep.at, error: null, createdAt: sweep.at,
+        }).run()
+      }
+      db.insert(querySnapshots).values({
+        id: crypto.randomUUID(), runId, queryId, provider: sweep.provider,
+        model: sweep.model, servedModel: sweep.servedModel,
+        citationState: 'not-cited', answerText: '', citedDomains: [], competitorOverlap: [],
+        location: null, rawResponse: '{}', createdAt: sweep.at,
+      }).run()
+    }
+  }
+
+  const pointerChangesFor = async (name: string) => {
+    const res = await app.inject({ method: 'GET', url: `/api/v1/projects/${name}/analytics/metrics?window=all` })
+    expect(res.statusCode).toBe(200)
+    return JSON.parse(res.payload).modelPointerChanges as Record<string, {
+      status: 'known-change' | 'no-known-change'
+      modelIds: string[]; changeCount: number; unverifiedChangeCount: number
+      changes: Array<{ modelId: string; date: string; confirmed: boolean; sourceUrl: string }>
+      firstChangeDate?: string; lastChangeDate?: string
+      knownGoodAsOf: string; checkedThroughPeriodEnd: boolean
+    }>
+  }
+
+  beforeAll(async () => {
+    const ctx = buildApp()
+    app = ctx.app
+    db = ctx.db
+    tmpDir = ctx.tmpDir
+    await app.ready()
+  })
+
+  afterAll(async () => {
+    await app.close()
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('discloses a change that landed between two sweeps', async () => {
+    seed('pointer-spans-one', [
+      { at: BEFORE_CHANGE, provider: 'openai', model: 'chat-latest', servedModel: 'chat-latest' },
+      { at: AFTER_CHANGE, provider: 'openai', model: 'chat-latest', servedModel: 'chat-latest' },
+    ])
+    const changes = await pointerChangesFor('pointer-spans-one')
+    expect(Object.keys(changes)).toEqual(['openai'])
+    expect(changes.openai!.changeCount).toBe(1)
+    expect(changes.openai!.modelIds).toEqual(['chat-latest'])
+    expect(changes.openai!.firstChangeDate).toBe('2026-06-24')
+    expect(changes.openai!.lastChangeDate).toBe('2026-06-24')
+    // The wire carries no prose. The sentence a reader sees is built from these
+    // fields by `buildModelChangeNotice`, and is pinned in the contracts suite.
+    expect(changes.openai!).not.toHaveProperty('summary')
+  })
+
+  it('the served id is identical on both sides, which is why the date has to come from elsewhere', async () => {
+    // Guards the premise: #818 capture cannot detect this. If served capture
+    // ever DID differ across a re-point, this test tells the next maintainer
+    // the disclosure lane may be redundant.
+    const res = await app.inject({ method: 'GET', url: '/api/v1/projects/pointer-spans-one/analytics/metrics?window=all' })
+    const body = JSON.parse(res.payload)
+    expect(body.servedModelAttribution.openai.events).toEqual([])
+    expect(body.servedModelAttribution.openai.latestObservation.state).toEqual({ status: 'known', model: 'chat-latest' })
+    expect(body.modelServiceMismatch).toEqual({})
+  })
+
+  it('asserts only the change the record confirms and hedges the doubtful one', async () => {
+    // Both 2026-05-28 and 2026-06-24 fall in this span, but only 2026-06-24 is
+    // unambiguous in the source. Reporting "changed more than once between
+    // 2026-05-28 and 2026-06-24" would state a provider change to a client on
+    // the strength of copy-pasted changelog wording.
+    seed('pointer-spans-many', [
+      { at: '2026-05-10T09:00:00.000Z', provider: 'openai', model: 'chat-latest', servedModel: 'chat-latest' },
+      { at: '2026-07-02T09:00:00.000Z', provider: 'openai', model: 'chat-latest', servedModel: 'chat-latest' },
+    ])
+    const changes = await pointerChangesFor('pointer-spans-many')
+    expect(changes.openai!.changeCount).toBe(2)
+    expect(changes.openai!.unverifiedChangeCount).toBe(1)
+    expect(changes.openai!.changes.map(c => [c.date, c.confirmed])).toEqual([
+      ['2026-05-28', false],
+      ['2026-06-24', true],
+    ])
+    expect(changes.openai!.firstChangeDate).toBe('2026-05-28')
+    expect(changes.openai!.lastChangeDate).toBe('2026-06-24')
+  })
+
+  it('reports a quiet period as "no known change", not as silence', async () => {
+    // The fail-safe. This project IS on a moving id — the list simply has no
+    // dated change in its period. That is a different answer from "you are not
+    // exposed", and a list that has fallen behind produces exactly this state,
+    // so it has to reach the surface with the date it was last checked.
+    seed('pointer-spans-none', [
+      { at: '2026-06-01T09:00:00.000Z', provider: 'openai', model: 'chat-latest', servedModel: 'chat-latest' },
+      { at: '2026-06-20T09:00:00.000Z', provider: 'openai', model: 'chat-latest', servedModel: 'chat-latest' },
+    ])
+    const changes = await pointerChangesFor('pointer-spans-none')
+    expect(Object.keys(changes)).toEqual(['openai'])
+    expect(changes.openai!.status).toBe('no-known-change')
+    expect(changes.openai!.changeCount).toBe(0)
+    expect(changes.openai!.changes).toEqual([])
+    // The freshness marker has to be ON THE WIRE for a surface to be able to
+    // say it; that it reaches a reader is pinned in the contracts suite.
+    expect(changes.openai!.knownGoodAsOf).toBe(MODEL_POINTER_REGISTRY_CHECKED_THROUGH)
+    expect(changes.openai!.checkedThroughPeriodEnd).toBe(true)
+  })
+
+  it('does not caveat a project for a change it had already switched away from', async () => {
+    // Ran chat-latest through 2026-06-10, then moved to a pinned model. The
+    // 2026-06-24 change happened while it was on the pinned model, so it
+    // cannot be in these numbers. Crossing "ids seen in the period" with "the
+    // period" warned here — the regression this test pins.
+    seed('pointer-switched-away', [
+      { at: BEFORE_CHANGE, provider: 'openai', model: 'chat-latest', servedModel: 'chat-latest' },
+      { at: AFTER_CHANGE, provider: 'openai', model: 'gpt-5.6-terra', servedModel: 'gpt-5.6-terra-2026-06-01' },
+    ])
+    const changes = await pointerChangesFor('pointer-switched-away')
+    expect(changes.openai!.status).toBe('no-known-change')
+    expect(changes.openai!.changeCount).toBe(0)
+    expect(changes.openai!.changes).toEqual([])
+  })
+
+  it('does not caveat a project for a change that predates its switch TO the id', async () => {
+    // The mirror case: pinned until 2026-06-10, moved onto chat-latest on
+    // 2026-07-02. The 2026-06-24 change is before its first sweep on that id.
+    seed('pointer-switched-to', [
+      { at: BEFORE_CHANGE, provider: 'openai', model: 'gpt-5.6-terra', servedModel: 'gpt-5.6-terra-2026-06-01' },
+      { at: AFTER_CHANGE, provider: 'openai', model: 'chat-latest', servedModel: 'chat-latest' },
+    ])
+    const changes = await pointerChangesFor('pointer-switched-to')
+    expect(changes.openai!.status).toBe('no-known-change')
+    expect(changes.openai!.changeCount).toBe(0)
+    expect(changes.openai!.changes).toEqual([])
+  })
+
+  it('caveats the project that WAS on the id across the change, over the same sweeps', async () => {
+    // Same two sweep dates as the two tests above; the only difference is that
+    // this project stayed on the moving id. If the disclosure fires here and
+    // not there, it is keyed on exposure and not on the window.
+    seed('pointer-stayed-on', [
+      { at: BEFORE_CHANGE, provider: 'openai', model: 'chat-latest', servedModel: 'chat-latest' },
+      { at: AFTER_CHANGE, provider: 'openai', model: 'chat-latest', servedModel: 'chat-latest' },
+    ])
+    const changes = await pointerChangesFor('pointer-stayed-on')
+    expect(changes.openai!.status).toBe('known-change')
+    expect(changes.openai!.changes.map(c => c.date)).toEqual(['2026-06-24'])
+  })
+
+  it('says nothing for a project on a pinned model id across the same dates', async () => {
+    seed('pointer-pinned', [
+      { at: BEFORE_CHANGE, provider: 'openai', model: 'gpt-5.6-terra', servedModel: 'gpt-5.6-terra-2026-06-01' },
+      { at: AFTER_CHANGE, provider: 'openai', model: 'gpt-5.6-terra', servedModel: 'gpt-5.6-terra-2026-06-01' },
+    ])
+    expect(await pointerChangesFor('pointer-pinned')).toEqual({})
+  })
+
+  it('counts a change dated exactly on the first and last sweep day', async () => {
+    seed('pointer-boundary-start', [
+      { at: '2026-06-24T23:30:00.000Z', provider: 'openai', model: 'chat-latest', servedModel: 'chat-latest' },
+      { at: '2026-07-05T09:00:00.000Z', provider: 'openai', model: 'chat-latest', servedModel: 'chat-latest' },
+    ])
+    expect((await pointerChangesFor('pointer-boundary-start')).openai!.changeCount).toBe(1)
+
+    seed('pointer-boundary-end', [
+      { at: '2026-06-15T09:00:00.000Z', provider: 'openai', model: 'chat-latest', servedModel: 'chat-latest' },
+      { at: '2026-06-24T00:10:00.000Z', provider: 'openai', model: 'chat-latest', servedModel: 'chat-latest' },
+    ])
+    expect((await pointerChangesFor('pointer-boundary-end')).openai!.changeCount).toBe(1)
+  })
+
+  it('scopes the period to each provider own sweeps', async () => {
+    // gemini only ran after the change, so its numbers cannot straddle it and
+    // it must not inherit openai's caveat — but it IS on a moving id, so it
+    // gets the quiet state rather than nothing.
+    seed('pointer-per-provider', [
+      { at: BEFORE_CHANGE, provider: 'openai', model: 'chat-latest', servedModel: 'chat-latest' },
+      { at: AFTER_CHANGE, provider: 'openai', model: 'chat-latest', servedModel: 'chat-latest' },
+      { at: AFTER_CHANGE, provider: 'gemini', model: 'chat-latest', servedModel: 'chat-latest' },
+    ])
+    const changes = await pointerChangesFor('pointer-per-provider')
+    expect(changes.openai!.status).toBe('known-change')
+    expect(changes.gemini!.status).toBe('no-known-change')
+    expect(changes.gemini!.changeCount).toBe(0)
+    expect(changes.gemini!.changes).toEqual([])
+  })
+
+  it('discloses when the provider SERVED a moving id the project did not configure', async () => {
+    seed('pointer-served-only', [
+      { at: BEFORE_CHANGE, provider: 'openai', model: 'gpt-5.6-terra', servedModel: 'chat-latest' },
+      { at: AFTER_CHANGE, provider: 'openai', model: 'gpt-5.6-terra', servedModel: 'chat-latest' },
+    ])
+    const changes = await pointerChangesFor('pointer-served-only')
+    expect(changes.openai!.modelIds).toEqual(['chat-latest'])
+  })
+
+  it('is absent, not null, for a project with no runs at all', async () => {
+    const projectId = crypto.randomUUID()
+    db.insert(projects).values({
+      id: projectId, name: 'pointer-empty', displayName: 'pointer-empty',
+      canonicalDomain: 'pointer-empty.example', ownedDomains: '[]', country: 'US', language: 'en',
+      tags: '[]', labels: '{}', providers: '["openai"]', locations: '[]', defaultLocation: null,
+      configSource: 'api', configRevision: 1,
+      createdAt: '2026-06-01T00:00:00.000Z', updatedAt: '2026-06-01T00:00:00.000Z',
+    }).run()
+    expect(await pointerChangesFor('pointer-empty')).toEqual({})
   })
 })

@@ -15,6 +15,7 @@ Shared DTOs, enums, Zod schemas, error codes, config validation, and **generic u
 | `src/snapshot.ts` | Snapshot DTOs and diff types |
 | `src/config-schema.ts` | Config file Zod validation |
 | `src/models.ts` | Shared model types |
+| `src/model-pointers.ts` | Hand-maintained record of dates on which a provider changed the model behind a moving id (`chat-latest` and friends), plus `evaluateModelPointerExposure` (did a change land while the project was running that id?) and `buildModelChangeNotice` (the plain-language caveat both the dashboard and the CLI render — the ONLY wording of it; the DTO carries facts, never prose). Add a new dated entry to `MODEL_POINTER_EVENTS` whenever the provider's changelog announces one, AND move `MODEL_POINTER_REGISTRY_CHECKED_THROUGH` to the day you re-read the sources — every disclosure states that date, so a stale one reads as knowledge we do not have. |
 | `src/analytics.ts` | Analytics response DTOs |
 | `src/formatting.ts` | Generic formatters: `formatRatio`, `formatNumber`, `formatDate`, `formatIsoDate`, `formatDateRange` |
 | `src/url-normalize.ts` | Domain / URL normalization helpers |

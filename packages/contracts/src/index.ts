@@ -1,6 +1,7 @@
 export * from './api-keys.js'
 export * from './config-schema.js'
 export * from './models.js'
+export * from './model-pointers.js'
 export * from './errors.js'
 export * from './google.js'
 export * from './gbp.js'

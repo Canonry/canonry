@@ -377,3 +377,165 @@ test('says nothing about served models when the API omits them', async () => {
   await screen.findByText('Model evidence changes')
   expect(screen.queryByText('What the engines answered with')).toBeNull()
 })
+
+const CLOSING_LINE = 'rather than from a real change in how AI answers about you, so compare periods carefully.'
+
+/** One confirmed update. The `summary` is a LEGACY field an older server used
+ *  to send, kept here deliberately: it is the hostile wording this lane
+ *  replaced, so a surface that ever renders the server's sentence again instead
+ *  of building its own fails these tests loudly. */
+const OPENAI_CHANGE = {
+  modelIds: ['chat-latest'],
+  changeCount: 1,
+  unverifiedChangeCount: 0,
+  firstChangeDate: '2026-06-24',
+  lastChangeDate: '2026-06-24',
+  summary: 'The model behind "chat-latest" changed on 2026-06-24, inside this reporting period. '
+    + 'Part of any movement in this number comes from that change and not from how often AI names you.',
+}
+
+const PERPLEXITY_CHANGE = {
+  modelIds: ['sonar-latest'],
+  changeCount: 1,
+  unverifiedChangeCount: 0,
+  firstChangeDate: '2026-06-10',
+  lastChangeDate: '2026-06-10',
+  summary: 'The model behind "sonar-latest" changed on 2026-06-10, inside this reporting period. '
+    + 'Part of any movement in this number comes from that change and not from how often AI names you.',
+}
+
+function mockMetrics(extra?: Record<string, unknown>) {
+  return mockFetch((url) => {
+    const path = url.split('?')[0]!
+    if (path.endsWith('/projects/test-project/analytics/metrics')) {
+      return jsonResponse({ ...metricsDto(TWO_BUCKETS), ...extra })
+    }
+    throw new Error(`Unexpected fetch: ${url}`)
+  })
+}
+
+test('meets the reader with the model-update caveat before the headline number', async () => {
+  onTestFinished(mockMetrics({ modelPointerChanges: { openai: OPENAI_CHANGE } }))
+
+  renderSection()
+
+  const note = await screen.findByText(/The model behind ChatGPT/)
+  expect(note.textContent).toBe(
+    'The model behind ChatGPT was updated on 2026-06-24, inside this period. '
+    + `Some of the movement in these numbers may come from this update ${CLOSING_LINE}`,
+  )
+  // The point of the placement: the number the operator is about to send to a
+  // client must not be readable before the caveat. Above the chart is not
+  // enough — the headline value and its delta sit in the section head, above
+  // the chart too.
+  const headline = document.querySelector('.visibility-trend-current-value')!
+  expect(note.compareDocumentPosition(headline) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  const chart = document.querySelector('.visibility-trend-chart')!
+  expect(note.compareDocumentPosition(chart) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+})
+
+test('states one fact per affected engine and closes with a single consequence', async () => {
+  onTestFinished(mockMetrics({
+    modelPointerChanges: { openai: OPENAI_CHANGE, perplexity: PERPLEXITY_CHANGE },
+  }))
+
+  renderSection()
+
+  const note = await screen.findByText(/The model behind ChatGPT/)
+  expect(note.textContent).toBe(
+    'The model behind ChatGPT was updated on 2026-06-24, inside this period. '
+    + 'The model behind Perplexity was updated on 2026-06-10, inside this period. '
+    + `Some of the movement in these numbers may come from these updates ${CLOSING_LINE}`,
+  )
+  // Two engines are two facts and ONE warning. Repeating the consequence per
+  // engine read as two separate alarms about the same three numbers.
+  const sentences = note.textContent!.split('. ').map(s => s.trim())
+  expect(new Set(sentences).size).toBe(sentences.length)
+})
+
+test('reports an engine that can be updated with nothing on record, quietly', async () => {
+  onTestFinished(mockMetrics({
+    modelPointerChanges: { openai: { modelIds: ['chat-latest'], changeCount: 0, unverifiedChangeCount: 0 } },
+  }))
+
+  renderSection()
+
+  const line = await screen.findByText('No model updates are on record for ChatGPT in this period.')
+  // Quiet: no caution box, and the explanation is in a tooltip rather than set
+  // as prose on the surface. This renders on every load for anyone on a moving
+  // model id, so weight matters as much as the words.
+  expect(line.className).not.toContain('caution')
+  expect(within(line).getByRole('button')).toBeTruthy()
+  // And it does NOT jump the headline — nothing is being caveated.
+  const headline = document.querySelector('.visibility-trend-current-value')!
+  expect(line.compareDocumentPosition(headline) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy()
+})
+
+test('renders nothing at all when the API omits the field or reports no exposure', async () => {
+  const restore = mockMetrics()
+  onTestFinished(restore)
+
+  renderSection()
+
+  // Wait for the loaded chart before asserting an absence, so this cannot pass
+  // merely because the DTO had not arrived yet.
+  await screen.findByRole('list', { name: 'Engines' })
+  expect(screen.queryByText(/The model behind/)).toBeNull()
+  expect(screen.queryByText(/No model updates are on record/)).toBeNull()
+
+  cleanup()
+  restore()
+
+  onTestFinished(mockMetrics({ modelPointerChanges: {} }))
+  renderSection()
+  await screen.findByRole('list', { name: 'Engines' })
+  expect(screen.queryByText(/The model behind/)).toBeNull()
+  expect(screen.queryByText(/No model updates are on record/)).toBeNull()
+})
+
+test('tells the reader how recently the update record was checked', async () => {
+  // The quiet line on its own is indistinguishable from a record nobody has
+  // updated in six months. The date is what separates "we looked and found
+  // nothing" from "nobody has looked", so it has to reach the reader — not
+  // merely ride on the DTO, which is where an earlier cut left it.
+  onTestFinished(mockMetrics({
+    modelPointerChanges: {
+      openai: {
+        modelIds: ['chat-latest'],
+        changeCount: 0,
+        unverifiedChangeCount: 0,
+        knownGoodAsOf: '2026-07-20',
+        checkedThroughPeriodEnd: true,
+      },
+    },
+  }))
+
+  renderSection()
+
+  const line = await screen.findByText('No model updates are on record for ChatGPT in this period.')
+  const tip = within(line).getByRole('button')
+  expect(tip.getAttribute('aria-label')).toContain('We last checked for model updates on 2026-07-20.')
+})
+
+test('says when the period runs past the last time the record was checked', async () => {
+  onTestFinished(mockMetrics({
+    modelPointerChanges: {
+      openai: {
+        modelIds: ['chat-latest'],
+        changeCount: 0,
+        unverifiedChangeCount: 0,
+        knownGoodAsOf: '2026-07-20',
+        checkedThroughPeriodEnd: false,
+      },
+    },
+  }))
+
+  renderSection()
+
+  const line = await screen.findByText('No model updates are on record for ChatGPT in this period.')
+  const tip = within(line).getByRole('button')
+  expect(tip.getAttribute('aria-label')).toContain(
+    'We last checked for model updates on 2026-07-20, and this period runs past that date,'
+    + ' so there may be later updates we do not know about.',
+  )
+})

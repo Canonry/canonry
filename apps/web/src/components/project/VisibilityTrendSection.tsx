@@ -1,5 +1,6 @@
 import { Fragment, useId, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { buildModelChangeNotice } from '@ainyc/canonry-contracts'
 import type { BrandMetricsDto, MetricsWindow } from '@ainyc/canonry-contracts'
 import {
   CartesianGrid,
@@ -41,6 +42,7 @@ import {
   partitionModelAttributionEvents,
   readBucketModelEvidence,
   readModelAttribution,
+  readModelPointerChanges,
   readModelServiceMismatch,
   readServedModelAttribution,
   truncatedProviderCounts,
@@ -556,6 +558,13 @@ export function VisibilityTrendSection({
   )
   const servedAttribution = useMemo(() => (data ? readServedModelAttribution(data) : {}), [data])
   const serviceMismatch = useMemo(() => (data ? readModelServiceMismatch(data) : {}), [data])
+  // Null on an older API and on a project whose engines are all on fixed model
+  // ids. An engine that CAN be moved but has no update on record is a separate,
+  // quieter state — see `buildModelChangeNotice`.
+  const modelChangeNotice = useMemo(
+    () => (data ? buildModelChangeNotice(readModelPointerChanges(data)) : null),
+    [data],
+  )
 
   // Headline readout: the selected metric's latest bucket value plus its change
   // across the visible window. Quantifies "where it sits now, which way it
@@ -598,6 +607,17 @@ export function VisibilityTrendSection({
 
   const header = (
     <>
+      {/* Above the section head, which is where the headline number and its
+          delta live. Whoever is about to send that number to a client has to
+          meet the caveat BEFORE they read it, so it cannot sit under the head
+          (they have already read the number) or in the model-evidence aside
+          below the chart (they have already sent it). Tinted, not alarming —
+          nothing is broken, the reading just needs care. */}
+      {modelChangeNotice?.kind === 'change' && (
+        <p className="mb-3 rounded-lg border border-caution-800/60 bg-caution-950/20 px-3 py-2 text-[11px] leading-snug text-secondary">
+          {modelChangeNotice.text}
+        </p>
+      )}
       <div className="visibility-trend-head">
         <div className="space-y-1">
           <p className="eyebrow eyebrow-soft">Trend</p>
@@ -631,6 +651,17 @@ export function VisibilityTrendSection({
         )}
         <Segmented options={WINDOW_OPTIONS} value={window} onChange={setWindow} ariaLabel="Time window" className="sm:ml-auto" />
       </div>
+      {/* The common case, and the reason it is a bare muted line under the
+          controls rather than a tinted box above the head: it caveats nothing,
+          it only refuses to let an un-updated record read as proof that nothing
+          happened. Untinted, one line, with the explanation in the tooltip so
+          the surface stays a data surface. */}
+      {modelChangeNotice?.kind === 'no-known-change' && (
+        <p className="mt-3 text-[11px] leading-snug text-muted">
+          {modelChangeNotice.text}
+          <InfoTooltip text={modelChangeNotice.detail} />
+        </p>
+      )}
     </>
   )
 

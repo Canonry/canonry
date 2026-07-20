@@ -1261,6 +1261,24 @@ export type BrandMetricsDto = {
             };
         };
     };
+    modelPointerChanges: {
+        [key: string]: {
+            status: 'no-known-change' | 'known-change';
+            modelIds: Array<string>;
+            changes: Array<{
+                modelId: string;
+                date: string;
+                confirmed: boolean;
+                sourceUrl: string;
+            }>;
+            changeCount: number;
+            unverifiedChangeCount: number;
+            firstChangeDate?: string;
+            lastChangeDate?: string;
+            knownGoodAsOf: string;
+            checkedThroughPeriodEnd: boolean;
+        };
+    };
 };
 
 export type CcAvailableRelease = {

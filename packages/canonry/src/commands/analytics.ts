@@ -1,3 +1,4 @@
+import { buildModelChangeNotice, type ModelPointerChangeDisclosure } from '@ainyc/canonry-contracts'
 import { createApiClient, type BrandMetricsDto, type GapAnalysisDto, type SourceBreakdownDto } from '../client.js'
 import { CliError, isMachineFormat } from '../cli-error.js'
 
@@ -83,6 +84,17 @@ function printMetrics(data: BrandMetricsDto): void {
 
   const pct = (n: number) => `${(n * 100).toFixed(1)}%`
 
+  // BEFORE the first number, not after the last one. This is the note that
+  // changes how everything below it should be read, and an operator who has
+  // already scrolled past the rates has already formed the reading it is trying
+  // to correct.
+  const modelChangeNotice = buildModelChangeNotice(readModelPointerChanges(data))
+  if (modelChangeNotice?.kind === 'change') {
+    console.log(`\n  Model Updates Behind These Numbers:`)
+    console.log(`    ${modelChangeNotice.text}`)
+    console.log('')
+  }
+
   console.log(`  Overall: ${pct(data.overall.citationRate)} (${data.overall.cited}/${data.overall.total})`)
   console.log(`  Trend:   ${data.trend}`)
 
@@ -115,6 +127,18 @@ function printMetrics(data: BrandMetricsDto): void {
         console.log(`      ${bucketDates(bucket).padEnd(BUCKET_DATE_WIDTH)}  ${pct(metric.citationRate).padStart(6)}  ${bar}`)
       }
     }
+  }
+
+  // The no-known-update state is context, not a caveat, so it rides down here
+  // with the rest of the model evidence instead of interrupting the numbers.
+  // The detail line is printed rather than dropped: it carries how recently the
+  // record was checked, and without it "nothing on record" reads as proof that
+  // nothing happened. The dashboard puts the same sentence in a tooltip; a
+  // terminal has nowhere to hide it, so it goes on the next line.
+  if (modelChangeNotice?.kind === 'no-known-change') {
+    console.log(`\n  Model Updates Behind These Numbers:`)
+    console.log(`    ${modelChangeNotice.text}`)
+    console.log(`    ${modelChangeNotice.detail}`)
   }
 
   const attributionEntries = Object.entries(readModelAttribution(data))
@@ -174,6 +198,16 @@ function readServedModelAttribution(data: BrandMetricsDto): BrandMetricsDto['ser
 function readModelServiceMismatch(data: BrandMetricsDto): BrandMetricsDto['modelServiceMismatch'] {
   const legacyCompatible = data as unknown as { modelServiceMismatch?: BrandMetricsDto['modelServiceMismatch'] }
   return legacyCompatible.modelServiceMismatch ?? {}
+}
+
+/**
+ * Providers whose numbers were produced by a model id the provider is free to
+ * re-point at a different underlying model without the API response changing at
+ * all. Absent on an older server, empty for a project on fixed model ids.
+ */
+function readModelPointerChanges(data: BrandMetricsDto): Record<string, ModelPointerChangeDisclosure> {
+  const legacyCompatible = data as unknown as { modelPointerChanges?: Record<string, ModelPointerChangeDisclosure> }
+  return legacyCompatible.modelPointerChanges ?? {}
 }
 
 /** A newer CLI can be pointed at an older server during a rolling upgrade. */
