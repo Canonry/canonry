@@ -2483,6 +2483,13 @@ const routeCatalog: OpenApiOperation[] = [
               manifest: adsActivationManifestSchema,
               executorApiKeyId: adsEntityIdSchema,
               expiresAt: { type: 'string', format: 'date-time' },
+              versionPolicy: {
+                type: 'string',
+                enum: ['exact', 'refresh_semantically_unchanged'],
+                default: 'exact',
+                description:
+                  'Exact rejects any provider version drift. refresh_semantically_unchanged rebinds versions only when the live paused tree still matches its durable create receipts field-for-field.',
+              },
             },
           },
         },

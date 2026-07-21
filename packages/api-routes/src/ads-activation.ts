@@ -12,8 +12,10 @@ import {
   AdsOperationStepStates,
   AdsReviewStatuses,
   type AdsActivationEntityType,
+  type AdsAdGroupBillingEventType,
   type AdsActivationGrantDto,
   type AdsActivationManifest,
+  type AdsCampaignBiddingType,
   type AdsOperationStepDto,
 } from '@ainyc/canonry-contracts'
 import type { adsOperations } from '@ainyc/canonry-db'
@@ -81,6 +83,14 @@ export interface AdsActivationApprovalPreflightRequest {
 export interface AdsActivationApprovalPreflightResult {
   manifest: AdsActivationManifest
   manifestHash: string
+}
+
+export interface AdsActivationVersionRefreshRequest extends AdsActivationApprovalPreflightRequest {
+  semanticallyMatchesMaterialization: (
+    entityType: AdsActivationEntityType,
+    entityId: string,
+    entity: AdsActivationEntitySnapshot,
+  ) => boolean
 }
 
 export type AdsActivationGrantRecord = AdsActivationGrantDto
@@ -218,6 +228,18 @@ export interface AdsActivationEntitySnapshot {
   campaignId?: string | null
   adGroupId?: string | null
   reviewStatus?: string | null
+  biddingType?: AdsCampaignBiddingType | null
+  conversionEventSettingIds?: string[] | null
+  billingEventType?: AdsAdGroupBillingEventType | null
+  name?: string | null
+  description?: string | null
+  startTime?: number | null
+  endTime?: number | null
+  lifetimeSpendLimitMicros?: number | null
+  locationIds?: string[] | null
+  contextHints?: string[] | null
+  maxBidMicros?: number | null
+  creative?: { title: string; body: string; targetUrl: string; fileId: string } | null
 }
 
 export interface AdsActivationProvider {
@@ -803,6 +825,93 @@ export async function preflightAdsActivationApproval(
     await readAndValidatePaused(provider, target)
   }
   return { manifest, manifestHash: hashAdsActivationManifest(manifest) }
+}
+
+/**
+ * Rebind only provider concurrency versions after an asynchronous review
+ * transition. Entity IDs, exact descendants, paused state, ad approval, and
+ * every materialized semantic field must still match the durable create
+ * receipts. A second exact preflight closes the read-to-grant race.
+ */
+export async function refreshSemanticallyUnchangedAdsActivationManifest(
+  provider: AdsActivationProvider,
+  request: AdsActivationVersionRefreshRequest,
+): Promise<AdsActivationApprovalPreflightResult> {
+  const manifest = canonicalManifest(request.manifest)
+  await validateAccount(provider, request.adAccountId)
+  await validateExactDescendants(provider, manifest, {
+    entityType: AdsActivationEntityTypes.campaign,
+    entityId: manifest.campaign.id,
+    parentId: null,
+    expectedUpdatedAt: manifest.campaign.expectedUpdatedAt,
+  })
+
+  const versions = new Map<string, number>()
+  for (const target of activationTargets(manifest)) {
+    let entity: AdsActivationEntitySnapshot
+    try {
+      entity = await readTarget(provider, target)
+    } catch {
+      throw targetError(
+        AdsActivationErrorCodes.providerReadFailed,
+        'An ads entity could not be verified for version refresh',
+        502,
+        target,
+      )
+    }
+    validateIdentity(target, entity)
+    validateAdApproval(target, entity)
+    if (entity.status !== PROVIDER_PAUSED) {
+      throw targetError(AdsActivationErrorCodes.entityNotPaused, 'Every approved ads entity must still be paused', 409, target)
+    }
+    if (!Number.isInteger(entity.updatedAt) || entity.updatedAt === null || entity.updatedAt < 0) {
+      throw targetError(
+        AdsActivationErrorCodes.providerReadFailed,
+        'An ads entity did not report a usable provider version',
+        502,
+        target,
+      )
+    }
+    if (!request.semanticallyMatchesMaterialization(target.entityType, target.entityId, entity)) {
+      throw targetError(
+        AdsActivationErrorCodes.entityMismatch,
+        'An ads entity no longer matches its materialized approved fields',
+        409,
+        target,
+      )
+    }
+    versions.set(`${target.entityType}:${target.entityId}`, entity.updatedAt)
+  }
+
+  const version = (entityType: AdsActivationEntityType, entityId: string): number => {
+    const current = versions.get(`${entityType}:${entityId}`)
+    if (current === undefined) {
+      throw new AdsActivationError(
+        AdsActivationErrorCodes.persistenceFailed,
+        'A refreshed ads entity version is missing',
+        500,
+      )
+    }
+    return current
+  }
+  const refreshed: AdsActivationManifest = {
+    campaign: {
+      id: manifest.campaign.id,
+      expectedUpdatedAt: version(AdsActivationEntityTypes.campaign, manifest.campaign.id),
+      adGroups: manifest.campaign.adGroups.map((group) => ({
+        id: group.id,
+        expectedUpdatedAt: version(AdsActivationEntityTypes.ad_group, group.id),
+        ads: group.ads.map((ad) => ({
+          id: ad.id,
+          expectedUpdatedAt: version(AdsActivationEntityTypes.ad, ad.id),
+        })),
+      })),
+    },
+  }
+  return preflightAdsActivationApproval(provider, {
+    adAccountId: request.adAccountId,
+    manifest: refreshed,
+  })
 }
 
 function stepTarget(manifest: AdsActivationManifest, step: AdsActivationStepRecord): ActivationTarget {

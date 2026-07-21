@@ -840,10 +840,22 @@ export const adsOperationStepDtoSchema = z.discriminatedUnion('state', [
 export type AdsOperationStepDto = z.infer<typeof adsOperationStepDtoSchema>
 
 /** Human approval request. The authenticated key becomes the approver. */
+export const AdsActivationVersionPolicies = {
+  exact: 'exact',
+  refreshSemanticallyUnchanged: 'refresh_semantically_unchanged',
+} as const
+
+export const adsActivationVersionPolicySchema = z.enum([
+  AdsActivationVersionPolicies.exact,
+  AdsActivationVersionPolicies.refreshSemanticallyUnchanged,
+])
+export type AdsActivationVersionPolicy = z.infer<typeof adsActivationVersionPolicySchema>
+
 export const adsActivationGrantCreateRequestSchema = z.object({
   manifest: adsActivationManifestSchema,
   executorApiKeyId: adsEntityIdSchema,
   expiresAt: adsActivationIsoTimestampSchema,
+  versionPolicy: adsActivationVersionPolicySchema.default(AdsActivationVersionPolicies.exact),
 }).strict()
 export type AdsActivationGrantCreateRequest = z.infer<typeof adsActivationGrantCreateRequestSchema>
 

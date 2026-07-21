@@ -397,7 +397,11 @@ async function fetchAllPages<T>(apiKey: string, path: string, queryPairs: readon
 }
 
 function insightsPairs(opts?: OpenAiAdsInsightsOptions): string[] {
-  return (opts?.fields ?? []).map((field) => `fields[]=${encodeURIComponent(field)}`)
+  return [
+    ...(opts?.fields ?? []).map((field) => `fields[]=${encodeURIComponent(field)}`),
+    ...(opts?.timeRanges ?? []).map((range) =>
+      `time_ranges[]=${encodeURIComponent(JSON.stringify(range))}`),
+  ]
 }
 
 export async function getAdAccount(apiKey: string): Promise<OpenAiAdsAccount> {

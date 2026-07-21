@@ -475,7 +475,10 @@ describe('ads lifecycle commands', () => {
 
     await adsActivationGrantCreate('canonry-audit', { input: inputPath, format: 'json' })
 
-    expect(mockCreateAdsActivationGrant).toHaveBeenCalledWith('canonry-audit', request)
+    expect(mockCreateAdsActivationGrant).toHaveBeenCalledWith('canonry-audit', {
+      ...request,
+      versionPolicy: 'exact',
+    })
     expect(JSON.parse(log.mock.calls[0]![0] as string)).toEqual(APPROVED_GRANT)
   })
 

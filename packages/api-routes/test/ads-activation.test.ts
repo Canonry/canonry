@@ -19,6 +19,7 @@ import {
   hashAdsActivationManifest,
   hashAdsActivationOperationRequest,
   preflightAdsActivationApproval,
+  refreshSemanticallyUnchangedAdsActivationManifest,
   serializeAdsActivationManifest,
   type AdsActivationClaimInput,
   type AdsActivationClaimResult,
@@ -501,6 +502,42 @@ describe('approval-bound ads activation core', () => {
       manifest: MANIFEST,
     })).rejects.toMatchObject({ code: AdsActivationErrorCodes.entityMismatch })
     expect(mutationCalls(omittedActiveDescendant)).toEqual([])
+  })
+
+  it('refreshes review-only provider versions and rejects semantic drift', async () => {
+    const provider = new FakeProvider()
+    provider.setEntity(AdsActivationEntityTypes.ad, {
+      id: 'ad_1',
+      adGroupId: 'adgrp_1',
+      reviewStatus: 'approved',
+      status: 'paused',
+      updatedAt: 301,
+    })
+
+    const matched: string[] = []
+    const refreshed = await refreshSemanticallyUnchangedAdsActivationManifest(provider, {
+      adAccountId: 'adacct_1',
+      manifest: MANIFEST,
+      semanticallyMatchesMaterialization: (entityType, entityId) => {
+        matched.push(entityKey(entityType, entityId))
+        return true
+      },
+    })
+
+    expect(refreshed.manifest.campaign.adGroups[0]!.ads[0]!.expectedUpdatedAt).toBe(301)
+    expect(refreshed.manifestHash).toBe(hashAdsActivationManifest(refreshed.manifest))
+    expect(matched).toEqual(['ad:ad_1', 'ad_group:adgrp_1', 'campaign:cmpn_1'])
+    expect(mutationCalls(provider)).toEqual([])
+
+    await expect(refreshSemanticallyUnchangedAdsActivationManifest(provider, {
+      adAccountId: 'adacct_1',
+      manifest: MANIFEST,
+      semanticallyMatchesMaterialization: (_entityType, entityId) => entityId !== 'ad_1',
+    })).rejects.toMatchObject({
+      code: AdsActivationErrorCodes.entityMismatch,
+      entity: { entityType: 'ad', entityId: 'ad_1' },
+    })
+    expect(mutationCalls(provider)).toEqual([])
   })
 
   it('activates ads, then ad groups, then the campaign with durable checkpoints', async () => {

@@ -15,6 +15,7 @@ import type {
   OpenAiAdsAd,
   OpenAiAdsAdGroup,
   OpenAiAdsCampaign,
+  OpenAiAdsInsightHourRange,
   OpenAiAdsInsightRow,
 } from '@ainyc/canonry-integration-openai-ads'
 import type { CanonryConfig } from './config.js'
@@ -25,6 +26,39 @@ const log = createLogger('AdsSync')
 
 const CAMPAIGN_INSIGHT_FIELDS = ['campaign.impressions', 'campaign.clicks', 'campaign.spend', 'campaign.conversions', 'metadata.readable_time']
 const AD_GROUP_INSIGHT_FIELDS = ['ad_group.impressions', 'ad_group.clicks', 'ad_group.spend', 'ad_group.conversions', 'metadata.readable_time']
+const INSIGHTS_LOOKBACK_MS = 90 * 24 * 60 * 60 * 1_000
+
+function accountHour(date: Date, timezone: string): string {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(date)
+  const value = (type: Intl.DateTimeFormatPartTypes): string => {
+    const part = parts.find((candidate) => candidate.type === type)?.value
+    if (!part) throw new Error(`OpenAI Ads account timezone did not produce a ${type}`)
+    return part
+  }
+  return `${value('year')}-${value('month')}-${value('day')}T${value('hour')}`
+}
+
+export function trailingAdsInsightHourRange(
+  now: Date,
+  timezone: string,
+): OpenAiAdsInsightHourRange {
+  // The live API rejects conversion fields without time_ranges[] and rejects
+  // incomplete future local days. A timezone-aware hour range includes the
+  // current completed boundary and works across daylight-saving transitions.
+  return {
+    type: 'hour_range',
+    since: accountHour(new Date(now.getTime() - INSIGHTS_LOOKBACK_MS), timezone),
+    until: accountHour(now, timezone),
+    timezone,
+  }
+}
 
 interface AdsSyncOptions {
   config: CanonryConfig
@@ -101,6 +135,7 @@ export async function executeAdsSync(
     // so one bad campaign degrades the run to partial instead of failed.
     const account = await getAdAccount(apiKey)
     const campaigns = await listCampaigns(apiKey)
+    const insightTimeRanges = [trailingAdsInsightHourRange(new Date(), account.timezone)]
 
     const errors = new Map<string, string>()
     const adGroupsByCampaign = new Map<string, OpenAiAdsAdGroup[]>()
@@ -112,12 +147,18 @@ export async function executeAdsSync(
       try {
         const [adGroups, campaignInsights] = await Promise.all([
           listAdGroups(apiKey, campaign.id),
-          getCampaignInsights(apiKey, campaign.id, { fields: CAMPAIGN_INSIGHT_FIELDS }),
+          getCampaignInsights(apiKey, campaign.id, {
+            fields: CAMPAIGN_INSIGHT_FIELDS,
+            timeRanges: insightTimeRanges,
+          }),
         ])
         const groupResults = await Promise.all(adGroups.map(async (group) => ({
           group,
           ads: await listAds(apiKey, group.id),
-          insights: await getAdGroupInsights(apiKey, group.id, { fields: AD_GROUP_INSIGHT_FIELDS }),
+          insights: await getAdGroupInsights(apiKey, group.id, {
+            fields: AD_GROUP_INSIGHT_FIELDS,
+            timeRanges: insightTimeRanges,
+          }),
         })))
 
         syncedCampaigns.push(campaign)

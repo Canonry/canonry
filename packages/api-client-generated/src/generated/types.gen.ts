@@ -8184,6 +8184,10 @@ export type PostApiV1ProjectsByNameAdsActivationGrantsData = {
         };
         executorApiKeyId: string;
         expiresAt: string;
+        /**
+         * Exact rejects any provider version drift. refresh_semantically_unchanged rebinds versions only when the live paused tree still matches its durable create receipts field-for-field.
+         */
+        versionPolicy?: 'exact' | 'refresh_semantically_unchanged';
     };
     path: {
         /**

@@ -14,7 +14,7 @@ import {
   adsAds,
   adsInsightsDaily,
 } from '@ainyc/canonry-db'
-import { executeAdsSync } from '../src/ads-sync.js'
+import { executeAdsSync, trailingAdsInsightHourRange } from '../src/ads-sync.js'
 import type { CanonryConfig } from '../src/config.js'
 
 const NOW = '2026-06-10T00:00:00.000Z'
@@ -115,6 +115,18 @@ afterEach(() => {
 })
 
 describe('executeAdsSync', () => {
+  it('builds the verified trailing hour-range contract in the advertiser timezone', () => {
+    expect(trailingAdsInsightHourRange(
+      new Date('2026-07-21T17:37:00.000Z'),
+      'America/New_York',
+    )).toEqual({
+      type: 'hour_range',
+      since: '2026-04-22T13',
+      until: '2026-07-21T13',
+      timezone: 'America/New_York',
+    })
+  })
+
   it('snapshots entities, normalizes insights spend to micros, and completes the run', async () => {
     const db = createTempDb()
     seed(db)

@@ -312,6 +312,19 @@ export interface OpenAiAdsInsightsOptions {
   // 'metadata.readable_time'. Invalid names get a 400 whose message
   // enumerates the valid catalog.
   fields?: string[]
+  /** Live Advertiser API contract: conversion metrics require at least one
+   *  JSON-encoded time_ranges[] object. Hour ranges are account-timezone
+   *  aware and avoid treating a still-open local day as a future range. */
+  timeRanges?: OpenAiAdsInsightHourRange[]
+}
+
+export interface OpenAiAdsInsightHourRange {
+  type: 'hour_range'
+  /** Inclusive local account hour in YYYY-MM-DDTHH format. */
+  since: string
+  /** Exclusive local account hour in YYYY-MM-DDTHH format. */
+  until: string
+  timezone: string
 }
 
 interface OpenAiAdsErrorEnvelope {

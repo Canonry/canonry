@@ -60,6 +60,7 @@ export type {
   OpenAiAdsGeoLocation,
   OpenAiAdsGeoSearchResponse,
   OpenAiAdsInsightRow,
+  OpenAiAdsInsightHourRange,
   OpenAiAdsInsightsOptions,
   OpenAiAdsListResponse,
   OpenAiAdsLocationTarget,

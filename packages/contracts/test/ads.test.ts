@@ -832,7 +832,13 @@ describe('approval-bound campaign-tree activation contracts', () => {
       manifest: ACTIVATION_MANIFEST,
       executorApiKeyId: 'key_executor',
       expiresAt: '2026-07-18T00:00:00.000Z',
-    })).toMatchObject({ executorApiKeyId: 'key_executor' })
+    })).toMatchObject({ executorApiKeyId: 'key_executor', versionPolicy: 'exact' })
+    expect(adsActivationGrantCreateRequestSchema.parse({
+      manifest: ACTIVATION_MANIFEST,
+      executorApiKeyId: 'key_executor',
+      expiresAt: '2026-07-18T00:00:00.000Z',
+      versionPolicy: 'refresh_semantically_unchanged',
+    }).versionPolicy).toBe('refresh_semantically_unchanged')
     expect(adsActivationGrantCreateRequestSchema.safeParse({
       manifest: ACTIVATION_MANIFEST,
       executorApiKeyId: 'key_executor',
