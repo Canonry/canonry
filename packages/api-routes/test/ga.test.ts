@@ -6,7 +6,7 @@ import crypto from 'node:crypto'
 import Fastify from 'fastify'
 import { eq, inArray } from 'drizzle-orm'
 import { RunKinds, RunStatuses, RunTriggers } from '@ainyc/canonry-contracts'
-import { createClient, migrate, gaAiReferrals, gaSocialReferrals, gaTrafficSnapshots, gaTrafficSummaries, gaTrafficWindowSummaries, runs } from '@ainyc/canonry-db'
+import { createClient, migrate, gaAiReferrals, gaSocialReferrals, gaTrafficSnapshots, gaTrafficSummaries, gaTrafficWindowSummaries, gaDailyTotals, runs } from '@ainyc/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import type { Ga4CredentialStore, Ga4CredentialRecord } from '../src/ga.js'
 
@@ -247,6 +247,12 @@ describe('GA4 routes', () => {
       totalDirectSessions: windowKey === '7d' ? 4 : windowKey === '30d' ? 16 : 40,
       totalUsers: windowKey === '7d' ? 15 : windowKey === '30d' ? 55 : 140,
     }))
+    // Deduplicated per-day users. Deliberately BELOW the landing-page sums
+    // (40 / 25) — that gap is the bug this table exists to close.
+    const fetchDailyTotalsSpy = vi.spyOn(gaModule, 'fetchDailyTotals').mockResolvedValue([
+      { date: '2026-03-19', sessions: 50, users: 33 },
+      { date: '2026-03-20', sessions: 30, users: 21 },
+    ])
     const fetchAiReferralsSpy = vi.spyOn(gaModule, 'fetchAiReferrals').mockResolvedValue([
       { date: '2026-03-20', source: 'chatgpt.com', medium: 'referral', trafficClass: 'organic', channelGroup: 'Referral', landingPage: '/pricing?utm_source=chatgpt.com', sessions: 12, users: 9, sourceDimension: 'session' },
     ])
@@ -304,6 +310,19 @@ describe('GA4 routes', () => {
     expect(byKey['30d']!.totalDirectSessions).toBe(16)
     expect(windowSummaries.every((r) => r.syncRunId === gaRuns[0]!.id)).toBe(true)
 
+    // Deduplicated per-day totals persisted. These are the numbers the daily
+    // series must report — NOT the landing-page sums (40 / 25), which count a
+    // multi-page visitor once per page.
+    const dailyTotals = db.select().from(gaDailyTotals)
+      .where(eq(gaDailyTotals.projectId, projectId))
+      .all()
+      .sort((a, b) => a.date.localeCompare(b.date))
+    expect(dailyTotals.map((r) => [r.date, r.users])).toEqual([
+      ['2026-03-19', 33],
+      ['2026-03-20', 21],
+    ])
+    expect(dailyTotals.every((r) => r.syncRunId === gaRuns[0]!.id)).toBe(true)
+
     const aiReferrals = db.select().from(gaAiReferrals)
       .where(eq(gaAiReferrals.projectId, projectId))
       .all()
@@ -328,6 +347,7 @@ describe('GA4 routes', () => {
     fetchTrafficSpy.mockRestore()
     fetchAggregateSpy.mockRestore()
     fetchWindowSummarySpy.mockRestore()
+    fetchDailyTotalsSpy.mockRestore()
     fetchAiReferralsSpy.mockRestore()
     fetchSocialReferralsSpy.mockRestore()
     credentials.delete('test-project')
@@ -397,6 +417,7 @@ describe('GA4 routes', () => {
       totalDirectSessions: 0,
       totalUsers: 0,
     }))
+    const fetchDailyTotalsSpy = vi.spyOn(gaModule, 'fetchDailyTotals').mockResolvedValue([])
     const fetchAiReferralsSpy = vi.spyOn(gaModule, 'fetchAiReferrals').mockResolvedValue([])
     const fetchSocialReferralsSpy = vi.spyOn(gaModule, 'fetchSocialReferrals').mockResolvedValue([])
 
@@ -414,6 +435,7 @@ describe('GA4 routes', () => {
     fetchTrafficSpy.mockRestore()
     fetchAggregateSpy.mockRestore()
     fetchWindowSummarySpy.mockRestore()
+    fetchDailyTotalsSpy.mockRestore()
     fetchAiReferralsSpy.mockRestore()
     fetchSocialReferralsSpy.mockRestore()
     credentials.delete('test-project')
@@ -475,6 +497,9 @@ describe('GA4 routes', () => {
       totalDirectSessions: 5000,
       totalUsers: 22000,
     }))
+    const fetchDailyTotalsSpy = vi.spyOn(gaModule, 'fetchDailyTotals').mockResolvedValue([
+      { date: today, sessions: 30000, users: 22000 },
+    ])
     const fetchAiReferralsSpy = vi.spyOn(gaModule, 'fetchAiReferrals').mockResolvedValue([])
     const fetchSocialReferralsSpy = vi.spyOn(gaModule, 'fetchSocialReferrals').mockResolvedValue([
       { date: today, source: 'facebook.com', medium: 'referral', sessions: 1273, users: 900, channelGroup: 'Organic Social' },
@@ -539,6 +564,7 @@ describe('GA4 routes', () => {
       fetchTrafficSpy.mockRestore()
       fetchAggregateSpy.mockRestore()
       fetchWindowSummarySpy.mockRestore()
+      fetchDailyTotalsSpy.mockRestore()
       fetchAiReferralsSpy.mockRestore()
       fetchSocialReferralsSpy.mockRestore()
       credentials.delete('only-social-foundation')
@@ -2188,6 +2214,19 @@ describe('GA4 routes', () => {
       syncedAt: now,
     }).run()
 
+    // 2026-03-17 has a deduplicated total (9) intentionally LOWER than the
+    // landing-page sum (8 + 4 = 12) — one visitor read both pages. 03-18 is
+    // left without one so the legacy fallback is exercised in the same series.
+    db.insert(gaDailyTotals).values({
+      id: crypto.randomUUID(),
+      projectId,
+      date: '2026-03-17',
+      sessions: 15,
+      users: 9,
+      syncedAt: now,
+      createdAt: now,
+    }).run()
+
     const res = await app.inject({
       method: 'GET',
       url: '/api/v1/projects/test-project/ga/session-history',
@@ -2199,13 +2238,17 @@ describe('GA4 routes', () => {
       sessions: number
       organicSessions: number
       users: number
+      usersSource: string
     }>
     expect(body).toEqual([
-      { date: '2026-03-17', sessions: 15, organicSessions: 5, users: 12 },
-      { date: '2026-03-18', sessions: 7, organicSessions: 3, users: 6 },
+      { date: '2026-03-17', sessions: 15, organicSessions: 5, users: 9, usersSource: 'deduplicated' },
+      { date: '2026-03-18', sessions: 7, organicSessions: 3, users: 6, usersSource: 'landing-page-sum' },
     ])
 
     credentials.delete('test-project')
+    db.delete(gaDailyTotals)
+      .where(eq(gaDailyTotals.projectId, projectId))
+      .run()
     db.delete(gaTrafficSnapshots)
       .where(eq(gaTrafficSnapshots.projectId, projectId))
       .run()

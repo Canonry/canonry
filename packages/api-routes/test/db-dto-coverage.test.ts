@@ -398,6 +398,10 @@ const COVERAGE: Record<string, CoverageEntry> = {
     dto: ga4ConnectionDtoSchema,
     internal: {},
   },
+  gaDailyTotals: {
+    kind: 'internal-only',
+    reason: 'Property-level daily GA4 totals (no landing-page dim), the deduplicated `users` source for the session-history response. Backing store only — its values reach callers through that response, not as a direct row DTO. Mirrors gscDailyTotals.',
+  },
   gaTrafficSnapshots: {
     kind: 'dto',
     dto: ga4TrafficSnapshotDtoSchema,

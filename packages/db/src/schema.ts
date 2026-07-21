@@ -450,6 +450,37 @@ export const gaTrafficSnapshots = sqliteTable('ga_traffic_snapshots', {
   index('idx_ga_traffic_run').on(table.syncRunId),
 ])
 
+/**
+ * Property-level GA4 totals for one day, fetched with NO landing-page
+ * dimension — the daily counterpart to `ga_summaries`' windowed totals.
+ *
+ * Exists because `users` is not additive across a dimension: one visitor who
+ * lands on three pages is ONE user but appears in three `ga_traffic_snapshots`
+ * rows, so `SUM(users) GROUP BY date` overcounts (a real project showed 192 vs
+ * GA's 158 for a single day). GA does the dedup when the report carries only
+ * the date dimension, so these rows match the GA UI.
+ *
+ * `sessions` comes back in the same response and is stored alongside, so the
+ * property-level session count is available without a second fetch. Nothing
+ * reads it yet: sessions ARE additive (GA4 attributes one landing page per
+ * session), so the landing-page sum is already correct for them and carries
+ * the organic split this table does not. Same shape as `gsc_daily_totals`.
+ */
+export const gaDailyTotals = sqliteTable('ga_daily_totals', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  date: text('date').notNull(),
+  sessions: integer('sessions').notNull().default(0),
+  users: integer('users').notNull().default(0),
+  syncedAt: text('synced_at').notNull(),
+  syncRunId: text('sync_run_id').references(() => runs.id, { onDelete: 'cascade' }),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_ga_daily_totals_project_date').on(table.projectId, table.date),
+  index('idx_ga_daily_totals_project').on(table.projectId),
+  index('idx_ga_daily_totals_run').on(table.syncRunId),
+])
+
 export const gaAiReferrals = sqliteTable('ga_ai_referrals', {
   id: text('id').primaryKey(),
   projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),

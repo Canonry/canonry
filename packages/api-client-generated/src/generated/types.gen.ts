@@ -1736,6 +1736,7 @@ export type Ga4SessionHistoryEntry = {
     sessions: number;
     organicSessions: number;
     users: number;
+    usersSource: 'deduplicated' | 'landing-page-sum';
 };
 
 export type Ga4SocialReferralHistoryEntry = {

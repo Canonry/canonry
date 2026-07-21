@@ -2334,6 +2334,31 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       backfillQuerySnapshotServedModel(tx)
     },
   },
+  {
+    // `users` is not additive across landing pages — one visitor who lands on
+    // three pages is one user but contributes to three `ga_traffic_snapshots`
+    // rows. Summing that dimensioned table overcounts the day. This table
+    // stores the same day fetched with NO landing-page dimension, so GA does
+    // the dedup and the stored number matches the GA UI. Same shape and
+    // rationale as `gsc_daily_totals`.
+    version: 106,
+    name: 'ga-daily-totals',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS ga_daily_totals (
+        id           TEXT PRIMARY KEY,
+        project_id   TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        date         TEXT NOT NULL,
+        sessions     INTEGER NOT NULL DEFAULT 0,
+        users        INTEGER NOT NULL DEFAULT 0,
+        synced_at    TEXT NOT NULL,
+        sync_run_id  TEXT REFERENCES runs(id) ON DELETE CASCADE,
+        created_at   TEXT NOT NULL
+      )`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_ga_daily_totals_project_date ON ga_daily_totals(project_id, date)`,
+      `CREATE INDEX IF NOT EXISTS idx_ga_daily_totals_project ON ga_daily_totals(project_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_ga_daily_totals_run ON ga_daily_totals(sync_run_id)`,
+    ],
+  },
 ]
 
 /**

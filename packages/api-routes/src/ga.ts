@@ -1,15 +1,17 @@
 import crypto from 'node:crypto'
 import { eq, desc, and, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { gaTrafficSnapshots, gaTrafficSummaries, gaTrafficWindowSummaries, gaAiReferrals, gaSocialReferrals, runs } from '@ainyc/canonry-db'
+import { gaTrafficSnapshots, gaTrafficSummaries, gaTrafficWindowSummaries, gaDailyTotals, gaAiReferrals, gaSocialReferrals, runs } from '@ainyc/canonry-db'
 import { AiReferralTrafficClasses, classifyAiReferralTrafficClass, validationError, notFound, RunKinds, RunStatuses, RunTriggers, parseWindow, windowCutoff, normalizeUrlPath } from '@ainyc/canonry-contracts'
 import type { AiReferralTrafficClass, GA4ChannelBreakdownDto } from '@ainyc/canonry-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
+import { buildSessionHistory } from './ga-session-history.js'
 import {
   getAccessToken,
   fetchTrafficByLandingPage,
   fetchAggregateSummary,
   fetchWindowSummary,
+  fetchDailyTotals,
   fetchAiReferrals,
   fetchSocialReferrals,
   verifyConnection,
@@ -464,6 +466,9 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
     app.db.delete(gaTrafficSummaries)
       .where(eq(gaTrafficSummaries.projectId, project.id))
       .run()
+    app.db.delete(gaDailyTotals)
+      .where(eq(gaDailyTotals.projectId, project.id))
+      .run()
     app.db.delete(gaAiReferrals)
       .where(eq(gaAiReferrals.projectId, project.id))
       .run()
@@ -573,9 +578,14 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       // Windowed summaries (7d/30d/90d) are fetched alongside so the dashboard can show
       // deduplicated totalUsers per window without summing per-page snapshots (overcounts).
       const WINDOW_KEYS = ['7d', '30d', '90d'] as const
+      // Daily totals carry NO landing-page dimension, so GA deduplicates
+      // `users` per day. Fetched unconditionally alongside the summary for the
+      // same reason the summary is: the daily series is a foundation read, not
+      // a channel breakdown the `only` flag scopes.
       const fetches: Promise<unknown>[] = [
         fetchAggregateSummary(accessToken, propertyId, days),
         ...WINDOW_KEYS.map((w) => fetchWindowSummary(accessToken, propertyId, w)),
+        fetchDailyTotals(accessToken, propertyId, days),
       ]
       if (syncTraffic) fetches.push(fetchTrafficByLandingPage(accessToken, propertyId, days))
       if (syncAi) fetches.push(fetchAiReferrals(accessToken, propertyId, days))
@@ -584,7 +594,8 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       const results = await Promise.all(fetches)
       const summary: Awaited<ReturnType<typeof fetchAggregateSummary>> = results[0] as Awaited<ReturnType<typeof fetchAggregateSummary>>
       const windowSummaries = results.slice(1, 1 + WINDOW_KEYS.length) as Array<Awaited<ReturnType<typeof fetchWindowSummary>>>
-      let idx = 1 + WINDOW_KEYS.length
+      const dailyTotals = results[1 + WINDOW_KEYS.length] as Awaited<ReturnType<typeof fetchDailyTotals>>
+      let idx = 2 + WINDOW_KEYS.length
       if (syncTraffic) { rows = results[idx++] as typeof rows }
       if (syncAi) { aiReferrals = results[idx++] as typeof aiReferrals }
       if (syncSocial) { socialReferrals = results[idx++] as typeof socialReferrals }
@@ -620,6 +631,34 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
               syncRunId: runId,
             }).run()
           }
+        }
+
+        // Deduplicated per-day totals. Written on every sync (not gated on
+        // `syncTraffic`) because they are the honest denominator for the daily
+        // series regardless of which breakdowns were refreshed. Delete-range
+        // then insert keeps the unique (project, date) index clean when a
+        // re-sync covers days that already have a row.
+        tx.delete(gaDailyTotals)
+          .where(
+            and(
+              eq(gaDailyTotals.projectId, project.id),
+              sql`${gaDailyTotals.date} >= ${summary.periodStart}`,
+              sql`${gaDailyTotals.date} <= ${summary.periodEnd}`,
+            ),
+          )
+          .run()
+
+        for (const row of dailyTotals) {
+          tx.insert(gaDailyTotals).values({
+            id: crypto.randomUUID(),
+            projectId: project.id,
+            date: row.date,
+            sessions: row.sessions,
+            users: row.users,
+            syncedAt: now,
+            syncRunId: runId,
+            createdAt: now,
+          }).run()
         }
 
         if (syncAi) {
@@ -1399,12 +1438,25 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       .orderBy(gaTrafficSnapshots.date)
       .all()
 
-    return rows.map((r) => ({
-      date: r.date,
-      sessions: r.sessions ?? 0,
-      organicSessions: r.organicSessions ?? 0,
-      users: r.users ?? 0,
-    }))
+    // Deduplicated per-day users, where synced. See `buildSessionHistory` for
+    // why the landing-page sum cannot be trusted for this metric.
+    const totalConditions = [eq(gaDailyTotals.projectId, project.id)]
+    if (cutoffDate) totalConditions.push(sql`${gaDailyTotals.date} >= ${cutoffDate}`)
+    const totals = app.db
+      .select({ date: gaDailyTotals.date, users: gaDailyTotals.users })
+      .from(gaDailyTotals)
+      .where(and(...totalConditions))
+      .all()
+
+    return buildSessionHistory(
+      rows.map((r) => ({
+        date: r.date,
+        sessions: r.sessions ?? 0,
+        organicSessions: r.organicSessions ?? 0,
+        users: r.users ?? 0,
+      })),
+      totals,
+    )
   })
 
   // GET /projects/:name/ga/coverage

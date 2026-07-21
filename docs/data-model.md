@@ -22,6 +22,7 @@ erDiagram
 
   projects ||--o| ga_connections : "has (1:1)"
   projects ||--o{ ga_traffic_snapshots : has
+  projects ||--o{ ga_daily_totals : has
   projects ||--o{ ga_traffic_summaries : has
   projects ||--o{ ga_ai_referrals : has
   projects ||--o{ ga_social_referrals : has
@@ -139,6 +140,7 @@ configuration value into an observation. Treat NULL as unknown.
 |-------|---------|
 | **ga_connections** | GA4 property connection (1:1 with project) |
 | **ga_traffic_snapshots** | Per-page daily traffic snapshots. Includes `sessions`, `organic_sessions`, and `direct_sessions` (nullable; populated by GA4 sync) — supports per-channel landing-page breakdowns. |
+| **ga_daily_totals** | GA4 property-level daily totals (no landing-page dimension), so `users` is deduplicated by GA and matches the GA UI. `SUM(users)` over `ga_traffic_snapshots` overcounts multi-page visitors and must not be used for a daily user count. Unique: `(project_id, date)` |
 | **ga_traffic_summaries** | Aggregated traffic summaries |
 | **ga_ai_referrals** | AI engine referral tracking. `traffic_class` splits `paid` AI traffic (paid/cpc/sponsored UTM values or GA4 paid channel groups, including tagged ChatGPT ads) from `organic`/non-paid AI referrals. Unique: `(projectId, date, source, medium, sourceDimension, channelGroup, landingPage)` |
 | **ga_social_referrals** | Social media referral tracking. Unique: `(projectId, date, source, medium, channelGroup)` |
