@@ -555,12 +555,54 @@ function buildSocialReferrals(db: DatabaseClient, projectId: string): SocialRefe
 }
 
 /**
+ * Resolve the window AI referrals are reported over.
+ *
+ * Anchored to the GA SYNC's period, never to the referral table's own
+ * `MAX(date)`. Anchoring to the latest referral row floats the window to
+ * wherever traffic last happened, so a project whose AI referrals stopped
+ * months ago would render those stale rows as "last 30 days" and the empty
+ * state would be unreachable. A GA sync only deletes rows inside its current
+ * summary range, so historical referrals legitimately outlive the window.
+ *
+ * Prefers the window summary for this exact period (the same row the GA
+ * section reports from, so the two agree), then the latest aggregate summary,
+ * then today.
+ */
+function resolveAiReferralWindow(
+  db: DatabaseClient,
+  projectId: string,
+  windowDays: number,
+): { start: string; end: string } {
+  const windowKey = GA_WINDOW_SUMMARY_KEYS[windowDays]
+  const windowSummary = windowKey
+    ? db
+        .select({ periodStart: gaTrafficWindowSummaries.periodStart, periodEnd: gaTrafficWindowSummaries.periodEnd })
+        .from(gaTrafficWindowSummaries)
+        .where(and(
+          eq(gaTrafficWindowSummaries.projectId, projectId),
+          eq(gaTrafficWindowSummaries.windowKey, windowKey),
+        ))
+        .get()
+    : undefined
+  if (windowSummary) return { start: windowSummary.periodStart, end: windowSummary.periodEnd }
+
+  const latestSummary = db
+    .select({ periodEnd: gaTrafficSummaries.periodEnd })
+    .from(gaTrafficSummaries)
+    .where(eq(gaTrafficSummaries.projectId, projectId))
+    .orderBy(desc(gaTrafficSummaries.syncedAt))
+    .get()
+  const end = latestSummary?.periodEnd ?? new Date().toISOString().slice(0, 10)
+  return { start: windowStartDate(end, windowDays), end }
+}
+
+/**
  * AI-referral traffic for the report window.
  *
- * The window is REQUIRED. This read previously had no date bound at all, so a
- * report labelled "last 30 days" summed the project's entire retained history
- * into its tiles (measured 3,106 all-time against 52 for the actual window on
- * a live project).
+ * The window is REQUIRED and comes from the GA sync period. This read
+ * previously had no date bound at all, so a report labelled "last 30 days"
+ * summed the project's entire retained history into its tiles (measured 3,106
+ * all-time against 52 for the actual window on a live project).
  *
  * Reports SESSIONS only. See `aiReferralSectionSchema` for why the users count
  * was removed rather than fixed.
@@ -570,22 +612,14 @@ function buildAiReferrals(
   projectId: string,
   windowDays: number,
 ): ProjectReportDto['aiReferrals'] {
-  const latest = db
-    .select({ date: gaAiReferrals.date })
-    .from(gaAiReferrals)
-    .where(eq(gaAiReferrals.projectId, projectId))
-    .orderBy(desc(gaAiReferrals.date))
-    .limit(1)
-    .get()
-  if (!latest) return null
-  const windowStart = windowStartDate(latest.date, windowDays)
+  const window = resolveAiReferralWindow(db, projectId, windowDays)
   const rows = db
     .select()
     .from(gaAiReferrals)
     .where(and(
       eq(gaAiReferrals.projectId, projectId),
-      sql`${gaAiReferrals.date} >= ${windowStart}`,
-      sql`${gaAiReferrals.date} <= ${latest.date}`,
+      sql`${gaAiReferrals.date} >= ${window.start}`,
+      sql`${gaAiReferrals.date} <= ${window.end}`,
     ))
     .all()
   if (rows.length === 0) return null

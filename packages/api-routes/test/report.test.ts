@@ -878,13 +878,19 @@ describe('GET /api/v1/projects/:name/report', () => {
     // The deduped total must be MAX(20, 30) = 30, not 20 + 30; the winning
     // lens supplies the paid/organic split.
     const projectId = insertProject(ctx.db, 'ai-overlap-report')
+    // Inside the report window: this test exercises lens dedup, not windowing.
+    const recentDate = (() => {
+      const d = new Date()
+      d.setUTCDate(d.getUTCDate() - 2)
+      return d.toISOString().slice(0, 10)
+    })()
     const now = new Date().toISOString()
 
     ctx.db.insert(gaAiReferrals).values([
       {
         id: crypto.randomUUID(),
         projectId,
-        date: '2026-04-30',
+        date: recentDate,
         source: 'chatgpt.com',
         medium: 'referral',
         trafficClass: 'paid',
@@ -899,7 +905,7 @@ describe('GET /api/v1/projects/:name/report', () => {
       {
         id: crypto.randomUUID(),
         projectId,
-        date: '2026-04-30',
+        date: recentDate,
         source: 'chatgpt.com',
         medium: 'referral',
         trafficClass: 'organic',
@@ -1032,7 +1038,11 @@ describe('GET /api/v1/projects/:name/report', () => {
 
   test('AI referrals dedupe overlapping attribution dimensions per (date, source, medium)', async () => {
     const projectId = insertProject(ctx.db, 'ai-dedupe')
-    const baseDate = '2026-04-30'
+    const baseDate = (() => {
+      const d = new Date()
+      d.setUTCDate(d.getUTCDate() - 2)
+      return d.toISOString().slice(0, 10)
+    })()
     ctx.db.insert(gaAiReferrals).values([
       {
         id: crypto.randomUUID(),
@@ -1086,28 +1096,14 @@ describe('GET /api/v1/projects/:name/report', () => {
     // for the window on a live project).
     ctx.db.insert(gaAiReferrals).values([
       {
-        id: crypto.randomUUID(),
-        projectId,
-        date: iso(2),
-        source: 'chatgpt.com',
-        medium: 'referral',
-        sourceDimension: 'session',
-        landingPage: '/',
-        sessions: 5,
-        users: 5,
-        syncedAt: new Date().toISOString(),
+        id: crypto.randomUUID(), projectId, date: iso(2),
+        source: 'chatgpt.com', medium: 'referral', sourceDimension: 'session',
+        landingPage: '/', sessions: 5, users: 5, syncedAt: new Date().toISOString(),
       },
       {
-        id: crypto.randomUUID(),
-        projectId,
-        date: iso(300),
-        source: 'chatgpt.com',
-        medium: 'referral',
-        sourceDimension: 'session',
-        landingPage: '/',
-        sessions: 500,
-        users: 500,
-        syncedAt: new Date().toISOString(),
+        id: crypto.randomUUID(), projectId, date: iso(300),
+        source: 'chatgpt.com', medium: 'referral', sourceDimension: 'session',
+        landingPage: '/', sessions: 500, users: 500, syncedAt: new Date().toISOString(),
       },
     ]).run()
 
@@ -1119,6 +1115,40 @@ describe('GET /api/v1/projects/:name/report', () => {
     const body = JSON.parse(res.body) as ProjectReportDto
     expect(body.aiReferrals).not.toBeNull()
     expect(body.aiReferrals!.totalSessions).toBe(5)
+  })
+
+  test('a quiet current window reports zero, even when historical referrals exist', async () => {
+    const projectId = insertProject(ctx.db, 'ai-quiet')
+    const iso = (daysAgo: number): string => {
+      const d = new Date()
+      d.setUTCDate(d.getUTCDate() - daysAgo)
+      return d.toISOString().slice(0, 10)
+    }
+    // ONLY historical referrals. Anchoring the window to the referral table's
+    // own MAX(date) would float it back to 200 days ago and render these as
+    // "last 30 days"; a GA sync only deletes rows inside its current range, so
+    // stale referrals legitimately outlive the window and the empty state has
+    // to stay reachable.
+    ctx.db.insert(gaAiReferrals).values([
+      {
+        id: crypto.randomUUID(), projectId, date: iso(200),
+        source: 'chatgpt.com', medium: 'referral', sourceDimension: 'session',
+        landingPage: '/', sessions: 900, users: 900, syncedAt: new Date().toISOString(),
+      },
+      {
+        id: crypto.randomUUID(), projectId, date: iso(210),
+        source: 'chatgpt.com', medium: 'referral', sourceDimension: 'session',
+        landingPage: '/', sessions: 900, users: 900, syncedAt: new Date().toISOString(),
+      },
+    ]).run()
+
+    await ctx.app.ready()
+    const res = await ctx.app.inject({
+      method: 'GET',
+      url: '/api/v1/projects/ai-quiet/report?period=30',
+    })
+    const body = JSON.parse(res.body) as ProjectReportDto
+    expect(body.aiReferrals?.totalSessions ?? 0).toBe(0)
   })
 
   test('indexing health prefers GSC and falls back to Bing', async () => {

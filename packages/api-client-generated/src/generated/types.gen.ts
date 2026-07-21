@@ -2888,9 +2888,13 @@ export type ProjectReportDto = {
         totalSessions: number;
         paidSessions: number;
         organicSessions: number;
+        totalUsers?: number;
+        paidUsers?: number;
+        organicUsers?: number;
         bySource: Array<{
             source: string;
             sessions: number;
+            users?: number;
             paidSessions: number;
             organicSessions: number;
             sharePct: number;
@@ -2902,6 +2906,7 @@ export type ProjectReportDto = {
         topLandingPages: Array<{
             page: string;
             sessions: number;
+            users?: number;
         }>;
     } | null;
     serverActivity: {

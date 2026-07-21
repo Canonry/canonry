@@ -413,9 +413,28 @@ export const aiReferralSectionSchema = z.object({
   totalSessions: z.number(),
   paidSessions: z.number(),
   organicSessions: z.number(),
+  /**
+   * @deprecated Never emitted since 4.127.0 and removed in the next major.
+   *
+   * GA reports `totalUsers` as a COUNT DISTINCT at the grain requested, and
+   * `ga_ai_referrals` is keyed by (date, source, medium, channelGroup,
+   * landingPage, sourceDimension), so summing it re-counted the same visitor on
+   * every extra day, page and channel. Unlike GA daily users, no
+   * un-dimensioned AI-referral fetch exists to ask Google for the true figure,
+   * so the number could not be corrected — only withdrawn. Optional rather than
+   * deleted so existing API / `canonry report --format json` / MCP consumers
+   * keep parsing; they now read `undefined` instead of an inflated number.
+   */
+  totalUsers: z.number().optional(),
+  /** @deprecated See `totalUsers`. Never emitted since 4.127.0. */
+  paidUsers: z.number().optional(),
+  /** @deprecated See `totalUsers`. Never emitted since 4.127.0. */
+  organicUsers: z.number().optional(),
   bySource: z.array(z.object({
     source: z.string(),
     sessions: z.number(),
+    /** @deprecated See `totalUsers`. Never emitted since 4.127.0. */
+    users: z.number().optional(),
     paidSessions: z.number(),
     organicSessions: z.number(),
     sharePct: z.number(),
@@ -424,6 +443,8 @@ export const aiReferralSectionSchema = z.object({
   topLandingPages: z.array(z.object({
     page: z.string(),
     sessions: z.number(),
+    /** @deprecated See `totalUsers`. Never emitted since 4.127.0. */
+    users: z.number().optional(),
   })),
 })
 
