@@ -282,6 +282,35 @@ describe('content routes', () => {
       expect(body.contextMetrics.latestRunId).toBeTruthy()
     })
 
+    it('counts one AI-referral visit once, not once per attribution lens', async () => {
+      const { projectId, latestRunId } = seedProject(db)
+      // GA4 returns `session`, `first_user` and `manual_utm` as three separate
+      // reports over the SAME visits — overlapping lenses, not disjoint
+      // traffic. The seeded row above is the `session` lens (schema default);
+      // these two describe the same 142 sessions from the other two angles.
+      // Summing all three reported ~3x on live data (800 vs 264).
+      for (const sourceDimension of ['first_user', 'manual_utm']) {
+        db.insert(gaAiReferrals).values({
+          id: crypto.randomUUID(),
+          projectId,
+          syncRunId: latestRunId,
+          date: '2026-04-01',
+          source: 'chat.openai.com',
+          medium: 'referral',
+          sourceDimension,
+          sessions: 138,
+          users: 126,
+          syncedAt: new Date().toISOString(),
+        }).run()
+      }
+
+      const res = await app.inject({ method: 'GET', url: '/projects/example/content/targets' })
+      expect(res.statusCode).toBe(200)
+      const body = JSON.parse(res.payload)
+      // 142, not 142 + 138 + 138 = 418.
+      expect(body.contextMetrics.totalAiReferralSessions).toBe(142)
+    })
+
     it('classifies Q1 as CREATE (no page) with competitor evidence demand source', async () => {
       seedProject(db)
       const res = await app.inject({ method: 'GET', url: '/projects/example/content/targets' })

@@ -309,11 +309,31 @@ function buildGaTrafficByPage(db: DatabaseClient, projectId: string): Map<string
   return map
 }
 
+/**
+ * Total AI-referral sessions for the project.
+ *
+ * Pinned to the `session` attribution lens. `ga_ai_referrals` holds one row per
+ * `sourceDimension` — `session`, `first_user` and `manual_utm` are three
+ * OVERLAPPING views of the same visits, fetched as three separate GA4 reports,
+ * not three disjoint groups of traffic. Summing across them multiplies the
+ * total by roughly the number of lenses (measured 800 vs 264, a 3.0x inflation,
+ * on a live project).
+ *
+ * Every other consumer already guards this: `report.ts` pins `session` and
+ * `ga.ts` takes the winning lens per tuple via `pickWinningDimension`. Pinning
+ * the same lens here keeps the content engine's denominator consistent with the
+ * report's numerator.
+ */
 function sumAiReferralSessions(db: DatabaseClient, projectId: string): number {
   const rows = db
     .select({ sessions: gaAiReferrals.sessions })
     .from(gaAiReferrals)
-    .where(eq(gaAiReferrals.projectId, projectId))
+    .where(
+      and(
+        eq(gaAiReferrals.projectId, projectId),
+        eq(gaAiReferrals.sourceDimension, 'session'),
+      ),
+    )
     .all()
   return rows.reduce((acc, r) => acc + (r.sessions ?? 0), 0)
 }
