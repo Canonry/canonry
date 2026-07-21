@@ -263,6 +263,8 @@ export interface AdsActivationDependencies {
   now?: () => Date
   randomId?: () => string
   leaseMs?: number
+  sleep?: (ms: number) => Promise<void>
+  activationVerificationRetryDelaysMs?: readonly number[]
 }
 
 export interface AdsActivationResult {
@@ -288,7 +290,10 @@ interface ActivationTarget {
 }
 
 interface ActivationContext {
-  deps: Required<Pick<AdsActivationDependencies, 'now' | 'randomId' | 'leaseMs'>>
+  deps: Required<Pick<
+    AdsActivationDependencies,
+    'now' | 'randomId' | 'leaseMs' | 'sleep' | 'activationVerificationRetryDelaysMs'
+  >>
     & Pick<AdsActivationDependencies, 'store' | 'provider'>
   request: AdsActivationRequest
   manifest: AdsActivationManifest
@@ -299,6 +304,7 @@ interface ActivationContext {
 }
 
 const DEFAULT_LEASE_MS = 5 * 60_000
+const DEFAULT_ACTIVATION_VERIFICATION_RETRY_DELAYS_MS = [100, 250, 500, 1_000, 2_000, 2_000] as const
 const PROVIDER_PAUSED = 'paused'
 const PROVIDER_ACTIVE = 'active'
 
@@ -1475,6 +1481,85 @@ async function validateActiveDescendants(
   }
 }
 
+type VerifiedActiveEntitySnapshot = AdsActivationEntitySnapshot & {
+  status: typeof PROVIDER_ACTIVE
+  updatedAt: number
+}
+
+type ActivationVerificationResult =
+  | { ok: true; entity: VerifiedActiveEntitySnapshot }
+  | { ok: false; error: AdsActivationError; providerUpdatedAt: number | null }
+
+async function verifyActiveAfterMutation(
+  ctx: ActivationContext,
+  target: ActivationTarget,
+): Promise<ActivationVerificationResult> {
+  let lastUpdatedAt: number | null = null
+  for (let attempt = 0; ; attempt++) {
+    let entity: AdsActivationEntitySnapshot | null = null
+    try {
+      entity = await readTarget(ctx.deps.provider, target)
+      lastUpdatedAt = entity.updatedAt
+    } catch {
+      // A dropped verification read is retryable. The activation is never resent.
+    }
+
+    if (entity) {
+      try {
+        validateIdentity(target, entity)
+        validateAdApproval(target, entity)
+      } catch (cause) {
+        return {
+          ok: false,
+          error: cause instanceof AdsActivationError
+            ? cause
+            : targetError(
+                AdsActivationErrorCodes.providerMutationFailed,
+                'Provider activation validation failed',
+                502,
+                target,
+              ),
+          providerUpdatedAt: entity.updatedAt,
+        }
+      }
+      if (entity.status === PROVIDER_ACTIVE && entity.updatedAt !== null) {
+        return { ok: true, entity: entity as VerifiedActiveEntitySnapshot }
+      }
+      const exactPreMutationSnapshot = entity.status === PROVIDER_PAUSED
+        && entity.updatedAt === target.expectedUpdatedAt
+      if (!exactPreMutationSnapshot) {
+        return {
+          ok: false,
+          error: targetError(
+            AdsActivationErrorCodes.providerMutationFailed,
+            'Provider did not confirm the required active state',
+            502,
+            target,
+          ),
+          providerUpdatedAt: entity.updatedAt,
+        }
+      }
+    }
+
+    if (attempt >= ctx.deps.activationVerificationRetryDelaysMs.length) {
+      return {
+        ok: false,
+        error: targetError(
+          AdsActivationErrorCodes.providerMutationFailed,
+          'Provider activation outcome could not be verified',
+          502,
+          target,
+        ),
+        providerUpdatedAt: lastUpdatedAt,
+      }
+    }
+    const delayMs = ctx.deps.activationVerificationRetryDelaysMs[attempt]!
+    await renewLease(ctx)
+    await ctx.deps.sleep(delayMs)
+    await renewLease(ctx)
+  }
+}
+
 async function activateOne(ctx: ActivationContext, original: AdsActivationStepRecord): Promise<void> {
   let step = currentStep(ctx, original.id)
   if (step.state === AdsOperationStepStates.active) {
@@ -1533,27 +1618,16 @@ async function activateOne(ctx: ActivationContext, original: AdsActivationStepRe
   // request timeouts, and this renewal gives the read a fresh full window.
   await renewLease(ctx)
 
-  let entity: AdsActivationEntitySnapshot
-  try {
-    entity = await readTarget(ctx.deps.provider, target)
-  } catch {
-    const error = targetError(AdsActivationErrorCodes.providerMutationFailed, 'Provider activation outcome could not be verified', 502, target)
-    await transitionStep(ctx, step, unknownStep(step, error, null, ctx.deps.now().toISOString()))
-    throw error
+  const verification = await verifyActiveAfterMutation(ctx, target)
+  if (!verification.ok) {
+    await transitionStep(
+      ctx,
+      step,
+      unknownStep(step, verification.error, verification.providerUpdatedAt, ctx.deps.now().toISOString()),
+    )
+    throw verification.error
   }
-  try {
-    validateIdentity(target, entity)
-    validateAdApproval(target, entity)
-    if (entity.status !== PROVIDER_ACTIVE || entity.updatedAt === null) {
-      throw targetError(AdsActivationErrorCodes.providerMutationFailed, 'Provider did not confirm the required active state', 502, target)
-    }
-  } catch (cause) {
-    const error = cause instanceof AdsActivationError
-      ? cause
-      : targetError(AdsActivationErrorCodes.providerMutationFailed, 'Provider activation validation failed', 502, target)
-    await transitionStep(ctx, step, unknownStep(step, error, entity.updatedAt, ctx.deps.now().toISOString()))
-    throw error
-  }
+  const { entity } = verification
   await validateExactDescendants(
     ctx.deps.provider,
     ctx.manifest,
@@ -1778,9 +1852,23 @@ export async function executeApprovedAdsActivation(
     now: dependencies.now ?? (() => new Date()),
     randomId: dependencies.randomId ?? (() => crypto.randomUUID()),
     leaseMs: dependencies.leaseMs ?? DEFAULT_LEASE_MS,
+    sleep: dependencies.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms))),
+    activationVerificationRetryDelaysMs: dependencies.activationVerificationRetryDelaysMs
+      ?? DEFAULT_ACTIVATION_VERIFICATION_RETRY_DELAYS_MS,
   }
   if (!Number.isSafeInteger(deps.leaseMs) || deps.leaseMs <= 0) {
     throw new AdsActivationError(AdsActivationErrorCodes.invalidManifest, 'Activation lease duration is invalid', 400)
+  }
+  if (
+    deps.activationVerificationRetryDelaysMs.some((delay) =>
+      !Number.isSafeInteger(delay) || delay < 0,
+    )
+  ) {
+    throw new AdsActivationError(
+      AdsActivationErrorCodes.invalidManifest,
+      'Activation verification retry delays are invalid',
+      400,
+    )
   }
 
   const now = deps.now()
