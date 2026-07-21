@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest'
 import {
   MIN_PCT_BASE,
+  compactDateToIso,
   deltaPercent,
   deltaTone,
   formatAverageDelta,
@@ -258,5 +259,30 @@ describe('parseInclusiveEndMs', () => {
 
   test('returns null for an unparseable value', () => {
     expect(parseInclusiveEndMs('not-a-date')).toBeNull()
+  })
+})
+
+describe('compactDateToIso', () => {
+  test('converts a GA4 compact date to ISO', () => {
+    expect(compactDateToIso('20260720')).toBe('2026-07-20')
+  })
+
+  test('leaves an already-ISO date untouched (idempotent)', () => {
+    expect(compactDateToIso('2026-07-20')).toBe('2026-07-20')
+    expect(compactDateToIso(compactDateToIso('20260720'))).toBe('2026-07-20')
+  })
+
+  test('passes through values that are not 8 digits', () => {
+    expect(compactDateToIso('')).toBe('')
+    expect(compactDateToIso('(other)')).toBe('(other)')
+    expect(compactDateToIso('2026072')).toBe('2026072')
+    expect(compactDateToIso('2026-7-20')).toBe('2026-7-20')
+  })
+
+  test('does not shift the day across timezones', () => {
+    // Pure string surgery — no Date construction, so a UTC-negative offset
+    // cannot roll the date back to the 19th.
+    expect(compactDateToIso('20260101')).toBe('2026-01-01')
+    expect(compactDateToIso('20261231')).toBe('2026-12-31')
   })
 })

@@ -1,5 +1,5 @@
 import crypto from 'node:crypto'
-import { AI_ENGINE_DOMAINS, classifyAiReferralTrafficClass, withRetry } from '@ainyc/canonry-contracts'
+import { AI_ENGINE_DOMAINS, classifyAiReferralTrafficClass, compactDateToIso, withRetry } from '@ainyc/canonry-contracts'
 import {
   GA4_DATA_API_BASE,
   GA4_SCOPE,
@@ -517,11 +517,8 @@ export async function fetchTrafficByLandingPage(
     row.directSessions = directMap.get(key) ?? 0
   }
 
-  // Convert YYYYMMDD to YYYY-MM-DD
   for (const row of rows) {
-    if (row.date.length === 8 && !row.date.includes('-')) {
-      row.date = `${row.date.slice(0, 4)}-${row.date.slice(4, 6)}-${row.date.slice(6, 8)}`
-    }
+    row.date = compactDateToIso(row.date)
   }
 
   ga4Log('info', 'fetch-traffic.done', { propertyId, rowCount: rows.length })
@@ -632,6 +629,59 @@ export async function fetchAggregateSummary(
 
   ga4Log('info', 'fetch-aggregate.done', { propertyId, ...summary })
   return summary
+}
+
+export interface GA4DailyTotalRow {
+  date: string
+  sessions: number
+  users: number
+}
+
+/**
+ * Fetch per-day totals with `date` as the ONLY dimension.
+ *
+ * This is `fetchAggregateSummary`'s rationale applied at daily granularity:
+ * `totalUsers` is deduplicated by GA within whatever dimensions the report
+ * carries, so adding a landing-page dimension turns one visitor who read three
+ * pages into three counted users. Requesting only `date` makes GA do the dedup
+ * per day, which is what the GA UI's "Active users" reports.
+ *
+ * `sessions` is returned alongside because it IS additive (GA4 attributes one
+ * landing page per session), which makes it a free consistency check against
+ * the landing-page sum.
+ */
+export async function fetchDailyTotals(
+  accessToken: string,
+  propertyId: string,
+  days?: number,
+): Promise<GA4DailyTotalRow[]> {
+  validateAccessToken(accessToken)
+  validatePropertyId(propertyId)
+
+  const syncDays = Math.min(Math.max(1, days ?? GA4_DEFAULT_SYNC_DAYS), GA4_MAX_SYNC_DAYS)
+  const endDate = new Date()
+  const startDate = new Date()
+  startDate.setDate(startDate.getDate() - syncDays)
+
+  ga4Log('info', 'fetch-daily-totals.start', { propertyId, days: syncDays })
+
+  // One row per day in the range, so the window itself bounds the response —
+  // `+ 1` covers both endpoints being inclusive. No paging needed.
+  const res = await runReport(accessToken, propertyId, {
+    dateRanges: [{ startDate: formatDate(startDate), endDate: formatDate(endDate) }],
+    dimensions: [{ name: DIM.date }],
+    metrics: [{ name: MET.sessions }, { name: MET.totalUsers }],
+    limit: syncDays + 1,
+  })
+
+  const rows: GA4DailyTotalRow[] = (res.rows ?? []).map((row) => ({
+    date: compactDateToIso(row.dimensionValues[0]?.value ?? ''),
+    sessions: parseInt(row.metricValues[0]?.value ?? '0', 10) || 0,
+    users: parseInt(row.metricValues[1]?.value ?? '0', 10) || 0,
+  })).filter((row) => row.date.length > 0)
+
+  ga4Log('info', 'fetch-daily-totals.done', { propertyId, days: syncDays, rows: rows.length })
+  return rows
 }
 
 export interface GA4WindowSummary {
@@ -858,11 +908,8 @@ export async function fetchAiReferrals(
   }
   const dedupedRows = [...deduped.values()]
 
-  // Convert YYYYMMDD to YYYY-MM-DD
   for (const row of dedupedRows) {
-    if (row.date.length === 8 && !row.date.includes('-')) {
-      row.date = `${row.date.slice(0, 4)}-${row.date.slice(4, 6)}-${row.date.slice(6, 8)}`
-    }
+    row.date = compactDateToIso(row.date)
   }
 
   ga4Log('info', 'fetch-ai-referrals.done', { propertyId, rowCount: dedupedRows.length })
@@ -950,11 +997,8 @@ export async function fetchSocialReferrals(
     if (pageRows.length < PAGE_SIZE || offset >= totalRows) break
   }
 
-  // Convert YYYYMMDD to YYYY-MM-DD
   for (const row of rows) {
-    if (row.date.length === 8 && !row.date.includes('-')) {
-      row.date = `${row.date.slice(0, 4)}-${row.date.slice(4, 6)}-${row.date.slice(6, 8)}`
-    }
+    row.date = compactDateToIso(row.date)
   }
 
   ga4Log('info', 'fetch-social-referrals.done', { propertyId, rowCount: rows.length })

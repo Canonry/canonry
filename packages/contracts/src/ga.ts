@@ -388,6 +388,17 @@ export const ga4SessionHistoryEntrySchema = z.object({
   date: z.string(),
   sessions: z.number(),
   organicSessions: z.number(),
+  /**
+   * Unique visitors for the day. Deduplicated by GA when `usersSource` is
+   * `deduplicated`; a landing-page sum (which overcounts multi-page visitors)
+   * for days synced before per-day totals were captured.
+   */
   users: z.number(),
+  /**
+   * How `users` was derived. `deduplicated` matches the GA UI's active users;
+   * `landing-page-sum` is the legacy overcount kept so historical days still
+   * render. Never compare the two across a series without saying which is which.
+   */
+  usersSource: z.enum(['deduplicated', 'landing-page-sum']),
 })
 export type GA4SessionHistoryEntry = z.infer<typeof ga4SessionHistoryEntrySchema>

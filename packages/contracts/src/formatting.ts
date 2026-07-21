@@ -147,3 +147,18 @@ export function formatWindowCountDelta(
   const sign = d.deltaAbs > 0 ? '+' : ''
   return `${sign}${formatNumber(Math.round(d.deltaAbs))} ${countLabel} ${windowLabel}`
 }
+
+/**
+ * Convert a compact `YYYYMMDD` calendar date to ISO `YYYY-MM-DD`.
+ *
+ * Google's reporting APIs return the `date` dimension in the compact form
+ * while canonry stores and compares ISO dates everywhere. Values that are
+ * already ISO (or any other shape) are returned unchanged, so this is safe to
+ * apply to a mixed series and safe to re-apply.
+ *
+ * Pure string surgery — no Date construction, so no timezone can shift the day.
+ */
+export function compactDateToIso(value: string): string {
+  if (value.length !== 8 || !/^\d{8}$/.test(value)) return value
+  return `${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}`
+}

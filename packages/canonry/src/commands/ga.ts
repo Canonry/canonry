@@ -328,9 +328,17 @@ export async function gaSessionHistory(project: string, opts?: { window?: string
   console.log(`  ${'DATE'.padEnd(dateWidth)}  ${'SESSIONS'.padEnd(10)}${'ORGANIC'.padEnd(10)}${'USERS'.padEnd(8)}`)
   console.log(`  ${'─'.repeat(dateWidth)}  ${'─'.repeat(10)}${'─'.repeat(10)}${'─'.repeat(8)}`)
   for (const row of result) {
+    // Mark days whose user count is the older per-page sum so a mixed series
+    // never reads as one consistent measurement.
+    const users = row.usersSource === 'deduplicated' ? String(row.users) : `${row.users}*`
     console.log(
-      `  ${row.date.padEnd(dateWidth)}  ${String(row.sessions).padEnd(10)}${String(row.organicSessions).padEnd(10)}${String(row.users).padEnd(8)}`,
+      `  ${row.date.padEnd(dateWidth)}  ${String(row.sessions).padEnd(10)}${String(row.organicSessions).padEnd(10)}${users.padEnd(8)}`,
     )
+  }
+  if (result.some((row) => row.usersSource !== 'deduplicated')) {
+    console.log('\n  * Visitor count is approximate — it adds up each page a visitor landed on,')
+    console.log('    so someone who read several pages is counted more than once. Run')
+    console.log(`    "canonry ga sync ${project}" to replace these with exact counts.`)
   }
 }
 
