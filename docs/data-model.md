@@ -38,6 +38,7 @@ erDiagram
 
   projects ||--o{ gsc_search_data : has
   projects ||--o{ gsc_daily_totals : has
+  projects ||--o{ gsc_query_daily_totals : has
   projects ||--o{ gsc_url_inspections : has
   projects ||--o{ gsc_coverage_snapshots : has
 
@@ -122,6 +123,7 @@ configuration value into an observation. Treat NULL as unknown.
 | **google_connections** | OAuth credentials, domain-scoped. Unique: `(domain, connectionType)` |
 | **gsc_search_data** | GSC search analytics data synced per run (query × page × country × device × date) |
 | **gsc_daily_totals** | GSC property-level daily totals (no query/page dimensions). Headline clicks/impressions/CTR/position + daily trend source. Unique: `(project_id, date)` |
+| **gsc_query_daily_totals** | Per-QUERY daily totals fetched with `dimensions: ['date','query']` (no `page`). Summing `gsc_search_data` by query fans one SERP into one row per ranking page, inflating impressions ~0% for single-page queries but ~500% for terms where several pages rank together. Complete for queries Google NAMES; anonymized rare queries are still absent, so it does not sum to the property total. Unique: `(project_id, date, query)` |
 | **gsc_url_inspections** | URL inspection results from GSC |
 | **gsc_coverage_snapshots** | Index coverage snapshots from GSC |
 

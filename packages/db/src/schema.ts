@@ -259,6 +259,50 @@ export const gscDailyTotals = sqliteTable('gsc_daily_totals', {
   index('idx_gsc_daily_totals_project').on(table.projectId),
 ])
 
+/**
+ * Per-QUERY daily totals, fetched with `dimensions: ['date', 'query']` — the
+ * per-query counterpart to `gsc_daily_totals`.
+ *
+ * `gsc_search_data` carries the `page` dimension, and one SERP that shows
+ * several of the site's URLs becomes several rows there. Summing it by query
+ * therefore multiplies impressions by how many of your pages ranked together.
+ * Measured on a live property: 80,949 summed vs 48,156 true, +68% overall —
+ * but the error is NOT uniform. It is ~0% for single-page queries and ~500%
+ * for the brand+category terms where several pages rank on one SERP, which
+ * REORDERS a top-queries table rather than merely inflating it.
+ *
+ * Dropping the `page` dimension makes Google do the dedup, so these rows match
+ * the GSC UI's per-query figures, including `position` (Google's own per-query
+ * average, which beats any weighting computed here).
+ *
+ * NOTE ON COMPLETENESS: this is the accurate figure for every query Google
+ * NAMES. Google withholds rare queries for privacy, so summing this table
+ * still falls short of the property total in `gsc_daily_totals` (48,156 vs
+ * 64,365 on the same property). It is a complete list of reported queries, not
+ * a decomposition of all traffic — never present it as the latter.
+ */
+export const gscQueryDailyTotals = sqliteTable('gsc_query_daily_totals', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  date: text('date').notNull(),
+  query: text('query').notNull(),
+  clicks: integer('clicks').notNull().default(0),
+  impressions: integer('impressions').notNull().default(0),
+  /**
+   * Stored as a string like `gscSearchData.position` (parsed on read). CTR is
+   * derived (clicks / impressions) and intentionally not stored.
+   */
+  position: text('position').notNull().default('0'),
+  syncedAt: text('synced_at').notNull(),
+  syncRunId: text('sync_run_id').references(() => runs.id, { onDelete: 'cascade' }),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_gsc_query_daily_totals_project_date_query').on(table.projectId, table.date, table.query),
+  index('idx_gsc_query_daily_totals_project_date').on(table.projectId, table.date),
+  index('idx_gsc_query_daily_totals_query').on(table.query),
+  index('idx_gsc_query_daily_totals_run').on(table.syncRunId),
+])
+
 export const gscUrlInspections = sqliteTable('gsc_url_inspections', {
   id: text('id').primaryKey(),
   projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),

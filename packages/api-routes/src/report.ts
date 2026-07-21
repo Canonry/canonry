@@ -68,7 +68,7 @@ import {
   smoothedRunDelta,
 } from '@ainyc/canonry-intelligence'
 import { loadDismissedTargetRefs } from './content.js'
-import { mergeGscDailyTotalsWithFallback, readGscDailyTotals } from './gsc-totals.js'
+import { mergeGscDailyTotalsWithFallback, mergeGscQueryTotalsWithFallback, readGscDailyTotals, readGscQueryDailyRows } from './gsc-totals.js'
 import { notProbeRun, resolveProject } from './helpers.js'
 import { renderReportHtml } from './report-renderer.js'
 import {
@@ -220,16 +220,20 @@ function buildGscSection(
   // trend prefer property-level rows per date, falling back to dimensioned rows
   // for dates not yet covered by the new table.
   let dimensionedClicks = 0
-  const queryAgg = new Map<string, { clicks: number; impressions: number; weightedPositionSum: number }>()
+  // Legacy per-(date, query) fallback. Kept at DAY grain, not folded to one row
+  // per query, because the merge below has to decide source per day: a
+  // partially-backfilled query has accurate rows for only part of the window.
+  const queryDayAgg = new Map<string, { date: string; query: string; clicks: number; impressions: number; weightedPositionSum: number }>()
   const dimensionedTrendAgg = new Map<string, { clicks: number; impressions: number; weightedPositionSum: number }>()
 
   for (const r of rows) {
     dimensionedClicks += r.clicks
-    const q = queryAgg.get(r.query) ?? { clicks: 0, impressions: 0, weightedPositionSum: 0 }
+    const dayKey = `${r.date} ${r.query}`
+    const q = queryDayAgg.get(dayKey) ?? { date: r.date, query: r.query, clicks: 0, impressions: 0, weightedPositionSum: 0 }
     q.clicks += r.clicks
     q.impressions += r.impressions
     q.weightedPositionSum += safeNum(r.position) * r.impressions
-    queryAgg.set(r.query, q)
+    queryDayAgg.set(dayKey, q)
 
     const t = dimensionedTrendAgg.get(r.date) ?? { clicks: 0, impressions: 0, weightedPositionSum: 0 }
     t.clicks += r.clicks
@@ -261,21 +265,43 @@ function buildGscSection(
   const ctr = totalImpressions > 0 ? totalClicks / totalImpressions : 0
   const avgPosition = totalImpressions > 0 ? weightedPositionSum / totalImpressions : 0
 
-  const topQueries: GscQueryRow[] = [...queryAgg.entries()]
-    .map(([query, agg]) => ({
-      query,
+  // Per-query figures prefer Google's own un-dimensioned `['date','query']`
+  // rows. Summing `gsc_search_data` by query fans one SERP into one row per
+  // ranking page, which inflates impressions (~0% for a single-page query,
+  // ~500% for brand+category terms where several pages rank together) and so
+  // understates the derived CTR against real clicks. Clicks themselves are
+  // additive across pages, which is why the click ordering below was already
+  // right; impressions, CTR and position were not.
+  const queryTotals = mergeGscQueryTotalsWithFallback(
+    readGscQueryDailyRows(db, projectId, startDate, maxDate),
+    [...queryDayAgg.values()].map((agg) => ({
+      date: agg.date,
+      query: agg.query,
+      clicks: agg.clicks,
+      impressions: agg.impressions,
+      position: agg.impressions > 0 ? agg.weightedPositionSum / agg.impressions : 0,
+    })),
+  )
+
+  const topQueries: GscQueryRow[] = queryTotals
+    .map((agg) => ({
+      query: agg.query,
       clicks: agg.clicks,
       impressions: agg.impressions,
       ctr: agg.impressions > 0 ? agg.clicks / agg.impressions : 0,
-      avgPosition: agg.impressions > 0 ? agg.weightedPositionSum / agg.impressions : 0,
-      category: categorizeQuery(query, projectBrandNames, canonicalDomain),
+      avgPosition: agg.position,
+      category: categorizeQuery(agg.query, projectBrandNames, canonicalDomain),
     }))
     .sort((a, b) => b.clicks - a.clicks)
     .slice(0, TOP_QUERIES_LIMIT)
 
+  // Built from the same per-query source as `topQueries` so the two agree.
+  // Impressions here are a sum ACROSS queries, which is legitimate: distinct
+  // queries are disjoint (one SERP belongs to one query), unlike the pages
+  // within a query.
   const categoryAgg = new Map<GscQueryRow['category'], { clicks: number; impressions: number }>()
-  for (const [query, agg] of queryAgg) {
-    const cat = categorizeQuery(query, projectBrandNames, canonicalDomain)
+  for (const agg of queryTotals) {
+    const cat = categorizeQuery(agg.query, projectBrandNames, canonicalDomain)
     const bucket = categoryAgg.get(cat) ?? { clicks: 0, impressions: 0 }
     bucket.clicks += agg.clicks
     bucket.impressions += agg.impressions
@@ -295,16 +321,19 @@ function buildGscSection(
   const periodEnd = trend.at(-1)?.date ?? ''
 
   const trackedSet = new Set(trackedQueries.map(q => q.toLowerCase()))
-  const gscQuerySet = new Set([...queryAgg.keys()].map(q => q.toLowerCase()))
+  // Reads the merged per-query set (accurate where backfilled, legacy where
+  // not) so the tracked-vs-GSC comparison sees the same query universe and the
+  // same impression ordering as the tables above.
+  const gscQuerySet = new Set(queryTotals.map(q => q.query.toLowerCase()))
   const trackedButNoGsc = trackedQueries.filter(q => !gscQuerySet.has(q.toLowerCase())).sort()
   // Surface brand-free candidates only — brand queries already convert
   // regardless of AEO tracking, so they're not actionable additions to
   // the project query set.
-  const gscButNotTracked = [...queryAgg.entries()]
-    .filter(([q]) => !trackedSet.has(q.toLowerCase()))
-    .filter(([q]) => categorizeQuery(q, projectBrandNames, canonicalDomain) !== 'brand')
-    .sort((a, b) => b[1].impressions - a[1].impressions)
-    .map(([q]) => q)
+  const gscButNotTracked = [...queryTotals]
+    .filter(agg => !trackedSet.has(agg.query.toLowerCase()))
+    .filter(agg => categorizeQuery(agg.query, projectBrandNames, canonicalDomain) !== 'brand')
+    .sort((a, b) => b.impressions - a.impressions)
+    .map(agg => agg.query)
     .slice(0, TOP_QUERIES_LIMIT)
 
   return {

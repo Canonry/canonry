@@ -2359,6 +2359,34 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `CREATE INDEX IF NOT EXISTS idx_ga_daily_totals_run ON ga_daily_totals(sync_run_id)`,
     ],
   },
+  {
+    // Per-query daily totals fetched WITHOUT the `page` dimension. Summing
+    // `gsc_search_data` by query multiplies impressions by how many of the
+    // site's pages ranked on the same SERP — ~0% for single-page queries but
+    // ~500% for brand+category terms, which reorders a top-queries table.
+    // Dropping `page` makes Google do the dedup. Per-query counterpart to
+    // `gsc_daily_totals`.
+    version: 107,
+    name: 'gsc-query-daily-totals',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS gsc_query_daily_totals (
+        id           TEXT PRIMARY KEY,
+        project_id   TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        date         TEXT NOT NULL,
+        query        TEXT NOT NULL,
+        clicks       INTEGER NOT NULL DEFAULT 0,
+        impressions  INTEGER NOT NULL DEFAULT 0,
+        position     TEXT NOT NULL DEFAULT '0',
+        synced_at    TEXT NOT NULL,
+        sync_run_id  TEXT REFERENCES runs(id) ON DELETE CASCADE,
+        created_at   TEXT NOT NULL
+      )`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_gsc_query_daily_totals_project_date_query ON gsc_query_daily_totals(project_id, date, query)`,
+      `CREATE INDEX IF NOT EXISTS idx_gsc_query_daily_totals_project_date ON gsc_query_daily_totals(project_id, date)`,
+      `CREATE INDEX IF NOT EXISTS idx_gsc_query_daily_totals_query ON gsc_query_daily_totals(query)`,
+      `CREATE INDEX IF NOT EXISTS idx_gsc_query_daily_totals_run ON gsc_query_daily_totals(sync_run_id)`,
+    ],
+  },
 ]
 
 /**
