@@ -54,7 +54,7 @@ interface ActivationHarnessOptions {
   activationLeaseMs?: number
   blockAdActivation?: boolean
   blockAdActivationBeforeMutation?: boolean
-  failCampaignReadAfterActivation?: boolean
+  driftCampaignVersionAfterActivation?: boolean
   failDescendantReadAfterCampaignActivation?: boolean
   injectDescendantAfterCampaignActivation?: boolean
   sweepBatchSize?: number
@@ -147,7 +147,6 @@ function buildHarness(options: ActivationHarnessOptions = {}) {
   const calls: string[] = []
   let verifyMustFail = false
   let verifyFailureCountdown: number | undefined
-  let campaignReadMustFail = false
   let campaignDescendantReadMustFail = false
   let signalActivationStarted: (() => void) | undefined
   let releaseBlockedActivation: (() => void) | undefined
@@ -160,10 +159,6 @@ function buildHarness(options: ActivationHarnessOptions = {}) {
 
   function read(kind: string, id: string): AdsOperatorEntityResult {
     calls.push(`get:${kind}:${id}`)
-    if (kind === 'campaign' && campaignReadMustFail) {
-      campaignReadMustFail = false
-      throw new Error('provider read failed with sk-secret')
-    }
     const entity = entities.get(id)
     if (!entity) throw new Error('missing test entity')
     return { ...entity }
@@ -178,9 +173,13 @@ function buildHarness(options: ActivationHarnessOptions = {}) {
     if (
       status === 'active'
       && kind === 'campaign'
-      && options.failCampaignReadAfterActivation
+      && options.driftCampaignVersionAfterActivation
     ) {
-      campaignReadMustFail = true
+      entities.set(id, {
+        ...next,
+        status: 'paused',
+        updatedAt: next.updatedAt + 1,
+      })
     }
     if (
       status === 'active'
@@ -1524,7 +1523,7 @@ describe('ads approval-bound activation routes', () => {
     await ctx.app.close()
     fs.rmSync(ctx.tmpDir, { recursive: true, force: true })
     ctx = buildHarness({
-      failCampaignReadAfterActivation: true,
+      driftCampaignVersionAfterActivation: true,
       sweepIntervalMs: 10,
     })
     await ctx.app.ready()
