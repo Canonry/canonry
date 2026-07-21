@@ -338,6 +338,10 @@ const COVERAGE: Record<string, CoverageEntry> = {
     kind: 'internal-only',
     reason: 'Property-level daily GSC totals (no query/page dims). Backing store for the report `gsc` headline/trend + the gsc performance/daily response; not exposed as a direct row DTO.',
   },
+  gscQueryDailyTotals: {
+    kind: 'internal-only',
+    reason: 'Per-query daily GSC totals fetched without the `page` dimension, so Google deduplicates a multi-page SERP into the one impression it was. Backing store for the report top-queries + suggested-queries reads; not exposed as a direct row DTO. Mirrors gscDailyTotals.',
+  },
   gscUrlInspections: {
     kind: 'dto',
     dto: gscUrlInspectionDtoSchema,

@@ -69,6 +69,7 @@ import {
   type SuggestedQueryGscRow,
 } from '@ainyc/canonry-intelligence'
 import { notProbeRun, resolveProject } from './helpers.js'
+import { mergeGscQueryTotalsWithFallback, readGscQueryTotals } from './gsc-totals.js'
 
 const TOP_INSIGHT_LIMIT = 5
 const SEARCH_HIT_HARD_LIMIT = 50
@@ -671,7 +672,13 @@ function buildSuggestedQueriesFromGsc(
   // is what the schema stores (YYYY-MM-DD), comparable lexicographically.
   const cutoff = new Date(Date.now() - 28 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
 
-  const rows = app.db
+  // Prefer Google's un-dimensioned per-query rows. This surface both ORDERS by
+  // impressions and gates an eligibility floor on them, so the `page` fan-out
+  // in `gsc_search_data` does more than inflate a number here: it promotes
+  // multi-page-ranking queries over single-page ones and admits queries that
+  // are genuinely below the floor. Falls back to the legacy page-summed
+  // aggregate for windows the accurate fetch has not covered.
+  const dimensionedRows = app.db
     .select({
       query: gscSearchData.query,
       impressions: sql<number>`COALESCE(SUM(${gscSearchData.impressions}), 0)`,
@@ -688,16 +695,29 @@ function buildSuggestedQueriesFromGsc(
       sql`${gscSearchData.impressions} > 0`,
     ))
     .groupBy(gscSearchData.query)
-    .orderBy(sql`SUM(${gscSearchData.impressions}) DESC`)
-    .limit(100)
     .all()
 
-  const gscRows: SuggestedQueryGscRow[] = rows.map(r => ({
-    query: r.query,
-    impressions: Number(r.impressions),
-    clicks: Number(r.clicks),
-    avgPosition: Number(r.avgPosition),
-  }))
+  const todayIso = new Date().toISOString().slice(0, 10)
+  const merged = mergeGscQueryTotalsWithFallback(
+    readGscQueryTotals(app.db, projectId, cutoff, todayIso),
+    dimensionedRows.map(r => ({
+      query: r.query,
+      impressions: Number(r.impressions),
+      clicks: Number(r.clicks),
+      position: Number(r.avgPosition),
+    })),
+  )
+
+  const gscRows: SuggestedQueryGscRow[] = merged
+    .filter(r => r.impressions > 0)
+    .sort((a, b) => b.impressions - a.impressions)
+    .slice(0, 100)
+    .map(r => ({
+      query: r.query,
+      impressions: r.impressions,
+      clicks: r.clicks,
+      avgPosition: r.position,
+    }))
 
   return buildSuggestedQueries(gscRows, { trackedQueries })
 }

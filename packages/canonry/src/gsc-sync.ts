@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 import { eq, and, sql } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/canonry-db'
-import { runs, projects, gscSearchData, gscDailyTotals, gscUrlInspections, gscCoverageSnapshots } from '@ainyc/canonry-db'
+import { runs, projects, gscSearchData, gscDailyTotals, gscQueryDailyTotals, gscUrlInspections, gscCoverageSnapshots } from '@ainyc/canonry-db'
 import {
   fetchSearchAnalytics,
   inspectUrl,
@@ -170,6 +170,50 @@ export async function executeGscSync(
     }
 
     log.info('daily-totals.complete', { runId, projectId, rowCount: totalRows.length })
+
+    // Per-query daily totals (no `page` dimension). Same reason as above,
+    // applied one level down: summing `gsc_search_data` by query multiplies
+    // impressions by how many of the site's pages ranked on the same SERP.
+    // That error is ~0% for a query with one ranking page and ~500% for
+    // brand+category terms where several rank together, so it reorders a
+    // top-queries table rather than merely inflating it. Google deduplicates
+    // when `page` is absent, and also returns its own per-query `position`.
+    const queryTotalRows = await fetchSearchAnalytics(accessToken, propertyId, {
+      startDate,
+      endDate,
+      dimensions: ['date', 'query'],
+    })
+
+    db.delete(gscQueryDailyTotals)
+      .where(
+        and(
+          eq(gscQueryDailyTotals.projectId, projectId),
+          sql`${gscQueryDailyTotals.date} >= ${startDate}`,
+          sql`${gscQueryDailyTotals.date} <= ${endDate}`,
+        )
+      )
+      .run()
+
+    const queryTotalsNow = new Date().toISOString()
+    for (const row of queryTotalRows) {
+      // keys order matches dimensions: date, query
+      const [date, query] = row.keys
+      if (!date || !query) continue
+      db.insert(gscQueryDailyTotals).values({
+        id: crypto.randomUUID(),
+        projectId,
+        date,
+        query,
+        clicks: row.clicks,
+        impressions: row.impressions,
+        position: String(row.position),
+        syncedAt: queryTotalsNow,
+        syncRunId: runId,
+        createdAt: queryTotalsNow,
+      }).run()
+    }
+
+    log.info('query-totals.complete', { runId, projectId, rowCount: queryTotalRows.length })
 
     // URL inspections — inspect top pages from the fetched data
     // Aggregate clicks per page, take top N

@@ -68,7 +68,7 @@ import {
   smoothedRunDelta,
 } from '@ainyc/canonry-intelligence'
 import { loadDismissedTargetRefs } from './content.js'
-import { mergeGscDailyTotalsWithFallback, readGscDailyTotals } from './gsc-totals.js'
+import { mergeGscDailyTotalsWithFallback, mergeGscQueryTotalsWithFallback, readGscDailyTotals, readGscQueryTotals } from './gsc-totals.js'
 import { notProbeRun, resolveProject } from './helpers.js'
 import { renderReportHtml } from './report-renderer.js'
 import {
@@ -261,21 +261,42 @@ function buildGscSection(
   const ctr = totalImpressions > 0 ? totalClicks / totalImpressions : 0
   const avgPosition = totalImpressions > 0 ? weightedPositionSum / totalImpressions : 0
 
-  const topQueries: GscQueryRow[] = [...queryAgg.entries()]
-    .map(([query, agg]) => ({
+  // Per-query figures prefer Google's own un-dimensioned `['date','query']`
+  // rows. Summing `gsc_search_data` by query fans one SERP into one row per
+  // ranking page, which inflates impressions (~0% for a single-page query,
+  // ~500% for brand+category terms where several pages rank together) and so
+  // understates the derived CTR against real clicks. Clicks themselves are
+  // additive across pages, which is why the click ordering below was already
+  // right; impressions, CTR and position were not.
+  const queryTotals = mergeGscQueryTotalsWithFallback(
+    readGscQueryTotals(db, projectId, startDate, maxDate),
+    [...queryAgg.entries()].map(([query, agg]) => ({
       query,
       clicks: agg.clicks,
       impressions: agg.impressions,
+      position: agg.impressions > 0 ? agg.weightedPositionSum / agg.impressions : 0,
+    })),
+  )
+
+  const topQueries: GscQueryRow[] = queryTotals
+    .map((agg) => ({
+      query: agg.query,
+      clicks: agg.clicks,
+      impressions: agg.impressions,
       ctr: agg.impressions > 0 ? agg.clicks / agg.impressions : 0,
-      avgPosition: agg.impressions > 0 ? agg.weightedPositionSum / agg.impressions : 0,
-      category: categorizeQuery(query, projectBrandNames, canonicalDomain),
+      avgPosition: agg.position,
+      category: categorizeQuery(agg.query, projectBrandNames, canonicalDomain),
     }))
     .sort((a, b) => b.clicks - a.clicks)
     .slice(0, TOP_QUERIES_LIMIT)
 
+  // Built from the same per-query source as `topQueries` so the two agree.
+  // Impressions here are a sum ACROSS queries, which is legitimate: distinct
+  // queries are disjoint (one SERP belongs to one query), unlike the pages
+  // within a query.
   const categoryAgg = new Map<GscQueryRow['category'], { clicks: number; impressions: number }>()
-  for (const [query, agg] of queryAgg) {
-    const cat = categorizeQuery(query, projectBrandNames, canonicalDomain)
+  for (const agg of queryTotals) {
+    const cat = categorizeQuery(agg.query, projectBrandNames, canonicalDomain)
     const bucket = categoryAgg.get(cat) ?? { clicks: 0, impressions: 0 }
     bucket.clicks += agg.clicks
     bucket.impressions += agg.impressions

@@ -388,6 +388,11 @@ cnry google discover-sitemaps <project> --wait         # auto-discover and inspe
 
 cnry google sync <project>                             # sync GSC data
 cnry google sync <project> --days 30 --full --wait     # full sync with wait
+# `--full` re-fetches 480 days (GSC's 16-month retention ceiling) and is also the
+# BACKFILL path: it repopulates the accurate per-query totals (`dimensions:
+# ['date','query']`, no `page` fan-out) and the property daily totals for the
+# whole retained window, not just recent days. Run it once per project after
+# upgrading to pick up accurate history; a normal sync only covers its own window.
 
 cnry google coverage <project>                         # index coverage summary
 cnry google refresh <project>                         # force-fetch fresh GSC coverage data
