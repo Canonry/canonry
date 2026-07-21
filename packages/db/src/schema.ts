@@ -478,6 +478,7 @@ export const gaDailyTotals = sqliteTable('ga_daily_totals', {
 }, (table) => [
   uniqueIndex('idx_ga_daily_totals_project_date').on(table.projectId, table.date),
   index('idx_ga_daily_totals_project').on(table.projectId),
+  index('idx_ga_daily_totals_run').on(table.syncRunId),
 ])
 
 export const gaAiReferrals = sqliteTable('ga_ai_referrals', {

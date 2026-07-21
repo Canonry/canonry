@@ -46,6 +46,51 @@ describe('ga_daily_totals migration', () => {
     }
   })
 
+  test('declares both foreign keys the schema requires', () => {
+    // A CREATE TABLE that omits a REFERENCES clause still accepts every INSERT
+    // and only shows up as orphaned rows much later. SQLite cannot add a FK to
+    // an existing column, so this drift is expensive once shipped — assert the
+    // constraint list directly rather than inferring it from behavior alone.
+    const { db, tmpDir } = tempDb()
+    try {
+      const fks = db.$client
+        .prepare(`PRAGMA foreign_key_list(ga_daily_totals)`)
+        .all() as Array<{ table: string; from: string; to: string; on_delete: string }>
+      const byColumn = Object.fromEntries(fks.map((fk) => [fk.from, fk]))
+
+      expect(byColumn.project_id).toMatchObject({ table: 'projects', to: 'id', on_delete: 'CASCADE' })
+      expect(byColumn.sync_run_id).toMatchObject({ table: 'runs', to: 'id', on_delete: 'CASCADE' })
+    } finally {
+      db.$client.close()
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  test('cascades away with the run that produced it', () => {
+    const { db, tmpDir } = tempDb()
+    try {
+      db.$client
+        .prepare(`INSERT INTO runs (id, project_id, kind, status, trigger, created_at)
+                  VALUES ('run1','p1','ga-sync','completed','manual','2026-07-21T00:00:00Z')`)
+        .run()
+      db.$client
+        .prepare(`INSERT INTO ga_daily_totals (id, project_id, date, sessions, users, synced_at, sync_run_id, created_at)
+                  VALUES ('r1','p1','2026-07-20',100,158,'2026-07-21T00:00:00Z','run1','2026-07-21T00:00:00Z')`)
+        .run()
+
+      // Deleting the sync run must take its totals with it. Without the FK the
+      // row survives, leaving a total whose provenance points at nothing.
+      db.$client.prepare(`DELETE FROM runs WHERE id='run1'`).run()
+      const remaining = db.$client
+        .prepare(`SELECT COUNT(*) AS n FROM ga_daily_totals`)
+        .get() as { n: number }
+      expect(remaining.n).toBe(0)
+    } finally {
+      db.$client.close()
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
   test('cascades away with its project', () => {
     const { db, tmpDir } = tempDb()
     try {

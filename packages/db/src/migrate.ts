@@ -2351,11 +2351,12 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
         sessions     INTEGER NOT NULL DEFAULT 0,
         users        INTEGER NOT NULL DEFAULT 0,
         synced_at    TEXT NOT NULL,
-        sync_run_id  TEXT,
+        sync_run_id  TEXT REFERENCES runs(id) ON DELETE CASCADE,
         created_at   TEXT NOT NULL
       )`,
       `CREATE UNIQUE INDEX IF NOT EXISTS idx_ga_daily_totals_project_date ON ga_daily_totals(project_id, date)`,
       `CREATE INDEX IF NOT EXISTS idx_ga_daily_totals_project ON ga_daily_totals(project_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_ga_daily_totals_run ON ga_daily_totals(sync_run_id)`,
     ],
   },
 ]
