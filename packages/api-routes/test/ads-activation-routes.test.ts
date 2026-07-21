@@ -402,6 +402,15 @@ function seedUnknownActivation(
   return operationId
 }
 
+function ageRevocationPastSettlementWindow(
+  ctx: ReturnType<typeof buildHarness>,
+  grantId: string,
+): void {
+  ctx.db.update(adsActivationGrants).set({
+    revocationRequestedAt: new Date(Date.now() - 10 * 60_000).toISOString(),
+  }).where(eq(adsActivationGrants.id, grantId)).run()
+}
+
 function seedPendingActivation(
   ctx: ReturnType<typeof buildHarness>,
   grant: { id: string; manifestHash: string },
@@ -1373,7 +1382,7 @@ describe('ads approval-bound activation routes', () => {
     expect(pauseCalls.indexOf('pause:campaign:cmpn_second')).toBeLessThan(firstDescendantPause)
   })
 
-  it('rotates past a previously contained revocation marker with a one-receipt batch', async () => {
+  it('finalizes a revoked receipt without starving the next unknown receipt in a one-item batch', async () => {
     await ctx.app.close()
     fs.rmSync(ctx.tmpDir, { recursive: true, force: true })
     ctx = buildHarness({ sweepBatchSize: 1, sweepIntervalMs: 20 })
@@ -1423,11 +1432,17 @@ describe('ads approval-bound activation routes', () => {
       headers: ctx.headers('key_approver'),
     })
     expect(cancellation.statusCode, cancellation.body).toBe(200)
+    ageRevocationPastSettlementWindow(ctx, markedGrant.id)
     await waitForCondition(() => (
-      ctx.db.select().from(adsOperations)
-        .where(eq(adsOperations.id, markedOperationId)).get()?.lastReconciledAt !== null
+      ctx.db.select().from(adsActivationGrants)
+        .where(eq(adsActivationGrants.id, markedGrant.id)).get()?.state
+    ) === AdsActivationGrantStates.consumed)
+    expect(ctx.db.select().from(adsOperations)
+      .where(eq(adsOperations.id, markedOperationId)).get()?.state)
+      .toBe(AdsOperationStates.failed)
+    await waitForCondition(() => (
+      ctx.calls.includes('pause:campaign:cmpn_later')
     ))
-    await waitForCondition(() => ctx.calls.includes('pause:campaign:cmpn_later'))
 
     const markedPause = ctx.calls.indexOf('pause:campaign:cmpn_approved')
     const laterPause = ctx.calls.indexOf('pause:campaign:cmpn_later')
@@ -1435,7 +1450,7 @@ describe('ads approval-bound activation routes', () => {
     expect(laterPause).toBeGreaterThan(markedPause)
     expect(ctx.db.select().from(adsActivationGrants)
       .where(eq(adsActivationGrants.id, markedGrant.id)).get()).toMatchObject({
-      state: AdsActivationGrantStates.unknown,
+      state: AdsActivationGrantStates.consumed,
       revocationRequestedAt: expect.any(String),
     })
   })
@@ -1519,7 +1534,7 @@ describe('ads approval-bound activation routes', () => {
       .toBe(AdsOperationStates.unknown)
   })
 
-  it('keeps an ambiguous campaign activation unknown while the watchdog repeatedly safety-pauses it', async () => {
+  it('finalizes a revoked unknown activation after the watchdog verifies the whole provider tree paused', async () => {
     await ctx.app.close()
     fs.rmSync(ctx.tmpDir, { recursive: true, force: true })
     ctx = buildHarness({
@@ -1589,11 +1604,12 @@ describe('ads approval-bound activation routes', () => {
       state: AdsActivationGrantStates.unknown,
       revocationRequestedAt: expect.any(String),
     })
+    ageRevocationPastSettlementWindow(ctx, grant.id)
 
     await waitForCondition(() => (
       ctx.db.select().from(adsOperations)
-        .where(eq(adsOperations.id, operation!.id)).get()?.reconcileAttempts ?? 0
-    ) > 0)
+        .where(eq(adsOperations.id, operation!.id)).get()?.state
+    ) === AdsOperationStates.failed)
     expect(ctx.calls).toContain('pause:ad_group:adgrp_approved')
     expect(ctx.calls).toContain('pause:ad:ad_approved')
     expect(ctx.calls).toContain('pause:ad_group:adgrp_omitted')
@@ -1601,9 +1617,89 @@ describe('ads approval-bound activation routes', () => {
     expect([...ctx.entities.values()].every((entity) => entity.status === 'paused')).toBe(true)
     expect(ctx.db.select().from(adsOperations)
       .where(eq(adsOperations.id, operation!.id)).get()).toMatchObject({
-      state: AdsOperationStates.unknown,
-      reconcileAttempts: expect.any(Number),
+      state: AdsOperationStates.failed,
+      errorCode: 'ADS_ACTIVATION_GRANT_REVOKED',
       lastReconciledAt: expect.any(String),
     })
+    expect(ctx.db.select().from(adsActivationGrants)
+      .where(eq(adsActivationGrants.id, grant.id)).get()).toMatchObject({
+      state: AdsActivationGrantStates.consumed,
+      consumedAt: expect.any(String),
+      revocationRequestedAt: expect.any(String),
+    })
+    expect(ctx.db.select().from(auditLog)
+      .where(eq(auditLog.entityId, 'cmpn_approved')).all()).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        action: 'ads.campaign_tree_activate.failed',
+        actor: 'system',
+        userAgent: 'canonry-activation-watchdog',
+      }),
+    ]))
+  })
+
+  it('keeps a revoked unknown activation unresolved when the provider tree cannot be fully verified paused', async () => {
+    await ctx.app.close()
+    fs.rmSync(ctx.tmpDir, { recursive: true, force: true })
+    ctx = buildHarness({ sweepIntervalMs: 10 })
+    await ctx.app.ready()
+    const approval = await ctx.createGrant()
+    const grant = JSON.parse(approval.body).grant as { id: string; manifestHash: string }
+    const operationId = seedUnknownActivation(ctx, grant, MANIFEST, 'incomplete_containment')
+    ctx.entities.delete('ad_approved')
+
+    const cancellation = await ctx.app.inject({
+      method: 'POST',
+      url: `/projects/acme/ads/activation-grants/${grant.id}/revoke`,
+      headers: ctx.headers('key_approver'),
+    })
+    expect(cancellation.statusCode, cancellation.body).toBe(200)
+    ageRevocationPastSettlementWindow(ctx, grant.id)
+    const reconcileAttempts = ctx.db.select().from(adsOperations)
+      .where(eq(adsOperations.id, operationId)).get()?.reconcileAttempts ?? 0
+
+    await waitForCondition(() => (
+      ctx.db.select().from(adsOperations)
+        .where(eq(adsOperations.id, operationId)).get()?.reconcileAttempts ?? 0
+    ) > reconcileAttempts)
+    expect(ctx.db.select().from(adsOperations)
+      .where(eq(adsOperations.id, operationId)).get()).toMatchObject({
+      state: AdsOperationStates.unknown,
+      errorCode: 'ADS_ACTIVATION_MANUAL_REMEDIATION_REQUIRED',
+      errorMessage: 'Unknown activation safety pause could not be fully verified',
+    })
+    expect(ctx.db.select().from(adsActivationGrants)
+      .where(eq(adsActivationGrants.id, grant.id)).get()).toMatchObject({
+      state: AdsActivationGrantStates.unknown,
+      consumedAt: null,
+      revocationRequestedAt: expect.any(String),
+    })
+  })
+
+  it('keeps a fully paused revoked unknown activation unresolved during the settlement window', async () => {
+    await ctx.app.close()
+    fs.rmSync(ctx.tmpDir, { recursive: true, force: true })
+    ctx = buildHarness({ sweepIntervalMs: 60_000 })
+    await ctx.app.ready()
+    const approval = await ctx.createGrant()
+    const grant = JSON.parse(approval.body).grant as { id: string; manifestHash: string }
+    const operationId = seedUnknownActivation(ctx, grant, MANIFEST, 'settlement_window')
+
+    const cancellation = await ctx.app.inject({
+      method: 'POST',
+      url: `/projects/acme/ads/activation-grants/${grant.id}/revoke`,
+      headers: ctx.headers('key_approver'),
+    })
+    expect(cancellation.statusCode, cancellation.body).toBe(200)
+
+    await waitForCondition(() => (
+      ctx.db.select().from(adsOperations)
+        .where(eq(adsOperations.id, operationId)).get()?.reconcileAttempts ?? 0
+    ) > 0)
+    expect(ctx.db.select().from(adsOperations)
+      .where(eq(adsOperations.id, operationId)).get()?.state)
+      .toBe(AdsOperationStates.unknown)
+    expect(ctx.db.select().from(adsActivationGrants)
+      .where(eq(adsActivationGrants.id, grant.id)).get()?.state)
+      .toBe(AdsActivationGrantStates.unknown)
   })
 })

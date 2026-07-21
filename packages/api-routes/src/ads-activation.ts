@@ -604,8 +604,10 @@ export async function enforceAdsActivationCampaignBoundarySafety(
 /**
  * Unknown activation receipts cannot prove whether a provider mutation landed.
  * Reissuing activation is forbidden, but reissuing the reducing action (pause)
- * is safe. The watchdog uses this for recurring best-effort containment while
- * the receipt remains explicitly unknown for human remediation.
+ * is safe. The watchdog uses this for recurring best-effort containment. The
+ * receipt remains explicitly unknown unless a human has requested revocation,
+ * the provider settlement window has elapsed, and the complete provider tree
+ * is then verified paused.
  */
 export async function enforceUnknownAdsActivationSafety(
   provider: AdsActivationProvider,

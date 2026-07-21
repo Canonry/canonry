@@ -68,6 +68,9 @@ type ActivationReadDb = Pick<DatabaseClient, 'select'>
 
 const MAX_ACTIVATION_GRANT_LIFETIME_MS = 24 * 60 * 60 * 1_000
 const ACTIVATION_LEASE_MS = 5 * 60_000
+// Keep recurring containment active for at least one full activation lease so
+// an already-authorized provider mutation cannot land after terminalization.
+const ACTIVATION_REVOCATION_SETTLEMENT_MS = ACTIVATION_LEASE_MS
 const ACTIVATION_STEP_INSERT_BATCH_SIZE = 40
 
 export interface AdsActivationRuntime {
@@ -813,6 +816,68 @@ function selectRecoveryWatchdogOperations(
   return selectWatchdogOperations(app, nowIso, batchSize, false)
 }
 
+function finalizeContainedRevokedUnknownActivation(
+  app: FastifyInstance,
+  operation: OperationRow,
+  grant: ActivationGrantRow,
+): boolean {
+  const nowIso = new Date().toISOString()
+  const revocationRequestedAt = grant.revocationRequestedAt === null
+    ? Number.NaN
+    : Date.parse(grant.revocationRequestedAt)
+  if (
+    !Number.isFinite(revocationRequestedAt)
+    || Date.parse(nowIso) - revocationRequestedAt < ACTIVATION_REVOCATION_SETTLEMENT_MS
+  ) {
+    return false
+  }
+  return app.db.transaction((tx) => {
+    const operationUpdate = tx.update(adsOperations).set({
+      state: AdsOperationStates.failed,
+      errorCode: AdsActivationErrorCodes.grantRevoked,
+      errorMessage: 'Ads activation was cancelled and the provider tree was verified paused',
+      leaseOwner: null,
+      leaseExpiresAt: null,
+      lastReconciledAt: nowIso,
+      updatedAt: nowIso,
+    }).where(and(
+      eq(adsOperations.id, operation.id),
+      eq(adsOperations.state, AdsOperationStates.unknown),
+    )).run()
+    if (operationUpdate.changes !== 1) return false
+
+    const grantUpdate = tx.update(adsActivationGrants).set({
+      state: AdsActivationGrantStates.consumed,
+      consumedAt: nowIso,
+      updatedAt: nowIso,
+    }).where(and(
+      eq(adsActivationGrants.id, grant.id),
+      eq(adsActivationGrants.operationId, operation.id),
+      eq(adsActivationGrants.state, AdsActivationGrantStates.unknown),
+      isNotNull(adsActivationGrants.revocationRequestedAt),
+    )).run()
+    if (grantUpdate.changes !== 1) {
+      throw internalError('Revoked unknown ads activation could not be finalized')
+    }
+
+    writeAuditLog(tx, {
+      projectId: operation.projectId,
+      actor: 'system',
+      action: 'ads.campaign_tree_activate.failed',
+      entityType: AdsActivationEntityTypes.campaign,
+      entityId: operation.entityId,
+      diff: {
+        operationId: operation.id,
+        operationKey: operation.operationKey,
+        grantId: grant.id,
+        reason: 'revoked_and_verified_paused',
+      },
+      userAgent: 'canonry-activation-watchdog',
+    })
+    return true
+  }, { behavior: 'immediate' })
+}
+
 function validateWatchdogContainmentBinding(
   app: FastifyInstance,
   opts: AdsActivationRoutesOptions,
@@ -1027,6 +1092,17 @@ export async function sweepStaleAdsActivationsOnce(
           runtime.provider,
           grant.manifest,
         )
+        if (
+          safety.fullyVerified
+          && grant.revocationRequestedAt !== null
+          && finalizeContainedRevokedUnknownActivation(app, operation, grant)
+        ) {
+          app.log.warn(
+            { operationId: operation.id },
+            'Revoked unknown ads activation was finalized after verified pause',
+          )
+          return
+        }
         app.db.update(adsOperations).set({
           reconcileAttempts: operation.reconcileAttempts + 1,
           lastReconciledAt: new Date().toISOString(),
