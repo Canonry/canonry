@@ -241,23 +241,22 @@ function richReport(): ProjectReportDto {
         { source: 'linkedin.com', medium: 'referral', sessions: 700 },
       ],
     },
+    // Sessions only. The users fields are deprecated and never emitted; the
+    // fixture omits them so it matches what the report actually produces.
     aiReferrals: {
       totalSessions: 200,
-      totalUsers: 150,
       paidSessions: 150,
-      paidUsers: 110,
       organicSessions: 50,
-      organicUsers: 40,
       bySource: [
-        { source: 'chatgpt.com', sessions: 150, users: 110, paidSessions: 150, organicSessions: 0, sharePct: 75 },
-        { source: 'gemini.google.com', sessions: 50, users: 40, paidSessions: 0, organicSessions: 50, sharePct: 25 },
+        { source: 'chatgpt.com', sessions: 150, paidSessions: 150, organicSessions: 0, sharePct: 75 },
+        { source: 'gemini.google.com', sessions: 50, paidSessions: 0, organicSessions: 50, sharePct: 25 },
       ],
       trend: [
         { date: '2026-04-15', sessions: 100 },
         { date: '2026-04-16', sessions: 100 },
       ],
       topLandingPages: [
-        { page: '/', sessions: 120, users: 90 },
+        { page: '/', sessions: 120 },
       ],
     },
     serverActivity: {
@@ -1337,6 +1336,26 @@ describe('renderReportHtml', () => {
     expect(block).toContain('<svg')
     expect(block.toLowerCase()).not.toContain('building baseline')
   })
+  test('the AI referral section reports sessions only, with no users tile or column', () => {
+    const html = renderReportHtml(richReport())
+    // Scope to the AI section: the GA section legitimately keeps a users tile
+    // (its figure comes from GA's deduplicated window summary), so a
+    // whole-document search would be satisfied by the wrong section.
+    const start = html.indexOf('id="ai-referrals"')
+    expect(start).toBeGreaterThan(-1)
+    const nextSection = html.indexOf('<section', start + 1)
+    const aiHtml = nextSection === -1 ? html.slice(start) : html.slice(start, nextSection)
+
+    expect(aiHtml).toContain('Total sessions')
+    expect(aiHtml).not.toContain('Total users')
+    expect(aiHtml).not.toContain('>Users<')
+
+    // The GA section still has its users tile.
+    const gaStart = html.indexOf('id="ga"')
+    expect(gaStart).toBeGreaterThan(-1)
+    expect(html.slice(gaStart)).toContain('Total users')
+  })
+
 })
 
 describe('formatLandingPageHtml', () => {

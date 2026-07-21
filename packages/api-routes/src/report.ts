@@ -554,11 +554,73 @@ function buildSocialReferrals(db: DatabaseClient, projectId: string): SocialRefe
   }
 }
 
-function buildAiReferrals(db: DatabaseClient, projectId: string): ProjectReportDto['aiReferrals'] {
+/**
+ * Resolve the window AI referrals are reported over.
+ *
+ * Anchored to the GA SYNC's period, never to the referral table's own
+ * `MAX(date)`. Anchoring to the latest referral row floats the window to
+ * wherever traffic last happened, so a project whose AI referrals stopped
+ * months ago would render those stale rows as "last 30 days" and the empty
+ * state would be unreachable. A GA sync only deletes rows inside its current
+ * summary range, so historical referrals legitimately outlive the window.
+ *
+ * Prefers the window summary for this exact period (the same row the GA
+ * section reports from, so the two agree), then the latest aggregate summary,
+ * then today.
+ */
+function resolveAiReferralWindow(
+  db: DatabaseClient,
+  projectId: string,
+  windowDays: number,
+): { start: string; end: string } {
+  const windowKey = GA_WINDOW_SUMMARY_KEYS[windowDays]
+  const windowSummary = windowKey
+    ? db
+        .select({ periodStart: gaTrafficWindowSummaries.periodStart, periodEnd: gaTrafficWindowSummaries.periodEnd })
+        .from(gaTrafficWindowSummaries)
+        .where(and(
+          eq(gaTrafficWindowSummaries.projectId, projectId),
+          eq(gaTrafficWindowSummaries.windowKey, windowKey),
+        ))
+        .get()
+    : undefined
+  if (windowSummary) return { start: windowSummary.periodStart, end: windowSummary.periodEnd }
+
+  const latestSummary = db
+    .select({ periodEnd: gaTrafficSummaries.periodEnd })
+    .from(gaTrafficSummaries)
+    .where(eq(gaTrafficSummaries.projectId, projectId))
+    .orderBy(desc(gaTrafficSummaries.syncedAt))
+    .get()
+  const end = latestSummary?.periodEnd ?? new Date().toISOString().slice(0, 10)
+  return { start: windowStartDate(end, windowDays), end }
+}
+
+/**
+ * AI-referral traffic for the report window.
+ *
+ * The window is REQUIRED and comes from the GA sync period. This read
+ * previously had no date bound at all, so a report labelled "last 30 days"
+ * summed the project's entire retained history into its tiles (measured 3,106
+ * all-time against 52 for the actual window on a live project).
+ *
+ * Reports SESSIONS only. See `aiReferralSectionSchema` for why the users count
+ * was removed rather than fixed.
+ */
+function buildAiReferrals(
+  db: DatabaseClient,
+  projectId: string,
+  windowDays: number,
+): ProjectReportDto['aiReferrals'] {
+  const window = resolveAiReferralWindow(db, projectId, windowDays)
   const rows = db
     .select()
     .from(gaAiReferrals)
-    .where(eq(gaAiReferrals.projectId, projectId))
+    .where(and(
+      eq(gaAiReferrals.projectId, projectId),
+      sql`${gaAiReferrals.date} >= ${window.start}`,
+      sql`${gaAiReferrals.date} <= ${window.end}`,
+    ))
     .all()
   if (rows.length === 0) return null
 
@@ -598,47 +660,37 @@ function buildAiReferrals(db: DatabaseClient, projectId: string): ProjectReportD
   )
 
   let total = 0
-  let totalUsers = 0
   let paidSessions = 0
-  let paidUsers = 0
   let organicSessions = 0
-  let organicUsers = 0
   const sourceAgg = new Map<string, {
     sessions: number
-    users: number
     paidSessions: number
     organicSessions: number
   }>()
   const trendAgg = new Map<string, number>()
-  const pageAgg = new Map<string, { sessions: number; users: number }>()
+  const pageAgg = new Map<string, { sessions: number }>()
 
   for (const r of dedupedRows) {
     total += r.sessions
-    totalUsers += r.users
     const paid = isPaidAiTrafficClass(r.trafficClass)
     if (paid) {
       paidSessions += r.sessions
-      paidUsers += r.users
     } else {
       organicSessions += r.sessions
-      organicUsers += r.users
     }
     const s = sourceAgg.get(r.source) ?? {
       sessions: 0,
-      users: 0,
       paidSessions: 0,
       organicSessions: 0,
     }
     s.sessions += r.sessions
-    s.users += r.users
     if (paid) s.paidSessions += r.sessions
     else s.organicSessions += r.sessions
     sourceAgg.set(r.source, s)
     trendAgg.set(r.date, (trendAgg.get(r.date) ?? 0) + r.sessions)
     const page = r.landingPageNormalized ?? r.landingPage
-    const p = pageAgg.get(page) ?? { sessions: 0, users: 0 }
+    const p = pageAgg.get(page) ?? { sessions: 0 }
     p.sessions += r.sessions
-    p.users += r.users
     pageAgg.set(page, p)
   }
 
@@ -646,7 +698,6 @@ function buildAiReferrals(db: DatabaseClient, projectId: string): ProjectReportD
     .map(([source, data]) => ({
       source,
       sessions: data.sessions,
-      users: data.users,
       paidSessions: data.paidSessions,
       organicSessions: data.organicSessions,
       sharePct: total > 0 ? Math.round((data.sessions / total) * 100) : 0,
@@ -658,17 +709,14 @@ function buildAiReferrals(db: DatabaseClient, projectId: string): ProjectReportD
     .sort((a, b) => a.date.localeCompare(b.date))
 
   const topLandingPages = [...pageAgg.entries()]
-    .map(([page, data]) => ({ page, sessions: data.sessions, users: data.users }))
+    .map(([page, data]) => ({ page, sessions: data.sessions }))
     .sort((a, b) => b.sessions - a.sessions)
     .slice(0, TOP_AI_REFERRAL_PAGES_LIMIT)
 
   return {
     totalSessions: total,
-    totalUsers,
     paidSessions,
-    paidUsers,
     organicSessions,
-    organicUsers,
     bySource,
     trend,
     topLandingPages,
@@ -2122,7 +2170,7 @@ function buildProjectReport(db: DatabaseClient, projectName: string, periodDays:
   )
   const gaSection = buildGaSection(db, project.id, periodDays)
   const socialSection = buildSocialReferrals(db, project.id)
-  const aiReferralsSection = buildAiReferrals(db, project.id)
+  const aiReferralsSection = buildAiReferrals(db, project.id, periodDays)
   const serverActivitySection = buildServerActivity(db, project.id, periodDays)
   const indexingHealthSection = buildIndexingHealth(db, project.id)
   const citationsTrend = buildCitationsTrend(db, project.id, queryLookup, latestRunLocation)

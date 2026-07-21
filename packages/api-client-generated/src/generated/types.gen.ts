@@ -2886,15 +2886,15 @@ export type ProjectReportDto = {
     } | null;
     aiReferrals: {
         totalSessions: number;
-        totalUsers: number;
         paidSessions: number;
-        paidUsers: number;
         organicSessions: number;
-        organicUsers: number;
+        totalUsers?: number;
+        paidUsers?: number;
+        organicUsers?: number;
         bySource: Array<{
             source: string;
             sessions: number;
-            users: number;
+            users?: number;
             paidSessions: number;
             organicSessions: number;
             sharePct: number;
@@ -2906,7 +2906,7 @@ export type ProjectReportDto = {
         topLandingPages: Array<{
             page: string;
             sessions: number;
-            users: number;
+            users?: number;
         }>;
     } | null;
     serverActivity: {
