@@ -929,7 +929,30 @@ function computeQueryChanges(
   }))
 }
 
-function computeTrend(buckets: TimeBucket[], rateKey: 'citationRate' | 'mentionRate'): TrendDirection {
+/**
+ * Pooled rate across buckets: total numerator over total denominator.
+ *
+ * NOT the mean of the per-bucket rates. A rate is not additive across the
+ * buckets that produced it, so averaging them unweighted lets a bucket holding
+ * 2 snapshots move the verdict as much as one holding 200 — a single sparse
+ * sweep could flip `improving`/`declining` on its own. Pooling the raw counts
+ * weights each bucket by the evidence it actually carries.
+ *
+ * Reads `cited` / `mentionedCount` rather than re-deriving from the rate, so
+ * the already-rounded per-bucket rate never compounds into the comparison.
+ */
+export function pooledRate(buckets: TimeBucket[], rateKey: 'citationRate' | 'mentionRate'): number {
+  const countKey = rateKey === 'citationRate' ? 'cited' : 'mentionedCount'
+  let numerator = 0
+  let denominator = 0
+  for (const bucket of buckets) {
+    numerator += bucket[countKey]
+    denominator += bucket.total
+  }
+  return denominator > 0 ? numerator / denominator : 0
+}
+
+export function computeTrend(buckets: TimeBucket[], rateKey: 'citationRate' | 'mentionRate'): TrendDirection {
   const nonEmpty = buckets.filter(b => b.total > 0)
   if (nonEmpty.length < 2) return 'stable'
 
@@ -937,8 +960,8 @@ function computeTrend(buckets: TimeBucket[], rateKey: 'citationRate' | 'mentionR
   const firstHalf = nonEmpty.slice(0, mid)
   const secondHalf = nonEmpty.slice(mid)
 
-  const avgFirst = firstHalf.reduce((s, b) => s + b[rateKey], 0) / firstHalf.length
-  const avgSecond = secondHalf.reduce((s, b) => s + b[rateKey], 0) / secondHalf.length
+  const avgFirst = pooledRate(firstHalf, rateKey)
+  const avgSecond = pooledRate(secondHalf, rateKey)
 
   const diff = avgSecond - avgFirst
   // Threshold: 5 percentage points
