@@ -9,9 +9,11 @@ import {
   ADS_APPROVE_SCOPE,
   AdsActivationEntityTypes,
   AdsActivationGrantStates,
+  AdsEntityStatuses,
   AdsOperationKinds,
   AdsOperationStates,
   AdsOperationStepStates,
+  AdsReconcileStrategies,
   AppError,
   adsOperationDtoSchema,
   type AdsActivationManifest,
@@ -309,6 +311,7 @@ function buildHarness(options: ActivationHarnessOptions = {}) {
   async function createGrant(
     executorApiKeyId = 'key_executor',
     manifest: AdsActivationManifest = MANIFEST,
+    versionPolicy?: 'exact' | 'refresh_semantically_unchanged',
   ) {
     return app.inject({
       method: 'POST',
@@ -318,6 +321,7 @@ function buildHarness(options: ActivationHarnessOptions = {}) {
         manifest,
         executorApiKeyId,
         expiresAt: new Date(Date.now() + 60 * 60_000).toISOString(),
+        ...(versionPolicy ? { versionPolicy } : {}),
       },
     })
   }
@@ -1050,6 +1054,139 @@ describe('ads approval-bound activation routes', () => {
     expect(response.statusCode).toBe(400)
     expect(response.body).toContain('ADS_ACTIVATION_ENTITY_STALE')
     expect(ctx.db.select().from(adsActivationGrants).all()).toHaveLength(0)
+  })
+
+  it('refreshes review-only versions only when the provider tree matches its create receipts', async () => {
+    ctx.entities.set('cmpn_approved', {
+      id: 'cmpn_approved',
+      name: 'Approved campaign',
+      description: null,
+      status: AdsEntityStatuses.paused,
+      updatedAt: 10,
+      startTime: null,
+      endTime: null,
+      lifetimeSpendLimitMicros: 10_000_000,
+      locationIds: ['1000232'],
+      biddingType: 'clicks',
+      conversionEventSettingIds: ['event_1'],
+    })
+    ctx.entities.set('adgrp_approved', {
+      id: 'adgrp_approved',
+      campaignId: 'cmpn_approved',
+      name: 'Approved group',
+      description: null,
+      status: AdsEntityStatuses.paused,
+      updatedAt: 20,
+      contextHints: ['buyer question'],
+      maxBidMicros: 1_000_000,
+      billingEventType: 'click',
+    })
+    ctx.entities.set('ad_approved', {
+      id: 'ad_approved',
+      adGroupId: 'adgrp_approved',
+      name: 'Approved ad',
+      creative: {
+        title: 'See your AI search gaps',
+        body: 'Get a free audit.',
+        targetUrl: 'https://canonry.ai/audit',
+        fileId: 'file_1',
+      },
+      reviewStatus: 'approved',
+      status: AdsEntityStatuses.paused,
+      updatedAt: 31,
+    })
+    const now = new Date().toISOString()
+    ctx.db.insert(adsOperations).values([
+      {
+        id: 'create_campaign',
+        projectId: 'project_activation',
+        adAccountId: 'adacct_approved',
+        operationKey: 'create:campaign',
+        requestHash: 'hash_campaign',
+        kind: AdsOperationKinds.campaign_create,
+        state: AdsOperationStates.succeeded,
+        entityType: AdsActivationEntityTypes.campaign,
+        entityId: 'cmpn_approved',
+        upstreamUpdatedAt: 10,
+        reconcileStrategy: AdsReconcileStrategies.create_fingerprint,
+        reconcileFields: {
+          name: 'Approved campaign',
+          description: null,
+          status: AdsEntityStatuses.paused,
+          startTime: null,
+          endTime: null,
+          lifetimeSpendLimitMicros: 10_000_000,
+          locationIds: ['1000232'],
+          biddingType: 'clicks',
+          conversionEventSettingIds: ['event_1'],
+        },
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: 'create_group',
+        projectId: 'project_activation',
+        adAccountId: 'adacct_approved',
+        operationKey: 'create:group',
+        requestHash: 'hash_group',
+        kind: AdsOperationKinds.ad_group_create,
+        state: AdsOperationStates.succeeded,
+        entityType: AdsActivationEntityTypes.ad_group,
+        entityId: 'adgrp_approved',
+        upstreamUpdatedAt: 20,
+        reconcileStrategy: AdsReconcileStrategies.create_fingerprint,
+        reconcileFields: {
+          campaignId: 'cmpn_approved',
+          name: 'Approved group',
+          description: null,
+          status: AdsEntityStatuses.paused,
+          contextHints: ['buyer question'],
+          maxBidMicros: 1_000_000,
+          billingEventType: 'click',
+        },
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: 'create_ad',
+        projectId: 'project_activation',
+        adAccountId: 'adacct_approved',
+        operationKey: 'create:ad',
+        requestHash: 'hash_ad',
+        kind: AdsOperationKinds.ad_create,
+        state: AdsOperationStates.succeeded,
+        entityType: AdsActivationEntityTypes.ad,
+        entityId: 'ad_approved',
+        upstreamUpdatedAt: 30,
+        reconcileStrategy: AdsReconcileStrategies.create_fingerprint,
+        reconcileFields: {
+          adGroupId: 'adgrp_approved',
+          name: 'Approved ad',
+          status: AdsEntityStatuses.paused,
+        },
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]).run()
+
+    const response = await ctx.createGrant(
+      'key_executor',
+      MANIFEST,
+      'refresh_semantically_unchanged',
+    )
+    expect(response.statusCode, response.body).toBe(200)
+    const grant = JSON.parse(response.body).grant
+    expect(grant.manifest.campaign.adGroups[0].ads[0].expectedUpdatedAt).toBe(31)
+    expect(grant.manifestHash).toBe(hashAdsActivationManifest(grant.manifest))
+
+    ctx.entities.get('ad_approved')!.name = 'Changed outside the approved plan'
+    const rejected = await ctx.createGrant(
+      'key_executor',
+      MANIFEST,
+      'refresh_semantically_unchanged',
+    )
+    expect(rejected.statusCode).toBe(400)
+    expect(rejected.body).toContain('ADS_ACTIVATION_ENTITY_MISMATCH')
   })
 
   it('refuses to consume a grant after the project reconnects to another ad account', async () => {

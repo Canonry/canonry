@@ -3,6 +3,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { eq, and, asc, gt, gte, lt, lte, ne, inArray, or, isNull, isNotNull, sql } from 'drizzle-orm'
 import {
   ADS_WRITE_SCOPE,
+  AdsActivationEntityTypes,
   AdsAdGroupBillingEventTypes,
   AdsCampaignBiddingTypes,
   AdsEntityTypes,
@@ -65,6 +66,7 @@ import type {
   AdsGeoSearchResponse,
   AdsConversionPixelListResponse,
   AdsConversionEventSettingListResponse,
+  AdsActivationEntityType,
 } from '@ainyc/canonry-contracts'
 import { adsConnections, adsCampaigns, adsAdGroups, adsAds, adsInsightsDaily, adsOperations, projects, runs } from '@ainyc/canonry-db'
 import { requireScope } from './auth.js'
@@ -568,6 +570,66 @@ function entityMatchesReconcileFields(
   return fingerprint === null
     ? candidateFingerprint === requestHash(desired)
     : candidateFingerprint === fingerprint
+}
+
+function semanticallyMatchesMaterializedEntity(
+  app: FastifyInstance,
+  input: {
+    projectId: string
+    adAccountId: string
+    entityType: AdsActivationEntityType
+    entityId: string
+    entity: AdsOperatorEntityResult
+  },
+): boolean {
+  const createKind = (() => {
+    switch (input.entityType) {
+      case AdsActivationEntityTypes.campaign:
+        return AdsOperationKinds.campaign_create
+      case AdsActivationEntityTypes.ad_group:
+        return AdsOperationKinds.ad_group_create
+      case AdsActivationEntityTypes.ad:
+        return AdsOperationKinds.ad_create
+    }
+  })()
+  const updateKind = (() => {
+    switch (input.entityType) {
+      case AdsActivationEntityTypes.campaign:
+        return AdsOperationKinds.campaign_update
+      case AdsActivationEntityTypes.ad_group:
+        return AdsOperationKinds.ad_group_update
+      case AdsActivationEntityTypes.ad:
+        return AdsOperationKinds.ad_update
+    }
+  })()
+  const rows = app.db.select().from(adsOperations).where(and(
+    eq(adsOperations.projectId, input.projectId),
+    eq(adsOperations.entityType, input.entityType),
+    eq(adsOperations.entityId, input.entityId),
+    inArray(adsOperations.kind, [createKind, updateKind]),
+  )).orderBy(asc(adsOperations.createdAt), asc(adsOperations.id)).all()
+
+  // Unknown or in-flight updates mean the provider state cannot be attributed
+  // to an approved durable receipt. A successful update also requires a new
+  // Platform plan review rather than silently refreshing the original create.
+  if (rows.some((row) =>
+    row.state === AdsOperationStates.pending
+    || row.state === AdsOperationStates.reconciling
+    || row.state === AdsOperationStates.unknown
+    || (row.kind === updateKind && row.state === AdsOperationStates.succeeded))) {
+    return false
+  }
+  const creates = rows.filter((row) => row.kind === createKind && row.state === AdsOperationStates.succeeded)
+  if (creates.length !== 1) return false
+  const create = creates[0]!
+  if (
+    create.adAccountId !== input.adAccountId
+    || create.reconcileStrategy !== AdsReconcileStrategies.create_fingerprint
+    || !create.reconcileFields
+  ) {
+    return false
+  }
+  return entityMatchesReconcileFields(input.entity, create.reconcileFields, null)
 }
 
 function reconcileFieldsWithoutParent(fields: AdsReconcileFields): AdsReconcileFields {
@@ -1638,6 +1700,16 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
       }
       return {
         adAccountId,
+        semanticallyMatchesMaterialization: (entityType, entityId, entity) => {
+          if (entity.status === null || entity.updatedAt === null) return false
+          return semanticallyMatchesMaterializedEntity(app, {
+            projectId: project.id,
+            adAccountId,
+            entityType,
+            entityId,
+            entity: { ...entity, status: entity.status, updatedAt: entity.updatedAt },
+          })
+        },
         provider: {
           getAccount: refreshAccount,
           getCampaign: (id) => operator.getCampaign(apiKey, id),

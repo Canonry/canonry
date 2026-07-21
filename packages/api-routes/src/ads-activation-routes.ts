@@ -4,6 +4,7 @@ import { and, asc, eq, gt, isNotNull, isNull, lte, or, sql } from 'drizzle-orm'
 import {
   ADS_ACTIVATE_SCOPE,
   ADS_APPROVE_SCOPE,
+  AdsActivationVersionPolicies,
   AdsActivationGrantStates,
   AdsActivationEntityTypes,
   AdsOperationKinds,
@@ -47,7 +48,9 @@ import {
   hashAdsActivationManifest,
   hashAdsActivationOperationRequest,
   preflightAdsActivationApproval,
+  refreshSemanticallyUnchangedAdsActivationManifest,
   serializeAdsActivationManifest,
+  type AdsActivationEntitySnapshot,
   type AdsActivationClaimInput,
   type AdsActivationClaimResult,
   type AdsActivationResult,
@@ -70,6 +73,11 @@ const ACTIVATION_STEP_INSERT_BATCH_SIZE = 40
 export interface AdsActivationRuntime {
   adAccountId: string
   provider: AdsActivationProvider
+  semanticallyMatchesMaterialization?: (
+    entityType: import('@ainyc/canonry-contracts').AdsActivationEntityType,
+    entityId: string,
+    entity: AdsActivationEntitySnapshot,
+  ) => boolean
 }
 
 export interface AdsActivationRoutesOptions {
@@ -1150,10 +1158,18 @@ export function registerAdsActivationRoutes(
       const runtime = await opts.resolveRuntime(project)
       let preflight: Awaited<ReturnType<typeof preflightAdsActivationApproval>>
       try {
-        preflight = await preflightAdsActivationApproval(runtime.provider, {
-          adAccountId: runtime.adAccountId,
-          manifest: body.manifest,
-        })
+        preflight = body.versionPolicy === AdsActivationVersionPolicies.refreshSemanticallyUnchanged
+          ? await refreshSemanticallyUnchangedAdsActivationManifest(runtime.provider, {
+              adAccountId: runtime.adAccountId,
+              manifest: body.manifest,
+              semanticallyMatchesMaterialization:
+                runtime.semanticallyMatchesMaterialization
+                ?? (() => false),
+            })
+          : await preflightAdsActivationApproval(runtime.provider, {
+              adAccountId: runtime.adAccountId,
+              manifest: body.manifest,
+            })
       } catch (error) {
         if (error instanceof AdsActivationError) throw mapApprovalPreflightError(error)
         throw error

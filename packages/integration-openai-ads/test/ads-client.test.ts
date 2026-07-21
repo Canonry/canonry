@@ -642,6 +642,24 @@ describe('insights', () => {
     expect(rows[0]!.readable_time).toBe('2026-06-10')
   })
 
+  it('serializes verified account-timezone hour ranges for conversion metrics', async () => {
+    const calls = mockFetchOnce(makeListResponse([FIXTURE_INSIGHT_ROW_FULL]))
+
+    await getCampaignInsights('test-key', 'cmpn_abc', {
+      fields: ['campaign.conversions', 'metadata.readable_time'],
+      timeRanges: [{
+        type: 'hour_range',
+        since: '2026-04-21T13',
+        until: '2026-07-21T13',
+        timezone: 'America/New_York',
+      }],
+    })
+
+    expect(calls[0]!.url).toBe(
+      `${OPENAI_ADS_API_BASE}/campaigns/cmpn_abc/insights?fields[]=campaign.conversions&fields[]=metadata.readable_time&time_ranges[]=%7B%22type%22%3A%22hour_range%22%2C%22since%22%3A%222026-04-21T13%22%2C%22until%22%3A%222026-07-21T13%22%2C%22timezone%22%3A%22America%2FNew_York%22%7D`,
+    )
+  })
+
   it('supports ad-group-level insights', async () => {
     const calls = mockFetchOnce(
       makeListResponse([{ ...FIXTURE_INSIGHT_ROW_FULL, id: 'start=1:end=2:entity_id=adgrp_abc' }]),
