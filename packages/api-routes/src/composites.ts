@@ -69,7 +69,7 @@ import {
   type SuggestedQueryGscRow,
 } from '@ainyc/canonry-intelligence'
 import { notProbeRun, resolveProject } from './helpers.js'
-import { mergeGscQueryTotalsWithFallback, readGscQueryTotals } from './gsc-totals.js'
+import { mergeGscQueryTotalsWithFallback, readGscQueryDailyRows } from './gsc-totals.js'
 
 const TOP_INSIGHT_LIMIT = 5
 const SEARCH_HIT_HARD_LIMIT = 50
@@ -678,8 +678,12 @@ function buildSuggestedQueriesFromGsc(
   // multi-page-ranking queries over single-page ones and admits queries that
   // are genuinely below the floor. Falls back to the legacy page-summed
   // aggregate for windows the accurate fetch has not covered.
+  // Grouped by (date, query), NOT query: the merge decides source per day, so a
+  // query whose backfill has only reached the recent days keeps its legacy days
+  // instead of having the whole window replaced by the short accurate one.
   const dimensionedRows = app.db
     .select({
+      date: gscSearchData.date,
       query: gscSearchData.query,
       impressions: sql<number>`COALESCE(SUM(${gscSearchData.impressions}), 0)`,
       clicks: sql<number>`COALESCE(SUM(${gscSearchData.clicks}), 0)`,
@@ -694,13 +698,14 @@ function buildSuggestedQueriesFromGsc(
       sql`${gscSearchData.date} >= ${cutoff}`,
       sql`${gscSearchData.impressions} > 0`,
     ))
-    .groupBy(gscSearchData.query)
+    .groupBy(gscSearchData.date, gscSearchData.query)
     .all()
 
   const todayIso = new Date().toISOString().slice(0, 10)
   const merged = mergeGscQueryTotalsWithFallback(
-    readGscQueryTotals(app.db, projectId, cutoff, todayIso),
+    readGscQueryDailyRows(app.db, projectId, cutoff, todayIso),
     dimensionedRows.map(r => ({
+      date: r.date,
       query: r.query,
       impressions: Number(r.impressions),
       clicks: Number(r.clicks),
