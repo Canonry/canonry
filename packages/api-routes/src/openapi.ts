@@ -2507,7 +2507,7 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'post',
     path: '/api/v1/projects/{name}/ads/activation-grants/{grantId}/revoke',
     summary: 'Revoke or cancel an OpenAI Ads activation grant',
-    description: 'Human-only kill switch. Before execution, the grant becomes revoked. After execution starts, or while an activation outcome is unknown, revocationRequestedAt is recorded atomically. Subsequent activation steps are blocked, and the recovery worker rolls back confirmed active entities. Unknown outcomes remain explicitly unknown while the watchdog repeatedly issues exact-tree safety pauses. A provider request already authorized or in flight may still settle before containment. Verified rollback leaves the single-use grant consumed and the operation failed.',
+    description: 'Human-only kill switch. Before execution, the grant becomes revoked. After execution starts, or while an activation outcome is unknown, revocationRequestedAt is recorded atomically. Subsequent activation steps are blocked, and the recovery worker rolls back confirmed active entities. Unknown outcomes remain explicitly unknown unless revocation was requested, the provider settlement window elapsed, and the watchdog can enumerate the complete provider tree and verify every entity paused. A provider request already authorized or in flight may still settle before containment. Verified rollback leaves the single-use grant consumed and the operation failed.',
     tags: ['ads'],
     parameters: [
       nameParameter,
