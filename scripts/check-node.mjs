@@ -20,6 +20,19 @@
  * So the check lives here instead: keyed to what the native dependency actually
  * supports, which is a superset of both the Docker base and CI.
  *
+ * WHY `preinstall` TOLERATES THIS FILE BEING ABSENT
+ * The wiring is `test ! -f scripts/check-node.mjs || node scripts/check-node.mjs`,
+ * not a bare `node scripts/check-node.mjs`. The Dockerfiles copy the manifests
+ * and install BEFORE copying the rest of the tree (standard layer caching), so
+ * this file does not exist at install time inside the image and a bare
+ * invocation fails the Docker build with "Cannot find module".
+ *
+ * Skipping there is correct, not a workaround: the images pin their own base
+ * (node:20-bookworm-slim), so the Node version is fixed by the Dockerfile and
+ * cannot be the arbitrary local version this guard exists to catch. Copying the
+ * file into every image instead would re-break the build the next time a
+ * Dockerfile is added or its COPY order changes.
+ *
  * KEEPING THIS HONEST
  * `SUPPORTED_MAJORS` mirrors better-sqlite3's own `engines.node`. It is asserted
  * against the installed package by `packages/db/test/node-support-range.test.ts`,
