@@ -1826,7 +1826,6 @@ function renderAiReferrals(report: ProjectReportDto): string {
     <tr>
       <td class="page-cell">${formatLandingPageHtml(p.page)}</td>
       <td class="numeric">${formatNumber(p.sessions)}</td>
-      <td class="numeric">${formatNumber(p.users)}</td>
     </tr>`).join('')
 
   const trendChart = renderLineChart(
@@ -1839,13 +1838,12 @@ function renderAiReferrals(report: ProjectReportDto): string {
     { id: 'ai-referrals', eyebrow: 'Section 9', title: 'AI Referral Traffic', intro: 'Traffic arriving from AI answer engines.' },
     `<div class="metric-grid">
       <div class="metric"><div class="label">Total sessions</div><div class="value">${formatNumber(ai.totalSessions)}</div></div>
-      <div class="metric"><div class="label">Total users</div><div class="value">${formatNumber(ai.totalUsers)}</div></div>
     </div>
     ${trendChart}
     ${sourceBars}
     <div class="chart-card"><h3>Top AI landing pages</h3>
       <table class="report-table">
-        <thead><tr><th>Page</th><th class="numeric">Sessions</th><th class="numeric">Users</th></tr></thead>
+        <thead><tr><th>Page</th><th class="numeric">Sessions</th></tr></thead>
         <tbody>${pageRows}</tbody>
       </table>
     </div>`,

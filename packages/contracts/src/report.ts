@@ -394,17 +394,28 @@ export const socialReferralSectionSchema = z.object({
 
 export type SocialReferralSection = z.infer<typeof socialReferralSectionSchema>
 
+/**
+ * AI-referral traffic for the report window.
+ *
+ * SESSIONS ONLY, deliberately. A `users` count was removed here: GA reports
+ * `totalUsers` as a COUNT DISTINCT at the grain it was asked for, and
+ * `ga_ai_referrals` is keyed by (date, source, medium, channelGroup,
+ * landingPage, sourceDimension). Summing that column re-counts the same
+ * visitor on every extra day, page and channel they appear in, and no
+ * un-dimensioned AI-referral fetch exists to ask Google for the real figure.
+ * The number could not be made true, so it is not reported.
+ *
+ * Sessions ARE additive here once the overlapping attribution lenses are
+ * deduped (GA4 attributes one landing page per session, and dates are
+ * disjoint), which is why every field below is session-based.
+ */
 export const aiReferralSectionSchema = z.object({
   totalSessions: z.number(),
-  totalUsers: z.number(),
   paidSessions: z.number(),
-  paidUsers: z.number(),
   organicSessions: z.number(),
-  organicUsers: z.number(),
   bySource: z.array(z.object({
     source: z.string(),
     sessions: z.number(),
-    users: z.number(),
     paidSessions: z.number(),
     organicSessions: z.number(),
     sharePct: z.number(),
@@ -413,7 +424,6 @@ export const aiReferralSectionSchema = z.object({
   topLandingPages: z.array(z.object({
     page: z.string(),
     sessions: z.number(),
-    users: z.number(),
   })),
 })
 

@@ -919,7 +919,6 @@ describe('GET /api/v1/projects/:name/report', () => {
 
     expect(body.aiReferrals).not.toBeNull()
     expect(body.aiReferrals!.totalSessions).toBe(30)
-    expect(body.aiReferrals!.totalUsers).toBe(25)
     expect(body.aiReferrals!.paidSessions).toBe(0)
     expect(body.aiReferrals!.organicSessions).toBe(30)
     // Invariant: the paid/organic split always partitions the deduped total.
@@ -1067,12 +1066,59 @@ describe('GET /api/v1/projects/:name/report', () => {
 
     expect(body.aiReferrals).not.toBeNull()
     expect(body.aiReferrals!.totalSessions).toBe(10)
-    expect(body.aiReferrals!.totalUsers).toBe(8)
     expect(body.aiReferrals!.paidSessions).toBe(0)
     expect(body.aiReferrals!.organicSessions).toBe(10)
     expect(body.aiReferrals!.bySource[0]!.sessions).toBe(10)
     expect(body.aiReferrals!.trend[0]!.sessions).toBe(10)
     expect(body.aiReferrals!.topLandingPages[0]!.sessions).toBe(10)
+  })
+
+  test('AI referrals count only the report window, not all retained history', async () => {
+    const projectId = insertProject(ctx.db, 'ai-window')
+    const iso = (daysAgo: number): string => {
+      const d = new Date()
+      d.setUTCDate(d.getUTCDate() - daysAgo)
+      return d.toISOString().slice(0, 10)
+    }
+    // 5 sessions inside the window, 500 far outside it. This read previously
+    // had NO date bound at all, so a report labelled "last 30 days" summed the
+    // project's entire retained history (measured 3,106 all-time against 52
+    // for the window on a live project).
+    ctx.db.insert(gaAiReferrals).values([
+      {
+        id: crypto.randomUUID(),
+        projectId,
+        date: iso(2),
+        source: 'chatgpt.com',
+        medium: 'referral',
+        sourceDimension: 'session',
+        landingPage: '/',
+        sessions: 5,
+        users: 5,
+        syncedAt: new Date().toISOString(),
+      },
+      {
+        id: crypto.randomUUID(),
+        projectId,
+        date: iso(300),
+        source: 'chatgpt.com',
+        medium: 'referral',
+        sourceDimension: 'session',
+        landingPage: '/',
+        sessions: 500,
+        users: 500,
+        syncedAt: new Date().toISOString(),
+      },
+    ]).run()
+
+    await ctx.app.ready()
+    const res = await ctx.app.inject({
+      method: 'GET',
+      url: '/api/v1/projects/ai-window/report?period=30',
+    })
+    const body = JSON.parse(res.body) as ProjectReportDto
+    expect(body.aiReferrals).not.toBeNull()
+    expect(body.aiReferrals!.totalSessions).toBe(5)
   })
 
   test('indexing health prefers GSC and falls back to Bing', async () => {

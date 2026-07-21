@@ -554,11 +554,39 @@ function buildSocialReferrals(db: DatabaseClient, projectId: string): SocialRefe
   }
 }
 
-function buildAiReferrals(db: DatabaseClient, projectId: string): ProjectReportDto['aiReferrals'] {
+/**
+ * AI-referral traffic for the report window.
+ *
+ * The window is REQUIRED. This read previously had no date bound at all, so a
+ * report labelled "last 30 days" summed the project's entire retained history
+ * into its tiles (measured 3,106 all-time against 52 for the actual window on
+ * a live project).
+ *
+ * Reports SESSIONS only. See `aiReferralSectionSchema` for why the users count
+ * was removed rather than fixed.
+ */
+function buildAiReferrals(
+  db: DatabaseClient,
+  projectId: string,
+  windowDays: number,
+): ProjectReportDto['aiReferrals'] {
+  const latest = db
+    .select({ date: gaAiReferrals.date })
+    .from(gaAiReferrals)
+    .where(eq(gaAiReferrals.projectId, projectId))
+    .orderBy(desc(gaAiReferrals.date))
+    .limit(1)
+    .get()
+  if (!latest) return null
+  const windowStart = windowStartDate(latest.date, windowDays)
   const rows = db
     .select()
     .from(gaAiReferrals)
-    .where(eq(gaAiReferrals.projectId, projectId))
+    .where(and(
+      eq(gaAiReferrals.projectId, projectId),
+      sql`${gaAiReferrals.date} >= ${windowStart}`,
+      sql`${gaAiReferrals.date} <= ${latest.date}`,
+    ))
     .all()
   if (rows.length === 0) return null
 
@@ -598,47 +626,37 @@ function buildAiReferrals(db: DatabaseClient, projectId: string): ProjectReportD
   )
 
   let total = 0
-  let totalUsers = 0
   let paidSessions = 0
-  let paidUsers = 0
   let organicSessions = 0
-  let organicUsers = 0
   const sourceAgg = new Map<string, {
     sessions: number
-    users: number
     paidSessions: number
     organicSessions: number
   }>()
   const trendAgg = new Map<string, number>()
-  const pageAgg = new Map<string, { sessions: number; users: number }>()
+  const pageAgg = new Map<string, { sessions: number }>()
 
   for (const r of dedupedRows) {
     total += r.sessions
-    totalUsers += r.users
     const paid = isPaidAiTrafficClass(r.trafficClass)
     if (paid) {
       paidSessions += r.sessions
-      paidUsers += r.users
     } else {
       organicSessions += r.sessions
-      organicUsers += r.users
     }
     const s = sourceAgg.get(r.source) ?? {
       sessions: 0,
-      users: 0,
       paidSessions: 0,
       organicSessions: 0,
     }
     s.sessions += r.sessions
-    s.users += r.users
     if (paid) s.paidSessions += r.sessions
     else s.organicSessions += r.sessions
     sourceAgg.set(r.source, s)
     trendAgg.set(r.date, (trendAgg.get(r.date) ?? 0) + r.sessions)
     const page = r.landingPageNormalized ?? r.landingPage
-    const p = pageAgg.get(page) ?? { sessions: 0, users: 0 }
+    const p = pageAgg.get(page) ?? { sessions: 0 }
     p.sessions += r.sessions
-    p.users += r.users
     pageAgg.set(page, p)
   }
 
@@ -646,7 +664,6 @@ function buildAiReferrals(db: DatabaseClient, projectId: string): ProjectReportD
     .map(([source, data]) => ({
       source,
       sessions: data.sessions,
-      users: data.users,
       paidSessions: data.paidSessions,
       organicSessions: data.organicSessions,
       sharePct: total > 0 ? Math.round((data.sessions / total) * 100) : 0,
@@ -658,17 +675,14 @@ function buildAiReferrals(db: DatabaseClient, projectId: string): ProjectReportD
     .sort((a, b) => a.date.localeCompare(b.date))
 
   const topLandingPages = [...pageAgg.entries()]
-    .map(([page, data]) => ({ page, sessions: data.sessions, users: data.users }))
+    .map(([page, data]) => ({ page, sessions: data.sessions }))
     .sort((a, b) => b.sessions - a.sessions)
     .slice(0, TOP_AI_REFERRAL_PAGES_LIMIT)
 
   return {
     totalSessions: total,
-    totalUsers,
     paidSessions,
-    paidUsers,
     organicSessions,
-    organicUsers,
     bySource,
     trend,
     topLandingPages,
@@ -2122,7 +2136,7 @@ function buildProjectReport(db: DatabaseClient, projectName: string, periodDays:
   )
   const gaSection = buildGaSection(db, project.id, periodDays)
   const socialSection = buildSocialReferrals(db, project.id)
-  const aiReferralsSection = buildAiReferrals(db, project.id)
+  const aiReferralsSection = buildAiReferrals(db, project.id, periodDays)
   const serverActivitySection = buildServerActivity(db, project.id, periodDays)
   const indexingHealthSection = buildIndexingHealth(db, project.id)
   const citationsTrend = buildCitationsTrend(db, project.id, queryLookup, latestRunLocation)
