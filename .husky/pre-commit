@@ -1,1 +1,17 @@
-pnpm run lint
+# Lint gate. Output is captured, not streamed: `pnpm run lint` prints ~99KB of
+# pre-existing warnings from unrelated packages on every commit, which buries
+# the commit result, and for an agent driving this repo it overflows the output
+# budget so the real result has to be re-fetched.
+#
+# Behaviour is unchanged where it matters: a lint ERROR still fails the commit.
+# Only the success path goes quiet. Run `pnpm run lint` directly to see warnings.
+log="$(mktemp -t canonry-precommit-lint.XXXXXX)"
+if pnpm run lint > "$log" 2>&1; then
+  rm -f "$log"
+else
+  echo "pre-commit: lint FAILED" >&2
+  tail -40 "$log" >&2
+  echo "" >&2
+  echo "pre-commit: full lint output -> $log" >&2
+  exit 1
+fi
