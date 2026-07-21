@@ -570,6 +570,74 @@ describe('approval-bound ads activation core', () => {
     ])
   })
 
+  it('waits for read-after-write lag without resending any activation', async () => {
+    const provider = new FakeProvider()
+    const store = new MemoryActivationStore()
+    const sleeps: number[] = []
+    provider.afterActivate = (entityType, entityId) => {
+      const active = provider.entities.get(entityKey(entityType, entityId))!
+      const stale = {
+        ...active,
+        status: 'paused',
+        updatedAt: (active.updatedAt ?? 1) - 1,
+      }
+      provider.queueReads(entityType, entityId, stale, stale)
+    }
+
+    const result = await executeApprovedAdsActivation({
+      provider,
+      store,
+      now: fixedNow,
+      randomId: deterministicIds(),
+      sleep: async (ms) => {
+        sleeps.push(ms)
+      },
+      activationVerificationRetryDelaysMs: [10, 20],
+    }, activationRequest())
+
+    expect(mutationCalls(provider)).toEqual([
+      'activate:ad:ad_1',
+      'activate:ad_group:adgrp_1',
+      'activate:campaign:cmpn_1',
+    ])
+    expect(sleeps).toEqual([10, 20, 10, 20, 10, 20])
+    expect(result.operation.state).toBe(AdsOperationStates.succeeded)
+    expect(result.steps.every((step) => step.state === AdsOperationStepStates.active)).toBe(true)
+  })
+
+  it('does not retry a post-mutation version drift', async () => {
+    const provider = new FakeProvider()
+    const store = new MemoryActivationStore()
+    const sleeps: number[] = []
+    provider.afterActivate = (entityType, entityId) => {
+      if (entityType !== AdsActivationEntityTypes.ad) return
+      provider.queueReads(entityType, entityId, {
+        id: entityId,
+        adGroupId: 'adgrp_1',
+        reviewStatus: 'approved',
+        status: 'paused',
+        updatedAt: 999,
+      })
+    }
+
+    await expect(executeApprovedAdsActivation({
+      provider,
+      store,
+      now: fixedNow,
+      randomId: deterministicIds(),
+      sleep: async (ms) => {
+        sleeps.push(ms)
+      },
+      activationVerificationRetryDelaysMs: [10],
+    }, activationRequest())).rejects.toMatchObject({
+      code: AdsActivationErrorCodes.manualRemediationRequired,
+    })
+
+    expect(sleeps).toEqual([])
+    expect(mutationCalls(provider)).toEqual(['activate:ad:ad_1'])
+    expect(store.operation?.state).toBe(AdsOperationStates.unknown)
+  })
+
   it('recovers an executing step with GET only and never resends its activation', async () => {
     const provider = new FakeProvider()
     provider.setEntity(AdsActivationEntityTypes.ad, {
@@ -942,6 +1010,7 @@ describe('approval-bound ads activation core', () => {
       store,
       now: fixedNow,
       randomId: deterministicIds(),
+      activationVerificationRetryDelaysMs: [],
     }, activationRequest())).rejects.toMatchObject({
       code: AdsActivationErrorCodes.manualRemediationRequired,
     })
