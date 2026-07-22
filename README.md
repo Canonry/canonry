@@ -8,6 +8,7 @@
 - Watch AI engines crawl and refer traffic via [server-log ingestion](skills/canonry/references/server-side-traffic.md) — Cloud Run, Vercel, and the WordPress Traffic Logger plugin today
 - Diagnose against real traffic with built-in [GSC](docs/google-search-console-setup.md), [GA4](docs/google-analytics-setup.md), and [Bing Webmaster](docs/bing-webmaster-setup.md)
 - Track local AEO via [Google Business Profile](skills/canonry/references/google-business-profile.md) — search-term impressions, performance metrics, and hotel lodging + booking-CTA gaps
+- Manage [ChatGPT ads](docs/mcp.md#tool-surface) with OpenAI Ads Manager — connect an ad account, inspect conversion setup and performance, prepare paused campaigns, and launch only with an explicit human approval
 - Discover who links to you with [Common Crawl backlinks](skills/canonry/references/canonry-cli.md#backlinks-common-crawl) — follows Common Crawl's rolling monthly hyperlink graph, auto-syncing each new window on a schedule, queried locally with DuckDB
 - Execute fixes via [WordPress](docs/wordpress-setup.md), JSON-LD schema, and indexing submissions
 - Manage many clients declaratively — config-as-code YAML + `cnry apply`
@@ -53,6 +54,27 @@ omitting its model keeps that engine on the instance setting.
 cnry project update my-site --provider gemini --provider-model gemini=gemini-2.5-pro
 cnry project update my-site --clear-provider-model gemini
 ```
+
+## Manage ChatGPT ads with human control
+
+Connect an OpenAI Ads Manager account to bring its account state, integrity review,
+conversion pixels and event settings, campaign structure, and paid-performance
+rollups into the same project as your organic AEO evidence.
+
+```bash
+cnry ads connect my-site --api-key <ads-manager-sdk-key>
+cnry ads sync my-site
+cnry ads account my-site
+cnry ads summary my-site
+```
+
+Canonry and your agent can inspect the live account, look up geo targets, prepare
+campaigns, ad groups, and ChatGPT chat-card ads in a paused state, and keep durable
+operation receipts for reconciliation. Activation is deliberately separate: a human
+approves one exact campaign tree, then a scoped executor may launch only that approved
+tree. This keeps spend-bearing changes reviewable and recoverable instead of granting
+an agent unrestricted access to your ad account. See the [MCP tool surface](docs/mcp.md#tool-surface)
+for the complete agent workflow and safety model.
 
 ## Or set it up with your AI coding agent
 
