@@ -95,9 +95,30 @@ async function requestIndexing(app: FastifyInstance, body: Record<string, unknow
 
 describe('request-indexing: allUnindexed gathers only submittable URLs', () => {
   let ctx: ReturnType<typeof buildApp>
+  let originalFetch: typeof globalThis.fetch
+  let notifiedUrls: string[]
 
-  beforeEach(() => { ctx = buildApp() })
+  beforeEach(() => {
+    ctx = buildApp()
+    originalFetch = globalThis.fetch
+    notifiedUrls = []
+    globalThis.fetch = async (_url: string | URL | Request, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? '{}')) as { url: string }
+      notifiedUrls.push(body.url)
+      return new Response(JSON.stringify({
+        urlNotificationMetadata: {
+          url: body.url,
+          latestUpdate: {
+            url: body.url,
+            type: 'URL_UPDATED',
+            notifyTime: '2026-07-22T00:00:00.000Z',
+          },
+        },
+      }), { status: 200 })
+    }
+  })
   afterEach(async () => {
+    globalThis.fetch = originalFetch
     await ctx.app.close()
     fs.rmSync(ctx.tmpDir, { recursive: true, force: true })
   })
@@ -108,11 +129,10 @@ describe('request-indexing: allUnindexed gathers only submittable URLs', () => {
 
     const res = await requestIndexing(ctx.app, { allUnindexed: true })
 
-    // The stale host must not surface as a validation failure. Before the fix
-    // this returned 400 "URLs must belong to project domain". Assert the
-    // specific rejection is gone rather than "not 400", which a 404 satisfies.
-    expect(res.body).not.toContain('must belong to project domain')
-    expect(res.body).not.toContain('previous.example')
+    expect(res.statusCode).toBe(200)
+    const body = res.json() as { summary: { total: number; succeeded: number } }
+    expect(body.summary).toMatchObject({ total: 1, succeeded: 1 })
+    expect(notifiedUrls).toEqual(['https://canonical.example/blog/one'])
   })
 
   it('skips a subdomain that a sc-domain property reports', async () => {
@@ -121,8 +141,10 @@ describe('request-indexing: allUnindexed gathers only submittable URLs', () => {
 
     const res = await requestIndexing(ctx.app, { allUnindexed: true })
 
-    expect(res.body).not.toContain('must belong to project domain')
-    expect(res.body).not.toContain('app.canonical.example')
+    expect(res.statusCode).toBe(200)
+    const body = res.json() as { summary: { total: number; succeeded: number } }
+    expect(body.summary).toMatchObject({ total: 1, succeeded: 1 })
+    expect(notifiedUrls).toEqual(['https://canonical.example/blog/one'])
   })
 
   it('says so plainly when every unindexed URL is on another host', async () => {
@@ -137,6 +159,7 @@ describe('request-indexing: allUnindexed gathers only submittable URLs', () => {
     // not just "none found".
     expect(body.error.message).toContain('canonical.example')
     expect(body.error.message).toContain('skipped 2')
+    expect(notifiedUrls).toEqual([])
   })
 
   it('still ignores URLs that are already indexed', async () => {
@@ -149,6 +172,7 @@ describe('request-indexing: allUnindexed gathers only submittable URLs', () => {
     expect(body.error.message).toContain('No unindexed URLs found')
     // Nothing was skipped for host reasons, so the message must not claim it.
     expect(body.error.message).not.toContain('skipped')
+    expect(notifiedUrls).toEqual([])
   })
 
   it('rejects an off-domain URL the caller supplied explicitly', async () => {
@@ -161,5 +185,6 @@ describe('request-indexing: allUnindexed gathers only submittable URLs', () => {
     expect(res.statusCode).toBe(400)
     const body = JSON.parse(res.body) as { error: { message: string } }
     expect(body.error.message).toContain('elsewhere.example')
+    expect(notifiedUrls).toEqual([])
   })
 })
