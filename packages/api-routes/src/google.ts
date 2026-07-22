@@ -39,6 +39,23 @@ import {
 } from '@ainyc/canonry-integration-google-business-profile'
 
 /**
+ * Does a URL sit on the project's canonical host?
+ *
+ * The Indexing API only accepts URLs on the exact verified host, so a
+ * subdomain is as unusable as an unrelated domain even when a `sc-domain:`
+ * property covers it. Shared by the request-indexing gather step and its
+ * validation so the two can never disagree about what "on the domain" means.
+ * `www.` is stripped on both sides; an unparseable URL is not on the domain.
+ */
+function isOnProjectDomain(url: string, projectDomain: string): boolean {
+  try {
+    return new URL(url).hostname.toLowerCase().replace(/^www\./, '') === projectDomain
+  } catch {
+    return false
+  }
+}
+
+/**
  * Scopes requested per connection type. Centralized so all OAuth surface
  * (connect + callback + token refresh) speaks the same language. Add new
  * connection types here, not as inline ternaries.
@@ -1303,15 +1320,29 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
         }
       }
 
+      // Inspection history accumulates hosts the Indexing API will not accept:
+      // URLs from a previous domain the project has since migrated off, and
+      // subdomains that a `sc-domain:` property legitimately reports. Skip them
+      // here rather than letting the canonical-domain check below reject the
+      // whole batch — one stale row must not make this endpoint unusable.
+      const gatherDomain = normalizeProjectDomain(project.canonicalDomain)
       const unindexedUrls: string[] = []
+      let skippedOtherHost = 0
       for (const [url, row] of latestByUrl) {
-        if (row.indexingState !== 'INDEXING_ALLOWED') {
-          unindexedUrls.push(url)
+        if (row.indexingState === 'INDEXING_ALLOWED') continue
+        if (!isOnProjectDomain(url, gatherDomain)) {
+          skippedOtherHost += 1
+          continue
         }
+        unindexedUrls.push(url)
       }
 
       if (unindexedUrls.length === 0) {
-        throw validationError('No unindexed URLs found. Run "canonry google inspect-sitemap" first.')
+        throw validationError(
+          skippedOtherHost > 0
+            ? `No unindexed URLs found on "${project.canonicalDomain}" (skipped ${skippedOtherHost} on other hosts). Run "canonry google inspect-sitemap" first.`
+            : 'No unindexed URLs found. Run "canonry google inspect-sitemap" first.',
+        )
       }
 
       urlsToNotify = unindexedUrls
@@ -1325,16 +1356,11 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
       throw validationError(`Cannot request indexing for more than ${INDEXING_API_DAILY_LIMIT} URLs per request (got ${urlsToNotify.length})`)
     }
 
-    // Validate that all URLs belong to the project's canonical domain
+    // Validate that all URLs belong to the project's canonical domain. Reached
+    // only for caller-supplied URLs now — the allUnindexed path filters above,
+    // so a stale inspection row cannot fail a request the caller did not make.
     const projectDomain = normalizeProjectDomain(project.canonicalDomain)
-    const invalidUrls = urlsToNotify.filter((url) => {
-      try {
-        const hostname = new URL(url).hostname.toLowerCase().replace(/^www\./, '')
-        return hostname !== projectDomain
-      } catch {
-        return true
-      }
-    })
+    const invalidUrls = urlsToNotify.filter((url) => !isOnProjectDomain(url, projectDomain))
     if (invalidUrls.length > 0) {
       throw validationError(
         `URLs must belong to project domain "${project.canonicalDomain}". Invalid: ${invalidUrls.slice(0, 5).join(', ')}`,
