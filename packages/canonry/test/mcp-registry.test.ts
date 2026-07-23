@@ -160,8 +160,8 @@ const expectedToolNames = [
 
 describe('MCP tool registry', () => {
   it('ships the curated v1 surface', () => {
-    expect(CANONRY_MCP_TOOL_COUNT).toBe(139)
-    expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(88)
+    expect(CANONRY_MCP_TOOL_COUNT).toBe(140)
+    expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(89)
     expect(canonryMcpTools.map(tool => tool.name)).toEqual(expectedToolNames)
     const readNames = canonryMcpTools.filter(tool => tool.access === 'read').map(tool => tool.name)
     expect(getCanonryMcpTools('read-only').map(tool => tool.name)).toEqual(readNames)
