@@ -646,6 +646,27 @@ describe('organic evidence native measurement reconciliation', () => {
     expect(body.blog.server).toEqual(body.server)
   })
 
+  it('signals page-detail truncation in the machine-readable limitations', async () => {
+    seedNativeMeasurement(ctx)
+    for (let index = 0; index < 55; index += 1) {
+      insertAcquisition(ctx, {
+        date: GA_ANCHOR,
+        channelGroup: 'Organic Search',
+        hostName: 'demand-iq.com',
+        landingPage: `/library/page-${index}`,
+        sessions: 1,
+      })
+    }
+
+    const body = await getRawEvidence(ctx)
+
+    expect(body.pages).toHaveLength(50)
+    expect(body.limitations).toContainEqual(expect.objectContaining({
+      code: 'page-detail-truncated',
+      detail: expect.stringMatching(/top 50 of \d+ matching pages/i),
+    }))
+  })
+
   it('preserves last-good data, component errors, attribution scope, and server AI evidence', async () => {
     seedNativeMeasurement(ctx)
     seedServerAiEvidence(ctx)
