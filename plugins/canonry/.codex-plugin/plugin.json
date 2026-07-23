@@ -1,0 +1,38 @@
+{
+  "name": "canonry",
+  "version": "4.129.0",
+  "description": "Operate Canonry AEO projects through guided skills and the typed Canonry MCP server.",
+  "author": {
+    "name": "Canonry",
+    "url": "https://canonry.ai"
+  },
+  "homepage": "https://canonry.ai",
+  "repository": "https://github.com/Canonry/canonry",
+  "license": "FSL-1.1-ALv2",
+  "keywords": [
+    "aeo",
+    "answer-engine-optimization",
+    "citations",
+    "mentions",
+    "mcp"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Canonry",
+    "shortDescription": "Operate Canonry AEO projects from Codex",
+    "longDescription": "Inspect citation and mention coverage, run technical AEO audits, and act through Canonry's typed MCP tools.",
+    "developerName": "Canonry",
+    "category": "Productivity",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://canonry.ai",
+    "defaultPrompt": [
+      "Check my Canonry project and explain what changed.",
+      "Run a Technical AEO audit and help fix the highest-impact issues.",
+      "Review citation and mention coverage and recommend the next action."
+    ]
+  }
+}

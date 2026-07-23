@@ -9,6 +9,19 @@ export const codingAgentSchema = z.enum(['claude', 'codex'])
 export type CodingAgent = z.infer<typeof codingAgentSchema>
 export const CodingAgents = codingAgentSchema.enum
 
+/** Native agent clients that can load the shared Canonry plugin bundle. */
+export type AgentPluginClient = 'claude-code' | 'codex'
+
+/** Best-effort user-global snapshot of native Canonry plugin availability. */
+export interface AgentPluginState {
+  /** Clients whose user settings enable the exact `canonry@canonry` ID. */
+  configuredClients: AgentPluginClient[]
+  /** Configured clients whose cached plugin manifests and skill assets exist. */
+  verifiedClients: AgentPluginClient[]
+  /** Verified manifest version selected for each client cache. */
+  verifiedClientVersions?: Partial<Record<AgentPluginClient, string>>
+}
+
 /**
  * Scope accepted by the `canonry skills install --client` flag: a specific
  * coding agent or `all` to target every supported agent. Use the

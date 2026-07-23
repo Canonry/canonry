@@ -53,6 +53,7 @@ import {
   type AdsCampaignBiddingType,
   type AdsAdGroupBillingEventType,
   type ProviderAdapter,
+  type AgentPluginState,
 } from "@ainyc/canonry-contracts";
 import type { CanonryConfig, ProviderConfigEntry } from "./config.js";
 import { resolveEmbedConfig, SERVER_ENFORCED_EMBED_PROJECT_TABS, unsupportedEmbedProjectTabs } from "./embed.js";
@@ -498,6 +499,8 @@ export async function createServer(opts: {
    * assert the injected config + framing header on the served document.
    */
   assetsDir?: string;
+  /** Live user-global native Canonry plugin state for agent-skills doctor checks. */
+  getAgentPluginState?: () => AgentPluginState;
 }): Promise<FastifyInstance> {
   const logger =
     opts.logger === false
@@ -1855,6 +1858,7 @@ export async function createServer(opts: {
         return undefined;
       }
     })(),
+    getAgentPluginState: opts.getAgentPluginState,
     // Local canonry serve runs on the operator's machine, where pointing a
     // webhook at localhost (Discord test container, Pipedream-mock dev server,
     // etc.) is a legitimate workflow. Default to allowing it for the local

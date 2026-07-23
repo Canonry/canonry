@@ -47,6 +47,65 @@ describe('agent.skills.installed', () => {
     expect(result.remediation).toBeNull()
   })
 
+  it('returns ok when a native plugin supplies the skills', async () => {
+    const result = await skillsCheck.run({
+      ...emptyCtx,
+      getAgentPluginState: () => ({
+        configuredClients: ['claude-code'],
+        verifiedClients: ['claude-code'],
+      }),
+    })
+    expect(result.status).toBe('ok')
+    expect(result.code).toBe('agent.skills.plugin-installed')
+    expect(result.summary).toContain('Claude Code')
+  })
+
+  it('reports a verified Codex-only install without implying Claude Code coverage', async () => {
+    const result = await skillsCheck.run({
+      ...emptyCtx,
+      getAgentPluginState: () => ({
+        configuredClients: ['codex'],
+        verifiedClients: ['codex'],
+      }),
+    })
+    expect(result.status).toBe('ok')
+    expect(result.code).toBe('agent.skills.plugin-installed')
+    expect(result.summary).toContain('Codex')
+    expect(result.summary).not.toContain('Claude Code')
+    expect(result.details).toMatchObject({
+      configuredClients: ['codex'],
+      verifiedClients: ['codex'],
+    })
+  })
+
+  it('warns when one configured client is unverified even if another client is verified', async () => {
+    const result = await skillsCheck.run({
+      ...emptyCtx,
+      getAgentPluginState: () => ({
+        configuredClients: ['claude-code', 'codex'],
+        verifiedClients: ['claude-code'],
+      }),
+    })
+    expect(result.status).toBe('warn')
+    expect(result.code).toBe('agent.skills.plugin-unverified')
+    expect(result.remediation).toMatch(/reinstall/i)
+  })
+
+  it('reads plugin state at check time instead of freezing daemon-start state', async () => {
+    let verified = false
+    const ctx: DoctorContext = {
+      ...emptyCtx,
+      getAgentPluginState: () => ({
+        configuredClients: ['claude-code'],
+        verifiedClients: verified ? ['claude-code'] : [],
+      }),
+    }
+
+    expect((await skillsCheck.run(ctx)).code).toBe('agent.skills.plugin-unverified')
+    verified = true
+    expect((await skillsCheck.run(ctx)).code).toBe('agent.skills.plugin-installed')
+  })
+
   it('returns warn when neither skill is installed', async () => {
     // ~/.claude/skills/ does not exist
     const result = await skillsCheck.run(emptyCtx)
@@ -153,6 +212,64 @@ describe('agent.skills.current', () => {
     const result = await currentCheck.run(ctxWith(undefined))
     expect(result.status).toBe('skipped')
     expect(result.code).toBe('agent.skills.bundle-unavailable')
+  })
+
+  it('skips plugin freshness when the running bundle version is unavailable', async () => {
+    const result = await currentCheck.run({
+      ...ctxWith(undefined),
+      getAgentPluginState: () => ({
+        configuredClients: ['claude-code'],
+        verifiedClients: ['claude-code'],
+      }),
+    })
+    expect(result.status).toBe('skipped')
+    expect(result.code).toBe('agent.skills.bundle-unavailable')
+    expect(result.summary).toContain('Claude Code')
+  })
+
+  it('reports a matching Codex-only plugin as current without implying Claude Code coverage', async () => {
+    const result = await currentCheck.run({
+      ...ctxWith([{ name: 'canonry', version: '9.9.9', files: {} }]),
+      getAgentPluginState: () => ({
+        configuredClients: ['codex'],
+        verifiedClients: ['codex'],
+        verifiedClientVersions: { codex: '9.9.9' },
+      }),
+    })
+    expect(result.status).toBe('ok')
+    expect(result.code).toBe('agent.skills.plugin-current')
+    expect(result.summary).toContain('Codex')
+    expect(result.summary).not.toContain('Claude Code')
+  })
+
+  it('warns when a verified plugin cache version does not match the running bundle', async () => {
+    const result = await currentCheck.run({
+      ...ctxWith([{ name: 'canonry', version: '9.9.9', files: {} }]),
+      getAgentPluginState: () => ({
+        configuredClients: ['claude-code'],
+        verifiedClients: ['claude-code'],
+        verifiedClientVersions: { 'claude-code': '9.9.8' },
+      }),
+    })
+    expect(result.status).toBe('warn')
+    expect(result.code).toBe('agent.skills.plugin-version-mismatch')
+    expect(result.summary).toContain('Claude Code v9.9.8')
+    expect(result.summary).toContain('Canonry v9.9.9')
+  })
+
+  it('warns for only the stale client when another verified client is current', async () => {
+    const result = await currentCheck.run({
+      ...ctxWith([{ name: 'canonry', version: '9.9.9', files: {} }]),
+      getAgentPluginState: () => ({
+        configuredClients: ['claude-code', 'codex'],
+        verifiedClients: ['claude-code', 'codex'],
+        verifiedClientVersions: { 'claude-code': '9.9.9', codex: '9.9.8' },
+      }),
+    })
+    expect(result.status).toBe('warn')
+    expect(result.code).toBe('agent.skills.plugin-version-mismatch')
+    expect(result.summary).toContain('Codex v9.9.8')
+    expect(result.summary).not.toContain('Claude Code')
   })
 
   it('skips when HOME cannot be resolved', async () => {

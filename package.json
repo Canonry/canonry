@@ -1,7 +1,7 @@
 {
   "name": "canonry",
   "private": true,
-  "version": "4.128.0",
+  "version": "4.129.0",
   "type": "module",
   "packageManager": "pnpm@10.28.2",
   "scripts": {
@@ -10,6 +10,8 @@
     "typecheck": "pnpm -r --no-bail run typecheck && tsc --noEmit -p scripts/tsconfig.json",
     "test": "vitest run",
     "lint": "pnpm -r run lint",
+    "plugin:sync": "node scripts/sync-canonry-plugin.mjs",
+    "plugin:check": "node scripts/sync-canonry-plugin.mjs --check",
     "dev:api": "pnpm --filter @ainyc/canonry-api run dev",
     "dev:worker": "pnpm --filter @ainyc/canonry-worker run dev",
     "dev:web": "pnpm --filter @ainyc/canonry-web run dev",

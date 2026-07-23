@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "canonry",
+  "displayName": "Canonry",
+  "version": "4.129.0",
+  "description": "Operate Canonry AEO projects through guided skills and the typed Canonry MCP server.",
+  "author": {
+    "name": "Canonry",
+    "url": "https://canonry.ai"
+  },
+  "homepage": "https://canonry.ai",
+  "repository": "https://github.com/Canonry/canonry",
+  "license": "FSL-1.1-ALv2",
+  "keywords": [
+    "aeo",
+    "answer-engine-optimization",
+    "citations",
+    "mentions",
+    "mcp"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json"
+}

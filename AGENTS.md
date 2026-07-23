@@ -46,9 +46,11 @@ packages/integration-bing/       Bing Webmaster Tools integration
 packages/integration-openai-ads/  OpenAI Advertiser API (ChatGPT ads) integration
 packages/integration-wordpress/  WordPress integration
 docs/                            Architecture, data model, setup guides, testing
+plugins/canonry/                  Shared native Codex + Claude Code plugin
 ```
 
-Start with `docs/README.md` when you need the current doc map.
+Start with `docs/README.md` when you need the current doc map, active plans,
+ADR index, or canonical roadmap.
 
 ## Commands
 
@@ -60,6 +62,8 @@ pnpm install
 pnpm run typecheck
 pnpm run test
 pnpm run lint
+pnpm plugin:sync                  # refresh plugin skill mirrors + manifest versions
+pnpm plugin:check                 # fail on plugin skill/version drift (CI gate)
 pnpm run dev:web
 
 # CLI
@@ -171,6 +175,13 @@ canonry skills install                               # write both skills into ./
 canonry skills install aero --client claude          # install only the analyst skill, no codex symlink
 canonry skills install --dir ~/projects/foo --force  # custom target, overwrite divergent local edits
 
+# Native plugins — install the runtime first, then avoid duplicate legacy assets
+canonry init --skip-skills --skip-mcp
+codex plugin marketplace add Canonry/canonry && codex plugin add canonry@canonry
+claude plugin marketplace add Canonry/canonry && claude plugin install canonry@canonry
+canonry start                         # only when the daemon is not already running
+canonry doctor --check 'agent.skills.*' --format json
+
 # API keys — mint / list / revoke / whoami (mint+revoke gated by the keys.write scope; the default * key satisfies it)
 canonry key list [--format json|jsonl]                          # safe metadata only (never the hash or plaintext)
 canonry key create --name <name> [--scope <s> ...] [--format json]  # prints the plaintext key ONCE; omit --scope to default to *
@@ -273,8 +284,8 @@ Each check returns `status: ok | warn | fail | skipped`, a stable machine-readab
 | integrations | `content.winnability.coverage` | project | Discovery classification coverage for cited-surface domains behind the content winnability gate; warns when discovery has not classified the domains that make ownable/ceded decisions meaningful |
 | providers | `config.providers` | global | At least one answer-engine provider key configured |
 | providers | `config.agent-providers` | global | At least one agent LLM provider (claude / openai / gemini / zai / deepinfra) has a usable key — warns when none do (the built-in Aero agent can't run); skipped on deployments that don't run the agent |
-| agent | `agent.skills.installed` | global | Both bundled skills (`canonry`, `aero`) are present under `~/.claude/skills/` |
-| agent | `agent.skills.current` | global | Installed `~/.claude/skills/` trees are not behind the bundled build — warns when a newly shipped or upstream-updated file has not been picked up (skips when nothing is installed; local edits are reported but do not count as "behind") |
+| agent | `agent.skills.installed` | global | Both bundled skills (`canonry`, `aero`) are available through a verified native plugin cache or present under `~/.claude/skills/`; an enabled entry with missing/corrupt assets warns instead of reporting a false success |
+| agent | `agent.skills.current` | global | Native plugin manifest versions must match the running Canonry bundle; version mismatches warn. Legacy `~/.claude/skills/` trees are compared file-by-file and warn when new or upstream-updated files have not been picked up (local edits do not count as "behind") |
 
 ### Adding a new check
 
@@ -319,6 +330,25 @@ MCP parity is the default for every new public API/CLI capability: either add
 the matching tool, or explicitly classify the OpenAPI operation as `deferred`
 or `excluded-protocol` with a short security/protocol/product rationale in
 `openapi-classification.ts`. Do not silently skip MCP.
+
+### Native Codex + Claude Code plugins
+
+`plugins/canonry/` is one self-contained distribution bundle with separate
+`.codex-plugin/plugin.json` and `.claude-plugin/plugin.json` manifests, a shared
+`.mcp.json`, and generated mirrors of `skills/canonry/` + `skills/aero/`. The
+repository marketplaces live at `.agents/plugins/marketplace.json` (Codex) and
+`.claude-plugin/marketplace.json` (Claude Code).
+
+- The plugin launches the published `canonry-mcp` binary; it must never grow a
+  second server, private API, credential store, hook, or automatic sweep.
+- Canonical skill edits happen only under `skills/`. Run `pnpm plugin:sync`
+  afterward and commit the mirrors; CI runs `pnpm plugin:check`.
+- Native-plugin setup uses `canonry init --skip-skills --skip-mcp`; those flags
+  keep the legacy installation decision explicit. `serve` and the agent doctor
+  checks use best-effort detection only for advisory status and to suppress
+  the legacy-skills nudge.
+- Plugin manifests contain no keys. Authorization remains server-enforced by
+  Canonry's existing instance-wide, project-scoped, or read-only key.
 
 ### Notification events (shared)
 
@@ -959,6 +989,7 @@ The failure mode this prevents: a new semantics-bearing parameter is wired parse
 - Documentation-only changes (README, docs/, CLAUDE.md) do not require a bump.
 - Small non-documentation changes of 100 changed lines or fewer do not require a bump.
 - Larger changes — features, bug fixes, refactors, dependency updates, test additions that accompany code changes — require a semver bump in both `package.json` files when they exceed the 100-line threshold.
+- **Native-plugin exception:** any change shipped through `plugins/canonry/` or its canonical `skills/canonry/` / `skills/aero/` sources must bump Canonry and both plugin manifests even when the diff is small; clients use the manifest version to discover updates. `pnpm plugin:sync` copies the package version into both manifests.
 - Use semver: patch for fixes, minor for features, major for breaking changes.
 
 ## Testing

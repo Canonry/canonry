@@ -5,6 +5,7 @@ import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { SKILL_MANIFEST_FILENAME, type SkillManifest } from '@ainyc/canonry-contracts'
 import { CliError } from '../src/cli-error.js'
+import { PACKAGE_VERSION } from '../src/package-version.js'
 import {
   BUNDLED_SKILL_NAMES,
   emitInstallSummary,
@@ -425,5 +426,46 @@ describe('getMissingUserSkillsNudge', () => {
 
   it('returns null when $HOME is undefined (can\'t safely tell)', () => {
     expect(getMissingUserSkillsNudge(undefined)).toBeNull()
+  })
+
+  it('returns null when a native Canonry plugin supplies the skills', () => {
+    expect(getMissingUserSkillsNudge(homeDir, {
+      configuredClients: ['claude-code'],
+      verifiedClients: ['claude-code'],
+      verifiedClientVersions: { 'claude-code': PACKAGE_VERSION },
+    })).toBeNull()
+  })
+
+  it('suppresses legacy delivery nudges for a separately verified Codex-only plugin', () => {
+    expect(getMissingUserSkillsNudge(homeDir, {
+      configuredClients: ['codex'],
+      verifiedClients: ['codex'],
+      verifiedClientVersions: { codex: PACKAGE_VERSION },
+    })).toBeNull()
+  })
+
+  it('surfaces any configured client whose plugin cache is unverified', () => {
+    const nudge = getMissingUserSkillsNudge(homeDir, {
+      configuredClients: ['claude-code', 'codex'],
+      verifiedClients: ['claude-code'],
+      verifiedClientVersions: { 'claude-code': PACKAGE_VERSION },
+    })
+    expect(nudge).not.toBeNull()
+    expect(nudge!.message).toMatch(/cached manifest and skill assets could not be verified/i)
+    expect(nudge!.message).toContain('canonry@canonry')
+    expect(nudge!.message).toContain('Codex')
+    expect(nudge!.message).not.toContain('Claude Code')
+  })
+
+  it('warns when a verified plugin cache version is stale', () => {
+    const nudge = getMissingUserSkillsNudge(homeDir, {
+      configuredClients: ['claude-code', 'codex'],
+      verifiedClients: ['claude-code', 'codex'],
+      verifiedClientVersions: { 'claude-code': PACKAGE_VERSION, codex: '0.0.1' },
+    })
+    expect(nudge).not.toBeNull()
+    expect(nudge!.message).toContain('Codex v0.0.1')
+    expect(nudge!.message).toContain(`Canonry v${PACKAGE_VERSION}`)
+    expect(nudge!.message).not.toContain('Claude Code')
   })
 })

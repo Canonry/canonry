@@ -16,9 +16,36 @@ on:
       - 'tsconfig.base.json'
       - 'eslint.config.js'
       - 'skills/**'
+      - 'plugins/**'
+      - '.agents/**'
+      - '.claude-plugin/**'
+      - 'scripts/sync-canonry-plugin.mjs'
   workflow_dispatch:
 
 jobs:
+  plugin-drift:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup
+      - name: Verify native plugin assets are in sync
+        shell: bash
+        env:
+          EVENT_BASE_SHA: ${{ github.event.before }}
+        run: |
+          BASE_REF="$EVENT_BASE_SHA"
+          if [ -z "$BASE_REF" ] || [ "$BASE_REF" = "0000000000000000000000000000000000000000" ]; then
+            BASE_REF=$(git rev-parse HEAD^)
+          fi
+          if ! git cat-file -e "$BASE_REF^{commit}" 2>/dev/null; then
+            git fetch --no-tags --depth=1 origin "$BASE_REF"
+          fi
+          pnpm plugin:check --base-ref "$BASE_REF"
+
   version:
     runs-on: ubuntu-latest
     permissions:
@@ -26,21 +53,32 @@ jobs:
     outputs:
       version: ${{ steps.package.outputs.version }}
       version_changed: ${{ steps.package.outputs.version_changed }}
+      canonry_skill_changed: ${{ steps.package.outputs.canonry_skill_changed }}
+      docker_changed: ${{ steps.package.outputs.docker_changed }}
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          fetch-depth: 0
 
-      - name: Read Canonry package version
+      - name: Read Canonry package version and release paths
         id: package
         shell: bash
+        env:
+          EVENT_BASE_SHA: ${{ github.event.before }}
         run: |
+          BASE_REF="$EVENT_BASE_SHA"
+          if [ -z "$BASE_REF" ] || [ "$BASE_REF" = "0000000000000000000000000000000000000000" ]; then
+            BASE_REF=$(git rev-parse HEAD^)
+          fi
+          if ! git cat-file -e "$BASE_REF^{commit}" 2>/dev/null; then
+            git fetch --no-tags --depth=1 origin "$BASE_REF"
+          fi
+          BASE_SHA=$(git merge-base "$BASE_REF" HEAD)
+
           VERSION=$(node -p "require('./packages/canonry/package.json').version")
           PREVIOUS=""
 
-          if git rev-parse HEAD~1 >/dev/null 2>&1; then
-            PREVIOUS=$(git show HEAD~1:packages/canonry/package.json 2>/dev/null | node -e "let json=''; process.stdin.on('data', (chunk) => json += chunk); process.stdin.on('end', () => { try { console.log(JSON.parse(json).version ?? '') } catch { process.exit(1) } });" 2>/dev/null || true)
-          fi
+          PREVIOUS=$(git show "$BASE_SHA":packages/canonry/package.json 2>/dev/null | node -e "let json=''; process.stdin.on('data', (chunk) => json += chunk); process.stdin.on('end', () => { try { console.log(JSON.parse(json).version ?? '') } catch { process.exit(1) } });" 2>/dev/null || true)
 
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
@@ -56,8 +94,22 @@ jobs:
             fi
           fi
 
+          if git diff --quiet "$BASE_SHA" HEAD -- skills/canonry; then
+            echo "canonry_skill_changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "canonry_skill_changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+          if git diff --quiet "$BASE_SHA" HEAD -- \
+            .dockerignore Dockerfile docker apps packages package.json \
+            pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json eslint.config.js; then
+            echo "docker_changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "docker_changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
   publish-npm:
-    needs: version
+    needs: [version, plugin-drift]
     if: github.ref_name == github.event.repository.default_branch && github.event_name == 'push' && needs.version.outputs.version_changed == 'true'
     runs-on: ubuntu-latest
     permissions:
@@ -117,8 +169,8 @@ jobs:
           client-payload: '{"version": "${{ needs.version.outputs.version }}"}'
 
   publish-clawhub:
-    needs: version
-    if: github.ref_name == github.event.repository.default_branch && github.event_name == 'push'
+    needs: [version, plugin-drift]
+    if: github.ref_name == github.event.repository.default_branch && github.event_name == 'push' && needs.version.outputs.version_changed == 'true' && needs.version.outputs.canonry_skill_changed == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -147,8 +199,8 @@ jobs:
             --changelog "Sync with canonry v${VERSION} (${SHORT_SHA})"
 
   publish-docker:
-    needs: version
-    if: github.ref_name == github.event.repository.default_branch
+    needs: [version, plugin-drift]
+    if: github.ref_name == github.event.repository.default_branch && (github.event_name == 'workflow_dispatch' || needs.version.outputs.docker_changed == 'true')
     runs-on: ubuntu-latest
     permissions:
       contents: read

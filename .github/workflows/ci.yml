@@ -17,6 +17,10 @@ on:
       - 'tsconfig.base.json'
       - 'eslint.config.js'
       - 'scripts/**'
+      - 'skills/**'
+      - 'plugins/**'
+      - '.agents/**'
+      - '.claude-plugin/**'
       - 'AGENTS.md'
   pull_request:
     # No `branches:` filter — run CI on every PR, including stacked PRs
@@ -36,6 +40,10 @@ on:
       - 'tsconfig.base.json'
       - 'eslint.config.js'
       - 'scripts/**'
+      - 'skills/**'
+      - 'plugins/**'
+      - '.agents/**'
+      - '.claude-plugin/**'
       - 'AGENTS.md'
 
 jobs:
@@ -90,6 +98,33 @@ jobs:
       - run: pnpm --filter @ainyc/canonry-api-client gen:check
         name: Verify generated API client matches OpenAPI spec
 
+  plugin-drift:
+    # The native plugin mirrors the canonical Canonry/Aero skills and package
+    # version. Fail with a focused check when a generated copy is stale or a
+    # plugin-affecting change reuses the version already present on the base.
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The version-advancement gate resolves the PR/push merge base.
+          fetch-depth: 0
+      - uses: ./.github/actions/setup
+      - name: Verify native plugin assets are in sync
+        shell: bash
+        env:
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          BASE_REF="$EVENT_BASE_SHA"
+          if [ -z "$BASE_REF" ] || [ "$BASE_REF" = "0000000000000000000000000000000000000000" ]; then
+            BASE_REF=$(git rev-parse HEAD^)
+          fi
+          if ! git cat-file -e "$BASE_REF^{commit}" 2>/dev/null; then
+            git fetch --no-tags --depth=1 origin "$BASE_REF"
+          fi
+          pnpm plugin:check --base-ref "$BASE_REF"
+
   build:
     runs-on: ubuntu-latest
     permissions:
@@ -139,7 +174,7 @@ jobs:
 
   validate:
     runs-on: ubuntu-latest
-    needs: [typecheck, test, lint, codegen-drift, build, publish-smoke-test]
+    needs: [typecheck, test, lint, codegen-drift, plugin-drift, build, publish-smoke-test]
     if: always()
     steps:
       - name: Verify all validate jobs succeeded
@@ -148,6 +183,7 @@ jobs:
              [ "${{ needs.test.result }}" != "success" ] || \
              [ "${{ needs.lint.result }}" != "success" ] || \
              [ "${{ needs.codegen-drift.result }}" != "success" ] || \
+             [ "${{ needs.plugin-drift.result }}" != "success" ] || \
              [ "${{ needs.build.result }}" != "success" ] || \
              [ "${{ needs.publish-smoke-test.result }}" != "success" ]; then
             echo "One or more validate jobs failed"
