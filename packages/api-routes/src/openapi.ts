@@ -3796,7 +3796,7 @@ const routeCatalog: OpenApiOperation[] = [
     summary: 'Reconciled organic and AI evidence',
     tags: ['analytics'],
     description:
-      'Returns a decision-ready evidence ladder across GSC visibility, GA4 organic sessions, server-observed AI crawling/user fetches/referrals, and the latest answer-visibility sweep. Sources retain their native units, fixed 30-day cohorts share a common anchor, blog paths are broken out explicitly, and coverage gaps and no-lead-attribution caveats are machine-readable.',
+      'Returns a decision-ready evidence ladder across GSC visibility, native GA4 channels and lead events, server-observed AI crawling/user fetches/referrals, and the latest answer-visibility sweep. Sources retain their native units and source-specific dates, blog paths are broken out explicitly, and sync, coverage, attribution-scope, and causality caveats are machine-readable.',
     parameters: [nameParameter, organicEvidencePeriodQueryParameter],
     responses: {
       200: jsonResponse('Organic evidence returned.', 'OrganicEvidenceDto'),

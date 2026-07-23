@@ -570,6 +570,20 @@ describe('organic evidence native measurement reconciliation', () => {
     ]))
   })
 
+  it('does not revive legacy snapshots when a ready native acquisition sync has zero rows', async () => {
+    seedNativeMeasurement(ctx)
+    ctx.db.delete(gaAcquisitionDaily).run()
+    ctx.db.delete(gaLeadEventsDaily).run()
+
+    const body = await getRawEvidence(ctx)
+
+    expect(body.measurement.acquisition.status).toBe('ready')
+    expect(body.ga4).toBeNull()
+    expect(body.blog.ga4).toBeNull()
+    expect(body.pages.map(row => row.path)).not.toContain('/blog/legacy-decoy')
+    expect(body.limitations.map(row => row.code)).not.toContain('legacy-ga-fallback')
+  })
+
   it('keeps native GA coverage and blog cohorts visible without any legacy snapshots', async () => {
     seedNativeMeasurement(ctx)
     ctx.db.delete(gaTrafficSnapshots).run()

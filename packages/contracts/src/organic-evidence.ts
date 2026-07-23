@@ -38,7 +38,7 @@ const referralCountsSchema = z.object({
 export const organicEvidenceDtoSchema = z.object({
   contractVersion: z.literal('organic-evidence/v1'),
   periodDays: organicEvidencePeriodSchema,
-  /** Latest date shared by GSC and GA4 when both exist. */
+  /** Latest headline evidence date, preferring the GSC property date when available. */
   asOfDate: z.string().nullable(),
   cohorts: z.array(cohortSchema),
   coverage: z.object({

@@ -3233,7 +3233,7 @@ export const postApiV1ProjectsByNameInsightsByIdDismiss = <ThrowOnError extends 
 /**
  * Reconciled organic and AI evidence
  *
- * Returns a decision-ready evidence ladder across GSC visibility, GA4 organic sessions, server-observed AI crawling/user fetches/referrals, and the latest answer-visibility sweep. Sources retain their native units, fixed 30-day cohorts share a common anchor, blog paths are broken out explicitly, and coverage gaps and no-lead-attribution caveats are machine-readable.
+ * Returns a decision-ready evidence ladder across GSC visibility, native GA4 channels and lead events, server-observed AI crawling/user fetches/referrals, and the latest answer-visibility sweep. Sources retain their native units and source-specific dates, blog paths are broken out explicitly, and sync, coverage, attribution-scope, and causality caveats are machine-readable.
  */
 export const getApiV1ProjectsByNameOrganicEvidence = <ThrowOnError extends boolean = false>(options: Options<GetApiV1ProjectsByNameOrganicEvidenceData, ThrowOnError>) => {
     return (options.client ?? client).get<GetApiV1ProjectsByNameOrganicEvidenceResponses, GetApiV1ProjectsByNameOrganicEvidenceErrors, ThrowOnError>({

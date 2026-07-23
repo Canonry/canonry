@@ -2607,6 +2607,110 @@ export type OrganicEvidenceDto = {
         mentionedPairs: number;
         citedPairs: number;
     } | null;
+    measurement: {
+        window: '30d' | '60d' | '90d';
+        bucketDays: 30;
+        filters: {
+            hostScope: 'marketing' | 'all';
+            marketingHosts: Array<string>;
+            pathPrefix: string | null;
+            brandTerms: Array<string>;
+            queryMixScope: 'property';
+        };
+        acquisition: {
+            status: 'never-synced' | 'ready' | 'error';
+            error: string | null;
+            syncedAt: string | null;
+            periods: Array<{
+                label: 'earliest' | 'middle' | 'previous' | 'latest';
+                startDate: string;
+                endDate: string;
+                sessions: number;
+            }>;
+            channels: Array<{
+                channelGroup: string;
+                periods: Array<{
+                    label: 'earliest' | 'middle' | 'previous' | 'latest';
+                    startDate: string;
+                    endDate: string;
+                    sessions: number;
+                }>;
+            }>;
+            pages: Array<{
+                hostName: string;
+                landingPage: string;
+                periods: Array<{
+                    label: 'earliest' | 'middle' | 'previous' | 'latest';
+                    startDate: string;
+                    endDate: string;
+                    sessions: number;
+                }>;
+            }>;
+        };
+        leads: {
+            status: 'never-synced' | 'ready' | 'error';
+            error: string | null;
+            syncedAt: string | null;
+            attributionScope: 'landing-page' | 'channel';
+            hostAndPathFiltersApplied: boolean;
+            periods: Array<{
+                label: 'earliest' | 'middle' | 'previous' | 'latest';
+                startDate: string;
+                endDate: string;
+                eventCount: number;
+            }>;
+            channels: Array<{
+                channelGroup: string;
+                periods: Array<{
+                    label: 'earliest' | 'middle' | 'previous' | 'latest';
+                    startDate: string;
+                    endDate: string;
+                    eventCount: number;
+                }>;
+            }>;
+        };
+        searchDemand: {
+            status: 'ready' | 'unavailable';
+            periods: Array<{
+                label: 'earliest' | 'middle' | 'previous' | 'latest';
+                startDate: string;
+                endDate: string;
+                propertyClicks: number;
+                propertyImpressions: number;
+                reportedQueryClicks: number;
+                reportedQueryImpressions: number;
+                brandedClicks: number;
+                brandedImpressions: number;
+                nonBrandedClicks: number;
+                nonBrandedImpressions: number;
+                unreportedClicks: number;
+                unreportedImpressions: number;
+            }>;
+            queries: Array<{
+                query: string;
+                classification: 'branded' | 'non-branded';
+                periods: Array<{
+                    label: 'earliest' | 'middle' | 'previous' | 'latest';
+                    startDate: string;
+                    endDate: string;
+                    clicks: number;
+                    impressions: number;
+                }>;
+            }>;
+            pages: Array<{
+                hostName: string;
+                landingPage: string;
+                periods: Array<{
+                    label: 'earliest' | 'middle' | 'previous' | 'latest';
+                    startDate: string;
+                    endDate: string;
+                    clicks: number;
+                    impressions: number;
+                }>;
+            }>;
+            latestDate: string | null;
+        };
+    };
     pages: Array<{
         path: string;
         gsc: {
