@@ -558,7 +558,7 @@ describe('organic evidence native measurement reconciliation', () => {
       channelGroup: 'Organic Search',
       hostName: 'demand-iq.com',
       landingPage: '',
-      landingPageNormalized: null,
+      landingPageNormalized: '',
       sessions: 7,
     })
 
