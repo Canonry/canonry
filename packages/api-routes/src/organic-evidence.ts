@@ -163,15 +163,16 @@ export function buildOrganicEvidence(
   } : null
 
   if (gsc && measurement.searchDemand.status === "ready") {
-    const totals = (classification: "branded" | "non-branded") => measurement.searchDemand.queries.filter(row => row.classification === classification).reduce((sum, row) => ({ clicks: sum.clicks + row.periods.reduce((inner, period) => inner + period.clicks, 0), impressions: sum.impressions + row.periods.reduce((inner, period) => inner + period.impressions, 0) }), zero())
-    const namedBrand = totals("branded")
-    const namedNonBrand = totals("non-branded")
-    gsc = { ...gsc, namedBrand, namedNonBrand, suppressedOrUnreportedResidual: { clicks: Math.max(0, gsc.propertyTotals.clicks - namedBrand.clicks - namedNonBrand.clicks), impressions: Math.max(0, gsc.propertyTotals.impressions - namedBrand.impressions - namedNonBrand.impressions) } }
+    const namedBrand = measurement.searchDemand.periods.reduce((sum, period) => ({ clicks: sum.clicks + period.brandedClicks, impressions: sum.impressions + period.brandedImpressions }), zero())
+    const namedNonBrand = measurement.searchDemand.periods.reduce((sum, period) => ({ clicks: sum.clicks + period.nonBrandedClicks, impressions: sum.impressions + period.nonBrandedImpressions }), zero())
+    const residual = measurement.searchDemand.periods.reduce((sum, period) => ({ clicks: sum.clicks + period.unreportedClicks, impressions: sum.impressions + period.unreportedImpressions }), zero())
+    gsc = { ...gsc, namedBrand, namedNonBrand, suppressedOrUnreportedResidual: residual }
   }
 
+  const marketingHosts = measurement.filters.marketingHosts
   const pageSearchRows = db.select().from(gscSearchData)
     .where(eq(gscSearchData.projectId, project.id)).all()
-    .filter(row => isInWindow(row.date))
+    .filter(row => { try { const hostname = new URL(row.page).hostname.toLowerCase().replace("www.", ""); return marketingHosts.some(candidate => hostname === candidate || hostname.endsWith("." + candidate)) && isInWindow(row.date) } catch { return false } })
   let blogGscCohorts = cohorts.map(cohort => ({
     ...cohort,
     totals: sumSearchRows(pageSearchRows.filter(row =>
@@ -205,13 +206,17 @@ export function buildOrganicEvidence(
   } : null
 
   const nativeAcquisition = measurement.acquisition
-  const nativeOrganicRows = nativeAcquisition.status === "never-synced" ? [] : db.select().from(gaAcquisitionDaily).where(eq(gaAcquisitionDaily.projectId, project.id)).all().filter(row => row.channelGroup === "Organic Search" && [project.canonicalDomain, ...project.ownedDomains, ...project.measurement.marketingHosts].some(candidate => { const current = row.hostName.toLowerCase().replace("www.", ""); const target = candidate.toLowerCase().replace("www.", ""); return current === target || current.endsWith("." + target) }))
+  const nativeAcquisitionRows = nativeAcquisition.status === "never-synced" ? [] : db.select().from(gaAcquisitionDaily).where(eq(gaAcquisitionDaily.projectId, project.id)).all().filter(row => [project.canonicalDomain, ...project.ownedDomains, ...project.measurement.marketingHosts].some(candidate => { const current = row.hostName.toLowerCase().replace("www.", ""); const target = candidate.toLowerCase().replace("www.", ""); return current === target || current.endsWith("." + target) }))
+  const nativeOrganicRows = nativeAcquisitionRows.filter(row => row.channelGroup === "Organic Search")
+  const nativeStartDate = nativeAcquisition.periods[0]?.startDate
+  const nativeEndDate = nativeAcquisition.periods.at(-1)?.endDate
+  const nativeWindowOrganicRows = nativeOrganicRows.filter(row => !nativeStartDate || !nativeEndDate || inRange(row.date, nativeStartDate, nativeEndDate))
   if (nativeAcquisition.status !== 'never-synced') {
-    gaCoverage = sourceCoverage(nativeOrganicRows.map(row => row.date))
+    gaCoverage = sourceCoverage(nativeAcquisitionRows.map(row => row.date))
     const organic = nativeAcquisition.channels.find(row => row.channelGroup === 'Organic Search')
-    const blogPages = nativeOrganicRows.filter(row => isBlogPath(row.landingPageNormalized ?? row.landingPage))
+    const blogPages = nativeWindowOrganicRows.filter(row => isBlogPath(row.landingPageNormalized ?? row.landingPage))
     ga4 = { organicSessions: organic?.periods.reduce((sum, row) => sum + row.sessions, 0) ?? 0, blogOrganicSessions: blogPages.reduce((sum, page) => sum + page.sessions, 0), cohorts: nativeAcquisition.periods.map((_row, index) => ({ ...cohorts[index]!, organicSessions: organic?.periods[index]?.sessions ?? 0 })) }
-    blogGaCohorts = nativeAcquisition.periods.map((period, index) => ({ ...cohorts[index]!, organicSessions: nativeOrganicRows.filter(row => isBlogPath(row.landingPageNormalized ?? row.landingPage) && inRange(row.date, period.startDate, period.endDate)).reduce((sum, row) => sum + row.sessions, 0) }))
+    blogGaCohorts = nativeAcquisition.periods.map((period, index) => ({ ...cohorts[index]!, organicSessions: nativeWindowOrganicRows.filter(row => isBlogPath(row.landingPageNormalized ?? row.landingPage) && inRange(row.date, period.startDate, period.endDate)).reduce((sum, row) => sum + row.sessions, 0) }))
   }
 
   const allGaAiRows = db.select().from(gaAiReferrals)
@@ -296,7 +301,7 @@ export function buildOrganicEvidence(
   if (nativeAcquisition.status === 'never-synced') for (const row of gaWindow) {
     ensurePage(row.landingPageNormalized ?? row.landingPage).ga4OrganicSessions += row.organicSessions
   }
-  if (nativeAcquisition.status !== 'never-synced') for (const row of nativeOrganicRows) {
+  if (nativeAcquisition.status !== 'never-synced') for (const row of nativeWindowOrganicRows) {
     ensurePage(row.landingPageNormalized ?? row.landingPage).ga4OrganicSessions += row.sessions
   }
 
@@ -442,7 +447,7 @@ export function buildOrganicEvidence(
     blog: {
       pathRule: '/blog and descendants',
       gsc: gscRows.length ? { cohorts: blogGscCohorts } : null,
-      ga4: gaRows.length ? { cohorts: blogGaCohorts } : null,
+      ga4: measurement.acquisition.status !== 'never-synced' || gaRows.length ? { cohorts: blogGaCohorts } : null,
       server: blogServer,
     },
     server,
