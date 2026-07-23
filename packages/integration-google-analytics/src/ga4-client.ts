@@ -21,6 +21,9 @@ import type {
   GA4RunReportResponse,
   GA4SourceDimension,
   GA4TrafficRow,
+  GA4AcquisitionRow,
+  GA4LeadEventReport,
+  GA4LeadEventRow,
 } from './types.js'
 import { GA4ApiError } from './types.js'
 
@@ -362,6 +365,119 @@ async function batchRunReports(
 
 function formatDate(d: Date): string {
   return d.toISOString().slice(0, 10)
+}
+
+function measurementDateRange(days?: number) {
+  const syncDays = Math.min(Math.max(1, days ?? GA4_DEFAULT_SYNC_DAYS), GA4_MAX_SYNC_DAYS)
+  const endDate = new Date()
+  const startDate = new Date()
+  startDate.setUTCDate(startDate.getUTCDate() - syncDays)
+  return { syncDays, dateRange: { startDate: formatDate(startDate), endDate: formatDate(endDate) } }
+}
+
+async function fetchPagedReport(
+  accessToken: string,
+  propertyId: string,
+  baseRequest: Omit<GA4RunReportRequest, 'limit' | 'offset'>,
+  pageSize = 10_000,
+): Promise<NonNullable<GA4RunReportResponse['rows']>> {
+  const rows: NonNullable<GA4RunReportResponse['rows']> = []
+  let offset = 0
+  for (let page = 0; page < GA4_MAX_PAGES; page++) {
+    const response = await runReport(accessToken, propertyId, { ...baseRequest, limit: pageSize, offset })
+    const pageRows = response.rows ?? []
+    rows.push(...pageRows)
+    offset += pageRows.length
+    if (pageRows.length < pageSize || (response.rowCount !== undefined && offset >= response.rowCount)) break
+  }
+  return rows
+}
+
+export async function fetchAcquisitionByChannel(
+  accessToken: string,
+  propertyId: string,
+  days?: number,
+  options?: { pageSize?: number },
+): Promise<GA4AcquisitionRow[]> {
+  validateAccessToken(accessToken)
+  validatePropertyId(propertyId)
+  const { syncDays, dateRange } = measurementDateRange(days)
+  const rows = await fetchPagedReport(accessToken, propertyId, {
+    dateRanges: [dateRange],
+    dimensions: [
+      { name: DIM.date },
+      { name: DIM.sessionDefaultChannelGroup },
+      { name: DIM.sessionSource },
+      { name: DIM.sessionMedium },
+      { name: DIM.hostName },
+      { name: DIM.landingPagePlusQueryString },
+    ],
+    metrics: [{ name: MET.sessions }],
+  }, options?.pageSize)
+  ga4Log('info', 'fetch-acquisition.done', { propertyId, days: syncDays, rowCount: rows.length })
+  return rows.map((row) => ({
+    date: compactDateToIso(row.dimensionValues[0]?.value ?? ''),
+    channelGroup: row.dimensionValues[1]?.value ?? '(not set)',
+    source: row.dimensionValues[2]?.value ?? '(not set)',
+    medium: row.dimensionValues[3]?.value ?? '(not set)',
+    hostName: row.dimensionValues[4]?.value ?? '(not set)',
+    landingPage: row.dimensionValues[5]?.value ?? '(not set)',
+    sessions: parseInt(row.metricValues[0]?.value ?? '0', 10) || 0,
+  }))
+}
+
+function isLandingPageDimensionIncompatibility(error: unknown): boolean {
+  return error instanceof GA4ApiError
+    && error.status === 400
+    && /landingPagePlusQueryString/i.test(error.message)
+    && /incompatib/i.test(error.message)
+}
+
+export async function fetchLeadEvents(
+  accessToken: string,
+  propertyId: string,
+  eventNames: string[],
+  days?: number,
+): Promise<GA4LeadEventReport> {
+  validateAccessToken(accessToken)
+  validatePropertyId(propertyId)
+  const { dateRange } = measurementDateRange(days)
+  const filter = { orGroup: { expressions: eventNames.map((value) => ({ filter: {
+    fieldName: DIM.eventName,
+    stringFilter: { matchType: 'EXACT', value },
+  } })) } }
+  const dimensions = [
+    { name: DIM.date }, { name: DIM.eventName }, { name: DIM.sessionDefaultChannelGroup },
+    { name: DIM.sessionSource }, { name: DIM.sessionMedium },
+  ]
+  const request = (landingPage: boolean): Omit<GA4RunReportRequest, 'limit' | 'offset'> => ({
+    dateRanges: [dateRange],
+    dimensions: landingPage
+      ? [...dimensions, { name: DIM.hostName }, { name: DIM.landingPagePlusQueryString }]
+      : dimensions,
+    metrics: [{ name: MET.eventCount }],
+    dimensionFilter: filter,
+  })
+  let attributionScope: GA4LeadEventReport['attributionScope'] = 'landing-page'
+  let rawRows: NonNullable<GA4RunReportResponse['rows']>
+  try {
+    rawRows = await fetchPagedReport(accessToken, propertyId, request(true))
+  } catch (error) {
+    if (!isLandingPageDimensionIncompatibility(error)) throw error
+    attributionScope = 'channel'
+    rawRows = await fetchPagedReport(accessToken, propertyId, request(false))
+  }
+  const rows: GA4LeadEventRow[] = rawRows.map((row) => ({
+    date: compactDateToIso(row.dimensionValues[0]?.value ?? ''),
+    eventName: row.dimensionValues[1]?.value ?? '(not set)',
+    channelGroup: row.dimensionValues[2]?.value ?? '(not set)',
+    source: row.dimensionValues[3]?.value ?? '(not set)',
+    medium: row.dimensionValues[4]?.value ?? '(not set)',
+    hostName: attributionScope === 'landing-page' ? row.dimensionValues[5]?.value ?? '(not available)' : '(not available)',
+    landingPage: attributionScope === 'landing-page' ? row.dimensionValues[6]?.value ?? '(not available)' : '(not available)',
+    eventCount: parseInt(row.metricValues[0]?.value ?? '0', 10) || 0,
+  }))
+  return { attributionScope, rows }
 }
 
 // AI referral source patterns matched against both sessionSource and firstUserSource.

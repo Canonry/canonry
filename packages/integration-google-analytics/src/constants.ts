@@ -45,10 +45,13 @@ export const GA4_DIMENSIONS = {
   firstUserMedium: 'firstUserMedium',
   sessionDefaultChannelGrouping: 'sessionDefaultChannelGrouping',
   sessionDefaultChannelGroup: 'sessionDefaultChannelGroup',
+  hostName: 'hostName',
+  eventName: 'eventName',
 } as const
 
 /** GA4 metric names used in `runReport` requests. Same rationale as `GA4_DIMENSIONS`. */
 export const GA4_METRICS = {
   sessions: 'sessions',
   totalUsers: 'totalUsers',
+  eventCount: 'eventCount',
 } as const

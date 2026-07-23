@@ -2,6 +2,8 @@ export {
   createServiceAccountJwt,
   getAccessToken,
   fetchTrafficByLandingPage,
+  fetchAcquisitionByChannel,
+  fetchLeadEvents,
   fetchAggregateSummary,
   fetchWindowSummary,
   fetchDailyTotals,
