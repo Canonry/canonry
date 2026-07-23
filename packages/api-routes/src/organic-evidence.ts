@@ -1,0 +1,424 @@
+import { and, desc, eq } from 'drizzle-orm'
+import type { FastifyInstance } from 'fastify'
+import {
+  aiReferralEventsHourly,
+  aiUserFetchEventsHourly,
+  crawlerEventsHourly,
+  gaAiReferrals,
+  gaTrafficSnapshots,
+  gscDailyTotals,
+  gscQueryDailyTotals,
+  gscSearchData,
+  querySnapshots,
+  runs,
+  trafficSources,
+} from '@ainyc/canonry-db'
+import {
+  AiReferralTrafficClasses,
+  RunKinds,
+  RunStatuses,
+  VerificationStatuses,
+  normalizeUrlPath,
+  organicEvidencePeriodSchema,
+  validationError,
+  type OrganicEvidenceDto,
+} from '@ainyc/canonry-contracts'
+import { buildBrandTokens } from '@ainyc/canonry-intelligence'
+import { notProbeRun, resolveProject } from './helpers.js'
+
+const zero = () => ({ clicks: 0, impressions: 0 })
+const daysBefore = (end: string, days: number) => {
+  const date = new Date(`${end}T00:00:00.000Z`)
+  date.setUTCDate(date.getUTCDate() - days)
+  return date.toISOString().slice(0, 10)
+}
+const normalizedPath = (value: string | null | undefined) => {
+  const normalized = normalizeUrlPath(value) ?? '/'
+  return normalized.split('?')[0] || '/'
+}
+const isBlogPath = (value: string | null | undefined) => {
+  const valuePath = normalizedPath(value)
+  return valuePath === '/blog' || valuePath.startsWith('/blog/')
+}
+const inRange = (date: string, startDate: string, endDate: string) => date >= startDate && date <= endDate
+
+function sourceCoverage(dates: string[]) {
+  const unique = [...new Set(dates)].sort()
+  return unique.length
+    ? { startDate: unique[0], endDate: unique[unique.length - 1], observedDays: unique.length }
+    : null
+}
+
+function buildCohorts(endDate: string, periodDays: 60 | 90): OrganicEvidenceDto['cohorts'] {
+  const names = periodDays === 60
+    ? (['prior', 'latest'] as const)
+    : (['earliest', 'middle', 'latest'] as const)
+  return names.map((name, index) => {
+    const offset = (names.length - index - 1) * 30
+    const cohortEnd = daysBefore(endDate, offset)
+    return { name, startDate: daysBefore(cohortEnd, 29), endDate: cohortEnd }
+  })
+}
+
+function sumSearchRows(rows: Array<{ clicks: number; impressions: number }>) {
+  return rows.reduce(
+    (totals, row) => ({ clicks: totals.clicks + row.clicks, impressions: totals.impressions + row.impressions }),
+    zero(),
+  )
+}
+
+function summarizeServer(
+  crawlers: Array<typeof crawlerEventsHourly.$inferSelect>,
+  fetches: Array<typeof aiUserFetchEventsHourly.$inferSelect>,
+  referrals: Array<typeof aiReferralEventsHourly.$inferSelect>,
+) {
+  const total = referrals.reduce((count, row) => count + row.sessionsOrHits, 0)
+  const paid = referrals.reduce((count, row) => count + row.paidSessionsOrHits, 0)
+  const organic = referrals.reduce((count, row) => count + row.organicSessionsOrHits, 0)
+  return {
+    crawlerHits: {
+      verified: crawlers
+        .filter(row => row.verificationStatus === VerificationStatuses.verified)
+        .reduce((count, row) => count + row.hits, 0),
+      claimedUnverified: crawlers
+        .filter(row => row.verificationStatus === VerificationStatuses.claimed_unverified)
+        .reduce((count, row) => count + row.hits, 0),
+      unknownAiLike: crawlers
+        .filter(row => row.verificationStatus === VerificationStatuses.unknown_ai_like)
+        .reduce((count, row) => count + row.hits, 0),
+    },
+    userFetchHits: {
+      verified: fetches
+        .filter(row => row.verificationStatus === VerificationStatuses.verified)
+        .reduce((count, row) => count + row.hits, 0),
+      claimedUnverified: fetches
+        .filter(row => row.verificationStatus === VerificationStatuses.claimed_unverified)
+        .reduce((count, row) => count + row.hits, 0),
+      unknownAiLike: fetches
+        .filter(row => row.verificationStatus === VerificationStatuses.unknown_ai_like)
+        .reduce((count, row) => count + row.hits, 0),
+    },
+    referralSessions: { total, paid, organic, unknown: Math.max(0, total - paid - organic) },
+  }
+}
+
+function comparisonDetail(latest: number, prior: number): string {
+  if (prior === 0) return `${latest} in the latest cohort versus 0 in the prior cohort`
+  const change = Math.round(((latest - prior) / prior) * 100)
+  return `${latest} in the latest cohort versus ${prior} prior (${change >= 0 ? '+' : ''}${change}%)`
+}
+
+export function buildOrganicEvidence(
+  db: FastifyInstance['db'],
+  projectName: string,
+  periodDays: 60 | 90,
+): OrganicEvidenceDto {
+  const project = resolveProject(db, projectName)
+  const gscRows = db.select().from(gscDailyTotals).where(eq(gscDailyTotals.projectId, project.id)).all()
+  const gaRows = db.select().from(gaTrafficSnapshots).where(eq(gaTrafficSnapshots.projectId, project.id)).all()
+  const gscCoverage = sourceCoverage(gscRows.map(row => row.date))
+  const gaCoverage = sourceCoverage(gaRows.map(row => row.date))
+  const gaDates = new Set(gaRows.map(row => row.date))
+  const latestSharedDate = [...new Set(gscRows.map(row => row.date))]
+    .filter(date => gaDates.has(date)).sort().at(-1)
+  const asOfDate = gscCoverage && gaCoverage
+    ? latestSharedDate ?? [gscCoverage.endDate, gaCoverage.endDate].sort()[0]
+    : gscCoverage?.endDate ?? gaCoverage?.endDate ?? null
+  const endDate = asOfDate ?? new Date().toISOString().slice(0, 10)
+  const startDate = daysBefore(endDate, periodDays - 1)
+  const cohorts = buildCohorts(endDate, periodDays)
+  const isInWindow = (date: string) => inRange(date, startDate, endDate)
+
+  const gscWindow = gscRows.filter(row => isInWindow(row.date))
+  const propertyTotals = sumSearchRows(gscWindow)
+  const brandTokens = buildBrandTokens(project.canonicalDomain, [project.displayName, ...project.aliases])
+  const namedRows = db.select().from(gscQueryDailyTotals)
+    .where(eq(gscQueryDailyTotals.projectId, project.id)).all()
+    .filter(row => isInWindow(row.date))
+  const namedBrand = zero()
+  const namedNonBrand = zero()
+  for (const row of namedRows) {
+    const compactQuery = row.query.toLowerCase().replace(/[^a-z0-9]/g, '')
+    const isBrand = brandTokens.some(token => compactQuery.includes(token.replace(/[^a-z0-9]/g, '')))
+    const target = isBrand ? namedBrand : namedNonBrand
+    target.clicks += row.clicks
+    target.impressions += row.impressions
+  }
+  const suppressedOrUnreportedResidual = {
+    clicks: Math.max(0, propertyTotals.clicks - namedBrand.clicks - namedNonBrand.clicks),
+    impressions: Math.max(0, propertyTotals.impressions - namedBrand.impressions - namedNonBrand.impressions),
+  }
+  const gsc = gscRows.length ? {
+    propertyTotals,
+    namedBrand,
+    namedNonBrand,
+    suppressedOrUnreportedResidual,
+    cohorts: cohorts.map(cohort => ({
+      ...cohort,
+      totals: sumSearchRows(gscRows.filter(row => inRange(row.date, cohort.startDate, cohort.endDate))),
+    })),
+  } : null
+
+  const pageSearchRows = db.select().from(gscSearchData)
+    .where(eq(gscSearchData.projectId, project.id)).all()
+    .filter(row => isInWindow(row.date))
+  const blogGscCohorts = cohorts.map(cohort => ({
+    ...cohort,
+    totals: sumSearchRows(pageSearchRows.filter(row =>
+      isBlogPath(row.page) && inRange(row.date, cohort.startDate, cohort.endDate))),
+  }))
+
+  const gaWindow = gaRows.filter(row => isInWindow(row.date))
+  const gaCohorts = cohorts.map(cohort => ({
+    ...cohort,
+    organicSessions: gaRows
+      .filter(row => inRange(row.date, cohort.startDate, cohort.endDate))
+      .reduce((count, row) => count + row.organicSessions, 0),
+  }))
+  const blogGaCohorts = cohorts.map(cohort => ({
+    ...cohort,
+    organicSessions: gaRows
+      .filter(row => isBlogPath(row.landingPageNormalized ?? row.landingPage)
+        && inRange(row.date, cohort.startDate, cohort.endDate))
+      .reduce((count, row) => count + row.organicSessions, 0),
+  }))
+  const ga4 = gaRows.length ? {
+    organicSessions: gaWindow.reduce((count, row) => count + row.organicSessions, 0),
+    blogOrganicSessions: gaWindow
+      .filter(row => isBlogPath(row.landingPageNormalized ?? row.landingPage))
+      .reduce((count, row) => count + row.organicSessions, 0),
+    cohorts: gaCohorts,
+  } : null
+
+  const allGaAiRows = db.select().from(gaAiReferrals)
+    .where(eq(gaAiReferrals.projectId, project.id)).all()
+    .filter(row => row.sourceDimension === 'session')
+  const aiRows = allGaAiRows.filter(row => isInWindow(row.date))
+  const gaAiReferralSummary = allGaAiRows.length ? {
+    paidSessions: aiRows
+      .filter(row => row.trafficClass === AiReferralTrafficClasses.paid)
+      .reduce((count, row) => count + row.sessions, 0),
+    organicSessions: aiRows
+      .filter(row => row.trafficClass === AiReferralTrafficClasses.organic)
+      .reduce((count, row) => count + row.sessions, 0),
+  } : null
+
+  const serverSources = db.select().from(trafficSources).where(eq(trafficSources.projectId, project.id)).all()
+  const allCrawlers = db.select().from(crawlerEventsHourly)
+    .where(eq(crawlerEventsHourly.projectId, project.id)).all()
+  const allFetches = db.select().from(aiUserFetchEventsHourly)
+    .where(eq(aiUserFetchEventsHourly.projectId, project.id)).all()
+  const allReferrals = db.select().from(aiReferralEventsHourly)
+    .where(eq(aiReferralEventsHourly.projectId, project.id)).all()
+  const serverCoverage = sourceCoverage([
+    ...allCrawlers.map(row => row.tsHour.slice(0, 10)),
+    ...allFetches.map(row => row.tsHour.slice(0, 10)),
+    ...allReferrals.map(row => row.tsHour.slice(0, 10)),
+  ])
+  const serverInWindow = (timestamp: string) => isInWindow(timestamp.slice(0, 10))
+  const crawlers = allCrawlers.filter(row => serverInWindow(row.tsHour))
+  const fetches = allFetches.filter(row => serverInWindow(row.tsHour))
+  const referrals = allReferrals.filter(row => serverInWindow(row.tsHour))
+  const server = serverSources.length ? summarizeServer(crawlers, fetches, referrals) : null
+  const blogServer = serverSources.length ? summarizeServer(
+    crawlers.filter(row => isBlogPath(row.pathNormalized)),
+    fetches.filter(row => isBlogPath(row.pathNormalized)),
+    referrals.filter(row => isBlogPath(row.landingPathNormalized)),
+  ) : null
+
+  const latest = db.select().from(runs).where(and(
+    eq(runs.projectId, project.id),
+    eq(runs.kind, RunKinds['answer-visibility']),
+    eq(runs.status, RunStatuses.completed),
+    notProbeRun(),
+  )).orderBy(desc(runs.createdAt)).get()
+  const snapshots = latest
+    ? db.select().from(querySnapshots).where(eq(querySnapshots.runId, latest.id)).all()
+    : []
+  const completedAt = latest ? latest.finishedAt ?? latest.createdAt : null
+  const visibility = latest && completedAt ? {
+    runId: latest.id,
+    completedAt,
+    ageDays: Math.max(0, (Date.now() - new Date(completedAt).getTime()) / 86_400_000),
+    answerPairs: snapshots.length,
+    mentionedPairs: snapshots.filter(snapshot => snapshot.answerMentioned === true).length,
+    citedPairs: snapshots.filter(snapshot => snapshot.citationState === 'cited').length,
+  } : null
+
+  type PageEvidence = OrganicEvidenceDto['pages'][number]
+  const pageMap = new Map<string, PageEvidence>()
+  const ensurePage = (value: string | null | undefined) => {
+    const key = normalizedPath(value)
+    const existing = pageMap.get(key)
+    if (existing) return existing
+    const created: PageEvidence = {
+      path: key,
+      gsc: zero(),
+      ga4OrganicSessions: 0,
+      server: {
+        crawlerHits: { verified: 0, claimedUnverified: 0, unknownAiLike: 0 },
+        userFetchHits: { verified: 0, claimedUnverified: 0, unknownAiLike: 0 },
+        referralSessions: { total: 0, paid: 0, organic: 0, unknown: 0 },
+      },
+    }
+    pageMap.set(key, created)
+    return created
+  }
+  for (const row of pageSearchRows) {
+    const page = ensurePage(row.page)
+    page.gsc.clicks += row.clicks
+    page.gsc.impressions += row.impressions
+  }
+  for (const row of gaWindow) {
+    ensurePage(row.landingPageNormalized ?? row.landingPage).ga4OrganicSessions += row.organicSessions
+  }
+  for (const row of crawlers) {
+    const counts = ensurePage(row.pathNormalized).server.crawlerHits
+    if (row.verificationStatus === VerificationStatuses.verified) counts.verified += row.hits
+    else if (row.verificationStatus === VerificationStatuses.claimed_unverified) counts.claimedUnverified += row.hits
+    else counts.unknownAiLike += row.hits
+  }
+  for (const row of fetches) {
+    const counts = ensurePage(row.pathNormalized).server.userFetchHits
+    if (row.verificationStatus === VerificationStatuses.verified) counts.verified += row.hits
+    else if (row.verificationStatus === VerificationStatuses.claimed_unverified) counts.claimedUnverified += row.hits
+    else counts.unknownAiLike += row.hits
+  }
+  for (const row of referrals) {
+    const counts = ensurePage(row.landingPathNormalized).server.referralSessions
+    counts.total += row.sessionsOrHits
+    counts.paid += row.paidSessionsOrHits
+    counts.organic += row.organicSessionsOrHits
+    counts.unknown = Math.max(0, counts.total - counts.paid - counts.organic)
+  }
+  const pages = [...pageMap.values()].sort((a, b) =>
+    b.gsc.impressions - a.gsc.impressions
+      || b.ga4OrganicSessions - a.ga4OrganicSessions
+      || (b.server.userFetchHits.verified + b.server.userFetchHits.claimedUnverified + b.server.userFetchHits.unknownAiLike)
+        - (a.server.userFetchHits.verified + a.server.userFetchHits.claimedUnverified
+          + a.server.userFetchHits.unknownAiLike)
+      || a.path.localeCompare(b.path),
+  ).slice(0, 50)
+
+  const findings: OrganicEvidenceDto['findings'] = []
+  const latestBlogGsc = blogGscCohorts.at(-1)
+  const priorBlogGsc = blogGscCohorts.at(-2)
+  if (gsc && latestBlogGsc && priorBlogGsc) {
+    if (latestBlogGsc.totals.impressions > priorBlogGsc.totals.impressions) {
+      findings.push({
+        tone: 'positive',
+        title: 'Blog search visibility increased',
+        detail: `Google showed blog pages ${comparisonDetail(latestBlogGsc.totals.impressions, priorBlogGsc.totals.impressions)} (${latestBlogGsc.startDate} to ${latestBlogGsc.endDate} versus ${priorBlogGsc.startDate} to ${priorBlogGsc.endDate}).`,
+      })
+    }
+    if (latestBlogGsc.totals.clicks <= priorBlogGsc.totals.clicks) {
+      findings.push({
+        tone: 'caution',
+        title: 'Blog clicks have not followed visibility yet',
+        detail: `Blog pages recorded ${latestBlogGsc.totals.clicks} Google clicks in the latest cohort versus ${priorBlogGsc.totals.clicks} prior.`,
+      })
+    }
+  }
+  const latestGa = gaCohorts.at(-1)
+  const priorGa = gaCohorts.at(-2)
+  if (ga4 && latestGa && priorGa) {
+    findings.push({
+      tone: 'neutral',
+      title: 'Organic sessions remain a separate outcome',
+      detail: `GA4 organic sessions were ${comparisonDetail(latestGa.organicSessions, priorGa.organicSessions)}; visibility alone does not establish lead impact.`,
+    })
+  }
+  const blogFetchTotal = blogServer
+    ? blogServer.userFetchHits.verified + blogServer.userFetchHits.claimedUnverified
+      + blogServer.userFetchHits.unknownAiLike
+    : 0
+  if (blogServer && blogFetchTotal > 0) {
+    findings.push({
+      tone: 'positive',
+      title: 'AI user-agent fetches reached blog content',
+      detail: `Server logs recorded ${blogFetchTotal} on-demand AI user-agent fetches of blog paths in this window. These are request observations, not visits or leads; verification tiers are reported separately.`,
+    })
+  }
+  if (server?.referralSessions.unknown) {
+    findings.push({
+      tone: 'caution',
+      title: 'Some AI referrals are unclassified',
+      detail: 'Historical server rows without paid/organic class evidence remain unknown and are not counted as organic AI traffic.',
+    })
+  }
+
+  const limitations: OrganicEvidenceDto['limitations'] = [
+    { code: 'units-not-combined', detail: 'GSC clicks/impressions, GA4 sessions, server hits, and sampled answer observations are reported separately.' },
+    { code: 'no-lead-attribution', detail: 'This v1 does not ingest GA4 lead or key-event attribution, so it makes no lead claims.' },
+    { code: 'gsc-residual', detail: 'The GSC residual represents suppressed or unreported named queries and is not labelled non-brand.' },
+    { code: 'page-grain-gsc', detail: 'Page and blog GSC counts come from detailed page/query rows; property totals remain the canonical headline totals.' },
+  ]
+  if (gscCoverage && gaCoverage && !latestSharedDate) {
+    limitations.push({
+      code: 'no-shared-gsc-ga4-date',
+      detail: 'GSC and GA4 have no identical observed date; cohorts use the earlier source end date as a fallback.',
+    })
+  }
+  if (serverCoverage && serverCoverage.startDate > startDate) {
+    limitations.push({
+      code: 'partial-server-window',
+      detail: `Server evidence begins ${serverCoverage.startDate}, after the requested window begins ${startDate}.`,
+    })
+  }
+  if (server && (server.crawlerHits.claimedUnverified > 0
+    || server.userFetchHits.claimedUnverified > 0
+    || server.crawlerHits.unknownAiLike > 0
+    || server.userFetchHits.unknownAiLike > 0)) {
+    limitations.push({
+      code: 'unverified-ai-user-agents',
+      detail: 'Claimed-unverified and heuristic AI requests are user-agent evidence without operator IP verification and are reported separately from verified requests.',
+    })
+  }
+  if (visibility && visibility.ageDays > 30) {
+    limitations.push({
+      code: 'stale-visibility-sweep',
+      detail: `The latest answer-visibility sweep is ${Math.floor(visibility.ageDays)} days old and may not represent current model behavior.`,
+    })
+  }
+
+  return {
+    contractVersion: 'organic-evidence/v1',
+    periodDays,
+    asOfDate,
+    cohorts,
+    coverage: { gsc: !!gsc, ga4: !!ga4, server: !!server, visibility: !!visibility },
+    sourceCoverage: {
+      gsc: gscCoverage,
+      ga4: gaCoverage,
+      server: serverCoverage,
+      visibility: visibility ? { completedAt: visibility.completedAt, ageDays: visibility.ageDays } : null,
+    },
+    gsc,
+    ga4,
+    gaAiReferrals: gaAiReferralSummary,
+    blog: {
+      pathRule: '/blog and descendants',
+      gsc: gscRows.length ? { cohorts: blogGscCohorts } : null,
+      ga4: gaRows.length ? { cohorts: blogGaCohorts } : null,
+      server: blogServer,
+    },
+    server,
+    visibility,
+    pages,
+    findings,
+    limitations,
+  }
+}
+
+export async function organicEvidenceRoutes(app: FastifyInstance) {
+  app.get<{ Params: { name: string }; Querystring: { period?: string } }>(
+    '/projects/:name/organic-evidence',
+    async request => {
+      const parsed = organicEvidencePeriodSchema.safeParse(
+        request.query.period === undefined ? 90 : Number(request.query.period),
+      )
+      if (!parsed.success) throw validationError('period must be 60 or 90')
+      return buildOrganicEvidence(app.db, request.params.name, parsed.data)
+    },
+  )
+}

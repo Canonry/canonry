@@ -41,6 +41,7 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'DELETE /api/v1/projects/{name}/competitors/{id}': 'deferred',
   'POST /api/v1/projects/{name}/runs': 'included',
   'GET /api/v1/projects/{name}/report': 'included',
+  'GET /api/v1/projects/{name}/organic-evidence': 'included',
   'GET /api/v1/projects/{name}/report.html': 'excluded-protocol',
   'GET /api/v1/projects/{name}/runs': 'included',
   'GET /api/v1/projects/{name}/runs/latest': 'included',
