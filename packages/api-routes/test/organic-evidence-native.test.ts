@@ -91,6 +91,7 @@ function insertAcquisition(
     channelGroup: string
     hostName: string
     landingPage: string
+    landingPageNormalized?: string | null
     sessions: number
   },
 ) {
@@ -103,7 +104,9 @@ function insertAcquisition(
     medium: input.channelGroup === 'Paid Search' ? 'cpc' : 'organic',
     hostName: input.hostName,
     landingPage: input.landingPage,
-    landingPageNormalized: input.landingPage.split('?')[0]!,
+    landingPageNormalized: input.landingPageNormalized === undefined
+      ? input.landingPage.split('?')[0]!
+      : input.landingPageNormalized,
     sessions: input.sessions,
     syncedAt: NOW,
     createdAt: NOW,
@@ -395,6 +398,7 @@ function seedServerAiEvidence(ctx: Context) {
     createdAt: NOW,
     updatedAt: NOW,
   }).run()
+  return sourceId
 }
 
 async function getRawEvidence(
@@ -495,6 +499,151 @@ describe('organic evidence native measurement reconciliation', () => {
       title: 'Paid-assisted brand search remains plausible',
       detail: expect.stringMatching(/59 Paid Search sessions.*9 branded clicks.*not proof/i),
     }))
+  })
+
+  it.each([
+    { label: 'unchanged at zero', priorImpressions: 0, latestImpressions: 0 },
+    { label: 'declining', priorImpressions: 100, latestImpressions: 50 },
+  ])('does not claim clicks lagged visibility when blog impressions are $label', async ({
+    priorImpressions,
+    latestImpressions,
+  }) => {
+    seedNativeMeasurement(ctx)
+    ctx.db.delete(gscSearchData).run()
+    if (priorImpressions > 0) {
+      insertGscPage(ctx, {
+        date: '2026-06-20',
+        page: 'https://demand-iq.com/blog/prior',
+        clicks: 4,
+        impressions: priorImpressions,
+      })
+    }
+    if (latestImpressions > 0) {
+      insertGscPage(ctx, {
+        date: GSC_ANCHOR,
+        page: 'https://demand-iq.com/blog/latest',
+        clicks: 0,
+        impressions: latestImpressions,
+      })
+    }
+
+    const body = await getRawEvidence(ctx)
+
+    expect(body.findings.map(row => row.title)).not.toContain('Blog search visibility increased')
+    expect(body.findings.map(row => row.title)).not.toContain(
+      'Blog clicks have not followed visibility yet',
+    )
+  })
+
+  it('keeps unknown GA landings separate from the real homepage', async () => {
+    seedNativeMeasurement(ctx)
+    insertAcquisition(ctx, {
+      date: GA_ANCHOR,
+      channelGroup: 'Organic Search',
+      hostName: 'demand-iq.com',
+      landingPage: '/',
+      landingPageNormalized: '/',
+      sessions: 3,
+    })
+    insertAcquisition(ctx, {
+      date: GA_ANCHOR,
+      channelGroup: 'Organic Search',
+      hostName: 'demand-iq.com',
+      landingPage: '(not set)',
+      landingPageNormalized: null,
+      sessions: 5,
+    })
+    insertAcquisition(ctx, {
+      date: GA_ANCHOR,
+      channelGroup: 'Organic Search',
+      hostName: 'demand-iq.com',
+      landingPage: '',
+      landingPageNormalized: null,
+      sessions: 7,
+    })
+
+    const body = await getRawEvidence(ctx)
+
+    expect(body.pages).toContainEqual(expect.objectContaining({
+      path: '/',
+      ga4OrganicSessions: 3,
+    }))
+    expect(body.pages).toContainEqual(expect.objectContaining({
+      path: '(not set)',
+      ga4OrganicSessions: 12,
+    }))
+    expect(body.measurement.acquisition.pages).toContainEqual(expect.objectContaining({
+      landingPage: '/',
+      periods: expect.arrayContaining([expect.objectContaining({ sessions: 3 })]),
+    }))
+    expect(body.measurement.acquisition.pages).toContainEqual(expect.objectContaining({
+      landingPage: '(not set)',
+      periods: expect.arrayContaining([expect.objectContaining({ sessions: 12 })]),
+    }))
+  })
+
+  it('keeps server verification and referral classification tiers disjoint', async () => {
+    seedNativeMeasurement(ctx)
+    const sourceId = seedServerAiEvidence(ctx)
+    for (const [verificationStatus, hits] of [
+      ['claimed_unverified', 4],
+      ['unknown_ai_like', 2],
+    ] as const) {
+      ctx.db.insert(crawlerEventsHourly).values({
+        projectId: ctx.projectId,
+        sourceId,
+        tsHour: '2026-07-20T15:00:00.000Z',
+        botId: `crawler-${verificationStatus}`,
+        operator: 'Unknown',
+        verificationStatus,
+        pathNormalized: '/blog/new',
+        status: 200,
+        hits,
+        sampledUserAgent: null,
+        createdAt: NOW,
+        updatedAt: NOW,
+      }).run()
+      ctx.db.insert(aiUserFetchEventsHourly).values({
+        projectId: ctx.projectId,
+        sourceId,
+        tsHour: '2026-07-20T16:00:00.000Z',
+        botId: `fetch-${verificationStatus}`,
+        operator: 'Unknown',
+        verificationStatus,
+        pathNormalized: '/blog/new',
+        status: 200,
+        hits: hits + 1,
+        sampledUserAgent: null,
+        createdAt: NOW,
+        updatedAt: NOW,
+      }).run()
+    }
+    ctx.db.insert(aiReferralEventsHourly).values({
+      projectId: ctx.projectId,
+      sourceId,
+      tsHour: '2026-07-20T17:00:00.000Z',
+      product: 'AI surface',
+      operator: 'Unknown',
+      sourceDomain: 'ai.example',
+      evidenceType: 'referer',
+      landingPathNormalized: '/blog/new',
+      status: 200,
+      sessionsOrHits: 10,
+      paidSessionsOrHits: 2,
+      organicSessionsOrHits: 3,
+      usersEstimated: null,
+      createdAt: NOW,
+      updatedAt: NOW,
+    }).run()
+
+    const body = await getRawEvidence(ctx)
+
+    expect(body.server).toEqual({
+      crawlerHits: { verified: 7, claimedUnverified: 4, unknownAiLike: 2 },
+      userFetchHits: { verified: 5, claimedUnverified: 5, unknownAiLike: 3 },
+      referralSessions: { total: 13, paid: 2, organic: 6, unknown: 5 },
+    })
+    expect(body.blog.server).toEqual(body.server)
   })
 
   it('preserves last-good data, component errors, attribution scope, and server AI evidence', async () => {
