@@ -5,6 +5,7 @@ import {
   aiUserFetchEventsHourly,
   crawlerEventsHourly,
   gaAiReferrals,
+  gaAcquisitionDaily,
   gaTrafficSnapshots,
   gscDailyTotals,
   gscQueryDailyTotals,
@@ -119,7 +120,7 @@ export function buildOrganicEvidence(
   const gscRows = db.select().from(gscDailyTotals).where(eq(gscDailyTotals.projectId, project.id)).all()
   const gaRows = db.select().from(gaTrafficSnapshots).where(eq(gaTrafficSnapshots.projectId, project.id)).all()
   const gscCoverage = sourceCoverage(gscRows.map(row => row.date))
-  const gaCoverage = sourceCoverage(gaRows.map(row => row.date))
+  let gaCoverage = sourceCoverage(gaRows.map(row => row.date))
   const gaDates = new Set(gaRows.map(row => row.date))
   const latestSharedDate = [...new Set(gscRows.map(row => row.date))]
     .filter(date => gaDates.has(date)).sort().at(-1)
@@ -164,11 +165,15 @@ export function buildOrganicEvidence(
   const pageSearchRows = db.select().from(gscSearchData)
     .where(eq(gscSearchData.projectId, project.id)).all()
     .filter(row => isInWindow(row.date))
-  const blogGscCohorts = cohorts.map(cohort => ({
+  let blogGscCohorts = cohorts.map(cohort => ({
     ...cohort,
     totals: sumSearchRows(pageSearchRows.filter(row =>
       isBlogPath(row.page) && inRange(row.date, cohort.startDate, cohort.endDate))),
   }))
+
+  if (measurement.searchDemand.status === "ready") {
+    blogGscCohorts = measurement.searchDemand.periods.map((period, index) => ({ ...cohorts[index]!, totals: measurement.searchDemand.pages.filter(page => isBlogPath(page.landingPage)).reduce((sum, page) => ({ clicks: sum.clicks + (page.periods[index]?.clicks ?? 0), impressions: sum.impressions + (page.periods[index]?.impressions ?? 0) }), zero()) }))
+  }
 
   const gaWindow = gaRows.filter(row => isInWindow(row.date))
   const gaCohorts = cohorts.map(cohort => ({
@@ -193,11 +198,12 @@ export function buildOrganicEvidence(
   } : null
 
   const nativeAcquisition = measurement.acquisition
+  const nativeOrganicRows = nativeAcquisition.status === "never-synced" ? [] : db.select().from(gaAcquisitionDaily).where(eq(gaAcquisitionDaily.projectId, project.id)).all().filter(row => row.channelGroup === "Organic Search" && [project.canonicalDomain, ...project.ownedDomains, ...project.measurement.marketingHosts].some(candidate => { const current = row.hostName.toLowerCase().replace("www.", ""); const target = candidate.toLowerCase().replace("www.", ""); return current === target || current.endsWith("." + target) }))
   if (nativeAcquisition.status !== 'never-synced') {
     const organic = nativeAcquisition.channels.find(row => row.channelGroup === 'Organic Search')
-    const blogPages = nativeAcquisition.pages.filter(row => isBlogPath(row.landingPage))
-    ga4 = { organicSessions: organic?.periods.reduce((sum, row) => sum + row.sessions, 0) ?? 0, blogOrganicSessions: blogPages.reduce((sum, page) => sum + page.periods.reduce((inner, row) => inner + row.sessions, 0), 0), cohorts: nativeAcquisition.periods.map((_row, index) => ({ ...cohorts[index]!, organicSessions: organic?.periods[index]?.sessions ?? 0 })) }
-    blogGaCohorts = nativeAcquisition.periods.map((_row, index) => ({ ...cohorts[index]!, organicSessions: blogPages.reduce((sum, page) => sum + (page.periods[index]?.sessions ?? 0), 0) }))
+    const blogPages = nativeOrganicRows.filter(row => isBlogPath(row.landingPageNormalized ?? row.landingPage))
+    ga4 = { organicSessions: organic?.periods.reduce((sum, row) => sum + row.sessions, 0) ?? 0, blogOrganicSessions: blogPages.reduce((sum, page) => sum + page.sessions, 0), cohorts: nativeAcquisition.periods.map((_row, index) => ({ ...cohorts[index]!, organicSessions: organic?.periods[index]?.sessions ?? 0 })) }
+    blogGaCohorts = nativeAcquisition.periods.map((period, index) => ({ ...cohorts[index]!, organicSessions: nativeOrganicRows.filter(row => isBlogPath(row.landingPageNormalized ?? row.landingPage) && inRange(row.date, period.startDate, period.endDate)).reduce((sum, row) => sum + row.sessions, 0) }))
   }
 
   const allGaAiRows = db.select().from(gaAiReferrals)
@@ -282,9 +288,8 @@ export function buildOrganicEvidence(
   if (nativeAcquisition.status === 'never-synced') for (const row of gaWindow) {
     ensurePage(row.landingPageNormalized ?? row.landingPage).ga4OrganicSessions += row.organicSessions
   }
-  if (nativeAcquisition.status !== 'never-synced') for (const row of nativeAcquisition.pages) {
-    const page = ensurePage(row.landingPage)
-    page.ga4OrganicSessions += row.periods.reduce((sum, period) => sum + period.sessions, 0)
+  if (nativeAcquisition.status !== 'never-synced') for (const row of nativeOrganicRows) {
+    ensurePage(row.landingPageNormalized ?? row.landingPage).ga4OrganicSessions += row.sessions
   }
 
   for (const row of crawlers) {
@@ -334,8 +339,8 @@ export function buildOrganicEvidence(
       })
     }
   }
-  const latestGa = gaCohorts.at(-1)
-  const priorGa = gaCohorts.at(-2)
+  const latestGa = ga4?.cohorts.at(-1)
+  const priorGa = ga4?.cohorts.at(-2)
   if (ga4 && latestGa && priorGa) {
     findings.push({
       tone: 'neutral',
