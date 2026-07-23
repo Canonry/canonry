@@ -2,7 +2,11 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useCanGoBack, useParams } from '@tanstack/react-router'
 import { ArrowLeft, ChevronLeft, ChevronRight, RefreshCw, X } from 'lucide-react'
 
-import { TrafficEventKinds, type TrafficEventEntry } from '@ainyc/canonry-contracts'
+import {
+  TrafficEventKinds,
+  type TrafficEventEntry,
+  type TrafficSeriesPoint,
+} from '@ainyc/canonry-contracts'
 
 import { isEmbed } from '../api.js'
 import { Button } from '../components/ui/button.js'
@@ -35,7 +39,6 @@ import {
 import { localTimeZoneLabel } from '../lib/format-helpers.js'
 import {
   bucketForChartClick,
-  bucketKeyFor,
   filterTrafficEvents,
   identityOf,
   pathOf,
@@ -174,12 +177,14 @@ export function TrafficSourceDetailPage() {
     sourceId: sourceId || undefined,
     sinceMinutes: windowMinutes,
     limit: activeWindow.fetchLimit,
+    granularity: activeWindow.granularity,
   })
   const sync = useSyncServerTrafficSource(projectName || null, sourceId || null)
 
   const detail = sourceQuery.data
   const allEvents = eventsQuery.data?.events ?? []
   const totals = eventsQuery.data?.totals
+  const eventRows = eventsQuery.data?.eventRows
 
   const visibleEvents = useMemo(
     () =>
@@ -256,8 +261,8 @@ export function TrafficSourceDetailPage() {
   )
 
   const chartData = useMemo(
-    () => buildChartData(allEvents, activeWindow.granularity, eventsQuery.data?.windowStart, eventsQuery.data?.windowEnd),
-    [allEvents, activeWindow.granularity, eventsQuery.data?.windowStart, eventsQuery.data?.windowEnd],
+    () => buildChartData(eventsQuery.data?.series.points ?? [], activeWindow.granularity),
+    [eventsQuery.data?.series.points, activeWindow.granularity],
   )
 
   const toggleSeries = (series: SeriesKind) => {
@@ -551,7 +556,14 @@ export function TrafficSourceDetailPage() {
             <p className="text-[10px] font-semibold uppercase tracking-wider text-muted">Event rows</p>
             <p className="mt-1 text-xs text-muted">
               Showing <span className="tabular-nums text-neutral">{filteredEvents.length.toLocaleString('en-US')}</span> of{' '}
-              <span className="tabular-nums text-muted">{visibleEvents.length.toLocaleString('en-US')}</span> events · {LOCAL_TZ}
+              <span className="tabular-nums text-muted">{visibleEvents.length.toLocaleString('en-US')}</span>{' '}
+              {eventRows?.truncated ? 'loaded events' : 'events'}
+              {eventRows?.truncated ? (
+                <>
+                  {' '}· loaded <span className="tabular-nums text-neutral">{eventRows.returned.toLocaleString('en-US')}</span> of{' '}
+                  <span className="tabular-nums text-muted">{eventRows.total.toLocaleString('en-US')}</span> rows
+                </>
+              ) : null}{' '}· {LOCAL_TZ}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -708,74 +720,21 @@ interface ChartRow {
   aiReferral: number
 }
 
-function emptyChartRow(bucket: string, label: string): ChartRow {
-  return { bucket, label, crawler: 0, aiUserFetch: 0, aiReferral: 0 }
-}
-
 function bucketLabelFor(key: string, granularity: Granularity): string {
   return granularity === 'day' ? formatDayLabel(key) : formatHourLabel(key)
 }
 
 function buildChartData(
-  events: readonly TrafficEventEntry[],
+  points: readonly TrafficSeriesPoint[],
   granularity: Granularity,
-  windowStart?: string,
-  windowEnd?: string,
 ): ChartRow[] {
-  const byBucket = new Map<string, ChartRow>()
-  for (const event of events) {
-    const key = bucketKeyFor(event.tsHour, granularity)
-    let row = byBucket.get(key)
-    if (!row) {
-      row = emptyChartRow(key, bucketLabelFor(key, granularity))
-      byBucket.set(key, row)
-    }
-    switch (event.kind) {
-      case TrafficEventKinds.crawler:
-        row.crawler += event.hits
-        break
-      case TrafficEventKinds['ai-user-fetch']:
-        row.aiUserFetch += event.hits
-        break
-      case TrafficEventKinds['ai-referral']:
-        row.aiReferral += event.hits
-        break
-    }
-  }
-
-  // Pad zero-value buckets for every partition in the window so the
-  // chart renders a bar for each day (30d/90d) or hour (1h–7d).
-  if (windowStart && windowEnd) {
-    const start = new Date(windowStart)
-    const end = new Date(windowEnd)
-
-    if (granularity === 'day') {
-      const current = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate()))
-      const endDay = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate()))
-      while (current <= endDay) {
-        const y = current.getUTCFullYear()
-        const m = String(current.getUTCMonth() + 1).padStart(2, '0')
-        const d = String(current.getUTCDate()).padStart(2, '0')
-        const key = `${y}-${m}-${d}`
-        if (!byBucket.has(key)) {
-          byBucket.set(key, emptyChartRow(key, bucketLabelFor(key, granularity)))
-        }
-        current.setUTCDate(current.getUTCDate() + 1)
-      }
-    } else {
-      const current = new Date(start)
-      current.setUTCMinutes(0, 0, 0)
-      while (current <= end) {
-        const key = current.toISOString()
-        if (!byBucket.has(key)) {
-          byBucket.set(key, emptyChartRow(key, bucketLabelFor(key, granularity)))
-        }
-        current.setUTCHours(current.getUTCHours() + 1)
-      }
-    }
-  }
-
-  return [...byBucket.values()].sort((a, b) => (a.bucket < b.bucket ? -1 : a.bucket > b.bucket ? 1 : 0))
+  return points.map((point) => ({
+    bucket: point.bucket,
+    label: bucketLabelFor(point.bucket, granularity),
+    crawler: point.crawlerHits,
+    aiUserFetch: point.aiUserFetchHits,
+    aiReferral: point.aiReferralHits,
+  }))
 }
 
 function labelForVerification(value: VerificationFilter): string {

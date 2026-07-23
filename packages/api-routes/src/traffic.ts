@@ -24,6 +24,7 @@ import {
   TrafficSourceTypes,
   TrafficSourceAuthModes,
   TrafficEventKinds,
+  TrafficSeriesGranularities,
   trafficConnectWordpressRequestSchema,
   trafficConnectVercelRequestSchema,
   trafficResetRequestSchema,
@@ -46,6 +47,8 @@ import type {
   TrafficEventEntry,
   TrafficEventKind,
   TrafficEventsResponse,
+  TrafficSeriesGranularity,
+  TrafficSeriesPoint,
 } from '@ainyc/canonry-contracts'
 import {
   listCloudRunTrafficEvents,
@@ -297,6 +300,49 @@ const DEFAULT_TRAFFIC_SYNC_CRON = '*/30 * * * *'
 const MAX_BACKFILL_DAYS = 90
 const BACKFILL_MAX_PAGES = 1_000
 const BACKFILL_SAMPLE_LIMIT = 500
+
+function emptyTrafficSeriesPoint(bucket: string): TrafficSeriesPoint {
+  return { bucket, crawlerHits: 0, aiUserFetchHits: 0, aiReferralHits: 0 }
+}
+
+function completeTrafficSeries(
+  windowStart: Date,
+  windowEnd: Date,
+  granularity: TrafficSeriesGranularity,
+  pointsByBucket: ReadonlyMap<string, TrafficSeriesPoint>,
+): TrafficSeriesPoint[] {
+  const cursor = new Date(windowStart)
+  const last = new Date(windowEnd)
+  if (granularity === TrafficSeriesGranularities.day) {
+    cursor.setUTCHours(0, 0, 0, 0)
+    last.setUTCHours(0, 0, 0, 0)
+  } else {
+    cursor.setUTCMinutes(0, 0, 0)
+    last.setUTCMinutes(0, 0, 0)
+  }
+
+  const points: TrafficSeriesPoint[] = []
+  while (cursor <= last) {
+    const bucket = granularity === TrafficSeriesGranularities.day
+      ? cursor.toISOString().slice(0, 10)
+      : cursor.toISOString()
+    points.push(pointsByBucket.get(bucket) ?? emptyTrafficSeriesPoint(bucket))
+    if (granularity === TrafficSeriesGranularities.day) cursor.setUTCDate(cursor.getUTCDate() + 1)
+    else cursor.setUTCHours(cursor.getUTCHours() + 1)
+  }
+  return points
+}
+
+function trafficSeriesPoint(
+  pointsByBucket: Map<string, TrafficSeriesPoint>,
+  bucket: string,
+): TrafficSeriesPoint {
+  const existing = pointsByBucket.get(bucket)
+  if (existing) return existing
+  const created = emptyTrafficSeriesPoint(bucket)
+  pointsByBucket.set(bucket, created)
+  return created
+}
 
 function parseSourceConfig(row: typeof trafficSources.$inferSelect): Record<string, unknown> {
   return row.configJson
@@ -2380,7 +2426,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
   // GET /projects/:name/traffic/events
   app.get<{
     Params: { name: string }
-    Querystring: { since?: string; until?: string; kind?: string; limit?: string; sourceId?: string }
+    Querystring: { since?: string; until?: string; kind?: string; limit?: string; sourceId?: string; granularity?: string }
   }>('/projects/:name/traffic/events', async (request) => {
     const project = resolveProject(app.db, request.params.name)
 
@@ -2425,6 +2471,21 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
     }
     const limit = Math.min(requestedLimit, 5000)
 
+    const granularityParam = request.query?.granularity
+    let granularity: TrafficSeriesGranularity = TrafficSeriesGranularities.hour
+    if (granularityParam !== undefined) {
+      if (
+        granularityParam === TrafficSeriesGranularities.hour
+        || granularityParam === TrafficSeriesGranularities.day
+      ) {
+        granularity = granularityParam
+      } else {
+        throw validationError(
+          `"granularity" must be one of: ${TrafficSeriesGranularities.hour}, ${TrafficSeriesGranularities.day}`,
+        )
+      }
+    }
+
     const sourceIdParam = request.query?.sourceId
     const sinceIso = since.toISOString()
     const untilIso = until.toISOString()
@@ -2434,6 +2495,8 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
     let crawlerSegments = { content: 0, sitemap: 0, robots: 0, asset: 0, other: 0 }
     let aiUserFetchTotal = 0
     let aiReferralCounts = aiReferralClassCounts(0, 0, 0)
+    let totalEventRows = 0
+    const seriesByBucket = new Map<string, TrafficSeriesPoint>()
 
     if (kind === 'all' || kind === TrafficEventKinds.crawler) {
       const crawlerFilters = [
@@ -2451,6 +2514,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         .select({
           pathNormalized: crawlerEventsHourly.pathNormalized,
           hits: sql<number>`COALESCE(SUM(${crawlerEventsHourly.hits}), 0)`,
+          rows: sql<number>`COUNT(*)`,
         })
         .from(crawlerEventsHourly)
         .where(crawlerWhere)
@@ -2465,6 +2529,23 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         + crawlerSegments.robots
         + crawlerSegments.asset
         + crawlerSegments.other
+      totalEventRows += pathTotals.reduce((sum, row) => sum + Number(row.rows), 0)
+
+      const crawlerSeriesBucket = granularity === TrafficSeriesGranularities.day
+        ? sql<string>`substr(${crawlerEventsHourly.tsHour}, 1, 10)`
+        : crawlerEventsHourly.tsHour
+      const crawlerSeries = app.db
+        .select({
+          bucket: crawlerSeriesBucket,
+          hits: sql<number>`COALESCE(SUM(${crawlerEventsHourly.hits}), 0)`,
+        })
+        .from(crawlerEventsHourly)
+        .where(crawlerWhere)
+        .groupBy(crawlerSeriesBucket)
+        .all()
+      for (const row of crawlerSeries) {
+        trafficSeriesPoint(seriesByBucket, row.bucket).crawlerHits = Number(row.hits)
+      }
 
       const rows = app.db
         .select()
@@ -2499,11 +2580,31 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       const userFetchWhere = and(...userFetchFilters)
 
       const total = app.db
-        .select({ total: sql<number>`COALESCE(SUM(${aiUserFetchEventsHourly.hits}), 0)` })
+        .select({
+          total: sql<number>`COALESCE(SUM(${aiUserFetchEventsHourly.hits}), 0)`,
+          rows: sql<number>`COUNT(*)`,
+        })
         .from(aiUserFetchEventsHourly)
         .where(userFetchWhere)
         .get()
       aiUserFetchTotal = Number(total?.total ?? 0)
+      totalEventRows += Number(total?.rows ?? 0)
+
+      const userFetchSeriesBucket = granularity === TrafficSeriesGranularities.day
+        ? sql<string>`substr(${aiUserFetchEventsHourly.tsHour}, 1, 10)`
+        : aiUserFetchEventsHourly.tsHour
+      const userFetchSeries = app.db
+        .select({
+          bucket: userFetchSeriesBucket,
+          hits: sql<number>`COALESCE(SUM(${aiUserFetchEventsHourly.hits}), 0)`,
+        })
+        .from(aiUserFetchEventsHourly)
+        .where(userFetchWhere)
+        .groupBy(userFetchSeriesBucket)
+        .all()
+      for (const row of userFetchSeries) {
+        trafficSeriesPoint(seriesByBucket, row.bucket).aiUserFetchHits = Number(row.hits)
+      }
 
       const rows = app.db
         .select()
@@ -2541,6 +2642,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
           total: sql<number>`COALESCE(SUM(${aiReferralEventsHourly.sessionsOrHits}), 0)`,
           paid: sql<number>`COALESCE(SUM(${aiReferralEventsHourly.paidSessionsOrHits}), 0)`,
           organic: sql<number>`COALESCE(SUM(${aiReferralEventsHourly.organicSessionsOrHits}), 0)`,
+          rows: sql<number>`COUNT(*)`,
         })
         .from(aiReferralEventsHourly)
         .where(aiWhere)
@@ -2550,6 +2652,23 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         Number(total?.paid ?? 0),
         Number(total?.organic ?? 0),
       )
+      totalEventRows += Number(total?.rows ?? 0)
+
+      const referralSeriesBucket = granularity === TrafficSeriesGranularities.day
+        ? sql<string>`substr(${aiReferralEventsHourly.tsHour}, 1, 10)`
+        : aiReferralEventsHourly.tsHour
+      const referralSeries = app.db
+        .select({
+          bucket: referralSeriesBucket,
+          hits: sql<number>`COALESCE(SUM(${aiReferralEventsHourly.sessionsOrHits}), 0)`,
+        })
+        .from(aiReferralEventsHourly)
+        .where(aiWhere)
+        .groupBy(referralSeriesBucket)
+        .all()
+      for (const row of referralSeries) {
+        trafficSeriesPoint(seriesByBucket, row.bucket).aiReferralHits = Number(row.hits)
+      }
 
       const rows = app.db
         .select()
@@ -2584,6 +2703,10 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
     const response: TrafficEventsResponse = {
       windowStart: sinceIso,
       windowEnd: untilIso,
+      series: {
+        granularity,
+        points: completeTrafficSeries(since, until, granularity, seriesByBucket),
+      },
       totals: {
         crawlerHits: crawlerTotal,
         crawlerContentHits: crawlerSegments.content,
@@ -2594,6 +2717,11 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         aiReferralPaidHits: aiReferralCounts.paid,
         aiReferralOrganicHits: aiReferralCounts.organic,
         aiReferralUnknownHits: aiReferralCounts.unknown,
+      },
+      eventRows: {
+        total: totalEventRows,
+        returned: trimmed.length,
+        truncated: trimmed.length < totalEventRows,
       },
       events: trimmed,
     }

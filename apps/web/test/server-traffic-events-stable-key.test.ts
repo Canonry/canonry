@@ -19,7 +19,7 @@ import { heyClient } from '../src/api.js'
  * every superseded query response alive in the cache.
  *
  * The fix wraps `paramsForFilters` in `useMemo` keyed on the actual filter
- * fields (kind / sourceId / sinceMinutes / limit), so `since` only changes
+ * fields (kind / sourceId / sinceMinutes / limit / granularity), so `since` only changes
  * when the user picks a different window — not on every render frame.
  *
  * This test asserts the query key stays referentially stable across
@@ -36,7 +36,13 @@ function Wrapper({ children }: { children: ReactNode }) {
 
 describe('useServerTrafficEvents — query key stability', () => {
   test('re-rendering with the same filters does not change the query key', () => {
-    const filters = { kind: 'all' as const, sourceId: 'abc', sinceMinutes: 10080, limit: 1000 }
+    const filters = {
+      kind: 'all' as const,
+      sourceId: 'abc',
+      sinceMinutes: 10080,
+      limit: 1000,
+      granularity: 'day' as const,
+    }
     const { result, rerender } = renderHook(
       ({ project, filters }) => useServerTrafficEvents(project, filters),
       {
@@ -62,7 +68,7 @@ describe('useServerTrafficEvents — query key stability', () => {
     // common case in a parent component that builds the object inline.
     rerender({
       project: 'demo',
-      filters: { kind: 'all', sourceId: 'abc', sinceMinutes: 10080, limit: 1000 },
+      filters: { kind: 'all', sourceId: 'abc', sinceMinutes: 10080, limit: 1000, granularity: 'day' },
     })
     const thirdKey = JSON.stringify(result.current.dataUpdatedAt)
     expect(thirdKey).toBe(firstKey)

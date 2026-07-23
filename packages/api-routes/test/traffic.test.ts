@@ -3707,6 +3707,18 @@ describe('GET /traffic/events', () => {
       expect(res.statusCode).toBe(200)
       const body = JSON.parse(res.payload)
       expect(body.totals).toMatchObject({ crawlerHits: 1, aiUserFetchHits: 1, aiReferralHits: 1 })
+      expect(body.eventRows).toEqual({ total: 3, returned: 3, truncated: false })
+      expect(body.series.granularity).toBe('hour')
+      expect(
+        body.series.points.reduce(
+          (sum: { crawlerHits: number; aiUserFetchHits: number; aiReferralHits: number }, point: typeof sum) => ({
+            crawlerHits: sum.crawlerHits + point.crawlerHits,
+            aiUserFetchHits: sum.aiUserFetchHits + point.aiUserFetchHits,
+            aiReferralHits: sum.aiReferralHits + point.aiReferralHits,
+          }),
+          { crawlerHits: 0, aiUserFetchHits: 0, aiReferralHits: 0 },
+        ),
+      ).toEqual({ crawlerHits: 1, aiUserFetchHits: 1, aiReferralHits: 1 })
       const kinds = body.events.map((e: { kind: string }) => e.kind).sort()
       expect(kinds).toEqual(['ai-referral', 'ai-user-fetch', 'crawler'])
       const userFetch = body.events.find((e: { kind: string }) => e.kind === 'ai-user-fetch')
@@ -3816,6 +3828,12 @@ describe('GET /traffic/events', () => {
         url: '/api/v1/projects/test-project/traffic/events?since=2026-05-07T00:00:00Z&until=2026-05-06T00:00:00Z',
       })
       expect(reversed.statusCode).toBe(400)
+
+      const badGranularity = await h.app.inject({
+        method: 'GET',
+        url: '/api/v1/projects/test-project/traffic/events?granularity=week',
+      })
+      expect(badGranularity.statusCode).toBe(400)
     } finally { await h.close() }
   })
 
@@ -3828,10 +3846,81 @@ describe('GET /traffic/events', () => {
       })
       expect(res.statusCode).toBe(200)
       const body = JSON.parse(res.payload)
-      // limit=1 trims the events array but totals must still reflect the full window.
+      // limit=1 trims the events array but totals and truncation metadata must
+      // still reflect the full window.
       expect(body.events.length).toBe(1)
       expect(body.totals.crawlerHits).toBe(2)
       expect(body.totals.aiReferralHits).toBe(1)
+      expect(body.eventRows).toEqual({ total: 2, returned: 1, truncated: true })
+    } finally { await h.close() }
+  })
+
+  it('keeps the complete 90-day series when the detail-row limit truncates old rows', async () => {
+    const { h, sourceId } = await syncedHarness()
+    try {
+      const source = h.db
+        .select()
+        .from(trafficSources)
+        .where(eq(trafficSources.id, sourceId))
+        .get()!
+      const end = new Date()
+      const start = new Date(end)
+      start.setUTCDate(start.getUTCDate() - 90)
+      start.setUTCHours(0, 0, 0, 0)
+      const middle = new Date(start)
+      middle.setUTCDate(middle.getUTCDate() + 45)
+      const writtenAt = end.toISOString()
+
+      h.db.insert(crawlerEventsHourly).values([
+        {
+          projectId: source.projectId,
+          sourceId,
+          tsHour: start.toISOString(),
+          botId: 'openai-gptbot',
+          operator: 'OpenAI',
+          verificationStatus: 'claimed_unverified',
+          pathNormalized: '/oldest',
+          status: 200,
+          hits: 7,
+          sampledUserAgent: 'GPTBot/1.0',
+          createdAt: writtenAt,
+          updatedAt: writtenAt,
+        },
+        {
+          projectId: source.projectId,
+          sourceId,
+          tsHour: middle.toISOString(),
+          botId: 'openai-gptbot',
+          operator: 'OpenAI',
+          verificationStatus: 'claimed_unverified',
+          pathNormalized: '/middle',
+          status: 200,
+          hits: 11,
+          sampledUserAgent: 'GPTBot/1.0',
+          createdAt: writtenAt,
+          updatedAt: writtenAt,
+        },
+      ]).run()
+
+      const res = await h.app.inject({
+        method: 'GET',
+        url: `/api/v1/projects/test-project/traffic/events?since=${encodeURIComponent(start.toISOString())}&until=${encodeURIComponent(end.toISOString())}&granularity=day&limit=1`,
+      })
+      expect(res.statusCode).toBe(200)
+      const body = JSON.parse(res.payload)
+      expect(body.events).toHaveLength(1)
+      expect(body.eventRows).toEqual({ total: 4, returned: 1, truncated: true })
+      expect(body.series.granularity).toBe('day')
+      expect(body.series.points).toHaveLength(91)
+      expect(body.series.points[0]).toEqual({
+        bucket: start.toISOString().slice(0, 10),
+        crawlerHits: 7,
+        aiUserFetchHits: 0,
+        aiReferralHits: 0,
+      })
+      expect(body.series.points[45].crawlerHits).toBe(11)
+      expect(body.series.points.reduce((sum: number, point: { crawlerHits: number }) => sum + point.crawlerHits, 0))
+        .toBe(body.totals.crawlerHits)
     } finally { await h.close() }
   })
 

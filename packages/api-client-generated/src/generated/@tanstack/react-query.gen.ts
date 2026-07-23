@@ -4473,7 +4473,7 @@ export const getApiV1ProjectsByNameTrafficEventsQueryKey = (options: Options<Get
 /**
  * List rolled-up crawler hits, AI user-fetch hits, and AI-referral sessions within a window
  *
- * Returns hourly rollup rows from `crawler_events_hourly`, `ai_user_fetch_events_hourly`, and `ai_referral_events_hourly`. Defaults to the last 24h. Totals reflect the full window; the `events` array is capped by `limit` (default 500, max 5000).
+ * Returns full-window hourly or daily chart series plus newest-first detail rows from `crawler_events_hourly`, `ai_user_fetch_events_hourly`, and `ai_referral_events_hourly`. Defaults to the last 24h. Totals and `series.points` reflect the full window; only the `events` array is capped by `limit` (default 500, max 5000). `eventRows` reports the true pre-limit row count.
  */
 export const getApiV1ProjectsByNameTrafficEventsOptions = (options: Options<GetApiV1ProjectsByNameTrafficEventsData>) => {
     return queryOptions({

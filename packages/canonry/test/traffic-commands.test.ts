@@ -369,12 +369,17 @@ describe('traffic CLI commands', () => {
       windowStart: string
       windowEnd: string
       totals: { crawlerHits: number; aiReferralHits: number }
+      series: { granularity: string; points: unknown[] }
+      eventRows: { total: number; returned: number; truncated: boolean }
       events: unknown[]
     }
     expect(body.windowStart).toBeTruthy()
     expect(body.windowEnd).toBeTruthy()
     expect(body.totals.crawlerHits).toBe(0)
     expect(body.totals.aiReferralHits).toBe(0)
+    expect(body.series.granularity).toBe('hour')
+    expect(body.series.points.length).toBeGreaterThan(0)
+    expect(body.eventRows).toEqual({ total: 0, returned: 0, truncated: false })
     expect(body.events.length).toBe(0)
   })
 
@@ -384,6 +389,14 @@ describe('traffic CLI commands', () => {
     ])
     expect(result.exitCode).not.toBe(0)
     expect(result.stderr).toMatch(/--kind must be/i)
+  })
+
+  it('rejects an invalid --granularity value', async () => {
+    const result = await invokeCli([
+      'traffic', 'events', 'test-proj', '--granularity', 'week',
+    ])
+    expect(result.exitCode).not.toBe(0)
+    expect(result.stderr).toMatch(/--granularity must be/i)
   })
 
   it('rejects a non-numeric --since-minutes without crashing', async () => {

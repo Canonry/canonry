@@ -3668,6 +3668,15 @@ export type TrafficBackfillResponse = {
 export type TrafficEventsResponse = {
     windowStart: string;
     windowEnd: string;
+    series: {
+        granularity: 'hour' | 'day';
+        points: Array<{
+            bucket: string;
+            crawlerHits: number;
+            aiUserFetchHits: number;
+            aiReferralHits: number;
+        }>;
+    };
     totals: {
         crawlerHits: number;
         crawlerContentHits: number;
@@ -3684,6 +3693,11 @@ export type TrafficEventsResponse = {
         aiReferralPaidHits: number;
         aiReferralOrganicHits: number;
         aiReferralUnknownHits: number;
+    };
+    eventRows: {
+        total: number;
+        returned: number;
+        truncated: boolean;
     };
     events: Array<{
         kind: 'crawler';
@@ -12295,13 +12309,17 @@ export type GetApiV1ProjectsByNameTrafficEventsData = {
          */
         kind?: string;
         /**
-         * Max rows per kind in the events array (default 500, max 5000).
+         * Max newest combined detail rows in the events array (default 500, max 5000).
          */
         limit?: string;
         /**
          * Restrict to a single traffic source.
          */
         sourceId?: string;
+        /**
+         * Full-window series bucket size: "hour" (default) or "day".
+         */
+        granularity?: 'hour' | 'day';
     };
     url: '/api/v1/projects/{name}/traffic/events';
 };

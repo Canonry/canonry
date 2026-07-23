@@ -38,6 +38,7 @@ import {
   trafficConnectWordpressRequestSchema,
   trafficConnectVercelRequestSchema,
   trafficEventKindSchema,
+  trafficSeriesGranularitySchema,
   type NotificationEvent,
 } from '@ainyc/canonry-contracts'
 import { z } from 'zod'
@@ -469,9 +470,10 @@ const trafficEventsInputSchema = z.object({
   project: projectNameSchema,
   since: z.string().optional().describe('ISO 8601 lower bound. Defaults to 24h ago when omitted.'),
   until: z.string().optional().describe('ISO 8601 upper bound. Defaults to now when omitted.'),
-  kind: z.union([trafficEventKindSchema, z.literal('all')]).optional().describe('Filter to "crawler" or "ai-referral"; "all" (default) returns both.'),
+  kind: z.union([trafficEventKindSchema, z.literal('all')]).optional().describe('Filter to one traffic kind; "all" (default) returns every kind.'),
   sourceId: z.string().min(1).optional().describe('Restrict to a single traffic source ID.'),
   limit: z.number().int().positive().max(5000).optional().describe('Max combined rows. Defaults to 500, max 5000. Totals always reflect the full window.'),
+  granularity: trafficSeriesGranularitySchema.optional().describe('Full-window chart series bucket size: hour (default) or day.'),
 })
 // ai-referral rows and totals split sessions into paid / organic / unclassified.
 // `unclassified` are rows ingested before the classifier shipped; their UTM tags
@@ -1437,19 +1439,20 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_traffic_events',
     title: 'List traffic events',
-    description: 'Read crawler and AI-referral hourly rollups from server-side traffic sources. Returns a discriminated list (kind="crawler" rows carry botId/operator/verificationStatus; kind="ai-referral" rows carry product/sourceDomain/evidenceType) plus totals over the full window even when limit truncates rows. Window defaults to last 24h.',
+    description: 'Read crawler, AI user-fetch, and AI-referral rollups from server-side traffic sources. Returns complete full-window chart series and totals plus a capped discriminated detail list with explicit truncation metadata. Window defaults to last 24h.',
     access: 'read',
     tier: 'traffic',
     inputSchema: trafficEventsInputSchema,
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/traffic/events'],
     handler: (client, input) => {
-      const params: { since?: string; until?: string; kind?: string; limit?: number; sourceId?: string } = {}
+      const params: NonNullable<Parameters<ApiClient['trafficListEvents']>[1]> = {}
       if (input.since) params.since = input.since
       if (input.until) params.until = input.until
       if (input.kind) params.kind = input.kind
       if (input.sourceId) params.sourceId = input.sourceId
       if (input.limit !== undefined) params.limit = input.limit
+      if (input.granularity) params.granularity = input.granularity
       return client.trafficListEvents(input.project, params)
     },
   }),
