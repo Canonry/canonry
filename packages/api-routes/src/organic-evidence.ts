@@ -25,6 +25,7 @@ import {
 } from '@ainyc/canonry-contracts'
 import { buildBrandTokens } from '@ainyc/canonry-intelligence'
 import { notProbeRun, resolveProject } from './helpers.js'
+import { buildGaMeasurementAnalysis } from './ga-measurement-analysis.js'
 
 const zero = () => ({ clicks: 0, impressions: 0 })
 const daysBefore = (end: string, days: number) => {
@@ -114,6 +115,7 @@ export function buildOrganicEvidence(
   periodDays: 60 | 90,
 ): OrganicEvidenceDto {
   const project = resolveProject(db, projectName)
+  const measurement = buildGaMeasurementAnalysis(db, projectName, { window: periodDays + 'd', hostScope: 'marketing', limit: 100 })
   const gscRows = db.select().from(gscDailyTotals).where(eq(gscDailyTotals.projectId, project.id)).all()
   const gaRows = db.select().from(gaTrafficSnapshots).where(eq(gaTrafficSnapshots.projectId, project.id)).all()
   const gscCoverage = sourceCoverage(gscRows.map(row => row.date))
@@ -175,20 +177,28 @@ export function buildOrganicEvidence(
       .filter(row => inRange(row.date, cohort.startDate, cohort.endDate))
       .reduce((count, row) => count + row.organicSessions, 0),
   }))
-  const blogGaCohorts = cohorts.map(cohort => ({
+  let blogGaCohorts = cohorts.map(cohort => ({
     ...cohort,
     organicSessions: gaRows
       .filter(row => isBlogPath(row.landingPageNormalized ?? row.landingPage)
         && inRange(row.date, cohort.startDate, cohort.endDate))
       .reduce((count, row) => count + row.organicSessions, 0),
   }))
-  const ga4 = gaRows.length ? {
+  let ga4 = gaRows.length ? {
     organicSessions: gaWindow.reduce((count, row) => count + row.organicSessions, 0),
     blogOrganicSessions: gaWindow
       .filter(row => isBlogPath(row.landingPageNormalized ?? row.landingPage))
       .reduce((count, row) => count + row.organicSessions, 0),
     cohorts: gaCohorts,
   } : null
+
+  const nativeAcquisition = measurement.acquisition
+  if (nativeAcquisition.status !== 'never-synced') {
+    const organic = nativeAcquisition.channels.find(row => row.channelGroup === 'Organic Search')
+    const blogPages = nativeAcquisition.pages.filter(row => isBlogPath(row.landingPage))
+    ga4 = { organicSessions: organic?.periods.reduce((sum, row) => sum + row.sessions, 0) ?? 0, blogOrganicSessions: blogPages.reduce((sum, page) => sum + page.periods.reduce((inner, row) => inner + row.sessions, 0), 0), cohorts: nativeAcquisition.periods.map((_row, index) => ({ ...cohorts[index]!, organicSessions: organic?.periods[index]?.sessions ?? 0 })) }
+    blogGaCohorts = nativeAcquisition.periods.map((_row, index) => ({ ...cohorts[index]!, organicSessions: blogPages.reduce((sum, page) => sum + (page.periods[index]?.sessions ?? 0), 0) }))
+  }
 
   const allGaAiRows = db.select().from(gaAiReferrals)
     .where(eq(gaAiReferrals.projectId, project.id)).all()
@@ -269,9 +279,14 @@ export function buildOrganicEvidence(
     page.gsc.clicks += row.clicks
     page.gsc.impressions += row.impressions
   }
-  for (const row of gaWindow) {
+  if (nativeAcquisition.status === 'never-synced') for (const row of gaWindow) {
     ensurePage(row.landingPageNormalized ?? row.landingPage).ga4OrganicSessions += row.organicSessions
   }
+  if (nativeAcquisition.status !== 'never-synced') for (const row of nativeAcquisition.pages) {
+    const page = ensurePage(row.landingPage)
+    page.ga4OrganicSessions += row.periods.reduce((sum, period) => sum + period.sessions, 0)
+  }
+
   for (const row of crawlers) {
     const counts = ensurePage(row.pathNormalized).server.crawlerHits
     if (row.verificationStatus === VerificationStatuses.verified) counts.verified += row.hits
@@ -328,6 +343,13 @@ export function buildOrganicEvidence(
       detail: `GA4 organic sessions were ${comparisonDetail(latestGa.organicSessions, priorGa.organicSessions)}; visibility alone does not establish lead impact.`,
     })
   }
+  const latestLead = measurement.leads.periods.at(-1)?.eventCount ?? 0
+  const priorLead = measurement.leads.periods.at(-2)?.eventCount ?? 0
+  if (measurement.leads.status === 'ready' && measurement.leads.periods.length > 1) findings.push({ tone: 'neutral', title: 'Lead trend is measured, not causal', detail: 'GA4 lead events were ' + comparisonDetail(latestLead, priorLead) + '; this association is not causal proof.' })
+  const paidLatest = measurement.acquisition.channels.find(row => row.channelGroup === 'Paid Search')?.periods.at(-1)?.sessions ?? 0
+  const brandedLatest = measurement.searchDemand.periods.at(-1)?.brandedClicks ?? 0
+  if (paidLatest > 0 && brandedLatest > 0) findings.push({ tone: 'neutral', title: 'Paid-assisted brand search remains plausible', detail: String(paidLatest) + ' Paid Search sessions and ' + String(brandedLatest) + ' branded clicks coincide in the latest cohort; this is not proof of paid assistance.' })
+
   const blogFetchTotal = blogServer
     ? blogServer.userFetchHits.verified + blogServer.userFetchHits.claimedUnverified
       + blogServer.userFetchHits.unknownAiLike
@@ -349,10 +371,18 @@ export function buildOrganicEvidence(
 
   const limitations: OrganicEvidenceDto['limitations'] = [
     { code: 'units-not-combined', detail: 'GSC clicks/impressions, GA4 sessions, server hits, and sampled answer observations are reported separately.' },
-    { code: 'no-lead-attribution', detail: 'This v1 does not ingest GA4 lead or key-event attribution, so it makes no lead claims.' },
+
     { code: 'gsc-residual', detail: 'The GSC residual represents suppressed or unreported named queries and is not labelled non-brand.' },
     { code: 'page-grain-gsc', detail: 'Page and blog GSC counts come from detailed page/query rows; property totals remain the canonical headline totals.' },
   ]
+  if (measurement.leads.status === 'ready') limitations.push({ code: 'lead-attribution-not-causal', detail: 'GA4 lead trends are measured but do not establish causality.' })
+  else if (measurement.leads.status === 'error') limitations.push({ code: 'lead-sync-error', detail: measurement.leads.error ?? 'GA4 lead sync failed.' })
+  else limitations.push({ code: 'lead-data-unavailable', detail: 'GA4 lead data has not been synced.' })
+  if (measurement.leads.attributionScope === 'channel') limitations.push({ code: 'lead-channel-scope', detail: 'Lead rows are channel-scoped, so host and path filters are unavailable.' })
+  if (measurement.acquisition.status === 'error') limitations.push({ code: 'acquisition-sync-error', detail: measurement.acquisition.error ?? 'GA4 acquisition sync failed.' })
+  if (measurement.acquisition.status === 'never-synced' && gaRows.length) limitations.push({ code: 'legacy-ga-fallback', detail: 'Legacy GA snapshots are used only because native acquisition data has never synced.' })
+  if (measurement.acquisition.status === 'never-synced' && gaRows.length) limitations.push({ code: 'no-lead-attribution', detail: 'Legacy GA fallback has no GA4 lead attribution.' })
+
   if (gscCoverage && gaCoverage && !latestSharedDate) {
     limitations.push({
       code: 'no-shared-gsc-ga4-date',
@@ -405,6 +435,7 @@ export function buildOrganicEvidence(
     server,
     visibility,
     pages,
+    measurement,
     findings,
     limitations,
   }

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { gaMeasurementAnalysisDtoSchema } from './measurement.js'
 
 export const organicEvidencePeriodSchema = z.union([z.literal(60), z.literal(90)])
 export type OrganicEvidencePeriodDays = z.infer<typeof organicEvidencePeriodSchema>
@@ -92,6 +93,7 @@ export const organicEvidenceDtoSchema = z.object({
     mentionedPairs: z.number().int().nonnegative(),
     citedPairs: z.number().int().nonnegative(),
   }).nullable(),
+  measurement: gaMeasurementAnalysisDtoSchema,
   pages: z.array(z.object({
     path: z.string(),
     gsc: countSchema,
