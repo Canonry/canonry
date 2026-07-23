@@ -16,6 +16,7 @@ import {
 } from '@ainyc/canonry-db'
 import {
   AiReferralTrafficClasses,
+  CitationStates,
   RunKinds,
   RunStatuses,
   VerificationStatuses,
@@ -24,18 +25,20 @@ import {
   validationError,
   type OrganicEvidenceDto,
 } from '@ainyc/canonry-contracts'
-import { buildBrandTokens } from '@ainyc/canonry-intelligence'
+import { buildBrandTokens, categorizeQueryByIntent } from '@ainyc/canonry-intelligence'
 import { notProbeRun, resolveProject } from './helpers.js'
 import { buildGaMeasurementAnalysis } from './ga-measurement-analysis.js'
 
 const zero = () => ({ clicks: 0, impressions: 0 })
+const UNKNOWN_LANDING_PATH = '(not set)'
+const PAGE_DETAIL_LIMIT = 50
 const daysBefore = (end: string, days: number) => {
   const date = new Date(`${end}T00:00:00.000Z`)
   date.setUTCDate(date.getUTCDate() - days)
   return date.toISOString().slice(0, 10)
 }
 const normalizedPath = (value: string | null | undefined) => {
-  const normalized = normalizeUrlPath(value) ?? '/'
+  const normalized = normalizeUrlPath(value) ?? UNKNOWN_LANDING_PATH
   return normalized.split('?')[0] || '/'
 }
 const isBlogPath = (value: string | null | undefined) => {
@@ -197,9 +200,7 @@ export function buildOrganicEvidence(
       .where(eq(gscQueryDailyTotals.projectId, project.id)).all()
       .filter(row => isInWindow(row.date))
     for (const row of namedRows) {
-      const compactQuery = row.query.toLowerCase().replace(/[^a-z0-9]/g, '')
-      const isBrand = brandTokens.some(token =>
-        compactQuery.includes(token.replace(/[^a-z0-9]/g, '')))
+      const isBrand = categorizeQueryByIntent(row.query, brandTokens) === 'brand'
       const target = isBrand ? namedBrand : namedNonBrand
       target.clicks += row.clicks
       target.impressions += row.impressions
@@ -336,7 +337,7 @@ export function buildOrganicEvidence(
     ageDays: Math.max(0, (Date.now() - new Date(completedAt).getTime()) / 86_400_000),
     answerPairs: snapshots.length,
     mentionedPairs: snapshots.filter(snapshot => snapshot.answerMentioned === true).length,
-    citedPairs: snapshots.filter(snapshot => snapshot.citationState === 'cited').length,
+    citedPairs: snapshots.filter(snapshot => snapshot.citationState === CitationStates.cited).length,
   } : null
 
   type PageEvidence = OrganicEvidenceDto['pages'][number]
@@ -389,6 +390,7 @@ export function buildOrganicEvidence(
     counts.organic += row.organicSessionsOrHits
     counts.unknown = Math.max(0, counts.total - counts.paid - counts.organic)
   }
+  const pageMatchCount = pageMap.size
   const pages = [...pageMap.values()].sort((a, b) =>
     b.gsc.impressions - a.gsc.impressions
       || b.ga4OrganicSessions - a.ga4OrganicSessions
@@ -396,20 +398,22 @@ export function buildOrganicEvidence(
         - (a.server.userFetchHits.verified + a.server.userFetchHits.claimedUnverified
           + a.server.userFetchHits.unknownAiLike)
       || a.path.localeCompare(b.path),
-  ).slice(0, 50)
+  ).slice(0, PAGE_DETAIL_LIMIT)
 
   const findings: OrganicEvidenceDto['findings'] = []
   const latestBlogGsc = blogGscCohorts.at(-1)
   const priorBlogGsc = blogGscCohorts.at(-2)
   if (gsc && latestBlogGsc && priorBlogGsc) {
-    if (latestBlogGsc.totals.impressions > priorBlogGsc.totals.impressions) {
+    const visibilityIncreased =
+      latestBlogGsc.totals.impressions > priorBlogGsc.totals.impressions
+    if (visibilityIncreased) {
       findings.push({
         tone: 'positive',
         title: 'Blog search visibility increased',
         detail: `Google showed blog pages ${comparisonDetail(latestBlogGsc.totals.impressions, priorBlogGsc.totals.impressions)} (${latestBlogGsc.startDate} to ${latestBlogGsc.endDate} versus ${priorBlogGsc.startDate} to ${priorBlogGsc.endDate}).`,
       })
     }
-    if (latestBlogGsc.totals.clicks <= priorBlogGsc.totals.clicks) {
+    if (visibilityIncreased && latestBlogGsc.totals.clicks <= priorBlogGsc.totals.clicks) {
       findings.push({
         tone: 'caution',
         title: 'Blog clicks have not followed visibility yet',
@@ -470,6 +474,12 @@ export function buildOrganicEvidence(
     { code: 'gsc-residual', detail: 'The GSC residual represents suppressed or unreported named queries and is not labelled non-brand.' },
     { code: 'page-grain-gsc', detail: 'Page and blog GSC counts come from detailed page/query rows; property totals remain the canonical headline totals.' },
   ]
+  if (pageMatchCount > PAGE_DETAIL_LIMIT) {
+    limitations.push({
+      code: 'page-detail-truncated',
+      detail: `Page evidence is limited to the top ${PAGE_DETAIL_LIMIT} of ${pageMatchCount} matching pages.`,
+    })
+  }
   if (measurement.leads.status === 'ready') {
     limitations.push({
       code: 'lead-attribution-not-causal',
