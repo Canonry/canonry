@@ -12,6 +12,7 @@ import {
   skillsClientSchema,
   type BundledSkillSnapshot,
   type CodingAgent,
+  type AgentPluginState,
   type SkillManifest,
   type SkillsClient,
 } from '@ainyc/canonry-contracts'
@@ -230,7 +231,11 @@ function describeChanges(recon: ReconcileResult): string {
   return parts.length > 0 ? parts.join(', ') : 'no changes'
 }
 
-function buildClaudeMessage(name: string, status: SkillInstallResult['status'], recon: ReconcileResult): string {
+function buildClaudeMessage(
+  name: string,
+  status: SkillInstallResult['status'],
+  recon: ReconcileResult,
+): string {
   const rel = `.claude/skills/${name}`
   let message = status === 'installed'
     ? `Installed ${rel}`
@@ -456,7 +461,10 @@ export interface UserSkillsNudge {
  *
  * Caller is expected to print the message to stderr; this helper does no I/O.
  */
-export function getMissingUserSkillsNudge(home: string | null | undefined): UserSkillsNudge | null {
+export function getMissingUserSkillsNudge(
+  home: string | null | undefined,
+  agentPlugin?: AgentPluginState,
+): UserSkillsNudge | null {
   if (!home) return null
   const skillsBase = path.join(home, '.claude', 'skills')
   const installed: BundledSkillName[] = []
@@ -465,6 +473,32 @@ export function getMissingUserSkillsNudge(home: string | null | undefined): User
     const skillFile = path.join(skillsBase, name, 'SKILL.md')
     if (existsSafe(skillFile)) installed.push(name)
     else missing.push(name)
+  }
+
+  if (agentPlugin && agentPlugin.configuredClients.length > 0) {
+    const unverifiedClients = agentPlugin.configuredClients
+      .filter((client) => !agentPlugin.verifiedClients.includes(client))
+    const mismatchedClients = agentPlugin.verifiedClients
+      .filter((client) => agentPlugin.verifiedClientVersions?.[client] !== PACKAGE_VERSION)
+    if (unverifiedClients.length === 0 && mismatchedClients.length === 0) return null
+    const displayClients = (clients: AgentPluginState['configuredClients']) => clients
+      .map((client) => client === 'claude-code' ? 'Claude Code' : 'Codex')
+      .join(' + ')
+    const problems: string[] = []
+    if (unverifiedClients.length > 0) {
+      problems.push(`The Canonry plugin is enabled for ${displayClients(unverifiedClients)}, but its cached manifest and skill assets could not be verified.`)
+    }
+    if (mismatchedClients.length > 0) {
+      const versions = mismatchedClients
+        .map((client) => `${client === 'claude-code' ? 'Claude Code' : 'Codex'} v${agentPlugin.verifiedClientVersions?.[client] ?? 'unknown'}`)
+        .join(', ')
+      problems.push(`${versions} ${mismatchedClients.length === 1 ? 'does' : 'do'} not match the running Canonry v${PACKAGE_VERSION}.`)
+    }
+    return {
+      message: `Tip: ${problems.join(' ')} Update or reinstall \`canonry@canonry\` with the affected client plugin manager.`,
+      missing,
+      installed,
+    }
   }
 
   if (missing.length === 0) return null

@@ -14,12 +14,53 @@ import type { CheckDefinition } from '../types.js'
 
 const REQUIRED_SKILLS = ['canonry', 'aero'] as const
 
+function pluginStateFor(ctx: Parameters<CheckDefinition['run']>[0]) {
+  try {
+    return ctx.getAgentPluginState?.()
+  } catch {
+    return undefined
+  }
+}
+
+function unverifiedPluginClients(state: ReturnType<typeof pluginStateFor>): string[] {
+  if (!state) return []
+  return state.configuredClients.filter((client) => !state.verifiedClients.includes(client))
+}
+
+function displayPluginClients(clients: string[]): string {
+  return clients.map((client) => client === 'claude-code' ? 'Claude Code' : 'Codex').join(' + ')
+}
+
 const skillsInstalledCheck: CheckDefinition = {
   id: 'agent.skills.installed',
   category: CheckCategories.agent,
   scope: CheckScopes.global,
-  title: 'Agent skills installed (~/.claude/skills/)',
-  run: () => {
+  title: 'Agent skills available',
+  run: (ctx) => {
+    const agentPlugin = pluginStateFor(ctx)
+    const unverifiedClients = unverifiedPluginClients(agentPlugin)
+    if (unverifiedClients.length > 0) {
+      return {
+        status: CheckStatuses.warn,
+        code: 'agent.skills.plugin-unverified',
+        summary: `The Canonry plugin is enabled for ${displayPluginClients(unverifiedClients)}, but its cached manifest and skill assets could not be verified.`,
+        remediation: 'Reinstall `canonry@canonry` with the affected client plugin manager, or disable the stale plugin entry.',
+        details: { delivery: 'plugin', ...agentPlugin, unverifiedClients },
+      }
+    }
+    // With no unverified entries left, every configured client has proven its
+    // own cache. Report only those clients; an install for one client never
+    // implies availability in an unconfigured client.
+    if (agentPlugin && agentPlugin.configuredClients.length > 0) {
+      const clients = displayPluginClients(agentPlugin.verifiedClients)
+      return {
+        status: CheckStatuses.ok,
+        code: 'agent.skills.plugin-installed',
+        summary: `Canonry skills are available through the verified native ${clients} plugin${agentPlugin.verifiedClients.length === 1 ? '' : 's'}.`,
+        remediation: null,
+        details: { delivery: 'plugin', ...agentPlugin },
+      }
+    }
     const home = process.env.HOME
     if (!home) {
       return {
@@ -43,6 +84,7 @@ const skillsInstalledCheck: CheckDefinition = {
       checkedPath: skillsBase,
       installed,
       missing,
+      ...(agentPlugin ? { agentPlugin } : {}),
     }
 
     if (missing.length === 0) {
@@ -94,9 +136,54 @@ const skillsCurrentCheck: CheckDefinition = {
   id: 'agent.skills.current',
   category: CheckCategories.agent,
   scope: CheckScopes.global,
-  title: 'Agent skills up to date (~/.claude/skills/)',
+  title: 'Agent skills up to date',
   run: (ctx) => {
+    const agentPlugin = pluginStateFor(ctx)
     const bundled = ctx.bundledSkills
+    const unverifiedClients = unverifiedPluginClients(agentPlugin)
+    if (unverifiedClients.length > 0) {
+      return {
+        status: CheckStatuses.warn,
+        code: 'agent.skills.plugin-unverified',
+        summary: `The Canonry plugin cache could not be verified for ${displayPluginClients(unverifiedClients)}; freshness cannot be assessed.`,
+        remediation: 'Reinstall `canonry@canonry` with the affected client plugin manager, or disable the stale plugin entry.',
+        details: { delivery: 'plugin', ...agentPlugin, unverifiedClients },
+      }
+    }
+    if (agentPlugin && agentPlugin.configuredClients.length > 0) {
+      const clients = displayPluginClients(agentPlugin.verifiedClients)
+      if (!bundled || bundled.length === 0) {
+        return {
+          status: CheckStatuses.skipped,
+          code: 'agent.skills.bundle-unavailable',
+          summary: `Canonry skills are supplied by the verified native ${clients} plugin${agentPlugin.verifiedClients.length === 1 ? '' : 's'}, but the running bundle version is unavailable for comparison.`,
+          remediation: null,
+          details: { delivery: 'plugin', ...agentPlugin },
+        }
+      }
+      const bundledVersion = bundled[0]!.version
+      const mismatchedClients = agentPlugin.verifiedClients
+        .filter((client) => agentPlugin.verifiedClientVersions?.[client] !== bundledVersion)
+      if (mismatchedClients.length > 0) {
+        const versions = mismatchedClients
+          .map((client) => `${client === 'claude-code' ? 'Claude Code' : 'Codex'} v${agentPlugin.verifiedClientVersions?.[client] ?? 'unknown'}`)
+          .join(', ')
+        return {
+          status: CheckStatuses.warn,
+          code: 'agent.skills.plugin-version-mismatch',
+          summary: `${versions} ${mismatchedClients.length === 1 ? 'does' : 'do'} not match the running Canonry v${bundledVersion}; plugin skills may be stale or incompatible.`,
+          remediation: 'Update the Canonry runtime and `canonry@canonry` plugin to the same version with the affected client plugin manager.',
+          details: { delivery: 'plugin', bundledVersion, ...agentPlugin, mismatchedClients },
+        }
+      }
+      return {
+        status: CheckStatuses.ok,
+        code: 'agent.skills.plugin-current',
+        summary: `Canonry skills are supplied by the verified native ${clients} plugin${agentPlugin.verifiedClients.length === 1 ? '' : 's'} at the running version (v${bundledVersion}).`,
+        remediation: null,
+        details: { delivery: 'plugin', bundledVersion, ...agentPlugin },
+      }
+    }
     if (!bundled || bundled.length === 0) {
       return {
         status: CheckStatuses.skipped,

@@ -5,6 +5,7 @@ import { trackEvent, setTelemetrySource } from '../telemetry.js'
 import { CliError, type CliFormat, isMachineFormat } from '../cli-error.js'
 import { backfillAiReferralPaths, backfillNormalizedPaths } from './backfill.js'
 import { getMissingUserSkillsNudge } from './skills.js'
+import { detectCanonryAgentPlugin } from '../agent-plugin.js'
 
 /**
  * Precedence: `CANONRY_PORT` env var (also set by `--port`) > config.yaml `port:` > 4100.
@@ -65,7 +66,15 @@ export async function serveCommand(format: CliFormat = 'text'): Promise<void> {
 
   // Create and start server. Pass the bind host so the server can gate the
   // unauthenticated first-run dashboard password setup when exposed off-box.
-  const app = await createServer({ config, db, host })
+  // User-global only. Project-local client settings belong to the invoking
+  // coding-agent process, not to this long-running API daemon. Keep this as a
+  // closure so doctor reflects plugin installs/removals without a server restart.
+  const getAgentPluginState = () => detectCanonryAgentPlugin({
+    home: process.env.HOME,
+    claudeConfigDir: process.env.CLAUDE_CONFIG_DIR,
+    codexHome: process.env.CODEX_HOME,
+  })
+  const app = await createServer({ config, db, host, getAgentPluginState })
 
   // Graceful shutdown on SIGTERM (sent by `canonry stop`) and SIGINT (Ctrl+C)
   // Guard against double-fire: rapid Ctrl+C or concurrent SIGTERM+SIGINT
@@ -105,7 +114,7 @@ export async function serveCommand(format: CliFormat = 'text'): Promise<void> {
         console.log('First-run dashboard password setup is unauthenticated only on loopback; complete setup from this machine first or use a bearer cnry_... key.')
       }
       console.log('Press Ctrl+C to stop.\n')
-      const nudge = getMissingUserSkillsNudge(process.env.HOME)
+      const nudge = getMissingUserSkillsNudge(process.env.HOME, getAgentPluginState())
       if (nudge) process.stderr.write(`${nudge.message}\n`)
     }
 

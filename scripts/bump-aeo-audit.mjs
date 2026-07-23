@@ -37,8 +37,14 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..')
 const DEP = '@ainyc/aeo-audit'
 // Every package.json that pins the dependency. Add new consumers here.
 const DEP_MANIFESTS = ['packages/canonry/package.json', 'apps/worker/package.json']
-// Published packages whose version must stay in lockstep (see AGENTS.md → Versioning).
-const VERSION_MANIFESTS = ['package.json', 'packages/canonry/package.json']
+// Published package + native-plugin manifests that must stay in lockstep (see
+// AGENTS.md → Versioning and scripts/sync-canonry-plugin.mjs).
+const VERSION_MANIFESTS = [
+  'package.json',
+  'packages/canonry/package.json',
+  'plugins/canonry/.codex-plugin/plugin.json',
+  'plugins/canonry/.claude-plugin/plugin.json',
+]
 
 function readJson(relPath) {
   return JSON.parse(readFileSync(join(repoRoot, relPath), 'utf8'))

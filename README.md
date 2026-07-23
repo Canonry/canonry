@@ -14,7 +14,7 @@
 - Manage many clients declaratively — config-as-code YAML + `cnry apply`
 - Schedule recurring visibility checks, traffic syncs, and Business Profile syncs, with webhook alerts on regressions
 - Generate client-ready HTML reports — `cnry report <project>`
-- Drive from your own agent via the [67-tool MCP adapter](docs/mcp.md) or webhooks
+- Drive from your own agent via the [MCP adapter](docs/mcp.md), a [native Codex or Claude Code plugin](docs/plugins.md), or webhooks
 - Or use **Aero** — Canonry's built-in agent that wakes up after every run
 
 Every dashboard view has a matching CLI command and API endpoint. The CLI is the surface; the UI consumes the same API your agent does.
@@ -76,20 +76,61 @@ tree. This keeps spend-bearing changes reviewable and recoverable instead of gra
 an agent unrestricted access to your ad account. See the [MCP tool surface](docs/mcp.md#tool-surface)
 for the complete agent workflow and safety model.
 
-## Or set it up with your AI coding agent
+## Use the native Codex or Claude Code plugin
 
-Drop this into Claude Code, Codex, or any shell-capable agent. It installs canonry, runs your first sweep, audits your site for AEO readiness, and stops for your sign-off before taking any action on your behalf:
+The native plugin gives your agent Canonry's operator playbooks and starts the existing `canonry-mcp` adapter. Canonry itself remains the execution and data plane.
+
+Install the runtime. If this is the first initialization, skip the legacy per-project skill and MCP copies:
+
+```bash
+npm install -g @canonry/canonry
+# First initialization only
+cnry init --skip-skills --skip-mcp
+```
+
+Run `cnry init` in a private terminal: it prompts for credentials and prints the
+new full-access API key once. Never paste that output into an agent chat or
+shared log.
+
+Then install the plugin for your client:
+
+```bash
+# Codex
+codex plugin marketplace add Canonry/canonry
+codex plugin add canonry@canonry
+
+# Claude Code
+claude plugin marketplace add Canonry/canonry
+claude plugin install canonry@canonry
+```
+
+Ensure Canonry's local daemon is running, then verify that its advisory doctor
+check sees the enabled plugin:
+
+```bash
+# Only when Canonry is not already running
+cnry start
+cnry doctor --check 'agent.skills.*' --format json
+```
+
+The plugin contains no credentials and declares no hooks or automatic provider calls. It does not expand Canonry's server-enforced key scope, but fresh `cnry init` creates a full-instance `*` key and a write-capable key makes write tools available to the client by default; a read-only key restricts the catalog to reads. Treat the default as teammate-level access to every project and shared setting on that single-tenant instance, and get explicit approval before every mutation or quota-consuming sweep. Existing `cnry skills install` and standalone MCP configuration remain supported; use one integration path per client to avoid duplicate skills or MCP servers. See the [plugin setup and security guide](docs/plugins.md).
+
+## Or use any shell-capable coding agent
+
+Without the native plugin, drop this into any shell-capable agent. It keeps
+credential setup private and asks before each persisted or quota-consuming
+operation:
 
 ```text
 Set up canonry for me. Canonry is an open-source platform that tracks how AI answer engines (Gemini, ChatGPT, Claude, Perplexity) cite my site.
 
 1. Ask me for: my domain, 3–5 queries I want to track, and which provider I want to start with (gemini / openai / claude / perplexity). Wait for my answers before proceeding.
-2. Run `npm install -g @canonry/canonry`.
-3. Run `cnry init` in this directory. This scaffolds config and installs the canonry skills into `.claude/skills/canonry/`, `.claude/skills/aero/`, `.codex/skills/canonry/`, and `.codex/skills/aero/`. If the skills aren't there afterwards, run `cnry skills install`.
-4. Read the operator playbook at `.claude/skills/canonry/SKILL.md` and follow it end-to-end: create the project with my domain and queries, wire up the provider key I chose, and trigger the first sweep.
-5. Open my browser to the dashboard so I can see the run results.
-6. Switch to the analyst playbook at `.claude/skills/aero/SKILL.md` and run a baseline AEO audit on my behalf. Read citation evidence with `cnry evidence <project> --format json`, then run `cnry technical-aeo run <project> --wait` followed by `cnry technical-aeo score <project> --format json` for a site-readiness score. This crawls every page in my sitemap (not just the homepage), scores the whole site 0–100, and saves the result so it appears in the dashboard and can be re-audited on a schedule.
-7. Summarize what you found: my mention and citation rates per provider, the top 3 queries I'm not yet cited on, and the highest-impact site issues from the audit. Ask me for permission before taking any further action, such as drafting content, submitting URLs for indexing, editing files, or anything else that changes my site.
+2. Ask for approval, then run `npm install -g @canonry/canonry`.
+3. Do not run `cnry init` yourself or ask me for credentials. Tell me to run `cnry init` in my own private terminal because it prompts for provider secrets and prints the new full-access API key once. Wait for me to confirm completion; never ask me to paste its output. This scaffolds config and installs the Canonry skills.
+4. Read `.claude/skills/canonry/SKILL.md`, run the read-only doctor checks, and show me the exact project/domain/query changes you propose. Ask for explicit approval before creating the project or changing queries.
+5. After project setup, show the provider and query count for the first sweep and ask for explicit approval for that quota-consuming run. Only then trigger it.
+6. Read `.claude/skills/aero/SKILL.md` and summarize the existing mention and citation evidence. Propose the technical audit, including its page limit, and ask for separate approval before running `cnry technical-aeo run <project> --wait`; after approval, read the result with `cnry technical-aeo score <project> --format json`.
+7. Open the dashboard only if I ask, then summarize what you found: mention and citation rates per provider, the top 3 gaps, and the highest-impact site issues. Ask again before drafting content, submitting URLs, editing files, publishing, or performing any other mutation or quota-consuming operation.
 ```
 
 One-click copy at [canonry.ai](https://canonry.ai).
@@ -122,11 +163,13 @@ Configure during `cnry init`, in the dashboard `/settings`, or as env vars.
 |---|---|
 | **Architecture & data model** | [docs/architecture.md](docs/architecture.md) · [docs/data-model.md](docs/data-model.md) |
 | **Aero — built-in agent** | [skills/aero/SKILL.md](skills/aero/SKILL.md) |
+| **Native plugins — Codex / Claude Code** | [docs/plugins.md](docs/plugins.md) |
 | **MCP — Claude Desktop / Cursor / Codex** | [docs/mcp.md](docs/mcp.md) |
 | **Integrations** | [GSC](docs/google-search-console-setup.md) · [GA4](docs/google-analytics-setup.md) · [Bing](docs/bing-webmaster-setup.md) · [Google Business Profile](skills/canonry/references/google-business-profile.md) · [WordPress](docs/wordpress-setup.md) · [Server-side traffic (Cloud Run + Vercel + WordPress logs)](skills/canonry/references/server-side-traffic.md) |
 | **Deployment** — Docker, Railway, Render, systemd, Tailscale | [docs/deployment.md](docs/deployment.md) |
 | **API** — 118+ endpoints | `GET /api/v1/openapi.json` (no auth) |
-| **Skills bundle** for Claude Code / Codex | `cnry skills install` ([details](skills/canonry/SKILL.md)) |
+| **Standalone skills bundle** for Claude Code / Codex | `cnry skills install` ([details](skills/canonry/SKILL.md)) |
+| **Roadmap & ADRs** | [docs/roadmap.md](docs/roadmap.md) · [docs/adr/](docs/adr/) |
 | **All docs** | [docs/README.md](docs/README.md) |
 
 ## Requirements

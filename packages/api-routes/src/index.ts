@@ -63,7 +63,7 @@ import type { DiscoveryRoutesOptions } from './discovery/index.js'
 import { technicalAeoRoutes } from './technical-aeo.js'
 import type { TechnicalAeoRoutesOptions } from './technical-aeo.js'
 import { CheckStatuses, TrafficSourceTypes } from '@ainyc/canonry-contracts'
-import type { BundledSkillSnapshot } from '@ainyc/canonry-contracts'
+import type { AgentPluginState, BundledSkillSnapshot } from '@ainyc/canonry-contracts'
 import type { CheckOutput, TrafficSourceProbe, TrafficSourceValidator } from './doctor/types.js'
 
 declare module 'fastify' {
@@ -244,6 +244,8 @@ export interface ApiRoutesOptions {
    * and the check `skipped`.
    */
   bundledSkills?: BundledSkillSnapshot[]
+  /** Live user-global native Canonry plugin state, when available on a local host. */
+  getAgentPluginState?: () => AgentPluginState
 }
 
 export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
@@ -490,6 +492,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       trafficSourceValidators: buildTrafficSourceValidators(opts),
       runtimeStatePaths: opts.runtimeStatePaths,
       bundledSkills: opts.bundledSkills,
+      getAgentPluginState: opts.getAgentPluginState,
     })
     // Local-only extension hook: canonry passes the Aero agent routes here
     // so they live inside the authenticated scope. Cloud leaves it undefined.

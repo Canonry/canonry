@@ -7,14 +7,18 @@ import { initCommand } from '../src/commands/init.js'
 
 let configDir: string
 let projectDir: string
+let homeDir: string
 let logs: string[]
 let logSpy: ReturnType<typeof vi.spyOn>
 
 beforeEach(() => {
   configDir = path.join(os.tmpdir(), `canonry-init-skills-cfg-${crypto.randomUUID()}`)
   projectDir = path.join(os.tmpdir(), `canonry-init-skills-project-${crypto.randomUUID()}`)
+  homeDir = path.join(os.tmpdir(), `canonry-init-skills-home-${crypto.randomUUID()}`)
   vi.stubEnv('CANONRY_CONFIG_DIR', configDir)
+  vi.stubEnv('HOME', homeDir)
   fs.mkdirSync(projectDir, { recursive: true })
+  fs.mkdirSync(homeDir, { recursive: true })
   logs = []
   logSpy = vi.spyOn(console, 'log').mockImplementation((value: string) => {
     logs.push(String(value))
@@ -26,6 +30,7 @@ afterEach(() => {
   vi.unstubAllEnvs()
   fs.rmSync(configDir, { recursive: true, force: true })
   fs.rmSync(projectDir, { recursive: true, force: true })
+  fs.rmSync(homeDir, { recursive: true, force: true })
 })
 
 describe('canonry init + skills auto-install', () => {
@@ -68,6 +73,23 @@ describe('canonry init + skills auto-install', () => {
     })
 
     expect(fs.existsSync(path.join(projectDir, '.claude'))).toBe(false)
+  })
+
+  it('honors both native-plugin skip flags without writing legacy agent files', async () => {
+    fs.writeFileSync(path.join(projectDir, 'package.json'), '{}')
+
+    await initCommand({
+      force: true,
+      geminiKey: 'test-gemini-key',
+      skillsDir: projectDir,
+      skipSkills: true,
+      skipMcp: true,
+      format: 'json',
+    })
+
+    expect(fs.existsSync(path.join(projectDir, '.claude'))).toBe(false)
+    expect(fs.existsSync(path.join(projectDir, '.codex'))).toBe(false)
+    expect(fs.existsSync(path.join(projectDir, '.mcp.json'))).toBe(false)
   })
 
   it('includes the skills summary in the init JSON output', async () => {

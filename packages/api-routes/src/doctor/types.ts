@@ -1,5 +1,5 @@
 import type { DatabaseClient } from '@ainyc/canonry-db'
-import type { AgentProviderOption, BundledSkillSnapshot, CheckCategory, CheckResultDto, CheckScope, CheckStatus } from '@ainyc/canonry-contracts'
+import type { AgentPluginState, AgentProviderOption, BundledSkillSnapshot, CheckCategory, CheckResultDto, CheckScope, CheckStatus } from '@ainyc/canonry-contracts'
 import type { GoogleConnectionStore } from '../google.js'
 import type { BingConnectionStore } from '../bing.js'
 import type { WordpressConnectionStore } from '../wordpress.js'
@@ -87,6 +87,8 @@ export interface DoctorContext {
    * cloud `apps/api`), which makes the check `skipped`.
    */
   bundledSkills?: BundledSkillSnapshot[]
+  /** Live user-global native Canonry plugin state, when available on a local host. */
+  getAgentPluginState?: () => AgentPluginState
 }
 
 export interface ProjectInfo {

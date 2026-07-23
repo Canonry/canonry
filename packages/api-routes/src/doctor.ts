@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { ALL_CHECKS } from './doctor/registry.js'
 import { runChecks } from './doctor/runner.js'
-import type { BundledSkillSnapshot } from '@ainyc/canonry-contracts'
+import type { AgentPluginState, BundledSkillSnapshot } from '@ainyc/canonry-contracts'
 import type { DoctorContext, TrafficSourceValidator } from './doctor/types.js'
 import type { AdsCredentialStore } from './ads.js'
 import type { GoogleConnectionStore } from './google.js'
@@ -36,6 +36,8 @@ export interface DoctorRoutesOptions {
   runtimeStatePaths?: { databasePath: string; configPath?: string | null }
   /** Bundled-skill snapshots powering the `agent.skills.current` check. See `DoctorContext.bundledSkills`. */
   bundledSkills?: BundledSkillSnapshot[]
+  /** Live user-global native Canonry plugin state, when available on a local host. */
+  getAgentPluginState?: () => AgentPluginState
 }
 
 function parseCheckIds(raw: string | undefined): string[] {
@@ -76,6 +78,7 @@ export async function doctorRoutes(app: FastifyInstance, opts: DoctorRoutesOptio
       trafficSourceValidators: opts.trafficSourceValidators,
       runtimeStatePaths: opts.runtimeStatePaths,
       bundledSkills: opts.bundledSkills,
+      getAgentPluginState: opts.getAgentPluginState,
     }
     return runChecks(ctx, ALL_CHECKS, { checkIds })
   })
@@ -108,6 +111,7 @@ export async function doctorRoutes(app: FastifyInstance, opts: DoctorRoutesOptio
       trafficSourceValidators: opts.trafficSourceValidators,
       runtimeStatePaths: opts.runtimeStatePaths,
       bundledSkills: opts.bundledSkills,
+      getAgentPluginState: opts.getAgentPluginState,
     }
     return runChecks(ctx, ALL_CHECKS, { checkIds })
   })

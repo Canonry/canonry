@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
+  "name": "canonry",
+  "description": "Official Canonry plugins for Claude Code.",
+  "owner": {
+    "name": "Canonry"
+  },
+  "plugins": [
+    {
+      "name": "canonry",
+      "source": "./plugins/canonry",
+      "displayName": "Canonry",
+      "description": "Operate Canonry AEO projects through guided skills and typed MCP tools.",
+      "author": {
+        "name": "Canonry"
+      },
+      "homepage": "https://canonry.ai",
+      "repository": "https://github.com/Canonry/canonry",
+      "license": "FSL-1.1-ALv2",
+      "keywords": [
+        "aeo",
+        "answer-engine-optimization",
+        "citations",
+        "mentions",
+        "mcp"
+      ],
+      "category": "productivity"
+    }
+  ]
+}
