@@ -330,3 +330,36 @@ test('shows last-good sync errors, channel-only lead scope, and causal caveats b
   expect(screen.getByText(/not proof of an assisted path/)).toBeTruthy()
   expect(screen.queryByText(/SEO generated leads/i)).toBeNull()
 })
+
+test('uses source-specific columns and keeps every evidence table structurally aligned', async () => {
+  renderPanel()
+
+  await waitFor(() => {
+    expect(screen.getByRole('heading', { name: 'Organic growth evidence' })).toBeTruthy()
+  })
+
+  const tableNames = [
+    'Blog search and traffic cohorts',
+    'GA4 sessions by native channel',
+    'GA4 lead events by cohort',
+    'Latest Google search demand mix',
+    'Server-side AI evidence',
+  ]
+
+  for (const name of tableNames) {
+    const table = within(screen.getByRole('table', { name }))
+    const columnCount = table.getAllByRole('columnheader').length
+    for (const row of table.getAllByRole('row').slice(1)) {
+      const cells = within(row).getAllByRole('cell').length
+      const rowHeaders = within(row).getAllByRole('rowheader').length
+      expect(cells + rowHeaders).toBe(columnCount)
+    }
+  }
+
+  const demand = within(screen.getByRole('table', { name: 'Latest Google search demand mix' }))
+  expect(demand.getByRole('columnheader', { name: 'Clicks' })).toBeTruthy()
+  expect(demand.getByRole('columnheader', { name: 'Impressions' })).toBeTruthy()
+
+  const server = within(screen.getByRole('table', { name: 'Server-side AI evidence' }))
+  expect(server.getByRole('columnheader', { name: 'Count' })).toBeTruthy()
+})
