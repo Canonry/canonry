@@ -219,6 +219,13 @@ function seedNativeMeasurement(ctx: Context) {
   })
   insertAcquisition(ctx, {
     date: GA_ANCHOR,
+    channelGroup: 'Paid Search',
+    hostName: 'demand-iq.com',
+    landingPage: '/blog/new',
+    sessions: 9,
+  })
+  insertAcquisition(ctx, {
+    date: GA_ANCHOR,
     channelGroup: 'Display',
     hostName: 'demand-iq.vercel.app',
     landingPage: '/preview',
@@ -275,6 +282,7 @@ function seedNativeMeasurement(ctx: Context) {
     { date: '2026-06-20', query: 'solar proposal tool', clicks: 4, impressions: 193 },
     { date: GSC_ANCHOR, query: 'demand-iq.com pricing', clicks: 8, impressions: 150 },
     { date: GSC_ANCHOR, query: 'solar sales software', clicks: 2, impressions: 350 },
+    { date: GSC_ANCHOR, query: 'demand intelligence', clicks: 1, impressions: 20 },
   ]) {
     insertGscQuery(ctx, row)
   }
@@ -296,6 +304,12 @@ function seedNativeMeasurement(ctx: Context) {
       page: 'https://demand-iq.com/blog/new',
       clicks: 0,
       impressions: 495,
+    },
+    {
+      date: GSC_ANCHOR,
+      page: 'https://demand-iq.vercel.app/blog/preview',
+      clicks: 100,
+      impressions: 500,
     },
   ]) {
     insertGscPage(ctx, row)
@@ -414,9 +428,25 @@ describe('organic evidence native measurement reconciliation', () => {
     })
     expect(body.ga4?.cohorts.map(row => row.organicSessions)).toEqual([10, 35, 16])
     expect(body.blog.ga4?.cohorts.map(row => row.organicSessions)).toEqual([10, 35, 16])
+    expect(body.blog.gsc?.cohorts.map(row => row.totals.impressions)).toEqual([384, 313, 495])
+    expect(body.sourceCoverage.ga4).toMatchObject({
+      startDate: '2026-05-20',
+      endDate: GA_ANCHOR,
+      observedDays: 3,
+    })
+    expect(body.gsc).toMatchObject({
+      namedBrand: { clicks: 18, impressions: 390 },
+      namedNonBrand: { clicks: 7, impressions: 743 },
+      suppressedOrUnreportedResidual: { clicks: 0, impressions: 467 },
+    })
     expect(body.pages).not.toEqual(expect.arrayContaining([
       expect.objectContaining({ path: '/blog/legacy-decoy' }),
+      expect.objectContaining({ path: '/blog/preview' }),
     ]))
+    expect(body.pages).toContainEqual(expect.objectContaining({
+      path: '/blog/new',
+      ga4OrganicSessions: 16,
+    }))
     expect(body.measurement.leads.periods.map(row => row.eventCount)).toEqual([2, 4, 0])
     expect(body.limitations.map(row => row.code)).not.toContain('no-lead-attribution')
     expect(body.limitations).toContainEqual(expect.objectContaining({
@@ -447,7 +477,7 @@ describe('organic evidence native measurement reconciliation', () => {
     expect(body.findings).toContainEqual(expect.objectContaining({
       tone: 'neutral',
       title: 'Paid-assisted brand search remains plausible',
-      detail: expect.stringMatching(/50 Paid Search sessions.*8 branded clicks.*not proof/i),
+      detail: expect.stringMatching(/59 Paid Search sessions.*9 branded clicks.*not proof/i),
     }))
   })
 
@@ -467,7 +497,7 @@ describe('organic evidence native measurement reconciliation', () => {
       acquisition: {
         status: 'error',
         error: 'quota exhausted',
-        periods: expect.arrayContaining([expect.objectContaining({ sessions: 66 })]),
+        periods: expect.arrayContaining([expect.objectContaining({ sessions: 75 })]),
       },
       leads: {
         status: 'ready',
