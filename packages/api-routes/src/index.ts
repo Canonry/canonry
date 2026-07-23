@@ -43,6 +43,7 @@ import { cdpRoutes } from './cdp.js'
 import type { CDPRoutesOptions } from './cdp.js'
 import { ga4Routes } from './ga.js'
 import type { GA4RoutesOptions, Ga4CredentialStore } from './ga.js'
+import { gaMeasurementAnalysisRoutes } from './ga-measurement-analysis.js'
 import { wordpressRoutes } from './wordpress.js'
 import type { WordpressRoutesOptions } from './wordpress.js'
 import { backlinksRoutes } from './backlinks.js'
@@ -445,6 +446,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       googleConnectionStore: opts.googleConnectionStore,
       getGoogleAuthConfig: opts.getGoogleAuthConfig,
     } satisfies GA4RoutesOptions)
+    await api.register(gaMeasurementAnalysisRoutes)
     await api.register(trafficRoutes, {
       cloudRunCredentialStore: opts.cloudRunCredentialStore,
       pullCloudRunEvents: opts.pullCloudRunEvents,

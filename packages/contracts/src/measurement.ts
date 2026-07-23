@@ -75,3 +75,92 @@ export type GaMeasurementComponentStatus = z.infer<typeof gaMeasurementComponent
 
 export const gaLeadAttributionScopeSchema = z.enum(['landing-page', 'channel'])
 export type GaLeadAttributionScope = z.infer<typeof gaLeadAttributionScopeSchema>
+
+export const gaMeasurementAnalysisWindowSchema = z.enum(['30d', '60d', '90d'])
+export type GaMeasurementAnalysisWindow = z.infer<typeof gaMeasurementAnalysisWindowSchema>
+export const gaMeasurementHostScopeSchema = z.enum(['marketing', 'all'])
+export type GaMeasurementHostScope = z.infer<typeof gaMeasurementHostScopeSchema>
+
+const analysisDateSchema = z.iso.date()
+const analysisPeriodSchema = z.object({
+  label: z.enum(['earliest', 'middle', 'previous', 'latest']),
+  startDate: analysisDateSchema,
+  endDate: analysisDateSchema,
+})
+const analysisSessionPeriodSchema = analysisPeriodSchema.extend({
+  sessions: z.number().int().nonnegative(),
+})
+const analysisEventPeriodSchema = analysisPeriodSchema.extend({
+  eventCount: z.number().int().nonnegative(),
+})
+const analysisClickPeriodSchema = analysisPeriodSchema.extend({
+  clicks: z.number().int().nonnegative(),
+  impressions: z.number().int().nonnegative(),
+})
+const analysisDemandPeriodSchema = analysisPeriodSchema.extend({
+  propertyClicks: z.number().int().nonnegative(),
+  propertyImpressions: z.number().int().nonnegative(),
+  reportedQueryClicks: z.number().int().nonnegative(),
+  reportedQueryImpressions: z.number().int().nonnegative(),
+  brandedClicks: z.number().int().nonnegative(),
+  brandedImpressions: z.number().int().nonnegative(),
+  nonBrandedClicks: z.number().int().nonnegative(),
+  nonBrandedImpressions: z.number().int().nonnegative(),
+  unreportedClicks: z.number().int().nonnegative(),
+  unreportedImpressions: z.number().int().nonnegative(),
+})
+
+export const gaMeasurementAnalysisDtoSchema = z.object({
+  window: gaMeasurementAnalysisWindowSchema,
+  bucketDays: z.literal(30),
+  filters: z.object({
+    hostScope: gaMeasurementHostScopeSchema,
+    marketingHosts: z.array(z.string()),
+    pathPrefix: z.string().nullable(),
+    brandTerms: z.array(z.string()),
+    queryMixScope: z.literal('property'),
+  }),
+  acquisition: z.object({
+    status: gaMeasurementComponentStatusSchema,
+    error: z.string().nullable(),
+    syncedAt: z.string().datetime().nullable(),
+    periods: z.array(analysisSessionPeriodSchema),
+    channels: z.array(z.object({
+      channelGroup: z.string(),
+      periods: z.array(analysisSessionPeriodSchema),
+    })),
+    pages: z.array(z.object({
+      hostName: z.string(),
+      landingPage: z.string(),
+      periods: z.array(analysisSessionPeriodSchema),
+    })),
+  }),
+  leads: z.object({
+    status: gaMeasurementComponentStatusSchema,
+    error: z.string().nullable(),
+    syncedAt: z.string().datetime().nullable(),
+    attributionScope: gaLeadAttributionScopeSchema.nullable(),
+    hostAndPathFiltersApplied: z.boolean(),
+    periods: z.array(analysisEventPeriodSchema),
+    channels: z.array(z.object({
+      channelGroup: z.string(),
+      periods: z.array(analysisEventPeriodSchema),
+    })),
+  }),
+  searchDemand: z.object({
+    status: z.enum(['ready', 'unavailable']),
+    periods: z.array(analysisDemandPeriodSchema),
+    queries: z.array(z.object({
+      query: z.string(),
+      classification: z.enum(['branded', 'non-branded']),
+      periods: z.array(analysisClickPeriodSchema),
+    })),
+    pages: z.array(z.object({
+      hostName: z.string(),
+      landingPage: z.string(),
+      periods: z.array(analysisClickPeriodSchema),
+    })),
+    latestDate: analysisDateSchema.nullable(),
+  }),
+})
+export type GaMeasurementAnalysisDto = z.infer<typeof gaMeasurementAnalysisDtoSchema>
