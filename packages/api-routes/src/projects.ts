@@ -10,8 +10,9 @@ import {
   projectUpsertRequestSchema,
   findDuplicateLocationLabels,
   hasLocationLabel,
+  DEFAULT_MEASUREMENT_CONFIG,
 } from '@ainyc/canonry-contracts'
-import type { LocationContext, ProviderModels } from '@ainyc/canonry-contracts'
+import type { LocationContext, MeasurementConfig, ProviderModels } from '@ainyc/canonry-contracts'
 import { requireScope } from './auth.js'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import { SETTINGS_WRITE_SCOPE } from './settings.js'
@@ -51,6 +52,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
       autoExtractBacklinks?: boolean
       configSource?: string
       providerModels?: Record<string, string>
+      measurement?: MeasurementConfig
     }
   }>('/projects/:name', async (request, reply) => {
     const { name } = request.params
@@ -107,6 +109,8 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
       ? body.autoExtractBacklinks
       : existing?.autoExtractBacklinks ?? false
 
+    const nextMeasurement = body.measurement ?? existing?.measurement ?? DEFAULT_MEASUREMENT_CONFIG
+
     const nextAliases = normalizeProjectAliases(body.displayName, body.aliases ?? [])
 
     if (existing) {
@@ -125,6 +129,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
           labels: body.labels ?? {},
           providers: body.providers ?? [],
           providerModels,
+          measurement: nextMeasurement,
           locations: nextLocations,
           defaultLocation: nextDefaultLocation,
           autoExtractBacklinks: nextAutoExtractBacklinks,
@@ -164,6 +169,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
         labels: body.labels ?? {},
         providers: body.providers ?? [],
         providerModels,
+        measurement: nextMeasurement,
         locations: nextLocations,
         defaultLocation: nextDefaultLocation,
         autoExtractBacklinks: nextAutoExtractBacklinks,
@@ -415,6 +421,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
         competitors: comps.map(c => c.domain),
         providers: project.providers,
         ...(Object.keys(project.providerModels).length > 0 ? { providerModels: project.providerModels } : {}),
+        measurement: project.measurement,
         locations: project.locations,
         ...(project.defaultLocation ? { defaultLocation: project.defaultLocation } : {}),
         ...(project.autoExtractBacklinks ? { autoExtractBacklinks: true } : {}),
@@ -501,6 +508,7 @@ export function formatProject(row: InferSelectModel<typeof projects>) {
     labels: row.labels,
     providers: row.providers,
     providerModels: row.providerModels,
+    measurement: row.measurement,
     locations: row.locations,
     defaultLocation: row.defaultLocation,
     autoExtractBacklinks: row.autoExtractBacklinks,

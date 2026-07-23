@@ -1,5 +1,6 @@
-import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
-import type { AdsActivationEntityType, AdsActivationGrantState, AdsActivationManifest, AdsOperationStepState, AdsReconcileFields, BacklinkSource, ContentBriefDto, DiscoveryCompetitorMapEntry, DiscoveryCompetitorType, AiReferralTrafficClass, LocationContext, ProviderModels, ProviderName, SiteAuditCrossCuttingIssueDto, SiteAuditFactorSummaryDto, SiteAuditPageFactorDto } from '@ainyc/canonry-contracts'
+import { sql } from 'drizzle-orm'
+import { check, index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
+import type { AdsActivationEntityType, AdsActivationGrantState, AdsActivationManifest, AdsOperationStepState, AdsReconcileFields, BacklinkSource, ContentBriefDto, DiscoveryCompetitorMapEntry, DiscoveryCompetitorType, AiReferralTrafficClass, LocationContext, ProviderModels, ProviderName, SiteAuditCrossCuttingIssueDto, SiteAuditFactorSummaryDto, SiteAuditPageFactorDto, MeasurementConfig, GaLeadAttributionScope, GaMeasurementComponentStatus } from '@ainyc/canonry-contracts'
 
 export const projects = sqliteTable('projects', {
   id: text('id').primaryKey(),
@@ -14,6 +15,11 @@ export const projects = sqliteTable('projects', {
   labels: text('labels', { mode: 'json' }).$type<Record<string, string>>().notNull().default({}),
   providers: text('providers', { mode: 'json' }).$type<string[]>().notNull().default([]),
   providerModels: text('provider_models', { mode: 'json' }).$type<ProviderModels>().notNull().default({}),
+  measurement: text('measurement_config', { mode: 'json' }).$type<MeasurementConfig>().notNull().default({
+    marketingHosts: [],
+    brandTerms: [],
+    leadEventNames: ['generate_lead'],
+  }),
   locations: text('locations', { mode: 'json' }).$type<LocationContext[]>().notNull().default([]),
   defaultLocation: text('default_location'),
   autoExtractBacklinks: integer('auto_extract_backlinks', { mode: 'boolean' }).notNull().default(false),
@@ -523,6 +529,102 @@ export const gaDailyTotals = sqliteTable('ga_daily_totals', {
   uniqueIndex('idx_ga_daily_totals_project_date').on(table.projectId, table.date),
   index('idx_ga_daily_totals_project').on(table.projectId),
   index('idx_ga_daily_totals_run').on(table.syncRunId),
+])
+
+export const gaAcquisitionDaily = sqliteTable('ga_acquisition_daily', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  date: text('date').notNull(),
+  channelGroup: text('channel_group').notNull(),
+  source: text('source').notNull(),
+  medium: text('medium').notNull(),
+  hostName: text('host_name').notNull(),
+  landingPage: text('landing_page').notNull(),
+  landingPageNormalized: text('landing_page_normalized'),
+  sessions: integer('sessions').notNull().default(0),
+  syncedAt: text('synced_at').notNull(),
+  syncRunId: text('sync_run_id').references(() => runs.id, { onDelete: 'cascade' }),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_ga_acquisition_daily_grain').on(
+    table.projectId,
+    table.date,
+    table.channelGroup,
+    table.source,
+    table.medium,
+    table.hostName,
+    table.landingPage,
+  ),
+  index('idx_ga_acquisition_daily_project_date').on(table.projectId, table.date),
+  index('idx_ga_acquisition_daily_project_channel').on(table.projectId, table.date, table.channelGroup),
+  index('idx_ga_acquisition_daily_project_page').on(table.projectId, table.date, table.landingPageNormalized),
+  check('chk_ga_acquisition_daily_sessions', sql`${table.sessions} >= 0`),
+])
+
+export const gaLeadEventsDaily = sqliteTable('ga_lead_events_daily', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  date: text('date').notNull(),
+  eventName: text('event_name').notNull(),
+  channelGroup: text('channel_group').notNull(),
+  source: text('source').notNull(),
+  medium: text('medium').notNull(),
+  hostName: text('host_name').notNull(),
+  landingPage: text('landing_page').notNull(),
+  landingPageNormalized: text('landing_page_normalized'),
+  attributionScope: text('attribution_scope').$type<GaLeadAttributionScope>().notNull(),
+  eventCount: integer('event_count').notNull().default(0),
+  syncedAt: text('synced_at').notNull(),
+  syncRunId: text('sync_run_id').references(() => runs.id, { onDelete: 'cascade' }),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_ga_lead_events_daily_grain').on(
+    table.projectId,
+    table.date,
+    table.eventName,
+    table.channelGroup,
+    table.source,
+    table.medium,
+    table.hostName,
+    table.landingPage,
+    table.attributionScope,
+  ),
+  index('idx_ga_lead_events_daily_project_date').on(table.projectId, table.date),
+  index('idx_ga_lead_events_daily_project_channel').on(table.projectId, table.date, table.channelGroup),
+  index('idx_ga_lead_events_daily_project_event').on(table.projectId, table.date, table.eventName),
+  index('idx_ga_lead_events_daily_project_page').on(table.projectId, table.date, table.landingPageNormalized),
+  check('chk_ga_lead_events_daily_count', sql`${table.eventCount} >= 0`),
+  check(
+    'chk_ga_lead_events_daily_scope',
+    sql`${table.attributionScope} IN ('landing-page', 'channel')`,
+  ),
+])
+
+export const gaMeasurementSyncStates = sqliteTable('ga_measurement_sync_state', {
+  projectId: text('project_id').primaryKey().references(() => projects.id, { onDelete: 'cascade' }),
+  acquisitionStatus: text('acquisition_status').$type<GaMeasurementComponentStatus>()
+    .notNull().default('never-synced'),
+  acquisitionError: text('acquisition_error'),
+  acquisitionSyncedAt: text('acquisition_synced_at'),
+  leadStatus: text('lead_status').$type<GaMeasurementComponentStatus>()
+    .notNull().default('never-synced'),
+  leadError: text('lead_error'),
+  leadSyncedAt: text('lead_synced_at'),
+  leadAttributionScope: text('lead_attribution_scope').$type<GaLeadAttributionScope>(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  check(
+    'chk_ga_measurement_sync_acquisition_status',
+    sql`${table.acquisitionStatus} IN ('never-synced', 'ready', 'error')`,
+  ),
+  check(
+    'chk_ga_measurement_sync_lead_status',
+    sql`${table.leadStatus} IN ('never-synced', 'ready', 'error')`,
+  ),
+  check(
+    'chk_ga_measurement_sync_lead_scope',
+    sql`${table.leadAttributionScope} IS NULL OR ${table.leadAttributionScope} IN ('landing-page', 'channel')`,
+  ),
 ])
 
 export const gaAiReferrals = sqliteTable('ga_ai_referrals', {

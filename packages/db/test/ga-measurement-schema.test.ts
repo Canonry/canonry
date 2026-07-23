@@ -14,7 +14,7 @@ import {
   projects,
 } from '../src/index.js'
 
-const V108 = 108
+const V109 = 109
 type Db = ReturnType<typeof createClient>
 
 function tempDb(prefix: string, versions = MIGRATION_VERSIONS) {
@@ -39,10 +39,10 @@ function seedProject(db: Db, id = 'project_1') {
   }).run()
 }
 
-test('v108 adds backward-compatible project measurement defaults and all measurement tables', () => {
+test('v109 adds backward-compatible project measurement defaults and all measurement tables', () => {
   const db = tempDb(
     'canonry-ga-measurement-upgrade-',
-    MIGRATION_VERSIONS.filter(migration => migration.version < V108),
+    MIGRATION_VERSIONS.filter(migration => migration.version < V109),
   )
 
   db.run(sql`
@@ -76,7 +76,7 @@ test('v108 adds backward-compatible project measurement defaults and all measure
     'ga_lead_events_daily',
     'ga_measurement_sync_state',
   ]))
-  expect(MIGRATION_VERSIONS.find(migration => migration.version === V108)?.name)
+  expect(MIGRATION_VERSIONS.find(migration => migration.version === V109)?.name)
     .toBe('ga-measurement-foundation')
 })
 

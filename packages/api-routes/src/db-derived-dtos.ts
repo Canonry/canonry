@@ -53,6 +53,7 @@ import {
 import {
   configSourceSchema,
   locationContextSchema,
+  measurementConfigSchema,
   notificationEventSchema,
   providerNameSchema,
   runKindSchema,
@@ -74,6 +75,7 @@ export const projectRowSchema = createSelectSchema(projects, {
   labels: z.record(z.string(), z.string()),
   providers: z.array(z.string()),
   providerModels: z.record(z.string(), z.string()),
+  measurement: measurementConfigSchema,
   locations: z.array(locationContextSchema),
   // text column → narrow to the configSource enum
   configSource: configSourceSchema,

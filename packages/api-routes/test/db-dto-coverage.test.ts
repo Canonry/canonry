@@ -404,6 +404,18 @@ const COVERAGE: Record<string, CoverageEntry> = {
     dto: ga4ConnectionDtoSchema,
     internal: {},
   },
+  gaAcquisitionDaily: {
+    kind: 'internal-only',
+    reason: 'Typed GA4 acquisition foundation; its public read model lands in the follow-up measurement API PR.',
+  },
+  gaLeadEventsDaily: {
+    kind: 'internal-only',
+    reason: 'Typed GA4 attributed lead-event foundation; its public read model lands in the follow-up measurement API PR.',
+  },
+  gaMeasurementSyncStates: {
+    kind: 'internal-only',
+    reason: 'Component-level sync completeness and error state backing the follow-up measurement API.',
+  },
   gaDailyTotals: {
     kind: 'internal-only',
     reason: 'Property-level daily GA4 totals (no landing-page dim), the deduplicated `users` source for the session-history response. Backing store only — its values reach callers through that response, not as a direct row DTO. Mirrors gscDailyTotals.',

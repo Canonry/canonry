@@ -7,7 +7,6 @@ import { sql } from 'drizzle-orm'
 import {
   createClient,
   migrate,
-  projects,
   runs,
   MIGRATION_VERSIONS,
   type MigrationVersion,
@@ -42,11 +41,12 @@ function seedRun(db: Db): string {
   const projectId = crypto.randomUUID()
   const runId = crypto.randomUUID()
   const now = '2026-06-01T00:00:00.000Z'
-  db.insert(projects).values({
-    id: projectId, name: `p-${projectId.slice(0, 8)}`, displayName: 'p',
-    canonicalDomain: 'example.com', country: 'US', language: 'en',
-    createdAt: now, updatedAt: now,
-  }).run()
+  db.run(sql`
+    INSERT INTO projects
+      (id, name, display_name, canonical_domain, country, language, created_at, updated_at)
+    VALUES
+      (${projectId}, ${`p-${projectId.slice(0, 8)}`}, 'p', 'example.com', 'US', 'en', ${now}, ${now})
+  `)
   db.insert(runs).values({
     id: runId, projectId, kind: 'answer-visibility', status: 'completed',
     trigger: 'manual', startedAt: now, createdAt: now,

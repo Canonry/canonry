@@ -1,4 +1,4 @@
-import type { ProjectDto } from '@ainyc/canonry-contracts'
+import { DEFAULT_MEASUREMENT_CONFIG, type ProjectDto } from '@ainyc/canonry-contracts'
 
 import type {
   CitationInsightVm,
@@ -45,6 +45,7 @@ const projects: ProjectDto[] = [
     labels: {},
     providers: [],
     providerModels: {},
+    measurement: DEFAULT_MEASUREMENT_CONFIG,
     locations: [],
     defaultLocation: null,
     autoExtractBacklinks: false,
@@ -63,6 +64,7 @@ const projects: ProjectDto[] = [
     labels: {},
     providers: [],
     providerModels: {},
+    measurement: DEFAULT_MEASUREMENT_CONFIG,
     locations: [],
     defaultLocation: null,
     autoExtractBacklinks: false,
@@ -81,6 +83,7 @@ const projects: ProjectDto[] = [
     labels: {},
     providers: [],
     providerModels: {},
+    measurement: DEFAULT_MEASUREMENT_CONFIG,
     locations: [],
     defaultLocation: null,
     autoExtractBacklinks: false,
