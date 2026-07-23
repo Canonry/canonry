@@ -468,6 +468,25 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'post',
+    path: '/api/v1/projects/{name}/research/runs',
+    summary: 'Start an isolated research query batch',
+    description: 'Runs one to fifty ad-hoc queries through one API provider and saves the answer evidence. Research never creates tracked queries, shared runs, snapshots, insights, or notifications.',
+    tags: ['research'], parameters: [nameParameter],
+    requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/ResearchRunCreate' } } } },
+    responses: { 200: jsonResponse('Idempotent request returned its existing research run.', 'ResearchRunDetailDto'), 202: jsonResponse('Research batch queued.', 'ResearchRunDetailDto'), 400: errorResponse('Invalid provider, model, location, or request.'), 404: errorResponse('Project not found.'), 409: errorResponse('Idempotency key was reused with a different payload.'), 422: errorResponse('Research executor is unavailable on this deployment.') },
+  },
+  {
+    method: 'get', path: '/api/v1/projects/{name}/research/runs', summary: 'List saved research query batches', tags: ['research'],
+    parameters: [nameParameter, { name: 'limit', in: 'query', description: 'Max runs, default 20 and maximum 100.', schema: integerSchema }],
+    responses: { 200: jsonResponse('Research runs returned newest first.', 'ResearchRunListDto'), 404: errorResponse('Project not found.') },
+  },
+  {
+    method: 'get', path: '/api/v1/projects/{name}/research/runs/{runId}', summary: 'Get a research query batch and saved answers', tags: ['research'],
+    parameters: [nameParameter, { name: 'runId', in: 'path', required: true, description: 'Research run ID.', schema: stringSchema }],
+    responses: { 200: jsonResponse('Research run detail returned.', 'ResearchRunDetailDto'), 404: errorResponse('Project or research run not found.') },
+  },
+  {
+    method: 'post',
     path: '/api/v1/projects/{name}/locations',
     summary: 'Add a project location',
     tags: ['projects'],

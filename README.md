@@ -83,6 +83,7 @@ One-click copy at [canonry.ai](https://canonry.ai).
 | Why did my first audit fail? | Run `cnry doctor`, then reopen `/setup`; it checks provider keys and setup blockers before the first sweep. |
 | No results after a run | Visibility checks are async — check the Runs tab or use `cnry run <project> --wait`. |
 | Not sure what queries to test | Setup wizard auto-generates them; expand the basket later with `cnry discover run <project> --icp "..."` — see the [discovery methodology](skills/aero/references/aeo-discovery.md). |
+| Want to test specific queries without tracking them | Use the **Research queries** workflow in Query Discovery, or run `cnry research run <project> "query one" "query two" --wait`. Results and sources are saved separately and never change the tracked basket. |
 | `npm install` fails on `node-gyp` | Install build tools for `better-sqlite3` ([guide](https://github.com/WiseLibs/better-sqlite3/blob/master/docs/troubleshooting.md)). |
 
 ## Provider keys

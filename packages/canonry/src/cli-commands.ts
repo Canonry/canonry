@@ -4,6 +4,7 @@ import { BACKLINKS_CLI_COMMANDS } from './cli-commands/backlinks.js'
 import { BING_CLI_COMMANDS } from './cli-commands/bing.js'
 import { CDP_CLI_COMMANDS } from './cli-commands/cdp.js'
 import { DISCOVER_CLI_COMMANDS } from './cli-commands/discover.js'
+import { RESEARCH_CLI_COMMANDS } from './cli-commands/research.js'
 import { DOCTOR_CLI_COMMANDS } from './cli-commands/doctor.js'
 import { ADS_CLI_COMMANDS } from './cli-commands/ads.js'
 import { GA_CLI_COMMANDS } from './cli-commands/ga.js'
@@ -63,6 +64,7 @@ export const REGISTERED_CLI_COMMANDS: readonly CliCommandSpec[] = [
   ...CONTENT_CLI_COMMANDS,
   ...AGENT_CLI_COMMANDS,
   ...DISCOVER_CLI_COMMANDS,
+  ...RESEARCH_CLI_COMMANDS,
   ...TECHNICAL_AEO_CLI_COMMANDS,
   ...DOCTOR_CLI_COMMANDS,
   ...GET_CLI_COMMANDS,

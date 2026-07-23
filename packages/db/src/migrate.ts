@@ -2387,6 +2387,19 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `CREATE INDEX IF NOT EXISTS idx_gsc_query_daily_totals_run ON gsc_query_daily_totals(sync_run_id)`,
     ],
   },
+  {
+    version: 108,
+    name: 'research-query-runs',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS research_runs (id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE, status TEXT NOT NULL DEFAULT 'queued', provider TEXT NOT NULL, requested_model TEXT, resolved_model TEXT NOT NULL, location TEXT, total_queries INTEGER NOT NULL, completed_queries INTEGER NOT NULL DEFAULT 0, failed_queries INTEGER NOT NULL DEFAULT 0, idempotency_key TEXT, request_hash TEXT, error TEXT, started_at TEXT, finished_at TEXT, created_at TEXT NOT NULL)`,
+      `CREATE INDEX IF NOT EXISTS idx_research_runs_project_created ON research_runs(project_id, created_at)`,
+      `CREATE INDEX IF NOT EXISTS idx_research_runs_status ON research_runs(status)`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_research_runs_project_idempotency ON research_runs(project_id, idempotency_key)`,
+      `CREATE TABLE IF NOT EXISTS research_run_queries (id TEXT PRIMARY KEY, research_run_id TEXT NOT NULL REFERENCES research_runs(id) ON DELETE CASCADE, position INTEGER NOT NULL, query_text TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'queued', requested_model TEXT, resolved_model TEXT NOT NULL, served_model TEXT, answer_text TEXT, grounding_sources TEXT NOT NULL DEFAULT '[]', cited_domains TEXT NOT NULL DEFAULT '[]', search_queries TEXT NOT NULL DEFAULT '[]', answer_mentioned INTEGER, citation_state TEXT, raw_response TEXT, error TEXT, started_at TEXT, finished_at TEXT, created_at TEXT NOT NULL)`,
+      `CREATE INDEX IF NOT EXISTS idx_research_run_queries_run ON research_run_queries(research_run_id)`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_research_run_queries_run_position ON research_run_queries(research_run_id, position)`,
+    ],
+  },
 ]
 
 /**

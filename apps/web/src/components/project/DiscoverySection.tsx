@@ -21,10 +21,52 @@ import { addToast } from '../../lib/toast-store.js'
 import { Button } from '../ui/button.js'
 import { Card } from '../ui/card.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
+import { ResearchQueriesSection } from './ResearchQueriesSection.js'
 
 const ACTIVE_DISCOVERY_STATUSES = new Set<DiscoverySessionDto['status']>(['queued', 'seeding', 'probing'])
 
 export function DiscoverySection({ projectName }: { projectName: string }) {
+  const [workflow, setWorkflow] = useState<'find' | 'research'>('find')
+
+  return (
+    <section className="page-section-divider">
+      <div className="section-head section-head-inline">
+        <div>
+          <p className="eyebrow eyebrow-soft">Query discovery</p>
+          <h2>Explore the questions that matter</h2>
+          <p className="mt-1 max-w-3xl text-sm leading-6 text-muted">
+            Find query ideas from an ideal customer profile, or run a focused research batch without changing what this project tracks.
+          </p>
+        </div>
+      </div>
+      <div className="inline-flex rounded-md border border-default bg-surface p-1" role="tablist" aria-label="Query discovery workflow">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={workflow === 'find'}
+          className={`rounded px-3 py-1.5 text-sm font-medium transition-colors ${workflow === 'find' ? 'bg-bg-elevated text-heading shadow-sm' : 'text-muted hover:text-strong'}`}
+          onClick={() => setWorkflow('find')}
+        >
+          Find queries
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={workflow === 'research'}
+          className={`rounded px-3 py-1.5 text-sm font-medium transition-colors ${workflow === 'research' ? 'bg-bg-elevated text-heading shadow-sm' : 'text-muted hover:text-strong'}`}
+          onClick={() => setWorkflow('research')}
+        >
+          Research queries
+        </button>
+      </div>
+      <div className="mt-4">
+        {workflow === 'find' ? <FindQueriesSection projectName={projectName} /> : <ResearchQueriesSection projectName={projectName} />}
+      </div>
+    </section>
+  )
+}
+
+function FindQueriesSection({ projectName }: { projectName: string }) {
   const queryClient = useQueryClient()
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
   const [icpDescription, setIcpDescription] = useState('')
@@ -175,10 +217,10 @@ export function DiscoverySection({ projectName }: { projectName: string }) {
   }
 
   return (
-    <section className="page-section-divider">
+    <>
       <div className="section-head section-head-inline">
         <div>
-          <p className="eyebrow eyebrow-soft">Discovery</p>
+          <p className="eyebrow eyebrow-soft">Find queries</p>
           <h2>Find new queries to track</h2>
           <p className="mt-1 max-w-3xl text-sm leading-6 text-muted">
             {isEmbed()
@@ -429,7 +471,7 @@ export function DiscoverySection({ projectName }: { projectName: string }) {
           </Card>
         </div>
       </div>
-    </section>
+    </>
   )
 }
 

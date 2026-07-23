@@ -1674,6 +1674,90 @@ export type DiscoverySessionDto = {
     createdAt: string;
 };
 
+export type ResearchRunCreate = {
+    queries: Array<string>;
+    provider?: string;
+    model?: string;
+    location?: {
+        label: string;
+        city: string;
+        region: string;
+        country: string;
+        timezone?: string;
+    } | null;
+    idempotencyKey?: string;
+};
+
+export type ResearchRunDetailDto = {
+    id: string;
+    projectId: string;
+    status: 'queued' | 'running' | 'completed' | 'partial' | 'failed';
+    provider: string;
+    requestedModel: string | null;
+    resolvedModel: string;
+    location: {
+        label: string;
+        city: string;
+        region: string;
+        country: string;
+        timezone?: string;
+    } | null;
+    totalQueries: number;
+    completedQueries: number;
+    failedQueries: number;
+    error: string | null;
+    startedAt: string | null;
+    finishedAt: string | null;
+    createdAt: string;
+    queries: Array<{
+        id: string;
+        position: number;
+        query: string;
+        status: 'queued' | 'running' | 'completed' | 'failed';
+        requestedModel: string | null;
+        resolvedModel: string;
+        servedModel: string | null;
+        answerText: string | null;
+        groundingSources: Array<{
+            uri: string;
+            title: string;
+        }>;
+        citedDomains: Array<string>;
+        searchQueries: Array<string>;
+        answerMentioned: boolean | null;
+        citationState: 'cited' | 'not-cited';
+        error: string | null;
+        startedAt: string | null;
+        finishedAt: string | null;
+        createdAt: string;
+    }>;
+};
+
+export type ResearchRunListDto = {
+    runs: Array<{
+        id: string;
+        projectId: string;
+        status: 'queued' | 'running' | 'completed' | 'partial' | 'failed';
+        provider: string;
+        requestedModel: string | null;
+        resolvedModel: string;
+        location: {
+            label: string;
+            city: string;
+            region: string;
+            country: string;
+            timezone?: string;
+        } | null;
+        totalQueries: number;
+        completedQueries: number;
+        failedQueries: number;
+        error: string | null;
+        startedAt: string | null;
+        finishedAt: string | null;
+        createdAt: string;
+    }>;
+};
+
 export type DoctorReportDto = {
     scope: 'global' | 'project';
     /**
@@ -4406,6 +4490,121 @@ export type GetApiV1ProjectsByNameDeletePreviewResponses = {
 };
 
 export type GetApiV1ProjectsByNameDeletePreviewResponse = GetApiV1ProjectsByNameDeletePreviewResponses[keyof GetApiV1ProjectsByNameDeletePreviewResponses];
+
+export type GetApiV1ProjectsByNameResearchRunsData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Max runs, default 20 and maximum 100.
+         */
+        limit?: number;
+    };
+    url: '/api/v1/projects/{name}/research/runs';
+};
+
+export type GetApiV1ProjectsByNameResearchRunsErrors = {
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameResearchRunsError = GetApiV1ProjectsByNameResearchRunsErrors[keyof GetApiV1ProjectsByNameResearchRunsErrors];
+
+export type GetApiV1ProjectsByNameResearchRunsResponses = {
+    /**
+     * Research runs returned newest first.
+     */
+    200: ResearchRunListDto;
+};
+
+export type GetApiV1ProjectsByNameResearchRunsResponse = GetApiV1ProjectsByNameResearchRunsResponses[keyof GetApiV1ProjectsByNameResearchRunsResponses];
+
+export type PostApiV1ProjectsByNameResearchRunsData = {
+    body: ResearchRunCreate;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/research/runs';
+};
+
+export type PostApiV1ProjectsByNameResearchRunsErrors = {
+    /**
+     * Invalid provider, model, location, or request.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Idempotency key was reused with a different payload.
+     */
+    409: ErrorEnvelope;
+    /**
+     * Research executor is unavailable on this deployment.
+     */
+    422: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameResearchRunsError = PostApiV1ProjectsByNameResearchRunsErrors[keyof PostApiV1ProjectsByNameResearchRunsErrors];
+
+export type PostApiV1ProjectsByNameResearchRunsResponses = {
+    /**
+     * Idempotent request returned its existing research run.
+     */
+    200: ResearchRunDetailDto;
+    /**
+     * Research batch queued.
+     */
+    202: ResearchRunDetailDto;
+};
+
+export type PostApiV1ProjectsByNameResearchRunsResponse = PostApiV1ProjectsByNameResearchRunsResponses[keyof PostApiV1ProjectsByNameResearchRunsResponses];
+
+export type GetApiV1ProjectsByNameResearchRunsByRunIdData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+        /**
+         * Research run ID.
+         */
+        runId: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/research/runs/{runId}';
+};
+
+export type GetApiV1ProjectsByNameResearchRunsByRunIdErrors = {
+    /**
+     * Project or research run not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameResearchRunsByRunIdError = GetApiV1ProjectsByNameResearchRunsByRunIdErrors[keyof GetApiV1ProjectsByNameResearchRunsByRunIdErrors];
+
+export type GetApiV1ProjectsByNameResearchRunsByRunIdResponses = {
+    /**
+     * Research run detail returned.
+     */
+    200: ResearchRunDetailDto;
+};
+
+export type GetApiV1ProjectsByNameResearchRunsByRunIdResponse = GetApiV1ProjectsByNameResearchRunsByRunIdResponses[keyof GetApiV1ProjectsByNameResearchRunsByRunIdResponses];
 
 export type GetApiV1ProjectsByNameLocationsData = {
     body?: never;
