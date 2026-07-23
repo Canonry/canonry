@@ -4,6 +4,7 @@ import {
   gaConnect,
   gaCoverage,
   gaDisconnect,
+  gaMeasurementAnalysis,
   gaSessionHistory,
   gaSocialReferralHistory,
   gaSocialReferralSummary,
@@ -68,6 +69,27 @@ export const GA_CLI_COMMANDS: readonly CliCommandSpec[] = [
       await gaSync(project, {
         days,
         only,
+        format: input.format,
+      })
+    },
+  },
+  {
+    path: ['ga', 'measurement-analysis'],
+    usage: 'canonry ga measurement-analysis <project> [--window 30d|60d|90d] [--host-scope marketing|all] [--path-prefix /blog] [--limit 100] [--format json]',
+    options: {
+      window: stringOption(),
+      'host-scope': stringOption(),
+      'path-prefix': stringOption(),
+      limit: stringOption(),
+    },
+    run: async (input) => {
+      const project = requireProject(input, 'ga.measurement-analysis', 'canonry ga measurement-analysis <project> [--window 30d|60d|90d] [--format json]')
+      const limitValue = getString(input.values, 'limit')
+      await gaMeasurementAnalysis(project, {
+        window: getString(input.values, 'window'),
+        hostScope: getString(input.values, 'host-scope'),
+        pathPrefix: getString(input.values, 'path-prefix'),
+        limit: limitValue ? parseInt(limitValue, 10) : undefined,
         format: input.format,
       })
     },
@@ -176,7 +198,7 @@ export const GA_CLI_COMMANDS: readonly CliCommandSpec[] = [
       unknownSubcommand(input.positionals[0], {
         command: 'ga',
         usage: 'canonry ga <subcommand> <project> [args]',
-        available: ['connect', 'disconnect', 'status', 'sync', 'traffic', 'coverage', 'ai-referral-history', 'social-referral-history', 'session-history', 'social-referral-summary', 'attribution'],
+        available: ['connect', 'disconnect', 'status', 'sync', 'measurement-analysis', 'traffic', 'coverage', 'ai-referral-history', 'social-referral-history', 'session-history', 'social-referral-summary', 'attribution'],
       })
     },
   },

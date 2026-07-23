@@ -24,6 +24,8 @@ import {
   researchRunCreateSchema,
   keywordBatchRequestSchema,
   keywordGenerateRequestSchema,
+  gaMeasurementAnalysisWindowSchema,
+  gaMeasurementHostScopeSchema,
   queryGenerateRequestSchema,
   queryBatchRequestSchema,
   notificationCreateRequestSchema,
@@ -192,6 +194,14 @@ const gaWindowInputSchema = z.object({
 
 const gaTrafficInputSchema = gaWindowInputSchema.extend({
   limit: z.number().int().positive().max(500).optional(),
+})
+
+const gaMeasurementAnalysisInputSchema = z.object({
+  project: projectNameSchema,
+  window: gaMeasurementAnalysisWindowSchema.optional(),
+  hostScope: gaMeasurementHostScopeSchema.optional(),
+  pathPrefix: z.string().min(1).optional(),
+  limit: z.number().int().positive().max(100).optional(),
 })
 
 const queriesInputSchema = z.object({
@@ -1188,6 +1198,20 @@ export const canonryMcpTools = [
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/ga/status'],
     handler: (client, input) => client.gaStatus(input.project),
+  }),
+  defineTool({
+    name: 'canonry_ga_measurement_analysis',
+    title: 'Analyze GA acquisition and search demand',
+    description: 'Compare native GA4 channels and lead events with branded/non-brand Search Console demand over fixed 30-day cohorts.',
+    access: 'read',
+    tier: 'ga',
+    inputSchema: gaMeasurementAnalysisInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/ga/measurement-analysis'],
+    handler: (client, input) => client.gaMeasurementAnalysis(
+      input.project,
+      compactStringParams(input, ['window', 'hostScope', 'pathPrefix', 'limit']),
+    ),
   }),
   defineTool({
     name: 'canonry_ga_traffic',
