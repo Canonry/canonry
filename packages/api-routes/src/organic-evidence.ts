@@ -151,7 +151,7 @@ export function buildOrganicEvidence(
     clicks: Math.max(0, propertyTotals.clicks - namedBrand.clicks - namedNonBrand.clicks),
     impressions: Math.max(0, propertyTotals.impressions - namedBrand.impressions - namedNonBrand.impressions),
   }
-  const gsc = gscRows.length ? {
+  let gsc = gscRows.length ? {
     propertyTotals,
     namedBrand,
     namedNonBrand,
@@ -161,6 +161,13 @@ export function buildOrganicEvidence(
       totals: sumSearchRows(gscRows.filter(row => inRange(row.date, cohort.startDate, cohort.endDate))),
     })),
   } : null
+
+  if (gsc && measurement.searchDemand.status === "ready") {
+    const totals = (classification: "branded" | "non-branded") => measurement.searchDemand.queries.filter(row => row.classification === classification).reduce((sum, row) => ({ clicks: sum.clicks + row.periods.reduce((inner, period) => inner + period.clicks, 0), impressions: sum.impressions + row.periods.reduce((inner, period) => inner + period.impressions, 0) }), zero())
+    const namedBrand = totals("branded")
+    const namedNonBrand = totals("non-branded")
+    gsc = { ...gsc, namedBrand, namedNonBrand, suppressedOrUnreportedResidual: { clicks: Math.max(0, gsc.propertyTotals.clicks - namedBrand.clicks - namedNonBrand.clicks), impressions: Math.max(0, gsc.propertyTotals.impressions - namedBrand.impressions - namedNonBrand.impressions) } }
+  }
 
   const pageSearchRows = db.select().from(gscSearchData)
     .where(eq(gscSearchData.projectId, project.id)).all()
@@ -172,7 +179,7 @@ export function buildOrganicEvidence(
   }))
 
   if (measurement.searchDemand.status === "ready") {
-    blogGscCohorts = measurement.searchDemand.periods.map((period, index) => ({ ...cohorts[index]!, totals: measurement.searchDemand.pages.filter(page => isBlogPath(page.landingPage)).reduce((sum, page) => ({ clicks: sum.clicks + (page.periods[index]?.clicks ?? 0), impressions: sum.impressions + (page.periods[index]?.impressions ?? 0) }), zero()) }))
+    blogGscCohorts = measurement.searchDemand.periods.map((_period, index) => ({ ...cohorts[index]!, totals: measurement.searchDemand.pages.filter(page => isBlogPath(page.landingPage)).reduce((sum, page) => ({ clicks: sum.clicks + (page.periods[index]?.clicks ?? 0), impressions: sum.impressions + (page.periods[index]?.impressions ?? 0) }), zero()) }))
   }
 
   const gaWindow = gaRows.filter(row => isInWindow(row.date))
@@ -200,6 +207,7 @@ export function buildOrganicEvidence(
   const nativeAcquisition = measurement.acquisition
   const nativeOrganicRows = nativeAcquisition.status === "never-synced" ? [] : db.select().from(gaAcquisitionDaily).where(eq(gaAcquisitionDaily.projectId, project.id)).all().filter(row => row.channelGroup === "Organic Search" && [project.canonicalDomain, ...project.ownedDomains, ...project.measurement.marketingHosts].some(candidate => { const current = row.hostName.toLowerCase().replace("www.", ""); const target = candidate.toLowerCase().replace("www.", ""); return current === target || current.endsWith("." + target) }))
   if (nativeAcquisition.status !== 'never-synced') {
+    gaCoverage = sourceCoverage(nativeOrganicRows.map(row => row.date))
     const organic = nativeAcquisition.channels.find(row => row.channelGroup === 'Organic Search')
     const blogPages = nativeOrganicRows.filter(row => isBlogPath(row.landingPageNormalized ?? row.landingPage))
     ga4 = { organicSessions: organic?.periods.reduce((sum, row) => sum + row.sessions, 0) ?? 0, blogOrganicSessions: blogPages.reduce((sum, page) => sum + page.sessions, 0), cohorts: nativeAcquisition.periods.map((_row, index) => ({ ...cohorts[index]!, organicSessions: organic?.periods[index]?.sessions ?? 0 })) }
