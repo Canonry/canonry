@@ -55,66 +55,6 @@ cnry project update my-site --provider gemini --provider-model gemini=gemini-2.5
 cnry project update my-site --clear-provider-model gemini
 ```
 
-## Manage ChatGPT ads with human control
-
-Connect an OpenAI Ads Manager account to bring its account state, integrity review,
-conversion pixels and event settings, campaign structure, and paid-performance
-rollups into the same project as your organic AEO evidence.
-
-```bash
-cnry ads connect my-site --api-key <ads-manager-sdk-key>
-cnry ads sync my-site
-cnry ads account my-site
-cnry ads summary my-site
-```
-
-Canonry and your agent can inspect the live account, look up geo targets, prepare
-campaigns, ad groups, and ChatGPT chat-card ads in a paused state, and keep durable
-operation receipts for reconciliation. Activation is deliberately separate: a human
-approves one exact campaign tree, then a scoped executor may launch only that approved
-tree. This keeps spend-bearing changes reviewable and recoverable instead of granting
-an agent unrestricted access to your ad account. See the [MCP tool surface](docs/mcp.md#tool-surface)
-for the complete agent workflow and safety model.
-
-## Use the native Codex or Claude Code plugin
-
-The native plugin gives your agent Canonry's operator playbooks and starts the existing `canonry-mcp` adapter. Canonry itself remains the execution and data plane.
-
-Install the runtime. If this is the first initialization, skip the legacy per-project skill and MCP copies:
-
-```bash
-npm install -g @canonry/canonry
-# First initialization only
-cnry init --skip-skills --skip-mcp
-```
-
-Run `cnry init` in a private terminal: it prompts for credentials and prints the
-new full-access API key once. Never paste that output into an agent chat or
-shared log.
-
-Then install the plugin for your client:
-
-```bash
-# Codex
-codex plugin marketplace add Canonry/canonry
-codex plugin add canonry@canonry
-
-# Claude Code
-claude plugin marketplace add Canonry/canonry
-claude plugin install canonry@canonry
-```
-
-Ensure Canonry's local daemon is running, then verify that its advisory doctor
-check sees the enabled plugin:
-
-```bash
-# Only when Canonry is not already running
-cnry start
-cnry doctor --check 'agent.skills.*' --format json
-```
-
-The plugin contains no credentials and declares no hooks or automatic provider calls. It does not expand Canonry's server-enforced key scope, but fresh `cnry init` creates a full-instance `*` key and a write-capable key makes write tools available to the client by default; a read-only key restricts the catalog to reads. Treat the default as teammate-level access to every project and shared setting on that single-tenant instance, and get explicit approval before every mutation or quota-consuming sweep. Existing `cnry skills install` and standalone MCP configuration remain supported; use one integration path per client to avoid duplicate skills or MCP servers. See the [plugin setup and security guide](docs/plugins.md).
-
 ## Or use any shell-capable coding agent
 
 Without the native plugin, drop this into any shell-capable agent. It keeps
