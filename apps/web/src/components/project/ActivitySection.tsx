@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { RefreshCw, Unplug, Upload } from 'lucide-react'
 import {
   Area,
@@ -42,6 +42,7 @@ import {
   getApiV1ProjectsByNameGaSocialReferralHistoryOptions,
   getApiV1ProjectsByNameGaStatusOptions,
   getApiV1ProjectsByNameGaTrafficOptions,
+  getApiV1ProjectsByNameOrganicEvidenceOptions,
 } from '@ainyc/canonry-api-client/react-query'
 import type { ApiGaStatus, ApiGaTraffic, ApiGaTrafficAiLandingPage, ApiGaTrafficPage, ApiGaTrafficReferral, ApiGaSocialReferral, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry } from '../../api.js'
 import { TRAFFIC_STALE_MS } from '../../queries/query-client.js'
@@ -193,6 +194,7 @@ export function ActivitySection({ projectName }: { projectName: string }) {
   return (
     <div className="space-y-10">
       <ServerActivityPanel projectName={projectName} />
+      <OrganicEvidencePanel projectName={projectName} />
       <ClickThroughActivity projectName={projectName} />
     </div>
   )
@@ -1646,4 +1648,40 @@ function SocialChartLegend({
       ))}
     </div>
   )
+}
+
+export function OrganicEvidencePanel({ projectName }: { projectName: string }) {
+  const [period, setPeriod] = useState<60 | 90>(90)
+  const query = useQuery(getApiV1ProjectsByNameOrganicEvidenceOptions({
+    client: heyClient,
+    path: { name: projectName },
+    query: { period },
+  }))
+  const evidence = query.data
+  if (query.isLoading) return <Card className="p-5"><div className="text-sm text-muted">Loading organic growth evidence…</div></Card>
+  if (query.isError || !evidence) return null
+  const measurement = evidence.measurement
+  const labels = measurement.acquisition.periods.map(row => row.label === 'previous' ? 'Previous' : row.label[0]!.toUpperCase() + row.label.slice(1))
+  const table = (name: string, rows: Array<{ label: string; values: number[] }>) => (
+    <div className="overflow-x-auto"><table aria-label={name} className="w-full text-sm"><thead className="bg-bg-elevated/50 text-muted"><tr><th className="px-3 py-2 text-left">Metric</th>{labels.map(label => <th key={label} className="px-3 py-2 text-right">{label}</th>)}</tr></thead><tbody>{rows.map(row => <tr key={row.label} className="border-t border-default"><th scope="row" className="px-3 py-2 text-left font-medium text-primary">{row.label}</th>{row.values.map((value, index) => <td key={index} className="px-3 py-2 text-right tabular-nums">{formatCompact(value)}</td>)}</tr>)}</tbody></table></div>
+  )
+  const blog = evidence.blog
+  const latestDemand = measurement.searchDemand.periods.at(-1)
+  const server = evidence.server
+  return <section aria-labelledby="organic-evidence-heading">
+    <div className="flex items-start justify-between gap-4 mb-3"><div><div className="eyebrow">Organic evidence</div><h2 id="organic-evidence-heading" className="text-lg font-semibold text-primary">Organic growth evidence</h2></div><div className="flex gap-2">{([60, 90] as const).map(days => <Button key={days} type="button" variant={period === days ? 'default' : 'outline'} size="sm" aria-pressed={period === days} onClick={() => setPeriod(days)}>{days} days</Button>)}</div></div>
+    <div className="space-y-4">
+      {measurement.acquisition.status === 'error' && <Card className="p-3 text-sm text-caution"><div>GA4 acquisition sync error: {measurement.acquisition.error ?? 'unknown error'}</div><div>Showing last-good acquisition data</div></Card>}
+      <Card className="p-4">{table('Blog search and traffic cohorts', [
+        { label: 'Impressions', values: blog.gsc?.cohorts.map(row => row.totals.impressions) ?? [] },
+        { label: 'Google clicks', values: blog.gsc?.cohorts.map(row => row.totals.clicks) ?? [] },
+        { label: 'GA4 organic sessions', values: blog.ga4?.cohorts.map(row => row.organicSessions) ?? [] },
+      ])}</Card>
+      <Card className="p-4">{table('GA4 sessions by native channel', measurement.acquisition.channels.map(row => ({ label: row.channelGroup, values: row.periods.map(p => p.sessions) })))}</Card>
+      <Card className="p-4"><div className="mb-2 text-sm text-secondary">{measurement.leads.attributionScope === 'channel' ? 'Channel-level attribution' : 'Landing-page attribution'}</div>{measurement.leads.attributionScope === 'channel' && <div className="mb-2 text-xs text-caution">marketing-host and path filters do not apply</div>}{table('GA4 lead events by cohort', [{ label: 'All measured leads', values: measurement.leads.periods.map(row => row.eventCount) }, ...measurement.leads.channels.map(row => ({ label: row.channelGroup, values: row.periods.map(p => p.eventCount) }))])}</Card>
+      <Card className="p-4">{table('Latest Google search demand mix', [{ label: 'Branded', values: [latestDemand?.brandedClicks ?? 0, latestDemand?.brandedImpressions ?? 0] }, { label: 'Non-branded', values: [latestDemand?.nonBrandedClicks ?? 0, latestDemand?.nonBrandedImpressions ?? 0] }, { label: 'Suppressed or unreported', values: [latestDemand?.unreportedClicks ?? 0, latestDemand?.unreportedImpressions ?? 0] }])}</Card>
+      <Card className="p-4">{table('Server-side AI evidence', [{ label: 'Verified crawler hits', values: [server?.crawlerHits.verified ?? 0] }, { label: 'Verified user fetches', values: [server?.userFetchHits.verified ?? 0] }, { label: 'Organic AI referral sessions', values: [server?.referralSessions.organic ?? 0] }])}</Card>
+      <div className="space-y-2">{evidence.findings.map(finding => <Card key={finding.title} className="p-3"><div className="flex gap-2"><ToneBadge tone={finding.tone}>{finding.tone}</ToneBadge><div><div className="font-medium text-primary">{finding.title}</div><p className="text-sm text-secondary">{finding.detail}</p></div></div></Card>)}{evidence.limitations.filter(item => item.code !== 'lead-channel-scope').map(item => <p key={item.code} className="text-xs text-muted">{item.detail}</p>)}</div>
+    </div>
+  </section>
 }
