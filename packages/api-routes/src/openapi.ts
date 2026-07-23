@@ -306,6 +306,14 @@ const analyticsWindowParameter: OpenApiParameter = {
   schema: { type: 'string', enum: ['7d', '30d', '90d', 'all'] },
 }
 
+const organicEvidencePeriodQueryParameter: OpenApiParameter = {
+  name: 'period',
+  in: 'query',
+  description:
+    'Evidence window in days — 60 or 90 (default 90). Returned as fixed 30-day cohorts ending on the latest date shared by GSC and GA4.',
+  schema: { type: 'integer', enum: [60, 90] },
+}
+
 const reportPeriodQueryParameter: OpenApiParameter = {
   name: 'period',
   in: 'query',
@@ -3780,6 +3788,20 @@ const routeCatalog: OpenApiOperation[] = [
       // TODO: Add `InsightDto` Zod schema in contracts.
       200: rawJsonResponse('Insight dismissed.', looseObjectSchema),
       404: errorResponse('Insight not found.'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/organic-evidence',
+    summary: 'Reconciled organic and AI evidence',
+    tags: ['analytics'],
+    description:
+      'Returns a decision-ready evidence ladder across GSC visibility, GA4 organic sessions, server-observed AI crawling/user fetches/referrals, and the latest answer-visibility sweep. Sources retain their native units, fixed 30-day cohorts share a common anchor, blog paths are broken out explicitly, and coverage gaps and no-lead-attribution caveats are machine-readable.',
+    parameters: [nameParameter, organicEvidencePeriodQueryParameter],
+    responses: {
+      200: jsonResponse('Organic evidence returned.', 'OrganicEvidenceDto'),
+      400: errorResponse('Invalid evidence period.'),
+      404: errorResponse('Project not found.'),
     },
   },
   {

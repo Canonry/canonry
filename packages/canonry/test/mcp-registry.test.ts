@@ -21,6 +21,7 @@ const expectedToolNames = [
   'canonry_project_delete_preview',
   'canonry_project_overview',
   'canonry_report',
+  'canonry_organic_evidence',
   'canonry_analytics_metrics',
   'canonry_analytics_sources',
   'canonry_search',
@@ -196,7 +197,7 @@ describe('MCP tool registry', () => {
     for (const tool of canonryMcpTools) {
       counts.set(tool.tier, (counts.get(tool.tier) ?? 0) + 1)
     }
-    expect(counts.get('monitoring')).toBe(27)
+    expect(counts.get('monitoring')).toBe(28)
     expect(counts.get('setup')).toBe(24)
     expect(counts.get('gsc')).toBe(8)
     expect(counts.get('ga')).toBe(9)

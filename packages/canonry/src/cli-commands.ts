@@ -21,6 +21,7 @@ import { NOTIFY_CLI_COMMANDS } from './cli-commands/notify.js'
 import { OPERATOR_CLI_COMMANDS } from './cli-commands/operator.js'
 import { PROJECT_CLI_COMMANDS } from './cli-commands/project.js'
 import { REPORT_CLI_COMMANDS } from './cli-commands/report.js'
+import { ORGANIC_EVIDENCE_CLI_COMMANDS } from './cli-commands/organic-evidence.js'
 import { RUN_CLI_COMMANDS } from './cli-commands/run.js'
 import { SCHEDULE_CLI_COMMANDS } from './cli-commands/schedule.js'
 import { SETTINGS_CLI_COMMANDS } from './cli-commands/settings.js'
@@ -40,6 +41,7 @@ export const REGISTERED_CLI_COMMANDS: readonly CliCommandSpec[] = [
   ...SYSTEM_CLI_COMMANDS,
   ...PROJECT_CLI_COMMANDS,
   ...REPORT_CLI_COMMANDS,
+  ...ORGANIC_EVIDENCE_CLI_COMMANDS,
   ...QUERY_CLI_COMMANDS,
   ...KEYWORD_CLI_COMMANDS,
   ...KEYS_CLI_COMMANDS,
