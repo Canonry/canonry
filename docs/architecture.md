@@ -161,6 +161,11 @@ The `ProviderRegistry` in `packages/canonry` collects all adapters at startup. W
 3. Calls `normalizeResult()` to convert provider-specific responses to standard `NormalizedQueryResult`
 4. Persists `query_snapshots` — one per query per provider per run
 
+Ad-hoc research uses the same provider adapters through a separate
+`research_runs` → `research_run_queries` executor. It persists returned answer
+evidence and applies the same provider quota guards, but it never creates a
+tracked query, shared run, snapshot, insight, notification, or schedule event.
+
 ## Deployment Model
 
 Canonry ships as a **self-hosted single-process install** — that is the only supported deployment. You run `cnry serve` on your own machine, a VPS, or a container; the SPA, API, job runner, and SQLite database all live in that one process. See [docs/deployment.md](deployment.md) for Docker, Railway, Render, systemd, and Tailscale recipes.

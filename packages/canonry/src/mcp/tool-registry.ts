@@ -21,6 +21,7 @@ import {
   discoveryCompetitorTypeSchema,
   discoveryPromoteRequestSchema,
   discoveryRunRequestSchema,
+  researchRunCreateSchema,
   keywordBatchRequestSchema,
   keywordGenerateRequestSchema,
   queryGenerateRequestSchema,
@@ -508,6 +509,21 @@ const discoverySessionsListInputSchema = z.object({
 const discoverySessionIdInputSchema = z.object({
   project: projectNameSchema,
   sessionId: z.string().min(1).describe('Discovery session ID returned by canonry_discover_run_start.'),
+})
+
+const researchRunStartInputSchema = z.object({
+  project: projectNameSchema,
+  request: researchRunCreateSchema.describe('One shared provider/model/location context for every free-form query in this saved research batch.'),
+})
+
+const researchRunsListInputSchema = z.object({
+  project: projectNameSchema,
+  limit: z.number().int().positive().max(100).optional().describe('Max saved research runs returned. Default 20.'),
+})
+
+const researchRunIdInputSchema = z.object({
+  project: projectNameSchema,
+  runId: z.string().min(1).describe('Research run ID returned by canonry_research_run_start.'),
 })
 
 const discoveryHarvestInputSchema = z.object({
@@ -1826,6 +1842,42 @@ export const canonryMcpTools = [
       await client.deleteNotification(input.project, agentNotification.id)
       return { status: 'detached', project: input.project }
     },
+  }),
+  defineTool({
+    name: 'canonry_research_run_start',
+    title: 'Start research query run',
+    description:
+      'Run a batch of free-form queries once each against one API provider, with an optional exact model and location. Results are saved as a research run for later inspection. This does not add any query to the tracked basket or affect overview tracking.',
+    access: 'write',
+    tier: 'discovery',
+    inputSchema: researchRunStartInputSchema,
+    annotations: writeAnnotations({ idempotentHint: false, openWorldHint: true }),
+    openApiOperations: ['POST /api/v1/projects/{name}/research/runs'],
+    handler: (client, input) => client.startResearchRun(input.project, input.request),
+  }),
+  defineTool({
+    name: 'canonry_research_runs_list',
+    title: 'List research query runs',
+    description:
+      'List saved research query runs for a project, newest first. Research and ICP discovery are distinct workflows: these are direct free-form query experiments and never modify the tracked basket.',
+    access: 'read',
+    tier: 'discovery',
+    inputSchema: researchRunsListInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/research/runs'],
+    handler: (client, input) => client.listResearchRuns(input.project, input.limit === undefined ? undefined : { limit: input.limit }),
+  }),
+  defineTool({
+    name: 'canonry_research_run_get',
+    title: 'Get research query run',
+    description:
+      'Get the saved per-query answers, sources, cited domains, and independent mention/citation results for one research run. It is read-only and does not promote or track any query.',
+    access: 'read',
+    tier: 'discovery',
+    inputSchema: researchRunIdInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/research/runs/{runId}'],
+    handler: (client, input) => client.getResearchRun(input.project, input.runId),
   }),
   defineTool({
     name: 'canonry_discover_run_start',

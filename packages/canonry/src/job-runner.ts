@@ -11,6 +11,7 @@ import type { ProviderRegistry, RegisteredProvider } from './provider-registry.j
 import { trackEvent } from './telemetry.js'
 import { buildRunCompletedProps, hashDomain, type RunPhaseTimings } from './run-telemetry.js'
 import { createLogger } from './logger.js'
+import { ProviderExecutionGate } from './provider-execution-gate.js'
 import {
   computeCompetitorOverlap,
   determineCitationState,
@@ -23,78 +24,6 @@ class RunCancelledError extends Error {
   constructor(runId: string) {
     super(`Run ${runId} was cancelled`)
     this.name = 'RunCancelledError'
-  }
-}
-
-class ProviderExecutionGate {
-  private readonly window: number[] = []
-  private readonly waiters: Array<() => void> = []
-  private rateLimitChain = Promise.resolve()
-  private inFlight = 0
-
-  constructor(
-    private readonly maxConcurrency: number,
-    private readonly maxPerMinute: number,
-  ) {}
-
-  async run<T>(task: () => Promise<T>): Promise<T> {
-    await this.acquire()
-    try {
-      await this.waitForRateLimit()
-      return await task()
-    } finally {
-      this.release()
-    }
-  }
-
-  private async acquire(): Promise<void> {
-    if (this.inFlight < Math.max(1, this.maxConcurrency)) {
-      this.inFlight++
-      return
-    }
-
-    await new Promise<void>((resolve) => {
-      this.waiters.push(resolve)
-    })
-    this.inFlight++
-  }
-
-  private release(): void {
-    this.inFlight = Math.max(0, this.inFlight - 1)
-    const next = this.waiters.shift()
-    next?.()
-  }
-
-  private async waitForRateLimit(): Promise<void> {
-    let releaseChain: (() => void) | undefined
-    const previousChain = this.rateLimitChain
-    this.rateLimitChain = new Promise<void>((resolve) => {
-      releaseChain = resolve
-    })
-
-    await previousChain
-    try {
-      const now = Date.now()
-      const windowStart = now - 60_000
-      while (this.window.length > 0 && this.window[0]! < windowStart) {
-        this.window.shift()
-      }
-
-      if (this.window.length >= this.maxPerMinute) {
-        const oldestInWindow = this.window[0]!
-        const waitMs = oldestInWindow + 60_000 - now + 50
-        await new Promise(resolve => setTimeout(resolve, waitMs))
-        const nowAfterWait = Date.now()
-        const newWindowStart = nowAfterWait - 60_000
-        while (this.window.length > 0 && this.window[0]! < newWindowStart) {
-          this.window.shift()
-        }
-      }
-
-      this.window.push(Date.now())
-    } finally {
-      releaseChain?.()
-    }
   }
 }
 

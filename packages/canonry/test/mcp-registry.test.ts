@@ -117,6 +117,9 @@ const expectedToolNames = [
   'canonry_agent_clear',
   'canonry_agent_webhook_attach',
   'canonry_agent_webhook_detach',
+  'canonry_research_run_start',
+  'canonry_research_runs_list',
+  'canonry_research_run_get',
   'canonry_discover_run_start',
   'canonry_discover_sessions_list',
   'canonry_discover_session_get',
@@ -155,8 +158,8 @@ const expectedToolNames = [
 
 describe('MCP tool registry', () => {
   it('ships the curated v1 surface', () => {
-    expect(CANONRY_MCP_TOOL_COUNT).toBe(135)
-    expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(85)
+    expect(CANONRY_MCP_TOOL_COUNT).toBe(138)
+    expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(87)
     expect(canonryMcpTools.map(tool => tool.name)).toEqual(expectedToolNames)
     const readNames = canonryMcpTools.filter(tool => tool.access === 'read').map(tool => tool.name)
     expect(getCanonryMcpTools('read-only').map(tool => tool.name)).toEqual(readNames)
@@ -200,7 +203,7 @@ describe('MCP tool registry', () => {
     expect(counts.get('ads')).toBe(24)
     expect(counts.get('traffic')).toBe(10)
     expect(counts.get('agent')).toBe(5)
-    expect(counts.get('discovery')).toBe(6)
+    expect(counts.get('discovery')).toBe(9)
   })
 
   it('generates JSON schema from every Zod input schema', () => {
@@ -843,6 +846,9 @@ const handlerCases: HandlerCase[] = [
   { tool: 'canonry_agent_clear', input: projectInput, methods: ['resetAgentTranscript'] },
   { tool: 'canonry_agent_webhook_attach', input: { project: 'acme', url: 'https://agent.example.com/hook' }, methods: ['listNotifications', 'createNotification'] },
   { tool: 'canonry_agent_webhook_detach', input: projectInput, methods: ['listNotifications', 'deleteNotification'], fixture: 'agent-notification' },
+  { tool: 'canonry_research_run_start', input: { project: 'acme', request: { queries: ['best AEO software'], provider: 'openai' } }, methods: ['startResearchRun'] },
+  { tool: 'canonry_research_runs_list', input: { project: 'acme', limit: 5 }, methods: ['listResearchRuns'] },
+  { tool: 'canonry_research_run_get', input: { project: 'acme', runId: 'research-1' }, methods: ['getResearchRun'] },
   { tool: 'canonry_discover_run_start', input: { project: 'acme', request: { icpDescription: 'AEO analyst tool' } }, methods: ['triggerDiscoveryRun'] },
   { tool: 'canonry_discover_sessions_list', input: { project: 'acme', limit: 5 }, methods: ['listDiscoverySessions'] },
   { tool: 'canonry_discover_session_get', input: { project: 'acme', sessionId: 'sess-1' }, methods: ['getDiscoverySession'] },

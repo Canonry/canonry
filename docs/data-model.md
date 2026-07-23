@@ -57,6 +57,8 @@ erDiagram
 
   projects ||--o{ discovery_sessions : has
   discovery_sessions ||--o{ discovery_probes : contains
+  projects ||--o{ research_runs : has
+  research_runs ||--o{ research_run_queries : contains
 ```
 
 ## Table Groups
@@ -70,9 +72,17 @@ erDiagram
 | **competitors** | Competitor domains per project. `provenance` tags origin (`cli`, `discovery:<session_id>`) for the same traceability reason. | Unique: `(projectId, domain)` |
 | **runs** | Visibility sweep executions | FK: projectId → projects |
 | **query_snapshots** | Per-query per-provider results | FK: runId → runs, queryId → queries |
+| **research_runs** | Saved batch header for ad-hoc model research. Isolated from tracked monitoring. | FK: projectId → projects, unique `(projectId, idempotencyKey)` |
+| **research_run_queries** | One persisted answer/evidence result per research batch query. | FK: researchRunId → research_runs, unique `(researchRunId, position)` |
 | **schedules** | Cron schedules (1:1 with project) | Unique: projectId |
 | **notifications** | Alert configurations per project | FK: projectId → projects |
 | **audit_log** | Change tracking | FK: projectId → projects (optional) |
+
+`research_runs` and `research_run_queries` are the durable ad-hoc research
+history. They are deliberately not linked to `queries`, `runs`, or
+`query_snapshots`: a research request never changes the tracked basket or any
+monitoring metric. Deleting a project cascades to its research runs, and
+deleting a research run cascades to its query results.
 
 #### `projects.provider_models`
 

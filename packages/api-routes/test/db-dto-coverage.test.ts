@@ -22,6 +22,8 @@ import {
   contentTargetDismissalDtoSchema,
   discoveryProbeDtoSchema,
   discoverySessionDtoSchema,
+  researchRunQuerySchema,
+  researchRunSummarySchema,
   ga4AiReferralDtoSchema,
   ga4ConnectionDtoSchema,
   ga4SocialReferralDtoSchema,
@@ -467,6 +469,23 @@ const COVERAGE: Record<string, CoverageEntry> = {
     dto: discoveryProbeDtoSchema,
     internal: {
       rawResponse: 'Raw provider payload; internal debugging artifact.',
+    },
+  },
+  researchRuns: {
+    kind: 'dto',
+    dto: researchRunSummarySchema,
+    internal: {
+      idempotencyKey: 'Retry deduplication key is never returned.',
+      requestHash: 'Internal idempotency comparison only.',
+    },
+  },
+  researchRunQueries: {
+    kind: 'dto',
+    dto: researchRunQuerySchema,
+    internal: {
+      researchRunId: 'Implied by the enclosing detail route.',
+      queryText: 'Serialized as the public `query` field.',
+      rawResponse: 'Raw provider payload retained for diagnostics.',
     },
   },
   backlinkDomains: {

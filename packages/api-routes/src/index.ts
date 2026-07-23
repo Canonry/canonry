@@ -62,6 +62,8 @@ import { discoveryRoutes } from './discovery/index.js'
 import type { DiscoveryRoutesOptions } from './discovery/index.js'
 import { technicalAeoRoutes } from './technical-aeo.js'
 import type { TechnicalAeoRoutesOptions } from './technical-aeo.js'
+import { researchRoutes } from './research.js'
+import type { ResearchRoutesOptions } from './research.js'
 import { CheckStatuses, TrafficSourceTypes } from '@ainyc/canonry-contracts'
 import type { AgentPluginState, BundledSkillSnapshot } from '@ainyc/canonry-contracts'
 import type { CheckOutput, TrafficSourceProbe, TrafficSourceValidator } from './doctor/types.js'
@@ -192,6 +194,8 @@ export interface ApiRoutesOptions {
   onTrafficSynced?: TrafficRoutesOptions['onTrafficSynced']
   /** Discovery feature callback — fires after a discovery_sessions row + matching runs row are inserted. */
   onDiscoveryRunRequested?: DiscoveryRoutesOptions['onDiscoveryRunRequested']
+  /** Executes an isolated research batch. Never creates a tracked run or query snapshots. */
+  onResearchRunRequested?: ResearchRoutesOptions['onResearchRunRequested']
   /** Discovery harvest seam — extracts issued search queries (fan-out) from a stored probe payload, provider-shaped. Wire to the provider adapter's extractor. */
   harvestSearchQueries?: DiscoveryRoutesOptions['harvestSearchQueries']
   /** Discovery harvest embed seam — embeds query strings for the semantic novelty pass. Wire to the Gemini embedder; unset/rejecting degrades novelty to exact-match. */
@@ -475,6 +479,11 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       harvestSearchQueries: opts.harvestSearchQueries,
       embedQueries: opts.embedQueries,
     } satisfies DiscoveryRoutesOptions)
+    await api.register(researchRoutes, {
+      providerAdapters: opts.providerAdapters,
+      configuredProviderNames: opts.providerSummary?.filter(provider => provider.configured).map(provider => provider.name),
+      onResearchRunRequested: opts.onResearchRunRequested,
+    } satisfies ResearchRoutesOptions)
     await api.register(technicalAeoRoutes, {
       onSiteAuditRequested: opts.onSiteAuditRequested,
     } satisfies TechnicalAeoRoutesOptions)

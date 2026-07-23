@@ -62,9 +62,9 @@ export const CANONRY_MCP_TOOLKITS: readonly CanonryMcpToolkit[] = [
   },
   {
     name: 'discovery',
-    title: 'Tracked-basket discovery (ICP → buckets)',
-    description: 'Start and inspect discovery sessions. Each session expands an ICP description into a deduped set of representative queries, probes them against Gemini grounding, classifies each probe into cited / aspirational / wasted-surface, and aggregates a competitor map for the project.',
-    whenToLoad: 'Load when the operator wants to expand or audit a project\'s tracked-query basket, audit competitive surface, or preview a promotion plan from a discovery session.',
+    title: 'Query discovery and research',
+    description: 'Two linked workflows: find queries expands an ICP into a promotable tracked-query basket; research queries runs saved free-form experiments against one API model. Research never adds queries to tracking.',
+    whenToLoad: 'Load when the operator wants to find ICP-led candidates for a tracked basket, or research specific free-form queries, model answers, sources, and location effects without changing tracking.',
   },
 ] as const
 

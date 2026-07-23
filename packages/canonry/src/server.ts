@@ -180,6 +180,7 @@ import { ApiClient } from "./client.js";
 import { SnapshotService } from "./snapshot-service.js";
 import { fetchSiteText } from "./site-fetch.js";
 import { createLogger } from "./logger.js";
+import { executeResearchRun } from "./research-runner.js";
 
 const log = createLogger("Server");
 
@@ -2035,6 +2036,11 @@ export async function createServer(opts: {
         .catch((err: unknown) => {
           app.log.error({ runId: input.runId, err }, "Discovery run failed");
         });
+    },
+    onResearchRunRequested: (runId: string, projectId: string) => {
+      executeResearchRun(opts.db, registry, runId, projectId).catch((err: unknown) => {
+        app.log.error({ runId, err }, 'Research run failed');
+      });
     },
     // Read issued search queries (fan-out) back out of a stored probe payload.
     // Discovery is Gemini-only today, so the Gemini extractor handles every

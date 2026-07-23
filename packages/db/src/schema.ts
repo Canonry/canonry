@@ -1050,6 +1050,28 @@ export const discoverySessions = sqliteTable('discovery_sessions', {
   index('idx_discovery_sessions_run').on(table.runId),
 ])
 
+/** Research is intentionally separate from tracked queries, runs, and snapshots. */
+export const researchRuns = sqliteTable('research_runs', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  status: text('status').notNull().default('queued'), provider: text('provider').notNull(),
+  requestedModel: text('requested_model'), resolvedModel: text('resolved_model').notNull(),
+  location: text('location', { mode: 'json' }).$type<LocationContext | null>(),
+  totalQueries: integer('total_queries').notNull(), completedQueries: integer('completed_queries').notNull().default(0), failedQueries: integer('failed_queries').notNull().default(0),
+  idempotencyKey: text('idempotency_key'), requestHash: text('request_hash'), error: text('error'),
+  startedAt: text('started_at'), finishedAt: text('finished_at'), createdAt: text('created_at').notNull(),
+}, (table) => [index('idx_research_runs_project_created').on(table.projectId, table.createdAt), index('idx_research_runs_status').on(table.status), uniqueIndex('idx_research_runs_project_idempotency').on(table.projectId, table.idempotencyKey)])
+
+export const researchRunQueries = sqliteTable('research_run_queries', {
+  id: text('id').primaryKey(), researchRunId: text('research_run_id').notNull().references(() => researchRuns.id, { onDelete: 'cascade' }),
+  position: integer('position').notNull(), queryText: text('query_text').notNull(), status: text('status').notNull().default('queued'),
+  requestedModel: text('requested_model'), resolvedModel: text('resolved_model').notNull(), servedModel: text('served_model'), answerText: text('answer_text'),
+  groundingSources: text('grounding_sources', { mode: 'json' }).$type<import('@ainyc/canonry-contracts').GroundingSource[]>().notNull().default([]),
+  citedDomains: text('cited_domains', { mode: 'json' }).$type<string[]>().notNull().default([]), searchQueries: text('search_queries', { mode: 'json' }).$type<string[]>().notNull().default([]),
+  answerMentioned: integer('answer_mentioned', { mode: 'boolean' }), citationState: text('citation_state'), rawResponse: text('raw_response', { mode: 'json' }).$type<Record<string, unknown> | null>(), error: text('error'),
+  startedAt: text('started_at'), finishedAt: text('finished_at'), createdAt: text('created_at').notNull(),
+}, (table) => [index('idx_research_run_queries_run').on(table.researchRunId), uniqueIndex('idx_research_run_queries_run_position').on(table.researchRunId, table.position)])
+
 export const discoveryProbes = sqliteTable('discovery_probes', {
   id: text('id').primaryKey(),
   sessionId: text('session_id').notNull().references(() => discoverySessions.id, { onDelete: 'cascade' }),
