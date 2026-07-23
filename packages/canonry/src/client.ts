@@ -122,6 +122,8 @@ import type {
   DoctorReportDto,
   ProjectReportDto,
   ReportPeriodDays,
+  OrganicEvidenceDto,
+  OrganicEvidencePeriodDays,
   TrafficSourceDto,
   TrafficSourceDetailDto,
   TrafficSourceListResponse,
@@ -166,6 +168,7 @@ import {
   getApiV1ProjectsByNameOverview,
   getApiV1ProjectsByNameSearch,
   getApiV1ProjectsByNameReport,
+  getApiV1ProjectsByNameOrganicEvidence,
   postApiV1Apply,
   // Queries / keywords / competitors
   getApiV1ProjectsByNameQueries,
@@ -853,6 +856,19 @@ export class ApiClient {
         client: this.heyClient,
         path: { name: project },
         ...(opts?.period !== undefined && { query: { period: opts.period } }),
+      }),
+    )
+  }
+
+  async getOrganicEvidence(
+    project: string,
+    period?: OrganicEvidencePeriodDays,
+  ): Promise<OrganicEvidenceDto> {
+    return this.invoke<OrganicEvidenceDto>(() =>
+      getApiV1ProjectsByNameOrganicEvidence({
+        client: this.heyClient,
+        path: { name: project },
+        ...(period !== undefined && { query: { period } }),
       }),
     )
   }
