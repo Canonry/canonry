@@ -301,6 +301,22 @@ export const trafficEventKindSchema = z.enum(['crawler', 'ai-user-fetch', 'ai-re
 export type TrafficEventKind = z.infer<typeof trafficEventKindSchema>
 export const TrafficEventKinds = trafficEventKindSchema.enum
 
+export const trafficSeriesGranularitySchema = z.enum(['hour', 'day'])
+export type TrafficSeriesGranularity = z.infer<typeof trafficSeriesGranularitySchema>
+export const TrafficSeriesGranularities = trafficSeriesGranularitySchema.enum
+
+export const trafficSeriesPointSchema = z.object({
+  /**
+   * UTC bucket key: an ISO hour for hourly series, or `YYYY-MM-DD` for daily
+   * series. The response includes zero-value buckets across the full window.
+   */
+  bucket: z.string(),
+  crawlerHits: z.number().int().nonnegative(),
+  aiUserFetchHits: z.number().int().nonnegative(),
+  aiReferralHits: z.number().int().nonnegative(),
+})
+export type TrafficSeriesPoint = z.infer<typeof trafficSeriesPointSchema>
+
 export const trafficCrawlerEventEntrySchema = z.object({
   kind: z.literal(TrafficEventKinds.crawler),
   sourceId: z.string(),
@@ -368,6 +384,14 @@ export type TrafficEventEntry = z.infer<typeof trafficEventEntrySchema>
 export const trafficEventsResponseSchema = z.object({
   windowStart: z.string(),
   windowEnd: z.string(),
+  /**
+   * Full-window chart data, aggregated independently from the capped detail
+   * rows below. This prevents dense windows from silently losing old buckets.
+   */
+  series: z.object({
+    granularity: trafficSeriesGranularitySchema,
+    points: z.array(trafficSeriesPointSchema),
+  }),
   totals: z.object({
     /** Total classified-crawler hits across the window. UNCHANGED contract. */
     crawlerHits: z.number().int().nonnegative(),
@@ -386,6 +410,13 @@ export const trafficEventsResponseSchema = z.object({
     aiReferralOrganicHits: z.number().int().nonnegative(),
     /** AI-referral sessions ingested before the classifier shipped; unresolvable, never organic. */
     aiReferralUnknownHits: z.number().int().nonnegative(),
+  }),
+  eventRows: z.object({
+    /** Total detail rows matching the window/source/kind filters before `limit`. */
+    total: z.number().int().nonnegative(),
+    /** Number of newest detail rows included in `events`. */
+    returned: z.number().int().nonnegative(),
+    truncated: z.boolean(),
   }),
   events: z.array(trafficEventEntrySchema),
 })

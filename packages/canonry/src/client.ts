@@ -127,6 +127,7 @@ import type {
   TrafficSourceListResponse,
   TrafficStatusResponse,
   TrafficEventsResponse,
+  TrafficSeriesGranularity,
   TrafficConnectCloudRunRequest,
   TrafficConnectWordpressRequest,
   TrafficConnectVercelRequest,
@@ -2144,7 +2145,7 @@ export class ApiClient {
 
   async trafficListEvents(
     project: string,
-    params?: { since?: string; until?: string; kind?: string; limit?: number; sourceId?: string },
+    params?: { since?: string; until?: string; kind?: string; limit?: number; sourceId?: string; granularity?: TrafficSeriesGranularity },
   ): Promise<TrafficEventsResponse> {
     return this.invoke<TrafficEventsResponse>(() =>
       getApiV1ProjectsByNameTrafficEvents({
@@ -2156,6 +2157,7 @@ export class ApiClient {
           kind: params?.kind,
           limit: params?.limit !== undefined ? String(params.limit) : undefined,
           sourceId: params?.sourceId,
+          granularity: params?.granularity,
         } as never,
       }),
     )

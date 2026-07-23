@@ -3,12 +3,13 @@ import type {
   TrafficBackfillResponse,
   TrafficEventEntry,
   TrafficEventsResponse,
+  TrafficSeriesGranularity,
   TrafficSourceDto,
   TrafficSourceListResponse,
   TrafficStatusResponse,
   TrafficSyncResponse,
 } from '@ainyc/canonry-contracts'
-import { RunStatuses, TrafficEventKinds } from '@ainyc/canonry-contracts'
+import { RunStatuses, TrafficEventKinds, TrafficSeriesGranularities } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { CliError, isMachineFormat } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
@@ -561,6 +562,7 @@ export async function trafficEvents(project: string, opts: {
   until?: string
   limit?: number
   source?: string
+  granularity?: string
   format?: string
 }): Promise<void> {
   if (
@@ -578,10 +580,24 @@ export async function trafficEvents(project: string, opts: {
     })
   }
 
-  const params: { since?: string; until?: string; kind?: string; limit?: number; sourceId?: string } = {}
+  if (
+    opts.granularity
+    && opts.granularity !== TrafficSeriesGranularities.hour
+    && opts.granularity !== TrafficSeriesGranularities.day
+  ) {
+    throw new CliError({
+      code: 'TRAFFIC_INVALID_GRANULARITY',
+      message: `--granularity must be one of: ${TrafficSeriesGranularities.hour}, ${TrafficSeriesGranularities.day}`,
+      displayMessage: `Error: --granularity must be "${TrafficSeriesGranularities.hour}" or "${TrafficSeriesGranularities.day}"`,
+      details: { project, granularity: opts.granularity },
+    })
+  }
+
+  const params: { since?: string; until?: string; kind?: string; limit?: number; sourceId?: string; granularity?: TrafficSeriesGranularity } = {}
   if (opts.kind && opts.kind !== 'all') params.kind = opts.kind
   if (opts.source) params.sourceId = opts.source
   if (opts.limit !== undefined) params.limit = opts.limit
+  if (opts.granularity) params.granularity = opts.granularity as TrafficSeriesGranularity
   if (opts.sinceMinutes !== undefined) {
     const since = new Date(Date.now() - opts.sinceMinutes * 60_000).toISOString()
     params.since = since

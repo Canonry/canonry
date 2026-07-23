@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
 
-import type { TrafficEventKind, TrafficSourceStatus } from '@ainyc/canonry-contracts'
+import type { TrafficEventKind, TrafficSeriesGranularity, TrafficSourceStatus } from '@ainyc/canonry-contracts'
 import { TrafficSourceStatuses } from '@ainyc/canonry-contracts'
 import {
   getApiV1ProjectsByNameTrafficEventsOptions,
@@ -43,6 +43,7 @@ export interface ServerTrafficEventsFilters {
   sourceId?: string
   sinceMinutes?: number
   limit?: number
+  granularity?: TrafficSeriesGranularity
 }
 
 /**
@@ -55,14 +56,16 @@ function paramsForFilters(filters: ServerTrafficEventsFilters): {
   sourceId?: string
   since?: string
   limit?: string
+  granularity?: TrafficSeriesGranularity
 } {
-  const params: { kind?: string; sourceId?: string; since?: string; limit?: string } = {}
+  const params: { kind?: string; sourceId?: string; since?: string; limit?: string; granularity?: TrafficSeriesGranularity } = {}
   if (filters.kind && filters.kind !== 'all') params.kind = filters.kind
   if (filters.sourceId) params.sourceId = filters.sourceId
   if (filters.sinceMinutes !== undefined) {
     params.since = new Date(Date.now() - filters.sinceMinutes * 60_000).toISOString()
   }
   if (filters.limit !== undefined) params.limit = String(filters.limit)
+  if (filters.granularity !== undefined) params.granularity = filters.granularity
   return params
 }
 
@@ -128,7 +131,7 @@ export function useServerTrafficEvents(
   // intent — it just doesn't tick forward on every render frame.
   const stableQuery = useMemo(
     () => paramsForFilters(filters),
-    [filters.kind, filters.sourceId, filters.sinceMinutes, filters.limit],
+    [filters.kind, filters.sourceId, filters.sinceMinutes, filters.limit, filters.granularity],
   )
   return useQuery({
     ...getApiV1ProjectsByNameTrafficEventsOptions({

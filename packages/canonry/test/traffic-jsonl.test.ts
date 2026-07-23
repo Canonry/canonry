@@ -46,6 +46,15 @@ const { trafficEvents, trafficSources, trafficStatus } = await import('../src/co
 const eventsResponse: TrafficEventsResponse = {
   windowStart: '2026-05-01T00:00:00.000Z',
   windowEnd: '2026-05-02T00:00:00.000Z',
+  series: {
+    granularity: 'day',
+    points: [{
+      bucket: '2026-05-01',
+      crawlerHits: 5,
+      aiUserFetchHits: 2,
+      aiReferralHits: 1,
+    }],
+  },
   totals: {
     crawlerHits: 5,
     crawlerContentHits: 3,
@@ -53,7 +62,11 @@ const eventsResponse: TrafficEventsResponse = {
     crawlerSegments: { content: 3, sitemap: 2, robots: 0, asset: 0, other: 0 },
     aiUserFetchHits: 2,
     aiReferralHits: 1,
+    aiReferralPaidHits: 0,
+    aiReferralOrganicHits: 1,
+    aiReferralUnknownHits: 0,
   },
+  eventRows: { total: 2, returned: 2, truncated: false },
   events: [
     {
       kind: 'crawler',
@@ -189,7 +202,19 @@ describe('traffic jsonl output', () => {
       mockTrafficListEvents.mockResolvedValue({
         windowStart: '2026-05-01T00:00:00.000Z',
         windowEnd: '2026-05-02T00:00:00.000Z',
-        totals: { crawlerHits: 0, aiUserFetchHits: 0, aiReferralHits: 0 },
+        series: { granularity: 'day', points: [] },
+        totals: {
+          crawlerHits: 0,
+          crawlerContentHits: 0,
+          crawlerInfraHits: 0,
+          crawlerSegments: { content: 0, sitemap: 0, robots: 0, asset: 0, other: 0 },
+          aiUserFetchHits: 0,
+          aiReferralHits: 0,
+          aiReferralPaidHits: 0,
+          aiReferralOrganicHits: 0,
+          aiReferralUnknownHits: 0,
+        },
+        eventRows: { total: 0, returned: 0, truncated: false },
         events: [],
       } satisfies TrafficEventsResponse)
       const cap = captureStdout(() => trafficEvents('demo', { format: 'jsonl' }))

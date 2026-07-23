@@ -753,7 +753,12 @@ const handlerCases: HandlerCase[] = [
   { tool: 'canonry_traffic_sources_list', input: projectInput, methods: ['trafficListSources'] },
   { tool: 'canonry_traffic_source_get', input: { project: 'acme', sourceId: 'src-1' }, methods: ['trafficGetSource'] },
   { tool: 'canonry_traffic_status', input: projectInput, methods: ['trafficStatus'] },
-  { tool: 'canonry_traffic_events', input: { project: 'acme', kind: 'crawler', limit: 50 }, methods: ['trafficListEvents'] },
+  {
+    tool: 'canonry_traffic_events',
+    input: { project: 'acme', kind: 'crawler', limit: 50, granularity: 'day' },
+    methods: ['trafficListEvents'],
+    expectedArgs: [['acme', { kind: 'crawler', limit: 50, granularity: 'day' }]],
+  },
   {
     tool: 'canonry_traffic_connect_cloud_run',
     input: {
