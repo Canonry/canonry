@@ -197,6 +197,13 @@ function seedNativeMeasurement(ctx: Context) {
     sessions: 10,
   })
   insertAcquisition(ctx, {
+    date: '2026-01-01',
+    channelGroup: 'Organic Search',
+    hostName: 'demand-iq.com',
+    landingPage: '/blog/ancient',
+    sessions: 500,
+  })
+  insertAcquisition(ctx, {
     date: '2026-06-17',
     channelGroup: 'Organic Search',
     hostName: 'demandiq.com',
@@ -271,7 +278,7 @@ function seedNativeMeasurement(ctx: Context) {
   for (const row of [
     { date: '2026-05-20', clicks: 5, impressions: 400 },
     { date: '2026-06-20', clicks: 10, impressions: 500 },
-    { date: GSC_ANCHOR, clicks: 10, impressions: 700 },
+    { date: GSC_ANCHOR, clicks: 211, impressions: 1_720 },
   ]) {
     insertGscProperty(ctx, row)
   }
@@ -285,6 +292,16 @@ function seedNativeMeasurement(ctx: Context) {
     { date: GSC_ANCHOR, query: 'demand intelligence', clicks: 1, impressions: 20 },
   ]) {
     insertGscQuery(ctx, row)
+  }
+  // More than the public query-detail limit proves the compatibility totals
+  // come from the full classified period aggregates, not the top-N rows.
+  for (let index = 0; index < 100; index += 1) {
+    insertGscQuery(ctx, {
+      date: GSC_ANCHOR,
+      query: `nonbrand long tail ${index}`,
+      clicks: 2,
+      impressions: 10,
+    })
   }
   for (const row of [
     {
@@ -430,19 +447,18 @@ describe('organic evidence native measurement reconciliation', () => {
     expect(body.blog.ga4?.cohorts.map(row => row.organicSessions)).toEqual([10, 35, 16])
     expect(body.blog.gsc?.cohorts.map(row => row.totals.impressions)).toEqual([384, 313, 495])
     expect(body.sourceCoverage.ga4).toMatchObject({
-      startDate: '2026-05-20',
+      startDate: '2026-01-01',
       endDate: GA_ANCHOR,
-      observedDays: 3,
+      observedDays: 4,
     })
     expect(body.gsc).toMatchObject({
       namedBrand: { clicks: 18, impressions: 390 },
-      namedNonBrand: { clicks: 7, impressions: 743 },
-      suppressedOrUnreportedResidual: { clicks: 0, impressions: 467 },
+      namedNonBrand: { clicks: 207, impressions: 1_743 },
+      suppressedOrUnreportedResidual: { clicks: 1, impressions: 487 },
     })
-    expect(body.pages).not.toEqual(expect.arrayContaining([
-      expect.objectContaining({ path: '/blog/legacy-decoy' }),
-      expect.objectContaining({ path: '/blog/preview' }),
-    ]))
+    expect(body.pages.map(row => row.path)).not.toContain('/blog/legacy-decoy')
+    expect(body.pages.map(row => row.path)).not.toContain('/blog/preview')
+    expect(body.pages.map(row => row.path)).not.toContain('/blog/ancient')
     expect(body.pages).toContainEqual(expect.objectContaining({
       path: '/blog/new',
       ga4OrganicSessions: 16,
@@ -552,5 +568,21 @@ describe('organic evidence native measurement reconciliation', () => {
       expect.objectContaining({ code: 'legacy-ga-fallback' }),
       expect.objectContaining({ code: 'lead-data-unavailable' }),
     ]))
+  })
+
+  it('keeps native GA coverage and blog cohorts visible without any legacy snapshots', async () => {
+    seedNativeMeasurement(ctx)
+    ctx.db.delete(gaTrafficSnapshots).run()
+
+    const body = await getRawEvidence(ctx)
+
+    expect(body.coverage.ga4).toBe(true)
+    expect(body.sourceCoverage.ga4).toMatchObject({
+      startDate: '2026-01-01',
+      endDate: GA_ANCHOR,
+      observedDays: 4,
+    })
+    expect(body.ga4?.organicSessions).toBe(61)
+    expect(body.blog.ga4?.cohorts.map(row => row.organicSessions)).toEqual([10, 35, 16])
   })
 })
