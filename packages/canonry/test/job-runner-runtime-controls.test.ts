@@ -15,6 +15,7 @@ import type {
 import { createClient, queries, migrate, projects, querySnapshots, runs, usageCounters } from '@ainyc/canonry-db'
 import { JobRunner } from '../src/job-runner.js'
 import { ProviderRegistry } from '../src/provider-registry.js'
+import { getCurrentUsageDay, reserveDailyQueryQuota } from '../src/usage-quota.js'
 
 function createTempDb(prefix: string) {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), prefix))
@@ -127,6 +128,22 @@ test('JobRunner ignores previous-day usage when enforcing maxRequestsPerDay', as
   expect(run?.status).toBe('completed')
   const snapshots = db.select().from(querySnapshots).where(eq(querySnapshots.runId, runId)).all()
   expect(snapshots).toHaveLength(1)
+})
+
+test('JobRunner honors capacity reserved by another run in the shared quota bucket', async () => {
+  const { db } = createTempDb('canonry-job-runner-shared-quota-')
+  const { projectId, runId } = seedRunFixture(db, 1)
+  const period = getCurrentUsageDay()
+  expect(reserveDailyQueryQuota(db, { scope: `${projectId}:gemini`, period, count: 1, limit: 1 }).reserved).toBe(true)
+
+  const registry = new ProviderRegistry()
+  registry.register(buildAdapter(), {
+    provider: 'gemini', apiKey: 'test-key',
+    quotaPolicy: { maxConcurrency: 1, maxRequestsPerMinute: 60, maxRequestsPerDay: 1 },
+  })
+  await new JobRunner(db, registry).executeRun(runId, projectId)
+  expect(db.select().from(runs).where(eq(runs.id, runId)).get()?.status).toBe('failed')
+  expect(db.select().from(querySnapshots).where(eq(querySnapshots.runId, runId)).all()).toHaveLength(0)
 })
 
 test('JobRunner honors per-provider maxConcurrency for API providers', async () => {

@@ -2,15 +2,21 @@ import { createApiClient } from '../client.js'
 import type { ApiClient } from '../client.js'
 import {
   CitationStates,
+  ResearchRunStatuses,
   type LocationContext,
   type ResearchRunCreate,
   type ResearchRunDetailDto,
+  type ResearchRunStatus,
   type ResearchRunSummaryDto,
 } from '@ainyc/canonry-contracts'
 import { CliError, isMachineFormat } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
 
-const TERMINAL_RESEARCH_STATUSES = new Set(['completed', 'partial', 'failed'])
+const TERMINAL_RESEARCH_STATUSES = new Set<ResearchRunStatus>([
+  ResearchRunStatuses.completed,
+  ResearchRunStatuses.partial,
+  ResearchRunStatuses.failed,
+])
 const POLL_INTERVAL_MS = 2000
 const POLL_TIMEOUT_MS = 15 * 60 * 1000
 

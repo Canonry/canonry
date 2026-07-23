@@ -12,6 +12,7 @@ import { trackEvent } from './telemetry.js'
 import { buildRunCompletedProps, hashDomain, type RunPhaseTimings } from './run-telemetry.js'
 import { createLogger } from './logger.js'
 import { ProviderExecutionGate } from './provider-execution-gate.js'
+import { getCurrentUsageDay, releaseDailyQueryQuota, reserveDailyQueryQuota } from './usage-quota.js'
 import {
   computeCompetitorOverlap,
   determineCitationState,
@@ -188,6 +189,7 @@ export class JobRunner {
     let runTrigger: string | undefined
     let canonicalDomain: string | undefined
     const providerDispatchCounts = new Map<ProviderName, number>()
+    const providerReservations = new Map<ProviderName, { scope: string; period: string; reserved: number }>()
 
     try {
       const existingRun = this.getRunState(runId)
@@ -307,20 +309,15 @@ export class JobRunner {
 
       for (const p of activeProviders) {
         const providerScope = `${projectId}:${p.adapter.name}`
-        const providerUsage = this.db
-          .select()
-          .from(usageCounters)
-          .where(eq(usageCounters.scope, providerScope))
-          .all()
-          .filter(r => r.period === todayPeriod && r.metric === 'queries')
-          .reduce((sum, r) => sum + r.count, 0)
         const limit = p.config.quotaPolicy.maxRequestsPerDay
-        if (providerUsage + queriesPerProvider > limit) {
+        const quota = reserveDailyQueryQuota(this.db, { scope: providerScope, period: todayPeriod, count: queriesPerProvider, limit })
+        if (!quota.reserved) {
           throw new Error(
-            `Daily quota exceeded for ${p.adapter.name}: ${providerUsage} queries used today, ` +
+            `Daily quota exceeded for ${p.adapter.name}: ${quota.used} queries used today, ` +
             `limit is ${limit}. This run needs ${queriesPerProvider} more.`,
           )
         }
+        providerReservations.set(p.adapter.name, { scope: providerScope, period: todayPeriod, reserved: queriesPerProvider })
       }
 
       const executionGates = new Map<ProviderName, ProviderExecutionGate>()
@@ -510,7 +507,7 @@ export class JobRunner {
           .run()
       }
 
-      this.flushProviderUsage(projectId, providerDispatchCounts)
+      this.flushProviderUsage(providerDispatchCounts, providerReservations)
 
       // Track run completion telemetry. When providers actually ran but some
       // failed, emit an `errorCode` so dashboards can break down real failures
@@ -556,7 +553,7 @@ export class JobRunner {
       }
 
       if (err instanceof RunCancelledError || this.isRunCancelled(runId)) {
-        this.flushProviderUsage(projectId, providerDispatchCounts)
+        this.flushProviderUsage(providerDispatchCounts, providerReservations)
         this.handleCancelledRun(runId, projectId, startTime, executionContext)
         return
       }
@@ -573,7 +570,7 @@ export class JobRunner {
         .where(eq(runs.id, runId))
         .run()
 
-      this.flushProviderUsage(projectId, providerDispatchCounts)
+      this.flushProviderUsage(providerDispatchCounts, providerReservations)
 
       // Distinguish config-validation aborts (no providers configured, project
       // missing, quota exceeded) from real runtime failures. The former never
@@ -641,11 +638,15 @@ export class JobRunner {
     }).run()
   }
 
-  private flushProviderUsage(projectId: string, providerDispatchCounts: ReadonlyMap<ProviderName, number>): void {
-    for (const [providerName, count] of providerDispatchCounts.entries()) {
-      if (count <= 0) continue
-      this.incrementUsage(`${projectId}:${providerName}`, 'queries', count)
+  private flushProviderUsage(
+    providerDispatchCounts: ReadonlyMap<ProviderName, number>,
+    providerReservations: Map<ProviderName, { scope: string; period: string; reserved: number }>,
+  ): void {
+    for (const [providerName, reservation] of providerReservations.entries()) {
+      const dispatched = providerDispatchCounts.get(providerName) ?? 0
+      releaseDailyQueryQuota(this.db, { scope: reservation.scope, period: reservation.period, count: Math.max(0, reservation.reserved - dispatched) })
     }
+    providerReservations.clear()
   }
 
   private getRunState(runId: string): { status: string; finishedAt: string | null; error: string | null; trigger: string; queries: string[] | null } | undefined {
@@ -713,9 +714,6 @@ export class JobRunner {
   }
 }
 
-function getCurrentUsageDay(): string {
-  return new Date().toISOString().slice(0, 10)
-}
 
 function buildPhases(input: {
   startTime: number

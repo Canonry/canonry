@@ -4,6 +4,7 @@ import path from 'node:path'
 import Fastify from 'fastify'
 import { afterEach, describe, expect, it } from 'vitest'
 import { createClient, migrate, projects, queries, researchRuns, runs } from '@ainyc/canonry-db'
+import { ResearchRunStatuses } from '@ainyc/canonry-contracts'
 import { apiRoutes, type ApiRoutesOptions } from '../src/index.js'
 
 const cleanups: Array<() => void> = []
@@ -30,6 +31,10 @@ describe('research routes', () => {
     expect((await app.inject({ method: 'GET', url: '/api/v1/projects/alpha/research/runs' })).json().runs).toHaveLength(1)
     expect((await app.inject({ method: 'GET', url: `/api/v1/projects/beta/research/runs/${body.id}` })).statusCode).toBe(404)
     expect((await app.inject({ method: 'POST', url: '/api/v1/projects/alpha/research/runs', payload })).statusCode).toBe(200)
+    expect(requested).toEqual([body.id, body.id])
+    db.update(researchRuns).set({ status: ResearchRunStatuses.running }).run()
+    expect((await app.inject({ method: 'POST', url: '/api/v1/projects/alpha/research/runs', payload })).statusCode).toBe(200)
+    expect(requested).toEqual([body.id, body.id])
     expect((await app.inject({ method: 'POST', url: '/api/v1/projects/alpha/research/runs', payload: { ...payload, queries: ['different'] } })).statusCode).toBe(409)
     expect((await app.inject({ method: 'POST', url: '/api/v1/projects/alpha/research/runs', payload: { ...payload, idempotencyKey: undefined, queries: ['same', 'same'] } })).statusCode).toBe(400)
     expect((await app.inject({ method: 'POST', url: '/api/v1/projects/alpha/research/runs', payload: { ...payload, idempotencyKey: undefined, provider: 'claude' } })).statusCode).toBe(400)

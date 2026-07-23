@@ -2,7 +2,7 @@ import crypto from 'node:crypto'
 import { and, desc, eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { researchRunQueries, researchRuns } from '@ainyc/canonry-db'
-import { alreadyExists, isBrowserProvider, missingDependency, notFound, researchRunCreateSchema, validationError, type LocationContext, type ResearchRunDetailDto, type ResearchRunListDto, type ResearchRunQueryDto, type ResearchRunSummaryDto } from '@ainyc/canonry-contracts'
+import { alreadyExists, isBrowserProvider, missingDependency, notFound, ResearchQueryStatuses, ResearchRunStatuses, researchRunCreateSchema, validationError, type LocationContext, type ResearchRunDetailDto, type ResearchRunListDto, type ResearchRunQueryDto, type ResearchRunSummaryDto } from '@ainyc/canonry-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import type { ProviderAdapterInfo } from './settings.js'
 
@@ -43,18 +43,18 @@ export async function researchRoutes(app: FastifyInstance, opts: ResearchRoutesO
         const existing = tx.select().from(researchRuns).where(and(eq(researchRuns.projectId, project.id), eq(researchRuns.idempotencyKey, input.idempotencyKey))).get()
         if (existing) {
           if (existing.requestHash !== requestHash) throw alreadyExists('Research idempotency key', input.idempotencyKey)
-          return { reused: true as const, id: existing.id }
+          return { reused: true as const, id: existing.id, shouldDispatch: existing.status === ResearchRunStatuses.queued }
         }
       }
       const id = crypto.randomUUID()
-      tx.insert(researchRuns).values({ id, projectId: project.id, status: 'queued', provider: providerName, requestedModel, resolvedModel, location: location ?? null, totalQueries: input.queries.length, idempotencyKey: input.idempotencyKey ?? null, requestHash: input.idempotencyKey ? requestHash : null, createdAt: now }).run()
-      for (const [position, query] of input.queries.entries()) tx.insert(researchRunQueries).values({ id: crypto.randomUUID(), researchRunId: id, position, queryText: query, status: 'queued', requestedModel, resolvedModel, groundingSources: [], citedDomains: [], searchQueries: [], createdAt: now }).run()
+      tx.insert(researchRuns).values({ id, projectId: project.id, status: ResearchRunStatuses.queued, provider: providerName, requestedModel, resolvedModel, location: location ?? null, totalQueries: input.queries.length, idempotencyKey: input.idempotencyKey ?? null, requestHash: input.idempotencyKey ? requestHash : null, createdAt: now }).run()
+      for (const [position, query] of input.queries.entries()) tx.insert(researchRunQueries).values({ id: crypto.randomUUID(), researchRunId: id, position, queryText: query, status: ResearchQueryStatuses.queued, requestedModel, resolvedModel, groundingSources: [], citedDomains: [], searchQueries: [], createdAt: now }).run()
       writeAuditLog(tx, { projectId: project.id, actor: 'api', action: 'research.created', entityType: 'research_run', entityId: id })
-      return { reused: false as const, id }
+      return { reused: false as const, id, shouldDispatch: true }
     })
     const result = getDetail(app, project.id, decision.id)
+    if (decision.shouldDispatch) opts.onResearchRunRequested(decision.id, project.id)
     if (decision.reused) return reply.status(200).send(result)
-    opts.onResearchRunRequested(decision.id, project.id)
     return reply.status(202).send(result)
   })
 

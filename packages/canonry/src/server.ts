@@ -17,6 +17,7 @@ import {
   apiKeys,
   auditLog,
   projects,
+  researchRuns,
   runs,
   extractLegacyCredentials,
   dropLegacyCredentialColumns,
@@ -46,6 +47,7 @@ import {
   RunKinds,
   RunStatuses,
   RunTriggers,
+  ResearchRunStatuses,
   adsAccountDtoSchema,
   adsGeoSearchResponseSchema,
   adsConversionPixelListResponseSchema,
@@ -1820,6 +1822,12 @@ export async function createServer(opts: {
     config: opts.config,
   });
 
+  const dispatchResearchRun = (runId: string, projectId: string) => {
+    executeResearchRun(opts.db, registry, runId, projectId).catch((err: unknown) => {
+      app.log.error({ runId, err }, 'Research run failed');
+    });
+  };
+
   await app.register(apiRoutes, {
     db: opts.db,
     routePrefix: apiPrefix,
@@ -2037,11 +2045,7 @@ export async function createServer(opts: {
           app.log.error({ runId: input.runId, err }, "Discovery run failed");
         });
     },
-    onResearchRunRequested: (runId: string, projectId: string) => {
-      executeResearchRun(opts.db, registry, runId, projectId).catch((err: unknown) => {
-        app.log.error({ runId, err }, 'Research run failed');
-      });
-    },
+    onResearchRunRequested: dispatchResearchRun,
     // Read issued search queries (fan-out) back out of a stored probe payload.
     // Discovery is Gemini-only today, so the Gemini extractor handles every
     // probe; the provider arg lets a future multi-provider discovery dispatch.
@@ -2645,6 +2649,14 @@ export async function createServer(opts: {
 
   // Start scheduler after setup
   scheduler.start();
+
+  // A request can commit its queued row just before a process exits, leaving
+  // no in-memory callback to claim it. Re-dispatch every queued batch at boot;
+  // executeResearchRun's queued -> running compare-and-set keeps this safe when
+  // a concurrent retry also asks for execution.
+  for (const run of opts.db.select({ id: researchRuns.id, projectId: researchRuns.projectId }).from(researchRuns).where(eq(researchRuns.status, ResearchRunStatuses.queued)).all()) {
+    dispatchResearchRun(run.id, run.projectId);
+  }
 
   // Graceful shutdown
   app.addHook("onClose", async () => {

@@ -1,7 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ExternalLink, Play } from 'lucide-react'
-import type { ResearchRunDetailDto, ResearchRunQueryDto, ResearchRunStatus } from '@ainyc/canonry-contracts'
+import {
+  ResearchQueryStatuses,
+  ResearchRunStatuses,
+  type ResearchRunDetailDto,
+  type ResearchRunQueryDto,
+  type ResearchRunStatus,
+} from '@ainyc/canonry-contracts'
 
 import { heyClient, isEmbed } from '../../api.js'
 import {
@@ -17,7 +23,10 @@ import { Button } from '../ui/button.js'
 import { Card } from '../ui/card.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
 
-const ACTIVE_RESEARCH_STATUSES = new Set<ResearchRunStatus>(['queued', 'running'])
+const ACTIVE_RESEARCH_STATUSES = new Set<ResearchRunStatus>([
+  ResearchRunStatuses.queued,
+  ResearchRunStatuses.running,
+])
 
 export function ResearchQueriesSection({ projectName }: { projectName: string }) {
   const queryClient = useQueryClient()
@@ -254,8 +263,8 @@ function ResearchRunDetail({ detail, isLoading }: { detail: ResearchRunDetailDto
   const [selectedQueryId, setSelectedQueryId] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!selectedQueryId && detail?.queries[0]) setSelectedQueryId(detail.queries[0].id)
-  }, [detail?.queries, selectedQueryId])
+    setSelectedQueryId(detail?.queries[0]?.id ?? null)
+  }, [detail?.id])
 
   const selected = detail?.queries.find(item => item.id === selectedQueryId) ?? detail?.queries[0] ?? null
 
@@ -280,8 +289,8 @@ function ResearchRunDetail({ detail, isLoading }: { detail: ResearchRunDetailDto
                   <tr key={item.id} className={selected?.id === item.id ? 'bg-bg-elevated/40' : undefined}>
                     <td><button type="button" className="text-left font-medium text-heading hover:text-link focus:outline-none focus:underline" onClick={() => setSelectedQueryId(item.id)}>{item.query}</button></td>
                     <td><ToneBadge tone={toneForResearchQuery(item.status)}>{item.status}</ToneBadge></td>
-                    <td><ToneBadge tone={item.answerMentioned === true ? 'positive' : item.answerMentioned === false ? 'neutral' : item.status === 'failed' ? 'negative' : 'caution'}>{item.answerMentioned === null ? item.status === 'failed' ? 'Unavailable' : 'Pending' : item.answerMentioned ? 'Mentioned' : 'Not mentioned'}</ToneBadge></td>
-                    <td><ToneBadge tone={item.citationState === 'cited' ? 'positive' : item.citationState === 'not-cited' ? 'neutral' : item.status === 'failed' ? 'negative' : 'caution'}>{item.citationState === null ? item.status === 'failed' ? 'Unavailable' : 'Pending' : item.citationState === 'cited' ? 'Cited' : 'Not cited'}</ToneBadge></td>
+                    <td><ToneBadge tone={item.answerMentioned === true ? 'positive' : item.answerMentioned === false ? 'neutral' : item.status === ResearchQueryStatuses.failed ? 'negative' : 'caution'}>{item.answerMentioned === null ? item.status === ResearchQueryStatuses.failed ? 'Unavailable' : 'Pending' : item.answerMentioned ? 'Mentioned' : 'Not mentioned'}</ToneBadge></td>
+                    <td><ToneBadge tone={item.citationState === 'cited' ? 'positive' : item.citationState === 'not-cited' ? 'neutral' : item.status === ResearchQueryStatuses.failed ? 'negative' : 'caution'}>{item.citationState === null ? item.status === ResearchQueryStatuses.failed ? 'Unavailable' : 'Pending' : item.citationState === 'cited' ? 'Cited' : 'Not cited'}</ToneBadge></td>
                   </tr>
                 ))}
               </tbody>
@@ -310,7 +319,7 @@ function ResearchAnswer({ query, isLoading }: { query: ResearchRunQueryDto | nul
           <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-secondary">{query.answerText}</p>
         </div>
       ) : (
-        <p className="text-sm text-muted">{query.status === 'failed' ? 'This query did not return an answer.' : 'The answer will appear here when this query finishes.'}</p>
+        <p className="text-sm text-muted">{query.status === ResearchQueryStatuses.failed ? 'This query did not return an answer.' : 'The answer will appear here when this query finishes.'}</p>
       )}
       {query.groundingSources.length > 0 && (
         <div>
@@ -355,15 +364,15 @@ function shortId(id: string): string {
 }
 
 function toneForResearchRun(status: ResearchRunStatus) {
-  if (status === 'completed') return 'positive'
-  if (status === 'partial') return 'caution'
-  if (status === 'failed') return 'negative'
+  if (status === ResearchRunStatuses.completed) return 'positive'
+  if (status === ResearchRunStatuses.partial) return 'caution'
+  if (status === ResearchRunStatuses.failed) return 'negative'
   return 'neutral'
 }
 
 function toneForResearchQuery(status: ResearchRunQueryDto['status']) {
-  if (status === 'completed') return 'positive'
-  if (status === 'failed') return 'negative'
+  if (status === ResearchQueryStatuses.completed) return 'positive'
+  if (status === ResearchQueryStatuses.failed) return 'negative'
   return 'neutral'
 }
 
