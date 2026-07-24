@@ -10,6 +10,7 @@ import {
   createClient,
   crawlerEventsHourly,
   gaAcquisitionDaily,
+  gaAiReferrals,
   gaLeadEventsDaily,
   gaMeasurementSyncStates,
   gaTrafficSnapshots,
@@ -437,6 +438,8 @@ describe('organic evidence native measurement reconciliation', () => {
     // Parsing through the public contract must retain the agent-consumable
     // native payload, rather than treating it as an untyped route-only field.
     expect(body.measurement).toEqual(raw.measurement)
+    expect(body).not.toHaveProperty('cohorts')
+    expect(body).not.toHaveProperty('blog')
     expect(body.measurement.window).toBe('90d')
     expect(body.measurement.acquisition.channels.map(row => row.channelGroup)).toEqual([
       'Paid Search',
@@ -445,11 +448,11 @@ describe('organic evidence native measurement reconciliation', () => {
     expect(body.measurement.acquisition.channels.map(row => row.channelGroup)).not.toContain('Other')
     expect(body.ga4).toMatchObject({
       organicSessions: 61,
-      blogOrganicSessions: 61,
     })
+    expect(body.ga4).not.toHaveProperty('blogOrganicSessions')
     expect(body.ga4?.cohorts.map(row => row.organicSessions)).toEqual([10, 35, 16])
-    expect(body.blog.ga4?.cohorts.map(row => row.organicSessions)).toEqual([10, 35, 16])
-    expect(body.blog.gsc?.cohorts.map(row => row.totals.impressions)).toEqual([384, 313, 495])
+    expect(body.ga4?.cohorts.at(-1)?.endDate).toBe(GA_ANCHOR)
+    expect(body.gsc?.cohorts.at(-1)?.endDate).toBe(GSC_ANCHOR)
     expect(body.sourceCoverage.ga4).toMatchObject({
       startDate: '2026-01-01',
       endDate: GA_ANCHOR,
@@ -472,22 +475,28 @@ describe('organic evidence native measurement reconciliation', () => {
     expect(body.limitations).toContainEqual(expect.objectContaining({
       code: 'lead-attribution-not-causal',
     }))
+    expect(body.limitations).toContainEqual(expect.objectContaining({
+      code: 'source-specific-cohort-anchors',
+    }))
   })
 
   it('turns visibility, traffic, lead, and paid-assisted clues into bounded findings', async () => {
     seedNativeMeasurement(ctx)
+    ctx.db.delete(gscDailyTotals).run()
+    insertGscProperty(ctx, { date: '2026-06-20', clicks: 10, impressions: 500 })
+    insertGscProperty(ctx, { date: GSC_ANCHOR, clicks: 8, impressions: 700 })
 
     const body = await getRawEvidence(ctx)
 
     expect(body.findings).toContainEqual(expect.objectContaining({
       tone: 'positive',
-      title: 'Blog search visibility increased',
-      detail: expect.stringContaining('495 in the latest cohort versus 313 prior'),
+      title: 'Search visibility increased',
+      detail: expect.stringContaining('700 in the latest cohort versus 500 prior'),
     }))
     expect(body.findings).toContainEqual(expect.objectContaining({
       tone: 'caution',
-      title: 'Blog clicks have not followed visibility yet',
-      detail: expect.stringContaining('0 Google clicks in the latest cohort versus 4 prior'),
+      title: 'Search clicks have not followed visibility yet',
+      detail: expect.stringContaining('8 Google clicks in the latest cohort versus 10 prior'),
     }))
     expect(body.findings).toContainEqual(expect.objectContaining({
       tone: 'neutral',
@@ -497,31 +506,31 @@ describe('organic evidence native measurement reconciliation', () => {
     expect(body.findings).toContainEqual(expect.objectContaining({
       tone: 'neutral',
       title: 'Paid-assisted brand search remains plausible',
-      detail: expect.stringMatching(/59 Paid Search sessions.*9 branded clicks.*not proof/i),
+      detail: expect.stringMatching(/59 Paid Search sessions.*2026-06-23 to 2026-07-22.*9 branded clicks.*2026-06-21 to 2026-07-20.*not proof/i),
     }))
+    expect(body.findings.find(row => row.title === 'Paid-assisted brand search remains plausible')?.detail)
+      .not.toMatch(/coincide/i)
   })
 
   it.each([
     { label: 'unchanged at zero', priorImpressions: 0, latestImpressions: 0 },
     { label: 'declining', priorImpressions: 100, latestImpressions: 50 },
-  ])('does not claim clicks lagged visibility when blog impressions are $label', async ({
+  ])('does not claim clicks lagged visibility when sitewide impressions are $label', async ({
     priorImpressions,
     latestImpressions,
   }) => {
     seedNativeMeasurement(ctx)
-    ctx.db.delete(gscSearchData).run()
+    ctx.db.delete(gscDailyTotals).run()
     if (priorImpressions > 0) {
-      insertGscPage(ctx, {
+      insertGscProperty(ctx, {
         date: '2026-06-20',
-        page: 'https://demand-iq.com/blog/prior',
         clicks: 4,
         impressions: priorImpressions,
       })
     }
     if (latestImpressions > 0) {
-      insertGscPage(ctx, {
+      insertGscProperty(ctx, {
         date: GSC_ANCHOR,
-        page: 'https://demand-iq.com/blog/latest',
         clicks: 0,
         impressions: latestImpressions,
       })
@@ -529,9 +538,9 @@ describe('organic evidence native measurement reconciliation', () => {
 
     const body = await getRawEvidence(ctx)
 
-    expect(body.findings.map(row => row.title)).not.toContain('Blog search visibility increased')
+    expect(body.findings.map(row => row.title)).not.toContain('Search visibility increased')
     expect(body.findings.map(row => row.title)).not.toContain(
-      'Blog clicks have not followed visibility yet',
+      'Search clicks have not followed visibility yet',
     )
   })
 
@@ -643,7 +652,6 @@ describe('organic evidence native measurement reconciliation', () => {
       userFetchHits: { verified: 5, claimedUnverified: 5, unknownAiLike: 3 },
       referralSessions: { total: 13, paid: 2, organic: 6, unknown: 5 },
     })
-    expect(body.blog.server).toEqual(body.server)
   })
 
   it('signals page-detail truncation in the machine-readable limitations', async () => {
@@ -695,11 +703,6 @@ describe('organic evidence native measurement reconciliation', () => {
       expect.objectContaining({ code: 'acquisition-sync-error' }),
       expect.objectContaining({ code: 'lead-channel-scope' }),
     ]))
-    expect(body.blog.server).toMatchObject({
-      crawlerHits: { verified: 7 },
-      userFetchHits: { verified: 5 },
-      referralSessions: { total: 3, paid: 0, organic: 3, unknown: 0 },
-    })
     expect(body.pages).toContainEqual(expect.objectContaining({
       path: '/blog/new',
       server: expect.objectContaining({
@@ -732,8 +735,8 @@ describe('organic evidence native measurement reconciliation', () => {
     expect(body.measurement.acquisition.status).toBe('never-synced')
     expect(body.ga4).toMatchObject({
       organicSessions: 11,
-      blogOrganicSessions: 11,
     })
+    expect(body.ga4).not.toHaveProperty('blogOrganicSessions')
     expect(body.limitations).toEqual(expect.arrayContaining([
       expect.objectContaining({ code: 'legacy-ga-fallback' }),
       expect.objectContaining({ code: 'lead-data-unavailable' }),
@@ -749,12 +752,11 @@ describe('organic evidence native measurement reconciliation', () => {
 
     expect(body.measurement.acquisition.status).toBe('ready')
     expect(body.ga4).toBeNull()
-    expect(body.blog.ga4).toBeNull()
     expect(body.pages.map(row => row.path)).not.toContain('/blog/legacy-decoy')
     expect(body.limitations.map(row => row.code)).not.toContain('legacy-ga-fallback')
   })
 
-  it('keeps native GA coverage and blog cohorts visible without any legacy snapshots', async () => {
+  it('keeps native GA coverage and source-specific cohorts visible without legacy snapshots', async () => {
     seedNativeMeasurement(ctx)
     ctx.db.delete(gaTrafficSnapshots).run()
 
@@ -767,6 +769,34 @@ describe('organic evidence native measurement reconciliation', () => {
       observedDays: 4,
     })
     expect(body.ga4?.organicSessions).toBe(61)
-    expect(body.blog.ga4?.cohorts.map(row => row.organicSessions)).toEqual([10, 35, 16])
+    expect(body.ga4?.cohorts.map(row => row.organicSessions)).toEqual([10, 35, 16])
+  })
+
+  it('aligns GA AI referral totals with the native GA cohort window, not the GSC date', async () => {
+    seedNativeMeasurement(ctx)
+    ctx.db.insert(gaAiReferrals).values({
+      id: crypto.randomUUID(),
+      projectId: ctx.projectId,
+      date: '2026-07-21',
+      source: 'chatgpt.com',
+      medium: 'referral',
+      trafficClass: 'organic',
+      sourceDimension: 'session',
+      channelGroup: 'Referral',
+      landingPage: '/answer-library/new-guide',
+      landingPageNormalized: '/answer-library/new-guide',
+      sessions: 5,
+      users: 5,
+      syncedAt: NOW,
+    }).run()
+
+    const body = await getRawEvidence(ctx)
+
+    expect(body.gsc?.cohorts.at(-1)?.endDate).toBe(GSC_ANCHOR)
+    expect(body.ga4?.cohorts.at(-1)?.endDate).toBe(GA_ANCHOR)
+    expect(body.gaAiReferrals).toEqual({
+      paidSessions: 0,
+      organicSessions: 5,
+    })
   })
 })

@@ -15,10 +15,9 @@ function captureLog(fn: () => Promise<void>): Promise<string> {
 
 const evidence = {
   contractVersion: 'organic-evidence/v1', periodDays: 90, asOfDate: '2026-07-20',
-  cohorts: [], coverage: { gsc: true, ga4: true, server: false, visibility: false },
+  coverage: { gsc: true, ga4: true, server: false, visibility: false },
   sourceCoverage: { gsc: null, ga4: null, server: null, visibility: null },
   gsc: null, ga4: null, gaAiReferrals: null, server: null, visibility: null,
-  blog: { pathRule: '/blog and descendants', gsc: null, ga4: null, server: null },
   pages: [], findings: [], limitations: [],
 }
 
@@ -38,6 +37,17 @@ describe('organic-evidence — jsonl degrades to the composite JSON document', (
   it('forwards the selected period', async () => {
     await show('json', 60)
     expect(mockGetOrganicEvidence).toHaveBeenCalledWith('demo', 60)
+  })
+
+  it('describes URL-agnostic pages and available GA4 lead evidence to agents', async () => {
+    const { canonryMcpTools } = await import('../src/mcp/tool-registry.js')
+    const tool = canonryMcpTools.find(entry => entry.name === 'canonry_organic_evidence')
+
+    expect(tool?.description).toMatch(/page evidence/i)
+    expect(tool?.description).toMatch(/lead events|lead evidence|leads/i)
+    expect(tool?.description).toMatch(/source-specific/i)
+    expect(tool?.description).not.toMatch(/dedicated blog|blog cohort/i)
+    expect(tool?.description).not.toMatch(/lead attribution is unavailable/i)
   })
 })
 
