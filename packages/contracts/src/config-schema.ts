@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { providerModelsSchema, providerNameSchema, locationContextSchema } from './provider.js'
 import { notificationEventSchema } from './notification.js'
 import { findDuplicateLocationLabels, hasLocationLabel } from './project.js'
-import { measurementConfigSchema, DEFAULT_MEASUREMENT_CONFIG } from './measurement.js'
+import { measurementConfigSchema, defaultMeasurementConfig } from './measurement.js'
 
 export const configMetadataSchema = z.object({
   name: z.string().min(1).max(63).regex(/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/, {
@@ -53,7 +53,7 @@ export const configSpecSchema = z.object({
   providerModels: providerModelsSchema.optional().default({}),
   locations: z.array(locationContextSchema).optional().default([]),
   defaultLocation: z.string().optional(),
-  measurement: measurementConfigSchema.optional().default(DEFAULT_MEASUREMENT_CONFIG),
+  measurement: measurementConfigSchema.optional().default(defaultMeasurementConfig),
   schedule: configScheduleSchema,
   notifications: z.array(configNotificationSchema).optional().default([]),
   google: configGoogleSchema,

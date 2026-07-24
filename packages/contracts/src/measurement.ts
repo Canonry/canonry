@@ -41,21 +41,34 @@ const ga4EventNameSchema = z.string().trim().regex(/^[a-z]\w{0,39}$/i, {
 })
 
 export const measurementConfigSchema = z.object({
-  marketingHosts: z.array(marketingHostSchema).default([])
+  marketingHosts: z.array(marketingHostSchema)
     .overwrite(values => dedupeStable(values, true)),
-  brandTerms: z.array(brandTermSchema).default([])
+  brandTerms: z.array(brandTermSchema)
     .overwrite(values => dedupeStable(values, true)),
-  leadEventNames: z.array(ga4EventNameSchema).default(['generate_lead'])
+  leadEventNames: z.array(ga4EventNameSchema)
     .overwrite(values => dedupeStable(values)),
 })
 
 export type MeasurementConfig = z.infer<typeof measurementConfigSchema>
 
+function createDefaultMeasurementConfig(): MeasurementConfig {
+  return {
+    marketingHosts: [],
+    brandTerms: [],
+    leadEventNames: ['generate_lead'],
+  }
+}
+
+// This is a safe exported reference for comparison and display. Parsing at an
+// outer boundary must use the factory below, never this object, so callers do
+// not accidentally share mutable arrays with one another.
 export const DEFAULT_MEASUREMENT_CONFIG: MeasurementConfig = Object.freeze({
-  marketingHosts: [],
-  brandTerms: [],
-  leadEventNames: ['generate_lead'],
+  marketingHosts: Object.freeze([]) as unknown as string[],
+  brandTerms: Object.freeze([]) as unknown as string[],
+  leadEventNames: Object.freeze(['generate_lead']) as unknown as string[],
 })
+
+export const defaultMeasurementConfig = () => createDefaultMeasurementConfig()
 
 export const gaMeasurementComponentStatusSchema = z.enum(['never-synced', 'ready', 'error'])
 export type GaMeasurementComponentStatus = z.infer<typeof gaMeasurementComponentStatusSchema>

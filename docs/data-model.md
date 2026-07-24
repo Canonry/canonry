@@ -67,7 +67,7 @@ erDiagram
 
 | Table | Purpose | Key Constraints |
 |-------|---------|----------------|
-| **projects** | Root entity — domain, location config, provider list, per-project `provider_models` overrides, optional `icp_description` (free-text ICP used by discovery seed phase) | Unique: `name` |
+| **projects** | Root entity — domain, location config, provider list, per-project `provider_models` overrides, `measurement_config` (JSON: marketing hosts, brand terms, and GA4 lead-event names), optional `icp_description` (free-text ICP used by discovery seed phase) | Unique: `name` |
 | **queries** | Tracked queries per project. `provenance` tags where the entry came from (e.g. `cli`, `discovery:<session_id>`) so adopted basket entries can be traced back to a discovery run. | Unique: `(projectId, query)` |
 | **competitors** | Competitor domains per project. `provenance` tags origin (`cli`, `discovery:<session_id>`) for the same traceability reason. | Unique: `(projectId, domain)` |
 | **runs** | Visibility sweep executions | FK: projectId → projects |
@@ -156,6 +156,9 @@ configuration value into an observation. Treat NULL as unknown.
 | **ga_traffic_summaries** | Aggregated traffic summaries |
 | **ga_ai_referrals** | AI engine referral tracking. `traffic_class` splits `paid` AI traffic (paid/cpc/sponsored UTM values or GA4 paid channel groups, including tagged ChatGPT ads) from `organic`/non-paid AI referrals. Unique: `(projectId, date, source, medium, sourceDimension, channelGroup, landingPage)` |
 | **ga_social_referrals** | Social media referral tracking. Unique: `(projectId, date, source, medium, channelGroup)` |
+| **ga_acquisition_daily** | GA4 session acquisition rows at `(project, date, channel group, source, medium, host, landing page)` grain. `landing_page_normalized` supports page rollups; sessions are non-negative. |
+| **ga_lead_events_daily** | GA4 configured lead-event counts at acquisition dimensions plus `event_name` and `attribution_scope`. Scope is `landing-page` or `channel`; counts are non-negative, and the full grain is unique. |
+| **ga_measurement_sync_state** | One per-project status row for acquisition and lead components. Each component is `never-synced`, `ready`, or `error`, with its error/timestamp; lead scope is nullable until a lead sync establishes `landing-page` or `channel`. |
 
 ### Integrations — Google Business Profile
 
