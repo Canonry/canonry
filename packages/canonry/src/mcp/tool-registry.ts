@@ -34,6 +34,7 @@ import {
   projectUpsertRequestSchema,
   runTriggerRequestSchema,
   backlinkSourceSchema,
+  organicEvidencePeriodSchema,
   reportPeriodSchema,
   schedulableRunKindSchema,
   scheduleUpsertRequestSchema,
@@ -675,6 +676,21 @@ export const canonryMcpTools = [
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/report'],
     handler: (client, input) => client.getReport(input.project, input.period !== undefined ? { period: input.period } : undefined),
+  }),
+  defineTool({
+    name: 'canonry_organic_evidence',
+    title: 'Reconcile organic and AI evidence',
+    description:
+      'One-call investigation of whether organic work is gaining visibility, traffic, AI attention, or leads. Returns source-specific 30-day GSC and GA4 cohorts, URL-agnostic page evidence, available GA4 lead events, server-observed AI crawling/user-fetch/referral evidence, the latest answer-visibility sweep, source coverage, findings, and limitations. It preserves native units. Prefer this over fanning out across GSC, GA, traffic, and visibility tools.',
+    access: 'read',
+    tier: 'monitoring',
+    inputSchema: z.object({
+      project: projectNameSchema,
+      period: organicEvidencePeriodSchema.optional().describe('Evidence window: 60 or 90 days (default 90).'),
+    }),
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/organic-evidence'],
+    handler: (client, input) => client.getOrganicEvidence(input.project, input.period),
   }),
   defineTool({
     name: 'canonry_analytics_metrics',

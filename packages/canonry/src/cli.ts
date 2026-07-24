@@ -31,6 +31,7 @@ Monitoring:
   status <project>      Show project summary
   evidence <project>    Show per-query results
   analytics <project>   Show analytics (metrics, gaps, sources)
+  organic-evidence      Reconcile 60/90d search, GA4, and server AI evidence
   insights <project>    Show intelligence insights
   health <project>      Show citation health
 

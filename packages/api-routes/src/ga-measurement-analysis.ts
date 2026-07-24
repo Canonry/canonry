@@ -26,6 +26,7 @@ import { resolveProject } from './helpers.js'
 type Database = FastifyInstance['db']
 type WindowDays = 30 | 60 | 90
 type PeriodLabel = 'earliest' | 'middle' | 'previous' | 'latest'
+const UNKNOWN_LANDING_PAGE = '(not set)'
 type Period = {
   label: PeriodLabel
   startDate: string
@@ -144,12 +145,13 @@ function matchesHost(value: string, marketingHosts: string[]): boolean {
 }
 
 function normalizeLandingPage(value: string | null | undefined): string {
-  return normalizeUrlPath(value) ?? '/'
+  return normalizeUrlPath(value) ?? UNKNOWN_LANDING_PAGE
 }
 
 function normalizePathPrefix(value: string | undefined): string | null {
   if (!value) return null
-  const normalized = normalizeLandingPage(value)
+  const normalized = normalizeUrlPath(value)
+  if (!normalized) return null
   return normalized.startsWith('/') ? normalized : `/${normalized}`
 }
 
@@ -162,7 +164,7 @@ function matchesPathPrefix(value: string, prefix: string | null): boolean {
 
 function splitKey(key: string): [string, string] {
   const separator = key.indexOf('\u0000')
-  if (separator < 0) return [key, '/']
+  if (separator < 0) return [key, UNKNOWN_LANDING_PAGE]
   return [key.slice(0, separator), key.slice(separator + 1)]
 }
 
@@ -266,7 +268,7 @@ export function buildGaMeasurementAnalysis(
   const state = db.select().from(gaMeasurementSyncStates)
     .where(eq(gaMeasurementSyncStates.projectId, project.id)).get()
   const acquisition = acquisitionRows.filter((row) => {
-    const landingPage = row.landingPageNormalized ?? normalizeLandingPage(row.landingPage)
+    const landingPage = normalizeLandingPage(row.landingPageNormalized ?? row.landingPage)
     return hostIsIncluded(row.hostName) && pageIsIncluded(landingPage)
   })
   const acquisitionTotals = aggregateByKey(
@@ -285,7 +287,7 @@ export function buildGaMeasurementAnalysis(
     acquisition,
     gaPeriods,
     row => (
-      `${row.hostName}\u0000${row.landingPageNormalized ?? normalizeLandingPage(row.landingPage)}`
+      `${row.hostName}\u0000${normalizeLandingPage(row.landingPageNormalized ?? row.landingPage)}`
     ),
     row => row.sessions,
   )
@@ -305,7 +307,7 @@ export function buildGaMeasurementAnalysis(
   const hostAndPathFiltersApplied = attributionScope === 'landing-page'
   const leads = selectedLeadRows.filter((row) => {
     if (row.attributionScope === 'channel') return true
-    const landingPage = row.landingPageNormalized ?? normalizeLandingPage(row.landingPage)
+    const landingPage = normalizeLandingPage(row.landingPageNormalized ?? row.landingPage)
     return hostIsIncluded(row.hostName) && pageIsIncluded(landingPage)
   })
   const leadTotals = aggregateByKey(

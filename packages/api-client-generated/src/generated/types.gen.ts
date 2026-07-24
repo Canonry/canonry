@@ -2464,6 +2464,244 @@ export type NotificationDto = {
     updatedAt: string;
 };
 
+export type OrganicEvidenceDto = {
+    contractVersion: 'organic-evidence/v1';
+    periodDays: 60 | 90;
+    asOfDate: string | null;
+    coverage: {
+        gsc: boolean;
+        ga4: boolean;
+        server: boolean;
+        visibility: boolean;
+    };
+    sourceCoverage: {
+        gsc: {
+            startDate: string;
+            endDate: string;
+            observedDays: number;
+        } | null;
+        ga4: {
+            startDate: string;
+            endDate: string;
+            observedDays: number;
+        } | null;
+        server: {
+            startDate: string;
+            endDate: string;
+            observedDays: number;
+        } | null;
+        visibility: {
+            completedAt: string;
+            ageDays: number;
+        } | null;
+    };
+    gsc: {
+        propertyTotals: {
+            clicks: number;
+            impressions: number;
+        };
+        namedBrand: {
+            clicks: number;
+            impressions: number;
+        };
+        namedNonBrand: {
+            clicks: number;
+            impressions: number;
+        };
+        suppressedOrUnreportedResidual: {
+            clicks: number;
+            impressions: number;
+        };
+        cohorts: Array<{
+            name: 'earliest' | 'middle' | 'prior' | 'latest';
+            startDate: string;
+            endDate: string;
+            totals: {
+                clicks: number;
+                impressions: number;
+            };
+        }>;
+    } | null;
+    ga4: {
+        organicSessions: number;
+        cohorts: Array<{
+            name: 'earliest' | 'middle' | 'prior' | 'latest';
+            startDate: string;
+            endDate: string;
+            organicSessions: number;
+        }>;
+    } | null;
+    gaAiReferrals: {
+        paidSessions: number;
+        organicSessions: number;
+    } | null;
+    server: {
+        crawlerHits: {
+            verified: number;
+            claimedUnverified: number;
+            unknownAiLike: number;
+        };
+        userFetchHits: {
+            verified: number;
+            claimedUnverified: number;
+            unknownAiLike: number;
+        };
+        referralSessions: {
+            total: number;
+            paid: number;
+            organic: number;
+            unknown: number;
+        };
+    } | null;
+    visibility: {
+        runId: string;
+        completedAt: string;
+        ageDays: number;
+        answerPairs: number;
+        mentionedPairs: number;
+        citedPairs: number;
+    } | null;
+    measurement: {
+        window: '30d' | '60d' | '90d';
+        bucketDays: 30;
+        filters: {
+            hostScope: 'marketing' | 'all';
+            marketingHosts: Array<string>;
+            pathPrefix: string | null;
+            brandTerms: Array<string>;
+            queryMixScope: 'property';
+        };
+        acquisition: {
+            status: 'never-synced' | 'ready' | 'error';
+            error: string | null;
+            syncedAt: string | null;
+            periods: Array<{
+                label: 'earliest' | 'middle' | 'previous' | 'latest';
+                startDate: string;
+                endDate: string;
+                sessions: number;
+            }>;
+            channels: Array<{
+                channelGroup: string;
+                periods: Array<{
+                    label: 'earliest' | 'middle' | 'previous' | 'latest';
+                    startDate: string;
+                    endDate: string;
+                    sessions: number;
+                }>;
+            }>;
+            pages: Array<{
+                hostName: string;
+                landingPage: string;
+                periods: Array<{
+                    label: 'earliest' | 'middle' | 'previous' | 'latest';
+                    startDate: string;
+                    endDate: string;
+                    sessions: number;
+                }>;
+            }>;
+        };
+        leads: {
+            status: 'never-synced' | 'ready' | 'error';
+            error: string | null;
+            syncedAt: string | null;
+            attributionScope: 'landing-page' | 'channel';
+            hostAndPathFiltersApplied: boolean;
+            periods: Array<{
+                label: 'earliest' | 'middle' | 'previous' | 'latest';
+                startDate: string;
+                endDate: string;
+                eventCount: number;
+            }>;
+            channels: Array<{
+                channelGroup: string;
+                periods: Array<{
+                    label: 'earliest' | 'middle' | 'previous' | 'latest';
+                    startDate: string;
+                    endDate: string;
+                    eventCount: number;
+                }>;
+            }>;
+        };
+        searchDemand: {
+            status: 'ready' | 'unavailable';
+            periods: Array<{
+                label: 'earliest' | 'middle' | 'previous' | 'latest';
+                startDate: string;
+                endDate: string;
+                propertyClicks: number;
+                propertyImpressions: number;
+                reportedQueryClicks: number;
+                reportedQueryImpressions: number;
+                brandedClicks: number;
+                brandedImpressions: number;
+                nonBrandedClicks: number;
+                nonBrandedImpressions: number;
+                unreportedClicks: number;
+                unreportedImpressions: number;
+            }>;
+            queries: Array<{
+                query: string;
+                classification: 'branded' | 'non-branded';
+                periods: Array<{
+                    label: 'earliest' | 'middle' | 'previous' | 'latest';
+                    startDate: string;
+                    endDate: string;
+                    clicks: number;
+                    impressions: number;
+                }>;
+            }>;
+            pages: Array<{
+                hostName: string;
+                landingPage: string;
+                periods: Array<{
+                    label: 'earliest' | 'middle' | 'previous' | 'latest';
+                    startDate: string;
+                    endDate: string;
+                    clicks: number;
+                    impressions: number;
+                }>;
+            }>;
+            latestDate: string | null;
+        };
+    };
+    pages: Array<{
+        path: string;
+        gsc: {
+            clicks: number;
+            impressions: number;
+        };
+        ga4OrganicSessions: number;
+        server: {
+            crawlerHits: {
+                verified: number;
+                claimedUnverified: number;
+                unknownAiLike: number;
+            };
+            userFetchHits: {
+                verified: number;
+                claimedUnverified: number;
+                unknownAiLike: number;
+            };
+            referralSessions: {
+                total: number;
+                paid: number;
+                organic: number;
+                unknown: number;
+            };
+        };
+    }>;
+    findings: Array<{
+        tone: 'positive' | 'caution' | 'neutral';
+        title: string;
+        detail: string;
+    }>;
+    limitations: Array<{
+        code: string;
+        detail: string;
+    }>;
+};
+
 export type ProjectDto = {
     id: string;
     name: string;
@@ -11167,6 +11405,45 @@ export type PostApiV1ProjectsByNameInsightsByIdDismissResponses = {
 };
 
 export type PostApiV1ProjectsByNameInsightsByIdDismissResponse = PostApiV1ProjectsByNameInsightsByIdDismissResponses[keyof PostApiV1ProjectsByNameInsightsByIdDismissResponses];
+
+export type GetApiV1ProjectsByNameOrganicEvidenceData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Evidence window in days — 60 or 90 (default 90). GSC and GA4 retain source-specific 30-day cohort dates.
+         */
+        period?: 60 | 90;
+    };
+    url: '/api/v1/projects/{name}/organic-evidence';
+};
+
+export type GetApiV1ProjectsByNameOrganicEvidenceErrors = {
+    /**
+     * Invalid evidence period.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameOrganicEvidenceError = GetApiV1ProjectsByNameOrganicEvidenceErrors[keyof GetApiV1ProjectsByNameOrganicEvidenceErrors];
+
+export type GetApiV1ProjectsByNameOrganicEvidenceResponses = {
+    /**
+     * Organic evidence returned.
+     */
+    200: OrganicEvidenceDto;
+};
+
+export type GetApiV1ProjectsByNameOrganicEvidenceResponse = GetApiV1ProjectsByNameOrganicEvidenceResponses[keyof GetApiV1ProjectsByNameOrganicEvidenceResponses];
 
 export type GetApiV1ProjectsByNameReportData = {
     body?: never;
