@@ -1,6 +1,6 @@
 import React from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { afterEach, expect, onTestFinished, test } from 'vitest'
+import { afterEach, expect, onTestFinished, test, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { OrganicEvidencePanel } from '../src/components/project/ActivitySection.js'
 import { jsonResponse, mockFetch } from './mock-fetch.js'
@@ -32,23 +32,32 @@ function makeEvidence(
   overrides?: {
     acquisitionStatus?: 'ready' | 'error'
     acquisitionError?: string | null
+    acquisitionEmpty?: boolean
+    leadStatus?: 'ready' | 'error'
+    leadError?: string | null
+    leadPeriodsEmpty?: boolean
+    leadEmpty?: boolean
     leadScope?: 'landing-page' | 'channel'
   },
 ) {
-  const sourcePeriods = periods(period)
-  const sessionValues = period === 90 ? [10, 35, 16] : [35, 16]
+  const gscPeriods = periods(period)
+  const gaPeriods = periods(period).map(row => ({
+    ...row,
+    startDate: row.startDate.replace(/-(\d{2})$/, (_, day: string) => `-${String(Number(day) + 2).padStart(2, '0')}`),
+    endDate: row.endDate.replace(/-(\d{2})$/, (_, day: string) => `-${String(Number(day) + 2).padStart(2, '0')}`),
+  }))
+  const sessionValues = period === 90 ? [10, 35, 1_234] : [35, 1_234]
   const paidValues = period === 90 ? [0, 0, 50] : [0, 50]
   const leadValues = period === 90 ? [2, 4, 0] : [4, 0]
-  const impressionValues = period === 90 ? [384, 313, 495] : [313, 495]
-  const clickValues = period === 90 ? [2, 4, 0] : [4, 0]
   const acquisitionStatus = overrides?.acquisitionStatus ?? 'ready'
+  const leadStatus = overrides?.leadStatus ?? 'ready'
   const leadScope = overrides?.leadScope ?? 'landing-page'
 
-  const sessionPeriods = (values: number[]) => sourcePeriods.map((row, index) => ({
+  const sessionPeriods = (values: number[]) => gaPeriods.map((row, index) => ({
     ...row,
     sessions: values[index] ?? 0,
   }))
-  const eventPeriods = (values: number[]) => sourcePeriods.map((row, index) => ({
+  const eventPeriods = (values: number[]) => gaPeriods.map((row, index) => ({
     ...row,
     eventCount: values[index] ?? 0,
   }))
@@ -56,7 +65,6 @@ function makeEvidence(
     contractVersion: 'organic-evidence/v1',
     periodDays: period,
     asOfDate: '2026-07-20',
-    cohorts: sourcePeriods.map(row => ({ name: row.label, ...row })),
     coverage: { gsc: true, ga4: true, server: true, visibility: false },
     sourceCoverage: {
       gsc: { startDate: '2026-04-22', endDate: '2026-07-20', observedDays: 90 },
@@ -78,28 +86,34 @@ function makeEvidence(
         status: acquisitionStatus,
         error: overrides?.acquisitionError ?? null,
         syncedAt: '2026-07-23T12:00:00.000Z',
-        periods: sessionPeriods(sessionValues.map((value, index) => value + (paidValues[index] ?? 0))),
-        channels: [
-          { channelGroup: 'Paid Search', periods: sessionPeriods(paidValues) },
-          { channelGroup: 'Organic Search', periods: sessionPeriods(sessionValues) },
-        ],
+        periods: overrides?.acquisitionEmpty
+          ? []
+          : sessionPeriods(sessionValues.map((value, index) => value + (paidValues[index] ?? 0))),
+        channels: overrides?.acquisitionEmpty
+          ? []
+          : [
+              { channelGroup: 'Paid Search', periods: sessionPeriods(paidValues) },
+              { channelGroup: 'Organic Search', periods: sessionPeriods(sessionValues) },
+            ],
         pages: [],
       },
       leads: {
-        status: 'ready',
-        error: null,
+        status: leadStatus,
+        error: overrides?.leadError ?? null,
         syncedAt: '2026-07-23T12:00:00.000Z',
         attributionScope: leadScope,
         hostAndPathFiltersApplied: leadScope === 'landing-page',
-        periods: eventPeriods(leadValues),
-        channels: [
-          { channelGroup: 'Organic Search', periods: eventPeriods(leadValues) },
-        ],
+        periods: overrides?.leadPeriodsEmpty ? [] : eventPeriods(leadValues),
+        channels: overrides?.leadEmpty
+          ? []
+          : [
+              { channelGroup: 'Organic Search', periods: eventPeriods(leadValues) },
+            ],
       },
       searchDemand: {
         status: 'ready',
         latestDate: '2026-07-20',
-        periods: sourcePeriods.map((row, index) => ({
+        periods: gscPeriods.map((row, index) => ({
           ...row,
           propertyClicks: period === 90 ? [5, 10, 10][index] : [10, 10][index],
           propertyImpressions: period === 90 ? [400, 500, 700][index] : [500, 700][index],
@@ -121,7 +135,7 @@ function makeEvidence(
       namedBrand: { clicks: 17, impressions: 370 },
       namedNonBrand: { clicks: 7, impressions: 743 },
       suppressedOrUnreportedResidual: { clicks: 1, impressions: 487 },
-      cohorts: sourcePeriods.map((row, index) => ({
+      cohorts: gscPeriods.map((row, index) => ({
         name: row.label,
         ...row,
         totals: {
@@ -132,56 +146,51 @@ function makeEvidence(
     },
     ga4: {
       organicSessions: sessionValues.reduce((sum, value) => sum + value, 0),
-      blogOrganicSessions: sessionValues.reduce((sum, value) => sum + value, 0),
-      cohorts: sourcePeriods.map((row, index) => ({
+      cohorts: gaPeriods.map((row, index) => ({
         name: row.label,
         ...row,
         organicSessions: sessionValues[index] ?? 0,
       })),
     },
     gaAiReferrals: null,
-    blog: {
-      pathRule: '/blog and descendants',
-      gsc: {
-        cohorts: sourcePeriods.map((row, index) => ({
-          name: row.label,
-          ...row,
-          totals: {
-            clicks: clickValues[index] ?? 0,
-            impressions: impressionValues[index] ?? 0,
-          },
-        })),
-      },
-      ga4: {
-        cohorts: sourcePeriods.map((row, index) => ({
-          name: row.label,
-          ...row,
-          organicSessions: sessionValues[index] ?? 0,
-        })),
-      },
-      server: {
-        crawlerHits: { verified: 7, claimedUnverified: 0, unknownAiLike: 0 },
-        userFetchHits: { verified: 5, claimedUnverified: 0, unknownAiLike: 0 },
-        referralSessions: { total: 3, paid: 0, organic: 3, unknown: 0 },
-      },
-    },
     server: {
       crawlerHits: { verified: 7, claimedUnverified: 0, unknownAiLike: 0 },
       userFetchHits: { verified: 5, claimedUnverified: 0, unknownAiLike: 0 },
       referralSessions: { total: 3, paid: 0, organic: 3, unknown: 0 },
     },
     visibility: null,
-    pages: [],
+    pages: [
+      {
+        path: '/resources/old-guide',
+        gsc: { clicks: 12, impressions: 1_234 },
+        ga4OrganicSessions: 18,
+        server: {
+          crawlerHits: { verified: 3, claimedUnverified: 0, unknownAiLike: 0 },
+          userFetchHits: { verified: 2, claimedUnverified: 0, unknownAiLike: 0 },
+          referralSessions: { total: 1, paid: 0, organic: 1, unknown: 0 },
+        },
+      },
+      {
+        path: '/answer-library/new-guide',
+        gsc: { clicks: 4, impressions: 690 },
+        ga4OrganicSessions: 7,
+        server: {
+          crawlerHits: { verified: 4, claimedUnverified: 0, unknownAiLike: 0 },
+          userFetchHits: { verified: 3, claimedUnverified: 0, unknownAiLike: 0 },
+          referralSessions: { total: 2, paid: 0, organic: 2, unknown: 0 },
+        },
+      },
+    ],
     findings: [
       {
         tone: 'positive',
-        title: 'Blog search visibility increased',
-        detail: 'Google showed blog pages 495 in the latest cohort versus 313 prior (+58%).',
+        title: 'Search visibility increased',
+        detail: 'Google showed the site 700 times in the latest GSC cohort versus 500 prior (+40%).',
       },
       {
         tone: 'caution',
-        title: 'Blog clicks have not followed visibility yet',
-        detail: 'Blog pages recorded 0 Google clicks in the latest cohort versus 4 prior.',
+        title: 'Clicks have not followed visibility yet',
+        detail: 'The site recorded 10 Google clicks in both the latest and prior GSC cohorts.',
       },
       {
         tone: 'neutral',
@@ -191,13 +200,17 @@ function makeEvidence(
       {
         tone: 'neutral',
         title: 'Paid-assisted brand search remains plausible',
-        detail: 'GA4 recorded 50 Paid Search sessions and GSC reported 8 branded clicks; this is not proof of an assisted path.',
+        detail: 'GA4 recorded 50 Paid Search sessions from 2026-06-23 to 2026-07-22, while GSC reported 8 branded clicks from 2026-06-21 to 2026-07-20; this is not proof of an assisted path.',
       },
     ],
     limitations: [
       {
         code: 'lead-attribution-not-causal',
         detail: 'Lead attribution is observational and does not prove SEO caused leads.',
+      },
+      {
+        code: 'source-specific-cohort-anchors',
+        detail: 'GA4 and GSC cohorts use their own latest available dates.',
       },
       ...(acquisitionStatus === 'error'
         ? [{
@@ -238,29 +251,39 @@ function renderPanel(handler?: Parameters<typeof mockFetch>[0]) {
 
 test('shows decision-ready 90-day evidence without collapsing native GA channels into Other', async () => {
   renderPanel()
+  const localeString = vi.spyOn(Number.prototype, 'toLocaleString')
+  onTestFinished(() => localeString.mockRestore())
 
   await waitFor(() => {
     expect(screen.getByRole('heading', { name: 'Organic growth evidence' })).toBeTruthy()
   })
 
   expect(screen.getByRole('button', { name: '90 days' }).getAttribute('aria-pressed')).toBe('true')
-  expect(screen.getByText('Blog search visibility increased')).toBeTruthy()
-  expect(screen.getByText('Blog clicks have not followed visibility yet')).toBeTruthy()
+  expect(screen.getByText('Search visibility increased')).toBeTruthy()
+  expect(screen.getByText('Clicks have not followed visibility yet')).toBeTruthy()
 
-  const blog = within(screen.getByRole('table', { name: 'Blog search and traffic cohorts' }))
-  expect(within(blog.getByRole('row', { name: /Impressions/ })).getByText('495')).toBeTruthy()
-  expect(within(blog.getByRole('row', { name: /Impressions/ })).getByText('313')).toBeTruthy()
-  expect(within(blog.getByRole('row', { name: /Google clicks/ })).getByText('0')).toBeTruthy()
-  expect(within(blog.getByRole('row', { name: /Google clicks/ })).getByText('4')).toBeTruthy()
+  const gsc = within(screen.getByRole('table', { name: 'Google Search Console cohorts' }))
+  expect(within(gsc.getByRole('row', { name: /Impressions/ })).getByText('700')).toBeTruthy()
+  expect(within(gsc.getByRole('row', { name: /Impressions/ })).getByText('500')).toBeTruthy()
+  expect(within(gsc.getByRole('row', { name: /Google clicks/ })).getAllByText('10')).toHaveLength(2)
+  expect(gsc.getByRole('columnheader', { name: /Latest.*2026-06-21.*2026-07-20/ })).toBeTruthy()
 
   const acquisition = within(screen.getByRole('table', { name: 'GA4 sessions by native channel' }))
   const organic = within(acquisition.getByRole('row', { name: /Organic Search/ }))
   expect(organic.getByText('10')).toBeTruthy()
   expect(organic.getByText('35')).toBeTruthy()
-  expect(organic.getByText('16')).toBeTruthy()
+  expect(organic.getByText('1,234')).toBeTruthy()
   const paid = within(acquisition.getByRole('row', { name: /Paid Search/ }))
   expect(paid.getByText('50')).toBeTruthy()
   expect(acquisition.queryByText('Other')).toBeNull()
+  expect(acquisition.getByRole('columnheader', { name: /Latest.*2026-06-23.*2026-07-22/ })).toBeTruthy()
+
+  const pages = within(screen.getByRole('table', { name: 'All-page organic and AI evidence' }))
+  expect(pages.getByRole('row', { name: /\/resources\/old-guide/ })).toBeTruthy()
+  expect(pages.getByRole('row', { name: /\/answer-library\/new-guide/ })).toBeTruthy()
+  expect(within(pages.getByRole('row', { name: /\/resources\/old-guide/ })).getByText('1,234')).toBeTruthy()
+  expect(screen.queryByText(/for \/blog/i)).toBeNull()
+  expect(localeString).toHaveBeenCalledWith('en-US')
 
   const leads = within(screen.getByRole('table', { name: 'GA4 lead events by cohort' }))
   expect(within(leads.getByRole('row', { name: /All measured leads/ })).getByText('0')).toBeTruthy()
@@ -290,7 +313,7 @@ test('refetches the composite as a real 60-day comparison', async () => {
     throw new Error(`Unexpected fetch: ${url}`)
   })
 
-  await waitFor(() => expect(screen.getByText('Blog search visibility increased')).toBeTruthy())
+  await waitFor(() => expect(screen.getByText('Search visibility increased')).toBeTruthy())
   fireEvent.click(screen.getByRole('button', { name: '60 days' }))
 
   await waitFor(() => {
@@ -303,7 +326,7 @@ test('refetches the composite as a real 60-day comparison', async () => {
   expect(acquisition.getByText('Latest')).toBeTruthy()
   expect(acquisition.queryByText('Earliest')).toBeNull()
   expect(within(acquisition.getByRole('row', { name: /Organic Search/ })).getByText('35')).toBeTruthy()
-  expect(within(acquisition.getByRole('row', { name: /Organic Search/ })).getByText('16')).toBeTruthy()
+  expect(within(acquisition.getByRole('row', { name: /Organic Search/ })).getByText('1,234')).toBeTruthy()
 })
 
 test('shows last-good sync errors, channel-only lead scope, and causal caveats beside the data', async () => {
@@ -319,7 +342,7 @@ test('shows last-good sync errors, channel-only lead scope, and causal caveats b
     throw new Error(`Unexpected fetch: ${url}`)
   })
 
-  await waitFor(() => expect(screen.getByText('Blog search visibility increased')).toBeTruthy())
+  await waitFor(() => expect(screen.getByText('Search visibility increased')).toBeTruthy())
 
   expect(screen.getByText(/GA4 acquisition sync error: quota exhausted/)).toBeTruthy()
   expect(screen.getByText('Showing last-good acquisition data')).toBeTruthy()
@@ -339,11 +362,12 @@ test('uses source-specific columns and keeps every evidence table structurally a
   })
 
   const tableNames = [
-    'Blog search and traffic cohorts',
+    'Google Search Console cohorts',
     'GA4 sessions by native channel',
     'GA4 lead events by cohort',
     'Latest Google search demand mix',
     'Server-side AI evidence',
+    'All-page organic and AI evidence',
   ]
 
   for (const name of tableNames) {
@@ -362,4 +386,91 @@ test('uses source-specific columns and keeps every evidence table structurally a
 
   const server = within(screen.getByRole('table', { name: 'Server-side AI evidence' }))
   expect(server.getByRole('columnheader', { name: 'Count' })).toBeTruthy()
+})
+
+test('keeps the last-good comparison visible while a period change is loading', async () => {
+  let resolveSixty: ((response: Response) => void) | undefined
+  const delayedSixty = new Promise<Response>((resolve) => {
+    resolveSixty = resolve
+  })
+
+  renderPanel((url) => {
+    const parsed = new URL(url, 'http://canonry.test')
+    if (!parsed.pathname.endsWith('/projects/test-project/organic-evidence')) {
+      throw new Error(`Unexpected fetch: ${url}`)
+    }
+    return parsed.searchParams.get('period') === '60'
+      ? delayedSixty
+      : jsonResponse(makeEvidence(90))
+  })
+
+  await waitFor(() => expect(screen.getByText('Search visibility increased')).toBeTruthy())
+  fireEvent.click(screen.getByRole('button', { name: '60 days' }))
+
+  await waitFor(() => expect(screen.getByText('Updating organic evidence…')).toBeTruthy())
+  const lastGood = within(screen.getByRole('table', { name: 'Google Search Console cohorts' }))
+  expect(lastGood.getByText('Earliest')).toBeTruthy()
+
+  resolveSixty?.(jsonResponse(makeEvidence(60)))
+  await waitFor(() => {
+    expect(screen.queryByText('Updating organic evidence…')).toBeNull()
+    expect(within(screen.getByRole('table', { name: 'Google Search Console cohorts' })).queryByText('Earliest')).toBeNull()
+  })
+})
+
+test('renders a stable initial request error instead of an empty dashboard', async () => {
+  renderPanel(() => jsonResponse({ error: 'upstream unavailable' }, 503))
+
+  await waitFor(() => {
+    expect(screen.getByRole('heading', { name: 'Organic growth evidence' })).toBeTruthy()
+    expect(screen.getByText('Organic evidence is temporarily unavailable.')).toBeTruthy()
+  })
+  expect(screen.queryByRole('table')).toBeNull()
+})
+
+test('does not claim last-good data exists when failed GA syncs have no rows', async () => {
+  renderPanel((url) => {
+    const parsed = new URL(url, 'http://canonry.test')
+    if (!parsed.pathname.endsWith('/projects/test-project/organic-evidence')) {
+      throw new Error(`Unexpected fetch: ${url}`)
+    }
+    return jsonResponse(makeEvidence(90, {
+      acquisitionStatus: 'error',
+      acquisitionError: 'quota exhausted',
+      acquisitionEmpty: true,
+      leadStatus: 'error',
+      leadError: 'property denied',
+      leadPeriodsEmpty: true,
+      leadEmpty: true,
+    }))
+  })
+
+  await waitFor(() => expect(screen.getByText('Search visibility increased')).toBeTruthy())
+  expect(screen.getByText(/GA4 acquisition sync error: quota exhausted/)).toBeTruthy()
+  expect(screen.getByText(/GA4 lead sync error: property denied/)).toBeTruthy()
+  expect(screen.queryByText('Showing last-good acquisition data')).toBeNull()
+  expect(screen.queryByText('Showing last-good lead data')).toBeNull()
+  expect(screen.getByText('No native GA4 acquisition rows matched this scope.')).toBeTruthy()
+  expect(screen.getByText('No configured lead events matched this scope.')).toBeTruthy()
+})
+
+test('uses channel periods when lead totals are absent and identifies them as last-good rows', async () => {
+  renderPanel((url) => {
+    const parsed = new URL(url, 'http://canonry.test')
+    if (!parsed.pathname.endsWith('/projects/test-project/organic-evidence')) {
+      throw new Error(`Unexpected fetch: ${url}`)
+    }
+    return jsonResponse(makeEvidence(90, {
+      leadStatus: 'error',
+      leadError: 'partial sync failed',
+      leadPeriodsEmpty: true,
+    }))
+  })
+
+  await waitFor(() => expect(screen.getByText('Search visibility increased')).toBeTruthy())
+  expect(screen.getByText('Showing last-good lead data')).toBeTruthy()
+  const leads = within(screen.getByRole('table', { name: 'GA4 lead events by cohort' }))
+  const organic = within(leads.getByRole('row', { name: /Organic Search/ }))
+  expect(organic.getByText('4')).toBeTruthy()
+  expect(organic.getByText('0')).toBeTruthy()
 })
