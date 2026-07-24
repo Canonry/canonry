@@ -34,16 +34,12 @@ function cleanup(tmpDir: string) {
 
 function seedProject(db: ReturnType<typeof createTempDb>['db'], id = 'proj_1', name = 'test-project') {
   const now = new Date().toISOString()
-  db.insert(projects).values({
-    id,
-    name,
-    displayName: 'Test Project',
-    canonicalDomain: 'example.com',
-    country: 'US',
-    language: 'en',
-    createdAt: now,
-    updatedAt: now,
-  }).run()
+  db.run(sql`
+    INSERT INTO projects
+      (id, name, display_name, canonical_domain, country, language, created_at, updated_at)
+    VALUES
+      (${id}, ${name}, 'Test Project', 'example.com', 'US', 'en', ${now}, ${now})
+  `)
 }
 
 const NOW = '2026-06-10T00:00:00.000Z'

@@ -2400,6 +2400,77 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `CREATE UNIQUE INDEX IF NOT EXISTS idx_research_run_queries_run_position ON research_run_queries(research_run_id, position)`,
     ],
   },
+  {
+    version: 109,
+    name: 'ga-measurement-foundation',
+    statements: [
+      `ALTER TABLE projects ADD COLUMN measurement_config TEXT NOT NULL DEFAULT '{"marketingHosts":[],"brandTerms":[],"leadEventNames":["generate_lead"]}'`,
+      `CREATE TABLE IF NOT EXISTS ga_acquisition_daily (
+        id                       TEXT PRIMARY KEY,
+        project_id               TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        date                     TEXT NOT NULL,
+        channel_group            TEXT NOT NULL,
+        source                   TEXT NOT NULL,
+        medium                   TEXT NOT NULL,
+        host_name                TEXT NOT NULL,
+        landing_page             TEXT NOT NULL,
+        landing_page_normalized  TEXT,
+        sessions                 INTEGER NOT NULL DEFAULT 0 CHECK (sessions >= 0),
+        synced_at                TEXT NOT NULL,
+        sync_run_id              TEXT REFERENCES runs(id) ON DELETE CASCADE,
+        created_at               TEXT NOT NULL
+      )`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_ga_acquisition_daily_grain
+        ON ga_acquisition_daily(project_id, date, channel_group, source, medium, host_name, landing_page)`,
+      `CREATE INDEX IF NOT EXISTS idx_ga_acquisition_daily_project_date
+        ON ga_acquisition_daily(project_id, date)`,
+      `CREATE INDEX IF NOT EXISTS idx_ga_acquisition_daily_project_channel
+        ON ga_acquisition_daily(project_id, date, channel_group)`,
+      `CREATE INDEX IF NOT EXISTS idx_ga_acquisition_daily_project_page
+        ON ga_acquisition_daily(project_id, date, landing_page_normalized)`,
+      `CREATE TABLE IF NOT EXISTS ga_lead_events_daily (
+        id                       TEXT PRIMARY KEY,
+        project_id               TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        date                     TEXT NOT NULL,
+        event_name               TEXT NOT NULL,
+        channel_group            TEXT NOT NULL,
+        source                   TEXT NOT NULL,
+        medium                   TEXT NOT NULL,
+        host_name                TEXT NOT NULL,
+        landing_page             TEXT NOT NULL,
+        landing_page_normalized  TEXT,
+        attribution_scope        TEXT NOT NULL CHECK (attribution_scope IN ('landing-page', 'channel')),
+        event_count              INTEGER NOT NULL DEFAULT 0 CHECK (event_count >= 0),
+        synced_at                TEXT NOT NULL,
+        sync_run_id              TEXT REFERENCES runs(id) ON DELETE CASCADE,
+        created_at               TEXT NOT NULL
+      )`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_ga_lead_events_daily_grain
+        ON ga_lead_events_daily(project_id, date, event_name, channel_group, source, medium, host_name, landing_page, attribution_scope)`,
+      `CREATE INDEX IF NOT EXISTS idx_ga_lead_events_daily_project_date
+        ON ga_lead_events_daily(project_id, date)`,
+      `CREATE INDEX IF NOT EXISTS idx_ga_lead_events_daily_project_channel
+        ON ga_lead_events_daily(project_id, date, channel_group)`,
+      `CREATE INDEX IF NOT EXISTS idx_ga_lead_events_daily_project_event
+        ON ga_lead_events_daily(project_id, date, event_name)`,
+      `CREATE INDEX IF NOT EXISTS idx_ga_lead_events_daily_project_page
+        ON ga_lead_events_daily(project_id, date, landing_page_normalized)`,
+      `CREATE TABLE IF NOT EXISTS ga_measurement_sync_state (
+        project_id                TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+        acquisition_status        TEXT NOT NULL DEFAULT 'never-synced'
+                                  CHECK (acquisition_status IN ('never-synced', 'ready', 'error')),
+        acquisition_error         TEXT,
+        acquisition_synced_at     TEXT,
+        lead_status               TEXT NOT NULL DEFAULT 'never-synced'
+                                  CHECK (lead_status IN ('never-synced', 'ready', 'error')),
+        lead_error                TEXT,
+        lead_synced_at            TEXT,
+        lead_attribution_scope    TEXT
+                                  CHECK (lead_attribution_scope IS NULL OR lead_attribution_scope IN ('landing-page', 'channel')),
+        updated_at                TEXT NOT NULL
+      )`,
+    ],
+  },
 ]
 
 /**

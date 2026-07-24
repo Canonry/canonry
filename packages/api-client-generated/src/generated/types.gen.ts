@@ -2369,6 +2369,11 @@ export type ProjectDto = {
         timezone?: string;
     }>;
     defaultLocation?: string | null;
+    measurement: {
+        marketingHosts: Array<string>;
+        brandTerms: Array<string>;
+        leadEventNames: Array<string>;
+    };
     autoExtractBacklinks: boolean;
     configSource: 'cli' | 'api' | 'config-file';
     configRevision: number;
@@ -2399,6 +2404,11 @@ export type ProjectUpsertRequest = {
         timezone?: string;
     }>;
     defaultLocation?: string | null;
+    measurement?: {
+        marketingHosts: Array<string>;
+        brandTerms: Array<string>;
+        leadEventNames: Array<string>;
+    };
     autoExtractBacklinks?: boolean;
     configSource?: 'cli' | 'api' | 'config-file';
 };
@@ -2434,6 +2444,11 @@ export type ProjectConfig = {
             timezone?: string;
         }>;
         defaultLocation?: string;
+        measurement: {
+            marketingHosts: Array<string>;
+            brandTerms: Array<string>;
+            leadEventNames: Array<string>;
+        };
         schedule?: {
             preset?: string;
             cron?: string;
@@ -2484,6 +2499,11 @@ export type ProjectOverviewDto = {
             timezone?: string;
         }>;
         defaultLocation?: string | null;
+        measurement: {
+            marketingHosts: Array<string>;
+            brandTerms: Array<string>;
+            leadEventNames: Array<string>;
+        };
         autoExtractBacklinks: boolean;
         configSource: 'cli' | 'api' | 'config-file';
         configRevision: number;

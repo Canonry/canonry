@@ -42,6 +42,7 @@ function toProjectDto(p: ApiProject): ProjectDto {
     labels: p.labels,
     providers: p.providers ?? [],
     providerModels: p.providerModels ?? {},
+    measurement: p.measurement,
     locations: p.locations ?? [],
     defaultLocation: p.defaultLocation ?? null,
     autoExtractBacklinks: p.autoExtractBacklinks ?? false,

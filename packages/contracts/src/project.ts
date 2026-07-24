@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { validationError } from './errors.js'
 import { locationContextSchema, providerModelsSchema, providerNameSchema, type LocationContext } from './provider.js'
+import { measurementConfigSchema, defaultMeasurementConfig } from './measurement.js'
 
 export const configSourceSchema = z.enum(['cli', 'api', 'config-file'])
 export type ConfigSource = z.infer<typeof configSourceSchema>
@@ -96,6 +97,7 @@ export const projectUpsertRequestSchema = z.object({
   providerModels: providerModelsSchema.optional(),
   locations: z.array(locationContextSchema).optional(),
   defaultLocation: z.string().nullable().optional(),
+  measurement: measurementConfigSchema.optional(),
   autoExtractBacklinks: z.boolean().optional(),
   configSource: configSourceSchema.optional(),
 })
@@ -124,6 +126,7 @@ export const projectDtoSchema = z.object({
   providerModels: providerModelsSchema.default({}),
   locations: z.array(locationContextSchema).default([]),
   defaultLocation: z.string().nullable().optional(),
+  measurement: measurementConfigSchema.default(defaultMeasurementConfig),
   autoExtractBacklinks: z.boolean().default(false),
   configSource: configSourceSchema.default('cli'),
   configRevision: z.number().int().positive().default(1),
