@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query'
 import { RefreshCw, Unplug, Upload } from 'lucide-react'
 import {
   Area,
@@ -42,6 +42,7 @@ import {
   getApiV1ProjectsByNameGaSocialReferralHistoryOptions,
   getApiV1ProjectsByNameGaStatusOptions,
   getApiV1ProjectsByNameGaTrafficOptions,
+  getApiV1ProjectsByNameOrganicEvidenceOptions,
 } from '@ainyc/canonry-api-client/react-query'
 import type { ApiGaStatus, ApiGaTraffic, ApiGaTrafficAiLandingPage, ApiGaTrafficPage, ApiGaTrafficReferral, ApiGaSocialReferral, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry } from '../../api.js'
 import { TRAFFIC_STALE_MS } from '../../queries/query-client.js'
@@ -193,6 +194,7 @@ export function ActivitySection({ projectName }: { projectName: string }) {
   return (
     <div className="space-y-10">
       <ServerActivityPanel projectName={projectName} />
+      <OrganicEvidencePanel projectName={projectName} />
       <ClickThroughActivity projectName={projectName} />
     </div>
   )
@@ -1645,5 +1647,438 @@ function SocialChartLegend({
         </div>
       ))}
     </div>
+  )
+}
+
+type EvidenceColumn = {
+  key: string
+  label: string
+  detail?: string
+}
+
+type EvidenceRow = {
+  label: string
+  values: Array<number | null>
+}
+
+function evidencePeriodLabel(label: string): string {
+  if (label === 'previous' || label === 'prior') return 'Previous'
+  return `${label.slice(0, 1).toUpperCase()}${label.slice(1)}`
+}
+
+function EvidenceTable({
+  ariaLabel,
+  firstColumnLabel = 'Metric',
+  columns,
+  rows,
+}: {
+  ariaLabel: string
+  firstColumnLabel?: string
+  columns: EvidenceColumn[]
+  rows: EvidenceRow[]
+}) {
+  return (
+    <div className="overflow-x-auto">
+      <table aria-label={ariaLabel} className="w-full text-sm">
+        <thead className="bg-bg-elevated/50 text-[10px] uppercase tracking-wide text-muted">
+          <tr>
+            <th className="px-3 py-2 text-left font-medium">{firstColumnLabel}</th>
+            {columns.map(column => (
+              <th key={column.key} className="px-3 py-2 text-right font-medium">
+                <span className="block">{column.label}</span>
+                {column.detail && (
+                  <span className="mt-0.5 block normal-case tracking-normal text-[10px] font-normal text-muted">
+                    {column.detail}
+                  </span>
+                )}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(row => (
+            <tr key={row.label} className="border-t border-default">
+              <th scope="row" className="px-3 py-2 text-left font-medium text-primary">
+                {row.label}
+              </th>
+              {row.values.map((value, index) => (
+                <td key={columns[index]?.key ?? index} className="px-3 py-2 text-right tabular-nums text-secondary">
+                  {value === null ? '—' : value.toLocaleString('en-US')}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function EvidenceCard({
+  title,
+  description,
+  children,
+}: {
+  title: string
+  description: string
+  children: React.ReactNode
+}) {
+  return (
+    <Card className="overflow-hidden">
+      <div className="border-b border-default px-4 py-3">
+        <h3 className="text-sm font-semibold text-heading">{title}</h3>
+        <p className="mt-0.5 text-xs text-muted">{description}</p>
+      </div>
+      <div className="p-4">{children}</div>
+    </Card>
+  )
+}
+
+export function OrganicEvidencePanel({ projectName }: { projectName: string }) {
+  const [period, setPeriod] = useState<60 | 90>(90)
+  const query = useQuery({
+    ...getApiV1ProjectsByNameOrganicEvidenceOptions({
+      client: heyClient,
+      path: { name: projectName },
+      query: { period },
+    }),
+    placeholderData: keepPreviousData,
+  })
+
+  const header = (
+    <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+      <div>
+        <div className="eyebrow">Organic evidence</div>
+        <h2 id="organic-evidence-heading" className="text-lg font-semibold text-primary">
+          Organic growth evidence
+        </h2>
+        <p className="mt-1 max-w-3xl text-xs text-muted">
+          Reconciles Google search demand, native GA4 channels and leads, and server-observed AI activity.
+          The sources keep their own units and attribution limits.
+        </p>
+      </div>
+      <div className="flex gap-2" aria-label="Organic evidence period">
+        {([60, 90] as const).map(days => (
+          <Button
+            key={days}
+            type="button"
+            variant={period === days ? 'default' : 'outline'}
+            size="sm"
+            aria-pressed={period === days}
+            onClick={() => setPeriod(days)}
+          >
+            {days} days
+          </Button>
+        ))}
+      </div>
+    </div>
+  )
+
+  if (query.isLoading) {
+    return (
+      <Card className="p-5">
+        <div className="text-sm text-muted">Loading organic growth evidence…</div>
+      </Card>
+    )
+  }
+
+  if (query.isError || !query.data) {
+    return (
+      <section aria-labelledby="organic-evidence-heading">
+        {header}
+        <Card className="p-5" role="status">
+          <p className="text-sm text-negative-400">
+            Organic evidence is temporarily unavailable.
+          </p>
+        </Card>
+      </section>
+    )
+  }
+
+  const evidence = query.data
+  const measurement = evidence.measurement
+  const acquisition = measurement.acquisition
+  const leads = measurement.leads
+  const gscCohorts = evidence.gsc?.cohorts ?? []
+  const gscColumns: EvidenceColumn[] = gscCohorts.map(cohort => ({
+    key: cohort.name,
+    label: evidencePeriodLabel(cohort.name),
+    detail: `${cohort.startDate} – ${cohort.endDate}`,
+  }))
+  const gscByCohort = new Map<string, (typeof gscCohorts)[number]>(
+    gscCohorts.map(row => [row.name, row]),
+  )
+  const gscRows: EvidenceRow[] = [
+    {
+      label: 'Impressions',
+      values: gscColumns.map(column => gscByCohort.get(column.key)?.totals.impressions ?? null),
+    },
+    {
+      label: 'Google clicks',
+      values: gscColumns.map(column => gscByCohort.get(column.key)?.totals.clicks ?? null),
+    },
+  ]
+
+  const acquisitionPeriods = acquisition.periods.length > 0
+    ? acquisition.periods
+    : (acquisition.channels[0]?.periods ?? [])
+  const acquisitionColumns: EvidenceColumn[] = acquisitionPeriods.map(row => ({
+    key: row.label,
+    label: evidencePeriodLabel(row.label),
+    detail: `${row.startDate} – ${row.endDate}`,
+  }))
+  const acquisitionRows: EvidenceRow[] = acquisition.channels.map(channel => {
+    const periodsByLabel = new Map<string, (typeof channel.periods)[number]>(
+      channel.periods.map(row => [row.label, row]),
+    )
+    return {
+      label: channel.channelGroup,
+      values: acquisitionColumns.map(column => periodsByLabel.get(column.key)?.sessions ?? null),
+    }
+  })
+
+  const leadPeriods = leads.periods.length > 0
+    ? leads.periods
+    : (leads.channels[0]?.periods ?? [])
+  const leadColumns: EvidenceColumn[] = leadPeriods.map(row => ({
+    key: row.label,
+    label: evidencePeriodLabel(row.label),
+    detail: `${row.startDate} – ${row.endDate}`,
+  }))
+  const leadRows: EvidenceRow[] = [
+    ...(leads.periods.length > 0 ? [{
+      label: 'All measured leads',
+      values: leadColumns.map(column => (
+        leads.periods.find(row => row.label === column.key)?.eventCount ?? null
+      )),
+    }] : []),
+    ...leads.channels.map(channel => ({
+      label: channel.channelGroup,
+      values: leadColumns.map(column => (
+        channel.periods.find(row => row.label === column.key)?.eventCount ?? null
+      )),
+    })),
+  ]
+
+  const latestDemand = measurement.searchDemand.periods.at(-1)
+  const visibleLimitations = evidence.limitations.filter(item => item.code !== 'lead-channel-scope')
+  const hasAcquisitionRows = acquisitionColumns.length > 0 && acquisitionRows.length > 0
+  const hasLeadRows = leadColumns.length > 0 && leadRows.length > 0
+  const pageRows: EvidenceRow[] = evidence.pages.map(page => ({
+    label: page.path,
+    values: [
+      page.gsc.clicks,
+      page.gsc.impressions,
+      page.ga4OrganicSessions,
+      page.server.userFetchHits.verified,
+      page.server.referralSessions.organic,
+    ],
+  }))
+
+  return (
+    <section aria-labelledby="organic-evidence-heading">
+      {header}
+      <div className="space-y-4">
+        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
+          <span>Window: {evidence.periodDays} days</span>
+          <span>As of: {evidence.asOfDate ?? 'source dates vary'}</span>
+          <span>Host scope: {measurement.filters.hostScope}</span>
+          {query.isFetching && <span>Updating organic evidence…</span>}
+        </div>
+
+        {acquisition.status === 'error' && (
+          <Card className="border-caution-800/60 bg-caution-900/10 p-3 text-sm text-caution">
+            <div>GA4 acquisition sync error: {acquisition.error ?? 'unknown error'}</div>
+            {hasAcquisitionRows && <div className="mt-1 text-xs">Showing last-good acquisition data</div>}
+          </Card>
+        )}
+
+        {leads.status === 'error' && (
+          <Card className="border-caution-800/60 bg-caution-900/10 p-3 text-sm text-caution">
+            <div>GA4 lead sync error: {leads.error ?? 'unknown error'}</div>
+            {hasLeadRows && <div className="mt-1 text-xs">Showing last-good lead data</div>}
+          </Card>
+        )}
+
+        <EvidenceCard
+          title="Google Search Console cohorts"
+          description="Property-wide Google Search Console clicks and impressions using Google’s source-specific dates."
+        >
+          {gscColumns.length > 0 && gscRows.length > 0 ? (
+            <EvidenceTable
+              ariaLabel="Google Search Console cohorts"
+              columns={gscColumns}
+              rows={gscRows}
+            />
+          ) : (
+            <p className="text-sm text-muted">No Google Search Console cohort evidence is available.</p>
+          )}
+        </EvidenceCard>
+
+        <EvidenceCard
+          title="GA4 acquisition"
+          description="Sessions retain their native GA4 default channel group; no residual Other bucket is synthesized."
+        >
+          {acquisitionColumns.length > 0 && acquisitionRows.length > 0 ? (
+            <EvidenceTable
+              ariaLabel="GA4 sessions by native channel"
+              firstColumnLabel="Native channel"
+              columns={acquisitionColumns}
+              rows={acquisitionRows}
+            />
+          ) : (
+            <p className="text-sm text-muted">
+              {acquisition.status === 'never-synced'
+                ? 'Native GA4 acquisition has not been synced yet.'
+                : 'No native GA4 acquisition rows matched this scope.'}
+            </p>
+          )}
+        </EvidenceCard>
+
+        <EvidenceCard
+          title="GA4 leads"
+          description="Configured GA4 lead events by cohort and native acquisition channel."
+        >
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <ToneBadge tone={leads.attributionScope === 'landing-page' ? 'positive' : 'caution'}>
+              {leads.attributionScope === 'channel'
+                ? 'Channel-level attribution'
+                : 'Landing-page attribution'}
+            </ToneBadge>
+            {leads.attributionScope === 'channel' && (
+              <span className="text-xs text-caution">
+                marketing-host and path filters do not apply
+              </span>
+            )}
+          </div>
+          {hasLeadRows ? (
+            <EvidenceTable
+              ariaLabel="GA4 lead events by cohort"
+              firstColumnLabel="Lead scope"
+              columns={leadColumns}
+              rows={leadRows}
+            />
+          ) : (
+            <p className="text-sm text-muted">
+              {leads.status === 'never-synced'
+                ? 'GA4 lead events have not been synced yet.'
+                : 'No configured lead events matched this scope.'}
+            </p>
+          )}
+        </EvidenceCard>
+
+        <EvidenceCard
+          title="Google search demand mix"
+          description={`Latest reported query mix${measurement.searchDemand.latestDate ? ` through ${measurement.searchDemand.latestDate}` : ''}; suppressed rows remain explicit.`}
+        >
+          {measurement.searchDemand.status === 'ready' && latestDemand ? (
+            <EvidenceTable
+              ariaLabel="Latest Google search demand mix"
+              firstColumnLabel="Query class"
+              columns={[
+                { key: 'clicks', label: 'Clicks' },
+                { key: 'impressions', label: 'Impressions' },
+              ]}
+              rows={[
+                {
+                  label: 'Branded',
+                  values: [latestDemand.brandedClicks, latestDemand.brandedImpressions],
+                },
+                {
+                  label: 'Non-branded',
+                  values: [latestDemand.nonBrandedClicks, latestDemand.nonBrandedImpressions],
+                },
+                {
+                  label: 'Suppressed or unreported',
+                  values: [latestDemand.unreportedClicks, latestDemand.unreportedImpressions],
+                },
+              ]}
+            />
+          ) : (
+            <p className="text-sm text-muted">Google search query demand is unavailable.</p>
+          )}
+        </EvidenceCard>
+
+        <EvidenceCard
+          title="Server-side AI evidence"
+          description="Verified crawler requests, on-demand AI user fetches, and organic AI referral sessions."
+        >
+          {evidence.server ? (
+            <EvidenceTable
+              ariaLabel="Server-side AI evidence"
+              columns={[{ key: 'count', label: 'Count' }]}
+              rows={[
+                {
+                  label: 'Verified crawler hits',
+                  values: [evidence.server.crawlerHits.verified],
+                },
+                {
+                  label: 'Verified user fetches',
+                  values: [evidence.server.userFetchHits.verified],
+                },
+                {
+                  label: 'Organic AI referral sessions',
+                  values: [evidence.server.referralSessions.organic],
+                },
+              ]}
+            />
+          ) : (
+            <p className="text-sm text-muted">No server-side traffic evidence is available.</p>
+          )}
+        </EvidenceCard>
+
+        <EvidenceCard
+          title="All-page organic and AI evidence"
+          description="Evidence is shown for every reported page path; each source keeps its own measurement rules."
+        >
+          {pageRows.length > 0 ? (
+            <EvidenceTable
+              ariaLabel="All-page organic and AI evidence"
+              firstColumnLabel="Page"
+              columns={[
+                { key: 'gsc-clicks', label: 'GSC clicks' },
+                { key: 'gsc-impressions', label: 'GSC impressions' },
+                { key: 'ga4-organic', label: 'GA4 organic sessions' },
+                { key: 'ai-fetches', label: 'Verified AI user fetches' },
+                { key: 'ai-referrals', label: 'Organic AI referrals' },
+              ]}
+              rows={pageRows}
+            />
+          ) : (
+            <p className="text-sm text-muted">No page-level organic or AI evidence is available.</p>
+          )}
+        </EvidenceCard>
+
+        {evidence.findings.length > 0 && (
+          <div>
+            <h3 className="mb-2 text-sm font-semibold text-heading">What the evidence supports</h3>
+            <div className="grid gap-2 lg:grid-cols-2">
+              {evidence.findings.map(finding => (
+                <Card key={finding.title} className="p-3">
+                  <div className="flex items-start gap-2">
+                    <ToneBadge tone={finding.tone}>{finding.tone}</ToneBadge>
+                    <div>
+                      <div className="font-medium text-primary">{finding.title}</div>
+                      <p className="mt-0.5 text-sm text-secondary">{finding.detail}</p>
+                    </div>
+                  </div>
+                </Card>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {visibleLimitations.length > 0 && (
+          <Card className="p-4">
+            <h3 className="text-sm font-semibold text-heading">Measurement caveats</h3>
+            <ul className="mt-2 space-y-1.5 text-xs text-muted">
+              {visibleLimitations.map(item => (
+                <li key={item.code}>{item.detail}</li>
+              ))}
+            </ul>
+          </Card>
+        )}
+      </div>
+    </section>
   )
 }
