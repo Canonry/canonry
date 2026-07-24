@@ -414,6 +414,42 @@ async function getRawEvidence(
   return JSON.parse(response.body) as NativeOrganicEvidence
 }
 
+interface CapturedStatement {
+  sql: string
+  params: unknown[]
+}
+
+function captureStatements(sqlite: import('better-sqlite3').Database): {
+  captured: CapturedStatement[]
+  stop: () => void
+} {
+  const captured: CapturedStatement[] = []
+  const originalPrepare = sqlite.prepare.bind(sqlite)
+
+  sqlite.prepare = ((source: string) => {
+    const statement = originalPrepare(source)
+    const proxy: unknown = new Proxy(statement, {
+      get(target, property, receiver) {
+        const value = Reflect.get(target, property, receiver)
+        if (typeof value !== 'function') return value
+        return (...args: unknown[]) => {
+          if (property === 'all' || property === 'get' || property === 'iterate') {
+            captured.push({ sql: source, params: args })
+          }
+          const result = (value as (...a: unknown[]) => unknown).apply(target, args)
+          return result === target ? proxy : result
+        }
+      },
+    })
+    return proxy
+  }) as typeof sqlite.prepare
+
+  return {
+    captured,
+    stop: () => { sqlite.prepare = originalPrepare as typeof sqlite.prepare },
+  }
+}
+
 describe('organic evidence native measurement reconciliation', () => {
   let ctx: Context
 
@@ -798,5 +834,47 @@ describe('organic evidence native measurement reconciliation', () => {
       paidSessions: 0,
       organicSessions: 5,
     })
+  })
+  it('bounds every high-volume detail read while source coverage stays aggregate-only', async () => {
+    seedNativeMeasurement(ctx)
+    seedServerAiEvidence(ctx)
+
+    const capture = captureStatements(ctx.db.$client)
+    try {
+      await getRawEvidence(ctx)
+    } finally {
+      capture.stop()
+    }
+
+    const highVolumeTables = [
+      'gsc_daily_totals',
+      'gsc_query_daily_totals',
+      'gsc_search_data',
+      'ga_traffic_snapshots',
+      'ga_acquisition_daily',
+      'ga_ai_referrals',
+      'crawler_events_hourly',
+      'ai_user_fetch_events_hourly',
+      'ai_referral_events_hourly',
+    ]
+
+    for (const table of highVolumeTables) {
+      const reads = capture.captured.filter(statement =>
+        new RegExp(`\\bfrom\\s+"?${table}"?`, 'i').test(statement.sql))
+      expect(reads.length, `expected ${table} to be read`).toBeGreaterThan(0)
+
+      for (const statement of reads) {
+        const sql = statement.sql.toLowerCase()
+        const aggregateOnly = /\b(?:min|max|count)\s*\(/.test(sql)
+        const dateColumn = table.endsWith('_hourly') ? 'ts_hour' : 'date'
+        const lowerBound = new RegExp(`"${dateColumn}"\\s*>=\\s*\\?`).test(sql)
+        const upperBound = new RegExp(`"${dateColumn}"\\s*<=\\s*\\?`).test(sql)
+
+        expect(
+          aggregateOnly || (lowerBound && upperBound),
+          `unbounded detail read from ${table}: ${statement.sql}`,
+        ).toBe(true)
+      }
+    }
   })
 })
