@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query'
 import { RefreshCw, Unplug, Upload } from 'lucide-react'
 import {
   Area,
@@ -1703,7 +1703,7 @@ function EvidenceTable({
               </th>
               {row.values.map((value, index) => (
                 <td key={columns[index]?.key ?? index} className="px-3 py-2 text-right tabular-nums text-secondary">
-                  {value === null ? '—' : value.toLocaleString()}
+                  {value === null ? '—' : value.toLocaleString('en-US')}
                 </td>
               ))}
             </tr>
@@ -1736,11 +1736,14 @@ function EvidenceCard({
 
 export function OrganicEvidencePanel({ projectName }: { projectName: string }) {
   const [period, setPeriod] = useState<60 | 90>(90)
-  const query = useQuery(getApiV1ProjectsByNameOrganicEvidenceOptions({
-    client: heyClient,
-    path: { name: projectName },
-    query: { period },
-  }))
+  const query = useQuery({
+    ...getApiV1ProjectsByNameOrganicEvidenceOptions({
+      client: heyClient,
+      path: { name: projectName },
+      query: { period },
+    }),
+    placeholderData: keepPreviousData,
+  })
 
   const header = (
     <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -1796,38 +1799,24 @@ export function OrganicEvidencePanel({ projectName }: { projectName: string }) {
   const measurement = evidence.measurement
   const acquisition = measurement.acquisition
   const leads = measurement.leads
-  const blogColumns: EvidenceColumn[] = evidence.cohorts.map(cohort => ({
+  const gscCohorts = evidence.gsc?.cohorts ?? []
+  const gscColumns: EvidenceColumn[] = gscCohorts.map(cohort => ({
     key: cohort.name,
     label: evidencePeriodLabel(cohort.name),
     detail: `${cohort.startDate} – ${cohort.endDate}`,
   }))
-  const blogGsc = new Map<string, NonNullable<typeof evidence.blog.gsc>['cohorts'][number]>(
-    evidence.blog.gsc?.cohorts.map(row => [row.name, row]) ?? [],
+  const gscByCohort = new Map<string, (typeof gscCohorts)[number]>(
+    gscCohorts.map(row => [row.name, row]),
   )
-  const blogGa4 = new Map<string, NonNullable<typeof evidence.blog.ga4>['cohorts'][number]>(
-    evidence.blog.ga4?.cohorts.map(row => [row.name, row]) ?? [],
-  )
-  const blogRows: EvidenceRow[] = [
-    ...(evidence.blog.gsc
-      ? [
-          {
-            label: 'Impressions',
-            values: blogColumns.map(column => blogGsc.get(column.key)?.totals.impressions ?? null),
-          },
-          {
-            label: 'Google clicks',
-            values: blogColumns.map(column => blogGsc.get(column.key)?.totals.clicks ?? null),
-          },
-        ]
-      : []),
-    ...(evidence.blog.ga4
-      ? [
-          {
-            label: 'GA4 organic sessions',
-            values: blogColumns.map(column => blogGa4.get(column.key)?.organicSessions ?? null),
-          },
-        ]
-      : []),
+  const gscRows: EvidenceRow[] = [
+    {
+      label: 'Impressions',
+      values: gscColumns.map(column => gscByCohort.get(column.key)?.totals.impressions ?? null),
+    },
+    {
+      label: 'Google clicks',
+      values: gscColumns.map(column => gscByCohort.get(column.key)?.totals.clicks ?? null),
+    },
   ]
 
   const acquisitionPeriods = acquisition.periods.length > 0
@@ -1857,12 +1846,12 @@ export function OrganicEvidencePanel({ projectName }: { projectName: string }) {
     detail: `${row.startDate} – ${row.endDate}`,
   }))
   const leadRows: EvidenceRow[] = [
-    {
+    ...(leads.periods.length > 0 ? [{
       label: 'All measured leads',
       values: leadColumns.map(column => (
         leads.periods.find(row => row.label === column.key)?.eventCount ?? null
       )),
-    },
+    }] : []),
     ...leads.channels.map(channel => ({
       label: channel.channelGroup,
       values: leadColumns.map(column => (
@@ -1873,6 +1862,18 @@ export function OrganicEvidencePanel({ projectName }: { projectName: string }) {
 
   const latestDemand = measurement.searchDemand.periods.at(-1)
   const visibleLimitations = evidence.limitations.filter(item => item.code !== 'lead-channel-scope')
+  const hasAcquisitionRows = acquisitionColumns.length > 0 && acquisitionRows.length > 0
+  const hasLeadRows = leadColumns.length > 0 && leadRows.length > 0
+  const pageRows: EvidenceRow[] = evidence.pages.map(page => ({
+    label: page.path,
+    values: [
+      page.gsc?.clicks ?? null,
+      page.gsc?.impressions ?? null,
+      page.ga4OrganicSessions ?? null,
+      page.server?.userFetchHits.verified ?? null,
+      page.server?.referralSessions.organic ?? null,
+    ],
+  }))
 
   return (
     <section aria-labelledby="organic-evidence-heading">
@@ -1882,34 +1883,35 @@ export function OrganicEvidencePanel({ projectName }: { projectName: string }) {
           <span>Window: {evidence.periodDays} days</span>
           <span>As of: {evidence.asOfDate ?? 'source dates vary'}</span>
           <span>Host scope: {measurement.filters.hostScope}</span>
+          {query.isFetching && <span>Updating organic evidence…</span>}
         </div>
 
         {acquisition.status === 'error' && (
           <Card className="border-caution-800/60 bg-caution-900/10 p-3 text-sm text-caution">
             <div>GA4 acquisition sync error: {acquisition.error ?? 'unknown error'}</div>
-            <div className="mt-1 text-xs">Showing last-good acquisition data</div>
+            {hasAcquisitionRows && <div className="mt-1 text-xs">Showing last-good acquisition data</div>}
           </Card>
         )}
 
         {leads.status === 'error' && (
           <Card className="border-caution-800/60 bg-caution-900/10 p-3 text-sm text-caution">
             <div>GA4 lead sync error: {leads.error ?? 'unknown error'}</div>
-            <div className="mt-1 text-xs">Showing last-good lead data</div>
+            {hasLeadRows && <div className="mt-1 text-xs">Showing last-good lead data</div>}
           </Card>
         )}
 
         <EvidenceCard
-          title="Blog visibility and organic visits"
-          description="Google Search Console visibility and clicks alongside GA4 organic sessions for /blog."
+          title="Google Search Console cohorts"
+          description="Property-wide Google Search Console clicks and impressions using Google’s source-specific dates."
         >
-          {blogColumns.length > 0 && blogRows.length > 0 ? (
+          {gscColumns.length > 0 && gscRows.length > 0 ? (
             <EvidenceTable
-              ariaLabel="Blog search and traffic cohorts"
-              columns={blogColumns}
-              rows={blogRows}
+              ariaLabel="Google Search Console cohorts"
+              columns={gscColumns}
+              rows={gscRows}
             />
           ) : (
-            <p className="text-sm text-muted">No blog search or organic-session evidence is available.</p>
+            <p className="text-sm text-muted">No Google Search Console cohort evidence is available.</p>
           )}
         </EvidenceCard>
 
@@ -1949,7 +1951,7 @@ export function OrganicEvidencePanel({ projectName }: { projectName: string }) {
               </span>
             )}
           </div>
-          {leadColumns.length > 0 && leads.periods.length > 0 ? (
+          {hasLeadRows ? (
             <EvidenceTable
               ariaLabel="GA4 lead events by cohort"
               firstColumnLabel="Lead scope"
@@ -2022,6 +2024,28 @@ export function OrganicEvidencePanel({ projectName }: { projectName: string }) {
             />
           ) : (
             <p className="text-sm text-muted">No server-side traffic evidence is available.</p>
+          )}
+        </EvidenceCard>
+
+        <EvidenceCard
+          title="All-page organic and AI evidence"
+          description="Evidence is shown for every reported page path; each source keeps its own measurement rules."
+        >
+          {pageRows.length > 0 ? (
+            <EvidenceTable
+              ariaLabel="All-page organic and AI evidence"
+              firstColumnLabel="Page"
+              columns={[
+                { key: 'gsc-clicks', label: 'GSC clicks' },
+                { key: 'gsc-impressions', label: 'GSC impressions' },
+                { key: 'ga4-organic', label: 'GA4 organic sessions' },
+                { key: 'ai-fetches', label: 'Verified AI user fetches' },
+                { key: 'ai-referrals', label: 'Organic AI referrals' },
+              ]}
+              rows={pageRows}
+            />
+          ) : (
+            <p className="text-sm text-muted">No page-level organic or AI evidence is available.</p>
           )}
         </EvidenceCard>
 
