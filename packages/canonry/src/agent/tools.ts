@@ -84,6 +84,7 @@ export const AERO_ADS_OPERATOR_MCP_TOOL_NAMES: ReadonlySet<CanonryMcpToolName> =
   CanonryMcpToolNames.canonry_ads_campaigns,
   CanonryMcpToolNames.canonry_ads_insights,
   CanonryMcpToolNames.canonry_ads_summary,
+  CanonryMcpToolNames.canonry_ads_delivery_diagnostics,
   CanonryMcpToolNames.canonry_ads_operations_unresolved,
   CanonryMcpToolNames.canonry_ads_operation_get,
   CanonryMcpToolNames.canonry_ads_operation_reconcile,
@@ -237,7 +238,7 @@ function buildAdsOperatorContextTool(ctx: ToolContext): AgentTool {
     name: AERO_ADS_OPERATOR_CONTEXT_TOOL_NAME,
     label: 'Get ads operator context',
     description:
-      'One-call Aero context pack for ads operations. Reads the project overview, ads connection, paid summary, bounded campaign snapshots, recent paid rollups, ads doctor checks, and recent Aero memory. Use before diagnosing ChatGPT ads performance or planning the next operator action.',
+      'One-call Aero context pack for ads operations. Reads the project overview, stored ads delivery diagnostics, ads connection, paid summary, bounded campaign snapshots, recent paid rollups, ads doctor checks, and recent Aero memory. Use before diagnosing ChatGPT ads performance or planning the next operator action.',
     parameters: Type.Object({
       windowDays: Type.Optional(Type.Integer({
         minimum: 1,
@@ -266,6 +267,7 @@ function buildAdsOperatorContextTool(ctx: ToolContext): AgentTool {
       const [
         overview,
         adsStatus,
+        deliveryDiagnostics,
         adsSummary,
         campaigns,
         campaignInsights,
@@ -275,6 +277,7 @@ function buildAdsOperatorContextTool(ctx: ToolContext): AgentTool {
       ] = await Promise.all([
         readSection(() => ctx.client.getProjectOverview(ctx.projectName)),
         readSection(() => ctx.client.getAdsStatus(ctx.projectName)),
+        readSection(() => ctx.client.getAdsDeliveryDiagnostics(ctx.projectName)),
         readSection(() => ctx.client.getAdsSummary(ctx.projectName)),
         readSection(async () => compactCampaigns(await ctx.client.getAdsCampaigns(ctx.projectName), campaignLimit)),
         readSection(async () =>
@@ -305,6 +308,7 @@ function buildAdsOperatorContextTool(ctx: ToolContext): AgentTool {
           : overview,
         ads: {
           status: adsStatus,
+          deliveryDiagnostics,
           summary: adsSummary,
           campaigns,
           insights: {

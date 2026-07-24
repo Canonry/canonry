@@ -4,6 +4,7 @@ import {
   adsCpcMicros,
   adsInsightRowDtoSchema,
   adsSummaryDtoSchema,
+  adsDeliveryDiagnosticsDtoSchema,
   adsCampaignDtoSchema,
   adsAdGroupDtoSchema,
   adsAccountDtoSchema,
@@ -293,6 +294,52 @@ describe('DTO schemas', () => {
       integrityReviewStatus: 'approved',
       integrityDecision: 'allowed',
     })
+  })
+
+  test('delivery diagnostics keep stored preflight facts separate from historical activity', () => {
+    const parsed = adsDeliveryDiagnosticsDtoSchema.parse({
+      snapshot: {
+        status: 'complete',
+        issue: null,
+        lastSyncedAt: NOW,
+        campaignCount: 1,
+        adGroupCount: 1,
+        adCount: 1,
+        sourceSync: { runId: 'run_ads', status: 'completed' },
+      },
+      historicalCampaignRollups: {
+        status: 'reported',
+        window: { from: '2026-07-16', to: '2026-07-17' },
+        totals: { impressions: 8, clicks: 1, spendMicros: 2_000_000, conversions: 0, ctr: 0.125, cpcMicros: 2_000_000 },
+      },
+      storedConfiguration: {
+        basis: 'stored_ads_snapshot',
+        connection: {
+          status: 'active',
+          reviewStatus: 'in_review',
+          integrityReviewStatus: 'approved',
+          integrityDecision: 'allowed',
+          conversionTrackingConfigured: true,
+        },
+        campaigns: [{
+          id: 'cmpn_1', name: 'Audit leads', status: 'paused', biddingType: 'clicks',
+          dailySpendLimitMicros: 10_000_000, lifetimeSpendLimitMicros: null,
+          conversionEventSettingIds: ['event_1'],
+          adGroups: [{
+            id: 'group_1', name: 'Pricing', status: 'paused', billingEventType: 'click',
+            maxBidMicros: 1_000_000, contextHints: ['AI search audit pricing'],
+            ads: [{ id: 'ad_1', name: 'Audit card', status: 'paused', reviewStatus: 'approved' }],
+          }],
+        }],
+      },
+      assessment: { state: 'observed_activity' },
+    })
+
+    expect(parsed.assessment.state).toBe('observed_activity')
+    expect(adsDeliveryDiagnosticsDtoSchema.safeParse({
+      ...parsed,
+      assessment: { state: 'serving' },
+    }).success).toBe(false)
   })
 })
 

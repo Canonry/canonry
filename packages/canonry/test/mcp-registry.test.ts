@@ -140,6 +140,7 @@ const expectedToolNames = [
   'canonry_ads_campaigns',
   'canonry_ads_insights',
   'canonry_ads_summary',
+  'canonry_ads_delivery_diagnostics',
   'canonry_ads_operations_unresolved',
   'canonry_ads_operation_get',
   'canonry_ads_operation_reconcile',
@@ -160,8 +161,8 @@ const expectedToolNames = [
 
 describe('MCP tool registry', () => {
   it('ships the curated v1 surface', () => {
-    expect(CANONRY_MCP_TOOL_COUNT).toBe(140)
-    expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(89)
+    expect(CANONRY_MCP_TOOL_COUNT).toBe(141)
+    expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(90)
     expect(canonryMcpTools.map(tool => tool.name)).toEqual(expectedToolNames)
     const readNames = canonryMcpTools.filter(tool => tool.access === 'read').map(tool => tool.name)
     expect(getCanonryMcpTools('read-only').map(tool => tool.name)).toEqual(readNames)
@@ -202,7 +203,7 @@ describe('MCP tool registry', () => {
     expect(counts.get('gsc')).toBe(8)
     expect(counts.get('ga')).toBe(9)
     expect(counts.get('gbp')).toBe(13)
-    expect(counts.get('ads')).toBe(24)
+    expect(counts.get('ads')).toBe(25)
     expect(counts.get('traffic')).toBe(10)
     expect(counts.get('agent')).toBe(5)
     expect(counts.get('discovery')).toBe(9)

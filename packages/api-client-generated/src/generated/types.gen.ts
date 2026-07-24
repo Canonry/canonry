@@ -644,6 +644,72 @@ export type AdsConnectionStatusDto = {
     conversionTrackingConfigured?: boolean;
 };
 
+export type AdsDeliveryDiagnosticsDto = {
+    snapshot: {
+        status: 'unavailable' | 'partial' | 'complete';
+        issue: 'no_ads_connection' | 'no_ads_sync' | 'entity_rows_missing_sync_run_id' | 'entity_rows_span_multiple_sync_runs' | 'source_sync_missing' | 'source_sync_not_ads_sync' | 'source_sync_not_completed' | null;
+        lastSyncedAt: string | null;
+        campaignCount: number;
+        adGroupCount: number;
+        adCount: number;
+        sourceSync: {
+            runId: string;
+            status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';
+        } | null;
+    };
+    historicalCampaignRollups: {
+        status: 'unavailable' | 'reported';
+        window: {
+            from: string | null;
+            to: string | null;
+        };
+        totals: {
+            impressions: number;
+            clicks: number;
+            spendMicros: number;
+            conversions: number;
+            ctr: number | null;
+            cpcMicros: number | null;
+        } | null;
+    };
+    storedConfiguration: {
+        basis: 'stored_ads_snapshot';
+        connection: {
+            status: string | null;
+            reviewStatus: string | null;
+            integrityReviewStatus: string | null;
+            integrityDecision: string | null;
+            conversionTrackingConfigured: boolean;
+        } | null;
+        campaigns: Array<{
+            id: string;
+            name: string;
+            status: string;
+            biddingType: 'impressions' | 'clicks' | null;
+            dailySpendLimitMicros: number | null;
+            lifetimeSpendLimitMicros: number | null;
+            conversionEventSettingIds: Array<string>;
+            adGroups: Array<{
+                id: string;
+                name: string;
+                status: string;
+                billingEventType: 'impression' | 'click' | null;
+                maxBidMicros: number | null;
+                contextHints: Array<string>;
+                ads: Array<{
+                    id: string;
+                    name: string;
+                    status: string;
+                    reviewStatus: string | null;
+                }>;
+            }>;
+        }>;
+    };
+    assessment: {
+        state: 'unavailable' | 'partial_snapshot' | 'metrics_unavailable' | 'observed_activity' | 'no_observed_activity';
+    };
+};
+
 export type AdsConversionEventSettingListResponse = {
     eventSettings: Array<{
         id: string;
@@ -9615,6 +9681,36 @@ export type GetApiV1ProjectsByNameAdsSummaryResponses = {
 };
 
 export type GetApiV1ProjectsByNameAdsSummaryResponse = GetApiV1ProjectsByNameAdsSummaryResponses[keyof GetApiV1ProjectsByNameAdsSummaryResponses];
+
+export type GetApiV1ProjectsByNameAdsDeliveryDiagnosticsData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/ads/delivery-diagnostics';
+};
+
+export type GetApiV1ProjectsByNameAdsDeliveryDiagnosticsErrors = {
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAdsDeliveryDiagnosticsError = GetApiV1ProjectsByNameAdsDeliveryDiagnosticsErrors[keyof GetApiV1ProjectsByNameAdsDeliveryDiagnosticsErrors];
+
+export type GetApiV1ProjectsByNameAdsDeliveryDiagnosticsResponses = {
+    /**
+     * Stored diagnostics returned.
+     */
+    200: AdsDeliveryDiagnosticsDto;
+};
+
+export type GetApiV1ProjectsByNameAdsDeliveryDiagnosticsResponse = GetApiV1ProjectsByNameAdsDeliveryDiagnosticsResponses[keyof GetApiV1ProjectsByNameAdsDeliveryDiagnosticsResponses];
 
 export type PostApiV1ProjectsByNameBingConnectData = {
     body: {

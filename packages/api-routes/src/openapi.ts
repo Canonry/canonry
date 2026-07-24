@@ -2908,6 +2908,18 @@ const routeCatalog: OpenApiOperation[] = [
     },
   },
   {
+    method: 'get',
+    path: '/api/v1/projects/{name}/ads/delivery-diagnostics',
+    summary: 'Stored ads snapshot provenance, configuration facts, and historical campaign activity',
+    description: 'Read-only local evidence. It does not call OpenAI and never determines provider eligibility or serving.',
+    tags: ['ads'],
+    parameters: [nameParameter],
+    responses: {
+      200: jsonResponse('Stored diagnostics returned.', 'AdsDeliveryDiagnosticsDto'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
     method: 'post',
     path: '/api/v1/projects/{name}/bing/connect',
     summary: 'Connect Bing Webmaster Tools',

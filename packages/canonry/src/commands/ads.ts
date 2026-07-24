@@ -14,6 +14,7 @@ import type {
   AdsGeoSearchResponse,
   AdsInsightsResponse,
   AdsSummaryDto,
+  AdsDeliveryDiagnosticsDto,
   AdsSyncResponse,
   AdsOperationDto,
   AdsOperationReconcileResponse,
@@ -43,6 +44,7 @@ import {
   AdsOperationKinds,
   AdsOperationStates,
   AdsOperationStepStates,
+  AdsHistoricalCampaignRollupStatuses,
   formatMicros,
 } from '@ainyc/canonry-contracts'
 import type { z } from 'zod'
@@ -593,4 +595,42 @@ export async function adsSummary(project: string, opts?: { format?: string }): P
   console.log(`Clicks:       ${result.totals.clicks}${result.totals.ctr != null ? ` (CTR ${(result.totals.ctr * 100).toFixed(2)}%)` : ''}`)
   console.log(`Spend:        ${formatMicros(result.totals.spendMicros, result.currencyCode ?? 'USD')}${result.totals.cpcMicros != null ? ` (CPC ${formatMicros(result.totals.cpcMicros, result.currencyCode ?? 'USD')})` : ''}`)
   console.log(`Last synced:  ${result.lastSyncedAt ?? 'never'}`)
+}
+
+export async function adsDeliveryDiagnostics(project: string, opts?: { format?: string }): Promise<void> {
+  const result: AdsDeliveryDiagnosticsDto = await getClient().getAdsDeliveryDiagnostics(project)
+
+  if (isMachineFormat(opts?.format)) {
+    console.log(JSON.stringify(result, null, 2))
+    return
+  }
+
+  console.log(`Snapshot:     ${result.snapshot.status}${result.snapshot.issue ? ` (${result.snapshot.issue})` : ''}`)
+  console.log(`Source sync:  ${result.snapshot.sourceSync ? `${result.snapshot.sourceSync.runId} [${result.snapshot.sourceSync.status}]` : 'none'}`)
+  console.log(`Structure:    ${result.snapshot.campaignCount} campaigns / ${result.snapshot.adGroupCount} ad groups / ${result.snapshot.adCount} ads`)
+  console.log(`Last synced:  ${result.snapshot.lastSyncedAt ?? 'never'}`)
+  console.log(`Activity:     ${result.assessment.state}`)
+  if (
+    result.historicalCampaignRollups.status === AdsHistoricalCampaignRollupStatuses.reported &&
+    result.historicalCampaignRollups.totals !== null
+  ) {
+    console.log(`Historical:   ${result.historicalCampaignRollups.totals.impressions} impressions / ${result.historicalCampaignRollups.totals.clicks} clicks (${result.historicalCampaignRollups.window.from} → ${result.historicalCampaignRollups.window.to})`)
+  } else {
+    console.log('Historical:   no stored campaign rollups')
+  }
+  console.log('Evidence:     stored snapshot and historical rollups only; not an OpenAI eligibility or serving verdict.')
+
+  for (const campaign of result.storedConfiguration.campaigns) {
+    const budget = campaign.dailySpendLimitMicros !== null
+      ? `${formatMicros(campaign.dailySpendLimitMicros)}/day`
+      : campaign.lifetimeSpendLimitMicros !== null
+        ? `${formatMicros(campaign.lifetimeSpendLimitMicros)} lifetime`
+        : 'no stored budget'
+    console.log(`${campaign.name} [${campaign.status}] — ${campaign.biddingType ?? 'unknown bidding'}, ${budget}, ${campaign.conversionEventSettingIds.length} conversion settings`)
+    for (const group of campaign.adGroups) {
+      const bid = group.maxBidMicros === null ? 'no stored max bid' : `max bid ${formatMicros(group.maxBidMicros)}`
+      console.log(`  - ${group.name} [${group.status}] — ${group.billingEventType ?? 'unknown billing'}, ${bid}, ${group.contextHints.length} context hints`)
+      for (const ad of group.ads) console.log(`      ${ad.name} [${ad.status}] review=${ad.reviewStatus ?? 'unknown'}`)
+    }
+  }
 }

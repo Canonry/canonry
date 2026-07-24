@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { runStatusSchema } from './run.js'
 
 /** Provider review values that gate any live-spend transition. Unknown values remain strings on reads and fail closed. */
 export const AdsReviewStatuses = {
@@ -254,6 +255,120 @@ export const adsSummaryDtoSchema = z.object({
   totals: adsTotalsDtoSchema,
 })
 export type AdsSummaryDto = z.infer<typeof adsSummaryDtoSchema>
+
+/**
+ * The completeness of the stored ads entity tree. This is provenance for a
+ * local snapshot, not a statement from OpenAI about ad eligibility or serving.
+ */
+export const adsDeliverySnapshotStatusSchema = z.enum(['unavailable', 'partial', 'complete'])
+export type AdsDeliverySnapshotStatus = z.infer<typeof adsDeliverySnapshotStatusSchema>
+export const AdsDeliverySnapshotStatuses = adsDeliverySnapshotStatusSchema.enum
+
+/** Why a stored entity tree cannot be treated as one complete ads snapshot. */
+export const adsDeliverySnapshotIssueSchema = z.enum([
+  'no_ads_connection',
+  'no_ads_sync',
+  'entity_rows_missing_sync_run_id',
+  'entity_rows_span_multiple_sync_runs',
+  'source_sync_missing',
+  'source_sync_not_ads_sync',
+  'source_sync_not_completed',
+])
+export type AdsDeliverySnapshotIssue = z.infer<typeof adsDeliverySnapshotIssueSchema>
+export const AdsDeliverySnapshotIssues = adsDeliverySnapshotIssueSchema.enum
+
+export const adsHistoricalCampaignRollupStatusSchema = z.enum(['unavailable', 'reported'])
+export type AdsHistoricalCampaignRollupStatus = z.infer<typeof adsHistoricalCampaignRollupStatusSchema>
+export const AdsHistoricalCampaignRollupStatuses = adsHistoricalCampaignRollupStatusSchema.enum
+
+export const AdsDeliveryConfigurationBases = {
+  storedSnapshot: 'stored_ads_snapshot',
+} as const
+
+/**
+ * A deliberately conservative interpretation of stored evidence. In
+ * particular, `observed_activity` means historical campaign rollups contain
+ * impressions; it never claims the provider currently considers an ad serving
+ * or eligible.
+ */
+export const adsActivityAssessmentStateSchema = z.enum([
+  'unavailable',
+  'partial_snapshot',
+  'metrics_unavailable',
+  'observed_activity',
+  'no_observed_activity',
+])
+export type AdsActivityAssessmentState = z.infer<typeof adsActivityAssessmentStateSchema>
+export const AdsActivityAssessmentStates = adsActivityAssessmentStateSchema.enum
+
+const adsDeliveryDiagnosticsAdSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  status: z.string(),
+  reviewStatus: z.string().nullable(),
+})
+
+const adsDeliveryDiagnosticsAdGroupSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  status: z.string(),
+  billingEventType: z.union([adsAdGroupBillingEventTypeSchema, z.null()]),
+  maxBidMicros: z.number().int().nullable(),
+  contextHints: z.array(z.string()),
+  ads: z.array(adsDeliveryDiagnosticsAdSchema),
+})
+
+const adsDeliveryDiagnosticsCampaignSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  status: z.string(),
+  biddingType: z.union([adsCampaignBiddingTypeSchema, z.null()]),
+  dailySpendLimitMicros: z.number().int().nullable(),
+  lifetimeSpendLimitMicros: z.number().int().nullable(),
+  conversionEventSettingIds: z.array(z.string()),
+  adGroups: z.array(adsDeliveryDiagnosticsAdGroupSchema),
+})
+
+/**
+ * One stored-fact read for an ads operator. It intentionally contains no
+ * provider eligibility, delivery, or serving verdict: it reports only synced
+ * structure, captured account facts, and historical campaign rollups.
+ */
+export const adsDeliveryDiagnosticsDtoSchema = z.object({
+  snapshot: z.object({
+    status: adsDeliverySnapshotStatusSchema,
+    // A union keeps the OpenAPI form explicit enough for the generated SDK to
+    // retain the complete-snapshot `null` value (rather than narrowing it to
+    // the issue enum alone).
+    issue: z.union([adsDeliverySnapshotIssueSchema, z.null()]),
+    lastSyncedAt: z.string().nullable(),
+    campaignCount: z.number().int().nonnegative(),
+    adGroupCount: z.number().int().nonnegative(),
+    adCount: z.number().int().nonnegative(),
+    sourceSync: z.object({
+      runId: z.string(),
+      status: runStatusSchema,
+    }).nullable(),
+  }),
+  historicalCampaignRollups: z.object({
+    status: adsHistoricalCampaignRollupStatusSchema,
+    window: z.object({ from: z.string().nullable(), to: z.string().nullable() }),
+    totals: adsTotalsDtoSchema.nullable(),
+  }),
+  storedConfiguration: z.object({
+    basis: z.literal(AdsDeliveryConfigurationBases.storedSnapshot),
+    connection: z.object({
+      status: z.string().nullable(),
+      reviewStatus: z.string().nullable(),
+      integrityReviewStatus: z.string().nullable(),
+      integrityDecision: z.string().nullable(),
+      conversionTrackingConfigured: z.boolean(),
+    }).nullable(),
+    campaigns: z.array(adsDeliveryDiagnosticsCampaignSchema),
+  }),
+  assessment: z.object({ state: adsActivityAssessmentStateSchema }),
+})
+export type AdsDeliveryDiagnosticsDto = z.infer<typeof adsDeliveryDiagnosticsDtoSchema>
 
 // Campaign lifecycle writes are intentionally narrower than the upstream API:
 // creates are always paused, status is never accepted on update, and archive is

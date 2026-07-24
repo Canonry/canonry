@@ -8,6 +8,7 @@ import type {
   AdsActivateTreeResponse,
   AdsConversionEventSettingListResponse,
   AdsConversionPixelListResponse,
+  AdsDeliveryDiagnosticsDto,
   AdsGeoSearchResponse,
   AdsOperationReconcileResponse,
   AdsOperationResponse,
@@ -20,6 +21,7 @@ const mockGetAdsAccount = vi.fn()
 const mockSearchAdsGeo = vi.fn()
 const mockGetAdsConversionPixels = vi.fn()
 const mockGetAdsConversionEventSettings = vi.fn()
+const mockGetAdsDeliveryDiagnostics = vi.fn()
 const mockGetAdsOperation = vi.fn()
 const mockGetUnresolvedAdsOperations = vi.fn()
 const mockReconcileAdsOperation = vi.fn()
@@ -48,6 +50,7 @@ vi.mock('../src/client.js', () => ({
     searchAdsGeo: mockSearchAdsGeo,
     getAdsConversionPixels: mockGetAdsConversionPixels,
     getAdsConversionEventSettings: mockGetAdsConversionEventSettings,
+    getAdsDeliveryDiagnostics: mockGetAdsDeliveryDiagnostics,
     getAdsOperation: mockGetAdsOperation,
     getUnresolvedAdsOperations: mockGetUnresolvedAdsOperations,
     reconcileAdsOperation: mockReconcileAdsOperation,
@@ -67,6 +70,7 @@ const {
   adsCampaignUpdate,
   adsConversionEventSettings,
   adsConversionPixels,
+  adsDeliveryDiagnostics,
   adsGeoSearch,
   adsOperationGet,
   adsOperationReconcile,
@@ -274,6 +278,42 @@ const EVENT_SETTINGS: AdsConversionEventSettingListResponse = {
   }],
 }
 
+const DELIVERY_DIAGNOSTICS: AdsDeliveryDiagnosticsDto = {
+  snapshot: {
+    status: 'complete',
+    issue: null,
+    lastSyncedAt: '2026-07-21T00:00:00.000Z',
+    campaignCount: 1,
+    adGroupCount: 1,
+    adCount: 1,
+    sourceSync: { runId: 'sync_1', status: 'completed' },
+  },
+  historicalCampaignRollups: {
+    status: 'reported',
+    window: { from: '2026-07-20', to: '2026-07-20' },
+    totals: {
+      impressions: 7,
+      clicks: 1,
+      spendMicros: 2_000_000,
+      conversions: 0,
+      ctr: 1 / 7,
+      cpcMicros: 2_000_000,
+    },
+  },
+  storedConfiguration: {
+    basis: 'stored_ads_snapshot',
+    connection: {
+      status: 'active',
+      reviewStatus: 'approved',
+      integrityReviewStatus: 'approved',
+      integrityDecision: 'allowed',
+      conversionTrackingConfigured: true,
+    },
+    campaigns: [],
+  },
+  assessment: { state: 'observed_activity' },
+}
+
 describe('ads lifecycle commands', () => {
   let tmpDir: string
 
@@ -335,6 +375,16 @@ describe('ads lifecycle commands', () => {
 
     expect(mockGetAdsAccount).toHaveBeenCalledWith('canonry-audit')
     expect(JSON.parse(log.mock.calls[0]![0] as string)).toEqual(ACCOUNT)
+  })
+
+  it('reads stored delivery diagnostics without a provider verdict', async () => {
+    mockGetAdsDeliveryDiagnostics.mockResolvedValue(DELIVERY_DIAGNOSTICS)
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+
+    await adsDeliveryDiagnostics('canonry-audit', { format: 'json' })
+
+    expect(mockGetAdsDeliveryDiagnostics).toHaveBeenCalledWith('canonry-audit')
+    expect(JSON.parse(log.mock.calls[0]![0] as string)).toEqual(DELIVERY_DIAGNOSTICS)
   })
 
   it('normalizes geo search input and streams location context as JSONL', async () => {
@@ -555,6 +605,7 @@ describe('ads lifecycle commands', () => {
       'ads geo search',
       'ads conversions pixels',
       'ads conversions event-settings',
+      'ads delivery-diagnostics',
       'ads operations unresolved',
       'ads operation',
       'ads operation reconcile',
