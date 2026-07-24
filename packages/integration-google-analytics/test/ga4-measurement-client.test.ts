@@ -16,11 +16,14 @@ describe('GA4 measurement reports', () => {
   let fetchSpy: ReturnType<typeof vi.spyOn>
 
   beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-07-23T23:59:59.999Z'))
     fetchSpy = vi.spyOn(globalThis, 'fetch')
   })
 
   afterEach(() => {
     fetchSpy.mockRestore()
+    vi.useRealTimers()
   })
 
   it('fetches the complete native acquisition grain and paginates without collapsing channels into Other', async () => {
@@ -61,7 +64,7 @@ describe('GA4 measurement reports', () => {
       })
     })
 
-    const rows = await fetchAcquisitionByChannel('fake-token', '123456', 90, { pageSize: 1 })
+    const report = await fetchAcquisitionByChannel('fake-token', '123456', 90, { pageSize: 1 })
 
     expect(requests).toHaveLength(2)
     expect(requests.map(request => request.offset)).toEqual([0, 1])
@@ -76,7 +79,10 @@ describe('GA4 measurement reports', () => {
       ],
       metrics: [{ name: GA4_METRICS.sessions }],
     })
-    expect(rows).toEqual([
+    expect(report).toEqual({
+      startDate: '2026-04-24',
+      endDate: '2026-07-23',
+      rows: [
       {
         date: '2026-07-21',
         channelGroup: 'Paid Search',
@@ -95,7 +101,8 @@ describe('GA4 measurement reports', () => {
         landingPage: '/blog/answer-engine-optimization',
         sessions: 7,
       },
-    ])
+      ],
+    })
   })
 
   it('requests only configured lead events and preserves landing-page attribution when GA4 accepts it', async () => {
@@ -157,6 +164,8 @@ describe('GA4 measurement reports', () => {
       },
     })
     expect(report).toEqual({
+      startDate: '2026-05-24',
+      endDate: '2026-07-23',
       attributionScope: 'landing-page',
       rows: [{
         date: '2026-07-22',
@@ -214,6 +223,8 @@ describe('GA4 measurement reports', () => {
       { name: GA4_DIMENSIONS.sessionMedium },
     ])
     expect(report).toEqual({
+      startDate: '2026-06-23',
+      endDate: '2026-07-23',
       attributionScope: 'channel',
       rows: [{
         date: '2026-07-22',
@@ -240,5 +251,31 @@ describe('GA4 measurement reports', () => {
     await expect(fetchLeadEvents('fake-token', '123456', ['generate_lead'], 30))
       .rejects.toMatchObject({ name: 'GA4ApiError', status: 400 })
     expect(fetchSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('fails instead of silently returning a truncated report at the pagination cap', async () => {
+    fetchSpy.mockImplementation(async (_input, init) => {
+      const request = JSON.parse(String(init?.body)) as { offset?: number }
+      const offset = Number(request.offset ?? 0)
+      return jsonResponse({
+        rows: [{
+          dimensionValues: [
+            { value: '20260722' },
+            { value: 'Organic Search' },
+            { value: 'google' },
+            { value: 'organic' },
+            { value: 'example.com' },
+            { value: `/page-${offset}` },
+          ],
+          metricValues: [{ value: '1' }],
+        }],
+        rowCount: 51,
+      })
+    })
+
+    await expect(fetchAcquisitionByChannel(
+      'fake-token', '123456', 30, { pageSize: 1 },
+    )).rejects.toThrow(/truncat|page limit/i)
+    expect(fetchSpy).toHaveBeenCalledTimes(50)
   })
 })

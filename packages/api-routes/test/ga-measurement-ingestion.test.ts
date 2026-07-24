@@ -25,6 +25,13 @@ function dateDaysAgo(days: number): string {
   return date.toISOString().slice(0, 10)
 }
 
+function measurementRange(days: number) {
+  return {
+    startDate: dateDaysAgo(days),
+    endDate: dateDaysAgo(0),
+  }
+}
+
 function buildApp(leadEventNames: string[] = ['generate_lead', 'book_demo']) {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-ga-measurement-ingestion-'))
   const db = createClient(path.join(tmpDir, 'test.db'))
@@ -130,7 +137,8 @@ describe('GA measurement ingestion', () => {
 
   it('backfills 90 days on first sync, ingests every host, and records independent ready states', async () => {
     const ga = await mockLegacyGa()
-    const acquisitionSpy = vi.spyOn(ga, 'fetchAcquisitionByChannel').mockResolvedValue([
+    const acquisitionSpy = vi.spyOn(ga, 'fetchAcquisitionByChannel').mockResolvedValue({
+      ...measurementRange(90), rows: [
       {
         date: dateDaysAgo(2),
         channelGroup: 'Paid Search',
@@ -149,8 +157,9 @@ describe('GA measurement ingestion', () => {
         landingPage: '/guides/solar',
         sessions: 4,
       },
-    ])
+    ] })
     const leadsSpy = vi.spyOn(ga, 'fetchLeadEvents').mockResolvedValue({
+      ...measurementRange(90),
       attributionScope: 'landing-page',
       rows: [{
         date: dateDaysAgo(1),
@@ -181,9 +190,8 @@ describe('GA measurement ingestion', () => {
     expect(JSON.parse(response.body)).toMatchObject({
       synced: true,
       measurement: {
-        days: 90,
-        acquisition: { status: 'ready', rowCount: 2 },
-        leads: { status: 'ready', rowCount: 1, attributionScope: 'landing-page' },
+        acquisition: { days: 90, status: 'ready', rowCount: 2 },
+        leads: { days: 90, status: 'ready', rowCount: 1, attributionScope: 'landing-page' },
       },
     })
 
@@ -219,8 +227,11 @@ describe('GA measurement ingestion', () => {
 
   it('uses the requested window after first success and treats an empty report as resolved zero', async () => {
     const ga = await mockLegacyGa()
-    const acquisitionSpy = vi.spyOn(ga, 'fetchAcquisitionByChannel').mockResolvedValue([])
+    const acquisitionSpy = vi.spyOn(ga, 'fetchAcquisitionByChannel').mockResolvedValue({
+      ...measurementRange(30), rows: [],
+    })
     const leadsSpy = vi.spyOn(ga, 'fetchLeadEvents').mockResolvedValue({
+      ...measurementRange(30),
       attributionScope: 'landing-page',
       rows: [],
     })
@@ -294,9 +305,8 @@ describe('GA measurement ingestion', () => {
     )
     expect(JSON.parse(response.body)).toMatchObject({
       measurement: {
-        days: 30,
-        acquisition: { status: 'ready', rowCount: 0 },
-        leads: { status: 'ready', rowCount: 0, attributionScope: 'landing-page' },
+        acquisition: { days: 30, status: 'ready', rowCount: 0 },
+        leads: { days: 30, status: 'ready', rowCount: 0, attributionScope: 'landing-page' },
       },
     })
     expect(ctx.db.select().from(gaAcquisitionDaily)
@@ -318,6 +328,7 @@ describe('GA measurement ingestion', () => {
     const ga = await mockLegacyGa()
     vi.spyOn(ga, 'fetchAcquisitionByChannel').mockRejectedValue(new Error('acquisition quota exhausted'))
     vi.spyOn(ga, 'fetchLeadEvents').mockResolvedValue({
+      ...measurementRange(30),
       attributionScope: 'channel',
       rows: [{
         date: dateDaysAgo(1),
@@ -365,9 +376,8 @@ describe('GA measurement ingestion', () => {
     expect(JSON.parse(response.body)).toMatchObject({
       synced: true,
       measurement: {
-        days: 30,
-        acquisition: { status: 'error', rowCount: 0, error: 'acquisition quota exhausted' },
-        leads: { status: 'ready', rowCount: 1, attributionScope: 'channel' },
+        acquisition: { days: 30, status: 'error', rowCount: 0, error: 'acquisition quota exhausted' },
+        leads: { days: 30, status: 'ready', rowCount: 1, attributionScope: 'channel' },
       },
     })
     expect(ctx.db.select().from(gaAcquisitionDaily)
@@ -393,6 +403,167 @@ describe('GA measurement ingestion', () => {
     })
     expect(ctx.db.select().from(runs).orderBy(runs.createdAt).all().at(-1)).toMatchObject({
       status: RunStatuses.completed,
+    })
+  })
+
+  it('backfills each measurement component independently until that component succeeds', async () => {
+    const ga = await mockLegacyGa()
+    const acquisitionSpy = vi.spyOn(ga, 'fetchAcquisitionByChannel')
+      .mockRejectedValueOnce(new Error('temporary acquisition failure'))
+      .mockResolvedValueOnce({ ...measurementRange(90), rows: [] })
+    const leadsSpy = vi.spyOn(ga, 'fetchLeadEvents')
+      .mockResolvedValueOnce({
+        ...measurementRange(90),
+        attributionScope: 'landing-page',
+        rows: [],
+      })
+      .mockResolvedValueOnce({
+        ...measurementRange(30),
+        attributionScope: 'landing-page',
+        rows: [],
+      })
+
+    const first = await ctx.app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/measurement-ingestion/ga/sync',
+      payload: { days: 30 },
+    })
+    expect(first.statusCode).toBe(200)
+
+    const second = await ctx.app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/measurement-ingestion/ga/sync',
+      payload: { days: 30 },
+    })
+    expect(second.statusCode).toBe(200)
+    expect(acquisitionSpy.mock.calls.map(call => call[2])).toEqual([90, 90])
+    expect(leadsSpy.mock.calls.map(call => call[3])).toEqual([90, 30])
+    expect(JSON.parse(second.body)).toMatchObject({
+      measurement: {
+        acquisition: { days: 90, status: 'ready' },
+        leads: { days: 30, status: 'ready' },
+      },
+    })
+  })
+
+  it('deletes only the exact date range returned by the GA4 acquisition report', async () => {
+    const ga = await mockLegacyGa()
+    vi.spyOn(ga, 'fetchAcquisitionByChannel').mockResolvedValue({
+      startDate: dateDaysAgo(10),
+      endDate: dateDaysAgo(3),
+      rows: [],
+    })
+    vi.spyOn(ga, 'fetchLeadEvents').mockResolvedValue({
+      ...measurementRange(30),
+      attributionScope: 'landing-page',
+      rows: [],
+    })
+    const now = new Date().toISOString()
+    ctx.db.insert(gaMeasurementSyncStates).values({
+      projectId: ctx.projectId,
+      acquisitionStatus: 'ready',
+      acquisitionSyncedAt: now,
+      leadStatus: 'ready',
+      leadSyncedAt: now,
+      leadAttributionScope: 'landing-page',
+      updatedAt: now,
+    }).run()
+    for (const daysAgo of [11, 5, 2]) {
+      ctx.db.insert(gaAcquisitionDaily).values({
+        id: crypto.randomUUID(),
+        projectId: ctx.projectId,
+        date: dateDaysAgo(daysAgo),
+        channelGroup: 'Organic Search',
+        source: 'google',
+        medium: 'organic',
+        hostName: 'example.com',
+        landingPage: `/existing-${daysAgo}`,
+        sessions: daysAgo,
+        syncedAt: now,
+        createdAt: now,
+      }).run()
+    }
+
+    const response = await ctx.app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/measurement-ingestion/ga/sync',
+      payload: { days: 30 },
+    })
+    expect(response.statusCode).toBe(200)
+    expect(ctx.db.select().from(gaAcquisitionDaily)
+      .where(eq(gaAcquisitionDaily.projectId, ctx.projectId)).all()
+      .map(row => row.landingPage)
+      .sort()).toEqual(['/existing-11', '/existing-2'])
+  })
+
+  it('clears stale lead evidence and resets lead sync state when lead events are disabled', async () => {
+    const ga = await mockLegacyGa()
+    vi.spyOn(ga, 'fetchAcquisitionByChannel').mockResolvedValue({
+      ...measurementRange(30), rows: [],
+    })
+    const leadsSpy = vi.spyOn(ga, 'fetchLeadEvents')
+    const now = new Date().toISOString()
+    ctx.db.insert(gaLeadEventsDaily).values({
+      id: crypto.randomUUID(),
+      projectId: ctx.projectId,
+      date: dateDaysAgo(2),
+      eventName: 'generate_lead',
+      channelGroup: 'Organic Search',
+      source: 'google',
+      medium: 'organic',
+      hostName: 'example.com',
+      landingPage: '/old-lead',
+      attributionScope: 'landing-page',
+      eventCount: 4,
+      syncedAt: now,
+      createdAt: now,
+    }).run()
+    ctx.db.insert(gaMeasurementSyncStates).values({
+      projectId: ctx.projectId,
+      acquisitionStatus: 'ready',
+      acquisitionSyncedAt: now,
+      leadStatus: 'ready',
+      leadSyncedAt: now,
+      leadAttributionScope: 'landing-page',
+      updatedAt: now,
+    }).run()
+    const update = await ctx.app.inject({
+      method: 'PUT',
+      url: '/api/v1/projects/measurement-ingestion',
+      payload: {
+        displayName: 'Measurement Ingestion',
+        canonicalDomain: 'example.com',
+        country: 'US',
+        language: 'en',
+        measurement: {
+          marketingHosts: ['offers.example.com'],
+          brandTerms: ['Example'],
+          leadEventNames: [],
+        },
+      },
+    })
+    expect(update.statusCode).toBe(200)
+
+    const response = await ctx.app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/measurement-ingestion/ga/sync',
+      payload: { days: 30 },
+    })
+    expect(response.statusCode).toBe(200)
+    expect(leadsSpy).not.toHaveBeenCalled()
+    expect(JSON.parse(response.body)).toMatchObject({
+      measurement: {
+        leads: { days: 0, status: 'not-configured', rowCount: 0 },
+      },
+    })
+    expect(ctx.db.select().from(gaLeadEventsDaily)
+      .where(eq(gaLeadEventsDaily.projectId, ctx.projectId)).all()).toEqual([])
+    expect(ctx.db.select().from(gaMeasurementSyncStates)
+      .where(eq(gaMeasurementSyncStates.projectId, ctx.projectId)).get()).toMatchObject({
+      leadStatus: 'never-synced',
+      leadError: null,
+      leadSyncedAt: null,
+      leadAttributionScope: null,
     })
   })
 })
