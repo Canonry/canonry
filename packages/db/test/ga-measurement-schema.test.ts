@@ -188,6 +188,58 @@ test('component sync state distinguishes never-synced, ready, and error and casc
     leadAttributionScope: null,
   })
 
+  db.insert(gaAcquisitionDaily).values({
+    id: crypto.randomUUID(),
+    projectId: 'project_1',
+    date: '2026-07-22',
+    channelGroup: 'Organic Search',
+    source: 'google',
+    medium: 'organic',
+    hostName: 'example.com',
+    landingPage: '/guide',
+    landingPageNormalized: '/guide',
+    sessions: 2,
+    syncedAt: now,
+    createdAt: now,
+  }).run()
+  db.insert(gaLeadEventsDaily).values({
+    id: crypto.randomUUID(),
+    projectId: 'project_1',
+    date: '2026-07-22',
+    eventName: 'generate_lead',
+    channelGroup: 'Organic Search',
+    source: 'google',
+    medium: 'organic',
+    hostName: 'example.com',
+    landingPage: '/guide',
+    landingPageNormalized: '/guide',
+    attributionScope: 'landing-page',
+    eventCount: 1,
+    syncedAt: now,
+    createdAt: now,
+  }).run()
+
   db.delete(projects).where(eq(projects.id, 'project_1')).run()
   expect(db.select().from(gaMeasurementSyncStates).all()).toEqual([])
+  expect(db.select().from(gaAcquisitionDaily).all()).toEqual([])
+  expect(db.select().from(gaLeadEventsDaily).all()).toEqual([])
+})
+
+test('measurement status and attribution CHECK constraints reject invalid values', () => {
+  const db = tempDb('canonry-ga-measurement-checks-')
+  seedProject(db)
+  expect(() => db.run(sql`
+    INSERT INTO ga_measurement_sync_state
+      (project_id, acquisition_status, lead_status, updated_at)
+    VALUES ('project_1', 'complete', 'never-synced', '2026-07-23T00:00:00.000Z')
+  `)).toThrow()
+  expect(() => db.run(sql`
+    INSERT INTO ga_lead_events_daily
+      (id, project_id, date, event_name, channel_group, source, medium, host_name,
+       landing_page, attribution_scope, event_count, synced_at, created_at)
+    VALUES
+      ('lead_1', 'project_1', '2026-07-22', 'generate_lead', 'Organic Search',
+       'google', 'organic', 'example.com', '/guide', 'page', 1,
+       '2026-07-23T00:00:00.000Z', '2026-07-23T00:00:00.000Z')
+  `)).toThrow()
 })

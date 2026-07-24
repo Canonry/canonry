@@ -14,10 +14,31 @@ const EXPECTED_DEFAULT = {
 }
 
 describe('measurementConfigSchema', () => {
-  it('defaults to the recommended GA4 lead event without inventing host or brand overrides', () => {
+  it('keeps defaults at the outer project boundary and rejects partial measurement objects', () => {
     expect(measurementConfigSchema).toBeDefined()
-    expect(measurementConfigSchema.parse({})).toEqual(EXPECTED_DEFAULT)
+    expect(() => measurementConfigSchema.parse({})).toThrow()
+    expect(() => measurementConfigSchema.parse({
+      marketingHosts: ['example.com'],
+    })).toThrow()
     expect(DEFAULT_MEASUREMENT_CONFIG).toEqual(EXPECTED_DEFAULT)
+  })
+
+  it('deep-freezes the exported default and gives every omitted project fresh arrays', () => {
+    expect(Object.isFrozen(DEFAULT_MEASUREMENT_CONFIG)).toBe(true)
+    expect(Object.isFrozen(DEFAULT_MEASUREMENT_CONFIG.marketingHosts)).toBe(true)
+    expect(Object.isFrozen(DEFAULT_MEASUREMENT_CONFIG.brandTerms)).toBe(true)
+    expect(Object.isFrozen(DEFAULT_MEASUREMENT_CONFIG.leadEventNames)).toBe(true)
+
+    const first = projectDtoSchema.parse({
+      id: 'project_1', name: 'one', canonicalDomain: 'example.com', country: 'US', language: 'en',
+    })
+    const second = projectDtoSchema.parse({
+      id: 'project_2', name: 'two', canonicalDomain: 'example.org', country: 'US', language: 'en',
+    })
+    expect(first.measurement).not.toBe(second.measurement)
+    expect(first.measurement.marketingHosts).not.toBe(second.measurement.marketingHosts)
+    expect(first.measurement.brandTerms).not.toBe(second.measurement.brandTerms)
+    expect(first.measurement.leadEventNames).not.toBe(second.measurement.leadEventNames)
   })
 
   it('normalizes hosts and trims/deduplicates operator-supplied terms', () => {
