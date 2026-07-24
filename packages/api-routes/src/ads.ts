@@ -1,11 +1,16 @@
 import crypto from 'node:crypto'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
-import { eq, and, asc, gt, gte, lt, lte, ne, inArray, or, isNull, isNotNull, sql } from 'drizzle-orm'
+import { eq, and, asc, desc, gt, gte, lt, lte, ne, inArray, or, isNull, isNotNull, sql } from 'drizzle-orm'
 import {
   ADS_WRITE_SCOPE,
   AdsActivationEntityTypes,
   AdsAdGroupBillingEventTypes,
   AdsCampaignBiddingTypes,
+  AdsDeliverySnapshotIssues,
+  AdsDeliverySnapshotStatuses,
+  AdsHistoricalCampaignRollupStatuses,
+  AdsActivityAssessmentStates,
+  AdsDeliveryConfigurationBases,
   AdsEntityTypes,
   AdsEntityStatuses,
   AdsOperationKinds,
@@ -24,6 +29,7 @@ import {
   adsImageUploadRequestSchema,
   adsGeoSearchQuerySchema,
   adsInsightLevelSchema,
+  AdsInsightLevels,
   adsPauseRequestSchema,
   adsUnresolvedOperationListQuerySchema,
   adsCtr,
@@ -36,6 +42,7 @@ import {
   RunKinds,
   RunStatuses,
   RunTriggers,
+  runStatusSchema,
 } from '@ainyc/canonry-contracts'
 import type {
   AdsAdDto,
@@ -44,6 +51,10 @@ import type {
   AdsCampaignBiddingType,
   AdsCampaignDto,
   AdsCampaignListResponse,
+  AdsDeliveryDiagnosticsDto,
+  AdsDeliverySnapshotStatus,
+  AdsHistoricalCampaignRollupStatus,
+  AdsActivityAssessmentState,
   AdsConnectionStatusDto,
   AdsCreativeDto,
   AdsDisconnectResponse,
@@ -224,6 +235,161 @@ export interface AdsOperator {
 
 type ConnectionRow = typeof adsConnections.$inferSelect
 type OperationRow = typeof adsOperations.$inferSelect
+type SyncRunRow = Pick<typeof runs.$inferSelect, 'id' | 'kind' | 'status'>
+type CampaignInsightRow = Pick<typeof adsInsightsDaily.$inferSelect,
+  'date' | 'impressions' | 'clicks' | 'spendMicros' | 'conversions'>
+
+type AdsSnapshotProvenance = Pick<
+  AdsDeliveryDiagnosticsDto['snapshot'],
+  'status' | 'issue' | 'sourceSync'
+>
+
+function runSourceDto(row: SyncRunRow): AdsDeliveryDiagnosticsDto['snapshot']['sourceSync'] {
+  const parsed = runStatusSchema.safeParse(row.status)
+  return parsed.success ? { runId: row.id, status: parsed.data } : null
+}
+
+function storedSnapshotProvenance(input: {
+  connected: boolean
+  hasEntityRows: boolean
+  hasEntityWithoutSyncRunId: boolean
+  entitySyncRunIds: ReadonlySet<string>
+  sourceSync: SyncRunRow | undefined
+  latestAdsSync: SyncRunRow | undefined
+}): AdsSnapshotProvenance {
+  if (!input.connected) {
+    return {
+      status: AdsDeliverySnapshotStatuses.unavailable,
+      issue: AdsDeliverySnapshotIssues.no_ads_connection,
+      sourceSync: null,
+    }
+  }
+
+  if (!input.hasEntityRows) {
+    if (!input.latestAdsSync) {
+      return {
+        status: AdsDeliverySnapshotStatuses.unavailable,
+        issue: AdsDeliverySnapshotIssues.no_ads_sync,
+        sourceSync: null,
+      }
+    }
+    const sourceSync = runSourceDto(input.latestAdsSync)
+    if (!sourceSync || sourceSync.status !== RunStatuses.completed) {
+      return {
+        status: AdsDeliverySnapshotStatuses.partial,
+        issue: AdsDeliverySnapshotIssues.source_sync_not_completed,
+        sourceSync,
+      }
+    }
+    return {
+      status: AdsDeliverySnapshotStatuses.complete,
+      issue: null,
+      sourceSync,
+    }
+  }
+
+  if (input.hasEntityWithoutSyncRunId) {
+    return {
+      status: AdsDeliverySnapshotStatuses.partial,
+      issue: AdsDeliverySnapshotIssues.entity_rows_missing_sync_run_id,
+      sourceSync: null,
+    }
+  }
+  if (input.entitySyncRunIds.size !== 1) {
+    return {
+      status: AdsDeliverySnapshotStatuses.partial,
+      issue: AdsDeliverySnapshotIssues.entity_rows_span_multiple_sync_runs,
+      sourceSync: null,
+    }
+  }
+  if (!input.sourceSync) {
+    return {
+      status: AdsDeliverySnapshotStatuses.partial,
+      issue: AdsDeliverySnapshotIssues.source_sync_missing,
+      sourceSync: null,
+    }
+  }
+  const sourceSync = runSourceDto(input.sourceSync)
+  if (input.sourceSync.kind !== RunKinds['ads-sync']) {
+    return {
+      status: AdsDeliverySnapshotStatuses.partial,
+      issue: AdsDeliverySnapshotIssues.source_sync_not_ads_sync,
+      sourceSync,
+    }
+  }
+  if (!sourceSync || sourceSync.status !== RunStatuses.completed) {
+    return {
+      status: AdsDeliverySnapshotStatuses.partial,
+      issue: AdsDeliverySnapshotIssues.source_sync_not_completed,
+      sourceSync,
+    }
+  }
+  return {
+    status: AdsDeliverySnapshotStatuses.complete,
+    issue: null,
+    sourceSync,
+  }
+}
+
+function historicalCampaignRollups(rows: readonly CampaignInsightRow[]): AdsDeliveryDiagnosticsDto['historicalCampaignRollups'] {
+  if (rows.length === 0) {
+    return {
+      status: AdsHistoricalCampaignRollupStatuses.unavailable,
+      window: { from: null, to: null },
+      totals: null,
+    }
+  }
+
+  let impressions = 0
+  let clicks = 0
+  let spendMicros = 0
+  let conversions = 0
+  let fromDate: string | null = null
+  let toDate: string | null = null
+  for (const row of rows) {
+    impressions += row.impressions
+    clicks += row.clicks
+    spendMicros += row.spendMicros
+    conversions += row.conversions
+    if (fromDate === null || row.date < fromDate) fromDate = row.date
+    if (toDate === null || row.date > toDate) toDate = row.date
+  }
+
+  return {
+    status: AdsHistoricalCampaignRollupStatuses.reported,
+    window: { from: fromDate, to: toDate },
+    totals: {
+      impressions,
+      clicks,
+      spendMicros,
+      conversions,
+      ctr: adsCtr(clicks, impressions),
+      cpcMicros: adsCpcMicros(spendMicros, clicks),
+    },
+  }
+}
+
+function storedActivityAssessment(
+  snapshotStatus: AdsDeliverySnapshotStatus,
+  rollupStatus: AdsHistoricalCampaignRollupStatus,
+  rollupImpressions: number | null,
+): AdsActivityAssessmentState {
+  switch (snapshotStatus) {
+    case AdsDeliverySnapshotStatuses.unavailable:
+      return AdsActivityAssessmentStates.unavailable
+    case AdsDeliverySnapshotStatuses.partial:
+      return AdsActivityAssessmentStates.partial_snapshot
+    case AdsDeliverySnapshotStatuses.complete:
+      switch (rollupStatus) {
+        case AdsHistoricalCampaignRollupStatuses.unavailable:
+          return AdsActivityAssessmentStates.metrics_unavailable
+        case AdsHistoricalCampaignRollupStatuses.reported:
+          return (rollupImpressions ?? 0) > 0
+            ? AdsActivityAssessmentStates.observed_activity
+            : AdsActivityAssessmentStates.no_observed_activity
+      }
+  }
+}
 
 const DEFAULT_RECONCILE_SWEEP_INTERVAL_MS = 60_000
 const DEFAULT_RECONCILE_PENDING_STALE_MS = 5 * 60_000
@@ -2423,6 +2589,117 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
     const conn = app.db.select().from(adsConnections)
       .where(eq(adsConnections.projectId, project.id)).get()
     const response: AdsInsightsResponse = { rows: dtoRows, currencyCode: conn?.currencyCode ?? null }
+    return response
+  })
+
+  app.get<{ Params: { name: string } }>('/projects/:name/ads/delivery-diagnostics', async (request) => {
+    const project = resolveProject(app.db, request.params.name)
+    const connection = app.db.select().from(adsConnections)
+      .where(eq(adsConnections.projectId, project.id)).get()
+    const campaignRows = app.db.select().from(adsCampaigns)
+      .where(eq(adsCampaigns.projectId, project.id)).all()
+    const adGroupRows = app.db.select().from(adsAdGroups)
+      .where(eq(adsAdGroups.projectId, project.id)).all()
+    const adRows = app.db.select().from(adsAds)
+      .where(eq(adsAds.projectId, project.id)).all()
+    const entityRows = [...campaignRows, ...adGroupRows, ...adRows]
+    const hasEntityWithoutSyncRunId = entityRows.some((row) => row.syncRunId === null)
+    const entitySyncRunIds = new Set(entityRows.flatMap((row) => row.syncRunId === null ? [] : [row.syncRunId]))
+    const sourceSync = entitySyncRunIds.size === 1
+      ? app.db.select({ id: runs.id, kind: runs.kind, status: runs.status }).from(runs)
+        .where(and(
+          eq(runs.id, [...entitySyncRunIds][0]!),
+          eq(runs.projectId, project.id),
+        )).get()
+      : undefined
+    const latestAdsSync = app.db.select({ id: runs.id, kind: runs.kind, status: runs.status }).from(runs)
+      .where(and(
+        eq(runs.projectId, project.id),
+        eq(runs.kind, RunKinds['ads-sync']),
+      ))
+      .orderBy(desc(runs.createdAt))
+      .get()
+    const snapshot = storedSnapshotProvenance({
+      connected: Boolean(connection),
+      hasEntityRows: entityRows.length > 0,
+      hasEntityWithoutSyncRunId,
+      entitySyncRunIds,
+      sourceSync,
+      latestAdsSync,
+    })
+    const rollups = historicalCampaignRollups(app.db.select({
+      date: adsInsightsDaily.date,
+      impressions: adsInsightsDaily.impressions,
+      clicks: adsInsightsDaily.clicks,
+      spendMicros: adsInsightsDaily.spendMicros,
+      conversions: adsInsightsDaily.conversions,
+    }).from(adsInsightsDaily)
+      .where(and(
+        eq(adsInsightsDaily.projectId, project.id),
+        eq(adsInsightsDaily.level, AdsInsightLevels.campaign),
+      ))
+      .all())
+
+    const adsByGroup = new Map<string, AdsDeliveryDiagnosticsDto['storedConfiguration']['campaigns'][number]['adGroups'][number]['ads']>()
+    for (const ad of adRows) {
+      const list = adsByGroup.get(ad.adGroupId) ?? []
+      list.push({ id: ad.id, name: ad.name, status: ad.status, reviewStatus: ad.reviewStatus })
+      adsByGroup.set(ad.adGroupId, list)
+    }
+    const groupsByCampaign = new Map<string, AdsDeliveryDiagnosticsDto['storedConfiguration']['campaigns'][number]['adGroups']>()
+    for (const adGroup of adGroupRows) {
+      const list = groupsByCampaign.get(adGroup.campaignId) ?? []
+      list.push({
+        id: adGroup.id,
+        name: adGroup.name,
+        status: adGroup.status,
+        billingEventType: adGroupBillingEventTypeDto(adGroup.billingEventType),
+        maxBidMicros: adGroup.maxBidMicros,
+        contextHints: adGroup.contextHints,
+        ads: adsByGroup.get(adGroup.id) ?? [],
+      })
+      groupsByCampaign.set(adGroup.campaignId, list)
+    }
+
+    const response: AdsDeliveryDiagnosticsDto = {
+      snapshot: {
+        ...snapshot,
+        lastSyncedAt: connection?.lastSyncedAt ?? null,
+        campaignCount: campaignRows.length,
+        adGroupCount: adGroupRows.length,
+        adCount: adRows.length,
+      },
+      historicalCampaignRollups: rollups,
+      storedConfiguration: {
+        basis: AdsDeliveryConfigurationBases.storedSnapshot,
+        connection: connection === undefined
+          ? null
+          : {
+              status: connection.status,
+              reviewStatus: connection.reviewStatus,
+              integrityReviewStatus: connection.integrityReviewStatus,
+              integrityDecision: connection.integrityDecision,
+              conversionTrackingConfigured: connection.conversionTrackingConfigured,
+            },
+        campaigns: campaignRows.map((campaign) => ({
+          id: campaign.id,
+          name: campaign.name,
+          status: campaign.status,
+          biddingType: campaignBiddingTypeDto(campaign.biddingType),
+          dailySpendLimitMicros: campaign.dailySpendLimitMicros,
+          lifetimeSpendLimitMicros: campaign.lifetimeSpendLimitMicros,
+          conversionEventSettingIds: campaign.conversionEventSettingIds,
+          adGroups: groupsByCampaign.get(campaign.id) ?? [],
+        })),
+      },
+      assessment: {
+        state: storedActivityAssessment(
+          snapshot.status,
+          rollups.status,
+          rollups.totals === null ? null : rollups.totals.impressions,
+        ),
+      },
+    }
     return response
   })
 

@@ -78,6 +78,7 @@ import type {
   AdsAdUpdateRequest,
   AdsPauseRequest,
   AdsSummaryDto,
+  AdsDeliveryDiagnosticsDto,
   GbpSyncResponse,
   GbpDailyMetricListResponse,
   GbpKeywordImpressionListResponse,
@@ -253,6 +254,7 @@ import {
   getApiV1ProjectsByNameAdsCampaigns,
   getApiV1ProjectsByNameAdsInsights,
   getApiV1ProjectsByNameAdsSummary,
+  getApiV1ProjectsByNameAdsDeliveryDiagnostics,
   getApiV1ProjectsByNameAdsOperations,
   getApiV1ProjectsByNameAdsOperationsByOperationKey,
   postApiV1ProjectsByNameAdsOperationsByOperationKeyReconcile,
@@ -1490,6 +1492,12 @@ export class ApiClient {
   async getAdsSummary(project: string): Promise<AdsSummaryDto> {
     return this.invoke<AdsSummaryDto>(() =>
       getApiV1ProjectsByNameAdsSummary({ client: this.heyClient, path: { name: project } }),
+    )
+  }
+
+  async getAdsDeliveryDiagnostics(project: string): Promise<AdsDeliveryDiagnosticsDto> {
+    return this.invoke<AdsDeliveryDiagnosticsDto>(() =>
+      getApiV1ProjectsByNameAdsDeliveryDiagnostics({ client: this.heyClient, path: { name: project } }),
     )
   }
 

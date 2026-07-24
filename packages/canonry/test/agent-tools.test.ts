@@ -174,6 +174,7 @@ describe('buildAdsOperatorTools', () => {
     expect(names[0]).toBe(AERO_ADS_OPERATOR_CONTEXT_TOOL_NAME)
     expect(names).toContain(CanonryMcpToolNames.canonry_project_overview)
     expect(names).toContain(CanonryMcpToolNames.canonry_ads_summary)
+    expect(names).toContain(CanonryMcpToolNames.canonry_ads_delivery_diagnostics)
     expect(names).toContain(CanonryMcpToolNames.canonry_memory_list)
     expect(names).not.toContain(CanonryMcpToolNames.canonry_ads_sync)
     expect(names).not.toContain(CanonryMcpToolNames.canonry_ads_campaign_create)
@@ -230,6 +231,7 @@ describe('buildAdsOperatorTools', () => {
       overview: { status: 'ok' },
       ads: {
         status: { status: 'ok' },
+        deliveryDiagnostics: { status: 'ok' },
         summary: { status: 'ok' },
       },
       doctor: { status: 'ok' },
@@ -238,6 +240,7 @@ describe('buildAdsOperatorTools', () => {
     expect(calls.map((c) => c.method)).toEqual([
       'getProjectOverview',
       'getAdsStatus',
+      'getAdsDeliveryDiagnostics',
       'getAdsSummary',
       'getAdsCampaigns',
       'getAdsInsights',

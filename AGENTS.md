@@ -155,6 +155,7 @@ canonry ads sync <project>                            # trigger an ads-sync run
 canonry ads campaigns <project> [--format json|jsonl] # snapshots incl. context hints
 canonry ads insights <project> [--level campaign|ad_group] [--entity <id>] [--from <d>] [--to <d>] [--format json|jsonl]
 canonry ads summary <project>                         # campaign-level totals (spend in micros, derived ctr/cpc)
+canonry ads delivery-diagnostics <project>            # stored snapshot provenance, configuration facts, historical campaign activity (not provider serving/eligibility)
 canonry ads disconnect <project>
 
 # Technical AEO — site-wide technical audit (powered by the `site-audit` run kind + @ainyc/aeo-audit's runSitemapAudit)

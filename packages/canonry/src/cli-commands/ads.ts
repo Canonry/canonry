@@ -10,6 +10,7 @@ import {
   adsCampaigns,
   adsInsights,
   adsSummary,
+  adsDeliveryDiagnostics,
   adsOperationGet,
   adsOperationReconcile,
   adsOperationResumeActivation,
@@ -392,6 +393,14 @@ export const ADS_CLI_COMMANDS: readonly CliCommandSpec[] = [
     run: async (input) => {
       const project = requireProject(input, 'ads.summary', 'canonry ads summary <project> [--format json]')
       await adsSummary(project, { format: input.format })
+    },
+  },
+  {
+    path: ['ads', 'delivery-diagnostics'],
+    usage: 'canonry ads delivery-diagnostics <project> [--format json]',
+    run: async (input) => {
+      const project = requireProject(input, 'ads.delivery-diagnostics', 'canonry ads delivery-diagnostics <project> [--format json]')
+      await adsDeliveryDiagnostics(project, { format: input.format })
     },
   },
 ]

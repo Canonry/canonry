@@ -2143,6 +2143,17 @@ export const canonryMcpTools = [
     handler: (client, input) => client.getAdsSummary(input.project),
   }),
   defineTool({
+    name: 'canonry_ads_delivery_diagnostics',
+    title: 'Stored ads delivery diagnostics',
+    description: 'Read stored ads snapshot provenance, account/campaign/ad-group/ad configuration facts, and historical campaign activity in one call. This is not a live OpenAI eligibility or serving verdict.',
+    access: 'read',
+    tier: 'ads',
+    inputSchema: projectInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/ads/delivery-diagnostics'],
+    handler: (client, input) => client.getAdsDeliveryDiagnostics(input.project),
+  }),
+  defineTool({
     name: 'canonry_ads_operations_unresolved',
     title: 'List unresolved ads mutation receipts',
     description:

@@ -553,6 +553,7 @@ describe('SessionRegistry', () => {
     const names = agent.state.tools.map((t) => t.name)
     expect(names).toContain(AERO_ADS_OPERATOR_CONTEXT_TOOL_NAME)
     expect(names).toContain(CanonryMcpToolNames.canonry_ads_summary)
+    expect(names).toContain(CanonryMcpToolNames.canonry_ads_delivery_diagnostics)
     expect(names).not.toContain(CanonryMcpToolNames.canonry_ads_sync)
     expect(agent.state.tools.length).toBe(AERO_ADS_OPERATOR_READ_TOOL_COUNT)
   })
@@ -721,6 +722,7 @@ describe('SessionRegistry', () => {
     const readOnlyNames = agent.state.tools.map((t) => t.name)
     expect(readOnlyNames).toContain(AERO_ADS_OPERATOR_CONTEXT_TOOL_NAME)
     expect(readOnlyNames).toContain(CanonryMcpToolNames.canonry_ads_summary)
+    expect(readOnlyNames).toContain(CanonryMcpToolNames.canonry_ads_delivery_diagnostics)
     expect(readOnlyNames).not.toContain(CanonryMcpToolNames.canonry_ads_sync)
     expect(agent.state.tools.length).toBe(AERO_ADS_OPERATOR_READ_TOOL_COUNT)
 
