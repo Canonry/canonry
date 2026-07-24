@@ -681,7 +681,7 @@ export const canonryMcpTools = [
     name: 'canonry_organic_evidence',
     title: 'Reconcile organic and AI evidence',
     description:
-      'One-call investigation of whether organic work is gaining visibility, traffic, AI attention, or leads. Returns fixed 30-day GSC and GA4 cohorts, a dedicated blog cohort, server-observed AI crawling/user-fetch/referral evidence, the latest answer-visibility sweep, source coverage, page evidence, findings, and limitations. It preserves native units and explicitly reports that lead attribution is unavailable in v1. Prefer this over fanning out across GSC, GA, traffic, and visibility tools.',
+      'One-call investigation of whether organic work is gaining visibility, traffic, AI attention, or leads. Returns source-specific 30-day GSC and GA4 cohorts, URL-agnostic page evidence, available GA4 lead events, server-observed AI crawling/user-fetch/referral evidence, the latest answer-visibility sweep, source coverage, findings, and limitations. It preserves native units. Prefer this over fanning out across GSC, GA, traffic, and visibility tools.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: z.object({

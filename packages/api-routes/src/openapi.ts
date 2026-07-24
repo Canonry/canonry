@@ -310,7 +310,7 @@ const organicEvidencePeriodQueryParameter: OpenApiParameter = {
   name: 'period',
   in: 'query',
   description:
-    'Evidence window in days — 60 or 90 (default 90). Returned as fixed 30-day cohorts ending on the latest date shared by GSC and GA4.',
+    'Evidence window in days — 60 or 90 (default 90). GSC and GA4 retain source-specific 30-day cohort dates.',
   schema: { type: 'integer', enum: [60, 90] },
 }
 
@@ -3796,7 +3796,7 @@ const routeCatalog: OpenApiOperation[] = [
     summary: 'Reconciled organic and AI evidence',
     tags: ['analytics'],
     description:
-      'Returns a decision-ready evidence ladder across GSC visibility, native GA4 channels and lead events, server-observed AI crawling/user fetches/referrals, and the latest answer-visibility sweep. Sources retain their native units and source-specific dates, blog paths are broken out explicitly, and sync, coverage, attribution-scope, and causality caveats are machine-readable.',
+      'Returns a decision-ready evidence ladder across GSC visibility, native GA4 channels and lead events, server-observed AI crawling/user fetches/referrals, and the latest answer-visibility sweep. Sources retain native units and source-specific cohort dates; URL-agnostic page evidence is reported separately. Sync, coverage, attribution-scope, and causality caveats are machine-readable.',
     parameters: [nameParameter, organicEvidencePeriodQueryParameter],
     responses: {
       200: jsonResponse('Organic evidence returned.', 'OrganicEvidenceDto'),

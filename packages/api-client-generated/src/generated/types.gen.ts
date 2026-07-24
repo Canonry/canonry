@@ -2468,11 +2468,6 @@ export type OrganicEvidenceDto = {
     contractVersion: 'organic-evidence/v1';
     periodDays: 60 | 90;
     asOfDate: string | null;
-    cohorts: Array<{
-        name: 'earliest' | 'middle' | 'prior' | 'latest';
-        startDate: string;
-        endDate: string;
-    }>;
     coverage: {
         gsc: boolean;
         ga4: boolean;
@@ -2529,7 +2524,6 @@ export type OrganicEvidenceDto = {
     } | null;
     ga4: {
         organicSessions: number;
-        blogOrganicSessions: number;
         cohorts: Array<{
             name: 'earliest' | 'middle' | 'prior' | 'latest';
             startDate: string;
@@ -2541,46 +2535,6 @@ export type OrganicEvidenceDto = {
         paidSessions: number;
         organicSessions: number;
     } | null;
-    blog: {
-        pathRule: '/blog and descendants';
-        gsc: {
-            cohorts: Array<{
-                name: 'earliest' | 'middle' | 'prior' | 'latest';
-                startDate: string;
-                endDate: string;
-                totals: {
-                    clicks: number;
-                    impressions: number;
-                };
-            }>;
-        } | null;
-        ga4: {
-            cohorts: Array<{
-                name: 'earliest' | 'middle' | 'prior' | 'latest';
-                startDate: string;
-                endDate: string;
-                organicSessions: number;
-            }>;
-        } | null;
-        server: {
-            crawlerHits: {
-                verified: number;
-                claimedUnverified: number;
-                unknownAiLike: number;
-            };
-            userFetchHits: {
-                verified: number;
-                claimedUnverified: number;
-                unknownAiLike: number;
-            };
-            referralSessions: {
-                total: number;
-                paid: number;
-                organic: number;
-                unknown: number;
-            };
-        } | null;
-    };
     server: {
         crawlerHits: {
             verified: number;
@@ -11462,7 +11416,7 @@ export type GetApiV1ProjectsByNameOrganicEvidenceData = {
     };
     query?: {
         /**
-         * Evidence window in days — 60 or 90 (default 90). Returned as fixed 30-day cohorts ending on the latest date shared by GSC and GA4.
+         * Evidence window in days — 60 or 90 (default 90). GSC and GA4 retain source-specific 30-day cohort dates.
          */
         period?: 60 | 90;
     };

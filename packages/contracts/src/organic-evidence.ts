@@ -40,7 +40,6 @@ export const organicEvidenceDtoSchema = z.object({
   periodDays: organicEvidencePeriodSchema,
   /** Latest headline evidence date, preferring the GSC property date when available. */
   asOfDate: z.string().nullable(),
-  cohorts: z.array(cohortSchema),
   coverage: z.object({
     gsc: z.boolean(),
     ga4: z.boolean(),
@@ -62,24 +61,12 @@ export const organicEvidenceDtoSchema = z.object({
   }).nullable(),
   ga4: z.object({
     organicSessions: z.number().int().nonnegative(),
-    blogOrganicSessions: z.number().int().nonnegative(),
     cohorts: z.array(sessionCohortSchema),
   }).nullable(),
   gaAiReferrals: z.object({
     paidSessions: z.number().int().nonnegative(),
     organicSessions: z.number().int().nonnegative(),
   }).nullable(),
-  /** `/blog` and descendants, reconciled without combining unlike units. */
-  blog: z.object({
-    pathRule: z.literal('/blog and descendants'),
-    gsc: z.object({ cohorts: z.array(searchCohortSchema) }).nullable(),
-    ga4: z.object({ cohorts: z.array(sessionCohortSchema) }).nullable(),
-    server: z.object({
-      crawlerHits: crawlerCountsSchema,
-      userFetchHits: crawlerCountsSchema,
-      referralSessions: referralCountsSchema,
-    }).nullable(),
-  }),
   server: z.object({
     crawlerHits: crawlerCountsSchema,
     userFetchHits: crawlerCountsSchema,

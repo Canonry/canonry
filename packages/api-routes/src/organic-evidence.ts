@@ -20,6 +20,7 @@ import {
   RunKinds,
   RunStatuses,
   VerificationStatuses,
+  hostOf,
   normalizeUrlPath,
   organicEvidencePeriodSchema,
   validationError,
@@ -41,10 +42,6 @@ const normalizedPath = (value: string | null | undefined) => {
   const normalized = normalizeUrlPath(value) ?? UNKNOWN_LANDING_PATH
   return normalized.split('?')[0] || '/'
 }
-const isBlogPath = (value: string | null | undefined) => {
-  const valuePath = normalizedPath(value)
-  return valuePath === '/blog' || valuePath.startsWith('/blog/')
-}
 const inRange = (date: string, startDate: string, endDate: string) => date >= startDate && date <= endDate
 const normalizedHost = (value: string) => value.trim().toLowerCase().replace(/^www\./, '')
 const matchesMarketingHost = (value: string, marketingHosts: string[]) => {
@@ -53,11 +50,7 @@ const matchesMarketingHost = (value: string, marketingHosts: string[]) => {
     hostname === candidate || hostname.endsWith(`.${candidate}`))
 }
 const pageMatchesMarketingHost = (value: string, marketingHosts: string[]) => {
-  try {
-    return matchesMarketingHost(new URL(value).hostname, marketingHosts)
-  } catch {
-    return false
-  }
+  return matchesMarketingHost(hostOf(value) ?? '', marketingHosts)
 }
 
 function sourceCoverage(dates: string[]) {
@@ -67,7 +60,7 @@ function sourceCoverage(dates: string[]) {
     : null
 }
 
-function buildCohorts(endDate: string, periodDays: 60 | 90): OrganicEvidenceDto['cohorts'] {
+function buildCohorts(endDate: string, periodDays: 60 | 90) {
   const names = periodDays === 60
     ? (['prior', 'latest'] as const)
     : (['earliest', 'middle', 'latest'] as const)
@@ -159,9 +152,14 @@ export function buildOrganicEvidence(
     (nativeAcquisitionActive ? nativeAcquisitionRows : gaRows).map(row => row.date),
   )
   const asOfDate = gscCoverage?.endDate ?? gaCoverage?.endDate ?? null
-  const endDate = asOfDate ?? new Date().toISOString().slice(0, 10)
-  const startDate = daysBefore(endDate, periodDays - 1)
-  const cohorts = buildCohorts(endDate, periodDays)
+  const gscEndDate = gscCoverage?.endDate
+  const gaEndDate = nativeAcquisitionActive ? nativeEndDate : gaCoverage?.endDate
+  const gscCohorts = gscEndDate ? buildCohorts(gscEndDate, periodDays) : []
+  const gaCohorts = gaEndDate ? buildCohorts(gaEndDate, periodDays) : []
+  const gscStartDate = gscEndDate ? daysBefore(gscEndDate, periodDays - 1) : null
+  const gaStartDate = gaEndDate ? daysBefore(gaEndDate, periodDays - 1) : null
+  const startDate = gscStartDate ?? gaStartDate ?? new Date().toISOString().slice(0, 10)
+  const endDate = gscEndDate ?? gaEndDate ?? startDate
   const isInWindow = (date: string) => inRange(date, startDate, endDate)
 
   const gscWindow = gscRows.filter(row => isInWindow(row.date))
@@ -218,7 +216,7 @@ export function buildOrganicEvidence(
     namedBrand,
     namedNonBrand,
     suppressedOrUnreportedResidual,
-    cohorts: cohorts.map(cohort => ({
+    cohorts: gscCohorts.map(cohort => ({
       ...cohort,
       totals: sumSearchRows(gscRows.filter(row => inRange(row.date, cohort.startDate, cohort.endDate))),
     })),
@@ -227,41 +225,22 @@ export function buildOrganicEvidence(
   const pageSearchRows = db.select().from(gscSearchData)
     .where(eq(gscSearchData.projectId, project.id)).all()
     .filter(row => isInWindow(row.date) && pageMatchesMarketingHost(row.page, marketingHosts))
-  const blogGscCohorts = cohorts.map(cohort => ({
-    ...cohort,
-    totals: sumSearchRows(pageSearchRows.filter(row =>
-      isBlogPath(row.page) && inRange(row.date, cohort.startDate, cohort.endDate))),
-  }))
-
-  const gaWindow = gaRows.filter(row => isInWindow(row.date))
-  const gaCohorts = cohorts.map(cohort => ({
+  const gaWindow = gaStartDate && gaEndDate ? gaRows.filter(row => inRange(row.date, gaStartDate, gaEndDate)) : []
+  const legacyGaCohorts = gaCohorts.map(cohort => ({
     ...cohort,
     organicSessions: gaRows
       .filter(row => inRange(row.date, cohort.startDate, cohort.endDate))
       .reduce((count, row) => count + row.organicSessions, 0),
   }))
-  let blogGaCohorts = cohorts.map(cohort => ({
-    ...cohort,
-    organicSessions: gaRows
-      .filter(row => isBlogPath(row.landingPageNormalized ?? row.landingPage)
-        && inRange(row.date, cohort.startDate, cohort.endDate))
-      .reduce((count, row) => count + row.organicSessions, 0),
-  }))
   let ga4 = gaRows.length ? {
     organicSessions: gaWindow.reduce((count, row) => count + row.organicSessions, 0),
-    blogOrganicSessions: gaWindow
-      .filter(row => isBlogPath(row.landingPageNormalized ?? row.landingPage))
-      .reduce((count, row) => count + row.organicSessions, 0),
-    cohorts: gaCohorts,
+    cohorts: legacyGaCohorts,
   } : null
 
   if (nativeAcquisitionActive && nativeAcquisition.periods.length === 0) {
     ga4 = null
-    blogGaCohorts = []
   } else if (nativeAcquisitionActive) {
     const organic = nativeAcquisition.channels.find(row => row.channelGroup === 'Organic Search')
-    const blogPages = nativeWindowOrganicRows
-      .filter(row => isBlogPath(row.landingPageNormalized ?? row.landingPage))
     const nativeCohort = (period: typeof nativeAcquisition.periods[number]) => ({
       name: period.label === 'previous' ? 'prior' as const : period.label,
       startDate: period.startDate,
@@ -269,26 +248,19 @@ export function buildOrganicEvidence(
     })
     ga4 = {
       organicSessions: organic?.periods.reduce((sum, row) => sum + row.sessions, 0) ?? 0,
-      blogOrganicSessions: blogPages.reduce((sum, page) => sum + page.sessions, 0),
       cohorts: nativeAcquisition.periods.map((period, index) => ({
         ...nativeCohort(period),
         organicSessions: organic?.periods[index]?.sessions ?? 0,
       })),
     }
-    blogGaCohorts = nativeAcquisition.periods.map(period => ({
-      ...nativeCohort(period),
-      organicSessions: nativeWindowOrganicRows
-        .filter(row =>
-          isBlogPath(row.landingPageNormalized ?? row.landingPage)
-          && inRange(row.date, period.startDate, period.endDate))
-        .reduce((sum, row) => sum + row.sessions, 0),
-    }))
   }
 
   const allGaAiRows = db.select().from(gaAiReferrals)
     .where(eq(gaAiReferrals.projectId, project.id)).all()
     .filter(row => row.sourceDimension === 'session')
-  const aiRows = allGaAiRows.filter(row => isInWindow(row.date))
+  const aiRows = gaStartDate && gaEndDate
+    ? allGaAiRows.filter(row => inRange(row.date, gaStartDate, gaEndDate))
+    : []
   const gaAiReferralSummary = allGaAiRows.length ? {
     paidSessions: aiRows
       .filter(row => row.trafficClass === AiReferralTrafficClasses.paid)
@@ -315,11 +287,6 @@ export function buildOrganicEvidence(
   const fetches = allFetches.filter(row => serverInWindow(row.tsHour))
   const referrals = allReferrals.filter(row => serverInWindow(row.tsHour))
   const server = serverSources.length ? summarizeServer(crawlers, fetches, referrals) : null
-  const blogServer = serverSources.length ? summarizeServer(
-    crawlers.filter(row => isBlogPath(row.pathNormalized)),
-    fetches.filter(row => isBlogPath(row.pathNormalized)),
-    referrals.filter(row => isBlogPath(row.landingPathNormalized)),
-  ) : null
 
   const latest = db.select().from(runs).where(and(
     eq(runs.projectId, project.id),
@@ -401,23 +368,22 @@ export function buildOrganicEvidence(
   ).slice(0, PAGE_DETAIL_LIMIT)
 
   const findings: OrganicEvidenceDto['findings'] = []
-  const latestBlogGsc = blogGscCohorts.at(-1)
-  const priorBlogGsc = blogGscCohorts.at(-2)
-  if (gsc && latestBlogGsc && priorBlogGsc) {
-    const visibilityIncreased =
-      latestBlogGsc.totals.impressions > priorBlogGsc.totals.impressions
+  const latestGsc = gsc?.cohorts.at(-1)
+  const priorGsc = gsc?.cohorts.at(-2)
+  if (gsc && latestGsc && priorGsc) {
+    const visibilityIncreased = latestGsc.totals.impressions > priorGsc.totals.impressions
     if (visibilityIncreased) {
       findings.push({
         tone: 'positive',
-        title: 'Blog search visibility increased',
-        detail: `Google showed blog pages ${comparisonDetail(latestBlogGsc.totals.impressions, priorBlogGsc.totals.impressions)} (${latestBlogGsc.startDate} to ${latestBlogGsc.endDate} versus ${priorBlogGsc.startDate} to ${priorBlogGsc.endDate}).`,
+        title: 'Search visibility increased',
+        detail: `Google showed the site ${comparisonDetail(latestGsc.totals.impressions, priorGsc.totals.impressions)} (${latestGsc.startDate} to ${latestGsc.endDate} versus ${priorGsc.startDate} to ${priorGsc.endDate}).`,
       })
     }
-    if (visibilityIncreased && latestBlogGsc.totals.clicks <= priorBlogGsc.totals.clicks) {
+    if (visibilityIncreased && latestGsc.totals.clicks <= priorGsc.totals.clicks) {
       findings.push({
         tone: 'caution',
-        title: 'Blog clicks have not followed visibility yet',
-        detail: `Blog pages recorded ${latestBlogGsc.totals.clicks} Google clicks in the latest cohort versus ${priorBlogGsc.totals.clicks} prior.`,
+        title: 'Search clicks have not followed visibility yet',
+        detail: `The site recorded ${latestGsc.totals.clicks} Google clicks in the latest cohort versus ${priorGsc.totals.clicks} prior.`,
       })
     }
   }
@@ -446,19 +412,18 @@ export function buildOrganicEvidence(
     findings.push({
       tone: 'neutral',
       title: 'Paid-assisted brand search remains plausible',
-      detail: `${paidLatest} Paid Search sessions and ${brandedLatest} branded clicks coincide in the latest cohort; this is not proof of paid assistance.`,
+      detail: `${paidLatest} Paid Search sessions (${measurement.acquisition.periods.at(-1)?.startDate} to ${measurement.acquisition.periods.at(-1)?.endDate}) and ${brandedLatest} branded clicks (${measurement.searchDemand.periods.at(-1)?.startDate} to ${measurement.searchDemand.periods.at(-1)?.endDate}) were observed in their source-specific latest cohorts; this is not proof of paid assistance.`,
     })
   }
 
-  const blogFetchTotal = blogServer
-    ? blogServer.userFetchHits.verified + blogServer.userFetchHits.claimedUnverified
-      + blogServer.userFetchHits.unknownAiLike
+  const fetchTotal = server
+    ? server.userFetchHits.verified + server.userFetchHits.claimedUnverified + server.userFetchHits.unknownAiLike
     : 0
-  if (blogServer && blogFetchTotal > 0) {
+  if (server && fetchTotal > 0) {
     findings.push({
       tone: 'positive',
-      title: 'AI user-agent fetches reached blog content',
-      detail: `Server logs recorded ${blogFetchTotal} on-demand AI user-agent fetches of blog paths in this window. These are request observations, not visits or leads; verification tiers are reported separately.`,
+      title: 'AI user-agent fetches reached site content',
+      detail: `Server logs recorded ${fetchTotal} on-demand AI user-agent fetches in this window. These are request observations, not visits or leads; verification tiers are reported separately.`,
     })
   }
   if (server?.referralSessions.unknown) {
@@ -472,7 +437,7 @@ export function buildOrganicEvidence(
   const limitations: OrganicEvidenceDto['limitations'] = [
     { code: 'units-not-combined', detail: 'GSC clicks/impressions, GA4 sessions, server hits, and sampled answer observations are reported separately.' },
     { code: 'gsc-residual', detail: 'The GSC residual represents suppressed or unreported named queries and is not labelled non-brand.' },
-    { code: 'page-grain-gsc', detail: 'Page and blog GSC counts come from detailed page/query rows; property totals remain the canonical headline totals.' },
+    { code: 'page-grain-gsc', detail: 'Page GSC counts come from detailed page/query rows; property totals remain the canonical headline totals.' },
   ]
   if (pageMatchCount > PAGE_DETAIL_LIMIT) {
     limitations.push({
@@ -521,6 +486,13 @@ export function buildOrganicEvidence(
     })
   }
 
+  if (gscCoverage?.endDate && gaCoverage?.endDate && gscCoverage.endDate !== gaCoverage.endDate) {
+    limitations.push({
+      code: 'source-specific-cohort-anchors',
+      detail: `GSC cohorts end ${gscCoverage.endDate}; GA4 cohorts end ${gaCoverage.endDate}. Sources are not forced onto a shared date.`,
+    })
+  }
+
   if (serverCoverage && serverCoverage.startDate > startDate) {
     limitations.push({
       code: 'partial-server-window',
@@ -547,7 +519,6 @@ export function buildOrganicEvidence(
     contractVersion: 'organic-evidence/v1',
     periodDays,
     asOfDate,
-    cohorts,
     coverage: { gsc: !!gsc, ga4: !!ga4, server: !!server, visibility: !!visibility },
     sourceCoverage: {
       gsc: gscCoverage,
@@ -558,16 +529,6 @@ export function buildOrganicEvidence(
     gsc,
     ga4,
     gaAiReferrals: gaAiReferralSummary,
-    blog: {
-      pathRule: '/blog and descendants',
-      gsc: gscRows.length ? { cohorts: blogGscCohorts } : null,
-      ga4: nativeAcquisitionActive
-        ? (nativeAcquisition.periods.length > 0 ? { cohorts: blogGaCohorts } : null)
-        : gaRows.length
-        ? { cohorts: blogGaCohorts }
-        : null,
-      server: blogServer,
-    },
     server,
     visibility,
     pages,

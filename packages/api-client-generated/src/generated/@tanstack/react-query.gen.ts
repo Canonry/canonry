@@ -3640,7 +3640,7 @@ export const getApiV1ProjectsByNameOrganicEvidenceQueryKey = (options: Options<G
 /**
  * Reconciled organic and AI evidence
  *
- * Returns a decision-ready evidence ladder across GSC visibility, native GA4 channels and lead events, server-observed AI crawling/user fetches/referrals, and the latest answer-visibility sweep. Sources retain their native units and source-specific dates, blog paths are broken out explicitly, and sync, coverage, attribution-scope, and causality caveats are machine-readable.
+ * Returns a decision-ready evidence ladder across GSC visibility, native GA4 channels and lead events, server-observed AI crawling/user fetches/referrals, and the latest answer-visibility sweep. Sources retain native units and source-specific cohort dates; URL-agnostic page evidence is reported separately. Sync, coverage, attribution-scope, and causality caveats are machine-readable.
  */
 export const getApiV1ProjectsByNameOrganicEvidenceOptions = (options: Options<GetApiV1ProjectsByNameOrganicEvidenceData>) => {
     return queryOptions({

@@ -31,7 +31,7 @@ function printOrganicEvidence(project: string, data: OrganicEvidenceDto): void {
   if (data.gsc) {
     console.log(`Google Search: ${formatCounts(data.gsc.propertyTotals.clicks, data.gsc.propertyTotals.impressions)} (named non-brand: ${formatCounts(data.gsc.namedNonBrand.clicks, data.gsc.namedNonBrand.impressions)})`)
   }
-  if (data.ga4) console.log(`GA4 organic: ${data.ga4.organicSessions} sessions (${data.ga4.blogOrganicSessions} blog)`)
+  if (data.ga4) console.log(`GA4 organic: ${data.ga4.organicSessions} sessions`)
   if (data.gaAiReferrals) console.log(`GA4 AI referrals: ${data.gaAiReferrals.organicSessions} organic, ${data.gaAiReferrals.paidSessions} paid sessions`)
   if (data.server) {
     const s = data.server
