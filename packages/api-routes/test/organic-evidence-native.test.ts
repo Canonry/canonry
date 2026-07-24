@@ -410,7 +410,7 @@ async function getRawEvidence(
     method: 'GET',
     url: `/api/v1/projects/${projectName}/organic-evidence?period=90`,
   })
-  expect(response.statusCode).toBe(200)
+  expect(response.statusCode, response.body).toBe(200)
   return JSON.parse(response.body) as NativeOrganicEvidence
 }
 

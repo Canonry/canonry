@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, lte, sql } from 'drizzle-orm'
+import { and, desc, eq, gte, lte, or, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import {
   aiReferralEventsHourly,
@@ -53,12 +53,6 @@ const pageMatchesMarketingHost = (value: string, marketingHosts: string[]) => {
   return matchesMarketingHost(hostOf(value) ?? '', marketingHosts)
 }
 
-function sourceCoverage(dates: string[]) {
-  const unique = [...new Set(dates)].sort()
-  return unique.length
-    ? { startDate: unique[0], endDate: unique[unique.length - 1], observedDays: unique.length }
-    : null
-}
 
 function buildCohorts(endDate: string, periodDays: 60 | 90) {
   const names = periodDays === 60
@@ -139,6 +133,7 @@ export function buildOrganicEvidence(
   const nativeAcquisition = measurement.acquisition
   const nativeAcquisitionActive = nativeAcquisition.status !== 'never-synced'
   const marketingHosts = measurement.filters.marketingHosts
+  const normalizedMarketingHosts = [...new Set(marketingHosts.map(normalizedHost).filter(Boolean))]
   const nativeStartDate = nativeAcquisition.periods[0]?.startDate
   const nativeEndDate = nativeAcquisition.periods.at(-1)?.endDate
   const gscCoverage = aggregateCoverage(db.select({
@@ -151,17 +146,19 @@ export function buildOrganicEvidence(
     endDate: sql<string>`max(${gaTrafficSnapshots.date})`,
     observedDays: sql<number>`count(distinct ${gaTrafficSnapshots.date})`,
   }).from(gaTrafficSnapshots).where(eq(gaTrafficSnapshots.projectId, project.id)).get())
-  const nativeCoverageRows = nativeAcquisitionActive
-    ? db.select({
-      date: gaAcquisitionDaily.date,
-      hostName: gaAcquisitionDaily.hostName,
-      count: sql<number>`count(*)`,
-    }).from(gaAcquisitionDaily).where(eq(gaAcquisitionDaily.projectId, project.id))
-      .groupBy(gaAcquisitionDaily.date, gaAcquisitionDaily.hostName).all()
-      .filter(row => matchesMarketingHost(row.hostName, marketingHosts))
-    : []
+  const nativeCoverage = nativeAcquisitionActive && normalizedMarketingHosts.length
+    ? aggregateCoverage(db.select({
+      startDate: sql<string>`min(${gaAcquisitionDaily.date})`,
+      endDate: sql<string>`max(${gaAcquisitionDaily.date})`,
+      observedDays: sql<number>`count(distinct ${gaAcquisitionDaily.date})`,
+    }).from(gaAcquisitionDaily).where(and(
+      eq(gaAcquisitionDaily.projectId, project.id),
+      or(...normalizedMarketingHosts.map(candidate =>
+        sql`lower(trim(${gaAcquisitionDaily.hostName})) = ${candidate} or lower(trim(${gaAcquisitionDaily.hostName})) like ${`%.${candidate}`}`)),
+    )).get())
+    : null
   const gaCoverage = nativeAcquisitionActive
-    ? sourceCoverage(nativeCoverageRows.map(row => row.date))
+    ? nativeCoverage
     : legacyGaCoverage
   const asOfDate = gscCoverage?.endDate ?? gaCoverage?.endDate ?? null
   const gscEndDate = gscCoverage?.endDate
@@ -318,11 +315,30 @@ export function buildOrganicEvidence(
     .where(and(eq(aiUserFetchEventsHourly.projectId, project.id), gte(aiUserFetchEventsHourly.tsHour, serverStart), lte(aiUserFetchEventsHourly.tsHour, serverEnd))).all()
   const allReferrals = db.select().from(aiReferralEventsHourly)
     .where(and(eq(aiReferralEventsHourly.projectId, project.id), gte(aiReferralEventsHourly.tsHour, serverStart), lte(aiReferralEventsHourly.tsHour, serverEnd))).all()
-  const serverCoverage = sourceCoverage([
-    ...allCrawlers.map(row => row.tsHour.slice(0, 10)),
-    ...allFetches.map(row => row.tsHour.slice(0, 10)),
-    ...allReferrals.map(row => row.tsHour.slice(0, 10)),
-  ])
+  const [serverCoverageRow] = db.all(sql`
+    select
+      min(day) as startDate,
+      max(day) as endDate,
+      count(distinct day) as observedDays
+    from (
+      select substr(${crawlerEventsHourly.tsHour}, 1, 10) as day
+      from ${crawlerEventsHourly}
+      where ${crawlerEventsHourly.projectId} = ${project.id}
+      union
+      select substr(${aiUserFetchEventsHourly.tsHour}, 1, 10) as day
+      from ${aiUserFetchEventsHourly}
+      where ${aiUserFetchEventsHourly.projectId} = ${project.id}
+      union
+      select substr(${aiReferralEventsHourly.tsHour}, 1, 10) as day
+      from ${aiReferralEventsHourly}
+      where ${aiReferralEventsHourly.projectId} = ${project.id}
+    )
+  `) as Array<{
+    startDate: string | null
+    endDate: string | null
+    observedDays: number
+  }>
+  const serverCoverage = aggregateCoverage(serverCoverageRow)
   const serverInWindow = (timestamp: string) => isInWindow(timestamp.slice(0, 10))
   const crawlers = allCrawlers.filter(row => serverInWindow(row.tsHour))
   const fetches = allFetches.filter(row => serverInWindow(row.tsHour))
