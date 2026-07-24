@@ -75,7 +75,7 @@ export const GA_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['ga', 'measurement-analysis'],
-    usage: 'canonry ga measurement-analysis <project> [--window 30d|60d|90d] [--host-scope marketing|all] [--path-prefix /blog] [--limit 100] [--format json]',
+    usage: 'canonry ga measurement-analysis <project> [--window 30d|60d|90d] [--host-scope marketing|all] [--path-prefix /path] [--limit 100] [--format json]',
     options: {
       window: stringOption(),
       'host-scope': stringOption(),

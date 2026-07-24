@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm'
+import { and, eq, gte, or, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import {
   gaAcquisitionDaily,
@@ -63,14 +63,6 @@ function buildPeriods(anchor: string, days: WindowDays): Period[] {
     startDate: addDays(anchor, -days + index * 30 + 1),
     endDate: addDays(anchor, -days + (index + 1) * 30),
   }))
-}
-
-function latestDate(rows: Array<{ date: string }>): string | null {
-  let latest: string | null = null
-  for (const row of rows) {
-    if (latest === null || row.date > latest) latest = row.date
-  }
-  return latest
 }
 
 function aggregateByKey<T extends { date: string }>(
@@ -164,6 +156,7 @@ function normalizePathPrefix(value: string | undefined): string | null {
 function matchesPathPrefix(value: string, prefix: string | null): boolean {
   if (!prefix) return true
   const pathname = value.split('?')[0] ?? value
+  if (prefix === '/') return true
   return pathname === prefix || pathname.startsWith(`${prefix}/`)
 }
 
@@ -228,26 +221,43 @@ export function buildGaMeasurementAnalysis(
     matchesPathPrefix(landingPage, pathPrefix)
   )
 
-  const acquisitionRows = db.select().from(gaAcquisitionDaily)
-    .where(eq(gaAcquisitionDaily.projectId, project.id)).all()
-  const leadRows = db.select().from(gaLeadEventsDaily)
-    .where(eq(gaLeadEventsDaily.projectId, project.id)).all()
-  const propertyRows = db.select().from(gscDailyTotals)
-    .where(eq(gscDailyTotals.projectId, project.id)).all()
-  const queryRows = db.select().from(gscQueryDailyTotals)
-    .where(eq(gscQueryDailyTotals.projectId, project.id)).all()
-  const rawPageRows = db.select().from(gscSearchData)
-    .where(eq(gscSearchData.projectId, project.id)).all()
+  const scopedConditions = (hostColumn: typeof gaAcquisitionDaily.hostName | typeof gaLeadEventsDaily.hostName, pathColumn: typeof gaAcquisitionDaily.landingPageNormalized | typeof gaLeadEventsDaily.landingPageNormalized) => {
+    const conditions = []
+    if (parsedHostScope.data === 'marketing') {
+      const normalizedHost = sql`replace(lower(${hostColumn}), 'www.', '')`
+      conditions.push(or(...marketingHosts.flatMap(host => [
+        sql`${normalizedHost} = ${host}`,
+        sql`${normalizedHost} like ${`%.${host}`}`,
+      ])))
+    }
+    if (pathPrefix && pathPrefix !== '/') {
+      conditions.push(or(sql`${pathColumn} = ${pathPrefix}`, sql`${pathColumn} like ${`${pathPrefix}/%`}`))
+    }
+    return conditions
+  }
+  const acquisitionScope = scopedConditions(gaAcquisitionDaily.hostName, gaAcquisitionDaily.landingPageNormalized)
+  const leadLandingScope = scopedConditions(gaLeadEventsDaily.hostName, gaLeadEventsDaily.landingPageNormalized)
+  const acquisitionAnchor = db.select({ date: sql<string | null>`max(${gaAcquisitionDaily.date})` })
+    .from(gaAcquisitionDaily).where(and(eq(gaAcquisitionDaily.projectId, project.id), ...acquisitionScope)).get()?.date ?? null
+  const leadAnchor = db.select({ date: sql<string | null>`max(${gaLeadEventsDaily.date})` })
+    .from(gaLeadEventsDaily).where(and(eq(gaLeadEventsDaily.projectId, project.id), or(
+      eq(gaLeadEventsDaily.attributionScope, 'channel'),
+      and(eq(gaLeadEventsDaily.attributionScope, 'landing-page'), ...leadLandingScope),
+    ))).get()?.date ?? null
+  const gaAnchor = [acquisitionAnchor, leadAnchor].filter((date): date is string => date !== null).sort().at(-1) ?? null
+  const gaPeriods = gaAnchor ? buildPeriods(gaAnchor, days) : []
+  const gaStartDate = gaPeriods[0]?.startDate
+  const acquisitionRows = gaStartDate ? db.select().from(gaAcquisitionDaily).where(and(eq(gaAcquisitionDaily.projectId, project.id), gte(gaAcquisitionDaily.date, gaStartDate))).all() : []
+  const leadRows = gaStartDate ? db.select().from(gaLeadEventsDaily).where(and(eq(gaLeadEventsDaily.projectId, project.id), gte(gaLeadEventsDaily.date, gaStartDate))).all() : []
+  const gscAnchor = db.select({ date: sql<string | null>`max(${gscDailyTotals.date})` })
+    .from(gscDailyTotals).where(eq(gscDailyTotals.projectId, project.id)).get()?.date ?? null
+  const gscPeriods = gscAnchor ? buildPeriods(gscAnchor, days) : []
+  const gscStartDate = gscPeriods[0]?.startDate
+  const propertyRows = gscStartDate ? db.select().from(gscDailyTotals).where(and(eq(gscDailyTotals.projectId, project.id), gte(gscDailyTotals.date, gscStartDate))).all() : []
+  const queryRows = gscStartDate ? db.select().from(gscQueryDailyTotals).where(and(eq(gscQueryDailyTotals.projectId, project.id), gte(gscQueryDailyTotals.date, gscStartDate))).all() : []
+  const rawPageRows = gscStartDate ? db.select().from(gscSearchData).where(and(eq(gscSearchData.projectId, project.id), gte(gscSearchData.date, gscStartDate))).all() : []
   const state = db.select().from(gaMeasurementSyncStates)
     .where(eq(gaMeasurementSyncStates.projectId, project.id)).get()
-
-  const acquisitionAnchor = latestDate(acquisitionRows)
-  const leadAnchor = latestDate(leadRows)
-  const gaAnchor = acquisitionAnchor ?? leadAnchor
-  const gaPeriods = gaAnchor ? buildPeriods(gaAnchor, days) : []
-  const gscAnchor = latestDate(propertyRows)
-  const gscPeriods = gscAnchor ? buildPeriods(gscAnchor, days) : []
-
   const acquisition = acquisitionRows.filter((row) => {
     const landingPage = row.landingPageNormalized ?? normalizeLandingPage(row.landingPage)
     return hostIsIncluded(row.hostName) && pageIsIncluded(landingPage)
@@ -286,12 +296,11 @@ export function buildGaMeasurementAnalysis(
     ? 'channel'
     : stateLeadScope ?? firstObservedLeadScope
   const hostAndPathFiltersApplied = attributionScope === 'landing-page'
-  const leads = hostAndPathFiltersApplied
-    ? selectedLeadRows.filter((row) => {
-        const landingPage = row.landingPageNormalized ?? normalizeLandingPage(row.landingPage)
-        return hostIsIncluded(row.hostName) && pageIsIncluded(landingPage)
-      })
-    : selectedLeadRows
+  const leads = selectedLeadRows.filter((row) => {
+    if (row.attributionScope === 'channel') return true
+    const landingPage = row.landingPageNormalized ?? normalizeLandingPage(row.landingPage)
+    return hostIsIncluded(row.hostName) && pageIsIncluded(landingPage)
+  })
   const leadTotals = aggregateByKey(
     leads,
     gaPeriods,

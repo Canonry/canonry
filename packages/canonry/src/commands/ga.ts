@@ -263,6 +263,7 @@ export async function gaMeasurementAnalysis(project: string, opts?: {
 
   console.log(`GA4 Measurement Analysis for "${project}" (${result.window})\n`)
   console.log(`  Acquisition: ${result.acquisition.status}`)
+  if (result.acquisition.error) console.log(`    Error: ${result.acquisition.error}`)
   for (const period of result.acquisition.periods) {
     console.log(`    ${period.label.padEnd(8)} ${period.sessions} sessions  ${period.startDate} to ${period.endDate}`)
   }
@@ -273,6 +274,7 @@ export async function gaMeasurementAnalysis(project: string, opts?: {
     }
   }
 
+  if (result.leads.error) console.log(`    Error: ${result.leads.error}`)
   console.log(`  Leads: ${result.leads.status}${result.leads.attributionScope ? ` (${result.leads.attributionScope} attribution)` : ''}`)
   for (const period of result.leads.periods) {
     console.log(`    ${period.label.padEnd(8)} ${period.eventCount} leads  ${period.startDate} to ${period.endDate}`)
@@ -280,7 +282,7 @@ export async function gaMeasurementAnalysis(project: string, opts?: {
 
   console.log(`  Search demand: ${result.searchDemand.status}`)
   for (const period of result.searchDemand.periods) {
-    console.log(`    ${period.label.padEnd(8)} ${period.propertyClicks} clicks / ${period.propertyImpressions} impressions  (${period.nonBrandedClicks} reported non-brand clicks)`)
+    console.log(`    ${period.label.padEnd(8)} ${period.propertyClicks} clicks / ${period.propertyImpressions} impressions  (${period.brandedClicks} branded clicks / ${period.brandedImpressions} branded impressions; ${period.nonBrandedClicks} reported non-brand clicks / ${period.nonBrandedImpressions} reported non-brand impressions; ${period.unreportedClicks} unreported clicks / ${period.unreportedImpressions} unreported impressions)`)
   }
   if (!result.leads.hostAndPathFiltersApplied && result.leads.attributionScope === 'channel') {
     console.log('  Note: lead attribution is channel-level; host and path filters do not apply to leads.')
