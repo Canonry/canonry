@@ -63,6 +63,7 @@ const expectedToolNames = [
   'canonry_gsc_coverage_history',
   'canonry_gsc_sitemaps',
   'canonry_ga_status',
+  'canonry_ga_measurement_analysis',
   'canonry_ga_traffic',
   'canonry_ga_coverage',
   'canonry_ga_ai_referral_history',
@@ -158,8 +159,8 @@ const expectedToolNames = [
 
 describe('MCP tool registry', () => {
   it('ships the curated v1 surface', () => {
-    expect(CANONRY_MCP_TOOL_COUNT).toBe(138)
-    expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(87)
+    expect(CANONRY_MCP_TOOL_COUNT).toBe(139)
+    expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(88)
     expect(canonryMcpTools.map(tool => tool.name)).toEqual(expectedToolNames)
     const readNames = canonryMcpTools.filter(tool => tool.access === 'read').map(tool => tool.name)
     expect(getCanonryMcpTools('read-only').map(tool => tool.name)).toEqual(readNames)
@@ -198,7 +199,7 @@ describe('MCP tool registry', () => {
     expect(counts.get('monitoring')).toBe(27)
     expect(counts.get('setup')).toBe(24)
     expect(counts.get('gsc')).toBe(8)
-    expect(counts.get('ga')).toBe(8)
+    expect(counts.get('ga')).toBe(9)
     expect(counts.get('gbp')).toBe(13)
     expect(counts.get('ads')).toBe(24)
     expect(counts.get('traffic')).toBe(10)
@@ -689,6 +690,11 @@ const handlerCases: HandlerCase[] = [
   { tool: 'canonry_gsc_coverage_history', input: { project: 'acme', limit: 5 }, methods: ['gscCoverageHistory'] },
   { tool: 'canonry_gsc_sitemaps', input: projectInput, methods: ['gscSitemaps'] },
   { tool: 'canonry_ga_status', input: projectInput, methods: ['gaStatus'] },
+  {
+    tool: 'canonry_ga_measurement_analysis',
+    input: { project: 'acme', window: '90d', hostScope: 'marketing', pathPrefix: '/blog', limit: 5 },
+    methods: ['gaMeasurementAnalysis'],
+  },
   { tool: 'canonry_ga_traffic', input: { project: 'acme', limit: 5 }, methods: ['gaTraffic'] },
   { tool: 'canonry_ga_coverage', input: projectInput, methods: ['gaCoverage'] },
   { tool: 'canonry_ga_ai_referral_history', input: { project: 'acme', window: '7d' }, methods: ['gaAiReferralHistory'] },

@@ -3578,6 +3578,47 @@ const routeCatalog: OpenApiOperation[] = [
     },
   },
   {
+    method: 'get',
+    path: '/api/v1/projects/{name}/ga/measurement-analysis',
+    summary: 'Get GA4 measurement analysis',
+    tags: ['ga4'],
+    parameters: [
+      nameParameter,
+      {
+        name: 'window',
+        in: 'query',
+        description: '30-day cohorts to return.',
+        schema: { type: 'string', enum: ['30d', '60d', '90d'], default: '90d' },
+      },
+      {
+        name: 'hostScope',
+        in: 'query',
+        description: 'Configured marketing hosts or every observed host.',
+        schema: { type: 'string', enum: ['marketing', 'all'], default: 'marketing' },
+      },
+      {
+        name: 'pathPrefix',
+        in: 'query',
+        description: 'Optional boundary-safe normalized landing-page prefix.',
+        schema: stringSchema,
+      },
+      {
+        name: 'limit',
+        in: 'query',
+        description: 'Maximum page and query detail rows. Native channels are never truncated.',
+        schema: { type: 'integer', minimum: 1, maximum: 100, default: 100 },
+      },
+    ],
+    responses: {
+      200: jsonResponse(
+        'GA4 measurement analysis returned.',
+        'GA4MeasurementAnalysisDto',
+      ),
+      400: errorResponse('Invalid measurement analysis filters.'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
     method: 'post',
     path: '/api/v1/projects/{name}/ga/sync',
     summary: 'Sync GA4 traffic and AI referral data',

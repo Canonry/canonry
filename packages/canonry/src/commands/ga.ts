@@ -1,4 +1,4 @@
-import type { GaConnectResponse, GaStatusResponse, GaSyncResponse, GaTrafficResponse, GaCoverageResponse, GaSocialReferralTrendResponse, GaAttributionTrendResponse, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry } from '@ainyc/canonry-contracts'
+import type { GaConnectResponse, GaStatusResponse, GaSyncResponse, GaTrafficResponse, GaCoverageResponse, GaMeasurementAnalysisDto, GaSocialReferralTrendResponse, GaAttributionTrendResponse, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { CliError, isMachineFormat } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
@@ -235,6 +235,57 @@ export async function gaTraffic(project: string, opts?: { limit?: number; window
 
   if (result.lastSyncedAt) {
     console.log(`\n  Last synced: ${result.lastSyncedAt}`)
+  }
+}
+
+export async function gaMeasurementAnalysis(project: string, opts?: {
+  window?: string
+  hostScope?: string
+  pathPrefix?: string
+  limit?: number
+  format?: string
+}): Promise<void> {
+  const client = getClient()
+  const params: Record<string, string> = {}
+  if (opts?.window) params.window = opts.window
+  if (opts?.hostScope) params.hostScope = opts.hostScope
+  if (opts?.pathPrefix) params.pathPrefix = opts.pathPrefix
+  if (opts?.limit) params.limit = String(opts.limit)
+  const result: GaMeasurementAnalysisDto = await client.gaMeasurementAnalysis(
+    project,
+    Object.keys(params).length > 0 ? params : undefined,
+  )
+
+  if (isMachineFormat(opts?.format)) {
+    console.log(JSON.stringify(result, null, 2))
+    return
+  }
+
+  console.log(`GA4 Measurement Analysis for "${project}" (${result.window})\n`)
+  console.log(`  Acquisition: ${result.acquisition.status}`)
+  if (result.acquisition.error) console.log(`    Error: ${result.acquisition.error}`)
+  for (const period of result.acquisition.periods) {
+    console.log(`    ${period.label.padEnd(8)} ${period.sessions} sessions  ${period.startDate} to ${period.endDate}`)
+  }
+  if (result.acquisition.channels.length > 0) {
+    console.log('  Native channels (latest cohort)')
+    for (const channel of result.acquisition.channels) {
+      console.log(`    ${channel.channelGroup}: ${channel.periods.at(-1)?.sessions ?? 0}`)
+    }
+  }
+
+  console.log(`  Leads: ${result.leads.status}${result.leads.attributionScope ? ` (${result.leads.attributionScope} attribution)` : ''}`)
+  if (result.leads.error) console.log(`    Error: ${result.leads.error}`)
+  for (const period of result.leads.periods) {
+    console.log(`    ${period.label.padEnd(8)} ${period.eventCount} leads  ${period.startDate} to ${period.endDate}`)
+  }
+
+  console.log(`  Search demand: ${result.searchDemand.status}`)
+  for (const period of result.searchDemand.periods) {
+    console.log(`    ${period.label.padEnd(8)} ${period.propertyClicks} clicks / ${period.propertyImpressions} impressions  (${period.brandedClicks} branded clicks / ${period.brandedImpressions} branded impressions; ${period.nonBrandedClicks} reported non-brand clicks / ${period.nonBrandedImpressions} reported non-brand impressions; ${period.unreportedClicks} unreported clicks / ${period.unreportedImpressions} unreported impressions)`)
+  }
+  if (!result.leads.hostAndPathFiltersApplied && result.leads.attributionScope === 'channel') {
+    console.log('  Note: lead attribution is channel-level; host and path filters do not apply to leads.')
   }
 }
 

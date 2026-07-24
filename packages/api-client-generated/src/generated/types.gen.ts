@@ -1815,6 +1815,111 @@ export type Ga4AiReferralHistoryEntry = {
     sourceDimension: 'session' | 'first_user' | 'manual_utm';
 };
 
+export type Ga4MeasurementAnalysisDto = {
+    window: '30d' | '60d' | '90d';
+    bucketDays: 30;
+    filters: {
+        hostScope: 'marketing' | 'all';
+        marketingHosts: Array<string>;
+        pathPrefix: string | null;
+        brandTerms: Array<string>;
+        queryMixScope: 'property';
+    };
+    acquisition: {
+        status: 'never-synced' | 'ready' | 'error';
+        error: string | null;
+        syncedAt: string | null;
+        periods: Array<{
+            label: 'earliest' | 'middle' | 'previous' | 'latest';
+            startDate: string;
+            endDate: string;
+            sessions: number;
+        }>;
+        channels: Array<{
+            channelGroup: string;
+            periods: Array<{
+                label: 'earliest' | 'middle' | 'previous' | 'latest';
+                startDate: string;
+                endDate: string;
+                sessions: number;
+            }>;
+        }>;
+        pages: Array<{
+            hostName: string;
+            landingPage: string;
+            periods: Array<{
+                label: 'earliest' | 'middle' | 'previous' | 'latest';
+                startDate: string;
+                endDate: string;
+                sessions: number;
+            }>;
+        }>;
+    };
+    leads: {
+        status: 'never-synced' | 'ready' | 'error';
+        error: string | null;
+        syncedAt: string | null;
+        attributionScope: 'landing-page' | 'channel';
+        hostAndPathFiltersApplied: boolean;
+        periods: Array<{
+            label: 'earliest' | 'middle' | 'previous' | 'latest';
+            startDate: string;
+            endDate: string;
+            eventCount: number;
+        }>;
+        channels: Array<{
+            channelGroup: string;
+            periods: Array<{
+                label: 'earliest' | 'middle' | 'previous' | 'latest';
+                startDate: string;
+                endDate: string;
+                eventCount: number;
+            }>;
+        }>;
+    };
+    searchDemand: {
+        status: 'ready' | 'unavailable';
+        periods: Array<{
+            label: 'earliest' | 'middle' | 'previous' | 'latest';
+            startDate: string;
+            endDate: string;
+            propertyClicks: number;
+            propertyImpressions: number;
+            reportedQueryClicks: number;
+            reportedQueryImpressions: number;
+            brandedClicks: number;
+            brandedImpressions: number;
+            nonBrandedClicks: number;
+            nonBrandedImpressions: number;
+            unreportedClicks: number;
+            unreportedImpressions: number;
+        }>;
+        queries: Array<{
+            query: string;
+            classification: 'branded' | 'non-branded';
+            periods: Array<{
+                label: 'earliest' | 'middle' | 'previous' | 'latest';
+                startDate: string;
+                endDate: string;
+                clicks: number;
+                impressions: number;
+            }>;
+        }>;
+        pages: Array<{
+            hostName: string;
+            landingPage: string;
+            periods: Array<{
+                label: 'earliest' | 'middle' | 'previous' | 'latest';
+                startDate: string;
+                endDate: string;
+                clicks: number;
+                impressions: number;
+            }>;
+        }>;
+        latestDate: string | null;
+    };
+};
+
 export type Ga4SessionHistoryEntry = {
     date: string;
     sessions: number;
@@ -10580,6 +10685,57 @@ export type GetApiV1ProjectsByNameGaStatusResponses = {
 };
 
 export type GetApiV1ProjectsByNameGaStatusResponse = GetApiV1ProjectsByNameGaStatusResponses[keyof GetApiV1ProjectsByNameGaStatusResponses];
+
+export type GetApiV1ProjectsByNameGaMeasurementAnalysisData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * 30-day cohorts to return.
+         */
+        window?: '30d' | '60d' | '90d';
+        /**
+         * Configured marketing hosts or every observed host.
+         */
+        hostScope?: 'marketing' | 'all';
+        /**
+         * Optional boundary-safe normalized landing-page prefix.
+         */
+        pathPrefix?: string;
+        /**
+         * Maximum page and query detail rows. Native channels are never truncated.
+         */
+        limit?: number;
+    };
+    url: '/api/v1/projects/{name}/ga/measurement-analysis';
+};
+
+export type GetApiV1ProjectsByNameGaMeasurementAnalysisErrors = {
+    /**
+     * Invalid measurement analysis filters.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameGaMeasurementAnalysisError = GetApiV1ProjectsByNameGaMeasurementAnalysisErrors[keyof GetApiV1ProjectsByNameGaMeasurementAnalysisErrors];
+
+export type GetApiV1ProjectsByNameGaMeasurementAnalysisResponses = {
+    /**
+     * GA4 measurement analysis returned.
+     */
+    200: Ga4MeasurementAnalysisDto;
+};
+
+export type GetApiV1ProjectsByNameGaMeasurementAnalysisResponse = GetApiV1ProjectsByNameGaMeasurementAnalysisResponses[keyof GetApiV1ProjectsByNameGaMeasurementAnalysisResponses];
 
 export type PostApiV1ProjectsByNameGaSyncData = {
     body?: {

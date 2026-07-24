@@ -40,6 +40,7 @@ import type {
   GaSyncResponse,
   GaTrafficResponse,
   GaCoverageResponse,
+  GaMeasurementAnalysisDto,
   GaSocialReferralTrendResponse,
   GaAttributionTrendResponse,
   GA4AiReferralHistoryEntry,
@@ -309,6 +310,7 @@ import {
   postApiV1ProjectsByNameGaConnect,
   deleteApiV1ProjectsByNameGaDisconnect,
   getApiV1ProjectsByNameGaStatus,
+  getApiV1ProjectsByNameGaMeasurementAnalysis,
   postApiV1ProjectsByNameGaSync,
   getApiV1ProjectsByNameGaTraffic,
   getApiV1ProjectsByNameGaCoverage,
@@ -1987,6 +1989,19 @@ export class ApiClient {
   async gaStatus(project: string): Promise<GaStatusResponse> {
     return this.invoke<GaStatusResponse>(() =>
       getApiV1ProjectsByNameGaStatus({ client: this.heyClient, path: { name: project } }),
+    )
+  }
+
+  async gaMeasurementAnalysis(
+    project: string,
+    params?: Record<string, string>,
+  ): Promise<GaMeasurementAnalysisDto> {
+    return this.invoke<GaMeasurementAnalysisDto>(() =>
+      getApiV1ProjectsByNameGaMeasurementAnalysis({
+        client: this.heyClient,
+        path: { name: project },
+        query: params as never,
+      }),
     )
   }
 
