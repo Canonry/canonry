@@ -466,6 +466,156 @@ describe('GET /projects/:name/ga/measurement-analysis', () => {
     })
   })
 
+  it('anchors GA cohorts to the newest included acquisition or lead row', async () => {
+    insertAcquisition(ctx, {
+      daysAgo: 10,
+      channelGroup: 'Organic Search',
+      hostName: 'demand-iq.com',
+      landingPage: '/guide',
+      sessions: 4,
+    })
+    insertLead(ctx, {
+      daysAgo: 0,
+      channelGroup: 'Organic Search',
+      hostName: 'demand-iq.com',
+      landingPage: '/guide',
+      eventCount: 2,
+    })
+    ctx.db.insert(gaMeasurementSyncStates).values({
+      projectId: ctx.projectId,
+      acquisitionStatus: 'ready',
+      acquisitionSyncedAt: NOW,
+      leadStatus: 'ready',
+      leadSyncedAt: NOW,
+      leadAttributionScope: 'landing-page',
+      updatedAt: NOW,
+    }).run()
+
+    const response = await ctx.app.inject({
+      method: 'GET',
+      url: '/api/v1/projects/demand-iq/ga/measurement-analysis?window=30d',
+    })
+    expect(response.statusCode).toBe(200)
+    expect(JSON.parse(response.body)).toMatchObject({
+      acquisition: {
+        periods: [{
+          endDate: GA_ANCHOR,
+          sessions: 4,
+        }],
+      },
+      leads: {
+        periods: [{
+          endDate: GA_ANCHOR,
+          eventCount: 2,
+        }],
+      },
+    })
+  })
+
+  it('does not let newer excluded hosts move the default marketing cohort window', async () => {
+    insertAcquisition(ctx, {
+      daysAgo: 35,
+      channelGroup: 'Organic Search',
+      hostName: 'demand-iq.com',
+      landingPage: '/guide',
+      sessions: 4,
+    })
+    insertAcquisition(ctx, {
+      daysAgo: 0,
+      channelGroup: 'Display',
+      hostName: 'demand-iq.vercel.app',
+      landingPage: '/preview',
+      sessions: 100,
+    })
+
+    const response = await ctx.app.inject({
+      method: 'GET',
+      url: '/api/v1/projects/demand-iq/ga/measurement-analysis?window=30d',
+    })
+    expect(response.statusCode).toBe(200)
+    expect(JSON.parse(response.body)).toMatchObject({
+      acquisition: {
+        periods: [{
+          endDate: daysBefore(GA_ANCHOR, 35),
+          sessions: 4,
+        }],
+      },
+    })
+  })
+
+  it('applies host and path filters before choosing the landing-page lead anchor', async () => {
+    insertLead(ctx, {
+      daysAgo: 30,
+      channelGroup: 'Organic Search',
+      hostName: 'demand-iq.com',
+      landingPage: '/guides/organic',
+      eventCount: 3,
+    })
+    insertLead(ctx, {
+      daysAgo: 0,
+      channelGroup: 'Paid Search',
+      hostName: 'demand-iq.com',
+      landingPage: '/quote',
+      eventCount: 9,
+    })
+    ctx.db.insert(gaMeasurementSyncStates).values({
+      projectId: ctx.projectId,
+      acquisitionStatus: 'never-synced',
+      leadStatus: 'ready',
+      leadSyncedAt: NOW,
+      leadAttributionScope: 'landing-page',
+      updatedAt: NOW,
+    }).run()
+
+    const response = await ctx.app.inject({
+      method: 'GET',
+      url: '/api/v1/projects/demand-iq/ga/measurement-analysis?window=30d&pathPrefix=%2Fguides',
+    })
+    expect(response.statusCode).toBe(200)
+    expect(JSON.parse(response.body)).toMatchObject({
+      leads: {
+        hostAndPathFiltersApplied: true,
+        periods: [{
+          endDate: daysBefore(GA_ANCHOR, 30),
+          eventCount: 3,
+        }],
+      },
+    })
+  })
+
+  it('treats pathPrefix=/ as the whole site instead of homepage-only', async () => {
+    insertAcquisition(ctx, {
+      daysAgo: 0,
+      channelGroup: 'Organic Search',
+      hostName: 'demand-iq.com',
+      landingPage: '/',
+      sessions: 2,
+    })
+    insertAcquisition(ctx, {
+      daysAgo: 0,
+      channelGroup: 'Organic Search',
+      hostName: 'demand-iq.com',
+      landingPage: '/pricing',
+      sessions: 5,
+    })
+
+    const response = await ctx.app.inject({
+      method: 'GET',
+      url: '/api/v1/projects/demand-iq/ga/measurement-analysis?window=30d&pathPrefix=%2F',
+    })
+    expect(response.statusCode).toBe(200)
+    expect(JSON.parse(response.body)).toMatchObject({
+      filters: { pathPrefix: '/' },
+      acquisition: {
+        periods: [{ sessions: 7 }],
+        pages: expect.arrayContaining([
+          expect.objectContaining({ landingPage: '/' }),
+          expect.objectContaining({ landingPage: '/pricing' }),
+        ]),
+      },
+    })
+  })
+
   it('classifies reported GSC queries conservatively and exposes the anonymized residual', async () => {
     insertGscPropertyTotal(ctx, { daysAgo: 0, clicks: 20, impressions: 300 })
     insertGscQuery(ctx, { daysAgo: 0, query: 'demand iq platform', clicks: 8, impressions: 80 })

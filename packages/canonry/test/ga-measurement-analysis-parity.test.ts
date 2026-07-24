@@ -94,6 +94,64 @@ describe('GA measurement analysis operator parity', () => {
     expect(JSON.parse(String(output.mock.calls[0]?.[0]))).toEqual(ANALYSIS)
   })
 
+  it('renders component errors and the full branded/non-brand/unreported search split for humans', async () => {
+    gaMeasurementAnalysisMock.mockResolvedValue({
+      ...ANALYSIS,
+      acquisition: {
+        ...ANALYSIS.acquisition,
+        status: 'error',
+        error: 'acquisition quota exhausted',
+        periods: [{
+          label: 'latest',
+          startDate: '2026-06-24',
+          endDate: '2026-07-23',
+          sessions: 12,
+        }],
+      },
+      leads: {
+        ...ANALYSIS.leads,
+        status: 'error',
+        error: 'lead dimension unavailable',
+        periods: [{
+          label: 'latest',
+          startDate: '2026-06-24',
+          endDate: '2026-07-23',
+          eventCount: 2,
+        }],
+      },
+      searchDemand: {
+        ...ANALYSIS.searchDemand,
+        periods: [{
+          label: 'latest',
+          startDate: '2026-06-23',
+          endDate: '2026-07-22',
+          propertyClicks: 20,
+          propertyImpressions: 300,
+          reportedQueryClicks: 17,
+          reportedQueryImpressions: 240,
+          brandedClicks: 8,
+          brandedImpressions: 100,
+          nonBrandedClicks: 9,
+          nonBrandedImpressions: 140,
+          unreportedClicks: 3,
+          unreportedImpressions: 60,
+        }],
+      },
+    } satisfies GaMeasurementAnalysisDto)
+    const output = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    const { gaMeasurementAnalysis } = await import('../src/commands/ga.js')
+
+    await gaMeasurementAnalysis('acme')
+
+    const rendered = output.mock.calls.map(call => String(call[0])).join('\n')
+    expect(rendered).toContain('acquisition quota exhausted')
+    expect(rendered).toContain('lead dimension unavailable')
+    expect(rendered).toMatch(/8 branded/i)
+    expect(rendered).toMatch(/9 (reported )?non-brand/i)
+    expect(rendered).toMatch(/3 unreported/i)
+    expect(rendered).toMatch(/60 unreported impressions/i)
+  })
+
   it('exposes the analysis as a read-only GA MCP tool with identical filters', async () => {
     const { canonryMcpTools } = await import('../src/mcp/tool-registry.js')
     const tool = canonryMcpTools.find(entry => entry.name === 'canonry_ga_measurement_analysis')
