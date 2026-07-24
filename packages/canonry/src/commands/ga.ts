@@ -274,8 +274,8 @@ export async function gaMeasurementAnalysis(project: string, opts?: {
     }
   }
 
-  if (result.leads.error) console.log(`    Error: ${result.leads.error}`)
   console.log(`  Leads: ${result.leads.status}${result.leads.attributionScope ? ` (${result.leads.attributionScope} attribution)` : ''}`)
+  if (result.leads.error) console.log(`    Error: ${result.leads.error}`)
   for (const period of result.leads.periods) {
     console.log(`    ${period.label.padEnd(8)} ${period.eventCount} leads  ${period.startDate} to ${period.endDate}`)
   }

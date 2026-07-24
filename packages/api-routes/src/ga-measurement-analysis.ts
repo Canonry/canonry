@@ -1,4 +1,4 @@
-import { and, eq, gte, or, sql } from 'drizzle-orm'
+import { and, eq, gte, lte, or, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import {
   gaAcquisitionDaily,
@@ -221,22 +221,29 @@ export function buildGaMeasurementAnalysis(
     matchesPathPrefix(landingPage, pathPrefix)
   )
 
-  const scopedConditions = (hostColumn: typeof gaAcquisitionDaily.hostName | typeof gaLeadEventsDaily.hostName, pathColumn: typeof gaAcquisitionDaily.landingPageNormalized | typeof gaLeadEventsDaily.landingPageNormalized) => {
+  const scopedConditions = (
+    hostColumn: typeof gaAcquisitionDaily.hostName | typeof gaLeadEventsDaily.hostName,
+    normalizedPathColumn: typeof gaAcquisitionDaily.landingPageNormalized | typeof gaLeadEventsDaily.landingPageNormalized,
+    rawPathColumn: typeof gaAcquisitionDaily.landingPage | typeof gaLeadEventsDaily.landingPage,
+  ) => {
     const conditions = []
     if (parsedHostScope.data === 'marketing') {
-      const normalizedHost = sql`replace(lower(${hostColumn}), 'www.', '')`
+      const lowerHost = sql`lower(${hostColumn})`
+      const normalizedHost = sql`case when ${lowerHost} like 'www.%' then substr(${lowerHost}, 5) else ${lowerHost} end`
       conditions.push(or(...marketingHosts.flatMap(host => [
         sql`${normalizedHost} = ${host}`,
         sql`${normalizedHost} like ${`%.${host}`}`,
       ])))
     }
     if (pathPrefix && pathPrefix !== '/') {
-      conditions.push(or(sql`${pathColumn} = ${pathPrefix}`, sql`${pathColumn} like ${`${pathPrefix}/%`}`))
+      const rawPath = sql`case when instr(${rawPathColumn}, '?') = 0 then ${rawPathColumn} else substr(${rawPathColumn}, 1, instr(${rawPathColumn}, '?') - 1) end`
+      const landingPath = sql`case when trim(coalesce(${normalizedPathColumn}, '')) = '' then ${rawPath} else ${normalizedPathColumn} end`
+      conditions.push(or(sql`${landingPath} = ${pathPrefix}`, sql`${landingPath} like ${`${pathPrefix}/%`}`))
     }
     return conditions
   }
-  const acquisitionScope = scopedConditions(gaAcquisitionDaily.hostName, gaAcquisitionDaily.landingPageNormalized)
-  const leadLandingScope = scopedConditions(gaLeadEventsDaily.hostName, gaLeadEventsDaily.landingPageNormalized)
+  const acquisitionScope = scopedConditions(gaAcquisitionDaily.hostName, gaAcquisitionDaily.landingPageNormalized, gaAcquisitionDaily.landingPage)
+  const leadLandingScope = scopedConditions(gaLeadEventsDaily.hostName, gaLeadEventsDaily.landingPageNormalized, gaLeadEventsDaily.landingPage)
   const acquisitionAnchor = db.select({ date: sql<string | null>`max(${gaAcquisitionDaily.date})` })
     .from(gaAcquisitionDaily).where(and(eq(gaAcquisitionDaily.projectId, project.id), ...acquisitionScope)).get()?.date ?? null
   const leadAnchor = db.select({ date: sql<string | null>`max(${gaLeadEventsDaily.date})` })
@@ -247,15 +254,15 @@ export function buildGaMeasurementAnalysis(
   const gaAnchor = [acquisitionAnchor, leadAnchor].filter((date): date is string => date !== null).sort().at(-1) ?? null
   const gaPeriods = gaAnchor ? buildPeriods(gaAnchor, days) : []
   const gaStartDate = gaPeriods[0]?.startDate
-  const acquisitionRows = gaStartDate ? db.select().from(gaAcquisitionDaily).where(and(eq(gaAcquisitionDaily.projectId, project.id), gte(gaAcquisitionDaily.date, gaStartDate))).all() : []
-  const leadRows = gaStartDate ? db.select().from(gaLeadEventsDaily).where(and(eq(gaLeadEventsDaily.projectId, project.id), gte(gaLeadEventsDaily.date, gaStartDate))).all() : []
+  const acquisitionRows = gaStartDate ? db.select().from(gaAcquisitionDaily).where(and(eq(gaAcquisitionDaily.projectId, project.id), gte(gaAcquisitionDaily.date, gaStartDate), lte(gaAcquisitionDaily.date, gaAnchor!))).all() : []
+  const leadRows = gaStartDate ? db.select().from(gaLeadEventsDaily).where(and(eq(gaLeadEventsDaily.projectId, project.id), gte(gaLeadEventsDaily.date, gaStartDate), lte(gaLeadEventsDaily.date, gaAnchor!))).all() : []
   const gscAnchor = db.select({ date: sql<string | null>`max(${gscDailyTotals.date})` })
     .from(gscDailyTotals).where(eq(gscDailyTotals.projectId, project.id)).get()?.date ?? null
   const gscPeriods = gscAnchor ? buildPeriods(gscAnchor, days) : []
   const gscStartDate = gscPeriods[0]?.startDate
-  const propertyRows = gscStartDate ? db.select().from(gscDailyTotals).where(and(eq(gscDailyTotals.projectId, project.id), gte(gscDailyTotals.date, gscStartDate))).all() : []
-  const queryRows = gscStartDate ? db.select().from(gscQueryDailyTotals).where(and(eq(gscQueryDailyTotals.projectId, project.id), gte(gscQueryDailyTotals.date, gscStartDate))).all() : []
-  const rawPageRows = gscStartDate ? db.select().from(gscSearchData).where(and(eq(gscSearchData.projectId, project.id), gte(gscSearchData.date, gscStartDate))).all() : []
+  const propertyRows = gscStartDate ? db.select().from(gscDailyTotals).where(and(eq(gscDailyTotals.projectId, project.id), gte(gscDailyTotals.date, gscStartDate), lte(gscDailyTotals.date, gscAnchor!))).all() : []
+  const queryRows = gscStartDate ? db.select().from(gscQueryDailyTotals).where(and(eq(gscQueryDailyTotals.projectId, project.id), gte(gscQueryDailyTotals.date, gscStartDate), lte(gscQueryDailyTotals.date, gscAnchor!))).all() : []
+  const rawPageRows = gscStartDate ? db.select().from(gscSearchData).where(and(eq(gscSearchData.projectId, project.id), gte(gscSearchData.date, gscStartDate), lte(gscSearchData.date, gscAnchor!))).all() : []
   const state = db.select().from(gaMeasurementSyncStates)
     .where(eq(gaMeasurementSyncStates.projectId, project.id)).get()
   const acquisition = acquisitionRows.filter((row) => {
