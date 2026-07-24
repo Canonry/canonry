@@ -200,6 +200,29 @@ describe('openapi contract', () => {
     expect(missingBodies, `Routes missing a 2xx response body schema:\n  ${missingBodies.join('\n  ')}`).toEqual([])
   })
 
+  it('documents independent native measurement results on the GA sync response', async () => {
+    const ctx = buildObservedApp()
+    contexts.push(ctx)
+    await ctx.app.ready()
+
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/openapi.json' })
+    expect(res.statusCode).toBe(200)
+    const body = res.json() as {
+      components?: {
+        schemas?: Record<string, {
+          required?: string[]
+          properties?: Record<string, unknown>
+        }>
+      }
+    }
+    const schema = body.components?.schemas?.GA4SyncResponseDto
+    expect(schema?.required).toContain('measurement')
+    expect(schema?.properties).toHaveProperty('measurement')
+    expect(JSON.stringify(schema?.properties?.measurement)).toContain('acquisition')
+    expect(JSON.stringify(schema?.properties?.measurement)).toContain('leads')
+    expect(JSON.stringify(schema?.properties?.measurement)).toContain('days')
+  })
+
   it('every registered component schema is referenced by at least one route', async () => {
     // Keeps the schema table honest: removing a schema from a route without
     // removing it from `openapi-schemas.ts` is a slow leak. This test

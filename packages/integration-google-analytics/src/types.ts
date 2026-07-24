@@ -57,6 +57,41 @@ export interface GA4TrafficRow {
   users: number
 }
 
+export interface GA4AcquisitionRow {
+  date: string
+  channelGroup: string
+  source: string
+  medium: string
+  hostName: string
+  landingPage: string
+  sessions: number
+}
+
+export interface GA4LeadEventRow {
+  date: string
+  eventName: string
+  channelGroup: string
+  source: string
+  medium: string
+  hostName: string
+  landingPage: string
+  eventCount: number
+}
+
+export interface GA4AcquisitionReport {
+  startDate: string
+  endDate: string
+  rows: GA4AcquisitionRow[]
+}
+
+export interface GA4LeadEventReport {
+  startDate: string
+  endDate: string
+  attributionScope: 'landing-page' | 'channel'
+  rows: GA4LeadEventRow[]
+}
+
+
 export type { AiReferralTrafficClass, GA4SourceDimension } from '@ainyc/canonry-contracts'
 import type { AiReferralTrafficClass, GA4SourceDimension } from '@ainyc/canonry-contracts'
 

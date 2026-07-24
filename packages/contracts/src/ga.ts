@@ -216,6 +216,10 @@ export const ga4SyncResponseDtoSchema = z.object({
   socialReferralCount: z.number().int().nonnegative(),
   days: z.number().int().nonnegative(),
   syncedAt: z.string(),
+  measurement: z.object({
+    acquisition: z.object({ days: z.number().int().nonnegative(), status: z.enum(['ready', 'error']), rowCount: z.number().int().nonnegative(), error: z.string().optional() }),
+    leads: z.object({ days: z.number().int().nonnegative(), status: z.enum(['ready', 'error', 'not-configured']), rowCount: z.number().int().nonnegative(), attributionScope: z.enum(['landing-page', 'channel']).optional(), error: z.string().optional() }),
+  }),
   /**
    * Components that were written this run. Present when `only` is set.
    * Always includes `traffic` and `summary` (the share denominator) plus

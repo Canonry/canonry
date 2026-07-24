@@ -1849,6 +1849,21 @@ export type Ga4SyncResponseDto = {
     socialReferralCount: number;
     days: number;
     syncedAt: string;
+    measurement: {
+        acquisition: {
+            days: number;
+            status: 'ready' | 'error';
+            rowCount: number;
+            error?: string;
+        };
+        leads: {
+            days: number;
+            status: 'ready' | 'error' | 'not-configured';
+            rowCount: number;
+            attributionScope?: 'landing-page' | 'channel';
+            error?: string;
+        };
+    };
     syncedComponents?: Array<string>;
 };
 

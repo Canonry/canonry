@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 import { eq, desc, and, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { gaTrafficSnapshots, gaTrafficSummaries, gaTrafficWindowSummaries, gaDailyTotals, gaAiReferrals, gaSocialReferrals, runs } from '@ainyc/canonry-db'
+import { gaTrafficSnapshots, gaTrafficSummaries, gaTrafficWindowSummaries, gaDailyTotals, gaAiReferrals, gaSocialReferrals, gaAcquisitionDaily, gaLeadEventsDaily, gaMeasurementSyncStates, runs } from '@ainyc/canonry-db'
 import { AiReferralTrafficClasses, classifyAiReferralTrafficClass, validationError, notFound, RunKinds, RunStatuses, RunTriggers, parseWindow, windowCutoff, normalizeUrlPath } from '@ainyc/canonry-contracts'
 import type { AiReferralTrafficClass, GA4ChannelBreakdownDto } from '@ainyc/canonry-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
@@ -14,6 +14,8 @@ import {
   fetchDailyTotals,
   fetchAiReferrals,
   fetchSocialReferrals,
+  fetchAcquisitionByChannel,
+  fetchLeadEvents,
   verifyConnection,
   verifyConnectionWithToken,
 } from '@ainyc/canonry-integration-google-analytics'
@@ -116,6 +118,173 @@ function normalizeAiTrafficClass(value: string | null | undefined): AiReferralTr
 
 function emptyAiCounts() {
   return { sessions: 0, users: 0 }
+}
+
+type GaDatabase = FastifyInstance['db']
+
+function persistAcquisitionMeasurement(
+  db: GaDatabase,
+  input: {
+    projectId: string
+    runId: string
+    syncedAt: string
+    report: Awaited<ReturnType<typeof fetchAcquisitionByChannel>>
+  },
+): void {
+  const { startDate, endDate } = input.report
+  db.transaction((tx) => {
+    tx.delete(gaAcquisitionDaily)
+      .where(and(
+        eq(gaAcquisitionDaily.projectId, input.projectId),
+        sql`${gaAcquisitionDaily.date} >= ${startDate}`,
+        sql`${gaAcquisitionDaily.date} <= ${endDate}`,
+      ))
+      .run()
+
+    for (const row of input.report.rows) {
+      tx.insert(gaAcquisitionDaily).values({
+        id: crypto.randomUUID(),
+        projectId: input.projectId,
+        date: row.date,
+        channelGroup: row.channelGroup,
+        source: row.source,
+        medium: row.medium,
+        hostName: row.hostName,
+        landingPage: row.landingPage,
+        landingPageNormalized: normalizeUrlPath(row.landingPage),
+        sessions: row.sessions,
+        syncedAt: input.syncedAt,
+        syncRunId: input.runId,
+        createdAt: input.syncedAt,
+      }).run()
+    }
+
+    tx.insert(gaMeasurementSyncStates).values({
+      projectId: input.projectId,
+      acquisitionStatus: 'ready',
+      acquisitionError: null,
+      acquisitionSyncedAt: input.syncedAt,
+      updatedAt: input.syncedAt,
+    }).onConflictDoUpdate({
+      target: gaMeasurementSyncStates.projectId,
+      set: {
+        acquisitionStatus: 'ready',
+        acquisitionError: null,
+        acquisitionSyncedAt: input.syncedAt,
+        updatedAt: input.syncedAt,
+      },
+    }).run()
+  })
+}
+
+function persistLeadMeasurement(
+  db: GaDatabase,
+  input: {
+    projectId: string
+    runId: string
+    syncedAt: string
+    report: Awaited<ReturnType<typeof fetchLeadEvents>>
+  },
+): void {
+  const { startDate, endDate } = input.report
+  db.transaction((tx) => {
+    tx.delete(gaLeadEventsDaily)
+      .where(and(
+        eq(gaLeadEventsDaily.projectId, input.projectId),
+        sql`${gaLeadEventsDaily.date} >= ${startDate}`,
+        sql`${gaLeadEventsDaily.date} <= ${endDate}`,
+      ))
+      .run()
+
+    for (const row of input.report.rows) {
+      tx.insert(gaLeadEventsDaily).values({
+        id: crypto.randomUUID(),
+        projectId: input.projectId,
+        date: row.date,
+        eventName: row.eventName,
+        channelGroup: row.channelGroup,
+        source: row.source,
+        medium: row.medium,
+        hostName: row.hostName,
+        landingPage: row.landingPage,
+        landingPageNormalized: input.report.attributionScope === 'landing-page'
+          ? normalizeUrlPath(row.landingPage)
+          : null,
+        attributionScope: input.report.attributionScope,
+        eventCount: row.eventCount,
+        syncedAt: input.syncedAt,
+        syncRunId: input.runId,
+        createdAt: input.syncedAt,
+      }).run()
+    }
+
+    tx.insert(gaMeasurementSyncStates).values({
+      projectId: input.projectId,
+      leadStatus: 'ready',
+      leadError: null,
+      leadSyncedAt: input.syncedAt,
+      leadAttributionScope: input.report.attributionScope,
+      updatedAt: input.syncedAt,
+    }).onConflictDoUpdate({
+      target: gaMeasurementSyncStates.projectId,
+      set: {
+        leadStatus: 'ready',
+        leadError: null,
+        leadSyncedAt: input.syncedAt,
+        leadAttributionScope: input.report.attributionScope,
+        updatedAt: input.syncedAt,
+      },
+    }).run()
+  })
+}
+
+function resetLeadMeasurement(db: GaDatabase, projectId: string, updatedAt: string): void {
+  db.transaction((tx) => {
+    tx.delete(gaLeadEventsDaily).where(eq(gaLeadEventsDaily.projectId, projectId)).run()
+    tx.insert(gaMeasurementSyncStates).values({ projectId, leadStatus: 'never-synced', leadError: null, leadSyncedAt: null, leadAttributionScope: null, updatedAt }).onConflictDoUpdate({
+      target: gaMeasurementSyncStates.projectId,
+      set: { leadStatus: 'never-synced', leadError: null, leadSyncedAt: null, leadAttributionScope: null, updatedAt },
+    }).run()
+  })
+}
+
+function persistMeasurementError(
+  db: GaDatabase,
+  projectId: string,
+  component: 'acquisition' | 'leads',
+  message: string,
+  updatedAt: string,
+): void {
+  if (component === 'acquisition') {
+    db.insert(gaMeasurementSyncStates).values({
+      projectId,
+      acquisitionStatus: 'error',
+      acquisitionError: message,
+      updatedAt,
+    }).onConflictDoUpdate({
+      target: gaMeasurementSyncStates.projectId,
+      set: {
+        acquisitionStatus: 'error',
+        acquisitionError: message,
+        updatedAt,
+      },
+    }).run()
+    return
+  }
+
+  db.insert(gaMeasurementSyncStates).values({
+    projectId,
+    leadStatus: 'error',
+    leadError: message,
+    updatedAt,
+  }).onConflictDoUpdate({
+    target: gaMeasurementSyncStates.projectId,
+    set: {
+      leadStatus: 'error',
+      leadError: message,
+      updatedAt,
+    },
+  }).run()
 }
 
 interface DimensionClassCounts {
@@ -555,6 +724,12 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
     const syncAi = !only || only === 'ai'
     const syncSocial = !only || only === 'social'
 
+    const measurementState = app.db.select().from(gaMeasurementSyncStates)
+      .where(eq(gaMeasurementSyncStates.projectId, project.id)).get()
+    const acquisitionDays = measurementState?.acquisitionSyncedAt != null ? Math.min(Math.max(1, days), 90) : 90
+    const leadDays = measurementState?.leadSyncedAt != null ? Math.min(Math.max(1, days), 90) : 90
+    const leadEventNames = project.measurement.leadEventNames
+
     const startedAt = new Date().toISOString()
     const runId = crypto.randomUUID()
     app.db.insert(runs).values({
@@ -590,6 +765,13 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       if (syncTraffic) fetches.push(fetchTrafficByLandingPage(accessToken, propertyId, days))
       if (syncAi) fetches.push(fetchAiReferrals(accessToken, propertyId, days))
       if (syncSocial) fetches.push(fetchSocialReferrals(accessToken, propertyId, days))
+
+      const measurementFetch = Promise.allSettled([
+        fetchAcquisitionByChannel(accessToken, propertyId, acquisitionDays),
+        leadEventNames.length > 0
+          ? fetchLeadEvents(accessToken, propertyId, leadEventNames, leadDays)
+          : Promise.resolve(null),
+      ])
 
       const results = await Promise.all(fetches)
       const summary: Awaited<ReturnType<typeof fetchAggregateSummary>> = results[0] as Awaited<ReturnType<typeof fetchAggregateSummary>>
@@ -766,8 +948,82 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
         }
       })
 
+      const [acquisitionSettled, leadsSettled] = await measurementFetch
+      const measurementNow = new Date().toISOString()
+
+      const recordMeasurementFailure = (
+        component: 'acquisition' | 'leads',
+        reason: unknown,
+      ) => {
+        const message = reason instanceof Error ? reason.message : String(reason)
+        gaLog('warn', 'measurement.component-failed', {
+          projectId: project.id,
+          runId,
+          component,
+          error: message,
+        })
+        try {
+          persistMeasurementError(app.db, project.id, component, message, measurementNow)
+        } catch (stateError) {
+          gaLog('error', 'measurement.state-write-failed', {
+            projectId: project.id,
+            runId,
+            component,
+            error: stateError instanceof Error ? stateError.message : String(stateError),
+          })
+        }
+        return { status: 'error' as const, days: component === 'acquisition' ? acquisitionDays : leadDays, rowCount: 0, error: message }
+      }
+
+      const acquisitionResult = (() => {
+        if (acquisitionSettled.status === 'rejected') {
+          return recordMeasurementFailure('acquisition', acquisitionSettled.reason)
+        }
+        try {
+          persistAcquisitionMeasurement(app.db, {
+            projectId: project.id,
+            runId,
+            syncedAt: measurementNow,
+            report: acquisitionSettled.value,
+          })
+          return {
+            status: 'ready' as const,
+            days: acquisitionDays,
+            rowCount: acquisitionSettled.value.rows.length,
+          }
+        } catch (error) {
+          return recordMeasurementFailure('acquisition', error)
+        }
+      })()
+
+      const leadResult = (() => {
+        if (leadsSettled.status === 'rejected') {
+          return recordMeasurementFailure('leads', leadsSettled.reason)
+        }
+        if (leadsSettled.value === null) {
+          resetLeadMeasurement(app.db, project.id, measurementNow)
+          return { status: 'not-configured' as const, days: 0, rowCount: 0 }
+        }
+        try {
+          persistLeadMeasurement(app.db, {
+            projectId: project.id,
+            runId,
+            syncedAt: measurementNow,
+            report: leadsSettled.value,
+          })
+          return {
+            status: 'ready' as const,
+            days: leadDays,
+            rowCount: leadsSettled.value.rows.length,
+            attributionScope: leadsSettled.value.attributionScope,
+          }
+        } catch (error) {
+          return recordMeasurementFailure('leads', error)
+        }
+      })()
+
       app.db.update(runs)
-        .set({ status: RunStatuses.completed, finishedAt: now })
+        .set({ status: RunStatuses.completed, finishedAt: measurementNow })
         .where(eq(runs.id, runId))
         .run()
 
@@ -801,6 +1057,10 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
         socialReferralCount: socialReferrals.length,
         days,
         syncedAt: now,
+        measurement: {
+          acquisition: acquisitionResult,
+          leads: leadResult,
+        },
         ...(syncedComponents ? { syncedComponents } : {}),
       }
     } catch (e) {
