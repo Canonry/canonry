@@ -1867,11 +1867,11 @@ export function OrganicEvidencePanel({ projectName }: { projectName: string }) {
   const pageRows: EvidenceRow[] = evidence.pages.map(page => ({
     label: page.path,
     values: [
-      page.gsc?.clicks ?? null,
-      page.gsc?.impressions ?? null,
-      page.ga4OrganicSessions ?? null,
-      page.server?.userFetchHits.verified ?? null,
-      page.server?.referralSessions.organic ?? null,
+      page.gsc.clicks,
+      page.gsc.impressions,
+      page.ga4OrganicSessions,
+      page.server.userFetchHits.verified,
+      page.server.referralSessions.organic,
     ],
   }))
 
