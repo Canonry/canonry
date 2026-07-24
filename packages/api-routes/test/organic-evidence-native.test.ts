@@ -837,14 +837,36 @@ describe('organic evidence native measurement reconciliation', () => {
   })
   it('bounds every high-volume detail read while source coverage stays aggregate-only', async () => {
     seedNativeMeasurement(ctx)
-    seedServerAiEvidence(ctx)
+    const sourceId = seedServerAiEvidence(ctx)
+    ctx.db.insert(crawlerEventsHourly).values({
+      projectId: ctx.projectId,
+      sourceId,
+      tsHour: '2025-01-01T12:00:00.000Z',
+      botId: 'ancient-crawler',
+      operator: 'OpenAI',
+      verificationStatus: 'verified',
+      pathNormalized: '/ancient',
+      status: 200,
+      hits: 99,
+      sampledUserAgent: null,
+      createdAt: NOW,
+      updatedAt: NOW,
+    }).run()
 
     const capture = captureStatements(ctx.db.$client)
+    let body: NativeOrganicEvidence | undefined
     try {
-      await getRawEvidence(ctx)
+      body = await getRawEvidence(ctx)
     } finally {
       capture.stop()
     }
+
+    expect(body?.sourceCoverage.server).toMatchObject({
+      startDate: '2025-01-01',
+      endDate: '2026-07-20',
+      observedDays: 2,
+    })
+    expect(body?.server?.crawlerHits.verified).toBe(7)
 
     const highVolumeTables = [
       'gsc_daily_totals',
@@ -867,6 +889,7 @@ describe('organic evidence native measurement reconciliation', () => {
       for (const statement of reads) {
         const sql = statement.sql.toLowerCase()
         const aggregateOnly = /\b(?:min|max|count)\s*\(/.test(sql)
+          && !/\bgroup\s+by\b/.test(sql)
         const dateColumn = table.endsWith('_hourly') ? 'ts_hour' : 'date'
         const lowerBound = new RegExp(`"${dateColumn}"\\s*>=\\s*\\?`).test(sql)
         const upperBound = new RegExp(`"${dateColumn}"\\s*<=\\s*\\?`).test(sql)
