@@ -122,33 +122,16 @@ function emptyAiCounts() {
 
 type GaDatabase = FastifyInstance['db']
 
-function measurementDateBounds(days: number): { startDate: string; endDate: string } {
-  const end = new Date()
-  const start = new Date(end)
-  start.setUTCDate(start.getUTCDate() - days)
-  return {
-    startDate: start.toISOString().slice(0, 10),
-    endDate: end.toISOString().slice(0, 10),
-  }
-}
-
-function hasMeasurementSuccess(
-  state: typeof gaMeasurementSyncStates.$inferSelect | undefined,
-): boolean {
-  return state?.acquisitionSyncedAt != null || state?.leadSyncedAt != null
-}
-
 function persistAcquisitionMeasurement(
   db: GaDatabase,
   input: {
     projectId: string
     runId: string
-    days: number
     syncedAt: string
-    rows: Awaited<ReturnType<typeof fetchAcquisitionByChannel>>
+    report: Awaited<ReturnType<typeof fetchAcquisitionByChannel>>
   },
 ): void {
-  const { startDate, endDate } = measurementDateBounds(input.days)
+  const { startDate, endDate } = input.report
   db.transaction((tx) => {
     tx.delete(gaAcquisitionDaily)
       .where(and(
@@ -158,7 +141,7 @@ function persistAcquisitionMeasurement(
       ))
       .run()
 
-    for (const row of input.rows) {
+    for (const row of input.report.rows) {
       tx.insert(gaAcquisitionDaily).values({
         id: crypto.randomUUID(),
         projectId: input.projectId,
@@ -199,12 +182,11 @@ function persistLeadMeasurement(
   input: {
     projectId: string
     runId: string
-    days: number
     syncedAt: string
     report: Awaited<ReturnType<typeof fetchLeadEvents>>
   },
 ): void {
-  const { startDate, endDate } = measurementDateBounds(input.days)
+  const { startDate, endDate } = input.report
   db.transaction((tx) => {
     tx.delete(gaLeadEventsDaily)
       .where(and(
@@ -252,6 +234,16 @@ function persistLeadMeasurement(
         leadAttributionScope: input.report.attributionScope,
         updatedAt: input.syncedAt,
       },
+    }).run()
+  })
+}
+
+function resetLeadMeasurement(db: GaDatabase, projectId: string, updatedAt: string): void {
+  db.transaction((tx) => {
+    tx.delete(gaLeadEventsDaily).where(eq(gaLeadEventsDaily.projectId, projectId)).run()
+    tx.insert(gaMeasurementSyncStates).values({ projectId, leadStatus: 'never-synced', leadError: null, leadSyncedAt: null, leadAttributionScope: null, updatedAt }).onConflictDoUpdate({
+      target: gaMeasurementSyncStates.projectId,
+      set: { leadStatus: 'never-synced', leadError: null, leadSyncedAt: null, leadAttributionScope: null, updatedAt },
     }).run()
   })
 }
@@ -734,9 +726,8 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
 
     const measurementState = app.db.select().from(gaMeasurementSyncStates)
       .where(eq(gaMeasurementSyncStates.projectId, project.id)).get()
-    const measurementDays = hasMeasurementSuccess(measurementState)
-      ? Math.min(Math.max(1, days), 90)
-      : 90
+    const acquisitionDays = measurementState?.acquisitionSyncedAt != null ? Math.min(Math.max(1, days), 90) : 90
+    const leadDays = measurementState?.leadSyncedAt != null ? Math.min(Math.max(1, days), 90) : 90
     const leadEventNames = project.measurement.leadEventNames
 
     const startedAt = new Date().toISOString()
@@ -776,9 +767,9 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       if (syncSocial) fetches.push(fetchSocialReferrals(accessToken, propertyId, days))
 
       const measurementFetch = Promise.allSettled([
-        fetchAcquisitionByChannel(accessToken, propertyId, measurementDays),
+        fetchAcquisitionByChannel(accessToken, propertyId, acquisitionDays),
         leadEventNames.length > 0
-          ? fetchLeadEvents(accessToken, propertyId, leadEventNames, measurementDays)
+          ? fetchLeadEvents(accessToken, propertyId, leadEventNames, leadDays)
           : Promise.resolve(null),
       ])
 
@@ -981,7 +972,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
             error: stateError instanceof Error ? stateError.message : String(stateError),
           })
         }
-        return { status: 'error' as const, rowCount: 0, error: message }
+        return { status: 'error' as const, days: component === 'acquisition' ? acquisitionDays : leadDays, rowCount: 0, error: message }
       }
 
       const acquisitionResult = (() => {
@@ -992,13 +983,13 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
           persistAcquisitionMeasurement(app.db, {
             projectId: project.id,
             runId,
-            days: measurementDays,
             syncedAt: measurementNow,
-            rows: acquisitionSettled.value,
+            report: acquisitionSettled.value,
           })
           return {
             status: 'ready' as const,
-            rowCount: acquisitionSettled.value.length,
+            days: acquisitionDays,
+            rowCount: acquisitionSettled.value.rows.length,
           }
         } catch (error) {
           return recordMeasurementFailure('acquisition', error)
@@ -1010,18 +1001,19 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
           return recordMeasurementFailure('leads', leadsSettled.reason)
         }
         if (leadsSettled.value === null) {
-          return { status: 'not-configured' as const, rowCount: 0 }
+          resetLeadMeasurement(app.db, project.id, measurementNow)
+          return { status: 'not-configured' as const, days: 0, rowCount: 0 }
         }
         try {
           persistLeadMeasurement(app.db, {
             projectId: project.id,
             runId,
-            days: measurementDays,
             syncedAt: measurementNow,
             report: leadsSettled.value,
           })
           return {
             status: 'ready' as const,
+            days: leadDays,
             rowCount: leadsSettled.value.rows.length,
             attributionScope: leadsSettled.value.attributionScope,
           }
@@ -1066,7 +1058,6 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
         days,
         syncedAt: now,
         measurement: {
-          days: measurementDays,
           acquisition: acquisitionResult,
           leads: leadResult,
         },

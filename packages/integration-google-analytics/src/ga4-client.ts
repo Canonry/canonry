@@ -21,7 +21,7 @@ import type {
   GA4RunReportResponse,
   GA4SourceDimension,
   GA4TrafficRow,
-  GA4AcquisitionRow,
+  GA4AcquisitionReport,
   GA4LeadEventReport,
   GA4LeadEventRow,
 } from './types.js'
@@ -389,6 +389,9 @@ async function fetchPagedReport(
     rows.push(...pageRows)
     offset += pageRows.length
     if (pageRows.length < pageSize || (response.rowCount !== undefined && offset >= response.rowCount)) break
+    if (page === GA4_MAX_PAGES - 1) {
+      throw new Error(`GA4 report truncated: page limit (${GA4_MAX_PAGES}) reached before all rows were fetched`)
+    }
   }
   return rows
 }
@@ -398,7 +401,7 @@ export async function fetchAcquisitionByChannel(
   propertyId: string,
   days?: number,
   options?: { pageSize?: number },
-): Promise<GA4AcquisitionRow[]> {
+): Promise<GA4AcquisitionReport> {
   validateAccessToken(accessToken)
   validatePropertyId(propertyId)
   const { syncDays, dateRange } = measurementDateRange(days)
@@ -415,7 +418,7 @@ export async function fetchAcquisitionByChannel(
     metrics: [{ name: MET.sessions }],
   }, options?.pageSize)
   ga4Log('info', 'fetch-acquisition.done', { propertyId, days: syncDays, rowCount: rows.length })
-  return rows.map((row) => ({
+  return { ...dateRange, rows: rows.map((row) => ({
     date: compactDateToIso(row.dimensionValues[0]?.value ?? ''),
     channelGroup: row.dimensionValues[1]?.value ?? '(not set)',
     source: row.dimensionValues[2]?.value ?? '(not set)',
@@ -423,7 +426,7 @@ export async function fetchAcquisitionByChannel(
     hostName: row.dimensionValues[4]?.value ?? '(not set)',
     landingPage: row.dimensionValues[5]?.value ?? '(not set)',
     sessions: parseInt(row.metricValues[0]?.value ?? '0', 10) || 0,
-  }))
+  })) }
 }
 
 function isLandingPageDimensionIncompatibility(error: unknown): boolean {
@@ -477,7 +480,7 @@ export async function fetchLeadEvents(
     landingPage: attributionScope === 'landing-page' ? row.dimensionValues[6]?.value ?? '(not available)' : '(not available)',
     eventCount: parseInt(row.metricValues[0]?.value ?? '0', 10) || 0,
   }))
-  return { attributionScope, rows }
+  return { ...dateRange, attributionScope, rows }
 }
 
 // AI referral source patterns matched against both sessionSource and firstUserSource.

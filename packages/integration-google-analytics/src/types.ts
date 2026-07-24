@@ -78,7 +78,15 @@ export interface GA4LeadEventRow {
   eventCount: number
 }
 
+export interface GA4AcquisitionReport {
+  startDate: string
+  endDate: string
+  rows: GA4AcquisitionRow[]
+}
+
 export interface GA4LeadEventReport {
+  startDate: string
+  endDate: string
   attributionScope: 'landing-page' | 'channel'
   rows: GA4LeadEventRow[]
 }
