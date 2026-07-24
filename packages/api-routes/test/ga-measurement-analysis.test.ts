@@ -543,6 +543,56 @@ describe('GET /projects/:name/ga/measurement-analysis', () => {
     })
   })
 
+  it('uses the raw landing path for scoped anchors when legacy normalized paths are null', async () => {
+    ctx.db.insert(gaAcquisitionDaily).values([
+      {
+        id: crypto.randomUUID(),
+        projectId: ctx.projectId,
+        date: daysBefore(GA_ANCHOR, 35),
+        channelGroup: 'Organic Search',
+        source: 'google',
+        medium: 'organic',
+        hostName: 'www.demand-iq.com',
+        landingPage: '/guides/legacy?utm_source=google',
+        landingPageNormalized: null,
+        sessions: 4,
+        syncedAt: NOW,
+        createdAt: NOW,
+      },
+      {
+        id: crypto.randomUUID(),
+        projectId: ctx.projectId,
+        date: GA_ANCHOR,
+        channelGroup: 'Paid Search',
+        source: 'google',
+        medium: 'cpc',
+        hostName: 'www.demand-iq.com',
+        landingPage: '/quote',
+        landingPageNormalized: '/quote',
+        sessions: 100,
+        syncedAt: NOW,
+        createdAt: NOW,
+      },
+    ]).run()
+
+    const response = await ctx.app.inject({
+      method: 'GET',
+      url: '/api/v1/projects/demand-iq/ga/measurement-analysis?window=30d&pathPrefix=%2Fguides',
+    })
+    expect(response.statusCode).toBe(200)
+    expect(JSON.parse(response.body)).toMatchObject({
+      acquisition: {
+        periods: [{
+          endDate: daysBefore(GA_ANCHOR, 35),
+          sessions: 4,
+        }],
+        pages: [
+          expect.objectContaining({ landingPage: '/guides/legacy' }),
+        ],
+      },
+    })
+  })
+
   it('applies host and path filters before choosing the landing-page lead anchor', async () => {
     insertLead(ctx, {
       daysAgo: 30,
