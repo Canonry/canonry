@@ -1,4 +1,4 @@
-import { and, desc, eq } from 'drizzle-orm'
+import { and, desc, eq, gte, lte, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import {
   aiReferralEventsHourly,
@@ -119,6 +119,12 @@ function comparisonDetail(latest: number, prior: number): string {
   return `${latest} in the latest cohort versus ${prior} prior (${change >= 0 ? '+' : ''}${change}%)`
 }
 
+function aggregateCoverage(row: { startDate: string | null; endDate: string | null; observedDays: number } | undefined) {
+  return row?.startDate && row.endDate
+    ? { startDate: row.startDate, endDate: row.endDate, observedDays: Number(row.observedDays) }
+    : null
+}
+
 export function buildOrganicEvidence(
   db: FastifyInstance['db'],
   projectName: string,
@@ -130,27 +136,33 @@ export function buildOrganicEvidence(
     hostScope: 'marketing',
     limit: 100,
   })
-  const gscRows = db.select().from(gscDailyTotals).where(eq(gscDailyTotals.projectId, project.id)).all()
-  const gaRows = db.select().from(gaTrafficSnapshots).where(eq(gaTrafficSnapshots.projectId, project.id)).all()
   const nativeAcquisition = measurement.acquisition
   const nativeAcquisitionActive = nativeAcquisition.status !== 'never-synced'
   const marketingHosts = measurement.filters.marketingHosts
-  const nativeAcquisitionRows = nativeAcquisitionActive
-    ? db.select().from(gaAcquisitionDaily)
-        .where(eq(gaAcquisitionDaily.projectId, project.id)).all()
-        .filter(row => matchesMarketingHost(row.hostName, marketingHosts))
-    : []
-  const nativeOrganicRows = nativeAcquisitionRows
-    .filter(row => row.channelGroup === 'Organic Search')
   const nativeStartDate = nativeAcquisition.periods[0]?.startDate
   const nativeEndDate = nativeAcquisition.periods.at(-1)?.endDate
-  const nativeWindowOrganicRows = nativeStartDate && nativeEndDate
-    ? nativeOrganicRows.filter(row => inRange(row.date, nativeStartDate, nativeEndDate))
+  const gscCoverage = aggregateCoverage(db.select({
+    startDate: sql<string>`min(${gscDailyTotals.date})`,
+    endDate: sql<string>`max(${gscDailyTotals.date})`,
+    observedDays: sql<number>`count(distinct ${gscDailyTotals.date})`,
+  }).from(gscDailyTotals).where(eq(gscDailyTotals.projectId, project.id)).get())
+  const legacyGaCoverage = aggregateCoverage(db.select({
+    startDate: sql<string>`min(${gaTrafficSnapshots.date})`,
+    endDate: sql<string>`max(${gaTrafficSnapshots.date})`,
+    observedDays: sql<number>`count(distinct ${gaTrafficSnapshots.date})`,
+  }).from(gaTrafficSnapshots).where(eq(gaTrafficSnapshots.projectId, project.id)).get())
+  const nativeCoverageRows = nativeAcquisitionActive
+    ? db.select({
+      date: gaAcquisitionDaily.date,
+      hostName: gaAcquisitionDaily.hostName,
+      count: sql<number>`count(*)`,
+    }).from(gaAcquisitionDaily).where(eq(gaAcquisitionDaily.projectId, project.id))
+      .groupBy(gaAcquisitionDaily.date, gaAcquisitionDaily.hostName).all()
+      .filter(row => matchesMarketingHost(row.hostName, marketingHosts))
     : []
-  const gscCoverage = sourceCoverage(gscRows.map(row => row.date))
-  const gaCoverage = sourceCoverage(
-    (nativeAcquisitionActive ? nativeAcquisitionRows : gaRows).map(row => row.date),
-  )
+  const gaCoverage = nativeAcquisitionActive
+    ? sourceCoverage(nativeCoverageRows.map(row => row.date))
+    : legacyGaCoverage
   const asOfDate = gscCoverage?.endDate ?? gaCoverage?.endDate ?? null
   const gscEndDate = gscCoverage?.endDate
   const gaEndDate = nativeAcquisitionActive ? nativeEndDate : gaCoverage?.endDate
@@ -161,6 +173,30 @@ export function buildOrganicEvidence(
   const startDate = gscStartDate ?? gaStartDate ?? new Date().toISOString().slice(0, 10)
   const endDate = gscEndDate ?? gaEndDate ?? startDate
   const isInWindow = (date: string) => inRange(date, startDate, endDate)
+
+  const gscRows = gscStartDate && gscEndDate
+    ? db.select().from(gscDailyTotals).where(and(
+      eq(gscDailyTotals.projectId, project.id),
+      gte(gscDailyTotals.date, gscStartDate),
+      lte(gscDailyTotals.date, gscEndDate),
+    )).all()
+    : []
+  const gaRows = gaStartDate && gaEndDate
+    ? db.select().from(gaTrafficSnapshots).where(and(
+      eq(gaTrafficSnapshots.projectId, project.id),
+      gte(gaTrafficSnapshots.date, gaStartDate),
+      lte(gaTrafficSnapshots.date, gaEndDate),
+    )).all()
+    : []
+  const nativeAcquisitionRows = nativeAcquisitionActive && nativeStartDate && nativeEndDate
+    ? db.select().from(gaAcquisitionDaily).where(and(
+      eq(gaAcquisitionDaily.projectId, project.id),
+      gte(gaAcquisitionDaily.date, nativeStartDate),
+      lte(gaAcquisitionDaily.date, nativeEndDate),
+    )).all().filter(row => matchesMarketingHost(row.hostName, marketingHosts))
+    : []
+  const nativeOrganicRows = nativeAcquisitionRows.filter(row => row.channelGroup === 'Organic Search')
+  const nativeWindowOrganicRows = nativeOrganicRows
 
   const gscWindow = gscRows.filter(row => isInWindow(row.date))
   const propertyTotals = sumSearchRows(gscWindow)
@@ -195,8 +231,11 @@ export function buildOrganicEvidence(
       [project.displayName, ...project.aliases],
     )
     const namedRows = db.select().from(gscQueryDailyTotals)
-      .where(eq(gscQueryDailyTotals.projectId, project.id)).all()
-      .filter(row => isInWindow(row.date))
+      .where(and(
+        eq(gscQueryDailyTotals.projectId, project.id),
+        gte(gscQueryDailyTotals.date, startDate),
+        lte(gscQueryDailyTotals.date, endDate),
+      )).all()
     for (const row of namedRows) {
       const isBrand = categorizeQueryByIntent(row.query, brandTokens) === 'brand'
       const target = isBrand ? namedBrand : namedNonBrand
@@ -223,8 +262,8 @@ export function buildOrganicEvidence(
   } : null
 
   const pageSearchRows = db.select().from(gscSearchData)
-    .where(eq(gscSearchData.projectId, project.id)).all()
-    .filter(row => isInWindow(row.date) && pageMatchesMarketingHost(row.page, marketingHosts))
+    .where(and(eq(gscSearchData.projectId, project.id), gte(gscSearchData.date, startDate), lte(gscSearchData.date, endDate))).all()
+    .filter(row => pageMatchesMarketingHost(row.page, marketingHosts))
   const gaWindow = gaStartDate && gaEndDate ? gaRows.filter(row => inRange(row.date, gaStartDate, gaEndDate)) : []
   const legacyGaCohorts = gaCohorts.map(cohort => ({
     ...cohort,
@@ -256,7 +295,7 @@ export function buildOrganicEvidence(
   }
 
   const allGaAiRows = db.select().from(gaAiReferrals)
-    .where(eq(gaAiReferrals.projectId, project.id)).all()
+    .where(and(eq(gaAiReferrals.projectId, project.id), gte(gaAiReferrals.date, gaStartDate ?? startDate), lte(gaAiReferrals.date, gaEndDate ?? endDate))).all()
     .filter(row => row.sourceDimension === 'session')
   const aiRows = gaStartDate && gaEndDate
     ? allGaAiRows.filter(row => inRange(row.date, gaStartDate, gaEndDate))
@@ -271,12 +310,14 @@ export function buildOrganicEvidence(
   } : null
 
   const serverSources = db.select().from(trafficSources).where(eq(trafficSources.projectId, project.id)).all()
+  const serverStart = `${startDate}T00:00:00`
+  const serverEnd = `${endDate}T23:59:59.999Z`
   const allCrawlers = db.select().from(crawlerEventsHourly)
-    .where(eq(crawlerEventsHourly.projectId, project.id)).all()
+    .where(and(eq(crawlerEventsHourly.projectId, project.id), gte(crawlerEventsHourly.tsHour, serverStart), lte(crawlerEventsHourly.tsHour, serverEnd))).all()
   const allFetches = db.select().from(aiUserFetchEventsHourly)
-    .where(eq(aiUserFetchEventsHourly.projectId, project.id)).all()
+    .where(and(eq(aiUserFetchEventsHourly.projectId, project.id), gte(aiUserFetchEventsHourly.tsHour, serverStart), lte(aiUserFetchEventsHourly.tsHour, serverEnd))).all()
   const allReferrals = db.select().from(aiReferralEventsHourly)
-    .where(eq(aiReferralEventsHourly.projectId, project.id)).all()
+    .where(and(eq(aiReferralEventsHourly.projectId, project.id), gte(aiReferralEventsHourly.tsHour, serverStart), lte(aiReferralEventsHourly.tsHour, serverEnd))).all()
   const serverCoverage = sourceCoverage([
     ...allCrawlers.map(row => row.tsHour.slice(0, 10)),
     ...allFetches.map(row => row.tsHour.slice(0, 10)),
