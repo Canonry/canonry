@@ -1,7 +1,11 @@
-.PHONY: install check typecheck test lint dev build serve publish release
+.PHONY: install check verify typecheck test lint dev build serve publish release
 
-# Run all validation: typecheck, lint, and tests
+# Fast local checks: typecheck, lint, and tests
 check: typecheck lint test
+
+# Full local preflight, including package and container smoke tests
+verify:
+	pnpm run verify
 
 install:
 	pnpm install
@@ -30,5 +34,5 @@ serve: build
 publish:
 	cd packages/canonry && npm publish --access public
 
-# Build + publish in one command
-release: check build publish
+# Build + publish in one command after full validation
+release: verify publish

@@ -10,15 +10,9 @@
  * cannot see the terminal scrollback a human would — concludes the repo is
  * broken and starts changing dependencies.
  *
- * The declared `engines.node` range did not help, for two reasons:
- *   - it was unbounded upward (`>=22.14.0`), so it actively asserted that a
- *     brand-new Node major was supported when the native dep had no prebuild;
- *   - pnpm does not enforce `engines` unless `engine-strict` is set, and turning
- *     that on globally would break the Docker build, which runs on node:20 and
- *     therefore sits BELOW the declared floor.
- *
- * So the check lives here instead: keyed to what the native dependency actually
- * supports, which is a superset of both the Docker base and CI.
+ * `engine-strict=true` enforces the declared Node range during install. This
+ * guard adds a focused diagnostic for a Node major whose native dependency
+ * prebuild is unavailable, rather than leaving the user in node-gyp output.
  *
  * WHY `preinstall` TOLERATES THIS FILE BEING ABSENT
  * The wiring is `test ! -f scripts/check-node.mjs || node scripts/check-node.mjs`,
@@ -27,21 +21,19 @@
  * this file does not exist at install time inside the image and a bare
  * invocation fails the Docker build with "Cannot find module".
  *
- * Skipping there is correct, not a workaround: the images pin their own base
- * (node:20-bookworm-slim), so the Node version is fixed by the Dockerfile and
- * cannot be the arbitrary local version this guard exists to catch. Copying the
- * file into every image instead would re-break the build the next time a
- * Dockerfile is added or its COPY order changes.
+ * Skipping there is correct, not a workaround: every image pins Node 22 and
+ * copies `.npmrc`, so `engine-strict` still verifies the declared range. The
+ * Dockerfile, rather than an arbitrary local runtime, controls that version.
  *
  * KEEPING THIS HONEST
- * `SUPPORTED_MAJORS` mirrors better-sqlite3's own `engines.node`. It is asserted
- * against the installed package by `packages/db/test/node-support-range.test.ts`,
- * so a dependency bump that widens or narrows support fails a test rather than
- * silently drifting.
+ * `SUPPORTED_MAJORS` is the intersection of Canonry's Node 22+ policy and
+ * better-sqlite3's supported majors. It is asserted against the installed
+ * package by `packages/db/test/node-support-range.test.ts`, so a dependency
+ * bump that narrows support fails a test rather than silently drifting.
  */
 
-// Mirrors better-sqlite3 engines: "20.x || 22.x || 23.x || 24.x || 25.x"
-const SUPPORTED_MAJORS = [20, 22, 23, 24, 25]
+// Canonry supports Node 22+ while better-sqlite3 supports 22.x through 25.x.
+const SUPPORTED_MAJORS = [22, 23, 24, 25]
 
 const major = Number.parseInt(process.versions.node.split('.')[0], 10)
 const bypassed = process.env.CANONRY_SKIP_NODE_CHECK === '1'
@@ -68,7 +60,7 @@ if (!SUPPORTED_MAJORS.includes(major) && bypassed) {
       '',
       '    Fix: switch Node, do NOT change dependencies.',
       `      nvm use 22        (or fnm/volta/asdf — see .nvmrc)`,
-      '      CI runs Node 22; the Docker images run Node 20.',
+      '      CI and Docker images run Node 22.',
       '',
       '    If you are intentionally testing a newer Node, set',
       '    CANONRY_SKIP_NODE_CHECK=1 to bypass this and expect the native build',

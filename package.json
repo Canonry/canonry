@@ -1,7 +1,7 @@
 {
   "name": "canonry",
   "private": true,
-  "version": "4.138.0",
+  "version": "4.138.1",
   "type": "module",
   "packageManager": "pnpm@10.28.2",
   "scripts": {
@@ -9,7 +9,13 @@
     "build": "pnpm --filter @canonry/canonry run build",
     "typecheck": "pnpm -r --no-bail run typecheck && tsc --noEmit -p scripts/tsconfig.json",
     "test": "vitest run",
+    "test:ci": "vitest run --maxWorkers=1 --maxConcurrency=1 --no-file-parallelism",
     "lint": "pnpm -r run lint",
+    "docs:check": "bash scripts/check-docs.sh",
+    "check:wordpress": "bash scripts/check-wordpress-plugin.sh",
+    "package:smoke": "node scripts/package-smoke.mjs",
+    "docker:smoke": "bash scripts/docker-smoke.sh",
+    "verify": "pnpm run typecheck && pnpm run docs:check && pnpm run lint && pnpm run check:wordpress && pnpm run test && pnpm --filter @ainyc/canonry-api-client gen:check && pnpm plugin:check && pnpm -r run build && pnpm run package:smoke && pnpm run docker:smoke",
     "plugin:sync": "node scripts/sync-canonry-plugin.mjs",
     "plugin:check": "node scripts/sync-canonry-plugin.mjs --check",
     "dev:api": "pnpm --filter @ainyc/canonry-api run dev",

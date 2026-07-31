@@ -58,10 +58,13 @@ ADR index, or canonical roadmap.
 # One-command dev setup: install deps, build all packages, install canonry globally
 ./canonry-install.sh
 
-pnpm install
+pnpm install                            # Node 22.14–25 required (.nvmrc pins 22)
 pnpm run typecheck
-pnpm run test
+pnpm run test                           # local Vitest defaults (parallel files)
+pnpm run test:ci                         # CI mode: one serial Vitest worker
 pnpm run lint
+pnpm run check:wordpress                # PHP syntax + WordPress plugin harness
+pnpm run verify                         # full local preflight
 pnpm plugin:sync                  # refresh plugin skill mirrors + manifest versions
 pnpm plugin:check                 # fail on plugin skill/version drift (CI gate)
 pnpm run dev:web
@@ -1007,7 +1010,8 @@ The failure mode this prevents: a new semantics-bearing parameter is wired parse
 
 **Every non-trivial change must include tests.** If you are adding a feature, fixing a bug, or refactoring logic, ship tests alongside the code. Trivial changes (typo fixes, comment updates, config-only changes) are exempt.
 
-- Use **Vitest** as the test runner. Configured via `vitest.workspace.ts` at the root with per-package `vitest.config.ts` files.
+- Use **Vitest** for TypeScript tests. The workspace config is `vitest.config.ts`; `vitest.package.config.ts` supports focused package runs. Local `pnpm run test` retains Vitest's default file parallelism; GitHub CI runs one worker with file-level and in-file concurrency disabled because its runners expose one vCPU.
+- The native WordPress traffic-logger plugin is PHP, not a Vitest project. Run `pnpm run check:wordpress` for PHP syntax and its framework-free harness.
 - Import test utilities from `vitest`: `import { test, expect, describe, it, beforeEach, afterEach, beforeAll, afterAll } from 'vitest'`.
 - Use `expect()` for assertions (e.g. `expect(value).toBe(expected)`, `expect(obj).toEqual(expected)`, `expect(fn).toThrow()`).
 - Tests live in `test/` directories colocated with the package (e.g. `packages/canonry/test/`).
@@ -1015,7 +1019,7 @@ The failure mode this prevents: a new semantics-bearing parameter is wired parse
 - Cover both the happy path and meaningful edge cases (invalid input, env var overrides, error handling).
 - When testing CLI commands, capture stdout/stderr and assert on output rather than only checking side effects.
 - Use temp directories (`os.tmpdir()`) for file-system tests; clean up in `afterEach`.
-- Run `pnpm run test` to verify before committing.
+- Run `pnpm run verify` before committing; use `pnpm run test` for a focused TypeScript test loop.
 - **Test boundary matchers with data as STORED, not idealized.** Before writing a filter/normalizer/matcher over a stored column, check how that column is actually populated (project upsert/apply store `canonicalDomain` raw — full URLs and mixed case included) and sample real values when a database is available. Use the canonical helpers (`hostOf`, `normalizeQueryText`) from contracts instead of inline normalization: a clean-fixture-only suite passes while production values miss the match.
 - **Test default-value propagation end-to-end.** When a feature stores a default (e.g., `defaultLocation` on a project) that another feature consumes (e.g., run creation), write a test that exercises the full path with no explicit override. Don't just test that the default is stored and that the consumer accepts a value — test that they connect.
 
@@ -1026,9 +1030,9 @@ The failure mode this prevents: a new semantics-bearing parameter is wired parse
 
 ## CI Guidance
 
-- Validation CI: `typecheck`, `test`, `lint` across the full workspace on PRs.
+- Validation CI runs typecheck, one serial Vitest run, sequential PHP 7.4/8.3 WordPress validation, docs/lint, generated-client and plugin drift, all builds, package-install smoke, and Docker health smoke.
 - Keep explicit job permissions.
-- Publish workflow will be added when `packages/canonry/` is ready for npm.
+- The reusable publish workflow is callable only after CI's `validate` aggregate succeeds for the same main-branch SHA. A manual Docker release uses the CI workflow's `publish_docker` input and therefore passes the same gate.
 
 ## Keeping Documentation Current
 
