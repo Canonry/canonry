@@ -82,6 +82,14 @@ export default defineConfig({
           environment: 'jsdom',
         },
       },
+      {
+        test: {
+          name: 'scripts',
+          root: './scripts',
+          include: SHARED_INCLUDE,
+          setupFiles: SHARED_SETUP,
+        },
+      },
     ],
   },
 })

@@ -62,6 +62,7 @@ pnpm install                            # Node 22.14–25 required (.nvmrc pins 
 pnpm run typecheck
 pnpm run test                           # local Vitest defaults (parallel files)
 pnpm run test:ci                         # CI mode: one serial Vitest worker
+pnpm run test:ci:affected -- --base-ref origin/main # serial PR-equivalent scope
 pnpm run lint
 pnpm run check:wordpress                # PHP syntax + WordPress plugin harness
 pnpm run verify                         # full local preflight
@@ -1030,7 +1031,7 @@ The failure mode this prevents: a new semantics-bearing parameter is wired parse
 
 ## CI Guidance
 
-- Validation CI runs typecheck, one serial Vitest run, sequential PHP 7.4/8.3 WordPress validation, docs/lint, generated-client and plugin drift, all builds, package-install smoke, and Docker health smoke.
+- Validation CI runs typecheck, serial affected-project Vitest tests on PRs (or the full serial suite on main/manual publish runs), sequential PHP 7.4/8.3 WordPress validation, docs/lint, generated-client and plugin drift, all builds, package-install smoke, and Docker health smoke.
 - Keep explicit job permissions.
 - The reusable publish workflow is callable only after CI's `validate` aggregate succeeds for the same main-branch SHA. A manual Docker release uses the CI workflow's `publish_docker` input and therefore passes the same gate.
 

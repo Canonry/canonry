@@ -10,6 +10,7 @@
     "typecheck": "pnpm -r --no-bail run typecheck && tsc --noEmit -p scripts/tsconfig.json",
     "test": "vitest run",
     "test:ci": "vitest run --maxWorkers=1 --maxConcurrency=1 --no-file-parallelism",
+    "test:ci:affected": "node scripts/test-affected.mjs",
     "lint": "pnpm -r run lint",
     "docs:check": "bash scripts/check-docs.sh",
     "check:wordpress": "bash scripts/check-wordpress-plugin.sh",

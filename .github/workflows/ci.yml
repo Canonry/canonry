@@ -93,10 +93,21 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The affected-project selector resolves the PR merge base locally.
+          fetch-depth: 0
       - uses: ./.github/actions/setup
-      # GitHub-hosted runners expose one vCPU. Keep the full suite on one
-      # runner and disable worker, file-level, and in-file parallelism.
-      - run: pnpm run test:ci
+      # PRs run only changed workspace projects and their downstream
+      # dependents. Execution remains one worker, one file at a time.
+      - name: Run affected tests serially
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.sha }}
+        run: node scripts/test-affected.mjs --base-ref "$BASE_REF"
+      # main and manual runs remain the full serial publish gate.
+      - name: Run full suite serially
+        if: github.event_name != 'pull_request'
+        run: pnpm run test:ci
 
   wordpress-plugin:
     runs-on: ubuntu-latest

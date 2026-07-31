@@ -36,22 +36,32 @@ For a quick TypeScript-only loop, run:
 pnpm run test
 ```
 
-Local Vitest keeps its default file parallelism. `pnpm run test:ci` is for
-GitHub CI: one worker with file-level and in-file concurrency disabled.
+Local Vitest keeps its default file parallelism. `pnpm run test:ci` is the
+full GitHub CI suite: one worker with file-level and in-file concurrency
+disabled. To reproduce a pull-request selection locally, run:
+
+```bash
+pnpm run test:ci:affected -- --base-ref origin/main
+```
 
 ## CI Mapping
 
 CI runs these independent checks on every matching PR or main push:
 
 - `pnpm run typecheck`
-- One fully serial Vitest run (one worker, no file-level or in-file concurrency)
+- PRs run changed workspace Vitest projects plus their downstream dependents,
+  serially. Runtime/test configuration changes fall back to the full suite.
+- `main` pushes and manual runs execute the full serial Vitest suite before
+  publishing can begin.
 - WordPress PHP syntax + harness tests sequentially on PHP 7.4 and 8.3
 - Documentation and lint checks
 - Generated API-client and native-plugin drift checks
 - All package builds, packed npm-install smoke, and Docker health smoke
 
 GitHub-hosted runners have one vCPU, so CI deliberately does not shard or
-parallelize test execution.
+parallelize test execution. The PR selector uses the workspace dependency graph
+rather than a file-only test heuristic; it exits safely for docs/plugin-only
+changes and falls back to the full suite for unknown or global runtime changes.
 The `validate` aggregate gates the reusable publish workflow, so npm and Docker
 publishing cannot start until every check above has succeeded for the same SHA.
 
