@@ -153,7 +153,7 @@ function changedPathsSince(baseRef) {
   const mergeBase = run('git', ['merge-base', baseRef, 'HEAD'], { capture: true }).trim()
   if (!mergeBase) throw new Error(`Could not resolve a merge base for ${baseRef}`)
 
-  return run('git', ['diff', '--name-only', '-z', '--diff-filter=ACMRD', mergeBase, 'HEAD'], { capture: true })
+  return run('git', ['diff', '--name-only', '-z', mergeBase, 'HEAD'], { capture: true })
     .split('\0')
     .filter(Boolean)
 }
