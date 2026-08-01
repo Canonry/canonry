@@ -8,13 +8,12 @@ import { test, expect, describe } from 'vitest'
  * has no prebuilt binary for, converting a couple hundred lines of node-gyp C++
  * output into one legible line.
  *
- * Its `SUPPORTED_MAJORS` list is a hand-maintained mirror of better-sqlite3's own
- * `engines.node`. A dependency bump that widens or narrows that range would leave
- * the guard silently wrong — either rejecting a Node that now works, or admitting
- * one that does not and handing the reader back the node-gyp wall of text the
- * guard exists to prevent.
+ * Its `SUPPORTED_MAJORS` list applies Canonry's Node 22+ policy to
+ * better-sqlite3's own `engines.node`. A dependency bump that narrows that range
+ * would otherwise leave the guard silently wrong and hand the reader back the
+ * node-gyp wall of text the guard exists to prevent.
  *
- * So the mirror is asserted rather than trusted.
+ * So the compatible subset is asserted rather than trusted.
  */
 
 const require = createRequire(import.meta.url)
@@ -49,17 +48,30 @@ function betterSqlite3Majors(): number[] {
 }
 
 describe('Node support range', () => {
-  test('the install guard mirrors better-sqlite3 exactly', () => {
-    expect(guardMajors()).toEqual(betterSqlite3Majors())
+  test('the install guard admits only better-sqlite3-supported Node majors', () => {
+    expect(guardMajors().every((major) => betterSqlite3Majors().includes(major))).toBe(true)
   })
 
-  test('the guard admits the Docker base and the CI major', () => {
-    // Dockerfiles run node:20-bookworm-slim; CI workflows pin node-version 22.
-    // Both must pass the guard or `pnpm install` breaks the build and the
-    // pipeline rather than the unsupported case it targets.
+  test('the guard and declared engine range enforce Node 22+', () => {
     const majors = guardMajors()
-    expect(majors).toContain(20)
     expect(majors).toContain(22)
+    expect(majors).not.toContain(20)
+
+    const rootPkg = JSON.parse(
+      fs.readFileSync(path.join(repoRoot(), 'package.json'), 'utf8'),
+    ) as { engines?: { node?: string } }
+    const publishedPkg = JSON.parse(
+      fs.readFileSync(path.join(repoRoot(), 'packages', 'canonry', 'package.json'), 'utf8'),
+    ) as { engines?: { node?: string } }
+    expect(rootPkg.engines?.node).toBe('>=22.14.0 <26')
+    expect(publishedPkg.engines?.node).toBe(rootPkg.engines?.node)
+  })
+
+  test('every Dockerfile uses the Node 22 base', () => {
+    for (const dockerfile of ['Dockerfile', 'Dockerfile.api', 'Dockerfile.worker', 'Dockerfile.web']) {
+      const source = fs.readFileSync(path.join(repoRoot(), dockerfile), 'utf8')
+      expect(source).toMatch(/^FROM .*node:22-bookworm-slim/m)
+    }
   })
 
   test('the guard rejects a major with no prebuilt binary', () => {

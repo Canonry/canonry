@@ -1,8 +1,15 @@
 # Testing Guide
 
-## Test Runner
+## Test Runners
 
-Canonry uses **Vitest**. Configured via `vitest.workspace.ts` at the repo root with per-package `vitest.config.ts` files.
+Canonry uses **Vitest** for the TypeScript workspace. The root
+[`vitest.config.ts`](../vitest.config.ts) defines the package and app projects;
+[`vitest.package.config.ts`](../vitest.package.config.ts) supports focused
+package runs. The web project uses jsdom.
+
+The native WordPress traffic-logger plugin has a separate framework-free PHP
+harness. It is syntax-checked and tested with
+`bash scripts/check-wordpress-plugin.sh`.
 
 ```typescript
 import { test, expect, describe, it, beforeEach, afterEach } from 'vitest'
@@ -12,33 +19,60 @@ Tests live in `test/` directories colocated with each package (e.g. `packages/ca
 
 ## Workspace Checks
 
-Run before opening a PR:
+Run the complete local preflight before opening a PR:
 
 ```bash
-pnpm run typecheck
+pnpm run verify
+# or: make verify
+```
+
+`verify` runs type checking, docs and lint checks, PHP syntax/tests, Vitest,
+generated-client drift, plugin drift, all package builds, a packed npm install
+smoke, and the existing Docker health smoke.
+
+For a quick TypeScript-only loop, run:
+
+```bash
 pnpm run test
-pnpm run lint
+```
+
+Local Vitest keeps its default file parallelism. `pnpm run test:ci` is the
+full GitHub CI suite: one worker with file-level and in-file concurrency
+disabled. To reproduce a pull-request selection locally, run:
+
+```bash
+pnpm run test:ci:affected -- --base-ref origin/main
 ```
 
 ## CI Mapping
 
-The validation job in `ci.yml` runs:
+CI runs these independent checks on every matching PR or main push:
 
 - `pnpm run typecheck`
-- `pnpm run test`
-- `pnpm run lint`
+- PRs run changed workspace Vitest projects plus their downstream dependents,
+  serially. Runtime/test configuration changes fall back to the full suite.
+- `main` pushes and manual runs execute the full serial Vitest suite before
+  publishing can begin.
+- WordPress PHP syntax + harness tests sequentially on PHP 7.4 and 8.3
+- Documentation and lint checks
+- Generated API-client and native-plugin drift checks
+- All package builds, packed npm-install smoke, and Docker health smoke
 
-across the full workspace on every PR.
+GitHub-hosted runners have one vCPU, so CI deliberately does not shard or
+parallelize test execution. The PR selector uses the workspace dependency graph
+rather than a file-only test heuristic; it exits safely for docs/plugin-only
+changes and falls back to the full suite for unknown or global runtime changes.
+The `validate` aggregate gates the reusable publish workflow, so npm and Docker
+publishing cannot start until every check above has succeeded for the same SHA.
 
 ## Package Verification
 
-To verify the publishable package:
+The package smoke used by CI is intentionally narrow: it builds Canonry, packs
+the tarball, installs it into a scratch npm project, and runs `canonry
+--version`.
 
 ```bash
-cd packages/canonry && npm pack
-npm install -g ./ainyc-canonry-*.tgz
-canonry init
-canonry serve
+pnpm run package:smoke
 ```
 
 ## Dependency Verification Checklist

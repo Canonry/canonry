@@ -1,6 +1,6 @@
 {
   "name": "@canonry/canonry",
-  "version": "4.138.0",
+  "version": "4.138.1",
   "type": "module",
   "description": "Agent-first open-source AEO operating platform - track how answer engines cite your domain",
   "license": "FSL-1.1-ALv2",
@@ -36,7 +36,7 @@
     "README.md"
   ],
   "engines": {
-    "node": ">=22.14.0"
+    "node": ">=22.14.0 <26"
   },
   "scripts": {
     "build": "tsx scripts/copy-agent-assets.ts && tsup && tsx build-web.ts",
