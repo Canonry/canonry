@@ -171,18 +171,12 @@ function AnswerSources({ row }: { row: AnswerRow }) {
 }
 
 /**
- * The answer itself, fetched when a row is opened.
+ * A Property page query resolves one target from the current measurement plan.
  *
- * The row above it can only ever say whether this Property was named. It cannot
- * say what the engine actually recommended, and that is the thing an operator
- * opens the row to find out: a "not mentioned" row on a local-market query can
- * turn out to be an answer recommending two other properties from the brand.
- * None of that is visible in a signal badge or a source count.
- *
- * Fetched per row rather than with the list because an answer runs to several
- * thousand characters and most rows are never opened. `observationId` is the
- * `resultId` this read takes — both are the stored snapshot id — so no new
- * plumbing is needed to line them up.
+ * For example, a fictional local-market question such as "best apartments
+ * near north district" maps to a single property target. The query carries
+ * the target key, the class, and an optional run ID together, so selecting a
+ * different group or plan cannot silently read mismatched evidence.
  */
 function AnswerText({ project, targetKey, row }: { project: string; targetKey: string; row: AnswerRow }) {
   const query = useQuery({

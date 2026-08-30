@@ -1,19 +1,195 @@
 import crypto from 'node:crypto'
 import { and, desc, eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { researchRunQueries, researchRuns } from '@ainyc/canonry-db'
-import { alreadyExists, isBrowserProvider, missingDependency, notFound, ResearchQueryStatuses, ResearchRunStatuses, researchRunCreateSchema, validationError, type LocationContext, type ResearchRunDetailDto, type ResearchRunListDto, type ResearchRunQueryDto, type ResearchRunSummaryDto } from '@ainyc/canonry-contracts'
+import { queries, researchRunQueries, researchRuns, runs } from '@ainyc/canonry-db'
+import {
+  alreadyExists,
+  describeError,
+  isBrowserProvider,
+  measurementDraftEtag,
+  measurementPlanV2ChecksumJson,
+  measurementPlanV2Schema,
+  missingDependency,
+  normalizeQueryText,
+  notFound,
+  parseStoredMeasurementPlanAnyVersion,
+  ResearchQueryStatuses,
+  ResearchRunStatuses,
+  researchPromotionPreviewRequestSchema,
+  researchPromotionPreviewResponseSchema,
+  researchRunCreateSchema,
+  RunStatuses,
+  validationError,
+  type LocationContext,
+  type MeasurementDraftAuthoring,
+  type MeasurementDraftAssignment,
+  type MeasurementDraftCompileCheck,
+  type MeasurementPlanV2,
+  type ResearchPromotionPreviewResponse,
+  type ResearchPromotionRefusalReason,
+  type ResearchRunDetailDto,
+  type ResearchRunListDto,
+  type ResearchRunQueryDto,
+  type ResearchRunSummaryDto,
+} from '@ainyc/canonry-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
+import {
+  actionContextFor,
+  assignmentExecutionImpact,
+  authoringForCompile,
+  compileContextFor,
+  seedAuthoring,
+} from './measurement-draft.js'
+import { applyAssignmentsToAuthoring, applyDraftAction } from './measurement-draft-actions.js'
+import { compileMeasurementDraft, diffCompiledPlans } from './measurement-draft-compile.js'
+import { activePlanVersionRow, canonicalJson, draftRow, sha256Hex } from './measurement-draft-repo.js'
 import type { ProviderAdapterInfo } from './settings.js'
 
 export interface ResearchRoutesOptions {
   providerAdapters?: ProviderAdapterInfo[]
   configuredProviderNames?: readonly string[]
   onResearchRunRequested?: (runId: string, projectId: string) => void
+  getRunnableProviderNames?: () => readonly string[]
 }
 
 const sameLocation = (a: LocationContext, b: LocationContext) =>
   a.label === b.label && a.city === b.city && a.region === b.region && a.country === b.country && a.timezone === b.timezone
+
+function compareText(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0
+}
+
+function assignmentPairKey(targetKey: string, queryId: string): string {
+  return `${targetKey}\u0000${queryId}`
+}
+
+function appendMissing<T>(
+  active: readonly T[],
+  additions: readonly T[],
+  key: (value: T) => string,
+): T[] {
+  const known = new Set(active.map(key))
+  return [...active, ...additions.filter(value => {
+    const valueKey = key(value)
+    if (known.has(valueKey)) return false
+    known.add(valueKey)
+    return true
+  })]
+}
+
+/**
+ * A promotion is additive. Do not reconstruct the active document through an
+ * authoring shape: compiled v2 assignments may carry per-assignment contexts
+ * that authoring cannot round-trip. Preserve the active rows verbatim and
+ * append only compiler-produced rows for the selected question.
+ */
+function mergePromotionAddition(active: MeasurementPlanV2, addition: MeasurementPlanV2): MeasurementPlanV2 {
+  const withPlaceholderChecksum: MeasurementPlanV2 = {
+    ...active,
+    querySnapshots: appendMissing(active.querySnapshots, addition.querySnapshots, snapshot => snapshot.queryId),
+    assignments: appendMissing(active.assignments, addition.assignments, assignment => (
+      `${assignment.targetKey}\u0000${assignment.queryId}\u0000${assignment.executionNodeKey}`
+    )),
+    executionNodes: appendMissing(active.executionNodes, addition.executionNodes, node => node.stableKey),
+    usageEdges: appendMissing(active.usageEdges, addition.usageEdges, edge => (
+      `${edge.executionNodeKey}\u0000${edge.targetKey}\u0000${edge.queryId}`
+    )),
+    compiledChecksum: '0'.repeat(64),
+  }
+  return measurementPlanV2Schema.parse({
+    ...withPlaceholderChecksum,
+    compiledChecksum: sha256Hex(measurementPlanV2ChecksumJson(withPlaceholderChecksum)),
+  })
+}
+
+function readPromotionSetup(
+  app: FastifyInstance,
+  project: ReturnType<typeof resolveProject>,
+) {
+  const active = activePlanVersionRow(app.db, project.id)
+  const draft = draftRow(app.db, project.id)
+  const activeSchemaVersion: 1 | 2 | null = active ? (active.schemaVersion === 2 ? 2 : 1) : null
+  const completedRun = active
+    ? app.db.select({ id: runs.id }).from(runs).where(and(
+        eq(runs.projectId, project.id),
+        eq(runs.measurementPlanVersionId, active.id),
+        eq(runs.status, RunStatuses.completed),
+      )).get()
+    : undefined
+  const state = activeSchemaVersion === 1
+    ? 'republish_required' as const
+    : draft
+      ? 'setup_in_progress' as const
+      : active
+        ? (completedRun ? 'operational' as const : 'awaiting_first_run' as const)
+        : 'simple' as const
+  const mode = activeSchemaVersion === 1
+    ? 'active-v1' as const
+    : activeSchemaVersion === 2
+      ? 'active-v2' as const
+      : draft ? 'draft-only' as const : 'simple' as const
+  return {
+    active,
+    draft,
+    setup: {
+      state,
+      mode,
+      activeRevision: active?.revision ?? null,
+      activeCompiledChecksum: active?.compiledChecksum ?? null,
+      draftEtag: draft ? measurementDraftEtag(draft.etagVersion) : null,
+    },
+  }
+}
+
+function researchPromotionProposedId(
+  projectId: string,
+  runId: string,
+  queryId: string,
+  normalizedQuery: string,
+): string {
+  return `research-promotion-${sha256Hex(canonicalJson({ projectId, runId, queryId, normalizedQuery }))}`
+}
+
+function finalizePromotionPreview(
+  core: Record<string, unknown>,
+  request: unknown,
+  proposedId: string,
+): ResearchPromotionPreviewResponse {
+  const source = core.source as { runId: string; queryId: string }
+  const setup = core.setup as {
+    activeRevision: number | null
+    activeCompiledChecksum: string | null
+    draftEtag: string | null
+  }
+  const previewChecksum = sha256Hex(canonicalJson({
+    version: 'research-promotion-preview/v1',
+    sourceIds: { runId: source.runId, queryId: source.queryId },
+    request,
+    proposedId,
+    active: {
+      revision: setup.activeRevision,
+      compiledChecksum: setup.activeCompiledChecksum,
+    },
+    draft: { etag: setup.draftEtag },
+    projected: core,
+  }))
+  return researchPromotionPreviewResponseSchema.parse({ ...core, previewChecksum })
+}
+
+function refusedPromotionPreview(
+  base: Record<string, unknown>,
+  request: unknown,
+  proposedId: string,
+  reason: ResearchPromotionRefusalReason,
+  message: string,
+  checks?: unknown[],
+): ResearchPromotionPreviewResponse {
+  return finalizePromotionPreview({
+    ...base,
+    mode: 'refused',
+    refusal: { reason, message, ...(checks ? { checks } : {}) },
+  }, request, proposedId)
+}
 
 export async function researchRoutes(app: FastifyInstance, opts: ResearchRoutesOptions) {
   app.post<{ Params: { name: string }; Body: unknown }>('/projects/:name/research/runs', async (request, reply) => {
@@ -56,6 +232,266 @@ export async function researchRoutes(app: FastifyInstance, opts: ResearchRoutesO
     if (decision.shouldDispatch) opts.onResearchRunRequested(decision.id, project.id)
     if (decision.reused) return reply.status(200).send(result)
     return reply.status(202).send(result)
+  })
+
+  // This stays a POST because advanced selections can be sizeable, but it is
+  // deliberately read-semantic: no tracked query, draft, audit, receipt, or
+  // provider call is made here. The PR2 commit route owns every durable write.
+  app.post<{ Params: { name: string; runId: string; queryId: string }; Body: unknown }>('/projects/:name/research/runs/:runId/queries/:queryId/promotion-preview', {
+    config: { readSemantic: true },
+  }, async request => {
+    const parsed = researchPromotionPreviewRequestSchema.safeParse(request.body ?? {})
+    if (!parsed.success) throw validationError('Invalid research promotion preview request', { issues: parsed.error.issues })
+    const input = parsed.data
+    const project = resolveProject(app.db, request.params.name)
+    const researchRun = app.db.select().from(researchRuns).where(and(
+      eq(researchRuns.id, request.params.runId),
+      eq(researchRuns.projectId, project.id),
+    )).get()
+    if (!researchRun) throw notFound('Research run', request.params.runId)
+    const researchQuery = app.db.select().from(researchRunQueries).where(and(
+      eq(researchRunQueries.id, request.params.queryId),
+      eq(researchRunQueries.researchRunId, researchRun.id),
+    )).get()
+    if (!researchQuery) throw notFound('Research query', request.params.queryId)
+
+    const normalizedQuery = normalizeQueryText(researchQuery.queryText)
+    const proposedId = researchPromotionProposedId(project.id, researchRun.id, researchQuery.id, normalizedQuery)
+    // A historic raw-text unique index permits casing/trim variants. Select the
+    // oldest row, then its id, so all callers deterministically reuse one.
+    const existing = app.db.select().from(queries).where(eq(queries.projectId, project.id)).all()
+      .filter(candidate => normalizeQueryText(candidate.query) === normalizedQuery)
+      .sort((left, right) => compareText(left.createdAt, right.createdAt) || compareText(left.id, right.id))
+      .at(0)
+    const trackedQuery = existing
+      ? {
+          state: 'existing' as const,
+          id: existing.id,
+          proposedId,
+          query: existing.query,
+          normalizedQuery,
+        }
+      : {
+          state: 'new' as const,
+          id: proposedId,
+          proposedId,
+          query: researchQuery.queryText,
+          normalizedQuery,
+        }
+    const source = {
+      runId: researchRun.id,
+      queryId: researchQuery.id,
+      query: researchQuery.queryText,
+      normalizedQuery,
+      status: researchQuery.status,
+      completedAt: researchQuery.finishedAt,
+    }
+    const current = readPromotionSetup(app, project)
+    const base = { source, trackedQuery, setup: current.setup }
+
+    if (researchQuery.status !== ResearchQueryStatuses.completed) {
+      return refusedPromotionPreview(
+        base,
+        input,
+        proposedId,
+        'source-not-completed',
+        'This saved research query has not completed and cannot be promoted.',
+      )
+    }
+    if (current.active && current.active.schemaVersion !== 2) {
+      return refusedPromotionPreview(
+        base,
+        input,
+        proposedId,
+        'active-v1',
+        'Publish a v2 measurement plan before assigning this query.',
+      )
+    }
+    if (!current.active && current.draft) {
+      return refusedPromotionPreview(
+        base,
+        input,
+        proposedId,
+        'draft-only',
+        'Finish or discard the current measurement draft before promoting this query.',
+      )
+    }
+    if (current.active && current.draft) {
+      return refusedPromotionPreview(
+        base,
+        input,
+        proposedId,
+        'draft-exists',
+        'Finish or discard the current measurement draft before promoting this query.',
+      )
+    }
+    if (!current.active) {
+      return finalizePromotionPreview({ ...base, mode: 'simple' }, input, proposedId)
+    }
+    if (!current.active.compiledChecksum) {
+      return refusedPromotionPreview(
+        base,
+        input,
+        proposedId,
+        'candidate-invalid',
+        'The active v2 measurement plan is missing its compiled checksum.',
+      )
+    }
+    if ((input.targetKeys?.length ?? 0) === 0 && (input.groupKeys?.length ?? 0) === 0) {
+      return refusedPromotionPreview(
+        base,
+        input,
+        proposedId,
+        'audience-required',
+        'Choose at least one Target or group before assigning this query to the active measurement plan.',
+      )
+    }
+
+    let activePlan
+    try {
+      activePlan = parseStoredMeasurementPlanAnyVersion(current.active.canonicalJson)
+    } catch (error) {
+      return refusedPromotionPreview(base, input, proposedId, 'candidate-invalid', describeError(error))
+    }
+    if (activePlan.schemaVersion !== 2) {
+      return refusedPromotionPreview(
+        base,
+        input,
+        proposedId,
+        'active-v1',
+        'Publish a v2 measurement plan before assigning this query.',
+      )
+    }
+
+    const additionalTrackedQueries = trackedQuery.state === 'new'
+      ? [{ id: trackedQuery.id, query: trackedQuery.query }]
+      : []
+    const queryProvenanceById = trackedQuery.state === 'new'
+      ? new Map([[
+          trackedQuery.id,
+          { source: 'research' as const, sourceId: `${researchRun.id}:${researchQuery.id}` },
+        ]])
+      : undefined
+    const actionContext = actionContextFor(app.db, project, additionalTrackedQueries)
+    let authoring: MeasurementDraftAuthoring
+    let applied
+    try {
+      authoring = authoringForCompile(
+        seedAuthoring(project, activePlan, actionContext, { getRunnableProviderNames: opts.getRunnableProviderNames }),
+        project,
+        { getRunnableProviderNames: opts.getRunnableProviderNames },
+      )
+      applied = applyAssignmentsToAuthoring(authoring, {
+        queryIds: [trackedQuery.id],
+        ...(input.targetKeys ? { targetKeys: input.targetKeys } : {}),
+        ...(input.groupKeys ? { groupKeys: input.groupKeys } : {}),
+      }, actionContext)
+      authoring = applied.authoring
+      if (input.queryClass) {
+        authoring = applyDraftAction('classify-assignments', authoring, {
+          queryClass: input.queryClass,
+          assignments: applied.audience.targetKeys.map(targetKey => ({ targetKey, queryId: trackedQuery.id })),
+        }, actionContext).authoring
+      }
+    } catch (error) {
+      return refusedPromotionPreview(base, input, proposedId, 'audience-invalid', describeError(error))
+    }
+
+    const activeAssignmentsByPair = new Map(activePlan.assignments.map(assignment => [
+      assignmentPairKey(assignment.targetKey, assignment.queryId),
+      assignment,
+    ]))
+    const selectedAssignmentsByPair = new Map(authoring.assignments
+      .filter(assignment => assignment.queryId === trackedQuery.id && applied.audience.targetKeys.includes(assignment.targetKey))
+      .map(assignment => [assignmentPairKey(assignment.targetKey, assignment.queryId), assignment]))
+    const additions: MeasurementDraftAssignment[] = []
+    for (const targetKey of applied.audience.targetKeys) {
+      const key = assignmentPairKey(targetKey, trackedQuery.id)
+      if (activeAssignmentsByPair.has(key)) continue
+      const selected = selectedAssignmentsByPair.get(key)
+      if (!selected) {
+        return refusedPromotionPreview(
+          base,
+          input,
+          proposedId,
+          'candidate-invalid',
+          'The projected advanced measurement plan is missing a selected assignment.',
+        )
+      }
+      additions.push(selected)
+    }
+
+    let candidatePlan = activePlan
+    let checks: MeasurementDraftCompileCheck[] = []
+    if (additions.length > 0) {
+      const selectedTargetKeys = new Set(applied.audience.targetKeys)
+      const compiled = compileMeasurementDraft({
+        defaultContext: authoring.defaultContext,
+        targets: authoring.targets.filter(target => selectedTargetKeys.has(target.stableKey)),
+        assignments: additions,
+        groups: [],
+      }, compileContextFor(app.db, project, additionalTrackedQueries, queryProvenanceById))
+      if (!compiled.ok) {
+        return refusedPromotionPreview(
+          base,
+          input,
+          proposedId,
+          'candidate-invalid',
+          'The projected advanced measurement plan does not compile.',
+          compiled.checks,
+        )
+      }
+      candidatePlan = mergePromotionAddition(activePlan, compiled.plan)
+      checks = compiled.checks
+    }
+
+    const classifications: Array<{ targetKey: string; queryId: string; queryClass: 'branded' | 'non-brand' }> = []
+    for (const targetKey of applied.audience.targetKeys) {
+      const key = assignmentPairKey(targetKey, trackedQuery.id)
+      const assignment = activeAssignmentsByPair.get(key) ?? selectedAssignmentsByPair.get(key)
+      if (!assignment) {
+        return refusedPromotionPreview(
+          base,
+          input,
+          proposedId,
+          'candidate-invalid',
+          'The projected advanced measurement plan is missing a selected classification.',
+        )
+      }
+      if (assignment.queryClass === 'unclassified') {
+        return refusedPromotionPreview(
+          base,
+          input,
+          proposedId,
+          'candidate-invalid',
+          'The projected advanced measurement plan has an unclassified selected assignment.',
+        )
+      }
+      classifications.push({
+        targetKey,
+        queryId: trackedQuery.id,
+        queryClass: assignment.queryClass,
+      })
+    }
+    classifications.sort((left, right) => compareText(left.targetKey, right.targetKey))
+    return finalizePromotionPreview({
+      ...base,
+      mode: 'advanced',
+      selection: input,
+      audience: {
+        targetKeys: applied.audience.targetKeys,
+        groups: applied.audience.groups,
+        overlapCount: applied.audience.overlapCount,
+      },
+      assignments: { ...applied.assignments, classifications },
+      execution: assignmentExecutionImpact(activePlan, candidatePlan),
+      candidate: {
+        compiledChecksum: candidatePlan.compiledChecksum,
+        checks,
+        plan: candidatePlan,
+        diff: diffCompiledPlans(activePlan, candidatePlan, current.active.revision),
+      },
+    }, input, proposedId)
   })
 
   app.get<{ Params: { name: string }; Querystring: { limit?: string } }>('/projects/:name/research/runs', async (request) => {

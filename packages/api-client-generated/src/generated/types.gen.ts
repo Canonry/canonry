@@ -2081,6 +2081,243 @@ export type ResearchRunListDto = {
     }>;
 };
 
+export type ResearchPromotionPreviewRequest = {
+    queryClass?: 'branded' | 'non-brand';
+    targetKeys?: Array<string>;
+    groupKeys?: Array<string>;
+};
+
+export type ResearchPromotionPreviewResponse = {
+    source: {
+        runId: string;
+        queryId: string;
+        query: string;
+        normalizedQuery: string;
+        status: 'queued' | 'running' | 'completed' | 'failed';
+        completedAt: string | null;
+    };
+    trackedQuery: {
+        state: 'new' | 'existing';
+        id: string;
+        proposedId: string;
+        query: string;
+        normalizedQuery: string;
+    };
+    setup: {
+        state: 'republish_required' | 'setup_in_progress' | 'awaiting_first_run' | 'operational' | 'simple';
+        mode: 'simple' | 'draft-only' | 'active-v1' | 'active-v2';
+        activeRevision: number | null;
+        activeCompiledChecksum: string | null;
+        draftEtag: string | null;
+    };
+    previewChecksum: string;
+    mode: 'simple';
+} | {
+    source: {
+        runId: string;
+        queryId: string;
+        query: string;
+        normalizedQuery: string;
+        status: 'queued' | 'running' | 'completed' | 'failed';
+        completedAt: string | null;
+    };
+    trackedQuery: {
+        state: 'new' | 'existing';
+        id: string;
+        proposedId: string;
+        query: string;
+        normalizedQuery: string;
+    };
+    setup: {
+        state: 'republish_required' | 'setup_in_progress' | 'awaiting_first_run' | 'operational' | 'simple';
+        mode: 'simple' | 'draft-only' | 'active-v1' | 'active-v2';
+        activeRevision: number | null;
+        activeCompiledChecksum: string | null;
+        draftEtag: string | null;
+    };
+    previewChecksum: string;
+    mode: 'advanced';
+    selection: {
+        queryClass?: 'branded' | 'non-brand';
+        targetKeys?: Array<string>;
+        groupKeys?: Array<string>;
+    };
+    audience: {
+        targetKeys: Array<string>;
+        groups: Array<{
+            groupKey: string;
+            label: string;
+            memberCount: number;
+        }>;
+        overlapCount: number;
+    };
+    assignments: {
+        requested: number;
+        added: number;
+        alreadyPresent: number;
+        classifications: Array<{
+            targetKey: string;
+            queryId: string;
+            queryClass: 'branded' | 'non-brand';
+        }>;
+    };
+    execution: {
+        addedNodes: number;
+        addedProviderCalls: number;
+        fullRunNodes: number;
+        fullRunProviderCalls: number;
+    };
+    candidate: {
+        compiledChecksum: string;
+        checks: Array<{
+            ruleId: string;
+            severity: 'fail' | 'warn';
+            message: string;
+            path: Array<string | number>;
+        }>;
+        plan: {
+            schemaVersion: 2;
+            identities: {
+                projectBrand: {
+                    canonicalHost: string;
+                    ownedHosts: Array<string>;
+                    names: Array<string>;
+                };
+            };
+            targets: Array<{
+                stableKey: string;
+                label: string;
+                aliases: Array<string>;
+                urlMatchers: Array<{
+                    kind: 'exact';
+                    url: string;
+                    pathCase: 'sensitive' | 'insensitive';
+                } | {
+                    kind: 'prefix';
+                    host: string;
+                    pathPrefix: string;
+                    pathCase: 'sensitive' | 'insensitive';
+                } | {
+                    kind: 'host';
+                    host: string;
+                }>;
+                mentionNotApplicable: boolean;
+                discoveryIdentity: string | null;
+            }>;
+            groups: Array<{
+                stableKey: string;
+                label: string;
+                targetKeys: Array<string>;
+                competitors: Array<{
+                    stableKey: string;
+                    label: string;
+                    domain: string;
+                    aliases: Array<string>;
+                }>;
+            }>;
+            querySnapshots: Array<{
+                queryId: string;
+                queryText: string;
+                provenance: {
+                    source: 'manual' | 'query-set' | 'template' | 'discovery' | 'research';
+                    sourceId: string | null;
+                    capturedAt: string;
+                };
+            }>;
+            assignments: Array<{
+                targetKey: string;
+                queryId: string;
+                queryClass: 'branded' | 'non-brand';
+                executionNodeKey: string;
+            }>;
+            executionNodes: Array<{
+                stableKey: string;
+                queryId: string;
+                queryText: string;
+                context: {
+                    providers: Array<string>;
+                    models: {
+                        [key: string]: string;
+                    };
+                    location: {
+                        label: string;
+                        city: string;
+                        region: string;
+                        country: string;
+                        timezone?: string;
+                    } | null;
+                };
+                expectedSnapshots: number;
+            }>;
+            usageEdges: Array<{
+                executionNodeKey: string;
+                targetKey: string;
+                queryId: string;
+            }>;
+            compiledChecksum: string;
+        };
+        diff: {
+            activeRevision: number | null;
+            targets: {
+                added: Array<string>;
+                removed: Array<string>;
+                changed: Array<string>;
+                unchanged: Array<string>;
+            };
+            groups: {
+                added: Array<string>;
+                removed: Array<string>;
+                changed: Array<string>;
+                unchanged: Array<string>;
+            };
+            assignments: {
+                added: number;
+                removed: number;
+                reclassified: number;
+            };
+            execution: {
+                addedNodeKeys: Array<string>;
+                removedNodeKeys: Array<string>;
+            };
+        };
+    };
+} | {
+    source: {
+        runId: string;
+        queryId: string;
+        query: string;
+        normalizedQuery: string;
+        status: 'queued' | 'running' | 'completed' | 'failed';
+        completedAt: string | null;
+    };
+    trackedQuery: {
+        state: 'new' | 'existing';
+        id: string;
+        proposedId: string;
+        query: string;
+        normalizedQuery: string;
+    };
+    setup: {
+        state: 'republish_required' | 'setup_in_progress' | 'awaiting_first_run' | 'operational' | 'simple';
+        mode: 'simple' | 'draft-only' | 'active-v1' | 'active-v2';
+        activeRevision: number | null;
+        activeCompiledChecksum: string | null;
+        draftEtag: string | null;
+    };
+    previewChecksum: string;
+    mode: 'refused';
+    refusal: {
+        reason: 'source-not-completed' | 'active-v1' | 'draft-only' | 'draft-exists' | 'audience-required' | 'audience-invalid' | 'candidate-invalid';
+        message: string;
+        checks?: Array<{
+            ruleId: string;
+            severity: 'fail' | 'warn';
+            message: string;
+            path: Array<string | number>;
+        }>;
+    };
+};
+
 export type DoctorReportDto = {
     scope: 'global' | 'project';
     /**
@@ -4462,7 +4699,7 @@ export type MeasurementDraftCompilePreviewResponse = {
             queryId: string;
             queryText: string;
             provenance: {
-                source: 'manual' | 'query-set' | 'template' | 'discovery';
+                source: 'manual' | 'query-set' | 'template' | 'discovery' | 'research';
                 sourceId: string | null;
                 capturedAt: string;
             };
@@ -4575,7 +4812,7 @@ export type MeasurementDraftDiffPreviewResponse = {
             queryId: string;
             queryText: string;
             provenance: {
-                source: 'manual' | 'query-set' | 'template' | 'discovery';
+                source: 'manual' | 'query-set' | 'template' | 'discovery' | 'research';
                 sourceId: string | null;
                 capturedAt: string;
             };
@@ -6329,7 +6566,7 @@ export type MeasurementPlanResponse = {
                 queryId: string;
                 queryText: string;
                 provenance: {
-                    source: 'manual' | 'query-set' | 'template' | 'discovery';
+                    source: 'manual' | 'query-set' | 'template' | 'discovery' | 'research';
                     sourceId: string | null;
                     capturedAt: string;
                 };
@@ -6420,7 +6657,7 @@ export type MeasurementPlanV2PublishResponse = {
                 queryId: string;
                 queryText: string;
                 provenance: {
-                    source: 'manual' | 'query-set' | 'template' | 'discovery';
+                    source: 'manual' | 'query-set' | 'template' | 'discovery' | 'research';
                     sourceId: string | null;
                     capturedAt: string;
                 };
@@ -6593,7 +6830,7 @@ export type MeasurementPlanVersionResponse = {
                 queryId: string;
                 queryText: string;
                 provenance: {
-                    source: 'manual' | 'query-set' | 'template' | 'discovery';
+                    source: 'manual' | 'query-set' | 'template' | 'discovery' | 'research';
                     sourceId: string | null;
                     capturedAt: string;
                 };
@@ -13710,6 +13947,48 @@ export type GetApiV1ProjectsByNameResearchRunsByRunIdResponses = {
 };
 
 export type GetApiV1ProjectsByNameResearchRunsByRunIdResponse = GetApiV1ProjectsByNameResearchRunsByRunIdResponses[keyof GetApiV1ProjectsByNameResearchRunsByRunIdResponses];
+
+export type PostApiV1ProjectsByNameResearchRunsByRunIdQueriesByQueryIdPromotionPreviewData = {
+    body: ResearchPromotionPreviewRequest;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+        /**
+         * Research run ID.
+         */
+        runId: string;
+        /**
+         * Completed saved research query ID.
+         */
+        queryId: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/research/runs/{runId}/queries/{queryId}/promotion-preview';
+};
+
+export type PostApiV1ProjectsByNameResearchRunsByRunIdQueriesByQueryIdPromotionPreviewErrors = {
+    /**
+     * Invalid promotion selection.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project, research run, or research query not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameResearchRunsByRunIdQueriesByQueryIdPromotionPreviewError = PostApiV1ProjectsByNameResearchRunsByRunIdQueriesByQueryIdPromotionPreviewErrors[keyof PostApiV1ProjectsByNameResearchRunsByRunIdQueriesByQueryIdPromotionPreviewErrors];
+
+export type PostApiV1ProjectsByNameResearchRunsByRunIdQueriesByQueryIdPromotionPreviewResponses = {
+    /**
+     * Deterministic simple, advanced, or refused promotion projection.
+     */
+    200: ResearchPromotionPreviewResponse;
+};
+
+export type PostApiV1ProjectsByNameResearchRunsByRunIdQueriesByQueryIdPromotionPreviewResponse = PostApiV1ProjectsByNameResearchRunsByRunIdQueriesByQueryIdPromotionPreviewResponses[keyof PostApiV1ProjectsByNameResearchRunsByRunIdQueriesByQueryIdPromotionPreviewResponses];
 
 export type GetApiV1ProjectsByNameLocationsData = {
     body?: never;

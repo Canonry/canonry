@@ -230,6 +230,8 @@ import type {
   DiscoveryPromotePreview,
   DiscoveryPromoteRequest,
   DiscoveryPromoteResult,
+  ResearchPromotionPreviewRequest,
+  ResearchPromotionPreviewResponse,
   ResearchRunCreate,
   ResearchRunDetailDto,
   ResearchRunListDto,
@@ -472,6 +474,7 @@ import {
   postApiV1ProjectsByNameResearchRuns,
   getApiV1ProjectsByNameResearchRuns,
   getApiV1ProjectsByNameResearchRunsByRunId,
+  postApiV1ProjectsByNameResearchRunsByRunIdQueriesByQueryIdPromotionPreview,
   postApiV1ProjectsByNameDiscoverSessionsByIdPromote,
   // Technical AEO (site-audit)
   getApiV1ProjectsByNameTechnicalAeo,
@@ -3595,6 +3598,25 @@ export class ApiClient {
       getApiV1ProjectsByNameResearchRunsByRunId({
         client: this.heyClient,
         path: { name: project, runId },
+      }),
+    )
+  }
+
+  /**
+   * Read-semantic promotion projection. This POST does not write a tracked
+   * query or measurement draft; the PR2 commit route owns durable changes.
+   */
+  async previewResearchPromotion(
+    project: string,
+    runId: string,
+    queryId: string,
+    request: ResearchPromotionPreviewRequest,
+  ): Promise<ResearchPromotionPreviewResponse> {
+    return this.invoke<ResearchPromotionPreviewResponse>(() =>
+      postApiV1ProjectsByNameResearchRunsByRunIdQueriesByQueryIdPromotionPreview({
+        client: this.heyClient,
+        path: { name: project, runId, queryId },
+        body: request,
       }),
     )
   }

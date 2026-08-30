@@ -21,6 +21,7 @@ import {
   discoveryCompetitorTypeSchema,
   discoveryPromoteRequestSchema,
   discoveryRunRequestSchema,
+  researchPromotionPreviewRequestSchema,
   researchRunCreateSchema,
   keywordBatchRequestSchema,
   keywordGenerateRequestSchema,
@@ -884,6 +885,13 @@ const researchRunsListInputSchema = z.object({
 const researchRunIdInputSchema = z.object({
   project: projectNameSchema,
   runId: z.string().min(1).describe('Research run ID returned by canonry_research_run_start.'),
+})
+
+const researchPromotionPreviewInputSchema = z.object({
+  project: projectNameSchema,
+  runId: z.string().min(1).describe('Research run ID returned by canonry_research_run_start.'),
+  queryId: z.string().min(1).describe('Completed saved research query ID from canonry_research_run_get.'),
+  request: researchPromotionPreviewRequestSchema.describe('Optional active-v2 target/group selection and assignment query class.'),
 })
 
 const discoveryHarvestInputSchema = z.object({
@@ -2779,6 +2787,18 @@ export const canonryMcpTools = [
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/research/runs/{runId}'],
     handler: (client, input) => client.getResearchRun(input.project, input.runId),
+  }),
+  defineTool({
+    name: 'canonry_research_promotion_preview',
+    title: 'Preview research query promotion',
+    description:
+      'Project a completed saved research query into a tracked-query promotion. It makes no durable change, provider call, audit record, or receipt, and returns a structured refusal when setup or audience is unsuitable. It is classified as write because the read-only key gate rejects every POST route.',
+    access: 'write',
+    tier: 'discovery',
+    inputSchema: researchPromotionPreviewInputSchema,
+    annotations: writeAnnotations({ idempotentHint: true }),
+    openApiOperations: ['POST /api/v1/projects/{name}/research/runs/{runId}/queries/{queryId}/promotion-preview'],
+    handler: (client, input) => client.previewResearchPromotion(input.project, input.runId, input.queryId, input.request),
   }),
   defineTool({
     name: 'canonry_discover_run_start',

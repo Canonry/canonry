@@ -4,6 +4,8 @@ import {
   CitationStates,
   ResearchRunStatuses,
   type LocationContext,
+  type ResearchPromotionPreviewRequest,
+  type ResearchPromotionPreviewResponse,
   type ResearchRunCreate,
   type ResearchRunDetailDto,
   type ResearchRunStatus,
@@ -92,6 +94,29 @@ export async function researchShow(project: string, runId: string, opts: { forma
   printDetail(project, detail, opts.format)
 }
 
+/**
+ * Preview only: the route deliberately writes no tracked query or measurement
+ * draft. A later explicit commit route will own durable promotion.
+ */
+export async function researchPromotionPreview(
+  project: string,
+  runId: string,
+  queryId: string,
+  opts: ResearchPromotionPreviewRequest & { format?: string },
+): Promise<void> {
+  const { format, ...request } = opts
+  const preview = await getClient().previewResearchPromotion(project, runId, queryId, request)
+  if (format === 'json') {
+    console.log(JSON.stringify(preview, null, 2))
+    return
+  }
+  if (format === 'jsonl') {
+    emitJsonl([{ project, runId, queryId, ...preview }])
+    return
+  }
+  printPromotionPreview(preview)
+}
+
 async function pollResearchRun(client: ApiClient, project: string, runId: string, quiet: boolean): Promise<ResearchRunDetailDto> {
   if (!quiet) process.stderr.write(`Waiting for research run ${runId}`)
   const deadline = Date.now() + POLL_TIMEOUT_MS
@@ -119,6 +144,28 @@ function printStarted(project: string, run: ResearchRunSummaryDto): void {
   console.log(`  Provider: ${run.provider}${run.resolvedModel ? ` / ${run.resolvedModel}` : ''}`)
   console.log(`  Inspect:  canonry research show ${project} ${run.id}`)
   console.log('  Nothing was added to tracked queries.')
+}
+
+function printPromotionPreview(preview: ResearchPromotionPreviewResponse): void {
+  if (preview.mode === 'refused') {
+    console.log(`Promotion preview refused: ${preview.refusal.message}`)
+    return
+  }
+  console.log(`Promotion preview: ${preview.mode}`)
+  console.log(`  Tracked query: ${preview.trackedQuery.query}`)
+  if (preview.trackedQuery.state === 'existing') {
+    console.log(`  Reuses: ${preview.trackedQuery.id}`)
+  } else {
+    console.log(`  Proposed ID: ${preview.trackedQuery.proposedId}`)
+  }
+  if (preview.mode === 'simple') {
+    console.log('  No measurement-plan changes are proposed.')
+  } else {
+    console.log(`  Assignments added: ${preview.assignments.added}`)
+    console.log(`  Provider calls added: ${preview.execution.addedProviderCalls}`)
+  }
+  console.log(`  Preview checksum: ${preview.previewChecksum}`)
+  console.log('  No changes were made.')
 }
 
 function printDetail(project: string, detail: ResearchRunDetailDto, format?: string): void {

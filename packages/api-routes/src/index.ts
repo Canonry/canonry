@@ -683,6 +683,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       providerAdapters: opts.providerAdapters,
       configuredProviderNames: opts.providerSummary?.filter(provider => provider.configured).map(provider => provider.name),
       onResearchRunRequested: opts.onResearchRunRequested,
+      getRunnableProviderNames: opts.getRunnableProviderNames,
     } satisfies ResearchRoutesOptions)
     await api.register(technicalAeoRoutes, {
       onSiteAuditRequested: opts.onSiteAuditRequested,

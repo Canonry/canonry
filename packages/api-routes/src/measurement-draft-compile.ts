@@ -54,6 +54,8 @@ export interface MeasurementDraftCompileContext {
   brandNames: readonly string[]
   locations: readonly LocationContext[]
   trackedQueries: ReadonlyArray<{ id: string; query: string }>
+  /** Optional handoff provenance for a newly introduced question. */
+  queryProvenanceById?: ReadonlyMap<string, Pick<MeasurementV2QuerySnapshot['provenance'], 'source' | 'sourceId'>>
 }
 
 export type MeasurementDraftCompileResult =
@@ -448,14 +450,20 @@ export function compileMeasurementDraft(
 
   if (failed()) return { ok: false, checks }
 
-  const querySnapshots: MeasurementV2QuerySnapshot[] = [...usedQueryIds].sort(compareText).map(queryId => ({
-    queryId,
-    queryText: queriesById.get(queryId)!,
-    // Provenance is frozen at publish time so a later reader can explain the
-    // basket without the live authoring assets. `capturedAt` is deliberately
-    // absent from the checksum input, which excludes timestamps.
-    provenance: { source: 'manual' as const, sourceId: null, capturedAt: MEASUREMENT_V2_PROVENANCE_EPOCH },
-  }))
+  const querySnapshots: MeasurementV2QuerySnapshot[] = [...usedQueryIds].sort(compareText).map(queryId => {
+    const supplied = context.queryProvenanceById?.get(queryId)
+    return {
+      queryId,
+      queryText: queriesById.get(queryId)!,
+      // Provenance is frozen at publish time so a later reader can explain the
+      // basket without the live authoring assets. `capturedAt` is deliberately
+      // absent from the checksum input, which excludes timestamps.
+      provenance: {
+        ...(supplied ?? { source: 'manual' as const, sourceId: null }),
+        capturedAt: MEASUREMENT_V2_PROVENANCE_EPOCH,
+      },
+    }
+  })
 
   const draft: MeasurementPlanV2 = {
     schemaVersion: 2,

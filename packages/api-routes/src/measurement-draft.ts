@@ -95,7 +95,8 @@ import {
   type ReceiptLookup,
 } from './measurement-draft-repo.js'
 
-type ProjectRow = typeof projects.$inferSelect
+export type MeasurementDraftProject = typeof projects.$inferSelect
+type ProjectRow = MeasurementDraftProject
 type TransactionClient = Parameters<Parameters<DatabaseClient['transaction']>[0]>[0]
 
 // JSON escaping can expand one source character to six bytes. The embedded
@@ -116,25 +117,42 @@ function authoringIdentity(authoring: MeasurementDraftAuthoring): string {
   return canonicalJson(authoring)
 }
 
-function trackedQueriesFor(db: DatabaseClient, projectId: string): Array<{ id: string; query: string }> {
-  return db.select({ id: queries.id, query: queries.query })
-    .from(queries).where(eq(queries.projectId, projectId)).all()
+function trackedQueriesFor(
+  db: DatabaseClient,
+  projectId: string,
+  extraTrackedQueries: ReadonlyArray<{ id: string; query: string }> = [],
+): Array<{ id: string; query: string }> {
+  return [
+    ...db.select({ id: queries.id, query: queries.query })
+      .from(queries).where(eq(queries.projectId, projectId)).all(),
+    ...extraTrackedQueries,
+  ]
 }
 
-function compileContextFor(db: DatabaseClient, project: ProjectRow): MeasurementDraftCompileContext {
+export function compileContextFor(
+  db: DatabaseClient,
+  project: ProjectRow,
+  extraTrackedQueries: ReadonlyArray<{ id: string; query: string }> = [],
+  queryProvenanceById?: MeasurementDraftCompileContext['queryProvenanceById'],
+): MeasurementDraftCompileContext {
   return {
     canonicalDomain: project.canonicalDomain,
     ownedDomains: project.ownedDomains,
     brandNames: effectiveBrandNames(project),
     locations: project.locations,
-    trackedQueries: trackedQueriesFor(db, project.id),
+    trackedQueries: trackedQueriesFor(db, project.id, extraTrackedQueries),
+    ...(queryProvenanceById ? { queryProvenanceById } : {}),
   }
 }
 
-function actionContextFor(db: DatabaseClient, project: ProjectRow): DraftActionContext {
+export function actionContextFor(
+  db: DatabaseClient,
+  project: ProjectRow,
+  extraTrackedQueries: ReadonlyArray<{ id: string; query: string }> = [],
+): DraftActionContext {
   return {
     brandNames: effectiveBrandNames(project),
-    queriesById: new Map(trackedQueriesFor(db, project.id).map(query => [query.id, query.query])),
+    queriesById: new Map(trackedQueriesFor(db, project.id, extraTrackedQueries).map(query => [query.id, query.query])),
   }
 }
 
@@ -212,7 +230,7 @@ function emptyAuthoring(project: ProjectRow, opts: MeasurementDraftRoutesOptions
  * deterministic proposal of §7.3 for the operator to review — which is what
  * makes republishing an active v1 a review step rather than a silent upgrade.
  */
-function seedAuthoring(
+export function seedAuthoring(
   project: ProjectRow,
   active: StoredMeasurementPlan | null,
   context: DraftActionContext,
@@ -307,7 +325,7 @@ function seedAuthoring(
  * time: an assignment that explicitly overrides providers with `[]` must keep
  * failing, and the immutable plan still receives concrete provider arrays.
  */
-function authoringForCompile(
+export function authoringForCompile(
   authoring: MeasurementDraftAuthoring,
   project: ProjectRow,
   opts: MeasurementDraftRoutesOptions,
@@ -330,7 +348,7 @@ function authoringForCompile(
 }
 
 /** Provider work is the compiled execution graph, never the assignment row count. */
-function assignmentExecutionImpact(before: MeasurementPlanV2, candidate: MeasurementPlanV2) {
+export function assignmentExecutionImpact(before: MeasurementPlanV2, candidate: MeasurementPlanV2) {
   const beforeKeys = new Set(before.executionNodes.map(node => node.stableKey))
   const added = candidate.executionNodes.filter(node => !beforeKeys.has(node.stableKey))
   return {

@@ -1,4 +1,4 @@
-import { researchList, researchRun, researchShow } from '../commands/research.js'
+import { researchList, researchPromotionPreview, researchRun, researchShow } from '../commands/research.js'
 import type { CliCommandSpec, CliCommandInput } from '../cli-dispatch.js'
 import {
   getBoolean,
@@ -12,9 +12,10 @@ import {
 } from '../cli-command-helpers.js'
 import { usageError } from '../cli-error.js'
 import { createApiClient } from '../client.js'
-import type { LocationContext } from '@ainyc/canonry-contracts'
+import { queryClassSchema, type LocationContext } from '@ainyc/canonry-contracts'
 
 const RUN_USAGE = 'canonry research run <project> <query...> [--query <text>] [--provider <name>] [--model <id>] [--location <label>|--no-location] [--idempotency-key <key>] [--wait] [--format json|jsonl]'
+const PROMOTION_PREVIEW_USAGE = 'canonry research promote preview <project> <run-id> <query-id> [--target <key>...] [--group <key>...] [--query-class branded|non-brand] [--format json]'
 
 function normalizeQueries(input: CliCommandInput, usage: string): string[] {
   const positional = input.positionals.slice(1)
@@ -55,6 +56,22 @@ function parseResearchLimit(input: CliCommandInput, usage: string): number | und
   throw usageError(`Error: --limit must be between 1 and 100\nUsage: ${usage}`, {
     message: '--limit must be between 1 and 100',
     details: { command: 'research.list', usage, option: 'limit', value: limit },
+  })
+}
+
+function selectedKeys(input: CliCommandInput, option: 'target' | 'group'): string[] | undefined {
+  const keys = [...new Set((getStringArray(input.values, option) ?? []).map(value => value.trim()).filter(Boolean))]
+  return keys.length > 0 ? keys : undefined
+}
+
+function selectedQueryClass(input: CliCommandInput): 'branded' | 'non-brand' | undefined {
+  const value = getString(input.values, 'query-class')?.trim()
+  if (!value) return undefined
+  const parsed = queryClassSchema.safeParse(value)
+  if (parsed.success) return parsed.data
+  throw usageError(`Error: --query-class must be branded or non-brand\nUsage: ${PROMOTION_PREVIEW_USAGE}`, {
+    message: '--query-class must be branded or non-brand',
+    details: { command: 'research.promote.preview', usage: PROMOTION_PREVIEW_USAGE, option: 'query-class', value },
   })
 }
 
@@ -136,6 +153,37 @@ export const RESEARCH_CLI_COMMANDS: readonly CliCommandSpec[] = [
       const project = requireProject(input, 'research.show', usage)
       const runId = requirePositional(input, 1, { command: 'research.show', usage, message: 'research run ID is required' })
       await researchShow(project, runId, { format: input.format })
+    },
+  },
+  {
+    path: ['research', 'promote', 'preview'],
+    usage: PROMOTION_PREVIEW_USAGE,
+    options: {
+      target: multiStringOption(),
+      group: multiStringOption(),
+      'query-class': stringOption(),
+    },
+    run: async (input) => {
+      const project = requireProject(input, 'research.promote.preview', PROMOTION_PREVIEW_USAGE)
+      const targetKeys = selectedKeys(input, 'target')
+      const groupKeys = selectedKeys(input, 'group')
+      const queryClass = selectedQueryClass(input)
+      const runId = requirePositional(input, 1, {
+        command: 'research.promote.preview',
+        usage: PROMOTION_PREVIEW_USAGE,
+        message: 'research run ID is required',
+      })
+      const queryId = requirePositional(input, 2, {
+        command: 'research.promote.preview',
+        usage: PROMOTION_PREVIEW_USAGE,
+        message: 'research query ID is required',
+      })
+      await researchPromotionPreview(project, runId, queryId, {
+        ...(targetKeys ? { targetKeys } : {}),
+        ...(groupKeys ? { groupKeys } : {}),
+        ...(queryClass ? { queryClass } : {}),
+        format: input.format,
+      })
     },
   },
 ]

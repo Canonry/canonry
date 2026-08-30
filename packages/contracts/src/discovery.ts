@@ -413,6 +413,7 @@ export type DiscoveryPromoteResult = z.infer<typeof discoveryPromoteResultSchema
 export const queryProvenanceSchema = z.union([
   z.literal('cli'),
   z.string().regex(/^discovery:.+$/),
+  z.string().regex(/^research:.+$/),
 ])
 export type QueryProvenance = z.infer<typeof queryProvenanceSchema>
 

@@ -97,7 +97,7 @@ export const measurementV2GroupSchema = z.object({
 }).strict()
 export type MeasurementV2Group = z.output<typeof measurementV2GroupSchema>
 
-export const measurementV2QueryProvenanceSourceSchema = z.enum(['manual', 'query-set', 'template', 'discovery'])
+export const measurementV2QueryProvenanceSourceSchema = z.enum(['manual', 'query-set', 'template', 'discovery', 'research'])
 export type MeasurementV2QueryProvenanceSource = z.output<typeof measurementV2QueryProvenanceSourceSchema>
 
 /** Where the frozen question came from, so a later reader can explain the basket without the live assets. */

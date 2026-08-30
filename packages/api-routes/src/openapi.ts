@@ -1524,6 +1524,27 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'post',
+    path: '/api/v1/projects/{name}/research/runs/{runId}/queries/{queryId}/promotion-preview',
+    summary: 'Preview promotion of a saved research query',
+    description: 'Projects a tracked-query promotion without writing a tracked query, measurement draft, audit record, receipt, or provider result. It remains POST because advanced target/group selections can be sizeable; read-only API keys cannot invoke POST routes.',
+    tags: ['research'],
+    parameters: [
+      nameParameter,
+      { name: 'runId', in: 'path', required: true, description: 'Research run ID.', schema: stringSchema },
+      { name: 'queryId', in: 'path', required: true, description: 'Completed saved research query ID.', schema: stringSchema },
+    ],
+    requestBody: {
+      required: true,
+      content: { 'application/json': { schema: { $ref: '#/components/schemas/ResearchPromotionPreviewRequest' } } },
+    },
+    responses: {
+      200: jsonResponse('Deterministic simple, advanced, or refused promotion projection.', 'ResearchPromotionPreviewResponse'),
+      400: errorResponse('Invalid promotion selection.'),
+      404: errorResponse('Project, research run, or research query not found.'),
+    },
+  },
+  {
+    method: 'post',
     path: '/api/v1/projects/{name}/locations',
     summary: 'Add a project location',
     tags: ['projects'],

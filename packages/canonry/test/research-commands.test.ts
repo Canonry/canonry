@@ -4,13 +4,14 @@ import type { ResearchRunDetailDto } from '@ainyc/canonry-contracts'
 const startResearchRun = vi.fn()
 const listResearchRuns = vi.fn()
 const getResearchRun = vi.fn()
+const previewResearchPromotion = vi.fn()
 const getProject = vi.fn()
 
 vi.mock('../src/client.js', () => ({
-  createApiClient: () => ({ startResearchRun, listResearchRuns, getResearchRun, getProject }),
+  createApiClient: () => ({ startResearchRun, listResearchRuns, getResearchRun, previewResearchPromotion, getProject }),
 }))
 
-const { researchRun, researchShow } = await import('../src/commands/research.js')
+const { researchPromotionPreview, researchRun, researchShow } = await import('../src/commands/research.js')
 const { RESEARCH_CLI_COMMANDS } = await import('../src/cli-commands/research.js')
 
 const detail: ResearchRunDetailDto = {
@@ -38,6 +39,7 @@ describe('research commands', () => {
     vi.clearAllMocks()
     startResearchRun.mockResolvedValue(detail)
     getResearchRun.mockResolvedValue(detail)
+    previewResearchPromotion.mockResolvedValue({ mode: 'simple', previewChecksum: 'a'.repeat(64) })
   })
 
   it('emits exactly one compact parent record for a non-wait jsonl start', async () => {
@@ -110,5 +112,20 @@ describe('research commands', () => {
     }
     expect(getResearchRun).toHaveBeenCalledWith('demo', 'research-1')
     expect(JSON.parse(writes[0]!)).toMatchObject({ project: 'demo', runId: 'research-1', query: 'best AEO software' })
+  })
+
+  it('passes the optional promotion audience and query class through the CLI preview command', async () => {
+    const command = RESEARCH_CLI_COMMANDS.find(candidate => candidate.path.join(' ') === 'research promote preview')!
+    await command.run({
+      positionals: ['demo', 'research-1', 'query-1'],
+      values: { target: ['target-a'], group: ['group-a'], 'query-class': 'non-brand' },
+      format: 'json', dryRun: false,
+    })
+
+    expect(previewResearchPromotion).toHaveBeenCalledWith('demo', 'research-1', 'query-1', {
+      targetKeys: ['target-a'], groupKeys: ['group-a'], queryClass: 'non-brand',
+    })
+    await researchPromotionPreview('demo', 'research-1', 'query-1', { format: 'json' })
+    expect(previewResearchPromotion).toHaveBeenLastCalledWith('demo', 'research-1', 'query-1', {})
   })
 })

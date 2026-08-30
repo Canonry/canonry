@@ -1056,10 +1056,12 @@ describe('Reading the answer', () => {
   })
 })
 
-// Two fictional queries repeat down almost every row, which exercises the
-// production-shaped layout that collapses the Queries cell into a count.
-const REPEATED_QUERY_A = 'best apartments in north district'
-const REPEATED_QUERY_B = 'luxury apartments in north district'
+// Two queries repeated down almost every row — the production shape that
+// motivated collapsing the Queries cell into a count. A real screenshot had
+// nine rows where four carried this exact joined string and the rest carried
+// one half of it.
+const REPEATED_QUERY_A = 'apartments in north district'
+const REPEATED_QUERY_B = 'best apartments near north district'
 const REPEATED_QUERIES_TEXT = `${REPEATED_QUERY_A} · ${REPEATED_QUERY_B}`
 
 type CompetitorRowFixture = {
