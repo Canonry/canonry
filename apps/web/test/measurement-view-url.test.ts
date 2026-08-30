@@ -2,7 +2,9 @@ import { describe, expect, it, test } from 'vitest'
 
 import {
   DEFAULT_MEASUREMENT_VIEW,
+  measurementPropertyViewSearch,
   measurementViewSearch,
+  parseMeasurementPropertyViewSearch,
   parseMeasurementViewSearch,
   shouldResetMeasurementView,
 } from '../src/lib/measurement-view-url.js'
@@ -99,4 +101,22 @@ test('the default view is non-brand and all queries remains explicit', () => {
   expect(measurementViewSearch(DEFAULT_MEASUREMENT_VIEW).class).toBeUndefined()
   expect(parseMeasurementViewSearch({ class: 'all' }).queryClass).toBe('all')
   expect(parseMeasurementViewSearch({ class: 'branded' }).queryClass).toBe('branded')
+})
+
+describe('Property measurement view state', () => {
+  it('only accepts Property-compatible classes from a URL', () => {
+    expect(parseMeasurementPropertyViewSearch({ class: 'branded' })).toEqual({ queryClass: 'branded' })
+    expect(parseMeasurementPropertyViewSearch({ class: 'non-brand' })).toEqual({ queryClass: 'non-brand' })
+  })
+
+  it('treats pooled, malformed, and absent classes as the actionable Property default', () => {
+    for (const queryClass of [undefined, '', 'all', 'ALL', 'nonbrand', 'both']) {
+      expect(parseMeasurementPropertyViewSearch({ class: queryClass })).toEqual({ queryClass: 'non-brand' })
+    }
+  })
+
+  it('always writes an explicit Property class', () => {
+    expect(measurementPropertyViewSearch({ queryClass: 'non-brand' })).toEqual({ class: 'non-brand' })
+    expect(measurementPropertyViewSearch({ queryClass: 'branded' })).toEqual({ class: 'branded' })
+  })
 })

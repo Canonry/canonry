@@ -1,5 +1,5 @@
 import { Fragment, useMemo, useState } from 'react'
-import { Link, useParams } from '@tanstack/react-router'
+import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router'
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { ArrowLeft } from 'lucide-react'
 import { MeasurementEvidenceShapes } from '@ainyc/canonry-contracts'
@@ -25,6 +25,13 @@ import { InfoTooltip } from '../components/shared/InfoTooltip.js'
 import { ToneBadge } from '../components/shared/ToneBadge.js'
 import { useAccount } from '../contexts/account-context.js'
 import { matcherLabel } from '../components/project/advanced-measurement/v2-overview-adapter.js'
+import { MeasurementChangesRail } from '../components/project/MeasurementChangesRail.js'
+import {
+  measurementPropertyViewSearch,
+  measurementViewSearch,
+  parseMeasurementPropertyViewSearch,
+  parseMeasurementViewSearch,
+} from '../lib/measurement-view-url.js'
 
 type QueryClass = 'branded' | 'non-brand'
 type MetricValue = MeasurementOverviewResponse['metrics']['mentionCoverage']
@@ -241,11 +248,11 @@ function MetricCell({ metric, emphasis = false }: { metric: MetricValue; emphasi
   )
 }
 
-function overviewOptions(projectName: string, targetKey: string, queryClass: QueryClass) {
+function overviewOptions(projectName: string, targetKey: string, queryClass: QueryClass, runId?: string) {
   return getApiV1ProjectsByNameMeasurementOverviewOptions({
     client: heyClient,
     path: { name: projectName },
-    query: { scope: 'property', targetKey, queryClass },
+    query: { scope: 'property', targetKey, queryClass, ...(runId ? { runId } : {}) },
   })
 }
 
@@ -308,19 +315,20 @@ function PropertyProvenance({
  * which would read as missing data, name the market(s) where the comparison
  * actually exists and point at the overview that reports them.
  *
- * The market names are TEXT, not controls. There is no market-scoped route: the
- * overview picks its group from local state (`AdvancedMeasurementOverview`), so
- * every per-market button would have carried the reader to the same unscoped
- * URL and silently dropped the market they chose. One link with one destination
- * is honest; N buttons offering a choice the app cannot act on is not. Making
- * the market selectable from a URL is a routing change, not a label change.
+ * Group scope is URL-backed, so every member can now be a direct link to the
+ * exact market that holds its comparison rather than a label that asks readers
+ * to re-select it after navigation.
  */
 function MarketLink({
   project,
   groups,
+  queryClass,
+  measurementRunId,
 }: {
   project: string
   groups: readonly { stableKey: string; label: string; competitors: readonly unknown[] }[]
+  queryClass: QueryClass
+  measurementRunId: string | undefined
 }) {
   if (groups.length === 0) return null
   return (
@@ -334,13 +342,36 @@ function MarketLink({
           </h2>
         </div>
         <Button asChild type="button" size="sm" variant="outline">
-          <Link to="/projects/$projectName" params={{ projectName: project }}>Open measurement overview</Link>
+          <Link
+            to="/projects/$projectName"
+            params={{ projectName: project }}
+            search={(previous: Record<string, unknown>) => ({
+              ...previous,
+              ...measurementViewSearch({ scope: 'all', queryClass }),
+              measurementRunId,
+              runId: undefined,
+            })}
+          >
+            Open measurement overview
+          </Link>
         </Button>
       </div>
       <ul className="flex flex-wrap gap-2">
         {groups.map(group => (
           <li key={group.stableKey} className="rounded-md border border-default px-3 py-1.5 text-sm text-strong">
-            {group.label}
+            <Link
+              to="/projects/$projectName"
+              params={{ projectName: project }}
+              search={(previous: Record<string, unknown>) => ({
+                ...previous,
+                ...measurementViewSearch({ scope: 'group', groupKey: group.stableKey, queryClass }),
+                measurementRunId,
+                runId: undefined,
+              })}
+              className="rounded-sm font-medium text-link outline-none hover:underline focus-visible:ring-2 focus-visible:ring-mono-400"
+            >
+              {group.label}
+            </Link>
             <span className="ml-2 text-xs text-muted">
               {group.competitors.length} {group.competitors.length === 1 ? 'competitor' : 'competitors'}
             </span>
@@ -617,12 +648,23 @@ function competitorQueriesTooltipText(row: {
  * would also lose the `basis` — the count of answers this Property actually
  * missed, without which the occurrence numbers have no denominator.
  */
-function NamedInstead({ project, targetKey, queryClass }: { project: string; targetKey: string; queryClass: QueryClass }) {
+function NamedInstead({
+  project,
+  targetKey,
+  queryClass,
+  runId,
+}: {
+  project: string
+  targetKey: string
+  queryClass: QueryClass
+  /** This comparison is only meaningful for the displayed Property result. */
+  runId: string
+}) {
   const query = useQuery({
     ...getApiV1ProjectsByNameMeasurementPropertyCompetitorsOptions({
       client: heyClient,
       path: { name: project },
-      query: { targetKey, queryClass },
+      query: { targetKey, queryClass, runId },
     }),
   })
 
@@ -748,7 +790,13 @@ function PropertyUrls({ urls }: { urls: readonly string[] }) {
 
 export function MeasurementPropertyPage() {
   const { projectName, targetKey } = useParams({ strict: false }) as { projectName?: string; targetKey?: string }
-  const [queryClass, setQueryClass] = useState<QueryClass>('non-brand')
+  const navigate = useNavigate()
+  const propertySearch = useSearch({ strict: false }) as { scope?: string; class?: string; measurementRunId?: string }
+  const queryClass = parseMeasurementPropertyViewSearch(propertySearch).queryClass
+  const incomingMeasurementView = parseMeasurementViewSearch(propertySearch)
+  const requestedMeasurementRunId = typeof propertySearch.measurementRunId === 'string' && propertySearch.measurementRunId.length > 0
+    ? propertySearch.measurementRunId
+    : undefined
   const [expandedAnswers, setExpandedAnswers] = useState<ReadonlySet<string>>(new Set<string>())
   const project = projectName ?? ''
   const property = targetKey ?? ''
@@ -759,8 +807,19 @@ export function MeasurementPropertyPage() {
     ...getApiV1ProjectsByNameMeasurementPlanOptions({ client: heyClient, path: { name: project } }),
     enabled,
   })
-  const brandedQuery = useQuery({ ...overviewOptions(project, property, 'branded'), enabled })
-  const nonBrandQuery = useQuery({ ...overviewOptions(project, property, 'non-brand'), enabled })
+  const activePlan = planQuery.data?.active ?? null
+  // The backend owns validation: it admits the active revision and its
+  // comparable predecessor chain. Global `runId` remains exclusively drawer
+  // state and is intentionally ignored by this route.
+  const measurementReadsEnabled = enabled
+  const brandedQuery = useQuery({
+    ...overviewOptions(project, property, 'branded', requestedMeasurementRunId),
+    enabled: measurementReadsEnabled,
+  })
+  const nonBrandQuery = useQuery({
+    ...overviewOptions(project, property, 'non-brand', requestedMeasurementRunId),
+    enabled: measurementReadsEnabled,
+  })
 
   const brandedRow = propertyRowOf(brandedQuery.data)
   const nonBrandRow = propertyRowOf(nonBrandQuery.data)
@@ -803,7 +862,6 @@ export function MeasurementPropertyPage() {
     ),
   })
 
-  const activePlan = planQuery.data?.active ?? null
   const planV2 = activePlan?.plan.schemaVersion === 2 ? activePlan.plan as PlanV2 : null
   const legacyPlan = activePlan !== null && planV2 === null
   const target = planV2?.targets.find(candidate => candidate.stableKey === property) ?? null
@@ -855,6 +913,14 @@ export function MeasurementPropertyPage() {
     <Link
       to="/projects/$projectName"
       params={{ projectName: project }}
+      search={(previous: Record<string, unknown>) => ({
+        ...previous,
+        ...measurementViewSearch(incomingMeasurementView.scope === 'group'
+          ? { scope: 'group', groupKey: incomingMeasurementView.groupKey, queryClass }
+          : { scope: 'all', queryClass }),
+        measurementRunId: displayedRunId,
+        runId: undefined,
+      })}
       className="inline-flex items-center gap-1 text-xs text-muted hover:text-strong"
     >
       <ArrowLeft className="size-3.5" aria-hidden="true" />
@@ -976,7 +1042,16 @@ export function MeasurementPropertyPage() {
               : 'This Property needs a new measurement before coverage and source evidence are available.'}
           </p>
           <Button asChild type="button" className="h-11 px-4 text-sm md:h-11">
-            <Link to="/projects/$projectName" params={{ projectName: project }}>
+            <Link
+              to="/projects/$projectName"
+              params={{ projectName: project }}
+              search={(previous: Record<string, unknown>) => ({
+                ...previous,
+                ...measurementViewSearch({ scope: 'all', queryClass }),
+                measurementRunId: displayedRunId,
+                runId: undefined,
+              })}
+            >
               {canWrite ? 'Go to measurement overview' : 'View measurement overview'}
             </Link>
           </Button>
@@ -989,7 +1064,17 @@ export function MeasurementPropertyPage() {
           <select
             id="property-query-class"
             value={queryClass}
-            onChange={event => setQueryClass(event.target.value === 'branded' ? 'branded' : 'non-brand')}
+            onChange={event => {
+              const nextQueryClass = event.target.value === 'branded' ? 'branded' : 'non-brand'
+              void navigate({
+                to: '.',
+                search: (previous: Record<string, unknown>) => ({
+                  ...previous,
+                  ...measurementPropertyViewSearch({ queryClass: nextQueryClass }),
+                }),
+                replace: false,
+              })
+            }}
             className="h-11 rounded-md border border-default bg-surface px-3 text-sm text-primary focus:outline-none focus:ring-2 focus:ring-mono-400"
           >
             <option value="non-brand">{CLASS_LABELS['non-brand'].technical}</option>
@@ -1006,10 +1091,19 @@ export function MeasurementPropertyPage() {
       <ProviderBreakdown row={selectedRow} queryClass={queryClass} isError={selectedClassUnavailable} />
       {/* Directly under coverage, because it is what coverage raises and cannot
           answer. The evidence table below is the receipts; this is the finding. */}
-      <NamedInstead project={project} targetKey={property} queryClass={queryClass} />
+      {displayedRunId ? (
+        <MeasurementChangesRail
+          project={project}
+          scope="property"
+          targetKey={property}
+          queryClass={queryClass}
+          runId={displayedRunId}
+        />
+      ) : null}
+      {displayedRunId ? <NamedInstead project={project} targetKey={property} queryClass={queryClass} runId={displayedRunId} /> : null}
       <AssignedQuestions questions={questions} queryClass={queryClass} />
       <PropertyUrls urls={urls} />
-      <MarketLink project={project} groups={memberGroups} />
+      <MarketLink project={project} groups={memberGroups} queryClass={queryClass} measurementRunId={displayedRunId} />
 
       <section aria-labelledby="property-evidence" className="page-section-divider">
         <div className="section-head section-head-inline">

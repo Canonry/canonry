@@ -247,6 +247,13 @@ test('?runId= opens the run drawer', async () => {
   }
 })
 
+test('measurementRunId is retained as measurement context without opening the run drawer', async () => {
+  const { container, router } = await renderRoute('/?measurementRunId=run_citypoint_001')
+
+  expect(router.state.location.search.measurementRunId).toBe('run_citypoint_001')
+  expect(container.querySelector('[role="dialog"]')).toBeNull()
+})
+
 // ── Browser back/forward ──
 
 test('back/forward navigation works via router history', async () => {

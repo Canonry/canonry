@@ -13,6 +13,7 @@ import { projectScheduleQueryOptions } from '../src/queries/schedule-query.js'
 import {
   getApiV1ProjectsByNameMeasurementOverviewInfiniteQueryKey,
   getApiV1ProjectsByNameMeasurementPlanQueryKey,
+  getApiV1ProjectsByNameMeasurementPortfolioSummaryQueryKey,
   getApiV1ProjectsByNameMeasurementSetupQueryKey,
   getApiV1ProjectsByNameMeasurementReportQueryKey,
   getApiV1ProjectsByNameQueriesQueryKey,
@@ -40,7 +41,8 @@ async function renderAt(
       | ReturnType<typeof activeMeasurementSetupResponse>
     report?: ReturnType<typeof measurementReportResponse>
     overview?: ReturnType<typeof measurementOverviewResponse>
-    overviewKey?: { scope?: 'all' | 'group'; groupKey?: string; queryClass?: 'all' | 'non-brand' | 'branded' }
+    summary?: ReturnType<typeof measurementPortfolioSummaryResponse>
+    overviewKey?: { scope?: 'all' | 'group'; groupKey?: string; queryClass?: 'all' | 'non-brand' | 'branded'; runId?: string }
   },
   /**
    * `seedPlan: false` leaves the measurement-plan query unseeded, which is the
@@ -108,6 +110,7 @@ async function renderAt(
       scope: measurement.overviewKey?.scope ?? 'all',
       ...(measurement.overviewKey?.groupKey ? { groupKey: measurement.overviewKey.groupKey } : {}),
       queryClass: measurement.overviewKey?.queryClass ?? 'non-brand',
+      ...(measurement.overviewKey?.runId ? { runId: measurement.overviewKey.runId } : {}),
       limit: 50,
     }
     queryClient.setQueryData(
@@ -118,6 +121,21 @@ async function renderAt(
       }),
       { pages: [measurement.overview], pageParams: [{ path: { name: projectName }, query: q }] },
     )
+    if (measurement.summary) {
+      const summaryQuery = {
+        queryClass: q.queryClass,
+        ...(q.groupKey ? { groupKey: q.groupKey } : {}),
+        ...(measurement.overview.measurement.displayedRunId ? { runId: measurement.overview.measurement.displayedRunId } : {}),
+      }
+      queryClient.setQueryData(
+        getApiV1ProjectsByNameMeasurementPortfolioSummaryQueryKey({
+          client: heyClient,
+          path: { name: projectName },
+          query: summaryQuery,
+        }),
+        measurement.summary,
+      )
+    }
   }
   const router = createAppRouter(queryClient, { initialEntries: [pathname] })
   await router.load()
@@ -250,6 +268,7 @@ function measurementOverviewResponse(overrides: {
   label?: string
   targetKey?: string
   queryClass?: 'all' | 'non-brand' | 'branded'
+  displayedRunId?: string
 } = {}) {
   return {
     mode: 'active-v2' as const,
@@ -261,7 +280,7 @@ function measurementOverviewResponse(overrides: {
     queryClass: (overrides.queryClass ?? 'non-brand') as 'all' | 'non-brand' | 'branded',
     measurement: {
       state: 'complete' as const,
-      displayedRunId: 'run-synthetic',
+      displayedRunId: overrides.displayedRunId ?? 'run-synthetic',
       completed: 1,
       expected: 1,
       completedAt: '2026-08-02T12:05:00.000Z',
@@ -319,6 +338,67 @@ function measurementPortfolioSummaryResponse(groupKey?: string, queryClass: 'all
     }],
     totalProperties: groupKey ? 1 : 218,
     truncated: false,
+  }
+}
+
+function measurementChangesResponse() {
+  const metric = (delta: number) => ({
+    state: 'available' as const,
+    previous: { state: 'available' as const, value: 0.5 },
+    current: { state: 'available' as const, value: 0.5 + delta },
+    delta,
+  })
+  return {
+    current: {
+      state: 'complete' as const,
+      displayedRunId: 'run-synthetic',
+      planRevision: 4,
+      completedAt: '2026-08-02T12:05:00.000Z',
+      executionIdentity: 'openai:search-model',
+      measurementScope: 'full' as const,
+    },
+    comparison: {
+      state: 'available' as const,
+      previous: {
+        displayedRunId: 'run-previous',
+        planRevision: 4,
+        completedAt: '2026-08-01T12:05:00.000Z',
+        executionIdentity: 'openai:search-model',
+        measurementScope: 'full' as const,
+      },
+      metrics: {
+        propertiesMentioned: metric(0),
+        mentionCoverage: metric(0.1),
+        citationCoverage: metric(-0.1),
+      },
+      changedProperties: [],
+      totalProperties: 1,
+      truncated: false,
+    },
+  }
+}
+
+function runDetailResponse(
+  id: string,
+  kind: 'answer-visibility' | 'site-audit',
+  overrides: Record<string, unknown> = {},
+) {
+  return {
+    id,
+    projectId: 'project_citypoint',
+    kind,
+    status: 'completed' as const,
+    trigger: 'manual' as const,
+    measurementPlanVersionId: kind === 'answer-visibility' ? 'measurement-plan-v4' : null,
+    measurementScope: null,
+    location: null,
+    queries: null,
+    startedAt: '2026-08-02T12:00:00.000Z',
+    finishedAt: '2026-08-02T12:05:00.000Z',
+    error: null,
+    createdAt: '2026-08-02T12:00:00.000Z',
+    snapshots: [],
+    ...overrides,
   }
 }
 
@@ -531,13 +611,74 @@ test('a version-two setup never renders version-one class metrics as if they wer
   expect(html).not.toContain('Republish setup to enable Non-brand and Branded reporting.')
 })
 
+test('a Property link carries the overview snapshot without opening a run drawer', async () => {
+  const html = await renderAt('/projects/project_citypoint?scope=group:north&class=non-brand', undefined, {
+    plan: measurementPlanV2Response(4),
+    overview: measurementOverviewResponse({
+      scope: 'group', scopeKey: 'north', scopeLabel: 'North', label: 'North Property', displayedRunId: 'run-synthetic',
+    }),
+    overviewKey: { scope: 'group', groupKey: 'north', queryClass: 'non-brand' },
+  })
+  const doc = new DOMParser().parseFromString(html, 'text/html')
+  const propertyLink = [...doc.querySelectorAll<HTMLAnchorElement>('a')]
+    .find(anchor => anchor.textContent === 'North Property')
+
+  expect(propertyLink).toBeTruthy()
+  const destination = new URL(propertyLink!.href, window.location.origin)
+  expect(destination.searchParams.get('scope')).toBe('group:north')
+  expect(destination.searchParams.get('class')).toBe('non-brand')
+  expect(destination.searchParams.get('measurementRunId')).toBe('run-synthetic')
+  expect(destination.searchParams.get('runId')).toBeNull()
+})
+
+test('Portfolio and Group links carry the overview snapshot without a drawer param', async () => {
+  const portfolioHtml = await renderAt('/projects/project_citypoint', undefined, {
+    plan: measurementPlanV2Response(4),
+    overview: measurementOverviewResponse({ displayedRunId: 'run-synthetic' }),
+    summary: measurementPortfolioSummaryResponse(),
+    overviewKey: { scope: 'all', queryClass: 'non-brand' },
+  })
+  const portfolioDocument = new DOMParser().parseFromString(portfolioHtml, 'text/html')
+  const groupLink = [...portfolioDocument.querySelectorAll<HTMLAnchorElement>('a')]
+    .find(anchor => anchor.textContent === 'North')
+  expect(groupLink).toBeTruthy()
+  const groupDestination = new URL(groupLink!.href, window.location.origin)
+  expect(groupDestination.searchParams.get('scope')).toBe('group:north')
+  expect(groupDestination.searchParams.get('measurementRunId')).toBe('run-synthetic')
+  expect(groupDestination.searchParams.get('runId')).toBeNull()
+  expect(groupDestination.searchParams.get('class')).toBeNull()
+
+  const groupHtml = await renderAt('/projects/project_citypoint?scope=group:north', undefined, {
+    plan: measurementPlanV2Response(4),
+    overview: measurementOverviewResponse({
+      scope: 'group', scopeKey: 'north', scopeLabel: 'North', displayedRunId: 'run-synthetic',
+    }),
+    summary: measurementPortfolioSummaryResponse('north'),
+    overviewKey: { scope: 'group', groupKey: 'north', queryClass: 'non-brand' },
+  })
+  const groupDocument = new DOMParser().parseFromString(groupHtml, 'text/html')
+  const portfolioLink = [...groupDocument.querySelectorAll<HTMLAnchorElement>('a')]
+    .find(anchor => {
+      const destination = new URL(anchor.href, window.location.origin)
+      return anchor.textContent === 'Portfolio'
+        && destination.pathname.startsWith('/projects/')
+        && destination.pathname.split('/').filter(Boolean).length === 2
+    })
+  expect(portfolioLink).toBeTruthy()
+  const portfolioDestination = new URL(portfolioLink!.href, window.location.origin)
+  expect(portfolioDestination.searchParams.get('scope')).toBeNull()
+  expect(portfolioDestination.searchParams.get('measurementRunId')).toBe('run-synthetic')
+  expect(portfolioDestination.searchParams.get('runId')).toBeNull()
+  expect(portfolioDestination.searchParams.get('class')).toBeNull()
+})
+
 test('a version-two Overview uses server scope, search and pagination and defers evidence until a Property expands', async () => {
   const observed: string[] = []
   let releaseSearch: (() => void) | undefined
   let failRetrySearch = true
   const searchGate = new Promise<void>(resolve => { releaseSearch = resolve })
   const fixture = createDashboardFixture({})
-  const drawerRunId = fixture.dashboard.projects.flatMap(project => project.recentRuns)[0]!.id
+  const measurementRunId = 'run-measurement'
   const realFetch = globalThis.fetch
   globalThis.fetch = (async (input: RequestInfo | URL) => {
     const raw = input instanceof Request ? input.url : String(input)
@@ -558,6 +699,7 @@ test('a version-two Overview uses server scope, search and pagination and defers
       })
     }
     if (url.pathname.endsWith('/measurement-overview')) {
+      const displayedRunId = url.searchParams.get('runId') ?? 'run-synthetic'
       if (url.searchParams.get('search') === 'retry') {
         if (failRetrySearch) {
           failRetrySearch = false
@@ -568,6 +710,7 @@ test('a version-two Overview uses server scope, search and pagination and defers
           scopeKey: 'north',
           scopeLabel: 'North',
           label: 'Recovered Search Result',
+          displayedRunId,
         }))
       }
       if (url.searchParams.get('cursor') === 'cursor-2') {
@@ -575,6 +718,7 @@ test('a version-two Overview uses server scope, search and pagination and defers
           label: 'Harbor Annex',
           targetKey: 'harbor-annex',
           totalEstimate: 2,
+          displayedRunId,
         }))
       }
       if (url.searchParams.get('search') === 'harbor') {
@@ -584,6 +728,7 @@ test('a version-two Overview uses server scope, search and pagination and defers
           scopeKey: 'north',
           scopeLabel: 'North',
           label: 'Harbor Search Result',
+          displayedRunId,
         }))
       }
       if (url.searchParams.get('groupKey') === 'north') {
@@ -592,9 +737,10 @@ test('a version-two Overview uses server scope, search and pagination and defers
           scopeKey: 'north',
           scopeLabel: 'North',
           label: 'North Property',
+          displayedRunId,
         }))
       }
-      return jsonResponse(measurementOverviewResponse({ nextCursor: 'cursor-2', totalEstimate: 2 }))
+      return jsonResponse(measurementOverviewResponse({ nextCursor: 'cursor-2', totalEstimate: 2, displayedRunId }))
     }
     if (url.pathname.endsWith('/measurement-portfolio-summary')) {
       return jsonResponse(measurementPortfolioSummaryResponse(
@@ -602,13 +748,43 @@ test('a version-two Overview uses server scope, search and pagination and defers
         (url.searchParams.get('queryClass') ?? 'non-brand') as 'all' | 'non-brand' | 'branded',
       ))
     }
-    if (url.pathname.endsWith('/measurement-report')) return jsonResponse(measurementReportResponse(4))
+    if (url.pathname.endsWith('/measurement-changes')) return jsonResponse(measurementChangesResponse())
+    if (url.pathname.endsWith('/measurement-property-evidence')) {
+      const displayedRunId = url.searchParams.get('runId') ?? 'run-synthetic'
+      return jsonResponse({
+        property: { targetKey: url.searchParams.get('targetKey') ?? 'harbor-house', label: 'Harbor Search Result' },
+        queryClass: url.searchParams.get('queryClass') ?? 'non-brand',
+        measurement: { state: 'complete', displayedRunId },
+        evidence: {
+          items: [{
+            observationId: 'observation-1',
+            expectedSlotId: 'slot-1',
+            executionId: 'node-old',
+            usageEdgeId: 'edge-1',
+            usageEdgeType: 'target',
+            provider: 'openai',
+            queryText: 'old service query',
+            location: null,
+            sourceUrl: 'https://locations.example/harbor-house',
+            bridged: false,
+            historical: false,
+            evidenceComplete: true,
+            classification: 'assigned',
+            normalizedUrl: 'https://locations.example/harbor-house',
+            matchedTargetIds: ['harbor-house'],
+            matchedUrlIds: ['url-1'],
+          }],
+          nextCursor: null,
+          totalEstimate: 1,
+        },
+      })
+    }
     return jsonResponse({ code: 'NOT_FOUND', message: 'not found' }, 404)
   }) as typeof fetch
   onTestFinished(() => { globalThis.fetch = realFetch })
 
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  const router = createAppRouter(queryClient, { initialEntries: [`/projects/project_citypoint?runId=${drawerRunId}`] })
+  const router = createAppRouter(queryClient, { initialEntries: [`/projects/project_citypoint?measurementRunId=${measurementRunId}`] })
   await router.load()
   const page = render(
     <QueryClientProvider client={queryClient}>
@@ -622,32 +798,45 @@ test('a version-two Overview uses server scope, search and pagination and defers
   const firstOverviewUrl = observed.find(path => path.includes('/measurement-overview?'))
   expect(firstOverviewUrl).toContain('scope=all')
   expect(firstOverviewUrl).toContain('queryClass=non-brand')
+  expect(firstOverviewUrl).toContain(`runId=${measurementRunId}`)
   expect(firstOverviewUrl).toContain('limit=50')
   expect(observed.some(path => path.includes('/measurement-report?'))).toBe(false)
-  expect(await page.findByRole('heading', { name: 'Portfolio pulse' })).toBeTruthy()
-  expect(page.getByRole('dialog')).toBeTruthy()
+  expect(await page.findByRole('heading', { name: 'Portfolio pulse', hidden: true })).toBeTruthy()
+  expect(page.queryByRole('dialog')).toBeNull()
+  expect(observed.some(path => path.includes(`/runs/${measurementRunId}`))).toBe(false)
   await waitFor(() => expect(observed.some(path => path.includes('/measurement-portfolio-summary?')
     && path.includes('queryClass=non-brand')
-    && path.includes('runId=run-synthetic'))).toBe(true))
+    && path.includes(`runId=${measurementRunId}`))).toBe(true))
 
-  fireEvent.click(page.getByRole('button', { name: 'Show 50 more' }))
+  fireEvent.click(page.getByRole('button', { name: 'Show 50 more', hidden: true }))
   expect(await page.findByText('Harbor Annex')).toBeTruthy()
-  expect(observed.some(path => path.includes('cursor=cursor-2') && path.includes('runId=run-synthetic'))).toBe(true)
+  expect(observed.some(path => path.includes('cursor=cursor-2') && path.includes(`runId=${measurementRunId}`))).toBe(true)
 
   // The Pulse row is a real URL-backed link, so Groups remain shareable rather
   // than becoming local dropdown state.
-  const pulseGroups = page.getByRole('table', { name: /Advanced measurement Groups/ })
-  fireEvent.click(within(pulseGroups).getByRole('link', { name: 'North' }))
+  const pulseGroups = page.getByRole('table', { name: /Advanced measurement Groups/, hidden: true })
+  fireEvent.click(within(pulseGroups).getByRole('link', { name: 'North', hidden: true }))
   expect(await page.findByText('North Property')).toBeTruthy()
-  expect(router.state.location.search.runId).toBe(drawerRunId)
-  expect(page.getByRole('dialog')).toBeTruthy()
+  // A resolved measurement snapshot owns continuity between Portfolio and a
+  // Group without reusing the global drawer's `runId` namespace.
+  expect(router.state.location.search.measurementRunId).toBe(measurementRunId)
+  expect(router.state.location.search.runId).toBeUndefined()
+  expect(page.queryByRole('dialog')).toBeNull()
   expect(observed.some(path => path.includes('scope=group') && path.includes('groupKey=north'))).toBe(true)
   await waitFor(() => expect(observed.some(path => path.includes('/measurement-portfolio-summary?')
     && path.includes('groupKey=north')
     && path.includes('queryClass=non-brand')
-    && path.includes('runId=run-synthetic'))).toBe(true))
+    && path.includes(`runId=${measurementRunId}`))).toBe(true))
 
-  expect(page.getByRole('heading', { name: 'North' })).toBeTruthy()
+  expect(page.getByRole('heading', { name: 'North', hidden: true })).toBeTruthy()
+  expect(await page.findByRole('heading', { name: 'Since previous comparable sweep', hidden: true })).toBeTruthy()
+  expect(page.getAllByLabelText('Property outcomes')).toHaveLength(1)
+  const propertyLink = page.getByRole('link', { name: 'North Property', hidden: true })
+  const propertyDestination = new URL(propertyLink.getAttribute('href')!, window.location.origin)
+  expect(propertyDestination.searchParams.get('scope')).toBe('group:north')
+  expect(propertyDestination.searchParams.get('class')).toBe('non-brand')
+  expect(propertyDestination.searchParams.get('measurementRunId')).toBe(measurementRunId)
+  expect(propertyDestination.searchParams.get('runId')).toBeNull()
   fireEvent.change(page.getByLabelText('Search properties'), { target: { value: 'harbor' } })
   await waitFor(() => expect(observed.some(path => path.includes('search=harbor'))).toBe(true))
   await waitFor(() => expect(page.queryByRole('heading', { name: 'North' })).toBeNull())
@@ -661,20 +850,397 @@ test('a version-two Overview uses server scope, search and pagination and defers
 
   fireEvent.click(page.getByText('Harbor Search Result').closest('tr')!)
   expect(await page.findByText('Assigned queries')).toBeTruthy()
-  await waitFor(() => expect(observed.some(path => path.includes('/measurement-report?revision=4') && path.includes('runId=run-synthetic'))).toBe(true))
+  await waitFor(() => expect(observed.some(path => path.includes('/measurement-property-evidence?')
+    && path.includes('targetKey=harbor-house')
+    && path.includes(`runId=${measurementRunId}`))).toBe(true))
+  expect(observed.some(path => path.includes('/measurement-report?'))).toBe(false)
 
   fireEvent.change(page.getByLabelText('Search properties'), { target: { value: 'retry' } })
   expect(await page.findByText('Could not load the advanced measurement report.')).toBeTruthy()
-  fireEvent.click(page.getByRole('button', { name: 'Retry report' }))
+  fireEvent.click(page.getByRole('button', { name: 'Retry report', hidden: true }))
   expect(await page.findByText('Recovered Search Result')).toBeTruthy()
   expect((page.getByLabelText('Search properties') as HTMLInputElement).value).toBe('retry')
 
   fireEvent.change(page.getByLabelText('Search properties'), { target: { value: '' } })
-  const groupPulse = (await page.findByRole('heading', { name: 'North' })).closest('section')!
-  fireEvent.click(within(groupPulse).getByRole('link', { name: 'Portfolio' }))
-  expect(await page.findByRole('heading', { name: 'Portfolio pulse' })).toBeTruthy()
+  const groupPulse = (await page.findByRole('heading', { name: 'North', hidden: true })).closest('section')!
+  fireEvent.click(within(groupPulse).getByRole('link', { name: 'Portfolio', hidden: true }))
+  expect(await page.findByRole('heading', { name: 'Portfolio pulse', hidden: true })).toBeTruthy()
+  expect(router.state.location.search.measurementRunId).toBe(measurementRunId)
+  expect(router.state.location.search.runId).toBeUndefined()
+  expect(page.queryByRole('dialog')).toBeNull()
+})
+
+test('a non-measurement run drawer does not pin Group measurement reads', async () => {
+  const observed: string[] = []
+  const drawerRunId = 'run-site-audit'
+  const fixture = createDashboardFixture({})
+  const realFetch = globalThis.fetch
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const raw = input instanceof Request ? input.url : String(input)
+    const url = new URL(raw, window.location.origin)
+    const path = `${decodeURIComponent(url.pathname)}${url.search}`
+    observed.push(path)
+
+    if (url.pathname.endsWith(`/runs/${drawerRunId}`)) return jsonResponse(runDetailResponse(drawerRunId, 'site-audit'))
+    if (path.endsWith('/runs?kind=answer-visibility')) return jsonResponse([])
+    if (path.endsWith('/measurement-plan')) return jsonResponse(measurementPlanV2Response(4))
+    if (path.endsWith('/measurement-setup')) return jsonResponse(activeMeasurementSetupResponse(4))
+    if (url.pathname.endsWith('/measurement-overview')) {
+      if (url.searchParams.has('runId')) {
+        return jsonResponse({ code: 'INVALID_RUN', message: 'Not a measurement run' }, 422)
+      }
+      return jsonResponse(measurementOverviewResponse({ scope: 'group', scopeKey: 'north', scopeLabel: 'North', label: 'North Property' }))
+    }
+    if (url.pathname.endsWith('/measurement-portfolio-summary')) return jsonResponse(measurementPortfolioSummaryResponse('north'))
+    if (url.pathname.endsWith('/measurement-changes')) {
+      if (url.searchParams.get('runId') === drawerRunId) {
+        return jsonResponse({ code: 'INVALID_RUN', message: 'Not a measurement run' }, 422)
+      }
+      return jsonResponse(measurementChangesResponse())
+    }
+    return jsonResponse({ code: 'NOT_FOUND', message: 'not found' }, 404)
+  }) as typeof fetch
+  onTestFinished(() => { globalThis.fetch = realFetch })
+
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const router = createAppRouter(queryClient, { initialEntries: [`/projects/project_citypoint?scope=group:north&runId=${drawerRunId}`] })
+  await router.load()
+  const page = render(
+    <QueryClientProvider client={queryClient}>
+      <DashboardProvider value={{ dashboard: fixture.dashboard, health: fixture.health }}>
+        <RouterProvider router={router} />
+      </DashboardProvider>
+    </QueryClientProvider>,
+  )
+
+  expect(await page.findByText('North Property')).toBeTruthy()
+  expect(await page.findByRole('heading', { name: 'Since previous comparable sweep', hidden: true })).toBeTruthy()
   expect(router.state.location.search.runId).toBe(drawerRunId)
   expect(page.getByRole('dialog')).toBeTruthy()
+
+  const overviewRequests = observed.filter(path => path.includes('/measurement-overview?'))
+  expect(overviewRequests).not.toHaveLength(0)
+  expect(overviewRequests.every(path => new URL(path, window.location.origin).searchParams.get('runId') === null)).toBe(true)
+  const changesRequests = observed.filter(path => path.includes('/measurement-changes?'))
+  expect(changesRequests).not.toHaveLength(0)
+  expect(changesRequests.every(path => new URL(path, window.location.origin).searchParams.get('runId') === 'run-synthetic')).toBe(true)
+})
+
+test.each([
+  ["another project's answer-visibility run", { projectId: 'project-other' }],
+  ['an unplanned answer-visibility run', { measurementPlanVersionId: 'measurement-plan-old' }],
+  ['a full probe run', { trigger: 'probe', measurementScope: null }],
+  ['a scoped probe run', {
+    trigger: 'probe',
+    measurementScope: { groups: ['north'], targets: [], queries: [], resolvedTargets: ['harbor-house'] },
+  }],
+])('%s does not pin Group measurement reads', async (_label, overrides) => {
+  const observed: string[] = []
+  const drawerRunId = 'run-rejected-measurement'
+  const fixture = createDashboardFixture({})
+  const realFetch = globalThis.fetch
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const raw = input instanceof Request ? input.url : String(input)
+    const url = new URL(raw, window.location.origin)
+    const path = `${decodeURIComponent(url.pathname)}${url.search}`
+    observed.push(path)
+
+    if (url.pathname.endsWith(`/runs/${drawerRunId}`)) {
+      return jsonResponse(runDetailResponse(drawerRunId, 'answer-visibility', overrides))
+    }
+    if (path.endsWith('/runs?kind=answer-visibility')) return jsonResponse([])
+    if (path.endsWith('/measurement-plan')) return jsonResponse(measurementPlanV2Response(4))
+    if (path.endsWith('/measurement-setup')) return jsonResponse(activeMeasurementSetupResponse(4))
+    if (url.pathname.endsWith('/measurement-overview')) {
+      if (url.searchParams.has('runId')) return jsonResponse({ code: 'INVALID_RUN' }, 422)
+      return jsonResponse(measurementOverviewResponse({ scope: 'group', scopeKey: 'north', scopeLabel: 'North', label: 'North Property' }))
+    }
+    if (url.pathname.endsWith('/measurement-portfolio-summary')) return jsonResponse(measurementPortfolioSummaryResponse('north'))
+    if (url.pathname.endsWith('/measurement-changes')) return jsonResponse(measurementChangesResponse())
+    return jsonResponse({ code: 'NOT_FOUND', message: 'not found' }, 404)
+  }) as typeof fetch
+  onTestFinished(() => { globalThis.fetch = realFetch })
+
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const router = createAppRouter(queryClient, { initialEntries: [`/projects/project_citypoint?scope=group:north&runId=${drawerRunId}`] })
+  await router.load()
+  const page = render(
+    <QueryClientProvider client={queryClient}>
+      <DashboardProvider value={{ dashboard: fixture.dashboard, health: fixture.health }}>
+        <RouterProvider router={router} />
+      </DashboardProvider>
+    </QueryClientProvider>,
+  )
+
+  expect(await page.findByText('North Property')).toBeTruthy()
+  const overviewRequests = observed.filter(path => path.includes('/measurement-overview?'))
+  expect(overviewRequests).not.toHaveLength(0)
+  expect(overviewRequests.every(path => new URL(path, window.location.origin).searchParams.get('runId') === null)).toBe(true)
+  expect(router.state.location.search.runId).toBe(drawerRunId)
+})
+
+test('a cached active plan cannot validate a drawer run after revalidation fails', async () => {
+  const observed: string[] = []
+  const stalePlanRunId = 'run-stale-active-plan'
+  const fixture = createDashboardFixture({})
+  const projectName = fixture.dashboard.projects.find(project => project.project.id === 'project_citypoint')!.project.name
+  const realFetch = globalThis.fetch
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const raw = input instanceof Request ? input.url : String(input)
+    const url = new URL(raw, window.location.origin)
+    const path = `${decodeURIComponent(url.pathname)}${url.search}`
+    observed.push(path)
+
+    if (url.pathname.endsWith(`/runs/${stalePlanRunId}`)) return jsonResponse(runDetailResponse(stalePlanRunId, 'answer-visibility'))
+    if (path.endsWith('/runs?kind=answer-visibility')) return jsonResponse([])
+    if (path.endsWith('/measurement-plan')) return jsonResponse({ code: 'INTERNAL_ERROR', message: 'Synthetic revalidation failure' }, 500)
+    if (path.endsWith('/measurement-setup')) return jsonResponse(activeMeasurementSetupResponse(4))
+    if (url.pathname.endsWith('/measurement-overview')) {
+      if (url.searchParams.get('runId') === stalePlanRunId) {
+        return jsonResponse({ code: 'INVALID_RUN', message: 'Stale plan cannot validate this pin' }, 422)
+      }
+      return jsonResponse(measurementOverviewResponse({
+        scope: 'group', scopeKey: 'north', scopeLabel: 'North', label: 'North Property', displayedRunId: 'run-unpinned',
+      }))
+    }
+    if (url.pathname.endsWith('/measurement-portfolio-summary')) return jsonResponse(measurementPortfolioSummaryResponse('north'))
+    if (url.pathname.endsWith('/measurement-changes')) return jsonResponse(measurementChangesResponse())
+    return jsonResponse({ code: 'NOT_FOUND', message: 'not found' }, 404)
+  }) as typeof fetch
+  onTestFinished(() => { globalThis.fetch = realFetch })
+
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  queryClient.setQueryData(
+    getApiV1ProjectsByNameMeasurementPlanQueryKey({ client: heyClient, path: { name: projectName } }),
+    measurementPlanV2Response(4),
+  )
+  const router = createAppRouter(queryClient, {
+    initialEntries: [`/projects/project_citypoint?scope=group:north&runId=${stalePlanRunId}`],
+  })
+  await router.load()
+  const page = render(
+    <QueryClientProvider client={queryClient}>
+      <DashboardProvider value={{ dashboard: fixture.dashboard, health: fixture.health }}>
+        <RouterProvider router={router} />
+      </DashboardProvider>
+    </QueryClientProvider>,
+  )
+
+  await waitFor(() => expect(observed.some(path => path.endsWith('/measurement-plan'))).toBe(true))
+  expect(await page.findByText('North Property')).toBeTruthy()
+  const measurementRequests = observed.filter(path => /measurement-overview|measurement-changes/.test(path))
+  expect(measurementRequests).not.toHaveLength(0)
+  expect(measurementRequests.every(path => new URL(path, window.location.origin).searchParams.get('runId') !== stalePlanRunId)).toBe(true)
+})
+
+test('Group changes clear while a new valid overview pin is resolving', async () => {
+  const observed: string[] = []
+  let releaseNextOverview: (() => void) | undefined
+  const nextOverview = new Promise<void>(resolve => { releaseNextOverview = resolve })
+  const fixture = createDashboardFixture({})
+  const realFetch = globalThis.fetch
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const raw = input instanceof Request ? input.url : String(input)
+    const url = new URL(raw, window.location.origin)
+    const path = `${decodeURIComponent(url.pathname)}${url.search}`
+    observed.push(path)
+
+    if (path.endsWith('/runs?kind=answer-visibility')) return jsonResponse([])
+    if (path.endsWith('/measurement-plan')) return jsonResponse(measurementPlanV2Response(4))
+    if (path.endsWith('/measurement-setup')) return jsonResponse(activeMeasurementSetupResponse(4))
+    if (url.pathname.endsWith('/measurement-overview')) {
+      if (url.searchParams.get('runId') === 'run-measurement-new') {
+        await nextOverview
+        return jsonResponse(measurementOverviewResponse({
+          scope: 'group', scopeKey: 'north', scopeLabel: 'North', label: 'New Property', displayedRunId: 'run-measurement-new',
+        }))
+      }
+      return jsonResponse(measurementOverviewResponse({
+        scope: 'group', scopeKey: 'north', scopeLabel: 'North', label: 'Old Property', displayedRunId: 'run-measurement-old',
+      }))
+    }
+    if (url.pathname.endsWith('/measurement-portfolio-summary')) return jsonResponse(measurementPortfolioSummaryResponse('north'))
+    if (url.pathname.endsWith('/measurement-changes')) {
+      const response = measurementChangesResponse()
+      const runId = url.searchParams.get('runId')!
+      response.current.displayedRunId = runId
+      response.comparison.metrics.mentionCoverage.delta = runId === 'run-measurement-new' ? 0.2 : 0.1
+      return jsonResponse(response)
+    }
+    return jsonResponse({ code: 'NOT_FOUND', message: 'not found' }, 404)
+  }) as typeof fetch
+  onTestFinished(() => { globalThis.fetch = realFetch })
+
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const router = createAppRouter(queryClient, {
+    initialEntries: ['/projects/project_citypoint?scope=group:north&measurementRunId=run-measurement-old'],
+  })
+  await router.load()
+  const page = render(
+    <QueryClientProvider client={queryClient}>
+      <DashboardProvider value={{ dashboard: fixture.dashboard, health: fixture.health }}>
+        <RouterProvider router={router} />
+      </DashboardProvider>
+    </QueryClientProvider>,
+  )
+
+  expect(await page.findByText('Old Property')).toBeTruthy()
+  expect(await page.findByText('+10 pp')).toBeTruthy()
+
+  await act(async () => {
+    await router.navigate({
+      to: '/projects/$projectName',
+      params: { projectName: 'project_citypoint' },
+      search: previous => ({ ...previous, measurementRunId: 'run-measurement-new' }),
+    })
+  })
+  await waitFor(() => expect(observed.some(path => path.includes('/measurement-overview?') && path.includes('runId=run-measurement-new'))).toBe(true))
+  expect(page.queryByText('+10 pp')).toBeNull()
+
+  releaseNextOverview!()
+  expect(await page.findByText('New Property')).toBeTruthy()
+  expect(await page.findByText('+20 pp')).toBeTruthy()
+})
+
+test('Group changes clear while closing a valid pin reloads the unpinned overview', async () => {
+  const observed: string[] = []
+  let releaseUnpinnedOverview: (() => void) | undefined
+  const unpinnedOverview = new Promise<void>(resolve => { releaseUnpinnedOverview = resolve })
+  const fixture = createDashboardFixture({})
+  const realFetch = globalThis.fetch
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const raw = input instanceof Request ? input.url : String(input)
+    const url = new URL(raw, window.location.origin)
+    const path = `${decodeURIComponent(url.pathname)}${url.search}`
+    observed.push(path)
+
+    if (path.endsWith('/runs?kind=answer-visibility')) return jsonResponse([])
+    if (path.endsWith('/measurement-plan')) return jsonResponse(measurementPlanV2Response(4))
+    if (path.endsWith('/measurement-setup')) return jsonResponse(activeMeasurementSetupResponse(4))
+    if (url.pathname.endsWith('/measurement-overview')) {
+      if (!url.searchParams.has('runId')) {
+        await unpinnedOverview
+        return jsonResponse(measurementOverviewResponse({
+          scope: 'group', scopeKey: 'north', scopeLabel: 'North', label: 'Unpinned Property', displayedRunId: 'run-unpinned',
+        }))
+      }
+      return jsonResponse(measurementOverviewResponse({
+        scope: 'group', scopeKey: 'north', scopeLabel: 'North', label: 'Old Property', displayedRunId: 'run-measurement-old',
+      }))
+    }
+    if (url.pathname.endsWith('/measurement-portfolio-summary')) return jsonResponse(measurementPortfolioSummaryResponse('north'))
+    if (url.pathname.endsWith('/measurement-changes')) {
+      const response = measurementChangesResponse()
+      const runId = url.searchParams.get('runId')!
+      response.current.displayedRunId = runId
+      response.comparison.metrics.mentionCoverage.delta = runId === 'run-unpinned' ? 0.2 : 0.1
+      return jsonResponse(response)
+    }
+    return jsonResponse({ code: 'NOT_FOUND', message: 'not found' }, 404)
+  }) as typeof fetch
+  onTestFinished(() => { globalThis.fetch = realFetch })
+
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const router = createAppRouter(queryClient, {
+    initialEntries: ['/projects/project_citypoint?scope=group:north&measurementRunId=run-measurement-old'],
+  })
+  await router.load()
+  const page = render(
+    <QueryClientProvider client={queryClient}>
+      <DashboardProvider value={{ dashboard: fixture.dashboard, health: fixture.health }}>
+        <RouterProvider router={router} />
+      </DashboardProvider>
+    </QueryClientProvider>,
+  )
+
+  expect(await page.findByText('Old Property')).toBeTruthy()
+  expect(await page.findByText('+10 pp')).toBeTruthy()
+
+  await act(async () => {
+    await router.navigate({
+      to: '/projects/$projectName',
+      params: { projectName: 'project_citypoint' },
+      search: previous => ({ ...previous, measurementRunId: undefined }),
+    })
+  })
+  await waitFor(() => expect(observed.some(path => (
+    path.includes('/measurement-overview?') && !new URL(path, window.location.origin).searchParams.has('runId')
+  ))).toBe(true))
+  expect(page.queryByText('+10 pp')).toBeNull()
+
+  releaseUnpinnedOverview!()
+  expect(await page.findByText('Unpinned Property')).toBeTruthy()
+  expect(await page.findByText('+20 pp')).toBeTruthy()
+})
+
+test('an invalid measurement snapshot never falls back to an unpinned overview', async () => {
+  const observed: string[] = []
+  let releaseInvalidOverview: (() => void) | undefined
+  const invalidOverview = new Promise<void>(resolve => { releaseInvalidOverview = resolve })
+  const fixture = createDashboardFixture({})
+  const realFetch = globalThis.fetch
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const raw = input instanceof Request ? input.url : String(input)
+    const url = new URL(raw, window.location.origin)
+    const path = `${decodeURIComponent(url.pathname)}${url.search}`
+    observed.push(path)
+
+    if (path.endsWith('/runs?kind=answer-visibility')) return jsonResponse([])
+    if (path.endsWith('/measurement-plan')) return jsonResponse(measurementPlanV2Response(4))
+    if (path.endsWith('/measurement-setup')) return jsonResponse(activeMeasurementSetupResponse(4))
+    if (url.pathname.endsWith('/measurement-overview')) {
+      if (url.searchParams.get('runId') === 'run-invalid') {
+        await invalidOverview
+        return jsonResponse({ code: 'INVALID_RUN', message: 'Snapshot is not comparable to this active plan' }, 422)
+      }
+      return jsonResponse(measurementOverviewResponse({
+        scope: 'group', scopeKey: 'north', scopeLabel: 'North', label: 'Old Property', displayedRunId: 'run-measurement-old',
+      }))
+    }
+    if (url.pathname.endsWith('/measurement-portfolio-summary')) return jsonResponse(measurementPortfolioSummaryResponse('north'))
+    if (url.pathname.endsWith('/measurement-changes')) {
+      const response = measurementChangesResponse()
+      const runId = url.searchParams.get('runId')!
+      response.current.displayedRunId = runId
+      response.comparison.metrics.mentionCoverage.delta = runId === 'run-unpinned' ? 0.2 : 0.1
+      return jsonResponse(response)
+    }
+    return jsonResponse({ code: 'NOT_FOUND', message: 'not found' }, 404)
+  }) as typeof fetch
+  onTestFinished(() => { globalThis.fetch = realFetch })
+
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const router = createAppRouter(queryClient, {
+    initialEntries: ['/projects/project_citypoint?scope=group:north&measurementRunId=run-measurement-old'],
+  })
+  await router.load()
+  const page = render(
+    <QueryClientProvider client={queryClient}>
+      <DashboardProvider value={{ dashboard: fixture.dashboard, health: fixture.health }}>
+        <RouterProvider router={router} />
+      </DashboardProvider>
+    </QueryClientProvider>,
+  )
+
+  expect(await page.findByText('Old Property')).toBeTruthy()
+  expect(await page.findByText('+10 pp')).toBeTruthy()
+
+  await act(async () => {
+    await router.navigate({
+      to: '/projects/$projectName',
+      params: { projectName: 'project_citypoint' },
+      search: previous => ({ ...previous, measurementRunId: 'run-invalid' }),
+    })
+  })
+  await waitFor(() => expect(observed.some(path => (
+    path.includes('/measurement-overview?') && path.includes('runId=run-invalid')
+  ))).toBe(true))
+  expect(page.queryByText('+10 pp')).toBeNull()
+
+  await act(async () => { releaseInvalidOverview!() })
+  const overviewRequests = observed.filter(path => path.includes('/measurement-overview?'))
+  expect(overviewRequests.some(path => new URL(path, window.location.origin).searchParams.get('runId') === null)).toBe(false)
+  expect(observed.some(path => path.includes('/runs/run-invalid'))).toBe(false)
 })
 
 test('a direct Portfolio URL falls back safely in embed mode', async () => {

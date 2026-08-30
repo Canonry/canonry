@@ -3,7 +3,13 @@ import { ChevronDown, RefreshCw, Trash2 } from 'lucide-react'
 import { useNavigate, useParams, useSearch } from '@tanstack/react-router'
 import { Link } from '@tanstack/react-router'
 
-import { DEFAULT_MEASUREMENT_VIEW, measurementViewSearch, parseMeasurementViewSearch, shouldResetMeasurementView } from '../lib/measurement-view-url.js'
+import {
+  DEFAULT_MEASUREMENT_VIEW,
+  measurementPropertyViewSearch,
+  measurementViewSearch,
+  parseMeasurementViewSearch,
+  shouldResetMeasurementView,
+} from '../lib/measurement-view-url.js'
 import { useQueryClient } from '@tanstack/react-query'
 import { RunKinds, RunStatuses } from '@ainyc/canonry-contracts'
 import type { MeasurementOverviewSort } from '@ainyc/canonry-contracts'
@@ -29,6 +35,7 @@ import { VisibilityTrendSection } from '../components/project/VisibilityTrendSec
 import { DiscoverySection } from '../components/project/DiscoverySection.js'
 import { SiteHealthSection } from '../components/project/SiteHealthSection.js'
 import { ProjectHistorySection } from '../components/project/ProjectHistorySection.js'
+import { MeasurementChangesRail } from '../components/project/MeasurementChangesRail.js'
 import { ConversionIntegrityWorkspace } from '../components/project/ConversionIntegrityWorkspace.js'
 import { GoogleAdsPerformanceSection } from '../components/project/GoogleAdsPerformanceSection.js'
 import { AdvancedMeasurementSection } from '../components/project/advanced-measurement/AdvancedMeasurementSection.js'
@@ -86,6 +93,7 @@ import {
   getApiV1ProjectsByNameGoogleConnectionsOptions,
   getApiV1ProjectsByNameMeasurementOverviewInfiniteOptions,
   getApiV1ProjectsByNameMeasurementPlanOptions,
+  getApiV1ProjectsByNameMeasurementPropertyEvidenceInfiniteOptions,
   getApiV1ProjectsByNameMeasurementPortfolioSummaryOptions,
   getApiV1ProjectsByNameMeasurementReportOptions,
   getApiV1ProjectsByNameMeasurementSetupOptions,
@@ -1571,6 +1579,7 @@ function ProjectPageContent({
   const projectSearchParams = useSearch({ strict: false }) as {
     manageQueries?: boolean
     queries?: 'tracked' | 'discover' | 'test'
+    measurementRunId?: string
     runId?: string
     siteHealthRunId?: string
     schedule?: 'edit'
@@ -1605,6 +1614,13 @@ function ProjectPageContent({
   // every navigation IS the interaction. `search` stays local: it changes on
   // every keystroke and belongs in neither the URL nor the history stack.
   const urlMeasurementView = parseMeasurementViewSearch(projectSearchParams)
+  // `runId` is global drawer state. Measurement snapshot context is explicit
+  // and server-authoritative: active reads accept the active revision or its
+  // comparable predecessor chain, while historical revision reports stay exact.
+  const requestedMeasurementRunId = typeof projectSearchParams.measurementRunId === 'string'
+    && projectSearchParams.measurementRunId.length > 0
+    ? projectSearchParams.measurementRunId
+    : undefined
   const [advancedMeasurementSearch, setAdvancedMeasurementSearch] = useState<string | undefined>(undefined)
   // Sort is a within-view refinement, not what the page is ABOUT, so it stays
   // in component state rather than the URL alongside scope and class.
@@ -1628,7 +1644,7 @@ function ProjectPageContent({
       replace: false,
     })
   }, [navigate])
-  const [hasExpandedAdvancedProperty, setHasExpandedAdvancedProperty] = useState(false)
+  const [expandedAdvancedPropertyKey, setExpandedAdvancedPropertyKey] = useState<string | undefined>(undefined)
 
   const visibilityEvidence = model?.visibilityEvidence ?? []
   const projectName = model?.project.name ?? ''
@@ -1699,7 +1715,6 @@ function ProjectPageContent({
         ? 'No upcoming AI sweep is scheduled'
         : 'AI sweep schedule is paused'
   const activeMeasurementPlan = activeMeasurementPlanQuery.data?.active ?? null
-
   // A bookmark outlives the group it names. Once the plan has actually loaded
   // and we can see which groups exist, a URL naming one that does not is
   // resolved to all-properties BEFORE any request goes out — otherwise the page
@@ -1740,7 +1755,7 @@ function ProjectPageContent({
     if (measurementPlanIdentity !== null) lastMeasurementPlanIdentity.current = measurementPlanIdentity
     if (!shouldResetMeasurementView(previous, measurementPlanIdentity)) return
     setAdvancedMeasurementView(DEFAULT_MEASUREMENT_VIEW)
-    setHasExpandedAdvancedProperty(false)
+    setExpandedAdvancedPropertyKey(undefined)
   }, [measurementPlanIdentity, setAdvancedMeasurementView])
   const advancedMeasurementOverviewQueryInput = {
     client: heyClient,
@@ -1751,6 +1766,7 @@ function ProjectPageContent({
       queryClass: advancedMeasurementView.queryClass,
       ...(advancedMeasurementView.search ? { search: advancedMeasurementView.search } : {}),
       ...(advancedMeasurementSort ? { sort: advancedMeasurementSort } : {}),
+      ...(requestedMeasurementRunId ? { runId: requestedMeasurementRunId } : {}),
       limit: 50,
     },
   } as const
@@ -1777,6 +1793,10 @@ function ProjectPageContent({
     refetchOnMount: 'always',
   })
   const advancedMeasurementDisplayedRunId = advancedMeasurementOverviewQuery.data?.pages[0]?.measurement.displayedRunId
+  // `keepPreviousData` intentionally retains the prior Property rows during a
+  // run transition. Its comparison rail is a separate claim, though, so keep
+  // it off screen until the overview has resolved the requested valid pin.
+  const isAdvancedMeasurementOverviewRunTransition = advancedMeasurementOverviewQuery.isPlaceholderData
   const advancedMeasurementReportQuery = useQuery({
     ...getApiV1ProjectsByNameMeasurementReportOptions({
       client: heyClient,
@@ -1791,11 +1811,57 @@ function ProjectPageContent({
     enabled: tab === 'overview'
       && Boolean(projectName)
       && activeMeasurementPlan !== null
-      && (activeMeasurementPlanSchemaVersion === 1
-        || hasExpandedAdvancedProperty && advancedMeasurementDisplayedRunId !== undefined),
+      && activeMeasurementPlanSchemaVersion === 1,
     staleTime: 0,
     refetchOnMount: 'always',
   })
+  const advancedMeasurementPropertyEvidenceQueryInput = {
+    client: heyClient,
+    path: { name: projectName },
+    query: {
+      targetKey: expandedAdvancedPropertyKey ?? '',
+      queryClass: advancedMeasurementView.queryClass,
+      ...(advancedMeasurementDisplayedRunId ? { runId: advancedMeasurementDisplayedRunId } : {}),
+      limit: 100,
+    },
+  } as const
+  const advancedMeasurementPropertyEvidenceQuery = useInfiniteQuery({
+    ...getApiV1ProjectsByNameMeasurementPropertyEvidenceInfiniteOptions(advancedMeasurementPropertyEvidenceQueryInput),
+    enabled: tab === 'overview'
+      && Boolean(projectName)
+      && activeMeasurementPlanSchemaVersion === 2
+      && expandedAdvancedPropertyKey !== undefined
+      && advancedMeasurementDisplayedRunId !== undefined,
+    initialPageParam: advancedMeasurementPropertyEvidenceQueryInput,
+    getNextPageParam: (lastPage, pages) => {
+      const nextCursor = lastPage.evidence?.nextCursor
+      if (!nextCursor) return undefined
+      const displayedRunId = pages[0]?.measurement.displayedRunId
+      return {
+        path: advancedMeasurementPropertyEvidenceQueryInput.path,
+        query: {
+          ...advancedMeasurementPropertyEvidenceQueryInput.query,
+          cursor: nextCursor,
+          ...(displayedRunId ? { runId: displayedRunId } : {}),
+        },
+      }
+    },
+    staleTime: 0,
+    refetchOnMount: 'always',
+  })
+  const advancedMeasurementPropertyEvidence = useMemo(() => {
+    const pages = advancedMeasurementPropertyEvidenceQuery.data?.pages
+    const first = pages?.[0]
+    const last = pages?.at(-1)
+    if (!first?.evidence || !last?.evidence) return undefined
+    return {
+      targetKey: first.property.targetKey,
+      displayedRunId: first.measurement.displayedRunId,
+      items: pages.flatMap(page => page.evidence?.items ?? []),
+      totalEstimate: first.evidence.totalEstimate,
+      hasMore: last.evidence.nextCursor !== null,
+    }
+  }, [advancedMeasurementPropertyEvidenceQuery.data])
   const hasCachedMeasurementPlan = activeMeasurementPlanQuery.data !== undefined
   const hasCachedPortfolioQueries = portfolioQueriesQuery.data !== undefined
   const isActiveMeasurementPlanLoading = activeMeasurementPlanQuery.isPending && !hasCachedMeasurementPlan
@@ -1885,23 +1951,26 @@ function ProjectPageContent({
           overview: mergedAdvancedMeasurementOverview,
           activePlan: activeMeasurementPlan,
           sort: advancedMeasurementSort,
-          report: advancedMeasurementReportQuery.data,
-          reportState: mergedAdvancedMeasurementOverview.measurement.displayedRunId === undefined
+          propertyEvidence: advancedMeasurementPropertyEvidence,
+          propertyEvidenceTargetKey: expandedAdvancedPropertyKey,
+          propertyEvidenceState: mergedAdvancedMeasurementOverview.measurement.displayedRunId === undefined
             ? 'ready'
-            : advancedMeasurementReportQuery.isFetching && advancedMeasurementReportQuery.data === undefined
+            : advancedMeasurementPropertyEvidenceQuery.isFetching && advancedMeasurementPropertyEvidenceQuery.data === undefined
             ? 'loading'
-            : advancedMeasurementReportQuery.isError && advancedMeasurementReportQuery.data === undefined
+            : advancedMeasurementPropertyEvidenceQuery.isError && advancedMeasurementPropertyEvidenceQuery.data === undefined
             ? 'error'
-            : advancedMeasurementReportQuery.data
+            : advancedMeasurementPropertyEvidenceQuery.data
               ? 'ready'
               : 'loading',
         })
       : undefined
   }, [
     activeMeasurementPlan,
-    advancedMeasurementReportQuery.data,
-    advancedMeasurementReportQuery.isError,
-    advancedMeasurementReportQuery.isFetching,
+    advancedMeasurementPropertyEvidence,
+    advancedMeasurementPropertyEvidenceQuery.data,
+    advancedMeasurementPropertyEvidenceQuery.isError,
+    advancedMeasurementPropertyEvidenceQuery.isFetching,
+    expandedAdvancedPropertyKey,
     mergedAdvancedMeasurementOverview,
   ])
   const advancedMeasurementReportState = activeMeasurementPlanSchemaVersion === 2
@@ -2557,6 +2626,19 @@ function ProjectPageContent({
                 analyticsRevision={latestVisibilityRevision}
               />
             ) : undefined}
+            changesRail={activeMeasurementPlanSchemaVersion === 2
+              && advancedMeasurementView.scope === 'group'
+              && advancedMeasurementView.groupKey
+              && !isAdvancedMeasurementOverviewRunTransition
+              && advancedMeasurementDisplayedRunId ? (
+                <MeasurementChangesRail
+                  project={projectName}
+                  scope="group"
+                  groupKey={advancedMeasurementView.groupKey}
+                  queryClass={advancedMeasurementView.queryClass}
+                  runId={advancedMeasurementDisplayedRunId}
+                />
+              ) : undefined}
             renderGroupLink={activeMeasurementPlanSchemaVersion === 2 && !isEmbed()
               ? ({ id, name }) => (
                   <Link
@@ -2569,6 +2651,10 @@ function ProjectPageContent({
                         groupKey: id,
                         queryClass: advancedMeasurementView.queryClass,
                       }),
+                      // Snapshot continuity is measurement-only context. Never
+                      // reuse the global drawer's `runId` namespace here.
+                      measurementRunId: advancedMeasurementDisplayedRunId,
+                      runId: undefined,
                     })}
                     className="rounded-sm font-medium text-link outline-none hover:underline focus-visible:ring-2 focus-visible:ring-mono-400"
                   >
@@ -2584,6 +2670,8 @@ function ProjectPageContent({
                     search={(previous: Record<string, unknown>) => ({
                       ...previous,
                       ...measurementViewSearch({ scope: 'all', queryClass: advancedMeasurementView.queryClass }),
+                      measurementRunId: advancedMeasurementDisplayedRunId,
+                      runId: undefined,
                     })}
                     className="rounded-sm text-link outline-none hover:underline focus-visible:ring-2 focus-visible:ring-mono-400"
                   >
@@ -2598,7 +2686,7 @@ function ProjectPageContent({
               if (activeMeasurementPlanSchemaVersion === 2) {
                 void Promise.all([
                   advancedMeasurementOverviewQuery.refetch(),
-                  advancedMeasurementReportQuery.refetch(),
+                  advancedMeasurementPropertyEvidenceQuery.refetch(),
                   advancedMeasurementPortfolioSummaryQuery.refetch(),
                 ])
               }
@@ -2617,18 +2705,33 @@ function ProjectPageContent({
                 void advancedMeasurementOverviewQuery.fetchNextPage()
               }
             }}
-            onPropertyExpand={() => {
-              if (hasExpandedAdvancedProperty && advancedMeasurementReportQuery.isError) {
-                void advancedMeasurementReportQuery.refetch()
+            onPropertyExpand={(propertyId) => {
+              if (propertyId === expandedAdvancedPropertyKey && advancedMeasurementPropertyEvidenceQuery.isError) {
+                void advancedMeasurementPropertyEvidenceQuery.refetch()
               }
-              setHasExpandedAdvancedProperty(true)
+              setExpandedAdvancedPropertyKey(propertyId)
             }}
-            onRetryEvidence={() => { void advancedMeasurementReportQuery.refetch() }}
+            onRetryEvidence={() => { void advancedMeasurementPropertyEvidenceQuery.refetch() }}
+            onLoadMoreEvidence={() => { void advancedMeasurementPropertyEvidenceQuery.fetchNextPage() }}
             renderPropertyLink={activeMeasurementPlanSchemaVersion === 2 && !isEmbed()
               ? ({ id, name }) => (
                   <Link
                     to="/projects/$projectName/properties/$targetKey"
                     params={{ projectName, targetKey: id }}
+                    search={(previous: Record<string, unknown>) => {
+                      const propertyQueryClass = advancedMeasurementView.queryClass === 'branded' ? 'branded' : 'non-brand'
+                      return {
+                        ...previous,
+                        ...measurementViewSearch({
+                          scope: advancedMeasurementView.scope,
+                          ...(advancedMeasurementView.groupKey ? { groupKey: advancedMeasurementView.groupKey } : {}),
+                          queryClass: propertyQueryClass,
+                        }),
+                        ...measurementPropertyViewSearch({ queryClass: propertyQueryClass }),
+                        measurementRunId: advancedMeasurementDisplayedRunId,
+                        runId: undefined,
+                      }
+                    }}
                     className="text-link hover:underline"
                   >
                     {name}

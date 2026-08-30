@@ -1098,6 +1098,38 @@ describe('outcome count row', () => {
     expect(screen.getAllByLabelText('Property outcomes')).toHaveLength(1)
   })
 
+  it('places a supplied continuity rail after the pulse and hides it while a Property search is active', () => {
+    const continuityRail = (
+      <section aria-label="Continuity rail">
+        <h2>Since previous comparable sweep</h2>
+      </section>
+    )
+    const { unmount } = renderOverviewReturning({
+      report: withOutcomes({
+        bothSignals: 1, mentionedOnly: 1, citedOnly: 1, neither: 1, notMeasured: 1, total: 5,
+      }),
+      portfolioSummaryState: 'ready',
+      portfolioSummary: portfolioSummary(),
+      changesRail: continuityRail,
+    })
+
+    const pulse = screen.getByRole('heading', { name: 'Portfolio pulse' })
+    const rail = screen.getByRole('region', { name: 'Continuity rail' })
+    expect(Boolean(pulse.compareDocumentPosition(rail) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true)
+    expect(screen.getAllByLabelText('Property outcomes')).toHaveLength(1)
+    unmount()
+
+    renderOverview({
+      report: withOutcomes({
+        bothSignals: 1, mentionedOnly: 1, citedOnly: 1, neither: 1, notMeasured: 1, total: 5,
+      }),
+      viewSearch: 'harbor',
+      changesRail: continuityRail,
+    })
+    expect(screen.queryByRole('region', { name: 'Continuity rail' })).toBeNull()
+    expect(screen.getAllByLabelText('Property outcomes')).toHaveLength(1)
+  })
+
   it('does not flash the cached Pulse while a cleared search is still applied by the parent', () => {
     renderOverview({
       report: withOutcomes({

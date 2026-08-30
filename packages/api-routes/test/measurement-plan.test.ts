@@ -257,7 +257,9 @@ describe('Target measurement-plan API', () => {
     expect((second.json() as { active: { revision: number } }).active.revision).toBe(2)
 
     const active = await request('GET', '/api/v1/projects/example/measurement-plan')
-    expect((active.json() as { active: { revision: number } }).active.revision).toBe(2)
+    const activeBody = active.json() as { active: { revision: number } }
+    expect(activeBody.active.revision).toBe(2)
+    expect(activeBody.active).not.toHaveProperty('id')
     const versions = await request('GET', '/api/v1/projects/example/measurement-plan/versions')
     expect((versions.json() as { versions: Array<{ revision: number; active: boolean }> }).versions)
       .toEqual([

@@ -248,6 +248,18 @@ describe('cosmetic-publish continuity', () => {
     })
     const harbor = summary.body.weakestProperties.find(row => row.targetKey === 'harbor')
     expect(harbor?.mentionCoverage).toMatchObject({ state: 'available', value: 1, numerator: 2, denominator: 2 })
+
+    // The property drill-down uses the same server-authoritative predecessor
+    // chain as the overview. It must not ask a browser to compare version IDs.
+    const evidence = await app.inject({
+      method: 'GET',
+      url: `/api/v1/projects/northstar/measurement-property-evidence?targetKey=harbor&queryClass=non-brand&runId=${measured}`,
+    })
+    expect(evidence.statusCode).toBe(200)
+    expect(evidence.json()).toMatchObject({
+      property: { targetKey: 'harbor' },
+      measurement: { state: 'complete', displayedRunId: measured },
+    })
   })
 
   it('keeps measurement-setup out of awaiting_first_run after a cosmetic republish', async () => {
@@ -266,7 +278,7 @@ describe('cosmetic-publish continuity', () => {
 
   it('revision-addressed reports never borrow a predecessor run through the chain', async () => {
     const versionOne = seedVersion(1)
-    seedMeasuredRun(versionOne)
+    const measured = seedMeasuredRun(versionOne)
     activate(seedVersion(2, renamedPlan(), versionOne))
 
     // The explicit --revision surface promises the revision AS-WAS. Revision 2
@@ -274,6 +286,15 @@ describe('cosmetic-publish continuity', () => {
     const rev2 = await app.inject({ method: 'GET', url: '/api/v1/projects/northstar/measurement-report?revision=2' })
     expect(rev2.statusCode).toBe(200)
     expect(rev2.json().run).toBeNull()
+
+    // An explicit predecessor run is not a request to widen an exact,
+    // revision-addressed historical report. This is deliberately 404 rather
+    // than silently presenting revision 1 evidence as revision 2.
+    const incompatibleRun = await app.inject({
+      method: 'GET',
+      url: `/api/v1/projects/northstar/measurement-report?revision=2&runId=${measured}`,
+    })
+    expect(incompatibleRun.statusCode).toBe(404)
 
     // Revision 1 still reports its own run, exactly as measured.
     const rev1 = await app.inject({ method: 'GET', url: '/api/v1/projects/northstar/measurement-report?revision=1' })

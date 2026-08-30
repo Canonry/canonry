@@ -22,10 +22,12 @@ export interface AdvancedMeasurementLandingProps {
   onLoadMore?: (cursor: string) => void
   onPropertyExpand?: (targetKey: string) => void
   onRetryEvidence?: () => void
+  onLoadMoreEvidence?: () => void
   portfolioSummary?: MeasurementPortfolioSummaryResponse
   portfolioSummaryState?: 'loading' | 'ready' | 'error'
   onRetryPortfolioSummary?: () => void
   projectTrend?: ReactNode
+  changesRail?: ReactNode
   renderGroupLink?: (group: { id: string; name: string }) => ReactNode
   renderPortfolioLink?: () => ReactNode
   /** Passed straight through so the overview table can link a Property to its own page. */
@@ -51,10 +53,12 @@ export function AdvancedMeasurementLanding({
   onLoadMore,
   onPropertyExpand,
   onRetryEvidence,
+  onLoadMoreEvidence,
   portfolioSummary,
   portfolioSummaryState,
   onRetryPortfolioSummary,
   projectTrend,
+  changesRail,
   renderGroupLink,
   renderPortfolioLink,
   renderPropertyLink,
@@ -102,10 +106,12 @@ export function AdvancedMeasurementLanding({
           onLoadMore={onLoadMore}
           onPropertyExpand={onPropertyExpand}
           onRetryEvidence={onRetryEvidence}
+          onLoadMoreEvidence={onLoadMoreEvidence}
           portfolioSummary={portfolioSummary}
           portfolioSummaryState={portfolioSummaryState}
           onRetryPortfolioSummary={onRetryPortfolioSummary}
           projectTrend={projectTrend}
+          changesRail={changesRail}
           renderGroupLink={renderGroupLink}
           renderPortfolioLink={renderPortfolioLink}
           renderPropertyLink={renderPropertyLink}

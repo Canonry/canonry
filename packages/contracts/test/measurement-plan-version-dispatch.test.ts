@@ -88,6 +88,7 @@ describe('stored measurement plan version dispatch', () => {
 
   it('types v2 plans on both active and revision-detail read responses', () => {
     const metadata = {
+      id: 'version-active',
       revision: 2,
       checksum: 'd'.repeat(64),
       createdAt: '2026-08-01T00:00:00.000Z',

@@ -1,7 +1,7 @@
 import type {
   MeasurementOverviewResponse,
   MeasurementPlanResponse,
-  MeasurementReportResponse,
+  MeasurementPropertyEvidenceResponse,
 } from '@ainyc/canonry-api-client'
 
 import type {
@@ -15,13 +15,24 @@ import type {
 type ActivePlan = NonNullable<MeasurementPlanResponse['active']>
 type PlanV2 = Extract<ActivePlan['plan'], { schemaVersion: 2 }>
 type OverviewMetric = MeasurementOverviewResponse['metrics']['mentionCoverage']
-type ReportEvidence = MeasurementReportResponse['evidence'][number]
+type PropertyEvidence = NonNullable<MeasurementPropertyEvidenceResponse['evidence']>
+type PropertyEvidenceRow = PropertyEvidence['items'][number]
+
+export interface V2PropertyEvidencePage {
+  targetKey: string
+  displayedRunId?: string
+  items: readonly PropertyEvidenceRow[]
+  totalEstimate?: number
+  hasMore: boolean
+}
 
 export interface AdaptV2MeasurementOverviewInput {
   overview: MeasurementOverviewResponse
   activePlan: ActivePlan
-  report?: MeasurementReportResponse | null
-  reportState?: 'loading' | 'ready' | 'error'
+  /** Evidence is loaded lazily for the one expanded Property, not via the exact historical report. */
+  propertyEvidence?: V2PropertyEvidencePage | null
+  propertyEvidenceTargetKey?: string
+  propertyEvidenceState?: 'loading' | 'ready' | 'error'
   /** The ordering the caller requested; the response does not echo it. */
   sort?: AdvancedMeasurementSort
 }
@@ -53,7 +64,7 @@ export function matcherLabel(matcher: PlanV2['targets'][number]['urlMatchers'][n
   return `https://${matcher.host}/*`
 }
 
-function evidenceKind(classification: ReportEvidence['classification']): AdvancedMeasurementEvidence['kind'] {
+function evidenceKind(classification: PropertyEvidenceRow['classification']): AdvancedMeasurementEvidence['kind'] {
   if (classification === 'assigned') return 'this-property'
   if (classification === 'sibling') return 'another-property'
   if (classification === 'ownedUnmapped') return 'owned-unassigned'
@@ -62,39 +73,21 @@ function evidenceKind(classification: ReportEvidence['classification']): Advance
   return 'invalid-url'
 }
 
-function evidenceTone(classification: ReportEvidence['classification']): AdvancedMeasurementEvidence['tone'] {
+function evidenceTone(classification: PropertyEvidenceRow['classification']): AdvancedMeasurementEvidence['tone'] {
   if (classification === 'assigned') return 'positive'
   if (classification === 'external') return 'neutral'
   if (classification === 'invalid') return 'negative'
   return 'caution'
 }
 
-function edgeId(edge: PlanV2['usageEdges'][number]): string {
-  return `target:${edge.targetKey}:${edge.queryId}:${edge.executionNodeKey}`
-}
-
-/** One linear pass, independent of the number of Properties rendered. */
-export function indexV2EvidenceByTarget(
-  plan: PlanV2,
-  report?: MeasurementReportResponse | null,
-  queryClass?: 'branded' | 'non-brand',
+/** The route already filters to one Property, so no full-report reconstruction is needed. */
+function indexV2PropertyEvidence(
+  page?: V2PropertyEvidencePage | null,
 ): ReadonlyMap<string, AdvancedMeasurementEvidence[]> {
   const indexed = new Map<string, AdvancedMeasurementEvidence[]>()
-  if (!report) return indexed
-  const targetByEdge = new Map(plan.usageEdges.map(edge => [edgeId(edge), edge.targetKey]))
-  const classByAssignment = new Map(plan.assignments.map(assignment => [
-    `${assignment.targetKey}:${assignment.queryId}`,
-    assignment.queryClass,
-  ]))
-  const classByEdge = new Map(plan.usageEdges.map(edge => [
-    edgeId(edge),
-    classByAssignment.get(`${edge.targetKey}:${edge.queryId}`),
-  ]))
-  for (const item of report.evidence) {
-    if (queryClass && classByEdge.get(item.usageEdgeId) !== queryClass) continue
-    const targetKey = targetByEdge.get(item.usageEdgeId)
-    if (!targetKey) continue
-    const rows = indexed.get(targetKey) ?? []
+  if (!page) return indexed
+  const rows: AdvancedMeasurementEvidence[] = []
+  for (const item of page.items) {
     rows.push({
       id: `${item.observationId}:${item.expectedSlotId}:${item.usageEdgeId}:${item.sourceUrl}`,
       kind: evidenceKind(item.classification),
@@ -105,8 +98,8 @@ export function indexV2EvidenceByTarget(
       tone: evidenceTone(item.classification),
       historical: item.historical || item.bridged,
     })
-    indexed.set(targetKey, rows)
   }
+  indexed.set(page.targetKey, rows)
   return indexed
 }
 
@@ -151,8 +144,9 @@ function nextActionText(overview: MeasurementOverviewResponse): string | undefin
 export function adaptV2MeasurementOverview({
   overview,
   activePlan,
-  report,
-  reportState = report ? 'ready' : 'loading',
+  propertyEvidence,
+  propertyEvidenceTargetKey,
+  propertyEvidenceState = propertyEvidence ? 'ready' : 'loading',
   sort,
 }: AdaptV2MeasurementOverviewInput): AdvancedMeasurementOverviewReport {
   if (activePlan.plan.schemaVersion !== 2 || overview.mode !== 'active-v2') {
@@ -177,22 +171,13 @@ export function adaptV2MeasurementOverview({
     assignmentsByTarget.set(assignment.targetKey, values)
   }
 
-  const pinnedReport = report?.revision === activePlan.revision
-    && report.run?.id === overview.measurement.displayedRunId
-    ? report
+  const pinnedEvidence = propertyEvidence !== undefined
+    && propertyEvidence !== null
+    && propertyEvidence.displayedRunId === overview.measurement.displayedRunId
+    && propertyEvidence.targetKey === propertyEvidenceTargetKey
+    ? propertyEvidence
     : null
-  const evidenceState = overview.measurement.displayedRunId === undefined
-    ? 'ready' as const
-    : pinnedReport
-    ? 'ready' as const
-    : reportState === 'error' || report !== undefined && report !== null
-      ? 'error' as const
-      : 'loading' as const
-  const evidenceByTarget = indexV2EvidenceByTarget(
-    plan,
-    pinnedReport,
-    overview.queryClass === 'all' ? undefined : overview.queryClass,
-  )
+  const evidenceByTarget = indexV2PropertyEvidence(pinnedEvidence)
   // One Property belongs to at most one market in practice; when a plan puts it
   // in several, the first is named rather than a joined string, because the
   // subtitle is an identifier and not a list.
@@ -205,6 +190,13 @@ export function adaptV2MeasurementOverview({
   const properties = overview.properties.items.map(row => {
     const configured = targetByKey.get(row.targetKey)
     const evidence = evidenceByTarget.get(row.targetKey) ?? []
+    const evidenceState = overview.measurement.displayedRunId === undefined || row.targetKey !== propertyEvidenceTargetKey
+      ? 'ready' as const
+      : pinnedEvidence
+        ? 'ready' as const
+        : propertyEvidence !== undefined && propertyEvidence !== null
+          ? 'error' as const
+          : propertyEvidenceState
     return {
       id: row.targetKey,
       name: row.label,
@@ -220,6 +212,12 @@ export function adaptV2MeasurementOverview({
       assignedQueries: [...(assignmentsByTarget.get(row.targetKey) ?? [])],
       urls: configured?.urlMatchers.map(matcherLabel) ?? [],
       evidence,
+      ...(row.targetKey === propertyEvidenceTargetKey && pinnedEvidence
+        ? {
+            evidenceTotal: pinnedEvidence.totalEstimate ?? evidence.length,
+            hasMoreEvidence: pinnedEvidence.hasMore,
+          }
+        : {}),
       evidenceState,
       historical: evidence.some(item => item.historical),
     }

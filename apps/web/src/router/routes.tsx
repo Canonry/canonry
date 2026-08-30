@@ -70,6 +70,8 @@ type SearchParams = {
   manageQueries?: boolean
   /** The stable, URL-backed surface within the project Queries workspace. */
   queries?: 'tracked' | 'discover' | 'test'
+  /** Measurement snapshot context. Deliberately separate from the global run drawer. */
+  measurementRunId?: string
   runId?: string
   /** Exact Site Health onboarding handoff; separate from the global run drawer. */
   siteHealthRunId?: string
@@ -113,6 +115,7 @@ export const rootRoute = createRootRouteWithContext<RouterContext>()({
     queries: search.queries === 'tracked' || search.queries === 'discover' || search.queries === 'test'
       ? search.queries
       : undefined,
+    measurementRunId: typeof search.measurementRunId === 'string' ? search.measurementRunId : undefined,
     runId: typeof search.runId === 'string' ? search.runId : undefined,
     siteHealthRunId: typeof search.siteHealthRunId === 'string' ? search.siteHealthRunId : undefined,
     schedule: search.schedule === 'edit' ? 'edit' : undefined,

@@ -56,6 +56,9 @@ export interface AdvancedMeasurementProperty {
   assignedQueries: readonly string[]
   urls: readonly string[]
   evidence: readonly AdvancedMeasurementEvidence[]
+  /** The server count can exceed the pages loaded for this expanded Property. */
+  evidenceTotal?: number
+  hasMoreEvidence?: boolean
   evidenceState?: 'ready' | 'loading' | 'error'
   historical?: boolean
 }
@@ -182,11 +185,14 @@ export interface AdvancedMeasurementOverviewProps {
   onLoadMore?: (cursor: string) => void
   onPropertyExpand?: (propertyId: string) => void
   onRetryEvidence?: () => void
+  onLoadMoreEvidence?: () => void
   /** Compact portfolio/group roll-up, pinned to the same displayed run as `report`. */
   portfolioSummary?: MeasurementPortfolioSummaryResponse
   portfolioSummaryState?: 'loading' | 'ready' | 'error'
   onRetryPortfolioSummary?: () => void
   projectTrend?: ReactNode
+  /** Group continuity for the exact overview run; hidden while a Property search changes the population. */
+  changesRail?: ReactNode
   renderGroupLink?: (group: { id: string; name: string }) => ReactNode
   renderPortfolioLink?: () => ReactNode
   /**
@@ -330,17 +336,19 @@ function Truncation({
   total,
   onShowAll,
   itemLabel,
+  actionLabel,
 }: {
   shown: number
   total: number
   onShowAll: () => void
   itemLabel: string
+  actionLabel?: string
 }) {
   if (shown >= total) return null
   return (
     <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-secondary">
       <span>Showing {shown} of {total}</span>
-      <Button size="sm" variant="outline" onClick={onShowAll}>Show all {total} {itemLabel}</Button>
+      <Button size="sm" variant="outline" onClick={onShowAll}>{actionLabel ?? `Show all ${total} ${itemLabel}`}</Button>
     </div>
   )
 }
@@ -381,15 +389,20 @@ function CappedStringList({
 
 function CappedEvidenceList({
   evidence,
+  evidenceTotal,
   state = 'ready',
   onRetry,
+  onLoadMore,
 }: {
   evidence: readonly AdvancedMeasurementEvidence[]
+  evidenceTotal?: number
   state?: 'ready' | 'loading' | 'error'
   onRetry?: () => void
+  onLoadMore?: () => void
 }) {
   const [limit, setLimit] = useState(DETAIL_LIST_LIMIT)
   const shown = evidence.slice(0, limit)
+  const total = evidenceTotal ?? evidence.length
 
   return (
     <section aria-label="Evidence">
@@ -429,9 +442,13 @@ function CappedEvidenceList({
           </div>
           <Truncation
             shown={shown.length}
-            total={evidence.length}
+            total={total}
             itemLabel="evidence items"
-            onShowAll={() => setLimit(Number.MAX_SAFE_INTEGER)}
+            actionLabel={onLoadMore && evidence.length < total ? 'Show more evidence items' : undefined}
+            onShowAll={() => {
+              setLimit(Number.MAX_SAFE_INTEGER)
+              if (evidence.length < total) onLoadMore?.()
+            }}
           />
         </>
       )}
@@ -439,12 +456,26 @@ function CappedEvidenceList({
   )
 }
 
-function PropertyDetails({ property, onRetryEvidence }: { property: AdvancedMeasurementProperty; onRetryEvidence?: () => void }) {
+function PropertyDetails({
+  property,
+  onRetryEvidence,
+  onLoadMoreEvidence,
+}: {
+  property: AdvancedMeasurementProperty
+  onRetryEvidence?: () => void
+  onLoadMoreEvidence?: () => void
+}) {
   return (
     <div className="space-y-5 py-2">
       <CappedStringList title="Assigned queries" values={property.assignedQueries} emptyLabel="No queries are assigned." />
       <CappedStringList title="URLs" values={property.urls} emptyLabel="No URLs are assigned." valueClassName="break-all text-secondary" />
-      <CappedEvidenceList evidence={property.evidence} state={property.evidenceState} onRetry={onRetryEvidence} />
+      <CappedEvidenceList
+        evidence={property.evidence}
+        evidenceTotal={property.evidenceTotal}
+        state={property.evidenceState}
+        onRetry={onRetryEvidence}
+        onLoadMore={property.hasMoreEvidence ? onLoadMoreEvidence : undefined}
+      />
     </div>
   )
 }
@@ -609,10 +640,12 @@ export function AdvancedMeasurementOverview({
   onLoadMore,
   onPropertyExpand,
   onRetryEvidence,
+  onLoadMoreEvidence,
   portfolioSummary,
   portfolioSummaryState,
   onRetryPortfolioSummary,
   projectTrend,
+  changesRail,
   renderGroupLink,
   renderPortfolioLink,
   renderPropertyLink,
@@ -859,6 +892,8 @@ export function AdvancedMeasurementOverview({
         />
       ) : null}
 
+      {!hasPendingOrAppliedSearch ? changesRail : null}
+
       {!isViewLoading && showShareOfVoice ? <CompetitorShareOfVoice values={aggregate.shareOfVoice ?? []} /> : null}
 
       {!isViewLoading ? <section aria-labelledby="advanced-measurement-properties-title">
@@ -955,7 +990,7 @@ export function AdvancedMeasurementOverview({
                         <td />
                       </tr>
                     )) : null}
-                    {expanded ? <tr key={`${property.id}:details`}><td colSpan={4} className="bg-surface-subtle px-4"><PropertyDetails property={property} onRetryEvidence={onRetryEvidence} /></td></tr> : null}
+                    {expanded ? <tr key={`${property.id}:details`}><td colSpan={4} className="bg-surface-subtle px-4"><PropertyDetails property={property} onRetryEvidence={onRetryEvidence} onLoadMoreEvidence={onLoadMoreEvidence} /></td></tr> : null}
                   </Fragment>
                 )
               })}

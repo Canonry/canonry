@@ -1,14 +1,17 @@
 import { afterEach, beforeAll, describe, expect, it, onTestFinished } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { RouterProvider } from '@tanstack/react-router'
+import { createMemoryHistory, createRootRoute, createRoute, createRouter, Outlet, RouterProvider } from '@tanstack/react-router'
 
 import { createDashboardFixture } from '../src/mock-data.js'
 import { createAppRouter } from '../src/router/router.js'
+import { AccountProvider } from '../src/contexts/account-context.js'
 import { DashboardProvider } from '../src/contexts/dashboard-context.js'
 import { preloadAllLazyRoutes } from '../src/router/routes.js'
+import { MeasurementPropertyPage } from '../src/pages/MeasurementPropertyPage.js'
 import { heyClient } from '../src/api.js'
 import {
+  getApiV1ProjectsByNameMeasurementChangesQueryKey,
   getApiV1ProjectsByNameMeasurementOverviewQueryKey,
   getApiV1ProjectsByNameMeasurementPlanQueryKey,
   getApiV1ProjectsByNameMeasurementPropertyEvidenceInfiniteQueryKey,
@@ -235,6 +238,39 @@ function evidenceResponse(
   }
 }
 
+function measurementChangesResponse(runId = RUN_ID) {
+  return {
+    current: {
+      state: 'complete' as const,
+      displayedRunId: runId,
+      planRevision: 7,
+      completedAt: '2026-08-02T12:05:00.000Z',
+      executionIdentity: 'openai:search-model',
+      measurementScope: 'full' as const,
+    },
+    comparison: { state: 'unavailable' as const, reason: 'no_previous_run' as const },
+  }
+}
+
+function runDetailResponse(id: string, kind: 'answer-visibility' | 'site-audit') {
+  return {
+    id,
+    projectId: 'project_citypoint',
+    kind,
+    status: 'completed' as const,
+    trigger: 'manual' as const,
+    measurementPlanVersionId: kind === 'answer-visibility' ? 'measurement-plan-v7' : null,
+    measurementScope: null,
+    location: null,
+    queries: null,
+    startedAt: '2026-08-02T12:00:00.000Z',
+    finishedAt: '2026-08-02T12:05:00.000Z',
+    error: null,
+    createdAt: '2026-08-02T12:00:00.000Z',
+    snapshots: [],
+  }
+}
+
 /** The panel's own table, addressed by the caption every test shares. */
 function answersTable() {
   return screen.findByRole('table', { name: 'Answers measured for this Property' })
@@ -257,6 +293,14 @@ async function renderPropertyPage(options: {
   queryClient.setQueryData(
     getApiV1ProjectsByNameMeasurementPlanQueryKey({ client: heyClient, path: { name: projectName } }),
     options.plan ?? planResponse(),
+  )
+  queryClient.setQueryData(
+    getApiV1ProjectsByNameMeasurementChangesQueryKey({
+      client: heyClient,
+      path: { name: projectName },
+      query: { scope: 'property', targetKey: TARGET_KEY, queryClass: 'non-brand', runId: RUN_ID },
+    }),
+    measurementChangesResponse(),
   )
   for (const [queryClass, response] of [['branded', options.branded], ['non-brand', options.nonBrand]] as const) {
     queryClient.setQueryData(
@@ -301,14 +345,19 @@ async function renderPropertyPage(options: {
   )
 }
 
-async function renderPropertyPageFromApi(handler: (url: string) => Response | Promise<Response>) {
+async function renderPropertyPageFromApi(
+  handler: (url: string) => Response | Promise<Response>,
+  initialEntry?: string,
+  seed?: (queryClient: QueryClient, projectName: string) => void,
+) {
   const fixture = createDashboardFixture({})
   const projectName = fixture.dashboard.projects.find(project => project.project.id === 'project_citypoint')!.project.name
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  seed?.(queryClient, projectName)
   const restoreFetch = mockFetch(url => handler(url))
   onTestFinished(restoreFetch)
   const router = createAppRouter(queryClient, {
-    initialEntries: [`/projects/${projectName}/properties/${TARGET_KEY}`],
+    initialEntries: [initialEntry ?? `/projects/${projectName}/properties/${TARGET_KEY}`],
   })
   await router.load()
 
@@ -319,7 +368,36 @@ async function renderPropertyPageFromApi(handler: (url: string) => Response | Pr
       </DashboardProvider>
     </QueryClientProvider>,
   )
-  return { projectName, queryClient }
+  return { projectName, queryClient, router }
+}
+
+/** AuthGate mounts the router without DashboardProvider in production. */
+async function renderPropertyPageWithoutDashboardContext(
+  handler: (url: string) => Response | Promise<Response>,
+  initialEntry: string,
+) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const restoreFetch = mockFetch(url => handler(url))
+  onTestFinished(restoreFetch)
+  const rootRoute = createRootRoute({ component: Outlet })
+  const propertyRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/projects/$projectName/properties/$targetKey',
+    component: MeasurementPropertyPage,
+  })
+  const router = createRouter({
+    routeTree: rootRoute.addChildren([propertyRoute]),
+    history: createMemoryHistory({ initialEntries: [initialEntry] }),
+  })
+  await router.load()
+  render(
+    <AccountProvider account={null}>
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={router as never} />
+      </QueryClientProvider>
+    </AccountProvider>,
+  )
+  return { queryClient, router }
 }
 
 function propertyPageResponses({
@@ -333,6 +411,10 @@ function propertyPageResponses({
 } = {}) {
   return (url: string) => {
     const path = pathOf(url)
+    if (/\/api\/v1\/projects\/[^/?]+(?:\?.*)?$/.test(path)) {
+      return jsonResponse({ id: 'project_citypoint', name: 'citypoint' })
+    }
+    if (path.endsWith(`/runs/${RUN_ID}`)) return jsonResponse(runDetailResponse(RUN_ID, 'answer-visibility'))
     if (path.endsWith('/measurement-plan')) return jsonResponse(planResponse())
     if (path.includes('/measurement-overview')) {
       return new URL(url).searchParams.get('queryClass') === 'branded'
@@ -340,6 +422,7 @@ function propertyPageResponses({
         : jsonResponse(nonBrand)
     }
     if (path.includes('/measurement-property-evidence')) return jsonResponse(evidence)
+    if (path.includes('/measurement-changes')) return jsonResponse(measurementChangesResponse())
     if (path.includes('/measurement-property-competitors')) {
       return jsonResponse({
         property: { targetKey: TARGET_KEY, label: 'Harbor House' },
@@ -385,6 +468,303 @@ function propertyPageResponses({
 }
 
 describe('Property page', () => {
+  it('forwards a measurement snapshot without DashboardProvider or a run-detail classifier', async () => {
+    const observed: string[] = []
+    const responses = propertyPageResponses()
+
+    await renderPropertyPageWithoutDashboardContext(url => {
+      observed.push(url)
+      return responses(url)
+    }, `/projects/project_citypoint/properties/${TARGET_KEY}?measurementRunId=${RUN_ID}`)
+
+    expect(await screen.findByRole('heading', { name: 'Harbor House' })).toBeTruthy()
+    const overviewRequests = observed.filter(url => pathOf(url).includes('/measurement-overview'))
+    expect(overviewRequests).not.toHaveLength(0)
+    expect(overviewRequests.every(url => new URL(url).searchParams.get('runId') === RUN_ID)).toBe(true)
+    expect(observed.some(url => pathOf(url).endsWith(`/runs/${RUN_ID}`))).toBe(false)
+  })
+
+  it('leaves an invalid measurement snapshot to the server instead of silently unpinning it', async () => {
+    const observed: string[] = []
+    const otherProjectRunId = 'run-other-project'
+    const responses = propertyPageResponses()
+
+    await renderPropertyPageWithoutDashboardContext(url => {
+      observed.push(url)
+      if (pathOf(url).includes('/measurement-overview') && new URL(url).searchParams.get('runId') === otherProjectRunId) {
+        return jsonResponse({ code: 'INVALID_RUN', message: 'Run belongs to another project' }, 422)
+      }
+      return responses(url)
+    }, `/projects/project_citypoint/properties/${TARGET_KEY}?measurementRunId=${otherProjectRunId}`)
+
+    expect(await screen.findByText('Could not load this Property.')).toBeTruthy()
+    const overviewRequests = observed.filter(url => pathOf(url).includes('/measurement-overview'))
+    expect(overviewRequests).not.toHaveLength(0)
+    expect(overviewRequests.every(url => new URL(url).searchParams.get('runId') === otherProjectRunId)).toBe(true)
+    expect(observed.some(url => pathOf(url).endsWith(`/runs/${otherProjectRunId}`))).toBe(false)
+  })
+
+  it('starts pinned Property reads before the active plan resolves and never fetches run detail', async () => {
+    const observed: string[] = []
+    let releasePlan: (() => void) | undefined
+    const planGate = new Promise<void>(resolve => { releasePlan = resolve })
+    const responses = propertyPageResponses()
+
+    await renderPropertyPageFromApi(url => {
+      observed.push(url)
+      const path = pathOf(url)
+      if (path.endsWith('/measurement-plan')) return planGate.then(() => responses(url))
+      return responses(url)
+    }, `/projects/project_citypoint/properties/${TARGET_KEY}?measurementRunId=${RUN_ID}`)
+
+    await waitFor(() => {
+      expect(observed.some(url => pathOf(url).endsWith('/measurement-plan'))).toBe(true)
+      expect(observed.some(url => pathOf(url).includes('/measurement-overview'))).toBe(true)
+    })
+    expect(observed.some(url => pathOf(url).endsWith(`/runs/${RUN_ID}`))).toBe(false)
+    await act(async () => { releasePlan?.() })
+    await waitFor(() => expect(observed.some(url => pathOf(url).includes('/measurement-overview'))).toBe(true))
+    expect(await screen.findByRole('heading', { name: 'Harbor House', hidden: true })).toBeTruthy()
+    const overviewRequests = observed.filter(url => pathOf(url).includes('/measurement-overview'))
+    expect(overviewRequests.every(url => new URL(url).searchParams.get('runId') === RUN_ID)).toBe(true)
+  })
+
+  it('keeps a non-measurement run drawer separate from Property measurement reads', async () => {
+    const observed: string[] = []
+    const drawerRunId = 'run-site-audit'
+    const responses = propertyPageResponses()
+    const { router } = await renderPropertyPageFromApi(url => {
+      observed.push(url)
+      const path = pathOf(url)
+      if (path.endsWith(`/runs/${drawerRunId}`)) return jsonResponse(runDetailResponse(drawerRunId, 'site-audit'))
+      if (path.includes('/measurement-overview') && new URL(url).searchParams.get('runId') === drawerRunId) {
+        return jsonResponse({ code: 'INVALID_RUN', message: 'Not a measurement run' }, 422)
+      }
+      if (path.includes('/measurement-changes') && new URL(url).searchParams.get('runId') === drawerRunId) {
+        return jsonResponse({ code: 'INVALID_RUN', message: 'Not a measurement run' }, 422)
+      }
+      return responses(url)
+    }, `/projects/project_citypoint/properties/${TARGET_KEY}?scope=group:north&class=branded&runId=${drawerRunId}&keep=fixture`)
+
+    expect(await screen.findByRole('heading', { name: 'Harbor House' })).toBeTruthy()
+    await screen.findByRole('region', { name: /Named instead of this Property/ })
+
+    const runSensitiveRequests = observed.filter(url => (
+      /measurement-overview|measurement-property-evidence|measurement-property-competitors|measurement-changes/.test(pathOf(url))
+    ))
+    expect(runSensitiveRequests).not.toHaveLength(0)
+    expect(runSensitiveRequests.every(url => new URL(url).searchParams.get('runId') !== drawerRunId)).toBe(true)
+
+    const back = screen.getByRole('link', { name: 'Back to measurement overview' })
+    const backDestination = new URL(back.getAttribute('href')!, window.location.origin)
+    expect(backDestination.searchParams.get('scope')).toBe('group:north')
+    expect(backDestination.searchParams.get('class')).toBe('branded')
+    expect(backDestination.searchParams.get('measurementRunId')).toBe(RUN_ID)
+    expect(backDestination.searchParams.get('runId')).toBeNull()
+    expect(backDestination.searchParams.get('keep')).toBe('fixture')
+    expect(router.state.location.search.runId).toBe(drawerRunId)
+
+    const market = screen.getByRole('region', { name: /Measured at the market level/ })
+    const overviewDestination = new URL(
+      within(market).getByRole('link', { name: 'Open measurement overview' }).getAttribute('href')!,
+      window.location.origin,
+    )
+    const groupDestination = new URL(
+      within(market).getByRole('link', { name: 'North' }).getAttribute('href')!,
+      window.location.origin,
+    )
+    expect(overviewDestination.searchParams.get('measurementRunId')).toBe(RUN_ID)
+    expect(groupDestination.searchParams.get('measurementRunId')).toBe(RUN_ID)
+    expect(overviewDestination.searchParams.get('runId')).toBeNull()
+    expect(groupDestination.searchParams.get('runId')).toBeNull()
+  })
+
+  it('does not pin Property reads to an answer run from another plan version', async () => {
+    const observed: string[] = []
+    const staleRunId = 'run-prior-plan'
+    const responses = propertyPageResponses()
+
+    await renderPropertyPageFromApi(url => {
+      observed.push(url)
+      const path = pathOf(url)
+      if (path.endsWith(`/runs/${staleRunId}`)) {
+        return jsonResponse({
+          ...runDetailResponse(staleRunId, 'answer-visibility'),
+          measurementPlanVersionId: 'measurement-plan-v6',
+        })
+      }
+      if (path.includes('/measurement-overview') && new URL(url).searchParams.get('runId') === staleRunId) {
+        return jsonResponse({ code: 'INVALID_RUN', message: 'Run belongs to a prior plan' }, 422)
+      }
+      return responses(url)
+    }, `/projects/project_citypoint/properties/${TARGET_KEY}?runId=${staleRunId}`)
+
+    expect(await screen.findByRole('heading', { name: 'Harbor House' })).toBeTruthy()
+    await screen.findByRole('region', { name: /Named instead of this Property/ })
+
+    const runSensitiveRequests = observed.filter(url => (
+      /measurement-overview|measurement-property-evidence|measurement-property-competitors|measurement-changes/.test(pathOf(url))
+    ))
+    expect(runSensitiveRequests).not.toHaveLength(0)
+    expect(runSensitiveRequests.every(url => new URL(url).searchParams.get('runId') !== staleRunId)).toBe(true)
+  })
+
+  it('falls back unpinned when cached active-plan revalidation fails', async () => {
+    const observed: string[] = []
+    const stalePlanRunId = 'run-stale-active-plan'
+    const responses = propertyPageResponses()
+
+    await renderPropertyPageFromApi(url => {
+      observed.push(url)
+      const path = pathOf(url)
+      if (path.endsWith(`/runs/${stalePlanRunId}`)) return jsonResponse(runDetailResponse(stalePlanRunId, 'answer-visibility'))
+      if (path.endsWith('/measurement-plan')) return jsonResponse({ code: 'INTERNAL_ERROR', message: 'Synthetic revalidation failure' }, 500)
+      if (path.includes('/measurement-overview') && new URL(url).searchParams.get('runId') === stalePlanRunId) {
+        return jsonResponse({ code: 'INVALID_RUN', message: 'Stale plan cannot validate this pin' }, 422)
+      }
+      return responses(url)
+    }, `/projects/project_citypoint/properties/${TARGET_KEY}?runId=${stalePlanRunId}`, (queryClient) => {
+      queryClient.setQueryData(
+        getApiV1ProjectsByNameMeasurementPlanQueryKey({ client: heyClient, path: { name: 'project_citypoint' } }),
+        planResponse(),
+      )
+    })
+
+    await waitFor(() => expect(observed.some(url => pathOf(url).endsWith('/measurement-plan'))).toBe(true))
+    expect(await screen.findByText('Harbor House')).toBeTruthy()
+    const measurementRequests = observed.filter(url => (
+      /measurement-overview|measurement-property-evidence|measurement-property-competitors|measurement-changes/.test(pathOf(url))
+    ))
+    expect(measurementRequests).not.toHaveLength(0)
+    expect(measurementRequests.every(url => new URL(url).searchParams.get('runId') !== stalePlanRunId)).toBe(true)
+  })
+
+  it('waits for the resolved overview run before reading named competitors', async () => {
+    const observed: string[] = []
+    let releaseOverview: (() => void) | undefined
+    const overviewGate = new Promise<void>(resolve => { releaseOverview = resolve })
+    const responses = propertyPageResponses()
+
+    await renderPropertyPageFromApi(url => {
+      observed.push(url)
+      if (pathOf(url).includes('/measurement-overview')) {
+        return overviewGate.then(() => responses(url))
+      }
+      return responses(url)
+    })
+
+    await screen.findByLabelText('Query type')
+    await waitFor(() => expect(observed.filter(url => pathOf(url).includes('/measurement-overview'))).toHaveLength(2))
+    expect(observed.some(url => pathOf(url).includes('/measurement-property-competitors'))).toBe(false)
+    expect(screen.queryByRole('region', { name: /Named instead of this Property/ })).toBeNull()
+
+    releaseOverview?.()
+    await screen.findByRole('region', { name: /Named instead of this Property/ })
+    const competitorRequest = observed.find(url => pathOf(url).includes('/measurement-property-competitors'))
+    expect(competitorRequest).toBeDefined()
+    expect(new URL(competitorRequest!).searchParams.get('runId')).toBe(RUN_ID)
+  })
+
+  it('does not read named competitors when both overview reads fail', async () => {
+    const observed: string[] = []
+    const responses = propertyPageResponses()
+
+    await renderPropertyPageFromApi(url => {
+      observed.push(url)
+      if (pathOf(url).includes('/measurement-overview')) {
+        return jsonResponse({ code: 'INTERNAL_ERROR', message: 'Synthetic failure' }, 500)
+      }
+      return responses(url)
+    })
+
+    await screen.findByText('Could not load this Property.')
+    expect(observed.filter(url => pathOf(url).includes('/measurement-overview'))).toHaveLength(2)
+    expect(observed.some(url => pathOf(url).includes('/measurement-property-competitors'))).toBe(false)
+    expect(screen.queryByRole('region', { name: /Named instead of this Property/ })).toBeNull()
+  })
+
+  it('keeps Property class and measurement snapshot continuity in the URL across back and forward navigation', async () => {
+    const pinnedRunId = 'run-pinned'
+    const observed: string[] = []
+    const pinnedOverview = (queryClass: 'branded' | 'non-brand') => ({
+      ...overviewResponse(queryClass, { mentionCoverage: available(1, 2), citationCoverage: available(1, 2) }),
+      measurement: {
+        ...overviewResponse(queryClass, { mentionCoverage: available(1, 2), citationCoverage: available(1, 2) }).measurement,
+        displayedRunId: pinnedRunId,
+      },
+    })
+    const responses = propertyPageResponses({
+      branded: pinnedOverview('branded'),
+      nonBrand: pinnedOverview('non-brand'),
+    })
+    const { router } = await renderPropertyPageFromApi(url => {
+      observed.push(url)
+      return responses(url)
+    }, `/projects/project_citypoint/properties/${TARGET_KEY}?scope=group:north&class=branded&measurementRunId=${pinnedRunId}&keep=fixture`)
+
+    const queryType = await screen.findByLabelText('Query type') as HTMLSelectElement
+    expect(queryType.value).toBe('branded')
+    await screen.findByRole('heading', { name: 'Since previous comparable sweep' })
+    await screen.findByRole('region', { name: /Named instead of this Property/ })
+
+    const pinSensitiveRequests = observed.filter(url => (
+      /measurement-overview|measurement-property-evidence|measurement-property-competitors|measurement-changes/.test(pathOf(url))
+    ))
+    expect(pinSensitiveRequests.length).toBeGreaterThan(0)
+    for (const url of pinSensitiveRequests) {
+      expect(new URL(url).searchParams.get('runId')).toBe(pinnedRunId)
+    }
+
+    fireEvent.change(queryType, { target: { value: 'non-brand' } })
+    await waitFor(() => {
+      const search = router.state.location.search as Record<string, unknown>
+      expect(search.class).toBe('non-brand')
+      expect(search.scope).toBe('group:north')
+      expect(search.measurementRunId).toBe(pinnedRunId)
+      expect(search.runId).toBeUndefined()
+      expect(search.keep).toBe('fixture')
+    })
+
+    await act(async () => { router.history.back() })
+    await waitFor(() => expect((screen.getByLabelText('Query type') as HTMLSelectElement).value).toBe('branded'))
+    await act(async () => { router.history.forward() })
+    await waitFor(() => expect((screen.getByLabelText('Query type') as HTMLSelectElement).value).toBe('non-brand'))
+  })
+
+  it('returns to the incoming Group and makes each member Group link scoped', async () => {
+    const { router } = await renderPropertyPageFromApi(propertyPageResponses(),
+      `/projects/project_citypoint/properties/${TARGET_KEY}?scope=group:north&class=non-brand&measurementRunId=${RUN_ID}`)
+
+    // The header link is intentionally visible while the overview is loading,
+    // but it cannot claim a run until the displayed snapshot resolves.
+    await screen.findByRole('heading', { name: 'Since previous comparable sweep' })
+    const back = await screen.findByRole('link', { name: 'Back to measurement overview' })
+    const backDestination = new URL(back.getAttribute('href')!, window.location.origin)
+    expect(backDestination.searchParams.get('scope')).toBe('group:north')
+    expect(backDestination.searchParams.get('measurementRunId')).toBe(RUN_ID)
+    expect(backDestination.searchParams.get('runId')).toBeNull()
+
+    const market = await screen.findByRole('region', { name: /Measured at the market level/ })
+    const memberGroup = within(market).getByRole('link', { name: 'North' })
+    const groupDestination = new URL(memberGroup.getAttribute('href')!, window.location.origin)
+    expect(groupDestination.searchParams.get('scope')).toBe('group:north')
+    expect(groupDestination.searchParams.get('measurementRunId')).toBe(RUN_ID)
+    expect(groupDestination.searchParams.get('runId')).toBeNull()
+    expect(router.state.location.search.scope).toBe('group:north')
+  })
+
+  it('returns a direct Property link to the Portfolio', async () => {
+    await renderPropertyPageFromApi(propertyPageResponses(),
+      `/projects/project_citypoint/properties/${TARGET_KEY}?class=branded&measurementRunId=${RUN_ID}`)
+
+    await screen.findByRole('heading', { name: 'Since previous comparable sweep' })
+    const back = await screen.findByRole('link', { name: 'Back to measurement overview' })
+    const backDestination = new URL(back.getAttribute('href')!, window.location.origin)
+    expect(backDestination.searchParams.get('scope')).toBeNull()
+    expect(backDestination.searchParams.get('measurementRunId')).toBe(RUN_ID)
+    expect(backDestination.searchParams.get('runId')).toBeNull()
+  })
+
   it('keeps the compact loading skeleton inside a readable status', async () => {
     await renderPropertyPageFromApi(() => new Promise<Response>(() => {}))
 
@@ -976,11 +1356,24 @@ describe('Property facts and market link', () => {
     expect(within(market).queryByText('South')).toBeNull()
     expect(within(market).getByText('2 competitors')).toBeTruthy()
 
-    // One destination, one control. Per-market buttons all resolved to this
-    // same unscoped URL, so the market a reader picked was silently dropped.
+    // Group identity is in the URL, so each member link lands on the market it
+    // names instead of silently turning into the all-properties overview.
     const links = within(market).getAllByRole('link')
-    expect(links).toHaveLength(1)
-    expect(links[0]!.textContent).toBe('Open measurement overview')
+    expect(links).toHaveLength(2)
+    const overview = within(market).getByRole('link', { name: 'Open measurement overview' })
+    expect(overview).toBeTruthy()
+    const north = within(market).getByRole('link', { name: 'North' })
+    const overviewDestination = new URL(overview.getAttribute('href')!, window.location.origin)
+    const groupDestination = new URL(north.getAttribute('href')!, window.location.origin)
+    expect(overviewDestination.searchParams.get('measurementRunId')).toBe(RUN_ID)
+    expect(overviewDestination.searchParams.get('runId')).toBeNull()
+    expect(groupDestination.searchParams.get('scope')).toBe('group:north')
+    expect(groupDestination.searchParams.get('measurementRunId')).toBe(RUN_ID)
+    expect(groupDestination.searchParams.get('runId')).toBeNull()
+    // Portfolio defaults remain elided even as the resolved snapshot is made
+    // explicit, keeping the Group/Portfolio URL contract compact.
+    expect(overviewDestination.searchParams.get('class')).toBeNull()
+    expect(groupDestination.searchParams.get('class')).toBeNull()
   })
 
   it('does not claim the Property was never swept while a class is failing', async () => {

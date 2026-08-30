@@ -3,7 +3,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type {
   MeasurementOverviewResponse,
   MeasurementPlanResponse,
-  MeasurementReportResponse,
 } from '@ainyc/canonry-api-client'
 
 import { AdvancedMeasurementOverview } from '../src/components/project/advanced-measurement/AdvancedMeasurementOverview.js'
@@ -205,7 +204,7 @@ describe('version-two measurement overview adapter', () => {
     }
   })
 
-  it('indexes evidence once by its assigned Property and translates sibling language', () => {
+  it('uses chain-aware Property evidence for a comparable predecessor run', () => {
     const { activePlan, overview } = fixture(2)
     if (activePlan.plan.schemaVersion !== 2) throw new Error('Expected a version-two fixture.')
     activePlan.plan.assignments.push({
@@ -214,23 +213,26 @@ describe('version-two measurement overview adapter', () => {
     })
     activePlan.plan.targets[0]!.urlMatchers.push({ kind: 'host', host: 'homes.northstar.example' })
     overview.properties = { items: overview.properties.items.slice(0, 2), nextCursor: null, totalEstimate: 2 }
-    const evidenceReport = {
-      revision: 2,
-      run: null,
-      groups: [],
-      targets: [],
-      diagnostics: {
-        bridgedObservationIds: [], historicalObservationIds: [], evidenceIncompleteObservationIds: [], ambiguousObservationIds: [], unmatchedObservationIds: [],
-      },
-      evidence: [{
+    overview.measurement.displayedRunId = 'run-v1-comparable'
+    const propertyEvidence = {
+      targetKey: 'property-1',
+      displayedRunId: 'run-v1-comparable',
+      items: [{
         observationId: 'observation-1', expectedSlotId: 'slot-1', executionId: 'execution-nearby',
         usageEdgeId: 'target:property-1:query-nearby:execution-nearby', usageEdgeType: 'target', provider: 'openai',
         queryText: 'apartments near downtown', location: null, sourceUrl: 'https://northstar.example/properties/2',
         bridged: false, historical: false, evidenceComplete: true, classification: 'sibling',
         normalizedUrl: 'https://northstar.example/properties/2', matchedTargetIds: ['property-2'], matchedUrlIds: ['property-2:url:0'],
       }],
-    } as MeasurementReportResponse
-    const report = adaptV2MeasurementOverview({ overview, activePlan, report: evidenceReport })
+      totalEstimate: 1,
+      hasMore: false,
+    } as const
+    const report = adaptV2MeasurementOverview({
+      overview,
+      activePlan,
+      propertyEvidence,
+      propertyEvidenceTargetKey: 'property-1',
+    })
 
     expect(report.currentView?.aggregate.properties[0]?.evidence).toHaveLength(1)
     expect(report.currentView?.aggregate.properties[0]?.evidence[0]?.kind).toBe('another-property')
@@ -251,7 +253,7 @@ describe('version-two measurement overview adapter', () => {
     const report = adaptV2MeasurementOverview({
       overview,
       activePlan,
-      reportState: 'loading',
+      propertyEvidenceState: 'loading',
     })
     render(<AdvancedMeasurementOverview report={report} canEdit />)
 
@@ -287,19 +289,29 @@ describe('version-two measurement overview adapter', () => {
     expect(onLoadMore).toHaveBeenCalledWith('page-2')
   })
 
-  it('shows an honest evidence error when the deep report fails or belongs to another run', () => {
+  it('shows an honest evidence error when the Property evidence read fails or belongs to another snapshot or Property', () => {
     const { activePlan, overview } = fixture(1)
     overview.properties = { items: overview.properties.items.slice(0, 1), nextCursor: null, totalEstimate: 1 }
     overview.measurement.displayedRunId = 'run-a'
     const onRetryEvidence = vi.fn()
 
-    const loading = adaptV2MeasurementOverview({ overview, activePlan, reportState: 'loading' })
+    const loading = adaptV2MeasurementOverview({
+      overview,
+      activePlan,
+      propertyEvidenceTargetKey: 'property-1',
+      propertyEvidenceState: 'loading',
+    })
     render(<AdvancedMeasurementOverview report={loading} canEdit />)
     fireEvent.click(screen.getByRole('button', { name: 'Show details for Property 1' }))
     expect(screen.getByText('Loading evidence…')).toBeTruthy()
     cleanup()
 
-    const failed = adaptV2MeasurementOverview({ overview, activePlan, reportState: 'error' })
+    const failed = adaptV2MeasurementOverview({
+      overview,
+      activePlan,
+      propertyEvidenceTargetKey: 'property-1',
+      propertyEvidenceState: 'error',
+    })
     render(<AdvancedMeasurementOverview report={failed} canEdit onRetryEvidence={onRetryEvidence} />)
     fireEvent.click(screen.getByRole('button', { name: 'Show details for Property 1' }))
     expect(screen.getByText('Evidence could not be loaded.')).toBeTruthy()
@@ -310,9 +322,31 @@ describe('version-two measurement overview adapter', () => {
     const mismatched = adaptV2MeasurementOverview({
       overview,
       activePlan,
-      report: { ...({} as MeasurementReportResponse), revision: 2, run: { id: 'run-b' } } as MeasurementReportResponse,
+      propertyEvidence: {
+        targetKey: 'property-1',
+        displayedRunId: 'run-b',
+        items: [],
+        hasMore: false,
+      },
+      propertyEvidenceTargetKey: 'property-1',
     })
     render(<AdvancedMeasurementOverview report={mismatched} canEdit />)
+    fireEvent.click(screen.getByRole('button', { name: 'Show details for Property 1' }))
+    expect(screen.getByText('Evidence could not be loaded.')).toBeTruthy()
+    cleanup()
+
+    const wrongProperty = adaptV2MeasurementOverview({
+      overview,
+      activePlan,
+      propertyEvidence: {
+        targetKey: 'property-2',
+        displayedRunId: 'run-a',
+        items: [],
+        hasMore: false,
+      },
+      propertyEvidenceTargetKey: 'property-1',
+    })
+    render(<AdvancedMeasurementOverview report={wrongProperty} canEdit />)
     fireEvent.click(screen.getByRole('button', { name: 'Show details for Property 1' }))
     expect(screen.getByText('Evidence could not be loaded.')).toBeTruthy()
   })

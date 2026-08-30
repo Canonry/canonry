@@ -18,6 +18,13 @@ export interface MeasurementViewState {
   queryClass: MeasurementQueryClass
 }
 
+/** A Property has one query class at a time; pooled coverage belongs to its Group. */
+export type MeasurementPropertyQueryClass = Exclude<MeasurementQueryClass, 'all'>
+
+export interface MeasurementPropertyViewState {
+  queryClass: MeasurementPropertyQueryClass
+}
+
 /**
  * Non-brand is the actionable default. Branded and non-brand answer different
  * questions, so the first view must not pool them into one headline rate. All
@@ -26,9 +33,14 @@ export interface MeasurementViewState {
 export const DEFAULT_MEASUREMENT_VIEW: MeasurementViewState = { scope: 'all', queryClass: 'non-brand' }
 
 const QUERY_CLASSES: readonly MeasurementQueryClass[] = ['all', 'non-brand', 'branded']
+const PROPERTY_QUERY_CLASSES: readonly MeasurementPropertyQueryClass[] = ['non-brand', 'branded']
 
 function isQueryClass(value: unknown): value is MeasurementQueryClass {
   return typeof value === 'string' && (QUERY_CLASSES as readonly string[]).includes(value)
+}
+
+function isPropertyQueryClass(value: unknown): value is MeasurementPropertyQueryClass {
+  return typeof value === 'string' && (PROPERTY_QUERY_CLASSES as readonly string[]).includes(value)
 }
 
 /**
@@ -47,6 +59,15 @@ export function parseMeasurementViewSearch(search: { scope?: string; class?: str
   // `group:` with nothing after it names no group, so it is not a group scope.
   if (!groupKey) return { scope: 'all', queryClass }
   return { scope: 'group', groupKey, queryClass }
+}
+
+/**
+ * Property pages intentionally do not support `all`: a Property is read in the
+ * branded or non-brand lane, never as a pooled result. The default is written
+ * explicitly so a copied Property URL always says which lane it shows.
+ */
+export function parseMeasurementPropertyViewSearch(search: { class?: string }): MeasurementPropertyViewState {
+  return { queryClass: isPropertyQueryClass(search.class) ? search.class : 'non-brand' }
 }
 
 /**
@@ -78,4 +99,9 @@ export function measurementViewSearch(view: MeasurementViewState): { scope?: str
     scope: view.scope === 'group' && view.groupKey ? `group:${view.groupKey}` : undefined,
     class: view.queryClass === DEFAULT_MEASUREMENT_VIEW.queryClass ? undefined : view.queryClass,
   }
+}
+
+/** Property URLs always carry their class, including the non-brand default. */
+export function measurementPropertyViewSearch(view: MeasurementPropertyViewState): { class: MeasurementPropertyQueryClass } {
+  return { class: view.queryClass }
 }
