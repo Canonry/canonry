@@ -117,8 +117,10 @@ function authoringIdentity(authoring: MeasurementDraftAuthoring): string {
   return canonicalJson(authoring)
 }
 
+type MeasurementDraftReadDb = Pick<DatabaseClient, 'select'>
+
 function trackedQueriesFor(
-  db: DatabaseClient,
+  db: MeasurementDraftReadDb,
   projectId: string,
   extraTrackedQueries: ReadonlyArray<{ id: string; query: string }> = [],
 ): Array<{ id: string; query: string }> {
@@ -130,7 +132,7 @@ function trackedQueriesFor(
 }
 
 export function compileContextFor(
-  db: DatabaseClient,
+  db: MeasurementDraftReadDb,
   project: ProjectRow,
   extraTrackedQueries: ReadonlyArray<{ id: string; query: string }> = [],
   queryProvenanceById?: MeasurementDraftCompileContext['queryProvenanceById'],
@@ -146,7 +148,7 @@ export function compileContextFor(
 }
 
 export function actionContextFor(
-  db: DatabaseClient,
+  db: MeasurementDraftReadDb,
   project: ProjectRow,
   extraTrackedQueries: ReadonlyArray<{ id: string; query: string }> = [],
 ): DraftActionContext {

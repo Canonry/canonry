@@ -6,6 +6,7 @@ import {
   type LocationContext,
   type ResearchPromotionPreviewRequest,
   type ResearchPromotionPreviewResponse,
+  type ResearchPromotionCommitResult,
   type ResearchRunCreate,
   type ResearchRunDetailDto,
   type ResearchRunStatus,
@@ -96,7 +97,7 @@ export async function researchShow(project: string, runId: string, opts: { forma
 
 /**
  * Preview only: the route deliberately writes no tracked query or measurement
- * draft. A later explicit commit route will own durable promotion.
+ * draft. The explicit commit route owns durable promotion.
  */
 export async function researchPromotionPreview(
   project: string,
@@ -115,6 +116,37 @@ export async function researchPromotionPreview(
     return
   }
   printPromotionPreview(preview)
+}
+
+/**
+ * Durable counterpart to `researchPromotionPreview`. The caller must supply
+ * the exact preview checksum and a replay key so the server can atomically
+ * re-project and verify the request before it writes anything.
+ */
+export async function researchPromotionCommit(
+  project: string,
+  runId: string,
+  queryId: string,
+  opts: ResearchPromotionPreviewRequest & {
+    previewChecksum: string
+    idempotencyKey: string
+    format?: string
+  },
+): Promise<void> {
+  const { format, previewChecksum, idempotencyKey, ...request } = opts
+  const result = await getClient().commitResearchPromotion(project, runId, queryId, {
+    previewChecksum,
+    request,
+  }, idempotencyKey)
+  if (format === 'jsonl') {
+    emitJsonl([{ project, runId, queryId, ...result }])
+    return
+  }
+  if (format === 'json') {
+    console.log(JSON.stringify(result, null, 2))
+    return
+  }
+  printPromotionCommit(result)
 }
 
 async function pollResearchRun(client: ApiClient, project: string, runId: string, quiet: boolean): Promise<ResearchRunDetailDto> {
@@ -166,6 +198,22 @@ function printPromotionPreview(preview: ResearchPromotionPreviewResponse): void 
   }
   console.log(`  Preview checksum: ${preview.previewChecksum}`)
   console.log('  No changes were made.')
+}
+
+function printPromotionCommit(result: ResearchPromotionCommitResult): void {
+  if (result.status === 'already-tracked') {
+    console.log('Research query is already tracked. No measurement-plan revision was published.')
+    console.log(`  Tracked query: ${result.trackedQuery.query}`)
+    console.log(`  Reused: ${result.trackedQuery.id}`)
+    return
+  }
+  console.log('Research query is tracked and awaiting the next AI visibility sweep.')
+  console.log(`  Tracked query: ${result.trackedQuery.query}`)
+  if (result.trackedQuery.state === 'existing') console.log(`  Reused: ${result.trackedQuery.id}`)
+  if (result.mode === 'advanced') {
+    console.log(`  Published revision: ${result.publishedRevision}`)
+    console.log(`  Compiled checksum: ${result.compiledChecksum}`)
+  }
 }
 
 function printDetail(project: string, detail: ResearchRunDetailDto, format?: string): void {

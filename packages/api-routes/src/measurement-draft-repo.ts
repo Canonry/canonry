@@ -1,5 +1,5 @@
 import crypto from 'node:crypto'
-import { and, eq, lt } from 'drizzle-orm'
+import { and, eq, gt, lte } from 'drizzle-orm'
 import type { FastifyReply, FastifyRequest } from 'fastify'
 import {
   measurementDraftAuthoringSchema,
@@ -27,6 +27,7 @@ export type PlanVersionRow = typeof measurementPlanVersions.$inferSelect
 
 /** Any Drizzle handle, so every helper works inside a transaction and outside one. */
 type DbLike = Pick<DatabaseClient, 'select' | 'insert' | 'update' | 'delete'>
+type DbRead = Pick<DatabaseClient, 'select'>
 
 /**
  * How long a stored response stays replayable. Long enough that a client
@@ -111,7 +112,7 @@ export function parseStoredAuthoring(json: string): MeasurementDraftAuthoring {
   return parsed.data
 }
 
-export function draftRow(db: DbLike, projectId: string): DraftRow | null {
+export function draftRow(db: DbRead, projectId: string): DraftRow | null {
   return db.select().from(measurementPlanDrafts)
     .where(eq(measurementPlanDrafts.projectId, projectId)).get() ?? null
 }
@@ -151,7 +152,7 @@ export function draftCounts(authoring: MeasurementDraftAuthoring): MeasurementDr
 }
 
 /** The active-plan pointer and the revision it names, or null on a planless project. */
-export function activePlanVersionRow(db: DbLike, projectId: string): PlanVersionRow | null {
+export function activePlanVersionRow(db: DbRead, projectId: string): PlanVersionRow | null {
   const pointer = db.select().from(measurementPlans)
     .where(eq(measurementPlans.projectId, projectId)).get()
   if (!pointer) return null
@@ -214,10 +215,12 @@ export function replayReceipt(
   lookup: ReceiptLookup,
   reply: FastifyReply,
 ): unknown | null {
+  const now = new Date().toISOString()
   const existing = db.select().from(measurementOperationReceipts).where(and(
     eq(measurementOperationReceipts.projectId, projectId),
     eq(measurementOperationReceipts.operation, lookup.operation),
     eq(measurementOperationReceipts.idempotencyKey, lookup.key),
+    gt(measurementOperationReceipts.expiresAt, now),
   )).get()
   if (!existing) return null
   if (existing.requestChecksum !== lookup.checksum) throw measurementIdempotencyKeyConflict(lookup.operation)
@@ -258,6 +261,6 @@ export function writeReceipt(
  */
 export function sweepExpiredMeasurementReceipts(db: DbLike, now: Date): number {
   const result = db.delete(measurementOperationReceipts)
-    .where(lt(measurementOperationReceipts.expiresAt, now.toISOString())).run()
+    .where(lte(measurementOperationReceipts.expiresAt, now.toISOString())).run()
   return Number(result.changes)
 }

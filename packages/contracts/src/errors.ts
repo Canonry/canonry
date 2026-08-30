@@ -27,6 +27,7 @@ export type ErrorCode =
   | 'MEASUREMENT_DRAFT_ETAG_STALE'
   | 'MEASUREMENT_IDEMPOTENCY_KEY_REQUIRED'
   | 'MEASUREMENT_IDEMPOTENCY_KEY_CONFLICT'
+  | 'RESEARCH_PROMOTION_PREVIEW_CONFLICT'
 
 export class AppError extends Error {
   readonly code: ErrorCode
@@ -158,6 +159,19 @@ export function measurementCompiledChecksumConflict(
     'The compiled measurement plan changed after it was reviewed. Reload the review and publish again.',
     409,
     { expectedCompiledChecksum, actualCompiledChecksum },
+  )
+}
+
+/** A research-promotion preview is a projection checksum, never a compiled-plan checksum. */
+export function researchPromotionPreviewConflict(
+  expectedPreviewChecksum: string,
+  actualPreviewChecksum: string,
+): AppError {
+  return new AppError(
+    'RESEARCH_PROMOTION_PREVIEW_CONFLICT',
+    'The research promotion changed after it was previewed. Reload the promotion preview and confirm again.',
+    409,
+    { expectedPreviewChecksum, actualPreviewChecksum },
   )
 }
 

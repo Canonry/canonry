@@ -5,13 +5,14 @@ const startResearchRun = vi.fn()
 const listResearchRuns = vi.fn()
 const getResearchRun = vi.fn()
 const previewResearchPromotion = vi.fn()
+const commitResearchPromotion = vi.fn()
 const getProject = vi.fn()
 
 vi.mock('../src/client.js', () => ({
-  createApiClient: () => ({ startResearchRun, listResearchRuns, getResearchRun, previewResearchPromotion, getProject }),
+  createApiClient: () => ({ startResearchRun, listResearchRuns, getResearchRun, previewResearchPromotion, commitResearchPromotion, getProject }),
 }))
 
-const { researchPromotionPreview, researchRun, researchShow } = await import('../src/commands/research.js')
+const { researchPromotionCommit, researchPromotionPreview, researchRun, researchShow } = await import('../src/commands/research.js')
 const { RESEARCH_CLI_COMMANDS } = await import('../src/cli-commands/research.js')
 
 const detail: ResearchRunDetailDto = {
@@ -40,6 +41,13 @@ describe('research commands', () => {
     startResearchRun.mockResolvedValue(detail)
     getResearchRun.mockResolvedValue(detail)
     previewResearchPromotion.mockResolvedValue({ mode: 'simple', previewChecksum: 'a'.repeat(64) })
+    commitResearchPromotion.mockResolvedValue({
+      status: 'tracked-awaiting-first-sweep', mode: 'simple', source: {
+        runId: 'research-1', queryId: 'query-1', query: 'best AEO software', normalizedQuery: 'best aeo software', status: 'completed', completedAt: null,
+      }, trackedQuery: {
+        state: 'new', id: 'query-1', proposedId: 'query-1', query: 'best AEO software', normalizedQuery: 'best aeo software',
+      }, publishedRevision: null, compiledChecksum: null,
+    })
   })
 
   it('emits exactly one compact parent record for a non-wait jsonl start', async () => {
@@ -127,5 +135,90 @@ describe('research commands', () => {
     })
     await researchPromotionPreview('demo', 'research-1', 'query-1', { format: 'json' })
     expect(previewResearchPromotion).toHaveBeenLastCalledWith('demo', 'research-1', 'query-1', {})
+  })
+
+  it('requires an exact preview checksum and replay key before committing the same selection', async () => {
+    const command = RESEARCH_CLI_COMMANDS.find(candidate => candidate.path.join(' ') === 'research promote')!
+    await expect(command.run({
+      positionals: ['demo', 'research-1', 'query-1'], values: { 'idempotency-key': 'replay-1' }, format: 'json', dryRun: false,
+    })).rejects.toMatchObject({ code: 'CLI_USAGE_ERROR' })
+    await expect(command.run({
+      positionals: ['demo', 'research-1', 'query-1'], values: { 'preview-checksum': 'a'.repeat(64) }, format: 'json', dryRun: false,
+    })).rejects.toMatchObject({ code: 'CLI_USAGE_ERROR' })
+
+    await command.run({
+      positionals: ['demo', 'research-1', 'query-1'],
+      values: {
+        target: ['target-a'], group: ['group-a'], 'query-class': 'non-brand',
+        'preview-checksum': 'a'.repeat(64), 'idempotency-key': 'replay-1',
+      },
+      format: 'json', dryRun: false,
+    })
+    expect(commitResearchPromotion).toHaveBeenCalledWith('demo', 'research-1', 'query-1', {
+      previewChecksum: 'a'.repeat(64), request: { targetKeys: ['target-a'], groupKeys: ['group-a'], queryClass: 'non-brand' },
+    }, 'replay-1')
+
+    await researchPromotionCommit('demo', 'research-1', 'query-1', {
+      previewChecksum: 'b'.repeat(64), idempotencyKey: 'replay-2', format: 'json',
+    })
+    expect(commitResearchPromotion).toHaveBeenLastCalledWith('demo', 'research-1', 'query-1', {
+      previewChecksum: 'b'.repeat(64), request: {},
+    }, 'replay-2')
+
+    await expect(command.run({
+      positionals: ['demo', 'research-1', 'query-1'],
+      values: { 'preview-checksum': 'a'.repeat(64), 'idempotency-key': 'replay-3', 'query-class': 'not-a-class' },
+      format: 'json', dryRun: false,
+    })).rejects.toMatchObject({ details: { command: 'research.promote' } })
+  })
+
+  it('emits one compact promotion record for jsonl while json remains a document', async () => {
+    const writes: string[] = []
+    vi.spyOn(process.stdout, 'write').mockImplementation((chunk: string | Uint8Array) => {
+      writes.push(String(chunk)); return true
+    })
+    try {
+      await researchPromotionCommit('demo', 'research-1', 'query-1', {
+        previewChecksum: 'c'.repeat(64), idempotencyKey: 'replay-jsonl', format: 'jsonl',
+      })
+    } finally {
+      vi.restoreAllMocks()
+    }
+    expect(writes).toHaveLength(1)
+    expect(writes[0]).toBe(`${JSON.stringify({
+      project: 'demo', runId: 'research-1', queryId: 'query-1',
+      status: 'tracked-awaiting-first-sweep', mode: 'simple',
+      source: {
+        runId: 'research-1', queryId: 'query-1', query: 'best AEO software', normalizedQuery: 'best aeo software', status: 'completed', completedAt: null,
+      },
+      trackedQuery: {
+        state: 'new', id: 'query-1', proposedId: 'query-1', query: 'best AEO software', normalizedQuery: 'best aeo software',
+      },
+      publishedRevision: null, compiledChecksum: null,
+    })}\n`)
+
+    const json = await captureLog(() => researchPromotionCommit('demo', 'research-1', 'query-1', {
+      previewChecksum: 'd'.repeat(64), idempotencyKey: 'replay-json', format: 'json',
+    }))
+    expect(json).toContain('\n  "status": "tracked-awaiting-first-sweep"')
+    expect(JSON.parse(json)).toMatchObject({ status: 'tracked-awaiting-first-sweep', mode: 'simple' })
+  })
+
+  it('reports an already-tracked promotion as a no-op in human CLI output', async () => {
+    commitResearchPromotion.mockResolvedValue({
+      status: 'already-tracked', mode: 'advanced', source: {
+        runId: 'research-1', queryId: 'query-1', query: 'best AEO software', normalizedQuery: 'best aeo software', status: 'completed', completedAt: null,
+      }, trackedQuery: {
+        state: 'existing', id: 'query-1', proposedId: 'query-1', query: 'best AEO software', normalizedQuery: 'best aeo software',
+      }, publishedRevision: null, compiledChecksum: null,
+    })
+
+    const output = await captureLog(() => researchPromotionCommit('demo', 'research-1', 'query-1', {
+      previewChecksum: 'e'.repeat(64), idempotencyKey: 'already-tracked-human',
+    }))
+
+    expect(output).toContain('Research query is already tracked. No measurement-plan revision was published.')
+    expect(output).not.toContain('awaiting the next AI visibility sweep')
+    expect(output).not.toContain('Published revision:')
   })
 })

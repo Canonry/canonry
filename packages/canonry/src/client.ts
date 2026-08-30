@@ -232,6 +232,8 @@ import type {
   DiscoveryPromoteResult,
   ResearchPromotionPreviewRequest,
   ResearchPromotionPreviewResponse,
+  ResearchPromotionCommitRequest,
+  ResearchPromotionCommitResult,
   ResearchRunCreate,
   ResearchRunDetailDto,
   ResearchRunListDto,
@@ -475,6 +477,7 @@ import {
   getApiV1ProjectsByNameResearchRuns,
   getApiV1ProjectsByNameResearchRunsByRunId,
   postApiV1ProjectsByNameResearchRunsByRunIdQueriesByQueryIdPromotionPreview,
+  postApiV1ProjectsByNameResearchRunsByRunIdQueriesByQueryIdPromotion,
   postApiV1ProjectsByNameDiscoverSessionsByIdPromote,
   // Technical AEO (site-audit)
   getApiV1ProjectsByNameTechnicalAeo,
@@ -3616,6 +3619,23 @@ export class ApiClient {
       postApiV1ProjectsByNameResearchRunsByRunIdQueriesByQueryIdPromotionPreview({
         client: this.heyClient,
         path: { name: project, runId, queryId },
+        body: request,
+      }),
+    )
+  }
+
+  async commitResearchPromotion(
+    project: string,
+    runId: string,
+    queryId: string,
+    request: ResearchPromotionCommitRequest,
+    idempotencyKey: string,
+  ): Promise<ResearchPromotionCommitResult> {
+    return this.invoke<ResearchPromotionCommitResult>(() =>
+      postApiV1ProjectsByNameResearchRunsByRunIdQueriesByQueryIdPromotion({
+        client: this.heyClient,
+        path: { name: project, runId, queryId },
+        headers: { 'Idempotency-Key': idempotencyKey },
         body: request,
       }),
     )

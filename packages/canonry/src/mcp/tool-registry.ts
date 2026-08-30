@@ -21,6 +21,7 @@ import {
   discoveryCompetitorTypeSchema,
   discoveryPromoteRequestSchema,
   discoveryRunRequestSchema,
+  researchPromotionCommitRequestSchema,
   researchPromotionPreviewRequestSchema,
   researchRunCreateSchema,
   keywordBatchRequestSchema,
@@ -892,6 +893,14 @@ const researchPromotionPreviewInputSchema = z.object({
   runId: z.string().min(1).describe('Research run ID returned by canonry_research_run_start.'),
   queryId: z.string().min(1).describe('Completed saved research query ID from canonry_research_run_get.'),
   request: researchPromotionPreviewRequestSchema.describe('Optional active-v2 target/group selection and assignment query class.'),
+})
+
+const researchPromotionCommitInputSchema = z.object({
+  project: projectNameSchema,
+  runId: z.string().min(1).describe('Research run ID returned by canonry_research_run_start.'),
+  queryId: z.string().min(1).describe('Completed saved research query ID from canonry_research_run_get.'),
+  request: researchPromotionCommitRequestSchema.describe('The exact preview checksum and selection returned by canonry_research_promotion_preview.'),
+  idempotencyKey: idempotencyKeyInputSchema,
 })
 
 const discoveryHarvestInputSchema = z.object({
@@ -2799,6 +2808,24 @@ export const canonryMcpTools = [
     annotations: writeAnnotations({ idempotentHint: true }),
     openApiOperations: ['POST /api/v1/projects/{name}/research/runs/{runId}/queries/{queryId}/promotion-preview'],
     handler: (client, input) => client.previewResearchPromotion(input.project, input.runId, input.queryId, input.request),
+  }),
+  defineTool({
+    name: 'canonry_research_promotion_commit',
+    title: 'Commit research query promotion',
+    description:
+      'Atomically promote one completed saved research query using the exact checksum from its preview. In Advanced Measurement, this publishes only the projected additive v2 revision. If the query is already tracked with the selected assignment, it returns an already-tracked no-op and publishes no revision. Otherwise the result awaits the next official AI visibility sweep; saved research answers and evidence remain isolated.',
+    access: 'write',
+    tier: 'discovery',
+    inputSchema: researchPromotionCommitInputSchema,
+    annotations: writeAnnotations({ idempotentHint: true, destructiveHint: false }),
+    openApiOperations: ['POST /api/v1/projects/{name}/research/runs/{runId}/queries/{queryId}/promotion'],
+    handler: (client, input) => client.commitResearchPromotion(
+      input.project,
+      input.runId,
+      input.queryId,
+      input.request,
+      input.idempotencyKey,
+    ),
   }),
   defineTool({
     name: 'canonry_discover_run_start',

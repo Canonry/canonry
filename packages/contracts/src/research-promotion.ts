@@ -148,12 +148,24 @@ export const researchPromotionCommitRequestSchema = z.object({
 }).strict()
 export type ResearchPromotionCommitRequest = z.output<typeof researchPromotionCommitRequestSchema>
 
-export const researchPromotionCommitResultSchema = z.object({
-  status: z.literal('tracked-awaiting-first-sweep'),
+const researchPromotionCommitResultBaseSchema = z.object({
   mode: z.enum(['simple', 'advanced']),
   source: researchPromotionSourceQuerySchema,
   trackedQuery: researchPromotionTrackedQuerySchema,
-  publishedRevision: z.number().int().positive().nullable(),
-  compiledChecksum: researchPromotionPreviewChecksumSchema.nullable(),
-}).strict()
+})
+
+export const researchPromotionCommitResultSchema = z.discriminatedUnion('status', [
+  researchPromotionCommitResultBaseSchema.extend({
+    status: z.literal('tracked-awaiting-first-sweep'),
+    publishedRevision: z.number().int().positive().nullable(),
+    compiledChecksum: researchPromotionPreviewChecksumSchema.nullable(),
+  }).strict(),
+  researchPromotionCommitResultBaseSchema.extend({
+    // A repeated promotion that would not change the tracked basket or the
+    // execution graph is successful, but must not mint a phantom revision.
+    status: z.literal('already-tracked'),
+    publishedRevision: z.null(),
+    compiledChecksum: z.null(),
+  }).strict(),
+])
 export type ResearchPromotionCommitResult = z.output<typeof researchPromotionCommitResultSchema>

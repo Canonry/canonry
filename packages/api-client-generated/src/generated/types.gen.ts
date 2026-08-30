@@ -2318,6 +2318,57 @@ export type ResearchPromotionPreviewResponse = {
     };
 };
 
+export type ResearchPromotionCommitRequest = {
+    previewChecksum: string;
+    request: {
+        queryClass?: 'branded' | 'non-brand';
+        targetKeys?: Array<string>;
+        groupKeys?: Array<string>;
+    };
+};
+
+export type ResearchPromotionCommitResult = {
+    mode: 'simple' | 'advanced';
+    source: {
+        runId: string;
+        queryId: string;
+        query: string;
+        normalizedQuery: string;
+        status: 'queued' | 'running' | 'completed' | 'failed';
+        completedAt: string | null;
+    };
+    trackedQuery: {
+        state: 'new' | 'existing';
+        id: string;
+        proposedId: string;
+        query: string;
+        normalizedQuery: string;
+    };
+    status: 'tracked-awaiting-first-sweep';
+    publishedRevision: number | null;
+    compiledChecksum: string | null;
+} | {
+    mode: 'simple' | 'advanced';
+    source: {
+        runId: string;
+        queryId: string;
+        query: string;
+        normalizedQuery: string;
+        status: 'queued' | 'running' | 'completed' | 'failed';
+        completedAt: string | null;
+    };
+    trackedQuery: {
+        state: 'new' | 'existing';
+        id: string;
+        proposedId: string;
+        query: string;
+        normalizedQuery: string;
+    };
+    status: 'already-tracked';
+    publishedRevision: null;
+    compiledChecksum: null;
+};
+
 export type DoctorReportDto = {
     scope: 'global' | 'project';
     /**
@@ -13989,6 +14040,62 @@ export type PostApiV1ProjectsByNameResearchRunsByRunIdQueriesByQueryIdPromotionP
 };
 
 export type PostApiV1ProjectsByNameResearchRunsByRunIdQueriesByQueryIdPromotionPreviewResponse = PostApiV1ProjectsByNameResearchRunsByRunIdQueriesByQueryIdPromotionPreviewResponses[keyof PostApiV1ProjectsByNameResearchRunsByRunIdQueriesByQueryIdPromotionPreviewResponses];
+
+export type PostApiV1ProjectsByNameResearchRunsByRunIdQueriesByQueryIdPromotionData = {
+    body: ResearchPromotionCommitRequest;
+    headers: {
+        /**
+         * Replay key. The same key with a different request body returns 409.
+         */
+        'Idempotency-Key': string;
+    };
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+        /**
+         * Research run ID.
+         */
+        runId: string;
+        /**
+         * Completed saved research query ID.
+         */
+        queryId: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/research/runs/{runId}/queries/{queryId}/promotion';
+};
+
+export type PostApiV1ProjectsByNameResearchRunsByRunIdQueriesByQueryIdPromotionErrors = {
+    /**
+     * Invalid request, source, audience, or promotion state.
+     */
+    400: ErrorEnvelope;
+    /**
+     * The API key lacks measurement-plan.write.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project, research run, or research query not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Promotion preview, active plan, draft, or idempotency key conflict.
+     */
+    409: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameResearchRunsByRunIdQueriesByQueryIdPromotionError = PostApiV1ProjectsByNameResearchRunsByRunIdQueriesByQueryIdPromotionErrors[keyof PostApiV1ProjectsByNameResearchRunsByRunIdQueriesByQueryIdPromotionErrors];
+
+export type PostApiV1ProjectsByNameResearchRunsByRunIdQueriesByQueryIdPromotionResponses = {
+    /**
+     * Promotion committed, or already tracked with no revision published.
+     */
+    200: ResearchPromotionCommitResult;
+};
+
+export type PostApiV1ProjectsByNameResearchRunsByRunIdQueriesByQueryIdPromotionResponse = PostApiV1ProjectsByNameResearchRunsByRunIdQueriesByQueryIdPromotionResponses[keyof PostApiV1ProjectsByNameResearchRunsByRunIdQueriesByQueryIdPromotionResponses];
 
 export type GetApiV1ProjectsByNameLocationsData = {
     body?: never;

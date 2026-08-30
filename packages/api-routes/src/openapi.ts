@@ -1545,6 +1545,30 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'post',
+    path: '/api/v1/projects/{name}/research/runs/{runId}/queries/{queryId}/promotion',
+    summary: 'Commit promotion of a saved research query',
+    description: 'Atomically promotes one completed saved research query into the tracked basket. With an active v2 measurement plan it publishes exactly the previewed additive revision, unless the query and selected assignment are already active, in which case it returns an explicit no-op without minting a revision. The supplied preview checksum, source IDs, selection, absence of a draft, and active plan state are all rechecked inside one transaction. No research answer or evidence is copied into official measurements.',
+    tags: ['research'],
+    parameters: [
+      nameParameter,
+      { name: 'runId', in: 'path', required: true, description: 'Research run ID.', schema: stringSchema },
+      { name: 'queryId', in: 'path', required: true, description: 'Completed saved research query ID.', schema: stringSchema },
+      measurementIdempotencyKeyParameter,
+    ],
+    requestBody: {
+      required: true,
+      content: { 'application/json': { schema: { $ref: '#/components/schemas/ResearchPromotionCommitRequest' } } },
+    },
+    responses: {
+      200: jsonResponse('Promotion committed, or already tracked with no revision published.', 'ResearchPromotionCommitResult'),
+      400: errorResponse('Invalid request, source, audience, or promotion state.'),
+      403: errorResponse('The API key lacks measurement-plan.write.'),
+      404: errorResponse('Project, research run, or research query not found.'),
+      409: errorResponse('Promotion preview, active plan, draft, or idempotency key conflict.'),
+    },
+  },
+  {
+    method: 'post',
     path: '/api/v1/projects/{name}/locations',
     summary: 'Add a project location',
     tags: ['projects'],

@@ -68,5 +68,19 @@ describe('research promotion contracts', () => {
       publishedRevision: null,
       compiledChecksum: null,
     }).success).toBe(true)
+
+    const alreadyTracked = {
+      status: 'already-tracked',
+      mode: 'advanced',
+      trackedQuery: { ...refusal.trackedQuery, state: 'existing' },
+      source: refusal.source,
+      publishedRevision: null,
+      compiledChecksum: null,
+    }
+    expect(researchPromotionCommitResultSchema.parse(alreadyTracked)).toEqual(alreadyTracked)
+    expect(researchPromotionCommitResultSchema.safeParse({
+      ...alreadyTracked,
+      publishedRevision: 4,
+    }).success).toBe(false)
   })
 })

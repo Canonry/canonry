@@ -1,4 +1,4 @@
-import { researchList, researchPromotionPreview, researchRun, researchShow } from '../commands/research.js'
+import { researchList, researchPromotionCommit, researchPromotionPreview, researchRun, researchShow } from '../commands/research.js'
 import type { CliCommandSpec, CliCommandInput } from '../cli-dispatch.js'
 import {
   getBoolean,
@@ -16,6 +16,7 @@ import { queryClassSchema, type LocationContext } from '@ainyc/canonry-contracts
 
 const RUN_USAGE = 'canonry research run <project> <query...> [--query <text>] [--provider <name>] [--model <id>] [--location <label>|--no-location] [--idempotency-key <key>] [--wait] [--format json|jsonl]'
 const PROMOTION_PREVIEW_USAGE = 'canonry research promote preview <project> <run-id> <query-id> [--target <key>...] [--group <key>...] [--query-class branded|non-brand] [--format json]'
+const PROMOTION_COMMIT_USAGE = 'canonry research promote <project> <run-id> <query-id> --preview-checksum <sha> --idempotency-key <key> [--target <key>...] [--group <key>...] [--query-class branded|non-brand] [--format json]'
 
 function normalizeQueries(input: CliCommandInput, usage: string): string[] {
   const positional = input.positionals.slice(1)
@@ -64,14 +65,18 @@ function selectedKeys(input: CliCommandInput, option: 'target' | 'group'): strin
   return keys.length > 0 ? keys : undefined
 }
 
-function selectedQueryClass(input: CliCommandInput): 'branded' | 'non-brand' | undefined {
+function selectedQueryClass(
+  input: CliCommandInput,
+  usage = PROMOTION_PREVIEW_USAGE,
+  command = 'research.promote.preview',
+): 'branded' | 'non-brand' | undefined {
   const value = getString(input.values, 'query-class')?.trim()
   if (!value) return undefined
   const parsed = queryClassSchema.safeParse(value)
   if (parsed.success) return parsed.data
-  throw usageError(`Error: --query-class must be branded or non-brand\nUsage: ${PROMOTION_PREVIEW_USAGE}`, {
+  throw usageError(`Error: --query-class must be branded or non-brand\nUsage: ${usage}`, {
     message: '--query-class must be branded or non-brand',
-    details: { command: 'research.promote.preview', usage: PROMOTION_PREVIEW_USAGE, option: 'query-class', value },
+    details: { command, usage, option: 'query-class', value },
   })
 }
 
@@ -179,6 +184,51 @@ export const RESEARCH_CLI_COMMANDS: readonly CliCommandSpec[] = [
         message: 'research query ID is required',
       })
       await researchPromotionPreview(project, runId, queryId, {
+        ...(targetKeys ? { targetKeys } : {}),
+        ...(groupKeys ? { groupKeys } : {}),
+        ...(queryClass ? { queryClass } : {}),
+        format: input.format,
+      })
+    },
+  },
+  {
+    path: ['research', 'promote'],
+    usage: PROMOTION_COMMIT_USAGE,
+    options: {
+      target: multiStringOption(),
+      group: multiStringOption(),
+      'query-class': stringOption(),
+      'preview-checksum': stringOption(),
+      'idempotency-key': stringOption(),
+    },
+    run: async (input) => {
+      const project = requireProject(input, 'research.promote', PROMOTION_COMMIT_USAGE)
+      const runId = requirePositional(input, 1, {
+        command: 'research.promote', usage: PROMOTION_COMMIT_USAGE, message: 'research run ID is required',
+      })
+      const queryId = requirePositional(input, 2, {
+        command: 'research.promote', usage: PROMOTION_COMMIT_USAGE, message: 'research query ID is required',
+      })
+      const previewChecksum = getString(input.values, 'preview-checksum')?.trim()
+      if (!previewChecksum) {
+        throw usageError(`Error: --preview-checksum is required\nUsage: ${PROMOTION_COMMIT_USAGE}`, {
+          message: '--preview-checksum is required',
+          details: { command: 'research.promote', usage: PROMOTION_COMMIT_USAGE, option: 'preview-checksum' },
+        })
+      }
+      const idempotencyKey = getString(input.values, 'idempotency-key')?.trim()
+      if (!idempotencyKey) {
+        throw usageError(`Error: --idempotency-key is required\nUsage: ${PROMOTION_COMMIT_USAGE}`, {
+          message: '--idempotency-key is required',
+          details: { command: 'research.promote', usage: PROMOTION_COMMIT_USAGE, option: 'idempotency-key' },
+        })
+      }
+      const targetKeys = selectedKeys(input, 'target')
+      const groupKeys = selectedKeys(input, 'group')
+      const queryClass = selectedQueryClass(input, PROMOTION_COMMIT_USAGE, 'research.promote')
+      await researchPromotionCommit(project, runId, queryId, {
+        previewChecksum,
+        idempotencyKey,
         ...(targetKeys ? { targetKeys } : {}),
         ...(groupKeys ? { groupKeys } : {}),
         ...(queryClass ? { queryClass } : {}),

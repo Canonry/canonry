@@ -159,6 +159,7 @@ const expectedToolNames = [
   'canonry_research_runs_list',
   'canonry_research_run_get',
   'canonry_research_promotion_preview',
+  'canonry_research_promotion_commit',
   'canonry_discover_run_start',
   'canonry_discover_sessions_list',
   'canonry_discover_session_get',
@@ -578,7 +579,7 @@ describe('MCP tool registry', () => {
   })
 
   it('ships the curated v1 surface', () => {
-    expect(CANONRY_MCP_TOOL_COUNT).toBe(207)
+    expect(CANONRY_MCP_TOOL_COUNT).toBe(208)
     expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(140)
     expect(canonryMcpTools.map(tool => tool.name)).toEqual(expectedToolNames)
     const readNames = canonryMcpTools.filter(tool => tool.access === 'read').map(tool => tool.name)
@@ -595,6 +596,20 @@ describe('MCP tool registry', () => {
     })
     expect(MCP_OPENAPI_OPERATION_CLASSIFICATIONS[operation]).toBe('included')
     expect(getCanonryMcpTools('read-only').some(tool => tool.name === 'canonry_research_promotion_preview')).toBe(false)
+  })
+
+  it('exposes checksum-guarded research promotion commit as an idempotent write', () => {
+    const operation = 'POST /api/v1/projects/{name}/research/runs/{runId}/queries/{queryId}/promotion'
+    expect(canonryMcpTools.find(tool => tool.name === 'canonry_research_promotion_commit')).toMatchObject({
+      access: 'write',
+      tier: 'discovery',
+      annotations: { readOnlyHint: false, idempotentHint: true, destructiveHint: false },
+      openApiOperations: [operation],
+    })
+    expect(canonryMcpTools.find(tool => tool.name === 'canonry_research_promotion_commit')?.description)
+      .toContain('already-tracked')
+    expect(MCP_OPENAPI_OPERATION_CLASSIFICATIONS[operation]).toBe('included')
+    expect(getCanonryMcpTools('read-only').some(tool => tool.name === 'canonry_research_promotion_commit')).toBe(false)
   })
 
   it('tags every tool with a tier from the published list', () => {
@@ -638,7 +653,7 @@ describe('MCP tool registry', () => {
     expect(counts.get('conversion-tracking')).toBe(3)
     expect(counts.get('traffic')).toBe(10)
     expect(counts.get('agent')).toBe(5)
-    expect(counts.get('discovery')).toBe(10)
+    expect(counts.get('discovery')).toBe(11)
   })
 
   it('generates JSON schema from every Zod input schema', () => {
@@ -1432,6 +1447,7 @@ const handlerCases: HandlerCase[] = [
   { tool: 'canonry_research_runs_list', input: { project: 'acme', limit: 5 }, methods: ['listResearchRuns'] },
   { tool: 'canonry_research_run_get', input: { project: 'acme', runId: 'research-1' }, methods: ['getResearchRun'] },
   { tool: 'canonry_research_promotion_preview', input: { project: 'acme', runId: 'research-1', queryId: 'query-1', request: { targetKeys: ['target-a'], groupKeys: ['group-a'], queryClass: 'non-brand' } }, methods: ['previewResearchPromotion'] },
+  { tool: 'canonry_research_promotion_commit', input: { project: 'acme', runId: 'research-1', queryId: 'query-1', request: { previewChecksum: 'a'.repeat(64), request: { targetKeys: ['target-a'], queryClass: 'non-brand' } }, idempotencyKey: 'replay-1' }, methods: ['commitResearchPromotion'], expectedArgs: [['acme', 'research-1', 'query-1', { previewChecksum: 'a'.repeat(64), request: { targetKeys: ['target-a'], queryClass: 'non-brand' } }, 'replay-1']] },
   { tool: 'canonry_discover_run_start', input: { project: 'acme', request: { icpDescription: 'AEO analyst tool' } }, methods: ['triggerDiscoveryRun'] },
   { tool: 'canonry_discover_sessions_list', input: { project: 'acme', limit: 5 }, methods: ['listDiscoverySessions'] },
   { tool: 'canonry_discover_session_get', input: { project: 'acme', sessionId: 'sess-1' }, methods: ['getDiscoverySession'] },

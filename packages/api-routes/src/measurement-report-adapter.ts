@@ -466,7 +466,7 @@ export const MEASUREMENT_COMPARABLE_VERSION_WALK_LIMIT = 32
  * bounded, and cycle-safe.
  */
 export function comparableMeasurementVersionIds(
-  db: DatabaseClient,
+  db: Pick<DatabaseClient, 'select'>,
   projectId: string,
   versionId: string,
 ): string[] {

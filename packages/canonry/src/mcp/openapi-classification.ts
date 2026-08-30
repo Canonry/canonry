@@ -105,6 +105,7 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'GET /api/v1/projects/{name}/research/runs': 'included',
   'GET /api/v1/projects/{name}/research/runs/{runId}': 'included',
   'POST /api/v1/projects/{name}/research/runs/{runId}/queries/{queryId}/promotion-preview': 'included',
+  'POST /api/v1/projects/{name}/research/runs/{runId}/queries/{queryId}/promotion': 'included',
   'GET /api/v1/projects/{name}/report': 'included',
   'GET /api/v1/projects/{name}/organic-evidence': 'included',
   'GET /api/v1/projects/{name}/report.html': 'excluded-protocol',
